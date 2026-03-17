@@ -15,6 +15,7 @@ import (
 	"github.com/cubeos-app/meshsat-hub/internal/config"
 	"github.com/cubeos-app/meshsat-hub/internal/health"
 	hubmqtt "github.com/cubeos-app/meshsat-hub/internal/mqtt"
+	"github.com/cubeos-app/meshsat-hub/internal/ratelimit"
 	"github.com/cubeos-app/meshsat-hub/internal/rockblock"
 	"github.com/cubeos-app/meshsat-hub/internal/tak"
 	"github.com/go-chi/chi/v5"
@@ -45,8 +46,18 @@ func main() {
 	// Cloudloop API client for MT sends.
 	cloudloopClient := cloudloop.NewClient(cfg.CloudloopAPIURL, cfg.CloudloopAPIKey)
 
+	// Per-device rate limiter for MT sends.
+	limiter := ratelimit.NewDeviceLimiter(
+		float64(cfg.RateLimitBurst),  // max burst
+		cfg.RateLimitRefillPerMin/60, // tokens per second
+		cfg.RateLimitDailyCap,        // daily cap
+		mqttClient,                   // for MQTT alerts
+	)
+	rateLimitHandler := ratelimit.NewHandler(limiter)
+
 	// Start MT sender (subscribes to meshsat/+/mt/send).
 	mtSender := cloudloop.NewSender(cloudloopClient, mqttClient)
+	mtSender.SetRateLimiter(limiter)
 	if mqttClient.IsConnected() {
 		if err := mtSender.Start(); err != nil {
 			slog.Error("failed to start MT sender", "error", err)
@@ -98,6 +109,10 @@ func main() {
 	r.Get("/healthz", health.LivezHandler)
 	r.Get("/readyz", checker.ReadyzHandler)
 	r.Post("/api/webhook/rockblock", rbHandler.ServeHTTP)
+	r.Get("/api/ratelimit", rateLimitHandler.GetAllUsage)
+	r.Get("/api/ratelimit/{deviceID}", rateLimitHandler.GetUsage)
+	r.Post("/api/ratelimit/{deviceID}/override", rateLimitHandler.PostOverride)
+	r.Delete("/api/ratelimit/{deviceID}/override", rateLimitHandler.DeleteOverride)
 
 	srv := &http.Server{
 		Addr:              fmt.Sprintf(":%d", cfg.Port),

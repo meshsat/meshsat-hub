@@ -31,10 +31,16 @@ type MTStatusMessage struct {
 	Timestamp string `json:"timestamp"`
 }
 
+// RateLimiter is the interface for per-device rate limiting.
+type RateLimiter interface {
+	Allow(deviceID string, isSOS bool) bool
+}
+
 // Sender listens on MQTT for MT send requests and forwards them via Cloudloop.
 type Sender struct {
 	client     *Client
 	mqtt       *hubmqtt.Client
+	limiter    RateLimiter
 	maxRetries int
 }
 
@@ -45,6 +51,12 @@ func NewSender(client *Client, mqtt *hubmqtt.Client) *Sender {
 		mqtt:       mqtt,
 		maxRetries: 3,
 	}
+}
+
+// SetRateLimiter attaches a per-device rate limiter. If set, sends are
+// checked against the limiter before calling Cloudloop. SOS messages bypass.
+func (s *Sender) SetRateLimiter(l RateLimiter) {
+	s.limiter = l
 }
 
 // Start subscribes to MT send topics and begins processing.
@@ -71,6 +83,14 @@ func (s *Sender) handleMTSend(topic string, payload []byte) {
 		"text_len", len(req.Text),
 		"compress", req.Compress,
 	)
+
+	// Rate limit check (SOS messages bypass).
+	isSOS := req.Priority >= 9
+	if s.limiter != nil && !s.limiter.Allow(deviceID, isSOS) {
+		slog.Warn("cloudloop: MT send rate-limited", "device", deviceID)
+		s.publishStatus(deviceID, "", "rate_limited", "device rate limit exceeded")
+		return
+	}
 
 	// Prepare payload.
 	data := []byte(req.Text)

@@ -35,17 +35,25 @@ type Config struct {
 	APRSISServer   string `yaml:"aprsis_server"`
 	APRSISCallsign string `yaml:"aprsis_callsign"`
 	APRSISPasscode string `yaml:"aprsis_passcode"`
+
+	// Per-device rate limiting for MT sends
+	RateLimitBurst        int     `yaml:"ratelimit_burst"`          // max burst tokens per device (default 10)
+	RateLimitRefillPerMin float64 `yaml:"ratelimit_refill_per_min"` // tokens refilled per minute (default 1)
+	RateLimitDailyCap     int     `yaml:"ratelimit_daily_cap"`      // max sends per device per day (default 100, 0=unlimited)
 }
 
 // Defaults returns a Config with sensible default values.
 func Defaults() Config {
 	return Config{
-		Port:            6070,
-		MQTTBrokerURL:   "tcp://mqtt:1883",
-		MQTTClientID:    "meshsat-hub",
-		CloudloopAPIURL: "https://api.cloudloop.com",
-		LogLevel:        "info",
-		LogFormat:       "json",
+		Port:                  6070,
+		MQTTBrokerURL:         "tcp://mqtt:1883",
+		MQTTClientID:          "meshsat-hub",
+		CloudloopAPIURL:       "https://api.cloudloop.com",
+		LogLevel:              "info",
+		LogFormat:             "json",
+		RateLimitBurst:        10,
+		RateLimitRefillPerMin: 1.0,
+		RateLimitDailyCap:     100,
 	}
 }
 
@@ -133,6 +141,23 @@ func Load() (Config, error) {
 	}
 	if v := os.Getenv("HUB_APRSIS_PASSCODE"); v != "" {
 		cfg.APRSISPasscode = v
+	}
+
+	// Rate limit overrides
+	if v := os.Getenv("HUB_RATELIMIT_BURST"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			cfg.RateLimitBurst = n
+		}
+	}
+	if v := os.Getenv("HUB_RATELIMIT_REFILL_PER_MIN"); v != "" {
+		if f, err := strconv.ParseFloat(v, 64); err == nil {
+			cfg.RateLimitRefillPerMin = f
+		}
+	}
+	if v := os.Getenv("HUB_RATELIMIT_DAILY_CAP"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			cfg.RateLimitDailyCap = n
+		}
 	}
 
 	return cfg, nil
