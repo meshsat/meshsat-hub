@@ -6,10 +6,8 @@ stages:
   - pages
 
 variables:
-  MESHSAT_HUB_IMAGE: "ghcr.io/cubeos-app/meshsat-hub"
-
-variables:
   CGO_ENABLED: "0"
+  MESHSAT_HUB_IMAGE: "ghcr.io/cubeos-app/meshsat-hub"
 
 lint:
   stage: lint
