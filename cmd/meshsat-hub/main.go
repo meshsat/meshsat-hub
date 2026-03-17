@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -154,6 +155,12 @@ func main() {
 		}
 	}
 
+	// Credit balance poller (polls Cloudloop API, publishes to meshsat/hub/credits).
+	if cfg.CloudloopAPIKey != "" && msgBus.IsConnected() {
+		creditPoller := cloudloop.NewCreditPoller(cloudloopClient, msgBus, 1*time.Hour)
+		go creditPoller.Start(ctx)
+	}
+
 	// TAK/CoT gateway and APRS-IS IGate are singletons — run inside leader election callback.
 	var takClient *tak.Client
 	var aprsisClient *aprsis.Client
@@ -234,6 +241,15 @@ func main() {
 	r.Post("/api/webhooks", webhookAPIHandler.CreateWebhook)
 	r.Delete("/api/webhooks/{id}", webhookAPIHandler.DeleteWebhook)
 	r.Get("/api/webhooks/logs", webhookAPIHandler.GetLogs)
+	r.Get("/api/credits", func(w http.ResponseWriter, r *http.Request) {
+		balance, err := cloudloopClient.GetCreditBalance(r.Context())
+		if err != nil {
+			http.Error(w, fmt.Sprintf(`{"error":"%s"}`, err.Error()), http.StatusBadGateway)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(balance)
+	})
 
 	// Backup/restore
 	backupProvider := &backup.HubStateProvider{Config: cfg, WebhookLister: webhookDispatcher}
