@@ -11,6 +11,12 @@ import (
 
 // Config holds all configuration for the MeshSat Hub service.
 type Config struct {
+	// Tri-mode: "standalone" (default), "cluster", "kubernetes"
+	Mode        string `yaml:"mode"`
+	DatabaseURL string `yaml:"database_url"` // PostgreSQL URL (cluster/k8s only)
+	RedisURL    string `yaml:"redis_url"`    // Redis URL (cluster/k8s only)
+	NATSUrl     string `yaml:"nats_url"`     // External NATS URL (cluster/k8s only)
+
 	Port            int    `yaml:"port"`
 	MQTTBrokerURL   string `yaml:"mqtt_broker_url"`
 	MQTTClientID    string `yaml:"mqtt_client_id"`
@@ -47,6 +53,7 @@ func Defaults() Config {
 	return Config{
 		Port:                  6070,
 		MQTTBrokerURL:         "tcp://mqtt:1883",
+		Mode:                  "standalone",
 		MQTTClientID:          "meshsat-hub",
 		CloudloopAPIURL:       "https://api.cloudloop.com",
 		LogLevel:              "info",
@@ -72,6 +79,18 @@ func Load() (Config, error) {
 	}
 
 	// Environment variable overrides.
+	if v := os.Getenv("HUB_MODE"); v != "" {
+		cfg.Mode = strings.ToLower(v)
+	}
+	if v := os.Getenv("HUB_DATABASE_URL"); v != "" {
+		cfg.DatabaseURL = v
+	}
+	if v := os.Getenv("HUB_REDIS_URL"); v != "" {
+		cfg.RedisURL = v
+	}
+	if v := os.Getenv("HUB_NATS_URL"); v != "" {
+		cfg.NATSUrl = v
+	}
 	if v := os.Getenv("HUB_PORT"); v != "" {
 		if p, err := strconv.Atoi(v); err == nil {
 			cfg.Port = p
