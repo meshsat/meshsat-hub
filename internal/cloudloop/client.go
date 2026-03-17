@@ -136,6 +136,6 @@ func (c *Client) IsReachable(ctx context.Context) bool {
 	if err != nil {
 		return false
 	}
-	resp.Body.Close()
+	_ = resp.Body.Close()
 	return resp.StatusCode < 500
 }
