@@ -1,0 +1,38 @@
+# Binaries
+bin/
+/meshsat-hub
+*.exe
+
+# Go
+vendor/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Environment
+.env
+*.env.local
+
+# Claude Code (local-only, never commit)
+CLAUDE.md
+.claude/
+
+# Data
+*.db
+*.db-journal
+*.db-wal
+data/
+
+# Docker
+docker-compose.override.yml
+
+# Tor keys (sensitive)
+tor-keys/
+
+# OS
+.DS_Store
+Thumbs.db

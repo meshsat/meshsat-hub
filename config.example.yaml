@@ -1,0 +1,10 @@
+port: 6070
+mqtt_broker_url: "tcp://mqtt:1883"
+mqtt_client_id: "meshsat-hub"
+rockblock_secret: ""
+cloudloop_api_key: ""
+cloudloop_api_url: "https://api.cloudloop.com"
+device_imei: ""
+log_level: "info"
+log_format: "json"
+auth_token: ""

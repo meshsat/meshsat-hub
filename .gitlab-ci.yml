@@ -1,0 +1,29 @@
+stages:
+  - lint
+  - test
+  - build
+
+variables:
+  CGO_ENABLED: "0"
+
+lint:
+  stage: lint
+  image: golangci/golangci-lint:v1.64-alpine
+  script:
+    - golangci-lint run ./...
+
+test:
+  stage: test
+  image: golang:1.24-alpine
+  script:
+    - go test -v -count=1 ./...
+
+build:
+  stage: build
+  image: golang:1.24-alpine
+  script:
+    - go build -ldflags "-s -w" -o bin/meshsat-hub ./cmd/meshsat-hub/
+  artifacts:
+    paths:
+      - bin/meshsat-hub
+    expire_in: 1 week
