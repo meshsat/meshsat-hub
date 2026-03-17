@@ -89,6 +89,9 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Limit request body to 1MB (SBD payloads are max 340 bytes, form overhead is minimal)
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
+
 	if err := r.ParseForm(); err != nil {
 		slog.Warn("rockblock: parse form failed", "error", err)
 		http.Error(w, `{"error":"invalid form data"}`, http.StatusBadRequest)

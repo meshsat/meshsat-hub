@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 )
 
@@ -209,7 +210,12 @@ func Import(zipData []byte, dataDir string) error {
 		// Only extract data/ files
 		if len(f.Name) > 5 && f.Name[:5] == "data/" {
 			relPath := f.Name[5:]
+			// Path traversal protection: ensure destPath stays within dataDir
 			destPath := filepath.Join(dataDir, relPath)
+			if !strings.HasPrefix(filepath.Clean(destPath), filepath.Clean(dataDir)+string(os.PathSeparator)) {
+				slog.Warn("backup: path traversal blocked", "path", relPath)
+				continue
+			}
 
 			if err := os.MkdirAll(filepath.Dir(destPath), 0o755); err != nil {
 				return fmt.Errorf("mkdir %s: %w", filepath.Dir(destPath), err)
