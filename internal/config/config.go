@@ -46,6 +46,11 @@ type Config struct {
 	RateLimitBurst        int     `yaml:"ratelimit_burst"`          // max burst tokens per device (default 10)
 	RateLimitRefillPerMin float64 `yaml:"ratelimit_refill_per_min"` // tokens refilled per minute (default 1)
 	RateLimitDailyCap     int     `yaml:"ratelimit_daily_cap"`      // max sends per device per day (default 100, 0=unlimited)
+
+	// WireGuard (wg-easy)
+	WGEnabled  bool   `yaml:"wg_enabled"`
+	WGURL      string `yaml:"wg_url"`      // wg-easy base URL (e.g., http://wg-easy:51821)
+	WGPassword string `yaml:"wg_password"` // wg-easy web UI password
 }
 
 // Defaults returns a Config with sensible default values.
@@ -177,6 +182,17 @@ func Load() (Config, error) {
 		if n, err := strconv.Atoi(v); err == nil {
 			cfg.RateLimitDailyCap = n
 		}
+	}
+
+	// WireGuard overrides
+	if v := os.Getenv("HUB_WG_ENABLED"); v != "" {
+		cfg.WGEnabled = strings.EqualFold(v, "true") || v == "1"
+	}
+	if v := os.Getenv("HUB_WG_URL"); v != "" {
+		cfg.WGURL = v
+	}
+	if v := os.Getenv("HUB_WG_PASSWORD"); v != "" {
+		cfg.WGPassword = v
 	}
 
 	return cfg, nil

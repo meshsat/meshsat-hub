@@ -27,6 +27,7 @@ import (
 	"github.com/cubeos-app/meshsat-hub/internal/store/sqlite"
 	"github.com/cubeos-app/meshsat-hub/internal/tak"
 	"github.com/cubeos-app/meshsat-hub/internal/webhook"
+	"github.com/cubeos-app/meshsat-hub/internal/wireguard"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/redis/go-redis/v9"
@@ -257,6 +258,21 @@ func main() {
 	r.Get("/api/backup/export", backupHandler.ExportBackup)
 	r.Post("/api/backup/diff", backupHandler.DiffBackup)
 	r.Post("/api/backup/import", backupHandler.ImportBackup)
+
+	// WireGuard peer management (optional)
+	if cfg.WGEnabled && cfg.WGURL != "" {
+		wgClient := wireguard.NewClient(cfg.WGURL, cfg.WGPassword)
+		if err := wgClient.Login(ctx); err != nil {
+			slog.Warn("wireguard: login failed (peer management disabled)", "error", err)
+		} else {
+			wgHandler := wireguard.NewAPIHandler(wgClient)
+			r.Get("/api/wireguard/peers", wgHandler.ListPeers)
+			r.Post("/api/wireguard/peers", wgHandler.CreatePeer)
+			r.Get("/api/wireguard/peers/{id}/config", wgHandler.GetPeerConfig)
+			r.Delete("/api/wireguard/peers/{id}", wgHandler.DeletePeer)
+			slog.Info("wireguard: peer management enabled", "url", cfg.WGURL)
+		}
+	}
 
 	srv := &http.Server{
 		Addr:              fmt.Sprintf(":%d", cfg.Port),
