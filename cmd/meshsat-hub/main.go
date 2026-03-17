@@ -34,7 +34,7 @@ func main() {
 	}
 
 	initLogger(cfg)
-	slog.Info("starting meshsat-hub", "version", version, "port", cfg.Port)
+	slog.Info("starting meshsat-hub", "version", version, "port", cfg.Port, "mode", cfg.Mode)
 
 	checker := health.New()
 
