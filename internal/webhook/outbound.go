@@ -217,7 +217,7 @@ func (d *Dispatcher) deliver(target WebhookConfig, body []byte, payloadID string
 			d.recordLog(target.ID, payloadID, "", 0, err.Error(), attempt)
 			continue
 		}
-		resp.Body.Close()
+		_ = resp.Body.Close()
 
 		d.recordLog(target.ID, payloadID, "", resp.StatusCode, "", attempt)
 

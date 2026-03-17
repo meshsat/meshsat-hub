@@ -141,7 +141,7 @@ func (d *DB) ListDevices(ctx context.Context) ([]store.Device, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	var devices []store.Device
 	for rows.Next() {
 		var dev store.Device
@@ -203,7 +203,7 @@ func (d *DB) ListMessages(ctx context.Context, deviceIMEI string, limit int) ([]
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	var msgs []store.Message
 	for rows.Next() {
 		var m store.Message
@@ -252,7 +252,7 @@ func (d *DB) ListWebhooks(ctx context.Context) ([]store.WebhookConfig, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	var webhooks []store.WebhookConfig
 	for rows.Next() {
 		var w store.WebhookConfig
@@ -297,7 +297,7 @@ func (d *DB) ListDeliveryLogs(ctx context.Context, limit int) ([]store.DeliveryL
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	var logs []store.DeliveryLog
 	for rows.Next() {
 		var l store.DeliveryLog
@@ -346,7 +346,7 @@ func (d *DB) ListPositions(ctx context.Context, deviceIMEI string, limit int) ([
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	var positions []store.Position
 	for rows.Next() {
 		var p store.Position
@@ -381,7 +381,7 @@ func (d *DB) ListAuditEntries(ctx context.Context, limit int) ([]store.AuditEntr
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	var entries []store.AuditEntry
 	for rows.Next() {
 		var a store.AuditEntry

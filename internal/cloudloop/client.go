@@ -69,7 +69,7 @@ func (c *Client) SendMT(ctx context.Context, imei string, payload []byte) (*MTRe
 	if err != nil {
 		return nil, fmt.Errorf("cloudloop: send MT: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
@@ -102,7 +102,7 @@ func (c *Client) CheckMTStatus(ctx context.Context, mtID string) (*MTResponse, e
 	if err != nil {
 		return nil, fmt.Errorf("cloudloop: check MT status: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {

@@ -65,7 +65,7 @@ func (c *Client) Connect() error {
 	login := fmt.Sprintf("user %s-%d pass %s vers MeshSat-Hub 1.0 filter %s\r\n",
 		c.callsign, c.ssid, c.passcode, c.filter)
 	if _, err := conn.Write([]byte(login)); err != nil {
-		conn.Close()
+		_ = conn.Close()
 		return fmt.Errorf("aprsis: login: %w", err)
 	}
 
@@ -117,7 +117,7 @@ func (c *Client) Disconnect() {
 	c.running.Store(false)
 	c.mu.Lock()
 	if c.conn != nil {
-		c.conn.Close()
+		_ = c.conn.Close()
 	}
 	c.mu.Unlock()
 	c.wg.Wait()

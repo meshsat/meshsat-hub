@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net"
+	"strconv"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -84,7 +85,7 @@ func (c *Client) Disconnect() {
 	c.running.Store(false)
 	c.mu.Lock()
 	if c.conn != nil {
-		c.conn.Close()
+		_ = c.conn.Close()
 	}
 	c.mu.Unlock()
 	c.wg.Wait()
@@ -99,7 +100,7 @@ func (c *Client) IsConnected() bool {
 }
 
 func (c *Client) dial() (net.Conn, error) {
-	addr := fmt.Sprintf("%s:%d", c.host, c.port)
+	addr := net.JoinHostPort(c.host, strconv.Itoa(c.port))
 	if !c.ssl {
 		return net.DialTimeout("tcp", addr, 10*time.Second)
 	}
@@ -183,7 +184,7 @@ func (c *Client) reconnect() {
 
 		c.mu.Lock()
 		if c.conn != nil {
-			c.conn.Close()
+			_ = c.conn.Close()
 		}
 		c.conn = conn
 		c.mu.Unlock()

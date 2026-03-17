@@ -88,7 +88,7 @@ func Export(provider StateProvider, dataDir string) ([]byte, error) {
 			if err != nil {
 				return err
 			}
-			defer f.Close()
+			defer func() { _ = f.Close() }()
 			_, err = io.Copy(fw, f)
 			return err
 		})
@@ -131,7 +131,7 @@ func ParseManifest(zipData []byte) (*Snapshot, error) {
 			if err != nil {
 				return nil, err
 			}
-			defer rc.Close()
+			defer func() { _ = rc.Close() }()
 			var snap Snapshot
 			if err := json.NewDecoder(rc).Decode(&snap); err != nil {
 				return nil, fmt.Errorf("parse manifest: %w", err)
@@ -228,13 +228,13 @@ func Import(zipData []byte, dataDir string) error {
 
 			out, err := os.Create(destPath)
 			if err != nil {
-				rc.Close()
+				_ = rc.Close()
 				return fmt.Errorf("create %s: %w", destPath, err)
 			}
 
 			_, err = io.Copy(out, rc)
-			rc.Close()
-			out.Close()
+			_ = rc.Close()
+			_ = out.Close()
 			if err != nil {
 				return fmt.Errorf("write %s: %w", destPath, err)
 			}

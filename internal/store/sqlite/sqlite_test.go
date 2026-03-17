@@ -17,7 +17,7 @@ func testDB(t *testing.T) *DB {
 	if err := db.Migrate(context.Background()); err != nil {
 		t.Fatalf("migrate: %v", err)
 	}
-	t.Cleanup(func() { db.Close() })
+	t.Cleanup(func() { _ = db.Close() })
 	return db
 }
 
@@ -78,7 +78,7 @@ func TestMessageCRUD(t *testing.T) {
 	db := testDB(t)
 	ctx := context.Background()
 
-	db.CreateDevice(ctx, &store.Device{IMEI: "300234063904190", Label: "Test", Type: "rockblock"})
+	_ = db.CreateDevice(ctx, &store.Device{IMEI: "300234063904190", Label: "Test", Type: "rockblock"})
 
 	msg := &store.Message{
 		DeviceIMEI: "300234063904190",
@@ -157,7 +157,7 @@ func TestPositions(t *testing.T) {
 	db := testDB(t)
 	ctx := context.Background()
 
-	db.CreateDevice(ctx, &store.Device{IMEI: "300234063904190", Label: "Test", Type: "rockblock"})
+	_ = db.CreateDevice(ctx, &store.Device{IMEI: "300234063904190", Label: "Test", Type: "rockblock"})
 
 	p1 := &store.Position{DeviceIMEI: "300234063904190", Lat: 52.3676, Lon: 4.9041, Source: "iridium_cep", CEP: 10.0}
 	if err := db.InsertPosition(ctx, p1); err != nil {
@@ -187,8 +187,8 @@ func TestAuditLog(t *testing.T) {
 	db := testDB(t)
 	ctx := context.Background()
 
-	db.InsertAuditEntry(ctx, &store.AuditEntry{Action: "login", Actor: "admin", IP: "1.2.3.4"})
-	db.InsertAuditEntry(ctx, &store.AuditEntry{Action: "device.create", Actor: "admin", Detail: "IMEI=300234063904190"})
+	_ = db.InsertAuditEntry(ctx, &store.AuditEntry{Action: "login", Actor: "admin", IP: "1.2.3.4"})
+	_ = db.InsertAuditEntry(ctx, &store.AuditEntry{Action: "device.create", Actor: "admin", Detail: "IMEI=300234063904190"})
 
 	entries, err := db.ListAuditEntries(ctx, 10)
 	if err != nil {
