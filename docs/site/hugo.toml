@@ -1,0 +1,39 @@
+baseURL = "https://hub.meshsat.io"
+languageCode = "en-us"
+title = "MeshSat Hub"
+theme = "PaperMod"
+
+[params]
+  description = "Cloud relay for MeshSat field devices — Iridium SBD, MQTT, TAK, APRS-IS."
+  author = "Kyriakos Papadopoulos"
+  ShowReadingTime = true
+  ShowShareButtons = false
+  ShowPostNavLinks = true
+  ShowBreadCrumbs = true
+  ShowCodeCopyButtons = true
+  defaultTheme = "dark"
+
+  [params.homeInfoParams]
+    Title = "MeshSat Hub"
+    Content = "Cloud relay for MeshSat field devices. Receives Iridium SBD, forwards to TAK and APRS-IS, sends MT commands — all via MQTT."
+
+  [[params.socialIcons]]
+    name = "github"
+    url = "https://github.com/cubeos-app/meshsat-hub"
+
+[menu]
+  [[menu.main]]
+    name = "Getting Started"
+    url = "/getting-started/"
+    weight = 10
+  [[menu.main]]
+    name = "API Reference"
+    url = "/api/"
+    weight = 20
+  [[menu.main]]
+    name = "Operations"
+    url = "/operations/"
+    weight = 30
+
+[markup.goldmark.renderer]
+  unsafe = true
