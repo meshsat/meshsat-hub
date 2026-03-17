@@ -10,8 +10,11 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/cubeos-app/meshsat-hub/internal/cloudloop"
 	"github.com/cubeos-app/meshsat-hub/internal/config"
 	"github.com/cubeos-app/meshsat-hub/internal/health"
+	hubmqtt "github.com/cubeos-app/meshsat-hub/internal/mqtt"
+	"github.com/cubeos-app/meshsat-hub/internal/rockblock"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 )
@@ -30,11 +33,33 @@ func main() {
 
 	checker := health.New()
 
+	// Connect to MQTT broker.
+	mqttClient := hubmqtt.New(cfg.MQTTBrokerURL, cfg.MQTTClientID)
+	if err := mqttClient.Connect(); err != nil {
+		slog.Warn("mqtt connection failed (will retry in background)", "error", err)
+	}
+	checker.Set("mqtt", mqttClient.IsConnected())
+
+	// Cloudloop API client for MT sends.
+	cloudloopClient := cloudloop.NewClient(cfg.CloudloopAPIURL, cfg.CloudloopAPIKey)
+
+	// Start MT sender (subscribes to meshsat/+/mt/send).
+	mtSender := cloudloop.NewSender(cloudloopClient, mqttClient)
+	if mqttClient.IsConnected() {
+		if err := mtSender.Start(); err != nil {
+			slog.Error("failed to start MT sender", "error", err)
+		}
+	}
+
+	// RockBLOCK webhook handler.
+	rbHandler := rockblock.NewHandler(mqttClient, cfg.RockBLOCKSecret)
+
 	r := chi.NewRouter()
 	r.Use(middleware.Recoverer)
 	r.Use(middleware.RealIP)
 	r.Get("/healthz", health.LivezHandler)
 	r.Get("/readyz", checker.ReadyzHandler)
+	r.Post("/api/webhook/rockblock", rbHandler.ServeHTTP)
 
 	srv := &http.Server{
 		Addr:              fmt.Sprintf(":%d", cfg.Port),
@@ -65,6 +90,7 @@ func main() {
 	if err := srv.Shutdown(shutdownCtx); err != nil {
 		slog.Error("shutdown error", "error", err)
 	}
+	mqttClient.Disconnect()
 	slog.Info("stopped")
 }
 
