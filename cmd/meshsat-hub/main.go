@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io/fs"
 	"log/slog"
 	"net/http"
 	"os"
@@ -11,6 +12,8 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/cubeos-app/meshsat-hub/cmd/meshsat-hub/web"
+	"github.com/cubeos-app/meshsat-hub/internal/api"
 	"github.com/cubeos-app/meshsat-hub/internal/aprsis"
 	"github.com/cubeos-app/meshsat-hub/internal/backup"
 	"github.com/cubeos-app/meshsat-hub/internal/bus"
@@ -234,6 +237,25 @@ func main() {
 	r.Get("/healthz", health.LivezHandler)
 	r.Get("/readyz", checker.ReadyzHandler)
 	r.Post("/api/webhook/rockblock", rbHandler.ServeHTTP)
+
+	// Device registry API
+	deviceHandler := api.NewDeviceHandler(dataStore)
+	r.Get("/api/devices", deviceHandler.ListDevices)
+	r.Post("/api/devices", deviceHandler.CreateDevice)
+	r.Get("/api/devices/{imei}", deviceHandler.GetDevice)
+	r.Put("/api/devices/{imei}", deviceHandler.UpdateDevice)
+	r.Delete("/api/devices/{imei}", deviceHandler.DeleteDevice)
+
+	// Message history API
+	messageHandler := api.NewMessageHandler(dataStore)
+	r.Get("/api/messages", messageHandler.ListMessages)
+	r.Get("/api/messages/{id}", messageHandler.GetMessage)
+
+	// Position API (for map)
+	positionHandler := api.NewPositionHandler(dataStore)
+	r.Get("/api/positions/latest", positionHandler.AllLatestPositions)
+	r.Get("/api/devices/{imei}/position", positionHandler.LatestPosition)
+	r.Get("/api/devices/{imei}/positions", positionHandler.ListPositions)
 	r.Get("/api/ratelimit", rateLimitHandler.GetAllUsage)
 	r.Get("/api/ratelimit/{deviceID}", rateLimitHandler.GetUsage)
 	r.Post("/api/ratelimit/{deviceID}/override", rateLimitHandler.PostOverride)
@@ -272,6 +294,25 @@ func main() {
 			r.Delete("/api/wireguard/peers/{id}", wgHandler.DeletePeer)
 			slog.Info("wireguard: peer management enabled", "url", cfg.WGURL)
 		}
+	}
+
+	// Embedded Vue SPA — serve from Go binary (catch-all after API routes)
+	distFS, err := fs.Sub(web.DistFS, "dist")
+	if err != nil {
+		slog.Error("embedded SPA not available", "error", err)
+	} else {
+		fileServer := http.FileServer(http.FS(distFS))
+		r.Handle("/*", http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+			// Try to serve the file; if not found, serve index.html (SPA routing)
+			f, err := distFS.Open(req.URL.Path[1:]) // strip leading /
+			if err != nil {
+				// Serve index.html for SPA client-side routing
+				req.URL.Path = "/"
+			} else {
+				_ = f.Close()
+			}
+			fileServer.ServeHTTP(w, req)
+		}))
 	}
 
 	srv := &http.Server{
