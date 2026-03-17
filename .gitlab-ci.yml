@@ -2,7 +2,11 @@ stages:
   - lint
   - test
   - build
+  - package
   - pages
+
+variables:
+  MESHSAT_HUB_IMAGE: "ghcr.io/cubeos-app/meshsat-hub"
 
 variables:
   CGO_ENABLED: "0"
@@ -28,6 +32,27 @@ build:
     paths:
       - bin/meshsat-hub
     expire_in: 1 week
+
+package:
+  stage: package
+  tags: [multiarch]
+  image: docker:24
+  needs:
+    - job: build
+      artifacts: false
+  before_script:
+    - echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GHCR_USER" --password-stdin
+  script:
+    - |
+      docker build \
+        -t ${MESHSAT_HUB_IMAGE}:${CI_COMMIT_SHORT_SHA} \
+        -t ${MESHSAT_HUB_IMAGE}:latest \
+        .
+      docker push ${MESHSAT_HUB_IMAGE}:${CI_COMMIT_SHORT_SHA}
+      docker push ${MESHSAT_HUB_IMAGE}:latest
+      echo "Pushed ${MESHSAT_HUB_IMAGE}:${CI_COMMIT_SHORT_SHA}"
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main"
 
 pages:
   stage: pages
