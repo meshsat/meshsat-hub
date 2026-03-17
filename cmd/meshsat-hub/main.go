@@ -18,6 +18,7 @@ import (
 	"github.com/cubeos-app/meshsat-hub/internal/ratelimit"
 	"github.com/cubeos-app/meshsat-hub/internal/rockblock"
 	"github.com/cubeos-app/meshsat-hub/internal/tak"
+	"github.com/cubeos-app/meshsat-hub/internal/webhook"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 )
@@ -100,6 +101,15 @@ func main() {
 		}
 	}
 
+	// Outbound webhook dispatcher (fires on MO, SOS, position, telemetry, MT status).
+	webhookDispatcher := webhook.NewDispatcher(mqttClient)
+	webhookAPIHandler := webhook.NewAPIHandler(webhookDispatcher)
+	if mqttClient.IsConnected() {
+		if err := webhookDispatcher.Start(mqttClient); err != nil {
+			slog.Error("webhook: failed to start dispatcher", "error", err)
+		}
+	}
+
 	// RockBLOCK webhook handler.
 	rbHandler := rockblock.NewHandler(mqttClient, cfg.RockBLOCKSecret)
 
@@ -113,6 +123,10 @@ func main() {
 	r.Get("/api/ratelimit/{deviceID}", rateLimitHandler.GetUsage)
 	r.Post("/api/ratelimit/{deviceID}/override", rateLimitHandler.PostOverride)
 	r.Delete("/api/ratelimit/{deviceID}/override", rateLimitHandler.DeleteOverride)
+	r.Get("/api/webhooks", webhookAPIHandler.ListWebhooks)
+	r.Post("/api/webhooks", webhookAPIHandler.CreateWebhook)
+	r.Delete("/api/webhooks/{id}", webhookAPIHandler.DeleteWebhook)
+	r.Get("/api/webhooks/logs", webhookAPIHandler.GetLogs)
 
 	srv := &http.Server{
 		Addr:              fmt.Sprintf(":%d", cfg.Port),
