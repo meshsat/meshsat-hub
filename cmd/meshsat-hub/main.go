@@ -15,6 +15,7 @@ import (
 	"github.com/cubeos-app/meshsat-hub/cmd/meshsat-hub/web"
 	"github.com/cubeos-app/meshsat-hub/internal/api"
 	"github.com/cubeos-app/meshsat-hub/internal/aprsis"
+	hubauth "github.com/cubeos-app/meshsat-hub/internal/auth"
 	"github.com/cubeos-app/meshsat-hub/internal/backup"
 	"github.com/cubeos-app/meshsat-hub/internal/bus"
 	"github.com/cubeos-app/meshsat-hub/internal/bus/paho"
@@ -234,6 +235,25 @@ func main() {
 	r := chi.NewRouter()
 	r.Use(middleware.Recoverer)
 	r.Use(middleware.RealIP)
+
+	// Auth middleware — auto-detect mode if not explicitly set
+	authMode := cfg.AuthMode
+	if authMode == "" {
+		if cfg.OIDCIssuerURL != "" {
+			authMode = "oidc"
+		} else if cfg.AuthToken != "" {
+			authMode = "token"
+		} else {
+			authMode = "none"
+		}
+	}
+	r.Use(hubauth.Middleware(hubauth.Config{
+		Mode:          authMode,
+		Token:         cfg.AuthToken,
+		OIDCIssuerURL: cfg.OIDCIssuerURL,
+		OIDCAudience:  cfg.OIDCAudience,
+	}))
+
 	r.Get("/healthz", health.LivezHandler)
 	r.Get("/readyz", checker.ReadyzHandler)
 	r.Post("/api/webhook/rockblock", rbHandler.ServeHTTP)

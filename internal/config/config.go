@@ -27,6 +27,9 @@ type Config struct {
 	LogLevel        string `yaml:"log_level"`
 	LogFormat       string `yaml:"log_format"`
 	AuthToken       string `yaml:"auth_token"`
+	AuthMode        string `yaml:"auth_mode"` // "none", "token", "oidc" (default: "token" if auth_token set, else "none")
+	OIDCIssuerURL   string `yaml:"oidc_issuer_url"`
+	OIDCAudience    string `yaml:"oidc_audience"`
 
 	// TAK/CoT integration
 	TAKEnabled        bool   `yaml:"tak_enabled"`
@@ -127,6 +130,15 @@ func Load() (Config, error) {
 	}
 	if v := os.Getenv("HUB_AUTH_TOKEN"); v != "" {
 		cfg.AuthToken = v
+	}
+	if v := os.Getenv("HUB_AUTH_MODE"); v != "" {
+		cfg.AuthMode = strings.ToLower(v)
+	}
+	if v := os.Getenv("HUB_OIDC_ISSUER_URL"); v != "" {
+		cfg.OIDCIssuerURL = v
+	}
+	if v := os.Getenv("HUB_OIDC_AUDIENCE"); v != "" {
+		cfg.OIDCAudience = v
 	}
 
 	// TAK/CoT overrides
