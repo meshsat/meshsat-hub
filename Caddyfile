@@ -1,0 +1,35 @@
+# MeshSat Hub — Caddy reverse proxy with automatic TLS
+# Replace hub.meshsat.io with your actual domain
+
+hub.meshsat.io {
+	# API and webhook endpoints
+	reverse_proxy /api/* hub:6070
+	reverse_proxy /healthz hub:6070
+	reverse_proxy /readyz hub:6070
+
+	# Security headers
+	header {
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		-Server
+	}
+
+	# Rate limiting on webhook endpoint (prevent abuse)
+	@webhook path /api/webhook/*
+	rate_limit @webhook {
+		zone webhook {
+			key {remote_host}
+			events 30
+			window 1m
+		}
+	}
+
+	log {
+		output file /data/access.log {
+			roll_size 10mb
+			roll_keep 5
+		}
+	}
+}

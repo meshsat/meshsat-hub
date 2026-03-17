@@ -1,0 +1,18 @@
+global:
+  scrape_interval: 30s
+  evaluation_interval: 30s
+
+scrape_configs:
+  - job_name: "meshsat-hub"
+    static_configs:
+      - targets: ["hub:6070"]
+    metrics_path: /healthz
+    # Hub doesn't expose Prometheus metrics yet — healthz returns 200/503
+    # This serves as a basic up/down check until /metrics is implemented
+
+  - job_name: "mosquitto"
+    static_configs:
+      - targets: ["mqtt:9001"]
+    metrics_path: /
+    # Mosquitto doesn't expose Prometheus natively
+    # Consider mosquitto-exporter if detailed MQTT metrics are needed
