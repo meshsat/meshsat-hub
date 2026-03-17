@@ -10,6 +10,18 @@ services:
       - HUB_MQTT_BROKER_URL=tcp://mqtt:1883
       - HUB_LOG_LEVEL=info
       - HUB_LOG_FORMAT=json
+      # TAK/CoT integration (requires 'tak' profile: docker compose --profile tak up)
+      - HUB_TAK_ENABLED=false
+      - HUB_TAK_HOST=opentakserver
+      - HUB_TAK_PORT=8087
+      - HUB_TAK_SSL=false
+      - HUB_TAK_CALLSIGN_PREFIX=MESHSAT-HUB
+      - HUB_TAK_COT_STALE_SECONDS=600
+      # APRS-IS IGate (optional — requires amateur radio license)
+      - HUB_APRSIS_ENABLED=false
+      - HUB_APRSIS_SERVER=euro.aprs2.net:14580
+      - HUB_APRSIS_CALLSIGN=
+      - HUB_APRSIS_PASSCODE=
     volumes:
       - hub-data:/data
     depends_on:
@@ -53,11 +65,30 @@ services:
     networks:
       - hubnet
 
+  # OpenTAKServer — CoT/TAK integration for situational awareness.
+  # Hub's Go service connects to this internally on port 8087 (TCP CoT).
+  # ATAK/WinTAK/iTAK clients connect externally on ports 8087/8089/8443.
+  opentakserver:
+    image: ghcr.io/brian7704/opentakserver:latest
+    container_name: meshsat-tak
+    restart: unless-stopped
+    ports:
+      - "8087:8087"   # TCP CoT (plaintext)
+      - "8089:8089"   # TCP CoT (TLS)
+      - "8443:8443"   # HTTPS DataPackage API
+    volumes:
+      - tak-data:/opt/opentakserver/data
+    networks:
+      - hubnet
+    profiles:
+      - tak
+
 volumes:
   hub-data:
   mqtt-data:
   mqtt-log:
   tor-keys:
+  tak-data:
 
 networks:
   hubnet:

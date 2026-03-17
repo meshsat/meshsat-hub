@@ -21,6 +21,14 @@ type Config struct {
 	LogLevel        string `yaml:"log_level"`
 	LogFormat       string `yaml:"log_format"`
 	AuthToken       string `yaml:"auth_token"`
+
+	// TAK/CoT integration
+	TAKEnabled        bool   `yaml:"tak_enabled"`
+	TAKHost           string `yaml:"tak_host"`
+	TAKPort           int    `yaml:"tak_port"`
+	TAKSSL            bool   `yaml:"tak_ssl"`
+	TAKCallsignPrefix string `yaml:"tak_callsign_prefix"`
+	TAKCotStaleSec    int    `yaml:"tak_cot_stale_seconds"`
 }
 
 // Defaults returns a Config with sensible default values.
@@ -81,6 +89,30 @@ func Load() (Config, error) {
 	}
 	if v := os.Getenv("HUB_AUTH_TOKEN"); v != "" {
 		cfg.AuthToken = v
+	}
+
+	// TAK/CoT overrides
+	if v := os.Getenv("HUB_TAK_ENABLED"); v != "" {
+		cfg.TAKEnabled = strings.EqualFold(v, "true") || v == "1"
+	}
+	if v := os.Getenv("HUB_TAK_HOST"); v != "" {
+		cfg.TAKHost = v
+	}
+	if v := os.Getenv("HUB_TAK_PORT"); v != "" {
+		if p, err := strconv.Atoi(v); err == nil {
+			cfg.TAKPort = p
+		}
+	}
+	if v := os.Getenv("HUB_TAK_SSL"); v != "" {
+		cfg.TAKSSL = strings.EqualFold(v, "true") || v == "1"
+	}
+	if v := os.Getenv("HUB_TAK_CALLSIGN_PREFIX"); v != "" {
+		cfg.TAKCallsignPrefix = v
+	}
+	if v := os.Getenv("HUB_TAK_COT_STALE_SECONDS"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			cfg.TAKCotStaleSec = n
+		}
 	}
 
 	return cfg, nil

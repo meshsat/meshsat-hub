@@ -15,6 +15,7 @@ import (
 	"github.com/cubeos-app/meshsat-hub/internal/health"
 	hubmqtt "github.com/cubeos-app/meshsat-hub/internal/mqtt"
 	"github.com/cubeos-app/meshsat-hub/internal/rockblock"
+	"github.com/cubeos-app/meshsat-hub/internal/tak"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 )
@@ -48,6 +49,24 @@ func main() {
 	if mqttClient.IsConnected() {
 		if err := mtSender.Start(); err != nil {
 			slog.Error("failed to start MT sender", "error", err)
+		}
+	}
+
+	// TAK/CoT gateway (optional — subscribe to MQTT, forward to OpenTAKServer).
+	var takClient *tak.Client
+	if cfg.TAKEnabled && cfg.TAKHost != "" {
+		takPort := cfg.TAKPort
+		if takPort == 0 {
+			takPort = 8087
+		}
+		takClient = tak.NewClient(cfg.TAKHost, takPort, cfg.TAKSSL)
+		if err := takClient.Connect(); err != nil {
+			slog.Warn("tak: connection failed (will not forward CoT)", "error", err)
+		} else if mqttClient.IsConnected() {
+			takSub := tak.NewSubscriber(mqttClient, takClient, cfg.TAKCallsignPrefix, cfg.TAKCotStaleSec)
+			if err := takSub.Start(); err != nil {
+				slog.Error("tak: failed to start subscriber", "error", err)
+			}
 		}
 	}
 
@@ -89,6 +108,9 @@ func main() {
 
 	if err := srv.Shutdown(shutdownCtx); err != nil {
 		slog.Error("shutdown error", "error", err)
+	}
+	if takClient != nil {
+		takClient.Disconnect()
 	}
 	mqttClient.Disconnect()
 	slog.Info("stopped")
