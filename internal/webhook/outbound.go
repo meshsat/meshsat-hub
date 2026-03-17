@@ -107,6 +107,13 @@ func (d *Dispatcher) RemoveWebhook(id string) {
 	}
 }
 
+// ListWebhooksRaw returns all webhook configs as raw JSON (secrets redacted).
+// Implements backup.WebhookLister.
+func (d *Dispatcher) ListWebhooksRaw() json.RawMessage {
+	data, _ := json.Marshal(d.ListWebhooks())
+	return json.RawMessage(data)
+}
+
 // ListWebhooks returns all webhook configs with secrets redacted.
 func (d *Dispatcher) ListWebhooks() []WebhookConfig {
 	d.mu.RLock()

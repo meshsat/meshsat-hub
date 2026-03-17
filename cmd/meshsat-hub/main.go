@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/cubeos-app/meshsat-hub/internal/aprsis"
+	"github.com/cubeos-app/meshsat-hub/internal/backup"
 	"github.com/cubeos-app/meshsat-hub/internal/cloudloop"
 	"github.com/cubeos-app/meshsat-hub/internal/config"
 	"github.com/cubeos-app/meshsat-hub/internal/health"
@@ -127,6 +128,13 @@ func main() {
 	r.Post("/api/webhooks", webhookAPIHandler.CreateWebhook)
 	r.Delete("/api/webhooks/{id}", webhookAPIHandler.DeleteWebhook)
 	r.Get("/api/webhooks/logs", webhookAPIHandler.GetLogs)
+
+	// Backup/restore
+	backupProvider := &backup.HubStateProvider{Config: cfg, WebhookLister: webhookDispatcher}
+	backupHandler := backup.NewAPIHandler(backupProvider, "/data")
+	r.Get("/api/backup/export", backupHandler.ExportBackup)
+	r.Post("/api/backup/diff", backupHandler.DiffBackup)
+	r.Post("/api/backup/import", backupHandler.ImportBackup)
 
 	srv := &http.Server{
 		Addr:              fmt.Sprintf(":%d", cfg.Port),
