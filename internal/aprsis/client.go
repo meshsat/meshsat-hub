@@ -56,7 +56,7 @@ func (c *Client) Connect() error {
 
 	// Read server banner
 	scanner := bufio.NewScanner(conn)
-	conn.SetReadDeadline(time.Now().Add(10 * time.Second))
+	_ = conn.SetReadDeadline(time.Now().Add(10 * time.Second))
 	if scanner.Scan() {
 		slog.Debug("aprsis: server banner", "banner", scanner.Text())
 	}
@@ -70,7 +70,7 @@ func (c *Client) Connect() error {
 	}
 
 	// Read login response
-	conn.SetReadDeadline(time.Now().Add(10 * time.Second))
+	_ = conn.SetReadDeadline(time.Now().Add(10 * time.Second))
 	if scanner.Scan() {
 		resp := scanner.Text()
 		slog.Info("aprsis: login response", "response", resp)
@@ -145,7 +145,7 @@ func (c *Client) readLoop() {
 
 	scanner := bufio.NewScanner(conn)
 	for c.running.Load() {
-		conn.SetReadDeadline(time.Now().Add(90 * time.Second)) // APRS-IS keepalive is ~30s
+		_ = conn.SetReadDeadline(time.Now().Add(90 * time.Second)) // APRS-IS keepalive is ~30s
 		if !scanner.Scan() {
 			if !c.running.Load() {
 				return
