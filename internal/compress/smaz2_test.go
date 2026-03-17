@@ -99,6 +99,6 @@ func BenchmarkDecompress(b *testing.B) {
 	compressed := Compress(data)
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		Decompress(compressed)
+		_, _ = Decompress(compressed)
 	}
 }

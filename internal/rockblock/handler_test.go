@@ -11,12 +11,6 @@ import (
 	"github.com/cubeos-app/meshsat-hub/internal/compress"
 )
 
-// mockMQTT captures published messages for testing.
-type mockPublish struct {
-	topics   []string
-	payloads [][]byte
-}
-
 func TestHandler_ValidPayload_NoSecret(t *testing.T) {
 	// Create handler with no secret (accepts all).
 	h := &Handler{secret: ""}

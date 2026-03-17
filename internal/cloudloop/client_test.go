@@ -34,7 +34,7 @@ func TestSendMT_Success(t *testing.T) {
 		}
 
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(MTResponse{ID: "mt-123", Status: "queued"})
+		_ = json.NewEncoder(w).Encode(MTResponse{ID: "mt-123", Status: "queued"})
 	}))
 	defer server.Close()
 
@@ -54,7 +54,7 @@ func TestSendMT_Success(t *testing.T) {
 func TestSendMT_APIError(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
-		w.Write([]byte(`{"error":"internal server error"}`))
+		_, _ = w.Write([]byte(`{"error":"internal server error"}`))
 	}))
 	defer server.Close()
 
@@ -71,7 +71,7 @@ func TestCheckMTStatus(t *testing.T) {
 			t.Errorf("expected /sbd/mt/mt-123, got %s", r.URL.Path)
 		}
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(MTResponse{ID: "mt-123", Status: "delivered"})
+		_ = json.NewEncoder(w).Encode(MTResponse{ID: "mt-123", Status: "delivered"})
 	}))
 	defer server.Close()
 
