@@ -1,0 +1,64 @@
+services:
+  hub:
+    build: .
+    container_name: meshsat-hub
+    restart: unless-stopped
+    ports:
+      - "6070:6070"
+    environment:
+      - HUB_PORT=6070
+      - HUB_MQTT_BROKER_URL=tcp://mqtt:1883
+      - HUB_LOG_LEVEL=info
+      - HUB_LOG_FORMAT=json
+    volumes:
+      - hub-data:/data
+    depends_on:
+      mqtt:
+        condition: service_started
+    networks:
+      - hubnet
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:6070/healthz"]
+      interval: 30s
+      timeout: 5s
+      start_period: 10s
+      retries: 3
+
+  mqtt:
+    image: eclipse-mosquitto:2
+    container_name: meshsat-mqtt
+    restart: unless-stopped
+    ports:
+      - "6071:1883"
+      - "6072:9001"
+    volumes:
+      - ./mosquitto/config:/mosquitto/config:ro
+      - mqtt-data:/mosquitto/data
+      - mqtt-log:/mosquitto/log
+    networks:
+      - hubnet
+
+  tor:
+    image: cmehay/docker-tor-hidden-service:latest
+    container_name: meshsat-tor
+    restart: unless-stopped
+    environment:
+      HUB_TOR_SERVICE_HOSTS: "80:hub:6070,1883:mqtt:1883"
+      HUB_TOR_SERVICE_VERSION: "3"
+    volumes:
+      - tor-keys:/var/lib/tor/hidden_service
+    depends_on:
+      - hub
+      - mqtt
+    networks:
+      - hubnet
+
+volumes:
+  hub-data:
+  mqtt-data:
+  mqtt-log:
+  tor-keys:
+
+networks:
+  hubnet:
+    driver: bridge
