@@ -7,7 +7,7 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
-// RedisDedup uses Redis SETNX with TTL for cross-instance deduplication.
+// RedisDedup uses Redis SET NX with TTL for cross-instance deduplication.
 // Used in cluster and k8s modes.
 type RedisDedup struct {
 	client *redis.Client
@@ -28,15 +28,18 @@ func NewRedisDedup(client *redis.Client, ttl time.Duration, prefix string) *Redi
 }
 
 // IsNew returns true if the key hasn't been seen within the TTL.
-// Uses SETNX (SET if Not eXists) with expiry — atomic across all instances.
+// Uses SET with NX option — atomic set-if-not-exists across all instances.
 func (d *RedisDedup) IsNew(key string) bool {
 	ctx := context.Background()
-	ok, err := d.client.SetNX(ctx, d.prefix+key, "1", d.ttl).Result()
+	// SET key value NX PX ttl — returns OK if set, nil if already exists
+	result, err := d.client.Do(ctx, "SET", d.prefix+key, "1", "NX", "PX", d.ttl.Milliseconds()).Result()
 	if err != nil {
-		// On Redis error, allow the message through (fail-open)
-		return true
+		if err == redis.Nil {
+			return false // key already exists
+		}
+		return true // fail-open on Redis error
 	}
-	return ok // true = key was set (new), false = key already existed (duplicate)
+	return result == "OK"
 }
 
 // Compile-time check.
