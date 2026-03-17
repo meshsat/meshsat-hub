@@ -12,16 +12,23 @@ import (
 
 	"github.com/cubeos-app/meshsat-hub/internal/aprsis"
 	"github.com/cubeos-app/meshsat-hub/internal/backup"
+	"github.com/cubeos-app/meshsat-hub/internal/bus"
+	"github.com/cubeos-app/meshsat-hub/internal/bus/paho"
 	"github.com/cubeos-app/meshsat-hub/internal/cloudloop"
 	"github.com/cubeos-app/meshsat-hub/internal/config"
+	"github.com/cubeos-app/meshsat-hub/internal/dedup"
 	"github.com/cubeos-app/meshsat-hub/internal/health"
-	hubmqtt "github.com/cubeos-app/meshsat-hub/internal/mqtt"
+	"github.com/cubeos-app/meshsat-hub/internal/leader"
 	"github.com/cubeos-app/meshsat-hub/internal/ratelimit"
 	"github.com/cubeos-app/meshsat-hub/internal/rockblock"
+	"github.com/cubeos-app/meshsat-hub/internal/store"
+	"github.com/cubeos-app/meshsat-hub/internal/store/postgres"
+	"github.com/cubeos-app/meshsat-hub/internal/store/sqlite"
 	"github.com/cubeos-app/meshsat-hub/internal/tak"
 	"github.com/cubeos-app/meshsat-hub/internal/webhook"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
+	"github.com/redis/go-redis/v9"
 )
 
 var version = "dev"
@@ -36,83 +43,182 @@ func main() {
 	initLogger(cfg)
 	slog.Info("starting meshsat-hub", "version", version, "port", cfg.Port, "mode", cfg.Mode)
 
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+
 	checker := health.New()
 
-	// Connect to MQTT broker.
-	mqttClient := hubmqtt.New(cfg.MQTTBrokerURL, cfg.MQTTClientID)
-	if err := mqttClient.Connect(); err != nil {
-		slog.Warn("mqtt connection failed (will retry in background)", "error", err)
+	// --- Message bus (tri-mode) ---
+	var msgBus bus.MessageBus
+	switch cfg.Mode {
+	case "cluster", "kubernetes":
+		// In cluster/k8s mode, Paho connects to the external NATS MQTT port.
+		brokerURL := cfg.MQTTBrokerURL
+		if cfg.NATSUrl != "" {
+			brokerURL = cfg.NATSUrl
+		}
+		msgBus = paho.New(brokerURL, cfg.MQTTClientID)
+	default: // "standalone"
+		msgBus = paho.New(cfg.MQTTBrokerURL, cfg.MQTTClientID)
 	}
-	checker.Set("mqtt", mqttClient.IsConnected())
+	if err := msgBus.Connect(); err != nil {
+		slog.Warn("bus connection failed (will retry in background)", "error", err)
+	}
+	checker.Set("mqtt", msgBus.IsConnected())
+
+	// --- Store (tri-mode) ---
+	var dataStore store.Store
+	switch cfg.Mode {
+	case "cluster", "kubernetes":
+		pgStore, err := postgres.New(ctx, cfg.DatabaseURL)
+		if err != nil {
+			slog.Error("postgres connection failed", "error", err)
+			os.Exit(1)
+		}
+		if err := pgStore.Migrate(ctx); err != nil {
+			slog.Error("postgres migration failed", "error", err)
+			os.Exit(1)
+		}
+		dataStore = pgStore
+	default: // "standalone"
+		sqlStore, err := sqlite.New("/data/hub.db")
+		if err != nil {
+			slog.Error("sqlite open failed", "error", err)
+			os.Exit(1)
+		}
+		if err := sqlStore.Migrate(ctx); err != nil {
+			slog.Error("sqlite migration failed", "error", err)
+			os.Exit(1)
+		}
+		dataStore = sqlStore
+	}
+	defer func() { _ = dataStore.Close() }()
+	_ = dataStore // will be used by device registry, message logging, etc.
+
+	// --- Dedup (tri-mode) ---
+	var dedupTracker dedup.Dedup
+	switch cfg.Mode {
+	case "cluster", "kubernetes":
+		redisOpts, err := redis.ParseURL(cfg.RedisURL)
+		if err != nil {
+			slog.Error("invalid redis URL", "error", err)
+			os.Exit(1)
+		}
+		redisClient := redis.NewClient(redisOpts)
+		dedupTracker = dedup.NewRedisDedup(redisClient, 1*time.Hour, "dedup:")
+	default:
+		dedupTracker = dedup.NewMemoryDedup(1 * time.Hour)
+	}
+	_ = dedupTracker // will be wired into MO ingestion pipeline
+
+	// --- Rate limiter (tri-mode) ---
+	var limiter ratelimit.Limiter
+	switch cfg.Mode {
+	case "cluster", "kubernetes":
+		redisOpts, err := redis.ParseURL(cfg.RedisURL)
+		if err != nil {
+			slog.Error("invalid redis URL for ratelimit", "error", err)
+			os.Exit(1)
+		}
+		redisClient := redis.NewClient(redisOpts)
+		limiter = ratelimit.NewRedisLimiter(redisClient, cfg.RateLimitDailyCap)
+	default:
+		limiter = ratelimit.NewDeviceLimiter(
+			float64(cfg.RateLimitBurst),  // max burst
+			cfg.RateLimitRefillPerMin/60, // tokens per second
+			cfg.RateLimitDailyCap,        // daily cap
+			msgBus,                       // for MQTT alerts
+		)
+	}
+	rateLimitHandler := ratelimit.NewHandler(limiter)
+
+	// --- Leader election (tri-mode) ---
+	var leaderElector leader.Leader
+	instanceID := fmt.Sprintf("%s-%d", cfg.MQTTClientID, os.Getpid())
+	switch cfg.Mode {
+	case "cluster":
+		leaderElector = leader.NewNATS(msgBus, instanceID)
+	default: // "standalone", "kubernetes" (k8s Lease not implemented yet)
+		leaderElector = leader.NewNoop()
+	}
 
 	// Cloudloop API client for MT sends.
 	cloudloopClient := cloudloop.NewClient(cfg.CloudloopAPIURL, cfg.CloudloopAPIKey)
 
-	// Per-device rate limiter for MT sends.
-	limiter := ratelimit.NewDeviceLimiter(
-		float64(cfg.RateLimitBurst),  // max burst
-		cfg.RateLimitRefillPerMin/60, // tokens per second
-		cfg.RateLimitDailyCap,        // daily cap
-		mqttClient,                   // for MQTT alerts
-	)
-	rateLimitHandler := ratelimit.NewHandler(limiter)
-
 	// Start MT sender (subscribes to meshsat/+/mt/send).
-	mtSender := cloudloop.NewSender(cloudloopClient, mqttClient)
+	mtSender := cloudloop.NewSender(cloudloopClient, msgBus)
 	mtSender.SetRateLimiter(limiter)
-	if mqttClient.IsConnected() {
+	if msgBus.IsConnected() {
 		if err := mtSender.Start(); err != nil {
 			slog.Error("failed to start MT sender", "error", err)
 		}
 	}
 
-	// TAK/CoT gateway (optional — subscribe to MQTT, forward to OpenTAKServer).
+	// TAK/CoT gateway and APRS-IS IGate are singletons — run inside leader election callback.
 	var takClient *tak.Client
-	if cfg.TAKEnabled && cfg.TAKHost != "" {
-		takPort := cfg.TAKPort
-		if takPort == 0 {
-			takPort = 8087
-		}
-		takClient = tak.NewClient(cfg.TAKHost, takPort, cfg.TAKSSL)
-		if err := takClient.Connect(); err != nil {
-			slog.Warn("tak: connection failed (will not forward CoT)", "error", err)
-		} else if mqttClient.IsConnected() {
-			takSub := tak.NewSubscriber(mqttClient, takClient, cfg.TAKCallsignPrefix, cfg.TAKCotStaleSec)
-			if err := takSub.Start(); err != nil {
-				slog.Error("tak: failed to start subscriber", "error", err)
-			}
-		}
-	}
-
-	// APRS-IS IGate (optional — inject satellite positions into APRS-IS network).
 	var aprsisClient *aprsis.Client
-	if cfg.APRSISEnabled && cfg.APRSISCallsign != "" && cfg.APRSISPasscode != "" {
-		server := cfg.APRSISServer
-		if server == "" {
-			server = "euro.aprs2.net:14580"
-		}
-		aprsisClient = aprsis.NewClient(server, cfg.APRSISCallsign, 10, cfg.APRSISPasscode, "")
-		if err := aprsisClient.Connect(); err != nil {
-			slog.Warn("aprsis: connection failed (will not inject positions)", "error", err)
-		} else if mqttClient.IsConnected() {
-			aprsisSub := aprsis.NewSubscriber(mqttClient, aprsisClient, 60)
-			if err := aprsisSub.Start(); err != nil {
-				slog.Error("aprsis: failed to start subscriber", "error", err)
+
+	go leaderElector.Run(ctx, func() {
+		// onAcquired: start singleton services
+		slog.Info("leader acquired — starting TAK and APRS-IS")
+
+		// TAK/CoT gateway (optional — subscribe to MQTT, forward to OpenTAKServer).
+		if cfg.TAKEnabled && cfg.TAKHost != "" {
+			takPort := cfg.TAKPort
+			if takPort == 0 {
+				takPort = 8087
+			}
+			takClient = tak.NewClient(cfg.TAKHost, takPort, cfg.TAKSSL)
+			if err := takClient.Connect(); err != nil {
+				slog.Warn("tak: connection failed (will not forward CoT)", "error", err)
+			} else if msgBus.IsConnected() {
+				takSub := tak.NewSubscriber(msgBus, takClient, cfg.TAKCallsignPrefix, cfg.TAKCotStaleSec)
+				if err := takSub.Start(); err != nil {
+					slog.Error("tak: failed to start subscriber", "error", err)
+				}
 			}
 		}
-	}
+
+		// APRS-IS IGate (optional — inject satellite positions into APRS-IS network).
+		if cfg.APRSISEnabled && cfg.APRSISCallsign != "" && cfg.APRSISPasscode != "" {
+			server := cfg.APRSISServer
+			if server == "" {
+				server = "euro.aprs2.net:14580"
+			}
+			aprsisClient = aprsis.NewClient(server, cfg.APRSISCallsign, 10, cfg.APRSISPasscode, "")
+			if err := aprsisClient.Connect(); err != nil {
+				slog.Warn("aprsis: connection failed (will not inject positions)", "error", err)
+			} else if msgBus.IsConnected() {
+				aprsisSub := aprsis.NewSubscriber(msgBus, aprsisClient, 60)
+				if err := aprsisSub.Start(); err != nil {
+					slog.Error("aprsis: failed to start subscriber", "error", err)
+				}
+			}
+		}
+	}, func() {
+		// onLost: stop singleton services
+		slog.Info("leader lost — stopping TAK and APRS-IS")
+		if aprsisClient != nil {
+			aprsisClient.Disconnect()
+			aprsisClient = nil
+		}
+		if takClient != nil {
+			takClient.Disconnect()
+			takClient = nil
+		}
+	})
 
 	// Outbound webhook dispatcher (fires on MO, SOS, position, telemetry, MT status).
-	webhookDispatcher := webhook.NewDispatcher(mqttClient)
+	webhookDispatcher := webhook.NewDispatcher(msgBus)
 	webhookAPIHandler := webhook.NewAPIHandler(webhookDispatcher)
-	if mqttClient.IsConnected() {
-		if err := webhookDispatcher.Start(mqttClient); err != nil {
+	if msgBus.IsConnected() {
+		if err := webhookDispatcher.Start(msgBus); err != nil {
 			slog.Error("webhook: failed to start dispatcher", "error", err)
 		}
 	}
 
 	// RockBLOCK webhook handler.
-	rbHandler := rockblock.NewHandler(mqttClient, cfg.RockBLOCKSecret)
+	rbHandler := rockblock.NewHandler(msgBus, cfg.RockBLOCKSecret)
 
 	r := chi.NewRouter()
 	r.Use(middleware.Recoverer)
@@ -145,9 +251,6 @@ func main() {
 		IdleTimeout:       60 * time.Second,
 	}
 
-	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
-	defer stop()
-
 	go func() {
 		slog.Info("listening", "addr", srv.Addr)
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
@@ -171,7 +274,7 @@ func main() {
 	if takClient != nil {
 		takClient.Disconnect()
 	}
-	mqttClient.Disconnect()
+	msgBus.Disconnect()
 	slog.Info("stopped")
 }
 

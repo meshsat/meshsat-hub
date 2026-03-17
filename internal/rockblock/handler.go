@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/cubeos-app/meshsat-hub/internal/bus"
 	"github.com/cubeos-app/meshsat-hub/internal/compress"
 	hubmqtt "github.com/cubeos-app/meshsat-hub/internal/mqtt"
 )
@@ -54,12 +55,12 @@ type PositionMessage struct {
 
 // Handler handles RockBLOCK/Ground Control webhook POST requests.
 type Handler struct {
-	mqtt   *hubmqtt.Client
+	mqtt   bus.MessageBus
 	secret string
 }
 
 // NewHandler creates a new RockBLOCK webhook handler.
-func NewHandler(mqtt *hubmqtt.Client, secret string) *Handler {
+func NewHandler(mqtt bus.MessageBus, secret string) *Handler {
 	return &Handler{mqtt: mqtt, secret: secret}
 }
 

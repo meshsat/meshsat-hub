@@ -10,11 +10,11 @@ import (
 
 // Handler provides REST API endpoints for rate limit management.
 type Handler struct {
-	limiter *DeviceLimiter
+	limiter Limiter
 }
 
 // NewHandler creates a new rate limit API handler.
-func NewHandler(limiter *DeviceLimiter) *Handler {
+func NewHandler(limiter Limiter) *Handler {
 	return &Handler{limiter: limiter}
 }
 

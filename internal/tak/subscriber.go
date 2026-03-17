@@ -5,19 +5,20 @@ import (
 	"fmt"
 	"log/slog"
 
+	"github.com/cubeos-app/meshsat-hub/internal/bus"
 	hubmqtt "github.com/cubeos-app/meshsat-hub/internal/mqtt"
 )
 
 // Subscriber listens on Hub MQTT topics and forwards device messages to a TAK server as CoT events.
 type Subscriber struct {
-	mqtt           *hubmqtt.Client
+	mqtt           bus.MessageBus
 	client         *Client
 	callsignPrefix string
 	cotStaleSec    int
 }
 
 // NewSubscriber creates a new TAK MQTT subscriber.
-func NewSubscriber(mqtt *hubmqtt.Client, client *Client, callsignPrefix string, cotStaleSec int) *Subscriber {
+func NewSubscriber(mqtt bus.MessageBus, client *Client, callsignPrefix string, cotStaleSec int) *Subscriber {
 	if callsignPrefix == "" {
 		callsignPrefix = "MESHSAT-HUB"
 	}

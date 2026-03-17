@@ -6,7 +6,7 @@ import (
 	"sync"
 	"time"
 
-	hubmqtt "github.com/cubeos-app/meshsat-hub/internal/mqtt"
+	"github.com/cubeos-app/meshsat-hub/internal/bus"
 )
 
 // DeviceLimiter implements per-device token bucket rate limiting for MT satellite sends.
@@ -18,7 +18,7 @@ type DeviceLimiter struct {
 	refillRate float64 // tokens per second
 	dailyCap   int     // max sends per device per day (0 = unlimited)
 	daily      map[string]*dailyCounter
-	mqtt       *hubmqtt.Client // for alert notifications
+	mqtt       bus.MessageBus // for alert notifications
 }
 
 type tokenBucket struct {
@@ -55,7 +55,7 @@ var overrides = struct {
 // maxTokens: burst capacity per device.
 // refillRate: tokens refilled per second.
 // dailyCap: max sends per device per 24h (0 = unlimited).
-func NewDeviceLimiter(maxTokens float64, refillRate float64, dailyCap int, mqtt *hubmqtt.Client) *DeviceLimiter {
+func NewDeviceLimiter(maxTokens float64, refillRate float64, dailyCap int, mqtt bus.MessageBus) *DeviceLimiter {
 	return &DeviceLimiter{
 		buckets:    make(map[string]*tokenBucket),
 		maxTokens:  maxTokens,
@@ -253,3 +253,6 @@ func (l *DeviceLimiter) publishAlert(deviceID, reason string, count int) {
 		slog.Warn("ratelimit: publish alert failed", "error", err)
 	}
 }
+
+// Compile-time check.
+var _ Limiter = (*DeviceLimiter)(nil)

@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/cubeos-app/meshsat-hub/internal/bus"
 	hubmqtt "github.com/cubeos-app/meshsat-hub/internal/mqtt"
 )
 
@@ -62,13 +63,13 @@ type Dispatcher struct {
 	mu       sync.RWMutex
 	webhooks []WebhookConfig
 	client   *http.Client
-	mqtt     *hubmqtt.Client
+	mqtt     bus.MessageBus
 	logs     []DeliveryLog
 	logMu    sync.Mutex
 }
 
 // NewDispatcher creates a new webhook dispatcher.
-func NewDispatcher(mqtt *hubmqtt.Client) *Dispatcher {
+func NewDispatcher(mqtt bus.MessageBus) *Dispatcher {
 	return &Dispatcher{
 		client: &http.Client{Timeout: 10 * time.Second},
 		mqtt:   mqtt,
@@ -250,7 +251,7 @@ func (d *Dispatcher) recordLog(webhookID, event, deviceID string, status int, er
 }
 
 // Start subscribes to MQTT topics and fires webhooks for matching events.
-func (d *Dispatcher) Start(mqtt *hubmqtt.Client) error {
+func (d *Dispatcher) Start(mqtt bus.MessageBus) error {
 	subs := []struct {
 		topic string
 		event EventType

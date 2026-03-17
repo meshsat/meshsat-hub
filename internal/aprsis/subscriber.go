@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/cubeos-app/meshsat-hub/internal/bus"
 	hubmqtt "github.com/cubeos-app/meshsat-hub/internal/mqtt"
 )
 
@@ -15,7 +16,7 @@ import (
 // positions into APRS-IS. Also receives APRS-IS messages addressed to MeshSat
 // devices and forwards them to MQTT.
 type Subscriber struct {
-	mqtt   *hubmqtt.Client
+	mqtt   bus.MessageBus
 	client *Client
 
 	// Rate limiting: max 1 position per device per coalesceSec
@@ -25,7 +26,7 @@ type Subscriber struct {
 }
 
 // NewSubscriber creates a new APRS-IS MQTT subscriber.
-func NewSubscriber(mqtt *hubmqtt.Client, client *Client, coalesceSec int) *Subscriber {
+func NewSubscriber(mqtt bus.MessageBus, client *Client, coalesceSec int) *Subscriber {
 	if coalesceSec <= 0 {
 		coalesceSec = 60
 	}

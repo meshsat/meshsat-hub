@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/cubeos-app/meshsat-hub/internal/bus"
 	"github.com/cubeos-app/meshsat-hub/internal/compress"
 	hubmqtt "github.com/cubeos-app/meshsat-hub/internal/mqtt"
 )
@@ -34,13 +35,13 @@ type MTStatusMessage struct {
 // Sender listens on MQTT for MT send requests and forwards them via Cloudloop.
 type Sender struct {
 	client     *Client
-	mqtt       *hubmqtt.Client
+	mqtt       bus.MessageBus
 	limiter    interface{ Allow(string, bool) bool }
 	maxRetries int
 }
 
 // NewSender creates a new MT message sender.
-func NewSender(client *Client, mqtt *hubmqtt.Client) *Sender {
+func NewSender(client *Client, mqtt bus.MessageBus) *Sender {
 	return &Sender{
 		client:     client,
 		mqtt:       mqtt,
