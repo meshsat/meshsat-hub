@@ -10,6 +10,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/cubeos-app/meshsat-hub/internal/aprsis"
 	"github.com/cubeos-app/meshsat-hub/internal/cloudloop"
 	"github.com/cubeos-app/meshsat-hub/internal/config"
 	"github.com/cubeos-app/meshsat-hub/internal/health"
@@ -70,6 +71,24 @@ func main() {
 		}
 	}
 
+	// APRS-IS IGate (optional — inject satellite positions into APRS-IS network).
+	var aprsisClient *aprsis.Client
+	if cfg.APRSISEnabled && cfg.APRSISCallsign != "" && cfg.APRSISPasscode != "" {
+		server := cfg.APRSISServer
+		if server == "" {
+			server = "euro.aprs2.net:14580"
+		}
+		aprsisClient = aprsis.NewClient(server, cfg.APRSISCallsign, 10, cfg.APRSISPasscode, "")
+		if err := aprsisClient.Connect(); err != nil {
+			slog.Warn("aprsis: connection failed (will not inject positions)", "error", err)
+		} else if mqttClient.IsConnected() {
+			aprsisSub := aprsis.NewSubscriber(mqttClient, aprsisClient, 60)
+			if err := aprsisSub.Start(); err != nil {
+				slog.Error("aprsis: failed to start subscriber", "error", err)
+			}
+		}
+	}
+
 	// RockBLOCK webhook handler.
 	rbHandler := rockblock.NewHandler(mqttClient, cfg.RockBLOCKSecret)
 
@@ -108,6 +127,9 @@ func main() {
 
 	if err := srv.Shutdown(shutdownCtx); err != nil {
 		slog.Error("shutdown error", "error", err)
+	}
+	if aprsisClient != nil {
+		aprsisClient.Disconnect()
 	}
 	if takClient != nil {
 		takClient.Disconnect()

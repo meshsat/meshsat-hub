@@ -29,6 +29,12 @@ type Config struct {
 	TAKSSL            bool   `yaml:"tak_ssl"`
 	TAKCallsignPrefix string `yaml:"tak_callsign_prefix"`
 	TAKCotStaleSec    int    `yaml:"tak_cot_stale_seconds"`
+
+	// APRS-IS IGate
+	APRSISEnabled  bool   `yaml:"aprsis_enabled"`
+	APRSISServer   string `yaml:"aprsis_server"`
+	APRSISCallsign string `yaml:"aprsis_callsign"`
+	APRSISPasscode string `yaml:"aprsis_passcode"`
 }
 
 // Defaults returns a Config with sensible default values.
@@ -113,6 +119,20 @@ func Load() (Config, error) {
 		if n, err := strconv.Atoi(v); err == nil {
 			cfg.TAKCotStaleSec = n
 		}
+	}
+
+	// APRS-IS overrides
+	if v := os.Getenv("HUB_APRSIS_ENABLED"); v != "" {
+		cfg.APRSISEnabled = strings.EqualFold(v, "true") || v == "1"
+	}
+	if v := os.Getenv("HUB_APRSIS_SERVER"); v != "" {
+		cfg.APRSISServer = v
+	}
+	if v := os.Getenv("HUB_APRSIS_CALLSIGN"); v != "" {
+		cfg.APRSISCallsign = v
+	}
+	if v := os.Getenv("HUB_APRSIS_PASSCODE"); v != "" {
+		cfg.APRSISPasscode = v
 	}
 
 	return cfg, nil
