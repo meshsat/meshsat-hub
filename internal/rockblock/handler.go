@@ -6,12 +6,15 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/cubeos-app/meshsat-hub/internal/audit"
+	"github.com/cubeos-app/meshsat-hub/internal/auth"
 	"github.com/cubeos-app/meshsat-hub/internal/bus"
 	"github.com/cubeos-app/meshsat-hub/internal/compress"
 	hubmqtt "github.com/cubeos-app/meshsat-hub/internal/mqtt"
@@ -57,11 +60,17 @@ type PositionMessage struct {
 type Handler struct {
 	mqtt   bus.MessageBus
 	secret string
+	audit  *audit.Service
 }
 
 // NewHandler creates a new RockBLOCK webhook handler.
 func NewHandler(mqtt bus.MessageBus, secret string) *Handler {
 	return &Handler{mqtt: mqtt, secret: secret}
+}
+
+// SetAudit attaches an audit service for logging message_received events.
+func (h *Handler) SetAudit(a *audit.Service) {
+	h.audit = a
 }
 
 func (h *Handler) publish(topic string, qos byte, retained bool, v any) {
@@ -198,6 +207,19 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			Timestamp: ts,
 		}
 		h.publish(hubmqtt.TopicPosition(imei), 1, true, pos)
+	}
+
+	// Audit: log message_received event.
+	if h.audit != nil {
+		tid := auth.TenantIDFromContext(r.Context())
+		detail := fmt.Sprintf("imei=%s momsn=%d bytes=%d", imei, momsn, len(rawBytes))
+		ip := r.RemoteAddr
+		if fwd := r.Header.Get("X-Forwarded-For"); fwd != "" {
+			ip = strings.Split(fwd, ",")[0]
+		}
+		if err := h.audit.Log(r.Context(), tid, "message_received", "webhook", detail, ip); err != nil {
+			slog.Warn("audit: failed to log message_received", "error", err)
+		}
 	}
 
 	w.Header().Set("Content-Type", "application/json")

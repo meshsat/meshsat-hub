@@ -50,6 +50,7 @@ type Store interface {
 	// Audit log
 	InsertAuditEntry(ctx context.Context, tenantID string, a *AuditEntry) error
 	ListAuditEntries(ctx context.Context, tenantID string, limit int) ([]AuditEntry, error)
+	GetLatestAuditEntry(ctx context.Context, tenantID string) (*AuditEntry, error)
 
 	// Device config versioning
 	CreateDeviceConfig(ctx context.Context, tenantID string, c *DeviceConfig) error
@@ -129,13 +130,15 @@ type Position struct {
 	CreatedAt  time.Time `json:"created_at"`
 }
 
-// AuditEntry records a security-relevant action.
+// AuditEntry records a security-relevant action with hash-chain tamper evidence.
 type AuditEntry struct {
 	ID        string    `json:"id"`
 	Action    string    `json:"action"`
 	Actor     string    `json:"actor"`
 	Detail    string    `json:"detail,omitempty"`
 	IP        string    `json:"ip,omitempty"`
+	PrevHash  string    `json:"prev_hash"` // SHA-256 hash of the previous entry
+	Hash      string    `json:"hash"`      // SHA-256 of (action|actor|detail|ip|prev_hash)
 	CreatedAt time.Time `json:"created_at"`
 }
 

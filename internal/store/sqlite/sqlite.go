@@ -137,6 +137,8 @@ var alterMigrations = []string{
 	`ALTER TABLE delivery_logs ADD COLUMN tenant_id TEXT NOT NULL DEFAULT 'default'`,
 	`ALTER TABLE positions ADD COLUMN tenant_id TEXT NOT NULL DEFAULT 'default'`,
 	`ALTER TABLE audit_log ADD COLUMN tenant_id TEXT NOT NULL DEFAULT 'default'`,
+	`ALTER TABLE audit_log ADD COLUMN prev_hash TEXT NOT NULL DEFAULT ''`,
+	`ALTER TABLE audit_log ADD COLUMN hash TEXT NOT NULL DEFAULT ''`,
 }
 
 // postAlterMigrations create indexes and new tables. Safe to re-run.
@@ -431,13 +433,13 @@ func (d *DB) InsertAuditEntry(ctx context.Context, tenantID string, a *store.Aud
 		a.ID = fmt.Sprintf("aud-%d", time.Now().UnixNano())
 	}
 	_, err := d.db.ExecContext(ctx,
-		"INSERT INTO audit_log (id, action, actor, detail, ip, tenant_id) VALUES (?, ?, ?, ?, ?, ?)",
-		a.ID, a.Action, a.Actor, a.Detail, a.IP, tenantID)
+		"INSERT INTO audit_log (id, action, actor, detail, ip, prev_hash, hash, tenant_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+		a.ID, a.Action, a.Actor, a.Detail, a.IP, a.PrevHash, a.Hash, tenantID)
 	return err
 }
 
 func (d *DB) ListAuditEntries(ctx context.Context, tenantID string, limit int) ([]store.AuditEntry, error) {
-	query := "SELECT id, action, actor, detail, ip, created_at FROM audit_log WHERE tenant_id=? ORDER BY created_at DESC"
+	query := "SELECT id, action, actor, detail, ip, prev_hash, hash, created_at FROM audit_log WHERE tenant_id=? ORDER BY rowid DESC"
 	args := []interface{}{tenantID}
 	if limit > 0 {
 		query += fmt.Sprintf(" LIMIT %d", limit)
@@ -451,13 +453,27 @@ func (d *DB) ListAuditEntries(ctx context.Context, tenantID string, limit int) (
 	for rows.Next() {
 		var a store.AuditEntry
 		var createdAt string
-		if err := rows.Scan(&a.ID, &a.Action, &a.Actor, &a.Detail, &a.IP, &createdAt); err != nil {
+		if err := rows.Scan(&a.ID, &a.Action, &a.Actor, &a.Detail, &a.IP, &a.PrevHash, &a.Hash, &createdAt); err != nil {
 			return nil, err
 		}
 		a.CreatedAt, _ = time.Parse(time.DateTime, createdAt)
 		entries = append(entries, a)
 	}
 	return entries, nil
+}
+
+func (d *DB) GetLatestAuditEntry(ctx context.Context, tenantID string) (*store.AuditEntry, error) {
+	var a store.AuditEntry
+	var createdAt string
+	err := d.db.QueryRowContext(ctx,
+		"SELECT id, action, actor, detail, ip, prev_hash, hash, created_at FROM audit_log WHERE tenant_id=? ORDER BY rowid DESC LIMIT 1",
+		tenantID,
+	).Scan(&a.ID, &a.Action, &a.Actor, &a.Detail, &a.IP, &a.PrevHash, &a.Hash, &createdAt)
+	if err != nil {
+		return nil, err
+	}
+	a.CreatedAt, _ = time.Parse(time.DateTime, createdAt)
+	return &a, nil
 }
 
 // --- Device config versioning ---

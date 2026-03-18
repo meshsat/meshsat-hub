@@ -15,6 +15,7 @@ import (
 	"github.com/cubeos-app/meshsat-hub/cmd/meshsat-hub/web"
 	"github.com/cubeos-app/meshsat-hub/internal/api"
 	"github.com/cubeos-app/meshsat-hub/internal/aprsis"
+	"github.com/cubeos-app/meshsat-hub/internal/audit"
 	hubauth "github.com/cubeos-app/meshsat-hub/internal/auth"
 	"github.com/cubeos-app/meshsat-hub/internal/backup"
 	"github.com/cubeos-app/meshsat-hub/internal/bus"
@@ -99,7 +100,9 @@ func main() {
 		dataStore = sqlStore
 	}
 	defer func() { _ = dataStore.Close() }()
-	_ = dataStore // will be used by device registry, message logging, etc.
+
+	// Audit service (tamper-evident hash chain).
+	auditSvc := audit.New(dataStore)
 
 	// --- Dedup (tri-mode) ---
 	var dedupTracker dedup.Dedup
@@ -231,6 +234,7 @@ func main() {
 
 	// RockBLOCK webhook handler.
 	rbHandler := rockblock.NewHandler(msgBus, cfg.RockBLOCKSecret)
+	rbHandler.SetAudit(auditSvc)
 
 	r := chi.NewRouter()
 	r.Use(middleware.Recoverer)
@@ -331,6 +335,14 @@ func main() {
 		}
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(balance)
+	})
+
+	// Audit log (owner-only)
+	auditHandler := api.NewAuditHandler(auditSvc)
+	r.Route("/api/audit", func(r chi.Router) {
+		r.Use(hubauth.RequireRole(hubauth.RoleOwner))
+		r.Get("/", auditHandler.ListEntries)
+		r.Get("/verify", auditHandler.VerifyChain)
 	})
 
 	// Backup/restore
