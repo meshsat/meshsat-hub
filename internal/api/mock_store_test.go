@@ -1,0 +1,144 @@
+package api
+
+import (
+	"context"
+	"fmt"
+
+	"github.com/cubeos-app/meshsat-hub/internal/store"
+)
+
+// mockStore implements store.Store for unit tests with configurable return values.
+type mockStore struct {
+	// Devices
+	devices     []store.Device
+	device      *store.Device
+	deviceErr   error
+	createDevFn func(ctx context.Context, tid string, d *store.Device) error
+
+	// Messages
+	messages   []store.Message
+	message    *store.Message
+	messageErr error
+
+	// Positions
+	positions   []store.Position
+	position    *store.Position
+	positionErr error
+
+	// Audit
+	auditEntries []store.AuditEntry
+	auditEntry   *store.AuditEntry
+	auditErr     error
+
+	// Device config
+	deviceConfig  *store.DeviceConfig
+	deviceConfigs []store.DeviceConfig
+	configErr     error
+	createCfgFn   func(ctx context.Context, tid string, c *store.DeviceConfig) error
+
+	// API keys
+	apiKeys     []store.APIKey
+	apiKey      *store.APIKey
+	apiKeyErr   error
+	createKeyFn func(ctx context.Context, tid string, k *store.APIKey) error
+}
+
+func (m *mockStore) Migrate(context.Context) error { return nil }
+func (m *mockStore) Close() error                  { return nil }
+func (m *mockStore) Ping(context.Context) error    { return nil }
+
+func (m *mockStore) CreateDevice(ctx context.Context, tid string, d *store.Device) error {
+	if m.createDevFn != nil {
+		return m.createDevFn(ctx, tid, d)
+	}
+	return m.deviceErr
+}
+func (m *mockStore) GetDevice(_ context.Context, _ string, _ string) (*store.Device, error) {
+	if m.device == nil && m.deviceErr == nil {
+		return nil, fmt.Errorf("not found")
+	}
+	return m.device, m.deviceErr
+}
+func (m *mockStore) ListDevices(_ context.Context, _ string) ([]store.Device, error) {
+	return m.devices, m.deviceErr
+}
+func (m *mockStore) UpdateDevice(_ context.Context, _ string, _ *store.Device) error {
+	return m.deviceErr
+}
+func (m *mockStore) DeleteDevice(_ context.Context, _ string, _ string) error {
+	return m.deviceErr
+}
+func (m *mockStore) TouchDeviceLastSeen(context.Context, string, string) error { return nil }
+
+func (m *mockStore) InsertMessage(context.Context, string, *store.Message) error { return nil }
+func (m *mockStore) ListMessages(_ context.Context, _ string, _ string, _ int) ([]store.Message, error) {
+	return m.messages, m.messageErr
+}
+func (m *mockStore) GetMessage(_ context.Context, _ string, _ string) (*store.Message, error) {
+	if m.message == nil && m.messageErr == nil {
+		return nil, fmt.Errorf("not found")
+	}
+	return m.message, m.messageErr
+}
+
+func (m *mockStore) SaveWebhook(context.Context, string, *store.WebhookConfig) error { return nil }
+func (m *mockStore) ListWebhooks(context.Context, string) ([]store.WebhookConfig, error) {
+	return nil, nil
+}
+func (m *mockStore) DeleteWebhook(context.Context, string, string) error                 { return nil }
+func (m *mockStore) InsertDeliveryLog(context.Context, string, *store.DeliveryLog) error { return nil }
+func (m *mockStore) ListDeliveryLogs(context.Context, string, int) ([]store.DeliveryLog, error) {
+	return nil, nil
+}
+
+func (m *mockStore) InsertPosition(context.Context, string, *store.Position) error { return nil }
+func (m *mockStore) LatestPosition(_ context.Context, _ string, _ string) (*store.Position, error) {
+	if m.position == nil && m.positionErr == nil {
+		return nil, fmt.Errorf("not found")
+	}
+	return m.position, m.positionErr
+}
+func (m *mockStore) ListPositions(_ context.Context, _ string, _ string, _ int) ([]store.Position, error) {
+	return m.positions, m.positionErr
+}
+
+func (m *mockStore) InsertAuditEntry(context.Context, string, *store.AuditEntry) error { return nil }
+func (m *mockStore) ListAuditEntries(_ context.Context, _ string, _ int) ([]store.AuditEntry, error) {
+	return m.auditEntries, m.auditErr
+}
+func (m *mockStore) GetLatestAuditEntry(_ context.Context, _ string) (*store.AuditEntry, error) {
+	return m.auditEntry, m.auditErr
+}
+
+func (m *mockStore) CreateDeviceConfig(ctx context.Context, tid string, c *store.DeviceConfig) error {
+	if m.createCfgFn != nil {
+		return m.createCfgFn(ctx, tid, c)
+	}
+	return m.configErr
+}
+func (m *mockStore) GetDeviceConfigLatest(_ context.Context, _ string, _ string) (*store.DeviceConfig, error) {
+	return m.deviceConfig, m.configErr
+}
+func (m *mockStore) GetDeviceConfigVersion(_ context.Context, _ string, _ string, _ int) (*store.DeviceConfig, error) {
+	return m.deviceConfig, m.configErr
+}
+func (m *mockStore) ListDeviceConfigVersions(_ context.Context, _ string, _ string, _ int) ([]store.DeviceConfig, error) {
+	return m.deviceConfigs, m.configErr
+}
+
+func (m *mockStore) CreateAPIKey(ctx context.Context, tid string, k *store.APIKey) error {
+	if m.createKeyFn != nil {
+		return m.createKeyFn(ctx, tid, k)
+	}
+	return m.apiKeyErr
+}
+func (m *mockStore) GetAPIKeyByHash(context.Context, string) (*store.APIKey, string, error) {
+	return m.apiKey, "test-tenant", m.apiKeyErr
+}
+func (m *mockStore) ListAPIKeys(_ context.Context, _ string) ([]store.APIKey, error) {
+	return m.apiKeys, m.apiKeyErr
+}
+func (m *mockStore) DeleteAPIKey(_ context.Context, _ string, _ string) error {
+	return m.apiKeyErr
+}
+func (m *mockStore) TouchAPIKeyLastUsed(context.Context, string) error { return nil }
