@@ -1,28 +1,41 @@
 <script setup>
-import { ref, onMounted } from 'vue'
-import { devices } from '../api/client'
+import { ref, onMounted, computed } from 'vue'
+import { devices, messages } from '../api/client'
 
 const deviceList = ref([])
+const messageCounts = ref({})
 const newIMEI = ref('')
 const newLabel = ref('')
+const newType = ref('rockblock')
 const error = ref('')
+const loading = ref(false)
 
 onMounted(async () => {
   await loadDevices()
 })
 
 async function loadDevices() {
+  loading.value = true
   try {
-    deviceList.value = await devices.list()
+    deviceList.value = await devices.list() || []
+    // Load message counts per device in background
+    for (const d of deviceList.value) {
+      messages.list(d.imei, 1).then(msgs => {
+        messageCounts.value[d.imei] = Array.isArray(msgs) ? msgs.length : 0
+      }).catch(() => {})
+    }
   } catch (e) {
     error.value = e.message
+  } finally {
+    loading.value = false
   }
 }
 
 async function addDevice() {
-  if (!newIMEI.value) return
+  if (!newIMEI.value.trim()) return
+  error.value = ''
   try {
-    await devices.create({ imei: newIMEI.value, label: newLabel.value || newIMEI.value })
+    await devices.create({ imei: newIMEI.value.trim(), label: newLabel.value.trim() || newIMEI.value.trim(), type: newType.value })
     newIMEI.value = ''
     newLabel.value = ''
     await loadDevices()
@@ -40,48 +53,95 @@ async function removeDevice(imei) {
     error.value = e.message
   }
 }
+
+function deviceStatus(d) {
+  if (!d.last_seen || d.last_seen === '0001-01-01T00:00:00Z') return 'unknown'
+  const diff = Date.now() - new Date(d.last_seen).getTime()
+  if (diff < 3600000) return 'online'    // < 1 hour
+  if (diff < 86400000) return 'idle'     // < 24 hours
+  return 'offline'
+}
+
+function statusColor(status) {
+  if (status === 'online') return 'text-green-400'
+  if (status === 'idle') return 'text-yellow-400'
+  if (status === 'offline') return 'text-red-400'
+  return 'text-gray-500'
+}
+
+function formatLastSeen(d) {
+  if (!d.last_seen || d.last_seen === '0001-01-01T00:00:00Z') return '—'
+  return new Date(d.last_seen).toLocaleString()
+}
 </script>
 
 <template>
   <div>
-    <h1 style="font-size: 1.5rem; font-weight: bold; margin-bottom: 1rem;">Devices</h1>
+    <h1 class="text-xl font-bold mb-4">Devices</h1>
 
-    <div v-if="error" style="background: #7f1d1d; padding: 0.75rem; border-radius: 4px; margin-bottom: 1rem;">
+    <div v-if="error" class="bg-red-900/50 border border-red-700 text-red-200 px-4 py-3 rounded mb-4">
       {{ error }}
     </div>
 
     <!-- Add device form -->
-    <div style="display: flex; gap: 0.5rem; margin-bottom: 1rem;">
-      <input v-model="newIMEI" placeholder="IMEI" style="background: #374151; border: 1px solid #4b5563; padding: 0.5rem; border-radius: 4px; color: #f3f4f6; flex: 1;" />
-      <input v-model="newLabel" placeholder="Label (optional)" style="background: #374151; border: 1px solid #4b5563; padding: 0.5rem; border-radius: 4px; color: #f3f4f6; flex: 1;" />
-      <button @click="addDevice" style="background: #0891b2; color: white; padding: 0.5rem 1rem; border-radius: 4px; border: none; cursor: pointer;">Add</button>
+    <div class="flex flex-wrap gap-2 mb-4">
+      <input v-model="newIMEI" placeholder="IMEI"
+        class="bg-gray-700 border border-gray-600 px-3 py-2 rounded text-gray-100 placeholder-gray-500 focus:outline-none focus:border-cyan-400 flex-1 min-w-[180px]" />
+      <input v-model="newLabel" placeholder="Label (optional)"
+        class="bg-gray-700 border border-gray-600 px-3 py-2 rounded text-gray-100 placeholder-gray-500 focus:outline-none focus:border-cyan-400 flex-1 min-w-[140px]" />
+      <select v-model="newType"
+        class="bg-gray-700 border border-gray-600 px-3 py-2 rounded text-gray-100 focus:outline-none focus:border-cyan-400">
+        <option value="rockblock">RockBLOCK</option>
+        <option value="astrocast">Astrocast</option>
+        <option value="other">Other</option>
+      </select>
+      <button @click="addDevice"
+        class="bg-cyan-600 hover:bg-cyan-500 text-white px-4 py-2 rounded font-medium transition-colors">
+        Add
+      </button>
     </div>
 
     <!-- Device table -->
-    <table style="width: 100%; border-collapse: collapse;">
-      <thead>
-        <tr style="border-bottom: 1px solid #374151; text-align: left;">
-          <th style="padding: 0.5rem;">IMEI</th>
-          <th style="padding: 0.5rem;">Label</th>
-          <th style="padding: 0.5rem;">Type</th>
-          <th style="padding: 0.5rem;">Last Seen</th>
-          <th style="padding: 0.5rem;"></th>
-        </tr>
-      </thead>
-      <tbody>
-        <tr v-for="d in deviceList" :key="d.imei" style="border-bottom: 1px solid #1f2937;">
-          <td style="padding: 0.5rem; font-family: monospace;">{{ d.imei }}</td>
-          <td style="padding: 0.5rem;">{{ d.label }}</td>
-          <td style="padding: 0.5rem;">{{ d.type }}</td>
-          <td style="padding: 0.5rem; color: #9ca3af;">{{ d.last_seen || '—' }}</td>
-          <td style="padding: 0.5rem;">
-            <button @click="removeDevice(d.imei)" style="background: #991b1b; color: white; padding: 0.25rem 0.5rem; border-radius: 4px; border: none; cursor: pointer; font-size: 0.75rem;">Delete</button>
-          </td>
-        </tr>
-        <tr v-if="deviceList.length === 0">
-          <td colspan="5" style="padding: 1rem; text-align: center; color: #6b7280;">No devices registered</td>
-        </tr>
-      </tbody>
-    </table>
+    <div class="overflow-x-auto">
+      <table class="w-full border-collapse text-sm">
+        <thead>
+          <tr class="border-b border-gray-700 text-left text-gray-400">
+            <th class="px-3 py-2">Status</th>
+            <th class="px-3 py-2">IMEI</th>
+            <th class="px-3 py-2">Label</th>
+            <th class="px-3 py-2">Type</th>
+            <th class="px-3 py-2">Last Seen</th>
+            <th class="px-3 py-2 text-right">Msgs</th>
+            <th class="px-3 py-2"></th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr v-for="d in deviceList" :key="d.imei" class="border-b border-gray-800 hover:bg-gray-800/50">
+            <td class="px-3 py-2">
+              <span :class="statusColor(deviceStatus(d))" class="font-medium text-xs uppercase">
+                {{ deviceStatus(d) }}
+              </span>
+            </td>
+            <td class="px-3 py-2 font-mono text-xs">{{ d.imei }}</td>
+            <td class="px-3 py-2">{{ d.label }}</td>
+            <td class="px-3 py-2 text-gray-400">{{ d.type }}</td>
+            <td class="px-3 py-2 text-gray-400">{{ formatLastSeen(d) }}</td>
+            <td class="px-3 py-2 text-right text-gray-400">{{ messageCounts[d.imei] ?? '...' }}</td>
+            <td class="px-3 py-2 text-right">
+              <button @click="removeDevice(d.imei)"
+                class="bg-red-900 hover:bg-red-800 text-red-200 px-2 py-1 rounded text-xs transition-colors">
+                Delete
+              </button>
+            </td>
+          </tr>
+          <tr v-if="deviceList.length === 0 && !loading">
+            <td colspan="7" class="px-3 py-8 text-center text-gray-500">No devices registered</td>
+          </tr>
+          <tr v-if="loading">
+            <td colspan="7" class="px-3 py-8 text-center text-gray-500">Loading...</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
   </div>
 </template>

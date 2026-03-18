@@ -50,6 +50,11 @@ export const credits = {
   get: () => fetchJSON('/credits'),
 }
 
+export const ratelimit = {
+  all: () => fetchJSON('/ratelimit'),
+  get: (deviceID) => fetchJSON(`/ratelimit/${deviceID}`),
+}
+
 export const auditLog = {
   list: (limit = 100) => fetchJSON(`/audit?limit=${limit}`),
   verify: () => fetchJSON('/audit/verify'),

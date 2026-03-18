@@ -11,24 +11,28 @@ onMounted(async () => {
 
 <template>
   <div>
-    <h1 style="font-size: 1.5rem; font-weight: bold; margin-bottom: 1rem;">Settings</h1>
+    <h1 class="text-xl font-bold mb-4">Settings</h1>
 
-    <div style="background: #1f2937; padding: 1.5rem; border-radius: 8px; margin-bottom: 1rem;">
-      <h2 style="font-size: 1.125rem; font-weight: 600; margin-bottom: 0.75rem;">Hub Status</h2>
-      <pre style="font-family: monospace; font-size: 0.875rem; color: #9ca3af;">{{ JSON.stringify(hubHealth, null, 2) }}</pre>
+    <div class="bg-gray-800 rounded-lg p-5 mb-4">
+      <h2 class="text-lg font-semibold mb-3">Hub Status</h2>
+      <pre class="font-mono text-sm text-gray-400">{{ JSON.stringify(hubHealth, null, 2) }}</pre>
     </div>
 
-    <div style="background: #1f2937; padding: 1.5rem; border-radius: 8px;">
-      <h2 style="font-size: 1.125rem; font-weight: 600; margin-bottom: 0.75rem;">API Endpoints</h2>
-      <ul style="list-style: none; padding: 0; font-size: 0.875rem; color: #9ca3af;">
-        <li style="padding: 0.25rem 0;">GET /api/devices — Device registry</li>
-        <li style="padding: 0.25rem 0;">GET /api/messages — Message history</li>
-        <li style="padding: 0.25rem 0;">GET /api/positions/latest — All device positions (map)</li>
-        <li style="padding: 0.25rem 0;">GET /api/credits — Iridium credit balance</li>
-        <li style="padding: 0.25rem 0;">GET /api/ratelimit — Rate limit status</li>
-        <li style="padding: 0.25rem 0;">GET /api/webhooks — Outbound webhooks</li>
-        <li style="padding: 0.25rem 0;">GET /api/backup/export — Download backup</li>
-        <li style="padding: 0.25rem 0;">POST /api/webhook/rockblock — RockBLOCK MO webhook</li>
+    <div class="bg-gray-800 rounded-lg p-5">
+      <h2 class="text-lg font-semibold mb-3">API Endpoints</h2>
+      <ul class="text-sm text-gray-400 space-y-1">
+        <li><code class="text-gray-300">GET /api/devices</code> — Device registry</li>
+        <li><code class="text-gray-300">GET /api/devices/{imei}/config</code> — Device config (latest)</li>
+        <li><code class="text-gray-300">GET /api/messages</code> — Message history</li>
+        <li><code class="text-gray-300">GET /api/positions/latest</code> — All device positions</li>
+        <li><code class="text-gray-300">GET /api/credits</code> — Iridium credit balance</li>
+        <li><code class="text-gray-300">GET /api/ratelimit</code> — Rate limit / budget status</li>
+        <li><code class="text-gray-300">GET /api/audit</code> — Audit log</li>
+        <li><code class="text-gray-300">GET /api/audit/verify</code> — Verify audit chain</li>
+        <li><code class="text-gray-300">GET /api/auth/keys</code> — API keys</li>
+        <li><code class="text-gray-300">GET /api/webhooks</code> — Outbound webhooks</li>
+        <li><code class="text-gray-300">GET /api/backup/export</code> — Download backup</li>
+        <li><code class="text-gray-300">POST /api/webhook/rockblock</code> — RockBLOCK MO webhook</li>
       </ul>
     </div>
   </div>

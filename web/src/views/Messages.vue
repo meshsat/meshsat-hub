@@ -4,58 +4,94 @@ import { messages } from '../api/client'
 
 const messageList = ref([])
 const filter = ref('')
+const loading = ref(false)
+const error = ref('')
 
 onMounted(async () => {
   await loadMessages()
 })
 
 async function loadMessages() {
+  loading.value = true
+  error.value = ''
   try {
-    messageList.value = await messages.list(filter.value, 200)
+    messageList.value = await messages.list(filter.value, 200) || []
   } catch (e) {
-    console.error('Failed to load messages:', e)
+    error.value = e.message
+  } finally {
+    loading.value = false
   }
+}
+
+function formatTime(ts) {
+  if (!ts) return '—'
+  return new Date(ts).toLocaleString()
+}
+
+function dirClass(dir) {
+  return dir === 'mo' ? 'text-cyan-400' : 'text-purple-400'
+}
+
+function statusClass(status) {
+  if (status === 'received' || status === 'delivered') return 'text-green-400'
+  if (status === 'failed') return 'text-red-400'
+  return 'text-yellow-400'
 }
 </script>
 
 <template>
   <div>
-    <h1 style="font-size: 1.5rem; font-weight: bold; margin-bottom: 1rem;">Messages</h1>
+    <h1 class="text-xl font-bold mb-4">Messages</h1>
 
-    <div style="display: flex; gap: 0.5rem; margin-bottom: 1rem;">
-      <input v-model="filter" placeholder="Filter by device IMEI" @change="loadMessages"
-        style="background: #374151; border: 1px solid #4b5563; padding: 0.5rem; border-radius: 4px; color: #f3f4f6; flex: 1;" />
-      <button @click="loadMessages" style="background: #0891b2; color: white; padding: 0.5rem 1rem; border-radius: 4px; border: none; cursor: pointer;">Refresh</button>
+    <div v-if="error" class="bg-red-900/50 border border-red-700 text-red-200 px-4 py-3 rounded mb-4">
+      {{ error }}
     </div>
 
-    <table style="width: 100%; border-collapse: collapse; font-size: 0.875rem;">
-      <thead>
-        <tr style="border-bottom: 1px solid #374151; text-align: left;">
-          <th style="padding: 0.5rem;">Time</th>
-          <th style="padding: 0.5rem;">Dir</th>
-          <th style="padding: 0.5rem;">Device</th>
-          <th style="padding: 0.5rem;">Channel</th>
-          <th style="padding: 0.5rem;">Text</th>
-          <th style="padding: 0.5rem;">Status</th>
-        </tr>
-      </thead>
-      <tbody>
-        <tr v-for="m in messageList" :key="m.id" style="border-bottom: 1px solid #1f2937;">
-          <td style="padding: 0.5rem; color: #9ca3af; white-space: nowrap;">{{ m.created_at?.substring(0,19) }}</td>
-          <td style="padding: 0.5rem;">
-            <span :style="{ color: m.direction === 'mo' ? '#22d3ee' : '#a78bfa' }">{{ m.direction?.toUpperCase() }}</span>
-          </td>
-          <td style="padding: 0.5rem; font-family: monospace; font-size: 0.75rem;">{{ m.device_imei }}</td>
-          <td style="padding: 0.5rem;">{{ m.channel }}</td>
-          <td style="padding: 0.5rem; max-width: 300px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">{{ m.text || m.raw_hex }}</td>
-          <td style="padding: 0.5rem;">
-            <span :style="{ color: m.status === 'received' ? '#22c55e' : m.status === 'failed' ? '#ef4444' : '#eab308' }">{{ m.status }}</span>
-          </td>
-        </tr>
-        <tr v-if="messageList.length === 0">
-          <td colspan="6" style="padding: 1rem; text-align: center; color: #6b7280;">No messages</td>
-        </tr>
-      </tbody>
-    </table>
+    <div class="flex gap-2 mb-4">
+      <input v-model="filter" placeholder="Filter by device IMEI" @keyup.enter="loadMessages"
+        class="bg-gray-700 border border-gray-600 px-3 py-2 rounded text-gray-100 placeholder-gray-500 focus:outline-none focus:border-cyan-400 flex-1" />
+      <button @click="loadMessages"
+        class="bg-cyan-600 hover:bg-cyan-500 text-white px-4 py-2 rounded font-medium transition-colors">
+        Refresh
+      </button>
+    </div>
+
+    <div class="overflow-x-auto">
+      <table class="w-full border-collapse text-sm">
+        <thead>
+          <tr class="border-b border-gray-700 text-left text-gray-400">
+            <th class="px-3 py-2">Time</th>
+            <th class="px-3 py-2">Dir</th>
+            <th class="px-3 py-2">Device</th>
+            <th class="px-3 py-2">Channel</th>
+            <th class="px-3 py-2">Text</th>
+            <th class="px-3 py-2">Status</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr v-for="m in messageList" :key="m.id" class="border-b border-gray-800 hover:bg-gray-800/50">
+            <td class="px-3 py-2 text-gray-400 whitespace-nowrap">{{ formatTime(m.created_at) }}</td>
+            <td class="px-3 py-2">
+              <span :class="dirClass(m.direction)" class="font-semibold text-xs px-1.5 py-0.5 rounded"
+                :style="{ background: m.direction === 'mo' ? 'rgba(34,211,238,0.1)' : 'rgba(167,139,250,0.1)' }">
+                {{ m.direction?.toUpperCase() }}
+              </span>
+            </td>
+            <td class="px-3 py-2 font-mono text-xs">{{ m.device_imei }}</td>
+            <td class="px-3 py-2 text-gray-400">{{ m.channel }}</td>
+            <td class="px-3 py-2 max-w-xs truncate">{{ m.text || m.raw_hex || '—' }}</td>
+            <td class="px-3 py-2">
+              <span :class="statusClass(m.status)" class="text-xs font-medium">{{ m.status }}</span>
+            </td>
+          </tr>
+          <tr v-if="messageList.length === 0 && !loading">
+            <td colspan="6" class="px-3 py-8 text-center text-gray-500">No messages</td>
+          </tr>
+          <tr v-if="loading">
+            <td colspan="6" class="px-3 py-8 text-center text-gray-500">Loading...</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
   </div>
 </template>
