@@ -1,7 +1,6 @@
 package api
 
 import (
-	"encoding/json"
 	"log/slog"
 	"net/http"
 
@@ -76,8 +75,8 @@ func (h *NotificationHandler) SavePref(w http.ResponseWriter, r *http.Request) {
 	deviceIMEI := chi.URLParam(r, "device_imei")
 
 	var pref store.NotificationPref
-	if err := json.NewDecoder(r.Body).Decode(&pref); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid JSON body")
+	if err := readJSON(w, r, &pref); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 	if len(pref.URLs) == 0 {

@@ -1,7 +1,6 @@
 package api
 
 import (
-	"encoding/json"
 	"log/slog"
 	"net/http"
 
@@ -58,8 +57,8 @@ func (h *EscalationHandler) ListChains(w http.ResponseWriter, r *http.Request) {
 func (h *EscalationHandler) CreateChain(w http.ResponseWriter, r *http.Request) {
 	tid := auth.TenantIDFromContext(r.Context())
 	var chain store.EscalationChain
-	if err := json.NewDecoder(r.Body).Decode(&chain); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid JSON body")
+	if err := readJSON(w, r, &chain); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 	if chain.Name == "" {
@@ -180,8 +179,8 @@ type triggerAlertRequest struct {
 func (h *EscalationHandler) TriggerAlert(w http.ResponseWriter, r *http.Request) {
 	tid := auth.TenantIDFromContext(r.Context())
 	var req triggerAlertRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid JSON body")
+	if err := readJSON(w, r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 	if req.ChainID == "" {
@@ -226,8 +225,8 @@ func (h *EscalationHandler) AcknowledgeAlert(w http.ResponseWriter, r *http.Requ
 	id := chi.URLParam(r, "id")
 
 	var req ackRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid JSON body")
+	if err := readJSON(w, r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 	ackedBy := req.AckedBy

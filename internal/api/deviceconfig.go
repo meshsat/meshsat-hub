@@ -131,8 +131,8 @@ func (h *DeviceConfigHandler) CreateVersion(w http.ResponseWriter, r *http.Reque
 	imei := chi.URLParam(r, "imei")
 
 	var req createConfigRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid JSON body")
+	if err := readJSON(w, r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 

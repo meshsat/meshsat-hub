@@ -1,7 +1,6 @@
 package api
 
 import (
-	"encoding/json"
 	"net/http"
 	"time"
 
@@ -53,8 +52,8 @@ func (h *DeadmanHandler) ListConfigs(w http.ResponseWriter, _ *http.Request) {
 func (h *DeadmanHandler) Configure(w http.ResponseWriter, r *http.Request) {
 	imei := chi.URLParam(r, "imei")
 	var req deadmanConfigRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid JSON body")
+	if err := readJSON(w, r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 	if req.ChainID == "" && req.Enabled {
@@ -108,8 +107,8 @@ type snoozeRequest struct {
 func (h *DeadmanHandler) Snooze(w http.ResponseWriter, r *http.Request) {
 	imei := chi.URLParam(r, "imei")
 	var req snoozeRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid JSON body")
+	if err := readJSON(w, r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 	if req.DurationMin <= 0 {

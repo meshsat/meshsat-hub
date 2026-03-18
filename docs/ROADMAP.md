@@ -1,6 +1,6 @@
 # MeshSat Hub — Roadmap
 
-**Updated:** 2026-03-18
+**Updated:** 2026-03-19
 **YouTrack:** Project `MESHSAT`, issues prefixed `MESHSAT-`
 
 ---
@@ -32,7 +32,7 @@ Tier 1: STANDALONE           Tier 2: CLUSTER              Tier 3: KUBERNETES
 
 ---
 
-## Version History
+## Version History (Complete)
 
 ### v0.1 — Foundation (Complete)
 
@@ -40,95 +40,134 @@ Infrastructure, MQTT, SBD (MO + MT), SMAZ2 compression, Tor hidden service, heal
 
 ### v0.2 — Multi-Tenant Device Management (Complete, 2026-03-18)
 
-| Issue | Summary | Status |
-|-------|---------|--------|
-| MESHSAT-94 | OAuth2/OIDC authentication | Done |
-| MESHSAT-96 | Tenant isolation middleware | Done |
-| MESHSAT-97 | API keys + RBAC (viewer/operator/owner) | Done |
-| MESHSAT-98 | Device registry CRUD | Done |
-| MESHSAT-99 | Device config versioning | Done |
-| MESHSAT-100 | Cloudloop credit balance polling | Done |
-| MESHSAT-101 | Per-device daily + monthly budget limits | Done |
-| MESHSAT-102 | Tamper-evident SHA-256 hash-chain audit log | Done |
-| MESHSAT-103 | Vue.js dashboard scaffold (Tailwind, Pinia, auth) | Done |
-| MESHSAT-104-106 | Enhanced device/message/credit views | Done |
-| MESHSAT-148 | API key management UI + role-based nav | Done |
+OAuth2/OIDC, tenant isolation, RBAC (viewer/operator/owner), API keys, device registry, config versioning, credit polling, per-device budgets, audit log, Vue.js dashboard (Tailwind, Pinia, auth guards).
 
 ### v0.2 — Cluster Infrastructure Sprint (Complete, 2026-03-18)
 
-| Issue | Summary | Status |
-|-------|---------|--------|
-| MESHSAT-152 | Enhanced `/readyz` with live dependency probes (MariaDB, Redis, MQTT) | Done |
-| MESHSAT-149 | `docker-compose.cluster.yml` (MariaDB Galera, Redis 7, NATS 2.10, Hub x2) | Done |
-| MESHSAT-151 | Kubernetes Lease API leader election (`internal/leader/kubelease.go`) | Done |
-| MESHSAT-150 | Post-deploy E2E smoke tests + `verify` CI stage | Done |
-| MESHSAT-153 | Kubernetes raw manifests (`deploy/k8s/`) + Helm chart (`deploy/helm/`) | Done |
+MariaDB Galera, Redis, NATS, leader election, E2E smoke tests, Helm chart, Ansible playbooks. Production: Tier 2 active-active on NL + GR.
 
-**Bug fixes during deployment:**
-- Paho MQTT client defaulted to v3.1 protocol — NATS requires v3.1.1 (`SetProtocolVersion(4)`)
-- MQTT health check was one-shot `Set()` — converted to live `AddProbe()` for reconnect awareness
-- Duplicate MQTT client IDs across NATS cluster caused session flapping — unique IDs per host required
+### v0.3 — SOS and Safety (Complete, 2026-03-18)
 
-### v0.3 — SOS and Safety (In Progress)
+Escalation chains, dead man's switch, SBD fragmentation, message dedup, Apprise notifications, ntfy push.
 
-| Issue | Summary | Status |
-|-------|---------|--------|
-| MESHSAT-107 | SOS escalation chains | Open |
-| MESHSAT-108 | Dead man's switch | Open |
-| MESHSAT-109 | SBD fragmentation (compatible with bridge) | Open |
-| MESHSAT-110 | Message dedup queue | Open |
-| MESHSAT-111 | E2E encryption key management | Open |
-| MESHSAT-112 | Apprise multi-channel notifications | Open |
-| MESHSAT-113 | ntfy push notifications | Open |
+### v0.4 — Situational Awareness (Complete, 2026-03-18)
 
-### Future
+GPS position model, Douglas-Peucker simplification, polygon geofencing with escalation integration, map view (Leaflet).
 
-### Pre-v0.3 — Tech Debt (Open, from 2026-03-18 audit)
+### v0.5 — Connectivity and Federation (Complete, 2026-03-18)
 
-| Issue | Summary | Priority |
-|-------|---------|----------|
-| MESHSAT-154 | **BUG: MQTT subscriptions lost on broker reconnect** — silent message loss | P0 |
-| MESHSAT-155 | Reduce k8s.io/client-go dependency weight (40+ transitive deps) | P1 |
-| MESHSAT-156 | API handler unit tests — 0% coverage on 8 files | P2 |
-| MESHSAT-157 | Complete Swagger annotations — 18/28 handlers undocumented | P3 |
-| MESHSAT-158 | Minor cleanup — goroutine pool, unused deps, dead config field | P4 |
+Astrocast API client, MPTCP concentrator, WireGuard peer management, multi-constellation router (4 strategies).
 
-**MESHSAT-154 is a P0 safety blocker** — must be fixed before starting v0.3 SOS work. A dropped SOS message due to broker restart would be the worst possible failure mode.
+### v1.0 — Production Hardening (Complete, 2026-03-18)
 
-### Test Coverage Snapshot (2026-03-18)
+hawkBit OTA, built-in user management (Argon2id + JWT + refresh tokens), security headers (HSTS/CSP/CORS), OWASP testing, security MCP tools. Tech debt: MQTT reconnect fix, API handler tests, Swagger annotations, goroutine pool.
 
-| Coverage | Packages |
-|----------|----------|
-| 85%+ | auth (89%), audit (86.7%), compress (89.3%), health (100%) |
-| 50-85% | sqlite (80.1%), rockblock (72.8%), dedup (67.7%), constellation (65.2%), webhook (61.6%), config (56.8%), backup (56.6%) |
-| <50% | ratelimit (49.3%), cloudloop (41.8%), mqtt (23.2%), aprsis (11.5%), tak (10.6%) |
-| 0% | **api/ (8 files)**, bus/paho/, leader/ (3 impls), wireguard/ |
+---
 
-### Security Track (Ongoing — applies to all versions)
+## Post-v1.0 Gap Analysis (2026-03-19 Audit)
 
-MeshSat Hub is internet-exposed software. Security is the #1 priority across all development.
+A comprehensive code audit revealed that while all v0.1–v1.0 epics are closed, several features have **code that exists but is not wired into the runtime**, and several expected capabilities are **completely missing**.
 
-| Issue | Summary | When |
-|-------|---------|------|
-| MESHSAT-159 | OWASP compliance testing on public URLs at each v0.X release | Every release |
-| MESHSAT-160 | Install security audit MCP tools for dev sessions | Immediate |
-| MESHSAT-161 | Security headers (HSTS, CSP, X-Frame-Options, CORS) | Before v0.3 |
+### Built But Not Wired
 
-**CI Pipeline Security Gates (added 2026-03-18):**
-- `gosec` (SAST) — scans for Go security issues on every push
-- `govulncheck` — checks all dependencies for known CVEs on every push
-- Both run in the `security` stage before `test` — failures block the pipeline
+| Feature | Package | Gap |
+|---------|---------|-----|
+| MO fragment reassembly | `internal/fragment/` | `Reassembler` complete but `SetReassembler()` never called in main.go |
+| E2E encryption | `internal/crypto/` | AES-256-GCM + per-device keystore complete. Never instantiated. No API for key CRUD. RockBLOCK handler hardcodes `encrypted=false` |
+| SOS trigger logic | `internal/escalation/` | Engine + tiers + notifiers all work. But nothing detects SOS messages or publishes to `meshsat/{imei}/sos` |
+| Dead man's switch triggers | `internal/deadman/` | Monitor runs but integration with actual device heartbeats unclear |
 
-**Milestone Security Reviews:**
-- Every v0.X release: OWASP ZAP scan on production URLs, results in `docs/SECURITY_AUDIT.md`
-- Every new dependency: CVE check, license review, transitive dep count audit
-- Every new HTTP handler: auth middleware, input validation, rate limiting, Swagger annotations
+### Completely Missing
 
-### Future
+| Feature | Impact |
+|---------|--------|
+| SMS gateway (inbound + outbound) | Can't reach operators without internet/app |
+| PGP Email gateway (inbound + outbound) | No email channel for store-and-forward comms |
+| Astrocast MO webhook receiver | Can only send via Astrocast, not receive |
+| OpenAPI spec generation (swagger.json) | No machine-readable API docs |
+| Configurable message routing engine | Fanout is hardcoded MQTT subscriptions, not user-configurable rules |
+| MeshSat Simulator / virtual modem | Can't develop or demo without hardware |
+| IPoUGRS adapter (IP-over-satellite) | Experimental differentiator, not started |
+| Tor device discovery | Field devices can't auto-discover Hub .onion address |
+| WireGuard auto-provisioning | Devices don't get WG configs automatically on registration |
 
-- **v0.4:** Map view (Leaflet/MapLibre), geofencing, position history
-- **v0.5:** Multi-constellation (Astrocast Astronode S)
-- **v1.0:** Stable API, production hardening, documentation
+---
+
+## v1.1 — Wire the Unwired (Next)
+
+**Goal:** Complete the last-mile integration for features that are built but disconnected. After v1.1, every implemented feature is functional end-to-end.
+
+**Priority:** HIGH — these are silent failures in production (fragments silently dropped, encrypted messages silently rejected, SOS silently ignored).
+
+| Issue | Summary | Depends On | Est. |
+|-------|---------|-----------|------|
+| MESHSAT-168 | Wire MO fragment reassembly in main.go | — | 2h |
+| MESHSAT-169 | Wire E2E encryption: instantiate keystore, decrypt in RockBLOCK handler, add key CRUD API | MESHSAT-168 | 6h |
+| MESHSAT-170 | Implement SOS trigger: detect SOS in MO messages, publish to sos topic, fire escalation | — | 4h |
+| MESHSAT-171 | Wire dead man's switch to device heartbeats from position/telemetry updates | MESHSAT-170 | 3h |
+| MESHSAT-172 | Astrocast MO webhook receiver (POST /api/webhook/astrocast) | — | 4h |
+| MESHSAT-173 | OpenAPI spec generation with swaggo/swag + CI auto-generate | — | 4h |
+
+**Acceptance:** All unit tests pass. Integration test for fragment reassembly + encrypted MO message. SOS trigger fires escalation chain in test. swagger.json served at /api/docs.
+
+---
+
+## v1.2 — Channel Completion (After v1.1)
+
+**Goal:** Add the missing communication channels that make Hub a complete multi-channel gateway.
+
+| Issue | Summary | Depends On | Est. |
+|-------|---------|-----------|------|
+| MESHSAT-174 | SMS gateway: outbound via Twilio/Vonage REST API, inbound via webhook receiver | — | 8h |
+| MESHSAT-175 | SMS escalation notifier: wire SMS gateway to escalation engine as Notifier | MESHSAT-174 | 2h |
+| MESHSAT-186 | PGP Email gateway: SMTP outbound + IMAP inbound, auto PGP encrypt/decrypt, key management API | — | 10h |
+| MESHSAT-176 | WireGuard auto-provisioning: generate peer config on device registration, assign VPN IP | — | 6h |
+| MESHSAT-177 | Tor .onion address API: expose Hub's .onion in /api/config for device provisioning | — | 2h |
+
+**Acceptance:** SMS send+receive works with test Twilio account. PGP email send+receive with auto-encryption. WG config auto-generated on POST /api/devices. .onion address visible in API.
+
+---
+
+## v1.3 — Routing Engine (After v1.2)
+
+**Goal:** The killer feature — configurable any-to-any message routing with zero-config defaults.
+
+| Issue | Summary | Depends On | Est. |
+|-------|---------|-----------|------|
+| MESHSAT-178 | Routing engine: per-tenant routing rules (source → destinations) with CRUD API | — | 12h |
+| MESHSAT-179 | Default routes: zero-config fanout (satellite → TAK + APRS + webhook + notifications) | MESHSAT-178 | 4h |
+| MESHSAT-180 | Routing UI: Vue view for creating/editing/testing routing rules | MESHSAT-178 | 8h |
+| MESHSAT-181 | SMS as routing destination: integrate SMS gateway into routing engine | MESHSAT-174, MESHSAT-178 | 3h |
+| — | Email as routing destination: integrate PGP email into routing engine | MESHSAT-186, MESHSAT-178 | 3h |
+
+**Acceptance:** New tenant gets default routes that fan out to all enabled channels. Owner can add/remove/modify routes via UI. Any inbound message from any source reaches all configured destinations.
+
+---
+
+## v2.0 — Developer Experience (After v1.3)
+
+**Goal:** Make Hub approachable for developers and the open-source community.
+
+| Issue | Summary | Depends On | Est. |
+|-------|---------|-----------|------|
+| MESHSAT-182 | MeshSat Simulator: virtual Iridium/Astrocast modem, synthetic MO generator | — | 12h |
+| MESHSAT-183 | IPoUGRS adapter: IP-over-Iridium tunnel (experimental, mark as alpha) | — | 16h |
+| MESHSAT-184 | Developer onboarding: `make dev` starts Hub + Simulator + all deps, no hardware needed | MESHSAT-182 | 4h |
+| MESHSAT-185 | Sensor payload framework: pluggable decoders (ZigBee, LoRa, Protobuf) with registration API | — | 8h |
+
+**Acceptance:** `make dev` starts full stack with simulated devices. GitHub README has working quickstart. Sensor payloads decoded and routed.
+
+---
+
+## Security Track (Ongoing)
+
+| Practice | Frequency |
+|----------|-----------|
+| gosec + govulncheck in CI | Every push |
+| OWASP ZAP on production URLs | Every minor release |
+| Dependency audit (CVE + license) | Every new dependency |
+| readJSON() for all request bodies | Every new handler |
+| Pre-deploy Galera health gate | Every deployment |
 
 ---
 
@@ -138,41 +177,28 @@ MeshSat Hub is internet-exposed software. Security is the #1 priority across all
 
 | What | Where | How |
 |------|-------|-----|
-| Unit tests | CI (golang:1.25-alpine) | `go test ./...` — 16 packages |
+| Unit tests | CI (golang:1.25-alpine) | `go test ./...` — 28 packages |
 | Integration tests | CI (embedded MQTT) | `go test -tags=integration` |
 | E2E smoke tests | Post-deploy on live cluster | `test/e2e/smoke_test.sh` via `verify` CI stage |
-| Manual QA | Both DMZ hosts via SSH | docker exec + alpine/curl |
+| Playwright browser tests | Post-deploy | 37 tests across 4 categories |
 
 ### CI/CD Pipeline
 
 ```
-lint -> test -> build -> package (GHCR) -> deploy (AWX) -> verify (E2E) -> pages
+lint -> security -> test -> build -> package (GHCR) -> deploy (AWX) -> verify (E2E) -> pages
 ```
-
-AWX template ID 57 deploys to both DMZ hosts at `/srv/meshsat-hub/` as user `kyriakosp`.
 
 ### Production Hosts
 
-| Host | Location | IP | Role |
-|------|----------|-----|------|
-| nllei01dmz01 | Netherlands | 192.168.x.x | Hub-NL + NATS-NL |
-| grskg01dmz01 | Greece | 192.168.x.x | Hub-GR + NATS-GR |
+| Host | Location | Role |
+|------|----------|------|
+| nllei01dmz01 | Netherlands | Hub-NL, Galera node 1, garbd, Redis, NATS |
+| grskg01dmz01 | Greece | Hub-GR, Galera node 2, Redis, NATS |
 
-NATS instances are clustered via route connections over WireGuard, providing cross-site MQTT message replication. Each Hub instance uses a unique MQTT client ID (`meshsat-hub-nl` / `meshsat-hub-gr`).
+### Deployment
 
----
-
-## File Reference
-
-| File | Purpose |
-|------|---------|
-| `docker-compose.yml` | Development (build from source) |
-| `docker-compose.prod.yml` | Tier 1 standalone production |
-| `docker-compose.cluster.yml` | Tier 2 cluster (single-host, both instances) |
-| `Caddyfile.cluster` | Caddy config for cluster LB |
-| `nats.conf` | NATS server config with MQTT adapter + JetStream |
-| `.env.cluster.example` | Template for cluster env vars |
-| `scripts/migrate-sqlite-to-pg.sh` | SQLite to PostgreSQL data migration |
-| `test/e2e/smoke_test.sh` | Post-deploy E2E smoke tests |
-| `deploy/k8s/` | Raw Kubernetes manifests |
-| `deploy/helm/meshsat-hub/` | Helm chart with `values.yaml` |
+Use `/deploy` slash command or Ansible:
+```bash
+cd deploy/ansible && ansible-playbook -i inventory.yml playbooks/deploy-hub.yml
+```
+Pre-deploy Galera health gate: `scripts/check-galera-health.sh`

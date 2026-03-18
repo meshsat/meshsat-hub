@@ -1,7 +1,6 @@
 package api
 
 import (
-	"encoding/json"
 	"net/http"
 
 	"github.com/cubeos-app/meshsat-hub/internal/auth"
@@ -70,8 +69,8 @@ func (h *DeviceHandler) GetDevice(w http.ResponseWriter, r *http.Request) {
 // @Router /api/devices [post]
 func (h *DeviceHandler) CreateDevice(w http.ResponseWriter, r *http.Request) {
 	var dev store.Device
-	if err := json.NewDecoder(r.Body).Decode(&dev); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
+	if err := readJSON(w, r, &dev); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 	if dev.IMEI == "" {
@@ -116,8 +115,8 @@ func (h *DeviceHandler) UpdateDevice(w http.ResponseWriter, r *http.Request) {
 		Type  string `json:"type"`
 		Notes string `json:"notes"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid JSON")
+	if err := readJSON(w, r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 
