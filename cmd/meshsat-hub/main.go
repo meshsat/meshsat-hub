@@ -28,6 +28,7 @@ import (
 	"github.com/cubeos-app/meshsat-hub/internal/deadman"
 	"github.com/cubeos-app/meshsat-hub/internal/dedup"
 	"github.com/cubeos-app/meshsat-hub/internal/escalation"
+	"github.com/cubeos-app/meshsat-hub/internal/hawkbit"
 	"github.com/cubeos-app/meshsat-hub/internal/health"
 	"github.com/cubeos-app/meshsat-hub/internal/leader"
 	"github.com/cubeos-app/meshsat-hub/internal/mptcp"
@@ -495,6 +496,33 @@ func main() {
 			r.Get("/api/wireguard/peers/{id}/config", wgHandler.GetPeerConfig)
 			r.Delete("/api/wireguard/peers/{id}", wgHandler.DeletePeer)
 			slog.Info("wireguard: peer management enabled", "url", cfg.WGURL)
+		}
+	}
+
+	// hawkBit OTA management (optional)
+	if cfg.HawkBitEnabled && cfg.HawkBitURL != "" {
+		hbClient := hawkbit.NewClient(cfg.HawkBitURL, cfg.HawkBitUsername, cfg.HawkBitPassword)
+		if hbClient.IsReachable(ctx) {
+			hbHandler := hawkbit.NewAPIHandler(hbClient)
+			r.Get("/api/ota/targets", hbHandler.ListTargets)
+			r.Post("/api/ota/targets", hbHandler.CreateTarget)
+			r.Get("/api/ota/targets/{controllerId}", hbHandler.GetTarget)
+			r.Delete("/api/ota/targets/{controllerId}", hbHandler.DeleteTarget)
+			r.Get("/api/ota/targets/{controllerId}/actions", hbHandler.GetTargetActions)
+			r.Delete("/api/ota/targets/{controllerId}/actions/{actionId}", hbHandler.CancelAction)
+			r.Post("/api/ota/rollouts", hbHandler.CreateRollout)
+			r.Get("/api/ota/rollouts/{id}", hbHandler.GetRollout)
+			r.Post("/api/ota/rollouts/{id}/start", hbHandler.StartRollout)
+			r.Post("/api/ota/rollouts/{id}/pause", hbHandler.PauseRollout)
+			checker.AddProbe("hawkbit", func(ctx context.Context) error {
+				if !hbClient.IsReachable(ctx) {
+					return fmt.Errorf("hawkbit not reachable")
+				}
+				return nil
+			})
+			slog.Info("hawkbit: OTA management enabled", "url", cfg.HawkBitURL)
+		} else {
+			slog.Warn("hawkbit: server not reachable (OTA management disabled)", "url", cfg.HawkBitURL)
 		}
 	}
 

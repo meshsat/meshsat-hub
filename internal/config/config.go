@@ -64,6 +64,12 @@ type Config struct {
 	NtfyURL     string `yaml:"ntfy_url"`   // ntfy server URL (e.g., https://ntfy.sh or http://ntfy:80)
 	NtfyToken   string `yaml:"ntfy_token"` // optional access token for protected topics
 
+	// hawkBit OTA
+	HawkBitEnabled  bool   `yaml:"hawkbit_enabled"`
+	HawkBitURL      string `yaml:"hawkbit_url"`      // hawkBit Management API URL (e.g., http://hawkbit:8080)
+	HawkBitUsername string `yaml:"hawkbit_username"` // Management API username
+	HawkBitPassword string `yaml:"hawkbit_password"` // Management API password
+
 	// WireGuard (wg-easy)
 	WGEnabled  bool   `yaml:"wg_enabled"`
 	WGURL      string `yaml:"wg_url"`      // wg-easy base URL (e.g., http://wg-easy:51821)
@@ -241,6 +247,20 @@ func Load() (Config, error) {
 	}
 	if v := os.Getenv("HUB_NTFY_TOKEN"); v != "" {
 		cfg.NtfyToken = v
+	}
+
+	// hawkBit OTA overrides
+	if v := os.Getenv("HUB_HAWKBIT_ENABLED"); v != "" {
+		cfg.HawkBitEnabled = strings.EqualFold(v, "true") || v == "1"
+	}
+	if v := os.Getenv("HUB_HAWKBIT_URL"); v != "" {
+		cfg.HawkBitURL = v
+	}
+	if v := os.Getenv("HUB_HAWKBIT_USERNAME"); v != "" {
+		cfg.HawkBitUsername = v
+	}
+	if v := os.Getenv("HUB_HAWKBIT_PASSWORD"); v != "" {
+		cfg.HawkBitPassword = v
 	}
 
 	// WireGuard overrides
