@@ -1,0 +1,114 @@
+---
+# bootstrap.yml — Initialize a new Galera cluster from scratch.
+#
+# DESTRUCTIVE: Wipes all MariaDB data. Only use for initial setup or
+# complete cluster rebuild.
+#
+# Usage:
+#   # Set the bootstrap node in inventory (galera_bootstrap: true)
+#   ansible-playbook -i inventory.yml playbooks/bootstrap.yml --ask-vault-pass
+#
+# Steps:
+#   1. Deploy configs to all nodes
+#   2. Stop all containers on all nodes
+#   3. Bootstrap the primary node with gcomm://
+#   4. Start secondary nodes (they join via SST)
+#   5. Start garbd arbitrator
+#   6. Start Hub + supporting services on all nodes
+#   7. Create initial admin user
+
+- name: Deploy configs to all nodes
+  hosts: galera_nodes
+  become: true
+  roles:
+    - meshsat-hub
+
+- name: Stop all containers
+  hosts: galera_nodes
+  tasks:
+    - name: Stop all meshsat containers
+      shell: "cd {{ compose_dir }} && docker compose down -v 2>/dev/null; docker stop meshsat-garbd 2>/dev/null; docker rm meshsat-garbd 2>/dev/null; true"
+
+- name: Bootstrap primary Galera node
+  hosts: galera_nodes
+  serial: 1
+  tasks:
+    - name: Bootstrap MariaDB (primary only)
+      shell: "cd {{ compose_dir }} && WSREP_CLUSTER_ADDRESS=gcomm:// docker compose up -d mariadb"
+      when: galera_bootstrap | default(false)
+
+    - name: Wait for MariaDB to become healthy
+      shell: "docker exec meshsat-mariadb mariadb -u root -p{{ mariadb_root_password }} -e 'SHOW STATUS LIKE \"wsrep_ready\"'"
+      register: mariadb_ready
+      retries: 30
+      delay: 5
+      until: "'ON' in mariadb_ready.stdout"
+      when: galera_bootstrap | default(false)
+
+- name: Join secondary nodes
+  hosts: galera_nodes
+  serial: 1
+  tasks:
+    - name: Start MariaDB (join cluster)
+      shell: "cd {{ compose_dir }} && docker compose up -d mariadb"
+      when: not (galera_bootstrap | default(false))
+
+    - name: Wait for MariaDB to sync
+      shell: "docker exec meshsat-mariadb mariadb -u root -p{{ mariadb_root_password }} -e 'SHOW STATUS LIKE \"wsrep_cluster_size\"'"
+      register: cluster_size
+      retries: 60
+      delay: 5
+      until: cluster_size.stdout is search('2') or cluster_size.stdout is search('3')
+      when: not (galera_bootstrap | default(false))
+
+- name: Start garbd arbitrator
+  hosts: galera_nodes
+  tasks:
+    - name: Build garbd image
+      shell: |
+        echo 'FROM ubuntu:22.04
+        RUN apt-get update && apt-get install -y --no-install-recommends galera-arbitrator-4 && rm -rf /var/lib/apt/lists/*
+        ENTRYPOINT ["/usr/bin/garbd"]' > /tmp/Dockerfile.garbd
+        docker build -f /tmp/Dockerfile.garbd -t meshsat-garbd:latest /tmp
+      when: garbd_host | default(false)
+
+    - name: Start garbd
+      shell: |
+        docker stop meshsat-garbd 2>/dev/null; docker rm meshsat-garbd 2>/dev/null
+        docker run -d --name meshsat-garbd --network host --restart unless-stopped \
+          --entrypoint /usr/bin/garbd meshsat-garbd:latest \
+          --group={{ galera_cluster_name }} \
+          --address={{ galera_cluster_address }} \
+          --name=meshsat-garbd \
+          --option=gmcast.listen_addr=tcp://0.0.0.0:4570
+      when: garbd_host | default(false)
+
+- name: Start Hub and supporting services
+  hosts: galera_nodes
+  tasks:
+    - name: Pull latest Hub image
+      shell: "docker pull {{ hub_image }}"
+
+    - name: Start Redis, NATS, Hub, nginx
+      shell: "cd {{ compose_dir }} && docker compose up -d --no-deps redis nats && sleep 5 && docker compose up -d --no-deps hub nginx"
+
+    - name: Wait for Hub health
+      uri:
+        url: "http://localhost:{{ hub_port }}/readyz"
+        status_code: 200
+      register: hub_health
+      retries: 30
+      delay: 5
+      until: hub_health.status == 200
+
+- name: Verify cluster
+  hosts: galera_nodes
+  run_once: true
+  tasks:
+    - name: Check Galera cluster size
+      shell: "docker exec meshsat-mariadb mariadb -u root -p{{ mariadb_root_password }} -e 'SHOW STATUS LIKE \"wsrep_cluster_size\"'"
+      register: final_size
+
+    - name: Display cluster size
+      debug:
+        msg: "{{ final_size.stdout }}"

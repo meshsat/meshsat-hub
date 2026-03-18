@@ -1,0 +1,17 @@
+---
+compose_dir: /srv/meshsat-hub
+hub_image: ghcr.io/cubeos-app/meshsat-hub:latest
+garbd_image: meshsat-garbd:latest
+
+# Galera
+mariadb_image: mariadb:11-jammy
+galera_cluster_name: meshsat-galera
+galera_sst_method: rsync
+
+# Hub
+hub_port: 6070
+nginx_port: 8451
+
+# Timeouts
+mariadb_health_start_period: 120
+hub_health_start_period: 15

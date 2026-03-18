@@ -1,0 +1,99 @@
+---
+# recover.yml — Recover a Galera cluster after total outage.
+#
+# Use when ALL MariaDB nodes are down and the cluster needs re-bootstrapping
+# WITHOUT losing data. Finds the most advanced node and bootstraps from it.
+#
+# Usage:
+#   ansible-playbook -i inventory.yml playbooks/recover.yml --ask-vault-pass
+#
+# IMPORTANT: This does NOT wipe data. It reads grastate.dat to find the
+# node with the highest seqno and bootstraps from that node.
+
+- name: Find the most advanced Galera node
+  hosts: galera_nodes
+  tasks:
+    - name: Stop MariaDB if running
+      shell: "docker stop meshsat-mariadb 2>/dev/null; true"
+
+    - name: Read Galera state
+      shell: "docker run --rm -v meshsat-hub_mariadb-data:/var/lib/mysql {{ mariadb_image | default('mariadb:11-jammy') }} cat /var/lib/mysql/grastate.dat 2>/dev/null || echo 'seqno: -1'"
+      register: grastate
+
+    - name: Extract seqno
+      set_fact:
+        galera_seqno: "{{ grastate.stdout | regex_search('seqno:\\s+(-?\\d+)', '\\1') | first | default('-1') }}"
+
+    - name: Display node states
+      debug:
+        msg: "{{ inventory_hostname }}: seqno={{ galera_seqno }}"
+
+- name: Select bootstrap node (highest seqno)
+  hosts: localhost
+  gather_facts: false
+  tasks:
+    - name: Find most advanced node
+      set_fact:
+        bootstrap_node: "{{ groups['galera_nodes'] | sort(attribute='galera_seqno') | last }}"
+
+    - name: Announce bootstrap node
+      debug:
+        msg: "Bootstrapping from {{ bootstrap_node }} (seqno={{ hostvars[bootstrap_node].galera_seqno }})"
+
+- name: Bootstrap from most advanced node
+  hosts: galera_nodes
+  serial: 1
+  tasks:
+    - name: Set safe_to_bootstrap in grastate.dat
+      shell: |
+        docker run --rm -v meshsat-hub_mariadb-data:/var/lib/mysql \
+          {{ mariadb_image | default('mariadb:11-jammy') }} \
+          sed -i 's/safe_to_bootstrap: 0/safe_to_bootstrap: 1/' /var/lib/mysql/grastate.dat
+      when: inventory_hostname == hostvars['localhost'].bootstrap_node
+
+    - name: Bootstrap MariaDB
+      shell: "cd {{ compose_dir }} && WSREP_CLUSTER_ADDRESS=gcomm:// docker compose up -d mariadb"
+      when: inventory_hostname == hostvars['localhost'].bootstrap_node
+
+    - name: Wait for bootstrap
+      shell: "docker exec meshsat-mariadb mariadb -u root -p{{ mariadb_root_password }} -e 'SHOW STATUS LIKE \"wsrep_ready\"'"
+      register: ready
+      retries: 30
+      delay: 5
+      until: "'ON' in ready.stdout"
+      when: inventory_hostname == hostvars['localhost'].bootstrap_node
+
+- name: Join remaining nodes
+  hosts: galera_nodes
+  serial: 1
+  tasks:
+    - name: Start MariaDB (join)
+      shell: "cd {{ compose_dir }} && docker compose up -d mariadb"
+      when: inventory_hostname != hostvars['localhost'].bootstrap_node
+
+    - name: Wait for join
+      shell: "docker exec meshsat-mariadb mariadb -u root -p{{ mariadb_root_password }} -e 'SHOW STATUS LIKE \"wsrep_cluster_size\"'"
+      register: size
+      retries: 60
+      delay: 5
+      until: "'2' in size.stdout or '3' in size.stdout"
+      when: inventory_hostname != hostvars['localhost'].bootstrap_node
+
+- name: Restart garbd and Hub
+  hosts: galera_nodes
+  tasks:
+    - name: Start garbd
+      shell: "docker restart meshsat-garbd 2>/dev/null || true"
+      when: garbd_host | default(false)
+
+    - name: Start Hub stack
+      shell: "cd {{ compose_dir }} && docker compose up -d --no-deps redis nats && sleep 5 && docker compose up -d --no-deps hub nginx"
+
+    - name: Wait for Hub
+      uri:
+        url: "http://localhost:{{ hub_port | default(6070) }}/readyz"
+        status_code: 200
+      register: hub_health
+      retries: 30
+      delay: 5
+      until: hub_health.status == 200

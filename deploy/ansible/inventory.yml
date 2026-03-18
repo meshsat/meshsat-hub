@@ -1,0 +1,42 @@
+---
+# MeshSat Hub — Ansible Inventory
+# Defines the Galera cluster topology for deployment and operations.
+#
+# Usage:
+#   ansible-playbook -i inventory.yml playbooks/bootstrap.yml
+#   ansible-playbook -i inventory.yml playbooks/deploy-hub.yml
+#
+# To add a new node: copy a host entry, set the VPN IP, and run join-node.yml.
+
+all:
+  vars:
+    compose_dir: /srv/meshsat-hub
+    hub_image: ghcr.io/cubeos-app/meshsat-hub:latest
+    mariadb_root_password: "{{ vault_mariadb_root_password }}"
+    mariadb_password: "{{ vault_mariadb_password }}"
+    jwt_signing_key: "{{ vault_jwt_signing_key }}"
+    auth_token: "{{ vault_auth_token }}"
+
+  children:
+    galera_nodes:
+      hosts:
+        nllei01dmz01:
+          ansible_host: nllei01dmz01
+          vpn_ip: 192.168.192.10
+          site_name: meshsat-hub-nl
+          galera_bootstrap: false  # Set to true ONLY for initial bootstrap
+          garbd_host: true         # Runs the Galera arbitrator
+          cluster_peers: "https://192.168.15.10:8451"
+
+        grskg01dmz01:
+          ansible_host: grskg01dmz01
+          vpn_ip: 192.168.15.10
+          site_name: meshsat-hub-gr
+          galera_bootstrap: false
+          garbd_host: false
+          cluster_peers: "https://192.168.192.10:8451"
+
+      vars:
+        # All Galera node VPN IPs (auto-built from inventory)
+        galera_cluster_address: "gcomm://192.168.192.10,192.168.15.10"
+        galera_ports: [3306, 4444, 4567, 4568]

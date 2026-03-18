@@ -1,0 +1,39 @@
+---
+# deploy-hub.yml — Safe rolling update of Hub containers only.
+# NEVER touches MariaDB, Redis, NATS, nginx, or garbd.
+#
+# Usage:
+#   ansible-playbook -i inventory.yml playbooks/deploy-hub.yml
+#   ansible-playbook -i inventory.yml playbooks/deploy-hub.yml -e hub_image=ghcr.io/cubeos-app/meshsat-hub:abc123
+#
+# This is the playbook that CI/CD should trigger for every push to main.
+
+- name: Rolling Hub deployment
+  hosts: galera_nodes
+  serial: 1  # One node at a time for zero-downtime
+  tasks:
+    - name: Pull new Hub image
+      shell: "docker pull {{ hub_image }}"
+
+    - name: Recreate Hub container (no dependencies touched)
+      shell: "cd {{ compose_dir }} && docker compose up -d --no-deps --force-recreate hub"
+
+    - name: Wait for Hub to become healthy
+      uri:
+        url: "http://localhost:{{ hub_port | default(6070) }}/healthz"
+        status_code: 200
+      register: hub_health
+      retries: 30
+      delay: 2
+      until: hub_health.status == 200
+
+    - name: Verify readyz (MariaDB + MQTT + Redis)
+      uri:
+        url: "http://localhost:{{ hub_port | default(6070) }}/readyz"
+        status_code: 200
+        return_content: true
+      register: readyz
+
+    - name: Display readyz
+      debug:
+        msg: "{{ readyz.json }}"

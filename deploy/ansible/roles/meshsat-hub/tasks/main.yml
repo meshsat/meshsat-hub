@@ -1,0 +1,66 @@
+---
+# Core tasks for MeshSat Hub deployment.
+# Included by all playbooks.
+
+- name: Create compose directory
+  file:
+    path: "{{ compose_dir }}"
+    state: directory
+    mode: "0750"
+
+- name: Deploy .env file
+  template:
+    src: env.j2
+    dest: "{{ compose_dir }}/.env"
+    mode: "0600"
+  notify: restart hub
+
+- name: Deploy docker-compose.yml
+  copy:
+    src: "{{ playbook_dir }}/../../../docker-compose.yml"
+    dest: "{{ compose_dir }}/docker-compose.yml"
+    mode: "0644"
+
+- name: Deploy nats.conf
+  copy:
+    src: "{{ playbook_dir }}/../../../nats.conf"
+    dest: "{{ compose_dir }}/nats.conf"
+    mode: "0644"
+
+- name: Open Galera firewall ports (inbound from VPN)
+  ufw:
+    rule: allow
+    from_addr: "{{ hostvars[item].vpn_ip }}"
+    port: "{{ galera_port }}"
+    proto: tcp
+    comment: "Galera cluster - {{ item }}"
+  loop: "{{ groups['galera_nodes'] }}"
+  loop_control:
+    loop_var: item
+  with_items: "{{ galera_ports }}"
+  become: true
+  when: galera_ports is defined
+
+- name: Open Galera firewall ports (outbound to VPN peers)
+  ufw:
+    rule: allow
+    direction: out
+    to_addr: "{{ hostvars[item].vpn_ip }}"
+    port: "{{ galera_port }}"
+    proto: tcp
+    comment: "Galera cluster out - {{ item }}"
+  loop: "{{ groups['galera_nodes'] }}"
+  loop_control:
+    loop_var: item
+  with_items: "{{ galera_ports }}"
+  become: true
+  when: galera_ports is defined
+
+- name: Allow Docker bridge to MariaDB
+  ufw:
+    rule: allow
+    from_addr: 172.16.0.0/12
+    port: "3306"
+    proto: tcp
+    comment: "Docker to MariaDB"
+  become: true

@@ -1,0 +1,79 @@
+---
+# add-node.yml — Add a new node to an existing Galera cluster.
+#
+# Prerequisites:
+#   1. Add the new host to inventory.yml under galera_nodes
+#   2. Ensure VPN connectivity between all nodes
+#   3. Update galera_cluster_address to include the new node's VPN IP
+#   4. Update cluster_peers on existing nodes
+#
+# Usage:
+#   ansible-playbook -i inventory.yml playbooks/add-node.yml --limit new-host --ask-vault-pass
+
+- name: Deploy configs to new node
+  hosts: galera_nodes
+  roles:
+    - meshsat-hub
+
+- name: Open firewall on ALL nodes for the new member
+  hosts: galera_nodes
+  become: true
+  tasks:
+    - name: Allow Galera ports from new node
+      ufw:
+        rule: allow
+        from_addr: "{{ hostvars[item].vpn_ip }}"
+        port: "{{ port }}"
+        proto: tcp
+        comment: "Galera - {{ item }}"
+      loop: "{{ groups['galera_nodes'] }}"
+      loop_control:
+        loop_var: item
+      vars:
+        port: "{{ galera_port }}"
+      with_items: [3306, 4444, 4567, 4568]
+
+- name: Start MariaDB on new node (joins via SST)
+  hosts: galera_nodes
+  serial: 1
+  tasks:
+    - name: Start MariaDB
+      shell: "cd {{ compose_dir }} && docker compose up -d mariadb"
+      when: inventory_hostname == ansible_limit
+
+    - name: Wait for SST and sync
+      shell: "docker exec meshsat-mariadb mariadb -u root -p{{ mariadb_root_password }} -e 'SHOW STATUS LIKE \"wsrep_local_state_comment\"'"
+      register: state
+      retries: 120
+      delay: 5
+      until: "'Synced' in state.stdout"
+      when: inventory_hostname == ansible_limit
+
+- name: Start Hub stack on new node
+  hosts: galera_nodes
+  tasks:
+    - name: Pull and start services
+      shell: |
+        docker pull {{ hub_image }}
+        cd {{ compose_dir }}
+        docker compose up -d --no-deps redis nats
+        sleep 5
+        docker compose up -d --no-deps hub nginx
+      when: inventory_hostname == ansible_limit
+
+    - name: Verify
+      uri:
+        url: "http://localhost:{{ hub_port | default(6070) }}/readyz"
+        status_code: 200
+      register: health
+      retries: 30
+      delay: 5
+      until: health.status == 200
+      when: inventory_hostname == ansible_limit
+
+- name: Update existing nodes with new peer
+  hosts: galera_nodes
+  tasks:
+    - name: Restart Hub to pick up new cluster_peers
+      shell: "cd {{ compose_dir }} && docker compose up -d --no-deps --force-recreate hub"
+      when: inventory_hostname != ansible_limit
