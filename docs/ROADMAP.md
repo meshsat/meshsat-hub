@@ -83,6 +83,49 @@ Infrastructure, MQTT, SBD (MO + MT), SMAZ2 compression, Tor hidden service, heal
 
 ### Future
 
+### Pre-v0.3 — Tech Debt (Open, from 2026-03-18 audit)
+
+| Issue | Summary | Priority |
+|-------|---------|----------|
+| MESHSAT-154 | **BUG: MQTT subscriptions lost on broker reconnect** — silent message loss | P0 |
+| MESHSAT-155 | Reduce k8s.io/client-go dependency weight (40+ transitive deps) | P1 |
+| MESHSAT-156 | API handler unit tests — 0% coverage on 8 files | P2 |
+| MESHSAT-157 | Complete Swagger annotations — 18/28 handlers undocumented | P3 |
+| MESHSAT-158 | Minor cleanup — goroutine pool, unused deps, dead config field | P4 |
+
+**MESHSAT-154 is a P0 safety blocker** — must be fixed before starting v0.3 SOS work. A dropped SOS message due to broker restart would be the worst possible failure mode.
+
+### Test Coverage Snapshot (2026-03-18)
+
+| Coverage | Packages |
+|----------|----------|
+| 85%+ | auth (89%), audit (86.7%), compress (89.3%), health (100%) |
+| 50-85% | sqlite (80.1%), rockblock (72.8%), dedup (67.7%), constellation (65.2%), webhook (61.6%), config (56.8%), backup (56.6%) |
+| <50% | ratelimit (49.3%), cloudloop (41.8%), mqtt (23.2%), aprsis (11.5%), tak (10.6%) |
+| 0% | **api/ (8 files)**, bus/paho/, leader/ (3 impls), wireguard/ |
+
+### Security Track (Ongoing — applies to all versions)
+
+MeshSat Hub is internet-exposed software. Security is the #1 priority across all development.
+
+| Issue | Summary | When |
+|-------|---------|------|
+| MESHSAT-159 | OWASP compliance testing on public URLs at each v0.X release | Every release |
+| MESHSAT-160 | Install security audit MCP tools for dev sessions | Immediate |
+| MESHSAT-161 | Security headers (HSTS, CSP, X-Frame-Options, CORS) | Before v0.3 |
+
+**CI Pipeline Security Gates (added 2026-03-18):**
+- `gosec` (SAST) — scans for Go security issues on every push
+- `govulncheck` — checks all dependencies for known CVEs on every push
+- Both run in the `security` stage before `test` — failures block the pipeline
+
+**Milestone Security Reviews:**
+- Every v0.X release: OWASP ZAP scan on production URLs, results in `docs/SECURITY_AUDIT.md`
+- Every new dependency: CVE check, license review, transitive dep count audit
+- Every new HTTP handler: auth middleware, input validation, rate limiting, Swagger annotations
+
+### Future
+
 - **v0.4:** Map view (Leaflet/MapLibre), geofencing, position history
 - **v0.5:** Multi-constellation (Astrocast Astronode S)
 - **v1.0:** Stable API, production hardening, documentation

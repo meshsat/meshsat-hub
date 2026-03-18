@@ -1,5 +1,6 @@
 stages:
   - lint
+  - security
   - test
   - build
   - package
@@ -23,6 +24,43 @@ lint:
     - go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest
   script:
     - golangci-lint run ./...
+
+# -----------------------------------------------------------------------------
+# SECURITY — SAST (gosec) + vulnerability scan (govulncheck)
+# This is internet-exposed software — security scanning is mandatory.
+# Failures BLOCK the pipeline. No exceptions.
+# -----------------------------------------------------------------------------
+gosec:
+  stage: security
+  image: golang:1.25-alpine
+  tags: [multiarch]
+  before_script:
+    - go install github.com/securego/gosec/v2/cmd/gosec@latest
+  script:
+    - gosec -fmt json -out gosec-report.json -severity high ./... || true
+    - |
+      # Fail on HIGH severity issues only; MEDIUM/LOW are tracked as tech debt
+      HIGH_COUNT=$(gosec -fmt json -severity high ./... 2>/dev/null | grep -c '"severity": "HIGH"' || echo 0)
+      echo "High severity issues: $HIGH_COUNT"
+      if [ "$HIGH_COUNT" -gt 0 ]; then
+        echo "BLOCKED: gosec found HIGH severity issues"
+        gosec -fmt text -severity high ./...
+        exit 1
+      fi
+  artifacts:
+    paths:
+      - gosec-report.json
+    expire_in: 30 days
+    when: always
+
+govulncheck:
+  stage: security
+  image: golang:1.25-alpine
+  tags: [multiarch]
+  before_script:
+    - go install golang.org/x/vuln/cmd/govulncheck@latest
+  script:
+    - govulncheck ./...
 
 # -----------------------------------------------------------------------------
 # TEST — unit tests

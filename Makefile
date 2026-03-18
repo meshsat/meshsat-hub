@@ -1,4 +1,4 @@
-.PHONY: build build-arm64 build-x86_64 test test-integration lint fmt clean docker run
+.PHONY: build build-arm64 build-x86_64 test test-integration lint fmt clean docker run security gosec govulncheck
 
 BINARY := meshsat-hub
 PKG := github.com/cubeos-app/meshsat-hub
@@ -26,6 +26,14 @@ lint:
 fmt:
 	gofmt -w .
 	@if [ -n "$$(gofmt -l .)" ]; then echo "gofmt found unformatted files"; exit 1; fi
+
+security: gosec govulncheck
+
+gosec:
+	gosec ./...
+
+govulncheck:
+	govulncheck ./...
 
 clean:
 	rm -rf bin/
