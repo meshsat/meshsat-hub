@@ -71,7 +71,12 @@ func main() {
 	if err := msgBus.Connect(); err != nil {
 		slog.Warn("bus connection failed (will retry in background)", "error", err)
 	}
-	checker.Set("mqtt", msgBus.IsConnected())
+	checker.AddProbe("mqtt", func(_ context.Context) error {
+		if !msgBus.IsConnected() {
+			return fmt.Errorf("mqtt not connected")
+		}
+		return nil
+	})
 
 	// --- Store (tri-mode) ---
 	var dataStore store.Store
