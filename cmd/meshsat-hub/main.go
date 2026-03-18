@@ -252,6 +252,7 @@ func main() {
 	r := chi.NewRouter()
 	r.Use(middleware.Recoverer)
 	r.Use(middleware.RealIP)
+	r.Use(api.SecurityHeaders)
 
 	// API key middleware — runs first; if bearer is a meshsat_ key, validates and sets
 	// user+tenant in context. Non-API-key tokens pass through to JWT/token middleware.
