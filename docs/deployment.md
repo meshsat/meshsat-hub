@@ -304,18 +304,23 @@ Hub binary: ~30MB RAM. PostgreSQL: ~128MB. Redis: ~64MB. NATS: ~64MB per replica
 ## CI/CD Pipeline
 
 ```
-lint -> test -> build -> package -> deploy -> verify -> pages
+lint -> security -> test -> build -> package -> deploy -> verify -> pages
 ```
 
 | Stage | Description |
 |-------|-------------|
 | lint | golangci-lint |
+| **security** | **`gosec` (SAST — blocks on HIGH severity) + `govulncheck` (known CVEs — blocks on any)** |
 | test | `go test ./...` (unit tests) |
 | build | `CGO_ENABLED=0 go build` |
 | package | Docker build + push to GHCR |
 | deploy | AWX triggers pull + restart on both DMZ hosts |
 | verify | E2E smoke tests (`test/e2e/smoke_test.sh`) against live cluster |
 | pages | Hugo documentation site |
+
+**Security scanning runs before tests** — a vulnerability in code that passes all tests is still a vulnerability. The `gosec` report is stored as a CI artifact for 30 days. `govulncheck` checks all direct and transitive dependencies against the Go vulnerability database.
+
+**Local security check:** `make security` (runs both gosec and govulncheck).
 
 ### E2E Smoke Tests
 
