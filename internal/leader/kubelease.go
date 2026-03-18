@@ -1,3 +1,5 @@
+//go:build kubernetes
+
 package leader
 
 import (
