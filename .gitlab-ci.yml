@@ -4,6 +4,7 @@ stages:
   - build
   - package
   - deploy
+  - verify
   - pages
 
 variables:
@@ -131,6 +132,31 @@ deploy:
     - if: $CI_COMMIT_BRANCH == "main"
   environment:
     name: production
+
+# -----------------------------------------------------------------------------
+# VERIFY — Post-deploy E2E smoke tests (runs against live cluster)
+# Requires CI variables: HUB_HOST_1, HUB_HOST_2, HUB_E2E_TOKEN
+# -----------------------------------------------------------------------------
+verify:
+  stage: verify
+  tags: [multiarch]
+  image: alpine:latest
+  needs:
+    - deploy
+  before_script:
+    - apk add --no-cache curl bash grep
+  script:
+    - |
+      if [ -z "${HUB_HOST_1:-}" ] || [ -z "${HUB_HOST_2:-}" ] || [ -z "${HUB_E2E_TOKEN:-}" ]; then
+        echo "SKIP: E2E variables not set (HUB_HOST_1, HUB_HOST_2, HUB_E2E_TOKEN)"
+        exit 0
+      fi
+      # Wait for deployment to stabilize
+      sleep 15
+      bash test/e2e/smoke_test.sh
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main"
+  allow_failure: true
 
 # -----------------------------------------------------------------------------
 # PAGES — Hugo documentation site
