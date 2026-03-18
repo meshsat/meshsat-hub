@@ -112,7 +112,9 @@ package:
     - if: $CI_COMMIT_BRANCH == "main"
 
 # -----------------------------------------------------------------------------
-# DEPLOY — Trigger AWX to pull + restart on both DMZ servers
+# DEPLOY — Safe rolling update of Hub container only
+# NEVER touches MariaDB, Redis, NATS, nginx, or garbd.
+# Pulls the new Hub image, stops the old container, starts a new one.
 # Deploy targets: nllei01dmz01 + grskg01dmz01 at /srv/meshsat-hub/
 # Requires CI variable: AWX_HUB_TEMPLATE_ID (set in GitLab project settings)
 # -----------------------------------------------------------------------------
@@ -131,11 +133,17 @@ deploy:
         exit 0
       fi
 
-      echo "Triggering AWX deployment for meshsat-hub..."
+      # Safe deploy command: pull new image, stop+remove ONLY hub, recreate ONLY hub
+      # docker compose up -d --no-deps --force-recreate hub
+      # --no-deps: do NOT touch dependencies (mariadb, nats, redis)
+      # --force-recreate: recreate even if config hasn't changed (new image)
+      DEPLOY_CMD="cd /srv/meshsat-hub && docker pull ${MESHSAT_HUB_IMAGE}:latest && docker compose up -d --no-deps --force-recreate hub"
+
+      echo "Deploying meshsat-hub (Hub container only, no DB restart)..."
       RESPONSE=$(curl -s -X POST \
         -H "Authorization: Bearer ${AWX_TOKEN}" \
         -H "Content-Type: application/json" \
-        -d "{\"extra_vars\": {\"service_name\": \"meshsat-hub\", \"compose_dir\": \"/srv/meshsat-hub\", \"image\": \"${MESHSAT_HUB_IMAGE}:${CI_COMMIT_SHORT_SHA}\"}}" \
+        -d "{\"extra_vars\": {\"deploy_command\": \"${DEPLOY_CMD}\"}}" \
         "${AWX_HOST}/api/v2/job_templates/${AWX_HUB_TEMPLATE_ID}/launch/")
 
       JOB_ID=$(echo "$RESPONSE" | jq -r '.id // empty')
