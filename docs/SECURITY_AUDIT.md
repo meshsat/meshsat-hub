@@ -125,7 +125,26 @@ Auth middleware verified: `/api/auth/me` returns 401 Unauthorized without token.
 | API handler unit tests at 0% coverage | Medium | MESHSAT-156 | Open |
 | 18/28 Swagger annotations missing | Low | MESHSAT-157 | Open |
 
-## 10. Recommendations
+## 10. Security MCP Tools (MESHSAT-160)
+
+The following security-focused MCP servers are configured for interactive use during Claude Code development sessions:
+
+| MCP Server | Command | Purpose | Status |
+|-----------|---------|---------|--------|
+| **Semgrep** | `semgrep-mcp` | SAST with 5K+ rules, Go-aware pattern matching | Installed |
+| gosec | `gosec ./...` (CLI) | Go-specific security linter | In CI + local |
+| govulncheck | `govulncheck ./...` (CLI) | Known CVE scanner for Go deps | In CI + local |
+
+**CI pipeline** (`security` stage in `.gitlab-ci.yml`): runs `gosec` and `govulncheck` on every push. HIGH severity findings block the pipeline.
+
+**Interactive development**: Semgrep MCP provides on-demand SAST scanning during Claude Code sessions, catching patterns that gosec may miss (e.g., taint analysis, custom rules). Use `semgrep_scan` tool for targeted file or directory scanning.
+
+**Evaluated but not installed:**
+- **Snyk MCP** — requires commercial account, overlaps with govulncheck for dependency scanning
+- **mcp-gopls** — provides govulncheck via MCP but we already have it in CI; install if LSP integration is needed
+- **Cycode** — commercial SAST/SCA, not needed given Semgrep covers the same ground
+
+## 11. Recommendations
 
 1. **Upgrade Go** to 1.24.13+ when CI builder image is updated
 2. **Enable MQTT authentication** in production deployments
@@ -133,3 +152,4 @@ Auth middleware verified: `/api/auth/me` returns 401 Unauthorized without token.
 4. **Run OWASP ZAP** full active scan when public DNS is configured
 5. **Add API handler unit tests** for error paths and edge cases (MESHSAT-156)
 6. **Monitor CSP reports** — consider adding `report-uri` directive when logging infra supports it
+7. **Run Semgrep** on all Go source before each release (`semgrep --config auto ./internal/`)
