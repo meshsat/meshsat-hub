@@ -23,7 +23,6 @@ type Config struct {
 	RockBLOCKSecret string `yaml:"rockblock_secret"`
 	CloudloopAPIKey string `yaml:"cloudloop_api_key"`
 	CloudloopAPIURL string `yaml:"cloudloop_api_url"`
-	DeviceIMEI      string `yaml:"device_imei"`
 	LogLevel        string `yaml:"log_level"`
 	LogFormat       string `yaml:"log_format"`
 	AuthToken       string `yaml:"auth_token"`
@@ -122,9 +121,6 @@ func Load() (Config, error) {
 	}
 	if v := os.Getenv("HUB_CLOUDLOOP_API_URL"); v != "" {
 		cfg.CloudloopAPIURL = v
-	}
-	if v := os.Getenv("HUB_DEVICE_IMEI"); v != "" {
-		cfg.DeviceIMEI = v
 	}
 	if v := os.Getenv("HUB_LOG_LEVEL"); v != "" {
 		cfg.LogLevel = strings.ToLower(v)

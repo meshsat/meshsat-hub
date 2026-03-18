@@ -254,6 +254,14 @@ func main() {
 	r.Use(middleware.RealIP)
 	r.Use(api.SecurityHeaders)
 
+	// Bounded worker for async API key last_used updates (avoids unbounded goroutines).
+	touchCh := make(chan string, 64)
+	go func() {
+		for id := range touchCh {
+			_ = dataStore.TouchAPIKeyLastUsed(context.Background(), id)
+		}
+	}()
+
 	// API key middleware — runs first; if bearer is a meshsat_ key, validates and sets
 	// user+tenant in context. Non-API-key tokens pass through to JWT/token middleware.
 	apiKeyValidator := func(ctx context.Context, keyHash string) (*hubauth.User, string, error) {
@@ -261,8 +269,11 @@ func main() {
 		if err != nil {
 			return nil, "", err
 		}
-		// Touch last_used asynchronously.
-		go func() { _ = dataStore.TouchAPIKeyLastUsed(context.Background(), k.ID) }()
+		// Touch last_used via bounded worker (non-blocking, drops if full).
+		select {
+		case touchCh <- k.ID:
+		default:
+		}
 		user := &hubauth.User{
 			ID:        "apikey:" + k.ID,
 			Name:      k.Label,
@@ -429,6 +440,7 @@ func main() {
 	if err := srv.Shutdown(shutdownCtx); err != nil {
 		slog.Error("shutdown error", "error", err)
 	}
+	close(touchCh) // drain remaining API key last_used updates
 	if aprsisClient != nil {
 		aprsisClient.Disconnect()
 	}
