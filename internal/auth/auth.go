@@ -109,10 +109,11 @@ func TenantMiddleware(enforce bool) func(http.Handler) http.Handler {
 
 // Config holds authentication configuration.
 type Config struct {
-	Mode          string // "none", "token", "oidc"
+	Mode          string // "none", "token", "oidc", "local"
 	Token         string // static bearer token (mode=token)
 	OIDCIssuerURL string // OIDC issuer URL (mode=oidc)
 	OIDCAudience  string // expected JWT audience
+	JWTSecret     []byte // HMAC-SHA256 key (mode=local)
 }
 
 // Middleware returns an HTTP middleware that authenticates requests.
@@ -125,9 +126,58 @@ func Middleware(cfg Config) func(http.Handler) http.Handler {
 	case "token":
 		slog.Info("auth: token mode")
 		return tokenMiddleware(cfg.Token)
+	case "local":
+		slog.Info("auth: local mode (built-in user accounts)")
+		return localMiddleware(cfg.JWTSecret)
 	default:
 		slog.Warn("auth: no authentication (mode=none)")
 		return noopMiddleware()
+	}
+}
+
+// localMiddleware accepts local JWT access tokens signed by the SessionManager.
+// Also accepts the legacy static token for backward compatibility during migration.
+func localMiddleware(jwtSecret []byte) func(http.Handler) http.Handler {
+	sm := NewSessionManager(jwtSecret, "meshsat-hub")
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if isExempt(r.URL.Path) {
+				next.ServeHTTP(w, r)
+				return
+			}
+
+			// Already authenticated by API key middleware
+			if FromContext(r.Context()) != nil {
+				next.ServeHTTP(w, r)
+				return
+			}
+
+			provided := extractBearer(r)
+			if provided == "" {
+				writeAuthError(w, "missing Authorization header")
+				return
+			}
+
+			// Try local JWT
+			claims, err := sm.VerifyAccessToken(provided)
+			if err != nil {
+				writeAuthError(w, "invalid token")
+				return
+			}
+
+			user := &User{
+				ID:       claims.UserID,
+				Email:    claims.Email,
+				Name:     claims.Name,
+				Roles:    []string{claims.Role},
+				TenantID: claims.TenantID,
+			}
+			ctx := context.WithValue(r.Context(), UserContextKey, user)
+			if claims.TenantID != "" {
+				ctx = context.WithValue(ctx, TenantContextKey, claims.TenantID)
+			}
+			next.ServeHTTP(w, r.WithContext(ctx))
+		})
 	}
 }
 
@@ -140,6 +190,8 @@ func MiddlewareWithProvider(provider *JWKSProvider, issuerURL, audience string) 
 func isExempt(path string) bool {
 	return path == "/healthz" || path == "/readyz" ||
 		path == "/api/webhook/rockblock" ||
+		path == "/api/auth/login" ||
+		path == "/api/auth/refresh" ||
 		!strings.HasPrefix(path, "/api/")
 }
 

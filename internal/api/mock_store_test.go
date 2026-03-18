@@ -176,3 +176,27 @@ func (m *mockStore) ListNotificationPrefs(context.Context, string) ([]store.Noti
 	return nil, nil
 }
 func (m *mockStore) DeleteNotificationPref(context.Context, string, string) error { return nil }
+
+// Users (local accounts)
+func (m *mockStore) CreateUser(context.Context, string, *store.LocalUser) error  { return nil }
+func (m *mockStore) GetUserByID(context.Context, string, string) (*store.LocalUser, error) {
+	return nil, fmt.Errorf("not found")
+}
+func (m *mockStore) GetUserByEmail(context.Context, string, string) (*store.LocalUser, error) {
+	return nil, fmt.Errorf("not found")
+}
+func (m *mockStore) ListUsers(context.Context, string) ([]store.LocalUser, error) { return nil, nil }
+func (m *mockStore) UpdateUser(context.Context, string, *store.LocalUser) error   { return nil }
+func (m *mockStore) DeleteUser(context.Context, string, string) error             { return nil }
+func (m *mockStore) IncrementFailedLogins(context.Context, string, string) (int, error) {
+	return 0, nil
+}
+func (m *mockStore) ResetFailedLogins(context.Context, string, string) error { return nil }
+
+// Refresh tokens
+func (m *mockStore) StoreRefreshToken(context.Context, string, *store.RefreshToken) error { return nil }
+func (m *mockStore) GetRefreshToken(context.Context, string) (*store.RefreshToken, error) {
+	return nil, fmt.Errorf("not found")
+}
+func (m *mockStore) DeleteRefreshToken(context.Context, string) error             { return nil }
+func (m *mockStore) DeleteRefreshTokensByUser(context.Context, string, string) error { return nil }

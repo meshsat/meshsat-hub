@@ -358,17 +358,28 @@ func main() {
 	if authMode == "" {
 		if cfg.OIDCIssuerURL != "" {
 			authMode = "oidc"
+		} else if cfg.JWTSigningKey != "" {
+			authMode = "local"
 		} else if cfg.AuthToken != "" {
 			authMode = "token"
 		} else {
 			authMode = "none"
 		}
 	}
+	var jwtSecret []byte
+	if authMode == "local" {
+		if len(cfg.JWTSigningKey) < 32 {
+			slog.Error("auth: HUB_JWT_SIGNING_KEY must be at least 32 characters for local auth mode")
+			os.Exit(1)
+		}
+		jwtSecret = []byte(cfg.JWTSigningKey)
+	}
 	r.Use(hubauth.Middleware(hubauth.Config{
 		Mode:          authMode,
 		Token:         cfg.AuthToken,
 		OIDCIssuerURL: cfg.OIDCIssuerURL,
 		OIDCAudience:  cfg.OIDCAudience,
+		JWTSecret:     jwtSecret,
 	}))
 	// Tenant isolation middleware — resolves tenant from JWT claim / X-Tenant-ID header / default.
 	// Enforce mode disabled for backward compatibility; enable via HUB_TENANT_ENFORCE=true.
@@ -380,6 +391,26 @@ func main() {
 
 	// Auth info
 	r.Get("/api/auth/me", api.AuthMeHandler)
+
+	// Local auth endpoints (login/refresh/logout — exempt from auth middleware)
+	if authMode == "local" {
+		sessionMgr := hubauth.NewSessionManager(jwtSecret, "meshsat-hub")
+		loginHandler := api.NewLoginHandler(dataStore, sessionMgr, auditSvc)
+		r.Post("/api/auth/login", loginHandler.Login)
+		r.Post("/api/auth/refresh", loginHandler.Refresh)
+		r.Post("/api/auth/logout", loginHandler.Logout)
+
+		// User management (owner-only)
+		userHandler := api.NewUserHandler(dataStore)
+		r.Route("/api/users", func(r chi.Router) {
+			r.Use(hubauth.RequireRole(hubauth.RoleOwner))
+			r.Get("/", userHandler.ListUsers)
+			r.Post("/", userHandler.CreateUser)
+			r.Get("/{id}", userHandler.GetUser)
+			r.Put("/{id}", userHandler.UpdateUser)
+			r.Delete("/{id}", userHandler.DeleteUser)
+		})
+	}
 
 	// API key management (owner-only)
 	apiKeyHandler := api.NewAPIKeyHandler(dataStore)

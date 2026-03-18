@@ -197,6 +197,35 @@ var migrations = []string{
 	`ALTER TABLE positions ADD COLUMN IF NOT EXISTS speed DOUBLE PRECISION NOT NULL DEFAULT 0`,
 	`ALTER TABLE positions ADD COLUMN IF NOT EXISTS heading DOUBLE PRECISION NOT NULL DEFAULT 0`,
 	`ALTER TABLE positions ADD COLUMN IF NOT EXISTS sats INTEGER NOT NULL DEFAULT 0`,
+	// Local user accounts (built-in auth, MESHSAT-162)
+	`CREATE TABLE IF NOT EXISTS users (
+		id TEXT PRIMARY KEY,
+		email TEXT NOT NULL,
+		name TEXT NOT NULL DEFAULT '',
+		password_hash TEXT NOT NULL,
+		role TEXT NOT NULL DEFAULT 'viewer',
+		enabled BOOLEAN NOT NULL DEFAULT TRUE,
+		failed_logins INTEGER NOT NULL DEFAULT 0,
+		locked_until TIMESTAMPTZ,
+		last_login_at TIMESTAMPTZ,
+		created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+		updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+		tenant_id TEXT NOT NULL DEFAULT 'default',
+		UNIQUE(email, tenant_id)
+	)`,
+	`CREATE INDEX IF NOT EXISTS idx_users_email ON users(email, tenant_id)`,
+	`CREATE INDEX IF NOT EXISTS idx_users_tenant ON users(tenant_id)`,
+	// Refresh tokens (JWT session management, MESHSAT-162)
+	`CREATE TABLE IF NOT EXISTS refresh_tokens (
+		id TEXT PRIMARY KEY,
+		user_id TEXT NOT NULL,
+		tenant_id TEXT NOT NULL DEFAULT 'default',
+		token_hash TEXT NOT NULL UNIQUE,
+		expires_at TIMESTAMPTZ NOT NULL,
+		created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+	)`,
+	`CREATE INDEX IF NOT EXISTS idx_refresh_tokens_hash ON refresh_tokens(token_hash)`,
+	`CREATE INDEX IF NOT EXISTS idx_refresh_tokens_user ON refresh_tokens(user_id, tenant_id)`,
 }
 
 // --- Devices ---
@@ -845,6 +874,133 @@ func (d *DB) ListNotificationPrefs(ctx context.Context, tenantID string) ([]stor
 func (d *DB) DeleteNotificationPref(ctx context.Context, tenantID string, deviceIMEI string) error {
 	_, err := d.pool.Exec(ctx,
 		"DELETE FROM notification_prefs WHERE device_imei=$1 AND tenant_id=$2", deviceIMEI, tenantID)
+	return err
+}
+
+// --- Users (local accounts) ---
+
+func (d *DB) CreateUser(ctx context.Context, tenantID string, u *store.LocalUser) error {
+	if u.ID == "" {
+		u.ID = fmt.Sprintf("usr-%d", time.Now().UnixNano())
+	}
+	_, err := d.pool.Exec(ctx,
+		`INSERT INTO users (id, email, name, password_hash, role, enabled, tenant_id)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+		u.ID, u.Email, u.Name, u.PasswordHash, u.Role, u.Enabled, tenantID)
+	return err
+}
+
+func (d *DB) GetUserByID(ctx context.Context, tenantID string, id string) (*store.LocalUser, error) {
+	var u store.LocalUser
+	err := d.pool.QueryRow(ctx,
+		`SELECT id, email, name, password_hash, role, enabled, failed_logins, locked_until, last_login_at, created_at, updated_at
+		 FROM users WHERE id=$1 AND tenant_id=$2`, id, tenantID,
+	).Scan(&u.ID, &u.Email, &u.Name, &u.PasswordHash, &u.Role, &u.Enabled,
+		&u.FailedLogins, &u.LockedUntil, &u.LastLoginAt, &u.CreatedAt, &u.UpdatedAt)
+	if err != nil {
+		return nil, err
+	}
+	return &u, nil
+}
+
+func (d *DB) GetUserByEmail(ctx context.Context, tenantID string, email string) (*store.LocalUser, error) {
+	var u store.LocalUser
+	err := d.pool.QueryRow(ctx,
+		`SELECT id, email, name, password_hash, role, enabled, failed_logins, locked_until, last_login_at, created_at, updated_at
+		 FROM users WHERE email=$1 AND tenant_id=$2`, email, tenantID,
+	).Scan(&u.ID, &u.Email, &u.Name, &u.PasswordHash, &u.Role, &u.Enabled,
+		&u.FailedLogins, &u.LockedUntil, &u.LastLoginAt, &u.CreatedAt, &u.UpdatedAt)
+	if err != nil {
+		return nil, err
+	}
+	return &u, nil
+}
+
+func (d *DB) ListUsers(ctx context.Context, tenantID string) ([]store.LocalUser, error) {
+	rows, err := d.pool.Query(ctx,
+		`SELECT id, email, name, role, enabled, failed_logins, last_login_at, created_at, updated_at
+		 FROM users WHERE tenant_id=$1 ORDER BY created_at`, tenantID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var users []store.LocalUser
+	for rows.Next() {
+		var u store.LocalUser
+		if err := rows.Scan(&u.ID, &u.Email, &u.Name, &u.Role, &u.Enabled,
+			&u.FailedLogins, &u.LastLoginAt, &u.CreatedAt, &u.UpdatedAt); err != nil {
+			return nil, err
+		}
+		users = append(users, u)
+	}
+	return users, rows.Err()
+}
+
+func (d *DB) UpdateUser(ctx context.Context, tenantID string, u *store.LocalUser) error {
+	_, err := d.pool.Exec(ctx,
+		`UPDATE users SET email=$1, name=$2, password_hash=$3, role=$4, enabled=$5, updated_at=NOW()
+		 WHERE id=$6 AND tenant_id=$7`,
+		u.Email, u.Name, u.PasswordHash, u.Role, u.Enabled, u.ID, tenantID)
+	return err
+}
+
+func (d *DB) DeleteUser(ctx context.Context, tenantID string, id string) error {
+	_, err := d.pool.Exec(ctx, "DELETE FROM users WHERE id=$1 AND tenant_id=$2", id, tenantID)
+	return err
+}
+
+func (d *DB) IncrementFailedLogins(ctx context.Context, tenantID string, id string) (int, error) {
+	var count int
+	err := d.pool.QueryRow(ctx,
+		`UPDATE users SET failed_logins = failed_logins + 1,
+		 locked_until = CASE WHEN failed_logins + 1 >= $1 THEN NOW() + INTERVAL '30 minutes' ELSE locked_until END,
+		 updated_at = NOW()
+		 WHERE id=$2 AND tenant_id=$3
+		 RETURNING failed_logins`,
+		store.MaxFailedLogins, id, tenantID).Scan(&count)
+	return count, err
+}
+
+func (d *DB) ResetFailedLogins(ctx context.Context, tenantID string, id string) error {
+	_, err := d.pool.Exec(ctx,
+		`UPDATE users SET failed_logins=0, locked_until=NULL, last_login_at=NOW(), updated_at=NOW()
+		 WHERE id=$1 AND tenant_id=$2`, id, tenantID)
+	return err
+}
+
+// --- Refresh Tokens ---
+
+func (d *DB) StoreRefreshToken(ctx context.Context, tenantID string, t *store.RefreshToken) error {
+	if t.ID == "" {
+		t.ID = fmt.Sprintf("rt-%d", time.Now().UnixNano())
+	}
+	_, err := d.pool.Exec(ctx,
+		`INSERT INTO refresh_tokens (id, user_id, tenant_id, token_hash, expires_at)
+		 VALUES ($1, $2, $3, $4, $5)`,
+		t.ID, t.UserID, tenantID, t.TokenHash, t.ExpiresAt)
+	return err
+}
+
+func (d *DB) GetRefreshToken(ctx context.Context, tokenHash string) (*store.RefreshToken, error) {
+	var t store.RefreshToken
+	err := d.pool.QueryRow(ctx,
+		"SELECT id, user_id, tenant_id, token_hash, expires_at, created_at FROM refresh_tokens WHERE token_hash=$1",
+		tokenHash,
+	).Scan(&t.ID, &t.UserID, &t.TenantID, &t.TokenHash, &t.ExpiresAt, &t.CreatedAt)
+	if err != nil {
+		return nil, err
+	}
+	return &t, nil
+}
+
+func (d *DB) DeleteRefreshToken(ctx context.Context, tokenHash string) error {
+	_, err := d.pool.Exec(ctx, "DELETE FROM refresh_tokens WHERE token_hash=$1", tokenHash)
+	return err
+}
+
+func (d *DB) DeleteRefreshTokensByUser(ctx context.Context, tenantID string, userID string) error {
+	_, err := d.pool.Exec(ctx,
+		"DELETE FROM refresh_tokens WHERE user_id=$1 AND tenant_id=$2", userID, tenantID)
 	return err
 }
 

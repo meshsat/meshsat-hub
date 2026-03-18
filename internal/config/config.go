@@ -28,7 +28,8 @@ type Config struct {
 	LogLevel        string `yaml:"log_level"`
 	LogFormat       string `yaml:"log_format"`
 	AuthToken       string `yaml:"auth_token"`
-	AuthMode        string `yaml:"auth_mode"` // "none", "token", "oidc" (default: "token" if auth_token set, else "none")
+	AuthMode        string `yaml:"auth_mode"`       // "none", "token", "local", "oidc"
+	JWTSigningKey   string `yaml:"jwt_signing_key"` // HMAC-SHA256 key for local auth JWT (min 32 chars)
 	OIDCIssuerURL   string `yaml:"oidc_issuer_url"`
 	OIDCAudience    string `yaml:"oidc_audience"`
 
@@ -157,6 +158,9 @@ func Load() (Config, error) {
 	}
 	if v := os.Getenv("HUB_AUTH_MODE"); v != "" {
 		cfg.AuthMode = strings.ToLower(v)
+	}
+	if v := os.Getenv("HUB_JWT_SIGNING_KEY"); v != "" {
+		cfg.JWTSigningKey = v
 	}
 	if v := os.Getenv("HUB_OIDC_ISSUER_URL"); v != "" {
 		cfg.OIDCIssuerURL = v

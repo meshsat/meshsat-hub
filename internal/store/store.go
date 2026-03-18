@@ -77,6 +77,22 @@ type Store interface {
 	ListNotificationPrefs(ctx context.Context, tenantID string) ([]NotificationPref, error)
 	DeleteNotificationPref(ctx context.Context, tenantID string, deviceIMEI string) error
 
+	// Users (local accounts)
+	CreateUser(ctx context.Context, tenantID string, u *LocalUser) error
+	GetUserByID(ctx context.Context, tenantID string, id string) (*LocalUser, error)
+	GetUserByEmail(ctx context.Context, tenantID string, email string) (*LocalUser, error)
+	ListUsers(ctx context.Context, tenantID string) ([]LocalUser, error)
+	UpdateUser(ctx context.Context, tenantID string, u *LocalUser) error
+	DeleteUser(ctx context.Context, tenantID string, id string) error
+	IncrementFailedLogins(ctx context.Context, tenantID string, id string) (int, error)
+	ResetFailedLogins(ctx context.Context, tenantID string, id string) error
+
+	// Refresh tokens
+	StoreRefreshToken(ctx context.Context, tenantID string, t *RefreshToken) error
+	GetRefreshToken(ctx context.Context, tokenHash string) (*RefreshToken, error)
+	DeleteRefreshToken(ctx context.Context, tokenHash string) error
+	DeleteRefreshTokensByUser(ctx context.Context, tenantID string, userID string) error
+
 	// API keys
 	CreateAPIKey(ctx context.Context, tenantID string, k *APIKey) error
 	GetAPIKeyByHash(ctx context.Context, keyHash string) (*APIKey, string, error) // returns key + tenantID
@@ -227,6 +243,37 @@ type NotificationPref struct {
 	CreatedAt  time.Time `json:"created_at"`
 	UpdatedAt  time.Time `json:"updated_at"`
 }
+
+// LocalUser represents a locally managed user account.
+type LocalUser struct {
+	ID           string    `json:"id"`
+	Email        string    `json:"email"`
+	Name         string    `json:"name"`
+	PasswordHash string    `json:"-"`    // Argon2id hash — NEVER exposed in JSON
+	Role         string    `json:"role"` // "viewer", "operator", "owner"
+	Enabled      bool      `json:"enabled"`
+	FailedLogins int       `json:"failed_logins,omitempty"`
+	LockedUntil  time.Time `json:"locked_until,omitempty"`
+	LastLoginAt  time.Time `json:"last_login_at,omitempty"`
+	CreatedAt    time.Time `json:"created_at"`
+	UpdatedAt    time.Time `json:"updated_at"`
+}
+
+// RefreshToken is a hashed refresh token stored in the database.
+type RefreshToken struct {
+	ID        string    `json:"id"`
+	UserID    string    `json:"user_id"`
+	TenantID  string    `json:"tenant_id"`
+	TokenHash string    `json:"-"` // SHA-256 hash — never expose plaintext
+	ExpiresAt time.Time `json:"expires_at"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
+// MaxFailedLogins is the threshold before account lockout.
+const MaxFailedLogins = 10
+
+// LockoutDuration is how long an account is locked after MaxFailedLogins.
+const LockoutDuration = 30 * time.Minute
 
 // APIKey represents a tenant-scoped API key for programmatic access.
 type APIKey struct {
