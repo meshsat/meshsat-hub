@@ -131,7 +131,6 @@ func main() {
 	default:
 		dedupTracker = dedup.NewMemoryDedup(1 * time.Hour)
 	}
-	_ = dedupTracker // will be wired into MO ingestion pipeline
 
 	// --- Rate limiter (tri-mode) ---
 	var limiter ratelimit.Limiter
@@ -285,6 +284,7 @@ func main() {
 	// RockBLOCK webhook handler.
 	rbHandler := rockblock.NewHandler(msgBus, cfg.RockBLOCKSecret)
 	rbHandler.SetAudit(auditSvc)
+	rbHandler.SetDedup(dedupTracker)
 
 	r := chi.NewRouter()
 	r.Use(middleware.Recoverer)

@@ -5,11 +5,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"sync/atomic"
 	"time"
 
 	"github.com/cubeos-app/meshsat-hub/internal/audit"
 	"github.com/cubeos-app/meshsat-hub/internal/bus"
 	"github.com/cubeos-app/meshsat-hub/internal/compress"
+	"github.com/cubeos-app/meshsat-hub/internal/fragment"
 	hubmqtt "github.com/cubeos-app/meshsat-hub/internal/mqtt"
 )
 
@@ -41,6 +43,8 @@ type Sender struct {
 	limiter    interface{ Allow(string, bool) bool }
 	audit      *audit.Service
 	maxRetries int
+	mtMTU      int           // MT payload MTU (default: 270)
+	msgIDSeq   atomic.Uint64 // wrapping msg ID counter for fragmentation
 }
 
 // NewSender creates a new MT message sender.
@@ -49,7 +53,13 @@ func NewSender(client *Client, mqtt bus.MessageBus) *Sender {
 		client:     client,
 		mqtt:       mqtt,
 		maxRetries: 3,
+		mtMTU:      fragment.IridiumMT_MTU,
 	}
+}
+
+// nextMsgID returns the next wrapping message ID (0-255).
+func (s *Sender) nextMsgID() uint8 {
+	return uint8(s.msgIDSeq.Add(1))
 }
 
 // SetAudit attaches an audit service for logging message_sent events.
@@ -102,12 +112,44 @@ func (s *Sender) handleMTSend(topic string, payload []byte) {
 		data = compress.Compress(data)
 	}
 
-	// Send with retry.
+	// Fragment if payload exceeds MT MTU.
+	frags := fragment.Fragment(data, s.mtMTU, s.nextMsgID())
+	if frags != nil {
+		slog.Info("cloudloop: fragmenting MT message",
+			"device", deviceID, "total_bytes", len(data), "fragments", len(frags),
+		)
+		for i, frag := range frags {
+			if err := s.sendWithRetry(deviceID, frag, i, len(frags)); err != nil {
+				slog.Error("cloudloop: fragment send failed, aborting remaining",
+					"device", deviceID, "frag", i+1, "total", len(frags), "error", err,
+				)
+				s.publishStatus(deviceID, "", "failed",
+					fmt.Sprintf("fragment %d/%d failed: %s", i+1, len(frags), err))
+				return
+			}
+		}
+		s.publishStatus(deviceID, "", "sent",
+			fmt.Sprintf("sent %d fragments", len(frags)))
+		return
+	}
+
+	// Single message — send directly.
+	if err := s.sendWithRetry(deviceID, data, 0, 1); err != nil {
+		s.publishStatus(deviceID, "", "failed", err.Error())
+		return
+	}
+}
+
+// sendWithRetry sends a single payload (possibly a fragment) with exponential backoff retry.
+func (s *Sender) sendWithRetry(deviceID string, data []byte, fragIdx, fragTotal int) error {
 	var lastErr error
 	for attempt := 0; attempt <= s.maxRetries; attempt++ {
 		if attempt > 0 {
 			backoff := time.Duration(1<<uint(attempt-1)) * time.Second
-			slog.Info("cloudloop: retrying MT send", "attempt", attempt, "backoff", backoff, "device", deviceID)
+			slog.Info("cloudloop: retrying MT send",
+				"attempt", attempt, "backoff", backoff, "device", deviceID,
+				"frag", fragIdx+1, "total", fragTotal,
+			)
 			time.Sleep(backoff)
 		}
 
@@ -117,27 +159,25 @@ func (s *Sender) handleMTSend(topic string, payload []byte) {
 
 		if err != nil {
 			lastErr = err
-			slog.Warn("cloudloop: MT send failed", "error", err, "device", deviceID, "attempt", attempt)
+			slog.Warn("cloudloop: MT send failed",
+				"error", err, "device", deviceID, "attempt", attempt,
+			)
 			continue
 		}
 
-		// Success — audit log.
 		if s.audit != nil {
-			detail := fmt.Sprintf("device=%s mt_id=%s bytes=%d", deviceID, resp.ID, len(data))
+			detail := fmt.Sprintf("device=%s mt_id=%s bytes=%d frag=%d/%d",
+				deviceID, resp.ID, len(data), fragIdx+1, fragTotal)
 			if err := s.audit.Log(context.Background(), "", "message_sent", "system", detail, ""); err != nil {
 				slog.Warn("audit: failed to log message_sent", "error", err)
 			}
 		}
-		s.publishStatus(deviceID, resp.ID, resp.Status, "")
-		return
+		if fragTotal == 1 {
+			s.publishStatus(deviceID, resp.ID, resp.Status, "")
+		}
+		return nil
 	}
-
-	// All retries exhausted.
-	errMsg := ""
-	if lastErr != nil {
-		errMsg = lastErr.Error()
-	}
-	s.publishStatus(deviceID, "", "failed", errMsg)
+	return lastErr
 }
 
 func (s *Sender) publishStatus(deviceID, mtID, status, errMsg string) {

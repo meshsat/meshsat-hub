@@ -17,6 +17,8 @@ import (
 	"github.com/cubeos-app/meshsat-hub/internal/auth"
 	"github.com/cubeos-app/meshsat-hub/internal/bus"
 	"github.com/cubeos-app/meshsat-hub/internal/compress"
+	"github.com/cubeos-app/meshsat-hub/internal/dedup"
+	"github.com/cubeos-app/meshsat-hub/internal/fragment"
 	hubmqtt "github.com/cubeos-app/meshsat-hub/internal/mqtt"
 )
 
@@ -58,9 +60,11 @@ type PositionMessage struct {
 
 // Handler handles RockBLOCK/Ground Control webhook POST requests.
 type Handler struct {
-	mqtt   bus.MessageBus
-	secret string
-	audit  *audit.Service
+	mqtt        bus.MessageBus
+	secret      string
+	audit       *audit.Service
+	dedup       dedup.Dedup
+	reassembler *fragment.Reassembler
 }
 
 // NewHandler creates a new RockBLOCK webhook handler.
@@ -71,6 +75,16 @@ func NewHandler(mqtt bus.MessageBus, secret string) *Handler {
 // SetAudit attaches an audit service for logging message_received events.
 func (h *Handler) SetAudit(a *audit.Service) {
 	h.audit = a
+}
+
+// SetDedup attaches a dedup tracker for duplicate MO message suppression.
+func (h *Handler) SetDedup(d dedup.Dedup) {
+	h.dedup = d
+}
+
+// SetReassembler attaches a fragment reassembler for MO reassembly.
+func (h *Handler) SetReassembler(r *fragment.Reassembler) {
+	h.reassembler = r
 }
 
 func (h *Handler) publish(topic string, qos byte, retained bool, v any) {
@@ -138,6 +152,20 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Dedup: check if this message has already been processed.
+	// Key: imei:momsn:sha256(data) — covers retransmissions from Ground Control.
+	if h.dedup != nil {
+		dedupHash := sha256.Sum256(rawBytes)
+		dedupKey := fmt.Sprintf("%s:%d:%x", imei, momsn, dedupHash[:8])
+		if !h.dedup.IsNew(dedupKey) {
+			slog.Info("rockblock: duplicate MO suppressed", "imei", imei, "momsn", momsn)
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			_ = json.NewEncoder(w).Encode(map[string]string{"status": "duplicate"})
+			return
+		}
+	}
+
 	rawB64 := base64.StdEncoding.EncodeToString(rawBytes)
 
 	slog.Info("rockblock: MO received",
@@ -159,6 +187,34 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		IridiumCEP:       iridiumCEP,
 	}
 	h.publish(hubmqtt.TopicMORaw(imei), 1, false, rawMsg)
+
+	// Fragment reassembly: if payload is a fragment, collect and reassemble.
+	if h.reassembler != nil && fragment.IsFragment(rawBytes) {
+		reassembled, fragErr := h.reassembler.AddFragment(imei, rawBytes)
+		if fragErr != nil {
+			slog.Warn("rockblock: fragment error", "error", fragErr, "imei", imei, "momsn", momsn)
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			_ = json.NewEncoder(w).Encode(map[string]string{"status": "fragment_error"})
+			return
+		}
+		if reassembled == nil {
+			_, _, msgID := fragment.DecodeHeader(rawBytes[0], rawBytes[1])
+			slog.Info("rockblock: fragment buffered, waiting for more",
+				"imei", imei, "momsn", momsn, "msg_id", msgID,
+				"pending", h.reassembler.PendingCount(),
+			)
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			_ = json.NewEncoder(w).Encode(map[string]string{"status": "fragment_buffered"})
+			return
+		}
+		slog.Info("rockblock: message reassembled from fragments",
+			"imei", imei, "bytes", len(reassembled),
+		)
+		rawBytes = reassembled
+		rawB64 = base64.StdEncoding.EncodeToString(rawBytes)
+	}
 
 	// Attempt SMAZ2 decompression.
 	text := ""
