@@ -15,18 +15,18 @@ Tier 1: STANDALONE           Tier 2: CLUSTER              Tier 3: KUBERNETES
 
 +----------+                 +----------+ +----------+   +---+ +---+ +---+
 |   Hub    |                 |  Hub-NL  | |  Hub-GR  |   |Hub| |Hub| |Hub|
-| (SQLite) |                 | (PG+Redis) (PG+Redis) |   +---+ +---+ +---+
-|Mosquitto |                 |  NATS <-----> NATS    |      |     |     |
-+----------+                 +----------+ +----------+   +--PostgreSQL--+
-                                                         +----Redis-----+
-                                                         +--NATS (x3)---+
+| (SQLite) |                 | (Galera)   (Galera)   |   +---+ +---+ +---+
+|Mosquitto |                 |  NATS       NATS      |      |     |     |
++----------+                 +----------+ +----------+   +-MariaDB Galera+
+                              + garbd +                  +----Redis-----+
+                              (arbiter)                  +--NATS (x3)---+
 ```
 
 | Tier | Mode | Store | Bus | Dedup/RL | Leader | Status |
 |------|------|-------|-----|----------|--------|--------|
 | 1 | `standalone` | SQLite | Mosquitto | In-memory | Noop | **Production** |
-| 2 | `cluster` | PostgreSQL | NATS+MQTT | Redis | NATS queues | **Production** (2 nodes) |
-| 3 | `kubernetes` | PostgreSQL | NATS StatefulSet | Redis | k8s Lease API | **Code complete**, untested |
+| 2 | `cluster` | MariaDB Galera | NATS+MQTT | Redis | NATS queues | **Production** (2 nodes, active-active) |
+| 3 | `kubernetes` | MariaDB Galera | NATS StatefulSet | Redis | k8s Lease API | **Code complete**, untested |
 
 **Current production:** Tier 2 cluster across `nllei01dmz01` (NL) + `grskg01dmz01` (GR).
 
@@ -58,8 +58,8 @@ Infrastructure, MQTT, SBD (MO + MT), SMAZ2 compression, Tor hidden service, heal
 
 | Issue | Summary | Status |
 |-------|---------|--------|
-| MESHSAT-152 | Enhanced `/readyz` with live dependency probes (PG, Redis, MQTT) | Done |
-| MESHSAT-149 | `docker-compose.cluster.yml` (PG 16, Redis 7, NATS 2.10, Hub x2, Caddy) | Done |
+| MESHSAT-152 | Enhanced `/readyz` with live dependency probes (MariaDB, Redis, MQTT) | Done |
+| MESHSAT-149 | `docker-compose.cluster.yml` (MariaDB Galera, Redis 7, NATS 2.10, Hub x2) | Done |
 | MESHSAT-151 | Kubernetes Lease API leader election (`internal/leader/kubelease.go`) | Done |
 | MESHSAT-150 | Post-deploy E2E smoke tests + `verify` CI stage | Done |
 | MESHSAT-153 | Kubernetes raw manifests (`deploy/k8s/`) + Helm chart (`deploy/helm/`) | Done |

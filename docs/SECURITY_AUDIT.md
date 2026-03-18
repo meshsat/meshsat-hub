@@ -14,7 +14,7 @@ _Scope: All Go code + production header audit on NL/GR DMZ hosts_
 | Go stdlib vulnerabilities | 18 CVEs in go1.24.1 | Medium | Mitigated by Caddy/nginx in prod |
 | Path traversal in backup import | ZIP entry names not sanitized | High | **Fixed** (v0.1) |
 | Request body size on webhook | No limit on rockblock POST body | Medium | **Fixed** (v0.1, 1MB limit) |
-| SQL injection | All queries parameterized ($1/$2 for PG, ? for SQLite) | N/A | Clean |
+| SQL injection | All queries parameterized (? for both MariaDB and SQLite) | N/A | Clean |
 | Hardcoded secrets | None found | N/A | Clean |
 | Auth middleware | OAuth2/OIDC + API keys + RBAC (viewer/operator/owner) | N/A | Implemented (v0.2) |
 | Tenant isolation | Per-tenant DB queries, MQTT topic prefix, JWT claim | N/A | Implemented (v0.2) |
@@ -89,7 +89,7 @@ _Scope: All Go code + production header audit on NL/GR DMZ hosts_
 
 All database queries use parameterized statements:
 - **SQLite:** `?` placeholders via `modernc.org/sqlite` (pure Go, no CGO)
-- **PostgreSQL:** `$1`, `$2` placeholders via `pgx`
+- **MariaDB:** `?` placeholders via `go-sql-driver/mysql`
 - No string concatenation in any SQL query (verified by grep audit)
 
 ## 7. Secrets Management

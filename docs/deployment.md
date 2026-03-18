@@ -7,8 +7,8 @@ MeshSat Hub supports three deployment tiers, selectable via the `HUB_MODE` envir
 | Tier | Mode | Compose File | Store | Message Bus | Dedup / Rate Limit | Leader Election | Use Case |
 |------|------|-------------|-------|-------------|-------------------|-----------------|----------|
 | **Tier 1** | `standalone` | `docker-compose.prod.yml` | SQLite (local) | Mosquitto (local) | In-memory | Noop (always leader) | Single VPS, dev, edge |
-| **Tier 2** | `cluster` | `docker-compose.cluster.yml` | PostgreSQL (shared) | NATS + MQTT adapter (clustered) | Redis (shared) | NATS queue groups | Multi-host Docker Compose |
-| **Tier 3** | `kubernetes` | `deploy/helm/meshsat-hub/` | PostgreSQL (shared) | NATS (StatefulSet, 3 replicas) | Redis (shared) | Kubernetes Lease API | k8s / cloud-native |
+| **Tier 2** | `cluster` | `docker-compose.cluster.yml` | MariaDB Galera (active-active) | NATS + MQTT adapter (clustered) | Redis (shared) | NATS queue groups | Multi-host Docker Compose |
+| **Tier 3** | `kubernetes` | `deploy/helm/meshsat-hub/` | MariaDB Galera (active-active) | NATS (StatefulSet, 3 replicas) | Redis (shared) | Kubernetes Lease API | k8s / cloud-native |
 
 **Current production deployment:** Tier 2 cluster with 2 nodes — `nllei01dmz01` (NL) + `grskg01dmz01` (GR), connected via NATS route clustering over WireGuard.
 
@@ -83,7 +83,7 @@ Field devices connect directly to:
 
 ## Tier 2: Cluster (Multi-Host Docker Compose)
 
-Best for production HA deployments across 2+ hosts. All Hub instances share PostgreSQL, Redis, and NATS for consistent state.
+Best for production HA deployments across 2+ hosts. All Hub instances share MariaDB, Redis, and NATS for consistent state.
 
 ### Prerequisites
 
@@ -121,7 +121,7 @@ Best for production HA deployments across 2+ hosts. All Hub instances share Post
      Shared MQTT via NATS route clustering.
 ```
 
-**Note:** The current production deployment runs `HUB_MODE=standalone` on each host with NATS providing cross-site MQTT replication via route clustering. For true shared-state cluster mode (shared PostgreSQL + Redis), use `docker-compose.cluster.yml` on a single host or across hosts with shared database access.
+**Note:** The current production deployment runs `HUB_MODE=standalone` on each host with NATS providing cross-site MQTT replication via route clustering. For true shared-state cluster mode (shared MariaDB + Redis), use `docker-compose.cluster.yml` on a single host or across hosts with shared database access.
 
 ### Single-Host Cluster (Both Instances on One Host)
 
@@ -130,13 +130,13 @@ Best for production HA deployments across 2+ hosts. All Hub instances share Post
 cp .env.cluster.example .env
 nano .env  # set passwords, domain, etc.
 
-# 2. Start (PostgreSQL, Redis, NATS, Hub x2, Caddy)
+# 2. Start (MariaDB, Redis, NATS, Hub x2, Caddy)
 docker compose -f docker-compose.cluster.yml up -d
 
 # 3. Verify
 curl https://your-domain.com/healthz
 curl https://your-domain.com/readyz
-# readyz should show: {"status":"ok","checks":{"mqtt":"ok","postgres":"ok","redis":"ok"}}
+# readyz should show: {"status":"ok","checks":{"mqtt":"ok","mariadb":"ok","redis":"ok"}}
 ```
 
 ### Multi-Host Cluster (Current Production Topology)
@@ -162,7 +162,7 @@ nano .env
 
 ```bash
 # Export data from SQLite
-./scripts/migrate-sqlite-to-pg.sh /data/hub.db "postgres://user:pass@postgres:5432/meshsat_hub"
+./scripts/migrate-sqlite-to-pg.sh /data/hub.db "mariadb://user:pass@mariadb:3306/meshsat_hub"
 ```
 
 ### Components (Cluster Mode)
@@ -170,7 +170,7 @@ nano .env
 | Service | Image | Port | Purpose |
 |---------|-------|------|---------|
 | Hub x2 | `ghcr.io/cubeos-app/meshsat-hub` | 6070 (internal) | Go API, `HUB_MODE=cluster` |
-| PostgreSQL | `postgres:16-alpine` | 5432 (internal) | Shared persistent store |
+| MariaDB | `mariadb:16-alpine` | 3306 (internal) | Shared persistent store |
 | Redis | `redis:7-alpine` | 6379 (internal) | Shared dedup + rate limit state |
 | NATS | `nats:2.10-alpine` | 4222 (NATS), 1883 (MQTT), 8222 (monitoring) | Message bus with MQTT adapter + JetStream |
 | Caddy | `caddy:2-alpine` | 80, 443 | TLS reverse proxy with LB |
@@ -184,7 +184,7 @@ The `/readyz` endpoint checks all dependencies:
   "status": "ok",
   "checks": {
     "mqtt": "ok",
-    "postgres": "ok",
+    "mariadb": "ok",
     "redis": "ok"
   }
 }
@@ -203,7 +203,7 @@ Best for cloud-native deployments with auto-scaling, rolling updates, and manage
 ```bash
 helm install meshsat-hub deploy/helm/meshsat-hub/ \
   --namespace meshsat-hub --create-namespace \
-  --set secrets.databaseUrl="postgres://..." \
+  --set secrets.databaseUrl="mariadb://..." \
   --set secrets.redisUrl="redis://..." \
   --set secrets.authToken="your-token" \
   --set ingress.enabled=true \
@@ -216,7 +216,7 @@ helm install meshsat-hub deploy/helm/meshsat-hub/ \
 kubectl apply -f deploy/k8s/namespace.yaml
 kubectl apply -f deploy/k8s/secret.yaml       # edit first!
 kubectl apply -f deploy/k8s/configmap.yaml
-kubectl apply -f deploy/k8s/postgres-statefulset.yaml
+kubectl apply -f deploy/k8s/mariadb-statefulset.yaml
 kubectl apply -f deploy/k8s/redis-deployment.yaml
 kubectl apply -f deploy/k8s/nats-statefulset.yaml
 kubectl apply -f deploy/k8s/hub-deployment.yaml
@@ -228,7 +228,7 @@ kubectl apply -f deploy/k8s/ingress.yaml       # edit host!
 | Resource | Kind | Replicas | Purpose |
 |----------|------|----------|---------|
 | Hub | Deployment | 2 | API + SPA, `HUB_MODE=kubernetes` |
-| PostgreSQL | StatefulSet | 1 | Persistent store (10Gi PVC) |
+| MariaDB | StatefulSet | 1 | Persistent store (10Gi PVC) |
 | Redis | Deployment | 1 | Dedup + rate limit (1Gi PVC) |
 | NATS | StatefulSet | 3 | Clustered message bus (2Gi PVC each) |
 | Ingress | Ingress | — | TLS termination |
@@ -250,8 +250,8 @@ env:
 Toggle built-in infrastructure (set `false` to use external/managed services):
 
 ```yaml
-postgres:
-  enabled: true    # false = use external PostgreSQL
+mariadb:
+  enabled: true    # false = use external MariaDB
 redis:
   enabled: true    # false = use external Redis
 nats:
@@ -271,7 +271,7 @@ nats:
 | `HUB_AUTH_TOKEN` | All | Auth token for API access |
 | `HUB_ROCKBLOCK_SECRET` | All | Shared secret for RockBLOCK webhook |
 | `HUB_CLOUDLOOP_API_KEY` | All | Cloudloop REST API key for MT sends |
-| `HUB_DATABASE_URL` | 2, 3 | PostgreSQL connection string |
+| `HUB_DATABASE_URL` | 2, 3 | MariaDB connection string |
 | `HUB_REDIS_URL` | 2, 3 | Redis connection string |
 | `HUB_NATS_URL` | 2, 3 | NATS MQTT adapter URL (`tcp://nats:1883`) |
 | `HUB_MQTT_CLIENT_ID` | All | **Must be unique per instance** in cluster/k8s |
@@ -297,7 +297,7 @@ nats:
 | Tier 2 (cluster, per host) | 2 vCPU | 2GB | 20GB | 50-500 |
 | Tier 3 (k8s, total) | 4 vCPU | 4GB | 50GB | 500+ |
 
-Hub binary: ~30MB RAM. PostgreSQL: ~128MB. Redis: ~64MB. NATS: ~64MB per replica.
+Hub binary: ~30MB RAM. MariaDB: ~128MB. Redis: ~64MB. NATS: ~64MB per replica.
 
 ---
 
@@ -378,4 +378,4 @@ docker run --rm -v meshsat-hub_tor-keys:/data -v $(pwd):/backup alpine \
 | NATS "older protocol MQIsdp not supported" | Hub image too old — needs `SetProtocolVersion(4)` fix |
 | Webhook returns 401 | Wrong `HUB_ROCKBLOCK_SECRET` |
 | Caddy won't start | Port 80/443 in use |
-| PostgreSQL ping fails in readyz | Check `HUB_DATABASE_URL` and `docker logs meshsat-postgres` |
+| MariaDB ping fails in readyz | Check `HUB_DATABASE_URL` and `docker logs meshsat-mariadb` |
