@@ -50,6 +50,9 @@ type Config struct {
 	RateLimitRefillPerMin float64 `yaml:"ratelimit_refill_per_min"` // tokens refilled per minute (default 1)
 	RateLimitDailyCap     int     `yaml:"ratelimit_daily_cap"`      // max sends per device per day (default 100, 0=unlimited)
 
+	// Tenant isolation
+	TenantEnforce bool `yaml:"tenant_enforce"` // If true, requests without tenant context get 403
+
 	// WireGuard (wg-easy)
 	WGEnabled  bool   `yaml:"wg_enabled"`
 	WGURL      string `yaml:"wg_url"`      // wg-easy base URL (e.g., http://wg-easy:51821)
@@ -194,6 +197,11 @@ func Load() (Config, error) {
 		if n, err := strconv.Atoi(v); err == nil {
 			cfg.RateLimitDailyCap = n
 		}
+	}
+
+	// Tenant isolation overrides
+	if v := os.Getenv("HUB_TENANT_ENFORCE"); v != "" {
+		cfg.TenantEnforce = strings.EqualFold(v, "true") || v == "1"
 	}
 
 	// WireGuard overrides

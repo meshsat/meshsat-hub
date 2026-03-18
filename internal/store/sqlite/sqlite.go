@@ -42,6 +42,21 @@ func (d *DB) Migrate(ctx context.Context) error {
 			return fmt.Errorf("migration %d: %w", i+1, err)
 		}
 	}
+	// Run ALTER TABLE migrations separately — ignore "duplicate column" errors
+	// for idempotency (SQLite has no ADD COLUMN IF NOT EXISTS).
+	for _, m := range alterMigrations {
+		if _, err := d.db.ExecContext(ctx, m); err != nil {
+			if !strings.Contains(err.Error(), "duplicate column") {
+				return fmt.Errorf("alter migration: %w", err)
+			}
+		}
+	}
+	// Run post-alter index/migration statements (idempotent via IF NOT EXISTS).
+	for i, m := range postAlterMigrations {
+		if _, err := d.db.ExecContext(ctx, m); err != nil {
+			return fmt.Errorf("post-alter migration %d: %w", i+1, err)
+		}
+	}
 	return nil
 }
 
@@ -112,20 +127,42 @@ var migrations = []string{
 	)`,
 }
 
+// alterMigrations add tenant_id to existing tables. These use ALTER TABLE
+// which cannot be made idempotent in SQLite, so errors for duplicate columns
+// are ignored by the Migrate function.
+var alterMigrations = []string{
+	`ALTER TABLE devices ADD COLUMN tenant_id TEXT NOT NULL DEFAULT 'default'`,
+	`ALTER TABLE messages ADD COLUMN tenant_id TEXT NOT NULL DEFAULT 'default'`,
+	`ALTER TABLE webhook_configs ADD COLUMN tenant_id TEXT NOT NULL DEFAULT 'default'`,
+	`ALTER TABLE delivery_logs ADD COLUMN tenant_id TEXT NOT NULL DEFAULT 'default'`,
+	`ALTER TABLE positions ADD COLUMN tenant_id TEXT NOT NULL DEFAULT 'default'`,
+	`ALTER TABLE audit_log ADD COLUMN tenant_id TEXT NOT NULL DEFAULT 'default'`,
+}
+
+// postAlterMigrations create indexes on tenant_id columns. Safe to re-run.
+var postAlterMigrations = []string{
+	`CREATE INDEX IF NOT EXISTS idx_devices_tenant ON devices(tenant_id)`,
+	`CREATE INDEX IF NOT EXISTS idx_messages_tenant ON messages(tenant_id, device_imei)`,
+	`CREATE INDEX IF NOT EXISTS idx_webhook_configs_tenant ON webhook_configs(tenant_id)`,
+	`CREATE INDEX IF NOT EXISTS idx_positions_tenant ON positions(tenant_id, device_imei)`,
+	`CREATE INDEX IF NOT EXISTS idx_audit_log_tenant ON audit_log(tenant_id)`,
+	`CREATE INDEX IF NOT EXISTS idx_delivery_logs_tenant ON delivery_logs(tenant_id)`,
+}
+
 // --- Devices ---
 
-func (d *DB) CreateDevice(ctx context.Context, dev *store.Device) error {
+func (d *DB) CreateDevice(ctx context.Context, tenantID string, dev *store.Device) error {
 	_, err := d.db.ExecContext(ctx,
-		"INSERT INTO devices (imei, label, type, notes) VALUES (?, ?, ?, ?)",
-		dev.IMEI, dev.Label, dev.Type, dev.Notes)
+		"INSERT INTO devices (imei, label, type, notes, tenant_id) VALUES (?, ?, ?, ?, ?)",
+		dev.IMEI, dev.Label, dev.Type, dev.Notes, tenantID)
 	return err
 }
 
-func (d *DB) GetDevice(ctx context.Context, imei string) (*store.Device, error) {
+func (d *DB) GetDevice(ctx context.Context, tenantID string, imei string) (*store.Device, error) {
 	var dev store.Device
 	var lastSeen, createdAt, updatedAt string
 	err := d.db.QueryRowContext(ctx,
-		"SELECT imei, label, type, notes, last_seen, created_at, updated_at FROM devices WHERE imei=?", imei,
+		"SELECT imei, label, type, notes, last_seen, created_at, updated_at FROM devices WHERE imei=? AND tenant_id=?", imei, tenantID,
 	).Scan(&dev.IMEI, &dev.Label, &dev.Type, &dev.Notes, &lastSeen, &createdAt, &updatedAt)
 	if err != nil {
 		return nil, err
@@ -136,8 +173,8 @@ func (d *DB) GetDevice(ctx context.Context, imei string) (*store.Device, error) 
 	return &dev, nil
 }
 
-func (d *DB) ListDevices(ctx context.Context) ([]store.Device, error) {
-	rows, err := d.db.QueryContext(ctx, "SELECT imei, label, type, notes, last_seen, created_at, updated_at FROM devices ORDER BY label, imei")
+func (d *DB) ListDevices(ctx context.Context, tenantID string) ([]store.Device, error) {
+	rows, err := d.db.QueryContext(ctx, "SELECT imei, label, type, notes, last_seen, created_at, updated_at FROM devices WHERE tenant_id=? ORDER BY label, imei", tenantID)
 	if err != nil {
 		return nil, err
 	}
@@ -157,42 +194,42 @@ func (d *DB) ListDevices(ctx context.Context) ([]store.Device, error) {
 	return devices, nil
 }
 
-func (d *DB) UpdateDevice(ctx context.Context, dev *store.Device) error {
+func (d *DB) UpdateDevice(ctx context.Context, tenantID string, dev *store.Device) error {
 	_, err := d.db.ExecContext(ctx,
-		"UPDATE devices SET label=?, type=?, notes=?, updated_at=datetime('now') WHERE imei=?",
-		dev.Label, dev.Type, dev.Notes, dev.IMEI)
+		"UPDATE devices SET label=?, type=?, notes=?, updated_at=datetime('now') WHERE imei=? AND tenant_id=?",
+		dev.Label, dev.Type, dev.Notes, dev.IMEI, tenantID)
 	return err
 }
 
-func (d *DB) DeleteDevice(ctx context.Context, imei string) error {
-	_, err := d.db.ExecContext(ctx, "DELETE FROM devices WHERE imei=?", imei)
+func (d *DB) DeleteDevice(ctx context.Context, tenantID string, imei string) error {
+	_, err := d.db.ExecContext(ctx, "DELETE FROM devices WHERE imei=? AND tenant_id=?", imei, tenantID)
 	return err
 }
 
-func (d *DB) TouchDeviceLastSeen(ctx context.Context, imei string) error {
-	_, err := d.db.ExecContext(ctx, "UPDATE devices SET last_seen=datetime('now') WHERE imei=?", imei)
+func (d *DB) TouchDeviceLastSeen(ctx context.Context, tenantID string, imei string) error {
+	_, err := d.db.ExecContext(ctx, "UPDATE devices SET last_seen=datetime('now') WHERE imei=? AND tenant_id=?", imei, tenantID)
 	return err
 }
 
 // --- Messages ---
 
-func (d *DB) InsertMessage(ctx context.Context, m *store.Message) error {
+func (d *DB) InsertMessage(ctx context.Context, tenantID string, m *store.Message) error {
 	if m.ID == "" {
 		m.ID = fmt.Sprintf("msg-%d", time.Now().UnixNano())
 	}
 	_, err := d.db.ExecContext(ctx,
-		`INSERT INTO messages (id, device_imei, direction, channel, momsn, text, raw_hex, compressed, status, error, lat, lon)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		`INSERT INTO messages (id, device_imei, direction, channel, momsn, text, raw_hex, compressed, status, error, lat, lon, tenant_id)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		m.ID, m.DeviceIMEI, m.Direction, m.Channel, m.MOMSN, m.Text, m.RawHex,
-		boolToInt(m.Compressed), m.Status, m.Error, m.Lat, m.Lon)
+		boolToInt(m.Compressed), m.Status, m.Error, m.Lat, m.Lon, tenantID)
 	return err
 }
 
-func (d *DB) ListMessages(ctx context.Context, deviceIMEI string, limit int) ([]store.Message, error) {
-	query := "SELECT id, device_imei, direction, channel, momsn, text, raw_hex, compressed, status, error, lat, lon, created_at FROM messages"
-	var args []interface{}
+func (d *DB) ListMessages(ctx context.Context, tenantID string, deviceIMEI string, limit int) ([]store.Message, error) {
+	query := "SELECT id, device_imei, direction, channel, momsn, text, raw_hex, compressed, status, error, lat, lon, created_at FROM messages WHERE tenant_id=?"
+	args := []interface{}{tenantID}
 	if deviceIMEI != "" {
-		query += " WHERE device_imei=?"
+		query += " AND device_imei=?"
 		args = append(args, deviceIMEI)
 	}
 	query += " ORDER BY created_at DESC"
@@ -220,12 +257,12 @@ func (d *DB) ListMessages(ctx context.Context, deviceIMEI string, limit int) ([]
 	return msgs, nil
 }
 
-func (d *DB) GetMessage(ctx context.Context, id string) (*store.Message, error) {
+func (d *DB) GetMessage(ctx context.Context, tenantID string, id string) (*store.Message, error) {
 	var m store.Message
 	var compressed int
 	var createdAt string
 	err := d.db.QueryRowContext(ctx,
-		"SELECT id, device_imei, direction, channel, momsn, text, raw_hex, compressed, status, error, lat, lon, created_at FROM messages WHERE id=?", id,
+		"SELECT id, device_imei, direction, channel, momsn, text, raw_hex, compressed, status, error, lat, lon, created_at FROM messages WHERE id=? AND tenant_id=?", id, tenantID,
 	).Scan(&m.ID, &m.DeviceIMEI, &m.Direction, &m.Channel, &m.MOMSN, &m.Text, &m.RawHex,
 		&compressed, &m.Status, &m.Error, &m.Lat, &m.Lon, &createdAt)
 	if err != nil {
@@ -238,17 +275,17 @@ func (d *DB) GetMessage(ctx context.Context, id string) (*store.Message, error) 
 
 // --- Webhooks ---
 
-func (d *DB) SaveWebhook(ctx context.Context, w *store.WebhookConfig) error {
+func (d *DB) SaveWebhook(ctx context.Context, tenantID string, w *store.WebhookConfig) error {
 	eventsJSON, _ := json.Marshal(w.Events)
 	_, err := d.db.ExecContext(ctx,
-		`INSERT OR REPLACE INTO webhook_configs (id, url, secret, events, max_retries, timeout_sec, enabled)
-		 VALUES (?, ?, ?, ?, ?, ?, ?)`,
-		w.ID, w.URL, w.Secret, string(eventsJSON), w.MaxRetries, w.TimeoutSec, boolToInt(w.Enabled))
+		`INSERT OR REPLACE INTO webhook_configs (id, url, secret, events, max_retries, timeout_sec, enabled, tenant_id)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		w.ID, w.URL, w.Secret, string(eventsJSON), w.MaxRetries, w.TimeoutSec, boolToInt(w.Enabled), tenantID)
 	return err
 }
 
-func (d *DB) ListWebhooks(ctx context.Context) ([]store.WebhookConfig, error) {
-	rows, err := d.db.QueryContext(ctx, "SELECT id, url, secret, events, max_retries, timeout_sec, enabled, created_at FROM webhook_configs")
+func (d *DB) ListWebhooks(ctx context.Context, tenantID string) ([]store.WebhookConfig, error) {
+	rows, err := d.db.QueryContext(ctx, "SELECT id, url, secret, events, max_retries, timeout_sec, enabled, created_at FROM webhook_configs WHERE tenant_id=?", tenantID)
 	if err != nil {
 		return nil, err
 	}
@@ -270,30 +307,31 @@ func (d *DB) ListWebhooks(ctx context.Context) ([]store.WebhookConfig, error) {
 	return webhooks, nil
 }
 
-func (d *DB) DeleteWebhook(ctx context.Context, id string) error {
-	_, err := d.db.ExecContext(ctx, "DELETE FROM webhook_configs WHERE id=?", id)
+func (d *DB) DeleteWebhook(ctx context.Context, tenantID string, id string) error {
+	_, err := d.db.ExecContext(ctx, "DELETE FROM webhook_configs WHERE id=? AND tenant_id=?", id, tenantID)
 	return err
 }
 
 // --- Delivery logs ---
 
-func (d *DB) InsertDeliveryLog(ctx context.Context, l *store.DeliveryLog) error {
+func (d *DB) InsertDeliveryLog(ctx context.Context, tenantID string, l *store.DeliveryLog) error {
 	if l.ID == "" {
 		l.ID = fmt.Sprintf("dl-%d", time.Now().UnixNano())
 	}
 	_, err := d.db.ExecContext(ctx,
-		`INSERT INTO delivery_logs (id, webhook_id, event, device_imei, status_code, error, attempt)
-		 VALUES (?, ?, ?, ?, ?, ?, ?)`,
-		l.ID, l.WebhookID, l.Event, l.DeviceIMEI, l.StatusCode, l.Error, l.Attempt)
+		`INSERT INTO delivery_logs (id, webhook_id, event, device_imei, status_code, error, attempt, tenant_id)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		l.ID, l.WebhookID, l.Event, l.DeviceIMEI, l.StatusCode, l.Error, l.Attempt, tenantID)
 	return err
 }
 
-func (d *DB) ListDeliveryLogs(ctx context.Context, limit int) ([]store.DeliveryLog, error) {
-	query := "SELECT id, webhook_id, event, device_imei, status_code, error, attempt, created_at FROM delivery_logs ORDER BY created_at DESC"
+func (d *DB) ListDeliveryLogs(ctx context.Context, tenantID string, limit int) ([]store.DeliveryLog, error) {
+	query := "SELECT id, webhook_id, event, device_imei, status_code, error, attempt, created_at FROM delivery_logs WHERE tenant_id=? ORDER BY created_at DESC"
+	args := []interface{}{tenantID}
 	if limit > 0 {
 		query += fmt.Sprintf(" LIMIT %d", limit)
 	}
-	rows, err := d.db.QueryContext(ctx, query)
+	rows, err := d.db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -313,22 +351,22 @@ func (d *DB) ListDeliveryLogs(ctx context.Context, limit int) ([]store.DeliveryL
 
 // --- Positions ---
 
-func (d *DB) InsertPosition(ctx context.Context, p *store.Position) error {
+func (d *DB) InsertPosition(ctx context.Context, tenantID string, p *store.Position) error {
 	if p.ID == "" {
 		p.ID = fmt.Sprintf("pos-%d", time.Now().UnixNano())
 	}
 	_, err := d.db.ExecContext(ctx,
-		`INSERT INTO positions (id, device_imei, lat, lon, alt, source, cep) VALUES (?, ?, ?, ?, ?, ?, ?)`,
-		p.ID, p.DeviceIMEI, p.Lat, p.Lon, p.Alt, p.Source, p.CEP)
+		`INSERT INTO positions (id, device_imei, lat, lon, alt, source, cep, tenant_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		p.ID, p.DeviceIMEI, p.Lat, p.Lon, p.Alt, p.Source, p.CEP, tenantID)
 	return err
 }
 
-func (d *DB) LatestPosition(ctx context.Context, deviceIMEI string) (*store.Position, error) {
+func (d *DB) LatestPosition(ctx context.Context, tenantID string, deviceIMEI string) (*store.Position, error) {
 	var p store.Position
 	var createdAt string
 	err := d.db.QueryRowContext(ctx,
-		"SELECT id, device_imei, lat, lon, alt, source, cep, created_at FROM positions WHERE device_imei=? ORDER BY rowid DESC LIMIT 1",
-		deviceIMEI,
+		"SELECT id, device_imei, lat, lon, alt, source, cep, created_at FROM positions WHERE device_imei=? AND tenant_id=? ORDER BY rowid DESC LIMIT 1",
+		deviceIMEI, tenantID,
 	).Scan(&p.ID, &p.DeviceIMEI, &p.Lat, &p.Lon, &p.Alt, &p.Source, &p.CEP, &createdAt)
 	if err != nil {
 		return nil, err
@@ -337,12 +375,12 @@ func (d *DB) LatestPosition(ctx context.Context, deviceIMEI string) (*store.Posi
 	return &p, nil
 }
 
-func (d *DB) ListPositions(ctx context.Context, deviceIMEI string, limit int) ([]store.Position, error) {
-	query := "SELECT id, device_imei, lat, lon, alt, source, cep, created_at FROM positions WHERE device_imei=? ORDER BY created_at DESC"
+func (d *DB) ListPositions(ctx context.Context, tenantID string, deviceIMEI string, limit int) ([]store.Position, error) {
+	query := "SELECT id, device_imei, lat, lon, alt, source, cep, created_at FROM positions WHERE device_imei=? AND tenant_id=? ORDER BY created_at DESC"
 	if limit > 0 {
 		query += fmt.Sprintf(" LIMIT %d", limit)
 	}
-	rows, err := d.db.QueryContext(ctx, query, deviceIMEI)
+	rows, err := d.db.QueryContext(ctx, query, deviceIMEI, tenantID)
 	if err != nil {
 		return nil, err
 	}
@@ -362,22 +400,23 @@ func (d *DB) ListPositions(ctx context.Context, deviceIMEI string, limit int) ([
 
 // --- Audit log ---
 
-func (d *DB) InsertAuditEntry(ctx context.Context, a *store.AuditEntry) error {
+func (d *DB) InsertAuditEntry(ctx context.Context, tenantID string, a *store.AuditEntry) error {
 	if a.ID == "" {
 		a.ID = fmt.Sprintf("aud-%d", time.Now().UnixNano())
 	}
 	_, err := d.db.ExecContext(ctx,
-		"INSERT INTO audit_log (id, action, actor, detail, ip) VALUES (?, ?, ?, ?, ?)",
-		a.ID, a.Action, a.Actor, a.Detail, a.IP)
+		"INSERT INTO audit_log (id, action, actor, detail, ip, tenant_id) VALUES (?, ?, ?, ?, ?, ?)",
+		a.ID, a.Action, a.Actor, a.Detail, a.IP, tenantID)
 	return err
 }
 
-func (d *DB) ListAuditEntries(ctx context.Context, limit int) ([]store.AuditEntry, error) {
-	query := "SELECT id, action, actor, detail, ip, created_at FROM audit_log ORDER BY created_at DESC"
+func (d *DB) ListAuditEntries(ctx context.Context, tenantID string, limit int) ([]store.AuditEntry, error) {
+	query := "SELECT id, action, actor, detail, ip, created_at FROM audit_log WHERE tenant_id=? ORDER BY created_at DESC"
+	args := []interface{}{tenantID}
 	if limit > 0 {
 		query += fmt.Sprintf(" LIMIT %d", limit)
 	}
-	rows, err := d.db.QueryContext(ctx, query)
+	rows, err := d.db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, err
 	}

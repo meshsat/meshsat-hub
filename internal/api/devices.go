@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 
+	"github.com/cubeos-app/meshsat-hub/internal/auth"
 	"github.com/cubeos-app/meshsat-hub/internal/store"
 	"github.com/go-chi/chi/v5"
 )
@@ -21,7 +22,8 @@ func NewDeviceHandler(s store.Store) *DeviceHandler {
 // ListDevices returns all registered devices.
 // GET /api/devices
 func (h *DeviceHandler) ListDevices(w http.ResponseWriter, r *http.Request) {
-	devices, err := h.store.ListDevices(r.Context())
+	tid := auth.TenantIDFromContext(r.Context())
+	devices, err := h.store.ListDevices(r.Context(), tid)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -36,7 +38,8 @@ func (h *DeviceHandler) ListDevices(w http.ResponseWriter, r *http.Request) {
 // GET /api/devices/{imei}
 func (h *DeviceHandler) GetDevice(w http.ResponseWriter, r *http.Request) {
 	imei := chi.URLParam(r, "imei")
-	device, err := h.store.GetDevice(r.Context(), imei)
+	tid := auth.TenantIDFromContext(r.Context())
+	device, err := h.store.GetDevice(r.Context(), tid, imei)
 	if err != nil {
 		writeError(w, http.StatusNotFound, "device not found")
 		return
@@ -59,11 +62,12 @@ func (h *DeviceHandler) CreateDevice(w http.ResponseWriter, r *http.Request) {
 	if dev.Type == "" {
 		dev.Type = "rockblock"
 	}
-	if err := h.store.CreateDevice(r.Context(), &dev); err != nil {
+	tid := auth.TenantIDFromContext(r.Context())
+	if err := h.store.CreateDevice(r.Context(), tid, &dev); err != nil {
 		writeError(w, http.StatusConflict, "device already exists or error: "+err.Error())
 		return
 	}
-	created, _ := h.store.GetDevice(r.Context(), dev.IMEI)
+	created, _ := h.store.GetDevice(r.Context(), tid, dev.IMEI)
 	writeJSON(w, http.StatusCreated, created)
 }
 
@@ -71,7 +75,8 @@ func (h *DeviceHandler) CreateDevice(w http.ResponseWriter, r *http.Request) {
 // PUT /api/devices/{imei}
 func (h *DeviceHandler) UpdateDevice(w http.ResponseWriter, r *http.Request) {
 	imei := chi.URLParam(r, "imei")
-	existing, err := h.store.GetDevice(r.Context(), imei)
+	tid := auth.TenantIDFromContext(r.Context())
+	existing, err := h.store.GetDevice(r.Context(), tid, imei)
 	if err != nil {
 		writeError(w, http.StatusNotFound, "device not found")
 		return
@@ -90,11 +95,11 @@ func (h *DeviceHandler) UpdateDevice(w http.ResponseWriter, r *http.Request) {
 	existing.Label = req.Label
 	existing.Type = req.Type
 	existing.Notes = req.Notes
-	if err := h.store.UpdateDevice(r.Context(), existing); err != nil {
+	if err := h.store.UpdateDevice(r.Context(), tid, existing); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	updated, _ := h.store.GetDevice(r.Context(), imei)
+	updated, _ := h.store.GetDevice(r.Context(), tid, imei)
 	writeJSON(w, http.StatusOK, updated)
 }
 
@@ -102,11 +107,12 @@ func (h *DeviceHandler) UpdateDevice(w http.ResponseWriter, r *http.Request) {
 // DELETE /api/devices/{imei}
 func (h *DeviceHandler) DeleteDevice(w http.ResponseWriter, r *http.Request) {
 	imei := chi.URLParam(r, "imei")
-	if _, err := h.store.GetDevice(r.Context(), imei); err != nil {
+	tid := auth.TenantIDFromContext(r.Context())
+	if _, err := h.store.GetDevice(r.Context(), tid, imei); err != nil {
 		writeError(w, http.StatusNotFound, "device not found")
 		return
 	}
-	if err := h.store.DeleteDevice(r.Context(), imei); err != nil {
+	if err := h.store.DeleteDevice(r.Context(), tid, imei); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}

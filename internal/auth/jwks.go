@@ -21,10 +21,10 @@ type JWKSProvider struct {
 	issuerURL  string
 	httpClient *http.Client
 
-	mu       sync.RWMutex
-	keys     map[string]*rsa.PublicKey // kid → public key
+	mu        sync.RWMutex
+	keys      map[string]*rsa.PublicKey // kid → public key
 	fetchedAt time.Time
-	jwksURI  string // discovered from .well-known/openid-configuration
+	jwksURI   string // discovered from .well-known/openid-configuration
 
 	// cacheTTL controls how long cached keys are valid before a background refresh.
 	cacheTTL time.Duration

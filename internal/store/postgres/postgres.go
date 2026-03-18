@@ -109,21 +109,34 @@ var migrations = []string{
 		ip TEXT NOT NULL DEFAULT '',
 		created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 	)`,
+	// Tenant isolation: add tenant_id to all tables (PostgreSQL supports IF NOT EXISTS).
+	`ALTER TABLE devices ADD COLUMN IF NOT EXISTS tenant_id TEXT NOT NULL DEFAULT 'default'`,
+	`ALTER TABLE messages ADD COLUMN IF NOT EXISTS tenant_id TEXT NOT NULL DEFAULT 'default'`,
+	`ALTER TABLE webhook_configs ADD COLUMN IF NOT EXISTS tenant_id TEXT NOT NULL DEFAULT 'default'`,
+	`ALTER TABLE delivery_logs ADD COLUMN IF NOT EXISTS tenant_id TEXT NOT NULL DEFAULT 'default'`,
+	`ALTER TABLE positions ADD COLUMN IF NOT EXISTS tenant_id TEXT NOT NULL DEFAULT 'default'`,
+	`ALTER TABLE audit_log ADD COLUMN IF NOT EXISTS tenant_id TEXT NOT NULL DEFAULT 'default'`,
+	`CREATE INDEX IF NOT EXISTS idx_devices_tenant ON devices(tenant_id)`,
+	`CREATE INDEX IF NOT EXISTS idx_messages_tenant ON messages(tenant_id, device_imei)`,
+	`CREATE INDEX IF NOT EXISTS idx_webhook_configs_tenant ON webhook_configs(tenant_id)`,
+	`CREATE INDEX IF NOT EXISTS idx_positions_tenant ON positions(tenant_id, device_imei)`,
+	`CREATE INDEX IF NOT EXISTS idx_audit_log_tenant ON audit_log(tenant_id)`,
+	`CREATE INDEX IF NOT EXISTS idx_delivery_logs_tenant ON delivery_logs(tenant_id)`,
 }
 
 // --- Devices ---
 
-func (d *DB) CreateDevice(ctx context.Context, dev *store.Device) error {
+func (d *DB) CreateDevice(ctx context.Context, tenantID string, dev *store.Device) error {
 	_, err := d.pool.Exec(ctx,
-		"INSERT INTO devices (imei, label, type, notes) VALUES ($1, $2, $3, $4)",
-		dev.IMEI, dev.Label, dev.Type, dev.Notes)
+		"INSERT INTO devices (imei, label, type, notes, tenant_id) VALUES ($1, $2, $3, $4, $5)",
+		dev.IMEI, dev.Label, dev.Type, dev.Notes, tenantID)
 	return err
 }
 
-func (d *DB) GetDevice(ctx context.Context, imei string) (*store.Device, error) {
+func (d *DB) GetDevice(ctx context.Context, tenantID string, imei string) (*store.Device, error) {
 	var dev store.Device
 	err := d.pool.QueryRow(ctx,
-		"SELECT imei, label, type, notes, last_seen, created_at, updated_at FROM devices WHERE imei=$1", imei,
+		"SELECT imei, label, type, notes, last_seen, created_at, updated_at FROM devices WHERE imei=$1 AND tenant_id=$2", imei, tenantID,
 	).Scan(&dev.IMEI, &dev.Label, &dev.Type, &dev.Notes, &dev.LastSeen, &dev.CreatedAt, &dev.UpdatedAt)
 	if err != nil {
 		return nil, err
@@ -131,8 +144,8 @@ func (d *DB) GetDevice(ctx context.Context, imei string) (*store.Device, error) 
 	return &dev, nil
 }
 
-func (d *DB) ListDevices(ctx context.Context) ([]store.Device, error) {
-	rows, err := d.pool.Query(ctx, "SELECT imei, label, type, notes, last_seen, created_at, updated_at FROM devices ORDER BY label, imei")
+func (d *DB) ListDevices(ctx context.Context, tenantID string) ([]store.Device, error) {
+	rows, err := d.pool.Query(ctx, "SELECT imei, label, type, notes, last_seen, created_at, updated_at FROM devices WHERE tenant_id=$1 ORDER BY label, imei", tenantID)
 	if err != nil {
 		return nil, err
 	}
@@ -148,43 +161,43 @@ func (d *DB) ListDevices(ctx context.Context) ([]store.Device, error) {
 	return devices, nil
 }
 
-func (d *DB) UpdateDevice(ctx context.Context, dev *store.Device) error {
+func (d *DB) UpdateDevice(ctx context.Context, tenantID string, dev *store.Device) error {
 	_, err := d.pool.Exec(ctx,
-		"UPDATE devices SET label=$1, type=$2, notes=$3, updated_at=NOW() WHERE imei=$4",
-		dev.Label, dev.Type, dev.Notes, dev.IMEI)
+		"UPDATE devices SET label=$1, type=$2, notes=$3, updated_at=NOW() WHERE imei=$4 AND tenant_id=$5",
+		dev.Label, dev.Type, dev.Notes, dev.IMEI, tenantID)
 	return err
 }
 
-func (d *DB) DeleteDevice(ctx context.Context, imei string) error {
-	_, err := d.pool.Exec(ctx, "DELETE FROM devices WHERE imei=$1", imei)
+func (d *DB) DeleteDevice(ctx context.Context, tenantID string, imei string) error {
+	_, err := d.pool.Exec(ctx, "DELETE FROM devices WHERE imei=$1 AND tenant_id=$2", imei, tenantID)
 	return err
 }
 
-func (d *DB) TouchDeviceLastSeen(ctx context.Context, imei string) error {
-	_, err := d.pool.Exec(ctx, "UPDATE devices SET last_seen=NOW() WHERE imei=$1", imei)
+func (d *DB) TouchDeviceLastSeen(ctx context.Context, tenantID string, imei string) error {
+	_, err := d.pool.Exec(ctx, "UPDATE devices SET last_seen=NOW() WHERE imei=$1 AND tenant_id=$2", imei, tenantID)
 	return err
 }
 
 // --- Messages ---
 
-func (d *DB) InsertMessage(ctx context.Context, m *store.Message) error {
+func (d *DB) InsertMessage(ctx context.Context, tenantID string, m *store.Message) error {
 	if m.ID == "" {
 		m.ID = fmt.Sprintf("msg-%d", time.Now().UnixNano())
 	}
 	_, err := d.pool.Exec(ctx,
-		`INSERT INTO messages (id, device_imei, direction, channel, momsn, text, raw_hex, compressed, status, error, lat, lon)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
+		`INSERT INTO messages (id, device_imei, direction, channel, momsn, text, raw_hex, compressed, status, error, lat, lon, tenant_id)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`,
 		m.ID, m.DeviceIMEI, m.Direction, m.Channel, m.MOMSN, m.Text, m.RawHex,
-		m.Compressed, m.Status, m.Error, m.Lat, m.Lon)
+		m.Compressed, m.Status, m.Error, m.Lat, m.Lon, tenantID)
 	return err
 }
 
-func (d *DB) ListMessages(ctx context.Context, deviceIMEI string, limit int) ([]store.Message, error) {
-	query := "SELECT id, device_imei, direction, channel, momsn, text, raw_hex, compressed, status, error, lat, lon, created_at FROM messages"
-	var args []interface{}
-	argN := 1
+func (d *DB) ListMessages(ctx context.Context, tenantID string, deviceIMEI string, limit int) ([]store.Message, error) {
+	query := "SELECT id, device_imei, direction, channel, momsn, text, raw_hex, compressed, status, error, lat, lon, created_at FROM messages WHERE tenant_id=$1"
+	args := []interface{}{tenantID}
+	argN := 2
 	if deviceIMEI != "" {
-		query += fmt.Sprintf(" WHERE device_imei=$%d", argN)
+		query += fmt.Sprintf(" AND device_imei=$%d", argN)
 		args = append(args, deviceIMEI)
 		argN++
 	}
@@ -210,10 +223,10 @@ func (d *DB) ListMessages(ctx context.Context, deviceIMEI string, limit int) ([]
 	return msgs, nil
 }
 
-func (d *DB) GetMessage(ctx context.Context, id string) (*store.Message, error) {
+func (d *DB) GetMessage(ctx context.Context, tenantID string, id string) (*store.Message, error) {
 	var m store.Message
 	err := d.pool.QueryRow(ctx,
-		"SELECT id, device_imei, direction, channel, momsn, text, raw_hex, compressed, status, error, lat, lon, created_at FROM messages WHERE id=$1", id,
+		"SELECT id, device_imei, direction, channel, momsn, text, raw_hex, compressed, status, error, lat, lon, created_at FROM messages WHERE id=$1 AND tenant_id=$2", id, tenantID,
 	).Scan(&m.ID, &m.DeviceIMEI, &m.Direction, &m.Channel, &m.MOMSN, &m.Text, &m.RawHex,
 		&m.Compressed, &m.Status, &m.Error, &m.Lat, &m.Lon, &m.CreatedAt)
 	if err != nil {
@@ -224,18 +237,18 @@ func (d *DB) GetMessage(ctx context.Context, id string) (*store.Message, error) 
 
 // --- Webhooks ---
 
-func (d *DB) SaveWebhook(ctx context.Context, w *store.WebhookConfig) error {
+func (d *DB) SaveWebhook(ctx context.Context, tenantID string, w *store.WebhookConfig) error {
 	eventsJSON, _ := json.Marshal(w.Events)
 	_, err := d.pool.Exec(ctx,
-		`INSERT INTO webhook_configs (id, url, secret, events, max_retries, timeout_sec, enabled)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7)
+		`INSERT INTO webhook_configs (id, url, secret, events, max_retries, timeout_sec, enabled, tenant_id)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 		 ON CONFLICT (id) DO UPDATE SET url=$2, secret=$3, events=$4, max_retries=$5, timeout_sec=$6, enabled=$7`,
-		w.ID, w.URL, w.Secret, eventsJSON, w.MaxRetries, w.TimeoutSec, w.Enabled)
+		w.ID, w.URL, w.Secret, eventsJSON, w.MaxRetries, w.TimeoutSec, w.Enabled, tenantID)
 	return err
 }
 
-func (d *DB) ListWebhooks(ctx context.Context) ([]store.WebhookConfig, error) {
-	rows, err := d.pool.Query(ctx, "SELECT id, url, secret, events, max_retries, timeout_sec, enabled, created_at FROM webhook_configs")
+func (d *DB) ListWebhooks(ctx context.Context, tenantID string) ([]store.WebhookConfig, error) {
+	rows, err := d.pool.Query(ctx, "SELECT id, url, secret, events, max_retries, timeout_sec, enabled, created_at FROM webhook_configs WHERE tenant_id=$1", tenantID)
 	if err != nil {
 		return nil, err
 	}
@@ -253,26 +266,26 @@ func (d *DB) ListWebhooks(ctx context.Context) ([]store.WebhookConfig, error) {
 	return webhooks, nil
 }
 
-func (d *DB) DeleteWebhook(ctx context.Context, id string) error {
-	_, err := d.pool.Exec(ctx, "DELETE FROM webhook_configs WHERE id=$1", id)
+func (d *DB) DeleteWebhook(ctx context.Context, tenantID string, id string) error {
+	_, err := d.pool.Exec(ctx, "DELETE FROM webhook_configs WHERE id=$1 AND tenant_id=$2", id, tenantID)
 	return err
 }
 
 // --- Delivery logs ---
 
-func (d *DB) InsertDeliveryLog(ctx context.Context, l *store.DeliveryLog) error {
+func (d *DB) InsertDeliveryLog(ctx context.Context, tenantID string, l *store.DeliveryLog) error {
 	if l.ID == "" {
 		l.ID = fmt.Sprintf("dl-%d", time.Now().UnixNano())
 	}
 	_, err := d.pool.Exec(ctx,
-		`INSERT INTO delivery_logs (id, webhook_id, event, device_imei, status_code, error, attempt)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-		l.ID, l.WebhookID, l.Event, l.DeviceIMEI, l.StatusCode, l.Error, l.Attempt)
+		`INSERT INTO delivery_logs (id, webhook_id, event, device_imei, status_code, error, attempt, tenant_id)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+		l.ID, l.WebhookID, l.Event, l.DeviceIMEI, l.StatusCode, l.Error, l.Attempt, tenantID)
 	return err
 }
 
-func (d *DB) ListDeliveryLogs(ctx context.Context, limit int) ([]store.DeliveryLog, error) {
-	rows, err := d.pool.Query(ctx, "SELECT id, webhook_id, event, device_imei, status_code, error, attempt, created_at FROM delivery_logs ORDER BY created_at DESC LIMIT $1", limit)
+func (d *DB) ListDeliveryLogs(ctx context.Context, tenantID string, limit int) ([]store.DeliveryLog, error) {
+	rows, err := d.pool.Query(ctx, "SELECT id, webhook_id, event, device_imei, status_code, error, attempt, created_at FROM delivery_logs WHERE tenant_id=$1 ORDER BY created_at DESC LIMIT $2", tenantID, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -290,21 +303,21 @@ func (d *DB) ListDeliveryLogs(ctx context.Context, limit int) ([]store.DeliveryL
 
 // --- Positions ---
 
-func (d *DB) InsertPosition(ctx context.Context, p *store.Position) error {
+func (d *DB) InsertPosition(ctx context.Context, tenantID string, p *store.Position) error {
 	if p.ID == "" {
 		p.ID = fmt.Sprintf("pos-%d", time.Now().UnixNano())
 	}
 	_, err := d.pool.Exec(ctx,
-		`INSERT INTO positions (id, device_imei, lat, lon, alt, source, cep) VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-		p.ID, p.DeviceIMEI, p.Lat, p.Lon, p.Alt, p.Source, p.CEP)
+		`INSERT INTO positions (id, device_imei, lat, lon, alt, source, cep, tenant_id) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+		p.ID, p.DeviceIMEI, p.Lat, p.Lon, p.Alt, p.Source, p.CEP, tenantID)
 	return err
 }
 
-func (d *DB) LatestPosition(ctx context.Context, deviceIMEI string) (*store.Position, error) {
+func (d *DB) LatestPosition(ctx context.Context, tenantID string, deviceIMEI string) (*store.Position, error) {
 	var p store.Position
 	err := d.pool.QueryRow(ctx,
-		"SELECT id, device_imei, lat, lon, alt, source, cep, created_at FROM positions WHERE device_imei=$1 ORDER BY created_at DESC LIMIT 1",
-		deviceIMEI,
+		"SELECT id, device_imei, lat, lon, alt, source, cep, created_at FROM positions WHERE device_imei=$1 AND tenant_id=$2 ORDER BY created_at DESC LIMIT 1",
+		deviceIMEI, tenantID,
 	).Scan(&p.ID, &p.DeviceIMEI, &p.Lat, &p.Lon, &p.Alt, &p.Source, &p.CEP, &p.CreatedAt)
 	if err != nil {
 		return nil, err
@@ -312,10 +325,10 @@ func (d *DB) LatestPosition(ctx context.Context, deviceIMEI string) (*store.Posi
 	return &p, nil
 }
 
-func (d *DB) ListPositions(ctx context.Context, deviceIMEI string, limit int) ([]store.Position, error) {
+func (d *DB) ListPositions(ctx context.Context, tenantID string, deviceIMEI string, limit int) ([]store.Position, error) {
 	rows, err := d.pool.Query(ctx,
-		"SELECT id, device_imei, lat, lon, alt, source, cep, created_at FROM positions WHERE device_imei=$1 ORDER BY created_at DESC LIMIT $2",
-		deviceIMEI, limit)
+		"SELECT id, device_imei, lat, lon, alt, source, cep, created_at FROM positions WHERE device_imei=$1 AND tenant_id=$2 ORDER BY created_at DESC LIMIT $3",
+		deviceIMEI, tenantID, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -333,18 +346,18 @@ func (d *DB) ListPositions(ctx context.Context, deviceIMEI string, limit int) ([
 
 // --- Audit log ---
 
-func (d *DB) InsertAuditEntry(ctx context.Context, a *store.AuditEntry) error {
+func (d *DB) InsertAuditEntry(ctx context.Context, tenantID string, a *store.AuditEntry) error {
 	if a.ID == "" {
 		a.ID = fmt.Sprintf("aud-%d", time.Now().UnixNano())
 	}
 	_, err := d.pool.Exec(ctx,
-		"INSERT INTO audit_log (id, action, actor, detail, ip) VALUES ($1, $2, $3, $4, $5)",
-		a.ID, a.Action, a.Actor, a.Detail, a.IP)
+		"INSERT INTO audit_log (id, action, actor, detail, ip, tenant_id) VALUES ($1, $2, $3, $4, $5, $6)",
+		a.ID, a.Action, a.Actor, a.Detail, a.IP, tenantID)
 	return err
 }
 
-func (d *DB) ListAuditEntries(ctx context.Context, limit int) ([]store.AuditEntry, error) {
-	rows, err := d.pool.Query(ctx, "SELECT id, action, actor, detail, ip, created_at FROM audit_log ORDER BY created_at DESC LIMIT $1", limit)
+func (d *DB) ListAuditEntries(ctx context.Context, tenantID string, limit int) ([]store.AuditEntry, error) {
+	rows, err := d.pool.Query(ctx, "SELECT id, action, actor, detail, ip, created_at FROM audit_log WHERE tenant_id=$1 ORDER BY created_at DESC LIMIT $2", tenantID, limit)
 	if err != nil {
 		return nil, err
 	}

@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"strconv"
 
+	"github.com/cubeos-app/meshsat-hub/internal/auth"
 	"github.com/cubeos-app/meshsat-hub/internal/store"
 	"github.com/go-chi/chi/v5"
 )
@@ -29,7 +30,8 @@ func (h *PositionHandler) ListPositions(w http.ResponseWriter, r *http.Request) 
 		}
 	}
 
-	positions, err := h.store.ListPositions(r.Context(), imei, limit)
+	tid := auth.TenantIDFromContext(r.Context())
+	positions, err := h.store.ListPositions(r.Context(), tid, imei, limit)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -44,7 +46,8 @@ func (h *PositionHandler) ListPositions(w http.ResponseWriter, r *http.Request) 
 // GET /api/devices/{imei}/position
 func (h *PositionHandler) LatestPosition(w http.ResponseWriter, r *http.Request) {
 	imei := chi.URLParam(r, "imei")
-	pos, err := h.store.LatestPosition(r.Context(), imei)
+	tid := auth.TenantIDFromContext(r.Context())
+	pos, err := h.store.LatestPosition(r.Context(), tid, imei)
 	if err != nil {
 		writeError(w, http.StatusNotFound, "no position data")
 		return
@@ -55,7 +58,8 @@ func (h *PositionHandler) LatestPosition(w http.ResponseWriter, r *http.Request)
 // AllLatestPositions returns the latest position for ALL devices (for the map).
 // GET /api/positions/latest
 func (h *PositionHandler) AllLatestPositions(w http.ResponseWriter, r *http.Request) {
-	devices, err := h.store.ListDevices(r.Context())
+	tid := auth.TenantIDFromContext(r.Context())
+	devices, err := h.store.ListDevices(r.Context(), tid)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -74,7 +78,7 @@ func (h *PositionHandler) AllLatestPositions(w http.ResponseWriter, r *http.Requ
 
 	var positions []devicePosition
 	for _, dev := range devices {
-		pos, err := h.store.LatestPosition(r.Context(), dev.IMEI)
+		pos, err := h.store.LatestPosition(r.Context(), tid, dev.IMEI)
 		if err != nil {
 			continue // device has no position data yet
 		}

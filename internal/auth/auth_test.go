@@ -587,6 +587,152 @@ func TestParseRSAPublicKey_Valid(t *testing.T) {
 	}
 }
 
+// --- Tenant middleware tests ---
+
+func TestTenantMiddleware_FromJWTClaim(t *testing.T) {
+	// Simulate auth middleware having set a user with TenantID.
+	inner := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		tid := TenantIDFromContext(r.Context())
+		w.Header().Set("X-Resolved-Tenant", tid)
+		w.WriteHeader(200)
+	})
+	mw := TenantMiddleware(false)
+
+	req := httptest.NewRequest("GET", "/api/devices", nil)
+	user := &User{ID: "u1", TenantID: "jwt-tenant"}
+	ctx := context.WithValue(req.Context(), UserContextKey, user)
+	req = req.WithContext(ctx)
+
+	w := httptest.NewRecorder()
+	mw(inner).ServeHTTP(w, req)
+
+	if got := w.Header().Get("X-Resolved-Tenant"); got != "jwt-tenant" {
+		t.Errorf("expected jwt-tenant, got %q", got)
+	}
+}
+
+func TestTenantMiddleware_FromHeader(t *testing.T) {
+	inner := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		tid := TenantIDFromContext(r.Context())
+		w.Header().Set("X-Resolved-Tenant", tid)
+		w.WriteHeader(200)
+	})
+	mw := TenantMiddleware(false)
+
+	req := httptest.NewRequest("GET", "/api/devices", nil)
+	req.Header.Set("X-Tenant-ID", "header-tenant")
+	// No user in context — simulates service-to-service call.
+
+	w := httptest.NewRecorder()
+	mw(inner).ServeHTTP(w, req)
+
+	if got := w.Header().Get("X-Resolved-Tenant"); got != "header-tenant" {
+		t.Errorf("expected header-tenant, got %q", got)
+	}
+}
+
+func TestTenantMiddleware_DefaultFallback(t *testing.T) {
+	inner := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		tid := TenantIDFromContext(r.Context())
+		w.Header().Set("X-Resolved-Tenant", tid)
+		w.WriteHeader(200)
+	})
+	mw := TenantMiddleware(false)
+
+	req := httptest.NewRequest("GET", "/api/devices", nil)
+	w := httptest.NewRecorder()
+	mw(inner).ServeHTTP(w, req)
+
+	if got := w.Header().Get("X-Resolved-Tenant"); got != "default" {
+		t.Errorf("expected default, got %q", got)
+	}
+}
+
+func TestTenantMiddleware_EnforceMode_Rejects(t *testing.T) {
+	inner := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(200)
+	})
+	mw := TenantMiddleware(true) // enforce mode
+
+	req := httptest.NewRequest("GET", "/api/devices", nil)
+	w := httptest.NewRecorder()
+	mw(inner).ServeHTTP(w, req)
+
+	if w.Code != 403 {
+		t.Errorf("expected 403 in enforce mode, got %d", w.Code)
+	}
+}
+
+func TestTenantMiddleware_EnforceMode_AllowsWithTenant(t *testing.T) {
+	inner := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(200)
+	})
+	mw := TenantMiddleware(true)
+
+	req := httptest.NewRequest("GET", "/api/devices", nil)
+	user := &User{ID: "u1", TenantID: "my-tenant"}
+	ctx := context.WithValue(req.Context(), UserContextKey, user)
+	req = req.WithContext(ctx)
+
+	w := httptest.NewRecorder()
+	mw(inner).ServeHTTP(w, req)
+
+	if w.Code != 200 {
+		t.Errorf("expected 200, got %d", w.Code)
+	}
+}
+
+func TestTenantMiddleware_ExemptPaths(t *testing.T) {
+	inner := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(200)
+	})
+	mw := TenantMiddleware(true) // enforce mode
+
+	for _, path := range []string{"/healthz", "/readyz", "/", "/api/webhook/rockblock"} {
+		req := httptest.NewRequest("GET", path, nil)
+		w := httptest.NewRecorder()
+		mw(inner).ServeHTTP(w, req)
+		if w.Code != 200 {
+			t.Errorf("%s: expected 200, got %d", path, w.Code)
+		}
+	}
+}
+
+func TestTenantMiddleware_JWTTakesPrecedenceOverHeader(t *testing.T) {
+	inner := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		tid := TenantIDFromContext(r.Context())
+		w.Header().Set("X-Resolved-Tenant", tid)
+		w.WriteHeader(200)
+	})
+	mw := TenantMiddleware(false)
+
+	req := httptest.NewRequest("GET", "/api/devices", nil)
+	req.Header.Set("X-Tenant-ID", "header-tenant")
+	user := &User{ID: "u1", TenantID: "jwt-tenant"}
+	ctx := context.WithValue(req.Context(), UserContextKey, user)
+	req = req.WithContext(ctx)
+
+	w := httptest.NewRecorder()
+	mw(inner).ServeHTTP(w, req)
+
+	if got := w.Header().Get("X-Resolved-Tenant"); got != "jwt-tenant" {
+		t.Errorf("JWT should take precedence: got %q, want jwt-tenant", got)
+	}
+}
+
+func TestTenantIDFromContext_NilContext(t *testing.T) {
+	//nolint:staticcheck // intentional nil context test
+	if got := TenantIDFromContext(nil); got != "default" {
+		t.Errorf("nil context: got %q, want default", got)
+	}
+}
+
+func TestTenantIDFromContext_EmptyContext(t *testing.T) {
+	if got := TenantIDFromContext(context.Background()); got != "default" {
+		t.Errorf("empty context: got %q, want default", got)
+	}
+}
+
 func TestExtractUser_AllFields(t *testing.T) {
 	claims := jwt.MapClaims{
 		"sub":       "uid-42",

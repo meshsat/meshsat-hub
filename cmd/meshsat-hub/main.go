@@ -253,6 +253,9 @@ func main() {
 		OIDCIssuerURL: cfg.OIDCIssuerURL,
 		OIDCAudience:  cfg.OIDCAudience,
 	}))
+	// Tenant isolation middleware — resolves tenant from JWT claim / X-Tenant-ID header / default.
+	// Enforce mode disabled for backward compatibility; enable via HUB_TENANT_ENFORCE=true.
+	r.Use(hubauth.TenantMiddleware(cfg.TenantEnforce))
 
 	r.Get("/healthz", health.LivezHandler)
 	r.Get("/readyz", checker.ReadyzHandler)

@@ -19,6 +19,7 @@ import (
 type contextKey string
 
 const UserContextKey contextKey = "auth_user"
+const TenantContextKey contextKey = "tenant_id"
 
 // User represents an authenticated user or API client.
 type User struct {
@@ -46,6 +47,62 @@ func FromContext(ctx context.Context) *User {
 	}
 	u, _ := ctx.Value(UserContextKey).(*User)
 	return u
+}
+
+// TenantIDFromContext returns the tenant ID from context, or "default" if none is set.
+func TenantIDFromContext(ctx context.Context) string {
+	if ctx == nil {
+		return "default"
+	}
+	if tid, ok := ctx.Value(TenantContextKey).(string); ok && tid != "" {
+		return tid
+	}
+	return "default"
+}
+
+// TenantMiddleware resolves the tenant ID from the authenticated user and injects
+// it into the request context. Resolution order:
+//  1. User.TenantID from JWT "tenant_id" claim (set by auth middleware)
+//  2. X-Tenant-ID header (for service-to-service calls)
+//  3. Falls back to "default" (single-tenant compatibility)
+//
+// If enforce is true, requests without a resolvable tenant get a 403 response.
+func TenantMiddleware(enforce bool) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			// Skip tenant resolution for exempt paths.
+			if isExempt(r.URL.Path) {
+				next.ServeHTTP(w, r)
+				return
+			}
+
+			var tenantID string
+
+			// 1. From authenticated user (JWT claim).
+			if u := FromContext(r.Context()); u != nil && u.TenantID != "" {
+				tenantID = u.TenantID
+			}
+
+			// 2. From X-Tenant-ID header (service-to-service).
+			if tenantID == "" {
+				tenantID = r.Header.Get("X-Tenant-ID")
+			}
+
+			// 3. Default fallback.
+			if tenantID == "" {
+				if enforce {
+					w.Header().Set("Content-Type", "application/json")
+					w.WriteHeader(http.StatusForbidden)
+					_, _ = fmt.Fprintf(w, `{"error":"tenant context required"}`)
+					return
+				}
+				tenantID = "default"
+			}
+
+			ctx := context.WithValue(r.Context(), TenantContextKey, tenantID)
+			next.ServeHTTP(w, r.WithContext(ctx))
+		})
+	}
 }
 
 // Config holds authentication configuration.

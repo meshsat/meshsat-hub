@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"strconv"
 
+	"github.com/cubeos-app/meshsat-hub/internal/auth"
 	"github.com/cubeos-app/meshsat-hub/internal/store"
 	"github.com/go-chi/chi/v5"
 )
@@ -29,7 +30,8 @@ func (h *MessageHandler) ListMessages(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	msgs, err := h.store.ListMessages(r.Context(), device, limit)
+	tid := auth.TenantIDFromContext(r.Context())
+	msgs, err := h.store.ListMessages(r.Context(), tid, device, limit)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -44,7 +46,8 @@ func (h *MessageHandler) ListMessages(w http.ResponseWriter, r *http.Request) {
 // GET /api/messages/{id}
 func (h *MessageHandler) GetMessage(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
-	msg, err := h.store.GetMessage(r.Context(), id)
+	tid := auth.TenantIDFromContext(r.Context())
+	msg, err := h.store.GetMessage(r.Context(), tid, id)
 	if err != nil {
 		writeError(w, http.StatusNotFound, "message not found")
 		return

@@ -8,8 +8,12 @@ import (
 	"time"
 )
 
+// DefaultTenantID is used when no tenant context is available (single-tenant mode).
+const DefaultTenantID = "default"
+
 // Store is the persistence interface for all Hub durable state.
 // Both SQLite and PostgreSQL implement this interface.
+// All tenant-scoped methods accept a tenantID parameter for strict data isolation.
 type Store interface {
 	// Lifecycle
 	Migrate(ctx context.Context) error
@@ -17,35 +21,35 @@ type Store interface {
 	Ping(ctx context.Context) error
 
 	// Devices
-	CreateDevice(ctx context.Context, d *Device) error
-	GetDevice(ctx context.Context, imei string) (*Device, error)
-	ListDevices(ctx context.Context) ([]Device, error)
-	UpdateDevice(ctx context.Context, d *Device) error
-	DeleteDevice(ctx context.Context, imei string) error
-	TouchDeviceLastSeen(ctx context.Context, imei string) error
+	CreateDevice(ctx context.Context, tenantID string, d *Device) error
+	GetDevice(ctx context.Context, tenantID string, imei string) (*Device, error)
+	ListDevices(ctx context.Context, tenantID string) ([]Device, error)
+	UpdateDevice(ctx context.Context, tenantID string, d *Device) error
+	DeleteDevice(ctx context.Context, tenantID string, imei string) error
+	TouchDeviceLastSeen(ctx context.Context, tenantID string, imei string) error
 
 	// Messages (MO + MT)
-	InsertMessage(ctx context.Context, m *Message) error
-	ListMessages(ctx context.Context, deviceIMEI string, limit int) ([]Message, error)
-	GetMessage(ctx context.Context, id string) (*Message, error)
+	InsertMessage(ctx context.Context, tenantID string, m *Message) error
+	ListMessages(ctx context.Context, tenantID string, deviceIMEI string, limit int) ([]Message, error)
+	GetMessage(ctx context.Context, tenantID string, id string) (*Message, error)
 
 	// Webhooks (outbound config)
-	SaveWebhook(ctx context.Context, w *WebhookConfig) error
-	ListWebhooks(ctx context.Context) ([]WebhookConfig, error)
-	DeleteWebhook(ctx context.Context, id string) error
+	SaveWebhook(ctx context.Context, tenantID string, w *WebhookConfig) error
+	ListWebhooks(ctx context.Context, tenantID string) ([]WebhookConfig, error)
+	DeleteWebhook(ctx context.Context, tenantID string, id string) error
 
 	// Webhook delivery logs
-	InsertDeliveryLog(ctx context.Context, l *DeliveryLog) error
-	ListDeliveryLogs(ctx context.Context, limit int) ([]DeliveryLog, error)
+	InsertDeliveryLog(ctx context.Context, tenantID string, l *DeliveryLog) error
+	ListDeliveryLogs(ctx context.Context, tenantID string, limit int) ([]DeliveryLog, error)
 
 	// Positions
-	InsertPosition(ctx context.Context, p *Position) error
-	LatestPosition(ctx context.Context, deviceIMEI string) (*Position, error)
-	ListPositions(ctx context.Context, deviceIMEI string, limit int) ([]Position, error)
+	InsertPosition(ctx context.Context, tenantID string, p *Position) error
+	LatestPosition(ctx context.Context, tenantID string, deviceIMEI string) (*Position, error)
+	ListPositions(ctx context.Context, tenantID string, deviceIMEI string, limit int) ([]Position, error)
 
 	// Audit log
-	InsertAuditEntry(ctx context.Context, a *AuditEntry) error
-	ListAuditEntries(ctx context.Context, limit int) ([]AuditEntry, error)
+	InsertAuditEntry(ctx context.Context, tenantID string, a *AuditEntry) error
+	ListAuditEntries(ctx context.Context, tenantID string, limit int) ([]AuditEntry, error)
 }
 
 // Device represents a registered field device.
