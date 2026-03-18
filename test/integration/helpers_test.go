@@ -21,6 +21,7 @@ import (
 	"github.com/cubeos-app/meshsat-hub/internal/fragment"
 	hubmqtt "github.com/cubeos-app/meshsat-hub/internal/mqtt"
 	"github.com/cubeos-app/meshsat-hub/internal/rockblock"
+	"github.com/cubeos-app/meshsat-hub/internal/sos"
 	"github.com/go-chi/chi/v5"
 )
 
@@ -209,7 +210,13 @@ func testStack(t *testing.T) *testEnv {
 	reassembler := fragment.NewReassembler(5 * time.Minute)
 	rbHandler.SetReassembler(reassembler)
 
-	// 6. Build chi router (mirrors main.go).
+	// 6. SOS detector (subscribes to mo/decoded, publishes to sos topic).
+	sosDetector := sos.NewDetector(env.HubMQTT, nil, nil, "", "")
+	if err := sosDetector.Start(); err != nil {
+		t.Fatalf("start SOS detector: %v", err)
+	}
+
+	// 7. Build chi router (mirrors main.go).
 	r := chi.NewRouter()
 	r.Post("/api/webhook/rockblock", rbHandler.ServeHTTP)
 	env.Router = r

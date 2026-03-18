@@ -74,6 +74,9 @@ type Config struct {
 	HawkBitUsername string `yaml:"hawkbit_username"` // Management API username
 	HawkBitPassword string `yaml:"hawkbit_password"` // Management API password
 
+	// SOS detection
+	SOSChainID string `yaml:"sos_chain_id"` // Default escalation chain ID for SOS alerts (empty = first available)
+
 	// WireGuard (wg-easy)
 	WGEnabled  bool   `yaml:"wg_enabled"`
 	WGURL      string `yaml:"wg_url"`      // wg-easy base URL (e.g., http://wg-easy:51821)
@@ -273,6 +276,11 @@ func Load() (Config, error) {
 	}
 	if v := os.Getenv("HUB_HAWKBIT_PASSWORD"); v != "" {
 		cfg.HawkBitPassword = v
+	}
+
+	// SOS overrides
+	if v := os.Getenv("HUB_SOS_CHAIN_ID"); v != "" {
+		cfg.SOSChainID = v
 	}
 
 	// WireGuard overrides

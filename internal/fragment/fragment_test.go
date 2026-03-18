@@ -30,21 +30,39 @@ func TestHeaderRoundtrip(t *testing.T) {
 }
 
 func TestIsFragment(t *testing.T) {
+	// Helper: build a fragment-like payload of sufficient size.
+	makeFrag := func(idx, total, msgID uint8) []byte {
+		hdr := EncodeHeader(idx, total, msgID)
+		payload := make([]byte, HeaderSize+MinFragmentPayload)
+		payload[0] = hdr[0]
+		payload[1] = hdr[1]
+		return payload
+	}
+
 	// Single message (fragTotal=1) — not a fragment.
-	hdr := EncodeHeader(0, 1, 0)
-	if IsFragment([]byte{hdr[0], hdr[1], 0x01}) {
+	if IsFragment(makeFrag(0, 1, 0)) {
 		t.Error("fragTotal=1 should not be a fragment")
 	}
 
 	// Multi-fragment (fragTotal=2) — is a fragment.
-	hdr = EncodeHeader(0, 2, 5)
-	if !IsFragment([]byte{hdr[0], hdr[1], 0x01}) {
+	if !IsFragment(makeFrag(0, 2, 5)) {
 		t.Error("fragTotal=2 should be a fragment")
 	}
 
-	// Too short.
+	// fragIndex >= fragTotal — invalid, not a fragment.
+	if IsFragment(makeFrag(3, 2, 5)) {
+		t.Error("fragIndex >= fragTotal should not be a fragment")
+	}
+
+	// Too short for header.
 	if IsFragment([]byte{0x01}) {
 		t.Error("single byte should not be a fragment")
+	}
+
+	// Has header but payload too small — not a fragment (likely non-fragmented data).
+	hdr := EncodeHeader(0, 2, 5)
+	if IsFragment([]byte{hdr[0], hdr[1], 0x01}) {
+		t.Error("tiny payload should not be a fragment")
 	}
 }
 

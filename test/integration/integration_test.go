@@ -502,6 +502,131 @@ func TestMO_FragmentReassembly_3Fragments(t *testing.T) {
 	}
 }
 
+// --- SOS Detection Tests ---
+
+// TestSOS_KeywordInMO_PublishesToSOSTopic sends a MO message containing "SOS"
+// and verifies an SOS event appears on the sos MQTT topic.
+func TestSOS_KeywordInMO_PublishesToSOSTopic(t *testing.T) {
+	env := testStack(t)
+
+	sub := testMQTTClient(t, env.BrokerAddr, "test-sub-sos")
+	sosCollector := newCollector(t, sub, "meshsat/+/sos")
+
+	form := url.Values{
+		"imei":              {"300234063904190"},
+		"momsn":             {"200"},
+		"transmit_time":     {"26-03-17 18:00:00"},
+		"iridium_latitude":  {"52.3676"},
+		"iridium_longitude": {"4.9041"},
+		"iridium_cep":       {"8"},
+		"data":              {hex.EncodeToString([]byte("SOS need help at camp"))},
+		"JWT":               {"test-secret"},
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/api/webhook/rockblock", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	w := httptest.NewRecorder()
+	env.Router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("webhook returned %d: %s", w.Code, w.Body.String())
+	}
+
+	sosMsgs := sosCollector.wait(1, 3*time.Second)
+	if len(sosMsgs) == 0 {
+		t.Fatal("no SOS event received on MQTT")
+	}
+
+	if sosMsgs[0].Topic != "meshsat/300234063904190/sos" {
+		t.Errorf("SOS topic = %q, want meshsat/300234063904190/sos", sosMsgs[0].Topic)
+	}
+
+	var event map[string]interface{}
+	json.Unmarshal(sosMsgs[0].Payload, &event)
+	if event["imei"] != "300234063904190" {
+		t.Errorf("SOS imei = %v, want 300234063904190", event["imei"])
+	}
+	if event["source"] != "keyword" {
+		t.Errorf("SOS source = %v, want keyword", event["source"])
+	}
+	if event["keyword"] != "SOS" {
+		t.Errorf("SOS keyword = %v, want SOS", event["keyword"])
+	}
+}
+
+// TestSOS_NonSOSMessage_NoSOSEvent verifies that normal messages do not trigger SOS.
+func TestSOS_NonSOSMessage_NoSOSEvent(t *testing.T) {
+	env := testStack(t)
+
+	sub := testMQTTClient(t, env.BrokerAddr, "test-sub-sos-neg")
+	sosCollector := newCollector(t, sub, "meshsat/+/sos")
+
+	form := url.Values{
+		"imei":              {"300234063904190"},
+		"momsn":             {"201"},
+		"transmit_time":     {"26-03-17 18:01:00"},
+		"iridium_latitude":  {"52.3676"},
+		"iridium_longitude": {"4.9041"},
+		"iridium_cep":       {"8"},
+		"data":              {hex.EncodeToString([]byte("All clear at base camp"))},
+		"JWT":               {"test-secret"},
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/api/webhook/rockblock", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	w := httptest.NewRecorder()
+	env.Router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("webhook returned %d: %s", w.Code, w.Body.String())
+	}
+
+	// Wait briefly — no SOS should arrive.
+	sosMsgs := sosCollector.wait(1, 1*time.Second)
+	if len(sosMsgs) > 0 {
+		t.Errorf("unexpected SOS event for non-SOS message: %s", string(sosMsgs[0].Payload))
+	}
+}
+
+// TestSOS_MAYDAYKeyword verifies MAYDAY keyword triggers SOS.
+func TestSOS_MAYDAYKeyword(t *testing.T) {
+	env := testStack(t)
+
+	sub := testMQTTClient(t, env.BrokerAddr, "test-sub-sos-mayday")
+	sosCollector := newCollector(t, sub, "meshsat/+/sos")
+
+	form := url.Values{
+		"imei":              {"300234063904190"},
+		"momsn":             {"202"},
+		"transmit_time":     {"26-03-17 18:02:00"},
+		"iridium_latitude":  {"0"},
+		"iridium_longitude": {"0"},
+		"iridium_cep":       {"0"},
+		"data":              {hex.EncodeToString([]byte("mayday mayday vessel sinking"))},
+		"JWT":               {"test-secret"},
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/api/webhook/rockblock", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	w := httptest.NewRecorder()
+	env.Router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("webhook returned %d: %s", w.Code, w.Body.String())
+	}
+
+	sosMsgs := sosCollector.wait(1, 3*time.Second)
+	if len(sosMsgs) == 0 {
+		t.Fatal("no SOS event for MAYDAY message")
+	}
+
+	var event map[string]interface{}
+	json.Unmarshal(sosMsgs[0].Payload, &event)
+	if event["keyword"] != "MAYDAY" {
+		t.Errorf("SOS keyword = %v, want MAYDAY", event["keyword"])
+	}
+}
+
 // --- SMAZ2 Round-Trip ---
 
 // TestSMAZ2_RoundTrip validates SMAZ2 compress/decompress across various inputs.

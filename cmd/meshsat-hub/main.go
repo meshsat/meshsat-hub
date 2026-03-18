@@ -30,6 +30,7 @@ import (
 	"github.com/cubeos-app/meshsat-hub/internal/deadman"
 	"github.com/cubeos-app/meshsat-hub/internal/dedup"
 	"github.com/cubeos-app/meshsat-hub/internal/escalation"
+	"github.com/cubeos-app/meshsat-hub/internal/fragment"
 	"github.com/cubeos-app/meshsat-hub/internal/hawkbit"
 	"github.com/cubeos-app/meshsat-hub/internal/health"
 	"github.com/cubeos-app/meshsat-hub/internal/leader"
@@ -38,6 +39,7 @@ import (
 	"github.com/cubeos-app/meshsat-hub/internal/position"
 	"github.com/cubeos-app/meshsat-hub/internal/ratelimit"
 	"github.com/cubeos-app/meshsat-hub/internal/rockblock"
+	"github.com/cubeos-app/meshsat-hub/internal/sos"
 	"github.com/cubeos-app/meshsat-hub/internal/store"
 	"github.com/cubeos-app/meshsat-hub/internal/store/mariadb"
 	"github.com/cubeos-app/meshsat-hub/internal/store/sqlite"
@@ -326,10 +328,38 @@ func main() {
 	deadmanMonitor := deadman.NewMonitor(dataStore, escEngine)
 	go deadmanMonitor.Start(ctx)
 
+	// SOS detector (subscribes to mo/decoded, triggers escalation on SOS messages).
+	if msgBus.IsConnected() {
+		sosDetector := sos.NewDetector(msgBus, escEngine, dataStore, store.DefaultTenantID, cfg.SOSChainID)
+		if err := sosDetector.Start(); err != nil {
+			slog.Error("sos: failed to start detector", "error", err)
+		} else {
+			slog.Info("sos: detector started")
+		}
+	}
+
+	// Fragment reassembler for multi-fragment MO messages.
+	reassembler := fragment.NewReassembler(5 * time.Minute)
+	go func() {
+		ticker := time.NewTicker(30 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				if n := reassembler.Expire(); n > 0 {
+					slog.Info("fragment: expired stale reassemblies", "count", n)
+				}
+			}
+		}
+	}()
+
 	// RockBLOCK webhook handler.
 	rbHandler := rockblock.NewHandler(msgBus, cfg.RockBLOCKSecret)
 	rbHandler.SetAudit(auditSvc)
 	rbHandler.SetDedup(dedupTracker)
+	rbHandler.SetReassembler(reassembler)
 
 	r := chi.NewRouter()
 	r.Use(middleware.Recoverer)

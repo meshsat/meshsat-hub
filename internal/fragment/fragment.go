@@ -42,14 +42,20 @@ func DecodeHeader(b0, b1 byte) (fragIndex, fragTotal, msgID uint8) {
 	return
 }
 
-// IsFragment returns true if the payload looks like a fragmented message
-// (fragTotal > 1 when decoded from the header).
+// MinFragmentPayload is the minimum payload size (after header) for a fragment
+// to be considered valid. Real SBD fragments carry substantial payloads (close
+// to the 340-byte MO MTU). A tiny message whose first bytes coincidentally
+// decode as a fragment header should not be treated as a fragment.
+const MinFragmentPayload = 32
+
+// IsFragment returns true if the payload looks like a fragmented message.
+// Checks: fragTotal > 1, fragIndex < fragTotal, and payload size is reasonable.
 func IsFragment(data []byte) bool {
-	if len(data) < HeaderSize {
+	if len(data) < HeaderSize+MinFragmentPayload {
 		return false
 	}
-	_, fragTotal, _ := DecodeHeader(data[0], data[1])
-	return fragTotal > 1
+	fragIndex, fragTotal, _ := DecodeHeader(data[0], data[1])
+	return fragTotal > 1 && fragIndex < fragTotal
 }
 
 // Fragment splits a message into fragments that fit within the given MTU.

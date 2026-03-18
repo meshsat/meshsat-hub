@@ -8,6 +8,8 @@ import (
 	"time"
 
 	pahomqtt "github.com/eclipse/paho.mqtt.golang"
+
+	"github.com/cubeos-app/meshsat-hub/internal/bus"
 )
 
 // Client wraps the Paho MQTT client with auto-reconnect and health tracking.
@@ -63,7 +65,7 @@ func (c *Client) IsConnected() bool {
 }
 
 // Subscribe registers a handler for a topic pattern.
-func (c *Client) Subscribe(topic string, qos byte, handler MessageHandler) error {
+func (c *Client) Subscribe(topic string, qos byte, handler bus.MessageHandler) error {
 	token := c.inner.Subscribe(topic, qos, func(_ pahomqtt.Client, msg pahomqtt.Message) {
 		handler(msg.Topic(), msg.Payload())
 	})
@@ -92,6 +94,13 @@ func (c *Client) PublishJSON(topic string, qos byte, retained bool, v any) error
 		return fmt.Errorf("mqtt marshal: %w", err)
 	}
 	return c.Publish(topic, qos, retained, data)
+}
+
+// QueueSubscribe falls back to regular Subscribe — the internal MQTT client
+// doesn't support queue groups, but this method is required to satisfy
+// the bus.MessageBus interface.
+func (c *Client) QueueSubscribe(topic string, qos byte, _ string, handler bus.MessageHandler) error {
+	return c.Subscribe(topic, qos, handler)
 }
 
 // Disconnect cleanly disconnects from the broker.
