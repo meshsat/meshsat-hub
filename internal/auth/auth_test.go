@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -177,10 +178,10 @@ func TestJWTMiddleware_WrongIssuer(t *testing.T) {
 	}
 }
 
-func TestFromContext_Nil(t *testing.T) {
-	user := FromContext(nil)
+func TestFromContext_Empty(t *testing.T) {
+	user := FromContext(context.Background())
 	if user != nil {
-		t.Error("expected nil user from nil context")
+		t.Error("expected nil user from empty context")
 	}
 }
 
