@@ -87,6 +87,7 @@ func main() {
 			os.Exit(1)
 		}
 		dataStore = pgStore
+		checker.AddProbe("postgres", pgStore.Ping)
 	default: // "standalone"
 		sqlStore, err := sqlite.New("/data/hub.db")
 		if err != nil {
@@ -115,6 +116,9 @@ func main() {
 		}
 		redisClient := redis.NewClient(redisOpts)
 		dedupTracker = dedup.NewRedisDedup(redisClient, 1*time.Hour, "dedup:")
+		checker.AddProbe("redis", func(ctx context.Context) error {
+			return redisClient.Ping(ctx).Err()
+		})
 	default:
 		dedupTracker = dedup.NewMemoryDedup(1 * time.Hour)
 	}
