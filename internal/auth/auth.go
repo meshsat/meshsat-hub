@@ -200,6 +200,7 @@ func isExempt(path string) bool {
 		path == "/api/webhook/rockblock" ||
 		path == "/api/auth/login" ||
 		path == "/api/auth/refresh" ||
+		path == "/api/cluster/node" ||
 		!strings.HasPrefix(path, "/api/")
 }
 
