@@ -18,14 +18,25 @@ func NewAPIHandler(dispatcher *Dispatcher) *APIHandler {
 }
 
 // ListWebhooks returns all configured webhooks (secrets redacted).
-// GET /api/webhooks
+// @Summary List outbound webhooks
+// @Tags webhooks
+// @Produce json
+// @Success 200 {array} WebhookConfig
+// @Router /api/webhooks [get]
 func (h *APIHandler) ListWebhooks(w http.ResponseWriter, _ *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(h.dispatcher.ListWebhooks())
 }
 
 // CreateWebhook adds a new webhook configuration.
-// POST /api/webhooks
+// @Summary Create outbound webhook
+// @Tags webhooks
+// @Accept json
+// @Produce json
+// @Param body body WebhookConfig true "Webhook configuration (url required)"
+// @Success 201 {object} map[string]string
+// @Failure 400 {object} map[string]string
+// @Router /api/webhooks [post]
 func (h *APIHandler) CreateWebhook(w http.ResponseWriter, r *http.Request) {
 	var cfg WebhookConfig
 	if err := json.NewDecoder(r.Body).Decode(&cfg); err != nil {
@@ -46,7 +57,12 @@ func (h *APIHandler) CreateWebhook(w http.ResponseWriter, r *http.Request) {
 }
 
 // DeleteWebhook removes a webhook by ID.
-// DELETE /api/webhooks/{id}
+// @Summary Delete outbound webhook
+// @Tags webhooks
+// @Param id path string true "Webhook ID"
+// @Success 204
+// @Failure 400 {object} map[string]string
+// @Router /api/webhooks/{id} [delete]
 func (h *APIHandler) DeleteWebhook(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	if id == "" {
@@ -58,7 +74,11 @@ func (h *APIHandler) DeleteWebhook(w http.ResponseWriter, r *http.Request) {
 }
 
 // GetLogs returns recent webhook delivery logs.
-// GET /api/webhooks/logs
+// @Summary Get recent webhook delivery logs
+// @Tags webhooks
+// @Produce json
+// @Success 200 {array} DeliveryLog
+// @Router /api/webhooks/logs [get]
 func (h *APIHandler) GetLogs(w http.ResponseWriter, _ *http.Request) {
 	logs := h.dispatcher.RecentLogs(100)
 	w.Header().Set("Content-Type", "application/json")

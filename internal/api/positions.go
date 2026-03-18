@@ -20,7 +20,14 @@ func NewPositionHandler(s store.Store) *PositionHandler {
 }
 
 // ListPositions returns position history for a device.
-// GET /api/devices/{imei}/positions?limit={n}
+// @Summary List device position history
+// @Tags positions
+// @Produce json
+// @Param imei path string true "Device IMEI"
+// @Param limit query int false "Max results" default(100)
+// @Success 200 {array} store.Position
+// @Failure 500 {object} map[string]string
+// @Router /api/devices/{imei}/positions [get]
 func (h *PositionHandler) ListPositions(w http.ResponseWriter, r *http.Request) {
 	imei := chi.URLParam(r, "imei")
 	limit := 100
@@ -43,7 +50,13 @@ func (h *PositionHandler) ListPositions(w http.ResponseWriter, r *http.Request) 
 }
 
 // LatestPosition returns the most recent position for a device.
-// GET /api/devices/{imei}/position
+// @Summary Get latest device position
+// @Tags positions
+// @Produce json
+// @Param imei path string true "Device IMEI"
+// @Success 200 {object} store.Position
+// @Failure 404 {object} map[string]string
+// @Router /api/devices/{imei}/position [get]
 func (h *PositionHandler) LatestPosition(w http.ResponseWriter, r *http.Request) {
 	imei := chi.URLParam(r, "imei")
 	tid := auth.TenantIDFromContext(r.Context())
@@ -56,7 +69,12 @@ func (h *PositionHandler) LatestPosition(w http.ResponseWriter, r *http.Request)
 }
 
 // AllLatestPositions returns the latest position for ALL devices (for the map).
-// GET /api/positions/latest
+// @Summary Get latest positions for all devices
+// @Tags positions
+// @Produce json
+// @Success 200 {array} object
+// @Failure 500 {object} map[string]string
+// @Router /api/positions/latest [get]
 func (h *PositionHandler) AllLatestPositions(w http.ResponseWriter, r *http.Request) {
 	tid := auth.TenantIDFromContext(r.Context())
 	devices, err := h.store.ListDevices(r.Context(), tid)

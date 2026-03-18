@@ -18,7 +18,12 @@ func NewAPIHandler(client *Client) *APIHandler {
 }
 
 // ListPeers returns all WireGuard peers.
-// GET /api/wireguard/peers
+// @Summary List WireGuard peers
+// @Tags wireguard
+// @Produce json
+// @Success 200 {array} object
+// @Failure 502 {object} map[string]string
+// @Router /api/wireguard/peers [get]
 func (h *APIHandler) ListPeers(w http.ResponseWriter, r *http.Request) {
 	peers, err := h.client.ListPeers(r.Context())
 	if err != nil {
@@ -30,7 +35,15 @@ func (h *APIHandler) ListPeers(w http.ResponseWriter, r *http.Request) {
 }
 
 // CreatePeer creates a new WireGuard peer.
-// POST /api/wireguard/peers
+// @Summary Create WireGuard peer
+// @Tags wireguard
+// @Accept json
+// @Produce json
+// @Param body body object true "Peer name" example({"name": "field-device-1"})
+// @Success 201 {object} object
+// @Failure 400 {object} map[string]string
+// @Failure 502 {object} map[string]string
+// @Router /api/wireguard/peers [post]
 func (h *APIHandler) CreatePeer(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Name string `json:"name"`
@@ -55,7 +68,13 @@ func (h *APIHandler) CreatePeer(w http.ResponseWriter, r *http.Request) {
 }
 
 // GetPeerConfig returns the WireGuard client configuration.
-// GET /api/wireguard/peers/{id}/config
+// @Summary Get WireGuard peer config
+// @Tags wireguard
+// @Produce text/plain
+// @Param id path string true "Peer ID"
+// @Success 200 {string} string
+// @Failure 502 {object} map[string]string
+// @Router /api/wireguard/peers/{id}/config [get]
 func (h *APIHandler) GetPeerConfig(w http.ResponseWriter, r *http.Request) {
 	peerID := chi.URLParam(r, "id")
 	config, err := h.client.GetPeerConfig(r.Context(), peerID)
@@ -68,7 +87,12 @@ func (h *APIHandler) GetPeerConfig(w http.ResponseWriter, r *http.Request) {
 }
 
 // DeletePeer removes a WireGuard peer.
-// DELETE /api/wireguard/peers/{id}
+// @Summary Delete WireGuard peer
+// @Tags wireguard
+// @Param id path string true "Peer ID"
+// @Success 204
+// @Failure 502 {object} map[string]string
+// @Router /api/wireguard/peers/{id} [delete]
 func (h *APIHandler) DeletePeer(w http.ResponseWriter, r *http.Request) {
 	peerID := chi.URLParam(r, "id")
 	if err := h.client.DeletePeer(r.Context(), peerID); err != nil {

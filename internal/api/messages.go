@@ -20,7 +20,14 @@ func NewMessageHandler(s store.Store) *MessageHandler {
 }
 
 // ListMessages returns messages, optionally filtered by device IMEI.
-// GET /api/messages?device={imei}&limit={n}
+// @Summary List messages
+// @Tags messages
+// @Produce json
+// @Param device query string false "Filter by device IMEI"
+// @Param limit query int false "Max results" default(100)
+// @Success 200 {array} store.Message
+// @Failure 500 {object} map[string]string
+// @Router /api/messages [get]
 func (h *MessageHandler) ListMessages(w http.ResponseWriter, r *http.Request) {
 	device := r.URL.Query().Get("device")
 	limit := 100
@@ -43,7 +50,13 @@ func (h *MessageHandler) ListMessages(w http.ResponseWriter, r *http.Request) {
 }
 
 // GetMessage returns a single message by ID.
-// GET /api/messages/{id}
+// @Summary Get message by ID
+// @Tags messages
+// @Produce json
+// @Param id path string true "Message ID"
+// @Success 200 {object} store.Message
+// @Failure 404 {object} map[string]string
+// @Router /api/messages/{id} [get]
 func (h *MessageHandler) GetMessage(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	tid := auth.TenantIDFromContext(r.Context())

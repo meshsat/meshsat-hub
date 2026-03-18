@@ -19,7 +19,12 @@ func NewAPIHandler(provider StateProvider, dataDir string) *APIHandler {
 }
 
 // ExportBackup creates and returns a ZIP backup.
-// GET /api/backup/export
+// @Summary Export configuration backup as ZIP
+// @Tags backup
+// @Produce application/zip
+// @Success 200 {file} binary
+// @Failure 500 {object} map[string]string
+// @Router /api/backup/export [get]
 func (h *APIHandler) ExportBackup(w http.ResponseWriter, _ *http.Request) {
 	data, err := Export(h.provider, h.dataDir)
 	if err != nil {
@@ -34,7 +39,14 @@ func (h *APIHandler) ExportBackup(w http.ResponseWriter, _ *http.Request) {
 }
 
 // DiffBackup parses an uploaded backup ZIP and returns what would change.
-// POST /api/backup/diff
+// @Summary Preview backup restore changes
+// @Tags backup
+// @Accept application/zip
+// @Produce json
+// @Success 200 {object} object
+// @Failure 400 {object} map[string]string
+// @Failure 500 {object} map[string]string
+// @Router /api/backup/diff [post]
 func (h *APIHandler) DiffBackup(w http.ResponseWriter, r *http.Request) {
 	data, err := io.ReadAll(io.LimitReader(r.Body, 50*1024*1024)) // 50MB max
 	if err != nil {
@@ -59,7 +71,14 @@ func (h *APIHandler) DiffBackup(w http.ResponseWriter, r *http.Request) {
 }
 
 // ImportBackup restores data files from an uploaded backup ZIP.
-// POST /api/backup/import
+// @Summary Restore from backup ZIP
+// @Tags backup
+// @Accept application/zip
+// @Produce json
+// @Success 200 {object} map[string]interface{}
+// @Failure 400 {object} map[string]string
+// @Failure 500 {object} map[string]string
+// @Router /api/backup/import [post]
 func (h *APIHandler) ImportBackup(w http.ResponseWriter, r *http.Request) {
 	data, err := io.ReadAll(io.LimitReader(r.Body, 50*1024*1024))
 	if err != nil {

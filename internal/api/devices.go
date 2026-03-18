@@ -20,7 +20,12 @@ func NewDeviceHandler(s store.Store) *DeviceHandler {
 }
 
 // ListDevices returns all registered devices.
-// GET /api/devices
+// @Summary List devices
+// @Tags devices
+// @Produce json
+// @Success 200 {array} store.Device
+// @Failure 500 {object} map[string]string
+// @Router /api/devices [get]
 func (h *DeviceHandler) ListDevices(w http.ResponseWriter, r *http.Request) {
 	tid := auth.TenantIDFromContext(r.Context())
 	devices, err := h.store.ListDevices(r.Context(), tid)
@@ -35,7 +40,13 @@ func (h *DeviceHandler) ListDevices(w http.ResponseWriter, r *http.Request) {
 }
 
 // GetDevice returns a single device by IMEI.
-// GET /api/devices/{imei}
+// @Summary Get device by IMEI
+// @Tags devices
+// @Produce json
+// @Param imei path string true "Device IMEI"
+// @Success 200 {object} store.Device
+// @Failure 404 {object} map[string]string
+// @Router /api/devices/{imei} [get]
 func (h *DeviceHandler) GetDevice(w http.ResponseWriter, r *http.Request) {
 	imei := chi.URLParam(r, "imei")
 	tid := auth.TenantIDFromContext(r.Context())
@@ -48,7 +59,15 @@ func (h *DeviceHandler) GetDevice(w http.ResponseWriter, r *http.Request) {
 }
 
 // CreateDevice registers a new device.
-// POST /api/devices
+// @Summary Register a new device
+// @Tags devices
+// @Accept json
+// @Produce json
+// @Param body body store.Device true "Device data (imei required)"
+// @Success 201 {object} store.Device
+// @Failure 400 {object} map[string]string
+// @Failure 409 {object} map[string]string
+// @Router /api/devices [post]
 func (h *DeviceHandler) CreateDevice(w http.ResponseWriter, r *http.Request) {
 	var dev store.Device
 	if err := json.NewDecoder(r.Body).Decode(&dev); err != nil {
@@ -72,7 +91,17 @@ func (h *DeviceHandler) CreateDevice(w http.ResponseWriter, r *http.Request) {
 }
 
 // UpdateDevice updates a device's label, type, notes.
-// PUT /api/devices/{imei}
+// @Summary Update device
+// @Tags devices
+// @Accept json
+// @Produce json
+// @Param imei path string true "Device IMEI"
+// @Param body body object true "Fields to update (label, type, notes)"
+// @Success 200 {object} store.Device
+// @Failure 400 {object} map[string]string
+// @Failure 404 {object} map[string]string
+// @Failure 500 {object} map[string]string
+// @Router /api/devices/{imei} [put]
 func (h *DeviceHandler) UpdateDevice(w http.ResponseWriter, r *http.Request) {
 	imei := chi.URLParam(r, "imei")
 	tid := auth.TenantIDFromContext(r.Context())
@@ -104,7 +133,13 @@ func (h *DeviceHandler) UpdateDevice(w http.ResponseWriter, r *http.Request) {
 }
 
 // DeleteDevice removes a device.
-// DELETE /api/devices/{imei}
+// @Summary Delete device
+// @Tags devices
+// @Param imei path string true "Device IMEI"
+// @Success 204
+// @Failure 404 {object} map[string]string
+// @Failure 500 {object} map[string]string
+// @Router /api/devices/{imei} [delete]
 func (h *DeviceHandler) DeleteDevice(w http.ResponseWriter, r *http.Request) {
 	imei := chi.URLParam(r, "imei")
 	tid := auth.TenantIDFromContext(r.Context())

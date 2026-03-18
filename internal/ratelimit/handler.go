@@ -19,7 +19,13 @@ func NewHandler(limiter Limiter) *Handler {
 }
 
 // GetUsage returns rate limit usage for a specific device.
-// GET /api/ratelimit/{deviceID}
+// @Summary Get rate limit usage for device
+// @Tags ratelimit
+// @Produce json
+// @Param deviceID path string true "Device ID"
+// @Success 200 {object} DeviceUsage
+// @Failure 400 {object} map[string]string
+// @Router /api/ratelimit/{deviceID} [get]
 func (h *Handler) GetUsage(w http.ResponseWriter, r *http.Request) {
 	deviceID := chi.URLParam(r, "deviceID")
 	if deviceID == "" {
@@ -32,7 +38,11 @@ func (h *Handler) GetUsage(w http.ResponseWriter, r *http.Request) {
 }
 
 // GetAllUsage returns rate limit usage for all tracked devices.
-// GET /api/ratelimit
+// @Summary Get rate limit usage for all devices
+// @Tags ratelimit
+// @Produce json
+// @Success 200 {array} DeviceUsage
+// @Router /api/ratelimit [get]
 func (h *Handler) GetAllUsage(w http.ResponseWriter, r *http.Request) {
 	all := h.limiter.AllUsage()
 	if all == nil {
@@ -43,8 +53,15 @@ func (h *Handler) GetAllUsage(w http.ResponseWriter, r *http.Request) {
 }
 
 // PostOverride sets a temporary rate limit exemption.
-// POST /api/ratelimit/{deviceID}/override
-// Body: {"duration_hours": 24}
+// @Summary Set rate limit override for device
+// @Tags ratelimit
+// @Accept json
+// @Produce json
+// @Param deviceID path string true "Device ID"
+// @Param body body object true "Override duration" example({"duration_hours": 24})
+// @Success 201 {object} map[string]string
+// @Failure 400 {object} map[string]string
+// @Router /api/ratelimit/{deviceID}/override [post]
 func (h *Handler) PostOverride(w http.ResponseWriter, r *http.Request) {
 	deviceID := chi.URLParam(r, "deviceID")
 	if deviceID == "" {
@@ -75,7 +92,12 @@ func (h *Handler) PostOverride(w http.ResponseWriter, r *http.Request) {
 }
 
 // DeleteOverride removes a rate limit exemption.
-// DELETE /api/ratelimit/{deviceID}/override
+// @Summary Remove rate limit override for device
+// @Tags ratelimit
+// @Param deviceID path string true "Device ID"
+// @Success 204
+// @Failure 400 {object} map[string]string
+// @Router /api/ratelimit/{deviceID}/override [delete]
 func (h *Handler) DeleteOverride(w http.ResponseWriter, r *http.Request) {
 	deviceID := chi.URLParam(r, "deviceID")
 	if deviceID == "" {
