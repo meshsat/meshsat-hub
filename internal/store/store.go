@@ -58,6 +58,18 @@ type Store interface {
 	GetDeviceConfigVersion(ctx context.Context, tenantID string, deviceIMEI string, version int) (*DeviceConfig, error)
 	ListDeviceConfigVersions(ctx context.Context, tenantID string, deviceIMEI string, limit int) ([]DeviceConfig, error)
 
+	// Escalation chains
+	CreateEscalationChain(ctx context.Context, tenantID string, c *EscalationChain) error
+	GetEscalationChain(ctx context.Context, tenantID string, id string) (*EscalationChain, error)
+	ListEscalationChains(ctx context.Context, tenantID string) ([]EscalationChain, error)
+	DeleteEscalationChain(ctx context.Context, tenantID string, id string) error
+
+	// Alerts
+	CreateAlert(ctx context.Context, tenantID string, a *Alert) error
+	GetAlert(ctx context.Context, tenantID string, id string) (*Alert, error)
+	ListAlerts(ctx context.Context, tenantID string, activeOnly bool, limit int) ([]Alert, error)
+	UpdateAlert(ctx context.Context, tenantID string, a *Alert) error
+
 	// API keys
 	CreateAPIKey(ctx context.Context, tenantID string, k *APIKey) error
 	GetAPIKeyByHash(ctx context.Context, keyHash string) (*APIKey, string, error) // returns key + tenantID
@@ -151,6 +163,48 @@ type DeviceConfig struct {
 	Author     string    `json:"author"`  // who made this change
 	Comment    string    `json:"comment"` // change description
 	CreatedAt  time.Time `json:"created_at"`
+}
+
+// EscalationTier defines a notification tier within an escalation chain.
+type EscalationTier struct {
+	Name       string   `json:"name"`        // e.g. "sms_oncall", "email_team", "page_manager"
+	Targets    []string `json:"targets"`     // notification targets (URLs, emails, phone numbers)
+	WaitSec    int      `json:"wait_sec"`    // seconds to wait before escalating to next tier
+	MaxRetries int      `json:"max_retries"` // max delivery retries within this tier
+}
+
+// EscalationChain defines an ordered set of notification tiers for alert handling.
+type EscalationChain struct {
+	ID        string           `json:"id"`
+	Name      string           `json:"name"`
+	Tiers     []EscalationTier `json:"tiers"`
+	CreatedAt time.Time        `json:"created_at"`
+	UpdatedAt time.Time        `json:"updated_at"`
+}
+
+// Alert states.
+const (
+	AlertStateTriggered    = "triggered"
+	AlertStateEscalating   = "escalating"
+	AlertStateAcknowledged = "acknowledged"
+	AlertStateExhausted    = "exhausted"
+)
+
+// Alert represents an active or resolved escalation alert.
+type Alert struct {
+	ID          string    `json:"id"`
+	ChainID     string    `json:"chain_id"`
+	DeviceIMEI  string    `json:"device_imei"`
+	Type        string    `json:"type"`         // "sos", "deadman", "geofence", "custom"
+	Detail      string    `json:"detail"`       // human-readable description
+	State       string    `json:"state"`        // triggered, escalating, acknowledged, exhausted
+	CurrentTier int       `json:"current_tier"` // 0-indexed tier in the chain
+	Retries     int       `json:"retries"`      // retries within current tier
+	AckedBy     string    `json:"acked_by,omitempty"`
+	AckedAt     time.Time `json:"acked_at,omitempty"`
+	NextEscAt   time.Time `json:"next_esc_at"` // when to escalate to next tier
+	CreatedAt   time.Time `json:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
 }
 
 // APIKey represents a tenant-scoped API key for programmatic access.

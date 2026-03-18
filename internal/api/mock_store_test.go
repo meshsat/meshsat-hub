@@ -142,3 +142,22 @@ func (m *mockStore) DeleteAPIKey(_ context.Context, _ string, _ string) error {
 	return m.apiKeyErr
 }
 func (m *mockStore) TouchAPIKeyLastUsed(context.Context, string) error { return nil }
+
+func (m *mockStore) CreateEscalationChain(context.Context, string, *store.EscalationChain) error {
+	return nil
+}
+func (m *mockStore) GetEscalationChain(context.Context, string, string) (*store.EscalationChain, error) {
+	return nil, nil
+}
+func (m *mockStore) ListEscalationChains(context.Context, string) ([]store.EscalationChain, error) {
+	return nil, nil
+}
+func (m *mockStore) DeleteEscalationChain(context.Context, string, string) error { return nil }
+func (m *mockStore) CreateAlert(context.Context, string, *store.Alert) error     { return nil }
+func (m *mockStore) GetAlert(context.Context, string, string) (*store.Alert, error) {
+	return nil, nil
+}
+func (m *mockStore) ListAlerts(context.Context, string, bool, int) ([]store.Alert, error) {
+	return nil, nil
+}
+func (m *mockStore) UpdateAlert(context.Context, string, *store.Alert) error { return nil }

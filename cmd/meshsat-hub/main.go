@@ -23,6 +23,7 @@ import (
 	"github.com/cubeos-app/meshsat-hub/internal/cloudloop"
 	"github.com/cubeos-app/meshsat-hub/internal/config"
 	"github.com/cubeos-app/meshsat-hub/internal/dedup"
+	"github.com/cubeos-app/meshsat-hub/internal/escalation"
 	"github.com/cubeos-app/meshsat-hub/internal/health"
 	"github.com/cubeos-app/meshsat-hub/internal/leader"
 	"github.com/cubeos-app/meshsat-hub/internal/ratelimit"
@@ -245,6 +246,10 @@ func main() {
 		}
 	}
 
+	// Escalation engine (SOS, dead man's switch, custom alerts).
+	escEngine := escalation.New(dataStore, nil) // nil notifier = LogNotifier until Apprise/ntfy
+	go escEngine.Start(ctx)
+
 	// RockBLOCK webhook handler.
 	rbHandler := rockblock.NewHandler(msgBus, cfg.RockBLOCKSecret)
 	rbHandler.SetAudit(auditSvc)
@@ -364,6 +369,17 @@ func main() {
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(balance)
 	})
+
+	// Escalation chains and alerts
+	escHandler := api.NewEscalationHandler(dataStore, escEngine)
+	r.Get("/api/escalation/chains", escHandler.ListChains)
+	r.Post("/api/escalation/chains", escHandler.CreateChain)
+	r.Get("/api/escalation/chains/{id}", escHandler.GetChain)
+	r.Delete("/api/escalation/chains/{id}", escHandler.DeleteChain)
+	r.Get("/api/alerts", escHandler.ListAlerts)
+	r.Post("/api/alerts", escHandler.TriggerAlert)
+	r.Get("/api/alerts/{id}", escHandler.GetAlert)
+	r.Post("/api/alerts/{id}/ack", escHandler.AcknowledgeAlert)
 
 	// Audit log (owner-only)
 	auditHandler := api.NewAuditHandler(auditSvc)

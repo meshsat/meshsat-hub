@@ -175,6 +175,35 @@ var postAlterMigrations = []string{
 	`CREATE INDEX IF NOT EXISTS idx_positions_tenant ON positions(tenant_id, device_imei)`,
 	`CREATE INDEX IF NOT EXISTS idx_audit_log_tenant ON audit_log(tenant_id)`,
 	`CREATE INDEX IF NOT EXISTS idx_delivery_logs_tenant ON delivery_logs(tenant_id)`,
+	// Escalation chains (v0.3)
+	`CREATE TABLE IF NOT EXISTS escalation_chains (
+		id TEXT PRIMARY KEY,
+		name TEXT NOT NULL DEFAULT '',
+		tiers TEXT NOT NULL DEFAULT '[]',
+		created_at TEXT NOT NULL DEFAULT (datetime('now')),
+		updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+		tenant_id TEXT NOT NULL DEFAULT 'default'
+	)`,
+	`CREATE INDEX IF NOT EXISTS idx_escalation_chains_tenant ON escalation_chains(tenant_id)`,
+	// Alerts (v0.3)
+	`CREATE TABLE IF NOT EXISTS alerts (
+		id TEXT PRIMARY KEY,
+		chain_id TEXT NOT NULL DEFAULT '',
+		device_imei TEXT NOT NULL DEFAULT '',
+		type TEXT NOT NULL DEFAULT 'sos',
+		detail TEXT NOT NULL DEFAULT '',
+		state TEXT NOT NULL DEFAULT 'triggered',
+		current_tier INTEGER NOT NULL DEFAULT 0,
+		retries INTEGER NOT NULL DEFAULT 0,
+		acked_by TEXT NOT NULL DEFAULT '',
+		acked_at TEXT NOT NULL DEFAULT '',
+		next_esc_at TEXT NOT NULL DEFAULT '',
+		created_at TEXT NOT NULL DEFAULT (datetime('now')),
+		updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+		tenant_id TEXT NOT NULL DEFAULT 'default'
+	)`,
+	`CREATE INDEX IF NOT EXISTS idx_alerts_tenant ON alerts(tenant_id)`,
+	`CREATE INDEX IF NOT EXISTS idx_alerts_state ON alerts(state, next_esc_at)`,
 }
 
 // --- Devices ---
@@ -623,6 +652,168 @@ func boolToInt(b bool) int {
 		return 1
 	}
 	return 0
+}
+
+// --- Escalation Chains ---
+
+func (d *DB) CreateEscalationChain(ctx context.Context, tenantID string, c *store.EscalationChain) error {
+	if c.ID == "" {
+		c.ID = fmt.Sprintf("chain-%d", time.Now().UnixNano())
+	}
+	tiersJSON, err := json.Marshal(c.Tiers)
+	if err != nil {
+		return fmt.Errorf("marshal tiers: %w", err)
+	}
+	_, err = d.db.ExecContext(ctx,
+		"INSERT INTO escalation_chains (id, name, tiers, tenant_id) VALUES (?, ?, ?, ?)",
+		c.ID, c.Name, string(tiersJSON), tenantID)
+	return err
+}
+
+func (d *DB) GetEscalationChain(ctx context.Context, tenantID string, id string) (*store.EscalationChain, error) {
+	var c store.EscalationChain
+	var tiersJSON, createdAt, updatedAt string
+	query := "SELECT id, name, tiers, created_at, updated_at FROM escalation_chains WHERE id=?"
+	args := []interface{}{id}
+	if tenantID != "" {
+		query += " AND tenant_id=?"
+		args = append(args, tenantID)
+	}
+	if err := d.db.QueryRowContext(ctx, query, args...).Scan(
+		&c.ID, &c.Name, &tiersJSON, &createdAt, &updatedAt,
+	); err != nil {
+		return nil, err
+	}
+	_ = json.Unmarshal([]byte(tiersJSON), &c.Tiers)
+	c.CreatedAt, _ = time.Parse("2006-01-02 15:04:05", createdAt)
+	c.UpdatedAt, _ = time.Parse("2006-01-02 15:04:05", updatedAt)
+	return &c, nil
+}
+
+func (d *DB) ListEscalationChains(ctx context.Context, tenantID string) ([]store.EscalationChain, error) {
+	rows, err := d.db.QueryContext(ctx,
+		"SELECT id, name, tiers, created_at, updated_at FROM escalation_chains WHERE tenant_id=? ORDER BY created_at DESC", tenantID)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+	var chains []store.EscalationChain
+	for rows.Next() {
+		var c store.EscalationChain
+		var tiersJSON, createdAt, updatedAt string
+		if err := rows.Scan(&c.ID, &c.Name, &tiersJSON, &createdAt, &updatedAt); err != nil {
+			return nil, err
+		}
+		_ = json.Unmarshal([]byte(tiersJSON), &c.Tiers)
+		c.CreatedAt, _ = time.Parse("2006-01-02 15:04:05", createdAt)
+		c.UpdatedAt, _ = time.Parse("2006-01-02 15:04:05", updatedAt)
+		chains = append(chains, c)
+	}
+	return chains, rows.Err()
+}
+
+func (d *DB) DeleteEscalationChain(ctx context.Context, tenantID string, id string) error {
+	_, err := d.db.ExecContext(ctx,
+		"DELETE FROM escalation_chains WHERE id=? AND tenant_id=?", id, tenantID)
+	return err
+}
+
+// --- Alerts ---
+
+func (d *DB) CreateAlert(ctx context.Context, tenantID string, a *store.Alert) error {
+	_, err := d.db.ExecContext(ctx,
+		`INSERT INTO alerts (id, chain_id, device_imei, type, detail, state, current_tier, retries,
+			acked_by, acked_at, next_esc_at, created_at, updated_at, tenant_id)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		a.ID, a.ChainID, a.DeviceIMEI, a.Type, a.Detail, a.State, a.CurrentTier, a.Retries,
+		a.AckedBy, fmtTime(a.AckedAt), fmtTime(a.NextEscAt),
+		fmtTime(a.CreatedAt), fmtTime(a.UpdatedAt), tenantID)
+	return err
+}
+
+func (d *DB) GetAlert(ctx context.Context, tenantID string, id string) (*store.Alert, error) {
+	var a store.Alert
+	var ackedAt, nextEscAt, createdAt, updatedAt string
+	query := "SELECT id, chain_id, device_imei, type, detail, state, current_tier, retries, acked_by, acked_at, next_esc_at, created_at, updated_at FROM alerts WHERE id=?"
+	args := []interface{}{id}
+	if tenantID != "" {
+		query += " AND tenant_id=?"
+		args = append(args, tenantID)
+	}
+	if err := d.db.QueryRowContext(ctx, query, args...).Scan(
+		&a.ID, &a.ChainID, &a.DeviceIMEI, &a.Type, &a.Detail, &a.State,
+		&a.CurrentTier, &a.Retries, &a.AckedBy, &ackedAt, &nextEscAt, &createdAt, &updatedAt,
+	); err != nil {
+		return nil, err
+	}
+	a.AckedAt, _ = time.Parse("2006-01-02 15:04:05", ackedAt)
+	a.NextEscAt, _ = time.Parse("2006-01-02 15:04:05", nextEscAt)
+	a.CreatedAt, _ = time.Parse("2006-01-02 15:04:05", createdAt)
+	a.UpdatedAt, _ = time.Parse("2006-01-02 15:04:05", updatedAt)
+	return &a, nil
+}
+
+func (d *DB) ListAlerts(ctx context.Context, tenantID string, activeOnly bool, limit int) ([]store.Alert, error) {
+	query := "SELECT id, chain_id, device_imei, type, detail, state, current_tier, retries, acked_by, acked_at, next_esc_at, created_at, updated_at FROM alerts"
+	var args []interface{}
+	var conditions []string
+	if tenantID != "" {
+		conditions = append(conditions, "tenant_id=?")
+		args = append(args, tenantID)
+	}
+	if activeOnly {
+		conditions = append(conditions, "state IN ('triggered', 'escalating')")
+	}
+	if len(conditions) > 0 {
+		query += " WHERE " + strings.Join(conditions, " AND ")
+	}
+	query += " ORDER BY created_at DESC LIMIT ?"
+	args = append(args, limit)
+
+	rows, err := d.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+	var alerts []store.Alert
+	for rows.Next() {
+		var a store.Alert
+		var ackedAt, nextEscAt, createdAt, updatedAt string
+		if err := rows.Scan(
+			&a.ID, &a.ChainID, &a.DeviceIMEI, &a.Type, &a.Detail, &a.State,
+			&a.CurrentTier, &a.Retries, &a.AckedBy, &ackedAt, &nextEscAt, &createdAt, &updatedAt,
+		); err != nil {
+			return nil, err
+		}
+		a.AckedAt, _ = time.Parse("2006-01-02 15:04:05", ackedAt)
+		a.NextEscAt, _ = time.Parse("2006-01-02 15:04:05", nextEscAt)
+		a.CreatedAt, _ = time.Parse("2006-01-02 15:04:05", createdAt)
+		a.UpdatedAt, _ = time.Parse("2006-01-02 15:04:05", updatedAt)
+		alerts = append(alerts, a)
+	}
+	return alerts, rows.Err()
+}
+
+func (d *DB) UpdateAlert(ctx context.Context, tenantID string, a *store.Alert) error {
+	query := `UPDATE alerts SET state=?, current_tier=?, retries=?, acked_by=?, acked_at=?,
+		next_esc_at=?, updated_at=? WHERE id=?`
+	args := []interface{}{
+		a.State, a.CurrentTier, a.Retries, a.AckedBy, fmtTime(a.AckedAt),
+		fmtTime(a.NextEscAt), fmtTime(a.UpdatedAt), a.ID,
+	}
+	if tenantID != "" {
+		query += " AND tenant_id=?"
+		args = append(args, tenantID)
+	}
+	_, err := d.db.ExecContext(ctx, query, args...)
+	return err
+}
+
+func fmtTime(t time.Time) string {
+	if t.IsZero() {
+		return ""
+	}
+	return t.Format("2006-01-02 15:04:05")
 }
 
 // Ensure DB implements Store at compile time.
