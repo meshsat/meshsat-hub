@@ -90,12 +90,25 @@ func (b *Bus) resubscribe(c pahomqtt.Client) {
 }
 
 func (b *Bus) Connect() error {
-	token := b.inner.Connect()
-	token.Wait()
-	if err := token.Error(); err != nil {
-		return fmt.Errorf("bus: mqtt connect to %s: %w", b.brokerURL, err)
+	// Retry initial connection up to 5 times with backoff.
+	// Paho's AutoReconnect only works after a successful initial connection,
+	// so we must handle the first connect ourselves.
+	var lastErr error
+	for attempt := 0; attempt < 5; attempt++ {
+		if attempt > 0 {
+			delay := time.Duration(attempt) * 2 * time.Second
+			slog.Info("bus: mqtt retrying initial connect", "attempt", attempt+1, "delay", delay)
+			time.Sleep(delay)
+		}
+		token := b.inner.Connect()
+		token.Wait()
+		if err := token.Error(); err != nil {
+			lastErr = err
+			continue
+		}
+		return nil
 	}
-	return nil
+	return fmt.Errorf("bus: mqtt connect to %s: %w", b.brokerURL, lastErr)
 }
 
 func (b *Bus) Publish(topic string, qos byte, retained bool, payload []byte) error {
