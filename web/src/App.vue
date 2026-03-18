@@ -56,6 +56,7 @@ const navGroups = [
             </RouterLink>
           </template>
           <span class="text-gray-600 text-xs px-1">|</span>
+          <RouterLink v-if="auth.isOwner" to="/users" class="px-2 py-1 rounded hover:text-cyan-400 hover:bg-gray-700/50 transition-colors" active-class="text-cyan-400 bg-gray-700/50">Users</RouterLink>
           <RouterLink v-if="auth.isOwner" to="/api-keys" class="px-2 py-1 rounded hover:text-cyan-400 hover:bg-gray-700/50 transition-colors" active-class="text-cyan-400 bg-gray-700/50">API Keys</RouterLink>
           <RouterLink v-if="auth.isOwner" to="/audit" class="px-2 py-1 rounded hover:text-cyan-400 hover:bg-gray-700/50 transition-colors" active-class="text-cyan-400 bg-gray-700/50">Audit</RouterLink>
           <RouterLink to="/settings" class="px-2 py-1 rounded hover:text-cyan-400 hover:bg-gray-700/50 transition-colors" active-class="text-cyan-400 bg-gray-700/50">Settings</RouterLink>
@@ -96,6 +97,7 @@ const navGroups = [
             class="hover:text-cyan-400 py-1 pl-2">{{ item.label }}</RouterLink>
         </template>
         <div class="text-xs text-gray-500 uppercase mt-2 mb-1">Admin</div>
+        <RouterLink v-if="auth.isOwner" to="/users" @click="navOpen=false" class="hover:text-cyan-400 py-1 pl-2">Users</RouterLink>
         <RouterLink v-if="auth.isOwner" to="/api-keys" @click="navOpen=false" class="hover:text-cyan-400 py-1 pl-2">API Keys</RouterLink>
         <RouterLink v-if="auth.isOwner" to="/audit" @click="navOpen=false" class="hover:text-cyan-400 py-1 pl-2">Audit</RouterLink>
         <RouterLink to="/settings" @click="navOpen=false" class="hover:text-cyan-400 py-1 pl-2">Settings</RouterLink>

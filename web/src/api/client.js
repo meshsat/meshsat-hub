@@ -133,6 +133,14 @@ export const mptcp = {
   removeEndpoint: (id) => fetchJSON(`/mptcp/endpoints/${id}`, { method: 'DELETE' }),
 }
 
+export const users = {
+  list: () => fetchJSON('/users'),
+  get: (id) => fetchJSON(`/users/${id}`),
+  create: (data) => fetchJSON('/users', { method: 'POST', body: JSON.stringify(data) }),
+  update: (id, data) => fetchJSON(`/users/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+  delete: (id) => fetchJSON(`/users/${id}`, { method: 'DELETE' }),
+}
+
 export const health = {
   check: () => fetch('/healthz').then(r => r.json()).catch(() => ({ status: 'error' })),
 }
