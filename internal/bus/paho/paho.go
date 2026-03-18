@@ -30,6 +30,7 @@ func New(brokerURL, clientID string) *Bus {
 	opts := pahomqtt.NewClientOptions().
 		AddBroker(brokerURL).
 		SetClientID(clientID).
+		SetProtocolVersion(4). // MQTT 3.1.1 — required by NATS MQTT adapter
 		SetAutoReconnect(true).
 		SetMaxReconnectInterval(30 * time.Second).
 		SetKeepAlive(60 * time.Second).
