@@ -1,0 +1,18 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "meshsat-hub.fullname" . }}-config
+  labels:
+    {{- include "meshsat-hub.labels" . | nindent 4 }}
+data:
+  HUB_MODE: {{ .Values.hub.config.mode | quote }}
+  HUB_PORT: {{ .Values.hub.config.port | quote }}
+  HUB_LOG_LEVEL: {{ .Values.hub.config.logLevel | quote }}
+  HUB_LOG_FORMAT: {{ .Values.hub.config.logFormat | quote }}
+  HUB_MQTT_BROKER_URL: "tcp://{{ include "meshsat-hub.fullname" . }}-nats:1883"
+  HUB_NATS_URL: "tcp://{{ include "meshsat-hub.fullname" . }}-nats:1883"
+  HUB_RATELIMIT_DAILY_CAP: {{ .Values.hub.config.ratelimitDailyCap | quote }}
+  HUB_RATELIMIT_MONTHLY_CAP: {{ .Values.hub.config.ratelimitMonthlyCap | quote }}
+  HUB_RATELIMIT_BURST: {{ .Values.hub.config.ratelimitBurst | quote }}
+  HUB_RATELIMIT_REFILL_PER_MIN: {{ .Values.hub.config.ratelimitRefillPerMin | quote }}
+  HUB_TENANT_ENFORCE: {{ .Values.hub.config.tenantEnforce | quote }}

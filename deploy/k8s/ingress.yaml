@@ -1,0 +1,26 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: meshsat-hub
+  namespace: meshsat-hub
+  labels:
+    app.kubernetes.io/name: meshsat-hub
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts:
+        - hub.example.com
+      secretName: meshsat-hub-tls
+  rules:
+    - host: hub.example.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: meshsat-hub
+                port:
+                  number: 6070

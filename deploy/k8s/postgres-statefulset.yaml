@@ -1,0 +1,90 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: meshsat-postgres
+  namespace: meshsat-hub
+  labels:
+    app.kubernetes.io/name: meshsat-hub
+    app.kubernetes.io/component: postgres
+spec:
+  serviceName: meshsat-postgres
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: meshsat-hub
+      app.kubernetes.io/component: postgres
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: meshsat-hub
+        app.kubernetes.io/component: postgres
+    spec:
+      containers:
+        - name: postgres
+          image: postgres:16-alpine
+          ports:
+            - name: postgres
+              containerPort: 5432
+          env:
+            - name: POSTGRES_USER
+              value: meshsat
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: meshsat-hub-secrets
+                  key: HUB_DATABASE_URL
+                  optional: true
+            - name: POSTGRES_DB
+              value: meshsat_hub
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
+          envFrom:
+            - secretRef:
+                name: meshsat-postgres-credentials
+                optional: true
+          livenessProbe:
+            exec:
+              command: ["pg_isready", "-U", "meshsat"]
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          readinessProbe:
+            exec:
+              command: ["pg_isready", "-U", "meshsat"]
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          resources:
+            requests:
+              memory: 128Mi
+              cpu: 100m
+            limits:
+              memory: 512Mi
+              cpu: "1"
+          volumeMounts:
+            - name: pg-data
+              mountPath: /var/lib/postgresql/data
+  volumeClaimTemplates:
+    - metadata:
+        name: pg-data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 10Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: meshsat-postgres
+  namespace: meshsat-hub
+  labels:
+    app.kubernetes.io/name: meshsat-hub
+    app.kubernetes.io/component: postgres
+spec:
+  selector:
+    app.kubernetes.io/name: meshsat-hub
+    app.kubernetes.io/component: postgres
+  ports:
+    - name: postgres
+      port: 5432
+      targetPort: postgres
+  clusterIP: None

@@ -1,0 +1,153 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: meshsat-nats-config
+  namespace: meshsat-hub
+  labels:
+    app.kubernetes.io/name: meshsat-hub
+    app.kubernetes.io/component: nats
+data:
+  nats.conf: |
+    listen: 0.0.0.0:4222
+    http_port: 8222
+
+    jetstream {
+      store_dir: /data/jetstream
+      max_mem: 256MB
+      max_file: 1GB
+    }
+
+    mqtt {
+      listen: 0.0.0.0:1883
+      no_auth_user: meshsat
+      ack_wait: "30s"
+      max_ack_pending: 100
+    }
+
+    authorization {
+      users = [
+        { user: meshsat, password: "" }
+      ]
+    }
+
+    cluster {
+      name: meshsat-nats
+      listen: 0.0.0.0:6222
+      routes = [
+        nats-route://meshsat-nats-0.meshsat-nats-headless:6222,
+        nats-route://meshsat-nats-1.meshsat-nats-headless:6222,
+        nats-route://meshsat-nats-2.meshsat-nats-headless:6222,
+      ]
+    }
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: meshsat-nats
+  namespace: meshsat-hub
+  labels:
+    app.kubernetes.io/name: meshsat-hub
+    app.kubernetes.io/component: nats
+spec:
+  serviceName: meshsat-nats-headless
+  replicas: 3
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: meshsat-hub
+      app.kubernetes.io/component: nats
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: meshsat-hub
+        app.kubernetes.io/component: nats
+    spec:
+      containers:
+        - name: nats
+          image: nats:2.10-alpine
+          command: ["nats-server", "-c", "/etc/nats/nats.conf"]
+          ports:
+            - name: client
+              containerPort: 4222
+            - name: mqtt
+              containerPort: 1883
+            - name: cluster
+              containerPort: 6222
+            - name: monitor
+              containerPort: 8222
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: monitor
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: monitor
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          resources:
+            requests:
+              memory: 64Mi
+              cpu: 50m
+            limits:
+              memory: 256Mi
+              cpu: 500m
+          volumeMounts:
+            - name: config
+              mountPath: /etc/nats
+            - name: nats-data
+              mountPath: /data
+      volumes:
+        - name: config
+          configMap:
+            name: meshsat-nats-config
+  volumeClaimTemplates:
+    - metadata:
+        name: nats-data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 2Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: meshsat-nats
+  namespace: meshsat-hub
+  labels:
+    app.kubernetes.io/name: meshsat-hub
+    app.kubernetes.io/component: nats
+spec:
+  selector:
+    app.kubernetes.io/name: meshsat-hub
+    app.kubernetes.io/component: nats
+  ports:
+    - name: client
+      port: 4222
+      targetPort: client
+    - name: mqtt
+      port: 1883
+      targetPort: mqtt
+    - name: monitor
+      port: 8222
+      targetPort: monitor
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: meshsat-nats-headless
+  namespace: meshsat-hub
+  labels:
+    app.kubernetes.io/name: meshsat-hub
+    app.kubernetes.io/component: nats
+spec:
+  selector:
+    app.kubernetes.io/name: meshsat-hub
+    app.kubernetes.io/component: nats
+  ports:
+    - name: cluster
+      port: 6222
+      targetPort: cluster
+  clusterIP: None

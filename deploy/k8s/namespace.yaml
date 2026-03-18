@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: meshsat-hub
+  labels:
+    app.kubernetes.io/name: meshsat-hub
+    app.kubernetes.io/part-of: meshsat

@@ -1,0 +1,72 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "meshsat-hub.fullname" . }}
+  labels:
+    {{- include "meshsat-hub.labels" . | nindent 4 }}
+    app.kubernetes.io/component: hub
+spec:
+  replicas: {{ .Values.hub.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "meshsat-hub.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "meshsat-hub.selectorLabels" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ .Values.serviceAccount.name }}
+      containers:
+        - name: hub
+          image: "{{ .Values.hub.image.repository }}:{{ .Values.hub.image.tag }}"
+          imagePullPolicy: {{ .Values.hub.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.hub.config.port }}
+              protocol: TCP
+          envFrom:
+            - configMapRef:
+                name: {{ include "meshsat-hub.fullname" . }}-config
+            - secretRef:
+                name: {{ include "meshsat-hub.fullname" . }}-secrets
+          env:
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: HUB_MQTT_CLIENT_ID
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 30
+            timeoutSeconds: 5
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+          resources:
+            {{- toYaml .Values.hub.resources | nindent 12 }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "meshsat-hub.fullname" . }}
+  labels:
+    {{- include "meshsat-hub.labels" . | nindent 4 }}
+    app.kubernetes.io/component: hub
+spec:
+  selector:
+    {{- include "meshsat-hub.selectorLabels" . | nindent 4 }}
+  ports:
+    - name: http
+      port: {{ .Values.hub.config.port }}
+      targetPort: http
+      protocol: TCP

@@ -1,0 +1,13 @@
+apiVersion: v2
+name: meshsat-hub
+description: MeshSat Hub — multi-tenant satellite device management platform
+type: application
+version: 0.1.0
+appVersion: "0.2.0"
+keywords:
+  - meshsat
+  - satellite
+  - iridium
+  - iot
+maintainers:
+  - name: CubeOS

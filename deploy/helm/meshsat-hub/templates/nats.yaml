@@ -1,0 +1,151 @@
+{{- if .Values.nats.enabled }}
+{{- $fullname := include "meshsat-hub.fullname" . -}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ $fullname }}-nats-config
+  labels:
+    {{- include "meshsat-hub.labels" . | nindent 4 }}
+    app.kubernetes.io/component: nats
+data:
+  nats.conf: |
+    listen: 0.0.0.0:4222
+    http_port: 8222
+
+    jetstream {
+      store_dir: /data/jetstream
+      max_mem: {{ .Values.nats.jetstream.maxMem }}
+      max_file: {{ .Values.nats.jetstream.maxFile }}
+    }
+
+    mqtt {
+      listen: 0.0.0.0:1883
+      no_auth_user: meshsat
+      ack_wait: "30s"
+      max_ack_pending: 100
+    }
+
+    authorization {
+      users = [
+        { user: meshsat, password: "" }
+      ]
+    }
+
+    cluster {
+      name: {{ $fullname }}-nats
+      listen: 0.0.0.0:6222
+      routes = [
+        {{- range $i := until (int .Values.nats.replicaCount) }}
+        nats-route://{{ $fullname }}-nats-{{ $i }}.{{ $fullname }}-nats-headless:6222,
+        {{- end }}
+      ]
+    }
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ $fullname }}-nats
+  labels:
+    {{- include "meshsat-hub.labels" . | nindent 4 }}
+    app.kubernetes.io/component: nats
+spec:
+  serviceName: {{ $fullname }}-nats-headless
+  replicas: {{ .Values.nats.replicaCount }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ .Chart.Name }}
+      app.kubernetes.io/instance: {{ .Release.Name }}
+      app.kubernetes.io/component: nats
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: {{ .Chart.Name }}
+        app.kubernetes.io/instance: {{ .Release.Name }}
+        app.kubernetes.io/component: nats
+    spec:
+      containers:
+        - name: nats
+          image: "{{ .Values.nats.image.repository }}:{{ .Values.nats.image.tag }}"
+          command: ["nats-server", "-c", "/etc/nats/nats.conf"]
+          ports:
+            - name: client
+              containerPort: 4222
+            - name: mqtt
+              containerPort: 1883
+            - name: cluster
+              containerPort: 6222
+            - name: monitor
+              containerPort: 8222
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: monitor
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: monitor
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          resources:
+            {{- toYaml .Values.nats.resources | nindent 12 }}
+          volumeMounts:
+            - name: config
+              mountPath: /etc/nats
+            - name: nats-data
+              mountPath: /data
+      volumes:
+        - name: config
+          configMap:
+            name: {{ $fullname }}-nats-config
+  volumeClaimTemplates:
+    - metadata:
+        name: nats-data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: {{ .Values.nats.storage }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $fullname }}-nats
+  labels:
+    {{- include "meshsat-hub.labels" . | nindent 4 }}
+    app.kubernetes.io/component: nats
+spec:
+  selector:
+    app.kubernetes.io/name: {{ .Chart.Name }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/component: nats
+  ports:
+    - name: client
+      port: 4222
+      targetPort: client
+    - name: mqtt
+      port: 1883
+      targetPort: mqtt
+    - name: monitor
+      port: 8222
+      targetPort: monitor
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $fullname }}-nats-headless
+  labels:
+    {{- include "meshsat-hub.labels" . | nindent 4 }}
+    app.kubernetes.io/component: nats
+spec:
+  selector:
+    app.kubernetes.io/name: {{ .Chart.Name }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/component: nats
+  ports:
+    - name: cluster
+      port: 6222
+      targetPort: cluster
+  clusterIP: None
+{{- end }}

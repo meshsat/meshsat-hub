@@ -1,0 +1,111 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: meshsat-hub
+  namespace: meshsat-hub
+  labels:
+    app.kubernetes.io/name: meshsat-hub
+    app.kubernetes.io/component: hub
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: meshsat-hub
+      app.kubernetes.io/component: hub
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: meshsat-hub
+        app.kubernetes.io/component: hub
+    spec:
+      serviceAccountName: meshsat-hub
+      containers:
+        - name: hub
+          image: ghcr.io/cubeos-app/meshsat-hub:latest
+          ports:
+            - name: http
+              containerPort: 6070
+              protocol: TCP
+          envFrom:
+            - configMapRef:
+                name: meshsat-hub-config
+            - secretRef:
+                name: meshsat-hub-secrets
+          env:
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: HUB_MQTT_CLIENT_ID
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 30
+            timeoutSeconds: 5
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+          resources:
+            requests:
+              memory: 64Mi
+              cpu: 100m
+            limits:
+              memory: 256Mi
+              cpu: "1"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: meshsat-hub
+  namespace: meshsat-hub
+  labels:
+    app.kubernetes.io/name: meshsat-hub
+    app.kubernetes.io/component: hub
+spec:
+  selector:
+    app.kubernetes.io/name: meshsat-hub
+    app.kubernetes.io/component: hub
+  ports:
+    - name: http
+      port: 6070
+      targetPort: http
+      protocol: TCP
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: meshsat-hub
+  namespace: meshsat-hub
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: meshsat-hub-leader
+  namespace: meshsat-hub
+rules:
+  - apiGroups: ["coordination.k8s.io"]
+    resources: ["leases"]
+    verbs: ["get", "create", "update"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: meshsat-hub-leader
+  namespace: meshsat-hub
+subjects:
+  - kind: ServiceAccount
+    name: meshsat-hub
+    namespace: meshsat-hub
+roleRef:
+  kind: Role
+  name: meshsat-hub-leader
+  apiGroup: rbac.authorization.k8s.io
