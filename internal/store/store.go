@@ -143,7 +143,10 @@ type Position struct {
 	Lat        float64   `json:"lat"`
 	Lon        float64   `json:"lon"`
 	Alt        float64   `json:"alt,omitempty"`
-	Source     string    `json:"source"` // "gps", "iridium_cep", "astrocast"
+	Speed      float64   `json:"speed,omitempty"`   // m/s
+	Heading    float64   `json:"heading,omitempty"` // degrees 0-360
+	Sats       int       `json:"sats,omitempty"`    // satellites in view
+	Source     string    `json:"source"`            // "gps", "iridium_cep", "astrocast"
 	CEP        float64   `json:"cep,omitempty"`
 	CreatedAt  time.Time `json:"created_at"`
 }

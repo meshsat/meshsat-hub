@@ -139,6 +139,10 @@ var alterMigrations = []string{
 	`ALTER TABLE audit_log ADD COLUMN tenant_id TEXT NOT NULL DEFAULT 'default'`,
 	`ALTER TABLE audit_log ADD COLUMN prev_hash TEXT NOT NULL DEFAULT ''`,
 	`ALTER TABLE audit_log ADD COLUMN hash TEXT NOT NULL DEFAULT ''`,
+	// v0.4: extended position fields
+	`ALTER TABLE positions ADD COLUMN speed REAL NOT NULL DEFAULT 0`,
+	`ALTER TABLE positions ADD COLUMN heading REAL NOT NULL DEFAULT 0`,
+	`ALTER TABLE positions ADD COLUMN sats INTEGER NOT NULL DEFAULT 0`,
 }
 
 // postAlterMigrations create indexes and new tables. Safe to re-run.
@@ -425,8 +429,8 @@ func (d *DB) InsertPosition(ctx context.Context, tenantID string, p *store.Posit
 		p.ID = fmt.Sprintf("pos-%d", time.Now().UnixNano())
 	}
 	_, err := d.db.ExecContext(ctx,
-		`INSERT INTO positions (id, device_imei, lat, lon, alt, source, cep, tenant_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-		p.ID, p.DeviceIMEI, p.Lat, p.Lon, p.Alt, p.Source, p.CEP, tenantID)
+		`INSERT INTO positions (id, device_imei, lat, lon, alt, speed, heading, sats, source, cep, tenant_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		p.ID, p.DeviceIMEI, p.Lat, p.Lon, p.Alt, p.Speed, p.Heading, p.Sats, p.Source, p.CEP, tenantID)
 	return err
 }
 
@@ -434,9 +438,9 @@ func (d *DB) LatestPosition(ctx context.Context, tenantID string, deviceIMEI str
 	var p store.Position
 	var createdAt string
 	err := d.db.QueryRowContext(ctx,
-		"SELECT id, device_imei, lat, lon, alt, source, cep, created_at FROM positions WHERE device_imei=? AND tenant_id=? ORDER BY rowid DESC LIMIT 1",
+		"SELECT id, device_imei, lat, lon, alt, speed, heading, sats, source, cep, created_at FROM positions WHERE device_imei=? AND tenant_id=? ORDER BY rowid DESC LIMIT 1",
 		deviceIMEI, tenantID,
-	).Scan(&p.ID, &p.DeviceIMEI, &p.Lat, &p.Lon, &p.Alt, &p.Source, &p.CEP, &createdAt)
+	).Scan(&p.ID, &p.DeviceIMEI, &p.Lat, &p.Lon, &p.Alt, &p.Speed, &p.Heading, &p.Sats, &p.Source, &p.CEP, &createdAt)
 	if err != nil {
 		return nil, err
 	}
@@ -445,7 +449,7 @@ func (d *DB) LatestPosition(ctx context.Context, tenantID string, deviceIMEI str
 }
 
 func (d *DB) ListPositions(ctx context.Context, tenantID string, deviceIMEI string, limit int) ([]store.Position, error) {
-	query := "SELECT id, device_imei, lat, lon, alt, source, cep, created_at FROM positions WHERE device_imei=? AND tenant_id=? ORDER BY created_at DESC"
+	query := "SELECT id, device_imei, lat, lon, alt, speed, heading, sats, source, cep, created_at FROM positions WHERE device_imei=? AND tenant_id=? ORDER BY created_at DESC"
 	if limit > 0 {
 		query += fmt.Sprintf(" LIMIT %d", limit)
 	}
@@ -458,7 +462,7 @@ func (d *DB) ListPositions(ctx context.Context, tenantID string, deviceIMEI stri
 	for rows.Next() {
 		var p store.Position
 		var createdAt string
-		if err := rows.Scan(&p.ID, &p.DeviceIMEI, &p.Lat, &p.Lon, &p.Alt, &p.Source, &p.CEP, &createdAt); err != nil {
+		if err := rows.Scan(&p.ID, &p.DeviceIMEI, &p.Lat, &p.Lon, &p.Alt, &p.Speed, &p.Heading, &p.Sats, &p.Source, &p.CEP, &createdAt); err != nil {
 			return nil, err
 		}
 		p.CreatedAt, _ = time.Parse(time.DateTime, createdAt)
