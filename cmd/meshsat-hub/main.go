@@ -428,6 +428,8 @@ func main() {
 	r.Get("/api/mptcp/status", mptcpHandler.GetStatus)
 	r.Put("/api/mptcp/strategy", mptcpHandler.SetStrategy)
 	r.Get("/api/mptcp/endpoints", mptcpHandler.ListEndpoints)
+	r.Post("/api/mptcp/endpoints", mptcpHandler.AddEndpointHandler)
+	r.Delete("/api/mptcp/endpoints/{id}", mptcpHandler.RemoveEndpointHandler)
 
 	r.Get("/api/constellations", func(w http.ResponseWriter, r *http.Request) {
 		backends := constellationRouter.ListBackends()

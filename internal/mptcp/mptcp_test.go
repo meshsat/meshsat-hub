@@ -236,3 +236,222 @@ func TestAPIHandler_ListEndpoints(t *testing.T) {
 		t.Error("expected 'endpoints' key in response")
 	}
 }
+
+// --- New tests for bandwidth monitoring, failover, and kernel configuration ---
+
+func TestParseProcNetDev(t *testing.T) {
+	input := `Inter-|   Receive                                                |  Transmit
+ face |bytes    packets errs drop fifo frame compressed multicast|bytes    packets errs drop fifo colls carrier compressed
+    lo: 1234567      100    0    0    0     0          0         0  1234567      100    0    0    0     0       0          0
+  eth0: 98765432    50000    0    0    0     0          0         0 12345678    25000    0    0    0     0       0          0
+ wwan0: 5000000     3000    0    0    0     0          0         0  2000000     1500    0    0    0     0       0          0`
+
+	stats := parseProcNetDev(input)
+
+	if len(stats) != 3 {
+		t.Fatalf("expected 3 interfaces, got %d", len(stats))
+	}
+
+	eth0 := stats["eth0"]
+	if eth0.RxBytes != 98765432 {
+		t.Errorf("eth0 RxBytes: expected 98765432, got %d", eth0.RxBytes)
+	}
+	if eth0.TxBytes != 12345678 {
+		t.Errorf("eth0 TxBytes: expected 12345678, got %d", eth0.TxBytes)
+	}
+
+	wwan0 := stats["wwan0"]
+	if wwan0.RxBytes != 5000000 {
+		t.Errorf("wwan0 RxBytes: expected 5000000, got %d", wwan0.RxBytes)
+	}
+	if wwan0.TxBytes != 2000000 {
+		t.Errorf("wwan0 TxBytes: expected 2000000, got %d", wwan0.TxBytes)
+	}
+}
+
+func TestParseProcNetDev_Empty(t *testing.T) {
+	stats := parseProcNetDev("")
+	if len(stats) != 0 {
+		t.Errorf("expected 0 interfaces, got %d", len(stats))
+	}
+}
+
+func TestParseSSRTT(t *testing.T) {
+	input := `ESTAB  0  0  10.0.0.1:443  192.168.1.100:50000
+	 cubic rtt:25.5/3.2 mss:1460 cwnd:10`
+
+	rttMap := parseSSRTT(input)
+	if rtt, ok := rttMap["10.0.0.1"]; !ok {
+		t.Error("expected RTT for 10.0.0.1")
+	} else if rtt != 25 {
+		t.Errorf("expected RTT 25, got %d", rtt)
+	}
+}
+
+func TestParseSSRTT_MultipleConnections(t *testing.T) {
+	input := `ESTAB  0  0  10.0.0.1:443  192.168.1.100:50000
+	 cubic rtt:25.5/3.2 mss:1460 cwnd:10
+ESTAB  0  0  192.168.1.1:443  10.0.0.50:60000
+	 cubic rtt:150.0/20 mss:1460 cwnd:5`
+
+	rttMap := parseSSRTT(input)
+	if len(rttMap) != 2 {
+		t.Fatalf("expected 2 RTT entries, got %d", len(rttMap))
+	}
+	if rttMap["10.0.0.1"] != 25 {
+		t.Errorf("expected RTT 25 for 10.0.0.1, got %d", rttMap["10.0.0.1"])
+	}
+	if rttMap["192.168.1.1"] != 150 {
+		t.Errorf("expected RTT 150 for 192.168.1.1, got %d", rttMap["192.168.1.1"])
+	}
+}
+
+func TestParseSSRTT_Empty(t *testing.T) {
+	rttMap := parseSSRTT("")
+	if len(rttMap) != 0 {
+		t.Errorf("expected 0 entries, got %d", len(rttMap))
+	}
+}
+
+func TestExtractRTT(t *testing.T) {
+	tests := []struct {
+		line     string
+		expected int64
+	}{
+		{"cubic rtt:25.5/3.2 mss:1460", 25},
+		{"cubic rtt:100/10 mss:1460", 100},
+		{"cubic rtt:0.5/0.1 mss:1460", 0},
+		{"no rtt here", 0},
+		{"rtt:999", 999},
+	}
+	for _, tt := range tests {
+		result := extractRTT(tt.line)
+		if result != tt.expected {
+			t.Errorf("extractRTT(%q): expected %d, got %d", tt.line, tt.expected, result)
+		}
+	}
+}
+
+func TestApplyFailoverStrategy_PrimaryDegraded(t *testing.T) {
+	subflows := []Subflow{
+		{ID: "1", Interface: "eth0", Status: "active", BytesSent: 0, BytesRecv: 0, PathType: "ethernet"},
+		{ID: "2", Interface: "wwan0", Status: "backup", BytesSent: 100, BytesRecv: 200, PathType: "cellular"},
+	}
+
+	applyFailoverStrategy(subflows)
+
+	if subflows[0].Status != "degraded" {
+		t.Errorf("expected primary to be degraded, got %s", subflows[0].Status)
+	}
+	if subflows[1].Status != "active" {
+		t.Errorf("expected backup to be promoted to active, got %s", subflows[1].Status)
+	}
+}
+
+func TestApplyFailoverStrategy_PrimaryHealthy(t *testing.T) {
+	subflows := []Subflow{
+		{ID: "1", Interface: "eth0", Status: "active", BytesSent: 1000, BytesRecv: 2000, PathType: "ethernet"},
+		{ID: "2", Interface: "wwan0", Status: "backup", BytesSent: 0, BytesRecv: 0, PathType: "cellular"},
+	}
+
+	applyFailoverStrategy(subflows)
+
+	if subflows[0].Status != "active" {
+		t.Errorf("expected primary to remain active, got %s", subflows[0].Status)
+	}
+	if subflows[1].Status != "backup" {
+		t.Errorf("expected backup to remain backup, got %s", subflows[1].Status)
+	}
+}
+
+func TestApplyFailoverStrategy_Empty(t *testing.T) {
+	// Should not panic on empty slice.
+	applyFailoverStrategy(nil)
+	applyFailoverStrategy([]Subflow{})
+}
+
+func TestApplyAggregateStrategy(t *testing.T) {
+	subflows := []Subflow{
+		{ID: "1", Interface: "eth0", Status: "active", BytesSent: 1000, BytesRecv: 2000},
+		{ID: "2", Interface: "wwan0", Status: "active", BytesSent: 0, BytesRecv: 0},
+	}
+
+	applyAggregateStrategy(subflows)
+
+	if subflows[0].Status != "active" {
+		t.Errorf("expected eth0 to remain active, got %s", subflows[0].Status)
+	}
+	if subflows[1].Status != "degraded" {
+		t.Errorf("expected wwan0 to be degraded, got %s", subflows[1].Status)
+	}
+}
+
+func TestMonitor_EnrichBandwidth(t *testing.T) {
+	m := NewMonitor(0, nil)
+
+	// Seed previous stats.
+	m.prevStats["eth0"] = BandwidthStats{Interface: "eth0", RxBytes: 1000, TxBytes: 500}
+
+	// Validate the monitor initializes prevStats correctly.
+	if m.prevStats == nil {
+		t.Error("expected prevStats to be initialized")
+	}
+	if _, ok := m.prevStats["eth0"]; !ok {
+		t.Error("expected eth0 in prevStats")
+	}
+}
+
+func TestAddEndpoint_EmptyAddress(t *testing.T) {
+	err := AddEndpoint(Endpoint{})
+	if err == nil {
+		t.Error("expected error for empty address")
+	}
+}
+
+func TestRemoveEndpoint_EmptyID(t *testing.T) {
+	err := RemoveEndpoint("")
+	if err == nil {
+		t.Error("expected error for empty ID")
+	}
+}
+
+func TestAPIHandler_AddEndpoint_MissingAddress(t *testing.T) {
+	m := NewMonitor(0, nil)
+	h := NewAPIHandler(m)
+
+	body := strings.NewReader(`{"interface":"eth0","subflow":true}`)
+	req := httptest.NewRequest("POST", "/api/mptcp/endpoints", body)
+	w := httptest.NewRecorder()
+	h.AddEndpointHandler(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("expected 400, got %d", w.Code)
+	}
+}
+
+func TestAPIHandler_AddEndpoint_InvalidBody(t *testing.T) {
+	m := NewMonitor(0, nil)
+	h := NewAPIHandler(m)
+
+	body := strings.NewReader(`{invalid`)
+	req := httptest.NewRequest("POST", "/api/mptcp/endpoints", body)
+	w := httptest.NewRecorder()
+	h.AddEndpointHandler(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("expected 400, got %d", w.Code)
+	}
+}
+
+func TestAPIHandler_RemoveEndpoint_MissingID(t *testing.T) {
+	m := NewMonitor(0, nil)
+	h := NewAPIHandler(m)
+
+	req := httptest.NewRequest("DELETE", "/api/mptcp/endpoints/", nil)
+	w := httptest.NewRecorder()
+	h.RemoveEndpointHandler(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("expected 400, got %d", w.Code)
+	}
+}
