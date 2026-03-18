@@ -122,6 +122,21 @@ var migrations = []string{
 	`CREATE INDEX IF NOT EXISTS idx_positions_tenant ON positions(tenant_id, device_imei)`,
 	`CREATE INDEX IF NOT EXISTS idx_audit_log_tenant ON audit_log(tenant_id)`,
 	`CREATE INDEX IF NOT EXISTS idx_delivery_logs_tenant ON delivery_logs(tenant_id)`,
+	// API keys
+	`CREATE TABLE IF NOT EXISTS api_keys (
+		id TEXT PRIMARY KEY,
+		key_hash TEXT NOT NULL UNIQUE,
+		key_prefix TEXT NOT NULL DEFAULT '',
+		role TEXT NOT NULL DEFAULT 'viewer',
+		label TEXT NOT NULL DEFAULT '',
+		device_imei TEXT NOT NULL DEFAULT '',
+		last_used TIMESTAMPTZ NOT NULL DEFAULT '1970-01-01',
+		expires_at TIMESTAMPTZ NOT NULL DEFAULT '1970-01-01',
+		created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+		tenant_id TEXT NOT NULL DEFAULT 'default'
+	)`,
+	`CREATE INDEX IF NOT EXISTS idx_api_keys_hash ON api_keys(key_hash)`,
+	`CREATE INDEX IF NOT EXISTS idx_api_keys_tenant ON api_keys(tenant_id)`,
 }
 
 // --- Devices ---
@@ -371,6 +386,61 @@ func (d *DB) ListAuditEntries(ctx context.Context, tenantID string, limit int) (
 		entries = append(entries, a)
 	}
 	return entries, nil
+}
+
+// --- API keys ---
+
+func (d *DB) CreateAPIKey(ctx context.Context, tenantID string, k *store.APIKey) error {
+	if k.ID == "" {
+		k.ID = fmt.Sprintf("key-%d", time.Now().UnixNano())
+	}
+	_, err := d.pool.Exec(ctx,
+		`INSERT INTO api_keys (id, key_hash, key_prefix, role, label, device_imei, expires_at, tenant_id)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+		k.ID, k.KeyHash, k.KeyPrefix, k.Role, k.Label, k.DeviceIMEI, k.ExpiresAt, tenantID)
+	return err
+}
+
+func (d *DB) GetAPIKeyByHash(ctx context.Context, keyHash string) (*store.APIKey, string, error) {
+	var k store.APIKey
+	var tenantID string
+	err := d.pool.QueryRow(ctx,
+		"SELECT id, key_hash, key_prefix, role, label, device_imei, last_used, expires_at, created_at, tenant_id FROM api_keys WHERE key_hash=$1",
+		keyHash,
+	).Scan(&k.ID, &k.KeyHash, &k.KeyPrefix, &k.Role, &k.Label, &k.DeviceIMEI, &k.LastUsed, &k.ExpiresAt, &k.CreatedAt, &tenantID)
+	if err != nil {
+		return nil, "", err
+	}
+	return &k, tenantID, nil
+}
+
+func (d *DB) ListAPIKeys(ctx context.Context, tenantID string) ([]store.APIKey, error) {
+	rows, err := d.pool.Query(ctx,
+		"SELECT id, key_prefix, role, label, device_imei, last_used, expires_at, created_at FROM api_keys WHERE tenant_id=$1 ORDER BY created_at DESC",
+		tenantID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var keys []store.APIKey
+	for rows.Next() {
+		var k store.APIKey
+		if err := rows.Scan(&k.ID, &k.KeyPrefix, &k.Role, &k.Label, &k.DeviceIMEI, &k.LastUsed, &k.ExpiresAt, &k.CreatedAt); err != nil {
+			return nil, err
+		}
+		keys = append(keys, k)
+	}
+	return keys, nil
+}
+
+func (d *DB) DeleteAPIKey(ctx context.Context, tenantID string, id string) error {
+	_, err := d.pool.Exec(ctx, "DELETE FROM api_keys WHERE id=$1 AND tenant_id=$2", id, tenantID)
+	return err
+}
+
+func (d *DB) TouchAPIKeyLastUsed(ctx context.Context, id string) error {
+	_, err := d.pool.Exec(ctx, "UPDATE api_keys SET last_used=NOW() WHERE id=$1", id)
+	return err
 }
 
 // Compile-time check.

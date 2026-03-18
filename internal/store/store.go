@@ -50,6 +50,13 @@ type Store interface {
 	// Audit log
 	InsertAuditEntry(ctx context.Context, tenantID string, a *AuditEntry) error
 	ListAuditEntries(ctx context.Context, tenantID string, limit int) ([]AuditEntry, error)
+
+	// API keys
+	CreateAPIKey(ctx context.Context, tenantID string, k *APIKey) error
+	GetAPIKeyByHash(ctx context.Context, keyHash string) (*APIKey, string, error) // returns key + tenantID
+	ListAPIKeys(ctx context.Context, tenantID string) ([]APIKey, error)
+	DeleteAPIKey(ctx context.Context, tenantID string, id string) error
+	TouchAPIKeyLastUsed(ctx context.Context, id string) error
 }
 
 // Device represents a registered field device.
@@ -124,4 +131,17 @@ type AuditEntry struct {
 	Detail    string    `json:"detail,omitempty"`
 	IP        string    `json:"ip,omitempty"`
 	CreatedAt time.Time `json:"created_at"`
+}
+
+// APIKey represents a tenant-scoped API key for programmatic access.
+type APIKey struct {
+	ID         string    `json:"id"`
+	KeyHash    string    `json:"-"`                     // SHA-256 hash of the full key (never exposed)
+	KeyPrefix  string    `json:"key_prefix"`            // first 8 chars for display (e.g. "meshsat_ab12cd34")
+	Role       string    `json:"role"`                  // "viewer", "operator", "owner"
+	Label      string    `json:"label"`                 // human-readable label
+	DeviceIMEI string    `json:"device_imei,omitempty"` // optional: scope to specific device
+	LastUsed   time.Time `json:"last_used,omitempty"`
+	ExpiresAt  time.Time `json:"expires_at,omitempty"`
+	CreatedAt  time.Time `json:"created_at"`
 }

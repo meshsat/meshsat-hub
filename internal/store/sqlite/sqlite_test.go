@@ -4,6 +4,7 @@ import (
 	"context"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/cubeos-app/meshsat-hub/internal/store"
 )
@@ -282,5 +283,106 @@ func TestTenantIsolation(t *testing.T) {
 	auditA, _ := db.ListAuditEntries(ctx, tenantA, 100)
 	if len(auditA) != 1 || auditA[0].Actor != "admin-a" {
 		t.Errorf("tenant A audit: got %d entries", len(auditA))
+	}
+}
+
+func TestAPIKeyCRUD(t *testing.T) {
+	db := testDB(t)
+	ctx := context.Background()
+
+	// Create a key.
+	key := &store.APIKey{
+		KeyHash:    "sha256_abc123",
+		KeyPrefix:  "meshsat_ab12cd34",
+		Role:       "operator",
+		Label:      "CI pipeline key",
+		DeviceIMEI: "300234063904190",
+		ExpiresAt:  time.Now().Add(24 * time.Hour),
+	}
+	if err := db.CreateAPIKey(ctx, testTenant, key); err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	if key.ID == "" {
+		t.Error("ID should be auto-generated")
+	}
+
+	// Lookup by hash.
+	got, tenantID, err := db.GetAPIKeyByHash(ctx, "sha256_abc123")
+	if err != nil {
+		t.Fatalf("get by hash: %v", err)
+	}
+	if tenantID != testTenant {
+		t.Errorf("tenant: got %q, want %q", tenantID, testTenant)
+	}
+	if got.Role != "operator" {
+		t.Errorf("role: got %q", got.Role)
+	}
+	if got.Label != "CI pipeline key" {
+		t.Errorf("label: got %q", got.Label)
+	}
+	if got.DeviceIMEI != "300234063904190" {
+		t.Errorf("device_imei: got %q", got.DeviceIMEI)
+	}
+	if got.ExpiresAt.IsZero() {
+		t.Error("expires_at should be set")
+	}
+
+	// List keys for tenant.
+	keys, err := db.ListAPIKeys(ctx, testTenant)
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if len(keys) != 1 {
+		t.Fatalf("list: got %d, want 1", len(keys))
+	}
+
+	// Touch last_used.
+	if err := db.TouchAPIKeyLastUsed(ctx, key.ID); err != nil {
+		t.Fatalf("touch: %v", err)
+	}
+	updated, _, _ := db.GetAPIKeyByHash(ctx, "sha256_abc123")
+	if updated.LastUsed.IsZero() {
+		t.Error("last_used should be set after touch")
+	}
+
+	// Delete.
+	if err := db.DeleteAPIKey(ctx, testTenant, key.ID); err != nil {
+		t.Fatalf("delete: %v", err)
+	}
+	keys, _ = db.ListAPIKeys(ctx, testTenant)
+	if len(keys) != 0 {
+		t.Errorf("list after delete: got %d", len(keys))
+	}
+}
+
+func TestAPIKeyTenantIsolation(t *testing.T) {
+	db := testDB(t)
+	ctx := context.Background()
+
+	keyA := &store.APIKey{KeyHash: "hash_a", KeyPrefix: "meshsat_aaaaaaaa", Role: "owner", Label: "Key A"}
+	keyB := &store.APIKey{KeyHash: "hash_b", KeyPrefix: "meshsat_bbbbbbbb", Role: "viewer", Label: "Key B"}
+	_ = db.CreateAPIKey(ctx, "tenant-a", keyA)
+	_ = db.CreateAPIKey(ctx, "tenant-b", keyB)
+
+	// Tenant A sees only its key.
+	keysA, _ := db.ListAPIKeys(ctx, "tenant-a")
+	if len(keysA) != 1 || keysA[0].Label != "Key A" {
+		t.Errorf("tenant-a keys: got %d", len(keysA))
+	}
+
+	// Tenant B cannot delete tenant A's key.
+	_ = db.DeleteAPIKey(ctx, "tenant-b", keyA.ID)
+	keysA, _ = db.ListAPIKeys(ctx, "tenant-a")
+	if len(keysA) != 1 {
+		t.Error("tenant-b should not be able to delete tenant-a's key")
+	}
+
+	// GetAPIKeyByHash returns the correct tenant.
+	_, tid, err := db.GetAPIKeyByHash(ctx, "hash_a")
+	if err != nil {
+		t.Fatalf("get: %v", err)
+	}
+	if tid != "tenant-a" {
+		t.Errorf("tenant: got %q, want tenant-a", tid)
 	}
 }

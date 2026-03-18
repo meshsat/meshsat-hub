@@ -139,8 +139,22 @@ var alterMigrations = []string{
 	`ALTER TABLE audit_log ADD COLUMN tenant_id TEXT NOT NULL DEFAULT 'default'`,
 }
 
-// postAlterMigrations create indexes on tenant_id columns. Safe to re-run.
+// postAlterMigrations create indexes and new tables. Safe to re-run.
 var postAlterMigrations = []string{
+	`CREATE TABLE IF NOT EXISTS api_keys (
+		id TEXT PRIMARY KEY,
+		key_hash TEXT NOT NULL UNIQUE,
+		key_prefix TEXT NOT NULL DEFAULT '',
+		role TEXT NOT NULL DEFAULT 'viewer',
+		label TEXT NOT NULL DEFAULT '',
+		device_imei TEXT NOT NULL DEFAULT '',
+		last_used TEXT NOT NULL DEFAULT '',
+		expires_at TEXT NOT NULL DEFAULT '',
+		created_at TEXT NOT NULL DEFAULT (datetime('now')),
+		tenant_id TEXT NOT NULL DEFAULT 'default'
+	)`,
+	`CREATE INDEX IF NOT EXISTS idx_api_keys_hash ON api_keys(key_hash)`,
+	`CREATE INDEX IF NOT EXISTS idx_api_keys_tenant ON api_keys(tenant_id)`,
 	`CREATE INDEX IF NOT EXISTS idx_devices_tenant ON devices(tenant_id)`,
 	`CREATE INDEX IF NOT EXISTS idx_messages_tenant ON messages(tenant_id, device_imei)`,
 	`CREATE INDEX IF NOT EXISTS idx_webhook_configs_tenant ON webhook_configs(tenant_id)`,
@@ -432,6 +446,72 @@ func (d *DB) ListAuditEntries(ctx context.Context, tenantID string, limit int) (
 		entries = append(entries, a)
 	}
 	return entries, nil
+}
+
+// --- API keys ---
+
+func (d *DB) CreateAPIKey(ctx context.Context, tenantID string, k *store.APIKey) error {
+	if k.ID == "" {
+		k.ID = fmt.Sprintf("key-%d", time.Now().UnixNano())
+	}
+	var expiresAt string
+	if !k.ExpiresAt.IsZero() {
+		expiresAt = k.ExpiresAt.Format(time.DateTime)
+	}
+	_, err := d.db.ExecContext(ctx,
+		`INSERT INTO api_keys (id, key_hash, key_prefix, role, label, device_imei, expires_at, tenant_id)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		k.ID, k.KeyHash, k.KeyPrefix, k.Role, k.Label, k.DeviceIMEI, expiresAt, tenantID)
+	return err
+}
+
+func (d *DB) GetAPIKeyByHash(ctx context.Context, keyHash string) (*store.APIKey, string, error) {
+	var k store.APIKey
+	var tenantID, lastUsed, expiresAt, createdAt string
+	err := d.db.QueryRowContext(ctx,
+		"SELECT id, key_hash, key_prefix, role, label, device_imei, last_used, expires_at, created_at, tenant_id FROM api_keys WHERE key_hash=?",
+		keyHash,
+	).Scan(&k.ID, &k.KeyHash, &k.KeyPrefix, &k.Role, &k.Label, &k.DeviceIMEI, &lastUsed, &expiresAt, &createdAt, &tenantID)
+	if err != nil {
+		return nil, "", err
+	}
+	k.LastUsed, _ = time.Parse(time.DateTime, lastUsed)
+	k.ExpiresAt, _ = time.Parse(time.DateTime, expiresAt)
+	k.CreatedAt, _ = time.Parse(time.DateTime, createdAt)
+	return &k, tenantID, nil
+}
+
+func (d *DB) ListAPIKeys(ctx context.Context, tenantID string) ([]store.APIKey, error) {
+	rows, err := d.db.QueryContext(ctx,
+		"SELECT id, key_prefix, role, label, device_imei, last_used, expires_at, created_at FROM api_keys WHERE tenant_id=? ORDER BY created_at DESC",
+		tenantID)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+	var keys []store.APIKey
+	for rows.Next() {
+		var k store.APIKey
+		var lastUsed, expiresAt, createdAt string
+		if err := rows.Scan(&k.ID, &k.KeyPrefix, &k.Role, &k.Label, &k.DeviceIMEI, &lastUsed, &expiresAt, &createdAt); err != nil {
+			return nil, err
+		}
+		k.LastUsed, _ = time.Parse(time.DateTime, lastUsed)
+		k.ExpiresAt, _ = time.Parse(time.DateTime, expiresAt)
+		k.CreatedAt, _ = time.Parse(time.DateTime, createdAt)
+		keys = append(keys, k)
+	}
+	return keys, nil
+}
+
+func (d *DB) DeleteAPIKey(ctx context.Context, tenantID string, id string) error {
+	_, err := d.db.ExecContext(ctx, "DELETE FROM api_keys WHERE id=? AND tenant_id=?", id, tenantID)
+	return err
+}
+
+func (d *DB) TouchAPIKeyLastUsed(ctx context.Context, id string) error {
+	_, err := d.db.ExecContext(ctx, "UPDATE api_keys SET last_used=datetime('now') WHERE id=?", id)
+	return err
 }
 
 func boolToInt(b bool) int {

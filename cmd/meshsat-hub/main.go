@@ -236,6 +236,26 @@ func main() {
 	r.Use(middleware.Recoverer)
 	r.Use(middleware.RealIP)
 
+	// API key middleware — runs first; if bearer is a meshsat_ key, validates and sets
+	// user+tenant in context. Non-API-key tokens pass through to JWT/token middleware.
+	apiKeyValidator := func(ctx context.Context, keyHash string) (*hubauth.User, string, error) {
+		k, tenantID, err := dataStore.GetAPIKeyByHash(ctx, keyHash)
+		if err != nil {
+			return nil, "", err
+		}
+		// Touch last_used asynchronously.
+		go func() { _ = dataStore.TouchAPIKeyLastUsed(context.Background(), k.ID) }()
+		user := &hubauth.User{
+			ID:        "apikey:" + k.ID,
+			Name:      k.Label,
+			Roles:     []string{k.Role},
+			TenantID:  "", // will be set from tenantID below
+			ExpiresAt: k.ExpiresAt,
+		}
+		return user, tenantID, nil
+	}
+	r.Use(hubauth.APIKeyMiddleware(apiKeyValidator))
+
 	// Auth middleware — auto-detect mode if not explicitly set
 	authMode := cfg.AuthMode
 	if authMode == "" {
@@ -260,6 +280,15 @@ func main() {
 	r.Get("/healthz", health.LivezHandler)
 	r.Get("/readyz", checker.ReadyzHandler)
 	r.Post("/api/webhook/rockblock", rbHandler.ServeHTTP)
+
+	// API key management (owner-only)
+	apiKeyHandler := api.NewAPIKeyHandler(dataStore)
+	r.Route("/api/auth/keys", func(r chi.Router) {
+		r.Use(hubauth.RequireRole(hubauth.RoleOwner))
+		r.Post("/", apiKeyHandler.CreateKey)
+		r.Get("/", apiKeyHandler.ListKeys)
+		r.Delete("/{id}", apiKeyHandler.DeleteKey)
+	})
 
 	// Device registry API
 	deviceHandler := api.NewDeviceHandler(dataStore)

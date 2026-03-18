@@ -12,6 +12,7 @@ import (
 	"log/slog"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/golang-jwt/jwt/v5"
 )
@@ -23,11 +24,12 @@ const TenantContextKey contextKey = "tenant_id"
 
 // User represents an authenticated user or API client.
 type User struct {
-	ID       string   `json:"id"`
-	Email    string   `json:"email,omitempty"`
-	Name     string   `json:"name,omitempty"`
-	Roles    []string `json:"roles,omitempty"`
-	TenantID string   `json:"tenant_id,omitempty"`
+	ID        string    `json:"id"`
+	Email     string    `json:"email,omitempty"`
+	Name      string    `json:"name,omitempty"`
+	Roles     []string  `json:"roles,omitempty"`
+	TenantID  string    `json:"tenant_id,omitempty"`
+	ExpiresAt time.Time `json:"-"` // API key expiry (zero = no expiry)
 }
 
 // HasRole returns true if the user has the specified role.
@@ -159,6 +161,12 @@ func tokenMiddleware(token string) func(http.Handler) http.Handler {
 				return
 			}
 
+			// Already authenticated (e.g. by API key middleware).
+			if FromContext(r.Context()) != nil {
+				next.ServeHTTP(w, r)
+				return
+			}
+
 			provided := extractBearer(r)
 			if provided == "" {
 				writeAuthError(w, "missing Authorization header")
@@ -194,6 +202,12 @@ func jwtMiddleware(provider *JWKSProvider, issuerURL, audience string) func(http
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if isExempt(r.URL.Path) {
+				next.ServeHTTP(w, r)
+				return
+			}
+
+			// Already authenticated (e.g. by API key middleware).
+			if FromContext(r.Context()) != nil {
 				next.ServeHTTP(w, r)
 				return
 			}
