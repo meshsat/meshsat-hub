@@ -101,7 +101,7 @@ func main() {
 			os.Exit(1)
 		}
 		dataStore = dbStore
-		checker.AddProbe("mariadb", dbStore.Ping)
+		checker.AddProbe("mariadb", dbStore.GaleraReady)
 	default: // "standalone"
 		sqlStore, err := sqlite.New("/data/hub.db")
 		if err != nil {

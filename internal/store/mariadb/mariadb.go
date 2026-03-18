@@ -48,6 +48,22 @@ func New(dsn string) (*DB, error) {
 func (d *DB) Close() error                   { return d.db.Close() }
 func (d *DB) Ping(ctx context.Context) error { return d.db.PingContext(ctx) }
 
+// GaleraReady returns nil if the local Galera node can accept writes.
+// Checks wsrep_ready (ON = can write) and wsrep_local_state_comment (Synced = healthy).
+// Returns an error if the node is read-only or desynced — HAProxy should stop routing traffic here.
+func (d *DB) GaleraReady(ctx context.Context) error {
+	var name, value string
+	err := d.db.QueryRowContext(ctx, "SHOW STATUS LIKE 'wsrep_ready'").Scan(&name, &value)
+	if err != nil {
+		// Not a Galera node (standalone MariaDB) — fall back to ping
+		return d.db.PingContext(ctx)
+	}
+	if value != "ON" {
+		return fmt.Errorf("galera: wsrep_ready=%s (not accepting writes)", value)
+	}
+	return nil
+}
+
 // Migrate creates all tables. Safe to re-run (IF NOT EXISTS).
 func (d *DB) Migrate(ctx context.Context) error {
 	for i, m := range migrations {
