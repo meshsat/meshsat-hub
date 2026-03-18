@@ -18,6 +18,26 @@ function userInitial() {
   if (auth.user?.email) return auth.user.email[0].toUpperCase()
   return 'U'
 }
+
+const navGroups = [
+  { label: 'Operations', items: [
+    { to: '/', label: 'Dashboard' },
+    { to: '/map', label: 'Map' },
+    { to: '/devices', label: 'Devices' },
+    { to: '/device-config', label: 'Config' },
+    { to: '/messages', label: 'Messages' },
+  ]},
+  { label: 'Safety', items: [
+    { to: '/escalation', label: 'Escalation' },
+    { to: '/deadman', label: 'Dead Man' },
+    { to: '/notifications', label: 'Notifications' },
+  ]},
+  { label: 'Infrastructure', items: [
+    { to: '/network', label: 'Network' },
+    { to: '/webhooks', label: 'Webhooks' },
+    { to: '/ota', label: 'OTA' },
+  ]},
+]
 </script>
 
 <template>
@@ -27,14 +47,18 @@ function userInitial() {
         <div class="flex items-center gap-3">
           <span class="text-xl font-bold text-cyan-400">MeshSat Hub</span>
         </div>
-        <nav class="hidden md:flex items-center gap-4 text-sm">
-          <RouterLink to="/" class="hover:text-cyan-400" active-class="text-cyan-400">Dashboard</RouterLink>
-          <RouterLink to="/map" class="hover:text-cyan-400" active-class="text-cyan-400">Map</RouterLink>
-          <RouterLink to="/devices" class="hover:text-cyan-400" active-class="text-cyan-400">Devices</RouterLink>
-          <RouterLink to="/messages" class="hover:text-cyan-400" active-class="text-cyan-400">Messages</RouterLink>
-          <RouterLink v-if="auth.isOwner" to="/api-keys" class="hover:text-cyan-400" active-class="text-cyan-400">API Keys</RouterLink>
-          <RouterLink v-if="auth.isOwner" to="/audit" class="hover:text-cyan-400" active-class="text-cyan-400">Audit</RouterLink>
-          <RouterLink to="/settings" class="hover:text-cyan-400" active-class="text-cyan-400">Settings</RouterLink>
+        <nav class="hidden md:flex items-center gap-1 text-sm">
+          <template v-for="group in navGroups" :key="group.label">
+            <span class="text-gray-600 text-xs px-1">|</span>
+            <RouterLink v-for="item in group.items" :key="item.to" :to="item.to"
+              class="px-2 py-1 rounded hover:text-cyan-400 hover:bg-gray-700/50 transition-colors" active-class="text-cyan-400 bg-gray-700/50">
+              {{ item.label }}
+            </RouterLink>
+          </template>
+          <span class="text-gray-600 text-xs px-1">|</span>
+          <RouterLink v-if="auth.isOwner" to="/api-keys" class="px-2 py-1 rounded hover:text-cyan-400 hover:bg-gray-700/50 transition-colors" active-class="text-cyan-400 bg-gray-700/50">API Keys</RouterLink>
+          <RouterLink v-if="auth.isOwner" to="/audit" class="px-2 py-1 rounded hover:text-cyan-400 hover:bg-gray-700/50 transition-colors" active-class="text-cyan-400 bg-gray-700/50">Audit</RouterLink>
+          <RouterLink to="/settings" class="px-2 py-1 rounded hover:text-cyan-400 hover:bg-gray-700/50 transition-colors" active-class="text-cyan-400 bg-gray-700/50">Settings</RouterLink>
 
           <!-- User menu -->
           <div class="relative ml-2">
@@ -65,18 +89,20 @@ function userInitial() {
       </header>
 
       <!-- Mobile nav -->
-      <nav v-if="navOpen" class="md:hidden bg-gray-800 border-b border-gray-700 px-4 py-2 flex flex-col gap-2 text-sm">
-        <RouterLink to="/" @click="navOpen=false" class="hover:text-cyan-400">Dashboard</RouterLink>
-        <RouterLink to="/map" @click="navOpen=false" class="hover:text-cyan-400">Map</RouterLink>
-        <RouterLink to="/devices" @click="navOpen=false" class="hover:text-cyan-400">Devices</RouterLink>
-        <RouterLink to="/messages" @click="navOpen=false" class="hover:text-cyan-400">Messages</RouterLink>
-        <RouterLink v-if="auth.isOwner" to="/api-keys" @click="navOpen=false" class="hover:text-cyan-400">API Keys</RouterLink>
-        <RouterLink v-if="auth.isOwner" to="/audit" @click="navOpen=false" class="hover:text-cyan-400">Audit</RouterLink>
-        <RouterLink to="/settings" @click="navOpen=false" class="hover:text-cyan-400">Settings</RouterLink>
-        <div v-if="auth.user" class="border-t border-gray-700 pt-2 mt-1">
+      <nav v-if="navOpen" class="md:hidden bg-gray-800 border-b border-gray-700 px-4 py-2 flex flex-col gap-1 text-sm">
+        <template v-for="group in navGroups" :key="group.label">
+          <div class="text-xs text-gray-500 uppercase mt-2 mb-1">{{ group.label }}</div>
+          <RouterLink v-for="item in group.items" :key="item.to" :to="item.to" @click="navOpen=false"
+            class="hover:text-cyan-400 py-1 pl-2">{{ item.label }}</RouterLink>
+        </template>
+        <div class="text-xs text-gray-500 uppercase mt-2 mb-1">Admin</div>
+        <RouterLink v-if="auth.isOwner" to="/api-keys" @click="navOpen=false" class="hover:text-cyan-400 py-1 pl-2">API Keys</RouterLink>
+        <RouterLink v-if="auth.isOwner" to="/audit" @click="navOpen=false" class="hover:text-cyan-400 py-1 pl-2">Audit</RouterLink>
+        <RouterLink to="/settings" @click="navOpen=false" class="hover:text-cyan-400 py-1 pl-2">Settings</RouterLink>
+        <div v-if="auth.user" class="border-t border-gray-700 pt-2 mt-2">
           <div class="text-xs text-gray-400 mb-1">{{ auth.user?.name || auth.user?.id }} ({{ auth.role }})</div>
         </div>
-        <button @click="logout(); navOpen=false" class="text-left text-gray-400 hover:text-red-400">Logout</button>
+        <button @click="logout(); navOpen=false" class="text-left text-gray-400 hover:text-red-400 py-1">Logout</button>
       </nav>
     </template>
 
