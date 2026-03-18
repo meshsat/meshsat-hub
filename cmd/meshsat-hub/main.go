@@ -23,6 +23,7 @@ import (
 	"github.com/cubeos-app/meshsat-hub/internal/bus/paho"
 	"github.com/cubeos-app/meshsat-hub/internal/cloudloop"
 	"github.com/cubeos-app/meshsat-hub/internal/config"
+	"github.com/cubeos-app/meshsat-hub/internal/deadman"
 	"github.com/cubeos-app/meshsat-hub/internal/dedup"
 	"github.com/cubeos-app/meshsat-hub/internal/escalation"
 	"github.com/cubeos-app/meshsat-hub/internal/health"
@@ -277,6 +278,10 @@ func main() {
 	escEngine := escalation.New(dataStore, escNotifier)
 	go escEngine.Start(ctx)
 
+	// Dead man's switch monitor (triggers escalation on missed device check-ins).
+	deadmanMonitor := deadman.NewMonitor(dataStore, escEngine)
+	go deadmanMonitor.Start(ctx)
+
 	// RockBLOCK webhook handler.
 	rbHandler := rockblock.NewHandler(msgBus, cfg.RockBLOCKSecret)
 	rbHandler.SetAudit(auditSvc)
@@ -414,6 +419,13 @@ func main() {
 	r.Post("/api/alerts", escHandler.TriggerAlert)
 	r.Get("/api/alerts/{id}", escHandler.GetAlert)
 	r.Post("/api/alerts/{id}/ack", escHandler.AcknowledgeAlert)
+
+	// Dead man's switch API
+	deadmanHandler := api.NewDeadmanHandler(deadmanMonitor)
+	r.Get("/api/deadman", deadmanHandler.ListConfigs)
+	r.Put("/api/deadman/{imei}", deadmanHandler.Configure)
+	r.Delete("/api/deadman/{imei}", deadmanHandler.Delete)
+	r.Post("/api/deadman/{imei}/snooze", deadmanHandler.Snooze)
 
 	// Audit log (owner-only)
 	auditHandler := api.NewAuditHandler(auditSvc)
