@@ -134,5 +134,5 @@ export const mptcp = {
 }
 
 export const health = {
-  check: () => fetchJSON('/healthz').catch(() => ({ status: 'error' })),
+  check: () => fetch('/healthz').then(r => r.json()).catch(() => ({ status: 'error' })),
 }

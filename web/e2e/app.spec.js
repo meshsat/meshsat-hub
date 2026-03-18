@@ -163,10 +163,11 @@ test.describe('Authenticated navigation', () => {
     await expect(page.locator('text=iridium').first()).toBeVisible({ timeout: 10000 })
   })
 
-  test('settings page shows grouped endpoints', async ({ page }) => {
+  test('settings page shows live status and API reference', async ({ page }) => {
     await page.goto('/#/settings')
     await expect(page.locator('h1:has-text("Settings")')).toBeVisible()
-    await expect(page.locator('text=API Endpoints')).toBeVisible()
+    await expect(page.locator('text=Health')).toBeVisible()
+    await expect(page.locator('text=API Reference')).toBeVisible()
   })
 
   test('API keys page loads (admin)', async ({ page }) => {
