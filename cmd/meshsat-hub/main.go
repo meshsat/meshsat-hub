@@ -30,6 +30,7 @@ import (
 	"github.com/cubeos-app/meshsat-hub/internal/escalation"
 	"github.com/cubeos-app/meshsat-hub/internal/health"
 	"github.com/cubeos-app/meshsat-hub/internal/leader"
+	"github.com/cubeos-app/meshsat-hub/internal/mptcp"
 	"github.com/cubeos-app/meshsat-hub/internal/ntfy"
 	"github.com/cubeos-app/meshsat-hub/internal/position"
 	"github.com/cubeos-app/meshsat-hub/internal/ratelimit"
@@ -201,6 +202,10 @@ func main() {
 	if astrocastClient != nil {
 		constellationRouter.Register(constellation.NewAstrocastBackend(astrocastClient))
 	}
+
+	// MPTCP concentrator monitor (aggregates satellite + cellular links).
+	mptcpMonitor := mptcp.NewMonitor(30*time.Second, msgBus)
+	go mptcpMonitor.Start(ctx)
 
 	// TAK/CoT gateway and APRS-IS IGate are singletons — run inside leader election callback.
 	var takClient *tak.Client
@@ -417,6 +422,12 @@ func main() {
 	r.Post("/api/webhooks", webhookAPIHandler.CreateWebhook)
 	r.Delete("/api/webhooks/{id}", webhookAPIHandler.DeleteWebhook)
 	r.Get("/api/webhooks/logs", webhookAPIHandler.GetLogs)
+	// MPTCP concentrator API
+	mptcpHandler := mptcp.NewAPIHandler(mptcpMonitor)
+	r.Get("/api/mptcp/status", mptcpHandler.GetStatus)
+	r.Put("/api/mptcp/strategy", mptcpHandler.SetStrategy)
+	r.Get("/api/mptcp/endpoints", mptcpHandler.ListEndpoints)
+
 	r.Get("/api/constellations", func(w http.ResponseWriter, r *http.Request) {
 		backends := constellationRouter.ListBackends()
 		w.Header().Set("Content-Type", "application/json")
