@@ -128,7 +128,7 @@ func Middleware(cfg Config) func(http.Handler) http.Handler {
 		return tokenMiddleware(cfg.Token)
 	case "local":
 		slog.Info("auth: local mode (built-in user accounts)")
-		return localMiddleware(cfg.JWTSecret)
+		return localMiddleware(cfg.JWTSecret, cfg.Token)
 	default:
 		slog.Warn("auth: no authentication (mode=none)")
 		return noopMiddleware()
@@ -137,7 +137,7 @@ func Middleware(cfg Config) func(http.Handler) http.Handler {
 
 // localMiddleware accepts local JWT access tokens signed by the SessionManager.
 // Also accepts the legacy static token for backward compatibility during migration.
-func localMiddleware(jwtSecret []byte) func(http.Handler) http.Handler {
+func localMiddleware(jwtSecret []byte, legacyToken string) func(http.Handler) http.Handler {
 	sm := NewSessionManager(jwtSecret, "meshsat-hub")
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -155,6 +155,14 @@ func localMiddleware(jwtSecret []byte) func(http.Handler) http.Handler {
 			provided := extractBearer(r)
 			if provided == "" {
 				writeAuthError(w, "missing Authorization header")
+				return
+			}
+
+			// Try legacy static token first (backward compat during migration)
+			if legacyToken != "" && subtle.ConstantTimeCompare([]byte(provided), []byte(legacyToken)) == 1 {
+				user := &User{ID: "token-user", Name: "API Token", Roles: []string{"admin"}}
+				ctx := context.WithValue(r.Context(), UserContextKey, user)
+				next.ServeHTTP(w, r.WithContext(ctx))
 				return
 			}
 
