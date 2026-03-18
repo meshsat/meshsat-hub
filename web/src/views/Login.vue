@@ -19,11 +19,15 @@ async function handleLogin() {
 
   loading.value = true
   try {
-    const res = await fetch('/api/healthz', {
+    const res = await fetch('/api/devices', {
       headers: { Authorization: `Bearer ${apiToken.value}` },
     })
-    if (!res.ok) {
+    if (res.status === 401) {
       error.value = 'Invalid API token'
+      return
+    }
+    if (!res.ok && res.status !== 403) {
+      error.value = 'Unable to verify token'
       return
     }
     authStore.login(apiToken.value)
