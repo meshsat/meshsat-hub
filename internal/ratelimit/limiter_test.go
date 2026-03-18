@@ -6,14 +6,14 @@ import (
 )
 
 func TestAllow_FirstSend(t *testing.T) {
-	l := NewDeviceLimiter(10, 1.0/60.0, 100, nil)
+	l := NewDeviceLimiter(10, 1.0/60.0, 100, 0, nil)
 	if !l.Allow("device-1", false) {
 		t.Error("first send should be allowed")
 	}
 }
 
 func TestAllow_SOSBypass(t *testing.T) {
-	l := NewDeviceLimiter(0.1, 0, 0, nil) // nearly empty bucket, zero refill
+	l := NewDeviceLimiter(0.1, 0, 0, 0, nil) // nearly empty bucket, zero refill
 	// Drain the bucket
 	l.mu.Lock()
 	b := l.getBucket("device-1")
@@ -26,7 +26,7 @@ func TestAllow_SOSBypass(t *testing.T) {
 }
 
 func TestAllow_BucketDrains(t *testing.T) {
-	l := NewDeviceLimiter(3, 0, 0, nil) // 3 tokens, no refill, no daily cap
+	l := NewDeviceLimiter(3, 0, 0, 0, nil) // 3 tokens, no refill, no daily cap
 
 	// First 3 should succeed
 	for i := 0; i < 3; i++ {
@@ -42,7 +42,7 @@ func TestAllow_BucketDrains(t *testing.T) {
 }
 
 func TestAllow_BucketRefills(t *testing.T) {
-	l := NewDeviceLimiter(2, 100, 0, nil) // 2 max, 100/s refill (fast for testing)
+	l := NewDeviceLimiter(2, 100, 0, 0, nil) // 2 max, 100/s refill (fast for testing)
 
 	// Drain
 	l.Allow("device-1", false)
@@ -60,7 +60,7 @@ func TestAllow_BucketRefills(t *testing.T) {
 }
 
 func TestAllow_DailyCap(t *testing.T) {
-	l := NewDeviceLimiter(100, 100, 5, nil) // generous bucket, 5/day cap
+	l := NewDeviceLimiter(100, 100, 5, 0, nil) // generous bucket, 5/day cap
 
 	for i := 0; i < 5; i++ {
 		if !l.Allow("device-1", false) {
@@ -79,7 +79,7 @@ func TestAllow_DailyCap(t *testing.T) {
 }
 
 func TestAllow_PerDevice(t *testing.T) {
-	l := NewDeviceLimiter(2, 0, 0, nil) // 2 tokens each, no refill
+	l := NewDeviceLimiter(2, 0, 0, 0, nil) // 2 tokens each, no refill
 
 	l.Allow("device-1", false)
 	l.Allow("device-1", false)
@@ -94,7 +94,7 @@ func TestAllow_PerDevice(t *testing.T) {
 }
 
 func TestOverride(t *testing.T) {
-	l := NewDeviceLimiter(1, 0, 0, nil)
+	l := NewDeviceLimiter(1, 0, 0, 0, nil)
 	l.Allow("device-1", false) // drain
 
 	if l.Allow("device-1", false) {
@@ -115,7 +115,7 @@ func TestOverride(t *testing.T) {
 }
 
 func TestUsage(t *testing.T) {
-	l := NewDeviceLimiter(10, 1.0/60.0, 50, nil)
+	l := NewDeviceLimiter(10, 1.0/60.0, 50, 0, nil)
 	l.Allow("device-1", false)
 	l.Allow("device-1", false)
 
@@ -138,12 +138,59 @@ func TestUsage(t *testing.T) {
 }
 
 func TestAllUsage(t *testing.T) {
-	l := NewDeviceLimiter(10, 1.0/60.0, 0, nil)
+	l := NewDeviceLimiter(10, 1.0/60.0, 0, 0, nil)
 	l.Allow("device-1", false)
 	l.Allow("device-2", false)
 
 	all := l.AllUsage()
 	if len(all) != 2 {
 		t.Errorf("expected 2 devices, got %d", len(all))
+	}
+}
+
+func TestAllow_MonthlyCap(t *testing.T) {
+	l := NewDeviceLimiter(100, 100, 0, 5, nil) // no daily cap, 5/month cap
+
+	for i := 0; i < 5; i++ {
+		if !l.Allow("device-1", false) {
+			t.Errorf("send %d should be allowed (under monthly cap)", i+1)
+		}
+	}
+
+	if l.Allow("device-1", false) {
+		t.Error("6th send should be blocked by monthly cap")
+	}
+
+	// SOS bypasses monthly cap
+	if !l.Allow("device-1", true) {
+		t.Error("SOS should bypass monthly cap")
+	}
+}
+
+func TestAllow_DailyAndMonthlyCap(t *testing.T) {
+	l := NewDeviceLimiter(100, 100, 3, 10, nil) // 3/day, 10/month
+
+	// Hit daily cap
+	for i := 0; i < 3; i++ {
+		if !l.Allow("device-1", false) {
+			t.Errorf("send %d should be allowed", i+1)
+		}
+	}
+	if l.Allow("device-1", false) {
+		t.Error("should be blocked by daily cap")
+	}
+}
+
+func TestUsage_IncludesMonthly(t *testing.T) {
+	l := NewDeviceLimiter(10, 1.0/60.0, 50, 500, nil)
+	l.Allow("device-1", false)
+	l.Allow("device-1", false)
+
+	usage := l.Usage("device-1")
+	if usage.MonthlySent != 2 {
+		t.Errorf("monthly sent: %d, want 2", usage.MonthlySent)
+	}
+	if usage.MonthlyCap != 500 {
+		t.Errorf("monthly cap: %d, want 500", usage.MonthlyCap)
 	}
 }

@@ -18,6 +18,8 @@ type DeviceLimiter struct {
 	refillRate float64 // tokens per second
 	dailyCap   int     // max sends per device per day (0 = unlimited)
 	daily      map[string]*dailyCounter
+	monthlyCap int // max sends per device per month (0 = unlimited)
+	monthly    map[string]*monthlyCounter
 	mqtt       bus.MessageBus // for alert notifications
 }
 
@@ -33,6 +35,11 @@ type dailyCounter struct {
 	date  string // "2006-01-02"
 }
 
+type monthlyCounter struct {
+	count int
+	month string // "2006-01"
+}
+
 // DeviceUsage reports current usage for a device.
 type DeviceUsage struct {
 	DeviceID      string  `json:"device_id"`
@@ -40,6 +47,8 @@ type DeviceUsage struct {
 	MaxTokens     float64 `json:"max_tokens"`
 	DailySent     int     `json:"daily_sent"`
 	DailyCap      int     `json:"daily_cap"`
+	MonthlySent   int     `json:"monthly_sent"`
+	MonthlyCap    int     `json:"monthly_cap"`
 	Throttled     bool    `json:"throttled"`
 	LastSend      string  `json:"last_send,omitempty"`
 	OverrideUntil string  `json:"override_until,omitempty"`
@@ -55,13 +64,16 @@ var overrides = struct {
 // maxTokens: burst capacity per device.
 // refillRate: tokens refilled per second.
 // dailyCap: max sends per device per 24h (0 = unlimited).
-func NewDeviceLimiter(maxTokens float64, refillRate float64, dailyCap int, mqtt bus.MessageBus) *DeviceLimiter {
+// monthlyCap: max sends per device per month (0 = unlimited).
+func NewDeviceLimiter(maxTokens float64, refillRate float64, dailyCap, monthlyCap int, mqtt bus.MessageBus) *DeviceLimiter {
 	return &DeviceLimiter{
 		buckets:    make(map[string]*tokenBucket),
 		maxTokens:  maxTokens,
 		refillRate: refillRate,
 		dailyCap:   dailyCap,
 		daily:      make(map[string]*dailyCounter),
+		monthlyCap: monthlyCap,
+		monthly:    make(map[string]*monthlyCounter),
 		mqtt:       mqtt,
 	}
 }
@@ -82,6 +94,21 @@ func (l *DeviceLimiter) Allow(deviceID string, isSOS bool) bool {
 
 	l.mu.Lock()
 	defer l.mu.Unlock()
+
+	// Monthly cap check
+	if l.monthlyCap > 0 {
+		mc := l.getMonthly(deviceID)
+		month := time.Now().UTC().Format("2006-01")
+		if mc.month != month {
+			mc.count = 0
+			mc.month = month
+		}
+		if mc.count >= l.monthlyCap {
+			slog.Warn("ratelimit: monthly cap exceeded", "device", deviceID, "count", mc.count, "cap", l.monthlyCap)
+			l.publishAlert(deviceID, "monthly_cap_exceeded", mc.count)
+			return false
+		}
+	}
 
 	// Daily cap check
 	if l.dailyCap > 0 {
@@ -109,10 +136,14 @@ func (l *DeviceLimiter) Allow(deviceID string, isSOS bool) bool {
 
 	bucket.tokens -= 1.0
 
-	// Increment daily counter
+	// Increment counters
 	if l.dailyCap > 0 {
 		dc := l.getDaily(deviceID)
 		dc.count++
+	}
+	if l.monthlyCap > 0 {
+		mc := l.getMonthly(deviceID)
+		mc.count++
 	}
 
 	return true
@@ -138,13 +169,26 @@ func (l *DeviceLimiter) Usage(deviceID string) DeviceUsage {
 		dc.date = today
 	}
 
+	mc := l.getMonthly(deviceID)
+	month := time.Now().UTC().Format("2006-01")
+	if mc.month != month {
+		mc.count = 0
+		mc.month = month
+	}
+
+	throttled := bucket.tokens < 1.0 ||
+		(l.dailyCap > 0 && dc.count >= l.dailyCap) ||
+		(l.monthlyCap > 0 && mc.count >= l.monthlyCap)
+
 	usage := DeviceUsage{
-		DeviceID:   deviceID,
-		TokensLeft: bucket.tokens,
-		MaxTokens:  bucket.maxTokens,
-		DailySent:  dc.count,
-		DailyCap:   l.dailyCap,
-		Throttled:  bucket.tokens < 1.0 || (l.dailyCap > 0 && dc.count >= l.dailyCap),
+		DeviceID:    deviceID,
+		TokensLeft:  bucket.tokens,
+		MaxTokens:   bucket.maxTokens,
+		DailySent:   dc.count,
+		DailyCap:    l.dailyCap,
+		MonthlySent: mc.count,
+		MonthlyCap:  l.monthlyCap,
+		Throttled:   throttled,
 	}
 
 	overrides.RLock()
@@ -162,21 +206,32 @@ func (l *DeviceLimiter) AllUsage() []DeviceUsage {
 	defer l.mu.Unlock()
 
 	var result []DeviceUsage
+	today := time.Now().UTC().Format("2006-01-02")
+	month := time.Now().UTC().Format("2006-01")
 	for id, bucket := range l.buckets {
 		bucket.refill()
 		dc := l.getDaily(id)
-		today := time.Now().UTC().Format("2006-01-02")
 		if dc.date != today {
 			dc.count = 0
 			dc.date = today
 		}
+		mc := l.getMonthly(id)
+		if mc.month != month {
+			mc.count = 0
+			mc.month = month
+		}
+		throttled := bucket.tokens < 1.0 ||
+			(l.dailyCap > 0 && dc.count >= l.dailyCap) ||
+			(l.monthlyCap > 0 && mc.count >= l.monthlyCap)
 		result = append(result, DeviceUsage{
-			DeviceID:   id,
-			TokensLeft: bucket.tokens,
-			MaxTokens:  bucket.maxTokens,
-			DailySent:  dc.count,
-			DailyCap:   l.dailyCap,
-			Throttled:  bucket.tokens < 1.0 || (l.dailyCap > 0 && dc.count >= l.dailyCap),
+			DeviceID:    id,
+			TokensLeft:  bucket.tokens,
+			MaxTokens:   bucket.maxTokens,
+			DailySent:   dc.count,
+			DailyCap:    l.dailyCap,
+			MonthlySent: mc.count,
+			MonthlyCap:  l.monthlyCap,
+			Throttled:   throttled,
 		})
 	}
 	return result
@@ -225,6 +280,15 @@ func (l *DeviceLimiter) getDaily(deviceID string) *dailyCounter {
 		l.daily[deviceID] = dc
 	}
 	return dc
+}
+
+func (l *DeviceLimiter) getMonthly(deviceID string) *monthlyCounter {
+	mc, ok := l.monthly[deviceID]
+	if !ok {
+		mc = &monthlyCounter{month: time.Now().UTC().Format("2006-01")}
+		l.monthly[deviceID] = mc
+	}
+	return mc
 }
 
 func (b *tokenBucket) refill() {

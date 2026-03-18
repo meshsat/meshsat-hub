@@ -49,6 +49,7 @@ type Config struct {
 	RateLimitBurst        int     `yaml:"ratelimit_burst"`          // max burst tokens per device (default 10)
 	RateLimitRefillPerMin float64 `yaml:"ratelimit_refill_per_min"` // tokens refilled per minute (default 1)
 	RateLimitDailyCap     int     `yaml:"ratelimit_daily_cap"`      // max sends per device per day (default 100, 0=unlimited)
+	RateLimitMonthlyCap   int     `yaml:"ratelimit_monthly_cap"`    // max sends per device per month (default 0=unlimited)
 
 	// Tenant isolation
 	TenantEnforce bool `yaml:"tenant_enforce"` // If true, requests without tenant context get 403
@@ -196,6 +197,11 @@ func Load() (Config, error) {
 	if v := os.Getenv("HUB_RATELIMIT_DAILY_CAP"); v != "" {
 		if n, err := strconv.Atoi(v); err == nil {
 			cfg.RateLimitDailyCap = n
+		}
+	}
+	if v := os.Getenv("HUB_RATELIMIT_MONTHLY_CAP"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			cfg.RateLimitMonthlyCap = n
 		}
 	}
 

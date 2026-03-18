@@ -130,12 +130,13 @@ func main() {
 			os.Exit(1)
 		}
 		redisClient := redis.NewClient(redisOpts)
-		limiter = ratelimit.NewRedisLimiter(redisClient, cfg.RateLimitDailyCap)
+		limiter = ratelimit.NewRedisLimiter(redisClient, cfg.RateLimitDailyCap, cfg.RateLimitMonthlyCap)
 	default:
 		limiter = ratelimit.NewDeviceLimiter(
 			float64(cfg.RateLimitBurst),  // max burst
 			cfg.RateLimitRefillPerMin/60, // tokens per second
 			cfg.RateLimitDailyCap,        // daily cap
+			cfg.RateLimitMonthlyCap,      // monthly cap
 			msgBus,                       // for MQTT alerts
 		)
 	}
