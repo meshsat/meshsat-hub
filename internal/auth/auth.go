@@ -215,5 +215,5 @@ func audienceContains(aud interface{}, target string) bool {
 func writeAuthError(w http.ResponseWriter, msg string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusUnauthorized)
-	fmt.Fprintf(w, `{"error":"%s"}`, msg)
+	_, _ = fmt.Fprintf(w, `{"error":"%s"}`, msg)
 }
