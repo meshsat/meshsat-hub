@@ -181,6 +181,18 @@ var migrations = []string{
 	)`,
 	`CREATE INDEX IF NOT EXISTS idx_alerts_tenant ON alerts(tenant_id)`,
 	`CREATE INDEX IF NOT EXISTS idx_alerts_state ON alerts(state, next_esc_at)`,
+	// Notification preferences (v0.3 — Apprise integration, MESHSAT-112)
+	`CREATE TABLE IF NOT EXISTS notification_prefs (
+		device_imei TEXT NOT NULL DEFAULT '*',
+		urls JSONB NOT NULL DEFAULT '[]',
+		events JSONB NOT NULL DEFAULT '[]',
+		enabled BOOLEAN NOT NULL DEFAULT TRUE,
+		created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+		updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+		tenant_id TEXT NOT NULL DEFAULT 'default',
+		PRIMARY KEY (device_imei, tenant_id)
+	)`,
+	`CREATE INDEX IF NOT EXISTS idx_notification_prefs_tenant ON notification_prefs(tenant_id)`,
 }
 
 // --- Devices ---
@@ -711,6 +723,63 @@ func (d *DB) UpdateAlert(ctx context.Context, tenantID string, a *store.Alert) e
 		args = append(args, tenantID)
 	}
 	_, err := d.pool.Exec(ctx, query, args...)
+	return err
+}
+
+// --- Notification Preferences ---
+
+func (d *DB) SaveNotificationPref(ctx context.Context, tenantID string, p *store.NotificationPref) error {
+	urlsJSON, _ := json.Marshal(p.URLs)
+	eventsJSON, _ := json.Marshal(p.Events)
+	_, err := d.pool.Exec(ctx,
+		`INSERT INTO notification_prefs (device_imei, urls, events, enabled, tenant_id, updated_at)
+		 VALUES ($1, $2, $3, $4, $5, NOW())
+		 ON CONFLICT (device_imei, tenant_id) DO UPDATE SET
+		   urls=EXCLUDED.urls, events=EXCLUDED.events, enabled=EXCLUDED.enabled, updated_at=NOW()`,
+		p.DeviceIMEI, urlsJSON, eventsJSON, p.Enabled, tenantID)
+	return err
+}
+
+func (d *DB) GetNotificationPref(ctx context.Context, tenantID string, deviceIMEI string) (*store.NotificationPref, error) {
+	var p store.NotificationPref
+	var urlsJSON, eventsJSON []byte
+	err := d.pool.QueryRow(ctx,
+		"SELECT device_imei, urls, events, enabled, created_at, updated_at FROM notification_prefs WHERE device_imei=$1 AND tenant_id=$2",
+		deviceIMEI, tenantID,
+	).Scan(&p.DeviceIMEI, &urlsJSON, &eventsJSON, &p.Enabled, &p.CreatedAt, &p.UpdatedAt)
+	if err != nil {
+		return nil, err
+	}
+	_ = json.Unmarshal(urlsJSON, &p.URLs)
+	_ = json.Unmarshal(eventsJSON, &p.Events)
+	return &p, nil
+}
+
+func (d *DB) ListNotificationPrefs(ctx context.Context, tenantID string) ([]store.NotificationPref, error) {
+	rows, err := d.pool.Query(ctx,
+		"SELECT device_imei, urls, events, enabled, created_at, updated_at FROM notification_prefs WHERE tenant_id=$1 ORDER BY device_imei",
+		tenantID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var prefs []store.NotificationPref
+	for rows.Next() {
+		var p store.NotificationPref
+		var urlsJSON, eventsJSON []byte
+		if err := rows.Scan(&p.DeviceIMEI, &urlsJSON, &eventsJSON, &p.Enabled, &p.CreatedAt, &p.UpdatedAt); err != nil {
+			return nil, err
+		}
+		_ = json.Unmarshal(urlsJSON, &p.URLs)
+		_ = json.Unmarshal(eventsJSON, &p.Events)
+		prefs = append(prefs, p)
+	}
+	return prefs, rows.Err()
+}
+
+func (d *DB) DeleteNotificationPref(ctx context.Context, tenantID string, deviceIMEI string) error {
+	_, err := d.pool.Exec(ctx,
+		"DELETE FROM notification_prefs WHERE device_imei=$1 AND tenant_id=$2", deviceIMEI, tenantID)
 	return err
 }
 

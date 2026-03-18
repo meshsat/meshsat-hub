@@ -85,6 +85,20 @@ services:
     networks:
       - hubnet
 
+  # Optional: Apprise multi-channel notifications (enable with --profile notifications)
+  apprise:
+    image: caronc/apprise:latest
+    container_name: meshsat-apprise
+    restart: unless-stopped
+    networks:
+      - hubnet
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+    profiles:
+      - notifications
+
   # Optional: OpenTAKServer (enable with --profile tak)
   opentakserver:
     image: ghcr.io/brian7704/opentakserver:latest

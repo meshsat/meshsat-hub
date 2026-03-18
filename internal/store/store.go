@@ -70,6 +70,12 @@ type Store interface {
 	ListAlerts(ctx context.Context, tenantID string, activeOnly bool, limit int) ([]Alert, error)
 	UpdateAlert(ctx context.Context, tenantID string, a *Alert) error
 
+	// Notification preferences (per-device Apprise URLs)
+	SaveNotificationPref(ctx context.Context, tenantID string, p *NotificationPref) error
+	GetNotificationPref(ctx context.Context, tenantID string, deviceIMEI string) (*NotificationPref, error)
+	ListNotificationPrefs(ctx context.Context, tenantID string) ([]NotificationPref, error)
+	DeleteNotificationPref(ctx context.Context, tenantID string, deviceIMEI string) error
+
 	// API keys
 	CreateAPIKey(ctx context.Context, tenantID string, k *APIKey) error
 	GetAPIKeyByHash(ctx context.Context, keyHash string) (*APIKey, string, error) // returns key + tenantID
@@ -205,6 +211,17 @@ type Alert struct {
 	NextEscAt   time.Time `json:"next_esc_at"` // when to escalate to next tier
 	CreatedAt   time.Time `json:"created_at"`
 	UpdatedAt   time.Time `json:"updated_at"`
+}
+
+// NotificationPref stores per-device Apprise notification URLs and settings.
+type NotificationPref struct {
+	ID         string    `json:"id"`
+	DeviceIMEI string    `json:"device_imei"` // device IMEI or "*" for tenant-wide default
+	URLs       []string  `json:"urls"`        // Apprise notification URLs (e.g., "slack://token", "mailto://...")
+	Events     []string  `json:"events"`      // event types to notify on: "sos", "deadman", "geofence", "mo", "mt_status"
+	Enabled    bool      `json:"enabled"`     // toggle notifications without deleting config
+	CreatedAt  time.Time `json:"created_at"`
+	UpdatedAt  time.Time `json:"updated_at"`
 }
 
 // APIKey represents a tenant-scoped API key for programmatic access.

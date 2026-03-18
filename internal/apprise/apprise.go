@@ -15,6 +15,7 @@ import (
 	"log/slog"
 	"net/http"
 	"strings"
+	"text/template"
 	"time"
 )
 
@@ -144,4 +145,57 @@ func (c *Client) Healthz(ctx context.Context) error {
 		return fmt.Errorf("apprise: health: HTTP %d", resp.StatusCode)
 	}
 	return nil
+}
+
+// AlertData holds the fields available to Go templates for notification formatting.
+type AlertData struct {
+	AlertID     string
+	DeviceIMEI  string
+	DeviceLabel string
+	Type        string // "sos", "deadman", "geofence", "custom"
+	Detail      string
+	TierName    string
+	TierNum     int // 1-indexed
+	TierTotal   int
+	Retry       int
+	MaxRetries  int
+	TriggeredAt string
+	Lat         float64
+	Lon         float64
+}
+
+// defaultSubjectTpl is the Go template for notification subjects.
+var defaultSubjectTpl = template.Must(template.New("subject").Parse(
+	`[{{.Type}}] {{if .DeviceLabel}}{{.DeviceLabel}}{{else}}{{.DeviceIMEI}}{{end}}: {{.Detail}}`))
+
+// defaultBodyTpl is the Go template for notification bodies.
+var defaultBodyTpl = template.Must(template.New("body").Parse(
+	`Alert: {{.AlertID}}
+Device: {{if .DeviceLabel}}{{.DeviceLabel}} ({{.DeviceIMEI}}){{else}}{{.DeviceIMEI}}{{end}}
+Type: {{.Type}}
+Tier: {{.TierName}} ({{.TierNum}}/{{.TierTotal}})
+Retry: {{.Retry}}/{{.MaxRetries}}
+Triggered: {{.TriggeredAt}}
+{{- if and .Lat .Lon}}
+Location: {{.Lat}}, {{.Lon}}
+{{- end}}
+
+{{.Detail}}`))
+
+// FormatSubject renders the alert subject using the default Go template.
+func FormatSubject(data AlertData) string {
+	var buf bytes.Buffer
+	if err := defaultSubjectTpl.Execute(&buf, data); err != nil {
+		return fmt.Sprintf("[%s] %s: %s", data.Type, data.DeviceIMEI, data.Detail)
+	}
+	return buf.String()
+}
+
+// FormatBody renders the alert body using the default Go template.
+func FormatBody(data AlertData) string {
+	var buf bytes.Buffer
+	if err := defaultBodyTpl.Execute(&buf, data); err != nil {
+		return fmt.Sprintf("Alert %s for device %s: %s", data.AlertID, data.DeviceIMEI, data.Detail)
+	}
+	return buf.String()
 }
