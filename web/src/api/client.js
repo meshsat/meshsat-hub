@@ -50,6 +50,11 @@ export const credits = {
   get: () => fetchJSON('/credits'),
 }
 
+export const auditLog = {
+  list: (limit = 100) => fetchJSON(`/audit?limit=${limit}`),
+  verify: () => fetchJSON('/audit/verify'),
+}
+
 export const health = {
   check: () => fetchJSON('/healthz').catch(() => ({ status: 'error' })),
 }

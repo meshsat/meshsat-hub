@@ -157,6 +157,7 @@ func main() {
 	// Start MT sender (subscribes to meshsat/+/mt/send).
 	mtSender := cloudloop.NewSender(cloudloopClient, msgBus)
 	mtSender.SetRateLimiter(limiter)
+	mtSender.SetAudit(auditSvc)
 	if msgBus.IsConnected() {
 		if err := mtSender.Start(); err != nil {
 			slog.Error("failed to start MT sender", "error", err)

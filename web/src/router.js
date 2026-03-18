@@ -8,6 +8,7 @@ const routes = [
   { path: '/devices', name: 'devices', component: () => import('./views/Devices.vue'), meta: { requiresAuth: true } },
   { path: '/messages', name: 'messages', component: () => import('./views/Messages.vue'), meta: { requiresAuth: true } },
   { path: '/settings', name: 'settings', component: () => import('./views/Settings.vue'), meta: { requiresAuth: true } },
+  { path: '/audit', name: 'audit', component: () => import('./views/AuditView.vue'), meta: { requiresAuth: true } },
 ]
 
 const router = createRouter({

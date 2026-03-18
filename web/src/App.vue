@@ -26,6 +26,7 @@ function logout() {
           <RouterLink to="/devices" class="hover:text-cyan-400" active-class="text-cyan-400">Devices</RouterLink>
           <RouterLink to="/messages" class="hover:text-cyan-400" active-class="text-cyan-400">Messages</RouterLink>
           <RouterLink to="/settings" class="hover:text-cyan-400" active-class="text-cyan-400">Settings</RouterLink>
+          <RouterLink to="/audit" class="hover:text-cyan-400" active-class="text-cyan-400">Audit</RouterLink>
           <button @click="logout" class="text-gray-400 hover:text-red-400 ml-4">Logout</button>
         </nav>
         <button @click="navOpen = !navOpen" class="md:hidden text-gray-400">&#9776;</button>
@@ -37,6 +38,7 @@ function logout() {
         <RouterLink to="/devices" @click="navOpen=false" class="hover:text-cyan-400">Devices</RouterLink>
         <RouterLink to="/messages" @click="navOpen=false" class="hover:text-cyan-400">Messages</RouterLink>
         <RouterLink to="/settings" @click="navOpen=false" class="hover:text-cyan-400">Settings</RouterLink>
+        <RouterLink to="/audit" @click="navOpen=false" class="hover:text-cyan-400">Audit</RouterLink>
         <button @click="logout(); navOpen=false" class="text-left text-gray-400 hover:text-red-400">Logout</button>
       </nav>
     </template>

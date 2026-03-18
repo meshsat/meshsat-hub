@@ -3,9 +3,11 @@ package cloudloop
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"time"
 
+	"github.com/cubeos-app/meshsat-hub/internal/audit"
 	"github.com/cubeos-app/meshsat-hub/internal/bus"
 	"github.com/cubeos-app/meshsat-hub/internal/compress"
 	hubmqtt "github.com/cubeos-app/meshsat-hub/internal/mqtt"
@@ -37,6 +39,7 @@ type Sender struct {
 	client     *Client
 	mqtt       bus.MessageBus
 	limiter    interface{ Allow(string, bool) bool }
+	audit      *audit.Service
 	maxRetries int
 }
 
@@ -47,6 +50,11 @@ func NewSender(client *Client, mqtt bus.MessageBus) *Sender {
 		mqtt:       mqtt,
 		maxRetries: 3,
 	}
+}
+
+// SetAudit attaches an audit service for logging message_sent events.
+func (s *Sender) SetAudit(a *audit.Service) {
+	s.audit = a
 }
 
 // SetRateLimiter attaches a per-device rate limiter. If set, sends are
@@ -113,7 +121,13 @@ func (s *Sender) handleMTSend(topic string, payload []byte) {
 			continue
 		}
 
-		// Success.
+		// Success — audit log.
+		if s.audit != nil {
+			detail := fmt.Sprintf("device=%s mt_id=%s bytes=%d", deviceID, resp.ID, len(data))
+			if err := s.audit.Log(context.Background(), "", "message_sent", "system", detail, ""); err != nil {
+				slog.Warn("audit: failed to log message_sent", "error", err)
+			}
+		}
 		s.publishStatus(deviceID, resp.ID, resp.Status, "")
 		return
 	}
