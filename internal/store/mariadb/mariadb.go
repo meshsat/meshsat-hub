@@ -881,24 +881,38 @@ func (d *DB) CreateUser(ctx context.Context, tenantID string, u *store.LocalUser
 
 func (d *DB) GetUserByID(ctx context.Context, tenantID string, id string) (*store.LocalUser, error) {
 	var u store.LocalUser
+	var lockedUntil, lastLoginAt sql.NullTime
 	err := d.db.QueryRowContext(ctx,
 		"SELECT id, email, name, password_hash, role, enabled, failed_logins, locked_until, last_login_at, created_at, updated_at FROM users WHERE id=? AND tenant_id=?", id, tenantID,
 	).Scan(&u.ID, &u.Email, &u.Name, &u.PasswordHash, &u.Role, &u.Enabled,
-		&u.FailedLogins, &u.LockedUntil, &u.LastLoginAt, &u.CreatedAt, &u.UpdatedAt)
+		&u.FailedLogins, &lockedUntil, &lastLoginAt, &u.CreatedAt, &u.UpdatedAt)
 	if err != nil {
 		return nil, err
+	}
+	if lockedUntil.Valid {
+		u.LockedUntil = lockedUntil.Time
+	}
+	if lastLoginAt.Valid {
+		u.LastLoginAt = lastLoginAt.Time
 	}
 	return &u, nil
 }
 
 func (d *DB) GetUserByEmail(ctx context.Context, tenantID string, email string) (*store.LocalUser, error) {
 	var u store.LocalUser
+	var lockedUntil, lastLoginAt sql.NullTime
 	err := d.db.QueryRowContext(ctx,
 		"SELECT id, email, name, password_hash, role, enabled, failed_logins, locked_until, last_login_at, created_at, updated_at FROM users WHERE email=? AND tenant_id=?", email, tenantID,
 	).Scan(&u.ID, &u.Email, &u.Name, &u.PasswordHash, &u.Role, &u.Enabled,
-		&u.FailedLogins, &u.LockedUntil, &u.LastLoginAt, &u.CreatedAt, &u.UpdatedAt)
+		&u.FailedLogins, &lockedUntil, &lastLoginAt, &u.CreatedAt, &u.UpdatedAt)
 	if err != nil {
 		return nil, err
+	}
+	if lockedUntil.Valid {
+		u.LockedUntil = lockedUntil.Time
+	}
+	if lastLoginAt.Valid {
+		u.LastLoginAt = lastLoginAt.Time
 	}
 	return &u, nil
 }
@@ -913,9 +927,13 @@ func (d *DB) ListUsers(ctx context.Context, tenantID string) ([]store.LocalUser,
 	var users []store.LocalUser
 	for rows.Next() {
 		var u store.LocalUser
+		var lastLoginAt sql.NullTime
 		if err := rows.Scan(&u.ID, &u.Email, &u.Name, &u.Role, &u.Enabled,
-			&u.FailedLogins, &u.LastLoginAt, &u.CreatedAt, &u.UpdatedAt); err != nil {
+			&u.FailedLogins, &lastLoginAt, &u.CreatedAt, &u.UpdatedAt); err != nil {
 			return nil, err
+		}
+		if lastLoginAt.Valid {
+			u.LastLoginAt = lastLoginAt.Time
 		}
 		users = append(users, u)
 	}
