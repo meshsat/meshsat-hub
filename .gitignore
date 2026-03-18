@@ -6,6 +6,10 @@ bin/
 # Go
 vendor/
 
+# Node
+node_modules/
+web/dist/
+
 # IDE
 .idea/
 .vscode/
