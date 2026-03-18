@@ -13,7 +13,7 @@ import (
 type Config struct {
 	// Tri-mode: "standalone" (default), "cluster", "kubernetes"
 	Mode        string `yaml:"mode"`
-	DatabaseURL string `yaml:"database_url"` // PostgreSQL URL (cluster/k8s only)
+	DatabaseURL string `yaml:"database_url"` // MariaDB DSN (cluster/k8s only)
 	RedisURL    string `yaml:"redis_url"`    // Redis URL (cluster/k8s only)
 	NATSUrl     string `yaml:"nats_url"`     // External NATS URL (cluster/k8s only)
 

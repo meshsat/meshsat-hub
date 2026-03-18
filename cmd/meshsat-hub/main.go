@@ -37,7 +37,7 @@ import (
 	"github.com/cubeos-app/meshsat-hub/internal/ratelimit"
 	"github.com/cubeos-app/meshsat-hub/internal/rockblock"
 	"github.com/cubeos-app/meshsat-hub/internal/store"
-	"github.com/cubeos-app/meshsat-hub/internal/store/postgres"
+	"github.com/cubeos-app/meshsat-hub/internal/store/mariadb"
 	"github.com/cubeos-app/meshsat-hub/internal/store/sqlite"
 	"github.com/cubeos-app/meshsat-hub/internal/tak"
 	"github.com/cubeos-app/meshsat-hub/internal/webhook"
@@ -91,17 +91,17 @@ func main() {
 	var dataStore store.Store
 	switch cfg.Mode {
 	case "cluster", "kubernetes":
-		pgStore, err := postgres.New(ctx, cfg.DatabaseURL)
+		dbStore, err := mariadb.New(cfg.DatabaseURL)
 		if err != nil {
-			slog.Error("postgres connection failed", "error", err)
+			slog.Error("mariadb connection failed", "error", err)
 			os.Exit(1)
 		}
-		if err := pgStore.Migrate(ctx); err != nil {
-			slog.Error("postgres migration failed", "error", err)
+		if err := dbStore.Migrate(ctx); err != nil {
+			slog.Error("mariadb migration failed", "error", err)
 			os.Exit(1)
 		}
-		dataStore = pgStore
-		checker.AddProbe("postgres", pgStore.Ping)
+		dataStore = dbStore
+		checker.AddProbe("mariadb", dbStore.Ping)
 	default: // "standalone"
 		sqlStore, err := sqlite.New("/data/hub.db")
 		if err != nil {

@@ -1,5 +1,5 @@
 // Package store defines the persistence interface for MeshSat Hub.
-// Two implementations: sqlite (standalone mode) and postgres (cluster/k8s mode).
+// Two implementations: sqlite (standalone mode) and mariadb (cluster/k8s mode).
 // Selected at startup based on HUB_MODE config.
 package store
 
@@ -12,7 +12,7 @@ import (
 const DefaultTenantID = "default"
 
 // Store is the persistence interface for all Hub durable state.
-// Both SQLite and PostgreSQL implement this interface.
+// Both SQLite and MariaDB implement this interface.
 // All tenant-scoped methods accept a tenantID parameter for strict data isolation.
 type Store interface {
 	// Lifecycle
