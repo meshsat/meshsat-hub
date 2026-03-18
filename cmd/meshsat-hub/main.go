@@ -287,6 +287,9 @@ func main() {
 	r.Get("/readyz", checker.ReadyzHandler)
 	r.Post("/api/webhook/rockblock", rbHandler.ServeHTTP)
 
+	// Auth info
+	r.Get("/api/auth/me", api.AuthMeHandler)
+
 	// API key management (owner-only)
 	apiKeyHandler := api.NewAPIKeyHandler(dataStore)
 	r.Route("/api/auth/keys", func(r chi.Router) {

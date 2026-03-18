@@ -50,6 +50,13 @@ export const credits = {
   get: () => fetchJSON('/credits'),
 }
 
+export const authApi = {
+  me: () => fetchJSON('/auth/me'),
+  listKeys: () => fetchJSON('/auth/keys'),
+  createKey: (data) => fetchJSON('/auth/keys', { method: 'POST', body: JSON.stringify(data) }),
+  deleteKey: (id) => fetchJSON(`/auth/keys/${id}`, { method: 'DELETE' }),
+}
+
 export const ratelimit = {
   all: () => fetchJSON('/ratelimit'),
   get: (deviceID) => fetchJSON(`/ratelimit/${deviceID}`),

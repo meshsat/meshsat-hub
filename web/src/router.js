@@ -9,6 +9,7 @@ const routes = [
   { path: '/messages', name: 'messages', component: () => import('./views/Messages.vue'), meta: { requiresAuth: true } },
   { path: '/settings', name: 'settings', component: () => import('./views/Settings.vue'), meta: { requiresAuth: true } },
   { path: '/audit', name: 'audit', component: () => import('./views/AuditView.vue'), meta: { requiresAuth: true } },
+  { path: '/api-keys', name: 'apikeys', component: () => import('./views/ApiKeys.vue'), meta: { requiresAuth: true } },
 ]
 
 const router = createRouter({
