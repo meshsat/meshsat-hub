@@ -1,19 +1,16 @@
 import { defineConfig } from '@playwright/test'
 
+const baseURL = process.env.E2E_BASE_URL || 'https://hub.meshsat.net'
+
 export default defineConfig({
   testDir: './e2e',
   timeout: 30000,
-  retries: 0,
+  retries: 1,
   use: {
-    baseURL: 'http://localhost:5173',
+    baseURL,
     headless: true,
     screenshot: 'only-on-failure',
-  },
-  webServer: {
-    command: 'npm run dev',
-    port: 5173,
-    reuseExistingServer: true,
-    timeout: 15000,
+    ignoreHTTPSErrors: true,
   },
   projects: [
     { name: 'chromium', use: { browserName: 'chromium' } },
