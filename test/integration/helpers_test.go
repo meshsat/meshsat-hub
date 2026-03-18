@@ -18,6 +18,7 @@ import (
 	"github.com/mochi-mqtt/server/v2/listeners"
 
 	"github.com/cubeos-app/meshsat-hub/internal/cloudloop"
+	"github.com/cubeos-app/meshsat-hub/internal/fragment"
 	hubmqtt "github.com/cubeos-app/meshsat-hub/internal/mqtt"
 	"github.com/cubeos-app/meshsat-hub/internal/rockblock"
 	"github.com/go-chi/chi/v5"
@@ -203,8 +204,10 @@ func testStack(t *testing.T) *testEnv {
 		t.Fatalf("start MT sender: %v", err)
 	}
 
-	// 5. RockBLOCK handler.
+	// 5. RockBLOCK handler with fragment reassembler (mirrors main.go).
 	rbHandler := rockblock.NewHandler(env.HubMQTT, "test-secret")
+	reassembler := fragment.NewReassembler(5 * time.Minute)
+	rbHandler.SetReassembler(reassembler)
 
 	// 6. Build chi router (mirrors main.go).
 	r := chi.NewRouter()

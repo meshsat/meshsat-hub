@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/cubeos-app/meshsat-hub/internal/compress"
+	"github.com/cubeos-app/meshsat-hub/internal/fragment"
 	hubmqtt "github.com/cubeos-app/meshsat-hub/internal/mqtt"
 )
 
@@ -420,6 +421,84 @@ func TestMQTT_MODecodedFormat(t *testing.T) {
 	}
 	if decoded["encrypted"] != false {
 		t.Errorf("encrypted = %v, want false", decoded["encrypted"])
+	}
+}
+
+// --- Fragment Reassembly Tests ---
+
+// TestMO_FragmentReassembly_3Fragments sends a 3-fragment MO message via separate
+// RockBLOCK webhooks and verifies the reassembled message appears on MQTT.
+func TestMO_FragmentReassembly_3Fragments(t *testing.T) {
+	env := testStack(t)
+
+	sub := testMQTTClient(t, env.BrokerAddr, "test-sub-frag")
+	decodedCollector := newCollector(t, sub, "meshsat/+/mo/decoded")
+
+	imei := "300234063904190"
+	original := "This is a long message that needs to be split across multiple SBD fragments for transmission over the Iridium satellite constellation"
+
+	// Fragment with a small MTU to force 3 fragments.
+	// Each fragment = MTU bytes total (2 header + payload).
+	// We need ceil(len(original) / (mtu-2)) == 3 fragments.
+	payloadPerFrag := (len(original) + 2) / 3 // ensure 3 fragments
+	mtu := payloadPerFrag + fragment.HeaderSize
+	fragments := fragment.Fragment([]byte(original), mtu, 42)
+	if len(fragments) != 3 {
+		t.Fatalf("expected 3 fragments, got %d (mtu=%d, msgLen=%d)", len(fragments), mtu, len(original))
+	}
+
+	// Send each fragment as a separate webhook POST. First two should buffer.
+	for i, frag := range fragments {
+		form := url.Values{
+			"imei":              {imei},
+			"momsn":             {fmt.Sprintf("%d", 100+i)},
+			"transmit_time":     {fmt.Sprintf("26-03-17 14:%02d:00", 30+i)},
+			"iridium_latitude":  {"52.3676"},
+			"iridium_longitude": {"4.9041"},
+			"iridium_cep":       {"8"},
+			"data":              {hex.EncodeToString(frag)},
+			"JWT":               {"test-secret"},
+		}
+
+		req := httptest.NewRequest(http.MethodPost, "/api/webhook/rockblock", strings.NewReader(form.Encode()))
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		w := httptest.NewRecorder()
+		env.Router.ServeHTTP(w, req)
+
+		if w.Code != http.StatusOK {
+			t.Fatalf("fragment %d: webhook returned %d: %s", i, w.Code, w.Body.String())
+		}
+
+		var resp map[string]string
+		json.NewDecoder(w.Body).Decode(&resp)
+
+		if i < 2 {
+			// First two fragments should be buffered.
+			if resp["status"] != "fragment_buffered" {
+				t.Fatalf("fragment %d: expected status=fragment_buffered, got %s", i, resp["status"])
+			}
+		} else {
+			// Last fragment triggers reassembly → full decoded message.
+			if resp["status"] != "ok" {
+				t.Fatalf("fragment %d: expected status=ok, got %s", i, resp["status"])
+			}
+		}
+	}
+
+	// Verify the reassembled message appears on mo/decoded.
+	msgs := decodedCollector.wait(1, 3*time.Second)
+	if len(msgs) == 0 {
+		t.Fatal("no mo/decoded message received after fragment reassembly")
+	}
+
+	var decoded map[string]interface{}
+	json.Unmarshal(msgs[0].Payload, &decoded)
+
+	// The reassembled bytes go through SMAZ2 decompression attempt.
+	// Since the original text is plain ASCII (not SMAZ2 compressed), the handler
+	// falls back to raw text. Check we got the original message back.
+	if decoded["text"] != original {
+		t.Errorf("reassembled text = %q, want %q", decoded["text"], original)
 	}
 }
 
