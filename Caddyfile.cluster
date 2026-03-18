@@ -1,0 +1,11 @@
+{$CADDY_DOMAIN:localhost} {
+	tls {$CADDY_EMAIL:internal}
+
+	# Load balance between hub instances with health checks
+	reverse_proxy hub-1:6070 hub-2:6070 {
+		lb_policy round_robin
+		health_uri /healthz
+		health_interval 10s
+		health_timeout 5s
+	}
+}

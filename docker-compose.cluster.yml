@@ -1,0 +1,224 @@
+## MeshSat Hub — Cluster Mode Docker Compose
+## Runs PostgreSQL, Redis, NATS (with MQTT adapter), and 2 Hub instances behind Caddy.
+## Usage: docker compose -f docker-compose.cluster.yml up -d
+## Requires: .env file (copy from .env.cluster.example)
+
+services:
+  # ---------------------------------------------------------------------------
+  # PostgreSQL 16 — shared persistent store (replaces per-instance SQLite)
+  # ---------------------------------------------------------------------------
+  postgres:
+    image: postgres:16-alpine
+    container_name: meshsat-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-meshsat}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: ${POSTGRES_DB:-meshsat_hub}
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - pg-data:/var/lib/postgresql/data
+    networks:
+      - hubnet
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-meshsat}"]
+      interval: 10s
+      timeout: 5s
+      start_period: 30s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+
+  # ---------------------------------------------------------------------------
+  # Redis 7 — shared dedup + rate limit state
+  # ---------------------------------------------------------------------------
+  redis:
+    image: redis:7-alpine
+    container_name: meshsat-redis
+    restart: unless-stopped
+    command: >
+      redis-server
+      --requirepass ${REDIS_PASSWORD:-}
+      --maxmemory 128mb
+      --maxmemory-policy allkeys-lru
+      --appendonly yes
+    ports:
+      - "127.0.0.1:6379:6379"
+    volumes:
+      - redis-data:/data
+    networks:
+      - hubnet
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD:-}", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          memory: 192M
+
+  # ---------------------------------------------------------------------------
+  # NATS 2.10 — message bus with MQTT adapter (replaces Mosquitto)
+  # Field devices connect via MQTT on port 1883. Hub instances use MQTT protocol.
+  # JetStream enabled for message persistence.
+  # ---------------------------------------------------------------------------
+  nats:
+    image: nats:2.10-alpine
+    container_name: meshsat-nats
+    restart: unless-stopped
+    command: ["-c", "/etc/nats/nats.conf"]
+    ports:
+      - "4222:4222"   # NATS client
+      - "6071:1883"   # MQTT adapter (same external port as standalone Mosquitto)
+      - "8222:8222"   # HTTP monitoring
+    volumes:
+      - ./nats.conf:/etc/nats/nats.conf:ro
+      - nats-data:/data
+    networks:
+      - hubnet
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8222/healthz"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+
+  # ---------------------------------------------------------------------------
+  # Hub instance 1
+  # ---------------------------------------------------------------------------
+  hub-1:
+    image: ${MESHSAT_HUB_IMAGE:-ghcr.io/cubeos-app/meshsat-hub:latest}
+    container_name: meshsat-hub-1
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      HUB_MODE: cluster
+      HUB_PORT: "6070"
+      HUB_MQTT_CLIENT_ID: meshsat-hub-1
+      HUB_DATABASE_URL: ${HUB_DATABASE_URL}
+      HUB_REDIS_URL: ${HUB_REDIS_URL}
+      HUB_NATS_URL: ${HUB_NATS_URL:-tcp://nats:1883}
+      HUB_MQTT_BROKER_URL: ${HUB_MQTT_BROKER_URL:-tcp://nats:1883}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      nats:
+        condition: service_healthy
+    networks:
+      - hubnet
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:6070/healthz"]
+      interval: 30s
+      timeout: 5s
+      start_period: 10s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: "1.0"
+        reservations:
+          memory: 64M
+
+  # ---------------------------------------------------------------------------
+  # Hub instance 2
+  # ---------------------------------------------------------------------------
+  hub-2:
+    image: ${MESHSAT_HUB_IMAGE:-ghcr.io/cubeos-app/meshsat-hub:latest}
+    container_name: meshsat-hub-2
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      HUB_MODE: cluster
+      HUB_PORT: "6070"
+      HUB_MQTT_CLIENT_ID: meshsat-hub-2
+      HUB_DATABASE_URL: ${HUB_DATABASE_URL}
+      HUB_REDIS_URL: ${HUB_REDIS_URL}
+      HUB_NATS_URL: ${HUB_NATS_URL:-tcp://nats:1883}
+      HUB_MQTT_BROKER_URL: ${HUB_MQTT_BROKER_URL:-tcp://nats:1883}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      nats:
+        condition: service_healthy
+    networks:
+      - hubnet
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:6070/healthz"]
+      interval: 30s
+      timeout: 5s
+      start_period: 10s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: "1.0"
+        reservations:
+          memory: 64M
+
+  # ---------------------------------------------------------------------------
+  # Caddy — TLS reverse proxy, load-balances between hub-1 and hub-2
+  # ---------------------------------------------------------------------------
+  caddy:
+    image: caddy:2-alpine
+    container_name: meshsat-caddy
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      CADDY_DOMAIN: ${CADDY_DOMAIN:-localhost}
+      CADDY_EMAIL: ${CADDY_EMAIL:-}
+    volumes:
+      - ./Caddyfile.cluster:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      - hub-1
+      - hub-2
+    networks:
+      - hubnet
+
+  # ---------------------------------------------------------------------------
+  # Tor hidden service (optional — same as standalone)
+  # ---------------------------------------------------------------------------
+  tor:
+    image: cmehay/docker-tor-hidden-service:latest
+    container_name: meshsat-tor
+    restart: unless-stopped
+    environment:
+      HUB_TOR_SERVICE_HOSTS: "80:caddy:80,1883:nats:1883"
+      HUB_TOR_SERVICE_VERSION: "3"
+    volumes:
+      - tor-keys:/var/lib/tor/hidden_service
+    depends_on:
+      - caddy
+      - nats
+    networks:
+      - hubnet
+    profiles:
+      - tor
+
+volumes:
+  pg-data:
+  redis-data:
+  nats-data:
+  caddy-data:
+  caddy-config:
+  tor-keys:
+
+networks:
+  hubnet:
+    driver: bridge
