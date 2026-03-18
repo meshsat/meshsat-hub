@@ -31,6 +31,10 @@ CLAUDE.md
 *.db-wal
 data/
 
+# OWASP scan reports (generated)
+test/owasp/reports/
+owasp-reports/
+
 # Docker
 docker-compose.override.yml
 

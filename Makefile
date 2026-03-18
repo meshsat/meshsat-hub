@@ -1,4 +1,4 @@
-.PHONY: build build-arm64 build-x86_64 test test-integration lint fmt clean docker run security gosec govulncheck
+.PHONY: build build-arm64 build-x86_64 test test-integration lint fmt clean docker run security gosec govulncheck owasp owasp-full
 
 BINARY := meshsat-hub
 PKG := github.com/cubeos-app/meshsat-hub
@@ -34,6 +34,14 @@ gosec:
 
 govulncheck:
 	govulncheck ./...
+
+owasp:
+	@echo "Running OWASP baseline scan (set HUB_TARGET_URL and HUB_AUTH_TOKEN)..."
+	bash test/owasp/owasp-scan.sh
+
+owasp-full:
+	@echo "Running OWASP full active scan (set HUB_TARGET_URL and HUB_AUTH_TOKEN)..."
+	bash test/owasp/owasp-scan.sh --full
 
 clean:
 	rm -rf bin/

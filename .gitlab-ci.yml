@@ -6,6 +6,7 @@ stages:
   - package
   - deploy
   - verify
+  - owasp
   - pages
 
 variables:
@@ -195,6 +196,43 @@ verify:
   rules:
     - if: $CI_COMMIT_BRANCH == "main"
   allow_failure: true
+
+# -----------------------------------------------------------------------------
+# OWASP — OWASP compliance testing on live deployment (release milestones)
+# Runs ZAP baseline scan + security header validation + auth/input checks.
+# Requires CI variables: HUB_HOST_1, HUB_E2E_TOKEN
+# Triggered on: tags (vX.Y.Z releases) and manual trigger
+# -----------------------------------------------------------------------------
+owasp:
+  stage: owasp
+  tags: [multiarch]
+  image: alpine:latest
+  needs:
+    - verify
+  before_script:
+    - apk add --no-cache curl bash python3 docker-cli
+  script:
+    - |
+      if [ -z "${HUB_HOST_1:-}" ] || [ -z "${HUB_E2E_TOKEN:-}" ]; then
+        echo "SKIP: OWASP variables not set (HUB_HOST_1, HUB_E2E_TOKEN)"
+        exit 0
+      fi
+
+      export HUB_TARGET_URL="${HUB_HOST_1}"
+      export HUB_AUTH_TOKEN="${HUB_E2E_TOKEN}"
+      export REPORT_DIR="owasp-reports"
+
+      bash test/owasp/owasp-scan.sh
+  artifacts:
+    paths:
+      - owasp-reports/
+    expire_in: 90 days
+    when: always
+  rules:
+    - if: $CI_COMMIT_TAG =~ /^v\d+\.\d+\.\d+$/
+    - if: $CI_COMMIT_BRANCH == "main"
+      when: manual
+      allow_failure: true
 
 # -----------------------------------------------------------------------------
 # PAGES — Hugo documentation site

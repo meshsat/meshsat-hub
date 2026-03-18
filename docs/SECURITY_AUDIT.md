@@ -21,6 +21,7 @@ _Scope: All Go code + production header audit on NL/GR DMZ hosts_
 | Audit log | Tamper-evident SHA-256 hash chain | N/A | Implemented (v0.2) |
 | MQTT ACLs | Anonymous access on internal broker | Low | Acceptable for Docker network |
 | Unbounded goroutines | API key middleware spawns per-request goroutine | Low | Tracked (MESHSAT-158) |
+| OWASP compliance testing | Recurring ZAP + custom scans on public URLs at each release | N/A | **Implemented** (MESHSAT-159) |
 
 ## 1. Security Headers (MESHSAT-161) — Fixed
 
@@ -144,12 +145,60 @@ The following security-focused MCP servers are configured for interactive use du
 - **mcp-gopls** — provides govulncheck via MCP but we already have it in CI; install if LSP integration is needed
 - **Cycode** — commercial SAST/SCA, not needed given Semgrep covers the same ground
 
-## 11. Recommendations
+## 11. OWASP Compliance Testing (MESHSAT-159) — Implemented
+
+**Status:** Recurring OWASP compliance testing established for all public-facing Hub endpoints.
+
+### Test Coverage
+
+The OWASP scan (`test/owasp/owasp-scan.sh`) runs 5 phases:
+
+| Phase | What it tests | OWASP Category |
+|-------|--------------|----------------|
+| 1. Security Headers | HSTS, CSP, X-Frame-Options, nosniff, Referrer-Policy, Permissions-Policy on all endpoints | A05:2021 Security Misconfiguration |
+| 2. Auth & Access Control | Unauthenticated access rejection on all 8 protected endpoint groups, RBAC viewer-cannot-access-owner enforcement | A01:2021 Broken Access Control |
+| 3. Input Validation | SQL injection probes, XSS in device creation, path traversal, oversized request bodies | A03:2021 Injection |
+| 4. ZAP Baseline | Passive spider + scan of all reachable URLs with auth header injection | A01-A10 (passive detection) |
+| 5. ZAP Full Scan | Active attack payloads (SQL injection, XSS, command injection, etc.) — release milestones only | A01-A10 (active detection) |
+
+### CI/CD Integration
+
+- **Automatic:** Runs on every tagged release (`v*.*.*`) after successful deployment + E2E verification
+- **Manual:** Can be triggered manually on any `main` branch pipeline via GitLab UI
+- **Reports:** HTML + JSON artifacts stored for 90 days per run
+- **Blocking:** FAIL-level ZAP alerts cause non-zero exit; pipeline uses `allow_failure: true` for manual triggers
+
+### Running Locally
+
+```bash
+# Baseline scan (headers + auth + input + ZAP passive)
+HUB_TARGET_URL=https://hub.example.com HUB_AUTH_TOKEN=<token> make owasp
+
+# Full active scan (adds ZAP active attack payloads)
+HUB_TARGET_URL=https://hub.example.com HUB_AUTH_TOKEN=<token> make owasp-full
+```
+
+### Endpoints Tested
+
+**Public (no auth):** `/healthz`, `/readyz`
+**Webhook (HMAC-verified):** `/api/webhook/rockblock`
+**Authenticated API (36 routes):** `/api/auth/me`, `/api/auth/keys`, `/api/devices`, `/api/devices/{imei}`, `/api/devices/{imei}/config`, `/api/messages`, `/api/positions/latest`, `/api/ratelimit`, `/api/webhooks`, `/api/credits`, `/api/audit`, `/api/backup/export`, `/api/wireguard/peers`
+**SPA catch-all:** `/*`
+
+### ZAP Rule Configuration
+
+Rules are configured in `test/owasp/zap-baseline.conf`:
+- **FAIL on:** Missing security headers, SQL injection, XSS, OS command injection, missing HSTS, cookie flags
+- **WARN on:** Cache-control, cross-domain misconfiguration, server info leak
+- **IGNORE:** Timestamp disclosure (expected in API responses)
+
+## 12. Recommendations
 
 1. **Upgrade Go** to 1.24.13+ when CI builder image is updated
 2. **Enable MQTT authentication** in production deployments
 3. **Add goroutine pool** for API key `TouchLastUsed` writes (MESHSAT-158)
-4. **Run OWASP ZAP** full active scan when public DNS is configured
+4. ~~**Run OWASP ZAP** full active scan when public DNS is configured~~ — Done (MESHSAT-159)
 5. **Add API handler unit tests** for error paths and edge cases (MESHSAT-156)
 6. **Monitor CSP reports** — consider adding `report-uri` directive when logging infra supports it
 7. **Run Semgrep** on all Go source before each release (`semgrep --config auto ./internal/`)
+8. **Schedule quarterly full active scans** in addition to per-release baseline scans
