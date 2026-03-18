@@ -17,6 +17,9 @@ services:
       - HUB_TAK_SSL=false
       - HUB_TAK_CALLSIGN_PREFIX=MESHSAT-HUB
       - HUB_TAK_COT_STALE_SECONDS=600
+      # Apprise notifications (requires 'notifications' profile)
+      - HUB_APPRISE_ENABLED=false
+      - HUB_APPRISE_URL=http://apprise:8000
       # APRS-IS IGate (optional — requires amateur radio license)
       - HUB_APRSIS_ENABLED=false
       - HUB_APRSIS_SERVER=euro.aprs2.net:14580
@@ -64,6 +67,17 @@ services:
       - mqtt
     networks:
       - hubnet
+
+  # Apprise — multi-channel notification service (90+ backends).
+  # Hub connects to this internally for SOS/alert notifications.
+  apprise:
+    image: caronc/apprise:latest
+    container_name: meshsat-apprise
+    restart: unless-stopped
+    networks:
+      - hubnet
+    profiles:
+      - notifications
 
   # OpenTAKServer — CoT/TAK integration for situational awareness.
   # Hub's Go service connects to this internally on port 8087 (TCP CoT).

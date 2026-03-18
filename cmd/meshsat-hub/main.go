@@ -14,6 +14,7 @@ import (
 
 	"github.com/cubeos-app/meshsat-hub/cmd/meshsat-hub/web"
 	"github.com/cubeos-app/meshsat-hub/internal/api"
+	"github.com/cubeos-app/meshsat-hub/internal/apprise"
 	"github.com/cubeos-app/meshsat-hub/internal/aprsis"
 	"github.com/cubeos-app/meshsat-hub/internal/audit"
 	hubauth "github.com/cubeos-app/meshsat-hub/internal/auth"
@@ -247,7 +248,14 @@ func main() {
 	}
 
 	// Escalation engine (SOS, dead man's switch, custom alerts).
-	escEngine := escalation.New(dataStore, nil) // nil notifier = LogNotifier until Apprise/ntfy
+	var escNotifier escalation.Notifier
+	if cfg.AppriseEnabled && cfg.AppriseURL != "" {
+		appriseClient := apprise.New(cfg.AppriseURL)
+		escNotifier = appriseClient
+		checker.AddProbe("apprise", appriseClient.Healthz)
+		slog.Info("apprise: notification backend enabled", "url", cfg.AppriseURL)
+	}
+	escEngine := escalation.New(dataStore, escNotifier)
 	go escEngine.Start(ctx)
 
 	// RockBLOCK webhook handler.

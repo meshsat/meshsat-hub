@@ -53,6 +53,10 @@ type Config struct {
 	// Tenant isolation
 	TenantEnforce bool `yaml:"tenant_enforce"` // If true, requests without tenant context get 403
 
+	// Apprise notifications
+	AppriseEnabled bool   `yaml:"apprise_enabled"`
+	AppriseURL     string `yaml:"apprise_url"` // Apprise API base URL (e.g., http://apprise:8000)
+
 	// WireGuard (wg-easy)
 	WGEnabled  bool   `yaml:"wg_enabled"`
 	WGURL      string `yaml:"wg_url"`      // wg-easy base URL (e.g., http://wg-easy:51821)
@@ -204,6 +208,14 @@ func Load() (Config, error) {
 	// Tenant isolation overrides
 	if v := os.Getenv("HUB_TENANT_ENFORCE"); v != "" {
 		cfg.TenantEnforce = strings.EqualFold(v, "true") || v == "1"
+	}
+
+	// Apprise overrides
+	if v := os.Getenv("HUB_APPRISE_ENABLED"); v != "" {
+		cfg.AppriseEnabled = strings.EqualFold(v, "true") || v == "1"
+	}
+	if v := os.Getenv("HUB_APPRISE_URL"); v != "" {
+		cfg.AppriseURL = v
 	}
 
 	// WireGuard overrides
