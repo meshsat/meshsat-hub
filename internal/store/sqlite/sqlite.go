@@ -204,6 +204,18 @@ var postAlterMigrations = []string{
 	)`,
 	`CREATE INDEX IF NOT EXISTS idx_alerts_tenant ON alerts(tenant_id)`,
 	`CREATE INDEX IF NOT EXISTS idx_alerts_state ON alerts(state, next_esc_at)`,
+	// Notification preferences (v0.3 — Apprise integration, MESHSAT-112)
+	`CREATE TABLE IF NOT EXISTS notification_prefs (
+		device_imei TEXT NOT NULL DEFAULT '*',
+		urls TEXT NOT NULL DEFAULT '[]',
+		events TEXT NOT NULL DEFAULT '[]',
+		enabled INTEGER NOT NULL DEFAULT 1,
+		created_at TEXT NOT NULL DEFAULT (datetime('now')),
+		updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+		tenant_id TEXT NOT NULL DEFAULT 'default',
+		PRIMARY KEY (device_imei, tenant_id)
+	)`,
+	`CREATE INDEX IF NOT EXISTS idx_notification_prefs_tenant ON notification_prefs(tenant_id)`,
 }
 
 // --- Devices ---
@@ -644,6 +656,71 @@ func (d *DB) DeleteAPIKey(ctx context.Context, tenantID string, id string) error
 
 func (d *DB) TouchAPIKeyLastUsed(ctx context.Context, id string) error {
 	_, err := d.db.ExecContext(ctx, "UPDATE api_keys SET last_used=datetime('now') WHERE id=?", id)
+	return err
+}
+
+// --- Notification Preferences ---
+
+func (d *DB) SaveNotificationPref(ctx context.Context, tenantID string, p *store.NotificationPref) error {
+	urlsJSON, _ := json.Marshal(p.URLs)
+	eventsJSON, _ := json.Marshal(p.Events)
+	_, err := d.db.ExecContext(ctx,
+		`INSERT INTO notification_prefs (device_imei, urls, events, enabled, tenant_id, updated_at)
+		 VALUES (?, ?, ?, ?, ?, datetime('now'))
+		 ON CONFLICT (device_imei, tenant_id) DO UPDATE SET
+		   urls=excluded.urls, events=excluded.events, enabled=excluded.enabled, updated_at=datetime('now')`,
+		p.DeviceIMEI, string(urlsJSON), string(eventsJSON), boolToInt(p.Enabled), tenantID)
+	return err
+}
+
+func (d *DB) GetNotificationPref(ctx context.Context, tenantID string, deviceIMEI string) (*store.NotificationPref, error) {
+	var p store.NotificationPref
+	var urlsStr, eventsStr, createdAt, updatedAt string
+	var enabled int
+	err := d.db.QueryRowContext(ctx,
+		"SELECT device_imei, urls, events, enabled, created_at, updated_at FROM notification_prefs WHERE device_imei=? AND tenant_id=?",
+		deviceIMEI, tenantID,
+	).Scan(&p.DeviceIMEI, &urlsStr, &eventsStr, &enabled, &createdAt, &updatedAt)
+	if err != nil {
+		return nil, err
+	}
+	p.Enabled = enabled != 0
+	_ = json.Unmarshal([]byte(urlsStr), &p.URLs)
+	_ = json.Unmarshal([]byte(eventsStr), &p.Events)
+	p.CreatedAt, _ = time.Parse(time.DateTime, createdAt)
+	p.UpdatedAt, _ = time.Parse(time.DateTime, updatedAt)
+	return &p, nil
+}
+
+func (d *DB) ListNotificationPrefs(ctx context.Context, tenantID string) ([]store.NotificationPref, error) {
+	rows, err := d.db.QueryContext(ctx,
+		"SELECT device_imei, urls, events, enabled, created_at, updated_at FROM notification_prefs WHERE tenant_id=? ORDER BY device_imei",
+		tenantID)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+	var prefs []store.NotificationPref
+	for rows.Next() {
+		var p store.NotificationPref
+		var urlsStr, eventsStr, createdAt, updatedAt string
+		var enabled int
+		if err := rows.Scan(&p.DeviceIMEI, &urlsStr, &eventsStr, &enabled, &createdAt, &updatedAt); err != nil {
+			return nil, err
+		}
+		p.Enabled = enabled != 0
+		_ = json.Unmarshal([]byte(urlsStr), &p.URLs)
+		_ = json.Unmarshal([]byte(eventsStr), &p.Events)
+		p.CreatedAt, _ = time.Parse(time.DateTime, createdAt)
+		p.UpdatedAt, _ = time.Parse(time.DateTime, updatedAt)
+		prefs = append(prefs, p)
+	}
+	return prefs, rows.Err()
+}
+
+func (d *DB) DeleteNotificationPref(ctx context.Context, tenantID string, deviceIMEI string) error {
+	_, err := d.db.ExecContext(ctx,
+		"DELETE FROM notification_prefs WHERE device_imei=? AND tenant_id=?", deviceIMEI, tenantID)
 	return err
 }
 

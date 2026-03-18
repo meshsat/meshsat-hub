@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/cubeos-app/meshsat-hub/internal/apprise"
 	"github.com/cubeos-app/meshsat-hub/internal/store"
 )
 
@@ -166,19 +167,40 @@ func (e *Engine) processAlert(ctx context.Context, alert *store.Alert, now time.
 	tier := chain.Tiers[alert.CurrentTier]
 	alert.State = store.AlertStateEscalating
 
-	// Send notification.
-	subject := fmt.Sprintf("[%s] %s alert: %s", alert.Type, alert.DeviceIMEI, alert.Detail)
-	body := fmt.Sprintf("Alert ID: %s\nDevice: %s\nType: %s\nTier: %s (%d/%d)\nRetry: %d/%d\nTriggered: %s\n\nDetail: %s",
-		alert.ID, alert.DeviceIMEI, alert.Type,
-		tier.Name, alert.CurrentTier+1, len(chain.Tiers),
-		alert.Retries+1, tier.MaxRetries,
-		alert.CreatedAt.Format(time.RFC3339), alert.Detail)
+	// Build template data for Go template-based formatting.
+	data := apprise.AlertData{
+		AlertID:     alert.ID,
+		DeviceIMEI:  alert.DeviceIMEI,
+		Type:        alert.Type,
+		Detail:      alert.Detail,
+		TierName:    tier.Name,
+		TierNum:     alert.CurrentTier + 1,
+		TierTotal:   len(chain.Tiers),
+		Retry:       alert.Retries + 1,
+		MaxRetries:  tier.MaxRetries,
+		TriggeredAt: alert.CreatedAt.Format(time.RFC3339),
+	}
+	subject := apprise.FormatSubject(data)
+	body := apprise.FormatBody(data)
+
+	// Merge targets: escalation chain tier targets + per-device notification URLs.
+	targets := make([]string, len(tier.Targets))
+	copy(targets, tier.Targets)
+	if alert.DeviceIMEI != "" {
+		// Try device-specific prefs first, then tenant-wide default ("*").
+		if pref, err := e.store.GetNotificationPref(ctx, "", alert.DeviceIMEI); err == nil && pref.Enabled {
+			targets = append(targets, pref.URLs...)
+		}
+		if pref, err := e.store.GetNotificationPref(ctx, "", "*"); err == nil && pref.Enabled {
+			targets = append(targets, pref.URLs...)
+		}
+	}
 
 	e.mu.Lock()
 	notifier := e.notifier
 	e.mu.Unlock()
 
-	if err := notifier.Notify(ctx, tier.Targets, subject, body); err != nil {
+	if err := notifier.Notify(ctx, targets, subject, body); err != nil {
 		slog.Error("escalation: notify failed",
 			"alert", alert.ID, "tier", tier.Name, "error", err)
 	}

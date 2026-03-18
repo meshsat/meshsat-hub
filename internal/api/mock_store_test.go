@@ -161,3 +161,14 @@ func (m *mockStore) ListAlerts(context.Context, string, bool, int) ([]store.Aler
 	return nil, nil
 }
 func (m *mockStore) UpdateAlert(context.Context, string, *store.Alert) error { return nil }
+
+func (m *mockStore) SaveNotificationPref(context.Context, string, *store.NotificationPref) error {
+	return nil
+}
+func (m *mockStore) GetNotificationPref(context.Context, string, string) (*store.NotificationPref, error) {
+	return nil, nil
+}
+func (m *mockStore) ListNotificationPrefs(context.Context, string) ([]store.NotificationPref, error) {
+	return nil, nil
+}
+func (m *mockStore) DeleteNotificationPref(context.Context, string, string) error { return nil }

@@ -27,6 +27,7 @@ import (
 	"github.com/cubeos-app/meshsat-hub/internal/escalation"
 	"github.com/cubeos-app/meshsat-hub/internal/health"
 	"github.com/cubeos-app/meshsat-hub/internal/leader"
+	"github.com/cubeos-app/meshsat-hub/internal/ntfy"
 	"github.com/cubeos-app/meshsat-hub/internal/ratelimit"
 	"github.com/cubeos-app/meshsat-hub/internal/rockblock"
 	"github.com/cubeos-app/meshsat-hub/internal/store"
@@ -248,12 +249,30 @@ func main() {
 	}
 
 	// Escalation engine (SOS, dead man's switch, custom alerts).
-	var escNotifier escalation.Notifier
+	var notifiers []escalation.Notifier
 	if cfg.AppriseEnabled && cfg.AppriseURL != "" {
 		appriseClient := apprise.New(cfg.AppriseURL)
-		escNotifier = appriseClient
+		notifiers = append(notifiers, appriseClient)
 		checker.AddProbe("apprise", appriseClient.Healthz)
 		slog.Info("apprise: notification backend enabled", "url", cfg.AppriseURL)
+	}
+	if cfg.NtfyEnabled && cfg.NtfyURL != "" {
+		ntfyClient := ntfy.New(cfg.NtfyURL)
+		if cfg.NtfyToken != "" {
+			ntfyClient.SetToken(cfg.NtfyToken)
+		}
+		notifiers = append(notifiers, ntfyClient)
+		checker.AddProbe("ntfy", ntfyClient.Healthz)
+		slog.Info("ntfy: notification backend enabled", "url", cfg.NtfyURL)
+	}
+	var escNotifier escalation.Notifier
+	switch len(notifiers) {
+	case 0:
+		// nil = LogNotifier fallback
+	case 1:
+		escNotifier = notifiers[0]
+	default:
+		escNotifier = escalation.NewMultiNotifier(notifiers...)
 	}
 	escEngine := escalation.New(dataStore, escNotifier)
 	go escEngine.Start(ctx)
@@ -377,6 +396,13 @@ func main() {
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(balance)
 	})
+
+	// Notification preferences (per-device Apprise URLs)
+	notifHandler := api.NewNotificationHandler(dataStore)
+	r.Get("/api/notifications/prefs", notifHandler.ListPrefs)
+	r.Get("/api/notifications/prefs/{device_imei}", notifHandler.GetPref)
+	r.Put("/api/notifications/prefs/{device_imei}", notifHandler.SavePref)
+	r.Delete("/api/notifications/prefs/{device_imei}", notifHandler.DeletePref)
 
 	// Escalation chains and alerts
 	escHandler := api.NewEscalationHandler(dataStore, escEngine)

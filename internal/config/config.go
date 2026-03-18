@@ -57,6 +57,11 @@ type Config struct {
 	AppriseEnabled bool   `yaml:"apprise_enabled"`
 	AppriseURL     string `yaml:"apprise_url"` // Apprise API base URL (e.g., http://apprise:8000)
 
+	// ntfy push notifications
+	NtfyEnabled bool   `yaml:"ntfy_enabled"`
+	NtfyURL     string `yaml:"ntfy_url"`   // ntfy server URL (e.g., https://ntfy.sh or http://ntfy:80)
+	NtfyToken   string `yaml:"ntfy_token"` // optional access token for protected topics
+
 	// WireGuard (wg-easy)
 	WGEnabled  bool   `yaml:"wg_enabled"`
 	WGURL      string `yaml:"wg_url"`      // wg-easy base URL (e.g., http://wg-easy:51821)
@@ -216,6 +221,17 @@ func Load() (Config, error) {
 	}
 	if v := os.Getenv("HUB_APPRISE_URL"); v != "" {
 		cfg.AppriseURL = v
+	}
+
+	// ntfy overrides
+	if v := os.Getenv("HUB_NTFY_ENABLED"); v != "" {
+		cfg.NtfyEnabled = strings.EqualFold(v, "true") || v == "1"
+	}
+	if v := os.Getenv("HUB_NTFY_URL"); v != "" {
+		cfg.NtfyURL = v
+	}
+	if v := os.Getenv("HUB_NTFY_TOKEN"); v != "" {
+		cfg.NtfyToken = v
 	}
 
 	// WireGuard overrides
