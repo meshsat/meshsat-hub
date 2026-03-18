@@ -27,23 +27,31 @@ test.describe('Public endpoints', () => {
 })
 
 test.describe('Login page', () => {
-  test('shows login form when unauthenticated', async ({ page }) => {
+  test('shows email login form by default', async ({ page }) => {
     await page.goto('/#/login')
+    await expect(page.locator('input[type="email"]')).toBeVisible()
     await expect(page.locator('input[type="password"]')).toBeVisible()
     await expect(page.getByRole('button', { name: 'Sign In' })).toBeVisible()
   })
 
-  test('shows error on empty submit', async ({ page }) => {
+  test('can toggle to API token mode', async ({ page }) => {
     await page.goto('/#/login')
-    await page.getByRole('button', { name: 'Sign In' }).click()
-    await expect(page.locator('text=API token is required')).toBeVisible()
+    await page.getByRole('button', { name: 'API Token' }).click()
+    await expect(page.locator('input[type="email"]')).not.toBeVisible()
+    await expect(page.locator('#token')).toBeVisible()
   })
 
-  test('successful login with valid token', async ({ page }) => {
+  test('shows error on empty email submit', async ({ page }) => {
     await page.goto('/#/login')
-    await page.fill('input[type="password"]', AUTH_TOKEN)
     await page.getByRole('button', { name: 'Sign In' }).click()
-    // Should redirect to dashboard
+    await expect(page.locator('text=Email and password are required')).toBeVisible()
+  })
+
+  test('successful login with API token', async ({ page }) => {
+    await page.goto('/#/login')
+    await page.getByRole('button', { name: 'API Token' }).click()
+    await page.fill('#token', AUTH_TOKEN)
+    await page.getByRole('button', { name: 'Sign In' }).click()
     await expect(page.locator('h1:has-text("Dashboard")')).toBeVisible({ timeout: 10000 })
   })
 })

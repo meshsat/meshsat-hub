@@ -8,11 +8,19 @@ async function fetchJSON(url, opts = {}) {
   if (auth.token) {
     headers['Authorization'] = `Bearer ${auth.token}`
   }
-  const res = await fetch(BASE + url, { ...opts, headers })
+  let res = await fetch(BASE + url, { ...opts, headers })
   if (res.status === 401) {
-    auth.logout()
-    window.location.hash = '#/login'
-    throw new Error('Unauthorized')
+    // Try silent token refresh before logging out
+    const refreshed = await auth.refreshToken()
+    if (refreshed) {
+      headers['Authorization'] = `Bearer ${auth.token}`
+      res = await fetch(BASE + url, { ...opts, headers })
+    }
+    if (res.status === 401) {
+      auth.logout()
+      window.location.hash = '#/login'
+      throw new Error('Unauthorized')
+    }
   }
   if (!res.ok) {
     const err = await res.json().catch(() => ({ error: res.statusText }))

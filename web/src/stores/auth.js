@@ -23,10 +23,19 @@ export const useAuthStore = defineStore('auth', () => {
   }
 
   function logout() {
+    // Try to invalidate server-side sessions
+    const refreshToken = localStorage.getItem('auth_refresh_token')
+    if (token.value) {
+      fetch('/api/auth/logout', {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token.value}` },
+      }).catch(() => {})
+    }
     token.value = ''
     user.value = null
     localStorage.removeItem('auth_token')
     localStorage.removeItem('auth_user')
+    localStorage.removeItem('auth_refresh_token')
   }
 
   async function fetchUser() {
@@ -39,10 +48,35 @@ export const useAuthStore = defineStore('auth', () => {
     }
   }
 
+  // Silent token refresh — call when a 401 is received
+  async function refreshToken() {
+    const rt = localStorage.getItem('auth_refresh_token')
+    if (!rt) return false
+
+    try {
+      const res = await fetch('/api/auth/refresh', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ refresh_token: rt }),
+      })
+      if (!res.ok) return false
+
+      const data = await res.json()
+      token.value = data.access_token
+      localStorage.setItem('auth_token', data.access_token)
+      if (data.refresh_token) {
+        localStorage.setItem('auth_refresh_token', data.refresh_token)
+      }
+      return true
+    } catch {
+      return false
+    }
+  }
+
   // Fetch user info on startup if authenticated
   if (token.value && !user.value) {
     fetchUser()
   }
 
-  return { token, user, isAuthenticated, role, isOwner, login, logout, fetchUser }
+  return { token, user, isAuthenticated, role, isOwner, login, logout, fetchUser, refreshToken }
 })
