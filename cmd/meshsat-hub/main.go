@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -23,6 +24,7 @@ import (
 	"github.com/cubeos-app/meshsat-hub/internal/bus"
 	"github.com/cubeos-app/meshsat-hub/internal/bus/paho"
 	"github.com/cubeos-app/meshsat-hub/internal/cloudloop"
+	"github.com/cubeos-app/meshsat-hub/internal/cluster"
 	"github.com/cubeos-app/meshsat-hub/internal/config"
 	"github.com/cubeos-app/meshsat-hub/internal/constellation"
 	"github.com/cubeos-app/meshsat-hub/internal/deadman"
@@ -89,6 +91,7 @@ func main() {
 
 	// --- Store (tri-mode) ---
 	var dataStore store.Store
+	var clusterMonitor *cluster.Monitor
 	switch cfg.Mode {
 	case "cluster", "kubernetes":
 		dbStore, err := mariadb.New(cfg.DatabaseURL)
@@ -102,6 +105,17 @@ func main() {
 		}
 		dataStore = dbStore
 		checker.AddProbe("mariadb", dbStore.GaleraReady)
+		// Cluster health monitor
+		var peers []string
+		if cfg.ClusterPeers != "" {
+			for _, p := range strings.Split(cfg.ClusterPeers, ",") {
+				p = strings.TrimSpace(p)
+				if p != "" {
+					peers = append(peers, p)
+				}
+			}
+		}
+		clusterMonitor = cluster.NewMonitor(dbStore.RawDB(), cfg.MQTTClientID, "", peers)
 	default: // "standalone"
 		sqlStore, err := sqlite.New("/data/hub.db")
 		if err != nil {
@@ -461,6 +475,17 @@ func main() {
 	r.Get("/api/mptcp/endpoints", mptcpHandler.ListEndpoints)
 	r.Post("/api/mptcp/endpoints", mptcpHandler.AddEndpointHandler)
 	r.Delete("/api/mptcp/endpoints/{id}", mptcpHandler.RemoveEndpointHandler)
+
+	// Cluster health management (available in any mode — standalone returns basic info)
+	if clusterMonitor == nil {
+		clusterMonitor = cluster.NewMonitor(nil, cfg.MQTTClientID, "", nil)
+	}
+	clusterHandler := cluster.NewAPIHandler(clusterMonitor)
+	r.Get("/api/cluster/node", clusterHandler.GetNodeStatus)
+	r.Get("/api/cluster/status", clusterHandler.GetClusterStatus)
+	r.Get("/api/cluster/actions", clusterHandler.GetActions)
+	r.Post("/api/cluster/actions/{id}", clusterHandler.ExecuteAction)
+	r.Put("/api/cluster/peers", clusterHandler.SetPeers)
 
 	r.Get("/api/constellations", func(w http.ResponseWriter, r *http.Request) {
 		backends := constellationRouter.ListBackends()

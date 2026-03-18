@@ -45,6 +45,8 @@ func New(dsn string) (*DB, error) {
 	return &DB{db: conn}, nil
 }
 
+// RawDB returns the underlying *sql.DB for direct queries (e.g., cluster health checks).
+func (d *DB) RawDB() *sql.DB                 { return d.db }
 func (d *DB) Close() error                   { return d.db.Close() }
 func (d *DB) Ping(ctx context.Context) error { return d.db.PingContext(ctx) }
 

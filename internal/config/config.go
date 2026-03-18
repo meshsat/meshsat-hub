@@ -65,6 +65,9 @@ type Config struct {
 	NtfyURL     string `yaml:"ntfy_url"`   // ntfy server URL (e.g., https://ntfy.sh or http://ntfy:80)
 	NtfyToken   string `yaml:"ntfy_token"` // optional access token for protected topics
 
+	// Cluster peers (comma-separated Hub URLs for cluster-wide health view)
+	ClusterPeers string `yaml:"cluster_peers"` // e.g., "https://192.168.15.10:8451"
+
 	// hawkBit OTA
 	HawkBitEnabled  bool   `yaml:"hawkbit_enabled"`
 	HawkBitURL      string `yaml:"hawkbit_url"`      // hawkBit Management API URL (e.g., http://hawkbit:8080)
@@ -251,6 +254,11 @@ func Load() (Config, error) {
 	}
 	if v := os.Getenv("HUB_NTFY_TOKEN"); v != "" {
 		cfg.NtfyToken = v
+	}
+
+	// Cluster peers override
+	if v := os.Getenv("HUB_CLUSTER_PEERS"); v != "" {
+		cfg.ClusterPeers = v
 	}
 
 	// hawkBit OTA overrides

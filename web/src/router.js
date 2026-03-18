@@ -13,6 +13,7 @@ const routes = [
   { path: '/notifications', name: 'notifications', component: () => import('./views/NotificationsView.vue'), meta: { requiresAuth: true } },
   { path: '/webhooks', name: 'webhooks', component: () => import('./views/WebhooksView.vue'), meta: { requiresAuth: true } },
   { path: '/ota', name: 'ota', component: () => import('./views/OtaView.vue'), meta: { requiresAuth: true } },
+  { path: '/cluster', name: 'cluster', component: () => import('./views/ClusterView.vue'), meta: { requiresAuth: true } },
   { path: '/network', name: 'network', component: () => import('./views/NetworkView.vue'), meta: { requiresAuth: true } },
   { path: '/settings', name: 'settings', component: () => import('./views/Settings.vue'), meta: { requiresAuth: true } },
   { path: '/users', name: 'users', component: () => import('./views/UsersView.vue'), meta: { requiresAuth: true } },

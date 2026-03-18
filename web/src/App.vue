@@ -33,6 +33,7 @@ const navGroups = [
     { to: '/notifications', label: 'Notifications' },
   ]},
   { label: 'Infrastructure', items: [
+    { to: '/cluster', label: 'Cluster' },
     { to: '/network', label: 'Network' },
     { to: '/webhooks', label: 'Webhooks' },
     { to: '/ota', label: 'OTA' },
