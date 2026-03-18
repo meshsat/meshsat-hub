@@ -298,6 +298,13 @@ func main() {
 	r.Put("/api/devices/{imei}", deviceHandler.UpdateDevice)
 	r.Delete("/api/devices/{imei}", deviceHandler.DeleteDevice)
 
+	// Device config versioning
+	configHandler := api.NewDeviceConfigHandler(dataStore)
+	r.Get("/api/devices/{imei}/config", configHandler.GetLatest)
+	r.Put("/api/devices/{imei}/config", configHandler.CreateVersion)
+	r.Get("/api/devices/{imei}/config/history", configHandler.ListVersions)
+	r.Get("/api/devices/{imei}/config/{version}", configHandler.GetVersion)
+
 	// Message history API
 	messageHandler := api.NewMessageHandler(dataStore)
 	r.Get("/api/messages", messageHandler.ListMessages)

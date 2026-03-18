@@ -51,6 +51,12 @@ type Store interface {
 	InsertAuditEntry(ctx context.Context, tenantID string, a *AuditEntry) error
 	ListAuditEntries(ctx context.Context, tenantID string, limit int) ([]AuditEntry, error)
 
+	// Device config versioning
+	CreateDeviceConfig(ctx context.Context, tenantID string, c *DeviceConfig) error
+	GetDeviceConfigLatest(ctx context.Context, tenantID string, deviceIMEI string) (*DeviceConfig, error)
+	GetDeviceConfigVersion(ctx context.Context, tenantID string, deviceIMEI string, version int) (*DeviceConfig, error)
+	ListDeviceConfigVersions(ctx context.Context, tenantID string, deviceIMEI string, limit int) ([]DeviceConfig, error)
+
 	// API keys
 	CreateAPIKey(ctx context.Context, tenantID string, k *APIKey) error
 	GetAPIKeyByHash(ctx context.Context, keyHash string) (*APIKey, string, error) // returns key + tenantID
@@ -131,6 +137,17 @@ type AuditEntry struct {
 	Detail    string    `json:"detail,omitempty"`
 	IP        string    `json:"ip,omitempty"`
 	CreatedAt time.Time `json:"created_at"`
+}
+
+// DeviceConfig represents a versioned configuration snapshot for a field device.
+type DeviceConfig struct {
+	ID         string    `json:"id"`
+	DeviceIMEI string    `json:"device_imei"`
+	Version    int       `json:"version"`
+	Config     string    `json:"config"`  // JSON-encoded configuration
+	Author     string    `json:"author"`  // who made this change
+	Comment    string    `json:"comment"` // change description
+	CreatedAt  time.Time `json:"created_at"`
 }
 
 // APIKey represents a tenant-scoped API key for programmatic access.

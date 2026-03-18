@@ -137,6 +137,19 @@ var migrations = []string{
 	)`,
 	`CREATE INDEX IF NOT EXISTS idx_api_keys_hash ON api_keys(key_hash)`,
 	`CREATE INDEX IF NOT EXISTS idx_api_keys_tenant ON api_keys(tenant_id)`,
+	// Device config versioning
+	`CREATE TABLE IF NOT EXISTS device_configs (
+		id TEXT PRIMARY KEY,
+		device_imei TEXT NOT NULL,
+		version INTEGER NOT NULL DEFAULT 1,
+		config TEXT NOT NULL DEFAULT '{}',
+		author TEXT NOT NULL DEFAULT '',
+		comment TEXT NOT NULL DEFAULT '',
+		created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+		tenant_id TEXT NOT NULL DEFAULT 'default',
+		UNIQUE(device_imei, version, tenant_id)
+	)`,
+	`CREATE INDEX IF NOT EXISTS idx_device_configs_device ON device_configs(device_imei, tenant_id, version DESC)`,
 }
 
 // --- Devices ---
@@ -386,6 +399,77 @@ func (d *DB) ListAuditEntries(ctx context.Context, tenantID string, limit int) (
 		entries = append(entries, a)
 	}
 	return entries, nil
+}
+
+// --- Device config versioning ---
+
+func (d *DB) CreateDeviceConfig(ctx context.Context, tenantID string, c *store.DeviceConfig) error {
+	if c.ID == "" {
+		c.ID = fmt.Sprintf("cfg-%d", time.Now().UnixNano())
+	}
+	// Auto-increment version per device+tenant.
+	var maxVersion int
+	err := d.pool.QueryRow(ctx,
+		"SELECT COALESCE(MAX(version), 0) FROM device_configs WHERE device_imei=$1 AND tenant_id=$2",
+		c.DeviceIMEI, tenantID,
+	).Scan(&maxVersion)
+	if err != nil {
+		return fmt.Errorf("get max version: %w", err)
+	}
+	c.Version = maxVersion + 1
+
+	_, err = d.pool.Exec(ctx,
+		`INSERT INTO device_configs (id, device_imei, version, config, author, comment, tenant_id)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+		c.ID, c.DeviceIMEI, c.Version, c.Config, c.Author, c.Comment, tenantID)
+	return err
+}
+
+func (d *DB) GetDeviceConfigLatest(ctx context.Context, tenantID string, deviceIMEI string) (*store.DeviceConfig, error) {
+	var c store.DeviceConfig
+	err := d.pool.QueryRow(ctx,
+		"SELECT id, device_imei, version, config, author, comment, created_at FROM device_configs WHERE device_imei=$1 AND tenant_id=$2 ORDER BY version DESC LIMIT 1",
+		deviceIMEI, tenantID,
+	).Scan(&c.ID, &c.DeviceIMEI, &c.Version, &c.Config, &c.Author, &c.Comment, &c.CreatedAt)
+	if err != nil {
+		return nil, err
+	}
+	return &c, nil
+}
+
+func (d *DB) GetDeviceConfigVersion(ctx context.Context, tenantID string, deviceIMEI string, version int) (*store.DeviceConfig, error) {
+	var c store.DeviceConfig
+	err := d.pool.QueryRow(ctx,
+		"SELECT id, device_imei, version, config, author, comment, created_at FROM device_configs WHERE device_imei=$1 AND tenant_id=$2 AND version=$3",
+		deviceIMEI, tenantID, version,
+	).Scan(&c.ID, &c.DeviceIMEI, &c.Version, &c.Config, &c.Author, &c.Comment, &c.CreatedAt)
+	if err != nil {
+		return nil, err
+	}
+	return &c, nil
+}
+
+func (d *DB) ListDeviceConfigVersions(ctx context.Context, tenantID string, deviceIMEI string, limit int) ([]store.DeviceConfig, error) {
+	query := "SELECT id, device_imei, version, config, author, comment, created_at FROM device_configs WHERE device_imei=$1 AND tenant_id=$2 ORDER BY version DESC"
+	args := []interface{}{deviceIMEI, tenantID}
+	if limit > 0 {
+		query += fmt.Sprintf(" LIMIT $%d", 3)
+		args = append(args, limit)
+	}
+	rows, err := d.pool.Query(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var configs []store.DeviceConfig
+	for rows.Next() {
+		var c store.DeviceConfig
+		if err := rows.Scan(&c.ID, &c.DeviceIMEI, &c.Version, &c.Config, &c.Author, &c.Comment, &c.CreatedAt); err != nil {
+			return nil, err
+		}
+		configs = append(configs, c)
+	}
+	return configs, nil
 }
 
 // --- API keys ---

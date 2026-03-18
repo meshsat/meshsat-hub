@@ -386,3 +386,94 @@ func TestAPIKeyTenantIsolation(t *testing.T) {
 		t.Errorf("tenant: got %q, want tenant-a", tid)
 	}
 }
+
+func TestDeviceConfigVersioning(t *testing.T) {
+	db := testDB(t)
+	ctx := context.Background()
+
+	// Create a device first (FK).
+	_ = db.CreateDevice(ctx, testTenant, &store.Device{IMEI: "300234063904190", Label: "Test"})
+
+	// Create first config version.
+	c1 := &store.DeviceConfig{
+		DeviceIMEI: "300234063904190",
+		Config:     `{"reporting_interval":60,"gps_enabled":true}`,
+		Author:     "user-1",
+		Comment:    "Initial config",
+	}
+	if err := db.CreateDeviceConfig(ctx, testTenant, c1); err != nil {
+		t.Fatalf("create v1: %v", err)
+	}
+	if c1.Version != 1 {
+		t.Errorf("version: got %d, want 1", c1.Version)
+	}
+
+	// Create second version.
+	c2 := &store.DeviceConfig{
+		DeviceIMEI: "300234063904190",
+		Config:     `{"reporting_interval":30,"gps_enabled":true}`,
+		Author:     "user-1",
+		Comment:    "Increase reporting frequency",
+	}
+	if err := db.CreateDeviceConfig(ctx, testTenant, c2); err != nil {
+		t.Fatalf("create v2: %v", err)
+	}
+	if c2.Version != 2 {
+		t.Errorf("version: got %d, want 2", c2.Version)
+	}
+
+	// Get latest should return v2.
+	latest, err := db.GetDeviceConfigLatest(ctx, testTenant, "300234063904190")
+	if err != nil {
+		t.Fatalf("get latest: %v", err)
+	}
+	if latest.Version != 2 {
+		t.Errorf("latest version: got %d, want 2", latest.Version)
+	}
+	if latest.Comment != "Increase reporting frequency" {
+		t.Errorf("latest comment: got %q", latest.Comment)
+	}
+
+	// Get specific version.
+	v1, err := db.GetDeviceConfigVersion(ctx, testTenant, "300234063904190", 1)
+	if err != nil {
+		t.Fatalf("get v1: %v", err)
+	}
+	if v1.Comment != "Initial config" {
+		t.Errorf("v1 comment: got %q", v1.Comment)
+	}
+
+	// List versions.
+	versions, err := db.ListDeviceConfigVersions(ctx, testTenant, "300234063904190", 50)
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if len(versions) != 2 {
+		t.Fatalf("list: got %d versions, want 2", len(versions))
+	}
+	// Should be newest first.
+	if versions[0].Version != 2 || versions[1].Version != 1 {
+		t.Error("list should be ordered newest first")
+	}
+}
+
+func TestDeviceConfigTenantIsolation(t *testing.T) {
+	db := testDB(t)
+	ctx := context.Background()
+
+	_ = db.CreateDevice(ctx, "tenant-a", &store.Device{IMEI: "111111111111111", Label: "A"})
+	_ = db.CreateDevice(ctx, "tenant-b", &store.Device{IMEI: "222222222222222", Label: "B"})
+
+	_ = db.CreateDeviceConfig(ctx, "tenant-a", &store.DeviceConfig{
+		DeviceIMEI: "111111111111111", Config: `{"a":1}`, Author: "a",
+	})
+	_ = db.CreateDeviceConfig(ctx, "tenant-b", &store.DeviceConfig{
+		DeviceIMEI: "222222222222222", Config: `{"b":1}`, Author: "b",
+	})
+
+	// Tenant A cannot see tenant B's configs.
+	configs, _ := db.ListDeviceConfigVersions(ctx, "tenant-a", "222222222222222", 50)
+	if len(configs) != 0 {
+		t.Errorf("tenant-a should not see tenant-b configs, got %d", len(configs))
+	}
+}

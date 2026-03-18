@@ -155,6 +155,18 @@ var postAlterMigrations = []string{
 	)`,
 	`CREATE INDEX IF NOT EXISTS idx_api_keys_hash ON api_keys(key_hash)`,
 	`CREATE INDEX IF NOT EXISTS idx_api_keys_tenant ON api_keys(tenant_id)`,
+	`CREATE TABLE IF NOT EXISTS device_configs (
+		id TEXT PRIMARY KEY,
+		device_imei TEXT NOT NULL,
+		version INTEGER NOT NULL DEFAULT 1,
+		config TEXT NOT NULL DEFAULT '{}',
+		author TEXT NOT NULL DEFAULT '',
+		comment TEXT NOT NULL DEFAULT '',
+		created_at TEXT NOT NULL DEFAULT (datetime('now')),
+		tenant_id TEXT NOT NULL DEFAULT 'default',
+		UNIQUE(device_imei, version, tenant_id)
+	)`,
+	`CREATE INDEX IF NOT EXISTS idx_device_configs_device ON device_configs(device_imei, tenant_id, version DESC)`,
 	`CREATE INDEX IF NOT EXISTS idx_devices_tenant ON devices(tenant_id)`,
 	`CREATE INDEX IF NOT EXISTS idx_messages_tenant ON messages(tenant_id, device_imei)`,
 	`CREATE INDEX IF NOT EXISTS idx_webhook_configs_tenant ON webhook_configs(tenant_id)`,
@@ -446,6 +458,82 @@ func (d *DB) ListAuditEntries(ctx context.Context, tenantID string, limit int) (
 		entries = append(entries, a)
 	}
 	return entries, nil
+}
+
+// --- Device config versioning ---
+
+func (d *DB) CreateDeviceConfig(ctx context.Context, tenantID string, c *store.DeviceConfig) error {
+	if c.ID == "" {
+		c.ID = fmt.Sprintf("cfg-%d", time.Now().UnixNano())
+	}
+	// Auto-increment version: max(version) + 1 for this device+tenant.
+	var maxVersion int
+	err := d.db.QueryRowContext(ctx,
+		"SELECT COALESCE(MAX(version), 0) FROM device_configs WHERE device_imei=? AND tenant_id=?",
+		c.DeviceIMEI, tenantID,
+	).Scan(&maxVersion)
+	if err != nil {
+		return fmt.Errorf("get max version: %w", err)
+	}
+	c.Version = maxVersion + 1
+
+	_, err = d.db.ExecContext(ctx,
+		`INSERT INTO device_configs (id, device_imei, version, config, author, comment, tenant_id)
+		 VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		c.ID, c.DeviceIMEI, c.Version, c.Config, c.Author, c.Comment, tenantID)
+	return err
+}
+
+func (d *DB) GetDeviceConfigLatest(ctx context.Context, tenantID string, deviceIMEI string) (*store.DeviceConfig, error) {
+	var c store.DeviceConfig
+	var createdAt string
+	err := d.db.QueryRowContext(ctx,
+		"SELECT id, device_imei, version, config, author, comment, created_at FROM device_configs WHERE device_imei=? AND tenant_id=? ORDER BY version DESC LIMIT 1",
+		deviceIMEI, tenantID,
+	).Scan(&c.ID, &c.DeviceIMEI, &c.Version, &c.Config, &c.Author, &c.Comment, &createdAt)
+	if err != nil {
+		return nil, err
+	}
+	c.CreatedAt, _ = time.Parse(time.DateTime, createdAt)
+	return &c, nil
+}
+
+func (d *DB) GetDeviceConfigVersion(ctx context.Context, tenantID string, deviceIMEI string, version int) (*store.DeviceConfig, error) {
+	var c store.DeviceConfig
+	var createdAt string
+	err := d.db.QueryRowContext(ctx,
+		"SELECT id, device_imei, version, config, author, comment, created_at FROM device_configs WHERE device_imei=? AND tenant_id=? AND version=?",
+		deviceIMEI, tenantID, version,
+	).Scan(&c.ID, &c.DeviceIMEI, &c.Version, &c.Config, &c.Author, &c.Comment, &createdAt)
+	if err != nil {
+		return nil, err
+	}
+	c.CreatedAt, _ = time.Parse(time.DateTime, createdAt)
+	return &c, nil
+}
+
+func (d *DB) ListDeviceConfigVersions(ctx context.Context, tenantID string, deviceIMEI string, limit int) ([]store.DeviceConfig, error) {
+	query := "SELECT id, device_imei, version, config, author, comment, created_at FROM device_configs WHERE device_imei=? AND tenant_id=? ORDER BY version DESC"
+	args := []interface{}{deviceIMEI, tenantID}
+	if limit > 0 {
+		query += fmt.Sprintf(" LIMIT %d", limit)
+	}
+	rows, err := d.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+	var configs []store.DeviceConfig
+	for rows.Next() {
+		var c store.DeviceConfig
+		var createdAt string
+		if err := rows.Scan(&c.ID, &c.DeviceIMEI, &c.Version, &c.Config, &c.Author, &c.Comment, &createdAt); err != nil {
+			return nil, err
+		}
+		c.CreatedAt, _ = time.Parse(time.DateTime, createdAt)
+		configs = append(configs, c)
+	}
+	return configs, nil
 }
 
 // --- API keys ---
