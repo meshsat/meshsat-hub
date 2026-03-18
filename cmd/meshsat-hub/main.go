@@ -16,6 +16,7 @@ import (
 	"github.com/cubeos-app/meshsat-hub/internal/api"
 	"github.com/cubeos-app/meshsat-hub/internal/apprise"
 	"github.com/cubeos-app/meshsat-hub/internal/aprsis"
+	"github.com/cubeos-app/meshsat-hub/internal/astrocast"
 	"github.com/cubeos-app/meshsat-hub/internal/audit"
 	hubauth "github.com/cubeos-app/meshsat-hub/internal/auth"
 	"github.com/cubeos-app/meshsat-hub/internal/backup"
@@ -23,6 +24,7 @@ import (
 	"github.com/cubeos-app/meshsat-hub/internal/bus/paho"
 	"github.com/cubeos-app/meshsat-hub/internal/cloudloop"
 	"github.com/cubeos-app/meshsat-hub/internal/config"
+	"github.com/cubeos-app/meshsat-hub/internal/constellation"
 	"github.com/cubeos-app/meshsat-hub/internal/deadman"
 	"github.com/cubeos-app/meshsat-hub/internal/dedup"
 	"github.com/cubeos-app/meshsat-hub/internal/escalation"
@@ -184,6 +186,20 @@ func main() {
 	if cfg.CloudloopAPIKey != "" && msgBus.IsConnected() {
 		creditPoller := cloudloop.NewCreditPoller(cloudloopClient, msgBus, 1*time.Hour)
 		go creditPoller.Start(ctx)
+	}
+
+	// Astrocast API client (optional — second satellite constellation).
+	var astrocastClient *astrocast.Client
+	if cfg.AstrocastAPIKey != "" {
+		astrocastClient = astrocast.NewClient(cfg.AstrocastAPIURL, cfg.AstrocastAPIKey)
+		slog.Info("astrocast: API client enabled", "url", cfg.AstrocastAPIURL)
+	}
+
+	// Constellation router — multi-backend satellite send.
+	constellationRouter := constellation.NewRouter(constellation.StrategyAvailable)
+	constellationRouter.Register(constellation.NewIridiumBackend(cloudloopClient))
+	if astrocastClient != nil {
+		constellationRouter.Register(constellation.NewAstrocastBackend(astrocastClient))
 	}
 
 	// TAK/CoT gateway and APRS-IS IGate are singletons — run inside leader election callback.
@@ -401,6 +417,11 @@ func main() {
 	r.Post("/api/webhooks", webhookAPIHandler.CreateWebhook)
 	r.Delete("/api/webhooks/{id}", webhookAPIHandler.DeleteWebhook)
 	r.Get("/api/webhooks/logs", webhookAPIHandler.GetLogs)
+	r.Get("/api/constellations", func(w http.ResponseWriter, r *http.Request) {
+		backends := constellationRouter.ListBackends()
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{"backends": backends})
+	})
 	r.Get("/api/credits", func(w http.ResponseWriter, r *http.Request) {
 		balance, err := cloudloopClient.GetCreditBalance(r.Context())
 		if err != nil {

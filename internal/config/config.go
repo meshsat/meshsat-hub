@@ -23,6 +23,8 @@ type Config struct {
 	RockBLOCKSecret string `yaml:"rockblock_secret"`
 	CloudloopAPIKey string `yaml:"cloudloop_api_key"`
 	CloudloopAPIURL string `yaml:"cloudloop_api_url"`
+	AstrocastAPIKey string `yaml:"astrocast_api_key"`
+	AstrocastAPIURL string `yaml:"astrocast_api_url"`
 	LogLevel        string `yaml:"log_level"`
 	LogFormat       string `yaml:"log_format"`
 	AuthToken       string `yaml:"auth_token"`
@@ -76,6 +78,7 @@ func Defaults() Config {
 		Mode:                  "standalone",
 		MQTTClientID:          "meshsat-hub",
 		CloudloopAPIURL:       "https://api.cloudloop.com",
+		AstrocastAPIURL:       "https://api.astrocast.com/v1",
 		LogLevel:              "info",
 		LogFormat:             "json",
 		RateLimitBurst:        10,
@@ -130,6 +133,12 @@ func Load() (Config, error) {
 	}
 	if v := os.Getenv("HUB_CLOUDLOOP_API_URL"); v != "" {
 		cfg.CloudloopAPIURL = v
+	}
+	if v := os.Getenv("HUB_ASTROCAST_API_KEY"); v != "" {
+		cfg.AstrocastAPIKey = v
+	}
+	if v := os.Getenv("HUB_ASTROCAST_API_URL"); v != "" {
+		cfg.AstrocastAPIURL = v
 	}
 	if v := os.Getenv("HUB_LOG_LEVEL"); v != "" {
 		cfg.LogLevel = strings.ToLower(v)
