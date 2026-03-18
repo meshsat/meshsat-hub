@@ -1,6 +1,7 @@
 <script setup>
 import { ref, onMounted } from 'vue'
 import { useAuthStore } from '../stores/auth'
+import { formatUTC } from '../utils/time'
 
 const auth = useAuthStore()
 const users = ref([])
@@ -178,7 +179,7 @@ function roleBadge(role) {
               </button>
             </td>
             <td class="px-3 py-2 text-gray-400 text-xs">
-              {{ u.last_login_at ? new Date(u.last_login_at).toLocaleString() : '—' }}
+              {{ formatUTC(u.last_login_at) }}
             </td>
             <td class="px-3 py-2 text-right">
               <button @click="deleteUser(u)"

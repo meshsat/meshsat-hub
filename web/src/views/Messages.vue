@@ -1,6 +1,7 @@
 <script setup>
 import { ref, onMounted } from 'vue'
 import { messages } from '../api/client'
+import { formatUTC } from '../utils/time'
 
 const messageList = ref([])
 const filter = ref('')
@@ -24,8 +25,7 @@ async function loadMessages() {
 }
 
 function formatTime(ts) {
-  if (!ts) return '—'
-  return new Date(ts).toLocaleString()
+  return formatUTC(ts)
 }
 
 function dirClass(dir) {

@@ -1,6 +1,7 @@
 <script setup>
 import { ref, onMounted } from 'vue'
 import { ota } from '../api/client'
+import { formatUTC } from '../utils/time'
 
 const targets = ref([])
 const error = ref('')
@@ -188,7 +189,7 @@ function statusColor(s) {
                 <td class="px-3 py-2">
                   <span :class="statusColor(t.updateStatus)" class="text-xs uppercase">{{ t.updateStatus || 'registered' }}</span>
                 </td>
-                <td class="px-3 py-2 text-gray-400 text-xs">{{ t.lastControllerRequestAt ? new Date(t.lastControllerRequestAt).toLocaleString() : '—' }}</td>
+                <td class="px-3 py-2 text-gray-400 text-xs">{{ formatUTC(t.lastControllerRequestAt) }}</td>
                 <td class="px-3 py-2 text-right flex gap-1 justify-end">
                   <button @click="loadActions(t.controllerId)"
                     class="bg-gray-700 hover:bg-gray-600 text-gray-200 px-2 py-1 rounded text-xs transition-colors">

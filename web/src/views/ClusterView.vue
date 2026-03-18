@@ -1,5 +1,6 @@
 <script setup>
 import { ref, onMounted, onUnmounted } from 'vue'
+import { formatTimeUTC } from '../utils/time'
 
 const BASE = '/api'
 const auth = () => {
@@ -104,7 +105,7 @@ function formatBytes(n) {
       </div>
       <div class="bg-gray-800 rounded-lg p-4">
         <div class="text-gray-400 text-sm mb-1">Last Check</div>
-        <div class="text-sm text-gray-300">{{ clusterStatus.checked_at ? new Date(clusterStatus.checked_at).toLocaleTimeString() : '—' }}</div>
+        <div class="text-sm text-gray-300">{{ formatTimeUTC(clusterStatus.checked_at) }}</div>
       </div>
     </div>
 

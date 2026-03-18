@@ -1,6 +1,7 @@
 <script setup>
 import { ref, onMounted, watch } from 'vue'
 import { deviceConfig, devices } from '../api/client'
+import { formatUTC, formatDateUTC } from '../utils/time'
 
 const deviceList = ref([])
 const selectedIMEI = ref('')
@@ -135,7 +136,7 @@ async function viewVersion(v) {
             <div v-if="currentConfig" class="mt-2 text-xs text-gray-500">
               <span v-if="currentConfig.author">By {{ currentConfig.author }}</span>
               <span v-if="currentConfig.comment"> &middot; {{ currentConfig.comment }}</span>
-              <span v-if="currentConfig.created_at"> &middot; {{ new Date(currentConfig.created_at).toLocaleString() }}</span>
+              <span v-if="currentConfig.created_at"> &middot; {{ formatUTC(currentConfig.created_at) }}</span>
             </div>
           </div>
         </div>
@@ -154,7 +155,7 @@ async function viewVersion(v) {
               <div class="font-mono text-xs text-cyan-400">v{{ v.version }}</div>
               <div v-if="v.comment" class="text-xs text-gray-400">{{ v.comment }}</div>
             </div>
-            <div class="text-xs text-gray-500">{{ new Date(v.created_at).toLocaleDateString() }}</div>
+            <div class="text-xs text-gray-500">{{ formatDateUTC(v.created_at) }}</div>
           </div>
         </div>
       </div>

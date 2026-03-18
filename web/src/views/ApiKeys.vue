@@ -1,6 +1,7 @@
 <script setup>
 import { ref, onMounted } from 'vue'
 import { authApi } from '../api/client'
+import { formatUTC } from '../utils/time'
 
 const keys = ref([])
 const newLabel = ref('')
@@ -59,8 +60,7 @@ async function revokeKey(id, prefix) {
 }
 
 function formatDate(d) {
-  if (!d || d === '0001-01-01T00:00:00Z') return '—'
-  return new Date(d).toLocaleString()
+  return formatUTC(d)
 }
 
 function roleBadgeClass(role) {

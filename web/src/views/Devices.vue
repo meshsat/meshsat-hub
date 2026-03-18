@@ -1,6 +1,7 @@
 <script setup>
 import { ref, onMounted, computed } from 'vue'
 import { devices, messages } from '../api/client'
+import { formatUTC } from '../utils/time'
 
 const deviceList = ref([])
 const messageCounts = ref({})
@@ -70,8 +71,7 @@ function statusColor(status) {
 }
 
 function formatLastSeen(d) {
-  if (!d.last_seen || d.last_seen === '0001-01-01T00:00:00Z') return '—'
-  return new Date(d.last_seen).toLocaleString()
+  return formatUTC(d.last_seen)
 }
 </script>
 

@@ -1,6 +1,7 @@
 <script setup>
 import { ref, onMounted } from 'vue'
 import { mptcp, constellations } from '../api/client'
+import { formatUTC } from '../utils/time'
 
 const mptcpStatus = ref(null)
 const backends = ref([])
@@ -162,7 +163,7 @@ function formatBytes(bytes) {
         <div v-else class="text-gray-500 text-sm">No active subflows</div>
 
         <div v-if="mptcpStatus.updated_at" class="text-xs text-gray-500 mt-3">
-          Last updated: {{ new Date(mptcpStatus.updated_at).toLocaleString() }}
+          Last updated: {{ formatUTC(mptcpStatus.updated_at) }}
         </div>
       </div>
 

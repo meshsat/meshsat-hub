@@ -1,6 +1,7 @@
 <script setup>
 import { ref, onMounted } from 'vue'
 import { webhooks } from '../api/client'
+import { formatUTC } from '../utils/time'
 
 const hookList = ref([])
 const logs = ref([])
@@ -152,7 +153,7 @@ function statusCodeColor(code) {
           </thead>
           <tbody>
             <tr v-for="l in logs" :key="l.timestamp + l.webhook_id" class="border-b border-gray-800 hover:bg-gray-800/50">
-              <td class="px-3 py-2 text-gray-400 text-xs">{{ new Date(l.timestamp).toLocaleString() }}</td>
+              <td class="px-3 py-2 text-gray-400 text-xs">{{ formatUTC(l.timestamp) }}</td>
               <td class="px-3 py-2 font-mono text-xs text-gray-400">{{ l.webhook_id }}</td>
               <td class="px-3 py-2">
                 <span :class="statusCodeColor(l.status_code)" class="font-mono text-xs">{{ l.status_code }}</span>

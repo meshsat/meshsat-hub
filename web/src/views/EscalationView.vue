@@ -1,6 +1,7 @@
 <script setup>
 import { ref, onMounted } from 'vue'
 import { escalation } from '../api/client'
+import { formatUTC } from '../utils/time'
 
 const chains = ref([])
 const alerts = ref([])
@@ -126,7 +127,7 @@ function statusBg(status) {
         </div>
         <div v-if="a.detail" class="text-sm text-gray-300 mb-1">{{ a.detail }}</div>
         <div class="text-xs text-gray-500">
-          {{ new Date(a.created_at).toLocaleString() }}
+          {{ formatUTC(a.created_at) }}
           <span v-if="a.acked_by"> &middot; Acked by {{ a.acked_by }}</span>
         </div>
       </div>
