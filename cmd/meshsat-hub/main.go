@@ -29,6 +29,7 @@ import (
 	"github.com/cubeos-app/meshsat-hub/internal/health"
 	"github.com/cubeos-app/meshsat-hub/internal/leader"
 	"github.com/cubeos-app/meshsat-hub/internal/ntfy"
+	"github.com/cubeos-app/meshsat-hub/internal/position"
 	"github.com/cubeos-app/meshsat-hub/internal/ratelimit"
 	"github.com/cubeos-app/meshsat-hub/internal/rockblock"
 	"github.com/cubeos-app/meshsat-hub/internal/store"
@@ -245,6 +246,14 @@ func main() {
 	if msgBus.IsConnected() {
 		if err := webhookDispatcher.Start(msgBus); err != nil {
 			slog.Error("webhook: failed to start dispatcher", "error", err)
+		}
+	}
+
+	// Position subscriber: stores MQTT position updates to the database.
+	if msgBus.IsConnected() {
+		posSub := position.NewSubscriber(msgBus, dataStore, store.DefaultTenantID)
+		if err := posSub.Start(); err != nil {
+			slog.Error("position: failed to start subscriber", "error", err)
 		}
 	}
 

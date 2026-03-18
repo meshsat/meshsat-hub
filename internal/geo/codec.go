@@ -34,17 +34,17 @@ const (
 
 // GPSPosition represents a decoded GPS position from the compact binary codec.
 type GPSPosition struct {
-	Lat       float64
-	Lon       float64
-	Alt       float64
-	Speed     float64 // m/s
-	Heading   float64 // degrees 0-360
-	Sats      int
-	Timestamp time.Time
-	HasAlt    bool
-	HasSpeed  bool
+	Lat        float64
+	Lon        float64
+	Alt        float64
+	Speed      float64 // m/s
+	Heading    float64 // degrees 0-360
+	Sats       int
+	Timestamp  time.Time
+	HasAlt     bool
+	HasSpeed   bool
 	HasHeading bool
-	HasSats   bool
+	HasSats    bool
 }
 
 // ErrNotGPSFrame is returned when the magic byte doesn't match.

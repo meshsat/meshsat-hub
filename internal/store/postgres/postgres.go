@@ -419,6 +419,67 @@ func (d *DB) ListPositions(ctx context.Context, tenantID string, deviceIMEI stri
 	return positions, nil
 }
 
+func (d *DB) ListPositionsRange(ctx context.Context, tenantID string, deviceIMEI string, from, to time.Time, limit, offset int) ([]store.Position, int, error) {
+	// Count total matching rows.
+	countQuery := "SELECT COUNT(*) FROM positions WHERE device_imei=$1 AND tenant_id=$2"
+	args := []interface{}{deviceIMEI, tenantID}
+	argN := 3
+	if !from.IsZero() {
+		countQuery += fmt.Sprintf(" AND created_at >= $%d", argN)
+		args = append(args, from)
+		argN++
+	}
+	if !to.IsZero() {
+		countQuery += fmt.Sprintf(" AND created_at <= $%d", argN)
+		args = append(args, to)
+	}
+
+	var total int
+	if err := d.pool.QueryRow(ctx, countQuery, args...).Scan(&total); err != nil {
+		return nil, 0, err
+	}
+
+	// Fetch rows.
+	query := "SELECT id, device_imei, lat, lon, alt, speed, heading, sats, source, cep, created_at FROM positions WHERE device_imei=$1 AND tenant_id=$2"
+	fetchArgs := []interface{}{deviceIMEI, tenantID}
+	fetchN := 3
+	if !from.IsZero() {
+		query += fmt.Sprintf(" AND created_at >= $%d", fetchN)
+		fetchArgs = append(fetchArgs, from)
+		fetchN++
+	}
+	if !to.IsZero() {
+		query += fmt.Sprintf(" AND created_at <= $%d", fetchN)
+		fetchArgs = append(fetchArgs, to)
+		fetchN++
+	}
+	query += " ORDER BY created_at DESC"
+	if limit > 0 {
+		query += fmt.Sprintf(" LIMIT $%d", fetchN)
+		fetchArgs = append(fetchArgs, limit)
+		fetchN++
+	}
+	if offset > 0 {
+		query += fmt.Sprintf(" OFFSET $%d", fetchN)
+		fetchArgs = append(fetchArgs, offset)
+	}
+
+	rows, err := d.pool.Query(ctx, query, fetchArgs...)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+	var positions []store.Position
+	for rows.Next() {
+		var p store.Position
+		if err := rows.Scan(&p.ID, &p.DeviceIMEI, &p.Lat, &p.Lon, &p.Alt, &p.Speed, &p.Heading, &p.Sats, &p.Source, &p.CEP, &p.CreatedAt); err != nil {
+			return nil, 0, err
+		}
+		positions = append(positions, p)
+	}
+	return positions, total, nil
+}
+
 // --- Audit log ---
 
 func (d *DB) InsertAuditEntry(ctx context.Context, tenantID string, a *store.AuditEntry) error {

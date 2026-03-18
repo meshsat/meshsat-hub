@@ -1,14 +1,15 @@
 // Package fragment implements SBD message fragmentation and reassembly
-// compatible with the meshsat bridge's fragment protocol.
+// compatible with the meshsat bridge's SBD fragment protocol.
 //
-// Fragment header (1 byte):
+// Fragment header (2 bytes):
 //
-//	[MSG_ID:4bit | FRAG_NUM:2bit | FRAG_TOTAL:2bit]
-//	- MSG_ID: 0-15 wrapping counter per device
-//	- FRAG_NUM: 0-3 fragment index (0 = first)
-//	- FRAG_TOTAL: 0-3 encoded as total-1 (1→0, 2→1, 3→2, 4→3)
+//	Byte 0: [FRAG_INDEX:4bit | FRAG_TOTAL:4bit]
+//	  - FRAG_INDEX: 0-15 fragment index (0 = first)
+//	  - FRAG_TOTAL: 1-16 total fragments (encoded as total-1, so 0=1, 15=16)
+//	Byte 1: MSG_ID (uint8, wrapping counter per device)
+//	Bytes 2+: payload
 //
-// Max 4 fragments per message. Fragment payload = MTU - 1 (header byte).
+// Fragment payload = MTU - 2 (header bytes).
 package fragment
 
 import (
@@ -19,30 +20,41 @@ import (
 
 // MTU constants for supported satellite constellations.
 const (
-	IridiumMO_MTU   = 340 // Iridium MO (Mobile Originated) max payload
-	IridiumMT_MTU   = 270 // Iridium MT (Mobile Terminated) max payload
-	AstrocastUL_MTU = 160 // Astrocast uplink max payload
-	AstrocastDL_MTU = 40  // Astrocast downlink max payload
-	HeaderSize      = 1   // 1-byte fragment header
-	MaxFragments    = 4   // max fragments per message (2-bit field)
+	IridiumMO_MTU = 340 // Iridium MO (Mobile Originated) max payload
+	IridiumMT_MTU = 270 // Iridium MT (Mobile Terminated) max payload
+	HeaderSize    = 2   // 2-byte fragment header
+	MaxFragments  = 16  // max fragments per message (4-bit field)
 )
 
-// EncodeHeader encodes a fragment header byte.
-func EncodeHeader(msgID, fragNum, fragTotal uint8) byte {
-	return (msgID << 4) | ((fragNum & 0x03) << 2) | ((fragTotal - 1) & 0x03)
+// EncodeHeader encodes the 2-byte fragment header.
+func EncodeHeader(fragIndex, fragTotal, msgID uint8) [2]byte {
+	return [2]byte{
+		(fragIndex&0x0F)<<4 | ((fragTotal - 1) & 0x0F),
+		msgID,
+	}
 }
 
-// DecodeHeader decodes a fragment header byte.
-func DecodeHeader(b byte) (msgID, fragNum, fragTotal uint8) {
-	msgID = b >> 4
-	fragNum = (b >> 2) & 0x03
-	fragTotal = (b & 0x03) + 1
+// DecodeHeader decodes the 2-byte fragment header.
+func DecodeHeader(b0, b1 byte) (fragIndex, fragTotal, msgID uint8) {
+	fragIndex = b0 >> 4
+	fragTotal = (b0 & 0x0F) + 1
+	msgID = b1
 	return
+}
+
+// IsFragment returns true if the payload looks like a fragmented message
+// (fragTotal > 1 when decoded from the header).
+func IsFragment(data []byte) bool {
+	if len(data) < HeaderSize {
+		return false
+	}
+	_, fragTotal, _ := DecodeHeader(data[0], data[1])
+	return fragTotal > 1
 }
 
 // Fragment splits a message into fragments that fit within the given MTU.
 // Returns nil if the message fits in a single frame (no fragmentation needed).
-// msgID should be a wrapping counter (0-15) per device.
+// msgID should be a wrapping counter (0-255) per device.
 func Fragment(data []byte, mtu int, msgID uint8) [][]byte {
 	if len(data) <= mtu {
 		return nil // no fragmentation needed
@@ -53,15 +65,13 @@ func Fragment(data []byte, mtu int, msgID uint8) [][]byte {
 		return nil
 	}
 
-	// Calculate number of fragments needed.
 	nFrags := (len(data) + fragPayload - 1) / fragPayload
 	if nFrags > MaxFragments {
-		nFrags = MaxFragments // truncate to max
+		nFrags = MaxFragments
+		data = data[:nFrags*fragPayload]
 	}
 
 	fragments := make([][]byte, 0, nFrags)
-	maskedID := msgID & 0x0F
-
 	for i := 0; i < nFrags; i++ {
 		start := i * fragPayload
 		end := start + fragPayload
@@ -69,9 +79,11 @@ func Fragment(data []byte, mtu int, msgID uint8) [][]byte {
 			end = len(data)
 		}
 
-		frag := make([]byte, 1+end-start)
-		frag[0] = EncodeHeader(maskedID, uint8(i), uint8(nFrags))
-		copy(frag[1:], data[start:end])
+		hdr := EncodeHeader(uint8(i), uint8(nFrags), msgID)
+		frag := make([]byte, HeaderSize+end-start)
+		frag[0] = hdr[0]
+		frag[1] = hdr[1]
+		copy(frag[HeaderSize:], data[start:end])
 		fragments = append(fragments, frag)
 	}
 
@@ -108,7 +120,7 @@ func (r *Reassembler) AddFragment(deviceID string, data []byte) ([]byte, error) 
 		return nil, fmt.Errorf("fragment too short: %d bytes", len(data))
 	}
 
-	msgID, fragNum, fragTotal := DecodeHeader(data[0])
+	fragIndex, fragTotal, msgID := DecodeHeader(data[0], data[1])
 	payload := data[HeaderSize:]
 	key := fmt.Sprintf("%s:%d", deviceID, msgID)
 
@@ -125,25 +137,25 @@ func (r *Reassembler) AddFragment(deviceID string, data []byte) ([]byte, error) 
 		r.pending[key] = pm
 	}
 
-	if int(fragNum) >= pm.total {
-		return nil, fmt.Errorf("fragment index %d >= total %d", fragNum, pm.total)
+	if int(fragIndex) >= pm.total {
+		return nil, fmt.Errorf("fragment index %d >= total %d", fragIndex, pm.total)
 	}
 
-	if pm.fragments[fragNum] == nil {
+	if pm.fragments[fragIndex] == nil {
 		pm.received++
 	}
-	pm.fragments[fragNum] = payload
+	pm.fragments[fragIndex] = payload
 
 	if pm.received < pm.total {
 		return nil, nil // not yet complete
 	}
 
-	// All fragments received — reassemble.
-	var total int
+	// All fragments received — reassemble in order.
+	var totalLen int
 	for _, f := range pm.fragments {
-		total += len(f)
+		totalLen += len(f)
 	}
-	result := make([]byte, 0, total)
+	result := make([]byte, 0, totalLen)
 	for _, f := range pm.fragments {
 		result = append(result, f...)
 	}

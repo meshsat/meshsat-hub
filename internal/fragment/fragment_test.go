@@ -8,22 +8,43 @@ import (
 
 func TestHeaderRoundtrip(t *testing.T) {
 	tests := []struct {
-		msgID, fragNum, fragTotal uint8
+		fragIndex, fragTotal, msgID uint8
 	}{
-		{0, 0, 1},
-		{5, 0, 2},
-		{5, 1, 2},
-		{15, 3, 4},
-		{0, 0, 4},
-		{7, 2, 3},
+		{0, 1, 0},
+		{0, 2, 5},
+		{1, 2, 5},
+		{3, 4, 15},
+		{0, 4, 0},
+		{2, 3, 7},
+		{15, 16, 255},
+		{0, 1, 128},
 	}
 	for _, tt := range tests {
-		b := EncodeHeader(tt.msgID, tt.fragNum, tt.fragTotal)
-		gotID, gotNum, gotTotal := DecodeHeader(b)
-		if gotID != tt.msgID || gotNum != tt.fragNum || gotTotal != tt.fragTotal {
-			t.Errorf("EncodeHeader(%d,%d,%d)=0x%02x → DecodeHeader=(%d,%d,%d)",
-				tt.msgID, tt.fragNum, tt.fragTotal, b, gotID, gotNum, gotTotal)
+		hdr := EncodeHeader(tt.fragIndex, tt.fragTotal, tt.msgID)
+		gotIdx, gotTotal, gotID := DecodeHeader(hdr[0], hdr[1])
+		if gotIdx != tt.fragIndex || gotTotal != tt.fragTotal || gotID != tt.msgID {
+			t.Errorf("EncodeHeader(%d,%d,%d)=0x%02x%02x → DecodeHeader=(%d,%d,%d)",
+				tt.fragIndex, tt.fragTotal, tt.msgID, hdr[0], hdr[1], gotIdx, gotTotal, gotID)
 		}
+	}
+}
+
+func TestIsFragment(t *testing.T) {
+	// Single message (fragTotal=1) — not a fragment.
+	hdr := EncodeHeader(0, 1, 0)
+	if IsFragment([]byte{hdr[0], hdr[1], 0x01}) {
+		t.Error("fragTotal=1 should not be a fragment")
+	}
+
+	// Multi-fragment (fragTotal=2) — is a fragment.
+	hdr = EncodeHeader(0, 2, 5)
+	if !IsFragment([]byte{hdr[0], hdr[1], 0x01}) {
+		t.Error("fragTotal=2 should be a fragment")
+	}
+
+	// Too short.
+	if IsFragment([]byte{0x01}) {
+		t.Error("single byte should not be a fragment")
 	}
 }
 
@@ -49,23 +70,24 @@ func TestFragment_TwoFragments(t *testing.T) {
 		data[i] = byte(i % 256)
 	}
 
-	frags := Fragment(data, IridiumMO_MTU, 3)
+	frags := Fragment(data, IridiumMO_MTU, 42)
 	if len(frags) != 2 {
 		t.Fatalf("expected 2 fragments for 500 bytes at MTU 340, got %d", len(frags))
 	}
 
+	fragPayload := IridiumMO_MTU - HeaderSize
+
 	// Verify headers.
-	msgID, fragNum, fragTotal := DecodeHeader(frags[0][0])
-	if msgID != 3 || fragNum != 0 || fragTotal != 2 {
-		t.Errorf("frag 0 header: id=%d num=%d total=%d", msgID, fragNum, fragTotal)
+	idx, total, msgID := DecodeHeader(frags[0][0], frags[0][1])
+	if idx != 0 || total != 2 || msgID != 42 {
+		t.Errorf("frag 0 header: idx=%d total=%d msgID=%d", idx, total, msgID)
 	}
-	msgID, fragNum, fragTotal = DecodeHeader(frags[1][0])
-	if msgID != 3 || fragNum != 1 || fragTotal != 2 {
-		t.Errorf("frag 1 header: id=%d num=%d total=%d", msgID, fragNum, fragTotal)
+	idx, total, msgID = DecodeHeader(frags[1][0], frags[1][1])
+	if idx != 1 || total != 2 || msgID != 42 {
+		t.Errorf("frag 1 header: idx=%d total=%d msgID=%d", idx, total, msgID)
 	}
 
-	// Verify payload sizes.
-	fragPayload := IridiumMO_MTU - HeaderSize
+	// Verify sizes.
 	if len(frags[0]) != fragPayload+HeaderSize {
 		t.Errorf("frag 0 size: got %d, want %d", len(frags[0]), fragPayload+HeaderSize)
 	}
@@ -73,31 +95,46 @@ func TestFragment_TwoFragments(t *testing.T) {
 	if len(frags[1]) != remainderPayload+HeaderSize {
 		t.Errorf("frag 1 size: got %d, want %d", len(frags[1]), remainderPayload+HeaderSize)
 	}
+
+	// Each fragment <= MTU.
+	for i, f := range frags {
+		if len(f) > IridiumMO_MTU {
+			t.Errorf("frag %d exceeds MTU: %d > %d", i, len(f), IridiumMO_MTU)
+		}
+	}
 }
 
-func TestFragment_Astrocast(t *testing.T) {
-	data := make([]byte, 400) // 400 bytes, Astrocast MTU=160, payload=159
-	frags := Fragment(data, AstrocastUL_MTU, 7)
-	if len(frags) != 3 {
-		t.Fatalf("expected 3 fragments for 400 bytes at MTU 160, got %d", len(frags))
+func TestFragment_MTFragments(t *testing.T) {
+	data := make([]byte, 500)
+	frags := Fragment(data, IridiumMT_MTU, 1)
+	if len(frags) != 2 {
+		t.Fatalf("expected 2 fragments for 500 bytes at MT MTU 270, got %d", len(frags))
+	}
+	for i, f := range frags {
+		if len(f) > IridiumMT_MTU {
+			t.Errorf("frag %d exceeds MT MTU: %d > %d", i, len(f), IridiumMT_MTU)
+		}
 	}
 }
 
 func TestFragment_MaxFragTruncation(t *testing.T) {
-	// 2000 bytes at MTU 160 → needs 13 fragments, but max is 4
-	data := make([]byte, 2000)
-	frags := Fragment(data, AstrocastUL_MTU, 0)
+	// Very large message — truncated to MaxFragments.
+	mtu := 100
+	fragPayload := mtu - HeaderSize
+	maxData := MaxFragments * fragPayload
+	data := make([]byte, maxData+500) // exceeds max
+	frags := Fragment(data, mtu, 0)
 	if len(frags) != MaxFragments {
 		t.Fatalf("expected %d fragments (max), got %d", MaxFragments, len(frags))
 	}
-}
 
-func TestFragment_MsgIDWrapping(t *testing.T) {
-	data := make([]byte, 500)
-	frags := Fragment(data, IridiumMO_MTU, 200) // 200 & 0x0F = 8
-	msgID, _, _ := DecodeHeader(frags[0][0])
-	if msgID != 8 {
-		t.Errorf("expected msgID 8 (200 & 0x0F), got %d", msgID)
+	// Verify total payload is truncated.
+	var totalPayload int
+	for _, f := range frags {
+		totalPayload += len(f) - HeaderSize
+	}
+	if totalPayload != maxData {
+		t.Errorf("total payload = %d, want %d", totalPayload, maxData)
 	}
 }
 
@@ -214,18 +251,68 @@ func TestReassembly_Expire(t *testing.T) {
 
 func TestReassembly_TooShort(t *testing.T) {
 	r := NewReassembler(5 * time.Minute)
-	_, err := r.AddFragment("dev1", []byte{})
+	_, err := r.AddFragment("dev1", []byte{0x01})
 	if err == nil {
-		t.Error("expected error for empty fragment")
+		t.Error("expected error for single-byte fragment")
 	}
 }
 
-func TestReassembly_InvalidFragNum(t *testing.T) {
+func TestReassembly_InvalidFragIndex(t *testing.T) {
 	r := NewReassembler(5 * time.Minute)
-	// Header with fragTotal=1 but fragNum=2 (invalid).
-	header := EncodeHeader(0, 2, 1)
-	_, err := r.AddFragment("dev1", []byte{header, 0x01})
+	// Header with fragTotal=1 but fragIndex=2 (invalid).
+	hdr := EncodeHeader(2, 1, 0)
+	_, err := r.AddFragment("dev1", []byte{hdr[0], hdr[1], 0x01})
 	if err == nil {
-		t.Error("expected error for fragNum >= fragTotal")
+		t.Error("expected error for fragIndex >= fragTotal")
+	}
+}
+
+func TestReassembly_MsgIDIsolation(t *testing.T) {
+	r := NewReassembler(5 * time.Minute)
+
+	// Two different msgIDs from same device should not mix.
+	data1 := make([]byte, 500)
+	data1[0] = 0xAA
+	frags1 := Fragment(data1, IridiumMO_MTU, 10)
+
+	data2 := make([]byte, 500)
+	data2[0] = 0xBB
+	frags2 := Fragment(data2, IridiumMO_MTU, 11)
+
+	_, _ = r.AddFragment("dev1", frags1[0])
+	_, _ = r.AddFragment("dev1", frags2[0])
+	if r.PendingCount() != 2 {
+		t.Errorf("expected 2 pending (different msgIDs), got %d", r.PendingCount())
+	}
+
+	result, _ := r.AddFragment("dev1", frags1[1])
+	if result == nil {
+		t.Fatal("expected complete for msgID 10")
+	}
+	if !bytes.Equal(result, data1) {
+		t.Error("reassembled data1 mismatch")
+	}
+
+	result, _ = r.AddFragment("dev1", frags2[1])
+	if result == nil {
+		t.Fatal("expected complete for msgID 11")
+	}
+	if !bytes.Equal(result, data2) {
+		t.Error("reassembled data2 mismatch")
+	}
+}
+
+func TestFragment_FullMsgID_Range(t *testing.T) {
+	data := make([]byte, 500)
+	// Test with msgID 0 and 255 (full uint8 range).
+	for _, id := range []uint8{0, 127, 255} {
+		frags := Fragment(data, IridiumMO_MTU, id)
+		if frags == nil {
+			t.Fatalf("expected fragments for msgID=%d", id)
+		}
+		_, _, gotID := DecodeHeader(frags[0][0], frags[0][1])
+		if gotID != id {
+			t.Errorf("msgID=%d: decoded as %d", id, gotID)
+		}
 	}
 }

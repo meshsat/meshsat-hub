@@ -471,6 +471,61 @@ func (d *DB) ListPositions(ctx context.Context, tenantID string, deviceIMEI stri
 	return positions, nil
 }
 
+func (d *DB) ListPositionsRange(ctx context.Context, tenantID string, deviceIMEI string, from, to time.Time, limit, offset int) ([]store.Position, int, error) {
+	// Count total matching rows.
+	countQuery := "SELECT COUNT(*) FROM positions WHERE device_imei=? AND tenant_id=?"
+	args := []interface{}{deviceIMEI, tenantID}
+	if !from.IsZero() {
+		countQuery += " AND created_at >= ?"
+		args = append(args, from.Format(time.DateTime))
+	}
+	if !to.IsZero() {
+		countQuery += " AND created_at <= ?"
+		args = append(args, to.Format(time.DateTime))
+	}
+
+	var total int
+	if err := d.db.QueryRowContext(ctx, countQuery, args...).Scan(&total); err != nil {
+		return nil, 0, err
+	}
+
+	// Fetch rows.
+	query := "SELECT id, device_imei, lat, lon, alt, speed, heading, sats, source, cep, created_at FROM positions WHERE device_imei=? AND tenant_id=?"
+	fetchArgs := []interface{}{deviceIMEI, tenantID}
+	if !from.IsZero() {
+		query += " AND created_at >= ?"
+		fetchArgs = append(fetchArgs, from.Format(time.DateTime))
+	}
+	if !to.IsZero() {
+		query += " AND created_at <= ?"
+		fetchArgs = append(fetchArgs, to.Format(time.DateTime))
+	}
+	query += " ORDER BY created_at DESC"
+	if limit > 0 {
+		query += fmt.Sprintf(" LIMIT %d", limit)
+	}
+	if offset > 0 {
+		query += fmt.Sprintf(" OFFSET %d", offset)
+	}
+
+	rows, err := d.db.QueryContext(ctx, query, fetchArgs...)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer func() { _ = rows.Close() }()
+	var positions []store.Position
+	for rows.Next() {
+		var p store.Position
+		var createdAt string
+		if err := rows.Scan(&p.ID, &p.DeviceIMEI, &p.Lat, &p.Lon, &p.Alt, &p.Speed, &p.Heading, &p.Sats, &p.Source, &p.CEP, &createdAt); err != nil {
+			return nil, 0, err
+		}
+		p.CreatedAt, _ = time.Parse(time.DateTime, createdAt)
+		positions = append(positions, p)
+	}
+	return positions, total, nil
+}
+
 // --- Audit log ---
 
 func (d *DB) InsertAuditEntry(ctx context.Context, tenantID string, a *store.AuditEntry) error {

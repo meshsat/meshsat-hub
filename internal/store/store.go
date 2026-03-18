@@ -46,6 +46,7 @@ type Store interface {
 	InsertPosition(ctx context.Context, tenantID string, p *Position) error
 	LatestPosition(ctx context.Context, tenantID string, deviceIMEI string) (*Position, error)
 	ListPositions(ctx context.Context, tenantID string, deviceIMEI string, limit int) ([]Position, error)
+	ListPositionsRange(ctx context.Context, tenantID string, deviceIMEI string, from, to time.Time, limit, offset int) ([]Position, int, error)
 
 	// Audit log
 	InsertAuditEntry(ctx context.Context, tenantID string, a *AuditEntry) error

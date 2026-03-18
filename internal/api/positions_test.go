@@ -67,12 +67,12 @@ func TestListPositions(t *testing.T) {
 				t.Errorf("status = %d, want %d", rec.Code, tt.wantCode)
 			}
 			if tt.wantCode == http.StatusOK {
-				var pos []store.Position
-				if err := json.NewDecoder(rec.Body).Decode(&pos); err != nil {
+				var resp paginatedPositions
+				if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
 					t.Fatalf("decode: %v", err)
 				}
-				if len(pos) != tt.wantCount {
-					t.Errorf("count = %d, want %d", len(pos), tt.wantCount)
+				if len(resp.Positions) != tt.wantCount {
+					t.Errorf("count = %d, want %d", len(resp.Positions), tt.wantCount)
 				}
 			}
 		})

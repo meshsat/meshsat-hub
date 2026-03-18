@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/cubeos-app/meshsat-hub/internal/store"
 )
@@ -100,6 +101,9 @@ func (m *mockStore) LatestPosition(_ context.Context, _ string, _ string) (*stor
 }
 func (m *mockStore) ListPositions(_ context.Context, _ string, _ string, _ int) ([]store.Position, error) {
 	return m.positions, m.positionErr
+}
+func (m *mockStore) ListPositionsRange(_ context.Context, _ string, _ string, _, _ time.Time, _, _ int) ([]store.Position, int, error) {
+	return m.positions, len(m.positions), m.positionErr
 }
 
 func (m *mockStore) InsertAuditEntry(context.Context, string, *store.AuditEntry) error { return nil }

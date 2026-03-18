@@ -54,6 +54,11 @@ type RawMessage struct {
 type PositionMessage struct {
 	Lat       float64 `json:"lat"`
 	Lon       float64 `json:"lon"`
+	Alt       float64 `json:"alt,omitempty"`
+	Speed     float64 `json:"speed,omitempty"`   // m/s
+	Heading   float64 `json:"heading,omitempty"` // degrees 0-360
+	Sats      int     `json:"sats,omitempty"`    // satellites in view
+	CEP       float64 `json:"cep,omitempty"`     // circular error probable (meters)
 	Source    string  `json:"source"`
 	Timestamp string  `json:"timestamp"`
 }
@@ -259,6 +264,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		pos := PositionMessage{
 			Lat:       iridiumLat,
 			Lon:       iridiumLon,
+			CEP:       iridiumCEP,
 			Source:    "iridium_cep",
 			Timestamp: ts,
 		}
