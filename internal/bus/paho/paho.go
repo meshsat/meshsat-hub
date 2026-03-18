@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -15,12 +16,22 @@ import (
 	"github.com/cubeos-app/meshsat-hub/internal/bus"
 )
 
+// subscription records a Subscribe or QueueSubscribe call for replay on reconnect.
+type subscription struct {
+	topic   string
+	qos     byte
+	handler bus.MessageHandler
+}
+
 // Bus implements bus.MessageBus using Paho MQTT.
 type Bus struct {
 	brokerURL string
 	clientID  string
 	inner     pahomqtt.Client
 	connected atomic.Bool
+
+	mu   sync.Mutex
+	subs []subscription
 }
 
 // New creates a new Paho MQTT bus.
@@ -35,9 +46,10 @@ func New(brokerURL, clientID string) *Bus {
 		SetMaxReconnectInterval(30 * time.Second).
 		SetKeepAlive(60 * time.Second).
 		SetCleanSession(true).
-		SetOnConnectHandler(func(_ pahomqtt.Client) {
+		SetOnConnectHandler(func(c pahomqtt.Client) {
 			b.connected.Store(true)
 			slog.Info("bus: mqtt connected", "broker", brokerURL)
+			b.resubscribe(c)
 		}).
 		SetConnectionLostHandler(func(_ pahomqtt.Client, err error) {
 			b.connected.Store(false)
@@ -49,6 +61,32 @@ func New(brokerURL, clientID string) *Bus {
 
 	b.inner = pahomqtt.NewClient(opts)
 	return b
+}
+
+// resubscribe replays all registered subscriptions after a reconnect.
+func (b *Bus) resubscribe(c pahomqtt.Client) {
+	b.mu.Lock()
+	snapshot := make([]subscription, len(b.subs))
+	copy(snapshot, b.subs)
+	b.mu.Unlock()
+
+	if len(snapshot) == 0 {
+		return
+	}
+
+	slog.Info("bus: replaying subscriptions after reconnect", "count", len(snapshot))
+	for _, s := range snapshot {
+		handler := s.handler // capture for closure
+		token := c.Subscribe(s.topic, s.qos, func(_ pahomqtt.Client, msg pahomqtt.Message) {
+			handler(msg.Topic(), msg.Payload())
+		})
+		token.Wait()
+		if err := token.Error(); err != nil {
+			slog.Error("bus: resubscribe failed", "topic", s.topic, "error", err)
+		} else {
+			slog.Debug("bus: resubscribed", "topic", s.topic)
+		}
+	}
 }
 
 func (b *Bus) Connect() error {
@@ -85,6 +123,9 @@ func (b *Bus) Subscribe(topic string, qos byte, handler bus.MessageHandler) erro
 	if err := token.Error(); err != nil {
 		return fmt.Errorf("bus: subscribe %s: %w", topic, err)
 	}
+	b.mu.Lock()
+	b.subs = append(b.subs, subscription{topic: topic, qos: qos, handler: handler})
+	b.mu.Unlock()
 	slog.Debug("bus: subscribed", "topic", topic)
 	return nil
 }
