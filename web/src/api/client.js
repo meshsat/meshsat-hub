@@ -1,10 +1,19 @@
+import { useAuthStore } from '../stores/auth'
+
 const BASE = '/api'
 
 async function fetchJSON(url, opts = {}) {
-  const res = await fetch(BASE + url, {
-    headers: { 'Content-Type': 'application/json', ...opts.headers },
-    ...opts,
-  })
+  const auth = useAuthStore()
+  const headers = { 'Content-Type': 'application/json', ...opts.headers }
+  if (auth.token) {
+    headers['Authorization'] = `Bearer ${auth.token}`
+  }
+  const res = await fetch(BASE + url, { ...opts, headers })
+  if (res.status === 401) {
+    auth.logout()
+    window.location.hash = '#/login'
+    throw new Error('Unauthorized')
+  }
   if (!res.ok) {
     const err = await res.json().catch(() => ({ error: res.statusText }))
     throw new Error(err.error || res.statusText)
