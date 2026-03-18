@@ -152,7 +152,9 @@ func main() {
 	switch cfg.Mode {
 	case "cluster":
 		leaderElector = leader.NewNATS(msgBus, instanceID)
-	default: // "standalone", "kubernetes" (k8s Lease not implemented yet)
+	case "kubernetes":
+		leaderElector = leader.NewKubeLease(instanceID)
+	default: // "standalone"
 		leaderElector = leader.NewNoop()
 	}
 
