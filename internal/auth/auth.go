@@ -2,19 +2,18 @@
 // Supports three modes:
 // - "none": no authentication (development only)
 // - "token": simple bearer token (standalone, HUB_AUTH_TOKEN)
-// - "oidc": JWT validation against an OIDC provider (cluster/k8s)
+// - "oidc": JWT signature verification against an OIDC provider's JWKS (cluster/k8s)
 package auth
 
 import (
 	"context"
 	"crypto/subtle"
-	"encoding/base64"
-	"encoding/json"
 	"fmt"
 	"log/slog"
 	"net/http"
 	"strings"
-	"time"
+
+	"github.com/golang-jwt/jwt/v5"
 )
 
 type contextKey string
@@ -62,7 +61,8 @@ func Middleware(cfg Config) func(http.Handler) http.Handler {
 	switch cfg.Mode {
 	case "oidc":
 		slog.Info("auth: OIDC mode", "issuer", cfg.OIDCIssuerURL)
-		return jwtMiddleware(cfg.OIDCIssuerURL, cfg.OIDCAudience)
+		provider := NewJWKSProvider(cfg.OIDCIssuerURL, nil)
+		return jwtMiddleware(provider, cfg.OIDCIssuerURL, cfg.OIDCAudience)
 	case "token":
 		slog.Info("auth: token mode")
 		return tokenMiddleware(cfg.Token)
@@ -70,6 +70,12 @@ func Middleware(cfg Config) func(http.Handler) http.Handler {
 		slog.Warn("auth: no authentication (mode=none)")
 		return noopMiddleware()
 	}
+}
+
+// MiddlewareWithProvider returns OIDC middleware using an externally provided JWKSProvider.
+// This is useful for testing and for sharing a provider across components.
+func MiddlewareWithProvider(provider *JWKSProvider, issuerURL, audience string) func(http.Handler) http.Handler {
+	return jwtMiddleware(provider, issuerURL, audience)
 }
 
 func isExempt(path string) bool {
@@ -113,7 +119,21 @@ func tokenMiddleware(token string) func(http.Handler) http.Handler {
 	}
 }
 
-func jwtMiddleware(issuerURL, audience string) func(http.Handler) http.Handler {
+func jwtMiddleware(provider *JWKSProvider, issuerURL, audience string) func(http.Handler) http.Handler {
+	// Build parser options.
+	opts := []jwt.ParserOption{
+		jwt.WithValidMethods([]string{"RS256", "RS384", "RS512"}),
+		jwt.WithExpirationRequired(),
+	}
+	if issuerURL != "" {
+		opts = append(opts, jwt.WithIssuer(issuerURL))
+	}
+	if audience != "" {
+		opts = append(opts, jwt.WithAudience(audience))
+	}
+
+	parser := jwt.NewParser(opts...)
+
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if isExempt(r.URL.Path) {
@@ -127,67 +147,63 @@ func jwtMiddleware(issuerURL, audience string) func(http.Handler) http.Handler {
 				return
 			}
 
-			user, err := parseJWT(tokenStr, issuerURL, audience)
+			// Parse and verify JWT signature using JWKS keys.
+			token, err := parser.Parse(tokenStr, func(t *jwt.Token) (interface{}, error) {
+				kid, ok := t.Header["kid"].(string)
+				if !ok || kid == "" {
+					return nil, fmt.Errorf("missing kid in JWT header")
+				}
+				return provider.GetKey(kid)
+			})
 			if err != nil {
 				slog.Debug("auth: JWT validation failed", "error", err)
 				writeAuthError(w, "invalid token")
 				return
 			}
 
+			claims, ok := token.Claims.(jwt.MapClaims)
+			if !ok {
+				writeAuthError(w, "invalid token claims")
+				return
+			}
+
+			user := extractUser(claims)
 			ctx := context.WithValue(r.Context(), UserContextKey, user)
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
 	}
 }
 
-// parseJWT does lightweight JWT claim extraction and validation.
-// Does NOT verify the signature (signature verification requires JWKS fetching
-// from the IdP — a full implementation should use github.com/golang-jwt/jwt/v5).
-// For production, replace this with proper JWKS-based verification.
-func parseJWT(tokenStr, issuerURL, audience string) (*User, error) {
-	parts := strings.Split(tokenStr, ".")
-	if len(parts) != 3 {
-		return nil, fmt.Errorf("invalid JWT format")
+// extractUser builds a User from JWT MapClaims.
+func extractUser(claims jwt.MapClaims) *User {
+	u := &User{}
+
+	if sub, ok := claims["sub"].(string); ok {
+		u.ID = sub
+	}
+	if email, ok := claims["email"].(string); ok {
+		u.Email = email
+	}
+	if name, ok := claims["name"].(string); ok {
+		u.Name = name
+	}
+	if tid, ok := claims["tenant_id"].(string); ok {
+		u.TenantID = tid
 	}
 
-	payload, err := base64.RawURLEncoding.DecodeString(parts[1])
-	if err != nil {
-		return nil, fmt.Errorf("decode payload: %w", err)
+	// Roles can be []string or []interface{} depending on IdP.
+	switch r := claims["roles"].(type) {
+	case []interface{}:
+		for _, v := range r {
+			if s, ok := v.(string); ok {
+				u.Roles = append(u.Roles, s)
+			}
+		}
+	case []string:
+		u.Roles = r
 	}
 
-	var claims struct {
-		Sub      string      `json:"sub"`
-		Email    string      `json:"email"`
-		Name     string      `json:"name"`
-		Iss      string      `json:"iss"`
-		Aud      interface{} `json:"aud"`
-		Exp      int64       `json:"exp"`
-		Roles    []string    `json:"roles"`
-		TenantID string      `json:"tenant_id"`
-	}
-	if err := json.Unmarshal(payload, &claims); err != nil {
-		return nil, fmt.Errorf("parse claims: %w", err)
-	}
-
-	if claims.Exp > 0 && time.Now().Unix() > claims.Exp {
-		return nil, fmt.Errorf("token expired")
-	}
-
-	if issuerURL != "" && claims.Iss != issuerURL {
-		return nil, fmt.Errorf("issuer mismatch")
-	}
-
-	if audience != "" && !audienceContains(claims.Aud, audience) {
-		return nil, fmt.Errorf("audience mismatch")
-	}
-
-	return &User{
-		ID:       claims.Sub,
-		Email:    claims.Email,
-		Name:     claims.Name,
-		Roles:    claims.Roles,
-		TenantID: claims.TenantID,
-	}, nil
+	return u
 }
 
 func extractBearer(r *http.Request) string {
@@ -196,20 +212,6 @@ func extractBearer(r *http.Request) string {
 		return strings.TrimPrefix(auth, "Bearer ")
 	}
 	return ""
-}
-
-func audienceContains(aud interface{}, target string) bool {
-	switch v := aud.(type) {
-	case string:
-		return v == target
-	case []interface{}:
-		for _, a := range v {
-			if s, ok := a.(string); ok && s == target {
-				return true
-			}
-		}
-	}
-	return false
 }
 
 func writeAuthError(w http.ResponseWriter, msg string) {
