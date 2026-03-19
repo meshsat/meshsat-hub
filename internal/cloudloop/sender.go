@@ -10,6 +10,7 @@ import (
 
 	"github.com/cubeos-app/meshsat-hub/internal/audit"
 	"github.com/cubeos-app/meshsat-hub/internal/bus"
+	"github.com/cubeos-app/meshsat-hub/internal/codec"
 	"github.com/cubeos-app/meshsat-hub/internal/compress"
 	"github.com/cubeos-app/meshsat-hub/internal/fragment"
 	hubmqtt "github.com/cubeos-app/meshsat-hub/internal/mqtt"
@@ -111,6 +112,9 @@ func (s *Sender) handleMTSend(topic string, payload []byte) {
 	if req.Compress {
 		data = compress.Compress(data)
 	}
+
+	// Prepend protocol version byte before fragmentation.
+	data = codec.PrependVersionByte(data)
 
 	// Fragment if payload exceeds MT MTU.
 	frags := fragment.Fragment(data, s.mtMTU, s.nextMsgID())

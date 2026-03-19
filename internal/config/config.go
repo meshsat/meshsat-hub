@@ -82,6 +82,10 @@ type Config struct {
 	TLSPinPrimary string `yaml:"tls_pin_primary"` // Primary pin hash
 	TLSPinBackup  string `yaml:"tls_pin_backup"`  // Backup pin for rotation
 
+	// OIDC provider certificate pinning (base64-encoded SHA-256 SPKI hashes)
+	OIDCCertPin       string `yaml:"oidc_cert_pin"`        // Primary OIDC provider cert pin
+	OIDCCertPinBackup string `yaml:"oidc_cert_pin_backup"` // Backup pin for rotation
+
 	// SOS detection
 	SOSChainID string `yaml:"sos_chain_id"` // Default escalation chain ID for SOS alerts (empty = first available)
 
@@ -199,6 +203,22 @@ func Load() (Config, error) {
 	}
 	if v := os.Getenv("HUB_OIDC_AUDIENCE"); v != "" {
 		cfg.OIDCAudience = v
+	}
+
+	// OIDC cert pinning overrides
+	if v := os.Getenv("HUB_OIDC_CERT_PIN"); v != "" {
+		cfg.OIDCCertPin = v
+	}
+	if v := os.Getenv("HUB_OIDC_CERT_PIN_BACKUP"); v != "" {
+		cfg.OIDCCertPinBackup = v
+	}
+
+	// TLS pin overrides
+	if v := os.Getenv("HUB_TLS_PIN_PRIMARY"); v != "" {
+		cfg.TLSPinPrimary = v
+	}
+	if v := os.Getenv("HUB_TLS_PIN_BACKUP"); v != "" {
+		cfg.TLSPinBackup = v
 	}
 
 	// TAK/CoT overrides

@@ -44,3 +44,4 @@ tor-keys/
 # OS
 .DS_Store
 Thumbs.db
+meshsat-sim

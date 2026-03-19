@@ -15,6 +15,8 @@ import (
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
+
+	"github.com/cubeos-app/meshsat-hub/internal/tlspin"
 )
 
 type contextKey string
@@ -109,11 +111,13 @@ func TenantMiddleware(enforce bool) func(http.Handler) http.Handler {
 
 // Config holds authentication configuration.
 type Config struct {
-	Mode          string // "none", "token", "oidc", "local"
-	Token         string // static bearer token (mode=token)
-	OIDCIssuerURL string // OIDC issuer URL (mode=oidc)
-	OIDCAudience  string // expected JWT audience
-	JWTSecret     []byte // HMAC-SHA256 key (mode=local)
+	Mode              string // "none", "token", "oidc", "local"
+	Token             string // static bearer token (mode=token)
+	OIDCIssuerURL     string // OIDC issuer URL (mode=oidc)
+	OIDCAudience      string // expected JWT audience
+	JWTSecret         []byte // HMAC-SHA256 key (mode=local)
+	OIDCCertPin       string // base64-encoded SHA-256 SPKI hash for OIDC provider cert pin
+	OIDCCertPinBackup string // backup pin for zero-downtime rotation
 }
 
 // Middleware returns an HTTP middleware that authenticates requests.
@@ -121,7 +125,21 @@ func Middleware(cfg Config) func(http.Handler) http.Handler {
 	switch cfg.Mode {
 	case "oidc":
 		slog.Info("auth: OIDC mode", "issuer", cfg.OIDCIssuerURL)
-		provider := NewJWKSProvider(cfg.OIDCIssuerURL, nil)
+		var httpClient *http.Client
+		if cfg.OIDCCertPin != "" {
+			var hashes []string
+			hashes = append(hashes, cfg.OIDCCertPin)
+			if cfg.OIDCCertPinBackup != "" {
+				hashes = append(hashes, cfg.OIDCCertPinBackup)
+			}
+			pin := tlspin.NewPin(hashes...)
+			httpClient = &http.Client{
+				Transport: tlspin.PinnedTransport(pin),
+				Timeout:   10 * time.Second,
+			}
+			slog.Info("auth: OIDC cert pinning enabled", "pins", len(hashes))
+		}
+		provider := NewJWKSProvider(cfg.OIDCIssuerURL, httpClient)
 		return jwtMiddleware(provider, cfg.OIDCIssuerURL, cfg.OIDCAudience)
 	case "token":
 		slog.Info("auth: token mode")
