@@ -192,3 +192,85 @@ func (r *Reassembler) PendingCount() int {
 	defer r.mu.Unlock()
 	return len(r.pending)
 }
+
+// --- Astrocast 1-byte fragment format ---
+// Header: [MSG_ID:4bit | FRAG_NUM:2bit | FRAG_TOTAL:2bit]
+// Max 4 fragments, 159-byte payload per fragment (Astrocast uplink MTU = 160).
+
+const (
+	AstroHeaderSize   = 1
+	AstroMaxUplink    = 160
+	AstroFragPayload  = AstroMaxUplink - AstroHeaderSize // 159
+	AstroMaxFragments = 4
+)
+
+// EncodeAstroHeader encodes the 1-byte Astrocast fragment header.
+func EncodeAstroHeader(msgID, fragNum, fragTotal uint8) byte {
+	return (msgID&0x0F)<<4 | (fragNum&0x03)<<2 | ((fragTotal - 1) & 0x03)
+}
+
+// DecodeAstroHeader decodes the 1-byte Astrocast fragment header.
+func DecodeAstroHeader(b byte) (msgID, fragNum, fragTotal uint8) {
+	msgID = b >> 4
+	fragNum = (b >> 2) & 0x03
+	fragTotal = (b & 0x03) + 1
+	return
+}
+
+// IsAstroFragment returns true if the payload looks like an Astrocast fragment.
+// Astrocast fragments have fragTotal > 1 and are small (<=160 bytes).
+func IsAstroFragment(data []byte) bool {
+	if len(data) < AstroHeaderSize+1 || len(data) > AstroMaxUplink {
+		return false
+	}
+	_, _, fragTotal := DecodeAstroHeader(data[0])
+	return fragTotal > 1
+}
+
+// AddAstroFragment adds an Astrocast fragment. Returns reassembled if complete.
+func (r *Reassembler) AddAstroFragment(deviceID string, data []byte) ([]byte, error) {
+	if len(data) < AstroHeaderSize+1 {
+		return nil, fmt.Errorf("astro fragment too short: %d bytes", len(data))
+	}
+
+	msgID, fragNum, fragTotal := DecodeAstroHeader(data[0])
+	payload := data[AstroHeaderSize:]
+	key := fmt.Sprintf("astro:%s:%d", deviceID, msgID)
+
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	pm, ok := r.pending[key]
+	if !ok {
+		pm = &pendingMessage{
+			fragments: make([][]byte, fragTotal),
+			total:     int(fragTotal),
+			createdAt: time.Now(),
+		}
+		r.pending[key] = pm
+	}
+
+	if int(fragNum) >= pm.total {
+		return nil, fmt.Errorf("astro fragment index %d >= total %d", fragNum, pm.total)
+	}
+
+	if pm.fragments[fragNum] == nil {
+		pm.received++
+	}
+	pm.fragments[fragNum] = payload
+
+	if pm.received < pm.total {
+		return nil, nil
+	}
+
+	var totalLen int
+	for _, f := range pm.fragments {
+		totalLen += len(f)
+	}
+	result := make([]byte, 0, totalLen)
+	for _, f := range pm.fragments {
+		result = append(result, f...)
+	}
+	delete(r.pending, key)
+	return result, nil
+}

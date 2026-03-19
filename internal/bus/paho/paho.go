@@ -4,9 +4,12 @@
 package paho
 
 import (
+	"crypto/tls"
+	"crypto/x509"
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"os"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -34,8 +37,20 @@ type Bus struct {
 	subs []subscription
 }
 
+// TLSConfig holds optional TLS settings for MQTT connections.
+type TLSConfig struct {
+	CertFile string // Client certificate PEM file
+	KeyFile  string // Client private key PEM file
+	CAFile   string // CA certificate PEM file for broker verification
+}
+
 // New creates a new Paho MQTT bus.
 func New(brokerURL, clientID string) *Bus {
+	return NewWithTLS(brokerURL, clientID, nil)
+}
+
+// NewWithTLS creates a new Paho MQTT bus with optional mutual TLS.
+func NewWithTLS(brokerURL, clientID string, tlsCfg *TLSConfig) *Bus {
 	b := &Bus{brokerURL: brokerURL, clientID: clientID}
 
 	opts := pahomqtt.NewClientOptions().
@@ -59,8 +74,44 @@ func New(brokerURL, clientID string) *Bus {
 			slog.Info("bus: mqtt reconnecting", "broker", brokerURL)
 		})
 
+	if tlsCfg != nil {
+		tc, err := loadTLSConfig(tlsCfg)
+		if err != nil {
+			slog.Error("bus: failed to load TLS config", "error", err)
+		} else {
+			opts.SetTLSConfig(tc)
+			slog.Info("bus: MQTT TLS enabled", "cert", tlsCfg.CertFile, "ca", tlsCfg.CAFile)
+		}
+	}
+
 	b.inner = pahomqtt.NewClient(opts)
 	return b
+}
+
+func loadTLSConfig(cfg *TLSConfig) (*tls.Config, error) {
+	tlsConfig := &tls.Config{MinVersion: tls.VersionTLS12}
+
+	if cfg.CAFile != "" {
+		caCert, err := os.ReadFile(cfg.CAFile)
+		if err != nil {
+			return nil, fmt.Errorf("read CA file: %w", err)
+		}
+		pool := x509.NewCertPool()
+		if !pool.AppendCertsFromPEM(caCert) {
+			return nil, fmt.Errorf("invalid CA certificate")
+		}
+		tlsConfig.RootCAs = pool
+	}
+
+	if cfg.CertFile != "" && cfg.KeyFile != "" {
+		cert, err := tls.LoadX509KeyPair(cfg.CertFile, cfg.KeyFile)
+		if err != nil {
+			return nil, fmt.Errorf("load client cert: %w", err)
+		}
+		tlsConfig.Certificates = []tls.Certificate{cert}
+	}
+
+	return tlsConfig, nil
 }
 
 // resubscribe replays all registered subscriptions after a reconnect.

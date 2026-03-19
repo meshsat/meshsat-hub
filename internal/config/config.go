@@ -20,6 +20,9 @@ type Config struct {
 	Port                   int    `yaml:"port"`
 	MQTTBrokerURL          string `yaml:"mqtt_broker_url"`
 	MQTTClientID           string `yaml:"mqtt_client_id"`
+	MQTTTLSCert            string `yaml:"mqtt_tls_cert"` // Client certificate PEM for mutual TLS
+	MQTTTLSKey             string `yaml:"mqtt_tls_key"`  // Client private key PEM
+	MQTTLSCA               string `yaml:"mqtt_tls_ca"`   // CA certificate for broker verification
 	RockBLOCKSecret        string `yaml:"rockblock_secret"`
 	CloudloopAPIKey        string `yaml:"cloudloop_api_key"`
 	CloudloopAPIURL        string `yaml:"cloudloop_api_url"`
