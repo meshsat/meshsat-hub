@@ -1,0 +1,30 @@
+# docker-compose.dev.yml — Development environment with simulator
+# Usage: docker compose -f docker-compose.yml -f docker-compose.dev.yml up
+#
+# Starts: Hub + Mosquitto + Simulator (3 virtual devices)
+# Dashboard: http://localhost:6070
+# Auth: disabled (no login required)
+
+services:
+  hub:
+    environment:
+      - HUB_AUTH_MODE=none
+      - HUB_LOG_LEVEL=debug
+      - HUB_LOG_FORMAT=text
+
+  simulator:
+    build:
+      context: .
+      dockerfile: Dockerfile.sim
+    container_name: meshsat-sim
+    restart: unless-stopped
+    environment:
+      - SIM_HUB_URL=http://hub:6070
+      - SIM_DEVICES=3
+      - SIM_INTERVAL=30s
+      - SIM_CHANNEL=iridium
+    depends_on:
+      hub:
+        condition: service_healthy
+    networks:
+      - hubnet

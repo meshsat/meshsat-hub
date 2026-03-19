@@ -1,4 +1,4 @@
-.PHONY: build build-arm64 build-x86_64 test test-integration lint fmt clean docker run security gosec govulncheck owasp owasp-full swagger
+.PHONY: build build-arm64 build-x86_64 build-sim test test-integration lint fmt clean docker run dev security gosec govulncheck owasp owasp-full swagger
 
 BINARY := meshsat-hub
 PKG := github.com/cubeos-app/meshsat-hub
@@ -47,6 +47,9 @@ swagger:
 	swag init -g cmd/meshsat-hub/main.go -o docs/swagger --parseDependency --parseInternal
 	rm -f docs/swagger/docs.go
 
+build-sim:
+	CGO_ENABLED=0 go build -o bin/meshsat-sim ./cmd/meshsat-sim/
+
 clean:
 	rm -rf bin/
 
@@ -55,3 +58,13 @@ docker:
 
 run:
 	HUB_LOG_FORMAT=text HUB_LOG_LEVEL=debug go run ./cmd/meshsat-hub/
+
+dev:
+	@echo "Starting MeshSat Hub dev environment (Hub + MQTT + Simulator)..."
+	docker compose up -d mqtt
+	@sleep 2
+	@echo "Starting Hub in background..."
+	HUB_LOG_FORMAT=text HUB_LOG_LEVEL=debug HUB_AUTH_MODE=none go run ./cmd/meshsat-hub/ &
+	@sleep 3
+	@echo "Starting Simulator (3 devices, 30s interval)..."
+	go run ./cmd/meshsat-sim/ --hub-url http://localhost:6070 --devices 3 --interval 30s
