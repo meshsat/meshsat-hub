@@ -330,9 +330,8 @@ func (h *Handler) verifySignature(r *http.Request) bool {
 	// Check for HMAC in form data.
 	sig := r.FormValue("JWT")
 	if sig != "" {
-		// Ground Control JWT verification — simplified shared-secret check.
-		// In production, this should verify the full JWT.
-		return sig == h.secret
+		// Ground Control JWT verification — constant-time shared-secret check.
+		return hmac.Equal([]byte(sig), []byte(h.secret))
 	}
 
 	// Check X-Hub-Signature header (HMAC-SHA256).
