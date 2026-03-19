@@ -18,6 +18,7 @@ import (
 	"github.com/cubeos-app/meshsat-hub/internal/bus"
 	"github.com/cubeos-app/meshsat-hub/internal/compress"
 	hubcrypto "github.com/cubeos-app/meshsat-hub/internal/crypto"
+	"github.com/cubeos-app/meshsat-hub/internal/deadman"
 	"github.com/cubeos-app/meshsat-hub/internal/dedup"
 	"github.com/cubeos-app/meshsat-hub/internal/fragment"
 	hubmqtt "github.com/cubeos-app/meshsat-hub/internal/mqtt"
@@ -72,6 +73,7 @@ type Handler struct {
 	dedup       dedup.Dedup
 	reassembler *fragment.Reassembler
 	keyStore    *hubcrypto.KeyStore
+	deadman     *deadman.Monitor
 }
 
 // NewHandler creates a new RockBLOCK webhook handler.
@@ -97,6 +99,11 @@ func (h *Handler) SetReassembler(r *fragment.Reassembler) {
 // SetKeyStore attaches a crypto keystore for E2E decryption of MO messages.
 func (h *Handler) SetKeyStore(ks *hubcrypto.KeyStore) {
 	h.keyStore = ks
+}
+
+// SetDeadman attaches a dead man's switch monitor for check-in on MO messages.
+func (h *Handler) SetDeadman(dm *deadman.Monitor) {
+	h.deadman = dm
 }
 
 func (h *Handler) publish(topic string, qos byte, retained bool, v any) {
@@ -292,6 +299,11 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			Timestamp: ts,
 		}
 		h.publish(hubmqtt.TopicPosition(imei), 1, true, pos)
+	}
+
+	// Dead man's switch: device sent an MO message, reset its timer.
+	if h.deadman != nil {
+		h.deadman.CheckIn(imei)
 	}
 
 	// Audit: log message_received event.

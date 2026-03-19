@@ -290,8 +290,9 @@ func main() {
 	}
 
 	// Position subscriber: stores MQTT position updates to the database.
+	var posSub *position.Subscriber
 	if msgBus.IsConnected() {
-		posSub := position.NewSubscriber(msgBus, dataStore, store.DefaultTenantID)
+		posSub = position.NewSubscriber(msgBus, dataStore, store.DefaultTenantID)
 		if err := posSub.Start(); err != nil {
 			slog.Error("position: failed to start subscriber", "error", err)
 		}
@@ -329,6 +330,11 @@ func main() {
 	// Dead man's switch monitor (triggers escalation on missed device check-ins).
 	deadmanMonitor := deadman.NewMonitor(dataStore, escEngine)
 	go deadmanMonitor.Start(ctx)
+
+	// Wire dead man's switch to position subscriber so device positions reset the timer.
+	if posSub != nil {
+		posSub.SetDeadman(deadmanMonitor)
+	}
 
 	// SOS detector (subscribes to mo/decoded, triggers escalation on SOS messages).
 	if msgBus.IsConnected() {
@@ -382,6 +388,7 @@ func main() {
 	rbHandler.SetDedup(dedupTracker)
 	rbHandler.SetReassembler(reassembler)
 	rbHandler.SetKeyStore(keyStore)
+	rbHandler.SetDeadman(deadmanMonitor)
 
 	r := chi.NewRouter()
 	r.Use(middleware.Recoverer)

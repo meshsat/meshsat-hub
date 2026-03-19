@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/cubeos-app/meshsat-hub/internal/bus"
+	"github.com/cubeos-app/meshsat-hub/internal/deadman"
 	"github.com/cubeos-app/meshsat-hub/internal/geo"
 	hubmqtt "github.com/cubeos-app/meshsat-hub/internal/mqtt"
 	"github.com/cubeos-app/meshsat-hub/internal/store"
@@ -37,11 +38,17 @@ type Subscriber struct {
 	bus      bus.MessageBus
 	store    store.Store
 	tenantID string // default tenant for MQTT-ingested positions
+	deadman  *deadman.Monitor
 }
 
 // NewSubscriber creates a position subscriber.
 func NewSubscriber(b bus.MessageBus, s store.Store, defaultTenantID string) *Subscriber {
 	return &Subscriber{bus: b, store: s, tenantID: defaultTenantID}
+}
+
+// SetDeadman attaches a dead man's switch monitor for check-in on position updates.
+func (s *Subscriber) SetDeadman(dm *deadman.Monitor) {
+	s.deadman = dm
 }
 
 // Start subscribes to the position wildcard topic.
@@ -119,8 +126,11 @@ func (s *Subscriber) handlePosition(topic string, payload []byte) {
 		return
 	}
 
-	// Also touch device last_seen.
+	// Touch device last_seen and dead man's switch check-in.
 	_ = s.store.TouchDeviceLastSeen(ctx, s.tenantID, deviceID)
+	if s.deadman != nil {
+		s.deadman.CheckIn(deviceID)
+	}
 
 	slog.Debug("position: stored",
 		"device", deviceID,

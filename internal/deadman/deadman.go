@@ -91,6 +91,26 @@ func (m *Monitor) ClearAlert(deviceIMEI string) {
 	delete(m.alerted, deviceIMEI)
 }
 
+// CheckIn records device activity: touches last_seen in the store and clears
+// any active dead man's switch alert so the device can re-trigger if it goes
+// silent again. Call this from position subscriber and MO handler.
+func (m *Monitor) CheckIn(deviceIMEI string) {
+	// Clear alert so device can re-trigger on next silence.
+	m.mu.Lock()
+	wasAlerted := m.alerted[deviceIMEI]
+	delete(m.alerted, deviceIMEI)
+	m.mu.Unlock()
+
+	if wasAlerted {
+		slog.Info("deadman: device checked in, alert cleared", "device", deviceIMEI)
+	}
+
+	// Touch last_seen in the store.
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	_ = m.store.TouchDeviceLastSeen(ctx, store.DefaultTenantID, deviceIMEI)
+}
+
 // ListConfigs returns all active dead man's switch configs.
 func (m *Monitor) ListConfigs() []Config {
 	m.mu.Lock()
