@@ -764,6 +764,28 @@
                 }
             }
         },
+        "/api/codecs": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "codecs"
+                ],
+                "summary": "List available payload decoders",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/internal_codec.CodecInfo"
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/deadman": {
             "get": {
                 "produces": [
@@ -938,6 +960,7 @@
                 }
             },
             "post": {
+                "description": "If WireGuard is enabled, a VPN peer is auto-provisioned and its config returned.",
                 "consumes": [
                     "application/json"
                 ],
@@ -963,7 +986,7 @@
                     "201": {
                         "description": "Created",
                         "schema": {
-                            "$ref": "#/definitions/github_com_cubeos-app_meshsat-hub_internal_store.Device"
+                            "$ref": "#/definitions/internal_api.deviceCreateResponse"
                         }
                     },
                     "400": {
@@ -1089,6 +1112,7 @@
                 }
             },
             "delete": {
+                "description": "Also removes the WireGuard peer if one was provisioned.",
                 "tags": [
                     "devices"
                 ],
@@ -1517,6 +1541,158 @@
                 }
             }
         },
+        "/api/devices/{imei}/wireguard": {
+            "get": {
+                "produces": [
+                    "text/plain"
+                ],
+                "tags": [
+                    "devices"
+                ],
+                "summary": "Get device WireGuard config",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Device IMEI",
+                        "name": "imei",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "WireGuard INI config",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "502": {
+                        "description": "Bad Gateway",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/email/keys": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "email"
+                ],
+                "summary": "List PGP contacts",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/internal_email.ContactInfo"
+                            }
+                        }
+                    }
+                }
+            },
+            "post": {
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "email"
+                ],
+                "summary": "Add PGP contact key",
+                "parameters": [
+                    {
+                        "description": "Contact key",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/internal_email.addContactRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/email/keys/public": {
+            "get": {
+                "produces": [
+                    "text/plain"
+                ],
+                "tags": [
+                    "email"
+                ],
+                "summary": "Get Hub PGP public key",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/email/keys/{email}": {
+            "delete": {
+                "tags": [
+                    "email"
+                ],
+                "summary": "Delete PGP contact key",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Contact email",
+                        "name": "email",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    }
+                }
+            }
+        },
         "/api/escalation/chains": {
             "get": {
                 "produces": [
@@ -1658,6 +1834,31 @@
                             "additionalProperties": {
                                 "type": "string"
                             }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/ipougrs/status": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns the configuration and statistics of the experimental IP-over-satellite tunnel.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "ipougrs"
+                ],
+                "summary": "Get IPoUGRS tunnel status",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/internal_ipougrs.StatusResponse"
                         }
                     }
                 }
@@ -2691,6 +2892,255 @@
                 }
             }
         },
+        "/api/routes": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "routing"
+                ],
+                "summary": "List routing rules",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/github_com_cubeos-app_meshsat-hub_internal_store.Route"
+                            }
+                        }
+                    }
+                }
+            },
+            "post": {
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "routing"
+                ],
+                "summary": "Create routing rule",
+                "parameters": [
+                    {
+                        "description": "Route parameters",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/internal_routing.createRouteRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_cubeos-app_meshsat-hub_internal_store.Route"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/routes/test": {
+            "post": {
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "routing"
+                ],
+                "summary": "Test routing rules against sample message",
+                "parameters": [
+                    {
+                        "description": "Sample message",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/internal_routing.testRouteRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/internal_routing.testRouteResult"
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/routes/{id}": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "routing"
+                ],
+                "summary": "Get routing rule",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Route ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_cubeos-app_meshsat-hub_internal_store.Route"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            },
+            "put": {
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "routing"
+                ],
+                "summary": "Update routing rule",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Route ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Route parameters",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/internal_routing.createRouteRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_cubeos-app_meshsat-hub_internal_store.Route"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "tags": [
+                    "routing"
+                ],
+                "summary": "Delete routing rule",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Route ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/tor/onion": {
+            "get": {
+                "description": "Returns the Hub's Tor hidden service .onion addresses for HTTP and MQTT",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "tor"
+                ],
+                "summary": "Get Tor .onion address",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/internal_tor.OnionInfo"
+                        }
+                    }
+                }
+            }
+        },
         "/api/users": {
             "get": {
                 "produces": [
@@ -2884,6 +3334,73 @@
                 }
             }
         },
+        "/api/webhook/astrocast": {
+            "post": {
+                "description": "Astrocast portal posts MO messages here via webhook callback",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "webhook"
+                ],
+                "summary": "Receive Astrocast MO message",
+                "responses": {
+                    "200": {
+                        "description": "OK"
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/webhook/email": {
+            "post": {
+                "description": "Email service (Mailgun/SendGrid) posts inbound emails here",
+                "consumes": [
+                    "application/x-www-form-urlencoded"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "webhook"
+                ],
+                "summary": "Receive inbound email",
+                "responses": {
+                    "200": {
+                        "description": "OK"
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/webhook/rockblock": {
             "post": {
                 "description": "Ground Control posts MO SBD messages here",
@@ -2897,6 +3414,44 @@
                     "webhook"
                 ],
                 "summary": "Receive RockBLOCK MO message",
+                "responses": {
+                    "200": {
+                        "description": "OK"
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/webhook/sms": {
+            "post": {
+                "description": "Twilio/Vonage posts inbound SMS messages here",
+                "consumes": [
+                    "application/x-www-form-urlencoded"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "webhook"
+                ],
+                "summary": "Receive inbound SMS",
                 "responses": {
                     "200": {
                         "description": "OK"
@@ -3484,6 +4039,28 @@
                 }
             }
         },
+        "github_com_cubeos-app_meshsat-hub_internal_store.DeviceWireguard": {
+            "type": "object",
+            "properties": {
+                "created_at": {
+                    "type": "string"
+                },
+                "device_imei": {
+                    "type": "string"
+                },
+                "peer_id": {
+                    "description": "wg-easy peer ID",
+                    "type": "string"
+                },
+                "public_key": {
+                    "type": "string"
+                },
+                "vpn_address": {
+                    "description": "allocated VPN IP (e.g. \"10.8.0.5/32\")",
+                    "type": "string"
+                }
+            }
+        },
         "github_com_cubeos-app_meshsat-hub_internal_store.EscalationChain": {
             "type": "object",
             "properties": {
@@ -3656,6 +4233,35 @@
                 }
             }
         },
+        "github_com_cubeos-app_meshsat-hub_internal_store.Route": {
+            "type": "object",
+            "properties": {
+                "created_at": {
+                    "type": "string"
+                },
+                "destination_type": {
+                    "type": "string"
+                },
+                "enabled": {
+                    "type": "boolean"
+                },
+                "filter": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "source_type": {
+                    "type": "string"
+                },
+                "updated_at": {
+                    "type": "string"
+                }
+            }
+        },
         "internal_api.ackRequest": {
             "type": "object",
             "properties": {
@@ -3781,6 +4387,36 @@
                 "interval_min": {
                     "description": "check-in interval in minutes",
                     "type": "integer"
+                }
+            }
+        },
+        "internal_api.deviceCreateResponse": {
+            "type": "object",
+            "properties": {
+                "created_at": {
+                    "type": "string"
+                },
+                "imei": {
+                    "type": "string"
+                },
+                "label": {
+                    "type": "string"
+                },
+                "last_seen": {
+                    "type": "string"
+                },
+                "notes": {
+                    "type": "string"
+                },
+                "type": {
+                    "description": "\"rockblock\", \"astrocast\", etc.",
+                    "type": "string"
+                },
+                "updated_at": {
+                    "type": "string"
+                },
+                "wireguard": {
+                    "$ref": "#/definitions/github_com_cubeos-app_meshsat-hub_internal_store.DeviceWireguard"
                 }
             }
         },
@@ -4029,6 +4665,42 @@
                 }
             }
         },
+        "internal_codec.CodecInfo": {
+            "type": "object",
+            "properties": {
+                "name": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_email.ContactInfo": {
+            "type": "object",
+            "properties": {
+                "created_at": {
+                    "type": "string"
+                },
+                "email": {
+                    "type": "string"
+                },
+                "key_id": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_email.addContactRequest": {
+            "type": "object",
+            "properties": {
+                "armored_key": {
+                    "type": "string"
+                },
+                "email": {
+                    "type": "string"
+                }
+            }
+        },
         "internal_hawkbit.ActionStatus": {
             "type": "object",
             "properties": {
@@ -4107,6 +4779,90 @@
                 },
                 "status": {
                     "type": "string"
+                }
+            }
+        },
+        "internal_ipougrs.Config": {
+            "type": "object",
+            "properties": {
+                "compress": {
+                    "description": "Compress enables DEFLATE compression of IP packets before framing.",
+                    "type": "boolean"
+                },
+                "device_name": {
+                    "description": "DeviceName is the TUN device name (e.g., \"tun-ugrs0\").",
+                    "type": "string"
+                },
+                "enabled": {
+                    "description": "Enabled activates the tunnel. Default: false (experimental).",
+                    "type": "boolean"
+                },
+                "frag_timeout": {
+                    "description": "FragTimeout is how long to wait for all fragments of a packet before\ndiscarding incomplete reassemblies.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/time.Duration"
+                        }
+                    ]
+                },
+                "hub_address": {
+                    "description": "HubAddress is the Hub's IP within the tunnel subnet.",
+                    "type": "string"
+                },
+                "mtu": {
+                    "description": "MTU is the IP-level MTU for the TUN device (not SBD MTU).",
+                    "type": "integer"
+                },
+                "sbd_mtu": {
+                    "description": "SBDMTU is the maximum SBD payload size per frame. Iridium MT = 270,\nMO = 340. Uses the smaller value (MT) by default for bidirectional safety.",
+                    "type": "integer"
+                },
+                "tunnel_subnet": {
+                    "description": "TunnelSubnet is the CIDR for the tunnel network.",
+                    "type": "string"
+                }
+            }
+        },
+        "internal_ipougrs.Stats": {
+            "type": "object",
+            "properties": {
+                "bytes_rx": {
+                    "type": "integer"
+                },
+                "bytes_tx": {
+                    "type": "integer"
+                },
+                "fragments_rx": {
+                    "type": "integer"
+                },
+                "fragments_tx": {
+                    "type": "integer"
+                },
+                "packets_rx": {
+                    "type": "integer"
+                },
+                "packets_tx": {
+                    "type": "integer"
+                },
+                "reassembly_err": {
+                    "type": "integer"
+                },
+                "reassembly_ok": {
+                    "type": "integer"
+                }
+            }
+        },
+        "internal_ipougrs.StatusResponse": {
+            "type": "object",
+            "properties": {
+                "config": {
+                    "$ref": "#/definitions/internal_ipougrs.Config"
+                },
+                "experimental": {
+                    "type": "boolean"
+                },
+                "stats": {
+                    "$ref": "#/definitions/internal_ipougrs.Stats"
                 }
             }
         },
@@ -4227,6 +4983,73 @@
                 }
             }
         },
+        "internal_routing.createRouteRequest": {
+            "type": "object",
+            "properties": {
+                "destination_type": {
+                    "type": "string"
+                },
+                "enabled": {
+                    "type": "boolean"
+                },
+                "filter": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "source_type": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_routing.testRouteRequest": {
+            "type": "object",
+            "properties": {
+                "channel": {
+                    "type": "string"
+                },
+                "device_id": {
+                    "type": "string"
+                },
+                "text": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_routing.testRouteResult": {
+            "type": "object",
+            "properties": {
+                "destination_type": {
+                    "type": "string"
+                },
+                "matched": {
+                    "type": "boolean"
+                },
+                "route_id": {
+                    "type": "string"
+                },
+                "route_name": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_tor.OnionInfo": {
+            "type": "object",
+            "properties": {
+                "available": {
+                    "type": "boolean"
+                },
+                "http_address": {
+                    "description": "e.g., \"abc123...xyz.onion\"",
+                    "type": "string"
+                },
+                "mqtt_address": {
+                    "description": "same .onion, different port",
+                    "type": "string"
+                }
+            }
+        },
         "internal_webhook.DeliveryLog": {
             "type": "object",
             "properties": {
@@ -4329,6 +5152,8 @@
                 1000000000,
                 60000000000,
                 3600000000000,
+                -9223372036854775808,
+                9223372036854775807,
                 1,
                 1000,
                 1000000,
@@ -4345,6 +5170,8 @@
                 "Second",
                 "Minute",
                 "Hour",
+                "minDuration",
+                "maxDuration",
                 "Nanosecond",
                 "Microsecond",
                 "Millisecond",

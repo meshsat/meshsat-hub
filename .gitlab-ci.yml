@@ -34,9 +34,11 @@ swagger:
   image: golang:1.25-alpine
   tags: [multiarch]
   before_script:
+    - apk add --no-cache git
     - go install github.com/swaggo/swag/cmd/swag@latest
   script:
     - swag init -g cmd/meshsat-hub/main.go -o docs/swagger --parseDependency --parseInternal
+    - rm -f docs/swagger/docs.go
     - |
       if ! git diff --exit-code docs/swagger/swagger.json docs/swagger/swagger.yaml; then
         echo "BLOCKED: swagger.json is out of date — run 'make swagger' and commit the result"

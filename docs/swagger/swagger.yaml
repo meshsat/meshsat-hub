@@ -168,6 +168,21 @@ definitions:
         description: '"decrypt" (server can read) or "passthrough" (opaque)'
         type: string
     type: object
+  github_com_cubeos-app_meshsat-hub_internal_store.DeviceWireguard:
+    properties:
+      created_at:
+        type: string
+      device_imei:
+        type: string
+      peer_id:
+        description: wg-easy peer ID
+        type: string
+      public_key:
+        type: string
+      vpn_address:
+        description: allocated VPN IP (e.g. "10.8.0.5/32")
+        type: string
+    type: object
   github_com_cubeos-app_meshsat-hub_internal_store.EscalationChain:
     properties:
       created_at:
@@ -287,6 +302,25 @@ definitions:
         description: m/s
         type: number
     type: object
+  github_com_cubeos-app_meshsat-hub_internal_store.Route:
+    properties:
+      created_at:
+        type: string
+      destination_type:
+        type: string
+      enabled:
+        type: boolean
+      filter:
+        type: string
+      id:
+        type: string
+      name:
+        type: string
+      source_type:
+        type: string
+      updated_at:
+        type: string
+    type: object
   internal_api.ackRequest:
     properties:
       acked_by:
@@ -371,6 +405,26 @@ definitions:
       interval_min:
         description: check-in interval in minutes
         type: integer
+    type: object
+  internal_api.deviceCreateResponse:
+    properties:
+      created_at:
+        type: string
+      imei:
+        type: string
+      label:
+        type: string
+      last_seen:
+        type: string
+      notes:
+        type: string
+      type:
+        description: '"rockblock", "astrocast", etc.'
+        type: string
+      updated_at:
+        type: string
+      wireguard:
+        $ref: '#/definitions/github_com_cubeos-app_meshsat-hub_internal_store.DeviceWireguard'
     type: object
   internal_api.loginRequest:
     properties:
@@ -538,6 +592,29 @@ definitions:
       name:
         type: string
     type: object
+  internal_codec.CodecInfo:
+    properties:
+      name:
+        type: string
+    type: object
+  internal_email.ContactInfo:
+    properties:
+      created_at:
+        type: string
+      email:
+        type: string
+      key_id:
+        type: string
+      name:
+        type: string
+    type: object
+  internal_email.addContactRequest:
+    properties:
+      armored_key:
+        type: string
+      email:
+        type: string
+    type: object
   internal_hawkbit.ActionStatus:
     properties:
       id:
@@ -591,6 +668,66 @@ definitions:
         type: object
       status:
         type: string
+    type: object
+  internal_ipougrs.Config:
+    properties:
+      compress:
+        description: Compress enables DEFLATE compression of IP packets before framing.
+        type: boolean
+      device_name:
+        description: DeviceName is the TUN device name (e.g., "tun-ugrs0").
+        type: string
+      enabled:
+        description: 'Enabled activates the tunnel. Default: false (experimental).'
+        type: boolean
+      frag_timeout:
+        allOf:
+        - $ref: '#/definitions/time.Duration'
+        description: |-
+          FragTimeout is how long to wait for all fragments of a packet before
+          discarding incomplete reassemblies.
+      hub_address:
+        description: HubAddress is the Hub's IP within the tunnel subnet.
+        type: string
+      mtu:
+        description: MTU is the IP-level MTU for the TUN device (not SBD MTU).
+        type: integer
+      sbd_mtu:
+        description: |-
+          SBDMTU is the maximum SBD payload size per frame. Iridium MT = 270,
+          MO = 340. Uses the smaller value (MT) by default for bidirectional safety.
+        type: integer
+      tunnel_subnet:
+        description: TunnelSubnet is the CIDR for the tunnel network.
+        type: string
+    type: object
+  internal_ipougrs.Stats:
+    properties:
+      bytes_rx:
+        type: integer
+      bytes_tx:
+        type: integer
+      fragments_rx:
+        type: integer
+      fragments_tx:
+        type: integer
+      packets_rx:
+        type: integer
+      packets_tx:
+        type: integer
+      reassembly_err:
+        type: integer
+      reassembly_ok:
+        type: integer
+    type: object
+  internal_ipougrs.StatusResponse:
+    properties:
+      config:
+        $ref: '#/definitions/internal_ipougrs.Config'
+      experimental:
+        type: boolean
+      stats:
+        $ref: '#/definitions/internal_ipougrs.Stats'
     type: object
   internal_mptcp.Endpoint:
     properties:
@@ -670,6 +807,50 @@ definitions:
       tokens_left:
         type: number
     type: object
+  internal_routing.createRouteRequest:
+    properties:
+      destination_type:
+        type: string
+      enabled:
+        type: boolean
+      filter:
+        type: string
+      name:
+        type: string
+      source_type:
+        type: string
+    type: object
+  internal_routing.testRouteRequest:
+    properties:
+      channel:
+        type: string
+      device_id:
+        type: string
+      text:
+        type: string
+    type: object
+  internal_routing.testRouteResult:
+    properties:
+      destination_type:
+        type: string
+      matched:
+        type: boolean
+      route_id:
+        type: string
+      route_name:
+        type: string
+    type: object
+  internal_tor.OnionInfo:
+    properties:
+      available:
+        type: boolean
+      http_address:
+        description: e.g., "abc123...xyz.onion"
+        type: string
+      mqtt_address:
+        description: same .onion, different port
+        type: string
+    type: object
   internal_webhook.DeliveryLog:
     properties:
       attempt:
@@ -746,6 +927,8 @@ definitions:
     - 1000000000
     - 60000000000
     - 3600000000000
+    - -9223372036854775808
+    - 9223372036854775807
     - 1
     - 1000
     - 1000000
@@ -763,6 +946,8 @@ definitions:
     - Second
     - Minute
     - Hour
+    - minDuration
+    - maxDuration
     - Nanosecond
     - Microsecond
     - Millisecond
@@ -1268,6 +1453,20 @@ paths:
       summary: Get aggregated cluster status
       tags:
       - cluster
+  /api/codecs:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/internal_codec.CodecInfo'
+            type: array
+      summary: List available payload decoders
+      tags:
+      - codecs
   /api/deadman:
     get:
       produces:
@@ -1384,6 +1583,8 @@ paths:
     post:
       consumes:
       - application/json
+      description: If WireGuard is enabled, a VPN peer is auto-provisioned and its
+        config returned.
       parameters:
       - description: Device data (imei required)
         in: body
@@ -1397,7 +1598,7 @@ paths:
         "201":
           description: Created
           schema:
-            $ref: '#/definitions/github_com_cubeos-app_meshsat-hub_internal_store.Device'
+            $ref: '#/definitions/internal_api.deviceCreateResponse'
         "400":
           description: Bad Request
           schema:
@@ -1415,6 +1616,7 @@ paths:
       - devices
   /api/devices/{imei}:
     delete:
+      description: Also removes the WireGuard peer if one was provisioned.
       parameters:
       - description: Device IMEI
         in: path
@@ -1764,6 +1966,104 @@ paths:
       summary: List device position history
       tags:
       - positions
+  /api/devices/{imei}/wireguard:
+    get:
+      parameters:
+      - description: Device IMEI
+        in: path
+        name: imei
+        required: true
+        type: string
+      produces:
+      - text/plain
+      responses:
+        "200":
+          description: WireGuard INI config
+          schema:
+            type: string
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "502":
+          description: Bad Gateway
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Get device WireGuard config
+      tags:
+      - devices
+  /api/email/keys:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/internal_email.ContactInfo'
+            type: array
+      summary: List PGP contacts
+      tags:
+      - email
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Contact key
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/internal_email.addContactRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Add PGP contact key
+      tags:
+      - email
+  /api/email/keys/{email}:
+    delete:
+      parameters:
+      - description: Contact email
+        in: path
+        name: email
+        required: true
+        type: string
+      responses:
+        "204":
+          description: No Content
+      summary: Delete PGP contact key
+      tags:
+      - email
+  /api/email/keys/public:
+    get:
+      produces:
+      - text/plain
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: string
+      summary: Get Hub PGP public key
+      tags:
+      - email
   /api/escalation/chains:
     get:
       produces:
@@ -1859,6 +2159,22 @@ paths:
       summary: Get escalation chain
       tags:
       - escalation
+  /api/ipougrs/status:
+    get:
+      description: Returns the configuration and statistics of the experimental IP-over-satellite
+        tunnel.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_ipougrs.StatusResponse'
+      security:
+      - BearerAuth: []
+      summary: Get IPoUGRS tunnel status
+      tags:
+      - ipougrs
   /api/messages:
     get:
       parameters:
@@ -2534,6 +2850,169 @@ paths:
       summary: Set rate limit override for device
       tags:
       - ratelimit
+  /api/routes:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/github_com_cubeos-app_meshsat-hub_internal_store.Route'
+            type: array
+      summary: List routing rules
+      tags:
+      - routing
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Route parameters
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/internal_routing.createRouteRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/github_com_cubeos-app_meshsat-hub_internal_store.Route'
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Create routing rule
+      tags:
+      - routing
+  /api/routes/{id}:
+    delete:
+      parameters:
+      - description: Route ID
+        in: path
+        name: id
+        required: true
+        type: string
+      responses:
+        "204":
+          description: No Content
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Delete routing rule
+      tags:
+      - routing
+    get:
+      parameters:
+      - description: Route ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/github_com_cubeos-app_meshsat-hub_internal_store.Route'
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Get routing rule
+      tags:
+      - routing
+    put:
+      consumes:
+      - application/json
+      parameters:
+      - description: Route ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Route parameters
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/internal_routing.createRouteRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/github_com_cubeos-app_meshsat-hub_internal_store.Route'
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Update routing rule
+      tags:
+      - routing
+  /api/routes/test:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Sample message
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/internal_routing.testRouteRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/internal_routing.testRouteResult'
+            type: array
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Test routing rules against sample message
+      tags:
+      - routing
+  /api/tor/onion:
+    get:
+      description: Returns the Hub's Tor hidden service .onion addresses for HTTP
+        and MQTT
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_tor.OnionInfo'
+      summary: Get Tor .onion address
+      tags:
+      - tor
   /api/users:
     get:
       produces:
@@ -2660,6 +3139,50 @@ paths:
       summary: Update user
       tags:
       - users
+  /api/webhook/astrocast:
+    post:
+      consumes:
+      - application/json
+      description: Astrocast portal posts MO messages here via webhook callback
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Receive Astrocast MO message
+      tags:
+      - webhook
+  /api/webhook/email:
+    post:
+      consumes:
+      - application/x-www-form-urlencoded
+      description: Email service (Mailgun/SendGrid) posts inbound emails here
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Receive inbound email
+      tags:
+      - webhook
   /api/webhook/rockblock:
     post:
       consumes:
@@ -2683,6 +3206,31 @@ paths:
               type: string
             type: object
       summary: Receive RockBLOCK MO message
+      tags:
+      - webhook
+  /api/webhook/sms:
+    post:
+      consumes:
+      - application/x-www-form-urlencoded
+      description: Twilio/Vonage posts inbound SMS messages here
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Receive inbound SMS
       tags:
       - webhook
   /api/webhooks:
