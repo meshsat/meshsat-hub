@@ -37,6 +37,7 @@ import (
 	"github.com/cubeos-app/meshsat-hub/internal/fragment"
 	"github.com/cubeos-app/meshsat-hub/internal/hawkbit"
 	"github.com/cubeos-app/meshsat-hub/internal/health"
+	"github.com/cubeos-app/meshsat-hub/internal/ipougrs"
 	"github.com/cubeos-app/meshsat-hub/internal/leader"
 	"github.com/cubeos-app/meshsat-hub/internal/mptcp"
 	"github.com/cubeos-app/meshsat-hub/internal/ntfy"
@@ -763,6 +764,12 @@ func main() {
 	r.Get("/api/routes/{id}", routeAPIHandler.GetRoute)
 	r.Put("/api/routes/{id}", routeAPIHandler.UpdateRoute)
 	r.Delete("/api/routes/{id}", routeAPIHandler.DeleteRoute)
+
+	// IPoUGRS tunnel (experimental — IP-over-satellite)
+	ipougrsConfig := ipougrs.DefaultConfig()
+	ipougrsTunnel := ipougrs.NewTunnel(ipougrsConfig)
+	ipougrsHandler := ipougrs.NewAPIHandler(ipougrsTunnel)
+	r.Get("/api/ipougrs/status", ipougrsHandler.GetStatus)
 
 	// Sensor payload codec registry
 	codecRegistry := codec.NewRegistry()
