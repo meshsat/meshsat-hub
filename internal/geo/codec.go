@@ -144,11 +144,11 @@ func DecodeGPS(data []byte) (*GPSPosition, error) {
 //   Delta (0x44, 11 bytes): [magic][dlat:i16 LE microdeg][dlon:i16 LE microdeg][dalt:i8 m][hdg:u16 LE deg][spd:u16 LE cm/s][bat:u8 %]
 
 const (
-	bridgeFullMagic  byte = 0x50
-	bridgeDeltaMagic byte = 0x44
-	bridgeFullSize        = 16
-	bridgeDeltaSize       = 11
-	bridgeLatLonScale     = 1e6
+	bridgeFullMagic   byte = 0x50
+	bridgeDeltaMagic  byte = 0x44
+	bridgeFullSize         = 16
+	bridgeDeltaSize        = 11
+	bridgeLatLonScale      = 1e6
 )
 
 // IsBridgeGPSFrame returns true if the payload starts with a bridge full (0x50) or delta (0x44) magic byte.

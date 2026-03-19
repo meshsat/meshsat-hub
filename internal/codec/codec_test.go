@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"math"
 	"testing"
+
+	"github.com/cubeos-app/meshsat-hub/internal/geo"
 )
 
 func TestRegistry_List(t *testing.T) {
@@ -50,15 +52,8 @@ func TestJSONDecoder_NotJSON(t *testing.T) {
 func TestGPSDecoder_ValidFrame(t *testing.T) {
 	r := NewRegistry()
 
-	// Construct a GPS frame: 0x47 + lat(52.3676°) + lon(4.9041°) + padding
-	lat := int32(52.3676 * 1e7)
-	lon := int32(4.9041 * 1e7)
-	payload := []byte{
-		0x47, // magic
-		byte(lat >> 24), byte(lat >> 16), byte(lat >> 8), byte(lat),
-		byte(lon >> 24), byte(lon >> 16), byte(lon >> 8), byte(lon),
-		0x00, // padding
-	}
+	// Construct a hub GPS frame using geo.EncodeGPS for correct byte layout.
+	payload := geo.EncodeGPS(&geo.GPSPosition{Lat: 52.3676, Lon: 4.9041})
 
 	result, err := r.Decode("gps", payload)
 	if err != nil {

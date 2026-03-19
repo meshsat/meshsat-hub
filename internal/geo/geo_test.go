@@ -1,6 +1,7 @@
 package geo
 
 import (
+	"encoding/binary"
 	"math"
 	"testing"
 	"time"
@@ -150,6 +151,140 @@ func TestIsGPSFrame(t *testing.T) {
 	}
 	if !IsGPSFrame([]byte{0xA5, 0x00, 0, 0, 0, 0, 0, 0, 0, 0}) {
 		t.Error("should detect GPS frame")
+	}
+}
+
+// --- Bridge/Android GPS codec tests ---
+
+func TestDecodeBridgeGPSFull(t *testing.T) {
+	// Encode a known position in bridge format: 0x50, LE, microdegrees (×1e6).
+	// Lat=52.367612, Lon=4.904157 → lat_micro=52367612, lon_micro=4904157
+	buf := make([]byte, 16)
+	buf[0] = 0x50
+	binary.LittleEndian.PutUint32(buf[1:5], uint32(int32(52367612)))
+	binary.LittleEndian.PutUint32(buf[5:9], uint32(int32(4904157)))
+	binary.LittleEndian.PutUint16(buf[9:11], uint16(int16(150))) // alt
+	binary.LittleEndian.PutUint16(buf[11:13], 275)               // heading
+	binary.LittleEndian.PutUint16(buf[13:15], 345)               // speed cm/s
+	buf[15] = 85                                                 // battery
+
+	gps, err := DecodeBridgeGPSFull(buf)
+	if err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if math.Abs(gps.Lat-52.367612) > 0.000002 {
+		t.Errorf("lat: got %f, want 52.367612", gps.Lat)
+	}
+	if math.Abs(gps.Lon-4.904157) > 0.000002 {
+		t.Errorf("lon: got %f, want 4.904157", gps.Lon)
+	}
+	if gps.Alt != 150 {
+		t.Errorf("alt: got %f, want 150", gps.Alt)
+	}
+	if gps.Heading != 275 {
+		t.Errorf("heading: got %f, want 275", gps.Heading)
+	}
+	if math.Abs(gps.Speed-3.45) > 0.01 {
+		t.Errorf("speed: got %f, want 3.45", gps.Speed)
+	}
+	if !gps.HasAlt || !gps.HasHeading || !gps.HasSpeed {
+		t.Error("expected HasAlt, HasHeading, HasSpeed to be true")
+	}
+}
+
+func TestDecodeBridgeGPSFull_TooShort(t *testing.T) {
+	_, err := DecodeBridgeGPSFull([]byte{0x50, 0, 0, 0})
+	if err != ErrTooShort {
+		t.Fatalf("expected ErrTooShort, got %v", err)
+	}
+}
+
+func TestDecodeBridgeGPSFull_WrongMagic(t *testing.T) {
+	buf := make([]byte, 16)
+	buf[0] = 0xFF
+	_, err := DecodeBridgeGPSFull(buf)
+	if err != ErrNotGPSFrame {
+		t.Fatalf("expected ErrNotGPSFrame, got %v", err)
+	}
+}
+
+func TestDecodeBridgeGPSDelta(t *testing.T) {
+	prev := &GPSPosition{
+		Lat: 52.367612,
+		Lon: 4.904157,
+		Alt: 150,
+	}
+
+	// Delta: +100 microdeg lat, -50 microdeg lon, +5m alt, heading=280, speed=400 cm/s
+	buf := make([]byte, 11)
+	buf[0] = 0x44
+	binary.LittleEndian.PutUint16(buf[1:3], uint16(int16(100))) // dlat
+	binary.LittleEndian.PutUint16(buf[3:5], uint16(65486))      // dlon: int16(-50) as uint16
+	buf[5] = byte(int8(5))                                      // dalt
+	binary.LittleEndian.PutUint16(buf[6:8], 280)                // heading
+	binary.LittleEndian.PutUint16(buf[8:10], 400)               // speed cm/s
+	buf[10] = 90                                                // battery
+
+	gps, err := DecodeBridgeGPSDelta(buf, prev)
+	if err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+
+	expectedLat := float64(int32(math.Round(52.367612*1e6))+100) / 1e6
+	expectedLon := float64(int32(math.Round(4.904157*1e6))-50) / 1e6
+	if math.Abs(gps.Lat-expectedLat) > 0.000002 {
+		t.Errorf("lat: got %f, want %f", gps.Lat, expectedLat)
+	}
+	if math.Abs(gps.Lon-expectedLon) > 0.000002 {
+		t.Errorf("lon: got %f, want %f", gps.Lon, expectedLon)
+	}
+	if gps.Alt != 155 {
+		t.Errorf("alt: got %f, want 155", gps.Alt)
+	}
+	if gps.Heading != 280 {
+		t.Errorf("heading: got %f, want 280", gps.Heading)
+	}
+	if math.Abs(gps.Speed-4.0) > 0.01 {
+		t.Errorf("speed: got %f, want 4.0", gps.Speed)
+	}
+}
+
+func TestDecodeBridgeGPSDelta_NoPrev(t *testing.T) {
+	buf := make([]byte, 11)
+	buf[0] = 0x44
+	_, err := DecodeBridgeGPSDelta(buf, nil)
+	if err == nil {
+		t.Fatal("expected error for delta without previous position")
+	}
+}
+
+func TestIsBridgeGPSFrame(t *testing.T) {
+	if !IsBridgeGPSFrame([]byte{0x50, 0}) {
+		t.Error("should detect 0x50 frame")
+	}
+	if !IsBridgeGPSFrame([]byte{0x44, 0}) {
+		t.Error("should detect 0x44 frame")
+	}
+	if IsBridgeGPSFrame([]byte{0xA5, 0}) {
+		t.Error("should not detect 0xA5 as bridge frame")
+	}
+	if IsBridgeGPSFrame(nil) {
+		t.Error("should not detect nil")
+	}
+}
+
+func TestIsAnyGPSFrame(t *testing.T) {
+	if !IsAnyGPSFrame([]byte{0xA5, 0x00, 0, 0, 0, 0, 0, 0, 0, 0}) {
+		t.Error("should detect hub 0xA5")
+	}
+	if !IsAnyGPSFrame([]byte{0x50, 0}) {
+		t.Error("should detect bridge 0x50")
+	}
+	if !IsAnyGPSFrame([]byte{0x44, 0}) {
+		t.Error("should detect bridge 0x44")
+	}
+	if IsAnyGPSFrame([]byte{0xFF}) {
+		t.Error("should not detect unknown magic")
 	}
 }
 

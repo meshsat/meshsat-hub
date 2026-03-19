@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"log/slog"
 	"sync"
+
+	"github.com/cubeos-app/meshsat-hub/internal/geo"
 )
 
 // DecodedPayload is the output of a decoder — structured key-value telemetry.
@@ -113,24 +115,39 @@ type CodecInfo struct {
 
 // --- Built-in decoders ---
 
-// GPSDecoder decodes the compact GPS binary frame from internal/geo.
+// GPSDecoder decodes the compact GPS binary frame from internal/geo (0xA5, BE, ×1e7).
 type GPSDecoder struct{}
 
 func (GPSDecoder) Name() string { return "gps" }
 
 func (GPSDecoder) Decode(payload []byte) (*DecodedPayload, error) {
-	// GPS frame: starts with magic byte 0x47 ('G'), min 10 bytes.
-	if len(payload) < 10 || payload[0] != 0x47 {
+	if !geo.IsGPSFrame(payload) {
 		return nil, fmt.Errorf("not a GPS frame")
 	}
 
-	// Basic GPS decode: lat (4 bytes, int32 * 1e-7), lon (4 bytes, int32 * 1e-7)
-	lat := float64(int32(payload[1])<<24|int32(payload[2])<<16|int32(payload[3])<<8|int32(payload[4])) / 1e7
-	lon := float64(int32(payload[5])<<24|int32(payload[6])<<16|int32(payload[7])<<8|int32(payload[8])) / 1e7
+	gps, err := geo.DecodeGPS(payload)
+	if err != nil {
+		return nil, err
+	}
 
 	fields := map[string]interface{}{
-		"lat": lat,
-		"lon": lon,
+		"lat": gps.Lat,
+		"lon": gps.Lon,
+	}
+	if gps.HasAlt {
+		fields["alt"] = gps.Alt
+	}
+	if gps.HasSpeed {
+		fields["speed"] = gps.Speed
+	}
+	if gps.HasHeading {
+		fields["heading"] = gps.Heading
+	}
+	if gps.HasSats {
+		fields["sats"] = gps.Sats
+	}
+	if !gps.Timestamp.IsZero() {
+		fields["timestamp"] = gps.Timestamp.UTC().Format("2006-01-02T15:04:05Z")
 	}
 
 	return &DecodedPayload{Format: "gps", Fields: fields}, nil
