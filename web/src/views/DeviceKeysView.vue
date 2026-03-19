@@ -133,7 +133,7 @@ onMounted(() => {
           </select>
         </div>
         <button @click="generateKey" :disabled="!selectedImei"
-          class="px-4 py-2 rounded text-sm font-medium bg-cyan-700 text-white hover:bg-cyan-600 disabled:opacity-50 disabled:cursor-not-allowed">
+          class="px-4 py-2 rounded text-sm font-medium bg-teal-700 text-white hover:bg-teal-600 disabled:opacity-50 disabled:cursor-not-allowed">
           Generate Key
         </button>
       </div>
@@ -159,7 +159,7 @@ onMounted(() => {
           <tr v-for="(k, i) in keys" :key="k.id" class="border-b border-gray-700/50 hover:bg-gray-700/30">
             <td class="px-4 py-2 font-mono text-xs">
               {{ k.key_hash?.slice(0, 16) }}...
-              <span v-if="i === 0" class="ml-1 text-[10px] px-1.5 py-0.5 rounded bg-cyan-900/50 text-cyan-300">active</span>
+              <span v-if="i === 0" class="ml-1 text-[10px] px-1.5 py-0.5 rounded bg-teal-900/50 text-teal-300">active</span>
             </td>
             <td class="px-4 py-2">
               <span class="text-xs px-1.5 py-0.5 rounded"

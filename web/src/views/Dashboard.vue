@@ -38,7 +38,7 @@ function budgetPercent(sent, cap) {
 function budgetBarColor(pct) {
   if (pct >= 90) return 'bg-red-500'
   if (pct >= 70) return 'bg-yellow-500'
-  return 'bg-cyan-500'
+  return 'bg-teal-500'
 }
 </script>
 
@@ -57,12 +57,12 @@ function budgetBarColor(pct) {
 
       <div class="bg-gray-800 rounded-lg p-5">
         <div class="text-gray-400 text-sm mb-1">Devices</div>
-        <div class="text-2xl font-bold text-cyan-400">{{ stats.devices }}</div>
+        <div class="text-2xl font-bold text-teal-400">{{ stats.devices }}</div>
       </div>
 
       <div class="bg-gray-800 rounded-lg p-5">
         <div class="text-gray-400 text-sm mb-1">Iridium Credits</div>
-        <div class="text-2xl font-bold text-cyan-400">
+        <div class="text-2xl font-bold text-teal-400">
           {{ stats.credits !== null ? stats.credits : '—' }}
         </div>
       </div>

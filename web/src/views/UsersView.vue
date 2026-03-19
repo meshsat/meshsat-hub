@@ -93,7 +93,7 @@ async function deleteUser(user) {
 
 function roleBadge(role) {
   if (role === 'owner') return 'bg-purple-900/50 text-purple-300'
-  if (role === 'operator') return 'bg-cyan-900/50 text-cyan-300'
+  if (role === 'operator') return 'bg-teal-900/50 text-teal-300'
   return 'bg-gray-700 text-gray-300'
 }
 </script>
@@ -106,7 +106,7 @@ function roleBadge(role) {
 
     <div class="flex justify-end mb-4">
       <button @click="showForm = !showForm"
-        class="bg-cyan-600 hover:bg-cyan-500 text-white px-3 py-1 rounded text-sm transition-colors">
+        class="bg-teal-600 hover:bg-teal-500 text-white px-3 py-1 rounded text-sm transition-colors">
         {{ showForm ? 'Cancel' : '+ Invite User' }}
       </button>
     </div>
@@ -117,22 +117,22 @@ function roleBadge(role) {
         <div>
           <label class="text-xs text-gray-400">Email</label>
           <input v-model="form.email" type="email" placeholder="user@example.com"
-            class="bg-gray-700 border border-gray-600 px-3 py-2 rounded text-gray-100 w-full placeholder-gray-500 focus:outline-none focus:border-cyan-400" />
+            class="bg-gray-700 border border-gray-600 px-3 py-2 rounded text-gray-100 w-full placeholder-gray-500 focus:outline-none focus:border-teal-400" />
         </div>
         <div>
           <label class="text-xs text-gray-400">Name</label>
           <input v-model="form.name" placeholder="Full name"
-            class="bg-gray-700 border border-gray-600 px-3 py-2 rounded text-gray-100 w-full placeholder-gray-500 focus:outline-none focus:border-cyan-400" />
+            class="bg-gray-700 border border-gray-600 px-3 py-2 rounded text-gray-100 w-full placeholder-gray-500 focus:outline-none focus:border-teal-400" />
         </div>
         <div>
           <label class="text-xs text-gray-400">Password (min 12 characters)</label>
           <input v-model="form.password" type="password" placeholder="Strong password"
-            class="bg-gray-700 border border-gray-600 px-3 py-2 rounded text-gray-100 w-full placeholder-gray-500 focus:outline-none focus:border-cyan-400" />
+            class="bg-gray-700 border border-gray-600 px-3 py-2 rounded text-gray-100 w-full placeholder-gray-500 focus:outline-none focus:border-teal-400" />
         </div>
         <div>
           <label class="text-xs text-gray-400">Role</label>
           <select v-model="form.role"
-            class="bg-gray-700 border border-gray-600 px-3 py-2 rounded text-gray-100 w-full focus:outline-none focus:border-cyan-400">
+            class="bg-gray-700 border border-gray-600 px-3 py-2 rounded text-gray-100 w-full focus:outline-none focus:border-teal-400">
             <option value="viewer">Viewer</option>
             <option value="operator">Operator</option>
             <option value="owner">Owner</option>
@@ -141,7 +141,7 @@ function roleBadge(role) {
       </div>
       <div class="flex justify-end">
         <button @click="createUser"
-          class="bg-cyan-600 hover:bg-cyan-500 text-white px-4 py-2 rounded text-sm transition-colors">Create User</button>
+          class="bg-teal-600 hover:bg-teal-500 text-white px-4 py-2 rounded text-sm transition-colors">Create User</button>
       </div>
     </div>
 

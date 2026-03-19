@@ -76,7 +76,7 @@ function statusCodeColor(code) {
       <div class="flex items-center justify-between mb-3">
         <h2 class="text-lg font-semibold">Webhooks</h2>
         <button @click="showForm = !showForm"
-          class="bg-cyan-600 hover:bg-cyan-500 text-white px-3 py-1 rounded text-sm transition-colors">
+          class="bg-teal-600 hover:bg-teal-500 text-white px-3 py-1 rounded text-sm transition-colors">
           {{ showForm ? 'Cancel' : '+ New Webhook' }}
         </button>
       </div>
@@ -86,12 +86,12 @@ function statusCodeColor(code) {
           <div>
             <label class="text-xs text-gray-400">URL</label>
             <input v-model="form.url" placeholder="https://example.com/hook"
-              class="bg-gray-700 border border-gray-600 px-3 py-2 rounded text-gray-100 w-full placeholder-gray-500 focus:outline-none focus:border-cyan-400" />
+              class="bg-gray-700 border border-gray-600 px-3 py-2 rounded text-gray-100 w-full placeholder-gray-500 focus:outline-none focus:border-teal-400" />
           </div>
           <div>
             <label class="text-xs text-gray-400">Events (comma-sep)</label>
             <input v-model="form.events" placeholder="mo,sos,position"
-              class="bg-gray-700 border border-gray-600 px-3 py-2 rounded text-gray-100 w-full placeholder-gray-500 focus:outline-none focus:border-cyan-400" />
+              class="bg-gray-700 border border-gray-600 px-3 py-2 rounded text-gray-100 w-full placeholder-gray-500 focus:outline-none focus:border-teal-400" />
           </div>
         </div>
         <div class="flex items-center justify-between">
@@ -99,7 +99,7 @@ function statusCodeColor(code) {
             <input type="checkbox" v-model="form.active" class="rounded" /> Active
           </label>
           <button @click="createWebhook"
-            class="bg-cyan-600 hover:bg-cyan-500 text-white px-4 py-2 rounded text-sm transition-colors">Create</button>
+            class="bg-teal-600 hover:bg-teal-500 text-white px-4 py-2 rounded text-sm transition-colors">Create</button>
         </div>
       </div>
 

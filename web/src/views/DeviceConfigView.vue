@@ -98,12 +98,12 @@ async function viewVersion(v) {
     <!-- Device selector -->
     <div class="flex flex-wrap gap-3 mb-4">
       <select v-model="selectedIMEI"
-        class="bg-gray-700 border border-gray-600 px-3 py-2 rounded text-gray-100 focus:outline-none focus:border-cyan-400 flex-1 min-w-[200px]">
+        class="bg-gray-700 border border-gray-600 px-3 py-2 rounded text-gray-100 focus:outline-none focus:border-teal-400 flex-1 min-w-[200px]">
         <option value="">Select device...</option>
         <option v-for="d in deviceList" :key="d.imei" :value="d.imei">{{ d.label || d.imei }} ({{ d.imei }})</option>
       </select>
       <button v-if="!editMode && selectedIMEI" @click="startEdit"
-        class="bg-cyan-600 hover:bg-cyan-500 text-white px-4 py-2 rounded text-sm transition-colors">Edit Config</button>
+        class="bg-teal-600 hover:bg-teal-500 text-white px-4 py-2 rounded text-sm transition-colors">Edit Config</button>
     </div>
 
     <div v-if="selectedIMEI" class="grid grid-cols-1 lg:grid-cols-3 gap-4">
@@ -119,14 +119,14 @@ async function viewVersion(v) {
 
           <div v-if="editMode" class="mb-3">
             <textarea v-model="editJSON" rows="16"
-              class="bg-gray-900 border border-gray-600 px-3 py-2 rounded text-gray-100 w-full font-mono text-sm focus:outline-none focus:border-cyan-400"></textarea>
+              class="bg-gray-900 border border-gray-600 px-3 py-2 rounded text-gray-100 w-full font-mono text-sm focus:outline-none focus:border-teal-400"></textarea>
             <input v-model="editComment" placeholder="Change comment (optional)"
-              class="bg-gray-700 border border-gray-600 px-3 py-2 rounded text-gray-100 w-full mt-2 placeholder-gray-500 focus:outline-none focus:border-cyan-400" />
+              class="bg-gray-700 border border-gray-600 px-3 py-2 rounded text-gray-100 w-full mt-2 placeholder-gray-500 focus:outline-none focus:border-teal-400" />
             <div class="flex gap-2 mt-3 justify-end">
               <button @click="editMode = false"
                 class="bg-gray-700 hover:bg-gray-600 text-gray-200 px-4 py-2 rounded text-sm transition-colors">Cancel</button>
               <button @click="saveConfig"
-                class="bg-cyan-600 hover:bg-cyan-500 text-white px-4 py-2 rounded text-sm transition-colors">Save New Version</button>
+                class="bg-teal-600 hover:bg-teal-500 text-white px-4 py-2 rounded text-sm transition-colors">Save New Version</button>
             </div>
           </div>
 
@@ -152,7 +152,7 @@ async function viewVersion(v) {
             class="flex items-center justify-between py-2 px-2 rounded cursor-pointer hover:bg-gray-700/50 transition-colors"
             :class="currentConfig && currentConfig.version === v.version ? 'bg-gray-700/50' : ''">
             <div>
-              <div class="font-mono text-xs text-cyan-400">v{{ v.version }}</div>
+              <div class="font-mono text-xs text-teal-400">v{{ v.version }}</div>
               <div v-if="v.comment" class="text-xs text-gray-400">{{ v.comment }}</div>
             </div>
             <div class="text-xs text-gray-500">{{ formatDateUTC(v.created_at) }}</div>

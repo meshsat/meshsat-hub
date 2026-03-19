@@ -100,7 +100,7 @@ function formatBytes(n) {
       </div>
       <div class="bg-gray-800 rounded-lg p-4">
         <div class="text-gray-400 text-sm mb-1">Nodes</div>
-        <div class="text-2xl font-bold text-cyan-400">{{ clusterStatus.node_count }}</div>
+        <div class="text-2xl font-bold text-teal-400">{{ clusterStatus.node_count }}</div>
         <div class="text-xs text-gray-500">Quorum: {{ clusterStatus.quorum_size }}</div>
       </div>
       <div class="bg-gray-800 rounded-lg p-4">
@@ -136,7 +136,7 @@ function formatBytes(n) {
               <span :class="nodeStatusColor(node)" class="text-sm font-medium">
                 {{ node.healthy ? 'Healthy' : node.connected ? 'Warning' : 'Down' }}
               </span>
-              <span v-if="node.hub_url === 'local'" class="text-xs bg-cyan-900/50 text-cyan-300 px-1.5 py-0.5 rounded">local</span>
+              <span v-if="node.hub_url === 'local'" class="text-xs bg-teal-900/50 text-teal-300 px-1.5 py-0.5 rounded">local</span>
             </div>
           </div>
 

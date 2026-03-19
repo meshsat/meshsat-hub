@@ -81,7 +81,7 @@ async function deletePref(imei) {
 
     <div class="flex justify-end mb-4">
       <button @click="editing ? (editing = false) : newPref()"
-        class="bg-cyan-600 hover:bg-cyan-500 text-white px-3 py-1 rounded text-sm transition-colors">
+        class="bg-teal-600 hover:bg-teal-500 text-white px-3 py-1 rounded text-sm transition-colors">
         {{ editing ? 'Cancel' : '+ Add Preference' }}
       </button>
     </div>
@@ -92,7 +92,7 @@ async function deletePref(imei) {
         <div>
           <label class="text-xs text-gray-400">Device</label>
           <select v-model="form.imei"
-            class="bg-gray-700 border border-gray-600 px-3 py-2 rounded text-gray-100 w-full focus:outline-none focus:border-cyan-400">
+            class="bg-gray-700 border border-gray-600 px-3 py-2 rounded text-gray-100 w-full focus:outline-none focus:border-teal-400">
             <option value="">Select device...</option>
             <option v-for="d in deviceList" :key="d.imei" :value="d.imei">{{ d.label || d.imei }}</option>
           </select>
@@ -100,20 +100,20 @@ async function deletePref(imei) {
         <div>
           <label class="text-xs text-gray-400">Events (comma-sep)</label>
           <input v-model="form.events" placeholder="sos,deadman,geofence"
-            class="bg-gray-700 border border-gray-600 px-3 py-2 rounded text-gray-100 w-full placeholder-gray-500 focus:outline-none focus:border-cyan-400" />
+            class="bg-gray-700 border border-gray-600 px-3 py-2 rounded text-gray-100 w-full placeholder-gray-500 focus:outline-none focus:border-teal-400" />
         </div>
       </div>
       <div class="mb-3">
         <label class="text-xs text-gray-400">Apprise URLs (one per line)</label>
         <textarea v-model="form.urls" rows="3" placeholder="mailto://user:pass@gmail.com&#10;slack://token/channel"
-          class="bg-gray-700 border border-gray-600 px-3 py-2 rounded text-gray-100 w-full placeholder-gray-500 focus:outline-none focus:border-cyan-400 font-mono text-sm"></textarea>
+          class="bg-gray-700 border border-gray-600 px-3 py-2 rounded text-gray-100 w-full placeholder-gray-500 focus:outline-none focus:border-teal-400 font-mono text-sm"></textarea>
       </div>
       <div class="flex items-center justify-between">
         <label class="flex items-center gap-2 text-sm text-gray-400">
           <input type="checkbox" v-model="form.enabled" class="rounded" /> Enabled
         </label>
         <button @click="savePref"
-          class="bg-cyan-600 hover:bg-cyan-500 text-white px-4 py-2 rounded text-sm transition-colors">Save</button>
+          class="bg-teal-600 hover:bg-teal-500 text-white px-4 py-2 rounded text-sm transition-colors">Save</button>
       </div>
     </div>
 

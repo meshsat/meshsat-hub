@@ -65,7 +65,7 @@ function formatDate(d) {
 
 function roleBadgeClass(role) {
   if (role === 'owner') return 'bg-purple-900/50 text-purple-300'
-  if (role === 'operator') return 'bg-cyan-900/50 text-cyan-300'
+  if (role === 'operator') return 'bg-teal-900/50 text-teal-300'
   return 'bg-gray-700 text-gray-300'
 }
 </script>
@@ -93,24 +93,24 @@ function roleBadgeClass(role) {
       <h2 class="text-sm font-semibold text-gray-300 mb-3">Create New Key</h2>
       <div class="flex flex-wrap gap-2">
         <input v-model="newLabel" placeholder="Label (e.g. CI pipeline)"
-          class="bg-gray-700 border border-gray-600 px-3 py-2 rounded text-gray-100 placeholder-gray-500 focus:outline-none focus:border-cyan-400 flex-1 min-w-[160px]" />
+          class="bg-gray-700 border border-gray-600 px-3 py-2 rounded text-gray-100 placeholder-gray-500 focus:outline-none focus:border-teal-400 flex-1 min-w-[160px]" />
         <select v-model="newRole"
-          class="bg-gray-700 border border-gray-600 px-3 py-2 rounded text-gray-100 focus:outline-none focus:border-cyan-400">
+          class="bg-gray-700 border border-gray-600 px-3 py-2 rounded text-gray-100 focus:outline-none focus:border-teal-400">
           <option value="viewer">Viewer</option>
           <option value="operator">Operator</option>
           <option value="owner">Owner</option>
         </select>
         <input v-model="newDevice" placeholder="Device IMEI (optional)"
-          class="bg-gray-700 border border-gray-600 px-3 py-2 rounded text-gray-100 placeholder-gray-500 focus:outline-none focus:border-cyan-400 min-w-[160px]" />
+          class="bg-gray-700 border border-gray-600 px-3 py-2 rounded text-gray-100 placeholder-gray-500 focus:outline-none focus:border-teal-400 min-w-[160px]" />
         <select v-model="newExpires"
-          class="bg-gray-700 border border-gray-600 px-3 py-2 rounded text-gray-100 focus:outline-none focus:border-cyan-400">
+          class="bg-gray-700 border border-gray-600 px-3 py-2 rounded text-gray-100 focus:outline-none focus:border-teal-400">
           <option value="">No expiry</option>
           <option value="720h">30 days</option>
           <option value="2160h">90 days</option>
           <option value="8760h">1 year</option>
         </select>
         <button @click="createKey"
-          class="bg-cyan-600 hover:bg-cyan-500 text-white px-4 py-2 rounded font-medium transition-colors">
+          class="bg-teal-600 hover:bg-teal-500 text-white px-4 py-2 rounded font-medium transition-colors">
           Create
         </button>
       </div>

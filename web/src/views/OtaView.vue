@@ -121,7 +121,7 @@ function statusColor(s) {
             {{ showRolloutForm ? 'Cancel' : '+ Rollout' }}
           </button>
           <button @click="showTargetForm = !showTargetForm"
-            class="bg-cyan-600 hover:bg-cyan-500 text-white px-3 py-1 rounded text-sm transition-colors">
+            class="bg-teal-600 hover:bg-teal-500 text-white px-3 py-1 rounded text-sm transition-colors">
             {{ showTargetForm ? 'Cancel' : '+ Target' }}
           </button>
         </div>
@@ -131,11 +131,11 @@ function statusColor(s) {
       <div v-if="showTargetForm" class="bg-gray-800 rounded-lg p-4 mb-4">
         <div class="flex flex-wrap gap-2 mb-3">
           <input v-model="newTarget.controllerId" placeholder="Controller ID (IMEI)"
-            class="bg-gray-700 border border-gray-600 px-3 py-2 rounded text-gray-100 placeholder-gray-500 flex-1 min-w-[200px] focus:outline-none focus:border-cyan-400" />
+            class="bg-gray-700 border border-gray-600 px-3 py-2 rounded text-gray-100 placeholder-gray-500 flex-1 min-w-[200px] focus:outline-none focus:border-teal-400" />
           <input v-model="newTarget.name" placeholder="Name (optional)"
-            class="bg-gray-700 border border-gray-600 px-3 py-2 rounded text-gray-100 placeholder-gray-500 flex-1 min-w-[200px] focus:outline-none focus:border-cyan-400" />
+            class="bg-gray-700 border border-gray-600 px-3 py-2 rounded text-gray-100 placeholder-gray-500 flex-1 min-w-[200px] focus:outline-none focus:border-teal-400" />
           <button @click="createTarget"
-            class="bg-cyan-600 hover:bg-cyan-500 text-white px-4 py-2 rounded transition-colors">Add</button>
+            class="bg-teal-600 hover:bg-teal-500 text-white px-4 py-2 rounded transition-colors">Add</button>
         </div>
       </div>
 
@@ -145,22 +145,22 @@ function statusColor(s) {
           <div>
             <label class="text-xs text-gray-400">Rollout Name</label>
             <input v-model="newRollout.name" placeholder="v0.3.0 rollout"
-              class="bg-gray-700 border border-gray-600 px-3 py-2 rounded text-gray-100 w-full placeholder-gray-500 focus:outline-none focus:border-cyan-400" />
+              class="bg-gray-700 border border-gray-600 px-3 py-2 rounded text-gray-100 w-full placeholder-gray-500 focus:outline-none focus:border-teal-400" />
           </div>
           <div>
             <label class="text-xs text-gray-400">Distribution Set ID</label>
             <input v-model="newRollout.distributionSetId" type="number" min="1"
-              class="bg-gray-700 border border-gray-600 px-3 py-2 rounded text-gray-100 w-full focus:outline-none focus:border-cyan-400" />
+              class="bg-gray-700 border border-gray-600 px-3 py-2 rounded text-gray-100 w-full focus:outline-none focus:border-teal-400" />
           </div>
           <div>
             <label class="text-xs text-gray-400">Target Filter</label>
             <input v-model="newRollout.targetFilterQuery" placeholder="name==*"
-              class="bg-gray-700 border border-gray-600 px-3 py-2 rounded text-gray-100 w-full placeholder-gray-500 focus:outline-none focus:border-cyan-400" />
+              class="bg-gray-700 border border-gray-600 px-3 py-2 rounded text-gray-100 w-full placeholder-gray-500 focus:outline-none focus:border-teal-400" />
           </div>
           <div>
             <label class="text-xs text-gray-400">Groups</label>
             <input v-model="newRollout.amountGroups" type="number" min="1"
-              class="bg-gray-700 border border-gray-600 px-3 py-2 rounded text-gray-100 w-full focus:outline-none focus:border-cyan-400" />
+              class="bg-gray-700 border border-gray-600 px-3 py-2 rounded text-gray-100 w-full focus:outline-none focus:border-teal-400" />
           </div>
         </div>
         <div class="flex justify-end">

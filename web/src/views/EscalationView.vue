@@ -138,7 +138,7 @@ function statusBg(status) {
       <div class="flex items-center justify-between mb-3">
         <h2 class="text-lg font-semibold">Escalation Chains</h2>
         <button @click="showForm = !showForm"
-          class="bg-cyan-600 hover:bg-cyan-500 text-white px-3 py-1 rounded text-sm transition-colors">
+          class="bg-teal-600 hover:bg-teal-500 text-white px-3 py-1 rounded text-sm transition-colors">
           {{ showForm ? 'Cancel' : '+ New Chain' }}
         </button>
       </div>
@@ -146,32 +146,32 @@ function statusBg(status) {
       <!-- New chain form -->
       <div v-if="showForm" class="bg-gray-800 rounded-lg p-4 mb-4">
         <input v-model="newChain.name" placeholder="Chain name"
-          class="bg-gray-700 border border-gray-600 px-3 py-2 rounded text-gray-100 placeholder-gray-500 focus:outline-none focus:border-cyan-400 w-full mb-3" />
+          class="bg-gray-700 border border-gray-600 px-3 py-2 rounded text-gray-100 placeholder-gray-500 focus:outline-none focus:border-teal-400 w-full mb-3" />
 
         <div v-for="(tier, i) in newChain.tiers" :key="i" class="flex flex-wrap gap-2 mb-2 items-end">
           <div class="flex-1 min-w-[120px]">
             <label class="text-xs text-gray-400">Delay (sec)</label>
             <input v-model="tier.delay_sec" type="number" min="0"
-              class="bg-gray-700 border border-gray-600 px-3 py-2 rounded text-gray-100 w-full focus:outline-none focus:border-cyan-400" />
+              class="bg-gray-700 border border-gray-600 px-3 py-2 rounded text-gray-100 w-full focus:outline-none focus:border-teal-400" />
           </div>
           <div class="flex-1 min-w-[200px]">
             <label class="text-xs text-gray-400">Recipients (comma-sep)</label>
             <input v-model="tier.recipients" placeholder="email@example.com"
-              class="bg-gray-700 border border-gray-600 px-3 py-2 rounded text-gray-100 w-full placeholder-gray-500 focus:outline-none focus:border-cyan-400" />
+              class="bg-gray-700 border border-gray-600 px-3 py-2 rounded text-gray-100 w-full placeholder-gray-500 focus:outline-none focus:border-teal-400" />
           </div>
           <div class="flex-1 min-w-[120px]">
             <label class="text-xs text-gray-400">Actions</label>
             <input v-model="tier.actions" placeholder="notify"
-              class="bg-gray-700 border border-gray-600 px-3 py-2 rounded text-gray-100 w-full placeholder-gray-500 focus:outline-none focus:border-cyan-400" />
+              class="bg-gray-700 border border-gray-600 px-3 py-2 rounded text-gray-100 w-full placeholder-gray-500 focus:outline-none focus:border-teal-400" />
           </div>
           <button v-if="newChain.tiers.length > 1" @click="removeTier(i)"
             class="bg-red-900 hover:bg-red-800 text-red-200 px-2 py-2 rounded text-xs">Remove</button>
         </div>
 
         <div class="flex gap-2 mt-3">
-          <button @click="addTier" class="text-cyan-400 hover:text-cyan-300 text-sm">+ Add Tier</button>
+          <button @click="addTier" class="text-teal-400 hover:text-teal-300 text-sm">+ Add Tier</button>
           <button @click="createChain"
-            class="bg-cyan-600 hover:bg-cyan-500 text-white px-4 py-2 rounded text-sm ml-auto transition-colors">
+            class="bg-teal-600 hover:bg-teal-500 text-white px-4 py-2 rounded text-sm ml-auto transition-colors">
             Create Chain
           </button>
         </div>

@@ -53,11 +53,11 @@ function checkColor(v) {
         </div>
         <div class="bg-gray-800 rounded-lg p-4">
           <div class="text-gray-400 text-sm mb-1">Devices</div>
-          <div class="text-lg font-bold text-cyan-400">{{ deviceCount }}</div>
+          <div class="text-lg font-bold text-teal-400">{{ deviceCount }}</div>
         </div>
         <div class="bg-gray-800 rounded-lg p-4">
           <div class="text-gray-400 text-sm mb-1">Constellations</div>
-          <div class="text-lg font-bold text-cyan-400">{{ backends.join(', ') || 'none' }}</div>
+          <div class="text-lg font-bold text-teal-400">{{ backends.join(', ') || 'none' }}</div>
         </div>
       </div>
 

@@ -42,7 +42,7 @@ function pathTypeColor(type) {
   switch (type) {
     case 'satellite': return 'text-purple-400'
     case 'cellular': return 'text-yellow-400'
-    case 'wifi': return 'text-cyan-400'
+    case 'wifi': return 'text-teal-400'
     case 'ethernet': return 'text-green-400'
     default: return 'text-gray-400'
   }
@@ -52,7 +52,7 @@ function pathTypeBg(type) {
   switch (type) {
     case 'satellite': return 'bg-purple-900/50'
     case 'cellular': return 'bg-yellow-900/50'
-    case 'wifi': return 'bg-cyan-900/50'
+    case 'wifi': return 'bg-teal-900/50'
     case 'ethernet': return 'bg-green-900/50'
     default: return 'bg-gray-800'
   }
@@ -60,7 +60,7 @@ function pathTypeBg(type) {
 
 function subflowStatusColor(status) {
   if (status === 'active') return 'text-green-400'
-  if (status === 'backup') return 'text-cyan-400'
+  if (status === 'backup') return 'text-teal-400'
   if (status === 'degraded') return 'text-yellow-400'
   if (status === 'down') return 'text-red-400'
   return 'text-gray-400'
@@ -122,7 +122,7 @@ function formatBytes(bytes) {
             <div class="text-gray-400 text-sm mb-1">Strategy</div>
             <div class="flex items-center gap-2">
               <select :value="mptcpStatus.strategy" @change="setStrategy($event.target.value)"
-                class="bg-gray-700 border border-gray-600 px-3 py-1 rounded text-gray-100 text-sm focus:outline-none focus:border-cyan-400">
+                class="bg-gray-700 border border-gray-600 px-3 py-1 rounded text-gray-100 text-sm focus:outline-none focus:border-teal-400">
                 <option value="failover">Failover</option>
                 <option value="aggregate">Aggregate</option>
                 <option value="redundant">Redundant</option>

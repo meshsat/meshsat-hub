@@ -86,17 +86,17 @@ function formatLastSeen(d) {
     <!-- Add device form -->
     <div class="flex flex-wrap gap-2 mb-4">
       <input v-model="newIMEI" placeholder="IMEI"
-        class="bg-gray-700 border border-gray-600 px-3 py-2 rounded text-gray-100 placeholder-gray-500 focus:outline-none focus:border-cyan-400 flex-1 min-w-[180px]" />
+        class="bg-gray-700 border border-gray-600 px-3 py-2 rounded text-gray-100 placeholder-gray-500 focus:outline-none focus:border-teal-400 flex-1 min-w-[180px]" />
       <input v-model="newLabel" placeholder="Label (optional)"
-        class="bg-gray-700 border border-gray-600 px-3 py-2 rounded text-gray-100 placeholder-gray-500 focus:outline-none focus:border-cyan-400 flex-1 min-w-[140px]" />
+        class="bg-gray-700 border border-gray-600 px-3 py-2 rounded text-gray-100 placeholder-gray-500 focus:outline-none focus:border-teal-400 flex-1 min-w-[140px]" />
       <select v-model="newType"
-        class="bg-gray-700 border border-gray-600 px-3 py-2 rounded text-gray-100 focus:outline-none focus:border-cyan-400">
+        class="bg-gray-700 border border-gray-600 px-3 py-2 rounded text-gray-100 focus:outline-none focus:border-teal-400">
         <option value="rockblock">RockBLOCK</option>
         <option value="astrocast">Astrocast</option>
         <option value="other">Other</option>
       </select>
       <button @click="addDevice"
-        class="bg-cyan-600 hover:bg-cyan-500 text-white px-4 py-2 rounded font-medium transition-colors">
+        class="bg-teal-600 hover:bg-teal-500 text-white px-4 py-2 rounded font-medium transition-colors">
         Add
       </button>
     </div>

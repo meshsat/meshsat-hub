@@ -29,7 +29,7 @@ function formatTime(ts) {
 }
 
 function dirClass(dir) {
-  return dir === 'mo' ? 'text-cyan-400' : 'text-purple-400'
+  return dir === 'mo' ? 'text-teal-400' : 'text-purple-400'
 }
 
 function statusClass(status) {
@@ -49,9 +49,9 @@ function statusClass(status) {
 
     <div class="flex gap-2 mb-4">
       <input v-model="filter" placeholder="Filter by device IMEI" @keyup.enter="loadMessages"
-        class="bg-gray-700 border border-gray-600 px-3 py-2 rounded text-gray-100 placeholder-gray-500 focus:outline-none focus:border-cyan-400 flex-1" />
+        class="bg-gray-700 border border-gray-600 px-3 py-2 rounded text-gray-100 placeholder-gray-500 focus:outline-none focus:border-teal-400 flex-1" />
       <button @click="loadMessages"
-        class="bg-cyan-600 hover:bg-cyan-500 text-white px-4 py-2 rounded font-medium transition-colors">
+        class="bg-teal-600 hover:bg-teal-500 text-white px-4 py-2 rounded font-medium transition-colors">
         Refresh
       </button>
     </div>
