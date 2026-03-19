@@ -31,11 +31,23 @@ type SendResult struct {
 	Error  string `json:"error,omitempty"`
 }
 
-// NewClient creates a Twilio SMS client.
+// NewClient creates a Twilio SMS client using Account SID + Auth Token.
 func NewClient(accountSID, authToken, fromNumber string) *Client {
 	return &Client{
 		accountSID: accountSID,
 		authToken:  authToken,
+		fromNumber: fromNumber,
+		apiURL:     fmt.Sprintf("https://api.twilio.com/2010-04-01/Accounts/%s", accountSID),
+		httpClient: &http.Client{Timeout: 30 * time.Second},
+	}
+}
+
+// NewClientWithAPIKey creates a Twilio SMS client using API Key auth.
+// accountSID is used in the URL path; apiKeySID + apiKeySecret for Basic Auth.
+func NewClientWithAPIKey(accountSID, apiKeySID, apiKeySecret, fromNumber string) *Client {
+	return &Client{
+		accountSID: apiKeySID,    // used for Basic Auth username
+		authToken:  apiKeySecret, // used for Basic Auth password
 		fromNumber: fromNumber,
 		apiURL:     fmt.Sprintf("https://api.twilio.com/2010-04-01/Accounts/%s", accountSID),
 		httpClient: &http.Client{Timeout: 30 * time.Second},

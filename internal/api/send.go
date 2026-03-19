@@ -11,13 +11,15 @@ import (
 	"github.com/cubeos-app/meshsat-hub/internal/compress"
 	hubcrypto "github.com/cubeos-app/meshsat-hub/internal/crypto"
 	"github.com/cubeos-app/meshsat-hub/internal/rock7"
+	"github.com/cubeos-app/meshsat-hub/internal/sms"
 	"github.com/cubeos-app/meshsat-hub/internal/store"
 	"github.com/go-chi/chi/v5"
 )
 
-// SendHandler handles MT message send requests.
+// SendHandler handles MT message and SMS send requests.
 type SendHandler struct {
 	rock7Client *rock7.Client
+	smsClient   *sms.Client
 	store       store.Store
 	keyStore    *hubcrypto.KeyStore
 }
@@ -30,6 +32,11 @@ func NewSendHandler(r7 *rock7.Client, s store.Store) *SendHandler {
 // SetKeyStore enables E2E encryption for MT messages.
 func (h *SendHandler) SetKeyStore(ks *hubcrypto.KeyStore) {
 	h.keyStore = ks
+}
+
+// SetSMSClient enables SMS sending.
+func (h *SendHandler) SetSMSClient(c *sms.Client) {
+	h.smsClient = c
 }
 
 type sendMessageRequest struct {
@@ -154,5 +161,121 @@ func (h *SendHandler) SendMessage(w http.ResponseWriter, r *http.Request) {
 		"encrypted":      encrypted,
 		"original_bytes": originalSize,
 		"wire_bytes":     len(payload),
+	})
+}
+
+type sendSMSRequest struct {
+	To       string `json:"to"` // E.164 phone number
+	Text     string `json:"text"`
+	Compress bool   `json:"compress"` // SMAZ2 compress (default false for SMS — human-readable)
+	Encrypt  bool   `json:"encrypt"`  // AES-256-GCM encrypt (base64-encoded in SMS body)
+}
+
+// SendSMS sends an SMS message via Twilio.
+//
+//	@Summary      Send SMS message
+//	@Tags         sms
+//	@Accept       json
+//	@Produce      json
+//	@Param        body  body  sendSMSRequest  true  "SMS parameters"
+//	@Success      200   {object}  map[string]interface{}
+//	@Failure      400   {object}  map[string]string
+//	@Failure      502   {object}  map[string]string
+//	@Router       /api/sms/send [post]
+func (h *SendHandler) SendSMS(w http.ResponseWriter, r *http.Request) {
+	var req sendSMSRequest
+	if err := readJSON(w, r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if req.To == "" || req.Text == "" {
+		writeError(w, http.StatusBadRequest, "to and text are required")
+		return
+	}
+	if h.smsClient == nil {
+		writeError(w, http.StatusServiceUnavailable, "SMS not configured (set HUB_SMS_ACCOUNT_SID)")
+		return
+	}
+
+	payload := []byte(req.Text)
+	originalSize := len(payload)
+	compressed := false
+	encrypted := false
+	finalBody := req.Text
+
+	// Step 1: SMAZ2 compression (opt-in for SMS — usually want human-readable)
+	if req.Compress {
+		smaz := compress.Compress(payload)
+		if len(smaz) > 0 && len(smaz) < len(payload) {
+			payload = smaz
+			compressed = true
+		}
+	}
+
+	// Step 2: AES-256-GCM encryption (opt-in)
+	if req.Encrypt && h.keyStore != nil {
+		// Use a convention: encrypt with a key identified by the phone number
+		// For now, use a global "sms" key if it exists
+		ct, encErr := h.keyStore.EncryptMessage("sms", payload)
+		if encErr == nil {
+			payload = ct
+			encrypted = true
+		}
+	}
+
+	// If compressed or encrypted, base64-encode for SMS transport
+	if compressed || encrypted {
+		finalBody = "MSMS:" + hex.EncodeToString(payload) // MSMS: prefix = MeshSat SMS (binary)
+	}
+
+	result, err := h.smsClient.Send(r.Context(), req.To, finalBody)
+
+	tid := auth.TenantIDFromContext(r.Context())
+	var status, errMsg, smsSID string
+	if err != nil {
+		status = "failed"
+		errMsg = err.Error()
+		slog.Error("sms: send failed", "to", req.To, "error", err)
+	} else {
+		smsSID = result.SID
+		status = result.Status
+		slog.Info("sms: sent", "to", req.To, "sid", smsSID,
+			"original_bytes", originalSize, "wire_bytes", len(payload),
+			"compressed", compressed, "encrypted", encrypted)
+	}
+
+	msg := &store.Message{
+		ID:         "sms-" + smsSID,
+		DeviceIMEI: req.To, // use phone number as device identifier
+		Direction:  "mt",
+		Channel:    "sms",
+		Text:       req.Text,
+		Compressed: compressed,
+		Status:     status,
+		Error:      errMsg,
+	}
+	if msg.ID == "sms-" {
+		msg.ID = "sms-" + time.Now().Format("20060102150405")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	_ = h.store.InsertMessage(ctx, tid, msg)
+
+	if err != nil {
+		writeJSON(w, http.StatusBadGateway, map[string]interface{}{
+			"status": "failed",
+			"error":  errMsg,
+		})
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"status":         status,
+		"sid":            smsSID,
+		"to":             req.To,
+		"compressed":     compressed,
+		"encrypted":      encrypted,
+		"original_bytes": originalSize,
+		"wire_bytes":     len(finalBody),
 	})
 }

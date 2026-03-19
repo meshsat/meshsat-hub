@@ -103,8 +103,9 @@ type Config struct {
 
 	// SMS gateway (Twilio)
 	SMSEnabled       bool   `yaml:"sms_enabled"`
-	SMSAccountSID    string `yaml:"sms_account_sid"`    // Twilio Account SID
-	SMSAuthToken     string `yaml:"sms_auth_token"`     // Twilio Auth Token
+	SMSAccountSID    string `yaml:"sms_account_sid"`    // Twilio Account SID (AC...)
+	SMSAuthToken     string `yaml:"sms_auth_token"`     // Twilio Auth Token (or API Key Secret)
+	SMSAPIKeySID     string `yaml:"sms_api_key_sid"`    // Twilio API Key SID (SK...) — if set, uses API key auth
 	SMSFromNumber    string `yaml:"sms_from_number"`    // E.164 sender number
 	SMSWebhookSecret string `yaml:"sms_webhook_secret"` // HMAC secret for inbound webhook verification
 
@@ -370,6 +371,9 @@ func Load() (Config, error) {
 	}
 	if v := os.Getenv("HUB_SMS_AUTH_TOKEN"); v != "" {
 		cfg.SMSAuthToken = v
+	}
+	if v := os.Getenv("HUB_SMS_API_KEY_SID"); v != "" {
+		cfg.SMSAPIKeySID = v
 	}
 	if v := os.Getenv("HUB_SMS_FROM_NUMBER"); v != "" {
 		cfg.SMSFromNumber = v

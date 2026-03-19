@@ -548,9 +548,17 @@ func main() {
 
 	r.Post("/api/webhook/astrocast", acHandler.ServeHTTP)
 
-	// SMS gateway (optional — inbound webhook + outbound subscriber)
+	// SMS gateway (optional — inbound webhook + outbound subscriber + send API)
+	var smsClientForSend *sms.Client
 	if cfg.SMSEnabled && cfg.SMSAccountSID != "" {
-		smsClient := sms.NewClient(cfg.SMSAccountSID, cfg.SMSAuthToken, cfg.SMSFromNumber)
+		var smsClient *sms.Client
+		if cfg.SMSAPIKeySID != "" {
+			smsClient = sms.NewClientWithAPIKey(cfg.SMSAccountSID, cfg.SMSAPIKeySID, cfg.SMSAuthToken, cfg.SMSFromNumber)
+			slog.Info("sms: using API key auth", "key_sid", cfg.SMSAPIKeySID)
+		} else {
+			smsClient = sms.NewClient(cfg.SMSAccountSID, cfg.SMSAuthToken, cfg.SMSFromNumber)
+		}
+		smsClientForSend = smsClient
 		smsWebhook := sms.NewWebhookHandler(msgBus, cfg.SMSWebhookSecret)
 		r.Post("/api/webhook/sms", smsWebhook.ServeHTTP)
 		if msgBus.IsConnected() {
@@ -633,7 +641,9 @@ func main() {
 	// MT message send (Rock7 / Iridium)
 	sendHandler := api.NewSendHandler(rock7Client, dataStore)
 	sendHandler.SetKeyStore(keyStore)
+	sendHandler.SetSMSClient(smsClientForSend)
 	r.Post("/api/devices/{imei}/send", sendHandler.SendMessage)
+	r.Post("/api/sms/send", sendHandler.SendSMS)
 
 	// Message history API
 	messageHandler := api.NewMessageHandler(dataStore)

@@ -12,12 +12,19 @@ const loading = ref(false)
 const error = ref('')
 const success = ref('')
 
-// Send form
+// MT Send form
 const sendImei = ref('')
 const sendText = ref('')
 const sendCompress = ref(true)
 const sendEncrypt = ref(true)
 const sending = ref(false)
+
+// SMS Send form
+const smsTo = ref('')
+const smsText = ref('')
+const smsCompress = ref(false)
+const smsEncrypt = ref(false)
+const smsSending = ref(false)
 
 onMounted(async () => {
   await Promise.all([loadMessages(), loadDevices()])
@@ -59,6 +66,24 @@ async function sendMessage() {
     error.value = `Send failed: ${e.message}`
   } finally {
     sending.value = false
+  }
+}
+
+async function sendSMS() {
+  if (!smsTo.value || !smsText.value) return
+  smsSending.value = true
+  error.value = ''
+  success.value = ''
+  try {
+    const result = await messages.sendSMS(smsTo.value, smsText.value, smsCompress.value, smsEncrypt.value)
+    const flags = [result.compressed && 'SMAZ2', result.encrypted && 'AES-256-GCM'].filter(Boolean).join(' + ') || 'plaintext'
+    success.value = `SMS ${result.status} to ${result.to} | SID: ${result.sid} | ${flags}`
+    smsText.value = ''
+    await loadMessages()
+  } catch (e) {
+    error.value = `SMS failed: ${e.message}`
+  } finally {
+    smsSending.value = false
   }
 }
 
@@ -115,6 +140,33 @@ function statusClass(status) {
           AES-256-GCM Encrypt
         </label>
         <span class="text-xs text-gray-500">Message queued for next satellite pass (30-90s typical).</span>
+      </div>
+    </div>
+
+    <!-- Send SMS -->
+    <div v-if="auth.isOwner || auth.role === 'operator'" class="bg-gray-800 border border-gray-700 rounded p-4 mb-4">
+      <h2 class="text-sm font-semibold text-gray-300 mb-3">Send SMS (via Twilio)</h2>
+      <div class="flex gap-2">
+        <input v-model="smsTo" placeholder="+31612345678"
+          class="bg-gray-700 border border-gray-600 px-3 py-2 rounded text-gray-100 placeholder-gray-500 focus:outline-none focus:border-green-400 w-48" />
+        <input v-model="smsText" placeholder="Type SMS message..."
+          @keyup.enter="sendSMS" :disabled="smsSending"
+          class="bg-gray-700 border border-gray-600 px-3 py-2 rounded text-gray-100 placeholder-gray-500 focus:outline-none focus:border-green-400 flex-1" />
+        <button @click="sendSMS" :disabled="smsSending || !smsText || !smsTo"
+          class="bg-green-600 hover:bg-green-500 disabled:bg-gray-600 text-white px-4 py-2 rounded font-medium transition-colors whitespace-nowrap">
+          {{ smsSending ? 'Sending...' : 'Send SMS' }}
+        </button>
+      </div>
+      <div class="flex gap-4 mt-2">
+        <label class="flex items-center gap-1.5 text-xs text-gray-400 cursor-pointer">
+          <input type="checkbox" v-model="smsCompress" class="accent-green-500" />
+          SMAZ2 Compress
+        </label>
+        <label class="flex items-center gap-1.5 text-xs text-gray-400 cursor-pointer">
+          <input type="checkbox" v-model="smsEncrypt" class="accent-green-500" />
+          AES-256-GCM Encrypt
+        </label>
+        <span class="text-xs text-gray-500">Compressed/encrypted SMS sent as hex-encoded binary with MSMS: prefix.</span>
       </div>
     </div>
 

@@ -62,6 +62,9 @@ export const messages = {
   send: (imei, text, compress = true, encrypt = true) => fetchJSON(`/devices/${imei}/send`, {
     method: 'POST', body: JSON.stringify({ text, compress, encrypt })
   }),
+  sendSMS: (to, text, compress = false, encrypt = false) => fetchJSON('/sms/send', {
+    method: 'POST', body: JSON.stringify({ to, text, compress, encrypt })
+  }),
 }
 
 export const positions = {
