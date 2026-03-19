@@ -210,3 +210,20 @@ func (m *mockStore) GetDeviceKeyLatest(context.Context, string, string) (*store.
 	return nil, fmt.Errorf("not found")
 }
 func (m *mockStore) DeleteDeviceKey(context.Context, string, string) error { return nil }
+
+func (m *mockStore) SaveDeviceWireguard(context.Context, string, *store.DeviceWireguard) error {
+	return nil
+}
+func (m *mockStore) GetDeviceWireguard(context.Context, string, string) (*store.DeviceWireguard, error) {
+	return nil, fmt.Errorf("not found")
+}
+func (m *mockStore) DeleteDeviceWireguard(context.Context, string, string) error { return nil }
+
+// Routes
+func (m *mockStore) CreateRoute(context.Context, string, *store.Route) error { return nil }
+func (m *mockStore) GetRoute(context.Context, string, string) (*store.Route, error) {
+	return nil, fmt.Errorf("not found")
+}
+func (m *mockStore) ListRoutes(context.Context, string) ([]store.Route, error) { return nil, nil }
+func (m *mockStore) UpdateRoute(context.Context, string, *store.Route) error   { return nil }
+func (m *mockStore) DeleteRoute(context.Context, string, string) error         { return nil }

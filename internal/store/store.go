@@ -105,6 +105,30 @@ type Store interface {
 	ListDeviceKeys(ctx context.Context, tenantID string, deviceIMEI string) ([]DeviceKey, error)
 	GetDeviceKeyLatest(ctx context.Context, tenantID string, deviceIMEI string) (*DeviceKey, error)
 	DeleteDeviceKey(ctx context.Context, tenantID string, id string) error
+
+	// Device WireGuard peer tracking
+	SaveDeviceWireguard(ctx context.Context, tenantID string, dw *DeviceWireguard) error
+	GetDeviceWireguard(ctx context.Context, tenantID string, deviceIMEI string) (*DeviceWireguard, error)
+	DeleteDeviceWireguard(ctx context.Context, tenantID string, deviceIMEI string) error
+
+	// Message routing rules
+	CreateRoute(ctx context.Context, tenantID string, r *Route) error
+	GetRoute(ctx context.Context, tenantID string, id string) (*Route, error)
+	ListRoutes(ctx context.Context, tenantID string) ([]Route, error)
+	UpdateRoute(ctx context.Context, tenantID string, r *Route) error
+	DeleteRoute(ctx context.Context, tenantID string, id string) error
+}
+
+// Route defines a configurable message routing rule.
+type Route struct {
+	ID              string    `json:"id"`
+	Name            string    `json:"name"`
+	SourceType      string    `json:"source_type"`
+	DestinationType string    `json:"destination_type"`
+	Filter          string    `json:"filter,omitempty"`
+	Enabled         bool      `json:"enabled"`
+	CreatedAt       time.Time `json:"created_at"`
+	UpdatedAt       time.Time `json:"updated_at"`
 }
 
 // Device represents a registered field device.
@@ -289,6 +313,15 @@ type DeviceKey struct {
 	KeyHash    string    `json:"key_hash"`          // SHA-256 hash for identification
 	KeyHex     string    `json:"key_hex,omitempty"` // hex-encoded AES-256 key (omitted in listings, passthrough)
 	Mode       string    `json:"mode"`              // "decrypt" (server can read) or "passthrough" (opaque)
+	CreatedAt  time.Time `json:"created_at"`
+}
+
+// DeviceWireguard tracks the WireGuard peer provisioned for a device.
+type DeviceWireguard struct {
+	DeviceIMEI string    `json:"device_imei"`
+	PeerID     string    `json:"peer_id"`     // wg-easy peer ID
+	VPNAddress string    `json:"vpn_address"` // allocated VPN IP (e.g. "10.8.0.5/32")
+	PublicKey  string    `json:"public_key,omitempty"`
 	CreatedAt  time.Time `json:"created_at"`
 }
 

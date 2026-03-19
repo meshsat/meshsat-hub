@@ -294,6 +294,20 @@ var migrations = []string{
 		PRIMARY KEY (device_imei, tenant_id),
 		INDEX idx_device_wireguard_tenant (tenant_id)
 	) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
+
+	// Routes (v1.3 — configurable routing engine, MESHSAT-178)
+	`CREATE TABLE IF NOT EXISTS routes (
+		id VARCHAR(64) PRIMARY KEY,
+		name VARCHAR(255) NOT NULL DEFAULT '',
+		source_type VARCHAR(64) NOT NULL DEFAULT '',
+		destination_type VARCHAR(64) NOT NULL DEFAULT '',
+		filter TEXT NOT NULL,
+		enabled BOOLEAN NOT NULL DEFAULT TRUE,
+		created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+		updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+		tenant_id VARCHAR(64) NOT NULL DEFAULT 'default',
+		INDEX idx_routes_tenant (tenant_id)
+	) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
 }
 
 // --- Devices ---
@@ -1097,6 +1111,97 @@ func (d *DB) GetDeviceKeyLatest(ctx context.Context, tenantID string, deviceIMEI
 func (d *DB) DeleteDeviceKey(ctx context.Context, tenantID string, id string) error {
 	_, err := d.db.ExecContext(ctx,
 		"DELETE FROM device_keys WHERE id=? AND tenant_id=?", id, tenantID)
+	return err
+}
+
+// --- Device WireGuard ---
+
+func (d *DB) SaveDeviceWireguard(ctx context.Context, tenantID string, dw *store.DeviceWireguard) error {
+	_, err := d.db.ExecContext(ctx,
+		`REPLACE INTO device_wireguard (device_imei, peer_id, vpn_address, public_key, tenant_id) VALUES (?, ?, ?, ?, ?)`,
+		dw.DeviceIMEI, dw.PeerID, dw.VPNAddress, dw.PublicKey, tenantID)
+	if err != nil {
+		return err
+	}
+	dw.CreatedAt = time.Now().UTC()
+	return nil
+}
+
+func (d *DB) GetDeviceWireguard(ctx context.Context, tenantID string, deviceIMEI string) (*store.DeviceWireguard, error) {
+	var dw store.DeviceWireguard
+	err := d.db.QueryRowContext(ctx,
+		"SELECT device_imei, peer_id, vpn_address, public_key, created_at FROM device_wireguard WHERE device_imei=? AND tenant_id=?",
+		deviceIMEI, tenantID).Scan(&dw.DeviceIMEI, &dw.PeerID, &dw.VPNAddress, &dw.PublicKey, &dw.CreatedAt)
+	if err != nil {
+		return nil, err
+	}
+	return &dw, nil
+}
+
+func (d *DB) DeleteDeviceWireguard(ctx context.Context, tenantID string, deviceIMEI string) error {
+	_, err := d.db.ExecContext(ctx,
+		"DELETE FROM device_wireguard WHERE device_imei=? AND tenant_id=?", deviceIMEI, tenantID)
+	return err
+}
+
+// --- Routes ---
+
+func (d *DB) CreateRoute(ctx context.Context, tenantID string, r *store.Route) error {
+	if r.ID == "" {
+		r.ID = fmt.Sprintf("route-%d", time.Now().UnixNano())
+	}
+	now := time.Now().UTC()
+	r.CreatedAt = now
+	r.UpdatedAt = now
+	_, err := d.db.ExecContext(ctx,
+		`INSERT INTO routes (id, name, source_type, destination_type, filter, enabled, created_at, updated_at, tenant_id)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		r.ID, r.Name, r.SourceType, r.DestinationType, r.Filter, r.Enabled,
+		r.CreatedAt, r.UpdatedAt, tenantID)
+	return err
+}
+
+func (d *DB) GetRoute(ctx context.Context, tenantID string, id string) (*store.Route, error) {
+	var r store.Route
+	err := d.db.QueryRowContext(ctx,
+		"SELECT id, name, source_type, destination_type, filter, enabled, created_at, updated_at FROM routes WHERE id=? AND tenant_id=?",
+		id, tenantID,
+	).Scan(&r.ID, &r.Name, &r.SourceType, &r.DestinationType, &r.Filter, &r.Enabled, &r.CreatedAt, &r.UpdatedAt)
+	if err != nil {
+		return nil, err
+	}
+	return &r, nil
+}
+
+func (d *DB) ListRoutes(ctx context.Context, tenantID string) ([]store.Route, error) {
+	rows, err := d.db.QueryContext(ctx,
+		"SELECT id, name, source_type, destination_type, filter, enabled, created_at, updated_at FROM routes WHERE tenant_id=? ORDER BY name",
+		tenantID)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+	var routes []store.Route
+	for rows.Next() {
+		var r store.Route
+		if err := rows.Scan(&r.ID, &r.Name, &r.SourceType, &r.DestinationType, &r.Filter, &r.Enabled, &r.CreatedAt, &r.UpdatedAt); err != nil {
+			return nil, err
+		}
+		routes = append(routes, r)
+	}
+	return routes, rows.Err()
+}
+
+func (d *DB) UpdateRoute(ctx context.Context, tenantID string, r *store.Route) error {
+	r.UpdatedAt = time.Now().UTC()
+	_, err := d.db.ExecContext(ctx,
+		"UPDATE routes SET name=?, source_type=?, destination_type=?, filter=?, enabled=?, updated_at=? WHERE id=? AND tenant_id=?",
+		r.Name, r.SourceType, r.DestinationType, r.Filter, r.Enabled, r.UpdatedAt, r.ID, tenantID)
+	return err
+}
+
+func (d *DB) DeleteRoute(ctx context.Context, tenantID string, id string) error {
+	_, err := d.db.ExecContext(ctx, "DELETE FROM routes WHERE id=? AND tenant_id=?", id, tenantID)
 	return err
 }
 
