@@ -615,6 +615,15 @@ definitions:
       email:
         type: string
     type: object
+  internal_email.testEmailRequest:
+    properties:
+      body:
+        type: string
+      subject:
+        type: string
+      to:
+        type: string
+    type: object
   internal_hawkbit.ActionStatus:
     properties:
       id:
@@ -2062,6 +2071,41 @@ paths:
           schema:
             type: string
       summary: Get Hub PGP public key
+      tags:
+      - email
+  /api/email/test:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Test email parameters
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/internal_email.testEmailRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Send test email
       tags:
       - email
   /api/escalation/chains:
