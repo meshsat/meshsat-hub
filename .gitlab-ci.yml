@@ -132,7 +132,8 @@ package:
 # NEVER touches MariaDB, Redis, NATS, nginx, or garbd.
 # Pulls the new Hub image, stops the old container, starts a new one.
 # Deploy targets: nllei01dmz01 + grskg01dmz01 at /srv/meshsat-hub/
-# Requires CI variable: AWX_HUB_TEMPLATE_ID (set in GitLab project settings)
+# Direct SSH deploy — NO AWX (AWX was running docker compose up -d which broke Galera).
+# Requires CI variables: DEPLOY_SSH_KEY (base64-encoded private key), DEPLOY_HOSTS (comma-separated)
 # -----------------------------------------------------------------------------
 deploy:
   stage: deploy
@@ -141,56 +142,49 @@ deploy:
   needs:
     - package
   before_script:
-    - apk add --no-cache curl jq
+    - apk add --no-cache openssh-client curl
+    - mkdir -p ~/.ssh && chmod 700 ~/.ssh
+    - echo "$DEPLOY_SSH_KEY" | base64 -d > ~/.ssh/deploy_key && chmod 600 ~/.ssh/deploy_key
+    - echo "StrictHostKeyChecking no" > ~/.ssh/config
   script:
     - |
-      if [ -z "${AWX_HUB_TEMPLATE_ID:-}" ]; then
-        echo "SKIP: AWX_HUB_TEMPLATE_ID not set — deploy disabled"
+      HOSTS="${DEPLOY_HOSTS:-}"
+      if [ -z "$HOSTS" ]; then
+        echo "SKIP: DEPLOY_HOSTS not set — deploy disabled"
         exit 0
       fi
 
-      # Safe deploy command: pull new image, stop+remove ONLY hub, recreate ONLY hub
-      # docker compose up -d --no-deps --force-recreate hub
-      # --no-deps: do NOT touch dependencies (mariadb, nats, redis)
-      # --force-recreate: recreate even if config hasn't changed (new image)
-      DEPLOY_CMD="cd /srv/meshsat-hub && docker pull ${MESHSAT_HUB_IMAGE}:latest && docker compose up -d --no-deps --force-recreate hub"
+      IMAGE="${MESHSAT_HUB_IMAGE:-ghcr.io/cubeos-app/meshsat-hub}:latest"
+      FAILED=0
 
-      echo "Deploying meshsat-hub (Hub container only, no DB restart)..."
-      RESPONSE=$(curl -s -X POST \
-        -H "Authorization: Bearer ${AWX_TOKEN}" \
-        -H "Content-Type: application/json" \
-        -d "{\"extra_vars\": {\"deploy_command\": \"${DEPLOY_CMD}\"}}" \
-        "${AWX_HOST}/api/v2/job_templates/${AWX_HUB_TEMPLATE_ID}/launch/")
+      for HOST in $(echo "$HOSTS" | tr ',' ' '); do
+        echo "=== Deploying to $HOST ==="
 
-      JOB_ID=$(echo "$RESPONSE" | jq -r '.id // empty')
-      if [ -z "$JOB_ID" ]; then
-        echo "ERROR: Failed to launch AWX job"
-        echo "$RESPONSE" | jq .
-        exit 1
-      fi
-      echo "AWX job launched: ${JOB_ID}"
+        ssh -i ~/.ssh/deploy_key "${DEPLOY_USER:-kyriakosp}@${HOST}" "
+          cd /srv/meshsat-hub
 
-      # Poll for completion (max 5 minutes)
-      for i in $(seq 1 30); do
-        sleep 10
-        STATUS=$(curl -s \
-          -H "Authorization: Bearer ${AWX_TOKEN}" \
-          "${AWX_HOST}/api/v2/jobs/${JOB_ID}/" | jq -r '.status')
-        echo "  [$i/30] Status: $STATUS"
-        case "$STATUS" in
-          successful)
-            echo "Deployment successful!"
-            exit 0
-            ;;
-          failed|error|canceled)
-            echo "Deployment $STATUS"
-            exit 1
-            ;;
-        esac
+          echo 'Step 1: Pull new image...'
+          docker pull $IMAGE
+
+          echo 'Step 2: Restart ONLY Hub (--no-deps, MariaDB untouched)...'
+          docker compose up -d --no-deps --force-recreate hub
+
+          echo 'Step 3: Wait for healthcheck...'
+          for i in \$(seq 1 60); do
+            STATUS=\$(docker inspect --format='{{.State.Health.Status}}' meshsat-hub 2>/dev/null || echo unknown)
+            [ \"\$STATUS\" = 'healthy' ] && { echo \"Hub healthy after \${i}s\"; break; }
+            [ \"\$i\" = '60' ] && { echo 'TIMEOUT: Hub not healthy after 60s'; exit 1; }
+            sleep 1
+          done
+
+          echo 'Step 4: Verify endpoints...'
+          curl -sf http://localhost:6070/healthz || { echo 'healthz FAILED'; exit 1; }
+          echo ' healthz OK'
+        " || { echo "FAILED on $HOST"; FAILED=1; }
       done
 
-      echo "ERROR: Timed out waiting for AWX job"
-      exit 1
+      [ "$FAILED" = "1" ] && exit 1
+      echo "Deploy complete on all hosts"
   rules:
     - if: $CI_COMMIT_BRANCH == "main"
   environment:
