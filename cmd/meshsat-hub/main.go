@@ -453,6 +453,7 @@ func main() {
 	rbHandler.SetKeyStore(keyStore)
 	rbHandler.SetDeadman(deadmanMonitor)
 	rbHandler.SetMSVQSC(msvqscDecoder)
+	rbHandler.SetStore(dataStore)
 
 	// Astrocast MO webhook handler.
 	acHandler := astrocast.NewHandler(msgBus, cfg.AstrocastWebhookSecret)

@@ -1,6 +1,7 @@
 package rockblock
 
 import (
+	"context"
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/base64"
@@ -24,6 +25,7 @@ import (
 	"github.com/cubeos-app/meshsat-hub/internal/fragment"
 	hubmqtt "github.com/cubeos-app/meshsat-hub/internal/mqtt"
 	"github.com/cubeos-app/meshsat-hub/internal/msvqsc"
+	"github.com/cubeos-app/meshsat-hub/internal/store"
 )
 
 // MOMessage represents a decoded Mobile Originated SBD message.
@@ -77,6 +79,9 @@ type Handler struct {
 	keyStore    *hubcrypto.KeyStore
 	deadman     *deadman.Monitor
 	msvqsc      *msvqsc.Decoder
+	store       interface {
+		InsertMessage(ctx context.Context, tenantID string, m *store.Message) error
+	}
 }
 
 // NewHandler creates a new RockBLOCK webhook handler.
@@ -112,6 +117,13 @@ func (h *Handler) SetDeadman(dm *deadman.Monitor) {
 // SetMSVQSC attaches an MSVQ-SC decoder for Android-compressed messages.
 func (h *Handler) SetMSVQSC(d *msvqsc.Decoder) {
 	h.msvqsc = d
+}
+
+// SetStore attaches a store for persisting MO messages directly (bypasses MQTT loop-back).
+func (h *Handler) SetStore(s interface {
+	InsertMessage(ctx context.Context, tenantID string, m *store.Message) error
+}) {
+	h.store = s
 }
 
 func (h *Handler) publish(topic string, qos byte, retained bool, v any) {
@@ -315,6 +327,29 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		IridiumCEP:       iridiumCEP,
 	}
 	h.publish(hubmqtt.TopicMODecoded(imei), 1, false, decoded)
+
+	// Persist MO message to database.
+	if h.store != nil {
+		tid := auth.TenantIDFromContext(r.Context())
+		msg := &store.Message{
+			ID:         fmt.Sprintf("mo-%d", time.Now().UnixNano()),
+			DeviceIMEI: imei,
+			Direction:  "mo",
+			Channel:    "iridium",
+			MOMSN:      momsn,
+			Text:       text,
+			RawHex:     rawB64,
+			Compressed: compressed,
+			Status:     "received",
+			Lat:        iridiumLat,
+			Lon:        iridiumLon,
+		}
+		if err := h.store.InsertMessage(r.Context(), tid, msg); err != nil {
+			slog.Warn("rockblock: message persist failed", "error", err, "imei", imei)
+		} else {
+			slog.Info("rockblock: message persisted", "imei", imei, "momsn", momsn)
+		}
+	}
 
 	// Publish position if lat/lon are present and non-zero.
 	if iridiumLat != 0 || iridiumLon != 0 {
