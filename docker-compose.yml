@@ -111,6 +111,31 @@ services:
     profiles:
       - tak
 
+  # MeshSat Simulator — virtual Iridium/Astrocast modem for development.
+  # Enabled with: docker compose --profile sim up
+  simulator:
+    build:
+      context: .
+      dockerfile: Dockerfile.sim
+    container_name: meshsat-sim
+    restart: unless-stopped
+    environment:
+      - SIM_HUB_URL=http://hub:6070
+      - SIM_MQTT_URL=tcp://mqtt:1883
+      - SIM_DEVICES=3
+      - SIM_INTERVAL=30s
+      - SIM_CHANNEL=iridium
+      - SIM_PATTERN=random
+    depends_on:
+      hub:
+        condition: service_healthy
+      mqtt:
+        condition: service_started
+    networks:
+      - hubnet
+    profiles:
+      - sim
+
 volumes:
   hub-data:
   mqtt-data:
