@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/hmac"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"fmt"
 	"log/slog"
@@ -11,6 +12,7 @@ import (
 	"time"
 
 	"github.com/cubeos-app/meshsat-hub/internal/bus"
+	hubcrypto "github.com/cubeos-app/meshsat-hub/internal/crypto"
 	"github.com/cubeos-app/meshsat-hub/internal/store"
 )
 
@@ -25,9 +27,10 @@ type InboundSMS struct {
 
 // WebhookHandler handles inbound SMS webhooks from Twilio/Vonage.
 type WebhookHandler struct {
-	mqtt   bus.MessageBus
-	secret string // webhook validation secret
-	store  store.Store
+	mqtt     bus.MessageBus
+	secret   string // webhook validation secret
+	store    store.Store
+	keyStore *hubcrypto.KeyStore
 }
 
 // NewWebhookHandler creates a new inbound SMS webhook handler.
@@ -37,6 +40,9 @@ func NewWebhookHandler(mqtt bus.MessageBus, secret string) *WebhookHandler {
 
 // SetStore enables message persistence for inbound SMS.
 func (h *WebhookHandler) SetStore(s store.Store) { h.store = s }
+
+// SetKeyStore enables E2E decryption of inbound SMS messages.
+func (h *WebhookHandler) SetKeyStore(ks *hubcrypto.KeyStore) { h.keyStore = ks }
 
 // ServeHTTP handles the inbound SMS webhook POST.
 //
@@ -96,10 +102,30 @@ func (h *WebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	slog.Info("sms: inbound received", "from", from, "to", to, "sid", messageSID, "len", len(body))
 
+	// Try to decrypt if the body looks like base64-encoded ciphertext.
+	decryptedBody := body
+	encrypted := false
+	if h.keyStore != nil {
+		if raw, err := base64.StdEncoding.DecodeString(body); err == nil && len(raw) >= hubcrypto.Overhead {
+			// Try sender-specific key first, then global "sms" key.
+			if pt, err := h.keyStore.DecryptMessage(from, raw); err == nil {
+				decryptedBody = string(pt)
+				encrypted = true
+				slog.Info("sms: decrypted with sender key", "from", from, "plaintext_len", len(pt))
+			} else if pt, err := h.keyStore.DecryptMessage("sms", raw); err == nil {
+				decryptedBody = string(pt)
+				encrypted = true
+				slog.Info("sms: decrypted with global sms key", "from", from, "plaintext_len", len(pt))
+			} else {
+				slog.Warn("sms: decryption failed, storing as-is", "from", from, "error", err)
+			}
+		}
+	}
+
 	msg := InboundSMS{
 		From:       from,
 		To:         to,
-		Body:       body,
+		Body:       decryptedBody,
 		MessageSID: messageSID,
 		Timestamp:  time.Now().UTC().Format(time.RFC3339),
 	}
@@ -112,13 +138,17 @@ func (h *WebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	// Persist inbound SMS to messages table.
 	if h.store != nil {
+		status := "received"
+		if encrypted {
+			status = "decrypted"
+		}
 		dbMsg := &store.Message{
 			ID:         fmt.Sprintf("sms-in-%d", time.Now().UnixNano()),
 			DeviceIMEI: from,
 			Direction:  "mo",
 			Channel:    "sms",
-			Text:       body,
-			Status:     "received",
+			Text:       decryptedBody,
+			Status:     status,
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
