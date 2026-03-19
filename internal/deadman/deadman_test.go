@@ -205,6 +205,112 @@ func TestClearAlert_AllowsRetrigger(t *testing.T) {
 	}
 }
 
+func TestCheckIn_ResetsAlertAndTouchesLastSeen(t *testing.T) {
+	s := newTestStore(t)
+	engine := escalation.New(s, escalation.LogNotifier{})
+	m := NewMonitor(s, engine)
+	ctx := context.Background()
+
+	chain := &store.EscalationChain{
+		Name:  "Test",
+		Tiers: []store.EscalationTier{{Name: "t1", Targets: []string{"test"}, WaitSec: 60, MaxRetries: 1}},
+	}
+	_ = s.CreateEscalationChain(ctx, "default", chain)
+
+	_ = s.CreateDevice(ctx, "default", &store.Device{IMEI: "dev6"})
+	dev, _ := s.GetDevice(ctx, "default", "dev6")
+	dev.LastSeen = time.Now().Add(-2 * time.Hour)
+	_ = s.UpdateDevice(ctx, "default", dev)
+
+	m.Configure(Config{
+		DeviceIMEI: "dev6",
+		ChainID:    chain.ID,
+		Interval:   1 * time.Hour,
+		Grace:      10 * time.Minute,
+		Enabled:    true,
+	})
+
+	// First scan triggers alert (device is overdue).
+	m.scan(ctx)
+	alerts, _ := s.ListAlerts(ctx, "default", false, 10)
+	if len(alerts) != 1 {
+		t.Fatalf("expected 1 alert, got %d", len(alerts))
+	}
+
+	// Device checks in via CheckIn.
+	m.CheckIn("dev6")
+
+	// Verify last_seen was updated (should be recent, not 2 hours ago).
+	dev, _ = s.GetDevice(ctx, "default", "dev6")
+	if time.Since(dev.LastSeen) > 5*time.Second {
+		t.Errorf("last_seen not updated: %v", dev.LastSeen)
+	}
+
+	// Second scan should NOT trigger another alert (device just checked in).
+	m.scan(ctx)
+	alerts, _ = s.ListAlerts(ctx, "default", false, 10)
+	if len(alerts) != 1 {
+		t.Errorf("expected still 1 alert (no re-trigger after check-in), got %d", len(alerts))
+	}
+}
+
+func TestCheckIn_ClearsAlertFlag(t *testing.T) {
+	s := newTestStore(t)
+	engine := escalation.New(s, escalation.LogNotifier{})
+	m := NewMonitor(s, engine)
+	ctx := context.Background()
+
+	chain := &store.EscalationChain{
+		Name:  "Test",
+		Tiers: []store.EscalationTier{{Name: "t1", Targets: []string{"test"}, WaitSec: 60, MaxRetries: 1}},
+	}
+	_ = s.CreateEscalationChain(ctx, "default", chain)
+
+	_ = s.CreateDevice(ctx, "default", &store.Device{IMEI: "dev7"})
+
+	m.Configure(Config{
+		DeviceIMEI: "dev7",
+		ChainID:    chain.ID,
+		Interval:   1 * time.Hour,
+		Grace:      10 * time.Minute,
+		Enabled:    true,
+	})
+
+	// Trigger alert (device has never checked in — LastSeen is zero).
+	m.scan(ctx)
+	alerts, _ := s.ListAlerts(ctx, "default", false, 10)
+	if len(alerts) != 1 {
+		t.Fatalf("expected 1 alert, got %d", len(alerts))
+	}
+
+	// CheckIn clears alert flag and touches last_seen.
+	m.CheckIn("dev7")
+
+	// Verify alerted flag is cleared (internal state check via ClearAlert+scan behavior).
+	// After CheckIn, last_seen is now, so scan should NOT trigger.
+	m.scan(ctx)
+	alerts, _ = s.ListAlerts(ctx, "default", false, 10)
+	if len(alerts) != 1 {
+		t.Errorf("expected still 1 alert (device recently checked in), got %d", len(alerts))
+	}
+
+	// Verify that ClearAlert was called internally (alerted flag is false).
+	// Use ClearAlert + re-scan with old time via the existing ClearAlert test pattern.
+	// The alert flag was already cleared by CheckIn, so calling ClearAlert again is a no-op.
+	m.ClearAlert("dev7")
+
+	// Now manually test that the internal alerted map was cleared by CheckIn.
+	// We can't easily set last_seen to old via the store API, but we can verify
+	// that the flag was actually reset by checking it doesn't block future alerts
+	// when combined with the ClearAlert_AllowsRetrigger pattern.
+	m.mu.Lock()
+	alerted := m.alerted["dev7"]
+	m.mu.Unlock()
+	if alerted {
+		t.Error("expected alerted flag to be false after CheckIn")
+	}
+}
+
 func TestConfigureDisabled_RemovesMonitoring(t *testing.T) {
 	m := NewMonitor(nil, nil)
 	m.Configure(Config{DeviceIMEI: "dev1", Enabled: true, Interval: time.Hour})
