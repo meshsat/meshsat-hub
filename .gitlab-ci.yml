@@ -41,7 +41,8 @@ swagger:
     - swag init -g cmd/meshsat-hub/main.go -o docs/swagger --parseDependency --parseInternal
     - rm -f docs/swagger/docs.go
     - |
-      if ! git diff --exit-code docs/swagger/swagger.json docs/swagger/swagger.yaml; then
+      # Compare only swagger.json (YAML has non-deterministic formatting across Go versions).
+      if ! git diff --exit-code docs/swagger/swagger.json; then
         echo "BLOCKED: swagger.json is out of date — run 'make swagger' and commit the result"
         exit 1
       fi
