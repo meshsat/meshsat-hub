@@ -43,10 +43,11 @@ func DecodeHeader(b0, b1 byte) (fragIndex, fragTotal, msgID uint8) {
 }
 
 // MinFragmentPayload is the minimum payload size (after header) for a fragment
-// to be considered valid. Real SBD fragments carry substantial payloads (close
-// to the 340-byte MO MTU). A tiny message whose first bytes coincidentally
-// decode as a fragment header should not be treated as a fragment.
-const MinFragmentPayload = 32
+// to be considered valid. Real SBD fragments carry substantial payloads — the
+// smallest reasonable fragment is from a 2-fragment split of a message just over
+// the 340-byte MO MTU, giving ~170 bytes per fragment. Set to 100 to give margin
+// while rejecting small messages whose random bytes look like fragment headers.
+const MinFragmentPayload = 100
 
 // IsFragment returns true if the payload looks like a fragmented message.
 // Checks: fragTotal > 1, fragIndex < fragTotal, and payload size is reasonable.

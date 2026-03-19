@@ -27,6 +27,23 @@ lint:
     - golangci-lint run ./...
 
 # -----------------------------------------------------------------------------
+# SWAGGER — ensure swagger.json is up to date with code annotations
+# -----------------------------------------------------------------------------
+swagger:
+  stage: lint
+  image: golang:1.25-alpine
+  tags: [multiarch]
+  before_script:
+    - go install github.com/swaggo/swag/cmd/swag@latest
+  script:
+    - swag init -g cmd/meshsat-hub/main.go -o docs/swagger --parseDependency --parseInternal
+    - |
+      if ! git diff --exit-code docs/swagger/swagger.json docs/swagger/swagger.yaml; then
+        echo "BLOCKED: swagger.json is out of date — run 'make swagger' and commit the result"
+        exit 1
+      fi
+
+# -----------------------------------------------------------------------------
 # SECURITY — SAST (gosec) + vulnerability scan (govulncheck)
 # This is internet-exposed software — security scanning is mandatory.
 # Failures BLOCK the pipeline. No exceptions.

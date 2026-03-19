@@ -1,0 +1,2893 @@
+basePath: /
+definitions:
+  github_com_cubeos-app_meshsat-hub_internal_auth.User:
+    properties:
+      email:
+        type: string
+      id:
+        type: string
+      name:
+        type: string
+      roles:
+        items:
+          type: string
+        type: array
+      tenant_id:
+        type: string
+    type: object
+  github_com_cubeos-app_meshsat-hub_internal_deadman.Config:
+    properties:
+      chain_id:
+        description: escalation chain to trigger
+        type: string
+      device_imei:
+        type: string
+      enabled:
+        type: boolean
+      grace:
+        allOf:
+        - $ref: '#/definitions/time.Duration'
+        description: grace period after interval expires
+      interval:
+        allOf:
+        - $ref: '#/definitions/time.Duration'
+        description: expected check-in interval
+    type: object
+  github_com_cubeos-app_meshsat-hub_internal_store.APIKey:
+    properties:
+      created_at:
+        type: string
+      device_imei:
+        description: 'optional: scope to specific device'
+        type: string
+      expires_at:
+        type: string
+      id:
+        type: string
+      key_prefix:
+        description: first 8 chars for display (e.g. "meshsat_ab12cd34")
+        type: string
+      label:
+        description: human-readable label
+        type: string
+      last_used:
+        type: string
+      role:
+        description: '"viewer", "operator", "owner"'
+        type: string
+    type: object
+  github_com_cubeos-app_meshsat-hub_internal_store.Alert:
+    properties:
+      acked_at:
+        type: string
+      acked_by:
+        type: string
+      chain_id:
+        type: string
+      created_at:
+        type: string
+      current_tier:
+        description: 0-indexed tier in the chain
+        type: integer
+      detail:
+        description: human-readable description
+        type: string
+      device_imei:
+        type: string
+      id:
+        type: string
+      next_esc_at:
+        description: when to escalate to next tier
+        type: string
+      retries:
+        description: retries within current tier
+        type: integer
+      state:
+        description: triggered, escalating, acknowledged, exhausted
+        type: string
+      type:
+        description: '"sos", "deadman", "geofence", "custom"'
+        type: string
+      updated_at:
+        type: string
+    type: object
+  github_com_cubeos-app_meshsat-hub_internal_store.AuditEntry:
+    properties:
+      action:
+        type: string
+      actor:
+        type: string
+      created_at:
+        type: string
+      detail:
+        type: string
+      hash:
+        description: SHA-256 of (action|actor|detail|ip|prev_hash)
+        type: string
+      id:
+        type: string
+      ip:
+        type: string
+      prev_hash:
+        description: SHA-256 hash of the previous entry
+        type: string
+    type: object
+  github_com_cubeos-app_meshsat-hub_internal_store.Device:
+    properties:
+      created_at:
+        type: string
+      imei:
+        type: string
+      label:
+        type: string
+      last_seen:
+        type: string
+      notes:
+        type: string
+      type:
+        description: '"rockblock", "astrocast", etc.'
+        type: string
+      updated_at:
+        type: string
+    type: object
+  github_com_cubeos-app_meshsat-hub_internal_store.DeviceConfig:
+    properties:
+      author:
+        description: who made this change
+        type: string
+      comment:
+        description: change description
+        type: string
+      config:
+        description: JSON-encoded configuration
+        type: string
+      created_at:
+        type: string
+      device_imei:
+        type: string
+      id:
+        type: string
+      version:
+        type: integer
+    type: object
+  github_com_cubeos-app_meshsat-hub_internal_store.DeviceKey:
+    properties:
+      created_at:
+        type: string
+      device_imei:
+        type: string
+      id:
+        type: string
+      key_hash:
+        description: SHA-256 hash for identification
+        type: string
+      key_hex:
+        description: hex-encoded AES-256 key (omitted in listings, passthrough)
+        type: string
+      mode:
+        description: '"decrypt" (server can read) or "passthrough" (opaque)'
+        type: string
+    type: object
+  github_com_cubeos-app_meshsat-hub_internal_store.EscalationChain:
+    properties:
+      created_at:
+        type: string
+      id:
+        type: string
+      name:
+        type: string
+      tiers:
+        items:
+          $ref: '#/definitions/github_com_cubeos-app_meshsat-hub_internal_store.EscalationTier'
+        type: array
+      updated_at:
+        type: string
+    type: object
+  github_com_cubeos-app_meshsat-hub_internal_store.EscalationTier:
+    properties:
+      max_retries:
+        description: max delivery retries within this tier
+        type: integer
+      name:
+        description: e.g. "sms_oncall", "email_team", "page_manager"
+        type: string
+      targets:
+        description: notification targets (URLs, emails, phone numbers)
+        items:
+          type: string
+        type: array
+      wait_sec:
+        description: seconds to wait before escalating to next tier
+        type: integer
+    type: object
+  github_com_cubeos-app_meshsat-hub_internal_store.Message:
+    properties:
+      channel:
+        description: '"iridium", "astrocast"'
+        type: string
+      compressed:
+        type: boolean
+      created_at:
+        type: string
+      device_imei:
+        type: string
+      direction:
+        description: '"mo" or "mt"'
+        type: string
+      error:
+        type: string
+      id:
+        type: string
+      lat:
+        type: number
+      lon:
+        type: number
+      momsn:
+        type: integer
+      raw_hex:
+        type: string
+      status:
+        description: '"received", "queued", "sent", "delivered", "failed"'
+        type: string
+      text:
+        type: string
+    type: object
+  github_com_cubeos-app_meshsat-hub_internal_store.NotificationPref:
+    properties:
+      created_at:
+        type: string
+      device_imei:
+        description: device IMEI or "*" for tenant-wide default
+        type: string
+      enabled:
+        description: toggle notifications without deleting config
+        type: boolean
+      events:
+        description: 'event types to notify on: "sos", "deadman", "geofence", "mo",
+          "mt_status"'
+        items:
+          type: string
+        type: array
+      id:
+        type: string
+      updated_at:
+        type: string
+      urls:
+        description: Apprise notification URLs (e.g., "slack://token", "mailto://...")
+        items:
+          type: string
+        type: array
+    type: object
+  github_com_cubeos-app_meshsat-hub_internal_store.Position:
+    properties:
+      alt:
+        type: number
+      cep:
+        type: number
+      created_at:
+        type: string
+      device_imei:
+        type: string
+      heading:
+        description: degrees 0-360
+        type: number
+      id:
+        type: string
+      lat:
+        type: number
+      lon:
+        type: number
+      sats:
+        description: satellites in view
+        type: integer
+      source:
+        description: '"gps", "iridium_cep", "astrocast"'
+        type: string
+      speed:
+        description: m/s
+        type: number
+    type: object
+  internal_api.ackRequest:
+    properties:
+      acked_by:
+        type: string
+    type: object
+  internal_api.createConfigRequest:
+    properties:
+      comment:
+        type: string
+      config:
+        items:
+          type: integer
+        type: array
+    type: object
+  internal_api.createDeviceKeyRequest:
+    properties:
+      mode:
+        description: '"decrypt" or "passthrough"'
+        type: string
+    type: object
+  internal_api.createDeviceKeyResponse:
+    properties:
+      id:
+        type: string
+      key_hash:
+        type: string
+      key_hex:
+        description: plaintext — shown once
+        type: string
+      mode:
+        type: string
+    type: object
+  internal_api.createKeyRequest:
+    properties:
+      device_imei:
+        type: string
+      expires_in:
+        description: Go duration string, e.g. "720h"
+        type: string
+      label:
+        type: string
+      role:
+        type: string
+    type: object
+  internal_api.createKeyResponse:
+    properties:
+      expires_at:
+        type: string
+      id:
+        type: string
+      key:
+        description: plaintext — shown once
+        type: string
+      key_prefix:
+        type: string
+      label:
+        type: string
+      role:
+        type: string
+    type: object
+  internal_api.createUserRequest:
+    properties:
+      email:
+        type: string
+      name:
+        type: string
+      password:
+        type: string
+      role:
+        description: '"viewer", "operator", "owner"'
+        type: string
+    type: object
+  internal_api.deadmanConfigRequest:
+    properties:
+      chain_id:
+        type: string
+      enabled:
+        type: boolean
+      grace_min:
+        description: grace period in minutes
+        type: integer
+      interval_min:
+        description: check-in interval in minutes
+        type: integer
+    type: object
+  internal_api.loginRequest:
+    properties:
+      email:
+        type: string
+      password:
+        type: string
+    type: object
+  internal_api.loginResponse:
+    properties:
+      access_token:
+        type: string
+      expires_in:
+        description: seconds
+        type: integer
+      refresh_token:
+        type: string
+      token_type:
+        type: string
+    type: object
+  internal_api.paginatedPositions:
+    properties:
+      limit:
+        type: integer
+      offset:
+        type: integer
+      positions:
+        items:
+          $ref: '#/definitions/github_com_cubeos-app_meshsat-hub_internal_store.Position'
+        type: array
+      total:
+        type: integer
+    type: object
+  internal_api.snoozeRequest:
+    properties:
+      duration_min:
+        type: integer
+    type: object
+  internal_api.triggerAlertRequest:
+    properties:
+      chain_id:
+        type: string
+      detail:
+        type: string
+      device_imei:
+        type: string
+      type:
+        type: string
+    type: object
+  internal_api.updateUserRequest:
+    properties:
+      enabled:
+        type: boolean
+      name:
+        type: string
+      password:
+        description: optional — only set if changing
+        type: string
+      role:
+        type: string
+    type: object
+  internal_api.userResponse:
+    properties:
+      created_at:
+        type: string
+      email:
+        type: string
+      enabled:
+        type: boolean
+      id:
+        type: string
+      last_login_at:
+        type: string
+      name:
+        type: string
+      role:
+        type: string
+    type: object
+  internal_cluster.ClusterStatus:
+    properties:
+      checked_at:
+        type: string
+      healthy:
+        type: boolean
+      node_count:
+        type: integer
+      nodes:
+        items:
+          $ref: '#/definitions/internal_cluster.NodeStatus'
+        type: array
+      problems:
+        items:
+          type: string
+        type: array
+      quorum_size:
+        description: majority = (n/2)+1
+        type: integer
+    type: object
+  internal_cluster.NodeStatus:
+    properties:
+      cert_deps_distance:
+        description: avg distance between causal deps
+        type: number
+      checked_at:
+        description: Timestamp
+        type: string
+      cluster_size:
+        description: Cluster membership
+        type: integer
+      cluster_status:
+        description: '"Primary", "Non-primary", "Disconnected"'
+        type: string
+      connected:
+        description: wsrep_connected = ON
+        type: boolean
+      flow_control_paused:
+        description: 0.0-1.0, fraction of time paused
+        type: number
+      healthy:
+        description: Health assessment
+        type: boolean
+      hub_url:
+        type: string
+      last_committed:
+        description: Counters
+        type: integer
+      node_address:
+        type: string
+      node_name:
+        description: Identity
+        type: string
+      problems:
+        items:
+          type: string
+        type: array
+      ready:
+        description: Node state
+        type: boolean
+      received:
+        description: total writesets received
+        type: integer
+      recv_queue:
+        description: Performance
+        type: integer
+      replicated:
+        description: total writesets replicated (sent)
+        type: integer
+      send_queue:
+        description: local send queue size
+        type: integer
+      state_comment:
+        description: '"Synced", "Donor/Desynced", "Joined", "Initialized"'
+        type: string
+      state_uuid:
+        type: string
+    type: object
+  internal_cluster.RemediationAction:
+    properties:
+      dangerous:
+        type: boolean
+      description:
+        type: string
+      id:
+        type: string
+      name:
+        type: string
+    type: object
+  internal_hawkbit.ActionStatus:
+    properties:
+      id:
+        type: integer
+      status:
+        description: '"finished", "running", "error", "canceled"'
+        type: string
+      type:
+        description: '"update", "cancel"'
+        type: string
+    type: object
+  internal_hawkbit.Rollout:
+    properties:
+      amountGroups:
+        type: integer
+      distributionSetId:
+        type: integer
+      id:
+        type: integer
+      name:
+        type: string
+      status:
+        description: '"creating", "ready", "running", "paused", "finished"'
+        type: string
+      targetFilterQuery:
+        type: string
+      totalTargets:
+        type: integer
+    type: object
+  internal_hawkbit.Target:
+    properties:
+      controllerId:
+        type: string
+      description:
+        type: string
+      ipAddress:
+        type: string
+      lastControllerRequestAt:
+        type: string
+      name:
+        type: string
+      updateStatus:
+        description: '"registered", "in_sync", "pending", "error"'
+        type: string
+    type: object
+  internal_health.Response:
+    properties:
+      checks:
+        additionalProperties:
+          type: string
+        type: object
+      status:
+        type: string
+    type: object
+  internal_mptcp.Endpoint:
+    properties:
+      address:
+        type: string
+      backup:
+        type: boolean
+      interface:
+        type: string
+      signal:
+        type: boolean
+      subflow:
+        type: boolean
+    type: object
+  internal_mptcp.Status:
+    properties:
+      available:
+        description: kernel supports MPTCP
+        type: boolean
+      enabled:
+        type: boolean
+      strategy:
+        description: '"aggregate", "failover", "redundant"'
+        type: string
+      subflows:
+        items:
+          $ref: '#/definitions/internal_mptcp.Subflow'
+        type: array
+      updated_at:
+        type: string
+    type: object
+  internal_mptcp.Subflow:
+    properties:
+      bytes_recv:
+        type: integer
+      bytes_sent:
+        type: integer
+      id:
+        type: string
+      interface:
+        type: string
+      last_seen:
+        type: string
+      local_addr:
+        type: string
+      path_type:
+        description: '"satellite", "cellular", "wifi", "ethernet"'
+        type: string
+      remote_addr:
+        type: string
+      rtt_ms:
+        type: integer
+      status:
+        description: '"active", "backup", "degraded", "down"'
+        type: string
+    type: object
+  internal_ratelimit.DeviceUsage:
+    properties:
+      daily_cap:
+        type: integer
+      daily_sent:
+        type: integer
+      device_id:
+        type: string
+      last_send:
+        type: string
+      max_tokens:
+        type: number
+      monthly_cap:
+        type: integer
+      monthly_sent:
+        type: integer
+      override_until:
+        type: string
+      throttled:
+        type: boolean
+      tokens_left:
+        type: number
+    type: object
+  internal_webhook.DeliveryLog:
+    properties:
+      attempt:
+        type: integer
+      device_id:
+        type: string
+      error:
+        type: string
+      event:
+        type: string
+      status_code:
+        type: integer
+      timestamp:
+        type: string
+      webhook_id:
+        type: string
+    type: object
+  internal_webhook.EventType:
+    enum:
+    - mo
+    - sos
+    - position
+    - telemetry
+    - mt_status
+    type: string
+    x-enum-comments:
+      EventMO: Mobile Originated message received
+      EventMTStatus: MT delivery status change
+      EventPosition: Position update
+      EventSOS: SOS event
+      EventTelemetry: Telemetry data
+    x-enum-descriptions:
+    - Mobile Originated message received
+    - SOS event
+    - Position update
+    - Telemetry data
+    - MT delivery status change
+    x-enum-varnames:
+    - EventMO
+    - EventSOS
+    - EventPosition
+    - EventTelemetry
+    - EventMTStatus
+  internal_webhook.WebhookConfig:
+    properties:
+      enabled:
+        type: boolean
+      events:
+        description: which events to fire for
+        items:
+          $ref: '#/definitions/internal_webhook.EventType'
+        type: array
+      id:
+        type: string
+      max_retries:
+        description: default 3
+        type: integer
+      secret:
+        description: HMAC-SHA256 signing secret
+        type: string
+      timeout_sec:
+        description: default 10
+        type: integer
+      url:
+        type: string
+    type: object
+  time.Duration:
+    enum:
+    - -9223372036854775808
+    - 9223372036854775807
+    - 1
+    - 1000
+    - 1000000
+    - 1000000000
+    - 60000000000
+    - 3600000000000
+    - 1
+    - 1000
+    - 1000000
+    - 1000000000
+    - 60000000000
+    - 3600000000000
+    format: int64
+    type: integer
+    x-enum-varnames:
+    - minDuration
+    - maxDuration
+    - Nanosecond
+    - Microsecond
+    - Millisecond
+    - Second
+    - Minute
+    - Hour
+    - Nanosecond
+    - Microsecond
+    - Millisecond
+    - Second
+    - Minute
+    - Hour
+host: localhost:6070
+info:
+  contact: {}
+  description: Multi-tenant SaaS platform for satellite device management. Ingests
+    MO messages from Iridium/Astrocast, manages devices, SOS escalation, dead man's
+    switch, and E2E encryption.
+  license:
+    name: Apache 2.0
+    url: https://www.apache.org/licenses/LICENSE-2.0
+  title: MeshSat Hub API
+  version: "1.1"
+paths:
+  /api/alerts:
+    get:
+      parameters:
+      - default: false
+        description: Only active alerts
+        in: query
+        name: active
+        type: boolean
+      - default: 50
+        description: Max results
+        in: query
+        name: limit
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/github_com_cubeos-app_meshsat-hub_internal_store.Alert'
+            type: array
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: List alerts
+      tags:
+      - escalation
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Alert parameters
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/internal_api.triggerAlertRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/github_com_cubeos-app_meshsat-hub_internal_store.Alert'
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Trigger alert
+      tags:
+      - escalation
+  /api/alerts/{id}:
+    get:
+      parameters:
+      - description: Alert ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/github_com_cubeos-app_meshsat-hub_internal_store.Alert'
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Get alert
+      tags:
+      - escalation
+  /api/alerts/{id}/ack:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Alert ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Acknowledger
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/internal_api.ackRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/github_com_cubeos-app_meshsat-hub_internal_store.Alert'
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Acknowledge alert
+      tags:
+      - escalation
+  /api/audit:
+    get:
+      parameters:
+      - default: 100
+        description: Max results
+        in: query
+        name: limit
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/github_com_cubeos-app_meshsat-hub_internal_store.AuditEntry'
+            type: array
+      summary: List audit log entries
+      tags:
+      - audit
+  /api/audit/verify:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      summary: Verify audit chain integrity
+      tags:
+      - audit
+  /api/auth/keys:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/github_com_cubeos-app_meshsat-hub_internal_store.APIKey'
+            type: array
+      summary: List API keys
+      tags:
+      - auth
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Key parameters
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/internal_api.createKeyRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/internal_api.createKeyResponse'
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Create API key
+      tags:
+      - auth
+  /api/auth/keys/{id}:
+    delete:
+      parameters:
+      - description: Key ID
+        in: path
+        name: id
+        required: true
+        type: string
+      responses:
+        "204":
+          description: No Content
+        "403":
+          description: Forbidden
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Revoke API key
+      tags:
+      - auth
+  /api/auth/login:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Login credentials
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/internal_api.loginRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_api.loginResponse'
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "429":
+          description: Too Many Requests
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Authenticate with email and password
+      tags:
+      - auth
+  /api/auth/logout:
+    post:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Log out and invalidate refresh tokens
+      tags:
+      - auth
+  /api/auth/me:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/github_com_cubeos-app_meshsat-hub_internal_auth.User'
+      summary: Get current user
+      tags:
+      - auth
+  /api/auth/refresh:
+    post:
+      consumes:
+      - application/json
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_api.loginResponse'
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Refresh access token
+      tags:
+      - auth
+  /api/backup/diff:
+    post:
+      consumes:
+      - application/zip
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Preview backup restore changes
+      tags:
+      - backup
+  /api/backup/export:
+    get:
+      produces:
+      - application/zip
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: file
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Export configuration backup as ZIP
+      tags:
+      - backup
+  /api/backup/import:
+    post:
+      consumes:
+      - application/zip
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Restore from backup ZIP
+      tags:
+      - backup
+  /api/cluster/actions:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              items:
+                $ref: '#/definitions/internal_cluster.RemediationAction'
+              type: array
+            type: object
+      summary: List available remediation actions
+      tags:
+      - cluster
+  /api/cluster/actions/{id}:
+    post:
+      parameters:
+      - description: Action ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Execute a remediation action
+      tags:
+      - cluster
+  /api/cluster/node:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_cluster.NodeStatus'
+      summary: Get local node Galera status
+      tags:
+      - cluster
+  /api/cluster/peers:
+    put:
+      consumes:
+      - application/json
+      parameters:
+      - description: Peer URLs
+        in: body
+        name: body
+        required: true
+        schema:
+          type: object
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Update cluster peer list
+      tags:
+      - cluster
+  /api/cluster/status:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_cluster.ClusterStatus'
+      summary: Get aggregated cluster status
+      tags:
+      - cluster
+  /api/deadman:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/github_com_cubeos-app_meshsat-hub_internal_deadman.Config'
+            type: array
+      summary: List dead man's switch configs
+      tags:
+      - deadman
+  /api/deadman/{imei}:
+    delete:
+      parameters:
+      - description: Device IMEI
+        in: path
+        name: imei
+        required: true
+        type: string
+      responses:
+        "204":
+          description: No Content
+      summary: Remove dead man's switch for device
+      tags:
+      - deadman
+    put:
+      consumes:
+      - application/json
+      parameters:
+      - description: Device IMEI
+        in: path
+        name: imei
+        required: true
+        type: string
+      - description: Dead man's switch configuration
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/internal_api.deadmanConfigRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/github_com_cubeos-app_meshsat-hub_internal_deadman.Config'
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Configure dead man's switch for device
+      tags:
+      - deadman
+  /api/deadman/{imei}/snooze:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Device IMEI
+        in: path
+        name: imei
+        required: true
+        type: string
+      - description: Snooze duration
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/internal_api.snoozeRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Snooze dead man's switch
+      tags:
+      - deadman
+  /api/devices:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/github_com_cubeos-app_meshsat-hub_internal_store.Device'
+            type: array
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: List devices
+      tags:
+      - devices
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Device data (imei required)
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/github_com_cubeos-app_meshsat-hub_internal_store.Device'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/github_com_cubeos-app_meshsat-hub_internal_store.Device'
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "409":
+          description: Conflict
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Register a new device
+      tags:
+      - devices
+  /api/devices/{imei}:
+    delete:
+      parameters:
+      - description: Device IMEI
+        in: path
+        name: imei
+        required: true
+        type: string
+      responses:
+        "204":
+          description: No Content
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Delete device
+      tags:
+      - devices
+    get:
+      parameters:
+      - description: Device IMEI
+        in: path
+        name: imei
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/github_com_cubeos-app_meshsat-hub_internal_store.Device'
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Get device by IMEI
+      tags:
+      - devices
+    put:
+      consumes:
+      - application/json
+      parameters:
+      - description: Device IMEI
+        in: path
+        name: imei
+        required: true
+        type: string
+      - description: Fields to update (label, type, notes)
+        in: body
+        name: body
+        required: true
+        schema:
+          type: object
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/github_com_cubeos-app_meshsat-hub_internal_store.Device'
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Update device
+      tags:
+      - devices
+  /api/devices/{imei}/config:
+    get:
+      parameters:
+      - description: Device IMEI
+        in: path
+        name: imei
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/github_com_cubeos-app_meshsat-hub_internal_store.DeviceConfig'
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Get latest device config
+      tags:
+      - device-config
+    put:
+      consumes:
+      - application/json
+      parameters:
+      - description: Device IMEI
+        in: path
+        name: imei
+        required: true
+        type: string
+      - description: Config data
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/internal_api.createConfigRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/github_com_cubeos-app_meshsat-hub_internal_store.DeviceConfig'
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Create new config version
+      tags:
+      - device-config
+  /api/devices/{imei}/config/{version}:
+    get:
+      parameters:
+      - description: Device IMEI
+        in: path
+        name: imei
+        required: true
+        type: string
+      - description: Version number
+        in: path
+        name: version
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/github_com_cubeos-app_meshsat-hub_internal_store.DeviceConfig'
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Get specific config version
+      tags:
+      - device-config
+  /api/devices/{imei}/config/history:
+    get:
+      parameters:
+      - description: Device IMEI
+        in: path
+        name: imei
+        required: true
+        type: string
+      - default: 50
+        description: Max results
+        in: query
+        name: limit
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/github_com_cubeos-app_meshsat-hub_internal_store.DeviceConfig'
+            type: array
+      summary: List config version history
+      tags:
+      - device-config
+  /api/devices/{imei}/keys:
+    get:
+      parameters:
+      - description: Device IMEI
+        in: path
+        name: imei
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/github_com_cubeos-app_meshsat-hub_internal_store.DeviceKey'
+            type: array
+      summary: List device encryption keys
+      tags:
+      - devices
+    post:
+      consumes:
+      - application/json
+      description: Generates a new AES-256-GCM key for a device. The key hex is returned
+        once and stored as a hash.
+      parameters:
+      - description: Device IMEI
+        in: path
+        name: imei
+        required: true
+        type: string
+      - description: Key parameters
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/internal_api.createDeviceKeyRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/internal_api.createDeviceKeyResponse'
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Create device encryption key
+      tags:
+      - devices
+  /api/devices/{imei}/keys/{id}:
+    delete:
+      parameters:
+      - description: Device IMEI
+        in: path
+        name: imei
+        required: true
+        type: string
+      - description: Key ID
+        in: path
+        name: id
+        required: true
+        type: string
+      responses:
+        "204":
+          description: No Content
+      summary: Delete device encryption key
+      tags:
+      - devices
+  /api/devices/{imei}/position:
+    get:
+      parameters:
+      - description: Device IMEI
+        in: path
+        name: imei
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/github_com_cubeos-app_meshsat-hub_internal_store.Position'
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Get latest device position
+      tags:
+      - positions
+  /api/devices/{imei}/positions:
+    get:
+      description: Returns paginated position history with optional time range and
+        track simplification.
+      parameters:
+      - description: Device IMEI
+        in: path
+        name: imei
+        required: true
+        type: string
+      - default: 100
+        description: Max results per page
+        in: query
+        name: limit
+        type: integer
+      - default: 0
+        description: Offset for pagination
+        in: query
+        name: offset
+        type: integer
+      - description: Start time (RFC3339)
+        in: query
+        name: from
+        type: string
+      - description: End time (RFC3339)
+        in: query
+        name: to
+        type: string
+      - description: Douglas-Peucker epsilon in degrees (e.g. 0.0001 ≈ 11m)
+        in: query
+        name: simplify
+        type: number
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_api.paginatedPositions'
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: List device position history
+      tags:
+      - positions
+  /api/escalation/chains:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/github_com_cubeos-app_meshsat-hub_internal_store.EscalationChain'
+            type: array
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: List escalation chains
+      tags:
+      - escalation
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Chain configuration
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/github_com_cubeos-app_meshsat-hub_internal_store.EscalationChain'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/github_com_cubeos-app_meshsat-hub_internal_store.EscalationChain'
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Create escalation chain
+      tags:
+      - escalation
+  /api/escalation/chains/{id}:
+    delete:
+      parameters:
+      - description: Chain ID
+        in: path
+        name: id
+        required: true
+        type: string
+      responses:
+        "204":
+          description: No Content
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Delete escalation chain
+      tags:
+      - escalation
+    get:
+      parameters:
+      - description: Chain ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/github_com_cubeos-app_meshsat-hub_internal_store.EscalationChain'
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Get escalation chain
+      tags:
+      - escalation
+  /api/messages:
+    get:
+      parameters:
+      - description: Filter by device IMEI
+        in: query
+        name: device
+        type: string
+      - default: 100
+        description: Max results
+        in: query
+        name: limit
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/github_com_cubeos-app_meshsat-hub_internal_store.Message'
+            type: array
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: List messages
+      tags:
+      - messages
+  /api/messages/{id}:
+    get:
+      parameters:
+      - description: Message ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/github_com_cubeos-app_meshsat-hub_internal_store.Message'
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Get message by ID
+      tags:
+      - messages
+  /api/mptcp/endpoints:
+    get:
+      description: Returns all configured MPTCP endpoints with their current bandwidth
+        metrics and status.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            properties:
+              endpoints:
+                items:
+                  $ref: '#/definitions/internal_mptcp.Subflow'
+                type: array
+            type: object
+      summary: List MPTCP endpoints
+      tags:
+      - mptcp
+    post:
+      consumes:
+      - application/json
+      description: Configures a new MPTCP endpoint in the kernel for the specified
+        address and interface.
+      parameters:
+      - description: Endpoint configuration
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/internal_mptcp.Endpoint'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/internal_mptcp.Endpoint'
+        "400":
+          description: Bad Request
+          schema:
+            properties:
+              error:
+                type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            properties:
+              error:
+                type: string
+            type: object
+      summary: Add MPTCP endpoint
+      tags:
+      - mptcp
+  /api/mptcp/endpoints/{id}:
+    delete:
+      description: Removes a configured MPTCP endpoint from the kernel by its ID.
+      parameters:
+      - description: Endpoint ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "204":
+          description: No Content
+        "400":
+          description: Bad Request
+          schema:
+            properties:
+              error:
+                type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            properties:
+              error:
+                type: string
+            type: object
+      summary: Remove MPTCP endpoint
+      tags:
+      - mptcp
+  /api/mptcp/status:
+    get:
+      description: Returns the current state of the MPTCP concentrator including kernel
+        availability, enabled status, active subflows with bandwidth metrics, and
+        the current path management strategy.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_mptcp.Status'
+      summary: Get MPTCP concentrator status
+      tags:
+      - mptcp
+  /api/mptcp/strategy:
+    put:
+      consumes:
+      - application/json
+      description: Changes the strategy used for managing multiple network paths.
+        "aggregate" uses all paths simultaneously for maximum throughput. "failover"
+        uses the primary path and promotes a backup if the primary degrades. "redundant"
+        sends traffic on all paths for maximum reliability.
+      parameters:
+      - description: Strategy (aggregate, failover, redundant)
+        in: body
+        name: body
+        required: true
+        schema:
+          properties:
+            strategy:
+              type: string
+          type: object
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            properties:
+              strategy:
+                type: string
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            properties:
+              error:
+                type: string
+            type: object
+      summary: Set MPTCP path management strategy
+      tags:
+      - mptcp
+  /api/notifications/prefs:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/github_com_cubeos-app_meshsat-hub_internal_store.NotificationPref'
+            type: array
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: List notification preferences
+      tags:
+      - notifications
+  /api/notifications/prefs/{device_imei}:
+    delete:
+      parameters:
+      - description: Device IMEI or * for tenant default
+        in: path
+        name: device_imei
+        required: true
+        type: string
+      responses:
+        "204":
+          description: No Content
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Delete notification preferences for a device
+      tags:
+      - notifications
+    get:
+      parameters:
+      - description: Device IMEI or * for tenant default
+        in: path
+        name: device_imei
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/github_com_cubeos-app_meshsat-hub_internal_store.NotificationPref'
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Get notification preferences for a device
+      tags:
+      - notifications
+    put:
+      consumes:
+      - application/json
+      parameters:
+      - description: Device IMEI or * for tenant default
+        in: path
+        name: device_imei
+        required: true
+        type: string
+      - description: Notification preferences
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/github_com_cubeos-app_meshsat-hub_internal_store.NotificationPref'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/github_com_cubeos-app_meshsat-hub_internal_store.NotificationPref'
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Save notification preferences for a device
+      tags:
+      - notifications
+  /api/ota/rollouts:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Rollout details
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/internal_hawkbit.Rollout'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/internal_hawkbit.Rollout'
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "502":
+          description: Bad Gateway
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Create firmware rollout
+      tags:
+      - ota
+  /api/ota/rollouts/{id}:
+    get:
+      parameters:
+      - description: Rollout ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_hawkbit.Rollout'
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "502":
+          description: Bad Gateway
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Get rollout details
+      tags:
+      - ota
+  /api/ota/rollouts/{id}/pause:
+    post:
+      parameters:
+      - description: Rollout ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      responses:
+        "204":
+          description: No Content
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "502":
+          description: Bad Gateway
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Pause a rollout
+      tags:
+      - ota
+  /api/ota/rollouts/{id}/start:
+    post:
+      parameters:
+      - description: Rollout ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      responses:
+        "204":
+          description: No Content
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "502":
+          description: Bad Gateway
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Start a rollout
+      tags:
+      - ota
+  /api/ota/targets:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              items:
+                $ref: '#/definitions/internal_hawkbit.Target'
+              type: array
+            type: object
+        "502":
+          description: Bad Gateway
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: List OTA targets
+      tags:
+      - ota
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Target details
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/internal_hawkbit.Target'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/internal_hawkbit.Target'
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "502":
+          description: Bad Gateway
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Create OTA target
+      tags:
+      - ota
+  /api/ota/targets/{controllerId}:
+    delete:
+      parameters:
+      - description: Target controller ID
+        in: path
+        name: controllerId
+        required: true
+        type: string
+      responses:
+        "204":
+          description: No Content
+        "502":
+          description: Bad Gateway
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Delete OTA target
+      tags:
+      - ota
+    get:
+      parameters:
+      - description: Target controller ID
+        in: path
+        name: controllerId
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_hawkbit.Target'
+        "502":
+          description: Bad Gateway
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Get OTA target
+      tags:
+      - ota
+  /api/ota/targets/{controllerId}/actions:
+    get:
+      parameters:
+      - description: Target controller ID
+        in: path
+        name: controllerId
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              items:
+                $ref: '#/definitions/internal_hawkbit.ActionStatus'
+              type: array
+            type: object
+        "502":
+          description: Bad Gateway
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Get target deployment actions
+      tags:
+      - ota
+  /api/ota/targets/{controllerId}/actions/{actionId}:
+    delete:
+      parameters:
+      - description: Target controller ID
+        in: path
+        name: controllerId
+        required: true
+        type: string
+      - description: Action ID
+        in: path
+        name: actionId
+        required: true
+        type: integer
+      responses:
+        "204":
+          description: No Content
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "502":
+          description: Bad Gateway
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Cancel deployment action
+      tags:
+      - ota
+  /api/positions/latest:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              type: object
+            type: array
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Get latest positions for all devices
+      tags:
+      - positions
+  /api/ratelimit:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/internal_ratelimit.DeviceUsage'
+            type: array
+      summary: Get rate limit usage for all devices
+      tags:
+      - ratelimit
+  /api/ratelimit/{deviceID}:
+    get:
+      parameters:
+      - description: Device ID
+        in: path
+        name: deviceID
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_ratelimit.DeviceUsage'
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Get rate limit usage for device
+      tags:
+      - ratelimit
+  /api/ratelimit/{deviceID}/override:
+    delete:
+      parameters:
+      - description: Device ID
+        in: path
+        name: deviceID
+        required: true
+        type: string
+      responses:
+        "204":
+          description: No Content
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Remove rate limit override for device
+      tags:
+      - ratelimit
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Device ID
+        in: path
+        name: deviceID
+        required: true
+        type: string
+      - description: Override duration
+        in: body
+        name: body
+        required: true
+        schema:
+          type: object
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Set rate limit override for device
+      tags:
+      - ratelimit
+  /api/users:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/internal_api.userResponse'
+            type: array
+      summary: List all users
+      tags:
+      - users
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: User details
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/internal_api.createUserRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/internal_api.userResponse'
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "409":
+          description: Conflict
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Create a new user
+      tags:
+      - users
+  /api/users/{id}:
+    delete:
+      parameters:
+      - description: User ID
+        in: path
+        name: id
+        required: true
+        type: string
+      responses:
+        "204":
+          description: No Content
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Delete user
+      tags:
+      - users
+    get:
+      parameters:
+      - description: User ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_api.userResponse'
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Get user by ID
+      tags:
+      - users
+    put:
+      consumes:
+      - application/json
+      parameters:
+      - description: User ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Fields to update
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/internal_api.updateUserRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_api.userResponse'
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Update user
+      tags:
+      - users
+  /api/webhook/rockblock:
+    post:
+      consumes:
+      - application/x-www-form-urlencoded
+      description: Ground Control posts MO SBD messages here
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Receive RockBLOCK MO message
+      tags:
+      - webhook
+  /api/webhooks:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/internal_webhook.WebhookConfig'
+            type: array
+      summary: List outbound webhooks
+      tags:
+      - webhooks
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Webhook configuration (url required)
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/internal_webhook.WebhookConfig'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Create outbound webhook
+      tags:
+      - webhooks
+  /api/webhooks/{id}:
+    delete:
+      parameters:
+      - description: Webhook ID
+        in: path
+        name: id
+        required: true
+        type: string
+      responses:
+        "204":
+          description: No Content
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Delete outbound webhook
+      tags:
+      - webhooks
+  /api/webhooks/logs:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/internal_webhook.DeliveryLog'
+            type: array
+      summary: Get recent webhook delivery logs
+      tags:
+      - webhooks
+  /api/wireguard/peers:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              type: object
+            type: array
+        "502":
+          description: Bad Gateway
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: List WireGuard peers
+      tags:
+      - wireguard
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Peer name
+        in: body
+        name: body
+        required: true
+        schema:
+          type: object
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "502":
+          description: Bad Gateway
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Create WireGuard peer
+      tags:
+      - wireguard
+  /api/wireguard/peers/{id}:
+    delete:
+      parameters:
+      - description: Peer ID
+        in: path
+        name: id
+        required: true
+        type: string
+      responses:
+        "204":
+          description: No Content
+        "502":
+          description: Bad Gateway
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Delete WireGuard peer
+      tags:
+      - wireguard
+  /api/wireguard/peers/{id}/config:
+    get:
+      parameters:
+      - description: Peer ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - text/plain
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: string
+        "502":
+          description: Bad Gateway
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Get WireGuard peer config
+      tags:
+      - wireguard
+  /healthz:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_health.Response'
+      summary: Liveness probe
+      tags:
+      - health
+  /readyz:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_health.Response'
+        "503":
+          description: Service Unavailable
+          schema:
+            $ref: '#/definitions/internal_health.Response'
+      summary: Readiness probe
+      tags:
+      - health
+securityDefinitions:
+  BearerAuth:
+    in: header
+    name: Authorization
+    type: apiKey
+swagger: "2.0"

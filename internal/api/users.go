@@ -48,7 +48,15 @@ type userResponse struct {
 }
 
 // CreateUser registers a new local user (owner-only, invite model).
-// POST /api/users
+// @Summary      Create a new user
+// @Tags         users
+// @Accept       json
+// @Produce      json
+// @Param        body  body      createUserRequest  true  "User details"
+// @Success      201   {object}  userResponse
+// @Failure      400   {object}  map[string]string
+// @Failure      409   {object}  map[string]string
+// @Router       /api/users [post]
 func (h *UserHandler) CreateUser(w http.ResponseWriter, r *http.Request) {
 	var req createUserRequest
 	if err := readJSON(w, r, &req, 4096); err != nil {
@@ -119,7 +127,11 @@ func (h *UserHandler) CreateUser(w http.ResponseWriter, r *http.Request) {
 }
 
 // ListUsers returns all local users for the tenant.
-// GET /api/users
+// @Summary      List all users
+// @Tags         users
+// @Produce      json
+// @Success      200  {array}  userResponse
+// @Router       /api/users [get]
 func (h *UserHandler) ListUsers(w http.ResponseWriter, r *http.Request) {
 	tenantID := hubauth.TenantIDFromContext(r.Context())
 	users, err := h.store.ListUsers(r.Context(), tenantID)
@@ -136,7 +148,13 @@ func (h *UserHandler) ListUsers(w http.ResponseWriter, r *http.Request) {
 }
 
 // GetUser returns a single user by ID.
-// GET /api/users/{id}
+// @Summary      Get user by ID
+// @Tags         users
+// @Produce      json
+// @Param        id   path      string  true  "User ID"
+// @Success      200  {object}  userResponse
+// @Failure      404  {object}  map[string]string
+// @Router       /api/users/{id} [get]
 func (h *UserHandler) GetUser(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	tenantID := hubauth.TenantIDFromContext(r.Context())
@@ -150,7 +168,16 @@ func (h *UserHandler) GetUser(w http.ResponseWriter, r *http.Request) {
 }
 
 // UpdateUser modifies a user's name, role, enabled status, or password.
-// PUT /api/users/{id}
+// @Summary      Update user
+// @Tags         users
+// @Accept       json
+// @Produce      json
+// @Param        id    path      string             true  "User ID"
+// @Param        body  body      updateUserRequest  true  "Fields to update"
+// @Success      200   {object}  userResponse
+// @Failure      400   {object}  map[string]string
+// @Failure      404   {object}  map[string]string
+// @Router       /api/users/{id} [put]
 func (h *UserHandler) UpdateUser(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	tenantID := hubauth.TenantIDFromContext(r.Context())
@@ -205,7 +232,12 @@ func (h *UserHandler) UpdateUser(w http.ResponseWriter, r *http.Request) {
 }
 
 // DeleteUser removes a user and all their refresh tokens.
-// DELETE /api/users/{id}
+// @Summary      Delete user
+// @Tags         users
+// @Param        id   path  string  true  "User ID"
+// @Success      204
+// @Failure      400  {object}  map[string]string
+// @Router       /api/users/{id} [delete]
 func (h *UserHandler) DeleteUser(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	tenantID := hubauth.TenantIDFromContext(r.Context())

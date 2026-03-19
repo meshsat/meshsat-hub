@@ -20,7 +20,12 @@ func NewAPIHandler(client *Client) *APIHandler {
 }
 
 // ListTargets returns all OTA-managed devices.
-// GET /api/ota/targets
+// @Summary      List OTA targets
+// @Tags         ota
+// @Produce      json
+// @Success      200  {object}  map[string][]Target
+// @Failure      502  {object}  map[string]string
+// @Router       /api/ota/targets [get]
 func (h *APIHandler) ListTargets(w http.ResponseWriter, r *http.Request) {
 	targets, err := h.client.ListTargets(r.Context())
 	if err != nil {
@@ -32,7 +37,13 @@ func (h *APIHandler) ListTargets(w http.ResponseWriter, r *http.Request) {
 }
 
 // GetTarget returns a single OTA target.
-// GET /api/ota/targets/{controllerId}
+// @Summary      Get OTA target
+// @Tags         ota
+// @Produce      json
+// @Param        controllerId  path      string  true  "Target controller ID"
+// @Success      200           {object}  Target
+// @Failure      502           {object}  map[string]string
+// @Router       /api/ota/targets/{controllerId} [get]
 func (h *APIHandler) GetTarget(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "controllerId")
 	target, err := h.client.GetTarget(r.Context(), id)
@@ -45,7 +56,15 @@ func (h *APIHandler) GetTarget(w http.ResponseWriter, r *http.Request) {
 }
 
 // CreateTarget registers a new device for OTA management.
-// POST /api/ota/targets
+// @Summary      Create OTA target
+// @Tags         ota
+// @Accept       json
+// @Produce      json
+// @Param        body  body      Target  true  "Target details"
+// @Success      201   {object}  Target
+// @Failure      400   {object}  map[string]string
+// @Failure      502   {object}  map[string]string
+// @Router       /api/ota/targets [post]
 func (h *APIHandler) CreateTarget(w http.ResponseWriter, r *http.Request) {
 	var target Target
 	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4096)).Decode(&target); err != nil {
@@ -68,7 +87,12 @@ func (h *APIHandler) CreateTarget(w http.ResponseWriter, r *http.Request) {
 }
 
 // DeleteTarget removes a device from OTA management.
-// DELETE /api/ota/targets/{controllerId}
+// @Summary      Delete OTA target
+// @Tags         ota
+// @Param        controllerId  path  string  true  "Target controller ID"
+// @Success      204
+// @Failure      502  {object}  map[string]string
+// @Router       /api/ota/targets/{controllerId} [delete]
 func (h *APIHandler) DeleteTarget(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "controllerId")
 	if err := h.client.DeleteTarget(r.Context(), id); err != nil {
@@ -79,7 +103,13 @@ func (h *APIHandler) DeleteTarget(w http.ResponseWriter, r *http.Request) {
 }
 
 // GetTargetActions returns deployment actions for a target.
-// GET /api/ota/targets/{controllerId}/actions
+// @Summary      Get target deployment actions
+// @Tags         ota
+// @Produce      json
+// @Param        controllerId  path      string  true  "Target controller ID"
+// @Success      200           {object}  map[string][]ActionStatus
+// @Failure      502           {object}  map[string]string
+// @Router       /api/ota/targets/{controllerId}/actions [get]
 func (h *APIHandler) GetTargetActions(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "controllerId")
 	actions, err := h.client.GetTargetActions(r.Context(), id)
@@ -92,7 +122,14 @@ func (h *APIHandler) GetTargetActions(w http.ResponseWriter, r *http.Request) {
 }
 
 // CancelAction cancels a pending deployment action (rollback).
-// DELETE /api/ota/targets/{controllerId}/actions/{actionId}
+// @Summary      Cancel deployment action
+// @Tags         ota
+// @Param        controllerId  path  string  true  "Target controller ID"
+// @Param        actionId      path  integer true  "Action ID"
+// @Success      204
+// @Failure      400  {object}  map[string]string
+// @Failure      502  {object}  map[string]string
+// @Router       /api/ota/targets/{controllerId}/actions/{actionId} [delete]
 func (h *APIHandler) CancelAction(w http.ResponseWriter, r *http.Request) {
 	controllerID := chi.URLParam(r, "controllerId")
 	actionIDStr := chi.URLParam(r, "actionId")
@@ -110,7 +147,15 @@ func (h *APIHandler) CancelAction(w http.ResponseWriter, r *http.Request) {
 }
 
 // CreateRollout starts a new firmware rollout campaign.
-// POST /api/ota/rollouts
+// @Summary      Create firmware rollout
+// @Tags         ota
+// @Accept       json
+// @Produce      json
+// @Param        body  body      Rollout  true  "Rollout details"
+// @Success      201   {object}  Rollout
+// @Failure      400   {object}  map[string]string
+// @Failure      502   {object}  map[string]string
+// @Router       /api/ota/rollouts [post]
 func (h *APIHandler) CreateRollout(w http.ResponseWriter, r *http.Request) {
 	var rollout Rollout
 	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4096)).Decode(&rollout); err != nil {
@@ -133,7 +178,14 @@ func (h *APIHandler) CreateRollout(w http.ResponseWriter, r *http.Request) {
 }
 
 // GetRollout returns rollout details.
-// GET /api/ota/rollouts/{id}
+// @Summary      Get rollout details
+// @Tags         ota
+// @Produce      json
+// @Param        id   path      integer  true  "Rollout ID"
+// @Success      200  {object}  Rollout
+// @Failure      400  {object}  map[string]string
+// @Failure      502  {object}  map[string]string
+// @Router       /api/ota/rollouts/{id} [get]
 func (h *APIHandler) GetRollout(w http.ResponseWriter, r *http.Request) {
 	idStr := chi.URLParam(r, "id")
 	id, err := strconv.ParseInt(idStr, 10, 64)
@@ -152,7 +204,13 @@ func (h *APIHandler) GetRollout(w http.ResponseWriter, r *http.Request) {
 }
 
 // StartRollout transitions a rollout to running.
-// POST /api/ota/rollouts/{id}/start
+// @Summary      Start a rollout
+// @Tags         ota
+// @Param        id  path  integer  true  "Rollout ID"
+// @Success      204
+// @Failure      400  {object}  map[string]string
+// @Failure      502  {object}  map[string]string
+// @Router       /api/ota/rollouts/{id}/start [post]
 func (h *APIHandler) StartRollout(w http.ResponseWriter, r *http.Request) {
 	idStr := chi.URLParam(r, "id")
 	id, err := strconv.ParseInt(idStr, 10, 64)
@@ -169,7 +227,13 @@ func (h *APIHandler) StartRollout(w http.ResponseWriter, r *http.Request) {
 }
 
 // PauseRollout pauses a running rollout.
-// POST /api/ota/rollouts/{id}/pause
+// @Summary      Pause a rollout
+// @Tags         ota
+// @Param        id  path  integer  true  "Rollout ID"
+// @Success      204
+// @Failure      400  {object}  map[string]string
+// @Failure      502  {object}  map[string]string
+// @Router       /api/ota/rollouts/{id}/pause [post]
 func (h *APIHandler) PauseRollout(w http.ResponseWriter, r *http.Request) {
 	idStr := chi.URLParam(r, "id")
 	id, err := strconv.ParseInt(idStr, 10, 64)

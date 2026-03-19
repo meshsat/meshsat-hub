@@ -1,4 +1,4 @@
-.PHONY: build build-arm64 build-x86_64 test test-integration lint fmt clean docker run security gosec govulncheck owasp owasp-full
+.PHONY: build build-arm64 build-x86_64 test test-integration lint fmt clean docker run security gosec govulncheck owasp owasp-full swagger
 
 BINARY := meshsat-hub
 PKG := github.com/cubeos-app/meshsat-hub
@@ -42,6 +42,10 @@ owasp:
 owasp-full:
 	@echo "Running OWASP full active scan (set HUB_TARGET_URL and HUB_AUTH_TOKEN)..."
 	bash test/owasp/owasp-scan.sh --full
+
+swagger:
+	swag init -g cmd/meshsat-hub/main.go -o docs/swagger --parseDependency --parseInternal
+	rm -f docs/swagger/docs.go
 
 clean:
 	rm -rf bin/

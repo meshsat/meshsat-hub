@@ -367,7 +367,11 @@ func NewAPIHandler(monitor *Monitor) *APIHandler {
 }
 
 // GetNodeStatus returns the local node's Galera status.
-// GET /api/cluster/node
+// @Summary      Get local node Galera status
+// @Tags         cluster
+// @Produce      json
+// @Success      200  {object}  NodeStatus
+// @Router       /api/cluster/node [get]
 func (h *APIHandler) GetNodeStatus(w http.ResponseWriter, r *http.Request) {
 	status, _ := h.monitor.LocalStatus(r.Context())
 	w.Header().Set("Content-Type", "application/json")
@@ -375,7 +379,11 @@ func (h *APIHandler) GetNodeStatus(w http.ResponseWriter, r *http.Request) {
 }
 
 // GetClusterStatus returns the aggregated cluster status from all peers.
-// GET /api/cluster/status
+// @Summary      Get aggregated cluster status
+// @Tags         cluster
+// @Produce      json
+// @Success      200  {object}  ClusterStatus
+// @Router       /api/cluster/status [get]
 func (h *APIHandler) GetClusterStatus(w http.ResponseWriter, r *http.Request) {
 	status, _ := h.monitor.ClusterWideStatus(r.Context())
 	w.Header().Set("Content-Type", "application/json")
@@ -383,7 +391,11 @@ func (h *APIHandler) GetClusterStatus(w http.ResponseWriter, r *http.Request) {
 }
 
 // GetActions returns available remediation actions.
-// GET /api/cluster/actions
+// @Summary      List available remediation actions
+// @Tags         cluster
+// @Produce      json
+// @Success      200  {object}  map[string][]RemediationAction
+// @Router       /api/cluster/actions [get]
 func (h *APIHandler) GetActions(w http.ResponseWriter, r *http.Request) {
 	actions := h.monitor.AvailableActions()
 	w.Header().Set("Content-Type", "application/json")
@@ -391,7 +403,13 @@ func (h *APIHandler) GetActions(w http.ResponseWriter, r *http.Request) {
 }
 
 // ExecuteAction runs a remediation action on the local node.
-// POST /api/cluster/actions/{id}
+// @Summary      Execute a remediation action
+// @Tags         cluster
+// @Produce      json
+// @Param        id   path      string  true  "Action ID"
+// @Success      200  {object}  map[string]string
+// @Failure      400  {object}  map[string]string
+// @Router       /api/cluster/actions/{id} [post]
 func (h *APIHandler) ExecuteAction(w http.ResponseWriter, r *http.Request) {
 	// Extract action ID from URL path
 	parts := strings.Split(r.URL.Path, "/")
@@ -410,7 +428,14 @@ func (h *APIHandler) ExecuteAction(w http.ResponseWriter, r *http.Request) {
 }
 
 // SetPeers updates the peer list dynamically.
-// PUT /api/cluster/peers
+// @Summary      Update cluster peer list
+// @Tags         cluster
+// @Accept       json
+// @Produce      json
+// @Param        body  body      object  true  "Peer URLs"
+// @Success      200   {object}  map[string]string
+// @Failure      400   {object}  map[string]string
+// @Router       /api/cluster/peers [put]
 func (h *APIHandler) SetPeers(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Peers []string `json:"peers"`

@@ -49,12 +49,23 @@ type Response struct {
 }
 
 // LivezHandler always returns 200 if the process is running.
+// @Summary      Liveness probe
+// @Tags         health
+// @Produce      json
+// @Success      200  {object}  Response
+// @Router       /healthz [get]
 func LivezHandler(w http.ResponseWriter, _ *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(Response{Status: "ok"})
 }
 
 // ReadyzHandler returns 200 if all dependencies are healthy, 503 otherwise.
+// @Summary      Readiness probe
+// @Tags         health
+// @Produce      json
+// @Success      200  {object}  Response
+// @Failure      503  {object}  Response
+// @Router       /readyz [get]
 func (c *Checker) ReadyzHandler(w http.ResponseWriter, _ *http.Request) {
 	c.mu.RLock()
 	staticChecks := make(map[string]bool, len(c.checks))

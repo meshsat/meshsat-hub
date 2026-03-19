@@ -61,7 +61,17 @@ type loginResponse struct {
 }
 
 // Login authenticates a user with email/password and returns JWT + refresh token.
-// POST /api/auth/login
+// @Summary      Authenticate with email and password
+// @Tags         auth
+// @Accept       json
+// @Produce      json
+// @Param        body  body      loginRequest  true  "Login credentials"
+// @Success      200   {object}  loginResponse
+// @Failure      400   {object}  map[string]string
+// @Failure      401   {object}  map[string]string
+// @Failure      403   {object}  map[string]string
+// @Failure      429   {object}  map[string]string
+// @Router       /api/auth/login [post]
 func (h *LoginHandler) Login(w http.ResponseWriter, r *http.Request) {
 	var req loginRequest
 	if err := readJSON(w, r, &req, 4096); err != nil {
@@ -186,7 +196,14 @@ func (h *LoginHandler) Login(w http.ResponseWriter, r *http.Request) {
 }
 
 // Refresh exchanges a valid refresh token for a new access token + rotated refresh token.
-// POST /api/auth/refresh
+// @Summary      Refresh access token
+// @Tags         auth
+// @Accept       json
+// @Produce      json
+// @Success      200  {object}  loginResponse
+// @Failure      400  {object}  map[string]string
+// @Failure      401  {object}  map[string]string
+// @Router       /api/auth/refresh [post]
 func (h *LoginHandler) Refresh(w http.ResponseWriter, r *http.Request) {
 	// Get refresh token from cookie or body
 	var refreshToken string
@@ -269,7 +286,11 @@ func (h *LoginHandler) Refresh(w http.ResponseWriter, r *http.Request) {
 }
 
 // Logout invalidates all refresh tokens for the current user.
-// POST /api/auth/logout
+// @Summary      Log out and invalidate refresh tokens
+// @Tags         auth
+// @Produce      json
+// @Success      200  {object}  map[string]string
+// @Router       /api/auth/logout [post]
 func (h *LoginHandler) Logout(w http.ResponseWriter, r *http.Request) {
 	user := hubauth.FromContext(r.Context())
 	if user != nil {
