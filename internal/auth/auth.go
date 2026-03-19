@@ -215,7 +215,7 @@ func MiddlewareWithProvider(provider *JWKSProvider, issuerURL, audience string) 
 
 func isExempt(path string) bool {
 	return path == "/healthz" || path == "/readyz" ||
-		path == "/api/webhook/rockblock" ||
+		strings.HasPrefix(path, "/api/webhook/") || // all inbound webhooks are auth-exempt
 		path == "/api/auth/login" ||
 		path == "/api/auth/refresh" ||
 		path == "/api/cluster/node" ||
