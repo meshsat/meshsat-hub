@@ -59,6 +59,9 @@ export const messages = {
     return fetchJSON(`/messages?${params}`)
   },
   get: (id) => fetchJSON(`/messages/${id}`),
+  send: (imei, text, compress = true, encrypt = true) => fetchJSON(`/devices/${imei}/send`, {
+    method: 'POST', body: JSON.stringify({ text, compress, encrypt })
+  }),
 }
 
 export const positions = {

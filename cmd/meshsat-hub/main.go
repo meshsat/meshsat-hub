@@ -45,6 +45,7 @@ import (
 	"github.com/cubeos-app/meshsat-hub/internal/ntfy"
 	"github.com/cubeos-app/meshsat-hub/internal/position"
 	"github.com/cubeos-app/meshsat-hub/internal/ratelimit"
+	"github.com/cubeos-app/meshsat-hub/internal/rock7"
 	"github.com/cubeos-app/meshsat-hub/internal/rockblock"
 	"github.com/cubeos-app/meshsat-hub/internal/routing"
 	"github.com/cubeos-app/meshsat-hub/internal/sms"
@@ -455,6 +456,13 @@ func main() {
 	rbHandler.SetMSVQSC(msvqscDecoder)
 	rbHandler.SetStore(dataStore)
 
+	// Rock7 MT sender (for sending messages to devices via Iridium).
+	var rock7Client *rock7.Client
+	if cfg.Rock7Username != "" {
+		rock7Client = rock7.NewClient(cfg.Rock7Username, cfg.Rock7Password)
+		slog.Info("rock7: MT sender enabled", "username", cfg.Rock7Username)
+	}
+
 	// Astrocast MO webhook handler.
 	acHandler := astrocast.NewHandler(msgBus, cfg.AstrocastWebhookSecret)
 	acHandler.SetAudit(auditSvc)
@@ -621,6 +629,11 @@ func main() {
 	r.Post("/api/devices/{imei}/keys", deviceKeyHandler.CreateKey)
 	r.Get("/api/devices/{imei}/keys", deviceKeyHandler.ListKeys)
 	r.Delete("/api/devices/{imei}/keys/{id}", deviceKeyHandler.DeleteKey)
+
+	// MT message send (Rock7 / Iridium)
+	sendHandler := api.NewSendHandler(rock7Client, dataStore)
+	sendHandler.SetKeyStore(keyStore)
+	r.Post("/api/devices/{imei}/send", sendHandler.SendMessage)
 
 	// Message history API
 	messageHandler := api.NewMessageHandler(dataStore)

@@ -86,6 +86,10 @@ type Config struct {
 	OIDCCertPin       string `yaml:"oidc_cert_pin"`        // Primary OIDC provider cert pin
 	OIDCCertPinBackup string `yaml:"oidc_cert_pin_backup"` // Backup pin for rotation
 
+	// Rock7 RockBLOCK MT API (for sending messages to devices via Iridium)
+	Rock7Username string `yaml:"rock7_username"` // Rock7 web services username
+	Rock7Password string `yaml:"rock7_password"` // Rock7 web services password
+
 	// SOS detection
 	SOSChainID string `yaml:"sos_chain_id"` // Default escalation chain ID for SOS alerts (empty = first available)
 
@@ -322,6 +326,14 @@ func Load() (Config, error) {
 	}
 	if v := os.Getenv("HUB_HAWKBIT_PASSWORD"); v != "" {
 		cfg.HawkBitPassword = v
+	}
+
+	// Rock7 overrides
+	if v := os.Getenv("HUB_ROCK7_USERNAME"); v != "" {
+		cfg.Rock7Username = v
+	}
+	if v := os.Getenv("HUB_ROCK7_PASSWORD"); v != "" {
+		cfg.Rock7Password = v
 	}
 
 	// SOS overrides
