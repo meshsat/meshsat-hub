@@ -427,6 +427,22 @@ func main() {
 		}
 		slog.Info("crypto: keystore hydrated", "devices_with_keys", keyStore.DeviceCount())
 	}
+	// Hydrate global keys (e.g. "sms") that aren't tied to a device IMEI.
+	for _, globalKeyID := range []string{"sms"} {
+		dk, err := dataStore.GetDeviceKeyLatest(ctx, store.DefaultTenantID, globalKeyID)
+		if err != nil || dk.Mode != "decrypt" || dk.KeyHex == "" {
+			continue
+		}
+		keyBytes, err := hex.DecodeString(dk.KeyHex)
+		if err != nil {
+			continue
+		}
+		if _, err := keyStore.StoreKey(globalKeyID, keyBytes, dk.Mode); err != nil {
+			slog.Warn("crypto: failed to load global key", "id", globalKeyID, "error", err)
+		} else {
+			slog.Info("crypto: global key loaded", "id", globalKeyID)
+		}
+	}
 
 	// MSVQ-SC decoder (for Android-compressed messages).
 	var msvqscDecoder *hubmsvqsc.Decoder
@@ -636,6 +652,7 @@ func main() {
 	// Device encryption key management
 	deviceKeyHandler := api.NewDeviceKeyHandler(dataStore, keyStore)
 	r.Post("/api/devices/{imei}/keys", deviceKeyHandler.CreateKey)
+	r.Post("/api/devices/{imei}/keys/import", deviceKeyHandler.ImportKey)
 	r.Get("/api/devices/{imei}/keys", deviceKeyHandler.ListKeys)
 	r.Delete("/api/devices/{imei}/keys/{id}", deviceKeyHandler.DeleteKey)
 

@@ -26,6 +26,11 @@ type createDeviceKeyRequest struct {
 	Mode string `json:"mode"` // "decrypt" or "passthrough"
 }
 
+type importDeviceKeyRequest struct {
+	KeyHex string `json:"key_hex"` // hex-encoded AES-256 key (64 hex chars = 32 bytes)
+	Mode   string `json:"mode"`    // "decrypt" or "passthrough"
+}
+
 type createDeviceKeyResponse struct {
 	ID      string `json:"id"`
 	KeyHex  string `json:"key_hex,omitempty"` // plaintext — shown once
@@ -131,6 +136,88 @@ func (h *DeviceKeyHandler) ListKeys(w http.ResponseWriter, r *http.Request) {
 		keys = []store.DeviceKey{}
 	}
 	writeJSON(w, http.StatusOK, keys)
+}
+
+// ImportKey imports an existing encryption key for a device.
+//
+//	@Summary      Import device encryption key
+//	@Description  Imports an existing AES-256 key (hex-encoded) for a device or global key ID (e.g. "sms").
+//	@Tags         devices
+//	@Accept       json
+//	@Produce      json
+//	@Param        imei  path  string  true  "Device IMEI or key ID (e.g. sms)"
+//	@Param        body  body  importDeviceKeyRequest  true  "Key to import"
+//	@Success      201  {object}  createDeviceKeyResponse
+//	@Failure      400  {object}  map[string]string
+//	@Router       /api/devices/{imei}/keys/import [post]
+func (h *DeviceKeyHandler) ImportKey(w http.ResponseWriter, r *http.Request) {
+	tid := auth.TenantIDFromContext(r.Context())
+	imei := chi.URLParam(r, "imei")
+	if imei == "" {
+		writeError(w, http.StatusBadRequest, "missing imei")
+		return
+	}
+
+	var req importDeviceKeyRequest
+	if err := readJSON(w, r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	if req.KeyHex == "" {
+		writeError(w, http.StatusBadRequest, "key_hex is required")
+		return
+	}
+
+	keyBytes, err := hex.DecodeString(req.KeyHex)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid hex key")
+		return
+	}
+	if len(keyBytes) != 32 {
+		writeError(w, http.StatusBadRequest, "key must be 32 bytes (64 hex chars)")
+		return
+	}
+
+	switch req.Mode {
+	case "decrypt", "passthrough":
+	case "":
+		req.Mode = "decrypt"
+	default:
+		writeError(w, http.StatusBadRequest, "invalid mode: must be decrypt or passthrough")
+		return
+	}
+
+	entry, err := h.keyStore.StoreKey(imei, keyBytes, req.Mode)
+	if err != nil {
+		slog.Error("device key import failed", "error", err)
+		writeError(w, http.StatusInternalServerError, "key import failed")
+		return
+	}
+
+	dk := &store.DeviceKey{
+		DeviceIMEI: imei,
+		KeyHash:    entry.KeyHashHex,
+		Mode:       req.Mode,
+	}
+	if req.Mode == "decrypt" {
+		dk.KeyHex = req.KeyHex
+	}
+
+	if err := h.store.CreateDeviceKey(r.Context(), tid, dk); err != nil {
+		slog.Error("device key persistence failed", "error", err)
+		writeError(w, http.StatusInternalServerError, "key persistence failed")
+		return
+	}
+
+	slog.Info("crypto: key imported", "device", imei, "mode", req.Mode)
+
+	resp := createDeviceKeyResponse{
+		ID:      dk.ID,
+		KeyHash: entry.KeyHashHex,
+		Mode:    req.Mode,
+	}
+	writeJSON(w, http.StatusCreated, resp)
 }
 
 // DeleteKey revokes a device encryption key by ID.
