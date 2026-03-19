@@ -206,7 +206,8 @@ func (h *SendHandler) SendSMS(w http.ResponseWriter, r *http.Request) {
 	// Step 1: SMAZ2 compression (opt-in for SMS — usually want human-readable)
 	if req.Compress {
 		smaz := compress.Compress(payload)
-		if len(smaz) > 0 && len(smaz) < len(payload) {
+		if len(smaz) > 0 {
+			// Always compress if checkbox is on (even if same size — it's binary either way with encryption)
 			payload = smaz
 			compressed = true
 		}
@@ -214,9 +215,22 @@ func (h *SendHandler) SendSMS(w http.ResponseWriter, r *http.Request) {
 
 	// Step 2: AES-256-GCM encryption (opt-in)
 	if req.Encrypt && h.keyStore != nil {
-		// Use a convention: encrypt with a key identified by the phone number
-		// For now, use a global "sms" key if it exists
-		ct, encErr := h.keyStore.EncryptMessage("sms", payload)
+		// Try recipient-specific key first, then global "sms" key.
+		// Auto-generate "sms" key on first encrypted send.
+		keyID := req.To // per-recipient key
+		ct, encErr := h.keyStore.EncryptMessage(keyID, payload)
+		if encErr != nil {
+			// Try global "sms" key
+			ct, encErr = h.keyStore.EncryptMessage("sms", payload)
+		}
+		if encErr != nil {
+			// Auto-generate global SMS key
+			_, _, genErr := h.keyStore.GenerateAndStore("sms", "decrypt")
+			if genErr == nil {
+				ct, encErr = h.keyStore.EncryptMessage("sms", payload)
+				slog.Info("sms: auto-generated encryption key", "key_id", "sms")
+			}
+		}
 		if encErr == nil {
 			payload = ct
 			encrypted = true
