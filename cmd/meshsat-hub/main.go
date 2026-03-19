@@ -40,6 +40,7 @@ import (
 	"github.com/cubeos-app/meshsat-hub/internal/ipougrs"
 	"github.com/cubeos-app/meshsat-hub/internal/leader"
 	"github.com/cubeos-app/meshsat-hub/internal/mptcp"
+	hubmsvqsc "github.com/cubeos-app/meshsat-hub/internal/msvqsc"
 	"github.com/cubeos-app/meshsat-hub/internal/ntfy"
 	"github.com/cubeos-app/meshsat-hub/internal/position"
 	"github.com/cubeos-app/meshsat-hub/internal/ratelimit"
@@ -417,6 +418,24 @@ func main() {
 		slog.Info("crypto: keystore hydrated", "devices_with_keys", keyStore.DeviceCount())
 	}
 
+	// MSVQ-SC decoder (for Android-compressed messages).
+	var msvqscDecoder *hubmsvqsc.Decoder
+	msvqscCBPath := os.Getenv("HUB_MSVQSC_CODEBOOK")
+	msvqscCIPath := os.Getenv("HUB_MSVQSC_CORPUS")
+	if msvqscCBPath == "" {
+		msvqscCBPath = "/data/msvqsc/codebook_v1.bin"
+	}
+	if msvqscCIPath == "" {
+		msvqscCIPath = "/data/msvqsc/corpus_index.bin"
+	}
+	if d, err := hubmsvqsc.Load(msvqscCBPath, msvqscCIPath); err == nil {
+		msvqscDecoder = d
+		stages, k, dim, corpus := d.Stats()
+		slog.Info("msvqsc: decoder loaded", "stages", stages, "k", k, "dim", dim, "corpus", corpus)
+	} else {
+		slog.Info("msvqsc: decoder not available (Android compression won't decode)", "error", err)
+	}
+
 	// RockBLOCK webhook handler.
 	rbHandler := rockblock.NewHandler(msgBus, cfg.RockBLOCKSecret)
 	rbHandler.SetAudit(auditSvc)
@@ -424,6 +443,7 @@ func main() {
 	rbHandler.SetReassembler(reassembler)
 	rbHandler.SetKeyStore(keyStore)
 	rbHandler.SetDeadman(deadmanMonitor)
+	rbHandler.SetMSVQSC(msvqscDecoder)
 
 	// Astrocast MO webhook handler.
 	acHandler := astrocast.NewHandler(msgBus, cfg.AstrocastWebhookSecret)
@@ -532,6 +552,8 @@ func main() {
 		r.Get("/api/email/keys", emailAPIHandler.ListContacts)
 		r.Post("/api/email/keys", emailAPIHandler.AddContact)
 		r.Delete("/api/email/keys/{email}", emailAPIHandler.DeleteContact)
+		r.Post("/api/email/test", emailAPIHandler.TestSend)
+		emailAPIHandler.SetClient(hubemail.NewClient(cfg.EmailSMTPHost, cfg.EmailFrom, cfg.EmailUsername, cfg.EmailPassword, emailKeyRing))
 	}
 
 	// Auth info

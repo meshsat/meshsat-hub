@@ -16,12 +16,14 @@ import (
 	"github.com/cubeos-app/meshsat-hub/internal/audit"
 	"github.com/cubeos-app/meshsat-hub/internal/auth"
 	"github.com/cubeos-app/meshsat-hub/internal/bus"
+	"github.com/cubeos-app/meshsat-hub/internal/codec"
 	"github.com/cubeos-app/meshsat-hub/internal/compress"
 	hubcrypto "github.com/cubeos-app/meshsat-hub/internal/crypto"
 	"github.com/cubeos-app/meshsat-hub/internal/deadman"
 	"github.com/cubeos-app/meshsat-hub/internal/dedup"
 	"github.com/cubeos-app/meshsat-hub/internal/fragment"
 	hubmqtt "github.com/cubeos-app/meshsat-hub/internal/mqtt"
+	"github.com/cubeos-app/meshsat-hub/internal/msvqsc"
 )
 
 // MOMessage represents a decoded Mobile Originated SBD message.
@@ -74,6 +76,7 @@ type Handler struct {
 	reassembler *fragment.Reassembler
 	keyStore    *hubcrypto.KeyStore
 	deadman     *deadman.Monitor
+	msvqsc      *msvqsc.Decoder
 }
 
 // NewHandler creates a new RockBLOCK webhook handler.
@@ -104,6 +107,11 @@ func (h *Handler) SetKeyStore(ks *hubcrypto.KeyStore) {
 // SetDeadman attaches a dead man's switch monitor for check-in on MO messages.
 func (h *Handler) SetDeadman(dm *deadman.Monitor) {
 	h.deadman = dm
+}
+
+// SetMSVQSC attaches an MSVQ-SC decoder for Android-compressed messages.
+func (h *Handler) SetMSVQSC(d *msvqsc.Decoder) {
+	h.msvqsc = d
 }
 
 func (h *Handler) publish(topic string, qos byte, retained bool, v any) {
@@ -235,6 +243,20 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		rawB64 = base64.StdEncoding.EncodeToString(rawBytes)
 	}
 
+	// Strip protocol version byte (if present) before further processing.
+	protoVersion, strippedBytes := codec.StripVersionByte(rawBytes)
+	if protoVersion > 0 {
+		slog.Info("rockblock: protocol version detected",
+			"imei", imei, "version", protoVersion)
+		rawBytes = strippedBytes
+	} else {
+		slog.Debug("rockblock: legacy message (no version byte)", "imei", imei)
+	}
+	if protoVersion > 0 && protoVersion != codec.ProtoVersion1 {
+		slog.Warn("rockblock: protocol version mismatch, processing anyway",
+			"imei", imei, "version", protoVersion, "expected", codec.ProtoVersion1)
+	}
+
 	// Attempt E2E decryption if payload is large enough to be GCM-encrypted
 	// (12-byte nonce + ciphertext + 16-byte tag = 28 bytes minimum overhead).
 	encrypted := false
@@ -261,6 +283,15 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		text = string(decompressed)
 		compressed = true
 		compressionType = "smaz2"
+	} else if h.msvqsc != nil && msvqsc.LooksLikeMSVQSC(rawBytes) {
+		// Try MSVQ-SC semantic decompression (Android).
+		decoded, decErr := h.msvqsc.Decode(rawBytes)
+		if decErr == nil && decoded != "" {
+			text = decoded
+			compressed = true
+			compressionType = "msvqsc"
+			slog.Info("rockblock: MSVQ-SC decoded", "imei", imei, "text", text)
+		}
 	} else {
 		// Not compressed or not valid text — try raw as UTF-8.
 		if isPrintable(rawBytes) {
