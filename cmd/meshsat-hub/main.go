@@ -402,6 +402,14 @@ func main() {
 	rbHandler.SetKeyStore(keyStore)
 	rbHandler.SetDeadman(deadmanMonitor)
 
+	// Astrocast MO webhook handler.
+	acHandler := astrocast.NewHandler(msgBus, cfg.AstrocastWebhookSecret)
+	acHandler.SetAudit(auditSvc)
+	acHandler.SetDedup(dedupTracker)
+	acHandler.SetReassembler(reassembler)
+	acHandler.SetKeyStore(keyStore)
+	acHandler.SetDeadman(deadmanMonitor)
+
 	r := chi.NewRouter()
 	r.Use(middleware.Recoverer)
 	r.Use(middleware.RealIP)
@@ -473,6 +481,8 @@ func main() {
 	r.Get("/healthz", health.LivezHandler)
 	r.Get("/readyz", checker.ReadyzHandler)
 	r.Post("/api/webhook/rockblock", rbHandler.ServeHTTP)
+
+	r.Post("/api/webhook/astrocast", acHandler.ServeHTTP)
 
 	// Auth info
 	r.Get("/api/auth/me", api.AuthMeHandler)

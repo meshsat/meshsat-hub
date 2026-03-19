@@ -17,21 +17,22 @@ type Config struct {
 	RedisURL    string `yaml:"redis_url"`    // Redis URL (cluster/k8s only)
 	NATSUrl     string `yaml:"nats_url"`     // External NATS URL (cluster/k8s only)
 
-	Port            int    `yaml:"port"`
-	MQTTBrokerURL   string `yaml:"mqtt_broker_url"`
-	MQTTClientID    string `yaml:"mqtt_client_id"`
-	RockBLOCKSecret string `yaml:"rockblock_secret"`
-	CloudloopAPIKey string `yaml:"cloudloop_api_key"`
-	CloudloopAPIURL string `yaml:"cloudloop_api_url"`
-	AstrocastAPIKey string `yaml:"astrocast_api_key"`
-	AstrocastAPIURL string `yaml:"astrocast_api_url"`
-	LogLevel        string `yaml:"log_level"`
-	LogFormat       string `yaml:"log_format"`
-	AuthToken       string `yaml:"auth_token"`
-	AuthMode        string `yaml:"auth_mode"`       // "none", "token", "local", "oidc"
-	JWTSigningKey   string `yaml:"jwt_signing_key"` // HMAC-SHA256 key for local auth JWT (min 32 chars)
-	OIDCIssuerURL   string `yaml:"oidc_issuer_url"`
-	OIDCAudience    string `yaml:"oidc_audience"`
+	Port                   int    `yaml:"port"`
+	MQTTBrokerURL          string `yaml:"mqtt_broker_url"`
+	MQTTClientID           string `yaml:"mqtt_client_id"`
+	RockBLOCKSecret        string `yaml:"rockblock_secret"`
+	CloudloopAPIKey        string `yaml:"cloudloop_api_key"`
+	CloudloopAPIURL        string `yaml:"cloudloop_api_url"`
+	AstrocastAPIKey        string `yaml:"astrocast_api_key"`
+	AstrocastAPIURL        string `yaml:"astrocast_api_url"`
+	AstrocastWebhookSecret string `yaml:"astrocast_webhook_secret"` // HMAC-SHA256 secret for Astrocast MO webhook verification
+	LogLevel               string `yaml:"log_level"`
+	LogFormat              string `yaml:"log_format"`
+	AuthToken              string `yaml:"auth_token"`
+	AuthMode               string `yaml:"auth_mode"`       // "none", "token", "local", "oidc"
+	JWTSigningKey          string `yaml:"jwt_signing_key"` // HMAC-SHA256 key for local auth JWT (min 32 chars)
+	OIDCIssuerURL          string `yaml:"oidc_issuer_url"`
+	OIDCAudience           string `yaml:"oidc_audience"`
 
 	// TAK/CoT integration
 	TAKEnabled        bool   `yaml:"tak_enabled"`
@@ -152,6 +153,9 @@ func Load() (Config, error) {
 	}
 	if v := os.Getenv("HUB_ASTROCAST_API_URL"); v != "" {
 		cfg.AstrocastAPIURL = v
+	}
+	if v := os.Getenv("HUB_ASTROCAST_WEBHOOK_SECRET"); v != "" {
+		cfg.AstrocastWebhookSecret = v
 	}
 	if v := os.Getenv("HUB_LOG_LEVEL"); v != "" {
 		cfg.LogLevel = strings.ToLower(v)
