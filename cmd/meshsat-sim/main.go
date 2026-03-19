@@ -177,7 +177,7 @@ func main() {
 		select {
 		case <-ctx.Done():
 			slog.Info("meshsat-sim stopping")
-			if mqttClient != nil && mqttClient.IsConnected() {
+			if mqttClient.IsConnected() {
 				mqttClient.Disconnect(1000)
 			}
 			slog.Info("meshsat-sim stopped")
