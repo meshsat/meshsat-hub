@@ -5,7 +5,10 @@
 
 set -euo pipefail
 
+SSH_USER="${DEPLOY_SSH_USER:-kyriakosp}"
 HOSTS=("nllei01dmz01" "grskg01dmz01")
+CONTAINER_NAME="${GALERA_CONTAINER:-meshsat-mariadb}"
+DB_ROOT_PASS="${MARIADB_ROOT_PASSWORD:-}"
 MIN_CLUSTER_SIZE=2
 HEALTHY=true
 
@@ -16,14 +19,19 @@ for host in "${HOSTS[@]}"; do
     echo "--- ${host} ---"
 
     # Check SSH reachability
-    if ! ssh -o ConnectTimeout=5 -o BatchMode=yes "${host}" "true" 2>/dev/null; then
-        echo "  FAIL: ${host} unreachable via SSH"
+    if ! ssh -o ConnectTimeout=5 -o BatchMode=yes -l "${SSH_USER}" "${host}" "true" 2>/dev/null; then
+        echo "  FAIL: ${host} unreachable via SSH (user: ${SSH_USER})"
         HEALTHY=false
         continue
     fi
 
+    # Get root password from container env if not set
+    if [[ -z "${DB_ROOT_PASS}" ]]; then
+        DB_ROOT_PASS=$(ssh -l "${SSH_USER}" "${host}" "docker inspect ${CONTAINER_NAME} --format '{{range .Config.Env}}{{println .}}{{end}}'" 2>/dev/null | grep MARIADB_ROOT_PASSWORD | cut -d= -f2)
+    fi
+
     # Query Galera status
-    STATUS=$(ssh "${host}" "docker exec meshsat-hub-mariadb-1 mariadb -u root -p\"\${MARIADB_ROOT_PASSWORD}\" -N -e \"SELECT VARIABLE_VALUE FROM information_schema.GLOBAL_STATUS WHERE VARIABLE_NAME IN ('wsrep_cluster_size','wsrep_ready','wsrep_local_state_comment') ORDER BY VARIABLE_NAME\" 2>/dev/null" 2>/dev/null) || {
+    STATUS=$(ssh -l "${SSH_USER}" "${host}" "docker exec ${CONTAINER_NAME} mariadb -u root -p'${DB_ROOT_PASS}' -N -e \"SELECT VARIABLE_VALUE FROM information_schema.GLOBAL_STATUS WHERE VARIABLE_NAME IN ('wsrep_cluster_size','wsrep_ready','wsrep_local_state_comment') ORDER BY VARIABLE_NAME\" 2>/dev/null" 2>/dev/null) || {
         echo "  FAIL: Could not query MariaDB on ${host}"
         HEALTHY=false
         continue
