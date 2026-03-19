@@ -39,6 +39,7 @@ import (
 	"github.com/cubeos-app/meshsat-hub/internal/health"
 	"github.com/cubeos-app/meshsat-hub/internal/ipougrs"
 	"github.com/cubeos-app/meshsat-hub/internal/leader"
+	hubmessage "github.com/cubeos-app/meshsat-hub/internal/message"
 	"github.com/cubeos-app/meshsat-hub/internal/mptcp"
 	hubmsvqsc "github.com/cubeos-app/meshsat-hub/internal/msvqsc"
 	"github.com/cubeos-app/meshsat-hub/internal/ntfy"
@@ -317,6 +318,14 @@ func main() {
 		}
 	}
 
+	// Message subscriber: persists MO decoded messages from MQTT to the database.
+	if msgBus.IsConnected() {
+		msgSub := hubmessage.NewSubscriber(msgBus, dataStore, store.DefaultTenantID)
+		if err := msgSub.Start(); err != nil {
+			slog.Error("message: failed to start subscriber", "error", err)
+		}
+	}
+
 	// Escalation engine (SOS, dead man's switch, custom alerts).
 	var notifiers []escalation.Notifier
 	if cfg.AppriseEnabled && cfg.AppriseURL != "" {
@@ -512,11 +521,13 @@ func main() {
 		jwtSecret = []byte(cfg.JWTSigningKey)
 	}
 	r.Use(hubauth.Middleware(hubauth.Config{
-		Mode:          authMode,
-		Token:         cfg.AuthToken,
-		OIDCIssuerURL: cfg.OIDCIssuerURL,
-		OIDCAudience:  cfg.OIDCAudience,
-		JWTSecret:     jwtSecret,
+		Mode:              authMode,
+		Token:             cfg.AuthToken,
+		OIDCIssuerURL:     cfg.OIDCIssuerURL,
+		OIDCAudience:      cfg.OIDCAudience,
+		JWTSecret:         jwtSecret,
+		OIDCCertPin:       cfg.OIDCCertPin,
+		OIDCCertPinBackup: cfg.OIDCCertPinBackup,
 	}))
 	// Tenant isolation middleware — resolves tenant from JWT claim / X-Tenant-ID header / default.
 	// Enforce mode disabled for backward compatibility; enable via HUB_TENANT_ENFORCE=true.
