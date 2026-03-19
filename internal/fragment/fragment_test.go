@@ -334,3 +334,222 @@ func TestFragment_FullMsgID_Range(t *testing.T) {
 		}
 	}
 }
+
+// --- Astrocast 1-byte fragment tests ---
+
+func TestAstroHeaderRoundtrip(t *testing.T) {
+	tests := []struct {
+		msgID, fragNum, fragTotal uint8
+	}{
+		{0, 0, 1},
+		{5, 0, 2},
+		{15, 2, 3},
+		{7, 3, 4},
+		{0, 0, 4},
+	}
+	for _, tt := range tests {
+		hdr := EncodeAstroHeader(tt.msgID, tt.fragNum, tt.fragTotal)
+		gotMsgID, gotFragNum, gotFragTotal := DecodeAstroHeader(hdr)
+		if gotMsgID != tt.msgID || gotFragNum != tt.fragNum || gotFragTotal != tt.fragTotal {
+			t.Errorf("EncodeAstroHeader(%d,%d,%d)=0x%02x → DecodeAstroHeader=(%d,%d,%d)",
+				tt.msgID, tt.fragNum, tt.fragTotal, hdr, gotMsgID, gotFragNum, gotFragTotal)
+		}
+	}
+}
+
+func TestIsAstroFragment(t *testing.T) {
+	// Single fragment (fragTotal=1) — not a fragment.
+	hdr := EncodeAstroHeader(5, 0, 1)
+	if IsAstroFragment(append([]byte{hdr}, make([]byte, 50)...)) {
+		t.Error("fragTotal=1 should not be an astro fragment")
+	}
+
+	// Multi-fragment (fragTotal=3) — is a fragment.
+	hdr = EncodeAstroHeader(5, 0, 3)
+	if !IsAstroFragment(append([]byte{hdr}, make([]byte, 50)...)) {
+		t.Error("fragTotal=3 should be an astro fragment")
+	}
+
+	// Too short — not a fragment.
+	if IsAstroFragment([]byte{}) {
+		t.Error("empty should not be an astro fragment")
+	}
+
+	// Too large for Astrocast (>160 bytes) — not a fragment.
+	hdr = EncodeAstroHeader(5, 0, 2)
+	if IsAstroFragment(append([]byte{hdr}, make([]byte, 200)...)) {
+		t.Error(">160 bytes should not be an astro fragment")
+	}
+}
+
+func TestAstroReassembly_ThreeFragments(t *testing.T) {
+	// Build a 400-byte message, fragment into 3 Astrocast fragments.
+	data := make([]byte, 400)
+	for i := range data {
+		data[i] = byte(i % 256)
+	}
+
+	var msgID uint8 = 7
+	fragTotal := uint8(3) // ceil(400/159) = 3
+
+	// Build fragments manually: [1-byte header] + [payload chunk].
+	var frags [][]byte
+	for i := uint8(0); i < fragTotal; i++ {
+		start := int(i) * AstroFragPayload
+		end := start + AstroFragPayload
+		if end > len(data) {
+			end = len(data)
+		}
+		hdr := EncodeAstroHeader(msgID, i, fragTotal)
+		frag := append([]byte{hdr}, data[start:end]...)
+		frags = append(frags, frag)
+	}
+
+	if len(frags) != 3 {
+		t.Fatalf("expected 3 fragments, got %d", len(frags))
+	}
+
+	r := NewReassembler(5 * time.Minute)
+
+	// Add fragments in order.
+	result, err := r.AddAstroFragment("astro-dev1", frags[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result != nil {
+		t.Error("expected nil after first fragment")
+	}
+
+	result, err = r.AddAstroFragment("astro-dev1", frags[1])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result != nil {
+		t.Error("expected nil after second fragment")
+	}
+
+	result, err = r.AddAstroFragment("astro-dev1", frags[2])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result == nil {
+		t.Fatal("expected complete message after third fragment")
+	}
+	if !bytes.Equal(result, data) {
+		t.Errorf("reassembled data mismatch: got %d bytes, want %d", len(result), len(data))
+	}
+}
+
+func TestAstroReassembly_OutOfOrder(t *testing.T) {
+	data := make([]byte, 300)
+	for i := range data {
+		data[i] = byte(i % 256)
+	}
+
+	var msgID uint8 = 3
+	fragTotal := uint8(2)
+
+	var frags [][]byte
+	for i := uint8(0); i < fragTotal; i++ {
+		start := int(i) * AstroFragPayload
+		end := start + AstroFragPayload
+		if end > len(data) {
+			end = len(data)
+		}
+		hdr := EncodeAstroHeader(msgID, i, fragTotal)
+		frag := append([]byte{hdr}, data[start:end]...)
+		frags = append(frags, frag)
+	}
+
+	r := NewReassembler(5 * time.Minute)
+
+	// Add second fragment first.
+	result, _ := r.AddAstroFragment("dev1", frags[1])
+	if result != nil {
+		t.Error("expected nil after out-of-order fragment")
+	}
+
+	// Add first fragment — should complete.
+	result, _ = r.AddAstroFragment("dev1", frags[0])
+	if result == nil {
+		t.Fatal("expected complete message")
+	}
+	if !bytes.Equal(result, data) {
+		t.Error("reassembled data mismatch")
+	}
+}
+
+// TestThreeFragmentIntegration_BothFormats tests 3-fragment reassembly for both
+// Iridium 2-byte and Astrocast 1-byte formats (MESHSAT-190 acceptance criteria).
+func TestThreeFragmentIntegration_BothFormats(t *testing.T) {
+	r := NewReassembler(5 * time.Minute)
+
+	// --- Iridium 2-byte: 3-fragment message ---
+	iridiumData := make([]byte, 900) // 900 bytes → 3 fragments at 338B payload each
+	for i := range iridiumData {
+		iridiumData[i] = byte(i % 256)
+	}
+	iridiumFrags := Fragment(iridiumData, IridiumMO_MTU, 10)
+	if len(iridiumFrags) != 3 {
+		t.Fatalf("iridium: expected 3 fragments, got %d", len(iridiumFrags))
+	}
+
+	for i, frag := range iridiumFrags {
+		result, err := r.AddFragment("iridium-dev", frag)
+		if err != nil {
+			t.Fatalf("iridium frag %d: %v", i, err)
+		}
+		if i < 2 && result != nil {
+			t.Errorf("iridium frag %d: expected nil", i)
+		}
+		if i == 2 {
+			if result == nil {
+				t.Fatal("iridium: expected reassembled message after 3rd fragment")
+			}
+			if !bytes.Equal(result, iridiumData) {
+				t.Error("iridium: reassembled data mismatch")
+			}
+		}
+	}
+
+	// --- Astrocast 1-byte: 3-fragment message ---
+	astroData := make([]byte, 400) // 400 bytes → 3 fragments at 159B payload each
+	for i := range astroData {
+		astroData[i] = byte((i + 50) % 256)
+	}
+
+	var astroFrags [][]byte
+	fragTotal := uint8(3)
+	for i := uint8(0); i < fragTotal; i++ {
+		start := int(i) * AstroFragPayload
+		end := start + AstroFragPayload
+		if end > len(astroData) {
+			end = len(astroData)
+		}
+		hdr := EncodeAstroHeader(5, i, fragTotal)
+		frag := append([]byte{hdr}, astroData[start:end]...)
+		astroFrags = append(astroFrags, frag)
+	}
+
+	if len(astroFrags) != 3 {
+		t.Fatalf("astrocast: expected 3 fragments, got %d", len(astroFrags))
+	}
+
+	for i, frag := range astroFrags {
+		result, err := r.AddAstroFragment("astro-dev", frag)
+		if err != nil {
+			t.Fatalf("astrocast frag %d: %v", i, err)
+		}
+		if i < 2 && result != nil {
+			t.Errorf("astrocast frag %d: expected nil", i)
+		}
+		if i == 2 {
+			if result == nil {
+				t.Fatal("astrocast: expected reassembled message after 3rd fragment")
+			}
+			if !bytes.Equal(result, astroData) {
+				t.Error("astrocast: reassembled data mismatch")
+			}
+		}
+	}
+}
