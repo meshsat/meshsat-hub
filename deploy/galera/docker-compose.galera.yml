@@ -1,0 +1,73 @@
+# Galera MariaDB service definition (standalone, for reference).
+# All wsrep settings are passed via command-line args to avoid file
+# permission issues (mariadb:11-jammy drops to UID 999 "mysql" which
+# cannot read root-owned .cnf files mounted as :ro volumes).
+#
+# Per-node config via .env:
+#   WSREP_NODE_ADDRESS  — node IP (e.g. 192.168.192.10)
+#   SITE_NAME           — node name (e.g. meshsat-hub-nl)
+#   WSREP_CLUSTER_ADDRESS — gcomm:// for bootstrap, full address for join
+#
+# Bootstrap:
+#   1. Stop MariaDB on ALL nodes
+#   2. On bootstrap node: set WSREP_CLUSTER_ADDRESS=gcomm:// in .env
+#   3. Set safe_to_bootstrap=1 in grastate.dat:
+#      docker run --rm -v meshsat-hub_mariadb-data:/var/lib/mysql alpine:3.21 \
+#        sh -c 'sed -i "s/safe_to_bootstrap:.*/safe_to_bootstrap: 1/" /var/lib/mysql/grastate.dat'
+#   4. docker compose up -d mariadb (on bootstrap node)
+#   5. Verify: wsrep_cluster_size=1, wsrep_ready=ON
+#   6. Start other nodes (they SST from bootstrap)
+#   7. Restore WSREP_CLUSTER_ADDRESS to full address on bootstrap node
+#
+# Fresh joiner (no data):
+#   1. Init DB first without Galera:
+#      docker run --rm -v meshsat-hub_mariadb-data:/var/lib/mysql \
+#        -e MARIADB_ROOT_PASSWORD=... -e MARIADB_DATABASE=meshsat_hub \
+#        -e MARIADB_USER=meshsat -e MARIADB_PASSWORD=... \
+#        -e MARIADB_INITDB_SKIP_TZINFO=1 \
+#        mariadb:11-jammy --wsrep-on=OFF
+#   2. Stop the init container after "ready for connections"
+#   3. docker compose up -d mariadb (SST from donor provides data)
+
+services:
+  mariadb:
+    image: mariadb:11-jammy
+    container_name: meshsat-mariadb
+    restart: unless-stopped
+    network_mode: host
+    environment:
+      MARIADB_ROOT_PASSWORD: ${MARIADB_ROOT_PASSWORD}
+      MARIADB_DATABASE: meshsat_hub
+      MARIADB_USER: meshsat
+      MARIADB_PASSWORD: ${MARIADB_PASSWORD}
+      MARIADB_MYSQL_LOCALHOST_USER: 1
+      MARIADB_INITDB_SKIP_TZINFO: 1
+    volumes:
+      - mariadb-data:/var/lib/mysql
+    command:
+      - --wsrep-on=ON
+      - --wsrep-provider=/usr/lib/galera/libgalera_smm.so
+      - --wsrep-cluster-name=meshsat-galera
+      - --wsrep-cluster-address=${WSREP_CLUSTER_ADDRESS}
+      - --wsrep-node-address=${WSREP_NODE_ADDRESS}
+      - --wsrep-node-name=${SITE_NAME}
+      - --wsrep-sst-method=rsync
+      - --binlog-format=ROW
+      - --default-storage-engine=InnoDB
+      - --innodb-autoinc-lock-mode=2
+      - --bind-address=0.0.0.0
+      - --innodb-buffer-pool-size=256M
+      - --innodb-flush-log-at-trx-commit=2
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+      - --transaction-isolation=READ-COMMITTED
+      - --max-connections=200
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--su-mysql", "--galera-ready"]
+      interval: 10s
+      timeout: 5s
+      start_period: 120s
+      retries: 10
+
+volumes:
+  mariadb-data:

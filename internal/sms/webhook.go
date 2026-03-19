@@ -5,7 +5,6 @@ import (
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -128,8 +127,8 @@ func (h *WebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Twilio expects a TwiML response or 200 OK.
-	w.Header().Set("Content-Type", "application/json")
+	// Twilio expects a TwiML XML response. Empty <Response/> = don't reply.
+	w.Header().Set("Content-Type", "text/xml")
 	w.WriteHeader(http.StatusOK)
-	_ = json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+	_, _ = w.Write([]byte("<?xml version=\"1.0\" encoding=\"UTF-8\"?><Response/>"))
 }
