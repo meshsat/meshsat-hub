@@ -190,3 +190,63 @@ func (h *APIHandler) DeleteRoute(w http.ResponseWriter, r *http.Request) {
 	h.engine.InvalidateCache()
 	w.WriteHeader(http.StatusNoContent)
 }
+
+type testRouteRequest struct {
+	Channel  string `json:"channel"`
+	DeviceID string `json:"device_id"`
+	Text     string `json:"text"`
+}
+
+type testRouteResult struct {
+	RouteID         string `json:"route_id"`
+	RouteName       string `json:"route_name"`
+	DestinationType string `json:"destination_type"`
+	Matched         bool   `json:"matched"`
+}
+
+// TestRoutes evaluates all routes against a sample message and returns which matched.
+//
+//	@Summary      Test routing rules against sample message
+//	@Tags         routing
+//	@Accept       json
+//	@Produce      json
+//	@Param        body  body  testRouteRequest  true  "Sample message"
+//	@Success      200  {array}  testRouteResult
+//	@Failure      400  {object}  map[string]string
+//	@Router       /api/routes/test [post]
+func (h *APIHandler) TestRoutes(w http.ResponseWriter, r *http.Request) {
+	tid := auth.TenantIDFromContext(r.Context())
+
+	var req testRouteRequest
+	if err := api.ReadJSON(w, r, &req); err != nil {
+		api.WriteError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	routes, err := h.store.ListRoutes(r.Context(), tid)
+	if err != nil {
+		slog.Error("routing: test failed", "error", err)
+		api.WriteError(w, http.StatusInternalServerError, "failed to list routes")
+		return
+	}
+
+	sourceType := req.Channel
+	if sourceType == "" {
+		sourceType = "*"
+	}
+
+	results := make([]testRouteResult, 0, len(routes))
+	for _, route := range routes {
+		matched := route.Enabled &&
+			matchSource(route.SourceType, sourceType) &&
+			matchFilter(route.Filter, req.DeviceID, req.Text)
+		results = append(results, testRouteResult{
+			RouteID:         route.ID,
+			RouteName:       route.Name,
+			DestinationType: route.DestinationType,
+			Matched:         matched,
+		})
+	}
+
+	api.WriteJSON(w, http.StatusOK, results)
+}

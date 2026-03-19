@@ -757,6 +757,7 @@ func main() {
 	}
 	routeAPIHandler := routing.NewAPIHandler(dataStore, routeEngine)
 	r.Get("/api/routes", routeAPIHandler.ListRoutes)
+	r.Post("/api/routes/test", routeAPIHandler.TestRoutes)
 	r.Post("/api/routes", routeAPIHandler.CreateRoute)
 	r.Get("/api/routes/{id}", routeAPIHandler.GetRoute)
 	r.Put("/api/routes/{id}", routeAPIHandler.UpdateRoute)

@@ -155,6 +155,14 @@ export const users = {
   delete: (id) => fetchJSON(`/users/${id}`, { method: 'DELETE' }),
 }
 
+export const routes = {
+  list: () => fetchJSON('/routes'),
+  create: (data) => fetchJSON('/routes', { method: 'POST', body: JSON.stringify(data) }),
+  update: (id, data) => fetchJSON(`/routes/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+  delete: (id) => fetchJSON(`/routes/${id}`, { method: 'DELETE' }),
+  test: (data) => fetchJSON('/routes/test', { method: 'POST', body: JSON.stringify(data) }),
+}
+
 export const health = {
   check: () => fetch('/healthz').then(r => r.json()).catch(() => ({ status: 'error' })),
 }
