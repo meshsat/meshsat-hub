@@ -44,12 +44,12 @@ func (p *Provisioner) Hydrate(ctx context.Context) {
 }
 
 // OnDeviceCreated creates a WireGuard peer for a newly registered device.
-// Returns the peer's VPN address (e.g., "10.8.0.5/32") or error.
-func (p *Provisioner) OnDeviceCreated(ctx context.Context, imei string) (string, error) {
+// Returns the peer's VPN address (e.g., "10.8.0.5/32"), the Peer object, or error.
+func (p *Provisioner) OnDeviceCreated(ctx context.Context, imei string) (string, *Peer, error) {
 	peerName := "meshsat-" + imei
 	peer, err := p.client.CreatePeer(ctx, peerName)
 	if err != nil {
-		return "", fmt.Errorf("wireguard: create peer for %s: %w", imei, err)
+		return "", nil, fmt.Errorf("wireguard: create peer for %s: %w", imei, err)
 	}
 
 	p.mu.Lock()
@@ -57,7 +57,7 @@ func (p *Provisioner) OnDeviceCreated(ctx context.Context, imei string) (string,
 	p.mu.Unlock()
 
 	slog.Info("wireguard: peer auto-provisioned", "imei", imei, "peer_id", peer.ID, "address", peer.Address)
-	return peer.Address, nil
+	return peer.Address, peer, nil
 }
 
 // OnDeviceDeleted removes the WireGuard peer for a deregistered device.

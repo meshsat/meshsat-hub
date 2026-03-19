@@ -739,8 +739,17 @@ func main() {
 
 	// Message routing engine (configurable source→destination rules)
 	routeEngine := routing.NewEngine(dataStore, msgBus, store.DefaultTenantID)
+	// Register SMS destination handler if SMS is enabled.
+	if cfg.SMSEnabled && cfg.SMSAccountSID != "" {
+		routeSMSClient := sms.NewClient(cfg.SMSAccountSID, cfg.SMSAuthToken, cfg.SMSFromNumber)
+		routeEngine.RegisterHandler("sms", routing.NewSMSHandler(routeSMSClient))
+	}
+	// Register Email destination handler if email is enabled.
+	if emailKeyRing != nil {
+		routeEmailClient := hubemail.NewClient(cfg.EmailSMTPHost, cfg.EmailFrom, cfg.EmailUsername, cfg.EmailPassword, emailKeyRing)
+		routeEngine.RegisterHandler("email", routing.NewEmailHandler(routeEmailClient))
+	}
 	if msgBus.IsConnected() {
-		// Seed default routes for the default tenant.
 		_ = routing.SeedDefaults(ctx, dataStore, store.DefaultTenantID)
 		if err := routeEngine.Start(); err != nil {
 			slog.Error("routing: failed to start engine", "error", err)

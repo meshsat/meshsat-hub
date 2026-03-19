@@ -43,12 +43,15 @@ func TestProvisioner_OnDeviceCreated(t *testing.T) {
 	_ = c.Login(context.Background())
 
 	p := NewProvisioner(c)
-	addr, err := p.OnDeviceCreated(context.Background(), "300234063904190")
+	addr, peer, err := p.OnDeviceCreated(context.Background(), "300234063904190")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if addr != "10.8.0.5/32" {
 		t.Errorf("address = %s, want 10.8.0.5/32", addr)
+	}
+	if peer == nil || peer.ID != "peer-123" {
+		t.Errorf("peer ID = %v, want peer-123", peer)
 	}
 
 	mu.Lock()
