@@ -78,6 +78,10 @@ type Config struct {
 	HawkBitUsername string `yaml:"hawkbit_username"` // Management API username
 	HawkBitPassword string `yaml:"hawkbit_password"` // Management API password
 
+	// TLS certificate pinning (base64-encoded SHA-256 SPKI hashes)
+	TLSPinPrimary string `yaml:"tls_pin_primary"` // Primary pin hash
+	TLSPinBackup  string `yaml:"tls_pin_backup"`  // Backup pin for rotation
+
 	// SOS detection
 	SOSChainID string `yaml:"sos_chain_id"` // Default escalation chain ID for SOS alerts (empty = first available)
 
