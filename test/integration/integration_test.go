@@ -547,7 +547,7 @@ func TestMO_FragmentReassembly_3Fragments(t *testing.T) {
 	decodedCollector := newCollector(t, sub, "meshsat/+/mo/decoded")
 
 	imei := "300234063904190"
-	original := "This is a long message that needs to be split across multiple SBD fragments for transmission over the Iridium satellite constellation"
+	original := "This is a long message that needs to be split across multiple SBD fragments for transmission over the Iridium satellite constellation. Each fragment carries a 2-byte header with the fragment index, total count, and message ID. The reassembler collects all fragments and combines them back into the original payload once all pieces arrive."
 
 	// Fragment with a small MTU to force 3 fragments.
 	// Each fragment = MTU bytes total (2 header + payload).
