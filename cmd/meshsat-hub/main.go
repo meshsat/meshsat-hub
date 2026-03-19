@@ -41,6 +41,7 @@ import (
 	"github.com/cubeos-app/meshsat-hub/internal/position"
 	"github.com/cubeos-app/meshsat-hub/internal/ratelimit"
 	"github.com/cubeos-app/meshsat-hub/internal/rockblock"
+	"github.com/cubeos-app/meshsat-hub/internal/sms"
 	"github.com/cubeos-app/meshsat-hub/internal/sos"
 	"github.com/cubeos-app/meshsat-hub/internal/store"
 	"github.com/cubeos-app/meshsat-hub/internal/store/mariadb"
@@ -327,6 +328,11 @@ func main() {
 		checker.AddProbe("ntfy", ntfyClient.Healthz)
 		slog.Info("ntfy: notification backend enabled", "url", cfg.NtfyURL)
 	}
+	if cfg.SMSEnabled && cfg.SMSAccountSID != "" {
+		smsNotifier := sms.NewNotifier(sms.NewClient(cfg.SMSAccountSID, cfg.SMSAuthToken, cfg.SMSFromNumber))
+		notifiers = append(notifiers, smsNotifier)
+		slog.Info("sms: escalation notifier enabled", "from", cfg.SMSFromNumber)
+	}
 	var escNotifier escalation.Notifier
 	switch len(notifiers) {
 	case 0:
@@ -483,6 +489,21 @@ func main() {
 	r.Post("/api/webhook/rockblock", rbHandler.ServeHTTP)
 
 	r.Post("/api/webhook/astrocast", acHandler.ServeHTTP)
+
+	// SMS gateway (optional — inbound webhook + outbound subscriber)
+	if cfg.SMSEnabled && cfg.SMSAccountSID != "" {
+		smsClient := sms.NewClient(cfg.SMSAccountSID, cfg.SMSAuthToken, cfg.SMSFromNumber)
+		smsWebhook := sms.NewWebhookHandler(msgBus, cfg.SMSWebhookSecret)
+		r.Post("/api/webhook/sms", smsWebhook.ServeHTTP)
+		if msgBus.IsConnected() {
+			smsSub := sms.NewSubscriber(smsClient, msgBus)
+			if err := smsSub.Start(); err != nil {
+				slog.Error("sms: failed to start outbound subscriber", "error", err)
+			} else {
+				slog.Info("sms: gateway enabled", "from", cfg.SMSFromNumber)
+			}
+		}
+	}
 
 	// Auth info
 	r.Get("/api/auth/me", api.AuthMeHandler)

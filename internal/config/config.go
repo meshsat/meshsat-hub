@@ -78,6 +78,13 @@ type Config struct {
 	// SOS detection
 	SOSChainID string `yaml:"sos_chain_id"` // Default escalation chain ID for SOS alerts (empty = first available)
 
+	// SMS gateway (Twilio)
+	SMSEnabled       bool   `yaml:"sms_enabled"`
+	SMSAccountSID    string `yaml:"sms_account_sid"`    // Twilio Account SID
+	SMSAuthToken     string `yaml:"sms_auth_token"`     // Twilio Auth Token
+	SMSFromNumber    string `yaml:"sms_from_number"`    // E.164 sender number
+	SMSWebhookSecret string `yaml:"sms_webhook_secret"` // HMAC secret for inbound webhook verification
+
 	// WireGuard (wg-easy)
 	WGEnabled  bool   `yaml:"wg_enabled"`
 	WGURL      string `yaml:"wg_url"`      // wg-easy base URL (e.g., http://wg-easy:51821)
@@ -285,6 +292,23 @@ func Load() (Config, error) {
 	// SOS overrides
 	if v := os.Getenv("HUB_SOS_CHAIN_ID"); v != "" {
 		cfg.SOSChainID = v
+	}
+
+	// SMS overrides
+	if v := os.Getenv("HUB_SMS_ENABLED"); v != "" {
+		cfg.SMSEnabled = strings.EqualFold(v, "true") || v == "1"
+	}
+	if v := os.Getenv("HUB_SMS_ACCOUNT_SID"); v != "" {
+		cfg.SMSAccountSID = v
+	}
+	if v := os.Getenv("HUB_SMS_AUTH_TOKEN"); v != "" {
+		cfg.SMSAuthToken = v
+	}
+	if v := os.Getenv("HUB_SMS_FROM_NUMBER"); v != "" {
+		cfg.SMSFromNumber = v
+	}
+	if v := os.Getenv("HUB_SMS_WEBHOOK_SECRET"); v != "" {
+		cfg.SMSWebhookSecret = v
 	}
 
 	// WireGuard overrides
