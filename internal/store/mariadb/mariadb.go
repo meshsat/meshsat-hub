@@ -282,6 +282,18 @@ var migrations = []string{
 		tenant_id VARCHAR(64) NOT NULL DEFAULT 'default',
 		INDEX idx_device_keys_device (device_imei, tenant_id)
 	) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
+
+	// Device WireGuard peer tracking (v1.2 — auto-provisioning, MESHSAT-176)
+	`CREATE TABLE IF NOT EXISTS device_wireguard (
+		device_imei VARCHAR(64) NOT NULL,
+		peer_id VARCHAR(64) NOT NULL DEFAULT '',
+		vpn_address VARCHAR(64) NOT NULL DEFAULT '',
+		public_key VARCHAR(255) NOT NULL DEFAULT '',
+		created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+		tenant_id VARCHAR(64) NOT NULL DEFAULT 'default',
+		PRIMARY KEY (device_imei, tenant_id),
+		INDEX idx_device_wireguard_tenant (tenant_id)
+	) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
 }
 
 // --- Devices ---

@@ -48,6 +48,7 @@ import (
 	"github.com/cubeos-app/meshsat-hub/internal/store/mariadb"
 	"github.com/cubeos-app/meshsat-hub/internal/store/sqlite"
 	"github.com/cubeos-app/meshsat-hub/internal/tak"
+	hubtor "github.com/cubeos-app/meshsat-hub/internal/tor"
 	"github.com/cubeos-app/meshsat-hub/internal/webhook"
 	"github.com/cubeos-app/meshsat-hub/internal/wireguard"
 
@@ -675,7 +676,7 @@ func main() {
 	r.Post("/api/backup/diff", backupHandler.DiffBackup)
 	r.Post("/api/backup/import", backupHandler.ImportBackup)
 
-	// WireGuard peer management (optional)
+	// WireGuard peer management + auto-provisioning (optional)
 	if cfg.WGEnabled && cfg.WGURL != "" {
 		wgClient := wireguard.NewClient(cfg.WGURL, cfg.WGPassword)
 		if err := wgClient.Login(ctx); err != nil {
@@ -686,9 +687,36 @@ func main() {
 			r.Post("/api/wireguard/peers", wgHandler.CreatePeer)
 			r.Get("/api/wireguard/peers/{id}/config", wgHandler.GetPeerConfig)
 			r.Delete("/api/wireguard/peers/{id}", wgHandler.DeletePeer)
-			slog.Info("wireguard: peer management enabled", "url", cfg.WGURL)
+
+			// Auto-provisioner: creates WG peers on device registration.
+			wgProvisioner := wireguard.NewProvisioner(wgClient)
+			wgProvisioner.Hydrate(ctx)
+
+			// Per-device WG config download endpoint.
+			r.Get("/api/devices/{imei}/wireguard", func(w http.ResponseWriter, r *http.Request) {
+				imei := chi.URLParam(r, "imei")
+				config, err := wgProvisioner.GetDeviceConfig(r.Context(), imei)
+				if err != nil {
+					http.Error(w, fmt.Sprintf(`{"error":"%s"}`, err.Error()), http.StatusNotFound)
+					return
+				}
+				w.Header().Set("Content-Type", "text/plain")
+				w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%s.conf", imei))
+				_, _ = w.Write([]byte(config))
+			})
+
+			slog.Info("wireguard: peer management + auto-provisioning enabled", "url", cfg.WGURL)
 		}
 	}
+
+	// Tor .onion address discovery
+	torHostPath := os.Getenv("HUB_TOR_HOSTNAME_PATH")
+	if torHostPath == "" {
+		torHostPath = "/var/lib/tor/hidden_service/hostname"
+	}
+	torService := hubtor.NewService(torHostPath)
+	torHandler := hubtor.NewAPIHandler(torService)
+	r.Get("/api/tor/onion", torHandler.GetOnion)
 
 	// hawkBit OTA management (optional)
 	if cfg.HawkBitEnabled && cfg.HawkBitURL != "" {
