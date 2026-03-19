@@ -70,9 +70,29 @@ func (s *Subscriber) handlePosition(topic string, payload []byte) {
 	}
 
 	// If a raw GPS binary frame is included, decode it for richer fields.
+	// Supports hub format (0xA5, BE, ×1e7) and bridge/Android format (0x50/0x44, LE, ×1e6).
 	if msg.Raw != "" {
-		if raw, err := base64.StdEncoding.DecodeString(msg.Raw); err == nil && geo.IsGPSFrame(raw) {
-			if gps, err := geo.DecodeGPS(raw); err == nil {
+		if raw, err := base64.StdEncoding.DecodeString(msg.Raw); err == nil {
+			var gps *geo.GPSPosition
+			switch {
+			case geo.IsGPSFrame(raw):
+				gps, _ = geo.DecodeGPS(raw)
+			case len(raw) >= 16 && raw[0] == 0x50:
+				gps, _ = geo.DecodeBridgeGPSFull(raw)
+			case len(raw) >= 11 && raw[0] == 0x44:
+				// Delta frame — resolve against last known position.
+				ctx2, cancel2 := context.WithTimeout(context.Background(), 2*time.Second)
+				prev, err2 := s.store.LatestPosition(ctx2, s.tenantID, deviceID)
+				cancel2()
+				if err2 == nil && prev != nil {
+					prevGPS := &geo.GPSPosition{Lat: prev.Lat, Lon: prev.Lon, Alt: prev.Alt}
+					gps, _ = geo.DecodeBridgeGPSDelta(raw, prevGPS)
+				} else {
+					slog.Warn("position: delta frame without prior position, skipping",
+						"device", deviceID)
+				}
+			}
+			if gps != nil {
 				msg.Lat = gps.Lat
 				msg.Lon = gps.Lon
 				if gps.HasAlt {

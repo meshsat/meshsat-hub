@@ -9,14 +9,14 @@ import (
 func TestRegistry_List(t *testing.T) {
 	r := NewRegistry()
 	codecs := r.List()
-	if len(codecs) != 4 {
-		t.Fatalf("expected 4 codecs, got %d", len(codecs))
+	if len(codecs) != 7 {
+		t.Fatalf("expected 7 codecs, got %d", len(codecs))
 	}
 	names := map[string]bool{}
 	for _, c := range codecs {
 		names[c.Name] = true
 	}
-	for _, want := range []string{"gps", "json", "zigbee", "raw"} {
+	for _, want := range []string{"gps_bridge_full", "gps_bridge_delta", "gps", "canned", "json", "zigbee", "raw"} {
 		if !names[want] {
 			t.Errorf("missing codec %q", want)
 		}
@@ -147,6 +147,144 @@ func TestRawDecoder(t *testing.T) {
 	}
 	if result.Fields["raw_hex"] != "cafe" {
 		t.Errorf("raw_hex = %v, want cafe", result.Fields["raw_hex"])
+	}
+}
+
+func TestBridgeGPSFullDecoder(t *testing.T) {
+	r := NewRegistry()
+	// Encode 52.367600° lat, 4.904100° lon as microdegrees (×1e6), little-endian
+	lat := int32(52367600)
+	lon := int32(4904100)
+	payload := []byte{
+		0x50,                                                        // magic
+		byte(lat), byte(lat >> 8), byte(lat >> 16), byte(lat >> 24), // lat LE
+		byte(lon), byte(lon >> 8), byte(lon >> 16), byte(lon >> 24), // lon LE
+		0x64, 0x00, // alt = 100m
+		0x68, 0x01, // heading = 360°
+		0xE8, 0x03, // speed = 1000 cm/s
+		0x50, // battery = 80%
+	}
+
+	result, err := r.Decode("gps_bridge_full", payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Format != "gps_bridge_full" {
+		t.Errorf("format = %s", result.Format)
+	}
+	gotLat := result.Fields["lat"].(float64)
+	if math.Abs(gotLat-52.3676) > 0.001 {
+		t.Errorf("lat = %f, want ~52.3676", gotLat)
+	}
+	gotLon := result.Fields["lon"].(float64)
+	if math.Abs(gotLon-4.9041) > 0.001 {
+		t.Errorf("lon = %f, want ~4.9041", gotLon)
+	}
+	if result.Fields["battery_pct"].(float64) != 80 {
+		t.Errorf("battery = %v, want 80", result.Fields["battery_pct"])
+	}
+}
+
+func TestBridgeGPSDeltaDecoder(t *testing.T) {
+	r := NewRegistry()
+	// Delta: +100 microdeg lat, -50 microdeg lon
+	payload := []byte{
+		0x44,       // magic
+		0x64, 0x00, // dlat = 100
+		0xCE, 0xFF, // dlon = -50 (0xFFCE = -50 as int16)
+		0x05,       // dalt = +5m
+		0xB4, 0x00, // heading = 180°
+		0xC8, 0x00, // speed = 200 cm/s
+		0x5A, // battery = 90%
+	}
+
+	result, err := r.Decode("gps_bridge_delta", payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Format != "gps_bridge_delta" {
+		t.Errorf("format = %s", result.Format)
+	}
+	if result.Fields["delta_alt"].(float64) != 5 {
+		t.Errorf("delta_alt = %v, want 5", result.Fields["delta_alt"])
+	}
+}
+
+func TestBridgeGPS_AutoDetect(t *testing.T) {
+	r := NewRegistry()
+	lat := int32(52367600)
+	lon := int32(4904100)
+	payload := make([]byte, 16)
+	payload[0] = 0x50
+	payload[1] = byte(lat)
+	payload[2] = byte(lat >> 8)
+	payload[3] = byte(lat >> 16)
+	payload[4] = byte(lat >> 24)
+	payload[5] = byte(lon)
+	payload[6] = byte(lon >> 8)
+	payload[7] = byte(lon >> 16)
+	payload[8] = byte(lon >> 24)
+
+	result, err := r.Decode("auto", payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Format != "gps_bridge_full" {
+		t.Errorf("auto-detect: format = %s, want gps_bridge_full", result.Format)
+	}
+}
+
+func TestCannedDecoder(t *testing.T) {
+	r := NewRegistry()
+	// 0xCA + ID 25 = "SOS — need immediate help"
+	result, err := r.Decode("canned", []byte{0xCA, 25})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Format != "canned" {
+		t.Errorf("format = %s", result.Format)
+	}
+	if result.Fields["text"] != "SOS — need immediate help" {
+		t.Errorf("text = %v", result.Fields["text"])
+	}
+	if result.Fields["message_id"].(int) != 25 {
+		t.Errorf("message_id = %v", result.Fields["message_id"])
+	}
+}
+
+func TestCannedDecoder_AllEntries(t *testing.T) {
+	r := NewRegistry()
+	for id := 1; id <= 30; id++ {
+		result, err := r.Decode("canned", []byte{0xCA, byte(id)})
+		if err != nil {
+			t.Errorf("ID %d: %v", id, err)
+			continue
+		}
+		if result.Fields["text"] == "" {
+			t.Errorf("ID %d: empty text", id)
+		}
+	}
+}
+
+func TestCannedDecoder_InvalidID(t *testing.T) {
+	r := NewRegistry()
+	_, err := r.Decode("canned", []byte{0xCA, 99})
+	if err == nil {
+		t.Error("expected error for unknown canned ID")
+	}
+}
+
+func TestCannedDecoder_AutoDetect(t *testing.T) {
+	r := NewRegistry()
+	result, err := r.Decode("auto", []byte{0xCA, 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Format != "canned" {
+		t.Errorf("auto-detect: format = %s, want canned", result.Format)
+	}
+	if result.Fields["text"] != "Copy" {
+		t.Errorf("text = %v, want Copy", result.Fields["text"])
 	}
 }
 
