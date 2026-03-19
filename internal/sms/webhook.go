@@ -1,15 +1,18 @@
 package sms
 
 import (
+	"context"
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"time"
 
 	"github.com/cubeos-app/meshsat-hub/internal/bus"
+	"github.com/cubeos-app/meshsat-hub/internal/store"
 )
 
 // InboundSMS is published to MQTT when an SMS is received via webhook.
@@ -25,12 +28,16 @@ type InboundSMS struct {
 type WebhookHandler struct {
 	mqtt   bus.MessageBus
 	secret string // webhook validation secret
+	store  store.Store
 }
 
 // NewWebhookHandler creates a new inbound SMS webhook handler.
 func NewWebhookHandler(mqtt bus.MessageBus, secret string) *WebhookHandler {
 	return &WebhookHandler{mqtt: mqtt, secret: secret}
 }
+
+// SetStore enables message persistence for inbound SMS.
+func (h *WebhookHandler) SetStore(s store.Store) { h.store = s }
 
 // ServeHTTP handles the inbound SMS webhook POST.
 //
@@ -101,6 +108,23 @@ func (h *WebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if h.mqtt != nil {
 		if err := h.mqtt.PublishJSON("meshsat/hub/sms/inbound", 1, false, msg); err != nil {
 			slog.Error("sms: mqtt publish failed", "error", err)
+		}
+	}
+
+	// Persist inbound SMS to messages table.
+	if h.store != nil {
+		dbMsg := &store.Message{
+			ID:         fmt.Sprintf("sms-in-%d", time.Now().UnixNano()),
+			DeviceIMEI: from,
+			Direction:  "mo",
+			Channel:    "sms",
+			Text:       body,
+			Status:     "received",
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := h.store.InsertMessage(ctx, store.DefaultTenantID, dbMsg); err != nil {
+			slog.Warn("sms: persist failed", "error", err)
 		}
 	}
 

@@ -560,6 +560,7 @@ func main() {
 		}
 		smsClientForSend = smsClient
 		smsWebhook := sms.NewWebhookHandler(msgBus, cfg.SMSWebhookSecret)
+		smsWebhook.SetStore(dataStore)
 		r.Post("/api/webhook/sms", smsWebhook.ServeHTTP)
 		if msgBus.IsConnected() {
 			smsSub := sms.NewSubscriber(smsClient, msgBus)
