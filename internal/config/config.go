@@ -78,6 +78,14 @@ type Config struct {
 	// SOS detection
 	SOSChainID string `yaml:"sos_chain_id"` // Default escalation chain ID for SOS alerts (empty = first available)
 
+	// Email gateway (SMTP + PGP)
+	EmailEnabled  bool   `yaml:"email_enabled"`
+	EmailSMTPHost string `yaml:"email_smtp_host"` // host:port (e.g., smtp.example.com:587)
+	EmailFrom     string `yaml:"email_from"`      // sender address
+	EmailUsername string `yaml:"email_username"`  // SMTP auth username
+	EmailPassword string `yaml:"email_password"`  // SMTP auth password
+	EmailPGPKey   string `yaml:"email_pgp_key"`   // Hub PGP private key (armored) — empty = generate on start
+
 	// SMS gateway (Twilio)
 	SMSEnabled       bool   `yaml:"sms_enabled"`
 	SMSAccountSID    string `yaml:"sms_account_sid"`    // Twilio Account SID
@@ -292,6 +300,26 @@ func Load() (Config, error) {
 	// SOS overrides
 	if v := os.Getenv("HUB_SOS_CHAIN_ID"); v != "" {
 		cfg.SOSChainID = v
+	}
+
+	// Email overrides
+	if v := os.Getenv("HUB_EMAIL_ENABLED"); v != "" {
+		cfg.EmailEnabled = strings.EqualFold(v, "true") || v == "1"
+	}
+	if v := os.Getenv("HUB_EMAIL_SMTP_HOST"); v != "" {
+		cfg.EmailSMTPHost = v
+	}
+	if v := os.Getenv("HUB_EMAIL_FROM"); v != "" {
+		cfg.EmailFrom = v
+	}
+	if v := os.Getenv("HUB_EMAIL_USERNAME"); v != "" {
+		cfg.EmailUsername = v
+	}
+	if v := os.Getenv("HUB_EMAIL_PASSWORD"); v != "" {
+		cfg.EmailPassword = v
+	}
+	if v := os.Getenv("HUB_EMAIL_PGP_KEY"); v != "" {
+		cfg.EmailPGPKey = v
 	}
 
 	// SMS overrides

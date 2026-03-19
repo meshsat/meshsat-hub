@@ -31,6 +31,7 @@ import (
 	hubcrypto "github.com/cubeos-app/meshsat-hub/internal/crypto"
 	"github.com/cubeos-app/meshsat-hub/internal/deadman"
 	"github.com/cubeos-app/meshsat-hub/internal/dedup"
+	hubemail "github.com/cubeos-app/meshsat-hub/internal/email"
 	"github.com/cubeos-app/meshsat-hub/internal/escalation"
 	"github.com/cubeos-app/meshsat-hub/internal/fragment"
 	"github.com/cubeos-app/meshsat-hub/internal/hawkbit"
@@ -333,6 +334,18 @@ func main() {
 		notifiers = append(notifiers, smsNotifier)
 		slog.Info("sms: escalation notifier enabled", "from", cfg.SMSFromNumber)
 	}
+	var emailKeyRing *hubemail.KeyRing
+	if cfg.EmailEnabled && cfg.EmailSMTPHost != "" {
+		var err error
+		emailKeyRing, err = hubemail.NewKeyRing("MeshSat Hub", cfg.EmailFrom, cfg.EmailPGPKey)
+		if err != nil {
+			slog.Error("email: PGP keyring init failed", "error", err)
+		} else {
+			emailClient := hubemail.NewClient(cfg.EmailSMTPHost, cfg.EmailFrom, cfg.EmailUsername, cfg.EmailPassword, emailKeyRing)
+			notifiers = append(notifiers, hubemail.NewNotifier(emailClient))
+			slog.Info("email: escalation notifier enabled", "from", cfg.EmailFrom)
+		}
+	}
 	var escNotifier escalation.Notifier
 	switch len(notifiers) {
 	case 0:
@@ -503,6 +516,18 @@ func main() {
 				slog.Info("sms: gateway enabled", "from", cfg.SMSFromNumber)
 			}
 		}
+	}
+
+	// Email gateway routes (PGP key management + inbound webhook)
+	if emailKeyRing != nil {
+		emailWebhook := hubemail.NewWebhookHandler(msgBus, emailKeyRing)
+		r.Post("/api/webhook/email", emailWebhook.ServeHTTP)
+
+		emailAPIHandler := hubemail.NewAPIHandler(emailKeyRing)
+		r.Get("/api/email/keys/public", emailAPIHandler.GetPublicKey)
+		r.Get("/api/email/keys", emailAPIHandler.ListContacts)
+		r.Post("/api/email/keys", emailAPIHandler.AddContact)
+		r.Delete("/api/email/keys/{email}", emailAPIHandler.DeleteContact)
 	}
 
 	// Auth info
