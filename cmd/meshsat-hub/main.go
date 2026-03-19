@@ -452,6 +452,7 @@ func main() {
 	acHandler.SetReassembler(reassembler)
 	acHandler.SetKeyStore(keyStore)
 	acHandler.SetDeadman(deadmanMonitor)
+	acHandler.SetMSVQSC(msvqscDecoder)
 
 	r := chi.NewRouter()
 	r.Use(middleware.Recoverer)
