@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/hex"
 	"log/slog"
 	"net/http"
@@ -237,9 +238,12 @@ func (h *SendHandler) SendSMS(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// If compressed or encrypted, base64-encode for SMS transport
-	if compressed || encrypted {
-		finalBody = "MSMS:" + hex.EncodeToString(payload) // MSMS: prefix = MeshSat SMS (binary)
+	// If encrypted, base64-encode for SMS transport (matches Android AesGcmCrypto format).
+	// If only compressed (no encryption), use MSMS: hex prefix.
+	if encrypted {
+		finalBody = base64.StdEncoding.EncodeToString(payload) // pure base64 = Android-compatible
+	} else if compressed {
+		finalBody = "MSMS:" + hex.EncodeToString(payload) // compressed-only fallback
 	}
 
 	result, err := h.smsClient.Send(r.Context(), req.To, finalBody)
