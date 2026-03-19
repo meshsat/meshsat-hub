@@ -99,6 +99,12 @@ type Store interface {
 	ListAPIKeys(ctx context.Context, tenantID string) ([]APIKey, error)
 	DeleteAPIKey(ctx context.Context, tenantID string, id string) error
 	TouchAPIKeyLastUsed(ctx context.Context, id string) error
+
+	// Device encryption keys
+	CreateDeviceKey(ctx context.Context, tenantID string, k *DeviceKey) error
+	ListDeviceKeys(ctx context.Context, tenantID string, deviceIMEI string) ([]DeviceKey, error)
+	GetDeviceKeyLatest(ctx context.Context, tenantID string, deviceIMEI string) (*DeviceKey, error)
+	DeleteDeviceKey(ctx context.Context, tenantID string, id string) error
 }
 
 // Device represents a registered field device.
@@ -274,6 +280,17 @@ const MaxFailedLogins = 10
 
 // LockoutDuration is how long an account is locked after MaxFailedLogins.
 const LockoutDuration = 30 * time.Minute
+
+// DeviceKey represents a per-device encryption key for E2E encrypted satellite messaging.
+// Key material (KeyHex) is stored only in "decrypt" mode; in "passthrough" mode only the hash is kept.
+type DeviceKey struct {
+	ID         string    `json:"id"`
+	DeviceIMEI string    `json:"device_imei"`
+	KeyHash    string    `json:"key_hash"`          // SHA-256 hash for identification
+	KeyHex     string    `json:"key_hex,omitempty"` // hex-encoded AES-256 key (omitted in listings, passthrough)
+	Mode       string    `json:"mode"`              // "decrypt" (server can read) or "passthrough" (opaque)
+	CreatedAt  time.Time `json:"created_at"`
+}
 
 // APIKey represents a tenant-scoped API key for programmatic access.
 type APIKey struct {

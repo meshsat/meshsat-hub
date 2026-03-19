@@ -38,6 +38,12 @@ export const devices = {
   delete: (imei) => fetchJSON(`/devices/${imei}`, { method: 'DELETE' }),
 }
 
+export const deviceKeys = {
+  list: (imei) => fetchJSON(`/devices/${imei}/keys`),
+  create: (imei, data) => fetchJSON(`/devices/${imei}/keys`, { method: 'POST', body: JSON.stringify(data) }),
+  delete: (imei, id) => fetchJSON(`/devices/${imei}/keys/${id}`, { method: 'DELETE' }),
+}
+
 export const deviceConfig = {
   getLatest: (imei) => fetchJSON(`/devices/${imei}/config`),
   createVersion: (imei, data) => fetchJSON(`/devices/${imei}/config`, { method: 'PUT', body: JSON.stringify(data) }),

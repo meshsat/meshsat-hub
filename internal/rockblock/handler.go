@@ -17,6 +17,7 @@ import (
 	"github.com/cubeos-app/meshsat-hub/internal/auth"
 	"github.com/cubeos-app/meshsat-hub/internal/bus"
 	"github.com/cubeos-app/meshsat-hub/internal/compress"
+	hubcrypto "github.com/cubeos-app/meshsat-hub/internal/crypto"
 	"github.com/cubeos-app/meshsat-hub/internal/dedup"
 	"github.com/cubeos-app/meshsat-hub/internal/fragment"
 	hubmqtt "github.com/cubeos-app/meshsat-hub/internal/mqtt"
@@ -70,6 +71,7 @@ type Handler struct {
 	audit       *audit.Service
 	dedup       dedup.Dedup
 	reassembler *fragment.Reassembler
+	keyStore    *hubcrypto.KeyStore
 }
 
 // NewHandler creates a new RockBLOCK webhook handler.
@@ -90,6 +92,11 @@ func (h *Handler) SetDedup(d dedup.Dedup) {
 // SetReassembler attaches a fragment reassembler for MO reassembly.
 func (h *Handler) SetReassembler(r *fragment.Reassembler) {
 	h.reassembler = r
+}
+
+// SetKeyStore attaches a crypto keystore for E2E decryption of MO messages.
+func (h *Handler) SetKeyStore(ks *hubcrypto.KeyStore) {
+	h.keyStore = ks
 }
 
 func (h *Handler) publish(topic string, qos byte, retained bool, v any) {
@@ -221,6 +228,22 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		rawB64 = base64.StdEncoding.EncodeToString(rawBytes)
 	}
 
+	// Attempt E2E decryption if payload is large enough to be GCM-encrypted
+	// (12-byte nonce + ciphertext + 16-byte tag = 28 bytes minimum overhead).
+	encrypted := false
+	if h.keyStore != nil && len(rawBytes) >= hubcrypto.Overhead {
+		decrypted, err := h.keyStore.DecryptMessage(imei, rawBytes)
+		if err == nil {
+			slog.Info("rockblock: message decrypted",
+				"imei", imei, "encrypted_bytes", len(rawBytes), "decrypted_bytes", len(decrypted))
+			rawBytes = decrypted
+			rawB64 = base64.StdEncoding.EncodeToString(rawBytes)
+			encrypted = true
+		}
+		// If decryption fails, the payload is either not encrypted or uses
+		// an unknown key — proceed with the raw bytes (backwards compatible).
+	}
+
 	// Attempt SMAZ2 decompression.
 	text := ""
 	compressed := false
@@ -247,7 +270,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		Raw:              rawB64,
 		Compressed:       compressed,
 		Compression:      compressionType,
-		Encrypted:        false,
+		Encrypted:        encrypted,
 		TransmitTime:     transmitTime,
 		IridiumLatitude:  iridiumLat,
 		IridiumLongitude: iridiumLon,

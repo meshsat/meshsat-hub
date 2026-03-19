@@ -25,6 +25,7 @@ const navGroups = [
     { to: '/map', label: 'Map' },
     { to: '/devices', label: 'Devices' },
     { to: '/device-config', label: 'Config' },
+    { to: '/device-keys', label: 'Keys' },
     { to: '/messages', label: 'Messages' },
   ]},
   { label: 'Safety', items: [

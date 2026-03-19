@@ -200,3 +200,13 @@ func (m *mockStore) GetRefreshToken(context.Context, string) (*store.RefreshToke
 }
 func (m *mockStore) DeleteRefreshToken(context.Context, string) error                { return nil }
 func (m *mockStore) DeleteRefreshTokensByUser(context.Context, string, string) error { return nil }
+
+// Device encryption keys
+func (m *mockStore) CreateDeviceKey(context.Context, string, *store.DeviceKey) error { return nil }
+func (m *mockStore) ListDeviceKeys(context.Context, string, string) ([]store.DeviceKey, error) {
+	return nil, nil
+}
+func (m *mockStore) GetDeviceKeyLatest(context.Context, string, string) (*store.DeviceKey, error) {
+	return nil, fmt.Errorf("not found")
+}
+func (m *mockStore) DeleteDeviceKey(context.Context, string, string) error { return nil }

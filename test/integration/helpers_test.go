@@ -18,6 +18,7 @@ import (
 	"github.com/mochi-mqtt/server/v2/listeners"
 
 	"github.com/cubeos-app/meshsat-hub/internal/cloudloop"
+	hubcrypto "github.com/cubeos-app/meshsat-hub/internal/crypto"
 	"github.com/cubeos-app/meshsat-hub/internal/fragment"
 	hubmqtt "github.com/cubeos-app/meshsat-hub/internal/mqtt"
 	"github.com/cubeos-app/meshsat-hub/internal/rockblock"
@@ -149,6 +150,7 @@ type testEnv struct {
 	Router        http.Handler
 	CloudloopSrv  *httptest.Server
 	CloudloopReqs []cloudloopReq // captured MT requests
+	KeyStore      *hubcrypto.KeyStore
 	mu            sync.Mutex
 }
 
@@ -205,10 +207,12 @@ func testStack(t *testing.T) *testEnv {
 		t.Fatalf("start MT sender: %v", err)
 	}
 
-	// 5. RockBLOCK handler with fragment reassembler (mirrors main.go).
+	// 5. RockBLOCK handler with fragment reassembler and keystore (mirrors main.go).
+	env.KeyStore = hubcrypto.NewKeyStore()
 	rbHandler := rockblock.NewHandler(env.HubMQTT, "test-secret")
 	reassembler := fragment.NewReassembler(5 * time.Minute)
 	rbHandler.SetReassembler(reassembler)
+	rbHandler.SetKeyStore(env.KeyStore)
 
 	// 6. SOS detector (subscribes to mo/decoded, publishes to sos topic).
 	sosDetector := sos.NewDetector(env.HubMQTT, nil, nil, "", "")

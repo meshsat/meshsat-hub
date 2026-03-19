@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/cubeos-app/meshsat-hub/internal/compress"
+	hubcrypto "github.com/cubeos-app/meshsat-hub/internal/crypto"
 	"github.com/cubeos-app/meshsat-hub/internal/fragment"
 	hubmqtt "github.com/cubeos-app/meshsat-hub/internal/mqtt"
 )
@@ -421,6 +422,117 @@ func TestMQTT_MODecodedFormat(t *testing.T) {
 	}
 	if decoded["encrypted"] != false {
 		t.Errorf("encrypted = %v, want false", decoded["encrypted"])
+	}
+}
+
+// --- E2E Encryption Tests ---
+
+// TestMO_EncryptedPayload_DecryptsCorrectly verifies that an AES-256-GCM
+// encrypted MO payload is decrypted when the device key is in the keystore.
+func TestMO_EncryptedPayload_DecryptsCorrectly(t *testing.T) {
+	env := testStack(t)
+
+	sub := testMQTTClient(t, env.BrokerAddr, "test-sub-enc")
+	decodedCollector := newCollector(t, sub, "meshsat/+/mo/decoded")
+
+	imei := "300234063904190"
+	original := "Encrypted SOS message from field"
+
+	// Generate and register a key for this device.
+	_, rawKey, err := env.KeyStore.GenerateAndStore(imei, "decrypt")
+	if err != nil {
+		t.Fatalf("generate key: %v", err)
+	}
+
+	// Encrypt the message with the device key.
+	encrypted, err := hubcrypto.Encrypt(rawKey, []byte(original))
+	if err != nil {
+		t.Fatalf("encrypt: %v", err)
+	}
+
+	form := url.Values{
+		"imei":              {imei},
+		"momsn":             {"300"},
+		"transmit_time":     {"26-03-17 20:00:00"},
+		"iridium_latitude":  {"52.3676"},
+		"iridium_longitude": {"4.9041"},
+		"iridium_cep":       {"8"},
+		"data":              {hex.EncodeToString(encrypted)},
+		"JWT":               {"test-secret"},
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/api/webhook/rockblock", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	w := httptest.NewRecorder()
+	env.Router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("webhook returned %d: %s", w.Code, w.Body.String())
+	}
+
+	msgs := decodedCollector.wait(1, 3*time.Second)
+	if len(msgs) == 0 {
+		t.Fatal("no mo/decoded message received")
+	}
+
+	var decoded map[string]interface{}
+	json.Unmarshal(msgs[0].Payload, &decoded)
+
+	if decoded["text"] != original {
+		t.Errorf("decrypted text = %q, want %q", decoded["text"], original)
+	}
+	if decoded["encrypted"] != true {
+		t.Errorf("encrypted = %v, want true", decoded["encrypted"])
+	}
+}
+
+// TestMO_EncryptedPayload_NoKey_PassesThrough verifies that an encrypted
+// payload without a matching key passes through as raw bytes (backwards compatible).
+func TestMO_EncryptedPayload_NoKey_PassesThrough(t *testing.T) {
+	env := testStack(t)
+
+	sub := testMQTTClient(t, env.BrokerAddr, "test-sub-enc-nokey")
+	decodedCollector := newCollector(t, sub, "meshsat/+/mo/decoded")
+
+	imei := "300234063904999" // different IMEI — no key registered
+
+	// Create a fake "encrypted" payload (random bytes, won't decrypt).
+	fakeEncrypted := make([]byte, hubcrypto.Overhead+20)
+	for i := range fakeEncrypted {
+		fakeEncrypted[i] = byte(i)
+	}
+
+	form := url.Values{
+		"imei":              {imei},
+		"momsn":             {"301"},
+		"transmit_time":     {"26-03-17 20:01:00"},
+		"iridium_latitude":  {"0"},
+		"iridium_longitude": {"0"},
+		"iridium_cep":       {"0"},
+		"data":              {hex.EncodeToString(fakeEncrypted)},
+		"JWT":               {"test-secret"},
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/api/webhook/rockblock", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	w := httptest.NewRecorder()
+	env.Router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("webhook returned %d: %s", w.Code, w.Body.String())
+	}
+
+	msgs := decodedCollector.wait(1, 3*time.Second)
+	if len(msgs) == 0 {
+		t.Fatal("no mo/decoded message received")
+	}
+
+	var decoded map[string]interface{}
+	json.Unmarshal(msgs[0].Payload, &decoded)
+
+	// Should pass through as non-encrypted (decryption silently failed).
+	if decoded["encrypted"] != false {
+		t.Errorf("encrypted = %v, want false (no key, should pass through)", decoded["encrypted"])
 	}
 }
 

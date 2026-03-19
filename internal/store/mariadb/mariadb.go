@@ -270,6 +270,18 @@ var migrations = []string{
 		INDEX idx_refresh_tokens_hash (token_hash),
 		INDEX idx_refresh_tokens_user (user_id, tenant_id)
 	) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
+
+	// Device encryption keys (v1.1 — E2E encryption, MESHSAT-169)
+	`CREATE TABLE IF NOT EXISTS device_keys (
+		id VARCHAR(64) PRIMARY KEY,
+		device_imei VARCHAR(20) NOT NULL,
+		key_hash VARCHAR(64) NOT NULL,
+		key_hex VARCHAR(64) NOT NULL DEFAULT '',
+		mode VARCHAR(16) NOT NULL DEFAULT 'decrypt',
+		created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+		tenant_id VARCHAR(64) NOT NULL DEFAULT 'default',
+		INDEX idx_device_keys_device (device_imei, tenant_id)
+	) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
 }
 
 // --- Devices ---
@@ -1021,6 +1033,58 @@ func (d *DB) DeleteRefreshToken(ctx context.Context, tokenHash string) error {
 
 func (d *DB) DeleteRefreshTokensByUser(ctx context.Context, tenantID string, userID string) error {
 	_, err := d.db.ExecContext(ctx, "DELETE FROM refresh_tokens WHERE user_id=? AND tenant_id=?", userID, tenantID)
+	return err
+}
+
+// --- Device Encryption Keys ---
+
+func (d *DB) CreateDeviceKey(ctx context.Context, tenantID string, k *store.DeviceKey) error {
+	if k.ID == "" {
+		k.ID = fmt.Sprintf("dk-%d", time.Now().UnixNano())
+	}
+	_, err := d.db.ExecContext(ctx,
+		"INSERT INTO device_keys (id, device_imei, key_hash, key_hex, mode, tenant_id) VALUES (?, ?, ?, ?, ?, ?)",
+		k.ID, k.DeviceIMEI, k.KeyHash, k.KeyHex, k.Mode, tenantID)
+	if err != nil {
+		return err
+	}
+	k.CreatedAt = time.Now().UTC()
+	return nil
+}
+
+func (d *DB) ListDeviceKeys(ctx context.Context, tenantID string, deviceIMEI string) ([]store.DeviceKey, error) {
+	rows, err := d.db.QueryContext(ctx,
+		"SELECT id, device_imei, key_hash, mode, created_at FROM device_keys WHERE device_imei=? AND tenant_id=? ORDER BY created_at DESC",
+		deviceIMEI, tenantID)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+	var keys []store.DeviceKey
+	for rows.Next() {
+		var k store.DeviceKey
+		if err := rows.Scan(&k.ID, &k.DeviceIMEI, &k.KeyHash, &k.Mode, &k.CreatedAt); err != nil {
+			return nil, err
+		}
+		keys = append(keys, k)
+	}
+	return keys, rows.Err()
+}
+
+func (d *DB) GetDeviceKeyLatest(ctx context.Context, tenantID string, deviceIMEI string) (*store.DeviceKey, error) {
+	var k store.DeviceKey
+	err := d.db.QueryRowContext(ctx,
+		"SELECT id, device_imei, key_hash, key_hex, mode, created_at FROM device_keys WHERE device_imei=? AND tenant_id=? ORDER BY created_at DESC LIMIT 1",
+		deviceIMEI, tenantID).Scan(&k.ID, &k.DeviceIMEI, &k.KeyHash, &k.KeyHex, &k.Mode, &k.CreatedAt)
+	if err != nil {
+		return nil, err
+	}
+	return &k, nil
+}
+
+func (d *DB) DeleteDeviceKey(ctx context.Context, tenantID string, id string) error {
+	_, err := d.db.ExecContext(ctx,
+		"DELETE FROM device_keys WHERE id=? AND tenant_id=?", id, tenantID)
 	return err
 }
 

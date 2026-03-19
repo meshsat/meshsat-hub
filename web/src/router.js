@@ -7,6 +7,7 @@ const routes = [
   { path: '/map', name: 'map', component: () => import('./views/MapView.vue'), meta: { requiresAuth: true } },
   { path: '/devices', name: 'devices', component: () => import('./views/Devices.vue'), meta: { requiresAuth: true } },
   { path: '/device-config', name: 'deviceConfig', component: () => import('./views/DeviceConfigView.vue'), meta: { requiresAuth: true } },
+  { path: '/device-keys', name: 'deviceKeys', component: () => import('./views/DeviceKeysView.vue'), meta: { requiresAuth: true } },
   { path: '/messages', name: 'messages', component: () => import('./views/Messages.vue'), meta: { requiresAuth: true } },
   { path: '/escalation', name: 'escalation', component: () => import('./views/EscalationView.vue'), meta: { requiresAuth: true } },
   { path: '/deadman', name: 'deadman', component: () => import('./views/DeadmanView.vue'), meta: { requiresAuth: true } },

@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io/fs"
@@ -27,6 +28,7 @@ import (
 	"github.com/cubeos-app/meshsat-hub/internal/cluster"
 	"github.com/cubeos-app/meshsat-hub/internal/config"
 	"github.com/cubeos-app/meshsat-hub/internal/constellation"
+	hubcrypto "github.com/cubeos-app/meshsat-hub/internal/crypto"
 	"github.com/cubeos-app/meshsat-hub/internal/deadman"
 	"github.com/cubeos-app/meshsat-hub/internal/dedup"
 	"github.com/cubeos-app/meshsat-hub/internal/escalation"
@@ -355,11 +357,31 @@ func main() {
 		}
 	}()
 
+	// E2E encryption keystore (in-memory, hydrated from database on startup).
+	keyStore := hubcrypto.NewKeyStore()
+	if devs, err := dataStore.ListDevices(ctx, store.DefaultTenantID); err == nil {
+		for _, dev := range devs {
+			dk, err := dataStore.GetDeviceKeyLatest(ctx, store.DefaultTenantID, dev.IMEI)
+			if err != nil || dk.Mode != "decrypt" || dk.KeyHex == "" {
+				continue
+			}
+			keyBytes, err := hex.DecodeString(dk.KeyHex)
+			if err != nil {
+				continue
+			}
+			if _, err := keyStore.StoreKey(dev.IMEI, keyBytes, dk.Mode); err != nil {
+				slog.Warn("crypto: failed to load key for device", "imei", dev.IMEI, "error", err)
+			}
+		}
+		slog.Info("crypto: keystore hydrated", "devices_with_keys", keyStore.DeviceCount())
+	}
+
 	// RockBLOCK webhook handler.
 	rbHandler := rockblock.NewHandler(msgBus, cfg.RockBLOCKSecret)
 	rbHandler.SetAudit(auditSvc)
 	rbHandler.SetDedup(dedupTracker)
 	rbHandler.SetReassembler(reassembler)
+	rbHandler.SetKeyStore(keyStore)
 
 	r := chi.NewRouter()
 	r.Use(middleware.Recoverer)
@@ -479,6 +501,12 @@ func main() {
 	r.Put("/api/devices/{imei}/config", configHandler.CreateVersion)
 	r.Get("/api/devices/{imei}/config/history", configHandler.ListVersions)
 	r.Get("/api/devices/{imei}/config/{version}", configHandler.GetVersion)
+
+	// Device encryption key management
+	deviceKeyHandler := api.NewDeviceKeyHandler(dataStore, keyStore)
+	r.Post("/api/devices/{imei}/keys", deviceKeyHandler.CreateKey)
+	r.Get("/api/devices/{imei}/keys", deviceKeyHandler.ListKeys)
+	r.Delete("/api/devices/{imei}/keys/{id}", deviceKeyHandler.DeleteKey)
 
 	// Message history API
 	messageHandler := api.NewMessageHandler(dataStore)
