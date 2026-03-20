@@ -457,6 +457,9 @@ func main() {
 		return nil
 	})
 
+	// Reticulum routing table.
+	reticulumRouter := reticulum.NewRouter(reticulum.DefaultRouteTTL)
+
 	// MSVQ-SC decoder (for Android-compressed messages).
 	var msvqscDecoder *hubmsvqsc.Decoder
 	msvqscCBPath := os.Getenv("HUB_MSVQSC_CODEBOOK")
@@ -797,6 +800,8 @@ func main() {
 	if hubIdentity != nil {
 		retIdentityHandler := api.NewReticulumIdentityHandler(hubIdentity)
 		r.Get("/api/reticulum/identity", retIdentityHandler.GetIdentity)
+		retRoutesHandler := api.NewReticulumRoutesHandler(reticulumRouter)
+		r.Get("/api/reticulum/routes", retRoutesHandler.ListRoutes)
 	}
 
 	// Tor .onion address discovery
