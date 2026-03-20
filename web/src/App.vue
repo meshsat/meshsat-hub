@@ -2,11 +2,22 @@
 import { ref } from 'vue'
 import { RouterLink, RouterView, useRouter } from 'vue-router'
 import { useAuthStore } from './stores/auth'
+import { useThemeStore } from './stores/theme'
 
 const auth = useAuthStore()
+const theme = useThemeStore()
 const router = useRouter()
 const navOpen = ref(false)
 const userMenuOpen = ref(false)
+const searchQuery = ref('')
+const searchOpen = ref(false)
+
+function handleSearch() {
+  if (!searchQuery.value.trim()) return
+  router.push({ path: '/devices', query: { q: searchQuery.value.trim() } })
+  searchQuery.value = ''
+  searchOpen.value = false
+}
 
 function logout() {
   auth.logout()
@@ -48,7 +59,7 @@ const navGroups = [
 </script>
 
 <template>
-  <div class="min-h-screen bg-gray-900 text-gray-100">
+  <div class="min-h-screen bg-gray-900 text-gray-100 dark:bg-gray-900 dark:text-gray-100" :class="{ 'bg-gray-50 text-gray-900': !theme.dark }">
     <template v-if="auth.isAuthenticated">
       <header class="bg-gray-800 border-b border-gray-700 px-4 py-3 flex items-center justify-between">
         <div class="flex items-center gap-3">
@@ -67,6 +78,22 @@ const navGroups = [
           <RouterLink v-if="auth.isOwner" to="/api-keys" class="px-2 py-1 rounded hover:text-teal-400 hover:bg-gray-700/50 transition-colors" active-class="text-teal-400 bg-gray-700/50">API Keys</RouterLink>
           <RouterLink v-if="auth.isOwner" to="/audit" class="px-2 py-1 rounded hover:text-teal-400 hover:bg-gray-700/50 transition-colors" active-class="text-teal-400 bg-gray-700/50">Audit</RouterLink>
           <RouterLink to="/settings" class="px-2 py-1 rounded hover:text-teal-400 hover:bg-gray-700/50 transition-colors" active-class="text-teal-400 bg-gray-700/50">Settings</RouterLink>
+
+          <!-- Search -->
+          <div class="relative ml-2">
+            <input v-if="searchOpen" v-model="searchQuery" @keydown.enter="handleSearch" @keydown.escape="searchOpen = false"
+              placeholder="Search devices..." autofocus
+              class="bg-gray-700 border border-gray-600 rounded px-2 py-1 text-xs w-40 focus:outline-none focus:border-teal-500">
+            <button v-else @click="searchOpen = true" class="text-gray-400 hover:text-gray-200 px-1" title="Search (/)">
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
+            </button>
+          </div>
+
+          <!-- Theme toggle -->
+          <button @click="theme.toggle()" class="text-gray-400 hover:text-gray-200 px-1 ml-1" :title="theme.dark ? 'Light mode' : 'Dark mode'">
+            <svg v-if="theme.dark" class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z"/></svg>
+            <svg v-else class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z"/></svg>
+          </button>
 
           <!-- User menu -->
           <div class="relative ml-2">

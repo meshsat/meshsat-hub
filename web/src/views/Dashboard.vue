@@ -2,6 +2,8 @@
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { devices, health, credits, ratelimit, messages, escalation, deadman, constellations, reticulum as reticulumApi } from '../api/client'
 import { formatUTC } from '../utils/time'
+import { exportCSV } from '../utils/csv'
+import Sparkline from '../components/Sparkline.vue'
 
 const loading = ref(true)
 const lastRefresh = ref(null)
@@ -87,6 +89,18 @@ const overdueDevices = computed(() => deadmanList.value.filter(d => {
 const throttledDevices = computed(() => budgetList.value.filter(b => b.throttled).length)
 
 const recentMessages = computed(() => messageList.value.slice(0, 8))
+
+// Sparkline: messages per hour over the last 12 hours
+const msgSparkline = computed(() => {
+  const now = Date.now()
+  const buckets = new Array(12).fill(0)
+  for (const m of messageList.value) {
+    if (!m.created_at) continue
+    const hoursAgo = Math.floor((now - new Date(m.created_at).getTime()) / 3600000)
+    if (hoursAgo >= 0 && hoursAgo < 12) buckets[11 - hoursAgo]++
+  }
+  return buckets
+})
 
 const lastMessageTime = computed(() => {
   if (messageList.value.length === 0) return null
@@ -187,11 +201,14 @@ function directionColor(d) {
         <!-- Messages -->
         <div class="bg-gray-800 rounded-lg p-4 border border-gray-700">
           <div class="text-gray-400 text-xs uppercase tracking-wider mb-1">Messages</div>
-          <div class="flex items-baseline gap-2">
-            <span class="text-xl font-bold text-emerald-400">{{ moCount }}</span>
-            <span class="text-gray-500 text-xs">MO</span>
-            <span class="text-lg text-sky-400">{{ mtCount }}</span>
-            <span class="text-gray-500 text-xs">MT</span>
+          <div class="flex items-center justify-between">
+            <div class="flex items-baseline gap-2">
+              <span class="text-xl font-bold text-emerald-400">{{ moCount }}</span>
+              <span class="text-gray-500 text-xs">MO</span>
+              <span class="text-lg text-sky-400">{{ mtCount }}</span>
+              <span class="text-gray-500 text-xs">MT</span>
+            </div>
+            <Sparkline :data="msgSparkline" :width="80" :height="24" color="#2dd4bf" />
           </div>
         </div>
 
@@ -290,7 +307,11 @@ function directionColor(d) {
         <!-- Recent Activity -->
         <div class="bg-gray-800 rounded-lg border border-gray-700 overflow-hidden">
           <div class="px-4 py-3 border-b border-gray-700">
-            <h2 class="text-sm font-semibold text-gray-300 uppercase tracking-wider">Recent Messages</h2>
+            <div class="flex items-center justify-between">
+              <h2 class="text-sm font-semibold text-gray-300 uppercase tracking-wider">Recent Messages</h2>
+              <button @click="exportCSV(messageList, 'meshsat-messages', ['id','device_imei','direction','channel','text','status','created_at'])"
+                class="text-xs text-gray-500 hover:text-gray-300" title="Export CSV">CSV</button>
+            </div>
           </div>
           <div v-if="recentMessages.length === 0" class="p-6 text-center text-gray-500 text-sm">
             No messages yet

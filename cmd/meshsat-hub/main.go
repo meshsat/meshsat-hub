@@ -596,6 +596,19 @@ func main() {
 
 	r.Get("/healthz", health.LivezHandler)
 	r.Get("/readyz", checker.ReadyzHandler)
+
+	// WebSocket real-time event hub
+	wsHub := api.NewWSHub()
+	r.Get("/api/ws", wsHub.HandleWS)
+	// Bridge MQTT events to WebSocket for live dashboard updates
+	if msgBus.IsConnected() {
+		for _, topic := range []string{"meshsat/+/mo/decoded", "meshsat/+/position", "meshsat/+/sos"} {
+			t := topic
+			_ = msgBus.Subscribe(t, 0, func(topic string, payload []byte) {
+				wsHub.Broadcast(payload)
+			})
+		}
+	}
 	r.Post("/api/webhook/rockblock", rbHandler.ServeHTTP)
 
 	r.Post("/api/webhook/astrocast", acHandler.ServeHTTP)
