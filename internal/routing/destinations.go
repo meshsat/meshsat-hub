@@ -9,6 +9,7 @@ import (
 
 	"github.com/cubeos-app/meshsat-hub/internal/sms"
 	"github.com/cubeos-app/meshsat-hub/internal/store"
+	"github.com/cubeos-app/meshsat-hub/internal/webhook"
 
 	hubemail "github.com/cubeos-app/meshsat-hub/internal/email"
 )
@@ -71,6 +72,93 @@ func NewEmailHandler(client *hubemail.Client) DestinationHandler {
 			if err := client.Send(to, subject, body); err != nil {
 				slog.Error("routing/email: send failed", "to", to, "device", deviceID, "error", err)
 			}
+		}
+	}
+}
+
+// WebhookFirer is the subset of webhook.Dispatcher needed by the routing handler.
+type WebhookFirer interface {
+	Fire(event webhook.EventType, deviceID string, data json.RawMessage)
+}
+
+// NotificationSender can send notifications (Apprise, ntfy, etc.).
+// Matches escalation.Notifier interface.
+type NotificationSender interface {
+	Notify(ctx context.Context, targets []string, subject, body string) error
+}
+
+// MQTTPublisher can publish messages to MQTT topics.
+// Matches the Publish method of bus.MessageBus.
+type MQTTPublisher interface {
+	Publish(topic string, qos byte, retained bool, payload []byte) error
+}
+
+// NewWebhookHandler creates a routing destination handler that fires outbound webhooks.
+// The webhook dispatcher already has its own URL targets configured — this handler
+// triggers a "routed_message" event so all registered webhooks receive the message.
+func NewWebhookHandler(dispatcher WebhookFirer) DestinationHandler {
+	return func(_ context.Context, _ *store.Route, deviceID string, payload json.RawMessage) {
+		dispatcher.Fire(webhook.EventType("routed_message"), deviceID, payload)
+		slog.Debug("routing/webhook: fired routed_message event", "device", deviceID)
+	}
+}
+
+// NewNotificationHandler creates a routing destination handler that sends notifications
+// via Apprise/ntfy. The route's Filter field can contain Apprise target URLs (comma-separated).
+// If Filter is empty, notifications go to the default configured targets.
+func NewNotificationHandler(notifier NotificationSender) DestinationHandler {
+	return func(ctx context.Context, route *store.Route, deviceID string, payload json.RawMessage) {
+		var msg moDecodedPayload
+		if err := json.Unmarshal(payload, &msg); err != nil {
+			slog.Warn("routing/notification: unmarshal payload failed", "error", err)
+			return
+		}
+
+		subject := fmt.Sprintf("MeshSat [%s] %s", msg.Channel, deviceID)
+		body := msg.Text
+		if body == "" {
+			body = "(empty message)"
+		}
+
+		targets := parseRecipients(route.Filter)
+		if err := notifier.Notify(ctx, targets, subject, body); err != nil {
+			slog.Error("routing/notification: send failed", "device", deviceID, "error", err)
+		}
+	}
+}
+
+// NewMQTTHandler creates a routing destination handler that republishes messages to
+// a fanout MQTT topic. Messages are published to meshsat/routed/{deviceID} so downstream
+// consumers (dashboards, external integrations) receive all routed messages.
+func NewMQTTHandler(mqtt MQTTPublisher) DestinationHandler {
+	return func(_ context.Context, _ *store.Route, deviceID string, payload json.RawMessage) {
+		topic := fmt.Sprintf("meshsat/routed/%s", deviceID)
+		if err := mqtt.Publish(topic, 1, false, payload); err != nil {
+			slog.Error("routing/mqtt: publish failed", "topic", topic, "error", err)
+		}
+	}
+}
+
+// NewTAKHandler creates a routing destination handler that sends CoT events to a TAK server.
+// The handler generates a chat-type CoT event from the routed message.
+func NewTAKHandler(mqtt MQTTPublisher) DestinationHandler {
+	return func(_ context.Context, _ *store.Route, deviceID string, payload json.RawMessage) {
+		// Publish to the TAK CoT topic — the TAK subscriber will pick it up
+		// and forward to the TAK server as a CoT event.
+		topic := fmt.Sprintf("meshsat/%s/tak/cot/out", deviceID)
+		if err := mqtt.Publish(topic, 1, false, payload); err != nil {
+			slog.Error("routing/tak: publish failed", "topic", topic, "error", err)
+		}
+	}
+}
+
+// NewAPRSHandler creates a routing destination handler that publishes to APRS-IS.
+// The handler publishes the message to an APRS MQTT topic for the APRS-IS subscriber to forward.
+func NewAPRSHandler(mqtt MQTTPublisher) DestinationHandler {
+	return func(_ context.Context, _ *store.Route, deviceID string, payload json.RawMessage) {
+		topic := fmt.Sprintf("meshsat/%s/aprs/out", deviceID)
+		if err := mqtt.Publish(topic, 1, false, payload); err != nil {
+			slog.Error("routing/aprs: publish failed", "topic", topic, "error", err)
 		}
 	}
 }

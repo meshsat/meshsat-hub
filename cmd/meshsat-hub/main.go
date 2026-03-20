@@ -884,6 +884,14 @@ func main() {
 		routeEmailClient := hubemail.NewClient(cfg.EmailSMTPHost, cfg.EmailFrom, cfg.EmailUsername, cfg.EmailPassword, emailKeyRing)
 		routeEngine.RegisterHandler("email", routing.NewEmailHandler(routeEmailClient))
 	}
+	// Register webhook, notification, MQTT, TAK, and APRS destination handlers.
+	routeEngine.RegisterHandler("webhook", routing.NewWebhookHandler(webhookDispatcher))
+	routeEngine.RegisterHandler("mqtt", routing.NewMQTTHandler(msgBus))
+	routeEngine.RegisterHandler("tak", routing.NewTAKHandler(msgBus))
+	routeEngine.RegisterHandler("aprs", routing.NewAPRSHandler(msgBus))
+	if len(notifiers) > 0 {
+		routeEngine.RegisterHandler("notification", routing.NewNotificationHandler(notifiers[0]))
+	}
 	if msgBus.IsConnected() {
 		_ = routing.SeedDefaults(ctx, dataStore, store.DefaultTenantID)
 		if err := routeEngine.Start(); err != nil {
