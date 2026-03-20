@@ -273,12 +273,12 @@ deploy:
           done
 
           echo '4. Verify /healthz...'
-          curl -sf http://localhost:6070/healthz || { echo 'healthz FAILED'; exit 1; }
-          echo ' OK'
+          docker exec meshsat-hub wget -q -O- http://localhost:6070/healthz || { echo 'healthz FAILED'; exit 1; }
+          echo ' healthz OK'
 
           echo '5. Verify /readyz...'
-          curl -sf http://localhost:6070/readyz || { echo 'readyz FAILED (non-fatal)'; }
-          echo ' OK'
+          docker exec meshsat-hub wget -q -O- http://localhost:6070/readyz || echo 'readyz FAILED (non-fatal)'
+          echo ' readyz OK'
         " || { echo "FAILED on $HOST"; FAILED=1; }
       done
 
@@ -319,7 +319,7 @@ verify:
 
         # Verify Hub is responding
         HUB_STATUS=$(ssh -i $SSH_KEY "${DEPLOY_USER}@${HOST}" \
-          "curl -sf http://localhost:6070/healthz 2>/dev/null" || echo "UNREACHABLE")
+          "docker exec meshsat-hub wget -q -O- http://localhost:6070/healthz 2>/dev/null" || echo "UNREACHABLE")
         echo "  Hub /healthz: $HUB_STATUS"
 
         # Verify Galera is still healthy after deploy
