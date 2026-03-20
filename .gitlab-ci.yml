@@ -14,6 +14,11 @@ variables:
   CGO_ENABLED: "0"
   MESHSAT_HUB_IMAGE: "ghcr.io/cubeos-app/meshsat-hub"
   AWX_HOST: "https://awx.nuclearlighters.net"
+  # Deploy targets — use IPs (runner Docker containers lack internal DNS).
+  DEPLOY_HOST_NL: "192.168.192.10"
+  DEPLOY_HOST_GR: "192.168.15.10"
+  DEPLOY_USER: "kyriakosp"
+  GALERA_CONTAINER: "meshsat-mariadb"
 
 # -----------------------------------------------------------------------------
 # LINT — golangci-lint
@@ -149,9 +154,7 @@ pre-deploy:
   script:
     - |
       SSH_KEY=~/.ssh/deploy_key
-      SSH_USER="${DEPLOY_USER:-kyriakosp}"
-      HOSTS="nllei01dmz01 grskg01dmz01"
-      CONTAINER="meshsat-mariadb"
+      HOSTS="$DEPLOY_HOST_NL $DEPLOY_HOST_GR"
       HEALTHY=true
 
       echo "=== Pre-Deploy Galera Health Gate ==="
@@ -161,7 +164,7 @@ pre-deploy:
         echo "--- $HOST ---"
 
         # Verify .env does NOT have bare gcomm:// (the #1 cause of split-brain)
-        ADDR=$(ssh -i $SSH_KEY -o ConnectTimeout=10 "${SSH_USER}@${HOST}" \
+        ADDR=$(ssh -i $SSH_KEY -o ConnectTimeout=10 "${DEPLOY_USER}@${HOST}" \
           "grep WSREP_CLUSTER_ADDRESS /srv/meshsat-hub/.env" 2>/dev/null) || {
           echo "  FAIL: Cannot read .env on $HOST"
           HEALTHY=false
@@ -176,13 +179,13 @@ pre-deploy:
         fi
 
         # Get root password from container env
-        DB_PASS=$(ssh -i $SSH_KEY "${SSH_USER}@${HOST}" \
-          "docker inspect $CONTAINER --format '{{range .Config.Env}}{{println .}}{{end}}'" 2>/dev/null \
+        DB_PASS=$(ssh -i $SSH_KEY "${DEPLOY_USER}@${HOST}" \
+          "docker inspect ${GALERA_CONTAINER} --format '{{range .Config.Env}}{{println .}}{{end}}'" 2>/dev/null \
           | grep MARIADB_ROOT_PASSWORD | cut -d= -f2)
 
         # Query Galera status
-        STATUS=$(ssh -i $SSH_KEY "${SSH_USER}@${HOST}" \
-          "docker exec $CONTAINER mariadb -u root -p'${DB_PASS}' -N -e \
+        STATUS=$(ssh -i $SSH_KEY "${DEPLOY_USER}@${HOST}" \
+          "docker exec ${GALERA_CONTAINER} mariadb -u root -p'${DB_PASS}' -N -e \
           \"SELECT VARIABLE_VALUE FROM information_schema.GLOBAL_STATUS \
           WHERE VARIABLE_NAME IN ('wsrep_cluster_size','wsrep_ready','wsrep_local_state_comment') \
           ORDER BY VARIABLE_NAME\"" 2>/dev/null) || {
@@ -244,8 +247,7 @@ deploy:
   script:
     - |
       SSH_KEY=~/.ssh/deploy_key
-      SSH_USER="${DEPLOY_USER:-kyriakosp}"
-      HOSTS="nllei01dmz01 grskg01dmz01"
+      HOSTS="$DEPLOY_HOST_NL $DEPLOY_HOST_GR"
       IMAGE="${MESHSAT_HUB_IMAGE}:latest"
       FAILED=0
 
@@ -253,7 +255,7 @@ deploy:
         echo ""
         echo "=== Deploying to $HOST ==="
 
-        ssh -i $SSH_KEY "${SSH_USER}@${HOST}" "
+        ssh -i $SSH_KEY "${DEPLOY_USER}@${HOST}" "
           cd /srv/meshsat-hub
 
           echo '1. Pull Hub image only (never pull MariaDB)...'
@@ -305,9 +307,7 @@ verify:
   script:
     - |
       SSH_KEY=~/.ssh/deploy_key
-      SSH_USER="${DEPLOY_USER:-kyriakosp}"
-      HOSTS="nllei01dmz01 grskg01dmz01"
-      CONTAINER="meshsat-mariadb"
+      HOSTS="$DEPLOY_HOST_NL $DEPLOY_HOST_GR"
 
       echo "=== Post-Deploy Galera Health Verification ==="
       sleep 10
@@ -318,17 +318,17 @@ verify:
         echo "--- $HOST ---"
 
         # Verify Hub is responding
-        HUB_STATUS=$(ssh -i $SSH_KEY "${SSH_USER}@${HOST}" \
+        HUB_STATUS=$(ssh -i $SSH_KEY "${DEPLOY_USER}@${HOST}" \
           "curl -sf http://localhost:6070/healthz 2>/dev/null" || echo "UNREACHABLE")
         echo "  Hub /healthz: $HUB_STATUS"
 
         # Verify Galera is still healthy after deploy
-        DB_PASS=$(ssh -i $SSH_KEY "${SSH_USER}@${HOST}" \
-          "docker inspect $CONTAINER --format '{{range .Config.Env}}{{println .}}{{end}}'" 2>/dev/null \
+        DB_PASS=$(ssh -i $SSH_KEY "${DEPLOY_USER}@${HOST}" \
+          "docker inspect ${GALERA_CONTAINER} --format '{{range .Config.Env}}{{println .}}{{end}}'" 2>/dev/null \
           | grep MARIADB_ROOT_PASSWORD | cut -d= -f2)
 
-        CLUSTER_SIZE=$(ssh -i $SSH_KEY "${SSH_USER}@${HOST}" \
-          "docker exec $CONTAINER mariadb -u root -p'${DB_PASS}' -N -e \
+        CLUSTER_SIZE=$(ssh -i $SSH_KEY "${DEPLOY_USER}@${HOST}" \
+          "docker exec ${GALERA_CONTAINER} mariadb -u root -p'${DB_PASS}' -N -e \
           \"SELECT VARIABLE_VALUE FROM information_schema.GLOBAL_STATUS \
           WHERE VARIABLE_NAME='wsrep_cluster_size'\"" 2>/dev/null) || CLUSTER_SIZE="ERROR"
 
