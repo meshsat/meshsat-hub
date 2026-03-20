@@ -4,6 +4,10 @@ import { devices, health, credits, ratelimit, messages, escalation, deadman, con
 import { formatUTC } from '../utils/time'
 import { exportCSV } from '../utils/csv'
 import Sparkline from '../components/Sparkline.vue'
+import EmptyState from '../components/EmptyState.vue'
+import { useDashboardStore } from '../stores/dashboard'
+
+const dash = useDashboardStore()
 
 const loading = ref(true)
 const lastRefresh = ref(null)
@@ -160,6 +164,37 @@ function directionColor(d) {
       <div class="flex items-center gap-3 text-xs text-gray-500">
         <span v-if="lastRefresh">Updated {{ timeSince(lastRefresh) }}</span>
         <button @click="loadAll" class="text-teal-400 hover:text-teal-300">Refresh</button>
+        <button @click="dash.customizing = !dash.customizing"
+          class="text-gray-500 hover:text-gray-300 transition-colors" title="Customize layout">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4"/></svg>
+        </button>
+      </div>
+    </div>
+
+    <!-- Customize Panel -->
+    <div v-if="dash.customizing" class="bg-gray-800 border border-gray-700 rounded-lg p-4 mb-6">
+      <div class="flex items-center justify-between mb-3">
+        <h3 class="text-sm font-semibold text-gray-300">Customize Dashboard</h3>
+        <div class="flex gap-2">
+          <button @click="dash.reset()" class="text-xs text-gray-500 hover:text-gray-300">Reset</button>
+          <button @click="dash.customizing = false" class="text-xs text-teal-400 hover:text-teal-300">Done</button>
+        </div>
+      </div>
+      <div class="space-y-1">
+        <div v-for="(w, idx) in dash.widgets" :key="w.id"
+          class="flex items-center gap-3 px-3 py-2 rounded bg-gray-700/30 text-sm">
+          <label class="flex items-center gap-2 flex-1 cursor-pointer">
+            <input type="checkbox" :checked="w.visible" @change="dash.toggle(w.id)"
+              class="rounded border-gray-600 bg-gray-700 text-teal-500 focus:ring-teal-500 focus:ring-offset-0">
+            <span :class="w.visible ? 'text-gray-200' : 'text-gray-500'">{{ w.label }}</span>
+          </label>
+          <div class="flex gap-1">
+            <button @click="dash.moveUp(w.id)" :disabled="idx === 0"
+              class="text-gray-500 hover:text-gray-300 disabled:opacity-20 disabled:cursor-not-allowed text-xs px-1">&uarr;</button>
+            <button @click="dash.moveDown(w.id)" :disabled="idx === dash.widgets.length - 1"
+              class="text-gray-500 hover:text-gray-300 disabled:opacity-20 disabled:cursor-not-allowed text-xs px-1">&darr;</button>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -176,7 +211,7 @@ function directionColor(d) {
       </div>
 
       <!-- Primary KPI Row -->
-      <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 mb-6">
+      <div v-if="dash.isVisible('kpi')" class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 mb-6">
         <!-- Hub Status -->
         <div class="bg-gray-800 rounded-lg p-4 border border-gray-700">
           <div class="text-gray-400 text-xs uppercase tracking-wider mb-1">Hub</div>
@@ -236,11 +271,11 @@ function directionColor(d) {
       </div>
 
       <!-- Secondary Info Row -->
-      <div class="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-6">
+      <div class="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-6" v-if="dash.isVisible('constellations') || dash.isVisible('safety') || dash.isVisible('network')">
         <!-- Constellation Status -->
-        <div class="bg-gray-800 rounded-lg border border-gray-700 p-4">
+        <div v-if="dash.isVisible('constellations')" class="bg-gray-800 rounded-lg border border-gray-700 p-4">
           <h2 class="text-sm font-semibold text-gray-300 uppercase tracking-wider mb-3">Constellations</h2>
-          <div v-if="backendList.length === 0" class="text-gray-500 text-sm">No backends configured</div>
+          <EmptyState v-if="backendList.length === 0" icon="satellite" title="No backends" message="Configure satellite constellation backends to start relaying messages." />
           <div v-else class="space-y-2">
             <div v-for="b in backendList" :key="b" class="flex items-center justify-between">
               <div class="flex items-center gap-2">
@@ -253,7 +288,7 @@ function directionColor(d) {
         </div>
 
         <!-- Safety Status -->
-        <div class="bg-gray-800 rounded-lg border border-gray-700 p-4">
+        <div v-if="dash.isVisible('safety')" class="bg-gray-800 rounded-lg border border-gray-700 p-4">
           <h2 class="text-sm font-semibold text-gray-300 uppercase tracking-wider mb-3">Safety</h2>
           <div class="space-y-2 text-sm">
             <div class="flex items-center justify-between">
@@ -282,7 +317,7 @@ function directionColor(d) {
         </div>
 
         <!-- Network Identity -->
-        <div class="bg-gray-800 rounded-lg border border-gray-700 p-4">
+        <div v-if="dash.isVisible('network')" class="bg-gray-800 rounded-lg border border-gray-700 p-4">
           <h2 class="text-sm font-semibold text-gray-300 uppercase tracking-wider mb-3">Network</h2>
           <div v-if="retIdentity" class="space-y-2 text-sm">
             <div>
@@ -298,14 +333,14 @@ function directionColor(d) {
               <span class="text-gray-300">{{ timeSince(lastMessageTime) }}</span>
             </div>
           </div>
-          <div v-else class="text-gray-500 text-sm">Identity loading...</div>
+          <EmptyState v-else icon="globe" title="Connecting..." message="Reticulum network identity is being established." />
         </div>
       </div>
 
       <!-- Main Content Row -->
-      <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-6">
+      <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-6" v-if="dash.isVisible('messages') || dash.isVisible('fleet')">
         <!-- Recent Activity -->
-        <div class="bg-gray-800 rounded-lg border border-gray-700 overflow-hidden">
+        <div v-if="dash.isVisible('messages')" class="bg-gray-800 rounded-lg border border-gray-700 overflow-hidden">
           <div class="px-4 py-3 border-b border-gray-700">
             <div class="flex items-center justify-between">
               <h2 class="text-sm font-semibold text-gray-300 uppercase tracking-wider">Recent Messages</h2>
@@ -313,9 +348,8 @@ function directionColor(d) {
                 class="text-xs text-gray-500 hover:text-gray-300" title="Export CSV">CSV</button>
             </div>
           </div>
-          <div v-if="recentMessages.length === 0" class="p-6 text-center text-gray-500 text-sm">
-            No messages yet
-          </div>
+          <EmptyState v-if="recentMessages.length === 0" icon="message" title="No messages yet"
+            message="Messages will appear here as devices send and receive data." />
           <div v-else class="divide-y divide-gray-700/50">
             <div v-for="msg in recentMessages" :key="msg.id" class="px-4 py-2.5 flex items-center gap-3 text-sm">
               <span class="font-semibold text-xs w-6" :class="directionColor(msg.direction)">
@@ -332,13 +366,12 @@ function directionColor(d) {
         </div>
 
         <!-- Device Fleet -->
-        <div class="bg-gray-800 rounded-lg border border-gray-700 overflow-hidden">
+        <div v-if="dash.isVisible('fleet')" class="bg-gray-800 rounded-lg border border-gray-700 overflow-hidden">
           <div class="px-4 py-3 border-b border-gray-700">
             <h2 class="text-sm font-semibold text-gray-300 uppercase tracking-wider">Device Fleet</h2>
           </div>
-          <div v-if="deviceList.length === 0" class="p-6 text-center text-gray-500 text-sm">
-            No devices registered
-          </div>
+          <EmptyState v-if="deviceList.length === 0" icon="device" title="No devices registered"
+            message="Register your first device to start tracking satellite communications." />
           <div v-else class="divide-y divide-gray-700/50 max-h-80 overflow-y-auto">
             <div v-for="dev in deviceList" :key="dev.imei" class="px-4 py-2.5 flex items-center gap-3 text-sm">
               <span class="w-2 h-2 rounded-full shrink-0" :class="{
@@ -355,7 +388,7 @@ function directionColor(d) {
       </div>
 
       <!-- Budget Section -->
-      <div v-if="budgetList.length > 0">
+      <div v-if="dash.isVisible('budgets') && budgetList.length > 0">
         <h2 class="text-sm font-semibold text-gray-300 uppercase tracking-wider mb-3">Budget Usage</h2>
         <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
           <div v-for="b in budgetList" :key="b.device_id"
