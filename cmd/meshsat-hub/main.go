@@ -35,6 +35,7 @@ import (
 	hubemail "github.com/cubeos-app/meshsat-hub/internal/email"
 	"github.com/cubeos-app/meshsat-hub/internal/escalation"
 	"github.com/cubeos-app/meshsat-hub/internal/fragment"
+	"github.com/cubeos-app/meshsat-hub/internal/globalstar"
 	"github.com/cubeos-app/meshsat-hub/internal/hawkbit"
 	"github.com/cubeos-app/meshsat-hub/internal/health"
 	"github.com/cubeos-app/meshsat-hub/internal/ipougrs"
@@ -69,7 +70,7 @@ var version = "dev"
 
 // @title        MeshSat Hub API
 // @version      1.1
-// @description  Multi-tenant SaaS platform for satellite device management. Ingests MO messages from Iridium/Astrocast, manages devices, SOS escalation, dead man's switch, and E2E encryption.
+// @description  Multi-tenant SaaS platform for satellite device management. Ingests MO messages from Iridium/Astrocast/Globalstar, manages devices, SOS escalation, dead man's switch, and E2E encryption.
 // @license.name Apache 2.0
 // @license.url  https://www.apache.org/licenses/LICENSE-2.0
 // @host         localhost:6070
@@ -237,11 +238,21 @@ func main() {
 		slog.Info("astrocast: API client enabled", "url", cfg.AstrocastAPIURL)
 	}
 
+	// Globalstar API client (optional — third satellite constellation).
+	var globalstarClient *globalstar.Client
+	if cfg.GlobalstarAPIKey != "" {
+		globalstarClient = globalstar.NewClient(cfg.GlobalstarAPIURL, cfg.GlobalstarAPIKey)
+		slog.Info("globalstar: API client enabled", "url", cfg.GlobalstarAPIURL)
+	}
+
 	// Constellation router — multi-backend satellite send.
 	constellationRouter := constellation.NewRouter(constellation.StrategyAvailable)
 	constellationRouter.Register(constellation.NewIridiumBackend(cloudloopClient))
 	if astrocastClient != nil {
 		constellationRouter.Register(constellation.NewAstrocastBackend(astrocastClient))
+	}
+	if globalstarClient != nil {
+		constellationRouter.Register(constellation.NewGlobalstarBackend(globalstarClient))
 	}
 
 	// MPTCP concentrator monitor (aggregates satellite + cellular links).
@@ -504,6 +515,15 @@ func main() {
 	acHandler.SetDeadman(deadmanMonitor)
 	acHandler.SetMSVQSC(msvqscDecoder)
 
+	// Globalstar MO webhook handler.
+	gsHandler := globalstar.NewHandler(msgBus, cfg.GlobalstarWebhookSecret)
+	gsHandler.SetAudit(auditSvc)
+	gsHandler.SetDedup(dedupTracker)
+	gsHandler.SetReassembler(reassembler)
+	gsHandler.SetKeyStore(keyStore)
+	gsHandler.SetDeadman(deadmanMonitor)
+	gsHandler.SetMSVQSC(msvqscDecoder)
+
 	r := chi.NewRouter()
 	r.Use(middleware.Recoverer)
 	r.Use(middleware.RealIP)
@@ -579,6 +599,7 @@ func main() {
 	r.Post("/api/webhook/rockblock", rbHandler.ServeHTTP)
 
 	r.Post("/api/webhook/astrocast", acHandler.ServeHTTP)
+	r.Post("/api/webhook/globalstar", gsHandler.ServeHTTP)
 
 	// SMS gateway (optional — inbound webhook + outbound subscriber + send API)
 	var smsClientForSend *sms.Client
@@ -602,6 +623,17 @@ func main() {
 			} else {
 				slog.Info("sms: gateway enabled", "from", cfg.SMSFromNumber)
 			}
+		}
+	}
+
+	// SMS inbound relay — Android publishes SMS to MQTT, Hub persists them.
+	if msgBus.IsConnected() {
+		smsInSub := sms.NewInboundSubscriber(msgBus, dataStore, store.DefaultTenantID)
+		smsInSub.SetKeyStore(keyStore)
+		if err := smsInSub.Start(); err != nil {
+			slog.Error("sms: failed to start inbound MQTT subscriber", "error", err)
+		} else {
+			slog.Info("sms: inbound MQTT relay enabled (meshsat/+/sms/inbound)")
 		}
 	}
 
