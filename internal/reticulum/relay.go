@@ -135,7 +135,6 @@ func (r *Relay) Forward(ctx context.Context, sourceIface InterfaceType, raw []by
 		return fmt.Errorf("relay: outbound interface %s not available", route.Interface)
 	}
 
-
 	// Re-serialize with incremented hop count.
 	forwarded := hdr.Marshal()
 
@@ -163,6 +162,18 @@ func (r *Relay) Forward(ctx context.Context, sourceIface InterfaceType, raw []by
 	)
 
 	return nil
+}
+
+// ListInterfaces returns all registered interfaces.
+func (r *Relay) ListInterfaces() []Interface {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	ifaces := make([]Interface, 0, len(r.interfaces))
+	for _, i := range r.interfaces {
+		ifaces = append(ifaces, i)
+	}
+	return ifaces
 }
 
 // Stats returns a snapshot of relay counters.

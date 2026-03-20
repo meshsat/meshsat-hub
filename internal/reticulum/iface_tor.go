@@ -7,22 +7,29 @@ import (
 	"sync"
 )
 
+// ReticulumTorTopicPrefix is the MQTT topic prefix for Tor-connected peers.
+const ReticulumTorTopicPrefix = "meshsat/reticulum/tor/"
+
 // TorInterface implements Interface for Tor hidden service transport.
-// Reticulum packets are carried over a TCP connection to the Hub's .onion address.
-// Currently a placeholder — full implementation requires a TCP listener on
-// the Tor hidden service that speaks Reticulum framing.
+// Reticulum packets are proxied via MQTT to peers connected through the
+// Tor hidden service (.onion:1883 → Mosquitto). Field devices subscribe
+// to meshsat/reticulum/tor/{destHash} to receive packets routed via Tor.
 type TorInterface struct {
 	mu        sync.RWMutex
 	handler   PacketHandler
 	available bool
 	onion     string // .onion address
+	mqtt      MQTTPublisher
 }
 
 // NewTorInterface creates a Tor Reticulum transport interface.
-func NewTorInterface(onionAddr string) *TorInterface {
+// mqtt is used to proxy Send via MQTT topics (since Tor-connected devices
+// reach the Hub via the Mosquitto broker exposed on .onion:1883).
+func NewTorInterface(onionAddr string, mqtt MQTTPublisher) *TorInterface {
 	return &TorInterface{
 		onion:     onionAddr,
 		available: onionAddr != "",
+		mqtt:      mqtt,
 	}
 }
 
@@ -41,14 +48,18 @@ func (t *TorInterface) MTU() int {
 	return MTU
 }
 
-// Send transmits a Reticulum packet via Tor. destID is the peer's .onion address.
-// TODO: Implement TCP connection to peer's .onion Reticulum port.
+// Send transmits a Reticulum packet via Tor by publishing to an MQTT topic
+// that Tor-connected peers subscribe to. destID is the peer's destination hash.
 func (t *TorInterface) Send(_ context.Context, destID string, packet []byte) error {
 	if !t.available {
 		return fmt.Errorf("tor: not available")
 	}
-	slog.Debug("reticulum: tor send (not yet implemented)", "dest", destID, "size", len(packet))
-	return fmt.Errorf("tor: send not yet implemented")
+	if t.mqtt == nil {
+		return fmt.Errorf("tor: no mqtt proxy configured")
+	}
+	topic := ReticulumTorTopicPrefix + destID
+	slog.Debug("reticulum: sending packet via tor/mqtt proxy", "dest", destID, "topic", topic, "size", len(packet))
+	return t.mqtt.Publish(topic, 1, false, packet)
 }
 
 // IsAvailable returns true if the Tor hidden service is running.

@@ -472,6 +472,122 @@ func main() {
 	// Reticulum routing table.
 	reticulumRouter := reticulum.NewRouter(reticulum.DefaultRouteTTL)
 
+	// Reticulum relay — forwards packets between interfaces.
+	reticulumRelay := reticulum.NewRelay(reticulumRouter, reticulum.DefaultRelayConfig())
+
+	// Reticulum packet handler — processes announces and forwards data packets.
+	reticulumPacketHandler := func(iface reticulum.InterfaceType, raw []byte) {
+		// Try to parse as announce to update routing table.
+		if ann, err := reticulum.UnmarshalAnnouncePacket(raw); err == nil {
+			reticulumRouter.ProcessAnnounce(ann, iface)
+			return
+		}
+		// Otherwise, attempt to relay the packet.
+		if err := reticulumRelay.Forward(ctx, iface, raw); err != nil {
+			slog.Debug("reticulum: relay drop", "from", iface, "error", err)
+		}
+	}
+
+	// Bridge bus.MessageBus → reticulum.MQTTPublisher (adapts named handler type).
+	mqttBridge := reticulum.NewMQTTBridge(
+		msgBus.Publish,
+		func(topic string, qos byte, handler func(string, []byte)) error {
+			return msgBus.Subscribe(topic, qos, bus.MessageHandler(handler))
+		},
+		msgBus.IsConnected,
+	)
+
+	// Reticulum transport interfaces.
+	retMQTTIface := reticulum.NewMQTTInterface(mqttBridge)
+	retMQTTIface.SetHandler(reticulumPacketHandler)
+	reticulumRelay.RegisterInterface(retMQTTIface)
+
+	// Reticulum transport interfaces — satellite backends.
+	// These are registered now; webhook handlers wire SetReticulumIface later.
+	var retIridiumIface *reticulum.IridiumInterface
+	if cloudloopClient != nil {
+		iridiumBackend := constellation.NewIridiumBackend(cloudloopClient)
+		retIridiumIface = reticulum.NewIridiumInterface(reticulum.NewBackendAdapter(
+			func(ctx2 context.Context, deviceID string, payload []byte) error {
+				_, err2 := iridiumBackend.Send(ctx2, deviceID, payload)
+				return err2
+			},
+			iridiumBackend.IsAvailable,
+			iridiumBackend.MaxPayload(),
+			iridiumBackend.CostPerMessage(),
+		))
+		retIridiumIface.SetHandler(reticulumPacketHandler)
+		reticulumRelay.RegisterInterface(retIridiumIface)
+	}
+
+	var retAstrocastIface *reticulum.AstrocastInterface
+	if astrocastClient != nil {
+		astrocastBackend := constellation.NewAstrocastBackend(astrocastClient)
+		retAstrocastIface = reticulum.NewAstrocastInterface(reticulum.NewBackendAdapter(
+			func(ctx2 context.Context, deviceID string, payload []byte) error {
+				_, err2 := astrocastBackend.Send(ctx2, deviceID, payload)
+				return err2
+			},
+			astrocastBackend.IsAvailable,
+			astrocastBackend.MaxPayload(),
+			astrocastBackend.CostPerMessage(),
+		))
+		retAstrocastIface.SetHandler(reticulumPacketHandler)
+		reticulumRelay.RegisterInterface(retAstrocastIface)
+	}
+
+	var retGlobalstarIface *reticulum.GlobalstarInterface
+	if globalstarClient != nil {
+		globalstarBackend := constellation.NewGlobalstarBackend(globalstarClient)
+		retGlobalstarIface = reticulum.NewGlobalstarInterface(reticulum.NewBackendAdapter(
+			func(ctx2 context.Context, deviceID string, payload []byte) error {
+				_, err2 := globalstarBackend.Send(ctx2, deviceID, payload)
+				return err2
+			},
+			globalstarBackend.IsAvailable,
+			globalstarBackend.MaxPayload(),
+			globalstarBackend.CostPerMessage(),
+		))
+		retGlobalstarIface.SetHandler(reticulumPacketHandler)
+		reticulumRelay.RegisterInterface(retGlobalstarIface)
+	}
+
+	// Tor as Reticulum interface (proxied via MQTT).
+	torOnion := os.Getenv("HUB_TOR_ONION")
+	if torOnion != "" {
+		retTorIface := reticulum.NewTorInterface(torOnion, mqttBridge)
+		retTorIface.SetHandler(reticulumPacketHandler)
+		reticulumRelay.RegisterInterface(retTorIface)
+	}
+
+	// WireGuard as Reticulum interface (proxied via MQTT).
+	if cfg.WGEnabled {
+		retWGIface := reticulum.NewWireGuardInterface(true, mqttBridge)
+		retWGIface.SetHandler(reticulumPacketHandler)
+		reticulumRelay.RegisterInterface(retWGIface)
+	}
+
+	// Start Reticulum MQTT interface + route expiry goroutine.
+	if msgBus.IsConnected() {
+		if err := retMQTTIface.Start(); err != nil {
+			slog.Error("reticulum: failed to start mqtt interface", "error", err)
+		} else {
+			slog.Info("reticulum: mqtt interface started", "topic", reticulum.ReticulumMQTTTopic)
+		}
+	}
+	go func() {
+		ticker := time.NewTicker(1 * time.Minute)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				reticulumRouter.ExpireStale()
+			}
+		}
+	}()
+
 	// MSVQ-SC decoder (for Android-compressed messages).
 	var msvqscDecoder *hubmsvqsc.Decoder
 	msvqscCBPath := os.Getenv("HUB_MSVQSC_CODEBOOK")
@@ -524,6 +640,17 @@ func main() {
 	gsHandler.SetKeyStore(keyStore)
 	gsHandler.SetDeadman(deadmanMonitor)
 	gsHandler.SetMSVQSC(msvqscDecoder)
+
+	// Wire Reticulum interfaces to webhook handlers for inbound packet detection.
+	if retIridiumIface != nil {
+		rbHandler.SetReticulumIface(retIridiumIface)
+	}
+	if retAstrocastIface != nil {
+		acHandler.SetReticulumIface(retAstrocastIface)
+	}
+	if retGlobalstarIface != nil {
+		gsHandler.SetReticulumIface(retGlobalstarIface)
+	}
 
 	r := chi.NewRouter()
 	r.Use(middleware.Recoverer)
@@ -842,12 +969,14 @@ func main() {
 		}
 	}
 
-	// Reticulum identity API
+	// Reticulum identity, routes, and relay API
 	if hubIdentity != nil {
 		retIdentityHandler := api.NewReticulumIdentityHandler(hubIdentity)
 		r.Get("/api/reticulum/identity", retIdentityHandler.GetIdentity)
 		retRoutesHandler := api.NewReticulumRoutesHandler(reticulumRouter)
 		r.Get("/api/reticulum/routes", retRoutesHandler.ListRoutes)
+		retRelayHandler := api.NewReticulumRelayHandler(reticulumRelay)
+		r.Get("/api/reticulum/relay", retRelayHandler.GetStatus)
 	}
 
 	// Tor .onion address discovery

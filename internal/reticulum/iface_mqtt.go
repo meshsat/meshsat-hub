@@ -9,8 +9,8 @@ import (
 
 // MQTTPublisher is the subset of bus.MessageBus needed by the MQTT interface.
 type MQTTPublisher interface {
-	Publish(topic string, payload []byte) error
-	Subscribe(topic string, handler func(topic string, payload []byte)) error
+	Publish(topic string, qos byte, retained bool, payload []byte) error
+	Subscribe(topic string, qos byte, handler func(topic string, payload []byte)) error
 	IsConnected() bool
 }
 
@@ -55,7 +55,7 @@ func (m *MQTTInterface) Send(_ context.Context, _ string, packet []byte) error {
 	if m.mqtt == nil {
 		return fmt.Errorf("mqtt: not configured")
 	}
-	return m.mqtt.Publish(ReticulumMQTTTopic, packet)
+	return m.mqtt.Publish(ReticulumMQTTTopic, 1, false, packet)
 }
 
 // IsAvailable returns true if the MQTT broker is connected.
@@ -76,7 +76,7 @@ func (m *MQTTInterface) Start() error {
 	if m.mqtt == nil {
 		return fmt.Errorf("mqtt: not configured")
 	}
-	return m.mqtt.Subscribe(ReticulumMQTTTopic, func(_ string, payload []byte) {
+	return m.mqtt.Subscribe(ReticulumMQTTTopic, 1, func(_ string, payload []byte) {
 		m.mu.RLock()
 		h := m.handler
 		m.mu.RUnlock()

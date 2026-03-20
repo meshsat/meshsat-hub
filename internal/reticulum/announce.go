@@ -230,6 +230,12 @@ func (a *Announce) EncryptionPublicKey() *ecdh.PublicKey {
 	return a.encPub
 }
 
+// UnmarshalAnnounce parses a full announce packet (header + payload).
+// This is an alias for UnmarshalAnnouncePacket for brevity.
+func UnmarshalAnnounce(raw []byte) (*Announce, error) {
+	return UnmarshalAnnouncePacket(raw)
+}
+
 // IncrementHop increments the hop count. Returns false if max hops exceeded.
 func (a *Announce) IncrementHop() bool {
 	if int(a.Hops) >= PathfinderM {

@@ -7,19 +7,25 @@ import (
 	"sync"
 )
 
+// ReticulumWGTopicPrefix is the MQTT topic prefix for WireGuard-connected peers.
+const ReticulumWGTopicPrefix = "meshsat/reticulum/wg/"
+
 // WireGuardInterface implements Interface for WireGuard tunnel transport.
-// Reticulum packets are carried over UDP through the WireGuard tunnel.
-// Currently a placeholder — full implementation requires a UDP listener
-// on the WireGuard interface that speaks Reticulum framing.
+// Reticulum packets are proxied via MQTT to peers connected through the
+// WireGuard VPN tunnel. Field devices with VPN access connect to the
+// MQTT broker directly and subscribe to meshsat/reticulum/wg/{destHash}.
 type WireGuardInterface struct {
 	mu        sync.RWMutex
 	handler   PacketHandler
 	available bool
+	mqtt      MQTTPublisher
 }
 
 // NewWireGuardInterface creates a WireGuard Reticulum transport interface.
-func NewWireGuardInterface(available bool) *WireGuardInterface {
-	return &WireGuardInterface{available: available}
+// mqtt is used to proxy Send via MQTT topics (since WireGuard-connected
+// devices reach the MQTT broker directly through the tunnel).
+func NewWireGuardInterface(available bool, mqtt MQTTPublisher) *WireGuardInterface {
+	return &WireGuardInterface{available: available, mqtt: mqtt}
 }
 
 // Name returns the interface type.
@@ -37,14 +43,18 @@ func (w *WireGuardInterface) MTU() int {
 	return MTU
 }
 
-// Send transmits a Reticulum packet via WireGuard. destID is the peer's WireGuard public key or IP.
-// TODO: Implement UDP send to peer's WireGuard endpoint.
+// Send transmits a Reticulum packet via WireGuard by publishing to an MQTT
+// topic that VPN-connected peers subscribe to. destID is the peer's destination hash.
 func (w *WireGuardInterface) Send(_ context.Context, destID string, packet []byte) error {
 	if !w.available {
 		return fmt.Errorf("wireguard: not available")
 	}
-	slog.Debug("reticulum: wireguard send (not yet implemented)", "dest", destID, "size", len(packet))
-	return fmt.Errorf("wireguard: send not yet implemented")
+	if w.mqtt == nil {
+		return fmt.Errorf("wireguard: no mqtt proxy configured")
+	}
+	topic := ReticulumWGTopicPrefix + destID
+	slog.Debug("reticulum: sending packet via wireguard/mqtt proxy", "dest", destID, "topic", topic, "size", len(packet))
+	return w.mqtt.Publish(topic, 1, false, packet)
 }
 
 // IsAvailable returns true if WireGuard is configured and running.

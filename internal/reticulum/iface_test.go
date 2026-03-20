@@ -39,13 +39,13 @@ type mockMQTT struct {
 	subHandler  func(string, []byte)
 }
 
-func (m *mockMQTT) Publish(topic string, payload []byte) error {
+func (m *mockMQTT) Publish(topic string, _ byte, _ bool, payload []byte) error {
 	m.published.Add(1)
 	m.lastTopic = topic
 	m.lastPayload = payload
 	return nil
 }
-func (m *mockMQTT) Subscribe(topic string, handler func(string, []byte)) error {
+func (m *mockMQTT) Subscribe(topic string, _ byte, handler func(string, []byte)) error {
 	m.subHandler = handler
 	return nil
 }
@@ -224,33 +224,33 @@ func TestMQTTInterface_Start_Receive(t *testing.T) {
 // --- Tor interface tests ---
 
 func TestTorInterface_Name(t *testing.T) {
-	iface := NewTorInterface("abc123.onion")
+	iface := NewTorInterface("abc123.onion", nil)
 	if iface.Name() != IfaceTor {
 		t.Errorf("name: got %s, want %s", iface.Name(), IfaceTor)
 	}
 }
 
 func TestTorInterface_Cost(t *testing.T) {
-	iface := NewTorInterface("")
+	iface := NewTorInterface("", nil)
 	if iface.Cost() != 0 {
 		t.Error("Tor should be free")
 	}
 }
 
 func TestTorInterface_IsAvailable(t *testing.T) {
-	iface := NewTorInterface("")
+	iface := NewTorInterface("", nil)
 	if iface.IsAvailable() {
 		t.Error("empty onion should not be available")
 	}
 
-	iface2 := NewTorInterface("abc.onion")
+	iface2 := NewTorInterface("abc.onion", nil)
 	if !iface2.IsAvailable() {
 		t.Error("should be available with onion address")
 	}
 }
 
 func TestTorInterface_OnReceive(t *testing.T) {
-	iface := NewTorInterface("test.onion")
+	iface := NewTorInterface("test.onion", nil)
 	var received []byte
 	iface.SetHandler(func(_ InterfaceType, raw []byte) {
 		received = raw
@@ -261,24 +261,44 @@ func TestTorInterface_OnReceive(t *testing.T) {
 	}
 }
 
+func TestTorInterface_Send(t *testing.T) {
+	mqtt := &mockMQTT{connected: true}
+	iface := NewTorInterface("test.onion", mqtt)
+	err := iface.Send(context.Background(), "abc123", []byte("pkt"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if mqtt.lastTopic != ReticulumTorTopicPrefix+"abc123" {
+		t.Errorf("topic: got %s", mqtt.lastTopic)
+	}
+}
+
+func TestTorInterface_SendNoMQTT(t *testing.T) {
+	iface := NewTorInterface("test.onion", nil)
+	err := iface.Send(context.Background(), "abc", []byte("x"))
+	if err == nil {
+		t.Error("expected error with no mqtt")
+	}
+}
+
 // --- WireGuard interface tests ---
 
 func TestWireGuardInterface_Name(t *testing.T) {
-	iface := NewWireGuardInterface(true)
+	iface := NewWireGuardInterface(true, nil)
 	if iface.Name() != IfaceWireGuard {
 		t.Errorf("name: got %s, want %s", iface.Name(), IfaceWireGuard)
 	}
 }
 
 func TestWireGuardInterface_Cost(t *testing.T) {
-	iface := NewWireGuardInterface(true)
+	iface := NewWireGuardInterface(true, nil)
 	if iface.Cost() != 0 {
 		t.Error("WireGuard should be free")
 	}
 }
 
 func TestWireGuardInterface_IsAvailable(t *testing.T) {
-	iface := NewWireGuardInterface(false)
+	iface := NewWireGuardInterface(false, nil)
 	if iface.IsAvailable() {
 		t.Error("should not be available")
 	}
@@ -288,8 +308,28 @@ func TestWireGuardInterface_IsAvailable(t *testing.T) {
 	}
 }
 
+func TestWireGuardInterface_Send(t *testing.T) {
+	mqtt := &mockMQTT{connected: true}
+	iface := NewWireGuardInterface(true, mqtt)
+	err := iface.Send(context.Background(), "dest123", []byte("pkt"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if mqtt.lastTopic != ReticulumWGTopicPrefix+"dest123" {
+		t.Errorf("topic: got %s", mqtt.lastTopic)
+	}
+}
+
+func TestWireGuardInterface_SendNoMQTT(t *testing.T) {
+	iface := NewWireGuardInterface(true, nil)
+	err := iface.Send(context.Background(), "dest", []byte("x"))
+	if err == nil {
+		t.Error("expected error with no mqtt")
+	}
+}
+
 func TestWireGuardInterface_OnReceive(t *testing.T) {
-	iface := NewWireGuardInterface(true)
+	iface := NewWireGuardInterface(true, nil)
 	var received []byte
 	iface.SetHandler(func(_ InterfaceType, raw []byte) {
 		received = raw

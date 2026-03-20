@@ -62,6 +62,11 @@ type RawMOMessage struct {
 	Longitude    float64 `json:"longitude,omitempty"`
 }
 
+// reticulumReceiver is the interface for injecting inbound Reticulum packets.
+type reticulumReceiver interface {
+	OnReceive(raw []byte)
+}
+
 // Handler handles Astrocast MO webhook POST requests.
 type Handler struct {
 	mqtt        bus.MessageBus
@@ -72,6 +77,7 @@ type Handler struct {
 	keyStore    *hubcrypto.KeyStore
 	deadman     *deadman.Monitor
 	msvqsc      *msvqsc.Decoder
+	retIface    reticulumReceiver
 }
 
 // NewHandler creates a new Astrocast webhook handler.
@@ -107,6 +113,11 @@ func (h *Handler) SetDeadman(dm *deadman.Monitor) {
 // SetMSVQSC attaches an MSVQ-SC decoder for Android-compressed messages.
 func (h *Handler) SetMSVQSC(d *msvqsc.Decoder) {
 	h.msvqsc = d
+}
+
+// SetReticulumIface attaches a Reticulum interface for forwarding raw packets.
+func (h *Handler) SetReticulumIface(iface reticulumReceiver) {
+	h.retIface = iface
 }
 
 func (h *Handler) publish(topic string, qos byte, retained bool, v any) {
@@ -181,6 +192,11 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			_ = json.NewEncoder(w).Encode(map[string]string{"status": "duplicate"})
 			return
 		}
+	}
+
+	// Forward to Reticulum relay if this could be a Reticulum packet.
+	if h.retIface != nil && len(rawBytes) >= 19 {
+		h.retIface.OnReceive(rawBytes)
 	}
 
 	rawB64 := base64.StdEncoding.EncodeToString(rawBytes)

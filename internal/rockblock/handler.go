@@ -70,6 +70,11 @@ type PositionMessage struct {
 }
 
 // Handler handles RockBLOCK/Ground Control webhook POST requests.
+// reticulumReceiver is the interface for injecting inbound Reticulum packets.
+type reticulumReceiver interface {
+	OnReceive(raw []byte)
+}
+
 type Handler struct {
 	mqtt        bus.MessageBus
 	secret      string
@@ -79,6 +84,7 @@ type Handler struct {
 	keyStore    *hubcrypto.KeyStore
 	deadman     *deadman.Monitor
 	msvqsc      *msvqsc.Decoder
+	retIface    reticulumReceiver
 	store       interface {
 		InsertMessage(ctx context.Context, tenantID string, m *store.Message) error
 	}
@@ -124,6 +130,11 @@ func (h *Handler) SetStore(s interface {
 	InsertMessage(ctx context.Context, tenantID string, m *store.Message) error
 }) {
 	h.store = s
+}
+
+// SetReticulumIface attaches a Reticulum interface for forwarding raw packets.
+func (h *Handler) SetReticulumIface(iface reticulumReceiver) {
+	h.retIface = iface
 }
 
 func (h *Handler) publish(topic string, qos byte, retained bool, v any) {
@@ -203,6 +214,12 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			_ = json.NewEncoder(w).Encode(map[string]string{"status": "duplicate"})
 			return
 		}
+	}
+
+	// Check if this is a Reticulum packet and forward to the relay.
+	// Reticulum packets have a minimum header size of 19 bytes (Type 1).
+	if h.retIface != nil && len(rawBytes) >= 19 {
+		h.retIface.OnReceive(rawBytes)
 	}
 
 	rawB64 := base64.StdEncoding.EncodeToString(rawBytes)
