@@ -174,6 +174,47 @@ export const reticulum = {
   routes: () => fetchJSON('/reticulum/routes'),
 }
 
+export const email = {
+  publicKey: () => fetchJSON('/email/keys/public'),
+  listContacts: () => fetchJSON('/email/keys'),
+  addContact: (data) => fetchJSON('/email/keys', { method: 'POST', body: JSON.stringify(data) }),
+  deleteContact: (addr) => fetchJSON(`/email/keys/${encodeURIComponent(addr)}`, { method: 'DELETE' }),
+  testSend: (data) => fetchJSON('/email/test', { method: 'POST', body: JSON.stringify(data) }),
+}
+
+export const wireguard = {
+  listPeers: () => fetchJSON('/wireguard/peers'),
+  createPeer: (data) => fetchJSON('/wireguard/peers', { method: 'POST', body: JSON.stringify(data) }),
+  getPeerConfig: (id) => fetchJSON(`/wireguard/peers/${id}/config`),
+  deletePeer: (id) => fetchJSON(`/wireguard/peers/${id}`, { method: 'DELETE' }),
+  getDeviceWG: (imei) => fetchJSON(`/devices/${imei}/wireguard`),
+}
+
+export const backup = {
+  exportData: () => fetchJSON('/backup/export'),
+  diff: (data) => fetchJSON('/backup/diff', { method: 'POST', body: JSON.stringify(data) }),
+  importData: (data) => fetchJSON('/backup/import', { method: 'POST', body: JSON.stringify(data) }),
+}
+
+export const codecs = {
+  list: () => fetchJSON('/codecs'),
+}
+
+export const tor = {
+  onion: () => fetchJSON('/tor/onion'),
+}
+
+export const ipougrs = {
+  status: () => fetchJSON('/ipougrs/status'),
+}
+
+export const geofences = {
+  list: (imei) => fetchJSON(`/devices/${imei}/geofences`),
+  create: (imei, data) => fetchJSON(`/devices/${imei}/geofences`, { method: 'POST', body: JSON.stringify(data) }),
+  delete: (imei, id) => fetchJSON(`/devices/${imei}/geofences/${id}`, { method: 'DELETE' }),
+}
+
 export const health = {
   check: () => fetch('/healthz').then(r => r.json()).catch(() => ({ status: 'error' })),
+  readyz: () => fetch('/readyz').then(r => r.json()).catch(() => ({ status: 'error' })),
 }

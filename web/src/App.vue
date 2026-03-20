@@ -24,8 +24,6 @@ const navGroups = [
     { to: '/', label: 'Dashboard' },
     { to: '/map', label: 'Map' },
     { to: '/devices', label: 'Devices' },
-    { to: '/device-config', label: 'Config' },
-    { to: '/device-keys', label: 'Keys' },
     { to: '/messages', label: 'Messages' },
   ]},
   { label: 'Safety', items: [
@@ -33,13 +31,18 @@ const navGroups = [
     { to: '/deadman', label: 'Dead Man' },
     { to: '/notifications', label: 'Notifications' },
   ]},
+  { label: 'Channels', items: [
+    { to: '/email', label: 'Email' },
+    { to: '/routing', label: 'Routing' },
+    { to: '/webhooks', label: 'Webhooks' },
+  ]},
   { label: 'Infrastructure', items: [
     { to: '/cluster', label: 'Cluster' },
     { to: '/network', label: 'Network' },
     { to: '/topology', label: 'Topology' },
-    { to: '/routing', label: 'Routing' },
-    { to: '/webhooks', label: 'Webhooks' },
     { to: '/ota', label: 'OTA' },
+    { to: '/backup', label: 'Backup' },
+    { to: '/settings', label: 'Settings' },
   ]},
 ]
 </script>

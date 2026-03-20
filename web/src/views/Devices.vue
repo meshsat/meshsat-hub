@@ -122,7 +122,9 @@ function formatLastSeen(d) {
                 {{ deviceStatus(d) }}
               </span>
             </td>
-            <td class="px-3 py-2 font-mono text-xs">{{ d.imei }}</td>
+            <td class="px-3 py-2 font-mono text-xs">
+              <router-link :to="`/devices/${d.imei}`" class="text-teal-400 hover:text-teal-300 hover:underline">{{ d.imei }}</router-link>
+            </td>
             <td class="px-3 py-2">{{ d.label }}</td>
             <td class="px-3 py-2 text-gray-400">{{ d.type }}</td>
             <td class="px-3 py-2 text-gray-400">{{ formatLastSeen(d) }}</td>

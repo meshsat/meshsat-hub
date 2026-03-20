@@ -1,125 +1,200 @@
 <script setup>
 import { ref, onMounted } from 'vue'
-import { health, constellations, mptcp as mptcpApi, devices, ratelimit } from '../api/client'
+import { health, constellations, mptcp as mptcpApi, tor, codecs, ipougrs, backup, reticulum } from '../api/client'
 
+const loading = ref(true)
 const hubHealth = ref(null)
 const readyz = ref(null)
-const backends = ref([])
+const backendList = ref([])
 const mptcpStatus = ref(null)
-const deviceCount = ref(0)
-const loading = ref(true)
+const torStatus = ref(null)
+const codecList = ref([])
+const ipougrsStatus = ref(null)
+const retIdentity = ref(null)
+const error = ref('')
+const exportLoading = ref(false)
+const exportResult = ref(null)
 
 onMounted(async () => {
-  const [h, r, c, m, d] = await Promise.all([
+  const results = await Promise.allSettled([
     health.check(),
-    fetch('/readyz').then(r => r.json()).catch(() => null),
-    constellations.list().catch(() => ({ backends: [] })),
-    mptcpApi.status().catch(() => null),
-    devices.list().catch(() => []),
+    health.readyz(),
+    constellations.list(),
+    mptcpApi.status(),
+    tor.onion(),
+    codecs.list(),
+    ipougrs.status(),
+    reticulum.identity(),
   ])
-  hubHealth.value = h
-  readyz.value = r
-  backends.value = c.backends || []
-  mptcpStatus.value = m
-  deviceCount.value = Array.isArray(d) ? d.length : 0
+
+  hubHealth.value = results[0].status === 'fulfilled' ? results[0].value : null
+  readyz.value = results[1].status === 'fulfilled' ? results[1].value : null
+  const cons = results[2].status === 'fulfilled' ? results[2].value : {}
+  backendList.value = cons.backends || []
+  mptcpStatus.value = results[3].status === 'fulfilled' ? results[3].value : null
+  torStatus.value = results[4].status === 'fulfilled' ? results[4].value : null
+  codecList.value = results[5].status === 'fulfilled' && Array.isArray(results[5].value) ? results[5].value : []
+  ipougrsStatus.value = results[6].status === 'fulfilled' ? results[6].value : null
+  retIdentity.value = results[7].status === 'fulfilled' ? results[7].value : null
   loading.value = false
 })
 
-function checkColor(v) {
-  return v === 'ok' || v === 'healthy' ? 'text-green-400' : 'text-red-400'
+async function exportBackup() {
+  exportLoading.value = true
+  error.value = ''
+  try {
+    const data = await backup.exportData()
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `meshsat-hub-backup-${new Date().toISOString().substring(0, 10)}.json`
+    a.click()
+    URL.revokeObjectURL(url)
+    exportResult.value = `Exported ${data.devices?.length || 0} devices, ${data.messages?.length || 0} messages`
+  } catch (e) {
+    error.value = e.message
+  } finally {
+    exportLoading.value = false
+  }
+}
+
+function statusDot(ok) {
+  return ok ? 'bg-emerald-400' : 'bg-red-400'
+}
+
+function statusText(ok) {
+  return ok ? 'text-emerald-400' : 'text-red-400'
 }
 </script>
 
 <template>
-  <div>
-    <h1 class="text-2xl font-bold mb-4">Settings</h1>
+  <div class="p-4 lg:p-6 max-w-6xl mx-auto">
+    <h1 class="text-2xl font-bold mb-6">Settings & System Info</h1>
 
-    <div v-if="loading" class="text-center text-gray-500 py-8">Loading...</div>
+    <div v-if="loading" class="text-center text-gray-500 py-16">Loading system status...</div>
 
     <template v-else>
-      <!-- System Status -->
-      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-        <div class="bg-gray-800 rounded-lg border border-gray-700 p-4">
-          <div class="text-gray-400 text-sm mb-1">Health</div>
-          <div class="text-lg font-bold" :class="checkColor(hubHealth?.status)">
-            {{ hubHealth?.status || 'unknown' }}
+      <!-- Health & Readiness -->
+      <div class="bg-gray-800 rounded-lg border border-gray-700 p-5 mb-6">
+        <h2 class="text-sm font-semibold text-gray-300 uppercase tracking-wider mb-4">System Health</h2>
+        <div class="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-4">
+          <div>
+            <span class="text-gray-400 text-xs">Liveness</span>
+            <p class="text-lg font-bold" :class="statusText(hubHealth?.status === 'ok')">{{ hubHealth?.status || '?' }}</p>
+          </div>
+          <div>
+            <span class="text-gray-400 text-xs">Readiness</span>
+            <p class="text-lg font-bold" :class="statusText(readyz?.status === 'ok')">{{ readyz?.status || '?' }}</p>
+          </div>
+          <div>
+            <span class="text-gray-400 text-xs">Constellations</span>
+            <p class="text-sm font-medium text-gray-300">{{ backendList.join(', ') || 'none' }}</p>
+          </div>
+          <div>
+            <span class="text-gray-400 text-xs">MPTCP</span>
+            <p class="text-sm font-medium" :class="statusText(mptcpStatus?.enabled)">
+              {{ mptcpStatus?.enabled ? mptcpStatus.strategy : 'disabled' }}
+            </p>
           </div>
         </div>
-        <div class="bg-gray-800 rounded-lg border border-gray-700 p-4">
-          <div class="text-gray-400 text-sm mb-1">Readiness</div>
-          <div class="text-lg font-bold" :class="checkColor(readyz?.status)">
-            {{ readyz?.status || 'unknown' }}
-          </div>
-        </div>
-        <div class="bg-gray-800 rounded-lg border border-gray-700 p-4">
-          <div class="text-gray-400 text-sm mb-1">Devices</div>
-          <div class="text-lg font-bold text-teal-400">{{ deviceCount }}</div>
-        </div>
-        <div class="bg-gray-800 rounded-lg border border-gray-700 p-4">
-          <div class="text-gray-400 text-sm mb-1">Constellations</div>
-          <div class="text-lg font-bold text-teal-400">{{ backends.join(', ') || 'none' }}</div>
-        </div>
-      </div>
-
-      <!-- Dependency Checks -->
-      <div v-if="readyz?.checks" class="bg-gray-800 rounded-lg p-5 mb-6">
-        <h2 class="text-sm font-semibold text-gray-300 uppercase tracking-wider mb-3">Dependency Checks</h2>
-        <div class="space-y-2">
-          <div v-for="(status, name) in readyz.checks" :key="name" class="flex items-center gap-3">
-            <div class="w-2 h-2 rounded-full" :class="status === 'ok' ? 'bg-green-400' : 'bg-red-400'"></div>
-            <span class="text-sm text-gray-300">{{ name }}</span>
-            <span class="text-xs" :class="checkColor(status)">{{ status }}</span>
+        <div v-if="readyz?.checks" class="border-t border-gray-700 pt-3">
+          <div class="flex flex-wrap gap-4">
+            <div v-for="(status, name) in readyz.checks" :key="name" class="flex items-center gap-2">
+              <span class="w-2 h-2 rounded-full" :class="statusDot(status === 'ok')"></span>
+              <span class="text-sm text-gray-300">{{ name }}</span>
+            </div>
           </div>
         </div>
       </div>
 
-      <!-- MPTCP Status -->
-      <div v-if="mptcpStatus" class="bg-gray-800 rounded-lg p-5 mb-6">
-        <h2 class="text-sm font-semibold text-gray-300 uppercase tracking-wider mb-3">MPTCP</h2>
-        <div class="grid grid-cols-3 gap-4 text-sm">
-          <div>
-            <span class="text-gray-400">Kernel:</span>
-            <span :class="mptcpStatus.available ? 'text-green-400' : 'text-gray-500'" class="ml-2">{{ mptcpStatus.available ? 'available' : 'not available' }}</span>
+      <!-- Network Identity & Services -->
+      <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-6">
+        <!-- Reticulum Identity -->
+        <div class="bg-gray-800 rounded-lg border border-gray-700 p-5">
+          <h2 class="text-sm font-semibold text-gray-300 uppercase tracking-wider mb-3">Reticulum Identity</h2>
+          <div v-if="retIdentity" class="space-y-2 text-sm">
+            <div>
+              <span class="text-gray-400">Dest Hash</span>
+              <p class="font-mono text-teal-400 text-xs break-all">{{ retIdentity.dest_hash }}</p>
+            </div>
+            <div>
+              <span class="text-gray-400">App Name</span>
+              <p class="text-gray-300">{{ retIdentity.app_name }}</p>
+            </div>
+            <div>
+              <span class="text-gray-400">Public Key</span>
+              <p class="font-mono text-[10px] text-gray-500 break-all">{{ retIdentity.public_key_hex }}</p>
+            </div>
           </div>
-          <div>
-            <span class="text-gray-400">Enabled:</span>
-            <span :class="mptcpStatus.enabled ? 'text-green-400' : 'text-gray-500'" class="ml-2">{{ mptcpStatus.enabled ? 'yes' : 'no' }}</span>
-          </div>
-          <div>
-            <span class="text-gray-400">Strategy:</span>
-            <span class="text-gray-300 ml-2">{{ mptcpStatus.strategy }}</span>
+          <p v-else class="text-gray-500 text-sm">Not loaded</p>
+        </div>
+
+        <!-- Tor & WireGuard -->
+        <div class="bg-gray-800 rounded-lg border border-gray-700 p-5">
+          <h2 class="text-sm font-semibold text-gray-300 uppercase tracking-wider mb-3">Network Services</h2>
+          <div class="space-y-3 text-sm">
+            <div class="flex items-center justify-between">
+              <div class="flex items-center gap-2">
+                <span class="w-2 h-2 rounded-full" :class="statusDot(torStatus?.available)"></span>
+                <span class="text-gray-300">Tor Hidden Service</span>
+              </div>
+              <span v-if="torStatus?.available" class="font-mono text-xs text-purple-400 truncate max-w-[200px]">
+                {{ torStatus.http_address }}
+              </span>
+              <span v-else class="text-gray-500 text-xs">not configured</span>
+            </div>
+            <div class="flex items-center justify-between">
+              <div class="flex items-center gap-2">
+                <span class="w-2 h-2 rounded-full" :class="statusDot(ipougrsStatus?.enabled)"></span>
+                <span class="text-gray-300">IPoUGRS Tunnel</span>
+              </div>
+              <span class="text-gray-500 text-xs">{{ ipougrsStatus?.enabled ? 'active' : 'disabled' }}</span>
+            </div>
           </div>
         </div>
       </div>
 
-      <!-- API Reference -->
+      <!-- Sensor Codecs -->
+      <div v-if="codecList.length > 0" class="bg-gray-800 rounded-lg border border-gray-700 p-5 mb-6">
+        <h2 class="text-sm font-semibold text-gray-300 uppercase tracking-wider mb-3">Sensor Payload Codecs</h2>
+        <div class="flex flex-wrap gap-2">
+          <span v-for="c in codecList" :key="c.name || c"
+                class="bg-gray-700 text-gray-300 text-xs px-2.5 py-1 rounded">
+            {{ c.name || c }}
+          </span>
+        </div>
+      </div>
+
+      <!-- Backup & Data -->
+      <div class="bg-gray-800 rounded-lg border border-gray-700 p-5 mb-6">
+        <h2 class="text-sm font-semibold text-gray-300 uppercase tracking-wider mb-3">Backup & Data</h2>
+        <div class="flex items-center gap-3">
+          <button @click="exportBackup" :disabled="exportLoading"
+            class="bg-teal-600 hover:bg-teal-500 disabled:bg-gray-600 text-white text-sm px-4 py-2 rounded">
+            {{ exportLoading ? 'Exporting...' : 'Export Backup' }}
+          </button>
+          <span v-if="exportResult" class="text-emerald-400 text-sm">{{ exportResult }}</span>
+        </div>
+        <div v-if="error" class="mt-2 text-red-400 text-sm">{{ error }}</div>
+      </div>
+
+      <!-- API Documentation -->
       <div class="bg-gray-800 rounded-lg border border-gray-700 p-5">
-        <h2 class="text-sm font-semibold text-gray-300 uppercase tracking-wider mb-3">API Reference</h2>
-        <div class="space-y-4 text-sm text-gray-400">
-          <div>
-            <h3 class="text-gray-300 font-medium mb-1">Devices & Config</h3>
-            <ul class="space-y-1">
-              <li><code class="text-gray-300">GET /api/devices</code> — Device registry</li>
-              <li><code class="text-gray-300">PUT /api/devices/{imei}/config</code> — Update config</li>
-            </ul>
-          </div>
-          <div>
-            <h3 class="text-gray-300 font-medium mb-1">Safety</h3>
-            <ul class="space-y-1">
-              <li><code class="text-gray-300">GET /api/escalation/chains</code> — Escalation chains</li>
-              <li><code class="text-gray-300">GET /api/alerts</code> — Active alerts</li>
-              <li><code class="text-gray-300">GET /api/deadman</code> — Dead man's switch</li>
-              <li><code class="text-gray-300">GET /api/notifications/prefs</code> — Notification preferences</li>
-            </ul>
-          </div>
-          <div>
-            <h3 class="text-gray-300 font-medium mb-1">Infrastructure</h3>
-            <ul class="space-y-1">
-              <li><code class="text-gray-300">GET /api/constellations</code> — Satellite backends</li>
-              <li><code class="text-gray-300">GET /api/mptcp/status</code> — MPTCP concentrator</li>
-              <li><code class="text-gray-300">GET /api/webhooks</code> — Outbound webhooks</li>
-              <li><code class="text-gray-300">GET /api/ota/targets</code> — OTA targets</li>
-            </ul>
+        <h2 class="text-sm font-semibold text-gray-300 uppercase tracking-wider mb-3">API Documentation</h2>
+        <div class="space-y-2 text-sm">
+          <a href="/api/docs" target="_blank"
+             class="inline-flex items-center gap-2 text-teal-400 hover:text-teal-300">
+            Swagger UI
+            <span class="text-xs text-gray-500">/api/docs</span>
+          </a>
+          <div class="flex gap-4">
+            <a href="/api/docs/swagger.json" target="_blank" class="text-gray-400 hover:text-gray-300 text-xs">
+              OpenAPI JSON
+            </a>
+            <a href="/api/docs/swagger.yaml" target="_blank" class="text-gray-400 hover:text-gray-300 text-xs">
+              OpenAPI YAML
+            </a>
           </div>
         </div>
       </div>
