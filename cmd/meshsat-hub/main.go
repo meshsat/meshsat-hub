@@ -35,6 +35,7 @@ import (
 	hubemail "github.com/cubeos-app/meshsat-hub/internal/email"
 	"github.com/cubeos-app/meshsat-hub/internal/escalation"
 	"github.com/cubeos-app/meshsat-hub/internal/fragment"
+	"github.com/cubeos-app/meshsat-hub/internal/geo"
 	"github.com/cubeos-app/meshsat-hub/internal/globalstar"
 	"github.com/cubeos-app/meshsat-hub/internal/hawkbit"
 	"github.com/cubeos-app/meshsat-hub/internal/health"
@@ -857,6 +858,13 @@ func main() {
 	torService := hubtor.NewService(torHostPath)
 	torHandler := hubtor.NewAPIHandler(torService)
 	r.Get("/api/tor/onion", torHandler.GetOnion)
+
+	// Geofence engine + API
+	geoEngine := geo.NewEngine()
+	geoHandler := api.NewGeofenceHandler(geoEngine)
+	r.Get("/api/geofences", geoHandler.ListFences)
+	r.Post("/api/geofences", geoHandler.CreateFence)
+	r.Delete("/api/geofences/{id}", geoHandler.DeleteFence)
 
 	// hawkBit OTA management (optional)
 	if cfg.HawkBitEnabled && cfg.HawkBitURL != "" {

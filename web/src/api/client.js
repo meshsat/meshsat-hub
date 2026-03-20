@@ -209,9 +209,9 @@ export const ipougrs = {
 }
 
 export const geofences = {
-  list: (imei) => fetchJSON(`/devices/${imei}/geofences`),
-  create: (imei, data) => fetchJSON(`/devices/${imei}/geofences`, { method: 'POST', body: JSON.stringify(data) }),
-  delete: (imei, id) => fetchJSON(`/devices/${imei}/geofences/${id}`, { method: 'DELETE' }),
+  list: () => fetchJSON('/geofences'),
+  create: (data) => fetchJSON('/geofences', { method: 'POST', body: JSON.stringify(data) }),
+  delete: (id) => fetchJSON(`/geofences/${id}`, { method: 'DELETE' }),
 }
 
 export const health = {

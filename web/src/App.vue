@@ -40,6 +40,7 @@ const navGroups = [
   { label: 'Safety', items: [
     { to: '/escalation', label: 'Escalation' },
     { to: '/deadman', label: 'Dead Man' },
+    { to: '/geofences', label: 'Geofences' },
     { to: '/notifications', label: 'Notifications' },
   ]},
   { label: 'Channels', items: [
