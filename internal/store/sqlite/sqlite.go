@@ -284,6 +284,12 @@ var postAlterMigrations = []string{
 		tenant_id TEXT NOT NULL DEFAULT 'default'
 	)`,
 	`CREATE INDEX IF NOT EXISTS idx_routes_tenant ON routes(tenant_id)`,
+	// System config (key-value store for hub identity, settings)
+	`CREATE TABLE IF NOT EXISTS system_config (
+		key TEXT PRIMARY KEY,
+		value TEXT NOT NULL DEFAULT '',
+		updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+	)`,
 }
 
 // --- Devices ---
@@ -1331,6 +1337,24 @@ func (d *DB) UpdateRoute(ctx context.Context, tenantID string, r *store.Route) e
 
 func (d *DB) DeleteRoute(ctx context.Context, tenantID string, id string) error {
 	_, err := d.db.ExecContext(ctx, "DELETE FROM routes WHERE id=? AND tenant_id=?", id, tenantID)
+	return err
+}
+
+// --- System Config ---
+
+func (d *DB) GetSystemConfig(ctx context.Context, key string) (string, error) {
+	var value string
+	err := d.db.QueryRowContext(ctx, "SELECT value FROM system_config WHERE key=?", key).Scan(&value)
+	if err != nil {
+		return "", err
+	}
+	return value, nil
+}
+
+func (d *DB) SetSystemConfig(ctx context.Context, key, value string) error {
+	_, err := d.db.ExecContext(ctx,
+		"INSERT INTO system_config (key, value, updated_at) VALUES (?, ?, datetime('now')) ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at",
+		key, value)
 	return err
 }
 

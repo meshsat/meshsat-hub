@@ -45,6 +45,7 @@ import (
 	"github.com/cubeos-app/meshsat-hub/internal/ntfy"
 	"github.com/cubeos-app/meshsat-hub/internal/position"
 	"github.com/cubeos-app/meshsat-hub/internal/ratelimit"
+	"github.com/cubeos-app/meshsat-hub/internal/reticulum"
 	"github.com/cubeos-app/meshsat-hub/internal/rock7"
 	"github.com/cubeos-app/meshsat-hub/internal/rockblock"
 	"github.com/cubeos-app/meshsat-hub/internal/routing"
@@ -444,6 +445,18 @@ func main() {
 		}
 	}
 
+	// Reticulum identity (Hub's network identity for routing).
+	hubIdentity, err := reticulum.NewHubIdentity(dataStore, cfg.ReticulumIdentityFile, cfg.ReticulumAppName)
+	if err != nil {
+		slog.Error("reticulum: failed to initialize identity", "error", err)
+	}
+	checker.AddProbe("reticulum_identity", func(_ context.Context) error {
+		if hubIdentity == nil || !hubIdentity.IsLoaded() {
+			return fmt.Errorf("reticulum identity not loaded")
+		}
+		return nil
+	})
+
 	// MSVQ-SC decoder (for Android-compressed messages).
 	var msvqscDecoder *hubmsvqsc.Decoder
 	msvqscCBPath := os.Getenv("HUB_MSVQSC_CODEBOOK")
@@ -778,6 +791,12 @@ func main() {
 
 			slog.Info("wireguard: peer management + auto-provisioning enabled", "url", cfg.WGURL)
 		}
+	}
+
+	// Reticulum identity API
+	if hubIdentity != nil {
+		retIdentityHandler := api.NewReticulumIdentityHandler(hubIdentity)
+		r.Get("/api/reticulum/identity", retIdentityHandler.GetIdentity)
 	}
 
 	// Tor .onion address discovery

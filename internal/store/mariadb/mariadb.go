@@ -308,6 +308,13 @@ var migrations = []string{
 		tenant_id VARCHAR(64) NOT NULL DEFAULT 'default',
 		INDEX idx_routes_tenant (tenant_id)
 	) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
+
+	// System config (key-value store for hub identity, settings)
+	`CREATE TABLE IF NOT EXISTS system_config (
+		` + "`key`" + ` VARCHAR(255) PRIMARY KEY,
+		value TEXT NOT NULL,
+		updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+	) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
 }
 
 // --- Devices ---
@@ -1202,6 +1209,24 @@ func (d *DB) UpdateRoute(ctx context.Context, tenantID string, r *store.Route) e
 
 func (d *DB) DeleteRoute(ctx context.Context, tenantID string, id string) error {
 	_, err := d.db.ExecContext(ctx, "DELETE FROM routes WHERE id=? AND tenant_id=?", id, tenantID)
+	return err
+}
+
+// --- System Config ---
+
+func (d *DB) GetSystemConfig(ctx context.Context, key string) (string, error) {
+	var value string
+	err := d.db.QueryRowContext(ctx, "SELECT value FROM system_config WHERE `key`=?", key).Scan(&value)
+	if err != nil {
+		return "", err
+	}
+	return value, nil
+}
+
+func (d *DB) SetSystemConfig(ctx context.Context, key, value string) error {
+	_, err := d.db.ExecContext(ctx,
+		"INSERT INTO system_config (`key`, value) VALUES (?, ?) ON DUPLICATE KEY UPDATE value=VALUES(value)",
+		key, value)
 	return err
 }
 

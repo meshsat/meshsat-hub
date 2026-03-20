@@ -117,6 +117,10 @@ type Store interface {
 	ListRoutes(ctx context.Context, tenantID string) ([]Route, error)
 	UpdateRoute(ctx context.Context, tenantID string, r *Route) error
 	DeleteRoute(ctx context.Context, tenantID string, id string) error
+
+	// System config (key-value settings, e.g. hub identity keys)
+	GetSystemConfig(ctx context.Context, key string) (string, error)
+	SetSystemConfig(ctx context.Context, key, value string) error
 }
 
 // Route defines a configurable message routing rule.

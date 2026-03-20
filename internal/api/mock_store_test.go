@@ -227,3 +227,7 @@ func (m *mockStore) GetRoute(context.Context, string, string) (*store.Route, err
 func (m *mockStore) ListRoutes(context.Context, string) ([]store.Route, error) { return nil, nil }
 func (m *mockStore) UpdateRoute(context.Context, string, *store.Route) error   { return nil }
 func (m *mockStore) DeleteRoute(context.Context, string, string) error         { return nil }
+
+// System config
+func (m *mockStore) GetSystemConfig(context.Context, string) (string, error) { return "", nil }
+func (m *mockStore) SetSystemConfig(context.Context, string, string) error   { return nil }

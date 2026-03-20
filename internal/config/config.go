@@ -109,6 +109,10 @@ type Config struct {
 	SMSFromNumber    string `yaml:"sms_from_number"`    // E.164 sender number
 	SMSWebhookSecret string `yaml:"sms_webhook_secret"` // HMAC secret for inbound webhook verification
 
+	// Reticulum identity
+	ReticulumIdentityFile string `yaml:"reticulum_identity_file"` // Path to persist Hub's Reticulum identity keypair (default: data/reticulum_identity.json)
+	ReticulumAppName      string `yaml:"reticulum_app_name"`      // Reticulum destination app name (default: meshsat.hub)
+
 	// WireGuard (wg-easy)
 	WGEnabled  bool   `yaml:"wg_enabled"`
 	WGURL      string `yaml:"wg_url"`      // wg-easy base URL (e.g., http://wg-easy:51821)
@@ -129,6 +133,8 @@ func Defaults() Config {
 		RateLimitBurst:        10,
 		RateLimitRefillPerMin: 1.0,
 		RateLimitDailyCap:     100,
+		ReticulumIdentityFile: "data/reticulum_identity.json",
+		ReticulumAppName:      "meshsat.hub",
 	}
 }
 
@@ -380,6 +386,14 @@ func Load() (Config, error) {
 	}
 	if v := os.Getenv("HUB_SMS_WEBHOOK_SECRET"); v != "" {
 		cfg.SMSWebhookSecret = v
+	}
+
+	// Reticulum overrides
+	if v := os.Getenv("HUB_RETICULUM_IDENTITY_FILE"); v != "" {
+		cfg.ReticulumIdentityFile = v
+	}
+	if v := os.Getenv("HUB_RETICULUM_APP_NAME"); v != "" {
+		cfg.ReticulumAppName = v
 	}
 
 	// WireGuard overrides
