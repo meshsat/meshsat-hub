@@ -289,4 +289,225 @@ test.describe('API integration tests', () => {
     expect(res.headers()['referrer-policy']).toBeDefined()
     expect(res.headers()['permissions-policy']).toBeDefined()
   })
+
+  test('GET /api/routes returns array', async ({ request }) => {
+    const res = await request.get('/api/routes', { headers })
+    expect(res.ok()).toBeTruthy()
+    const body = await res.json()
+    expect(Array.isArray(body)).toBeTruthy()
+  })
+
+  test('GET /api/codecs returns decoders', async ({ request }) => {
+    const res = await request.get('/api/codecs', { headers })
+    expect(res.ok()).toBeTruthy()
+    const body = await res.json()
+    expect(Array.isArray(body)).toBeTruthy()
+    expect(body.length).toBeGreaterThan(0)
+  })
+
+  test('GET /api/reticulum/identity returns dest hash', async ({ request }) => {
+    const res = await request.get('/api/reticulum/identity', { headers })
+    expect(res.ok()).toBeTruthy()
+    const body = await res.json()
+    expect(body.dest_hash).toBeDefined()
+    expect(body.dest_hash.length).toBe(32) // 16 bytes hex
+    expect(body.public_key_hex).toBeDefined()
+    expect(body.app_name).toBe('meshsat.hub')
+  })
+
+  test('GET /api/reticulum/routes returns routing table', async ({ request }) => {
+    const res = await request.get('/api/reticulum/routes', { headers })
+    expect(res.ok()).toBeTruthy()
+    const body = await res.json()
+    expect(body.count).toBeDefined()
+    expect(Array.isArray(body.routes)).toBeTruthy()
+  })
+
+  test('GET /api/tor/onion returns availability', async ({ request }) => {
+    const res = await request.get('/api/tor/onion', { headers })
+    expect(res.ok()).toBeTruthy()
+    const body = await res.json()
+    expect(body.available).toBeDefined()
+  })
+
+  test('GET /api/backup/export returns backup', async ({ request }) => {
+    const res = await request.get('/api/backup/export', { headers })
+    expect(res.ok()).toBeTruthy()
+    const body = await res.json()
+    expect(body.version).toBeDefined()
+    expect(body.devices).toBeDefined()
+  })
+
+  test('routing rule CRUD via API', async ({ request }) => {
+    // Create
+    const createRes = await request.post('/api/routes', {
+      headers,
+      data: { name: 'e2e-test-route', source_type: '*', destination_type: 'mqtt', filter: '', enabled: true }
+    })
+    expect(createRes.ok()).toBeTruthy()
+    const created = await createRes.json()
+    expect(created.id).toBeDefined()
+
+    // Read
+    const getRes = await request.get(`/api/routes/${created.id}`, { headers })
+    expect(getRes.ok()).toBeTruthy()
+    const got = await getRes.json()
+    expect(got.name).toBe('e2e-test-route')
+
+    // Delete
+    const delRes = await request.delete(`/api/routes/${created.id}`, { headers })
+    expect(delRes.ok()).toBeTruthy()
+  })
+
+  test('webhook CRUD via API', async ({ request }) => {
+    // Create
+    const createRes = await request.post('/api/webhooks', {
+      headers,
+      data: { url: 'https://e2e-test.example.com/hook', events: ['mo'], enabled: true }
+    })
+    expect(createRes.ok()).toBeTruthy()
+    const created = await createRes.json()
+    expect(created.id).toBeDefined()
+
+    // List
+    const listRes = await request.get('/api/webhooks', { headers })
+    expect(listRes.ok()).toBeTruthy()
+    const list = await listRes.json()
+    expect(list.some(w => w.id === created.id)).toBeTruthy()
+
+    // Delete
+    const delRes = await request.delete(`/api/webhooks/${created.id}`, { headers })
+    expect(delRes.ok()).toBeTruthy()
+  })
+})
+
+test.describe('Untested view interactions', () => {
+  test.beforeEach(async ({ page }) => {
+    await page.addInitScript((token) => {
+      localStorage.setItem('auth_token', token)
+      localStorage.setItem('auth_user', JSON.stringify({
+        id: 'token-user',
+        name: 'API Token',
+        roles: ['admin'],
+        tenant_id: 'default',
+      }))
+    }, AUTH_TOKEN)
+  })
+
+  test('messages page shows send forms', async ({ page }) => {
+    await page.goto('/#/messages')
+    await expect(page.locator('h1:has-text("Messages")')).toBeVisible()
+    // MT send section should be visible
+    await expect(page.locator('text=Send MT')).toBeVisible()
+    // SMS send section should be visible
+    await expect(page.locator('text=Send SMS')).toBeVisible()
+  })
+
+  test('routing page loads with routes table', async ({ page }) => {
+    await page.goto('/#/routing')
+    await expect(page.locator('h1:has-text("Routing")')).toBeVisible()
+    // Should show route table or empty state
+    await expect(page.locator('th:has-text("Name")').or(page.locator('text=No routes'))).toBeVisible({ timeout: 10000 })
+  })
+
+  test('routing page form toggles', async ({ page }) => {
+    await page.goto('/#/routing')
+    await page.getByRole('button', { name: '+ New Route' }).click()
+    await expect(page.locator('input[placeholder="Route name"]')).toBeVisible()
+    // Source and destination selects should appear
+    await expect(page.locator('select').first()).toBeVisible()
+    await page.getByRole('button', { name: 'Cancel' }).first().click()
+    await expect(page.locator('input[placeholder="Route name"]')).not.toBeVisible()
+  })
+
+  test('routing test panel', async ({ page }) => {
+    await page.goto('/#/routing')
+    await page.getByRole('button', { name: 'Test' }).first().click()
+    await expect(page.locator('text=Test Message Routing')).toBeVisible()
+  })
+
+  test('topology page loads with identity', async ({ page }) => {
+    await page.goto('/#/topology')
+    await expect(page.locator('h1:has-text("Reticulum Topology")')).toBeVisible()
+    await expect(page.locator('text=Hub Identity')).toBeVisible()
+    // Should show dest hash from live API
+    await expect(page.locator('text=Dest Hash')).toBeVisible({ timeout: 10000 })
+    await expect(page.locator('text=Known Nodes')).toBeVisible()
+    await expect(page.locator('text=Routing Table')).toBeVisible()
+  })
+
+  test('cluster page loads', async ({ page }) => {
+    await page.goto('/#/cluster')
+    await expect(page.locator('h1:has-text("Cluster")')).toBeVisible()
+  })
+
+  test('users page loads with form toggle', async ({ page }) => {
+    await page.goto('/#/users')
+    await expect(page.locator('h1:has-text("Users")')).toBeVisible()
+    await page.getByRole('button', { name: '+ New User' }).click()
+    await expect(page.locator('input[type="email"]')).toBeVisible()
+    await page.getByRole('button', { name: 'Cancel' }).first().click()
+  })
+
+  test('device config page shows version history', async ({ page }) => {
+    await page.goto('/#/device-config')
+    await expect(page.locator('h1:has-text("Device Configuration")')).toBeVisible()
+    // Should have device selector
+    await expect(page.locator('select').first()).toBeVisible()
+  })
+
+  test('audit page verify chain button', async ({ page }) => {
+    await page.goto('/#/audit')
+    await expect(page.locator('h1:has-text("Audit")')).toBeVisible()
+    const verifyBtn = page.getByRole('button', { name: 'Verify Chain' })
+    if (await verifyBtn.isVisible()) {
+      await verifyBtn.click()
+      // Should show verification result (valid or empty chain)
+      await expect(page.locator('text=valid').or(page.locator('text=empty')).or(page.locator('text=verified'))).toBeVisible({ timeout: 10000 })
+    }
+  })
+
+  test('API keys create and revoke flow', async ({ page }) => {
+    await page.goto('/#/api-keys')
+    await expect(page.locator('h1:has-text("API Keys")')).toBeVisible()
+
+    // Open create form
+    await page.getByRole('button', { name: '+ New Key' }).click()
+    await expect(page.locator('input[placeholder="Key label"]')).toBeVisible()
+
+    // Fill and create
+    const keyLabel = `e2e-test-${Date.now()}`
+    await page.fill('input[placeholder="Key label"]', keyLabel)
+    await page.getByRole('button', { name: 'Create' }).click()
+
+    // Should show the created key (shown once)
+    await expect(page.locator('text=meshsat_').first()).toBeVisible({ timeout: 5000 })
+
+    // Close modal/dismiss
+    const dismissBtn = page.getByRole('button', { name: 'Done' }).or(page.getByRole('button', { name: 'Close' }))
+    if (await dismissBtn.first().isVisible()) {
+      await dismissBtn.first().click()
+    }
+
+    // Key should appear in list
+    await expect(page.locator(`text=${keyLabel}`)).toBeVisible({ timeout: 5000 })
+
+    // Revoke it
+    const row = page.locator(`tr:has-text("${keyLabel}")`)
+    await row.locator('button:has-text("Revoke")').click()
+    // Confirm dialog if present
+    page.on('dialog', dialog => dialog.accept())
+    await row.locator('button:has-text("Revoke")').click()
+    await expect(page.locator(`text=${keyLabel}`)).not.toBeVisible({ timeout: 5000 })
+  })
+
+  test('all nav links include new pages', async ({ page }) => {
+    await page.goto('/#/')
+    // Check that topology link is present (newly added)
+    await expect(page.locator('a[href="#/topology"]').first()).toBeAttached()
+    // Check routing link
+    await expect(page.locator('a[href="#/routing"]').first()).toBeAttached()
+    // Check users link
+    await expect(page.locator('a[href="#/users"]').first()).toBeAttached()
+  })
 })
