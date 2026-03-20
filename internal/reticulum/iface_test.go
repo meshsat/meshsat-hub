@@ -300,6 +300,94 @@ func TestWireGuardInterface_OnReceive(t *testing.T) {
 	}
 }
 
+// --- Astrocast interface tests ---
+
+func TestAstrocastInterface_Name(t *testing.T) {
+	iface := NewAstrocastInterface(nil)
+	if iface.Name() != IfaceAstrocast {
+		t.Errorf("name: got %s, want %s", iface.Name(), IfaceAstrocast)
+	}
+}
+
+func TestAstrocastInterface_Send(t *testing.T) {
+	sender := &mockSatSender{available: true, maxPL: 160, cost: 0.01}
+	iface := NewAstrocastInterface(sender)
+
+	err := iface.Send(context.Background(), "device-1", []byte("hello"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sender.sent.Load() != 1 {
+		t.Error("expected 1 send")
+	}
+}
+
+func TestAstrocastInterface_MTUExceeded(t *testing.T) {
+	sender := &mockSatSender{available: true, maxPL: 160, cost: 0.01}
+	iface := NewAstrocastInterface(sender)
+
+	err := iface.Send(context.Background(), "dev", make([]byte, 200))
+	if err == nil {
+		t.Error("expected MTU error")
+	}
+}
+
+func TestAstrocastInterface_OnReceive(t *testing.T) {
+	iface := NewAstrocastInterface(nil)
+	var received []byte
+	iface.SetHandler(func(_ InterfaceType, raw []byte) { received = raw })
+	iface.OnReceive([]byte("astro-pkt"))
+	if string(received) != "astro-pkt" {
+		t.Errorf("received: got %q", received)
+	}
+}
+
+// --- Globalstar interface tests ---
+
+func TestGlobalstarInterface_Name(t *testing.T) {
+	iface := NewGlobalstarInterface(nil)
+	if iface.Name() != IfaceGlobalstar {
+		t.Errorf("name: got %s, want %s", iface.Name(), IfaceGlobalstar)
+	}
+}
+
+func TestGlobalstarInterface_MTU(t *testing.T) {
+	iface := NewGlobalstarInterface(nil)
+	if iface.MTU() != 128 {
+		t.Errorf("MTU: got %d, want 128", iface.MTU())
+	}
+}
+
+func TestGlobalstarInterface_Send(t *testing.T) {
+	sender := &mockSatSender{available: true, maxPL: 128, cost: 0.02}
+	iface := NewGlobalstarInterface(sender)
+
+	err := iface.Send(context.Background(), "device-2", make([]byte, 100))
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestGlobalstarInterface_MTUExceeded(t *testing.T) {
+	sender := &mockSatSender{available: true, maxPL: 128, cost: 0.02}
+	iface := NewGlobalstarInterface(sender)
+
+	err := iface.Send(context.Background(), "dev", make([]byte, 200))
+	if err == nil {
+		t.Error("expected MTU error")
+	}
+}
+
+func TestGlobalstarInterface_OnReceive(t *testing.T) {
+	iface := NewGlobalstarInterface(nil)
+	var received []byte
+	iface.SetHandler(func(_ InterfaceType, raw []byte) { received = raw })
+	iface.OnReceive([]byte("gs-pkt"))
+	if string(received) != "gs-pkt" {
+		t.Errorf("received: got %q", received)
+	}
+}
+
 // --- Interface contract tests ---
 
 func TestAllInterfaces_ImplementInterface(t *testing.T) {
@@ -308,4 +396,6 @@ func TestAllInterfaces_ImplementInterface(t *testing.T) {
 	var _ Interface = (*MQTTInterface)(nil)
 	var _ Interface = (*TorInterface)(nil)
 	var _ Interface = (*WireGuardInterface)(nil)
+	var _ Interface = (*AstrocastInterface)(nil)
+	var _ Interface = (*GlobalstarInterface)(nil)
 }
