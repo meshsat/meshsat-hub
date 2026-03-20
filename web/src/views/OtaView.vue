@@ -107,7 +107,7 @@ function statusColor(s) {
 
 <template>
   <div>
-    <h1 class="text-xl font-bold mb-4">OTA Updates</h1>
+    <h1 class="text-2xl font-bold mb-4">OTA Updates</h1>
 
     <div v-if="error" class="bg-red-900/50 border border-red-700 text-red-200 px-4 py-3 rounded mb-4">{{ error }}</div>
 
@@ -117,7 +117,7 @@ function statusColor(s) {
         <h2 class="text-lg font-semibold">Targets</h2>
         <div class="flex gap-2">
           <button @click="showRolloutForm = !showRolloutForm"
-            class="bg-purple-700 hover:bg-purple-600 text-white px-3 py-1 rounded text-sm transition-colors">
+            class="bg-teal-600 hover:bg-teal-500 text-white px-3 py-1 rounded text-sm transition-colors">
             {{ showRolloutForm ? 'Cancel' : '+ Rollout' }}
           </button>
           <button @click="showTargetForm = !showTargetForm"
@@ -165,7 +165,7 @@ function statusColor(s) {
         </div>
         <div class="flex justify-end">
           <button @click="createRollout"
-            class="bg-purple-700 hover:bg-purple-600 text-white px-4 py-2 rounded text-sm transition-colors">Create Rollout</button>
+            class="bg-teal-600 hover:bg-teal-500 text-white px-4 py-2 rounded text-sm transition-colors">Create Rollout</button>
         </div>
       </div>
 

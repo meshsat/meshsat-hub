@@ -179,7 +179,7 @@ function destBadgeClass(type) {
 <template>
   <div>
     <div class="flex items-center justify-between mb-4">
-      <h1 class="text-xl font-bold">Routing Rules</h1>
+      <h1 class="text-2xl font-bold mb-4">Routing Rules</h1>
       <div class="flex gap-2">
         <button @click="showTest = !showTest"
           class="bg-gray-700 hover:bg-gray-600 text-gray-300 px-3 py-2 rounded font-medium transition-colors text-sm">

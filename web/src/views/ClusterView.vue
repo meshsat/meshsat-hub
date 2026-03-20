@@ -82,7 +82,7 @@ function formatBytes(n) {
 
 <template>
   <div>
-    <h1 class="text-xl font-bold mb-4">Cluster Health</h1>
+    <h1 class="text-2xl font-bold mb-4">Cluster Health</h1>
 
     <div v-if="error" class="bg-red-900/50 border border-red-700 text-red-200 px-4 py-3 rounded mb-4">{{ error }}</div>
     <div v-if="actionResult" class="bg-green-900/50 border border-green-700 text-green-200 px-4 py-3 rounded mb-4">
@@ -92,18 +92,18 @@ function formatBytes(n) {
 
     <!-- Cluster overview cards -->
     <div v-if="clusterStatus" class="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
-      <div class="bg-gray-800 rounded-lg p-4">
+      <div class="bg-gray-800 rounded-lg border border-gray-700 p-4">
         <div class="text-gray-400 text-sm mb-1">Cluster Health</div>
         <div class="text-2xl font-bold" :class="clusterStatus.healthy ? 'text-green-400' : 'text-red-400'">
           {{ clusterStatus.healthy ? 'Healthy' : 'Degraded' }}
         </div>
       </div>
-      <div class="bg-gray-800 rounded-lg p-4">
+      <div class="bg-gray-800 rounded-lg border border-gray-700 p-4">
         <div class="text-gray-400 text-sm mb-1">Nodes</div>
         <div class="text-2xl font-bold text-teal-400">{{ clusterStatus.node_count }}</div>
         <div class="text-xs text-gray-500">Quorum: {{ clusterStatus.quorum_size }}</div>
       </div>
-      <div class="bg-gray-800 rounded-lg p-4">
+      <div class="bg-gray-800 rounded-lg border border-gray-700 p-4">
         <div class="text-gray-400 text-sm mb-1">Last Check</div>
         <div class="text-sm text-gray-300">{{ formatTimeUTC(clusterStatus.checked_at) }}</div>
       </div>
@@ -205,7 +205,7 @@ function formatBytes(n) {
     <!-- Remediation actions -->
     <div v-if="actions.length > 0">
       <h2 class="text-lg font-semibold mb-3">Remediation Actions</h2>
-      <div class="bg-gray-800 rounded-lg p-4">
+      <div class="bg-gray-800 rounded-lg border border-gray-700 p-4">
         <p class="text-xs text-gray-500 mb-3">Actions execute on the local node only. Use with caution.</p>
         <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
           <button v-for="action in actions" :key="action.id"

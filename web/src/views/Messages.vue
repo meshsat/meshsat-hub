@@ -92,7 +92,7 @@ function formatTime(ts) {
 }
 
 function dirClass(dir) {
-  return dir === 'mo' ? 'text-teal-400' : 'text-purple-400'
+  return dir === 'mo' ? 'text-emerald-400' : 'text-sky-400'
 }
 
 function statusClass(status) {
@@ -104,7 +104,7 @@ function statusClass(status) {
 
 <template>
   <div>
-    <h1 class="text-xl font-bold mb-4">Messages</h1>
+    <h1 class="text-2xl font-bold mb-4">Messages</h1>
 
     <div v-if="error" class="bg-red-900/50 border border-red-700 text-red-200 px-4 py-3 rounded mb-4">
       {{ error }}
@@ -126,7 +126,7 @@ function statusClass(status) {
           @keyup.enter="sendMessage" :disabled="sending"
           class="bg-gray-700 border border-gray-600 px-3 py-2 rounded text-gray-100 placeholder-gray-500 focus:outline-none focus:border-teal-400 flex-1" />
         <button @click="sendMessage" :disabled="sending || !sendText || !sendImei"
-          class="bg-purple-600 hover:bg-purple-500 disabled:bg-gray-600 text-white px-4 py-2 rounded font-medium transition-colors whitespace-nowrap">
+          class="bg-teal-600 hover:bg-teal-500 disabled:bg-gray-600 text-white px-4 py-2 rounded font-medium transition-colors whitespace-nowrap">
           {{ sending ? 'Sending...' : 'Send MT' }}
         </button>
       </div>
@@ -195,8 +195,8 @@ function statusClass(status) {
           <tr v-for="m in messageList" :key="m.id" class="border-b border-gray-800 hover:bg-gray-800/50">
             <td class="px-3 py-2 text-gray-400 whitespace-nowrap">{{ formatTime(m.created_at) }}</td>
             <td class="px-3 py-2">
-              <span :class="dirClass(m.direction)" class="font-semibold text-xs px-1.5 py-0.5 rounded"
-                :style="{ background: m.direction === 'mo' ? 'rgba(34,211,238,0.1)' : 'rgba(167,139,250,0.1)' }">
+              <span :class="[dirClass(m.direction), m.direction === 'mo' ? 'bg-emerald-900/30' : 'bg-sky-900/30']"
+                class="font-semibold text-xs px-1.5 py-0.5 rounded">
                 {{ m.direction?.toUpperCase() }}
               </span>
             </td>

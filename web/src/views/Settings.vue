@@ -32,30 +32,30 @@ function checkColor(v) {
 
 <template>
   <div>
-    <h1 class="text-xl font-bold mb-4">Settings</h1>
+    <h1 class="text-2xl font-bold mb-4">Settings</h1>
 
     <div v-if="loading" class="text-center text-gray-500 py-8">Loading...</div>
 
     <template v-else>
       <!-- System Status -->
       <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-        <div class="bg-gray-800 rounded-lg p-4">
+        <div class="bg-gray-800 rounded-lg border border-gray-700 p-4">
           <div class="text-gray-400 text-sm mb-1">Health</div>
           <div class="text-lg font-bold" :class="checkColor(hubHealth?.status)">
             {{ hubHealth?.status || 'unknown' }}
           </div>
         </div>
-        <div class="bg-gray-800 rounded-lg p-4">
+        <div class="bg-gray-800 rounded-lg border border-gray-700 p-4">
           <div class="text-gray-400 text-sm mb-1">Readiness</div>
           <div class="text-lg font-bold" :class="checkColor(readyz?.status)">
             {{ readyz?.status || 'unknown' }}
           </div>
         </div>
-        <div class="bg-gray-800 rounded-lg p-4">
+        <div class="bg-gray-800 rounded-lg border border-gray-700 p-4">
           <div class="text-gray-400 text-sm mb-1">Devices</div>
           <div class="text-lg font-bold text-teal-400">{{ deviceCount }}</div>
         </div>
-        <div class="bg-gray-800 rounded-lg p-4">
+        <div class="bg-gray-800 rounded-lg border border-gray-700 p-4">
           <div class="text-gray-400 text-sm mb-1">Constellations</div>
           <div class="text-lg font-bold text-teal-400">{{ backends.join(', ') || 'none' }}</div>
         </div>
@@ -63,7 +63,7 @@ function checkColor(v) {
 
       <!-- Dependency Checks -->
       <div v-if="readyz?.checks" class="bg-gray-800 rounded-lg p-5 mb-6">
-        <h2 class="text-lg font-semibold mb-3">Dependency Checks</h2>
+        <h2 class="text-sm font-semibold text-gray-300 uppercase tracking-wider mb-3">Dependency Checks</h2>
         <div class="space-y-2">
           <div v-for="(status, name) in readyz.checks" :key="name" class="flex items-center gap-3">
             <div class="w-2 h-2 rounded-full" :class="status === 'ok' ? 'bg-green-400' : 'bg-red-400'"></div>
@@ -75,7 +75,7 @@ function checkColor(v) {
 
       <!-- MPTCP Status -->
       <div v-if="mptcpStatus" class="bg-gray-800 rounded-lg p-5 mb-6">
-        <h2 class="text-lg font-semibold mb-3">MPTCP</h2>
+        <h2 class="text-sm font-semibold text-gray-300 uppercase tracking-wider mb-3">MPTCP</h2>
         <div class="grid grid-cols-3 gap-4 text-sm">
           <div>
             <span class="text-gray-400">Kernel:</span>
@@ -93,8 +93,8 @@ function checkColor(v) {
       </div>
 
       <!-- API Reference -->
-      <div class="bg-gray-800 rounded-lg p-5">
-        <h2 class="text-lg font-semibold mb-3">API Reference</h2>
+      <div class="bg-gray-800 rounded-lg border border-gray-700 p-5">
+        <h2 class="text-sm font-semibold text-gray-300 uppercase tracking-wider mb-3">API Reference</h2>
         <div class="space-y-4 text-sm text-gray-400">
           <div>
             <h3 class="text-gray-300 font-medium mb-1">Devices & Config</h3>

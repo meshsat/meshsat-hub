@@ -17,7 +17,7 @@ onMounted(async () => {
   }).addTo(map)
 
   await refreshPositions()
-  refreshInterval = setInterval(refreshPositions, 30000) // refresh every 30s
+  refreshInterval = setInterval(refreshPositions, 30000)
 })
 
 onUnmounted(() => {
@@ -60,8 +60,8 @@ async function refreshPositions() {
 </script>
 
 <template>
-  <div>
-    <h1 style="font-size: 1.25rem; font-weight: bold; margin-bottom: 0.5rem;">Position Map</h1>
-    <div ref="mapContainer" style="height: calc(100vh - 120px); border-radius: 8px; overflow: hidden;"></div>
+  <div class="p-4 lg:p-6">
+    <h1 class="text-2xl font-bold mb-4">Position Map</h1>
+    <div ref="mapContainer" class="rounded-lg overflow-hidden" style="height: calc(100vh - 140px);"></div>
   </div>
 </template>

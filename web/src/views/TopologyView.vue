@@ -111,7 +111,7 @@ function timeSince(iso) {
           <p class="text-gray-400 text-sm">Paid Paths</p>
         </div>
         <div class="bg-gray-800 rounded-lg border border-gray-700 p-4 text-center">
-          <p class="text-3xl font-bold text-blue-400">
+          <p class="text-3xl font-bold text-teal-400">
             {{ new Set(routeData.routes.map(r => r.interface)).size }}
           </p>
           <p class="text-gray-400 text-sm">Active Interfaces</p>
@@ -122,7 +122,7 @@ function timeSince(iso) {
       <div class="bg-gray-800 rounded-lg border border-gray-700 overflow-hidden">
         <div class="px-4 py-3 border-b border-gray-700 flex items-center justify-between">
           <h2 class="text-lg font-semibold">Routing Table</h2>
-          <button @click="loadData" class="text-sm text-blue-400 hover:text-blue-300">Refresh</button>
+          <button @click="loadData" class="text-sm text-teal-400 hover:text-teal-300">Refresh</button>
         </div>
 
         <div v-if="routeData.routes.length === 0" class="p-8 text-center text-gray-500">

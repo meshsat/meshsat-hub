@@ -76,7 +76,7 @@ function formatBytes(bytes) {
 
 <template>
   <div>
-    <h1 class="text-xl font-bold mb-4">Network</h1>
+    <h1 class="text-2xl font-bold mb-4">Network</h1>
 
     <div v-if="error" class="bg-red-900/50 border border-red-700 text-red-200 px-4 py-3 rounded mb-4">{{ error }}</div>
 

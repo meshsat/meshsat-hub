@@ -33,64 +33,73 @@ async function verifyChain() {
     verifying.value = false
   }
 }
+
+function actionColor(action) {
+  if (action === 'message_received') return 'text-emerald-400'
+  if (action === 'message_sent') return 'text-sky-400'
+  return 'text-gray-300'
+}
 </script>
 
 <template>
-  <div>
-    <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 1rem;">
-      <h1 style="font-size: 1.5rem; font-weight: bold;">Audit Log</h1>
-      <div style="display: flex; gap: 0.5rem;">
+  <div class="p-4 lg:p-6 max-w-7xl mx-auto">
+    <div class="flex items-center justify-between mb-6">
+      <h1 class="text-2xl font-bold">Audit Log</h1>
+      <div class="flex gap-2">
         <button @click="verifyChain" :disabled="verifying"
-          style="background: #7c3aed; color: white; padding: 0.5rem 1rem; border-radius: 4px; border: none; cursor: pointer;">
+          class="bg-teal-600 hover:bg-teal-500 disabled:bg-gray-600 text-white text-sm px-4 py-2 rounded">
           {{ verifying ? 'Verifying...' : 'Verify Chain' }}
         </button>
         <button @click="loadEntries" :disabled="loading"
-          style="background: #0891b2; color: white; padding: 0.5rem 1rem; border-radius: 4px; border: none; cursor: pointer;">
+          class="text-sm text-teal-400 hover:text-teal-300 px-3 py-2">
           Refresh
         </button>
       </div>
     </div>
 
-    <div v-if="chainStatus" style="padding: 0.75rem 1rem; border-radius: 4px; margin-bottom: 1rem;"
-      :style="{ background: chainStatus.valid ? '#064e3b' : '#7f1d1d', border: chainStatus.valid ? '1px solid #065f46' : '1px solid #991b1b' }">
-      <span v-if="chainStatus.valid" style="color: #6ee7b7;">
+    <!-- Chain verification result -->
+    <div v-if="chainStatus" class="rounded-lg p-4 mb-6"
+      :class="chainStatus.valid ? 'bg-emerald-900/40 border border-emerald-700' : 'bg-red-900/40 border border-red-700'">
+      <span v-if="chainStatus.valid" class="text-emerald-300">
         Chain verified — {{ chainStatus.verified }} entries, no tampering detected.
       </span>
-      <span v-else style="color: #fca5a5;">
+      <span v-else class="text-red-300">
         Chain integrity failure{{ chainStatus.verified ? ` at entry ${chainStatus.verified}` : '' }}.
         {{ chainStatus.error || 'Possible tampering detected.' }}
       </span>
     </div>
 
-    <table style="width: 100%; border-collapse: collapse; font-size: 0.875rem;">
-      <thead>
-        <tr style="border-bottom: 1px solid #374151; text-align: left;">
-          <th style="padding: 0.5rem;">Time</th>
-          <th style="padding: 0.5rem;">Action</th>
-          <th style="padding: 0.5rem;">Actor</th>
-          <th style="padding: 0.5rem;">Detail</th>
-          <th style="padding: 0.5rem;">IP</th>
-          <th style="padding: 0.5rem;">Hash</th>
-        </tr>
-      </thead>
-      <tbody>
-        <tr v-for="e in entries" :key="e.id" style="border-bottom: 1px solid #1f2937;">
-          <td style="padding: 0.5rem; color: #9ca3af; white-space: nowrap;">{{ e.created_at?.substring(0, 19) }}</td>
-          <td style="padding: 0.5rem;">
-            <span :style="{
-              color: e.action === 'message_received' ? '#22d3ee' : e.action === 'message_sent' ? '#a78bfa' : '#d1d5db'
-            }">{{ e.action }}</span>
-          </td>
-          <td style="padding: 0.5rem;">{{ e.actor }}</td>
-          <td style="padding: 0.5rem; max-width: 300px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">{{ e.detail }}</td>
-          <td style="padding: 0.5rem; font-family: monospace; font-size: 0.75rem; color: #9ca3af;">{{ e.ip || '-' }}</td>
-          <td style="padding: 0.5rem; font-family: monospace; font-size: 0.625rem; color: #6b7280; max-width: 120px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;"
-            :title="e.hash">{{ e.hash?.substring(0, 12) }}...</td>
-        </tr>
-        <tr v-if="entries.length === 0">
-          <td colspan="6" style="padding: 1rem; text-align: center; color: #6b7280;">No audit entries</td>
-        </tr>
-      </tbody>
-    </table>
+    <!-- Audit table -->
+    <div class="bg-gray-800 rounded-lg border border-gray-700 overflow-hidden">
+      <table class="w-full text-sm">
+        <thead class="text-gray-400 text-left border-b border-gray-700">
+          <tr>
+            <th class="px-4 py-2.5">Time</th>
+            <th class="px-4 py-2.5">Action</th>
+            <th class="px-4 py-2.5">Actor</th>
+            <th class="px-4 py-2.5">Detail</th>
+            <th class="px-4 py-2.5">IP</th>
+            <th class="px-4 py-2.5">Hash</th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-gray-700/50">
+          <tr v-for="e in entries" :key="e.id" class="hover:bg-gray-700/30">
+            <td class="px-4 py-2.5 text-gray-400 whitespace-nowrap">{{ e.created_at?.substring(0, 19) }}</td>
+            <td class="px-4 py-2.5">
+              <span :class="actionColor(e.action)">{{ e.action }}</span>
+            </td>
+            <td class="px-4 py-2.5">{{ e.actor }}</td>
+            <td class="px-4 py-2.5 max-w-[300px] truncate">{{ e.detail }}</td>
+            <td class="px-4 py-2.5 font-mono text-xs text-gray-400">{{ e.ip || '-' }}</td>
+            <td class="px-4 py-2.5 font-mono text-[10px] text-gray-500 max-w-[120px] truncate" :title="e.hash">
+              {{ e.hash?.substring(0, 12) }}...
+            </td>
+          </tr>
+          <tr v-if="entries.length === 0">
+            <td colspan="6" class="px-4 py-8 text-center text-gray-500">No audit entries</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
   </div>
 </template>
