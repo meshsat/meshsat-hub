@@ -369,7 +369,7 @@ owasp:
   needs:
     - verify
   before_script:
-    - apk add --no-cache curl bash python3 docker-cli
+    - apk add --no-cache curl bash docker-cli
   script:
     - |
       if [ -z "${HUB_HOST_1:-}" ] || [ -z "${HUB_E2E_TOKEN:-}" ]; then

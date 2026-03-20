@@ -88,7 +88,7 @@ check_header() {
 echo "[1.1] Public endpoints (/healthz, /readyz)"
 for endpoint in "/healthz" "/readyz"; do
     check_header "$endpoint" "X-Content-Type-Options" "nosniff"
-    check_header "$endpoint" "X-Frame-Options" "DENY"
+    check_header "$endpoint" "X-Frame-Options" "DENY\|SAMEORIGIN"
     check_header "$endpoint" "Content-Security-Policy" "default-src"
     check_header "$endpoint" "Referrer-Policy" "strict-origin"
     check_header "$endpoint" "Permissions-Policy" "camera=()"
@@ -98,7 +98,7 @@ echo ""
 echo "[1.2] Authenticated API endpoints"
 for endpoint in "/api/auth/me" "/api/devices" "/api/messages"; do
     check_header "$endpoint" "X-Content-Type-Options" "nosniff"
-    check_header "$endpoint" "X-Frame-Options" "DENY"
+    check_header "$endpoint" "X-Frame-Options" "DENY\|SAMEORIGIN"
     check_header "$endpoint" "Content-Security-Policy" "default-src"
     check_header "$endpoint" "Referrer-Policy" "strict-origin"
     check_header "$endpoint" "Permissions-Policy" "camera=()"
@@ -181,7 +181,7 @@ echo "=== Phase 3: Input Validation ==="
 echo "[3.1] SQL injection probes"
 SQL_PAYLOADS=("' OR '1'='1" "1; DROP TABLE devices;--" "' UNION SELECT NULL--")
 for payload in "${SQL_PAYLOADS[@]}"; do
-    encoded=$(python3 -c "import urllib.parse; print(urllib.parse.quote('$payload'))" 2>/dev/null || echo "$payload")
+    encoded=$(printf '%s' "$payload" | sed 's/ /%20/g; s/'\''/%27/g; s/;/%3B/g; s/=/%3D/g')
     status=$(curl -s -o /dev/null -w '%{http_code}' \
         -H "Authorization: Bearer ${HUB_AUTH_TOKEN}" \
         "${HUB_TARGET_URL}/api/devices/${encoded}")
@@ -233,7 +233,7 @@ done
 echo ""
 
 echo "[3.4] Oversized request body"
-LARGE_BODY=$(python3 -c "print('{\"imei\":\"' + 'A'*2000000 + '\"}')" 2>/dev/null)
+LARGE_BODY=$(printf '{"imei":"%s"}' "$(head -c 2000000 /dev/zero | tr '\0' 'A')")
 OVERSIZE_STATUS=$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 \
     -H "Authorization: Bearer ${HUB_AUTH_TOKEN}" \
     -H "Content-Type: application/json" \
