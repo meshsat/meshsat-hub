@@ -169,6 +169,11 @@ export const routes = {
   test: (data) => fetchJSON('/routes/test', { method: 'POST', body: JSON.stringify(data) }),
 }
 
+export const reticulum = {
+  identity: () => fetchJSON('/reticulum/identity'),
+  routes: () => fetchJSON('/reticulum/routes'),
+}
+
 export const health = {
   check: () => fetch('/healthz').then(r => r.json()).catch(() => ({ status: 'error' })),
 }

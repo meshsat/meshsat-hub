@@ -36,6 +36,7 @@ const navGroups = [
   { label: 'Infrastructure', items: [
     { to: '/cluster', label: 'Cluster' },
     { to: '/network', label: 'Network' },
+    { to: '/topology', label: 'Topology' },
     { to: '/routing', label: 'Routing' },
     { to: '/webhooks', label: 'Webhooks' },
     { to: '/ota', label: 'OTA' },
