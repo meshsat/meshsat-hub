@@ -172,6 +172,7 @@ export const routes = {
 export const reticulum = {
   identity: () => fetchJSON('/reticulum/identity'),
   routes: () => fetchJSON('/reticulum/routes'),
+  relay: () => fetchJSON('/reticulum/relay'),
 }
 
 export const email = {
