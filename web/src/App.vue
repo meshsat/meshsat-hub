@@ -76,15 +76,35 @@ const navGroups = [
   <div class="min-h-screen bg-tactical-bg text-gray-100">
     <template v-if="auth.isAuthenticated">
       <header class="sticky top-0 z-50 bg-tactical-surface/95 backdrop-blur border-b border-tactical-border">
-        <!-- Top row: brand + status bar + controls -->
-        <div class="px-4 py-2 flex items-center justify-between">
-          <div class="flex items-center gap-3">
-            <span class="text-xl font-display font-bold text-tactical-iridium tracking-wide">MeshSat Hub</span>
-          </div>
-          <div class="hidden md:flex items-center gap-3">
+        <div class="flex items-center h-12 px-3 lg:px-5 gap-3">
+          <!-- Brand -->
+          <span class="font-display font-semibold text-sm text-gray-200 tracking-wide shrink-0">MeshSat Hub</span>
+          <!-- Nav tabs (center, flex-1) -->
+          <nav class="hidden md:flex flex-1 items-center overflow-x-auto no-scrollbar mx-2 lg:mx-6 gap-0.5">
+            <template v-for="(group, gi) in navGroups" :key="group.label">
+              <RouterLink v-for="item in group.items" :key="item.to" :to="item.to"
+                class="px-3 py-1.5 rounded text-xs font-medium whitespace-nowrap transition-colors text-gray-500 hover:text-gray-300 hover:bg-white/5"
+                active-class="!bg-tactical-iridium/10 !text-tactical-iridium">
+                {{ item.label }}
+              </RouterLink>
+            </template>
+            <template v-if="auth.isOwner">
+              <RouterLink to="/users"
+                class="px-3 py-1.5 rounded text-xs font-medium whitespace-nowrap transition-colors text-gray-500 hover:text-gray-300 hover:bg-white/5"
+                active-class="!bg-tactical-iridium/10 !text-tactical-iridium">Users</RouterLink>
+              <RouterLink to="/api-keys"
+                class="px-3 py-1.5 rounded text-xs font-medium whitespace-nowrap transition-colors text-gray-500 hover:text-gray-300 hover:bg-white/5"
+                active-class="!bg-tactical-iridium/10 !text-tactical-iridium">API Keys</RouterLink>
+              <RouterLink to="/audit"
+                class="px-3 py-1.5 rounded text-xs font-medium whitespace-nowrap transition-colors text-gray-500 hover:text-gray-300 hover:bg-white/5"
+                active-class="!bg-tactical-iridium/10 !text-tactical-iridium">Audit</RouterLink>
+            </template>
+          </nav>
+          <!-- Right: status bar + controls -->
+          <div class="hidden md:flex items-center gap-3 shrink-0">
             <StatusBar />
+            <span class="hidden md:block w-px h-4 bg-gray-700/50" />
             <!-- Search -->
-            <div class="w-px h-4 bg-tactical-border hidden md:block" />
             <div class="relative">
               <input v-if="searchOpen" v-model="searchQuery" @keydown.enter="handleSearch" @keydown.escape="searchOpen = false"
                 placeholder="Search devices..." autofocus
@@ -93,6 +113,7 @@ const navGroups = [
                 <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
               </button>
             </div>
+            <span class="hidden md:block w-px h-4 bg-gray-700/50" />
             <!-- Theme toggle -->
             <button @click="theme.toggle()" class="text-gray-400 hover:text-gray-200 px-1" :title="theme.dark ? 'Light mode' : 'Dark mode'">
               <svg v-if="theme.dark" class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z"/></svg>
@@ -123,29 +144,9 @@ const navGroups = [
               </div>
             </div>
           </div>
-          <button @click="navOpen = !navOpen" class="md:hidden text-gray-400">&#9776;</button>
+          <!-- Mobile hamburger -->
+          <button @click="navOpen = !navOpen" class="md:hidden ml-auto text-gray-400">&#9776;</button>
         </div>
-        <!-- Nav row: horizontal tabs (matches Bridge pattern) -->
-        <nav class="hidden md:flex items-center gap-1 text-sm px-4 py-1.5 border-t border-tactical-border/50 overflow-x-auto no-scrollbar">
-          <template v-for="group in navGroups" :key="group.label">
-            <div v-if="group !== navGroups[0]" class="w-px h-4 bg-tactical-border/50 hidden md:block" />
-            <RouterLink v-for="item in group.items" :key="item.to" :to="item.to"
-              class="px-3 py-1.5 rounded text-xs font-medium whitespace-nowrap transition-colors text-gray-500 hover:text-gray-300 hover:bg-white/5"
-              active-class="!bg-tactical-iridium/10 !text-tactical-iridium">
-              {{ item.label }}
-            </RouterLink>
-          </template>
-          <div class="w-px h-4 bg-tactical-border/50 hidden md:block" />
-          <RouterLink v-if="auth.isOwner" to="/users"
-            class="px-3 py-1.5 rounded text-xs font-medium whitespace-nowrap transition-colors text-gray-500 hover:text-gray-300 hover:bg-white/5"
-            active-class="!bg-tactical-iridium/10 !text-tactical-iridium">Users</RouterLink>
-          <RouterLink v-if="auth.isOwner" to="/api-keys"
-            class="px-3 py-1.5 rounded text-xs font-medium whitespace-nowrap transition-colors text-gray-500 hover:text-gray-300 hover:bg-white/5"
-            active-class="!bg-tactical-iridium/10 !text-tactical-iridium">API Keys</RouterLink>
-          <RouterLink v-if="auth.isOwner" to="/audit"
-            class="px-3 py-1.5 rounded text-xs font-medium whitespace-nowrap transition-colors text-gray-500 hover:text-gray-300 hover:bg-white/5"
-            active-class="!bg-tactical-iridium/10 !text-tactical-iridium">Audit</RouterLink>
-        </nav>
       </header>
 
       <!-- Mobile nav overlay -->
@@ -155,7 +156,7 @@ const navGroups = [
           <nav class="absolute left-0 top-0 bottom-0 w-72 bg-tactical-surface border-r border-tactical-border overflow-y-auto tactical-scroll flex flex-col">
             <!-- Mobile header -->
             <div class="px-4 py-3 border-b border-tactical-border flex items-center justify-between">
-              <span class="text-lg font-display font-bold text-tactical-iridium tracking-wide">MeshSat Hub</span>
+              <span class="text-lg font-display font-bold text-gray-200 tracking-wide">MeshSat Hub</span>
               <button @click="navOpen = false" class="text-gray-400 hover:text-gray-200 text-xl">&times;</button>
             </div>
 

@@ -94,7 +94,7 @@ async function loginWithToken() {
 <template>
   <div class="min-h-screen bg-tactical-bg flex items-center justify-center px-4">
     <div class="w-full max-w-sm">
-      <h1 class="text-2xl font-display font-bold text-tactical-iridium text-center mb-8 tracking-wide">MeshSat Hub</h1>
+      <h1 class="text-2xl font-display font-bold text-gray-200 text-center mb-8 tracking-wide">MeshSat Hub</h1>
 
       <form @submit.prevent="handleLogin" class="bg-tactical-surface rounded-lg p-6 space-y-4">
         <!-- Mode toggle -->
