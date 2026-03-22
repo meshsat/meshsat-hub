@@ -2,12 +2,13 @@
 </script>
 
 <template>
-  <div class="max-w-3xl mx-auto">
-    <h1 class="text-lg font-semibold text-gray-200 mb-4">Help</h1>
+  <div class="p-4 lg:p-6 max-w-4xl mx-auto">
+    <h1 class="text-2xl font-display font-bold mb-2">Help & Documentation</h1>
+    <p class="text-sm text-gray-400 mb-6">Quick reference for MeshSat Hub features and workflows.</p>
 
     <div class="space-y-4">
       <div class="bg-tactical-surface rounded-lg border border-tactical-border p-4">
-        <h2 class="text-sm font-medium text-gray-300 mb-2">Getting Started</h2>
+        <h2 class="text-sm font-display font-semibold text-gray-200 uppercase tracking-wider mb-2">Getting Started</h2>
         <div class="space-y-2 text-[12px] text-gray-400 leading-relaxed">
           <p>MeshSat Hub is the cloud-side management platform for MeshSat field devices. It receives satellite messages (Iridium SBD, Astrocast, Globalstar), manages device fleets, and provides routing, alerting, and situational awareness.</p>
           <p><strong class="text-gray-300">1.</strong> Register a device in <strong class="text-gray-300">Devices</strong> — enter the IMEI and select the modem type (RockBLOCK, Astrocast, or Globalstar).</p>
@@ -17,7 +18,7 @@
       </div>
 
       <div class="bg-tactical-surface rounded-lg border border-tactical-border p-4">
-        <h2 class="text-sm font-medium text-gray-300 mb-2">Pages</h2>
+        <h2 class="text-sm font-display font-semibold text-gray-200 uppercase tracking-wider mb-2">Pages</h2>
         <div class="space-y-2 text-[12px] text-gray-400">
           <div class="font-display text-[10px] text-gray-500 uppercase tracking-wider mt-1">Operations</div>
           <div><strong class="text-gray-300">Dashboard</strong> — KPI overview: hub health, device count, message throughput, credit balance, constellation status, safety alerts, and recent messages.</div>
@@ -52,7 +53,7 @@
       </div>
 
       <div class="bg-tactical-surface rounded-lg border border-tactical-border p-4">
-        <h2 class="text-sm font-medium text-gray-300 mb-2">Webhook Setup</h2>
+        <h2 class="text-sm font-display font-semibold text-gray-200 uppercase tracking-wider mb-2">Webhook Setup</h2>
         <div class="space-y-2 text-[12px] text-gray-400 leading-relaxed">
           <p><strong class="text-gray-300">RockBLOCK (Iridium SBD)</strong> — In your Rock7 Core account, set the delivery URL to <code class="text-gray-300 bg-gray-800 px-1 rounded">https://your-hub/api/webhook/rockblock</code>. Set a shared secret and configure it as <code class="text-gray-300 bg-gray-800 px-1 rounded">HUB_ROCKBLOCK_SECRET</code> in Hub's config.</p>
           <p><strong class="text-gray-300">Twilio (SMS)</strong> — Configure your Twilio phone number's webhook URL to <code class="text-gray-300 bg-gray-800 px-1 rounded">https://your-hub/api/webhook/sms</code>. Set <code class="text-gray-300 bg-gray-800 px-1 rounded">HUB_TWILIO_*</code> env vars for outbound SMS.</p>
@@ -62,7 +63,7 @@
       </div>
 
       <div class="bg-tactical-surface rounded-lg border border-tactical-border p-4">
-        <h2 class="text-sm font-medium text-gray-300 mb-2">Routing Rules</h2>
+        <h2 class="text-sm font-display font-semibold text-gray-200 uppercase tracking-wider mb-2">Routing Rules</h2>
         <div class="space-y-2 text-[12px] text-gray-400 leading-relaxed">
           <p>Routing rules define how incoming messages are processed and forwarded. Each rule has a source (satellite channel), destination (handler), optional filter, and enabled/disabled state.</p>
           <p><strong class="text-gray-300">Sources</strong> — Any satellite constellation (Iridium, Astrocast, Globalstar) or "all" for catch-all rules.</p>
@@ -74,7 +75,7 @@
       </div>
 
       <div class="bg-tactical-surface rounded-lg border border-tactical-border p-4">
-        <h2 class="text-sm font-medium text-gray-300 mb-2">SOS & Dead Man's Switch</h2>
+        <h2 class="text-sm font-display font-semibold text-gray-200 uppercase tracking-wider mb-2">SOS & Dead Man's Switch</h2>
         <div class="space-y-2 text-[12px] text-gray-400 leading-relaxed">
           <p><strong class="text-gray-300">SOS Detection</strong> — Hub monitors incoming messages for SOS keywords. When detected, an alert is triggered and the escalation chain is activated.</p>
           <p><strong class="text-gray-300">Dead Man's Switch</strong> — Configure a check-in interval per device. If the device doesn't send a message (MO or position) within the interval, an alert fires after the grace period expires. Snooze is available for planned maintenance.</p>
@@ -83,7 +84,7 @@
       </div>
 
       <div class="bg-tactical-surface rounded-lg border border-tactical-border p-4">
-        <h2 class="text-sm font-medium text-gray-300 mb-2">API & Authentication</h2>
+        <h2 class="text-sm font-display font-semibold text-gray-200 uppercase tracking-wider mb-2">API & Authentication</h2>
         <div class="space-y-2 text-[12px] text-gray-400 leading-relaxed">
           <p>Hub exposes a REST API on all <code class="text-gray-300 bg-gray-800 px-1 rounded">/api/*</code> endpoints. Authenticate with a Bearer token (API key or auth token).</p>
           <p><strong class="text-gray-300">API Keys</strong> — Create scoped keys in the Admin section. Keys can be restricted to a specific role (viewer/operator/owner), device IMEI, and expiry date.</p>
@@ -93,7 +94,7 @@
       </div>
 
       <div class="bg-tactical-surface rounded-lg border border-tactical-border p-4">
-        <h2 class="text-sm font-medium text-gray-300 mb-2">Troubleshooting</h2>
+        <h2 class="text-sm font-display font-semibold text-gray-200 uppercase tracking-wider mb-2">Troubleshooting</h2>
         <div class="space-y-2 text-[12px] text-gray-400 leading-relaxed">
           <p><strong class="text-gray-300">Webhook not receiving messages</strong> — Check that the Ground Control callback URL is correct and that the shared secret matches. View the Audit log for <code class="text-gray-300 bg-gray-800 px-1 rounded">message_received</code> events.</p>
           <p><strong class="text-gray-300">MT send fails</strong> — Verify the device IMEI is registered and the Cloudloop API key is configured. Check credits balance on the Dashboard.</p>
@@ -103,5 +104,18 @@
         </div>
       </div>
     </div>
+
+    <!-- Additional Resources -->
+    <div class="bg-tactical-surface rounded-lg border border-tactical-border p-4 mt-4">
+      <h2 class="text-sm font-display font-semibold text-gray-200 uppercase tracking-wider mb-2">Additional Resources</h2>
+      <div class="flex flex-wrap gap-x-6 gap-y-2 text-sm">
+        <a href="/api/docs" target="_blank" class="text-teal-400 hover:text-teal-300">Swagger API Docs</a>
+        <a href="/api/docs/swagger.json" target="_blank" class="text-gray-400 hover:text-gray-300">OpenAPI JSON</a>
+        <a href="/api/docs/swagger.yaml" target="_blank" class="text-gray-400 hover:text-gray-300">OpenAPI YAML</a>
+      </div>
+    </div>
+
+    <!-- Version -->
+    <p class="text-[10px] text-gray-600 mt-6 text-center">MeshSat Hub v1.1</p>
   </div>
 </template>
