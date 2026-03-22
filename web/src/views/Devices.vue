@@ -103,7 +103,7 @@ function formatLastSeen(d) {
     </div>
 
     <!-- Device table -->
-    <div class="overflow-x-auto">
+    <div v-if="deviceList.length > 0 || loading" class="overflow-x-auto">
       <table class="w-full border-collapse text-sm">
         <thead>
           <tr class="border-b border-tactical-border text-left text-gray-500">
@@ -137,14 +137,12 @@ function formatLastSeen(d) {
               </button>
             </td>
           </tr>
-          <tr v-if="deviceList.length === 0 && !loading">
-            <td colspan="7" class="px-3 py-8 text-center text-gray-500">No devices registered</td>
-          </tr>
           <tr v-if="loading">
             <td colspan="7" class="px-3 py-8 text-center text-gray-500">Loading...</td>
           </tr>
         </tbody>
       </table>
     </div>
+    <EmptyState v-else icon="device" title="No devices registered" message="Register your first device to start tracking satellite messages and positions." />
   </div>
 </template>
