@@ -2,6 +2,7 @@
 import { ref, onMounted, computed } from 'vue'
 import { devices, messages } from '../api/client'
 import { formatUTC } from '../utils/time'
+import EmptyState from '../components/EmptyState.vue'
 
 const deviceList = ref([])
 const messageCounts = ref({})
@@ -77,7 +78,7 @@ function formatLastSeen(d) {
 
 <template>
   <div>
-    <h1 class="text-2xl font-bold mb-4">Devices</h1>
+    <h1 class="text-2xl font-display font-bold mb-4">Devices</h1>
 
     <div v-if="error" class="bg-red-900/50 border border-red-700 text-red-200 px-4 py-3 rounded mb-4">
       {{ error }}
@@ -86,17 +87,17 @@ function formatLastSeen(d) {
     <!-- Add device form -->
     <div class="flex flex-wrap gap-2 mb-4">
       <input v-model="newIMEI" placeholder="IMEI"
-        class="bg-gray-700 border border-gray-600 px-3 py-2 rounded text-gray-100 placeholder-gray-500 focus:outline-none focus:border-teal-400 flex-1 min-w-[180px]" />
+        class="bg-gray-800 border border-gray-700 px-3 py-2 rounded-lg text-gray-200 placeholder-gray-500 focus:outline-none focus:border-teal-500 flex-1 min-w-[180px]" />
       <input v-model="newLabel" placeholder="Label (optional)"
-        class="bg-gray-700 border border-gray-600 px-3 py-2 rounded text-gray-100 placeholder-gray-500 focus:outline-none focus:border-teal-400 flex-1 min-w-[140px]" />
+        class="bg-gray-800 border border-gray-700 px-3 py-2 rounded-lg text-gray-200 placeholder-gray-500 focus:outline-none focus:border-teal-500 flex-1 min-w-[140px]" />
       <select v-model="newType"
-        class="bg-gray-700 border border-gray-600 px-3 py-2 rounded text-gray-100 focus:outline-none focus:border-teal-400">
+        class="bg-gray-800 border border-gray-700 px-3 py-2 rounded-lg text-gray-200 focus:outline-none focus:border-teal-500">
         <option value="rockblock">RockBLOCK</option>
         <option value="astrocast">Astrocast</option>
         <option value="other">Other</option>
       </select>
       <button @click="addDevice"
-        class="bg-teal-600 hover:bg-teal-500 text-white px-4 py-2 rounded font-medium transition-colors">
+        class="bg-teal-600 hover:bg-teal-500 text-white px-4 py-2 rounded-lg font-medium transition-colors">
         Add
       </button>
     </div>
@@ -105,7 +106,7 @@ function formatLastSeen(d) {
     <div class="overflow-x-auto">
       <table class="w-full border-collapse text-sm">
         <thead>
-          <tr class="border-b border-gray-700 text-left text-gray-400">
+          <tr class="border-b border-tactical-border text-left text-gray-500">
             <th class="px-3 py-2">Status</th>
             <th class="px-3 py-2">IMEI</th>
             <th class="px-3 py-2">Label</th>
@@ -116,7 +117,7 @@ function formatLastSeen(d) {
           </tr>
         </thead>
         <tbody>
-          <tr v-for="d in deviceList" :key="d.imei" class="border-b border-gray-800 hover:bg-gray-800/50">
+          <tr v-for="d in deviceList" :key="d.imei" class="border-b border-tactical-border/30 hover:bg-white/[0.02]">
             <td class="px-3 py-2">
               <span :class="statusColor(deviceStatus(d))" class="font-medium text-xs uppercase">
                 {{ deviceStatus(d) }}
@@ -131,7 +132,7 @@ function formatLastSeen(d) {
             <td class="px-3 py-2 text-right text-gray-400">{{ messageCounts[d.imei] ?? '...' }}</td>
             <td class="px-3 py-2 text-right">
               <button @click="removeDevice(d.imei)"
-                class="bg-red-900 hover:bg-red-800 text-red-200 px-2 py-1 rounded text-xs transition-colors">
+                class="bg-red-900 hover:bg-red-800 text-red-200 px-2 py-1 rounded-lg text-xs transition-colors">
                 Delete
               </button>
             </td>

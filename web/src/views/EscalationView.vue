@@ -2,6 +2,7 @@
 import { ref, onMounted } from 'vue'
 import { escalation } from '../api/client'
 import { formatUTC } from '../utils/time'
+import EmptyState from '../components/EmptyState.vue'
 
 const chains = ref([])
 const alerts = ref([])
@@ -97,21 +98,21 @@ function statusBg(status) {
 
 <template>
   <div>
-    <h1 class="text-2xl font-bold mb-4">Escalation & Alerts</h1>
+    <h1 class="text-2xl font-display font-bold mb-4">Escalation & Alerts</h1>
 
     <div v-if="error" class="bg-red-900/50 border border-red-700 text-red-200 px-4 py-3 rounded mb-4">{{ error }}</div>
 
     <!-- Active Alerts -->
     <div class="mb-8">
       <div class="flex items-center justify-between mb-3">
-        <h2 class="text-lg font-semibold">Alerts</h2>
+        <h2 class="text-lg font-semibold uppercase tracking-wider">Alerts</h2>
         <label class="flex items-center gap-2 text-sm text-gray-400">
           <input type="checkbox" v-model="showActive" @change="loadData()" class="rounded" />
           Active only
         </label>
       </div>
 
-      <div v-if="alerts.length === 0 && !loading" class="text-gray-500 text-sm py-4">No alerts</div>
+      <EmptyState v-if="alerts.length === 0 && !loading" icon="shield" title="No alerts" message="Alerts will appear here when devices trigger SOS or escalation conditions." />
 
       <div v-for="a in alerts" :key="a.id" class="border rounded-lg p-4 mb-3" :class="statusBg(a.status)">
         <div class="flex items-center justify-between mb-2">
@@ -136,7 +137,7 @@ function statusBg(status) {
     <!-- Escalation Chains -->
     <div>
       <div class="flex items-center justify-between mb-3">
-        <h2 class="text-lg font-semibold">Escalation Chains</h2>
+        <h2 class="text-lg font-semibold uppercase tracking-wider">Escalation Chains</h2>
         <button @click="showForm = !showForm"
           class="bg-teal-600 hover:bg-teal-500 text-white px-3 py-1 rounded text-sm transition-colors">
           {{ showForm ? 'Cancel' : '+ New Chain' }}
@@ -144,25 +145,25 @@ function statusBg(status) {
       </div>
 
       <!-- New chain form -->
-      <div v-if="showForm" class="bg-gray-800 rounded-lg p-4 mb-4">
+      <div v-if="showForm" class="bg-gray-900 rounded-xl p-4 mb-4">
         <input v-model="newChain.name" placeholder="Chain name"
-          class="bg-gray-700 border border-gray-600 px-3 py-2 rounded text-gray-100 placeholder-gray-500 focus:outline-none focus:border-teal-400 w-full mb-3" />
+          class="bg-gray-800 border border-gray-700 px-3 py-2 rounded-lg text-gray-200 placeholder-gray-500 focus:outline-none focus:border-teal-500 w-full mb-3" />
 
         <div v-for="(tier, i) in newChain.tiers" :key="i" class="flex flex-wrap gap-2 mb-2 items-end">
           <div class="flex-1 min-w-[120px]">
             <label class="text-xs text-gray-400">Delay (sec)</label>
             <input v-model="tier.delay_sec" type="number" min="0"
-              class="bg-gray-700 border border-gray-600 px-3 py-2 rounded text-gray-100 w-full focus:outline-none focus:border-teal-400" />
+              class="bg-gray-800 border border-gray-700 px-3 py-2 rounded-lg text-gray-200 w-full focus:outline-none focus:border-teal-500" />
           </div>
           <div class="flex-1 min-w-[200px]">
             <label class="text-xs text-gray-400">Recipients (comma-sep)</label>
             <input v-model="tier.recipients" placeholder="email@example.com"
-              class="bg-gray-700 border border-gray-600 px-3 py-2 rounded text-gray-100 w-full placeholder-gray-500 focus:outline-none focus:border-teal-400" />
+              class="bg-gray-800 border border-gray-700 px-3 py-2 rounded-lg text-gray-200 w-full placeholder-gray-500 focus:outline-none focus:border-teal-500" />
           </div>
           <div class="flex-1 min-w-[120px]">
             <label class="text-xs text-gray-400">Actions</label>
             <input v-model="tier.actions" placeholder="notify"
-              class="bg-gray-700 border border-gray-600 px-3 py-2 rounded text-gray-100 w-full placeholder-gray-500 focus:outline-none focus:border-teal-400" />
+              class="bg-gray-800 border border-gray-700 px-3 py-2 rounded-lg text-gray-200 w-full placeholder-gray-500 focus:outline-none focus:border-teal-500" />
           </div>
           <button v-if="newChain.tiers.length > 1" @click="removeTier(i)"
             class="bg-red-900 hover:bg-red-800 text-red-200 px-2 py-2 rounded text-xs">Remove</button>
@@ -178,11 +179,11 @@ function statusBg(status) {
       </div>
 
       <!-- Chain list -->
-      <div v-for="c in chains" :key="c.id" class="bg-gray-800 rounded-lg p-4 mb-3">
+      <div v-for="c in chains" :key="c.id" class="bg-gray-900 rounded-xl p-4 mb-3">
         <div class="flex items-center justify-between mb-2">
           <span class="font-medium">{{ c.name }}</span>
           <button @click="deleteChain(c.id)"
-            class="bg-red-900 hover:bg-red-800 text-red-200 px-2 py-1 rounded text-xs transition-colors">Delete</button>
+            class="bg-red-900 hover:bg-red-800 text-red-200 px-2 py-1 rounded-lg text-xs transition-colors">Delete</button>
         </div>
         <div v-if="c.tiers && c.tiers.length" class="space-y-1">
           <div v-for="(tier, i) in c.tiers" :key="i" class="text-sm text-gray-400 flex items-center gap-2">
@@ -194,7 +195,7 @@ function statusBg(status) {
         </div>
       </div>
 
-      <div v-if="chains.length === 0 && !loading" class="text-gray-500 text-sm py-4">No escalation chains configured</div>
+      <EmptyState v-if="chains.length === 0 && !loading" icon="chart" title="No escalation chains" message="Create an escalation chain to define notification steps for alerts." />
     </div>
 
     <div v-if="loading" class="text-center text-gray-500 py-8">Loading...</div>

@@ -92,21 +92,21 @@ async function loginWithToken() {
 </script>
 
 <template>
-  <div class="min-h-screen bg-gray-900 flex items-center justify-center px-4">
+  <div class="min-h-screen bg-tactical-bg flex items-center justify-center px-4">
     <div class="w-full max-w-sm">
-      <h1 class="text-2xl font-bold text-teal-400 text-center mb-8">MeshSat Hub</h1>
+      <h1 class="text-2xl font-display font-bold text-tactical-iridium text-center mb-8 tracking-wide">MeshSat Hub</h1>
 
-      <form @submit.prevent="handleLogin" class="bg-gray-800 rounded-lg p-6 space-y-4">
+      <form @submit.prevent="handleLogin" class="bg-gray-900 rounded-xl p-6 space-y-4">
         <!-- Mode toggle -->
-        <div class="flex rounded-lg overflow-hidden border border-gray-600">
+        <div class="flex rounded-lg overflow-hidden border border-gray-700">
           <button type="button" @click="mode = 'email'; error = ''"
             class="flex-1 py-2 text-sm font-medium transition-colors"
-            :class="mode === 'email' ? 'bg-teal-600 text-white' : 'bg-gray-700 text-gray-400 hover:text-gray-200'">
+            :class="mode === 'email' ? 'bg-teal-600 text-white' : 'bg-gray-800 text-gray-400 hover:text-gray-200'">
             Email
           </button>
           <button type="button" @click="mode = 'token'; error = ''"
             class="flex-1 py-2 text-sm font-medium transition-colors"
-            :class="mode === 'token' ? 'bg-teal-600 text-white' : 'bg-gray-700 text-gray-400 hover:text-gray-200'">
+            :class="mode === 'token' ? 'bg-teal-600 text-white' : 'bg-gray-800 text-gray-400 hover:text-gray-200'">
             API Token
           </button>
         </div>
@@ -121,7 +121,7 @@ async function loginWithToken() {
               type="email"
               placeholder="you@example.com"
               autocomplete="email"
-              class="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded text-gray-100 placeholder-gray-500 focus:outline-none focus:border-teal-400"
+              class="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded text-gray-100 placeholder-gray-500 focus:outline-none focus:border-teal-500"
             />
           </div>
           <div>
@@ -132,7 +132,7 @@ async function loginWithToken() {
               type="password"
               placeholder="Enter your password"
               autocomplete="current-password"
-              class="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded text-gray-100 placeholder-gray-500 focus:outline-none focus:border-teal-400"
+              class="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded text-gray-100 placeholder-gray-500 focus:outline-none focus:border-teal-500"
             />
           </div>
         </template>
@@ -146,7 +146,7 @@ async function loginWithToken() {
             type="password"
             placeholder="Enter your API token"
             autocomplete="off"
-            class="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded text-gray-100 placeholder-gray-500 focus:outline-none focus:border-teal-400"
+            class="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded text-gray-100 placeholder-gray-500 focus:outline-none focus:border-teal-500"
           />
         </div>
 
@@ -155,7 +155,7 @@ async function loginWithToken() {
         <button
           type="submit"
           :disabled="loading"
-          class="w-full py-2 bg-teal-600 hover:bg-teal-500 disabled:opacity-50 text-white rounded font-medium transition-colors"
+          class="w-full py-2 bg-teal-600 hover:bg-teal-500 disabled:opacity-50 text-white rounded-lg font-medium transition-colors"
         >
           {{ loading ? 'Signing in...' : 'Sign In' }}
         </button>

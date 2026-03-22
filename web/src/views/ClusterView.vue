@@ -82,7 +82,7 @@ function formatBytes(n) {
 
 <template>
   <div>
-    <h1 class="text-2xl font-bold mb-4">Cluster Health</h1>
+    <h1 class="text-2xl font-display font-bold mb-4">Cluster Health</h1>
 
     <div v-if="error" class="bg-red-900/50 border border-red-700 text-red-200 px-4 py-3 rounded mb-4">{{ error }}</div>
     <div v-if="actionResult" class="bg-green-900/50 border border-green-700 text-green-200 px-4 py-3 rounded mb-4">
@@ -92,18 +92,18 @@ function formatBytes(n) {
 
     <!-- Cluster overview cards -->
     <div v-if="clusterStatus" class="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
-      <div class="bg-gray-800 rounded-lg border border-gray-700 p-4">
+      <div class="bg-gray-900 rounded-xl border border-gray-800 p-4">
         <div class="text-gray-400 text-sm mb-1">Cluster Health</div>
-        <div class="text-2xl font-bold" :class="clusterStatus.healthy ? 'text-green-400' : 'text-red-400'">
+        <div class="text-2xl font-display font-bold" :class="clusterStatus.healthy ? 'text-green-400' : 'text-red-400'">
           {{ clusterStatus.healthy ? 'Healthy' : 'Degraded' }}
         </div>
       </div>
-      <div class="bg-gray-800 rounded-lg border border-gray-700 p-4">
+      <div class="bg-gray-900 rounded-xl border border-gray-800 p-4">
         <div class="text-gray-400 text-sm mb-1">Nodes</div>
-        <div class="text-2xl font-bold text-teal-400">{{ clusterStatus.node_count }}</div>
+        <div class="text-2xl font-display font-bold text-teal-400">{{ clusterStatus.node_count }}</div>
         <div class="text-xs text-gray-500">Quorum: {{ clusterStatus.quorum_size }}</div>
       </div>
-      <div class="bg-gray-800 rounded-lg border border-gray-700 p-4">
+      <div class="bg-gray-900 rounded-xl border border-gray-800 p-4">
         <div class="text-gray-400 text-sm mb-1">Last Check</div>
         <div class="text-sm text-gray-300">{{ formatTimeUTC(clusterStatus.checked_at) }}</div>
       </div>
@@ -111,7 +111,7 @@ function formatBytes(n) {
 
     <!-- Cluster problems -->
     <div v-if="clusterStatus?.problems?.length" class="bg-red-900/30 border border-red-800 rounded-lg p-4 mb-6">
-      <h3 class="text-sm font-semibold text-red-300 mb-2">Cluster Problems</h3>
+      <h3 class="text-sm font-semibold text-red-300 uppercase tracking-wider mb-2">Cluster Problems</h3>
       <ul class="text-sm text-red-200 space-y-1">
         <li v-for="p in clusterStatus.problems" :key="p" class="flex items-start gap-2">
           <span class="text-red-400 mt-0.5">&#9679;</span>
@@ -122,7 +122,7 @@ function formatBytes(n) {
 
     <!-- Node cards -->
     <div v-if="clusterStatus" class="mb-8">
-      <h2 class="text-lg font-semibold mb-3">Nodes</h2>
+      <h2 class="text-lg font-semibold uppercase tracking-wider mb-3">Nodes</h2>
       <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
         <div v-for="node in clusterStatus.nodes" :key="node.node_name || node.hub_url"
           class="rounded-lg border p-4" :class="nodeStatusBg(node)">
@@ -204,8 +204,8 @@ function formatBytes(n) {
 
     <!-- Remediation actions -->
     <div v-if="actions.length > 0">
-      <h2 class="text-lg font-semibold mb-3">Remediation Actions</h2>
-      <div class="bg-gray-800 rounded-lg border border-gray-700 p-4">
+      <h2 class="text-lg font-semibold uppercase tracking-wider mb-3">Remediation Actions</h2>
+      <div class="bg-gray-900 rounded-xl border border-gray-800 p-4">
         <p class="text-xs text-gray-500 mb-3">Actions execute on the local node only. Use with caution.</p>
         <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
           <button v-for="action in actions" :key="action.id"
@@ -213,7 +213,7 @@ function formatBytes(n) {
             class="text-left p-3 rounded border transition-colors"
             :class="action.dangerous
               ? 'border-red-800 hover:bg-red-900/30 text-red-200'
-              : 'border-gray-700 hover:bg-gray-700/50 text-gray-200'">
+              : 'border-gray-700 hover:bg-white/5 text-gray-200'">
             <div class="font-medium text-sm flex items-center gap-2">
               {{ action.name }}
               <span v-if="action.dangerous" class="text-xs text-red-400">&#9888;</span>

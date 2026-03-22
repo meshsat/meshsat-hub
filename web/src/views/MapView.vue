@@ -61,7 +61,7 @@ async function refreshPositions() {
 
 <template>
   <div class="p-4 lg:p-6">
-    <h1 class="text-2xl font-bold mb-4">Position Map</h1>
+    <h1 class="text-2xl font-display font-bold mb-4">Position Map</h1>
     <div ref="mapContainer" class="rounded-lg overflow-hidden" style="height: calc(100vh - 140px);"></div>
   </div>
 </template>

@@ -2,6 +2,7 @@
 import { ref, onMounted } from 'vue'
 import { ota } from '../api/client'
 import { formatUTC } from '../utils/time'
+import EmptyState from '../components/EmptyState.vue'
 
 const targets = ref([])
 const error = ref('')
@@ -107,14 +108,14 @@ function statusColor(s) {
 
 <template>
   <div>
-    <h1 class="text-2xl font-bold mb-4">OTA Updates</h1>
+    <h1 class="text-2xl font-display font-bold mb-4">OTA Updates</h1>
 
     <div v-if="error" class="bg-red-900/50 border border-red-700 text-red-200 px-4 py-3 rounded mb-4">{{ error }}</div>
 
     <!-- Targets -->
     <div class="mb-8">
       <div class="flex items-center justify-between mb-3">
-        <h2 class="text-lg font-semibold">Targets</h2>
+        <h2 class="text-lg font-semibold uppercase tracking-wider">Targets</h2>
         <div class="flex gap-2">
           <button @click="showRolloutForm = !showRolloutForm"
             class="bg-teal-600 hover:bg-teal-500 text-white px-3 py-1 rounded text-sm transition-colors">
@@ -128,39 +129,39 @@ function statusColor(s) {
       </div>
 
       <!-- New target form -->
-      <div v-if="showTargetForm" class="bg-gray-800 rounded-lg p-4 mb-4">
+      <div v-if="showTargetForm" class="bg-gray-900 rounded-xl p-4 mb-4">
         <div class="flex flex-wrap gap-2 mb-3">
           <input v-model="newTarget.controllerId" placeholder="Controller ID (IMEI)"
-            class="bg-gray-700 border border-gray-600 px-3 py-2 rounded text-gray-100 placeholder-gray-500 flex-1 min-w-[200px] focus:outline-none focus:border-teal-400" />
+            class="bg-gray-800 border border-gray-700 px-3 py-2 rounded-lg text-gray-200 placeholder-gray-500 flex-1 min-w-[200px] focus:outline-none focus:border-teal-500" />
           <input v-model="newTarget.name" placeholder="Name (optional)"
-            class="bg-gray-700 border border-gray-600 px-3 py-2 rounded text-gray-100 placeholder-gray-500 flex-1 min-w-[200px] focus:outline-none focus:border-teal-400" />
+            class="bg-gray-800 border border-gray-700 px-3 py-2 rounded-lg text-gray-200 placeholder-gray-500 flex-1 min-w-[200px] focus:outline-none focus:border-teal-500" />
           <button @click="createTarget"
             class="bg-teal-600 hover:bg-teal-500 text-white px-4 py-2 rounded transition-colors">Add</button>
         </div>
       </div>
 
       <!-- New rollout form -->
-      <div v-if="showRolloutForm" class="bg-gray-800 rounded-lg p-4 mb-4">
+      <div v-if="showRolloutForm" class="bg-gray-900 rounded-xl p-4 mb-4">
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3">
           <div>
             <label class="text-xs text-gray-400">Rollout Name</label>
             <input v-model="newRollout.name" placeholder="v0.3.0 rollout"
-              class="bg-gray-700 border border-gray-600 px-3 py-2 rounded text-gray-100 w-full placeholder-gray-500 focus:outline-none focus:border-teal-400" />
+              class="bg-gray-800 border border-gray-700 px-3 py-2 rounded-lg text-gray-200 w-full placeholder-gray-500 focus:outline-none focus:border-teal-500" />
           </div>
           <div>
             <label class="text-xs text-gray-400">Distribution Set ID</label>
             <input v-model="newRollout.distributionSetId" type="number" min="1"
-              class="bg-gray-700 border border-gray-600 px-3 py-2 rounded text-gray-100 w-full focus:outline-none focus:border-teal-400" />
+              class="bg-gray-800 border border-gray-700 px-3 py-2 rounded-lg text-gray-200 w-full focus:outline-none focus:border-teal-500" />
           </div>
           <div>
             <label class="text-xs text-gray-400">Target Filter</label>
             <input v-model="newRollout.targetFilterQuery" placeholder="name==*"
-              class="bg-gray-700 border border-gray-600 px-3 py-2 rounded text-gray-100 w-full placeholder-gray-500 focus:outline-none focus:border-teal-400" />
+              class="bg-gray-800 border border-gray-700 px-3 py-2 rounded-lg text-gray-200 w-full placeholder-gray-500 focus:outline-none focus:border-teal-500" />
           </div>
           <div>
             <label class="text-xs text-gray-400">Groups</label>
             <input v-model="newRollout.amountGroups" type="number" min="1"
-              class="bg-gray-700 border border-gray-600 px-3 py-2 rounded text-gray-100 w-full focus:outline-none focus:border-teal-400" />
+              class="bg-gray-800 border border-gray-700 px-3 py-2 rounded-lg text-gray-200 w-full focus:outline-none focus:border-teal-500" />
           </div>
         </div>
         <div class="flex justify-end">
@@ -173,7 +174,7 @@ function statusColor(s) {
       <div class="overflow-x-auto">
         <table class="w-full border-collapse text-sm">
           <thead>
-            <tr class="border-b border-gray-700 text-left text-gray-400">
+            <tr class="border-b border-tactical-border text-left text-gray-500">
               <th class="px-3 py-2">Controller ID</th>
               <th class="px-3 py-2">Name</th>
               <th class="px-3 py-2">Status</th>
@@ -183,7 +184,7 @@ function statusColor(s) {
           </thead>
           <tbody>
             <template v-for="t in targets" :key="t.controllerId">
-              <tr class="border-b border-gray-800 hover:bg-gray-800/50">
+              <tr class="border-b border-tactical-border/30 hover:bg-white/[0.02]">
                 <td class="px-3 py-2 font-mono text-xs">{{ t.controllerId }}</td>
                 <td class="px-3 py-2">{{ t.name }}</td>
                 <td class="px-3 py-2">
@@ -192,11 +193,11 @@ function statusColor(s) {
                 <td class="px-3 py-2 text-gray-400 text-xs">{{ formatUTC(t.lastControllerRequestAt) }}</td>
                 <td class="px-3 py-2 text-right flex gap-1 justify-end">
                   <button @click="loadActions(t.controllerId)"
-                    class="bg-gray-700 hover:bg-gray-600 text-gray-200 px-2 py-1 rounded text-xs transition-colors">
+                    class="bg-gray-700 hover:bg-gray-600 text-gray-200 px-2 py-1 rounded-lg text-xs transition-colors">
                     {{ targetActions[t.controllerId] ? 'Hide' : 'Actions' }}
                   </button>
                   <button @click="deleteTarget(t.controllerId)"
-                    class="bg-red-900 hover:bg-red-800 text-red-200 px-2 py-1 rounded text-xs transition-colors">Delete</button>
+                    class="bg-red-900 hover:bg-red-800 text-red-200 px-2 py-1 rounded-lg text-xs transition-colors">Delete</button>
                 </td>
               </tr>
               <!-- Expanded actions -->
@@ -214,7 +215,9 @@ function statusColor(s) {
               </tr>
             </template>
             <tr v-if="targets.length === 0 && !loading">
-              <td colspan="5" class="px-3 py-8 text-center text-gray-500">No OTA targets registered</td>
+              <td colspan="5" class="px-3 py-0">
+                <EmptyState icon="device" title="No OTA targets" message="Register field devices as OTA targets to manage firmware updates remotely." />
+              </td>
             </tr>
           </tbody>
         </table>

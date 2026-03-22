@@ -2,6 +2,7 @@
 import { ref, onMounted } from 'vue'
 import { webhooks } from '../api/client'
 import { formatUTC } from '../utils/time'
+import EmptyState from '../components/EmptyState.vue'
 
 const hookList = ref([])
 const logs = ref([])
@@ -67,31 +68,31 @@ function statusCodeColor(code) {
 
 <template>
   <div>
-    <h1 class="text-2xl font-bold mb-4">Outbound Webhooks</h1>
+    <h1 class="text-2xl font-display font-bold mb-4">Outbound Webhooks</h1>
 
     <div v-if="error" class="bg-red-900/50 border border-red-700 text-red-200 px-4 py-3 rounded mb-4">{{ error }}</div>
 
     <!-- Webhooks -->
     <div class="mb-8">
       <div class="flex items-center justify-between mb-3">
-        <h2 class="text-lg font-semibold">Webhooks</h2>
+        <h2 class="text-lg font-semibold uppercase tracking-wider">Webhooks</h2>
         <button @click="showForm = !showForm"
           class="bg-teal-600 hover:bg-teal-500 text-white px-3 py-1 rounded text-sm transition-colors">
           {{ showForm ? 'Cancel' : '+ New Webhook' }}
         </button>
       </div>
 
-      <div v-if="showForm" class="bg-gray-800 rounded-lg p-4 mb-4">
+      <div v-if="showForm" class="bg-gray-900 rounded-xl p-4 mb-4">
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3">
           <div>
             <label class="text-xs text-gray-400">URL</label>
             <input v-model="form.url" placeholder="https://example.com/hook"
-              class="bg-gray-700 border border-gray-600 px-3 py-2 rounded text-gray-100 w-full placeholder-gray-500 focus:outline-none focus:border-teal-400" />
+              class="bg-gray-800 border border-gray-700 px-3 py-2 rounded-lg text-gray-200 w-full placeholder-gray-500 focus:outline-none focus:border-teal-500" />
           </div>
           <div>
             <label class="text-xs text-gray-400">Events (comma-sep)</label>
             <input v-model="form.events" placeholder="mo,sos,position"
-              class="bg-gray-700 border border-gray-600 px-3 py-2 rounded text-gray-100 w-full placeholder-gray-500 focus:outline-none focus:border-teal-400" />
+              class="bg-gray-800 border border-gray-700 px-3 py-2 rounded-lg text-gray-200 w-full placeholder-gray-500 focus:outline-none focus:border-teal-500" />
           </div>
         </div>
         <div class="flex items-center justify-between">
@@ -106,7 +107,7 @@ function statusCodeColor(code) {
       <div class="overflow-x-auto">
         <table class="w-full border-collapse text-sm">
           <thead>
-            <tr class="border-b border-gray-700 text-left text-gray-400">
+            <tr class="border-b border-tactical-border text-left text-gray-500">
               <th class="px-3 py-2">URL</th>
               <th class="px-3 py-2">Events</th>
               <th class="px-3 py-2">Status</th>
@@ -114,7 +115,7 @@ function statusCodeColor(code) {
             </tr>
           </thead>
           <tbody>
-            <tr v-for="h in hookList" :key="h.id" class="border-b border-gray-800 hover:bg-gray-800/50">
+            <tr v-for="h in hookList" :key="h.id" class="border-b border-tactical-border/30 hover:bg-white/[0.02]">
               <td class="px-3 py-2 font-mono text-xs break-all">{{ h.url }}</td>
               <td class="px-3 py-2">
                 <span v-for="e in (h.events || [])" :key="e"
@@ -126,11 +127,13 @@ function statusCodeColor(code) {
               </td>
               <td class="px-3 py-2 text-right">
                 <button @click="deleteWebhook(h.id)"
-                  class="bg-red-900 hover:bg-red-800 text-red-200 px-2 py-1 rounded text-xs transition-colors">Delete</button>
+                  class="bg-red-900 hover:bg-red-800 text-red-200 px-2 py-1 rounded-lg text-xs transition-colors">Delete</button>
               </td>
             </tr>
             <tr v-if="hookList.length === 0 && !loading">
-              <td colspan="4" class="px-3 py-8 text-center text-gray-500">No webhooks configured</td>
+              <td colspan="4" class="px-3 py-0">
+                <EmptyState icon="globe" title="No webhooks configured" message="Create outbound webhooks to forward device events to external services." />
+              </td>
             </tr>
           </tbody>
         </table>
@@ -139,11 +142,11 @@ function statusCodeColor(code) {
 
     <!-- Delivery logs -->
     <div>
-      <h2 class="text-lg font-semibold mb-3">Delivery Logs</h2>
+      <h2 class="text-lg font-semibold mb-3 uppercase tracking-wider">Delivery Logs</h2>
       <div class="overflow-x-auto">
         <table class="w-full border-collapse text-sm">
           <thead>
-            <tr class="border-b border-gray-700 text-left text-gray-400">
+            <tr class="border-b border-tactical-border text-left text-gray-500">
               <th class="px-3 py-2">Time</th>
               <th class="px-3 py-2">Webhook</th>
               <th class="px-3 py-2">Status</th>
@@ -152,7 +155,7 @@ function statusCodeColor(code) {
             </tr>
           </thead>
           <tbody>
-            <tr v-for="l in logs" :key="l.timestamp + l.webhook_id" class="border-b border-gray-800 hover:bg-gray-800/50">
+            <tr v-for="l in logs" :key="l.timestamp + l.webhook_id" class="border-b border-tactical-border/30 hover:bg-white/[0.02]">
               <td class="px-3 py-2 text-gray-400 text-xs">{{ formatUTC(l.timestamp) }}</td>
               <td class="px-3 py-2 font-mono text-xs text-gray-400">{{ l.webhook_id }}</td>
               <td class="px-3 py-2">
@@ -162,7 +165,9 @@ function statusCodeColor(code) {
               <td class="px-3 py-2 text-red-400 text-xs">{{ l.error || '—' }}</td>
             </tr>
             <tr v-if="logs.length === 0 && !loading">
-              <td colspan="5" class="px-3 py-8 text-center text-gray-500">No delivery logs</td>
+              <td colspan="5" class="px-3 py-0">
+                <EmptyState icon="inbox" title="No delivery logs" message="Webhook delivery attempts will be logged here." />
+              </td>
             </tr>
           </tbody>
         </table>

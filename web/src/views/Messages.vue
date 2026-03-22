@@ -104,7 +104,7 @@ function statusClass(status) {
 
 <template>
   <div>
-    <h1 class="text-2xl font-bold mb-4">Messages</h1>
+    <h1 class="text-2xl font-display font-bold mb-4">Messages</h1>
 
     <div v-if="error" class="bg-red-900/50 border border-red-700 text-red-200 px-4 py-3 rounded mb-4">
       {{ error }}
@@ -114,19 +114,19 @@ function statusClass(status) {
     </div>
 
     <!-- Send MT Message -->
-    <div v-if="auth.isOwner || auth.role === 'operator'" class="bg-gray-800 border border-gray-700 rounded p-4 mb-4">
+    <div v-if="auth.isOwner || auth.role === 'operator'" class="bg-gray-900 border border-gray-800 rounded-xl p-4 mb-4">
       <h2 class="text-sm font-semibold text-gray-300 mb-3">Send Message to Device (MT via Iridium)</h2>
       <div class="flex gap-2">
         <select v-model="sendImei"
-          class="bg-gray-700 border border-gray-600 px-3 py-2 rounded text-gray-100 focus:outline-none focus:border-teal-400">
+          class="bg-gray-800 border border-gray-700 px-3 py-2 rounded-lg text-gray-200 focus:outline-none focus:border-teal-500">
           <option v-for="d in deviceList" :key="d.imei" :value="d.imei">{{ d.imei }} {{ d.label ? `(${d.label})` : '' }}</option>
           <option v-if="deviceList.length === 0" value="">No devices registered</option>
         </select>
         <input v-model="sendText" placeholder="Type message to send via satellite..."
           @keyup.enter="sendMessage" :disabled="sending"
-          class="bg-gray-700 border border-gray-600 px-3 py-2 rounded text-gray-100 placeholder-gray-500 focus:outline-none focus:border-teal-400 flex-1" />
+          class="bg-gray-800 border border-gray-700 px-3 py-2 rounded-lg text-gray-200 placeholder-gray-500 focus:outline-none focus:border-teal-500 flex-1" />
         <button @click="sendMessage" :disabled="sending || !sendText || !sendImei"
-          class="bg-teal-600 hover:bg-teal-500 disabled:bg-gray-600 text-white px-4 py-2 rounded font-medium transition-colors whitespace-nowrap">
+          class="bg-teal-600 hover:bg-teal-500 disabled:bg-gray-600 text-white px-4 py-2 rounded-lg font-medium transition-colors whitespace-nowrap">
           {{ sending ? 'Sending...' : 'Send MT' }}
         </button>
       </div>
@@ -144,16 +144,16 @@ function statusClass(status) {
     </div>
 
     <!-- Send SMS -->
-    <div v-if="auth.isOwner || auth.role === 'operator'" class="bg-gray-800 border border-gray-700 rounded p-4 mb-4">
+    <div v-if="auth.isOwner || auth.role === 'operator'" class="bg-gray-900 border border-gray-800 rounded-xl p-4 mb-4">
       <h2 class="text-sm font-semibold text-gray-300 mb-3">Send SMS (via Twilio)</h2>
       <div class="flex gap-2">
         <input v-model="smsTo" placeholder="+31612345678"
-          class="bg-gray-700 border border-gray-600 px-3 py-2 rounded text-gray-100 placeholder-gray-500 focus:outline-none focus:border-green-400 w-48" />
+          class="bg-gray-800 border border-gray-700 px-3 py-2 rounded-lg text-gray-200 placeholder-gray-500 focus:outline-none focus:border-green-400 w-48" />
         <input v-model="smsText" placeholder="Type SMS message..."
           @keyup.enter="sendSMS" :disabled="smsSending"
-          class="bg-gray-700 border border-gray-600 px-3 py-2 rounded text-gray-100 placeholder-gray-500 focus:outline-none focus:border-green-400 flex-1" />
+          class="bg-gray-800 border border-gray-700 px-3 py-2 rounded-lg text-gray-200 placeholder-gray-500 focus:outline-none focus:border-green-400 flex-1" />
         <button @click="sendSMS" :disabled="smsSending || !smsText || !smsTo"
-          class="bg-green-600 hover:bg-green-500 disabled:bg-gray-600 text-white px-4 py-2 rounded font-medium transition-colors whitespace-nowrap">
+          class="bg-green-600 hover:bg-green-500 disabled:bg-gray-600 text-white px-4 py-2 rounded-lg font-medium transition-colors whitespace-nowrap">
           {{ smsSending ? 'Sending...' : 'Send SMS' }}
         </button>
       </div>
@@ -172,9 +172,9 @@ function statusClass(status) {
 
     <div class="flex gap-2 mb-4">
       <input v-model="filter" placeholder="Filter by device IMEI" @keyup.enter="loadMessages"
-        class="bg-gray-700 border border-gray-600 px-3 py-2 rounded text-gray-100 placeholder-gray-500 focus:outline-none focus:border-teal-400 flex-1" />
+        class="bg-gray-800 border border-gray-700 px-3 py-2 rounded-lg text-gray-200 placeholder-gray-500 focus:outline-none focus:border-teal-500 flex-1" />
       <button @click="loadMessages"
-        class="bg-teal-600 hover:bg-teal-500 text-white px-4 py-2 rounded font-medium transition-colors">
+        class="bg-teal-600 hover:bg-teal-500 text-white px-4 py-2 rounded-lg font-medium transition-colors">
         Refresh
       </button>
     </div>
@@ -182,7 +182,7 @@ function statusClass(status) {
     <div class="overflow-x-auto">
       <table class="w-full border-collapse text-sm">
         <thead>
-          <tr class="border-b border-gray-700 text-left text-gray-400">
+          <tr class="border-b border-tactical-border text-left text-gray-500">
             <th class="px-3 py-2">Time</th>
             <th class="px-3 py-2">Dir</th>
             <th class="px-3 py-2">Device</th>
@@ -192,7 +192,7 @@ function statusClass(status) {
           </tr>
         </thead>
         <tbody>
-          <tr v-for="m in messageList" :key="m.id" class="border-b border-gray-800 hover:bg-gray-800/50">
+          <tr v-for="m in messageList" :key="m.id" class="border-b border-tactical-border/30 hover:bg-white/[0.02]">
             <td class="px-3 py-2 text-gray-400 whitespace-nowrap">{{ formatTime(m.created_at) }}</td>
             <td class="px-3 py-2">
               <span :class="[dirClass(m.direction), m.direction === 'mo' ? 'bg-emerald-900/30' : 'bg-sky-900/30']"

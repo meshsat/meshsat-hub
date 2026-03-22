@@ -1,6 +1,7 @@
 <script setup>
 import { ref, onMounted } from 'vue'
 import { deadman, devices, escalation } from '../api/client'
+import EmptyState from '../components/EmptyState.vue'
 
 const configs = ref([])
 const deviceList = ref([])
@@ -94,7 +95,7 @@ function chainName(id) {
 
 <template>
   <div>
-    <h1 class="text-2xl font-bold mb-4">Dead Man's Switch</h1>
+    <h1 class="text-2xl font-display font-bold mb-4">Dead Man's Switch</h1>
 
     <div v-if="error" class="bg-red-900/50 border border-red-700 text-red-200 px-4 py-3 rounded mb-4">{{ error }}</div>
 
@@ -106,12 +107,12 @@ function chainName(id) {
     </div>
 
     <!-- Config form -->
-    <div v-if="editing" class="bg-gray-800 rounded-lg p-4 mb-4">
+    <div v-if="editing" class="bg-gray-900 rounded-xl p-4 mb-4">
       <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3">
         <div>
           <label class="text-xs text-gray-400">Device</label>
           <select v-model="form.imei"
-            class="bg-gray-700 border border-gray-600 px-3 py-2 rounded text-gray-100 w-full focus:outline-none focus:border-teal-400">
+            class="bg-gray-800 border border-gray-700 px-3 py-2 rounded-lg text-gray-200 w-full focus:outline-none focus:border-teal-500">
             <option value="">Select device...</option>
             <option v-for="d in deviceList" :key="d.imei" :value="d.imei">{{ d.label || d.imei }}</option>
           </select>
@@ -119,7 +120,7 @@ function chainName(id) {
         <div>
           <label class="text-xs text-gray-400">Escalation Chain</label>
           <select v-model="form.chain_id"
-            class="bg-gray-700 border border-gray-600 px-3 py-2 rounded text-gray-100 w-full focus:outline-none focus:border-teal-400">
+            class="bg-gray-800 border border-gray-700 px-3 py-2 rounded-lg text-gray-200 w-full focus:outline-none focus:border-teal-500">
             <option value="">None</option>
             <option v-for="c in chainList" :key="c.id" :value="c.id">{{ c.name }}</option>
           </select>
@@ -127,12 +128,12 @@ function chainName(id) {
         <div>
           <label class="text-xs text-gray-400">Check-in interval (min)</label>
           <input v-model="form.interval_min" type="number" min="1"
-            class="bg-gray-700 border border-gray-600 px-3 py-2 rounded text-gray-100 w-full focus:outline-none focus:border-teal-400" />
+            class="bg-gray-800 border border-gray-700 px-3 py-2 rounded-lg text-gray-200 w-full focus:outline-none focus:border-teal-500" />
         </div>
         <div>
           <label class="text-xs text-gray-400">Grace period (min)</label>
           <input v-model="form.grace_min" type="number" min="0"
-            class="bg-gray-700 border border-gray-600 px-3 py-2 rounded text-gray-100 w-full focus:outline-none focus:border-teal-400" />
+            class="bg-gray-800 border border-gray-700 px-3 py-2 rounded-lg text-gray-200 w-full focus:outline-none focus:border-teal-500" />
         </div>
       </div>
       <div class="flex items-center justify-between">
@@ -145,10 +146,10 @@ function chainName(id) {
     </div>
 
     <!-- Configs table -->
-    <div class="overflow-x-auto">
+    <div v-if="configs.length > 0" class="overflow-x-auto">
       <table class="w-full border-collapse text-sm">
         <thead>
-          <tr class="border-b border-gray-700 text-left text-gray-400">
+          <tr class="border-b border-tactical-border text-left text-gray-500">
             <th class="px-3 py-2">Device</th>
             <th class="px-3 py-2">Interval</th>
             <th class="px-3 py-2">Grace</th>
@@ -158,7 +159,7 @@ function chainName(id) {
           </tr>
         </thead>
         <tbody>
-          <tr v-for="c in configs" :key="c.device_imei" class="border-b border-gray-800 hover:bg-gray-800/50">
+          <tr v-for="c in configs" :key="c.device_imei" class="border-b border-tactical-border/30 hover:bg-white/[0.02]">
             <td class="px-3 py-2 font-mono text-xs">{{ c.device_imei }}</td>
             <td class="px-3 py-2 text-gray-400">{{ Math.round((c.interval || 0) / 60000000000) }}m</td>
             <td class="px-3 py-2 text-gray-400">{{ Math.round((c.grace || 0) / 60000000000) }}m</td>
@@ -170,19 +171,17 @@ function chainName(id) {
             </td>
             <td class="px-3 py-2 text-right flex gap-1 justify-end">
               <button @click="snoozeDevice(c.device_imei)"
-                class="bg-yellow-900 hover:bg-yellow-800 text-yellow-200 px-2 py-1 rounded text-xs transition-colors">Snooze 1h</button>
+                class="bg-yellow-900 hover:bg-yellow-800 text-yellow-200 px-2 py-1 rounded-lg text-xs transition-colors">Snooze 1h</button>
               <button @click="editConfig(c)"
-                class="bg-gray-700 hover:bg-gray-600 text-gray-200 px-2 py-1 rounded text-xs transition-colors">Edit</button>
+                class="bg-gray-700 hover:bg-gray-600 text-gray-200 px-2 py-1 rounded-lg text-xs transition-colors">Edit</button>
               <button @click="deleteConfig(c.device_imei)"
-                class="bg-red-900 hover:bg-red-800 text-red-200 px-2 py-1 rounded text-xs transition-colors">Delete</button>
+                class="bg-red-900 hover:bg-red-800 text-red-200 px-2 py-1 rounded-lg text-xs transition-colors">Delete</button>
             </td>
-          </tr>
-          <tr v-if="configs.length === 0 && !loading">
-            <td colspan="6" class="px-3 py-8 text-center text-gray-500">No dead man's switch configured</td>
           </tr>
         </tbody>
       </table>
     </div>
+    <EmptyState v-else-if="!loading" icon="clock" title="No dead man's switch configured" message="Configure a dead man's switch to alert when a device stops checking in within a specified interval." />
 
     <div v-if="loading" class="text-center text-gray-500 py-8">Loading...</div>
   </div>

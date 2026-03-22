@@ -2,6 +2,7 @@
 import { ref, onMounted } from 'vue'
 import { mptcp, constellations } from '../api/client'
 import { formatUTC } from '../utils/time'
+import EmptyState from '../components/EmptyState.vue'
 
 const mptcpStatus = ref(null)
 const backends = ref([])
@@ -76,15 +77,15 @@ function formatBytes(bytes) {
 
 <template>
   <div>
-    <h1 class="text-2xl font-bold mb-4">Network</h1>
+    <h1 class="text-2xl font-display font-bold mb-4">Network</h1>
 
     <div v-if="error" class="bg-red-900/50 border border-red-700 text-red-200 px-4 py-3 rounded mb-4">{{ error }}</div>
 
     <!-- Satellite Constellations -->
     <div class="mb-8">
-      <h2 class="text-lg font-semibold mb-3">Satellite Constellations</h2>
+      <h2 class="text-lg font-semibold mb-3 uppercase tracking-wider">Satellite Constellations</h2>
       <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-        <div v-for="b in backends" :key="b" class="bg-gray-800 rounded-lg p-4">
+        <div v-for="b in backends" :key="b" class="bg-gray-900 rounded-xl p-4">
           <div class="flex items-center gap-2 mb-1">
             <div class="w-2 h-2 rounded-full bg-green-400"></div>
             <span class="font-medium capitalize">{{ b }}</span>
@@ -95,34 +96,34 @@ function formatBytes(bytes) {
             <span v-else>Available</span>
           </div>
         </div>
-        <div v-if="backends.length === 0 && !loading" class="text-gray-500 text-sm py-4 col-span-full">No constellation backends registered</div>
+        <EmptyState v-if="backends.length === 0 && !loading" icon="satellite" title="No constellations" message="No satellite constellation backends are configured." class="col-span-full" />
       </div>
     </div>
 
     <!-- MPTCP Concentrator -->
     <div class="mb-8">
-      <h2 class="text-lg font-semibold mb-3">MPTCP Concentrator</h2>
+      <h2 class="text-lg font-semibold mb-3 uppercase tracking-wider">MPTCP Concentrator</h2>
 
       <div v-if="mptcpStatus" class="mb-4">
         <!-- Status cards -->
         <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-4">
-          <div class="bg-gray-800 rounded-lg p-4">
+          <div class="bg-gray-900 rounded-xl p-4">
             <div class="text-gray-400 text-sm mb-1">Kernel MPTCP</div>
             <div class="text-lg font-bold" :class="mptcpStatus.available ? 'text-green-400' : 'text-red-400'">
               {{ mptcpStatus.available ? 'Available' : 'Not Available' }}
             </div>
           </div>
-          <div class="bg-gray-800 rounded-lg p-4">
+          <div class="bg-gray-900 rounded-xl p-4">
             <div class="text-gray-400 text-sm mb-1">Status</div>
             <div class="text-lg font-bold" :class="mptcpStatus.enabled ? 'text-green-400' : 'text-gray-500'">
               {{ mptcpStatus.enabled ? 'Enabled' : 'Disabled' }}
             </div>
           </div>
-          <div class="bg-gray-800 rounded-lg p-4">
+          <div class="bg-gray-900 rounded-xl p-4">
             <div class="text-gray-400 text-sm mb-1">Strategy</div>
             <div class="flex items-center gap-2">
               <select :value="mptcpStatus.strategy" @change="setStrategy($event.target.value)"
-                class="bg-gray-700 border border-gray-600 px-3 py-1 rounded text-gray-100 text-sm focus:outline-none focus:border-teal-400">
+                class="bg-gray-800 border border-gray-700 px-3 py-1 rounded text-gray-100 text-sm focus:outline-none focus:border-teal-500">
                 <option value="failover">Failover</option>
                 <option value="aggregate">Aggregate</option>
                 <option value="redundant">Redundant</option>

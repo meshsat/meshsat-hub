@@ -22,7 +22,7 @@ const icons = {
 
 <template>
   <div class="flex flex-col items-center justify-center py-12 px-4 text-center">
-    <div class="w-16 h-16 mb-4 rounded-full bg-gray-700/50 flex items-center justify-center">
+    <div class="w-16 h-16 mb-4 rounded-full bg-gray-800/50 flex items-center justify-center">
       <svg class="w-8 h-8 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" :d="icons[icon] || icons.inbox" />
       </svg>

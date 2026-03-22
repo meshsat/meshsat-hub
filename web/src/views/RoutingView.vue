@@ -179,14 +179,14 @@ function destBadgeClass(type) {
 <template>
   <div>
     <div class="flex items-center justify-between mb-4">
-      <h1 class="text-2xl font-bold mb-4">Routing Rules</h1>
+      <h1 class="text-2xl font-display font-bold mb-4">Routing Rules</h1>
       <div class="flex gap-2">
         <button @click="showTest = !showTest"
           class="bg-gray-700 hover:bg-gray-600 text-gray-300 px-3 py-2 rounded font-medium transition-colors text-sm">
           {{ showTest ? 'Hide Test' : 'Test Route' }}
         </button>
         <button v-if="canModify && !showForm" @click="openCreateForm"
-          class="bg-teal-600 hover:bg-teal-500 text-white px-4 py-2 rounded font-medium transition-colors text-sm">
+          class="bg-teal-600 hover:bg-teal-500 text-white px-4 py-2 rounded-lg font-medium transition-colors text-sm">
           Create Route
         </button>
       </div>
@@ -197,8 +197,8 @@ function destBadgeClass(type) {
     </div>
 
     <!-- Visual flow diagram -->
-    <div v-if="flowGroups.length > 0" class="bg-gray-800 rounded-lg p-4 mb-6">
-      <h2 class="text-sm font-semibold text-gray-400 mb-3">Active Route Flow</h2>
+    <div v-if="flowGroups.length > 0" class="bg-gray-900 rounded-xl p-4 mb-6">
+      <h2 class="text-sm font-semibold text-gray-400 uppercase tracking-wider mb-3">Active Route Flow</h2>
       <div class="space-y-3">
         <div v-for="group in flowGroups" :key="group.source" class="flex items-center gap-3 flex-wrap">
           <span :class="sourceBadgeClass(group.source)"
@@ -219,25 +219,25 @@ function destBadgeClass(type) {
     </div>
 
     <!-- Test route panel -->
-    <div v-if="showTest" class="bg-gray-800 rounded-lg p-4 mb-6">
-      <h2 class="text-sm font-semibold text-gray-300 mb-3">Test Sample Message</h2>
+    <div v-if="showTest" class="bg-gray-900 rounded-xl p-4 mb-6">
+      <h2 class="text-sm font-display font-semibold text-gray-200 uppercase tracking-wider mb-3">Test Sample Message</h2>
       <div class="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-3">
         <div>
           <label class="text-xs text-gray-400">Source Channel</label>
           <select v-model="testChannel"
-            class="bg-gray-700 border border-gray-600 px-3 py-2 rounded text-gray-100 w-full focus:outline-none focus:border-teal-400">
+            class="bg-gray-800 border border-gray-700 px-3 py-2 rounded-lg text-gray-200 w-full focus:outline-none focus:border-teal-500">
             <option v-for="s in sourceTypes.filter(s => s !== '*')" :key="s" :value="s">{{ s }}</option>
           </select>
         </div>
         <div>
           <label class="text-xs text-gray-400">Device IMEI (optional)</label>
           <input v-model="testDeviceID" placeholder="300234065123456"
-            class="bg-gray-700 border border-gray-600 px-3 py-2 rounded text-gray-100 w-full placeholder-gray-500 focus:outline-none focus:border-teal-400" />
+            class="bg-gray-800 border border-gray-700 px-3 py-2 rounded-lg text-gray-200 w-full placeholder-gray-500 focus:outline-none focus:border-teal-500" />
         </div>
         <div>
           <label class="text-xs text-gray-400">Message Text</label>
           <input v-model="testText" placeholder="Sample message text"
-            class="bg-gray-700 border border-gray-600 px-3 py-2 rounded text-gray-100 w-full placeholder-gray-500 focus:outline-none focus:border-teal-400" />
+            class="bg-gray-800 border border-gray-700 px-3 py-2 rounded-lg text-gray-200 w-full placeholder-gray-500 focus:outline-none focus:border-teal-500" />
         </div>
       </div>
       <button @click="runTest" :disabled="testLoading"
@@ -268,23 +268,23 @@ function destBadgeClass(type) {
     </div>
 
     <!-- Create / Edit form -->
-    <div v-if="showForm" class="bg-gray-800 rounded-lg p-4 mb-6">
-      <h2 class="text-sm font-semibold text-gray-300 mb-3">
+    <div v-if="showForm" class="bg-gray-900 rounded-xl p-4 mb-6">
+      <h2 class="text-sm font-display font-semibold text-gray-200 uppercase tracking-wider mb-3">
         {{ editingId ? 'Edit Route' : 'Create New Route' }}
       </h2>
       <div class="flex flex-wrap gap-2">
         <input v-model="formName" placeholder="Route name"
-          class="bg-gray-700 border border-gray-600 px-3 py-2 rounded text-gray-100 placeholder-gray-500 focus:outline-none focus:border-teal-400 flex-1 min-w-[160px]" />
+          class="bg-gray-800 border border-gray-700 px-3 py-2 rounded-lg text-gray-200 placeholder-gray-500 focus:outline-none focus:border-teal-500 flex-1 min-w-[160px]" />
         <select v-model="formSource"
-          class="bg-gray-700 border border-gray-600 px-3 py-2 rounded text-gray-100 focus:outline-none focus:border-teal-400">
+          class="bg-gray-800 border border-gray-700 px-3 py-2 rounded-lg text-gray-200 focus:outline-none focus:border-teal-500">
           <option v-for="s in sourceTypes" :key="s" :value="s">Source: {{ s === '*' ? 'All' : s }}</option>
         </select>
         <select v-model="formDest"
-          class="bg-gray-700 border border-gray-600 px-3 py-2 rounded text-gray-100 focus:outline-none focus:border-teal-400">
+          class="bg-gray-800 border border-gray-700 px-3 py-2 rounded-lg text-gray-200 focus:outline-none focus:border-teal-500">
           <option v-for="d in destTypes" :key="d" :value="d">Dest: {{ d }}</option>
         </select>
         <input v-model="formFilter" placeholder="Filter (IMEI or keyword)"
-          class="bg-gray-700 border border-gray-600 px-3 py-2 rounded text-gray-100 placeholder-gray-500 focus:outline-none focus:border-teal-400 flex-1 min-w-[140px]" />
+          class="bg-gray-800 border border-gray-700 px-3 py-2 rounded-lg text-gray-200 placeholder-gray-500 focus:outline-none focus:border-teal-500 flex-1 min-w-[140px]" />
         <label class="flex items-center gap-2 text-sm text-gray-300 px-2">
           <input type="checkbox" v-model="formEnabled" class="rounded" />
           Enabled
@@ -292,7 +292,7 @@ function destBadgeClass(type) {
       </div>
       <div class="flex gap-2 mt-3">
         <button @click="submitForm"
-          class="bg-teal-600 hover:bg-teal-500 text-white px-4 py-2 rounded font-medium transition-colors text-sm">
+          class="bg-teal-600 hover:bg-teal-500 text-white px-4 py-2 rounded-lg font-medium transition-colors text-sm">
           {{ editingId ? 'Update' : 'Create' }}
         </button>
         <button @click="cancelForm"
@@ -306,7 +306,7 @@ function destBadgeClass(type) {
     <div class="overflow-x-auto">
       <table class="w-full border-collapse text-sm">
         <thead>
-          <tr class="border-b border-gray-700 text-left text-gray-400">
+          <tr class="border-b border-tactical-border text-left text-gray-500">
             <th class="px-3 py-2">Name</th>
             <th class="px-3 py-2">Source</th>
             <th class="px-3 py-2">Destination</th>
@@ -316,7 +316,7 @@ function destBadgeClass(type) {
           </tr>
         </thead>
         <tbody>
-          <tr v-for="r in routeList" :key="r.id" class="border-b border-gray-800 hover:bg-gray-800/50">
+          <tr v-for="r in routeList" :key="r.id" class="border-b border-tactical-border/30 hover:bg-white/[0.02]">
             <td class="px-3 py-2 font-medium">{{ r.name }}</td>
             <td class="px-3 py-2">
               <span :class="sourceBadgeClass(r.source_type)" class="text-xs px-2 py-0.5 rounded font-medium">
@@ -343,11 +343,11 @@ function destBadgeClass(type) {
             </td>
             <td v-if="canModify" class="px-3 py-2 text-right">
               <button @click="openEditForm(r)"
-                class="bg-gray-700 hover:bg-gray-600 text-gray-300 px-2 py-1 rounded text-xs transition-colors mr-1">
+                class="bg-gray-700 hover:bg-gray-600 text-gray-300 px-2 py-1 rounded-lg text-xs transition-colors mr-1">
                 Edit
               </button>
               <button @click="deleteRoute(r)"
-                class="bg-red-900 hover:bg-red-800 text-red-200 px-2 py-1 rounded text-xs transition-colors">
+                class="bg-red-900 hover:bg-red-800 text-red-200 px-2 py-1 rounded-lg text-xs transition-colors">
                 Delete
               </button>
             </td>

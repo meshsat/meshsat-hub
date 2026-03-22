@@ -72,7 +72,7 @@ function roleBadgeClass(role) {
 
 <template>
   <div>
-    <h1 class="text-2xl font-bold mb-4">API Keys</h1>
+    <h1 class="text-2xl font-display font-bold mb-4">API Keys</h1>
 
     <div v-if="error" class="bg-red-900/50 border border-red-700 text-red-200 px-4 py-3 rounded mb-4">
       {{ error }}
@@ -89,28 +89,28 @@ function roleBadgeClass(role) {
     </div>
 
     <!-- Create key form -->
-    <div class="bg-gray-800 rounded-lg p-4 mb-6">
-      <h2 class="text-sm font-semibold text-gray-300 mb-3">Create New Key</h2>
+    <div class="bg-gray-900 rounded-xl p-4 mb-6">
+      <h2 class="text-sm font-display font-semibold text-gray-200 uppercase tracking-wider mb-3">Create New Key</h2>
       <div class="flex flex-wrap gap-2">
         <input v-model="newLabel" placeholder="Label (e.g. CI pipeline)"
-          class="bg-gray-700 border border-gray-600 px-3 py-2 rounded text-gray-100 placeholder-gray-500 focus:outline-none focus:border-teal-400 flex-1 min-w-[160px]" />
+          class="bg-gray-800 border border-gray-700 px-3 py-2 rounded-lg text-gray-200 placeholder-gray-500 focus:outline-none focus:border-teal-500 flex-1 min-w-[160px]" />
         <select v-model="newRole"
-          class="bg-gray-700 border border-gray-600 px-3 py-2 rounded text-gray-100 focus:outline-none focus:border-teal-400">
+          class="bg-gray-800 border border-gray-700 px-3 py-2 rounded-lg text-gray-200 focus:outline-none focus:border-teal-500">
           <option value="viewer">Viewer</option>
           <option value="operator">Operator</option>
           <option value="owner">Owner</option>
         </select>
         <input v-model="newDevice" placeholder="Device IMEI (optional)"
-          class="bg-gray-700 border border-gray-600 px-3 py-2 rounded text-gray-100 placeholder-gray-500 focus:outline-none focus:border-teal-400 min-w-[160px]" />
+          class="bg-gray-800 border border-gray-700 px-3 py-2 rounded-lg text-gray-200 placeholder-gray-500 focus:outline-none focus:border-teal-500 min-w-[160px]" />
         <select v-model="newExpires"
-          class="bg-gray-700 border border-gray-600 px-3 py-2 rounded text-gray-100 focus:outline-none focus:border-teal-400">
+          class="bg-gray-800 border border-gray-700 px-3 py-2 rounded-lg text-gray-200 focus:outline-none focus:border-teal-500">
           <option value="">No expiry</option>
           <option value="720h">30 days</option>
           <option value="2160h">90 days</option>
           <option value="8760h">1 year</option>
         </select>
         <button @click="createKey"
-          class="bg-teal-600 hover:bg-teal-500 text-white px-4 py-2 rounded font-medium transition-colors">
+          class="bg-teal-600 hover:bg-teal-500 text-white px-4 py-2 rounded-lg font-medium transition-colors">
           Create
         </button>
       </div>
@@ -120,7 +120,7 @@ function roleBadgeClass(role) {
     <div class="overflow-x-auto">
       <table class="w-full border-collapse text-sm">
         <thead>
-          <tr class="border-b border-gray-700 text-left text-gray-400">
+          <tr class="border-b border-tactical-border text-left text-gray-500">
             <th class="px-3 py-2">Key Prefix</th>
             <th class="px-3 py-2">Label</th>
             <th class="px-3 py-2">Role</th>
@@ -131,7 +131,7 @@ function roleBadgeClass(role) {
           </tr>
         </thead>
         <tbody>
-          <tr v-for="k in keys" :key="k.id" class="border-b border-gray-800 hover:bg-gray-800/50">
+          <tr v-for="k in keys" :key="k.id" class="border-b border-tactical-border/30 hover:bg-white/[0.02]">
             <td class="px-3 py-2 font-mono text-xs">{{ k.key_prefix }}...</td>
             <td class="px-3 py-2">{{ k.label }}</td>
             <td class="px-3 py-2">
@@ -144,7 +144,7 @@ function roleBadgeClass(role) {
             <td class="px-3 py-2 text-gray-400">{{ formatDate(k.expires_at) }}</td>
             <td class="px-3 py-2 text-right">
               <button @click="revokeKey(k.id, k.key_prefix)"
-                class="bg-red-900 hover:bg-red-800 text-red-200 px-2 py-1 rounded text-xs transition-colors">
+                class="bg-red-900 hover:bg-red-800 text-red-200 px-2 py-1 rounded-lg text-xs transition-colors">
                 Revoke
               </button>
             </td>

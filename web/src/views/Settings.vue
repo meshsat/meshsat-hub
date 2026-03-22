@@ -70,14 +70,14 @@ function statusText(ok) {
 
 <template>
   <div class="p-4 lg:p-6 max-w-6xl mx-auto">
-    <h1 class="text-2xl font-bold mb-6">Settings & System Info</h1>
+    <h1 class="text-2xl font-display font-bold mb-6">Settings & System Info</h1>
 
     <div v-if="loading" class="text-center text-gray-500 py-16">Loading system status...</div>
 
     <template v-else>
       <!-- Health & Readiness -->
-      <div class="bg-gray-800 rounded-lg border border-gray-700 p-5 mb-6">
-        <h2 class="text-sm font-semibold text-gray-300 uppercase tracking-wider mb-4">System Health</h2>
+      <div class="bg-gray-900 rounded-xl border border-gray-800 p-5 mb-6">
+        <h2 class="text-sm font-display font-semibold text-gray-200 uppercase tracking-wider mb-4">System Health</h2>
         <div class="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-4">
           <div>
             <span class="text-gray-400 text-xs">Liveness</span>
@@ -111,8 +111,8 @@ function statusText(ok) {
       <!-- Network Identity & Services -->
       <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-6">
         <!-- Reticulum Identity -->
-        <div class="bg-gray-800 rounded-lg border border-gray-700 p-5">
-          <h2 class="text-sm font-semibold text-gray-300 uppercase tracking-wider mb-3">Reticulum Identity</h2>
+        <div class="bg-gray-900 rounded-xl border border-gray-800 p-5">
+          <h2 class="text-sm font-display font-semibold text-gray-200 uppercase tracking-wider mb-3">Reticulum Identity</h2>
           <div v-if="retIdentity" class="space-y-2 text-sm">
             <div>
               <span class="text-gray-400">Dest Hash</span>
@@ -131,8 +131,8 @@ function statusText(ok) {
         </div>
 
         <!-- Tor & WireGuard -->
-        <div class="bg-gray-800 rounded-lg border border-gray-700 p-5">
-          <h2 class="text-sm font-semibold text-gray-300 uppercase tracking-wider mb-3">Network Services</h2>
+        <div class="bg-gray-900 rounded-xl border border-gray-800 p-5">
+          <h2 class="text-sm font-display font-semibold text-gray-200 uppercase tracking-wider mb-3">Network Services</h2>
           <div class="space-y-3 text-sm">
             <div class="flex items-center justify-between">
               <div class="flex items-center gap-2">
@@ -156,8 +156,8 @@ function statusText(ok) {
       </div>
 
       <!-- Sensor Codecs -->
-      <div v-if="codecList.length > 0" class="bg-gray-800 rounded-lg border border-gray-700 p-5 mb-6">
-        <h2 class="text-sm font-semibold text-gray-300 uppercase tracking-wider mb-3">Sensor Payload Codecs</h2>
+      <div v-if="codecList.length > 0" class="bg-gray-900 rounded-xl border border-gray-800 p-5 mb-6">
+        <h2 class="text-sm font-display font-semibold text-gray-200 uppercase tracking-wider mb-3">Sensor Payload Codecs</h2>
         <div class="flex flex-wrap gap-2">
           <span v-for="c in codecList" :key="c.name || c"
                 class="bg-gray-700 text-gray-300 text-xs px-2.5 py-1 rounded">
@@ -167,8 +167,8 @@ function statusText(ok) {
       </div>
 
       <!-- Backup & Data -->
-      <div class="bg-gray-800 rounded-lg border border-gray-700 p-5 mb-6">
-        <h2 class="text-sm font-semibold text-gray-300 uppercase tracking-wider mb-3">Backup & Data</h2>
+      <div class="bg-gray-900 rounded-xl border border-gray-800 p-5 mb-6">
+        <h2 class="text-sm font-display font-semibold text-gray-200 uppercase tracking-wider mb-3">Backup & Data</h2>
         <div class="flex items-center gap-3">
           <button @click="exportBackup" :disabled="exportLoading"
             class="bg-teal-600 hover:bg-teal-500 disabled:bg-gray-600 text-white text-sm px-4 py-2 rounded">
@@ -180,8 +180,8 @@ function statusText(ok) {
       </div>
 
       <!-- API Documentation -->
-      <div class="bg-gray-800 rounded-lg border border-gray-700 p-5">
-        <h2 class="text-sm font-semibold text-gray-300 uppercase tracking-wider mb-3">API Documentation</h2>
+      <div class="bg-gray-900 rounded-xl border border-gray-800 p-5">
+        <h2 class="text-sm font-display font-semibold text-gray-200 uppercase tracking-wider mb-3">API Documentation</h2>
         <div class="space-y-2 text-sm">
           <a href="/api/docs" target="_blank"
              class="inline-flex items-center gap-2 text-teal-400 hover:text-teal-300">

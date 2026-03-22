@@ -160,7 +160,7 @@ function directionColor(d) {
   <div class="p-4 lg:p-6 max-w-7xl mx-auto">
     <!-- Header -->
     <div class="flex items-center justify-between mb-6">
-      <h1 class="text-2xl font-bold">Operations Dashboard</h1>
+      <h1 class="text-2xl font-display font-bold">Operations Dashboard</h1>
       <div class="flex items-center gap-3 text-xs text-gray-500">
         <span v-if="lastRefresh">Updated {{ timeSince(lastRefresh) }}</span>
         <button @click="loadAll" class="text-teal-400 hover:text-teal-300">Refresh</button>
@@ -172,9 +172,9 @@ function directionColor(d) {
     </div>
 
     <!-- Customize Panel -->
-    <div v-if="dash.customizing" class="bg-gray-800 border border-gray-700 rounded-lg p-4 mb-6">
+    <div v-if="dash.customizing" class="bg-gray-900 border border-gray-800 rounded-xl p-4 mb-6">
       <div class="flex items-center justify-between mb-3">
-        <h3 class="text-sm font-semibold text-gray-300">Customize Dashboard</h3>
+        <h3 class="text-sm font-display font-semibold text-gray-200">Customize Dashboard</h3>
         <div class="flex gap-2">
           <button @click="dash.reset()" class="text-xs text-gray-500 hover:text-gray-300">Reset</button>
           <button @click="dash.customizing = false" class="text-xs text-teal-400 hover:text-teal-300">Done</button>
@@ -213,7 +213,7 @@ function directionColor(d) {
       <!-- Primary KPI Row -->
       <div v-if="dash.isVisible('kpi')" class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 mb-6">
         <!-- Hub Status -->
-        <div class="bg-gray-800 rounded-lg p-4 border border-gray-700">
+        <div class="bg-gray-900 rounded-xl p-4 border border-gray-800">
           <div class="text-gray-400 text-xs uppercase tracking-wider mb-1">Hub</div>
           <div class="text-xl font-bold" :class="hubHealth?.status === 'ok' ? 'text-emerald-400' : 'text-red-400'">
             {{ hubHealth?.status || '?' }}
@@ -221,7 +221,7 @@ function directionColor(d) {
         </div>
 
         <!-- Devices Online/Idle/Offline -->
-        <div class="bg-gray-800 rounded-lg p-4 border border-gray-700">
+        <div class="bg-gray-900 rounded-xl p-4 border border-gray-800">
           <div class="text-gray-400 text-xs uppercase tracking-wider mb-1">Devices</div>
           <div class="flex items-baseline gap-1">
             <span class="text-xl font-bold text-emerald-400">{{ onlineDevices }}</span>
@@ -234,7 +234,7 @@ function directionColor(d) {
         </div>
 
         <!-- Messages -->
-        <div class="bg-gray-800 rounded-lg p-4 border border-gray-700">
+        <div class="bg-gray-900 rounded-xl p-4 border border-gray-800">
           <div class="text-gray-400 text-xs uppercase tracking-wider mb-1">Messages</div>
           <div class="flex items-center justify-between">
             <div class="flex items-baseline gap-2">
@@ -248,7 +248,7 @@ function directionColor(d) {
         </div>
 
         <!-- Credits -->
-        <div class="bg-gray-800 rounded-lg p-4 border border-gray-700">
+        <div class="bg-gray-900 rounded-xl p-4 border border-gray-800">
           <div class="text-gray-400 text-xs uppercase tracking-wider mb-1">Credits</div>
           <div class="text-xl font-bold" :class="creditBalance !== null && creditBalance < 100 ? 'text-amber-400' : 'text-teal-400'">
             {{ creditBalance !== null ? creditBalance.toLocaleString() : '---' }}
@@ -256,7 +256,7 @@ function directionColor(d) {
         </div>
 
         <!-- Active Alerts -->
-        <div class="bg-gray-800 rounded-lg p-4 border border-gray-700" :class="activeAlerts.length > 0 ? 'border-red-700' : ''">
+        <div class="bg-gray-900 rounded-xl p-4 border border-gray-800" :class="activeAlerts.length > 0 ? 'border-red-700' : ''">
           <div class="text-gray-400 text-xs uppercase tracking-wider mb-1">Alerts</div>
           <div class="text-xl font-bold" :class="activeAlerts.length > 0 ? 'text-red-400' : 'text-emerald-400'">
             {{ activeAlerts.length }}
@@ -264,7 +264,7 @@ function directionColor(d) {
         </div>
 
         <!-- Mesh Nodes -->
-        <div class="bg-gray-800 rounded-lg p-4 border border-gray-700">
+        <div class="bg-gray-900 rounded-xl p-4 border border-gray-800">
           <div class="text-gray-400 text-xs uppercase tracking-wider mb-1">Mesh Nodes</div>
           <div class="text-xl font-bold text-teal-400">{{ retRoutes.count }}</div>
         </div>
@@ -273,8 +273,8 @@ function directionColor(d) {
       <!-- Secondary Info Row -->
       <div class="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-6" v-if="dash.isVisible('constellations') || dash.isVisible('safety') || dash.isVisible('network')">
         <!-- Constellation Status -->
-        <div v-if="dash.isVisible('constellations')" class="bg-gray-800 rounded-lg border border-gray-700 p-4">
-          <h2 class="text-sm font-semibold text-gray-300 uppercase tracking-wider mb-3">Constellations</h2>
+        <div v-if="dash.isVisible('constellations')" class="bg-gray-900 rounded-xl border border-gray-800 p-4">
+          <h2 class="text-sm font-display font-semibold text-gray-200 uppercase tracking-wider mb-3">Constellations</h2>
           <EmptyState v-if="backendList.length === 0" icon="satellite" title="No backends" message="Configure satellite constellation backends to start relaying messages." />
           <div v-else class="space-y-2">
             <div v-for="b in backendList" :key="b" class="flex items-center justify-between">
@@ -288,8 +288,8 @@ function directionColor(d) {
         </div>
 
         <!-- Safety Status -->
-        <div v-if="dash.isVisible('safety')" class="bg-gray-800 rounded-lg border border-gray-700 p-4">
-          <h2 class="text-sm font-semibold text-gray-300 uppercase tracking-wider mb-3">Safety</h2>
+        <div v-if="dash.isVisible('safety')" class="bg-gray-900 rounded-xl border border-gray-800 p-4">
+          <h2 class="text-sm font-display font-semibold text-gray-200 uppercase tracking-wider mb-3">Safety</h2>
           <div class="space-y-2 text-sm">
             <div class="flex items-center justify-between">
               <span class="text-gray-400">Active Alerts</span>
@@ -317,8 +317,8 @@ function directionColor(d) {
         </div>
 
         <!-- Network Identity -->
-        <div v-if="dash.isVisible('network')" class="bg-gray-800 rounded-lg border border-gray-700 p-4">
-          <h2 class="text-sm font-semibold text-gray-300 uppercase tracking-wider mb-3">Network</h2>
+        <div v-if="dash.isVisible('network')" class="bg-gray-900 rounded-xl border border-gray-800 p-4">
+          <h2 class="text-sm font-display font-semibold text-gray-200 uppercase tracking-wider mb-3">Network</h2>
           <div v-if="retIdentity" class="space-y-2 text-sm">
             <div>
               <span class="text-gray-400 text-xs">Hub DestHash</span>
@@ -340,17 +340,17 @@ function directionColor(d) {
       <!-- Main Content Row -->
       <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-6" v-if="dash.isVisible('messages') || dash.isVisible('fleet')">
         <!-- Recent Activity -->
-        <div v-if="dash.isVisible('messages')" class="bg-gray-800 rounded-lg border border-gray-700 overflow-hidden">
-          <div class="px-4 py-3 border-b border-gray-700">
+        <div v-if="dash.isVisible('messages')" class="bg-gray-900 rounded-xl border border-gray-800 overflow-hidden">
+          <div class="px-4 py-3 border-b border-gray-800">
             <div class="flex items-center justify-between">
-              <h2 class="text-sm font-semibold text-gray-300 uppercase tracking-wider">Recent Messages</h2>
+              <h2 class="text-sm font-display font-semibold text-gray-200 uppercase tracking-wider">Recent Messages</h2>
               <button @click="exportCSV(messageList, 'meshsat-messages', ['id','device_imei','direction','channel','text','status','created_at'])"
                 class="text-xs text-gray-500 hover:text-gray-300" title="Export CSV">CSV</button>
             </div>
           </div>
           <EmptyState v-if="recentMessages.length === 0" icon="message" title="No messages yet"
             message="Messages will appear here as devices send and receive data." />
-          <div v-else class="divide-y divide-gray-700/50">
+          <div v-else class="divide-y divide-gray-800/50">
             <div v-for="msg in recentMessages" :key="msg.id" class="px-4 py-2.5 flex items-center gap-3 text-sm">
               <span class="font-semibold text-xs w-6" :class="directionColor(msg.direction)">
                 {{ directionLabel(msg.direction) }}
@@ -366,13 +366,13 @@ function directionColor(d) {
         </div>
 
         <!-- Device Fleet -->
-        <div v-if="dash.isVisible('fleet')" class="bg-gray-800 rounded-lg border border-gray-700 overflow-hidden">
-          <div class="px-4 py-3 border-b border-gray-700">
-            <h2 class="text-sm font-semibold text-gray-300 uppercase tracking-wider">Device Fleet</h2>
+        <div v-if="dash.isVisible('fleet')" class="bg-gray-900 rounded-xl border border-gray-800 overflow-hidden">
+          <div class="px-4 py-3 border-b border-gray-800">
+            <h2 class="text-sm font-display font-semibold text-gray-200 uppercase tracking-wider">Device Fleet</h2>
           </div>
           <EmptyState v-if="deviceList.length === 0" icon="device" title="No devices registered"
             message="Register your first device to start tracking satellite communications." />
-          <div v-else class="divide-y divide-gray-700/50 max-h-80 overflow-y-auto">
+          <div v-else class="divide-y divide-gray-800/50 max-h-80 overflow-y-auto">
             <div v-for="dev in deviceList" :key="dev.imei" class="px-4 py-2.5 flex items-center gap-3 text-sm">
               <span class="w-2 h-2 rounded-full shrink-0" :class="{
                 'bg-emerald-400': dev.last_seen && (Date.now() - new Date(dev.last_seen).getTime()) < 3600000,
@@ -389,10 +389,10 @@ function directionColor(d) {
 
       <!-- Budget Section -->
       <div v-if="dash.isVisible('budgets') && budgetList.length > 0">
-        <h2 class="text-sm font-semibold text-gray-300 uppercase tracking-wider mb-3">Budget Usage</h2>
+        <h2 class="text-sm font-display font-semibold text-gray-200 uppercase tracking-wider mb-3">Budget Usage</h2>
         <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
           <div v-for="b in budgetList" :key="b.device_id"
-               class="bg-gray-800 rounded-lg border border-gray-700 p-4"
+               class="bg-gray-900 rounded-xl border border-gray-800 p-4"
                :class="b.throttled ? 'border-red-700' : ''">
             <div class="flex items-center justify-between mb-2">
               <span class="font-mono text-xs text-gray-300">{{ b.device_id }}</span>

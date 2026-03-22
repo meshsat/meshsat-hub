@@ -135,7 +135,7 @@ function cancelDrawing() {
 <template>
   <div class="p-4 lg:p-6">
     <div class="flex items-center justify-between mb-4">
-      <h1 class="text-2xl font-bold">Geofences</h1>
+      <h1 class="text-2xl font-display font-bold">Geofences</h1>
       <button v-if="!showForm" @click="startDrawing"
         class="bg-teal-600 hover:bg-teal-500 text-white text-sm px-4 py-2 rounded">
         + Draw Fence
@@ -145,16 +145,16 @@ function cancelDrawing() {
     <div v-if="error" class="bg-red-900/50 border border-red-700 text-red-200 rounded p-3 mb-4">{{ error }}</div>
 
     <!-- Drawing form -->
-    <div v-if="showForm" class="bg-gray-800 rounded-lg border border-amber-700 p-4 mb-4">
+    <div v-if="showForm" class="bg-gray-900 rounded-xl border border-amber-700 p-4 mb-4">
       <h2 class="text-sm font-semibold text-amber-400 uppercase tracking-wider mb-2">Drawing mode — click map to add vertices</h2>
       <div class="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-3">
-        <input v-model="formName" placeholder="Fence name" class="bg-gray-700 border border-gray-600 rounded px-3 py-2 text-sm">
-        <select v-model="formTrigger" class="bg-gray-700 border border-gray-600 rounded px-3 py-2 text-sm">
+        <input v-model="formName" placeholder="Fence name" class="bg-gray-800 border border-gray-700 rounded px-3 py-2 text-sm">
+        <select v-model="formTrigger" class="bg-gray-800 border border-gray-700 rounded px-3 py-2 text-sm">
           <option value="enter">Enter</option>
           <option value="exit">Exit</option>
           <option value="both">Enter + Exit</option>
         </select>
-        <input v-model="formChainId" placeholder="Escalation chain ID (optional)" class="bg-gray-700 border border-gray-600 rounded px-3 py-2 text-sm">
+        <input v-model="formChainId" placeholder="Escalation chain ID (optional)" class="bg-gray-800 border border-gray-700 rounded px-3 py-2 text-sm">
       </div>
       <div class="flex gap-2">
         <span class="text-xs text-gray-400">{{ drawingPoints.length }} vertices</span>
@@ -169,11 +169,11 @@ function cancelDrawing() {
     <div ref="mapContainer" class="rounded-lg overflow-hidden mb-4" style="height: calc(100vh - 300px); min-height: 400px;"></div>
 
     <!-- Fence list -->
-    <div v-if="fenceList.length > 0" class="bg-gray-800 rounded-lg border border-gray-700 overflow-hidden">
-      <div class="px-4 py-3 border-b border-gray-700">
-        <h2 class="text-sm font-semibold text-gray-300 uppercase tracking-wider">Configured Fences ({{ fenceList.length }})</h2>
+    <div v-if="fenceList.length > 0" class="bg-gray-900 rounded-xl border border-gray-800 overflow-hidden">
+      <div class="px-4 py-3 border-b border-gray-800">
+        <h2 class="text-sm font-display font-semibold text-gray-200 uppercase tracking-wider">Configured Fences ({{ fenceList.length }})</h2>
       </div>
-      <div class="divide-y divide-gray-700/50">
+      <div class="divide-y divide-gray-800/50">
         <div v-for="f in fenceList" :key="f.id" class="px-4 py-3 flex items-center justify-between">
           <div>
             <span class="text-gray-300 text-sm font-medium">{{ f.name }}</span>

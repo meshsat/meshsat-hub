@@ -1,6 +1,7 @@
 <script setup>
 import { ref, onMounted } from 'vue'
 import { email } from '../api/client'
+import EmptyState from '../components/EmptyState.vue'
 
 const contacts = ref([])
 const publicKey = ref('')
@@ -77,7 +78,7 @@ async function sendTest() {
 <template>
   <div class="p-4 lg:p-6 max-w-5xl mx-auto">
     <div class="flex items-center justify-between mb-6">
-      <h1 class="text-2xl font-bold">Email Gateway</h1>
+      <h1 class="text-2xl font-display font-bold">Email Gateway</h1>
       <div class="flex gap-2">
         <button @click="showTest = !showTest" class="text-sm text-teal-400 hover:text-teal-300 px-3 py-2">
           Test Send
@@ -93,13 +94,13 @@ async function sendTest() {
     <div v-if="success" class="bg-emerald-900/50 border border-emerald-700 text-emerald-200 rounded p-3 mb-4">{{ success }}</div>
 
     <!-- Test Send Form -->
-    <div v-if="showTest" class="bg-gray-800 rounded-lg border border-gray-700 p-4 mb-4">
-      <h2 class="text-sm font-semibold text-gray-300 uppercase tracking-wider mb-3">Send Test Email</h2>
+    <div v-if="showTest" class="bg-gray-900 rounded-xl border border-gray-800 p-4 mb-4">
+      <h2 class="text-sm font-display font-semibold text-gray-200 uppercase tracking-wider mb-3">Send Test Email</h2>
       <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3">
-        <input v-model="testTo" placeholder="recipient@example.com" class="bg-gray-700 border border-gray-600 rounded px-3 py-2 text-sm">
-        <input v-model="testSubject" placeholder="Subject" class="bg-gray-700 border border-gray-600 rounded px-3 py-2 text-sm">
+        <input v-model="testTo" placeholder="recipient@example.com" class="bg-gray-800 border border-gray-700 rounded px-3 py-2 text-sm">
+        <input v-model="testSubject" placeholder="Subject" class="bg-gray-800 border border-gray-700 rounded px-3 py-2 text-sm">
       </div>
-      <textarea v-model="testBody" rows="3" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-sm mb-3"></textarea>
+      <textarea v-model="testBody" rows="3" class="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-sm mb-3"></textarea>
       <div class="flex gap-2">
         <button @click="sendTest" :disabled="testSending"
           class="bg-teal-600 hover:bg-teal-500 disabled:bg-gray-600 text-white text-sm px-4 py-2 rounded">
@@ -110,12 +111,12 @@ async function sendTest() {
     </div>
 
     <!-- Add Contact Form -->
-    <div v-if="showForm" class="bg-gray-800 rounded-lg border border-gray-700 p-4 mb-4">
-      <h2 class="text-sm font-semibold text-gray-300 uppercase tracking-wider mb-3">Add Email Contact</h2>
+    <div v-if="showForm" class="bg-gray-900 rounded-xl border border-gray-800 p-4 mb-4">
+      <h2 class="text-sm font-display font-semibold text-gray-200 uppercase tracking-wider mb-3">Add Email Contact</h2>
       <div class="space-y-3">
-        <input v-model="formEmail" placeholder="email@example.com" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-sm">
+        <input v-model="formEmail" placeholder="email@example.com" class="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-sm">
         <textarea v-model="formKey" placeholder="PGP public key (armored, optional)" rows="4"
-          class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-sm font-mono text-xs"></textarea>
+          class="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-sm font-mono text-xs"></textarea>
         <div class="flex gap-2">
           <button @click="addContact" class="bg-teal-600 hover:bg-teal-500 text-white text-sm px-4 py-2 rounded">Add</button>
           <button @click="showForm = false" class="text-gray-400 hover:text-gray-300 text-sm px-3 py-2">Cancel</button>
@@ -127,18 +128,18 @@ async function sendTest() {
 
     <template v-else>
       <!-- Hub PGP Public Key -->
-      <div v-if="publicKey" class="bg-gray-800 rounded-lg border border-gray-700 p-4 mb-4">
-        <h2 class="text-sm font-semibold text-gray-300 uppercase tracking-wider mb-2">Hub PGP Public Key</h2>
+      <div v-if="publicKey" class="bg-gray-900 rounded-xl border border-gray-800 p-4 mb-4">
+        <h2 class="text-sm font-display font-semibold text-gray-200 uppercase tracking-wider mb-2">Hub PGP Public Key</h2>
         <pre class="text-[10px] text-gray-500 font-mono max-h-24 overflow-y-auto">{{ publicKey }}</pre>
       </div>
 
       <!-- Contact List -->
-      <div class="bg-gray-800 rounded-lg border border-gray-700 overflow-hidden">
-        <div class="px-4 py-3 border-b border-gray-700">
-          <h2 class="text-sm font-semibold text-gray-300 uppercase tracking-wider">Contacts ({{ contacts.length }})</h2>
+      <div class="bg-gray-900 rounded-xl border border-gray-800 overflow-hidden">
+        <div class="px-4 py-3 border-b border-gray-800">
+          <h2 class="text-sm font-display font-semibold text-gray-200 uppercase tracking-wider">Contacts ({{ contacts.length }})</h2>
         </div>
-        <div v-if="contacts.length === 0" class="p-8 text-center text-gray-500 text-sm">No email contacts configured</div>
-        <div v-else class="divide-y divide-gray-700/50">
+        <EmptyState v-if="contacts.length === 0" icon="users" title="No email contacts" message="Add PGP-enabled contacts to send encrypted email through the gateway." />
+        <div v-else class="divide-y divide-gray-800/50">
           <div v-for="c in contacts" :key="c.email" class="px-4 py-3 flex items-center justify-between">
             <div>
               <span class="text-gray-300 text-sm">{{ c.email }}</span>

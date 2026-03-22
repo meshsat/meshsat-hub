@@ -44,7 +44,7 @@ function actionColor(action) {
 <template>
   <div class="p-4 lg:p-6 max-w-7xl mx-auto">
     <div class="flex items-center justify-between mb-6">
-      <h1 class="text-2xl font-bold">Audit Log</h1>
+      <h1 class="text-2xl font-display font-bold">Audit Log</h1>
       <div class="flex gap-2">
         <button @click="verifyChain" :disabled="verifying"
           class="bg-teal-600 hover:bg-teal-500 disabled:bg-gray-600 text-white text-sm px-4 py-2 rounded">
@@ -70,9 +70,9 @@ function actionColor(action) {
     </div>
 
     <!-- Audit table -->
-    <div class="bg-gray-800 rounded-lg border border-gray-700 overflow-hidden">
+    <div class="bg-gray-900 rounded-xl border border-gray-800 overflow-hidden">
       <table class="w-full text-sm">
-        <thead class="text-gray-400 text-left border-b border-gray-700">
+        <thead class="text-gray-400 text-left border-b border-gray-800">
           <tr>
             <th class="px-4 py-2.5">Time</th>
             <th class="px-4 py-2.5">Action</th>
@@ -82,8 +82,8 @@ function actionColor(action) {
             <th class="px-4 py-2.5">Hash</th>
           </tr>
         </thead>
-        <tbody class="divide-y divide-gray-700/50">
-          <tr v-for="e in entries" :key="e.id" class="hover:bg-gray-700/30">
+        <tbody class="divide-y divide-gray-800/50">
+          <tr v-for="e in entries" :key="e.id" class="hover:bg-white/[0.02]">
             <td class="px-4 py-2.5 text-gray-400 whitespace-nowrap">{{ e.created_at?.substring(0, 19) }}</td>
             <td class="px-4 py-2.5">
               <span :class="actionColor(e.action)">{{ e.action }}</span>

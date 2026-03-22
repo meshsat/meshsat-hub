@@ -100,7 +100,7 @@ function roleBadge(role) {
 
 <template>
   <div>
-    <h1 class="text-2xl font-bold mb-4">User Management</h1>
+    <h1 class="text-2xl font-display font-bold mb-4">User Management</h1>
 
     <div v-if="error" class="bg-red-900/50 border border-red-700 text-red-200 px-4 py-3 rounded mb-4">{{ error }}</div>
 
@@ -112,27 +112,27 @@ function roleBadge(role) {
     </div>
 
     <!-- Create user form -->
-    <div v-if="showForm" class="bg-gray-800 rounded-lg p-4 mb-4">
+    <div v-if="showForm" class="bg-gray-900 rounded-xl p-4 mb-4">
       <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3">
         <div>
           <label class="text-xs text-gray-400">Email</label>
           <input v-model="form.email" type="email" placeholder="user@example.com"
-            class="bg-gray-700 border border-gray-600 px-3 py-2 rounded text-gray-100 w-full placeholder-gray-500 focus:outline-none focus:border-teal-400" />
+            class="bg-gray-800 border border-gray-700 px-3 py-2 rounded-lg text-gray-200 w-full placeholder-gray-500 focus:outline-none focus:border-teal-500" />
         </div>
         <div>
           <label class="text-xs text-gray-400">Name</label>
           <input v-model="form.name" placeholder="Full name"
-            class="bg-gray-700 border border-gray-600 px-3 py-2 rounded text-gray-100 w-full placeholder-gray-500 focus:outline-none focus:border-teal-400" />
+            class="bg-gray-800 border border-gray-700 px-3 py-2 rounded-lg text-gray-200 w-full placeholder-gray-500 focus:outline-none focus:border-teal-500" />
         </div>
         <div>
           <label class="text-xs text-gray-400">Password (min 12 characters)</label>
           <input v-model="form.password" type="password" placeholder="Strong password"
-            class="bg-gray-700 border border-gray-600 px-3 py-2 rounded text-gray-100 w-full placeholder-gray-500 focus:outline-none focus:border-teal-400" />
+            class="bg-gray-800 border border-gray-700 px-3 py-2 rounded-lg text-gray-200 w-full placeholder-gray-500 focus:outline-none focus:border-teal-500" />
         </div>
         <div>
           <label class="text-xs text-gray-400">Role</label>
           <select v-model="form.role"
-            class="bg-gray-700 border border-gray-600 px-3 py-2 rounded text-gray-100 w-full focus:outline-none focus:border-teal-400">
+            class="bg-gray-800 border border-gray-700 px-3 py-2 rounded-lg text-gray-200 w-full focus:outline-none focus:border-teal-500">
             <option value="viewer">Viewer</option>
             <option value="operator">Operator</option>
             <option value="owner">Owner</option>
@@ -149,7 +149,7 @@ function roleBadge(role) {
     <div class="overflow-x-auto">
       <table class="w-full border-collapse text-sm">
         <thead>
-          <tr class="border-b border-gray-700 text-left text-gray-400">
+          <tr class="border-b border-tactical-border text-left text-gray-500">
             <th class="px-3 py-2">Email</th>
             <th class="px-3 py-2">Name</th>
             <th class="px-3 py-2">Role</th>
@@ -159,7 +159,7 @@ function roleBadge(role) {
           </tr>
         </thead>
         <tbody>
-          <tr v-for="u in users" :key="u.id" class="border-b border-gray-800 hover:bg-gray-800/50">
+          <tr v-for="u in users" :key="u.id" class="border-b border-tactical-border/30 hover:bg-white/[0.02]">
             <td class="px-3 py-2">{{ u.email }}</td>
             <td class="px-3 py-2 text-gray-400">{{ u.name || '—' }}</td>
             <td class="px-3 py-2">
@@ -183,7 +183,7 @@ function roleBadge(role) {
             </td>
             <td class="px-3 py-2 text-right">
               <button @click="deleteUser(u)"
-                class="bg-red-900 hover:bg-red-800 text-red-200 px-2 py-1 rounded text-xs transition-colors">Delete</button>
+                class="bg-red-900 hover:bg-red-800 text-red-200 px-2 py-1 rounded-lg text-xs transition-colors">Delete</button>
             </td>
           </tr>
           <tr v-if="users.length === 0 && !loading">
