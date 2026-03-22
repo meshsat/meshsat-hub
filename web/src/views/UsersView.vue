@@ -112,7 +112,7 @@ function roleBadge(role) {
     </div>
 
     <!-- Create user form -->
-    <div v-if="showForm" class="bg-gray-900 rounded-xl p-4 mb-4">
+    <div v-if="showForm" class="bg-tactical-surface rounded-lg p-4 mb-4">
       <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3">
         <div>
           <label class="text-xs text-gray-400">Email</label>

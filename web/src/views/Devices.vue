@@ -65,8 +65,8 @@ function deviceStatus(d) {
 }
 
 function statusColor(status) {
-  if (status === 'online') return 'text-green-400'
-  if (status === 'idle') return 'text-yellow-400'
+  if (status === 'online') return 'text-emerald-400'
+  if (status === 'idle') return 'text-amber-400'
   if (status === 'offline') return 'text-red-400'
   return 'text-gray-500'
 }

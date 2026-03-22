@@ -78,7 +78,7 @@ async function importBackup() {
     <div v-if="success" class="bg-emerald-900/50 border border-emerald-700 text-emerald-200 rounded p-3 mb-4">{{ success }}</div>
 
     <!-- Export -->
-    <div class="bg-gray-900 rounded-xl border border-gray-800 p-5 mb-6">
+    <div class="bg-tactical-surface rounded-lg border border-tactical-border p-5 mb-6">
       <h2 class="text-sm font-display font-semibold text-gray-200 uppercase tracking-wider mb-3">Export</h2>
       <p class="text-sm text-gray-400 mb-3">Download a full backup of devices, messages, routes, escalation chains, and configuration.</p>
       <button @click="exportBackup" :disabled="exporting"
@@ -88,7 +88,7 @@ async function importBackup() {
     </div>
 
     <!-- Import -->
-    <div class="bg-gray-900 rounded-xl border border-gray-800 p-5">
+    <div class="bg-tactical-surface rounded-lg border border-tactical-border p-5">
       <h2 class="text-sm font-display font-semibold text-gray-200 uppercase tracking-wider mb-3">Import</h2>
       <p class="text-sm text-gray-400 mb-3">Upload a backup file to preview changes or merge with current data.</p>
 
@@ -107,7 +107,7 @@ async function importBackup() {
       </div>
 
       <!-- Diff Result -->
-      <div v-if="diffResult" class="mt-4 bg-gray-900 rounded p-4">
+      <div v-if="diffResult" class="mt-4 bg-tactical-surface rounded p-4">
         <h3 class="text-sm font-medium text-gray-300 uppercase tracking-wider mb-2">Diff Preview</h3>
         <pre class="text-xs text-gray-400 max-h-64 overflow-y-auto">{{ JSON.stringify(diffResult, null, 2) }}</pre>
       </div>

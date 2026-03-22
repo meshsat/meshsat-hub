@@ -113,27 +113,27 @@ const tabs = [
 
       <!-- Info Cards -->
       <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 mb-6">
-        <div class="bg-gray-900 rounded-xl border border-gray-800 p-3">
+        <div class="bg-tactical-surface rounded-lg border border-tactical-border p-3">
           <div class="text-gray-500 text-[10px] uppercase">IMEI</div>
           <div class="font-mono text-xs text-gray-300 truncate">{{ device.imei }}</div>
         </div>
-        <div class="bg-gray-900 rounded-xl border border-gray-800 p-3">
+        <div class="bg-tactical-surface rounded-lg border border-tactical-border p-3">
           <div class="text-gray-500 text-[10px] uppercase">Type</div>
           <div class="text-sm text-gray-300">{{ device.type || 'unknown' }}</div>
         </div>
-        <div class="bg-gray-900 rounded-xl border border-gray-800 p-3">
+        <div class="bg-tactical-surface rounded-lg border border-tactical-border p-3">
           <div class="text-gray-500 text-[10px] uppercase">Last Seen</div>
           <div class="text-sm text-gray-300">{{ timeSince(device.last_seen) }}</div>
         </div>
-        <div class="bg-gray-900 rounded-xl border border-gray-800 p-3">
+        <div class="bg-tactical-surface rounded-lg border border-tactical-border p-3">
           <div class="text-gray-500 text-[10px] uppercase">Messages</div>
           <div class="text-sm text-gray-300">{{ msgList.length }}</div>
         </div>
-        <div class="bg-gray-900 rounded-xl border border-gray-800 p-3">
+        <div class="bg-tactical-surface rounded-lg border border-tactical-border p-3">
           <div class="text-gray-500 text-[10px] uppercase">Enc Keys</div>
           <div class="text-sm text-gray-300">{{ keyList.length }}</div>
         </div>
-        <div class="bg-gray-900 rounded-xl border border-gray-800 p-3">
+        <div class="bg-tactical-surface rounded-lg border border-tactical-border p-3">
           <div class="text-gray-500 text-[10px] uppercase">DMS</div>
           <div class="text-sm" :class="dmsConfig?.enabled ? 'text-emerald-400' : 'text-gray-500'">
             {{ dmsConfig?.enabled ? 'active' : 'off' }}
@@ -142,7 +142,7 @@ const tabs = [
       </div>
 
       <!-- Budget Bar -->
-      <div v-if="budget && (budget.daily_cap > 0 || budget.monthly_cap > 0)" class="bg-gray-900 rounded-xl border border-gray-800 p-4 mb-6">
+      <div v-if="budget && (budget.daily_cap > 0 || budget.monthly_cap > 0)" class="bg-tactical-surface rounded-lg border border-tactical-border p-4 mb-6">
         <h2 class="text-sm font-display font-semibold text-gray-200 uppercase tracking-wider mb-3">Budget Usage</h2>
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div v-if="budget.daily_cap > 0">
@@ -171,7 +171,7 @@ const tabs = [
       </div>
 
       <!-- WireGuard -->
-      <div v-if="wgConfig" class="bg-gray-900 rounded-xl border border-gray-800 p-4 mb-6">
+      <div v-if="wgConfig" class="bg-tactical-surface rounded-lg border border-tactical-border p-4 mb-6">
         <h2 class="text-sm font-display font-semibold text-gray-200 uppercase tracking-wider mb-2">WireGuard VPN</h2>
         <div class="flex items-center gap-4 text-sm">
           <span class="text-gray-400">Address:</span>
@@ -180,8 +180,8 @@ const tabs = [
       </div>
 
       <!-- Tabbed Content -->
-      <div class="bg-gray-900 rounded-xl border border-gray-800 overflow-hidden">
-        <div class="flex border-b border-gray-800">
+      <div class="bg-tactical-surface rounded-lg border border-tactical-border overflow-hidden">
+        <div class="flex border-b border-tactical-border">
           <button v-for="tab in tabs" :key="tab.id"
             @click="activeTab = tab.id"
             class="px-4 py-2.5 text-sm font-medium transition-colors"
@@ -193,7 +193,7 @@ const tabs = [
         <!-- Messages Tab -->
         <div v-if="activeTab === 'messages'">
           <div v-if="msgList.length === 0" class="p-8 text-center text-gray-500 text-sm">No messages</div>
-          <div v-else class="divide-y divide-gray-800/50 max-h-96 overflow-y-auto">
+          <div v-else class="divide-y divide-tactical-border/50 max-h-96 overflow-y-auto">
             <div v-for="m in msgList" :key="m.id" class="px-4 py-2.5 flex items-center gap-3 text-sm">
               <span class="font-semibold text-xs w-6" :class="m.direction === 'mo' ? 'text-emerald-400' : 'text-sky-400'">
                 {{ m.direction?.toUpperCase() }}
@@ -209,7 +209,7 @@ const tabs = [
         <div v-if="activeTab === 'positions'">
           <div v-if="posList.length === 0" class="p-8 text-center text-gray-500 text-sm">No positions</div>
           <table v-else class="w-full text-sm">
-            <thead class="text-gray-400 text-left border-b border-gray-800">
+            <thead class="text-gray-400 text-left border-b border-tactical-border">
               <tr>
                 <th class="px-4 py-2">Time</th>
                 <th class="px-4 py-2">Lat</th>
@@ -218,7 +218,7 @@ const tabs = [
                 <th class="px-4 py-2">Source</th>
               </tr>
             </thead>
-            <tbody class="divide-y divide-gray-800/50">
+            <tbody class="divide-y divide-tactical-border/50">
               <tr v-for="p in posList" :key="p.id" class="hover:bg-white/[0.02]">
                 <td class="px-4 py-2 text-gray-400">{{ timeSince(p.created_at) }}</td>
                 <td class="px-4 py-2 font-mono text-xs">{{ p.lat?.toFixed(6) }}</td>
@@ -233,7 +233,7 @@ const tabs = [
         <!-- Keys Tab -->
         <div v-if="activeTab === 'keys'">
           <div v-if="keyList.length === 0" class="p-8 text-center text-gray-500 text-sm">No encryption keys</div>
-          <div v-else class="divide-y divide-gray-800/50">
+          <div v-else class="divide-y divide-tactical-border/50">
             <div v-for="k in keyList" :key="k.id" class="px-4 py-3 flex items-center justify-between text-sm">
               <div>
                 <span class="text-gray-300">v{{ k.version }}</span>
@@ -253,7 +253,7 @@ const tabs = [
               <span class="text-sm text-gray-400">Version {{ configLatest.version }}</span>
               <span class="text-xs text-gray-500">{{ formatUTC(configLatest.created_at) }}</span>
             </div>
-            <pre class="bg-gray-900 rounded p-3 text-xs text-gray-300 overflow-x-auto max-h-64">{{ JSON.stringify(configLatest.config || configLatest, null, 2) }}</pre>
+            <pre class="bg-tactical-surface rounded p-3 text-xs text-gray-300 overflow-x-auto max-h-64">{{ JSON.stringify(configLatest.config || configLatest, null, 2) }}</pre>
           </div>
         </div>
       </div>

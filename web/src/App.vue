@@ -75,7 +75,7 @@ const navGroups = [
 <template>
   <div class="min-h-screen bg-tactical-bg text-gray-100">
     <template v-if="auth.isAuthenticated">
-      <header class="sticky top-0 z-50 bg-tactical-surface border-b border-tactical-border">
+      <header class="sticky top-0 z-50 bg-tactical-surface/95 backdrop-blur border-b border-tactical-border">
         <!-- Top row: brand + status bar + controls -->
         <div class="px-4 py-2 flex items-center justify-between">
           <div class="flex items-center gap-3">
@@ -105,8 +105,8 @@ const navGroups = [
                 {{ userInitial() }}
               </button>
               <div v-if="userMenuOpen" @click="userMenuOpen = false"
-                class="absolute right-0 mt-2 w-56 bg-gray-900 border border-gray-800 rounded-xl shadow-xl z-50 py-2">
-                <div class="px-4 py-2 border-b border-gray-800">
+                class="absolute right-0 mt-2 w-56 bg-tactical-surface border border-tactical-border rounded-lg shadow-xl z-50 py-2">
+                <div class="px-4 py-2 border-b border-tactical-border">
                   <div class="text-sm font-medium">{{ auth.user?.name || auth.user?.id || 'User' }}</div>
                   <div v-if="auth.user?.email" class="text-xs text-gray-400 font-mono">{{ auth.user.email }}</div>
                   <div class="flex items-center gap-2 mt-1">

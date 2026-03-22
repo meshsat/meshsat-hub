@@ -129,7 +129,7 @@ function statusColor(s) {
       </div>
 
       <!-- New target form -->
-      <div v-if="showTargetForm" class="bg-gray-900 rounded-xl p-4 mb-4">
+      <div v-if="showTargetForm" class="bg-tactical-surface rounded-lg p-4 mb-4">
         <div class="flex flex-wrap gap-2 mb-3">
           <input v-model="newTarget.controllerId" placeholder="Controller ID (IMEI)"
             class="bg-gray-800 border border-gray-700 px-3 py-2 rounded-lg text-gray-200 placeholder-gray-500 flex-1 min-w-[200px] focus:outline-none focus:border-teal-500" />
@@ -141,7 +141,7 @@ function statusColor(s) {
       </div>
 
       <!-- New rollout form -->
-      <div v-if="showRolloutForm" class="bg-gray-900 rounded-xl p-4 mb-4">
+      <div v-if="showRolloutForm" class="bg-tactical-surface rounded-lg p-4 mb-4">
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3">
           <div>
             <label class="text-xs text-gray-400">Rollout Name</label>

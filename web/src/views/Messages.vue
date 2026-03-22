@@ -114,7 +114,7 @@ function statusClass(status) {
     </div>
 
     <!-- Send MT Message -->
-    <div v-if="auth.isOwner || auth.role === 'operator'" class="bg-gray-900 border border-gray-800 rounded-xl p-4 mb-4">
+    <div v-if="auth.isOwner || auth.role === 'operator'" class="bg-tactical-surface border border-tactical-border rounded-lg p-4 mb-4">
       <h2 class="text-sm font-semibold text-gray-300 mb-3">Send Message to Device (MT via Iridium)</h2>
       <div class="flex gap-2">
         <select v-model="sendImei"
@@ -144,7 +144,7 @@ function statusClass(status) {
     </div>
 
     <!-- Send SMS -->
-    <div v-if="auth.isOwner || auth.role === 'operator'" class="bg-gray-900 border border-gray-800 rounded-xl p-4 mb-4">
+    <div v-if="auth.isOwner || auth.role === 'operator'" class="bg-tactical-surface border border-tactical-border rounded-lg p-4 mb-4">
       <h2 class="text-sm font-semibold text-gray-300 mb-3">Send SMS (via Twilio)</h2>
       <div class="flex gap-2">
         <input v-model="smsTo" placeholder="+31612345678"

@@ -70,9 +70,9 @@ function actionColor(action) {
     </div>
 
     <!-- Audit table -->
-    <div class="bg-gray-900 rounded-xl border border-gray-800 overflow-hidden">
+    <div class="bg-tactical-surface rounded-lg border border-tactical-border overflow-hidden">
       <table class="w-full text-sm">
-        <thead class="text-gray-400 text-left border-b border-gray-800">
+        <thead class="text-gray-400 text-left border-b border-tactical-border">
           <tr>
             <th class="px-4 py-2.5">Time</th>
             <th class="px-4 py-2.5">Action</th>
@@ -82,7 +82,7 @@ function actionColor(action) {
             <th class="px-4 py-2.5">Hash</th>
           </tr>
         </thead>
-        <tbody class="divide-y divide-gray-800/50">
+        <tbody class="divide-y divide-tactical-border/50">
           <tr v-for="e in entries" :key="e.id" class="hover:bg-white/[0.02]">
             <td class="px-4 py-2.5 text-gray-400 whitespace-nowrap">{{ e.created_at?.substring(0, 19) }}</td>
             <td class="px-4 py-2.5">

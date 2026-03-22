@@ -197,7 +197,7 @@ function destBadgeClass(type) {
     </div>
 
     <!-- Visual flow diagram -->
-    <div v-if="flowGroups.length > 0" class="bg-gray-900 rounded-xl p-4 mb-6">
+    <div v-if="flowGroups.length > 0" class="bg-tactical-surface rounded-lg p-4 mb-6">
       <h2 class="text-sm font-semibold text-gray-400 uppercase tracking-wider mb-3">Active Route Flow</h2>
       <div class="space-y-3">
         <div v-for="group in flowGroups" :key="group.source" class="flex items-center gap-3 flex-wrap">
@@ -219,7 +219,7 @@ function destBadgeClass(type) {
     </div>
 
     <!-- Test route panel -->
-    <div v-if="showTest" class="bg-gray-900 rounded-xl p-4 mb-6">
+    <div v-if="showTest" class="bg-tactical-surface rounded-lg p-4 mb-6">
       <h2 class="text-sm font-display font-semibold text-gray-200 uppercase tracking-wider mb-3">Test Sample Message</h2>
       <div class="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-3">
         <div>
@@ -251,7 +251,7 @@ function destBadgeClass(type) {
         </div>
         <div class="space-y-1">
           <div v-for="r in testResults" :key="r.route_id"
-            :class="r.matched ? 'bg-green-900/20 border-green-800' : 'bg-gray-900/50 border-gray-800'"
+            :class="r.matched ? 'bg-green-900/20 border-green-800' : 'bg-gray-900/50 border-tactical-border'"
             class="flex items-center justify-between border rounded px-3 py-2 text-sm">
             <div class="flex items-center gap-2">
               <span :class="r.matched ? 'text-green-400' : 'text-gray-600'" class="text-xs font-mono">
@@ -268,7 +268,7 @@ function destBadgeClass(type) {
     </div>
 
     <!-- Create / Edit form -->
-    <div v-if="showForm" class="bg-gray-900 rounded-xl p-4 mb-6">
+    <div v-if="showForm" class="bg-tactical-surface rounded-lg p-4 mb-6">
       <h2 class="text-sm font-display font-semibold text-gray-200 uppercase tracking-wider mb-3">
         {{ editingId ? 'Edit Route' : 'Create New Route' }}
       </h2>

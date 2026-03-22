@@ -86,7 +86,7 @@ onMounted(() => {
     <!-- Device selector -->
     <div class="flex items-center gap-4 mb-6">
       <label class="text-sm text-gray-400">Device</label>
-      <select v-model="selectedImei" class="bg-gray-900 border border-gray-800 rounded-xl px-3 py-2 text-sm flex-1 max-w-xs">
+      <select v-model="selectedImei" class="bg-tactical-surface border border-tactical-border rounded-lg px-3 py-2 text-sm flex-1 max-w-xs">
         <option v-for="d in deviceList" :key="d.imei" :value="d.imei">
           {{ d.label || d.imei }} ({{ d.imei }})
         </option>
@@ -122,12 +122,12 @@ onMounted(() => {
     </div>
 
     <!-- Generate key form -->
-    <div class="bg-gray-900 border border-gray-800 rounded-xl p-4 mb-6">
+    <div class="bg-tactical-surface border border-tactical-border rounded-lg p-4 mb-6">
       <h2 class="text-sm font-medium text-gray-300 mb-3">Generate New Key</h2>
       <div class="flex items-end gap-4">
         <div>
           <label class="block text-xs text-gray-500 mb-1">Mode</label>
-          <select v-model="mode" class="bg-gray-900 border border-gray-700 rounded px-3 py-2 text-sm">
+          <select v-model="mode" class="bg-tactical-surface border border-gray-700 rounded px-3 py-2 text-sm">
             <option value="decrypt">Decrypt (server can read messages)</option>
             <option value="passthrough">Passthrough (true E2E, server cannot read)</option>
           </select>
@@ -140,15 +140,15 @@ onMounted(() => {
     </div>
 
     <!-- Key list -->
-    <div class="bg-gray-900 border border-gray-800 rounded-xl">
-      <div class="px-4 py-3 border-b border-gray-800">
+    <div class="bg-tactical-surface border border-tactical-border rounded-lg">
+      <div class="px-4 py-3 border-b border-tactical-border">
         <h2 class="text-sm font-medium text-gray-300">Keys for {{ selectedImei || '...' }}</h2>
       </div>
       <div v-if="loading" class="px-4 py-8 text-center text-gray-500 text-sm">Loading...</div>
       <div v-else-if="!keys.length" class="px-4 py-8 text-center text-gray-500 text-sm">No encryption keys for this device.</div>
       <table v-else class="w-full text-sm">
         <thead>
-          <tr class="text-left text-xs text-gray-500 border-b border-gray-800">
+          <tr class="text-left text-xs text-gray-500 border-b border-tactical-border">
             <th class="px-4 py-2">Hash</th>
             <th class="px-4 py-2">Mode</th>
             <th class="px-4 py-2">Created</th>
@@ -156,7 +156,7 @@ onMounted(() => {
           </tr>
         </thead>
         <tbody>
-          <tr v-for="(k, i) in keys" :key="k.id" class="border-b border-gray-800/50 hover:bg-white/[0.02]">
+          <tr v-for="(k, i) in keys" :key="k.id" class="border-b border-tactical-border/50 hover:bg-white/[0.02]">
             <td class="px-4 py-2 font-mono text-xs">
               {{ k.key_hash?.slice(0, 16) }}...
               <span v-if="i === 0" class="ml-1 text-[10px] px-1.5 py-0.5 rounded bg-teal-900/50 text-teal-300">active</span>

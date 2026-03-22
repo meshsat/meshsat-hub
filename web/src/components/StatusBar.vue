@@ -86,7 +86,7 @@ onUnmounted(() => {
     <!-- Messages today -->
     <span class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-gray-800/50 text-gray-300 font-medium">
       <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/></svg>
-      <span class="text-orange-400">{{ msgToday.mo }}</span><span class="text-gray-500">/</span><span class="text-sky-400">{{ msgToday.mt }}</span>
+      <span class="text-emerald-400">{{ msgToday.mo }}</span><span class="text-gray-500">/</span><span class="text-sky-400">{{ msgToday.mt }}</span>
     </span>
 
     <!-- Credits -->

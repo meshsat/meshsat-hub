@@ -85,7 +85,7 @@ function formatBytes(bytes) {
     <div class="mb-8">
       <h2 class="text-lg font-semibold mb-3 uppercase tracking-wider">Satellite Constellations</h2>
       <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-        <div v-for="b in backends" :key="b" class="bg-gray-900 rounded-xl p-4">
+        <div v-for="b in backends" :key="b" class="bg-tactical-surface rounded-lg p-4">
           <div class="flex items-center gap-2 mb-1">
             <div class="w-2 h-2 rounded-full bg-green-400"></div>
             <span class="font-medium capitalize">{{ b }}</span>
@@ -107,19 +107,19 @@ function formatBytes(bytes) {
       <div v-if="mptcpStatus" class="mb-4">
         <!-- Status cards -->
         <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-4">
-          <div class="bg-gray-900 rounded-xl p-4">
+          <div class="bg-tactical-surface rounded-lg p-4">
             <div class="text-gray-400 text-sm mb-1">Kernel MPTCP</div>
             <div class="text-lg font-bold" :class="mptcpStatus.available ? 'text-green-400' : 'text-red-400'">
               {{ mptcpStatus.available ? 'Available' : 'Not Available' }}
             </div>
           </div>
-          <div class="bg-gray-900 rounded-xl p-4">
+          <div class="bg-tactical-surface rounded-lg p-4">
             <div class="text-gray-400 text-sm mb-1">Status</div>
             <div class="text-lg font-bold" :class="mptcpStatus.enabled ? 'text-green-400' : 'text-gray-500'">
               {{ mptcpStatus.enabled ? 'Enabled' : 'Disabled' }}
             </div>
           </div>
-          <div class="bg-gray-900 rounded-xl p-4">
+          <div class="bg-tactical-surface rounded-lg p-4">
             <div class="text-gray-400 text-sm mb-1">Strategy</div>
             <div class="flex items-center gap-2">
               <select :value="mptcpStatus.strategy" @change="setStrategy($event.target.value)"

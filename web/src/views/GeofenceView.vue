@@ -145,7 +145,7 @@ function cancelDrawing() {
     <div v-if="error" class="bg-red-900/50 border border-red-700 text-red-200 rounded p-3 mb-4">{{ error }}</div>
 
     <!-- Drawing form -->
-    <div v-if="showForm" class="bg-gray-900 rounded-xl border border-amber-700 p-4 mb-4">
+    <div v-if="showForm" class="bg-tactical-surface rounded-lg border border-amber-700 p-4 mb-4">
       <h2 class="text-sm font-semibold text-amber-400 uppercase tracking-wider mb-2">Drawing mode — click map to add vertices</h2>
       <div class="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-3">
         <input v-model="formName" placeholder="Fence name" class="bg-gray-800 border border-gray-700 rounded px-3 py-2 text-sm">
@@ -169,11 +169,11 @@ function cancelDrawing() {
     <div ref="mapContainer" class="rounded-lg overflow-hidden mb-4" style="height: calc(100vh - 300px); min-height: 400px;"></div>
 
     <!-- Fence list -->
-    <div v-if="fenceList.length > 0" class="bg-gray-900 rounded-xl border border-gray-800 overflow-hidden">
-      <div class="px-4 py-3 border-b border-gray-800">
+    <div v-if="fenceList.length > 0" class="bg-tactical-surface rounded-lg border border-tactical-border overflow-hidden">
+      <div class="px-4 py-3 border-b border-tactical-border">
         <h2 class="text-sm font-display font-semibold text-gray-200 uppercase tracking-wider">Configured Fences ({{ fenceList.length }})</h2>
       </div>
-      <div class="divide-y divide-gray-800/50">
+      <div class="divide-y divide-tactical-border/50">
         <div v-for="f in fenceList" :key="f.id" class="px-4 py-3 flex items-center justify-between">
           <div>
             <span class="text-gray-300 text-sm font-medium">{{ f.name }}</span>

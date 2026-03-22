@@ -94,7 +94,7 @@ async function sendTest() {
     <div v-if="success" class="bg-emerald-900/50 border border-emerald-700 text-emerald-200 rounded p-3 mb-4">{{ success }}</div>
 
     <!-- Test Send Form -->
-    <div v-if="showTest" class="bg-gray-900 rounded-xl border border-gray-800 p-4 mb-4">
+    <div v-if="showTest" class="bg-tactical-surface rounded-lg border border-tactical-border p-4 mb-4">
       <h2 class="text-sm font-display font-semibold text-gray-200 uppercase tracking-wider mb-3">Send Test Email</h2>
       <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3">
         <input v-model="testTo" placeholder="recipient@example.com" class="bg-gray-800 border border-gray-700 rounded px-3 py-2 text-sm">
@@ -111,7 +111,7 @@ async function sendTest() {
     </div>
 
     <!-- Add Contact Form -->
-    <div v-if="showForm" class="bg-gray-900 rounded-xl border border-gray-800 p-4 mb-4">
+    <div v-if="showForm" class="bg-tactical-surface rounded-lg border border-tactical-border p-4 mb-4">
       <h2 class="text-sm font-display font-semibold text-gray-200 uppercase tracking-wider mb-3">Add Email Contact</h2>
       <div class="space-y-3">
         <input v-model="formEmail" placeholder="email@example.com" class="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-sm">
@@ -128,18 +128,18 @@ async function sendTest() {
 
     <template v-else>
       <!-- Hub PGP Public Key -->
-      <div v-if="publicKey" class="bg-gray-900 rounded-xl border border-gray-800 p-4 mb-4">
+      <div v-if="publicKey" class="bg-tactical-surface rounded-lg border border-tactical-border p-4 mb-4">
         <h2 class="text-sm font-display font-semibold text-gray-200 uppercase tracking-wider mb-2">Hub PGP Public Key</h2>
         <pre class="text-[10px] text-gray-500 font-mono max-h-24 overflow-y-auto">{{ publicKey }}</pre>
       </div>
 
       <!-- Contact List -->
-      <div class="bg-gray-900 rounded-xl border border-gray-800 overflow-hidden">
-        <div class="px-4 py-3 border-b border-gray-800">
+      <div class="bg-tactical-surface rounded-lg border border-tactical-border overflow-hidden">
+        <div class="px-4 py-3 border-b border-tactical-border">
           <h2 class="text-sm font-display font-semibold text-gray-200 uppercase tracking-wider">Contacts ({{ contacts.length }})</h2>
         </div>
         <EmptyState v-if="contacts.length === 0" icon="users" title="No email contacts" message="Add PGP-enabled contacts to send encrypted email through the gateway." />
-        <div v-else class="divide-y divide-gray-800/50">
+        <div v-else class="divide-y divide-tactical-border/50">
           <div v-for="c in contacts" :key="c.email" class="px-4 py-3 flex items-center justify-between">
             <div>
               <span class="text-gray-300 text-sm">{{ c.email }}</span>

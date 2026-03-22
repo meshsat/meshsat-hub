@@ -92,18 +92,18 @@ function formatBytes(n) {
 
     <!-- Cluster overview cards -->
     <div v-if="clusterStatus" class="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
-      <div class="bg-gray-900 rounded-xl border border-gray-800 p-4">
+      <div class="bg-tactical-surface rounded-lg border border-tactical-border p-4">
         <div class="text-gray-400 text-sm mb-1">Cluster Health</div>
         <div class="text-2xl font-display font-bold" :class="clusterStatus.healthy ? 'text-green-400' : 'text-red-400'">
           {{ clusterStatus.healthy ? 'Healthy' : 'Degraded' }}
         </div>
       </div>
-      <div class="bg-gray-900 rounded-xl border border-gray-800 p-4">
+      <div class="bg-tactical-surface rounded-lg border border-tactical-border p-4">
         <div class="text-gray-400 text-sm mb-1">Nodes</div>
         <div class="text-2xl font-display font-bold text-teal-400">{{ clusterStatus.node_count }}</div>
         <div class="text-xs text-gray-500">Quorum: {{ clusterStatus.quorum_size }}</div>
       </div>
-      <div class="bg-gray-900 rounded-xl border border-gray-800 p-4">
+      <div class="bg-tactical-surface rounded-lg border border-tactical-border p-4">
         <div class="text-gray-400 text-sm mb-1">Last Check</div>
         <div class="text-sm text-gray-300">{{ formatTimeUTC(clusterStatus.checked_at) }}</div>
       </div>
@@ -205,7 +205,7 @@ function formatBytes(n) {
     <!-- Remediation actions -->
     <div v-if="actions.length > 0">
       <h2 class="text-lg font-semibold uppercase tracking-wider mb-3">Remediation Actions</h2>
-      <div class="bg-gray-900 rounded-xl border border-gray-800 p-4">
+      <div class="bg-tactical-surface rounded-lg border border-tactical-border p-4">
         <p class="text-xs text-gray-500 mb-3">Actions execute on the local node only. Use with caution.</p>
         <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
           <button v-for="action in actions" :key="action.id"

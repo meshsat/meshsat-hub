@@ -11,6 +11,8 @@
     "test:e2e:ui": "playwright test --ui"
   },
   "dependencies": {
+    "@fontsource/jetbrains-mono": "^5.2.8",
+    "@fontsource/oxanium": "^5.2.8",
     "@vueuse/core": "^14.2.1",
     "leaflet": "^1.9.4",
     "pinia": "^3.0.4",

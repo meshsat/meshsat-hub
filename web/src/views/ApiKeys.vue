@@ -89,7 +89,7 @@ function roleBadgeClass(role) {
     </div>
 
     <!-- Create key form -->
-    <div class="bg-gray-900 rounded-xl p-4 mb-6">
+    <div class="bg-tactical-surface rounded-lg p-4 mb-6">
       <h2 class="text-sm font-display font-semibold text-gray-200 uppercase tracking-wider mb-3">Create New Key</h2>
       <div class="flex flex-wrap gap-2">
         <input v-model="newLabel" placeholder="Label (e.g. CI pipeline)"

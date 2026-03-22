@@ -109,7 +109,7 @@ async function viewVersion(v) {
     <div v-if="selectedIMEI" class="grid grid-cols-1 lg:grid-cols-3 gap-4">
       <!-- Config editor / viewer -->
       <div class="lg:col-span-2">
-        <div class="bg-gray-900 rounded-xl p-4">
+        <div class="bg-tactical-surface rounded-lg p-4">
           <div class="flex items-center justify-between mb-3">
             <h2 class="text-lg font-semibold">
               {{ editMode ? 'Edit Configuration' : 'Current Configuration' }}
@@ -119,7 +119,7 @@ async function viewVersion(v) {
 
           <div v-if="editMode" class="mb-3">
             <textarea v-model="editJSON" rows="16"
-              class="bg-gray-900 border border-gray-700 px-3 py-2 rounded-lg text-gray-200 w-full font-mono text-sm focus:outline-none focus:border-teal-500"></textarea>
+              class="bg-tactical-surface border border-gray-700 px-3 py-2 rounded-lg text-gray-200 w-full font-mono text-sm focus:outline-none focus:border-teal-500"></textarea>
             <input v-model="editComment" placeholder="Change comment (optional)"
               class="bg-gray-800 border border-gray-700 px-3 py-2 rounded-lg text-gray-200 w-full mt-2 placeholder-gray-500 focus:outline-none focus:border-teal-500" />
             <div class="flex gap-2 mt-3 justify-end">
@@ -131,7 +131,7 @@ async function viewVersion(v) {
           </div>
 
           <div v-else>
-            <pre v-if="currentConfig" class="bg-gray-900 rounded p-3 font-mono text-sm text-gray-300 overflow-auto max-h-96">{{ typeof currentConfig.config === 'string' ? currentConfig.config : JSON.stringify(currentConfig.config, null, 2) }}</pre>
+            <pre v-if="currentConfig" class="bg-tactical-surface rounded p-3 font-mono text-sm text-gray-300 overflow-auto max-h-96">{{ typeof currentConfig.config === 'string' ? currentConfig.config : JSON.stringify(currentConfig.config, null, 2) }}</pre>
             <div v-else class="text-gray-500 py-4">No configuration found</div>
             <div v-if="currentConfig" class="mt-2 text-xs text-gray-500">
               <span v-if="currentConfig.author">By {{ currentConfig.author }}</span>
@@ -144,7 +144,7 @@ async function viewVersion(v) {
 
       <!-- Version history -->
       <div>
-        <div class="bg-gray-900 rounded-xl p-4">
+        <div class="bg-tactical-surface rounded-lg p-4">
           <h2 class="text-lg font-semibold mb-3">Version History</h2>
           <div v-if="history.length === 0" class="text-gray-500 text-sm">No versions</div>
           <div v-for="v in history" :key="v.version"

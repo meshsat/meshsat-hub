@@ -145,7 +145,7 @@ function statusBg(status) {
       </div>
 
       <!-- New chain form -->
-      <div v-if="showForm" class="bg-gray-900 rounded-xl p-4 mb-4">
+      <div v-if="showForm" class="bg-tactical-surface rounded-lg p-4 mb-4">
         <input v-model="newChain.name" placeholder="Chain name"
           class="bg-gray-800 border border-gray-700 px-3 py-2 rounded-lg text-gray-200 placeholder-gray-500 focus:outline-none focus:border-teal-500 w-full mb-3" />
 
@@ -179,7 +179,7 @@ function statusBg(status) {
       </div>
 
       <!-- Chain list -->
-      <div v-for="c in chains" :key="c.id" class="bg-gray-900 rounded-xl p-4 mb-3">
+      <div v-for="c in chains" :key="c.id" class="bg-tactical-surface rounded-lg p-4 mb-3">
         <div class="flex items-center justify-between mb-2">
           <span class="font-medium">{{ c.name }}</span>
           <button @click="deleteChain(c.id)"

@@ -76,7 +76,7 @@ function statusText(ok) {
 
     <template v-else>
       <!-- Health & Readiness -->
-      <div class="bg-gray-900 rounded-xl border border-gray-800 p-5 mb-6">
+      <div class="bg-tactical-surface rounded-lg border border-tactical-border p-5 mb-6">
         <h2 class="text-sm font-display font-semibold text-gray-200 uppercase tracking-wider mb-4">System Health</h2>
         <div class="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-4">
           <div>
@@ -111,7 +111,7 @@ function statusText(ok) {
       <!-- Network Identity & Services -->
       <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-6">
         <!-- Reticulum Identity -->
-        <div class="bg-gray-900 rounded-xl border border-gray-800 p-5">
+        <div class="bg-tactical-surface rounded-lg border border-tactical-border p-5">
           <h2 class="text-sm font-display font-semibold text-gray-200 uppercase tracking-wider mb-3">Reticulum Identity</h2>
           <div v-if="retIdentity" class="space-y-2 text-sm">
             <div>
@@ -131,7 +131,7 @@ function statusText(ok) {
         </div>
 
         <!-- Tor & WireGuard -->
-        <div class="bg-gray-900 rounded-xl border border-gray-800 p-5">
+        <div class="bg-tactical-surface rounded-lg border border-tactical-border p-5">
           <h2 class="text-sm font-display font-semibold text-gray-200 uppercase tracking-wider mb-3">Network Services</h2>
           <div class="space-y-3 text-sm">
             <div class="flex items-center justify-between">
@@ -156,7 +156,7 @@ function statusText(ok) {
       </div>
 
       <!-- Sensor Codecs -->
-      <div v-if="codecList.length > 0" class="bg-gray-900 rounded-xl border border-gray-800 p-5 mb-6">
+      <div v-if="codecList.length > 0" class="bg-tactical-surface rounded-lg border border-tactical-border p-5 mb-6">
         <h2 class="text-sm font-display font-semibold text-gray-200 uppercase tracking-wider mb-3">Sensor Payload Codecs</h2>
         <div class="flex flex-wrap gap-2">
           <span v-for="c in codecList" :key="c.name || c"
@@ -167,7 +167,7 @@ function statusText(ok) {
       </div>
 
       <!-- Backup & Data -->
-      <div class="bg-gray-900 rounded-xl border border-gray-800 p-5 mb-6">
+      <div class="bg-tactical-surface rounded-lg border border-tactical-border p-5 mb-6">
         <h2 class="text-sm font-display font-semibold text-gray-200 uppercase tracking-wider mb-3">Backup & Data</h2>
         <div class="flex items-center gap-3">
           <button @click="exportBackup" :disabled="exportLoading"
@@ -180,7 +180,7 @@ function statusText(ok) {
       </div>
 
       <!-- API Documentation -->
-      <div class="bg-gray-900 rounded-xl border border-gray-800 p-5">
+      <div class="bg-tactical-surface rounded-lg border border-tactical-border p-5">
         <h2 class="text-sm font-display font-semibold text-gray-200 uppercase tracking-wider mb-3">API Documentation</h2>
         <div class="space-y-2 text-sm">
           <a href="/api/docs" target="_blank"
