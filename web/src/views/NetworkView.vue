@@ -1,5 +1,5 @@
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { mptcp, constellations } from '../api/client'
 import { formatUTC } from '../utils/time'
 import EmptyState from '../components/EmptyState.vue'
@@ -8,6 +8,42 @@ const mptcpStatus = ref(null)
 const backends = ref([])
 const error = ref('')
 const loading = ref(true)
+
+const knownConstellations = {
+  iridium:    { name: 'Iridium',    mtu: '270 byte MT / 340 byte MO', cost: '$0.05 per msg' },
+  astrocast:  { name: 'Astrocast',  mtu: '160 byte MT / 160 byte MO', cost: '$0.01 per msg' },
+  globalstar: { name: 'Globalstar', mtu: '9 byte MT / 9 byte MO',     cost: '$0.25 per msg' },
+}
+
+const allConstellations = computed(() => {
+  const active = new Set(backends.value.map(b => b.toLowerCase()))
+  const result = []
+  // Add all active backends first (preserving API order)
+  for (const b of backends.value) {
+    const key = b.toLowerCase()
+    const info = knownConstellations[key]
+    result.push({
+      key,
+      name: info ? info.name : b.charAt(0).toUpperCase() + b.slice(1),
+      mtu: info ? info.mtu : null,
+      cost: info ? info.cost : null,
+      active: true,
+    })
+  }
+  // Then add known constellations that are not active
+  for (const [key, info] of Object.entries(knownConstellations)) {
+    if (!active.has(key)) {
+      result.push({
+        key,
+        name: info.name,
+        mtu: info.mtu,
+        cost: info.cost,
+        active: false,
+      })
+    }
+  }
+  return result
+})
 
 onMounted(async () => {
   await loadData()
@@ -85,18 +121,22 @@ function formatBytes(bytes) {
     <div class="mb-8">
       <h2 class="text-lg font-semibold mb-3 uppercase tracking-wider">Satellite Constellations</h2>
       <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-        <div v-for="b in backends" :key="b" class="bg-tactical-surface rounded-lg p-4">
-          <div class="flex items-center gap-2 mb-1">
-            <div class="w-2 h-2 rounded-full bg-green-400"></div>
-            <span class="font-medium capitalize">{{ b }}</span>
+        <div v-for="c in allConstellations" :key="c.key" class="bg-tactical-surface rounded-lg p-4" :class="{ 'opacity-60': !c.active }">
+          <div class="flex items-center justify-between mb-2">
+            <div class="flex items-center gap-2">
+              <div class="w-2 h-2 rounded-full" :class="c.active ? 'bg-green-400' : 'bg-gray-600'"></div>
+              <span class="font-medium">{{ c.name }}</span>
+            </div>
+            <span class="text-xs px-2 py-0.5 rounded-full" :class="c.active ? 'bg-green-900/50 text-green-400' : 'bg-gray-800 text-gray-500'">
+              {{ c.active ? 'Active' : 'Not configured' }}
+            </span>
           </div>
-          <div class="text-xs text-gray-400">
-            <span v-if="b === 'iridium'">270 byte MT / $0.05 per msg</span>
-            <span v-else-if="b === 'astrocast'">160 byte MT / $0.01 per msg</span>
-            <span v-else>Available</span>
+          <div class="text-xs text-gray-400 space-y-0.5">
+            <div v-if="c.mtu">{{ c.mtu }}</div>
+            <div v-if="c.cost">{{ c.cost }}</div>
           </div>
         </div>
-        <EmptyState v-if="backends.length === 0 && !loading" icon="satellite" title="No constellations" message="No satellite constellation backends are configured." class="col-span-full" />
+        <EmptyState v-if="allConstellations.length === 0 && !loading" icon="satellite" title="No constellations" message="No satellite constellation backends are configured." class="col-span-full" />
       </div>
     </div>
 

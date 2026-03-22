@@ -106,6 +106,33 @@ const msgSparkline = computed(() => {
   return buckets
 })
 
+// Hourly bucketed data for the Message Activity widget
+const moHourly = computed(() => {
+  const now = Date.now()
+  const buckets = new Array(12).fill(0)
+  for (const m of messageList.value) {
+    if (!m.created_at || m.direction !== 'mo') continue
+    const hoursAgo = Math.floor((now - new Date(m.created_at).getTime()) / 3600000)
+    if (hoursAgo >= 0 && hoursAgo < 12) buckets[11 - hoursAgo]++
+  }
+  return buckets
+})
+
+const mtHourly = computed(() => {
+  const now = Date.now()
+  const buckets = new Array(12).fill(0)
+  for (const m of messageList.value) {
+    if (!m.created_at || m.direction !== 'mt') continue
+    const hoursAgo = Math.floor((now - new Date(m.created_at).getTime()) / 3600000)
+    if (hoursAgo >= 0 && hoursAgo < 12) buckets[11 - hoursAgo]++
+  }
+  return buckets
+})
+
+const activityTotal = computed(() => msgSparkline.value.reduce((a, b) => a + b, 0))
+const activityMO = computed(() => moHourly.value.reduce((a, b) => a + b, 0))
+const activityMT = computed(() => mtHourly.value.reduce((a, b) => a + b, 0))
+
 const lastMessageTime = computed(() => {
   if (messageList.value.length === 0) return null
   return messageList.value[0].created_at
@@ -334,6 +361,31 @@ function directionColor(d) {
             </div>
           </div>
           <EmptyState v-else icon="globe" title="Connecting..." message="Reticulum network identity is being established." />
+        </div>
+      </div>
+
+      <!-- Message Activity -->
+      <div v-if="dash.isVisible('activity')" class="bg-tactical-surface rounded-lg border border-tactical-border p-4 mb-6">
+        <h2 class="text-xs font-display font-semibold text-gray-400 uppercase tracking-wider mb-3">Message Activity</h2>
+        <div class="mb-3">
+          <Sparkline :data="msgSparkline" :width="960" :height="80" color="#2dd4bf" :fillOpacity="0.1" class="w-full" style="height: 80px" />
+        </div>
+        <div class="flex items-center gap-6 text-sm">
+          <div class="flex items-center gap-1.5">
+            <span class="w-2 h-2 rounded-full bg-emerald-400 inline-block"></span>
+            <span class="text-gray-400">MO</span>
+            <span class="text-emerald-400 font-semibold">{{ activityMO }}</span>
+          </div>
+          <div class="flex items-center gap-1.5">
+            <span class="w-2 h-2 rounded-full bg-sky-400 inline-block"></span>
+            <span class="text-gray-400">MT</span>
+            <span class="text-sky-400 font-semibold">{{ activityMT }}</span>
+          </div>
+          <div class="flex items-center gap-1.5">
+            <span class="text-gray-500">Total</span>
+            <span class="text-gray-300 font-semibold">{{ activityTotal }}</span>
+          </div>
+          <span class="text-gray-600 text-xs ml-auto">Last 12 hours</span>
         </div>
       </div>
 

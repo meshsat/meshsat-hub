@@ -8,6 +8,7 @@ const defaultWidgets = [
   { id: 'constellations', label: 'Constellations', visible: true },
   { id: 'safety', label: 'Safety Status', visible: true },
   { id: 'network', label: 'Network', visible: true },
+  { id: 'activity', label: 'Message Activity', visible: true },
   { id: 'messages', label: 'Recent Messages', visible: true },
   { id: 'fleet', label: 'Device Fleet', visible: true },
   { id: 'budgets', label: 'Budget Usage', visible: true },

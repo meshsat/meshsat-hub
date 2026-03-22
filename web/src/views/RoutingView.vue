@@ -28,6 +28,9 @@ const testLoading = ref(false)
 const sourceTypes = ['*', 'iridium', 'astrocast', 'sms', 'email']
 const destTypes = ['tak', 'aprs', 'sms', 'email', 'webhook', 'notification', 'mqtt']
 
+const showDeleteConfirm = ref(false)
+const routeToDelete = ref(null)
+
 const canModify = computed(() => auth.isOwner)
 
 onMounted(async () => {
@@ -113,8 +116,16 @@ async function toggleEnabled(route) {
   }
 }
 
-async function deleteRoute(route) {
-  if (!confirm(`Delete route "${route.name}"?`)) return
+function confirmDeleteRoute(route) {
+  routeToDelete.value = route
+  showDeleteConfirm.value = true
+}
+
+async function deleteRoute() {
+  const route = routeToDelete.value
+  if (!route) return
+  showDeleteConfirm.value = false
+  routeToDelete.value = null
   try {
     await routesApi.delete(route.id)
     await loadRoutes()
@@ -346,7 +357,7 @@ function destBadgeClass(type) {
                 class="bg-gray-700 hover:bg-gray-600 text-gray-300 px-2 py-1 rounded-lg text-xs transition-colors mr-1">
                 Edit
               </button>
-              <button @click="deleteRoute(r)"
+              <button @click="confirmDeleteRoute(r)"
                 class="bg-red-900 hover:bg-red-800 text-red-200 px-2 py-1 rounded-lg text-xs transition-colors">
                 Delete
               </button>
@@ -360,6 +371,21 @@ function destBadgeClass(type) {
           </tr>
         </tbody>
       </table>
+    </div>
+
+    <!-- Delete confirmation modal -->
+    <div v-if="showDeleteConfirm" class="fixed inset-0 z-50 flex items-center justify-center" @click.self="showDeleteConfirm = false">
+      <div class="absolute inset-0 bg-black/50" />
+      <div class="relative bg-tactical-surface border border-tactical-border rounded-lg p-6 max-w-md mx-4">
+        <h3 class="text-lg font-semibold mb-2">Confirm Remove</h3>
+        <p class="text-gray-400 text-sm mb-4">
+          Remove route <span class="text-gray-200 font-medium">{{ routeToDelete?.name }}</span>? This may break message delivery.
+        </p>
+        <div class="flex justify-end gap-3">
+          <button @click="showDeleteConfirm = false" class="px-4 py-2 text-sm text-gray-400 hover:text-gray-200">Cancel</button>
+          <button @click="deleteRoute()" class="px-4 py-2 text-sm bg-red-600 hover:bg-red-500 text-white rounded">Remove</button>
+        </div>
+      </div>
     </div>
   </div>
 </template>

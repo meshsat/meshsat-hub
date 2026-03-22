@@ -11,6 +11,9 @@ const loading = ref(true)
 const showForm = ref(false)
 const form = ref({ email: '', name: '', password: '', role: 'viewer' })
 
+const showDeleteConfirm = ref(false)
+const userToDelete = ref(null)
+
 const BASE = '/api'
 function authHeaders() {
   return { 'Content-Type': 'application/json', 'Authorization': `Bearer ${auth.token}` }
@@ -81,8 +84,20 @@ async function changeRole(user, role) {
   }
 }
 
-async function deleteUser(user) {
-  if (!confirm(`Delete user ${user.email}?`)) return
+function confirmDeleteUser(user) {
+  userToDelete.value = user
+  showDeleteConfirm.value = true
+}
+
+function isLastOwner(user) {
+  return user.role === 'owner' && users.value.filter(u => u.role === 'owner').length === 1
+}
+
+async function deleteUser() {
+  const user = userToDelete.value
+  if (!user) return
+  showDeleteConfirm.value = false
+  userToDelete.value = null
   try {
     await fetch(`${BASE}/users/${user.id}`, { method: 'DELETE', headers: authHeaders() })
     await loadUsers()
@@ -182,7 +197,7 @@ function roleBadge(role) {
               {{ formatUTC(u.last_login_at) }}
             </td>
             <td class="px-3 py-2 text-right">
-              <button @click="deleteUser(u)"
+              <button @click="confirmDeleteUser(u)"
                 class="bg-red-900 hover:bg-red-800 text-red-200 px-2 py-1 rounded-lg text-xs transition-colors">Delete</button>
             </td>
           </tr>
@@ -194,5 +209,23 @@ function roleBadge(role) {
     </div>
 
     <div v-if="loading" class="text-center text-gray-500 py-8">Loading...</div>
+
+    <!-- Delete confirmation modal -->
+    <div v-if="showDeleteConfirm" class="fixed inset-0 z-50 flex items-center justify-center" @click.self="showDeleteConfirm = false">
+      <div class="absolute inset-0 bg-black/50" />
+      <div class="relative bg-tactical-surface border border-tactical-border rounded-lg p-6 max-w-md mx-4">
+        <h3 class="text-lg font-semibold mb-2">Confirm Delete</h3>
+        <p class="text-gray-400 text-sm mb-4">
+          Delete user <span class="text-gray-200 font-medium">{{ userToDelete?.email }}</span>? This action cannot be undone.
+        </p>
+        <p v-if="userToDelete && isLastOwner(userToDelete)" class="text-amber-400 text-sm mb-4 bg-amber-900/20 border border-amber-700 rounded p-3">
+          Warning: This is the last owner. Deleting them will lock out admin access.
+        </p>
+        <div class="flex justify-end gap-3">
+          <button @click="showDeleteConfirm = false" class="px-4 py-2 text-sm text-gray-400 hover:text-gray-200">Cancel</button>
+          <button @click="deleteUser()" class="px-4 py-2 text-sm bg-red-600 hover:bg-red-500 text-white rounded">Delete</button>
+        </div>
+      </div>
+    </div>
   </div>
 </template>

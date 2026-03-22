@@ -31,7 +31,7 @@ const fillPath = computed(() => {
 </script>
 
 <template>
-  <svg :width="width" :height="height" class="inline-block">
+  <svg :width="width" :height="height" :viewBox="`0 0 ${width} ${height}`" preserveAspectRatio="none" class="inline-block">
     <path v-if="fillPath" :d="fillPath" :fill="color" :fill-opacity="fillOpacity" />
     <path v-if="path" :d="path" :stroke="color" stroke-width="1.5" fill="none" />
   </svg>

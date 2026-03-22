@@ -166,7 +166,7 @@ function cancelDrawing() {
     </div>
 
     <!-- Map -->
-    <div ref="mapContainer" class="rounded-lg overflow-hidden mb-4" style="height: calc(100vh - 300px); min-height: 400px;"></div>
+    <div ref="mapContainer" class="w-full rounded-lg overflow-hidden mb-4" style="height: calc(100vh - 300px); min-height: 400px;"></div>
 
     <!-- Fence list -->
     <div v-if="fenceList.length > 0" class="bg-tactical-surface rounded-lg border border-tactical-border overflow-hidden">
