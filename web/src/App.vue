@@ -73,7 +73,12 @@ const navGroups = [
 </script>
 
 <template>
-  <div class="min-h-screen bg-tactical-bg text-gray-100">
+  <div class="min-h-screen bg-tactical-bg text-gray-100 relative">
+    <!-- Fullscreen background logo (matches Bridge) -->
+    <div class="fixed inset-0 z-0 flex items-center justify-center pointer-events-none">
+      <img src="/logo-bg.png" alt="" class="w-[150vmin] h-[150vmin] object-contain opacity-[0.04]" />
+    </div>
+
     <template v-if="auth.isAuthenticated">
       <header class="sticky top-0 z-50 bg-tactical-surface/95 backdrop-blur border-b border-tactical-border">
         <div class="flex items-center h-12 px-3 lg:px-5 gap-3">
