@@ -151,6 +151,10 @@ const navGroups = [
                   active-class="!text-tactical-iridium !bg-tactical-iridium/10" @click="openDropdown = null">Audit</RouterLink>
               </div>
             </div>
+            <!-- Help: standalone link (matches Bridge) -->
+            <RouterLink to="/help"
+              class="px-3 py-1.5 rounded text-xs font-medium whitespace-nowrap transition-colors text-gray-500 hover:text-gray-300 hover:bg-white/5"
+              active-class="!bg-tactical-iridium/10 !text-tactical-iridium">Help</RouterLink>
           </nav>
           <!-- Right: status bar + controls -->
           <div class="hidden md:flex items-center gap-3 shrink-0">
@@ -240,6 +244,9 @@ const navGroups = [
                 <RouterLink to="/api-keys" class="block px-3 py-2 rounded text-sm transition-colors text-gray-400 hover:text-gray-200 hover:bg-white/5" active-class="!bg-tactical-iridium/10 !text-tactical-iridium">API Keys</RouterLink>
                 <RouterLink to="/audit" class="block px-3 py-2 rounded text-sm transition-colors text-gray-400 hover:text-gray-200 hover:bg-white/5" active-class="!bg-tactical-iridium/10 !text-tactical-iridium">Audit</RouterLink>
               </template>
+              <div class="border-t border-tactical-border mt-2 pt-2">
+                <RouterLink to="/help" class="block px-3 py-2 rounded text-sm transition-colors text-gray-400 hover:text-gray-200 hover:bg-white/5" active-class="!bg-tactical-iridium/10 !text-tactical-iridium">Help</RouterLink>
+              </div>
             </div>
 
             <!-- Mobile footer: theme + user -->
