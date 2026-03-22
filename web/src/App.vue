@@ -1,5 +1,5 @@
 <script setup>
-import { ref, watch } from 'vue'
+import { ref, computed, watch } from 'vue'
 import { RouterLink, RouterView, useRouter } from 'vue-router'
 import { useAuthStore } from './stores/auth'
 import { useThemeStore } from './stores/theme'
@@ -14,9 +14,29 @@ const userMenuOpen = ref(false)
 const searchQuery = ref('')
 const searchOpen = ref(false)
 const mobileSearchQuery = ref('')
+const openDropdown = ref(null)
+let dropdownTimer = null
 
 // Close mobile nav on route change
-watch(() => router.currentRoute.value.path, () => { navOpen.value = false })
+watch(() => router.currentRoute.value.path, () => { navOpen.value = false; openDropdown.value = null })
+
+function isGroupActive(group) {
+  const path = router.currentRoute.value.path
+  return group.items.some(item => item.to === path || (item.to !== '/' && path.startsWith(item.to)))
+}
+
+function showDropdown(label) {
+  clearTimeout(dropdownTimer)
+  openDropdown.value = label
+}
+
+function hideDropdown() {
+  dropdownTimer = setTimeout(() => { openDropdown.value = null }, 150)
+}
+
+function cancelHide() {
+  clearTimeout(dropdownTimer)
+}
 
 function handleSearch() {
   if (!searchQuery.value.trim()) return
@@ -84,26 +104,53 @@ const navGroups = [
         <div class="flex items-center h-12 px-3 lg:px-5 gap-3">
           <!-- Brand -->
           <span class="font-display font-semibold text-sm text-gray-200 tracking-wide shrink-0">MeshSat Hub</span>
-          <!-- Nav tabs (center, flex-1) -->
-          <nav class="hidden md:flex flex-1 items-center overflow-x-auto no-scrollbar mx-2 lg:mx-6 gap-0.5">
-            <template v-for="(group, gi) in navGroups" :key="group.label">
-              <RouterLink v-for="item in group.items" :key="item.to" :to="item.to"
-                class="px-3 py-1.5 rounded text-xs font-medium whitespace-nowrap transition-colors text-gray-500 hover:text-gray-300 hover:bg-white/5"
-                active-class="!bg-tactical-iridium/10 !text-tactical-iridium">
-                {{ item.label }}
-              </RouterLink>
+          <!-- Nav dropdowns (center, flex-1) -->
+          <nav class="hidden md:flex flex-1 items-center mx-2 lg:mx-6 gap-1">
+            <template v-for="group in navGroups" :key="group.label">
+              <div class="relative" @mouseenter="showDropdown(group.label)" @mouseleave="hideDropdown">
+                <button class="px-3 py-1.5 rounded text-xs font-medium whitespace-nowrap transition-colors flex items-center gap-1"
+                  :class="isGroupActive(group)
+                    ? 'bg-tactical-iridium/10 text-tactical-iridium'
+                    : openDropdown === group.label
+                      ? 'text-gray-300 bg-white/5'
+                      : 'text-gray-500 hover:text-gray-300 hover:bg-white/5'">
+                  {{ group.label }}
+                  <svg class="w-3 h-3 opacity-50" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
+                </button>
+                <div v-if="openDropdown === group.label"
+                  class="absolute top-full left-0 mt-1 py-1 bg-tactical-surface border border-tactical-border rounded-lg shadow-xl z-50 min-w-[160px]"
+                  @mouseenter="cancelHide" @mouseleave="hideDropdown">
+                  <RouterLink v-for="item in group.items" :key="item.to" :to="item.to"
+                    class="block px-4 py-2 text-xs font-medium transition-colors text-gray-400 hover:text-gray-200 hover:bg-white/5"
+                    active-class="!text-tactical-iridium !bg-tactical-iridium/10"
+                    @click="openDropdown = null">
+                    {{ item.label }}
+                  </RouterLink>
+                </div>
+              </div>
             </template>
-            <template v-if="auth.isOwner">
-              <RouterLink to="/users"
-                class="px-3 py-1.5 rounded text-xs font-medium whitespace-nowrap transition-colors text-gray-500 hover:text-gray-300 hover:bg-white/5"
-                active-class="!bg-tactical-iridium/10 !text-tactical-iridium">Users</RouterLink>
-              <RouterLink to="/api-keys"
-                class="px-3 py-1.5 rounded text-xs font-medium whitespace-nowrap transition-colors text-gray-500 hover:text-gray-300 hover:bg-white/5"
-                active-class="!bg-tactical-iridium/10 !text-tactical-iridium">API Keys</RouterLink>
-              <RouterLink to="/audit"
-                class="px-3 py-1.5 rounded text-xs font-medium whitespace-nowrap transition-colors text-gray-500 hover:text-gray-300 hover:bg-white/5"
-                active-class="!bg-tactical-iridium/10 !text-tactical-iridium">Audit</RouterLink>
-            </template>
+            <!-- Admin group (owner-only) -->
+            <div v-if="auth.isOwner" class="relative" @mouseenter="showDropdown('Admin')" @mouseleave="hideDropdown">
+              <button class="px-3 py-1.5 rounded text-xs font-medium whitespace-nowrap transition-colors flex items-center gap-1"
+                :class="['/users', '/api-keys', '/audit'].includes(router.currentRoute.value.path)
+                  ? 'bg-tactical-iridium/10 text-tactical-iridium'
+                  : openDropdown === 'Admin'
+                    ? 'text-gray-300 bg-white/5'
+                    : 'text-gray-500 hover:text-gray-300 hover:bg-white/5'">
+                Admin
+                <svg class="w-3 h-3 opacity-50" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
+              </button>
+              <div v-if="openDropdown === 'Admin'"
+                class="absolute top-full left-0 mt-1 py-1 bg-tactical-surface border border-tactical-border rounded-lg shadow-xl z-50 min-w-[160px]"
+                @mouseenter="cancelHide" @mouseleave="hideDropdown">
+                <RouterLink to="/users" class="block px-4 py-2 text-xs font-medium transition-colors text-gray-400 hover:text-gray-200 hover:bg-white/5"
+                  active-class="!text-tactical-iridium !bg-tactical-iridium/10" @click="openDropdown = null">Users</RouterLink>
+                <RouterLink to="/api-keys" class="block px-4 py-2 text-xs font-medium transition-colors text-gray-400 hover:text-gray-200 hover:bg-white/5"
+                  active-class="!text-tactical-iridium !bg-tactical-iridium/10" @click="openDropdown = null">API Keys</RouterLink>
+                <RouterLink to="/audit" class="block px-4 py-2 text-xs font-medium transition-colors text-gray-400 hover:text-gray-200 hover:bg-white/5"
+                  active-class="!text-tactical-iridium !bg-tactical-iridium/10" @click="openDropdown = null">Audit</RouterLink>
+              </div>
+            </div>
           </nav>
           <!-- Right: status bar + controls -->
           <div class="hidden md:flex items-center gap-3 shrink-0">
