@@ -32,6 +32,8 @@ type Store interface {
 	InsertMessage(ctx context.Context, tenantID string, m *Message) error
 	ListMessages(ctx context.Context, tenantID string, deviceIMEI string, limit int) ([]Message, error)
 	GetMessage(ctx context.Context, tenantID string, id string) (*Message, error)
+	ListScheduledMessages(ctx context.Context, before time.Time, limit int) ([]Message, error)
+	UpdateMessageStatus(ctx context.Context, tenantID string, id string, status string, errMsg string) error
 
 	// Webhooks (outbound config)
 	SaveWebhook(ctx context.Context, tenantID string, w *WebhookConfig) error
@@ -96,7 +98,10 @@ type Store interface {
 	// API keys
 	CreateAPIKey(ctx context.Context, tenantID string, k *APIKey) error
 	GetAPIKeyByHash(ctx context.Context, keyHash string) (*APIKey, string, error) // returns key + tenantID
+	GetAPIKeyByID(ctx context.Context, tenantID string, id string) (*APIKey, error)
 	ListAPIKeys(ctx context.Context, tenantID string) ([]APIKey, error)
+	ListExpiringAPIKeys(ctx context.Context, before time.Time, limit int) ([]APIKey, error)
+	UpdateAPIKeySecret(ctx context.Context, tenantID string, id string, keyHash, keyPrefix string, expiresAt time.Time) error
 	DeleteAPIKey(ctx context.Context, tenantID string, id string) error
 	TouchAPIKeyLastUsed(ctx context.Context, id string) error
 
@@ -161,6 +166,13 @@ type Store interface {
 	ListMessageTemplates(ctx context.Context, tenantID string) ([]MessageTemplate, error)
 	UpdateMessageTemplate(ctx context.Context, tenantID string, t *MessageTemplate) error
 	DeleteMessageTemplate(ctx context.Context, tenantID string, id string) error
+
+	// Alert rules (configurable alerting engine, MESHSAT-313)
+	CreateAlertRule(ctx context.Context, tenantID string, r *AlertRule) error
+	GetAlertRule(ctx context.Context, tenantID string, id string) (*AlertRule, error)
+	ListAlertRules(ctx context.Context, tenantID string) ([]AlertRule, error)
+	UpdateAlertRule(ctx context.Context, tenantID string, r *AlertRule) error
+	DeleteAlertRule(ctx context.Context, tenantID string, id string) error
 }
 
 // Bridge represents a registered field bridge (parent of devices).
@@ -232,19 +244,20 @@ type Device struct {
 
 // Message represents an MO or MT satellite message.
 type Message struct {
-	ID         string    `json:"id"`
-	DeviceIMEI string    `json:"device_imei"`
-	Direction  string    `json:"direction"` // "mo" or "mt"
-	Channel    string    `json:"channel"`   // "iridium", "astrocast"
-	MOMSN      int       `json:"momsn,omitempty"`
-	Text       string    `json:"text,omitempty"`
-	RawHex     string    `json:"raw_hex,omitempty"`
-	Compressed bool      `json:"compressed"`
-	Status     string    `json:"status"` // "received", "queued", "sent", "delivered", "failed"
-	Error      string    `json:"error,omitempty"`
-	Lat        float64   `json:"lat,omitempty"`
-	Lon        float64   `json:"lon,omitempty"`
-	CreatedAt  time.Time `json:"created_at"`
+	ID          string    `json:"id"`
+	DeviceIMEI  string    `json:"device_imei"`
+	Direction   string    `json:"direction"` // "mo" or "mt"
+	Channel     string    `json:"channel"`   // "iridium", "astrocast"
+	MOMSN       int       `json:"momsn,omitempty"`
+	Text        string    `json:"text,omitempty"`
+	RawHex      string    `json:"raw_hex,omitempty"`
+	Compressed  bool      `json:"compressed"`
+	Status      string    `json:"status"` // "received", "queued", "sent", "delivered", "failed", "scheduled"
+	Error       string    `json:"error,omitempty"`
+	Lat         float64   `json:"lat,omitempty"`
+	Lon         float64   `json:"lon,omitempty"`
+	ScheduledAt time.Time `json:"scheduled_at,omitempty"`
+	CreatedAt   time.Time `json:"created_at"`
 }
 
 // WebhookConfig defines an outbound webhook target.
@@ -456,13 +469,29 @@ type MessageTemplate struct {
 
 // APIKey represents a tenant-scoped API key for programmatic access.
 type APIKey struct {
-	ID         string    `json:"id"`
-	KeyHash    string    `json:"-"`                     // SHA-256 hash of the full key (never exposed)
-	KeyPrefix  string    `json:"key_prefix"`            // first 8 chars for display (e.g. "meshsat_ab12cd34")
-	Role       string    `json:"role"`                  // "viewer", "operator", "owner"
-	Label      string    `json:"label"`                 // human-readable label
-	DeviceIMEI string    `json:"device_imei,omitempty"` // optional: scope to specific device
-	LastUsed   time.Time `json:"last_used,omitempty"`
-	ExpiresAt  time.Time `json:"expires_at,omitempty"`
-	CreatedAt  time.Time `json:"created_at"`
+	ID           string    `json:"id"`
+	KeyHash      string    `json:"-"`                     // SHA-256 hash of the full key (never exposed)
+	KeyPrefix    string    `json:"key_prefix"`            // first 8 chars for display (e.g. "meshsat_ab12cd34")
+	Role         string    `json:"role"`                  // "viewer", "operator", "owner"
+	Label        string    `json:"label"`                 // human-readable label
+	DeviceIMEI   string    `json:"device_imei,omitempty"` // optional: scope to specific device
+	LastUsed     time.Time `json:"last_used,omitempty"`
+	ExpiresAt    time.Time `json:"expires_at,omitempty"`
+	RotationDays int       `json:"rotation_days,omitempty"` // auto-rotation period (0=disabled)
+	CreatedAt    time.Time `json:"created_at"`
+}
+
+// AlertRule defines a configurable condition that triggers an escalation chain.
+type AlertRule struct {
+	ID              string    `json:"id"`
+	TenantID        string    `json:"tenant_id,omitempty"`
+	Name            string    `json:"name"`
+	ConditionType   string    `json:"condition_type"`   // device_not_seen, battery_low, geofence_breach, message_rate_drop
+	ConditionParams string    `json:"condition_params"` // JSON: {"threshold_hours":6} or {"threshold_pct":20}
+	ChainID         string    `json:"chain_id"`         // escalation chain to trigger
+	DeviceFilter    string    `json:"device_filter"`    // "*" for all, or specific IMEI, or group ID
+	Enabled         bool      `json:"enabled"`
+	LastEvaluated   time.Time `json:"last_evaluated,omitempty"`
+	CreatedAt       time.Time `json:"created_at"`
+	UpdatedAt       time.Time `json:"updated_at"`
 }

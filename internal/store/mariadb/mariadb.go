@@ -352,6 +352,8 @@ var migrations = []string{
 	// Fix: ensure NOT NULL columns have defaults (previous migrations may have missed them)
 	"ALTER TABLE bridges ALTER COLUMN cert_pem SET DEFAULT ''",
 	"ALTER TABLE bridges ALTER COLUMN reticulum_pubkey SET DEFAULT ''",
+	// MESHSAT-314: scheduled messages
+	"ALTER TABLE messages ADD COLUMN IF NOT EXISTS scheduled_at DATETIME NULL",
 
 	// MESHSAT-310: cost tracking ledger
 	`CREATE TABLE IF NOT EXISTS cost_ledger (
@@ -388,6 +390,9 @@ var migrations = []string{
 		INDEX idx_dgm_device (device_imei, tenant_id)
 	) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
 
+	// MESHSAT-315: API key rotation
+	"ALTER TABLE api_keys ADD COLUMN IF NOT EXISTS rotation_days INT NOT NULL DEFAULT 0",
+
 	// MESHSAT-312: message templates with variable substitution
 	`CREATE TABLE IF NOT EXISTS message_templates (
 		id VARCHAR(64) PRIMARY KEY,
@@ -398,6 +403,22 @@ var migrations = []string{
 		created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
 		updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
 		INDEX idx_message_templates_tenant (tenant_id)
+	) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
+
+	// MESHSAT-313: alert rules
+	`CREATE TABLE IF NOT EXISTS alert_rules (
+		id VARCHAR(64) PRIMARY KEY,
+		name VARCHAR(255) NOT NULL DEFAULT '',
+		condition_type VARCHAR(64) NOT NULL DEFAULT '',
+		condition_params TEXT NOT NULL,
+		chain_id VARCHAR(64) NOT NULL DEFAULT '',
+		device_filter VARCHAR(255) NOT NULL DEFAULT '*',
+		enabled TINYINT(1) NOT NULL DEFAULT 1,
+		last_evaluated DATETIME NULL,
+		tenant_id VARCHAR(64) NOT NULL DEFAULT 'default',
+		created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+		updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+		INDEX idx_alert_rules_tenant (tenant_id)
 	) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
 }
 
@@ -462,11 +483,15 @@ func (d *DB) InsertMessage(ctx context.Context, tenantID string, m *store.Messag
 	if m.ID == "" {
 		m.ID = fmt.Sprintf("msg-%d", time.Now().UnixNano())
 	}
+	var scheduledAt interface{}
+	if !m.ScheduledAt.IsZero() {
+		scheduledAt = m.ScheduledAt.UTC()
+	}
 	_, err := d.db.ExecContext(ctx,
-		`INSERT INTO messages (id, device_imei, direction, channel, momsn, text, raw_hex, compressed, status, error, lat, lon, tenant_id)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		`INSERT INTO messages (id, device_imei, direction, channel, momsn, text, raw_hex, compressed, status, error, lat, lon, tenant_id, scheduled_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		m.ID, m.DeviceIMEI, m.Direction, m.Channel, m.MOMSN, m.Text, m.RawHex,
-		m.Compressed, m.Status, m.Error, m.Lat, m.Lon, tenantID)
+		m.Compressed, m.Status, m.Error, m.Lat, m.Lon, tenantID, scheduledAt)
 	return err
 }
 
@@ -509,6 +534,38 @@ func (d *DB) GetMessage(ctx context.Context, tenantID string, id string) (*store
 		return nil, err
 	}
 	return &m, nil
+}
+
+func (d *DB) ListScheduledMessages(ctx context.Context, before time.Time, limit int) ([]store.Message, error) {
+	rows, err := d.db.QueryContext(ctx,
+		`SELECT id, device_imei, direction, channel, momsn, text, raw_hex, compressed, status, error, lat, lon, scheduled_at, created_at, tenant_id
+		 FROM messages WHERE scheduled_at IS NOT NULL AND scheduled_at <= ? AND status = 'scheduled' ORDER BY scheduled_at ASC LIMIT ?`,
+		before.UTC(), limit)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+	var msgs []store.Message
+	for rows.Next() {
+		var m store.Message
+		var scheduledAt sql.NullTime
+		var tenantID string
+		if err := rows.Scan(&m.ID, &m.DeviceIMEI, &m.Direction, &m.Channel, &m.MOMSN,
+			&m.Text, &m.RawHex, &m.Compressed, &m.Status, &m.Error, &m.Lat, &m.Lon,
+			&scheduledAt, &m.CreatedAt, &tenantID); err != nil {
+			return nil, err
+		}
+		if scheduledAt.Valid {
+			m.ScheduledAt = scheduledAt.Time
+		}
+		msgs = append(msgs, m)
+	}
+	return msgs, rows.Err()
+}
+
+func (d *DB) UpdateMessageStatus(ctx context.Context, _ string, id string, status string, errMsg string) error {
+	_, err := d.db.ExecContext(ctx, "UPDATE messages SET status=?, error=? WHERE id=?", status, errMsg, id)
+	return err
 }
 
 // --- Webhooks ---
@@ -822,6 +879,50 @@ func (d *DB) ListAPIKeys(ctx context.Context, tenantID string) ([]store.APIKey, 
 		keys = append(keys, k)
 	}
 	return keys, rows.Err()
+}
+
+func (d *DB) GetAPIKeyByID(ctx context.Context, tenantID string, id string) (*store.APIKey, error) {
+	var k store.APIKey
+	err := d.db.QueryRowContext(ctx,
+		"SELECT id, key_hash, key_prefix, role, label, device_imei, last_used, expires_at, rotation_days, created_at FROM api_keys WHERE id=? AND tenant_id=?",
+		id, tenantID,
+	).Scan(&k.ID, &k.KeyHash, &k.KeyPrefix, &k.Role, &k.Label, &k.DeviceIMEI, &k.LastUsed, &k.ExpiresAt, &k.RotationDays, &k.CreatedAt)
+	if err != nil {
+		return nil, err
+	}
+	return &k, nil
+}
+
+func (d *DB) ListExpiringAPIKeys(ctx context.Context, before time.Time, limit int) ([]store.APIKey, error) {
+	query := `SELECT id, key_prefix, role, label, device_imei, last_used, expires_at, rotation_days, created_at
+		FROM api_keys WHERE expires_at IS NOT NULL AND expires_at <= ? AND expires_at != '0001-01-01 00:00:00'
+		ORDER BY expires_at ASC`
+	args := []interface{}{before}
+	if limit > 0 {
+		query += " LIMIT ?"
+		args = append(args, limit)
+	}
+	rows, err := d.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+	var keys []store.APIKey
+	for rows.Next() {
+		var k store.APIKey
+		if err := rows.Scan(&k.ID, &k.KeyPrefix, &k.Role, &k.Label, &k.DeviceIMEI, &k.LastUsed, &k.ExpiresAt, &k.RotationDays, &k.CreatedAt); err != nil {
+			return nil, err
+		}
+		keys = append(keys, k)
+	}
+	return keys, rows.Err()
+}
+
+func (d *DB) UpdateAPIKeySecret(ctx context.Context, tenantID string, id string, keyHash, keyPrefix string, expiresAt time.Time) error {
+	_, err := d.db.ExecContext(ctx,
+		"UPDATE api_keys SET key_hash=?, key_prefix=?, expires_at=? WHERE id=? AND tenant_id=?",
+		keyHash, keyPrefix, expiresAt, id, tenantID)
+	return err
 }
 
 func (d *DB) DeleteAPIKey(ctx context.Context, tenantID string, id string) error {
@@ -1784,6 +1885,83 @@ func (d *DB) UpdateMessageTemplate(ctx context.Context, tenantID string, t *stor
 
 func (d *DB) DeleteMessageTemplate(ctx context.Context, tenantID string, id string) error {
 	_, err := d.db.ExecContext(ctx, "DELETE FROM message_templates WHERE id=? AND tenant_id=?", id, tenantID)
+	return err
+}
+
+// --- Alert Rules (MESHSAT-313) ---
+
+func (d *DB) CreateAlertRule(ctx context.Context, tenantID string, r *store.AlertRule) error {
+	if r.ID == "" {
+		r.ID = fmt.Sprintf("arule-%d", time.Now().UnixNano())
+	}
+	now := time.Now().UTC()
+	r.CreatedAt = now
+	r.UpdatedAt = now
+	_, err := d.db.ExecContext(ctx,
+		`INSERT INTO alert_rules (id, name, condition_type, condition_params, chain_id, device_filter, enabled, created_at, updated_at, tenant_id)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		r.ID, r.Name, r.ConditionType, r.ConditionParams, r.ChainID, r.DeviceFilter,
+		r.Enabled, r.CreatedAt, r.UpdatedAt, tenantID)
+	return err
+}
+
+func (d *DB) GetAlertRule(ctx context.Context, tenantID string, id string) (*store.AlertRule, error) {
+	var r store.AlertRule
+	var lastEval sql.NullTime
+	err := d.db.QueryRowContext(ctx,
+		"SELECT id, name, condition_type, condition_params, chain_id, device_filter, enabled, last_evaluated, created_at, updated_at FROM alert_rules WHERE id=? AND tenant_id=?", id, tenantID,
+	).Scan(&r.ID, &r.Name, &r.ConditionType, &r.ConditionParams, &r.ChainID, &r.DeviceFilter, &r.Enabled, &lastEval, &r.CreatedAt, &r.UpdatedAt)
+	if err != nil {
+		return nil, err
+	}
+	if lastEval.Valid {
+		r.LastEvaluated = lastEval.Time
+	}
+	return &r, nil
+}
+
+func (d *DB) ListAlertRules(ctx context.Context, tenantID string) ([]store.AlertRule, error) {
+	// Empty tenantID returns rules across all tenants (used by evaluator).
+	query := "SELECT id, name, condition_type, condition_params, chain_id, device_filter, enabled, last_evaluated, created_at, updated_at, tenant_id FROM alert_rules WHERE 1=1"
+	var args []interface{}
+	if tenantID != "" {
+		query += " AND tenant_id=?"
+		args = append(args, tenantID)
+	}
+	query += " ORDER BY name"
+	rows, err := d.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+	var rules []store.AlertRule
+	for rows.Next() {
+		var r store.AlertRule
+		var lastEval sql.NullTime
+		var tid string
+		if err := rows.Scan(&r.ID, &r.Name, &r.ConditionType, &r.ConditionParams, &r.ChainID, &r.DeviceFilter, &r.Enabled, &lastEval, &r.CreatedAt, &r.UpdatedAt, &tid); err != nil {
+			return nil, err
+		}
+		if lastEval.Valid {
+			r.LastEvaluated = lastEval.Time
+		}
+		r.TenantID = tid
+		rules = append(rules, r)
+	}
+	return rules, rows.Err()
+}
+
+func (d *DB) UpdateAlertRule(ctx context.Context, tenantID string, r *store.AlertRule) error {
+	r.UpdatedAt = time.Now().UTC()
+	_, err := d.db.ExecContext(ctx,
+		"UPDATE alert_rules SET name=?, condition_type=?, condition_params=?, chain_id=?, device_filter=?, enabled=?, last_evaluated=?, updated_at=? WHERE id=? AND tenant_id=?",
+		r.Name, r.ConditionType, r.ConditionParams, r.ChainID, r.DeviceFilter,
+		r.Enabled, r.LastEvaluated, r.UpdatedAt, r.ID, tenantID)
+	return err
+}
+
+func (d *DB) DeleteAlertRule(ctx context.Context, tenantID string, id string) error {
+	_, err := d.db.ExecContext(ctx, "DELETE FROM alert_rules WHERE id=? AND tenant_id=?", id, tenantID)
 	return err
 }
 

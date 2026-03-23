@@ -17,6 +17,20 @@ import (
 	"github.com/google/uuid"
 )
 
+// CredentialUpdateCommand returns a protocol.Command that tells a bridge to
+// update its MQTT credentials. The bridge should reconnect with the new password.
+func CredentialUpdateCommand(username, password string) protocol.Command {
+	payload, _ := json.Marshal(map[string]string{
+		"mqtt_username": username,
+		"mqtt_password": password,
+	})
+	return protocol.Command{
+		Cmd:       "update_credentials",
+		Payload:   json.RawMessage(payload),
+		Timestamp: time.Now().UTC(),
+	}
+}
+
 // Commander sends commands to field bridges via MQTT and correlates responses.
 type Commander struct {
 	mqtt    bus.MessageBus

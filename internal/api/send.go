@@ -41,9 +41,10 @@ func (h *SendHandler) SetSMSClient(c *sms.Client) {
 }
 
 type sendMessageRequest struct {
-	Text     string `json:"text"`
-	Compress bool   `json:"compress"` // SMAZ2 compress before sending (default: true)
-	Encrypt  bool   `json:"encrypt"`  // AES-256-GCM encrypt with device key (default: true if key exists)
+	Text        string `json:"text"`
+	Compress    bool   `json:"compress"`               // SMAZ2 compress before sending (default: true)
+	Encrypt     bool   `json:"encrypt"`                // AES-256-GCM encrypt with device key (default: true if key exists)
+	ScheduledAt string `json:"scheduled_at,omitempty"` // RFC3339 timestamp for future delivery (empty = send now)
 }
 
 // SendMessage sends an MT message to a device via Rock7/Iridium.
@@ -73,6 +74,42 @@ func (h *SendHandler) SendMessage(w http.ResponseWriter, r *http.Request) {
 	if req.Text == "" {
 		writeError(w, http.StatusBadRequest, "text is required")
 		return
+	}
+
+	// Check for scheduled delivery.
+	if req.ScheduledAt != "" {
+		scheduledTime, parseErr := time.Parse(time.RFC3339, req.ScheduledAt)
+		if parseErr != nil {
+			writeError(w, http.StatusBadRequest, "scheduled_at must be RFC3339 format")
+			return
+		}
+		if scheduledTime.After(time.Now()) {
+			// Queue for future delivery — do not send now.
+			tid := auth.TenantIDFromContext(r.Context())
+			msg := &store.Message{
+				ID:          "mt-sched-" + time.Now().Format("20060102150405"),
+				DeviceIMEI:  imei,
+				Direction:   "mt",
+				Channel:     "iridium",
+				Text:        req.Text,
+				Status:      "scheduled",
+				ScheduledAt: scheduledTime,
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			if err := h.store.InsertMessage(ctx, tid, msg); err != nil {
+				writeError(w, http.StatusInternalServerError, "failed to queue scheduled message")
+				return
+			}
+			writeJSON(w, http.StatusOK, map[string]interface{}{
+				"status":       "scheduled",
+				"id":           msg.ID,
+				"imei":         imei,
+				"scheduled_at": scheduledTime.Format(time.RFC3339),
+			})
+			return
+		}
+		// scheduled_at is in the past — fall through to send immediately.
 	}
 
 	if h.rock7Client == nil {

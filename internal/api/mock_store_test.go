@@ -142,6 +142,15 @@ func (m *mockStore) GetAPIKeyByHash(context.Context, string) (*store.APIKey, str
 func (m *mockStore) ListAPIKeys(_ context.Context, _ string) ([]store.APIKey, error) {
 	return m.apiKeys, m.apiKeyErr
 }
+func (m *mockStore) GetAPIKeyByID(_ context.Context, _ string, _ string) (*store.APIKey, error) {
+	return m.apiKey, m.apiKeyErr
+}
+func (m *mockStore) ListExpiringAPIKeys(_ context.Context, _ time.Time, _ int) ([]store.APIKey, error) {
+	return m.apiKeys, m.apiKeyErr
+}
+func (m *mockStore) UpdateAPIKeySecret(_ context.Context, _ string, _ string, _ string, _ string, _ time.Time) error {
+	return m.apiKeyErr
+}
 func (m *mockStore) DeleteAPIKey(_ context.Context, _ string, _ string) error {
 	return m.apiKeyErr
 }
@@ -305,3 +314,22 @@ func (m *mockStore) UpdateMessageTemplate(context.Context, string, *store.Messag
 	return nil
 }
 func (m *mockStore) DeleteMessageTemplate(context.Context, string, string) error { return nil }
+
+// Scheduled messages
+func (m *mockStore) ListScheduledMessages(context.Context, time.Time, int) ([]store.Message, error) {
+	return nil, nil
+}
+func (m *mockStore) UpdateMessageStatus(context.Context, string, string, string, string) error {
+	return nil
+}
+
+// Alert rules
+func (m *mockStore) CreateAlertRule(context.Context, string, *store.AlertRule) error { return nil }
+func (m *mockStore) GetAlertRule(context.Context, string, string) (*store.AlertRule, error) {
+	return nil, fmt.Errorf("not found")
+}
+func (m *mockStore) ListAlertRules(context.Context, string) ([]store.AlertRule, error) {
+	return nil, nil
+}
+func (m *mockStore) UpdateAlertRule(context.Context, string, *store.AlertRule) error { return nil }
+func (m *mockStore) DeleteAlertRule(context.Context, string, string) error           { return nil }

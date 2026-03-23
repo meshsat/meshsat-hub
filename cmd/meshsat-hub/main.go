@@ -53,6 +53,7 @@ import (
 	"github.com/cubeos-app/meshsat-hub/internal/rock7"
 	"github.com/cubeos-app/meshsat-hub/internal/rockblock"
 	"github.com/cubeos-app/meshsat-hub/internal/routing"
+	"github.com/cubeos-app/meshsat-hub/internal/scheduler"
 	"github.com/cubeos-app/meshsat-hub/internal/sms"
 	"github.com/cubeos-app/meshsat-hub/internal/sos"
 	"github.com/cubeos-app/meshsat-hub/internal/store"
@@ -975,6 +976,17 @@ func main() {
 		r.Delete("/{id}", apiKeyHandler.DeleteKey)
 	})
 
+	// Secret rotation (owner-only)
+	rotationHandler := api.NewRotationHandler(dataStore, bridgeCommander)
+	r.Route("/api/auth/keys/{id}/rotate", func(r chi.Router) {
+		r.Use(hubauth.RequireRole(hubauth.RoleOwner))
+		r.Post("/", rotationHandler.RotateAPIKey)
+	})
+	r.Route("/api/bridges/{id}/credentials/rotate", func(r chi.Router) {
+		r.Use(hubauth.RequireRole(hubauth.RoleOwner))
+		r.Post("/", rotationHandler.RotateBridgeCredentials)
+	})
+
 	// Bridge registry API
 	bridgeHandler := api.NewBridgeHandler(dataStore)
 	r.Get("/api/bridges", bridgeHandler.ListBridges)
@@ -1327,6 +1339,10 @@ func main() {
 		}))
 	}
 
+	// Scheduled message delivery (MESHSAT-314).
+	msgScheduler := scheduler.New(dataStore, &scheduledSenderAdapter{rock7: rock7Client}, 30*time.Second)
+	go msgScheduler.Run(ctx)
+
 	srv := &http.Server{
 		Addr:              fmt.Sprintf(":%d", cfg.Port),
 		Handler:           r,
@@ -1387,6 +1403,23 @@ func initLogger(cfg config.Config) {
 	}
 
 	slog.SetDefault(slog.New(handler))
+}
+
+// scheduledSenderAdapter adapts the Rock7 MT client to scheduler.MessageSender.
+type scheduledSenderAdapter struct {
+	rock7 *rock7.Client
+}
+
+func (a *scheduledSenderAdapter) SendScheduled(ctx context.Context, msg *store.Message) error {
+	if a.rock7 == nil {
+		return fmt.Errorf("MT send not configured")
+	}
+	dataHex := msg.RawHex
+	if dataHex == "" {
+		dataHex = hex.EncodeToString([]byte(msg.Text))
+	}
+	_, err := a.rock7.SendMT(ctx, msg.DeviceIMEI, dataHex)
+	return err
 }
 
 const swaggerUIHTML = `<!DOCTYPE html>
