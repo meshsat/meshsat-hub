@@ -327,14 +327,14 @@ var migrations = []string{
 		location_lat DOUBLE NOT NULL DEFAULT 0,
 		location_lon DOUBLE NOT NULL DEFAULT 0,
 		location_alt DOUBLE NOT NULL DEFAULT 0,
-		capabilities JSON NOT NULL,
+		capabilities JSON NOT NULL DEFAULT ('[]'),
 		reticulum_hash VARCHAR(64) NOT NULL DEFAULT '',
-		reticulum_pubkey TEXT NOT NULL,
+		reticulum_pubkey TEXT NOT NULL DEFAULT (''),
 		cot_type VARCHAR(32) NOT NULL DEFAULT 'a-f-G-U-C-I',
 		cot_callsign VARCHAR(64) NOT NULL DEFAULT '',
 		online TINYINT(1) NOT NULL DEFAULT 0,
-		last_birth JSON NOT NULL,
-		last_health JSON NOT NULL,
+		last_birth JSON NOT NULL DEFAULT ('{}'),
+		last_health JSON NOT NULL DEFAULT ('{}'),
 		last_seen DATETIME NULL,
 		created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
 		updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -347,8 +347,11 @@ var migrations = []string{
 	// MESHSAT-291: bridge MQTT authentication
 	"ALTER TABLE bridges ADD COLUMN IF NOT EXISTS mqtt_username VARCHAR(64) NOT NULL DEFAULT ''",
 	"ALTER TABLE bridges ADD COLUMN IF NOT EXISTS mqtt_password_hash VARCHAR(255) NOT NULL DEFAULT ''",
-	"ALTER TABLE bridges ADD COLUMN IF NOT EXISTS cert_pem TEXT NOT NULL",
+	"ALTER TABLE bridges ADD COLUMN IF NOT EXISTS cert_pem TEXT NOT NULL DEFAULT ''",
 	"ALTER TABLE bridges ADD COLUMN IF NOT EXISTS cert_expiry DATETIME NULL",
+	// Fix: ensure NOT NULL columns have defaults (previous migrations may have missed them)
+	"ALTER TABLE bridges ALTER COLUMN cert_pem SET DEFAULT ''",
+	"ALTER TABLE bridges ALTER COLUMN reticulum_pubkey SET DEFAULT ''",
 }
 
 // --- Devices ---
