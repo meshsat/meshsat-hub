@@ -220,6 +220,10 @@ export const bridges = {
   get: (id) => fetchJSON(`/bridges/${id}`),
 }
 
+export const integrations = {
+  list: () => fetchJSON('/integrations'),
+}
+
 export const health = {
   check: () => fetch('/healthz').then(r => r.json()).catch(() => ({ status: 'error' })),
   readyz: () => fetch('/readyz').then(r => r.json()).catch(() => ({ status: 'error' })),

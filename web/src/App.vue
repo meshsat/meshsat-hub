@@ -80,6 +80,7 @@ const navGroups = [
   { label: 'Channels', items: [
     { to: '/email', label: 'Email' },
     { to: '/routing', label: 'Routing' },
+    { to: '/integrations', label: 'Integrations' },
     { to: '/webhooks', label: 'Webhooks' },
   ]},
   { label: 'Infrastructure', items: [

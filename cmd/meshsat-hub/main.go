@@ -1023,6 +1023,10 @@ func main() {
 	r.Post("/api/cluster/actions/{id}", clusterHandler.ExecuteAction)
 	r.Put("/api/cluster/peers", clusterHandler.SetPeers)
 
+	// Integration channel status API
+	integrationHandler := api.NewIntegrationHandler(cfg)
+	r.Get("/api/integrations", integrationHandler.ListIntegrations)
+
 	r.Get("/api/constellations", func(w http.ResponseWriter, r *http.Request) {
 		backends := constellationRouter.ListBackends()
 		w.Header().Set("Content-Type", "application/json")

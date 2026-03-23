@@ -18,6 +18,7 @@ const routes = [
   { path: '/cluster', name: 'cluster', component: () => import('./views/ClusterView.vue'), meta: { requiresAuth: true } },
   { path: '/network', name: 'network', component: () => import('./views/NetworkView.vue'), meta: { requiresAuth: true } },
   { path: '/routing', name: 'routing', component: () => import('./views/RoutingView.vue'), meta: { requiresAuth: true } },
+  { path: '/integrations', name: 'integrations', component: () => import('./views/IntegrationsView.vue'), meta: { requiresAuth: true } },
   { path: '/topology', name: 'topology', component: () => import('./views/TopologyView.vue'), meta: { requiresAuth: true } },
   { path: '/devices/:imei', name: 'deviceDetail', component: () => import('./views/DeviceDetail.vue'), meta: { requiresAuth: true } },
   { path: '/email', name: 'email', component: () => import('./views/EmailView.vue'), meta: { requiresAuth: true } },
