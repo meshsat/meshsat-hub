@@ -1000,6 +1000,17 @@ func main() {
 	r.Put("/api/devices/{imei}", deviceHandler.UpdateDevice)
 	r.Delete("/api/devices/{imei}", deviceHandler.DeleteDevice)
 
+	// Device groups API (MESHSAT-311)
+	groupHandler := api.NewDeviceGroupHandler(dataStore)
+	r.Get("/api/device-groups", groupHandler.ListGroups)
+	r.Post("/api/device-groups", groupHandler.CreateGroup)
+	r.Get("/api/device-groups/{id}", groupHandler.GetGroup)
+	r.Put("/api/device-groups/{id}", groupHandler.UpdateGroup)
+	r.Delete("/api/device-groups/{id}", groupHandler.DeleteGroup)
+	r.Post("/api/device-groups/{id}/members", groupHandler.AddMember)
+	r.Delete("/api/device-groups/{id}/members/{imei}", groupHandler.RemoveMember)
+	r.Get("/api/device-groups/{id}/devices", groupHandler.ListDevices)
+
 	// Device config versioning
 	configHandler := api.NewDeviceConfigHandler(dataStore)
 	r.Get("/api/devices/{imei}/config", configHandler.GetLatest)
@@ -1243,6 +1254,15 @@ func main() {
 	ipougrsTunnel := ipougrs.NewTunnel(ipougrsConfig)
 	ipougrsHandler := ipougrs.NewAPIHandler(ipougrsTunnel)
 	r.Get("/api/ipougrs/status", ipougrsHandler.GetStatus)
+
+	// Message templates (MESHSAT-312)
+	templateHandler := api.NewMessageTemplateHandler(dataStore)
+	r.Get("/api/message-templates", templateHandler.ListTemplates)
+	r.Post("/api/message-templates", templateHandler.CreateTemplate)
+	r.Get("/api/message-templates/{id}", templateHandler.GetTemplate)
+	r.Put("/api/message-templates/{id}", templateHandler.UpdateTemplate)
+	r.Delete("/api/message-templates/{id}", templateHandler.DeleteTemplate)
+	r.Post("/api/message-templates/{id}/render", templateHandler.RenderTemplate)
 
 	// Sensor payload codec registry
 	codecRegistry := codec.NewRegistry()

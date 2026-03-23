@@ -367,6 +367,38 @@ var migrations = []string{
 		INDEX idx_cost_ledger_tenant (tenant_id, created_at DESC),
 		INDEX idx_cost_ledger_device (device_imei, tenant_id)
 	) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
+
+	// MESHSAT-311: device groups for fleet organization
+	`CREATE TABLE IF NOT EXISTS device_groups (
+		id VARCHAR(64) PRIMARY KEY,
+		name VARCHAR(255) NOT NULL DEFAULT '',
+		description TEXT NOT NULL,
+		color VARCHAR(16) NOT NULL DEFAULT '#6b7280',
+		tenant_id VARCHAR(64) NOT NULL DEFAULT 'default',
+		created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+		updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+		INDEX idx_device_groups_tenant (tenant_id)
+	) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
+
+	`CREATE TABLE IF NOT EXISTS device_group_members (
+		group_id VARCHAR(64) NOT NULL,
+		device_imei VARCHAR(64) NOT NULL,
+		tenant_id VARCHAR(64) NOT NULL DEFAULT 'default',
+		PRIMARY KEY (group_id, device_imei, tenant_id),
+		INDEX idx_dgm_device (device_imei, tenant_id)
+	) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
+
+	// MESHSAT-312: message templates with variable substitution
+	`CREATE TABLE IF NOT EXISTS message_templates (
+		id VARCHAR(64) PRIMARY KEY,
+		name VARCHAR(255) NOT NULL DEFAULT '',
+		body TEXT NOT NULL,
+		variables TEXT NOT NULL,
+		tenant_id VARCHAR(64) NOT NULL DEFAULT 'default',
+		created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+		updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+		INDEX idx_message_templates_tenant (tenant_id)
+	) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
 }
 
 // --- Devices ---
@@ -1577,6 +1609,182 @@ func (d *DB) AggregateCosts(ctx context.Context, tenantID string, from, to time.
 		aggs = append(aggs, a)
 	}
 	return aggs, rows.Err()
+}
+
+// --- Device groups ---
+
+func (d *DB) CreateDeviceGroup(ctx context.Context, tenantID string, g *store.DeviceGroup) error {
+	_, err := d.db.ExecContext(ctx,
+		"INSERT INTO device_groups (id, name, description, color, tenant_id) VALUES (?, ?, ?, ?, ?)",
+		g.ID, g.Name, g.Description, g.Color, tenantID)
+	return err
+}
+
+func (d *DB) GetDeviceGroup(ctx context.Context, tenantID string, id string) (*store.DeviceGroup, error) {
+	var g store.DeviceGroup
+	err := d.db.QueryRowContext(ctx,
+		"SELECT id, name, description, color, created_at, updated_at FROM device_groups WHERE id=? AND tenant_id=?",
+		id, tenantID).Scan(&g.ID, &g.Name, &g.Description, &g.Color, &g.CreatedAt, &g.UpdatedAt)
+	if err != nil {
+		return nil, err
+	}
+	_ = d.db.QueryRowContext(ctx,
+		"SELECT COUNT(*) FROM device_group_members WHERE group_id=? AND tenant_id=?",
+		id, tenantID).Scan(&g.MemberCount)
+	return &g, nil
+}
+
+func (d *DB) ListDeviceGroups(ctx context.Context, tenantID string) ([]store.DeviceGroup, error) {
+	rows, err := d.db.QueryContext(ctx,
+		`SELECT g.id, g.name, g.description, g.color, g.created_at, g.updated_at,
+		 (SELECT COUNT(*) FROM device_group_members m WHERE m.group_id=g.id AND m.tenant_id=g.tenant_id)
+		 FROM device_groups g WHERE g.tenant_id=? ORDER BY g.name`, tenantID)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+	var groups []store.DeviceGroup
+	for rows.Next() {
+		var g store.DeviceGroup
+		if err := rows.Scan(&g.ID, &g.Name, &g.Description, &g.Color, &g.CreatedAt, &g.UpdatedAt, &g.MemberCount); err != nil {
+			return nil, err
+		}
+		groups = append(groups, g)
+	}
+	return groups, rows.Err()
+}
+
+func (d *DB) UpdateDeviceGroup(ctx context.Context, tenantID string, g *store.DeviceGroup) error {
+	_, err := d.db.ExecContext(ctx,
+		"UPDATE device_groups SET name=?, description=?, color=?, updated_at=NOW() WHERE id=? AND tenant_id=?",
+		g.Name, g.Description, g.Color, g.ID, tenantID)
+	return err
+}
+
+func (d *DB) DeleteDeviceGroup(ctx context.Context, tenantID string, id string) error {
+	_, _ = d.db.ExecContext(ctx, "DELETE FROM device_group_members WHERE group_id=? AND tenant_id=?", id, tenantID)
+	_, err := d.db.ExecContext(ctx, "DELETE FROM device_groups WHERE id=? AND tenant_id=?", id, tenantID)
+	return err
+}
+
+func (d *DB) AddDeviceToGroup(ctx context.Context, tenantID string, groupID, deviceIMEI string) error {
+	_, err := d.db.ExecContext(ctx,
+		"INSERT IGNORE INTO device_group_members (group_id, device_imei, tenant_id) VALUES (?, ?, ?)",
+		groupID, deviceIMEI, tenantID)
+	return err
+}
+
+func (d *DB) RemoveDeviceFromGroup(ctx context.Context, tenantID string, groupID, deviceIMEI string) error {
+	_, err := d.db.ExecContext(ctx,
+		"DELETE FROM device_group_members WHERE group_id=? AND device_imei=? AND tenant_id=?",
+		groupID, deviceIMEI, tenantID)
+	return err
+}
+
+func (d *DB) ListDevicesInGroup(ctx context.Context, tenantID string, groupID string) ([]store.Device, error) {
+	rows, err := d.db.QueryContext(ctx,
+		`SELECT d.imei, d.label, d.type, d.notes, d.last_seen, d.created_at, d.updated_at
+		 FROM devices d JOIN device_group_members m ON d.imei=m.device_imei AND d.tenant_id=m.tenant_id
+		 WHERE m.group_id=? AND m.tenant_id=? ORDER BY d.label`, groupID, tenantID)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+	var devices []store.Device
+	for rows.Next() {
+		var dev store.Device
+		if err := rows.Scan(&dev.IMEI, &dev.Label, &dev.Type, &dev.Notes, &dev.LastSeen, &dev.CreatedAt, &dev.UpdatedAt); err != nil {
+			return nil, err
+		}
+		devices = append(devices, dev)
+	}
+	return devices, rows.Err()
+}
+
+func (d *DB) ListGroupsForDevice(ctx context.Context, tenantID string, deviceIMEI string) ([]store.DeviceGroup, error) {
+	rows, err := d.db.QueryContext(ctx,
+		`SELECT g.id, g.name, g.description, g.color, g.created_at, g.updated_at
+		 FROM device_groups g JOIN device_group_members m ON g.id=m.group_id AND g.tenant_id=m.tenant_id
+		 WHERE m.device_imei=? AND m.tenant_id=? ORDER BY g.name`, deviceIMEI, tenantID)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+	var groups []store.DeviceGroup
+	for rows.Next() {
+		var g store.DeviceGroup
+		if err := rows.Scan(&g.ID, &g.Name, &g.Description, &g.Color, &g.CreatedAt, &g.UpdatedAt); err != nil {
+			return nil, err
+		}
+		groups = append(groups, g)
+	}
+	return groups, rows.Err()
+}
+
+// --- Message Templates ---
+
+func (d *DB) CreateMessageTemplate(ctx context.Context, tenantID string, t *store.MessageTemplate) error {
+	if t.ID == "" {
+		t.ID = fmt.Sprintf("tmpl-%d", time.Now().UnixNano())
+	}
+	now := time.Now().UTC()
+	t.CreatedAt = now
+	t.UpdatedAt = now
+	vars, _ := json.Marshal(t.Variables)
+	_, err := d.db.ExecContext(ctx,
+		`INSERT INTO message_templates (id, name, body, variables, created_at, updated_at, tenant_id)
+		 VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		t.ID, t.Name, t.Body, string(vars), t.CreatedAt, t.UpdatedAt, tenantID)
+	return err
+}
+
+func (d *DB) GetMessageTemplate(ctx context.Context, tenantID string, id string) (*store.MessageTemplate, error) {
+	var t store.MessageTemplate
+	var vars string
+	err := d.db.QueryRowContext(ctx,
+		"SELECT id, name, body, variables, created_at, updated_at FROM message_templates WHERE id=? AND tenant_id=?",
+		id, tenantID,
+	).Scan(&t.ID, &t.Name, &t.Body, &vars, &t.CreatedAt, &t.UpdatedAt)
+	if err != nil {
+		return nil, err
+	}
+	_ = json.Unmarshal([]byte(vars), &t.Variables)
+	return &t, nil
+}
+
+func (d *DB) ListMessageTemplates(ctx context.Context, tenantID string) ([]store.MessageTemplate, error) {
+	rows, err := d.db.QueryContext(ctx,
+		"SELECT id, name, body, variables, created_at, updated_at FROM message_templates WHERE tenant_id=? ORDER BY name",
+		tenantID)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+	var templates []store.MessageTemplate
+	for rows.Next() {
+		var t store.MessageTemplate
+		var vars string
+		if err := rows.Scan(&t.ID, &t.Name, &t.Body, &vars, &t.CreatedAt, &t.UpdatedAt); err != nil {
+			return nil, err
+		}
+		_ = json.Unmarshal([]byte(vars), &t.Variables)
+		templates = append(templates, t)
+	}
+	return templates, rows.Err()
+}
+
+func (d *DB) UpdateMessageTemplate(ctx context.Context, tenantID string, t *store.MessageTemplate) error {
+	t.UpdatedAt = time.Now().UTC()
+	vars, _ := json.Marshal(t.Variables)
+	_, err := d.db.ExecContext(ctx,
+		"UPDATE message_templates SET name=?, body=?, variables=?, updated_at=? WHERE id=? AND tenant_id=?",
+		t.Name, t.Body, string(vars), t.UpdatedAt, t.ID, tenantID)
+	return err
+}
+
+func (d *DB) DeleteMessageTemplate(ctx context.Context, tenantID string, id string) error {
+	_, err := d.db.ExecContext(ctx, "DELETE FROM message_templates WHERE id=? AND tenant_id=?", id, tenantID)
+	return err
 }
 
 // Compile-time check.

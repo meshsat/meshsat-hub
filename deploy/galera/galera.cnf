@@ -1,0 +1,40 @@
+[mysqld]
+# --- Galera Provider ---
+wsrep_on=ON
+wsrep_provider=/usr/lib/galera/libgalera_smm.so
+
+# --- Galera Cluster ---
+wsrep_cluster_name=meshsat-galera
+wsrep_cluster_address=gcomm://192.168.192.10,192.168.15.10
+wsrep_sst_method=rsync
+
+# --- Replication ---
+binlog_format=ROW
+default-storage-engine=InnoDB
+innodb_autoinc_lock_mode=2
+bind-address=0.0.0.0
+
+# --- Performance ---
+wsrep_slave_threads=4
+wsrep_provider_options="gcs.fc_limit=100; gcs.fc_factor=0.8"
+wsrep_causal_reads=ON
+
+# --- Tuning ---
+character_set_server=utf8mb4
+collation_server=utf8mb4_unicode_ci
+transaction_isolation=READ-COMMITTED
+innodb_buffer_pool_size=256M
+innodb_log_buffer_size=32M
+innodb_flush_log_at_trx_commit=2
+innodb_file_per_table=1
+skip_name_resolve=1
+max_connections=200
+
+# --- Timeouts ---
+connect_timeout=60
+net_read_timeout=300
+net_write_timeout=300
+wait_timeout=28800
+
+[sst]
+ssl_mode=DISABLED

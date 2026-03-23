@@ -8,11 +8,11 @@ import (
 
 // ReticulumTopologyHandler serves the full network topology view.
 type ReticulumTopologyHandler struct {
-	hubID     *reticulum.HubIdentity
-	router    *reticulum.Router
-	relay     *reticulum.Relay
-	pathHdlr  *reticulum.PathHandler
-	hintPub   *reticulum.RouteHintPublisher
+	hubID    *reticulum.HubIdentity
+	router   *reticulum.Router
+	relay    *reticulum.Relay
+	pathHdlr *reticulum.PathHandler
+	hintPub  *reticulum.RouteHintPublisher
 }
 
 // NewReticulumTopologyHandler creates a handler for /api/reticulum/topology.
@@ -34,12 +34,12 @@ func NewReticulumTopologyHandler(
 
 // topologyResponse is the JSON response for GET /api/reticulum/topology.
 type topologyResponse struct {
-	Hub           topologyHub                        `json:"hub"`
-	Routes        []reticulum.RouteInfo              `json:"routes"`
-	Interfaces    []relayInterfaceInfo               `json:"interfaces"`
-	RelayStats    reticulum.RelayStatsSnapshot       `json:"relay_stats"`
-	PathStats     reticulum.PathHandlerStatsSnapshot  `json:"path_stats"`
-	HintsPublished int64                             `json:"hints_published"`
+	Hub            topologyHub                        `json:"hub"`
+	Routes         []reticulum.RouteInfo              `json:"routes"`
+	Interfaces     []relayInterfaceInfo               `json:"interfaces"`
+	RelayStats     reticulum.RelayStatsSnapshot       `json:"relay_stats"`
+	PathStats      reticulum.PathHandlerStatsSnapshot `json:"path_stats"`
+	HintsPublished int64                              `json:"hints_published"`
 }
 
 type topologyHub struct {

@@ -271,3 +271,37 @@ func (m *mockStore) AggregateCosts(context.Context, string, time.Time, time.Time
 // System config
 func (m *mockStore) GetSystemConfig(context.Context, string) (string, error) { return "", nil }
 func (m *mockStore) SetSystemConfig(context.Context, string, string) error   { return nil }
+
+// Device groups
+func (m *mockStore) CreateDeviceGroup(context.Context, string, *store.DeviceGroup) error { return nil }
+func (m *mockStore) GetDeviceGroup(context.Context, string, string) (*store.DeviceGroup, error) {
+	return nil, fmt.Errorf("not found")
+}
+func (m *mockStore) ListDeviceGroups(context.Context, string) ([]store.DeviceGroup, error) {
+	return nil, nil
+}
+func (m *mockStore) UpdateDeviceGroup(context.Context, string, *store.DeviceGroup) error { return nil }
+func (m *mockStore) DeleteDeviceGroup(context.Context, string, string) error             { return nil }
+func (m *mockStore) AddDeviceToGroup(context.Context, string, string, string) error      { return nil }
+func (m *mockStore) RemoveDeviceFromGroup(context.Context, string, string, string) error { return nil }
+func (m *mockStore) ListDevicesInGroup(context.Context, string, string) ([]store.Device, error) {
+	return nil, nil
+}
+func (m *mockStore) ListGroupsForDevice(context.Context, string, string) ([]store.DeviceGroup, error) {
+	return nil, nil
+}
+
+// Message templates
+func (m *mockStore) CreateMessageTemplate(context.Context, string, *store.MessageTemplate) error {
+	return nil
+}
+func (m *mockStore) GetMessageTemplate(context.Context, string, string) (*store.MessageTemplate, error) {
+	return nil, fmt.Errorf("not found")
+}
+func (m *mockStore) ListMessageTemplates(context.Context, string) ([]store.MessageTemplate, error) {
+	return nil, nil
+}
+func (m *mockStore) UpdateMessageTemplate(context.Context, string, *store.MessageTemplate) error {
+	return nil
+}
+func (m *mockStore) DeleteMessageTemplate(context.Context, string, string) error { return nil }

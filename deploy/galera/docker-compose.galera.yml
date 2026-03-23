@@ -63,7 +63,7 @@ services:
       - --transaction-isolation=READ-COMMITTED
       - --max-connections=200
     healthcheck:
-      test: ["CMD", "healthcheck.sh", "--su-mysql", "--galera-ready"]
+      test: ["CMD", "healthcheck.sh", "--su-mysql", "--galera_ready"]
       interval: 10s
       timeout: 5s
       start_period: 120s

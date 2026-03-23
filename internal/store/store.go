@@ -143,6 +143,24 @@ type Store interface {
 	// System config (key-value settings, e.g. hub identity keys)
 	GetSystemConfig(ctx context.Context, key string) (string, error)
 	SetSystemConfig(ctx context.Context, key, value string) error
+
+	// Device groups (fleet organization)
+	CreateDeviceGroup(ctx context.Context, tenantID string, g *DeviceGroup) error
+	GetDeviceGroup(ctx context.Context, tenantID string, id string) (*DeviceGroup, error)
+	ListDeviceGroups(ctx context.Context, tenantID string) ([]DeviceGroup, error)
+	UpdateDeviceGroup(ctx context.Context, tenantID string, g *DeviceGroup) error
+	DeleteDeviceGroup(ctx context.Context, tenantID string, id string) error
+	AddDeviceToGroup(ctx context.Context, tenantID string, groupID, deviceIMEI string) error
+	RemoveDeviceFromGroup(ctx context.Context, tenantID string, groupID, deviceIMEI string) error
+	ListDevicesInGroup(ctx context.Context, tenantID string, groupID string) ([]Device, error)
+	ListGroupsForDevice(ctx context.Context, tenantID string, deviceIMEI string) ([]DeviceGroup, error)
+
+	// Message templates
+	CreateMessageTemplate(ctx context.Context, tenantID string, t *MessageTemplate) error
+	GetMessageTemplate(ctx context.Context, tenantID string, id string) (*MessageTemplate, error)
+	ListMessageTemplates(ctx context.Context, tenantID string) ([]MessageTemplate, error)
+	UpdateMessageTemplate(ctx context.Context, tenantID string, t *MessageTemplate) error
+	DeleteMessageTemplate(ctx context.Context, tenantID string, id string) error
 }
 
 // Bridge represents a registered field bridge (parent of devices).
@@ -413,6 +431,27 @@ type CostAggregate struct {
 	GroupKey string  `json:"group_key"` // device IMEI or month string
 	TotalUSD float64 `json:"total_usd"`
 	Count    int     `json:"count"`
+}
+
+// DeviceGroup represents a named group for organizing devices in a fleet.
+type DeviceGroup struct {
+	ID          string    `json:"id"`
+	Name        string    `json:"name"`
+	Description string    `json:"description,omitempty"`
+	Color       string    `json:"color"`
+	MemberCount int       `json:"member_count,omitempty"`
+	CreatedAt   time.Time `json:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
+}
+
+// MessageTemplate represents a reusable message template with variable substitution.
+type MessageTemplate struct {
+	ID        string    `json:"id"`
+	Name      string    `json:"name"`
+	Body      string    `json:"body"`
+	Variables []string  `json:"variables,omitempty"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
 }
 
 // APIKey represents a tenant-scoped API key for programmatic access.
