@@ -57,6 +57,15 @@ func (d *DB) Migrate(ctx context.Context) error {
 			return fmt.Errorf("post-alter migration %d: %w", i+1, err)
 		}
 	}
+	// Run late ALTER TABLE migrations (tables created in postAlterMigrations).
+	// Ignore "duplicate column" errors for idempotency.
+	for _, m := range lateAlterMigrations {
+		if _, err := d.db.ExecContext(ctx, m); err != nil {
+			if !strings.Contains(err.Error(), "duplicate column") {
+				return fmt.Errorf("late alter migration: %w", err)
+			}
+		}
+	}
 	return nil
 }
 
@@ -143,6 +152,8 @@ var alterMigrations = []string{
 	`ALTER TABLE positions ADD COLUMN speed REAL NOT NULL DEFAULT 0`,
 	`ALTER TABLE positions ADD COLUMN heading REAL NOT NULL DEFAULT 0`,
 	`ALTER TABLE positions ADD COLUMN sats INTEGER NOT NULL DEFAULT 0`,
+	// MESHSAT-282: associate devices with bridges
+	`ALTER TABLE devices ADD COLUMN bridge_id TEXT REFERENCES bridges(bridge_id)`,
 }
 
 // postAlterMigrations create indexes and new tables. Safe to re-run.
@@ -290,6 +301,41 @@ var postAlterMigrations = []string{
 		value TEXT NOT NULL DEFAULT '',
 		updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 	)`,
+	// Bridges (MESHSAT-282 — field bridge registry)
+	`CREATE TABLE IF NOT EXISTS bridges (
+		bridge_id TEXT PRIMARY KEY,
+		tenant_id TEXT NOT NULL DEFAULT 'default',
+		label TEXT NOT NULL DEFAULT '',
+		hostname TEXT NOT NULL DEFAULT '',
+		version TEXT NOT NULL DEFAULT '',
+		mode TEXT NOT NULL DEFAULT 'direct',
+		location_lat REAL NOT NULL DEFAULT 0,
+		location_lon REAL NOT NULL DEFAULT 0,
+		location_alt REAL NOT NULL DEFAULT 0,
+		capabilities TEXT NOT NULL DEFAULT '[]',
+		reticulum_hash TEXT NOT NULL DEFAULT '',
+		reticulum_pubkey TEXT NOT NULL DEFAULT '',
+		cot_type TEXT NOT NULL DEFAULT 'a-f-G-U-C-I',
+		cot_callsign TEXT NOT NULL DEFAULT '',
+		online INTEGER NOT NULL DEFAULT 0,
+		last_birth TEXT NOT NULL DEFAULT '{}',
+		last_health TEXT NOT NULL DEFAULT '{}',
+		last_seen TEXT,
+		created_at TEXT NOT NULL DEFAULT (datetime('now')),
+		updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+	)`,
+	`CREATE INDEX IF NOT EXISTS idx_bridges_tenant ON bridges(tenant_id)`,
+	`CREATE INDEX IF NOT EXISTS idx_bridges_online ON bridges(online)`,
+}
+
+// lateAlterMigrations alter tables created in postAlterMigrations.
+// Duplicate column errors are ignored for idempotency.
+var lateAlterMigrations = []string{
+	// MESHSAT-291: bridge MQTT authentication
+	`ALTER TABLE bridges ADD COLUMN mqtt_username TEXT NOT NULL DEFAULT ''`,
+	`ALTER TABLE bridges ADD COLUMN mqtt_password_hash TEXT NOT NULL DEFAULT ''`,
+	`ALTER TABLE bridges ADD COLUMN cert_pem TEXT NOT NULL DEFAULT ''`,
+	`ALTER TABLE bridges ADD COLUMN cert_expiry TEXT`,
 }
 
 // --- Devices ---

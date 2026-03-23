@@ -118,9 +118,70 @@ type Store interface {
 	UpdateRoute(ctx context.Context, tenantID string, r *Route) error
 	DeleteRoute(ctx context.Context, tenantID string, id string) error
 
+	// Bridges
+	CreateOrUpdateBridge(ctx context.Context, tenantID string, b *Bridge) error
+	GetBridge(ctx context.Context, tenantID string, bridgeID string) (*Bridge, error)
+	ListBridges(ctx context.Context, tenantID string) ([]*Bridge, error)
+	UpdateBridge(ctx context.Context, tenantID string, bridgeID string, updates BridgeUpdate) error
+	DeleteBridge(ctx context.Context, tenantID string, bridgeID string) error
+	SetBridgeOnline(ctx context.Context, tenantID string, bridgeID string, online bool) error
+	TouchBridgeLastSeen(ctx context.Context, tenantID string, bridgeID string) error
+	SetBridgeHealth(ctx context.Context, tenantID string, bridgeID string, health string) error
+	AssociateDeviceWithBridge(ctx context.Context, tenantID string, imei string, bridgeID string) error
+
+	// Bridge MQTT credentials
+	SetBridgeCredentials(ctx context.Context, tenantID, bridgeID, username, passwordHash string) error
+	GetBridgeCredentials(ctx context.Context, tenantID, bridgeID string) (*BridgeCredentials, error)
+	SetBridgeCertificate(ctx context.Context, tenantID, bridgeID, certPEM string, expiry time.Time) error
+	ListBridgesWithCredentials(ctx context.Context) ([]*Bridge, error)
+
 	// System config (key-value settings, e.g. hub identity keys)
 	GetSystemConfig(ctx context.Context, key string) (string, error)
 	SetSystemConfig(ctx context.Context, key, value string) error
+}
+
+// Bridge represents a registered field bridge (parent of devices).
+type Bridge struct {
+	BridgeID         string     `json:"bridge_id"`
+	TenantID         string     `json:"tenant_id"`
+	Label            string     `json:"label"`
+	Hostname         string     `json:"hostname"`
+	Version          string     `json:"version"`
+	Mode             string     `json:"mode"`
+	LocationLat      float64    `json:"location_lat"`
+	LocationLon      float64    `json:"location_lon"`
+	LocationAlt      float64    `json:"location_alt"`
+	Capabilities     string     `json:"capabilities"` // JSON array
+	ReticulumHash    string     `json:"reticulum_hash"`
+	ReticulumPubkey  string     `json:"reticulum_pubkey"`
+	CoTType          string     `json:"cot_type"`
+	CoTCallsign      string     `json:"cot_callsign"`
+	Online           bool       `json:"online"`
+	LastBirth        string     `json:"last_birth"`  // JSON
+	LastHealth       string     `json:"last_health"` // JSON
+	LastSeen         *time.Time `json:"last_seen,omitempty"`
+	MQTTUsername     string     `json:"mqtt_username,omitempty"`
+	MQTTPasswordHash string     `json:"-"` // bcrypt hash — NEVER exposed in JSON
+	CertPEM          string     `json:"cert_pem,omitempty"`
+	CertExpiry       *time.Time `json:"cert_expiry,omitempty"`
+	CreatedAt        time.Time  `json:"created_at"`
+	UpdatedAt        time.Time  `json:"updated_at"`
+}
+
+// BridgeCredentials holds MQTT authentication info for a bridge.
+type BridgeCredentials struct {
+	BridgeID   string
+	Username   string
+	Password   string // bcrypt hash (or plaintext when returned from generation)
+	CertPEM    string // PEM-encoded client certificate
+	CertExpiry *time.Time
+	CreatedAt  time.Time
+}
+
+// BridgeUpdate contains optional fields for partial bridge updates.
+type BridgeUpdate struct {
+	Label       *string `json:"label,omitempty"`
+	CoTCallsign *string `json:"cot_callsign,omitempty"`
 }
 
 // Route defines a configurable message routing rule.

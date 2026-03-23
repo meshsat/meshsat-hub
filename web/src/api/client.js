@@ -215,6 +215,11 @@ export const geofences = {
   delete: (id) => fetchJSON(`/geofences/${id}`, { method: 'DELETE' }),
 }
 
+export const bridges = {
+  list: () => fetchJSON('/bridges'),
+  get: (id) => fetchJSON(`/bridges/${id}`),
+}
+
 export const health = {
   check: () => fetch('/healthz').then(r => r.json()).catch(() => ({ status: 'error' })),
   readyz: () => fetch('/readyz').then(r => r.json()).catch(() => ({ status: 'error' })),

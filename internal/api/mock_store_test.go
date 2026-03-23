@@ -228,6 +228,37 @@ func (m *mockStore) ListRoutes(context.Context, string) ([]store.Route, error) {
 func (m *mockStore) UpdateRoute(context.Context, string, *store.Route) error   { return nil }
 func (m *mockStore) DeleteRoute(context.Context, string, string) error         { return nil }
 
+// Bridges
+func (m *mockStore) CreateOrUpdateBridge(context.Context, string, *store.Bridge) error { return nil }
+func (m *mockStore) GetBridge(context.Context, string, string) (*store.Bridge, error) {
+	return nil, fmt.Errorf("not found")
+}
+func (m *mockStore) ListBridges(context.Context, string) ([]*store.Bridge, error) { return nil, nil }
+func (m *mockStore) UpdateBridge(context.Context, string, string, store.BridgeUpdate) error {
+	return nil
+}
+func (m *mockStore) DeleteBridge(context.Context, string, string) error            { return nil }
+func (m *mockStore) SetBridgeOnline(context.Context, string, string, bool) error   { return nil }
+func (m *mockStore) TouchBridgeLastSeen(context.Context, string, string) error     { return nil }
+func (m *mockStore) SetBridgeHealth(context.Context, string, string, string) error { return nil }
+func (m *mockStore) AssociateDeviceWithBridge(context.Context, string, string, string) error {
+	return nil
+}
+
+// Bridge MQTT credentials
+func (m *mockStore) SetBridgeCredentials(context.Context, string, string, string, string) error {
+	return nil
+}
+func (m *mockStore) GetBridgeCredentials(context.Context, string, string) (*store.BridgeCredentials, error) {
+	return nil, fmt.Errorf("not found")
+}
+func (m *mockStore) SetBridgeCertificate(context.Context, string, string, string, time.Time) error {
+	return nil
+}
+func (m *mockStore) ListBridgesWithCredentials(context.Context) ([]*store.Bridge, error) {
+	return nil, nil
+}
+
 // System config
 func (m *mockStore) GetSystemConfig(context.Context, string) (string, error) { return "", nil }
 func (m *mockStore) SetSystemConfig(context.Context, string, string) error   { return nil }

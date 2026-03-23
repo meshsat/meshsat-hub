@@ -66,6 +66,7 @@ function userInitial() {
 const navGroups = [
   { label: 'Operations', items: [
     { to: '/', label: 'Dashboard' },
+    { to: '/fleet', label: 'Fleet' },
     { to: '/map', label: 'Map' },
     { to: '/devices', label: 'Devices' },
     { to: '/messages', label: 'Messages' },

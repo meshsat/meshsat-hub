@@ -4,10 +4,16 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"strings"
+	"sync"
 
 	"github.com/cubeos-app/meshsat-hub/internal/bus"
 	hubmqtt "github.com/cubeos-app/meshsat-hub/internal/mqtt"
+	"github.com/cubeos-app/meshsat-hub/internal/protocol"
 )
+
+// bridgeStaleSec is the CoT stale time for bridge entities (120s per MIL-STD-2525 infrastructure).
+const bridgeStaleSec = 120
 
 // Subscriber listens on Hub MQTT topics and forwards device messages to a TAK server as CoT events.
 type Subscriber struct {
@@ -15,6 +21,9 @@ type Subscriber struct {
 	client         *Client
 	callsignPrefix string
 	cotStaleSec    int
+	bridgeBirths   map[string]*protocol.BridgeBirth // bridge_id -> last birth cert
+	deviceBirths   map[string]*protocol.DeviceBirth // device_id -> last birth cert
+	birthMu        sync.RWMutex
 }
 
 // NewSubscriber creates a new TAK MQTT subscriber.
@@ -30,6 +39,8 @@ func NewSubscriber(mqtt bus.MessageBus, client *Client, callsignPrefix string, c
 		client:         client,
 		callsignPrefix: callsignPrefix,
 		cotStaleSec:    cotStaleSec,
+		bridgeBirths:   make(map[string]*protocol.BridgeBirth),
+		deviceBirths:   make(map[string]*protocol.DeviceBirth),
 	}
 }
 
@@ -43,6 +54,9 @@ func (s *Subscriber) Start() error {
 		{"meshsat/+/sos", s.handleSOS},
 		{"meshsat/+/telemetry", s.handleTelemetry},
 		{"meshsat/+/mo/decoded", s.handleMODecoded},
+		{protocol.SubBridgeBirth, s.handleBridgeBirthCoT},
+		{protocol.SubBridgeHealth, s.handleBridgeHealthCoT},
+		{protocol.SubDeviceBirth, s.handleDeviceBirthCoT},
 	}
 
 	for _, sub := range subs {
@@ -93,7 +107,24 @@ func (s *Subscriber) handlePosition(topic string, payload []byte) {
 		source = "gps"
 	}
 
-	ev := BuildPositionEvent(uid, callsign, pos.Lat, pos.Lon, pos.Alt, s.cotStaleSec, source)
+	// Enrich with device birth certificate if available.
+	cotType := ""
+	s.birthMu.RLock()
+	if db, ok := s.deviceBirths[deviceID]; ok {
+		if db.CoTCallsign != "" {
+			callsign = db.CoTCallsign
+		} else if db.Label != "" {
+			callsign = db.Label
+		}
+		if db.CoTType != "" {
+			cotType = db.CoTType
+		} else if db.Type != "" {
+			cotType = protocol.CoTTypeForDevice(db.Type)
+		}
+	}
+	s.birthMu.RUnlock()
+
+	ev := BuildPositionEventTyped(uid, callsign, pos.Lat, pos.Lon, pos.Alt, s.cotStaleSec, source, cotType)
 	if err := s.client.Send(ev); err != nil {
 		slog.Warn("tak: send position failed", "error", err, "device", deviceID)
 		return
@@ -213,6 +244,107 @@ func (s *Subscriber) handleMODecoded(topic string, payload []byte) {
 			slog.Warn("tak: send iridium position failed", "error", err, "device", deviceID)
 		}
 	}
+}
+
+// handleBridgeBirthCoT processes a bridge birth certificate and sends a CoT PLI event.
+func (s *Subscriber) handleBridgeBirthCoT(topic string, payload []byte) {
+	bridgeID := extractBridgeIDFromCoTTopic(topic)
+	if bridgeID == "" {
+		return
+	}
+
+	var birth protocol.BridgeBirth
+	if err := json.Unmarshal(payload, &birth); err != nil {
+		slog.Debug("tak: invalid bridge birth JSON", "error", err, "bridge", bridgeID)
+		return
+	}
+
+	// Cache the birth certificate for health updates.
+	s.birthMu.Lock()
+	s.bridgeBirths[birth.BridgeID] = &birth
+	s.birthMu.Unlock()
+
+	ev := BuildBridgeEvent(birth, bridgeStaleSec)
+	if err := s.client.Send(ev); err != nil {
+		slog.Warn("tak: send bridge birth failed", "error", err, "bridge", bridgeID)
+		return
+	}
+	slog.Debug("tak: bridge birth forwarded", "bridge", bridgeID, "callsign", birth.CoTCallsign)
+}
+
+// handleBridgeHealthCoT processes a bridge health update and refreshes the CoT PLI event.
+func (s *Subscriber) handleBridgeHealthCoT(topic string, payload []byte) {
+	bridgeID := extractBridgeIDFromCoTTopic(topic)
+	if bridgeID == "" {
+		return
+	}
+
+	var health protocol.BridgeHealth
+	if err := json.Unmarshal(payload, &health); err != nil {
+		slog.Debug("tak: invalid bridge health JSON", "error", err, "bridge", bridgeID)
+		return
+	}
+
+	// Look up cached birth certificate for location and callsign.
+	s.birthMu.RLock()
+	birth := s.bridgeBirths[health.BridgeID]
+	s.birthMu.RUnlock()
+
+	ev := BuildBridgeHealthEvent(health, birth, bridgeStaleSec)
+	if err := s.client.Send(ev); err != nil {
+		slog.Warn("tak: send bridge health failed", "error", err, "bridge", bridgeID)
+		return
+	}
+	slog.Debug("tak: bridge health forwarded", "bridge", bridgeID)
+}
+
+// handleDeviceBirthCoT processes a device birth and sends a CoT PLI event if the device has position.
+func (s *Subscriber) handleDeviceBirthCoT(topic string, payload []byte) {
+	bridgeID := extractBridgeIDFromCoTTopic(topic)
+	deviceID := extractDeviceIDFromCoTTopic(topic)
+	if bridgeID == "" || deviceID == "" {
+		return
+	}
+
+	var device protocol.DeviceBirth
+	if err := json.Unmarshal(payload, &device); err != nil {
+		slog.Debug("tak: invalid device birth JSON", "error", err, "bridge", bridgeID, "device", deviceID)
+		return
+	}
+
+	// Cache the device birth certificate for position enrichment.
+	s.birthMu.Lock()
+	s.deviceBirths[device.DeviceID] = &device
+	s.birthMu.Unlock()
+
+	ev := BuildDeviceBirthEvent(device, s.cotStaleSec)
+	if err := s.client.Send(ev); err != nil {
+		slog.Warn("tak: send device birth failed", "error", err, "bridge", bridgeID, "device", deviceID)
+		return
+	}
+	slog.Debug("tak: device birth forwarded", "bridge", bridgeID, "device", deviceID)
+}
+
+// Bridge death is not explicitly handled. The CoT entity will go stale naturally
+// when the stale time on the last birth/health event expires. This is simpler and
+// avoids the need to send a CoT event with a past stale time.
+
+// extractBridgeIDFromCoTTopic extracts bridge_id from "meshsat/bridge/{id}/...".
+func extractBridgeIDFromCoTTopic(topic string) string {
+	parts := strings.Split(topic, "/")
+	if len(parts) < 4 || parts[0] != "meshsat" || parts[1] != "bridge" {
+		return ""
+	}
+	return parts[2]
+}
+
+// extractDeviceIDFromCoTTopic extracts device_id from "meshsat/bridge/{bridge_id}/device/{device_id}/...".
+func extractDeviceIDFromCoTTopic(topic string) string {
+	parts := strings.Split(topic, "/")
+	if len(parts) < 6 || parts[3] != "device" {
+		return ""
+	}
+	return parts[4]
 }
 
 // handleInboundCoT processes CoT events received from the TAK server and publishes to MQTT.

@@ -5,6 +5,7 @@ const routes = [
   { path: '/login', name: 'login', component: () => import('./views/Login.vue') },
   { path: '/', name: 'dashboard', component: () => import('./views/Dashboard.vue'), meta: { requiresAuth: true } },
   { path: '/map', name: 'map', component: () => import('./views/MapView.vue'), meta: { requiresAuth: true } },
+  { path: '/fleet', name: 'fleet', component: () => import('./views/FleetView.vue'), meta: { requiresAuth: true } },
   { path: '/devices', name: 'devices', component: () => import('./views/Devices.vue'), meta: { requiresAuth: true } },
   { path: '/device-config', name: 'deviceConfig', component: () => import('./views/DeviceConfigView.vue'), meta: { requiresAuth: true } },
   { path: '/device-keys', name: 'deviceKeys', component: () => import('./views/DeviceKeysView.vue'), meta: { requiresAuth: true } },

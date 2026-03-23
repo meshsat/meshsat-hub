@@ -16,6 +16,7 @@ import (
 
 	"github.com/cubeos-app/meshsat-hub/internal/audit"
 	"github.com/cubeos-app/meshsat-hub/internal/auth"
+	"github.com/cubeos-app/meshsat-hub/internal/bridge"
 	"github.com/cubeos-app/meshsat-hub/internal/bus"
 	"github.com/cubeos-app/meshsat-hub/internal/codec"
 	"github.com/cubeos-app/meshsat-hub/internal/compress"
@@ -87,6 +88,8 @@ type Handler struct {
 	retIface    reticulumReceiver
 	store       interface {
 		InsertMessage(ctx context.Context, tenantID string, m *store.Message) error
+		SetBridgeOnline(ctx context.Context, tenantID string, bridgeID string, online bool) error
+		SetBridgeHealth(ctx context.Context, tenantID string, bridgeID string, health string) error
 	}
 }
 
@@ -125,9 +128,11 @@ func (h *Handler) SetMSVQSC(d *msvqsc.Decoder) {
 	h.msvqsc = d
 }
 
-// SetStore attaches a store for persisting MO messages directly (bypasses MQTT loop-back).
+// SetStore attaches a store for persisting MO messages and bridge state.
 func (h *Handler) SetStore(s interface {
 	InsertMessage(ctx context.Context, tenantID string, m *store.Message) error
+	SetBridgeOnline(ctx context.Context, tenantID string, bridgeID string, online bool) error
+	SetBridgeHealth(ctx context.Context, tenantID string, bridgeID string, health string) error
 }) {
 	h.store = s
 }
@@ -214,6 +219,16 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			_ = json.NewEncoder(w).Encode(map[string]string{"status": "duplicate"})
 			return
 		}
+	}
+
+	// Check if this is a bridge satellite uplink message (magic 0x4D53 "MS").
+	// These are sent by field bridges when internet is down, encoding position/SOS/health
+	// as compact binary for relay to the Hub via Iridium satellite.
+	if h.handleBridgeSatUplink(r.Context(), imei, rawBytes) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_ = json.NewEncoder(w).Encode(map[string]string{"status": "bridge_sat_uplink"})
+		return
 	}
 
 	// Check if this is a Reticulum packet and forward to the relay.
@@ -405,6 +420,99 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	_ = json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+}
+
+// handleBridgeSatUplink checks if the raw bytes are a bridge satellite uplink
+// message (magic 0x4D53) and processes it. Returns true if handled.
+func (h *Handler) handleBridgeSatUplink(ctx context.Context, imei string, rawBytes []byte) bool {
+	if !bridge.IsBridgeSatUplink(rawBytes) {
+		return false
+	}
+
+	msgType, payload, err := bridge.DecodeSatUplink(rawBytes)
+	if err != nil {
+		slog.Warn("rockblock: bridge sat uplink decode failed", "error", err, "imei", imei)
+		return false
+	}
+
+	switch msgType {
+	case bridge.SatMsgPosition:
+		bridgeID, lat, lon, alt, _, ts, err := bridge.DecodeSatPosition(payload)
+		if err != nil {
+			slog.Warn("rockblock: bridge sat position decode failed", "error", err, "imei", imei)
+			return true
+		}
+		slog.Info("rockblock: bridge sat uplink position",
+			"bridge_id", bridgeID, "lat", lat, "lon", lon, "alt", alt, "imei", imei)
+		pos := PositionMessage{
+			Lat:       lat,
+			Lon:       lon,
+			Alt:       float64(alt),
+			Source:    "satellite_uplink",
+			Timestamp: ts.Format(time.RFC3339),
+		}
+		h.publish(hubmqtt.TopicPosition(bridgeID), 1, true, pos)
+		// Mark bridge as online via satellite.
+		if h.store != nil {
+			tid := auth.TenantIDFromContext(ctx)
+			_ = h.store.SetBridgeOnline(ctx, tid, bridgeID, true)
+		}
+
+	case bridge.SatMsgSOS:
+		bridgeID, deviceID, lat, lon, message, ts, err := bridge.DecodeSatSOS(payload)
+		if err != nil {
+			slog.Warn("rockblock: bridge sat SOS decode failed", "error", err, "imei", imei)
+			return true
+		}
+		slog.Warn("rockblock: BRIDGE SOS via satellite",
+			"bridge_id", bridgeID, "device_id", deviceID, "lat", lat, "lon", lon, "message", message)
+		sos := map[string]interface{}{
+			"bridge_id": bridgeID,
+			"device_id": deviceID,
+			"lat":       lat,
+			"lon":       lon,
+			"message":   message,
+			"source":    "satellite_uplink",
+			"timestamp": ts.Format(time.RFC3339),
+		}
+		h.publish(hubmqtt.TopicSOS(bridgeID), 1, false, sos)
+
+	case bridge.SatMsgHealthSummary:
+		bridgeID, uptimeSec, cpuPct, memPct, diskPct, ifaces, ts, err := bridge.DecodeSatHealth(payload)
+		if err != nil {
+			slog.Warn("rockblock: bridge sat health decode failed", "error", err, "imei", imei)
+			return true
+		}
+		slog.Info("rockblock: bridge sat uplink health",
+			"bridge_id", bridgeID, "uptime", uptimeSec, "cpu", cpuPct, "mem", memPct, "disk", diskPct,
+			"interfaces", len(ifaces), "timestamp", ts)
+		if h.store != nil {
+			tid := auth.TenantIDFromContext(ctx)
+			healthJSON, _ := json.Marshal(map[string]interface{}{
+				"uptime_sec": uptimeSec,
+				"cpu_pct":    cpuPct,
+				"mem_pct":    memPct,
+				"disk_pct":   diskPct,
+				"interfaces": len(ifaces),
+				"source":     "satellite_uplink",
+				"timestamp":  ts.Format(time.RFC3339),
+			})
+			_ = h.store.SetBridgeHealth(ctx, tid, bridgeID, string(healthJSON))
+			_ = h.store.SetBridgeOnline(ctx, tid, bridgeID, true)
+		}
+
+	default:
+		slog.Warn("rockblock: unknown bridge sat uplink type", "type", msgType, "imei", imei)
+	}
+
+	// Audit: log bridge satellite uplink event.
+	if h.audit != nil {
+		tid := auth.TenantIDFromContext(ctx)
+		detail := fmt.Sprintf("imei=%s type=0x%02x bytes=%d", imei, msgType, len(rawBytes))
+		_ = h.audit.Log(ctx, tid, "bridge_sat_uplink", "webhook", detail, "")
+	}
+
+	return true
 }
 
 // verifySignature checks the HMAC-SHA256 signature if present,

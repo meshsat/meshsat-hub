@@ -315,6 +315,40 @@ var migrations = []string{
 		value TEXT NOT NULL,
 		updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 	) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
+
+	// Bridges (MESHSAT-282 — field bridge registry)
+	`CREATE TABLE IF NOT EXISTS bridges (
+		bridge_id VARCHAR(64) PRIMARY KEY,
+		tenant_id VARCHAR(64) NOT NULL DEFAULT 'default',
+		label VARCHAR(255) NOT NULL DEFAULT '',
+		hostname VARCHAR(255) NOT NULL DEFAULT '',
+		version VARCHAR(64) NOT NULL DEFAULT '',
+		mode VARCHAR(32) NOT NULL DEFAULT 'direct',
+		location_lat DOUBLE NOT NULL DEFAULT 0,
+		location_lon DOUBLE NOT NULL DEFAULT 0,
+		location_alt DOUBLE NOT NULL DEFAULT 0,
+		capabilities JSON NOT NULL,
+		reticulum_hash VARCHAR(64) NOT NULL DEFAULT '',
+		reticulum_pubkey TEXT NOT NULL,
+		cot_type VARCHAR(32) NOT NULL DEFAULT 'a-f-G-U-C-I',
+		cot_callsign VARCHAR(64) NOT NULL DEFAULT '',
+		online TINYINT(1) NOT NULL DEFAULT 0,
+		last_birth JSON NOT NULL,
+		last_health JSON NOT NULL,
+		last_seen DATETIME NULL,
+		created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+		updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+		INDEX idx_bridges_tenant (tenant_id),
+		INDEX idx_bridges_online (online)
+	) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
+
+	// MESHSAT-282: associate devices with bridges
+	"ALTER TABLE devices ADD COLUMN IF NOT EXISTS bridge_id VARCHAR(64) DEFAULT NULL",
+	// MESHSAT-291: bridge MQTT authentication
+	"ALTER TABLE bridges ADD COLUMN IF NOT EXISTS mqtt_username VARCHAR(64) NOT NULL DEFAULT ''",
+	"ALTER TABLE bridges ADD COLUMN IF NOT EXISTS mqtt_password_hash VARCHAR(255) NOT NULL DEFAULT ''",
+	"ALTER TABLE bridges ADD COLUMN IF NOT EXISTS cert_pem TEXT NOT NULL",
+	"ALTER TABLE bridges ADD COLUMN IF NOT EXISTS cert_expiry DATETIME NULL",
 }
 
 // --- Devices ---
@@ -1228,6 +1262,213 @@ func (d *DB) SetSystemConfig(ctx context.Context, key, value string) error {
 		"INSERT INTO system_config (`key`, value) VALUES (?, ?) ON DUPLICATE KEY UPDATE value=VALUES(value)",
 		key, value)
 	return err
+}
+
+// --- Bridges ---
+
+func boolToInt(b bool) int {
+	if b {
+		return 1
+	}
+	return 0
+}
+
+func (d *DB) CreateOrUpdateBridge(ctx context.Context, tenantID string, b *store.Bridge) error {
+	_, err := d.db.ExecContext(ctx,
+		`INSERT INTO bridges (bridge_id, tenant_id, label, hostname, version, mode,
+			location_lat, location_lon, location_alt, capabilities,
+			reticulum_hash, reticulum_pubkey, cot_type, cot_callsign,
+			online, last_birth, last_health, last_seen)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())
+		 ON DUPLICATE KEY UPDATE
+			tenant_id=VALUES(tenant_id), label=VALUES(label), hostname=VALUES(hostname),
+			version=VALUES(version), mode=VALUES(mode),
+			location_lat=VALUES(location_lat), location_lon=VALUES(location_lon),
+			location_alt=VALUES(location_alt), capabilities=VALUES(capabilities),
+			reticulum_hash=VALUES(reticulum_hash), reticulum_pubkey=VALUES(reticulum_pubkey),
+			cot_type=VALUES(cot_type), cot_callsign=VALUES(cot_callsign),
+			online=VALUES(online), last_birth=VALUES(last_birth), last_health=VALUES(last_health),
+			last_seen=NOW(), updated_at=NOW()`,
+		b.BridgeID, tenantID, b.Label, b.Hostname, b.Version, b.Mode,
+		b.LocationLat, b.LocationLon, b.LocationAlt, b.Capabilities,
+		b.ReticulumHash, b.ReticulumPubkey, b.CoTType, b.CoTCallsign,
+		boolToInt(b.Online), b.LastBirth, b.LastHealth)
+	return err
+}
+
+func (d *DB) GetBridge(ctx context.Context, tenantID string, bridgeID string) (*store.Bridge, error) {
+	var b store.Bridge
+	var online int
+	var lastSeen sql.NullTime
+	err := d.db.QueryRowContext(ctx,
+		`SELECT bridge_id, tenant_id, label, hostname, version, mode,
+			location_lat, location_lon, location_alt, capabilities,
+			reticulum_hash, reticulum_pubkey, cot_type, cot_callsign,
+			online, last_birth, last_health, last_seen, created_at, updated_at
+		 FROM bridges WHERE bridge_id=? AND tenant_id=?`, bridgeID, tenantID,
+	).Scan(&b.BridgeID, &b.TenantID, &b.Label, &b.Hostname, &b.Version, &b.Mode,
+		&b.LocationLat, &b.LocationLon, &b.LocationAlt, &b.Capabilities,
+		&b.ReticulumHash, &b.ReticulumPubkey, &b.CoTType, &b.CoTCallsign,
+		&online, &b.LastBirth, &b.LastHealth, &lastSeen, &b.CreatedAt, &b.UpdatedAt)
+	if err != nil {
+		return nil, err
+	}
+	b.Online = online != 0
+	if lastSeen.Valid {
+		b.LastSeen = &lastSeen.Time
+	}
+	return &b, nil
+}
+
+func (d *DB) ListBridges(ctx context.Context, tenantID string) ([]*store.Bridge, error) {
+	rows, err := d.db.QueryContext(ctx,
+		`SELECT bridge_id, tenant_id, label, hostname, version, mode,
+			location_lat, location_lon, location_alt, capabilities,
+			reticulum_hash, reticulum_pubkey, cot_type, cot_callsign,
+			online, last_birth, last_health, last_seen, created_at, updated_at
+		 FROM bridges WHERE tenant_id=? ORDER BY label, bridge_id`, tenantID)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+	var bridges []*store.Bridge
+	for rows.Next() {
+		var b store.Bridge
+		var online int
+		var lastSeen sql.NullTime
+		if err := rows.Scan(&b.BridgeID, &b.TenantID, &b.Label, &b.Hostname, &b.Version, &b.Mode,
+			&b.LocationLat, &b.LocationLon, &b.LocationAlt, &b.Capabilities,
+			&b.ReticulumHash, &b.ReticulumPubkey, &b.CoTType, &b.CoTCallsign,
+			&online, &b.LastBirth, &b.LastHealth, &lastSeen, &b.CreatedAt, &b.UpdatedAt); err != nil {
+			return nil, err
+		}
+		b.Online = online != 0
+		if lastSeen.Valid {
+			b.LastSeen = &lastSeen.Time
+		}
+		bridges = append(bridges, &b)
+	}
+	return bridges, nil
+}
+
+func (d *DB) UpdateBridge(ctx context.Context, tenantID string, bridgeID string, updates store.BridgeUpdate) error {
+	setClauses := "updated_at=NOW()"
+	args := []interface{}{}
+	if updates.Label != nil {
+		setClauses += ", label=?"
+		args = append(args, *updates.Label)
+	}
+	if updates.CoTCallsign != nil {
+		setClauses += ", cot_callsign=?"
+		args = append(args, *updates.CoTCallsign)
+	}
+	args = append(args, bridgeID, tenantID)
+	_, err := d.db.ExecContext(ctx,
+		fmt.Sprintf("UPDATE bridges SET %s WHERE bridge_id=? AND tenant_id=?", setClauses), args...)
+	return err
+}
+
+func (d *DB) DeleteBridge(ctx context.Context, tenantID string, bridgeID string) error {
+	_, _ = d.db.ExecContext(ctx,
+		"UPDATE devices SET bridge_id=NULL WHERE bridge_id=? AND tenant_id=?", bridgeID, tenantID)
+	_, err := d.db.ExecContext(ctx, "DELETE FROM bridges WHERE bridge_id=? AND tenant_id=?", bridgeID, tenantID)
+	return err
+}
+
+func (d *DB) SetBridgeOnline(ctx context.Context, tenantID string, bridgeID string, online bool) error {
+	_, err := d.db.ExecContext(ctx,
+		"UPDATE bridges SET online=?, updated_at=NOW() WHERE bridge_id=? AND tenant_id=?",
+		boolToInt(online), bridgeID, tenantID)
+	return err
+}
+
+func (d *DB) TouchBridgeLastSeen(ctx context.Context, tenantID string, bridgeID string) error {
+	_, err := d.db.ExecContext(ctx,
+		"UPDATE bridges SET last_seen=NOW() WHERE bridge_id=? AND tenant_id=?", bridgeID, tenantID)
+	return err
+}
+
+func (d *DB) SetBridgeHealth(ctx context.Context, tenantID string, bridgeID string, health string) error {
+	_, err := d.db.ExecContext(ctx,
+		"UPDATE bridges SET last_health=?, updated_at=NOW() WHERE bridge_id=? AND tenant_id=?",
+		health, bridgeID, tenantID)
+	return err
+}
+
+func (d *DB) AssociateDeviceWithBridge(ctx context.Context, tenantID string, imei string, bridgeID string) error {
+	_, err := d.db.ExecContext(ctx,
+		"UPDATE devices SET bridge_id=? WHERE imei=? AND tenant_id=?", bridgeID, imei, tenantID)
+	return err
+}
+
+func (d *DB) SetBridgeCredentials(ctx context.Context, tenantID, bridgeID, username, passwordHash string) error {
+	_, err := d.db.ExecContext(ctx,
+		`UPDATE bridges SET mqtt_username=?, mqtt_password_hash=?, updated_at=NOW()
+		 WHERE bridge_id=? AND tenant_id=?`,
+		username, passwordHash, bridgeID, tenantID)
+	return err
+}
+
+func (d *DB) GetBridgeCredentials(ctx context.Context, tenantID, bridgeID string) (*store.BridgeCredentials, error) {
+	var c store.BridgeCredentials
+	var certExpiry sql.NullTime
+	err := d.db.QueryRowContext(ctx,
+		`SELECT bridge_id, mqtt_username, mqtt_password_hash, cert_pem, cert_expiry, created_at
+		 FROM bridges WHERE bridge_id=? AND tenant_id=?`, bridgeID, tenantID,
+	).Scan(&c.BridgeID, &c.Username, &c.Password, &c.CertPEM, &certExpiry, &c.CreatedAt)
+	if err != nil {
+		return nil, err
+	}
+	if certExpiry.Valid {
+		c.CertExpiry = &certExpiry.Time
+	}
+	return &c, nil
+}
+
+func (d *DB) SetBridgeCertificate(ctx context.Context, tenantID, bridgeID, certPEM string, expiry time.Time) error {
+	_, err := d.db.ExecContext(ctx,
+		`UPDATE bridges SET cert_pem=?, cert_expiry=?, updated_at=NOW()
+		 WHERE bridge_id=? AND tenant_id=?`,
+		certPEM, expiry, bridgeID, tenantID)
+	return err
+}
+
+func (d *DB) ListBridgesWithCredentials(ctx context.Context) ([]*store.Bridge, error) {
+	rows, err := d.db.QueryContext(ctx,
+		`SELECT bridge_id, tenant_id, label, hostname, version, mode,
+			location_lat, location_lon, location_alt, capabilities,
+			reticulum_hash, reticulum_pubkey, cot_type, cot_callsign,
+			online, last_birth, last_health, last_seen,
+			mqtt_username, mqtt_password_hash, cert_pem, cert_expiry,
+			created_at, updated_at
+		 FROM bridges WHERE mqtt_username != '' ORDER BY bridge_id`)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+	var bridges []*store.Bridge
+	for rows.Next() {
+		var b store.Bridge
+		var online int
+		var lastSeen, certExpiry sql.NullTime
+		if err := rows.Scan(&b.BridgeID, &b.TenantID, &b.Label, &b.Hostname, &b.Version, &b.Mode,
+			&b.LocationLat, &b.LocationLon, &b.LocationAlt, &b.Capabilities,
+			&b.ReticulumHash, &b.ReticulumPubkey, &b.CoTType, &b.CoTCallsign,
+			&online, &b.LastBirth, &b.LastHealth, &lastSeen,
+			&b.MQTTUsername, &b.MQTTPasswordHash, &b.CertPEM, &certExpiry,
+			&b.CreatedAt, &b.UpdatedAt); err != nil {
+			return nil, err
+		}
+		b.Online = online != 0
+		if lastSeen.Valid {
+			b.LastSeen = &lastSeen.Time
+		}
+		if certExpiry.Valid {
+			b.CertExpiry = &certExpiry.Time
+		}
+		bridges = append(bridges, &b)
+	}
+	return bridges, nil
 }
 
 // Compile-time check.

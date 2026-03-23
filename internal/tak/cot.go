@@ -3,7 +3,10 @@ package tak
 import (
 	"encoding/xml"
 	"fmt"
+	"strings"
 	"time"
+
+	"github.com/cubeos-app/meshsat-hub/internal/protocol"
 )
 
 // CoT XML structs — ported from meshsat Bridge (internal/gateway/tak_cot.go).
@@ -85,6 +88,16 @@ const (
 	TypeKeepalive = "t-x-c-t"
 )
 
+// BuildPositionEventTyped creates a CoT PLI event with a specific CoT type.
+// If cotType is empty, defaults to TypePosition (a-f-G-U-C).
+func BuildPositionEventTyped(uid, callsign string, lat, lon, alt float64, staleSec int, source, cotType string) CotEvent {
+	ev := BuildPositionEvent(uid, callsign, lat, lon, alt, staleSec, source)
+	if cotType != "" {
+		ev.Type = cotType
+	}
+	return ev
+}
+
 // BuildPositionEvent creates a CoT PLI event.
 func BuildPositionEvent(uid, callsign string, lat, lon, alt float64, staleSec int, source string) CotEvent {
 	now := time.Now().UTC()
@@ -162,6 +175,208 @@ func BuildChatEvent(uid, callsign, text string, staleSec int) CotEvent {
 		Detail: &CotDetail{
 			Contact: &CotContact{Callsign: callsign},
 			Remarks: &CotRemarks{Source: callsign, Text: text},
+		},
+	}
+}
+
+// BuildBridgeEvent creates a CoT PLI event for a MeshSat bridge.
+func BuildBridgeEvent(birth protocol.BridgeBirth, staleSec int) CotEvent {
+	now := time.Now().UTC()
+
+	cotType := birth.CoTType
+	if cotType == "" {
+		cotType = protocol.CoTBridge
+	}
+
+	callsign := birth.CoTCallsign
+	if callsign == "" {
+		callsign = "BRIDGE-" + birth.BridgeID
+	}
+
+	var lat, lon, alt float64
+	if birth.Location != nil {
+		lat = birth.Location.Lat
+		lon = birth.Location.Lon
+		alt = birth.Location.Alt
+	}
+
+	ce := 10.0
+	geoSrc := "fixed"
+	if birth.Location != nil && birth.Location.Source != "" {
+		geoSrc = birth.Location.Source
+	}
+
+	// Build remarks with bridge metadata.
+	var parts []string
+	if birth.Version != "" {
+		parts = append(parts, "v"+birth.Version)
+	}
+	if birth.Hostname != "" {
+		parts = append(parts, "host="+birth.Hostname)
+	}
+	if birth.Mode != "" {
+		parts = append(parts, "mode="+birth.Mode)
+	}
+	if len(birth.Interfaces) > 0 {
+		var ifNames []string
+		for _, iface := range birth.Interfaces {
+			ifNames = append(ifNames, iface.Name+"("+iface.Status+")")
+		}
+		parts = append(parts, "if=["+strings.Join(ifNames, ",")+"]")
+	}
+	if birth.UptimeSec > 0 {
+		parts = append(parts, fmt.Sprintf("up=%ds", birth.UptimeSec))
+	}
+	remarks := strings.Join(parts, " ")
+
+	uid := fmt.Sprintf("meshsat-bridge-%s", birth.BridgeID)
+
+	return CotEvent{
+		Version: "2.0",
+		UID:     uid,
+		Type:    cotType,
+		How:     "m-g",
+		Time:    now.Format(cotTimeFormat),
+		Start:   now.Format(cotTimeFormat),
+		Stale:   now.Add(time.Duration(staleSec) * time.Second).Format(cotTimeFormat),
+		Point:   CotPoint{Lat: lat, Lon: lon, Hae: alt, Ce: ce, Le: ce},
+		Detail: &CotDetail{
+			Contact:   &CotContact{Callsign: callsign},
+			Group:     &CotGroup{Name: "Cyan", Role: "Team Member"},
+			Precision: &CotPrecision{AltSrc: geoSrc, GeoPointSrc: geoSrc},
+			Track:     &CotTrack{Course: 0, Speed: 0},
+			Remarks:   &CotRemarks{Source: "MeshSat-Hub", Text: remarks},
+		},
+	}
+}
+
+// BuildDeviceBirthEvent creates a CoT PLI event for a device under a bridge.
+func BuildDeviceBirthEvent(device protocol.DeviceBirth, staleSec int) CotEvent {
+	now := time.Now().UTC()
+
+	cotType := device.CoTType
+	if cotType == "" {
+		cotType = protocol.CoTTypeForDevice(device.Type)
+	}
+
+	callsign := device.CoTCallsign
+	if callsign == "" {
+		callsign = device.DeviceID
+	}
+
+	var lat, lon, alt float64
+	ce := 100.0 // no GPS by default
+	geoSrc := "estimated"
+	if device.Position != nil {
+		lat = device.Position.Lat
+		lon = device.Position.Lon
+		alt = device.Position.Alt
+		ce = 10.0
+		geoSrc = "GPS"
+		if device.Position.Source != "" {
+			geoSrc = device.Position.Source
+		}
+	}
+
+	// Build remarks with device metadata.
+	var parts []string
+	if device.Type != "" {
+		parts = append(parts, "type="+device.Type)
+	}
+	if device.Hardware != "" {
+		parts = append(parts, "hw="+device.Hardware)
+	}
+	if device.Firmware != "" {
+		parts = append(parts, "fw="+device.Firmware)
+	}
+	if device.BridgeID != "" {
+		parts = append(parts, "bridge="+device.BridgeID)
+	}
+	remarks := strings.Join(parts, " ")
+
+	uid := fmt.Sprintf("meshsat-device-%s", device.DeviceID)
+
+	return CotEvent{
+		Version: "2.0",
+		UID:     uid,
+		Type:    cotType,
+		How:     "m-g",
+		Time:    now.Format(cotTimeFormat),
+		Start:   now.Format(cotTimeFormat),
+		Stale:   now.Add(time.Duration(staleSec) * time.Second).Format(cotTimeFormat),
+		Point:   CotPoint{Lat: lat, Lon: lon, Hae: alt, Ce: ce, Le: ce},
+		Detail: &CotDetail{
+			Contact:   &CotContact{Callsign: callsign},
+			Group:     &CotGroup{Name: "Cyan", Role: "Team Member"},
+			Precision: &CotPrecision{AltSrc: geoSrc, GeoPointSrc: geoSrc},
+			Track:     &CotTrack{Course: 0, Speed: 0},
+			Remarks:   &CotRemarks{Source: "MeshSat-Hub", Text: remarks},
+		},
+	}
+}
+
+// BuildBridgeHealthEvent creates a CoT PLI event from a bridge health update.
+// This refreshes the bridge's position on the TAK map. If the birth certificate
+// is cached, its location/callsign/CoT type are used; otherwise defaults apply.
+func BuildBridgeHealthEvent(health protocol.BridgeHealth, bridgeBirth *protocol.BridgeBirth, staleSec int) CotEvent {
+	now := time.Now().UTC()
+
+	cotType := protocol.CoTBridge
+	callsign := "BRIDGE-" + health.BridgeID
+	var lat, lon, alt float64
+	geoSrc := "fixed"
+
+	if bridgeBirth != nil {
+		if bridgeBirth.CoTType != "" {
+			cotType = bridgeBirth.CoTType
+		}
+		if bridgeBirth.CoTCallsign != "" {
+			callsign = bridgeBirth.CoTCallsign
+		}
+		if bridgeBirth.Location != nil {
+			lat = bridgeBirth.Location.Lat
+			lon = bridgeBirth.Location.Lon
+			alt = bridgeBirth.Location.Alt
+			if bridgeBirth.Location.Source != "" {
+				geoSrc = bridgeBirth.Location.Source
+			}
+		}
+	}
+
+	// Build remarks with health metrics.
+	var parts []string
+	parts = append(parts, fmt.Sprintf("cpu=%.0f%%", health.CPUPct))
+	parts = append(parts, fmt.Sprintf("mem=%.0f%%", health.MemPct))
+	parts = append(parts, fmt.Sprintf("disk=%.0f%%", health.DiskPct))
+	if len(health.Interfaces) > 0 {
+		var ifParts []string
+		for _, iface := range health.Interfaces {
+			ifParts = append(ifParts, iface.Name+"("+iface.Status+")")
+		}
+		parts = append(parts, "if=["+strings.Join(ifParts, ",")+"]")
+	}
+	if health.UptimeSec > 0 {
+		parts = append(parts, fmt.Sprintf("up=%ds", health.UptimeSec))
+	}
+	remarks := strings.Join(parts, " ")
+
+	uid := fmt.Sprintf("meshsat-bridge-%s", health.BridgeID)
+
+	return CotEvent{
+		Version: "2.0",
+		UID:     uid,
+		Type:    cotType,
+		How:     "m-g",
+		Time:    now.Format(cotTimeFormat),
+		Start:   now.Format(cotTimeFormat),
+		Stale:   now.Add(time.Duration(staleSec) * time.Second).Format(cotTimeFormat),
+		Point:   CotPoint{Lat: lat, Lon: lon, Hae: alt, Ce: 10, Le: 10},
+		Detail: &CotDetail{
+			Contact:   &CotContact{Callsign: callsign},
+			Group:     &CotGroup{Name: "Cyan", Role: "Team Member"},
+			Precision: &CotPrecision{AltSrc: geoSrc, GeoPointSrc: geoSrc},
+			Track:     &CotTrack{Course: 0, Speed: 0},
+			Remarks:   &CotRemarks{Source: "MeshSat-Hub", Text: remarks},
 		},
 	}
 }

@@ -22,6 +22,7 @@ import (
 	"github.com/cubeos-app/meshsat-hub/internal/audit"
 	hubauth "github.com/cubeos-app/meshsat-hub/internal/auth"
 	"github.com/cubeos-app/meshsat-hub/internal/backup"
+	"github.com/cubeos-app/meshsat-hub/internal/bridge"
 	"github.com/cubeos-app/meshsat-hub/internal/bus"
 	"github.com/cubeos-app/meshsat-hub/internal/bus/paho"
 	"github.com/cubeos-app/meshsat-hub/internal/cloudloop"
@@ -337,6 +338,68 @@ func main() {
 		msgSub := hubmessage.NewSubscriber(msgBus, dataStore, store.DefaultTenantID)
 		if err := msgSub.Start(); err != nil {
 			slog.Error("message: failed to start subscriber", "error", err)
+		}
+	}
+
+	// Bridge lifecycle subscriber: auto-provisions bridges and devices from MQTT birth/death/health.
+	var bridgeCommander *bridge.Commander
+	if msgBus.IsConnected() {
+		bridgeSub := bridge.NewSubscriber(msgBus, dataStore, store.DefaultTenantID)
+		if err := bridgeSub.Start(); err != nil {
+			slog.Error("bridge: failed to start subscriber", "error", err)
+		}
+		defer bridgeSub.Stop()
+
+		// Bridge commander: sends commands to bridges and correlates responses.
+		bridgeCommander = bridge.NewCommander(msgBus, dataStore)
+		if err := bridgeCommander.Start(); err != nil {
+			slog.Error("bridge: failed to start commander", "error", err)
+		}
+		defer bridgeCommander.Stop()
+	}
+
+	// Bridge certificate authority for MQTT TLS client certs.
+	var bridgeCA *bridge.CertAuthority
+	caCertPath := os.Getenv("MESHSAT_BRIDGE_CA_CERT")
+	caKeyPath := os.Getenv("MESHSAT_BRIDGE_CA_KEY")
+	if caCertPath != "" && caKeyPath != "" {
+		certPEM, err := os.ReadFile(caCertPath)
+		if err != nil {
+			slog.Error("bridge-ca: failed to read CA cert", "path", caCertPath, "error", err)
+		} else {
+			keyPEM, err := os.ReadFile(caKeyPath)
+			if err != nil {
+				slog.Error("bridge-ca: failed to read CA key", "path", caKeyPath, "error", err)
+			} else {
+				bridgeCA, err = bridge.NewCertAuthority(certPEM, keyPEM)
+				if err != nil {
+					slog.Error("bridge-ca: failed to load CA", "error", err)
+				} else {
+					slog.Info("bridge-ca: loaded certificate authority", "cert", caCertPath)
+				}
+			}
+		}
+	} else {
+		// Auto-generate self-signed CA and persist via system config.
+		caCertVal, _ := dataStore.GetSystemConfig(ctx, "bridge_ca_cert")
+		caKeyVal, _ := dataStore.GetSystemConfig(ctx, "bridge_ca_key")
+		if caCertVal != "" && caKeyVal != "" {
+			bridgeCA, err = bridge.NewCertAuthority([]byte(caCertVal), []byte(caKeyVal))
+			if err != nil {
+				slog.Error("bridge-ca: failed to load stored CA", "error", err)
+			} else {
+				slog.Info("bridge-ca: loaded CA from system config")
+			}
+		} else {
+			var certPEM, keyPEM []byte
+			bridgeCA, certPEM, keyPEM, err = bridge.NewSelfSignedCA("MeshSat Hub")
+			if err != nil {
+				slog.Error("bridge-ca: failed to generate self-signed CA", "error", err)
+			} else {
+				_ = dataStore.SetSystemConfig(ctx, "bridge_ca_cert", string(certPEM))
+				_ = dataStore.SetSystemConfig(ctx, "bridge_ca_key", string(keyPEM))
+				slog.Info("bridge-ca: generated and stored self-signed CA")
+			}
 		}
 	}
 
@@ -840,6 +903,23 @@ func main() {
 		r.Get("/", apiKeyHandler.ListKeys)
 		r.Delete("/{id}", apiKeyHandler.DeleteKey)
 	})
+
+	// Bridge registry API
+	bridgeHandler := api.NewBridgeHandler(dataStore)
+	r.Get("/api/bridges", bridgeHandler.ListBridges)
+	r.Get("/api/bridges/{id}", bridgeHandler.GetBridge)
+	r.Put("/api/bridges/{id}", bridgeHandler.UpdateBridge)
+	r.Delete("/api/bridges/{id}", bridgeHandler.DeleteBridge)
+	if bridgeCommander != nil {
+		bridgeCmdHandler := api.NewBridgeCommandHandler(dataStore, bridgeCommander)
+		r.Post("/api/bridges/{id}/command", bridgeCmdHandler.SendCommand)
+	}
+
+	// Bridge MQTT authentication API
+	bridgeAuthHandler := api.NewBridgeAuthHandler(dataStore, bridgeCA)
+	r.Post("/api/bridges/{id}/credentials", bridgeAuthHandler.GenerateCredentials)
+	r.Post("/api/bridges/{id}/certificate", bridgeAuthHandler.IssueCertificate)
+	r.Post("/api/bridges/acl/regenerate", bridgeAuthHandler.RegenerateACL)
 
 	// Device registry API
 	deviceHandler := api.NewDeviceHandler(dataStore)
