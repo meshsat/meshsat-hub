@@ -202,7 +202,14 @@ func (h *WebhookHandler) ProcessLingoMO(ctx context.Context, mo *LingoMO) string
 func (h *WebhookHandler) processLingoMO(ctx context.Context, mo *LingoMO, remoteAddr string) string {
 	imei := mo.ExtractIMEI()
 	if imei == "" {
-		slog.Warn("cloudloop: no IMEI in LingoMO", "id", mo.ID)
+		// Log the full LingoMO for debugging (test messages may lack IMEI)
+		slog.Warn("cloudloop: no IMEI in LingoMO", "id", mo.ID,
+			"has_identity_hw", mo.Identity.Hardware != nil,
+			"has_sbd", mo.SBD != nil,
+			"has_imt", mo.IMT != nil,
+			"has_cellular", mo.Cellular != nil,
+			"thing_id", mo.Identity.ThingID,
+			"account_id", mo.Identity.AccountID)
 		return "error_no_imei"
 	}
 
