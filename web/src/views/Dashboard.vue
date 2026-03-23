@@ -1,6 +1,6 @@
 <script setup>
 import { ref, computed, onMounted, onUnmounted } from 'vue'
-import { devices, health, credits, ratelimit, messages, escalation, deadman, constellations, reticulum as reticulumApi } from '../api/client'
+import { devices, health, credits, ratelimit, messages, escalation, deadman, constellations, reticulum as reticulumApi, bridges } from '../api/client'
 import { formatUTC } from '../utils/time'
 import { exportCSV } from '../utils/csv'
 import Sparkline from '../components/Sparkline.vue'
@@ -24,6 +24,7 @@ const deadmanList = ref([])
 const backendList = ref([])
 const retIdentity = ref(null)
 const retRoutes = ref({ count: 0 })
+const bridgeList = ref([])
 
 onMounted(async () => {
   await loadAll()
@@ -46,6 +47,7 @@ async function loadAll() {
     constellations.list(),
     reticulumApi.identity(),
     reticulumApi.routes(),
+    bridges.list(),
   ])
 
   hubHealth.value = results[0].status === 'fulfilled' ? results[0].value : { status: 'error' }
@@ -59,6 +61,7 @@ async function loadAll() {
   backendList.value = consResult.backends || []
   retIdentity.value = results[8].status === 'fulfilled' ? results[8].value : null
   retRoutes.value = results[9].status === 'fulfilled' ? results[9].value : { count: 0 }
+  bridgeList.value = results[10].status === 'fulfilled' && Array.isArray(results[10].value) ? results[10].value : []
 
   lastRefresh.value = new Date()
   loading.value = false
@@ -77,6 +80,15 @@ const idleDevices = computed(() => deviceList.value.filter(d => {
 }).length)
 
 const offlineDevices = computed(() => deviceList.value.length - onlineDevices.value - idleDevices.value)
+
+const onlineBridges = computed(() => bridgeList.value.filter(b => b.online).length)
+
+function parsedBirthInterfaces(bridge) {
+  try {
+    const birth = typeof bridge.last_birth === 'string' ? JSON.parse(bridge.last_birth) : bridge.last_birth
+    return birth?.interfaces || null
+  } catch { return null }
+}
 
 const moCount = computed(() => messageList.value.filter(m => m.direction === 'mo').length)
 const mtCount = computed(() => messageList.value.filter(m => m.direction === 'mt').length)
@@ -245,6 +257,17 @@ function directionColor(d) {
           <div class="text-xl font-bold" :class="hubHealth?.status === 'ok' ? 'text-emerald-400' : 'text-red-400'">
             {{ hubHealth?.status === 'ok' ? 'OK' : (hubHealth?.status?.toUpperCase() || '?') }}
           </div>
+        </div>
+
+        <!-- Bridges Online -->
+        <div class="bg-tactical-surface rounded-lg p-4 border border-tactical-border">
+          <div class="text-gray-400 text-xs uppercase tracking-wider mb-1">Bridges</div>
+          <div class="flex items-baseline gap-1">
+            <span class="text-xl font-bold" :class="onlineBridges > 0 ? 'text-emerald-400' : 'text-gray-600'">{{ onlineBridges }}</span>
+            <span class="text-gray-500 text-xs">/</span>
+            <span class="text-sm text-gray-400">{{ bridgeList.length }}</span>
+          </div>
+          <div class="text-gray-500 text-[10px] mt-0.5">online / total</div>
         </div>
 
         <!-- Devices Online/Idle/Offline -->
@@ -422,9 +445,29 @@ function directionColor(d) {
           <div class="px-4 py-3 border-b border-tactical-border">
             <h2 class="text-sm font-display font-semibold text-gray-200 uppercase tracking-wider">Device Fleet</h2>
           </div>
-          <EmptyState v-if="deviceList.length === 0" icon="device" title="No devices registered"
-            message="Register your first device to start tracking satellite communications." />
-          <div v-else class="divide-y divide-tactical-border/50 max-h-80 overflow-y-auto">
+
+          <!-- Bridges section -->
+          <div v-if="bridgeList.length > 0" class="divide-y divide-tactical-border/50">
+            <div v-for="b in bridgeList" :key="b.bridge_id" class="px-4 py-2.5">
+              <div class="flex items-center gap-3 text-sm">
+                <span class="w-2 h-2 rounded-full shrink-0" :class="b.online ? 'bg-emerald-400' : 'bg-red-400'"></span>
+                <span class="font-mono text-xs text-cyan-400 shrink-0">{{ b.bridge_id }}</span>
+                <span class="text-gray-400 text-[10px] uppercase px-1.5 py-0.5 bg-gray-800 rounded">bridge</span>
+                <span class="text-gray-300 truncate flex-1">{{ b.cot_callsign || b.hostname }}</span>
+                <span class="text-gray-500 text-xs shrink-0">{{ timeSince(b.last_seen) }}</span>
+              </div>
+              <div v-if="parsedBirthInterfaces(b)" class="flex flex-wrap gap-1.5 mt-1.5 ml-5">
+                <span v-for="iface in parsedBirthInterfaces(b)" :key="iface.name"
+                  class="text-[10px] px-1.5 py-0.5 rounded font-mono"
+                  :class="iface.status === 'online' ? 'bg-emerald-900/30 text-emerald-400 border border-emerald-800/50' : 'bg-gray-800 text-gray-500 border border-gray-700'">
+                  {{ iface.name }}
+                </span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Traditional devices -->
+          <div v-if="deviceList.length > 0" class="divide-y divide-tactical-border/50 max-h-80 overflow-y-auto">
             <div v-for="dev in deviceList" :key="dev.imei" class="px-4 py-2.5 flex items-center gap-3 text-sm">
               <span class="w-2 h-2 rounded-full shrink-0" :class="{
                 'bg-emerald-400': dev.last_seen && (Date.now() - new Date(dev.last_seen).getTime()) < 3600000,
@@ -436,6 +479,10 @@ function directionColor(d) {
               <span class="text-gray-500 text-xs shrink-0">{{ timeSince(dev.last_seen) }}</span>
             </div>
           </div>
+
+          <!-- Empty state only if NO bridges AND no devices -->
+          <EmptyState v-if="deviceList.length === 0 && bridgeList.length === 0" icon="device" title="No devices registered"
+            message="Register your first device or connect a bridge to start tracking." />
         </div>
       </div>
 
