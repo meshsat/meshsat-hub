@@ -475,11 +475,20 @@ func main() {
 	// Reticulum relay — forwards packets between interfaces.
 	reticulumRelay := reticulum.NewRelay(reticulumRouter, reticulum.DefaultRelayConfig())
 
-	// Reticulum packet handler — processes announces and forwards data packets.
+	// Reticulum path handler — responds to path requests from bridges.
+	reticulumPathHandler := reticulum.NewPathHandler(
+		reticulumRouter, reticulumRelay, reticulum.DefaultPathHandlerConfig(),
+	)
+
+	// Reticulum packet handler — processes announces, path requests, and forwards data packets.
 	reticulumPacketHandler := func(iface reticulum.InterfaceType, raw []byte) {
 		// Try to parse as announce to update routing table.
 		if ann, err := reticulum.UnmarshalAnnouncePacket(raw); err == nil {
 			reticulumRouter.ProcessAnnounce(ann, iface)
+			return
+		}
+		// Check if this is a path request — Hub responds with routing info.
+		if reticulumPathHandler.HandlePacket(ctx, iface, raw) {
 			return
 		}
 		// Otherwise, attempt to relay the packet.
@@ -584,9 +593,17 @@ func main() {
 				return
 			case <-ticker.C:
 				reticulumRouter.ExpireStale()
+				reticulumPathHandler.PruneStale()
 			}
 		}
 	}()
+
+	// Reticulum route hint publisher — broadcasts routing table to bridges via MQTT.
+	reticulumHintPublisher := reticulum.NewRouteHintPublisher(
+		reticulumRouter, mqttBridge, hubIdentity,
+		reticulum.DefaultRouteHintPublisherConfig(),
+	)
+	go reticulumHintPublisher.Run(ctx)
 
 	// MSVQ-SC decoder (for Android-compressed messages).
 	var msvqscDecoder *hubmsvqsc.Decoder
@@ -969,7 +986,7 @@ func main() {
 		}
 	}
 
-	// Reticulum identity, routes, and relay API
+	// Reticulum identity, routes, relay, and topology API
 	if hubIdentity != nil {
 		retIdentityHandler := api.NewReticulumIdentityHandler(hubIdentity)
 		r.Get("/api/reticulum/identity", retIdentityHandler.GetIdentity)
@@ -977,6 +994,11 @@ func main() {
 		r.Get("/api/reticulum/routes", retRoutesHandler.ListRoutes)
 		retRelayHandler := api.NewReticulumRelayHandler(reticulumRelay)
 		r.Get("/api/reticulum/relay", retRelayHandler.GetStatus)
+		retTopologyHandler := api.NewReticulumTopologyHandler(
+			hubIdentity, reticulumRouter, reticulumRelay,
+			reticulumPathHandler, reticulumHintPublisher,
+		)
+		r.Get("/api/reticulum/topology", retTopologyHandler.GetTopology)
 	}
 
 	// Tor .onion address discovery
