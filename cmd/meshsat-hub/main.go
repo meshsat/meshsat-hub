@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/cubeos-app/meshsat-hub/cmd/meshsat-hub/web"
+	"github.com/cubeos-app/meshsat-hub/internal/alerting"
 	"github.com/cubeos-app/meshsat-hub/internal/api"
 	"github.com/cubeos-app/meshsat-hub/internal/apprise"
 	"github.com/cubeos-app/meshsat-hub/internal/aprsis"
@@ -91,6 +92,21 @@ func (a *costRecorderAdapter) InsertCostEntry(ctx context.Context, tenantID stri
 		tenantID = store.DefaultTenantID
 	}
 	return a.store.InsertCostEntry(ctx, tenantID, sc)
+}
+
+// escalationAdapter adapts escalation.Engine to alerting.EscalationTrigger.
+type escalationAdapter struct {
+	engine *escalation.Engine
+}
+
+func (a *escalationAdapter) Trigger(ctx context.Context, tenantID, chainID, deviceIMEI, alertType, detail string) error {
+	alert := &store.Alert{
+		ChainID:    chainID,
+		DeviceIMEI: deviceIMEI,
+		Type:       alertType,
+		Detail:     detail,
+	}
+	return a.engine.Trigger(ctx, tenantID, alert)
 }
 
 // @title        MeshSat Hub API
@@ -480,6 +496,10 @@ func main() {
 	}
 	escEngine := escalation.New(dataStore, escNotifier)
 	go escEngine.Start(ctx)
+
+	// Alert rules evaluator (configurable alerting engine, MESHSAT-313).
+	alertEval := alerting.New(dataStore, &escalationAdapter{engine: escEngine}, 60*time.Second)
+	go alertEval.Start(ctx)
 
 	// Dead man's switch monitor (triggers escalation on missed device check-ins).
 	deadmanMonitor := deadman.NewMonitor(dataStore, escEngine)
@@ -1122,6 +1142,14 @@ func main() {
 	r.Post("/api/alerts", escHandler.TriggerAlert)
 	r.Get("/api/alerts/{id}", escHandler.GetAlert)
 	r.Post("/api/alerts/{id}/ack", escHandler.AcknowledgeAlert)
+
+	// Alert rules (configurable alerting engine, MESHSAT-313)
+	alertRuleHandler := api.NewAlertRuleHandler(dataStore)
+	r.Get("/api/alert-rules", alertRuleHandler.ListAlertRules)
+	r.Post("/api/alert-rules", alertRuleHandler.CreateAlertRule)
+	r.Get("/api/alert-rules/{id}", alertRuleHandler.GetAlertRule)
+	r.Put("/api/alert-rules/{id}", alertRuleHandler.UpdateAlertRule)
+	r.Delete("/api/alert-rules/{id}", alertRuleHandler.DeleteAlertRule)
 
 	// Dead man's switch API
 	deadmanHandler := api.NewDeadmanHandler(deadmanMonitor)
