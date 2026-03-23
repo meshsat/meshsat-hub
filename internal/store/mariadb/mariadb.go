@@ -1293,10 +1293,18 @@ func (d *DB) CreateOrUpdateBridge(ctx context.Context, tenantID string, b *store
 			online=VALUES(online), last_birth=VALUES(last_birth), last_health=VALUES(last_health),
 			last_seen=NOW(), updated_at=NOW()`,
 		b.BridgeID, tenantID, b.Label, b.Hostname, b.Version, b.Mode,
-		b.LocationLat, b.LocationLon, b.LocationAlt, b.Capabilities,
+		b.LocationLat, b.LocationLon, b.LocationAlt, defaultJSON(b.Capabilities, "[]"),
 		b.ReticulumHash, b.ReticulumPubkey, b.CoTType, b.CoTCallsign,
-		boolToInt(b.Online), b.LastBirth, b.LastHealth)
+		boolToInt(b.Online), defaultJSON(b.LastBirth, "{}"), defaultJSON(b.LastHealth, "{}"))
 	return err
+}
+
+// defaultJSON returns fallback if s is empty (MariaDB JSON columns reject empty strings).
+func defaultJSON(s, fallback string) string {
+	if s == "" {
+		return fallback
+	}
+	return s
 }
 
 func (d *DB) GetBridge(ctx context.Context, tenantID string, bridgeID string) (*store.Bridge, error) {
