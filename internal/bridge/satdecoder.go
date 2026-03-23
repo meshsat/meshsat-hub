@@ -25,7 +25,10 @@ const (
 	SatMsgHealthSummary byte = 0x03
 
 	satUplinkVersion byte = 1
-	satHeaderLen          = 4 // magic(2) + version(1) + type(1)
+)
+
+const (
+	satHeaderLen = 4 // magic(2) + version(1) + type(1)
 )
 
 // SatIfaceStatus represents the status of a single interface in a health summary.
