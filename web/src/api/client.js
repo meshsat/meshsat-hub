@@ -222,6 +222,17 @@ export const bridges = {
   get: (id) => fetchJSON(`/bridges/${id}`),
 }
 
+export const deviceGroups = {
+  list: () => fetchJSON('/device-groups'),
+  get: (id) => fetchJSON(`/device-groups/${id}`),
+  create: (data) => fetchJSON('/device-groups', { method: 'POST', body: JSON.stringify(data) }),
+  update: (id, data) => fetchJSON(`/device-groups/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+  delete: (id) => fetchJSON(`/device-groups/${id}`, { method: 'DELETE' }),
+  listDevices: (id) => fetchJSON(`/device-groups/${id}/devices`),
+  addMember: (id, imei) => fetchJSON(`/device-groups/${id}/members`, { method: 'POST', body: JSON.stringify({ imei }) }),
+  removeMember: (id, imei) => fetchJSON(`/device-groups/${id}/members/${imei}`, { method: 'DELETE' }),
+}
+
 export const integrations = {
   list: () => fetchJSON('/integrations'),
 }

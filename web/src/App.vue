@@ -69,6 +69,7 @@ const navGroups = [
     { to: '/fleet', label: 'Fleet' },
     { to: '/map', label: 'Map' },
     { to: '/devices', label: 'Devices' },
+    { to: '/device-groups', label: 'Groups' },
     { to: '/messages', label: 'Messages' },
   ]},
   { label: 'Safety', items: [
