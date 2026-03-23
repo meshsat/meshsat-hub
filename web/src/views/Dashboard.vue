@@ -243,7 +243,7 @@ function directionColor(d) {
         <div class="bg-tactical-surface rounded-lg p-4 border border-tactical-border">
           <div class="text-gray-400 text-xs uppercase tracking-wider mb-1">Hub</div>
           <div class="text-xl font-bold" :class="hubHealth?.status === 'ok' ? 'text-emerald-400' : 'text-red-400'">
-            {{ hubHealth?.status || '?' }}
+            {{ hubHealth?.status === 'ok' ? 'OK' : (hubHealth?.status?.toUpperCase() || '?') }}
           </div>
         </div>
 
