@@ -780,6 +780,7 @@ func main() {
 	r.Use(middleware.Recoverer)
 	r.Use(middleware.RealIP)
 	r.Use(api.SecurityHeaders)
+	r.Use(api.WSTokenFromQuery) // Copy ?token= query param to Authorization header for WebSocket clients.
 
 	// Bounded worker for async API key last_used updates (avoids unbounded goroutines).
 	touchCh := make(chan string, 64)
