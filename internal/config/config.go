@@ -116,6 +116,14 @@ type Config struct {
 	ReticulumIdentityFile string `yaml:"reticulum_identity_file"` // Path to persist Hub's Reticulum identity keypair (default: data/reticulum_identity.json)
 	ReticulumAppName      string `yaml:"reticulum_app_name"`      // Reticulum destination app name (default: meshsat.hub)
 
+	// Cloudloop MO webhook + MQTT subscriber
+	CloudloopWebhookAllowedIPs string `yaml:"cloudloop_webhook_allowed_ips"` // comma-separated IP allowlist (default: Cloudloop IPs)
+	CloudloopMQTTBroker        string `yaml:"cloudloop_mqtt_broker"`         // MQTT broker URL (e.g., ssl://mqtt.cloudloop.com:8883)
+	CloudloopMQTTCACert        string `yaml:"cloudloop_mqtt_ca_cert"`        // Path to CA cert PEM
+	CloudloopMQTTCert          string `yaml:"cloudloop_mqtt_cert"`           // Path to client cert PEM
+	CloudloopMQTTKey           string `yaml:"cloudloop_mqtt_key"`            // Path to client key PEM
+	CloudloopAccountID         string `yaml:"cloudloop_account_id"`          // Cloudloop account ID for MQTT topic
+
 	// WireGuard (wg-easy)
 	WGEnabled  bool   `yaml:"wg_enabled"`
 	WGURL      string `yaml:"wg_url"`      // wg-easy base URL (e.g., http://wg-easy:51821)
@@ -407,6 +415,26 @@ func Load() (Config, error) {
 	}
 	if v := os.Getenv("HUB_RETICULUM_APP_NAME"); v != "" {
 		cfg.ReticulumAppName = v
+	}
+
+	// Cloudloop MO webhook/MQTT overrides
+	if v := os.Getenv("HUB_CLOUDLOOP_WEBHOOK_ALLOWED_IPS"); v != "" {
+		cfg.CloudloopWebhookAllowedIPs = v
+	}
+	if v := os.Getenv("HUB_CLOUDLOOP_MQTT_BROKER"); v != "" {
+		cfg.CloudloopMQTTBroker = v
+	}
+	if v := os.Getenv("HUB_CLOUDLOOP_MQTT_CA_CERT"); v != "" {
+		cfg.CloudloopMQTTCACert = v
+	}
+	if v := os.Getenv("HUB_CLOUDLOOP_MQTT_CERT"); v != "" {
+		cfg.CloudloopMQTTCert = v
+	}
+	if v := os.Getenv("HUB_CLOUDLOOP_MQTT_KEY"); v != "" {
+		cfg.CloudloopMQTTKey = v
+	}
+	if v := os.Getenv("HUB_CLOUDLOOP_ACCOUNT_ID"); v != "" {
+		cfg.CloudloopAccountID = v
 	}
 
 	// WireGuard overrides

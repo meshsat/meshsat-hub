@@ -721,15 +721,50 @@ func main() {
 	gsHandler.SetDeadman(deadmanMonitor)
 	gsHandler.SetMSVQSC(msvqscDecoder)
 
+	// Cloudloop LingoMO webhook handler.
+	clHandler := cloudloop.NewWebhookHandler(msgBus)
+	clHandler.SetAudit(auditSvc)
+	clHandler.SetDedup(dedupTracker)
+	clHandler.SetReassembler(reassembler)
+	clHandler.SetKeyStore(keyStore)
+	clHandler.SetDeadman(deadmanMonitor)
+	clHandler.SetMSVQSC(msvqscDecoder)
+	clHandler.SetStore(dataStore)
+	if cfg.CloudloopWebhookAllowedIPs != "" {
+		clHandler.SetAllowedIPs(strings.Split(cfg.CloudloopWebhookAllowedIPs, ","))
+	}
+
 	// Wire Reticulum interfaces to webhook handlers for inbound packet detection.
 	if retIridiumIface != nil {
 		rbHandler.SetReticulumIface(retIridiumIface)
+		clHandler.SetReticulumIface(retIridiumIface)
 	}
 	if retAstrocastIface != nil {
 		acHandler.SetReticulumIface(retAstrocastIface)
 	}
 	if retGlobalstarIface != nil {
 		gsHandler.SetReticulumIface(retGlobalstarIface)
+	}
+
+	// Cloudloop MQTT subscriber (receives LingoMO messages from Cloudloop's MQTT broker).
+	if cfg.CloudloopAccountID != "" && cfg.CloudloopMQTTBroker != "" {
+		clMQTTCfg := cloudloop.MQTTSubscriberConfig{
+			BrokerURL:  cfg.CloudloopMQTTBroker,
+			CACertFile: cfg.CloudloopMQTTCACert,
+			CertFile:   cfg.CloudloopMQTTCert,
+			KeyFile:    cfg.CloudloopMQTTKey,
+			AccountID:  cfg.CloudloopAccountID,
+		}
+		clMQTTSub := cloudloop.NewMQTTSubscriber(clMQTTCfg, clHandler.ProcessLingoMO)
+		if err := clMQTTSub.Start(context.Background()); err != nil {
+			slog.Error("cloudloop mqtt: failed to start subscriber", "error", err)
+		} else {
+			slog.Info("cloudloop mqtt: subscriber started",
+				"broker", cfg.CloudloopMQTTBroker,
+				"account", cfg.CloudloopAccountID,
+			)
+			defer clMQTTSub.Stop()
+		}
 	}
 
 	r := chi.NewRouter()
@@ -821,6 +856,7 @@ func main() {
 
 	r.Post("/api/webhook/astrocast", acHandler.ServeHTTP)
 	r.Post("/api/webhook/globalstar", gsHandler.ServeHTTP)
+	r.Post("/api/webhook/cloudloop", clHandler.ServeHTTP)
 
 	// SMS gateway (optional — inbound webhook + outbound subscriber + send API)
 	var smsClientForSend *sms.Client
