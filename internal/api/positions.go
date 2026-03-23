@@ -1,6 +1,7 @@
 package api
 
 import (
+	"fmt"
 	"net/http"
 	"strconv"
 	"time"
@@ -103,6 +104,22 @@ func (h *PositionHandler) ListPositions(w http.ResponseWriter, r *http.Request) 
 	// Apply Douglas-Peucker track simplification if requested.
 	if epsilon > 0 && len(positions) > 2 {
 		positions = simplifyTrack(positions, epsilon)
+	}
+
+	if r.URL.Query().Get("format") == "csv" {
+		rows := make([][]string, len(positions))
+		for i, p := range positions {
+			rows[i] = []string{
+				p.CreatedAt.Format(time.RFC3339),
+				p.DeviceIMEI,
+				fmt.Sprintf("%f", p.Lat),
+				fmt.Sprintf("%f", p.Lon),
+				fmt.Sprintf("%f", p.Alt),
+				p.Source,
+			}
+		}
+		writeCSV(w, "positions.csv", []string{"timestamp", "device", "latitude", "longitude", "altitude", "source"}, rows)
+		return
 	}
 
 	writeJSON(w, http.StatusOK, paginatedPositions{

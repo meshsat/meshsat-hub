@@ -3,6 +3,7 @@ package api
 import (
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/cubeos-app/meshsat-hub/internal/auth"
 	"github.com/cubeos-app/meshsat-hub/internal/store"
@@ -46,6 +47,23 @@ func (h *MessageHandler) ListMessages(w http.ResponseWriter, r *http.Request) {
 	if msgs == nil {
 		msgs = []store.Message{}
 	}
+
+	if r.URL.Query().Get("format") == "csv" {
+		rows := make([][]string, len(msgs))
+		for i, m := range msgs {
+			rows[i] = []string{
+				m.CreatedAt.Format(time.RFC3339),
+				m.DeviceIMEI,
+				m.Direction,
+				m.Channel,
+				m.Text,
+				m.Status,
+			}
+		}
+		writeCSV(w, "messages.csv", []string{"timestamp", "device", "direction", "channel", "text", "status"}, rows)
+		return
+	}
+
 	writeJSON(w, http.StatusOK, msgs)
 }
 

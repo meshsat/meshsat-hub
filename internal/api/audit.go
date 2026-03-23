@@ -4,6 +4,7 @@ import (
 	"log/slog"
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/cubeos-app/meshsat-hub/internal/audit"
 	"github.com/cubeos-app/meshsat-hub/internal/auth"
@@ -46,6 +47,21 @@ func (h *AuditHandler) ListEntries(w http.ResponseWriter, r *http.Request) {
 	if entries == nil {
 		entries = []store.AuditEntry{}
 	}
+
+	if r.URL.Query().Get("format") == "csv" {
+		rows := make([][]string, len(entries))
+		for i, e := range entries {
+			rows[i] = []string{
+				e.CreatedAt.Format(time.RFC3339),
+				e.Action,
+				e.Actor,
+				e.Detail,
+			}
+		}
+		writeCSV(w, "audit.csv", []string{"timestamp", "action", "actor", "detail"}, rows)
+		return
+	}
+
 	writeJSON(w, http.StatusOK, entries)
 }
 
