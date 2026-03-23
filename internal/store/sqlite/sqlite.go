@@ -326,6 +326,10 @@ var postAlterMigrations = []string{
 	)`,
 	`CREATE INDEX IF NOT EXISTS idx_bridges_tenant ON bridges(tenant_id)`,
 	`CREATE INDEX IF NOT EXISTS idx_bridges_online ON bridges(online)`,
+	// MESHSAT-310: cost tracking ledger
+	`CREATE TABLE IF NOT EXISTS cost_ledger (id TEXT PRIMARY KEY, device_imei TEXT NOT NULL DEFAULT '', interface_type TEXT NOT NULL DEFAULT '', direction TEXT NOT NULL DEFAULT 'mt', cost_usd REAL NOT NULL DEFAULT 0, message_id TEXT NOT NULL DEFAULT '', detail TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL DEFAULT (datetime('now')), tenant_id TEXT NOT NULL DEFAULT 'default')`,
+	`CREATE INDEX IF NOT EXISTS idx_cost_ledger_tenant ON cost_ledger(tenant_id, created_at DESC)`,
+	`CREATE INDEX IF NOT EXISTS idx_cost_ledger_device ON cost_ledger(device_imei, tenant_id)`,
 }
 
 // lateAlterMigrations alter tables created in postAlterMigrations.
@@ -1402,6 +1406,90 @@ func (d *DB) SetSystemConfig(ctx context.Context, key, value string) error {
 		"INSERT INTO system_config (key, value, updated_at) VALUES (?, ?, datetime('now')) ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at",
 		key, value)
 	return err
+}
+
+// --- Cost ledger ---
+
+func (d *DB) InsertCostEntry(ctx context.Context, tenantID string, c *store.CostEntry) error {
+	_, err := d.db.ExecContext(ctx,
+		"INSERT INTO cost_ledger (id, device_imei, interface_type, direction, cost_usd, message_id, detail, tenant_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+		c.ID, c.DeviceIMEI, c.InterfaceType, c.Direction, c.CostUSD, c.MessageID, c.Detail, tenantID)
+	return err
+}
+
+func (d *DB) ListCostEntries(ctx context.Context, tenantID string, deviceIMEI string, from, to time.Time, limit int) ([]store.CostEntry, error) {
+	query := "SELECT id, device_imei, interface_type, direction, cost_usd, message_id, detail, created_at FROM cost_ledger WHERE tenant_id=?"
+	args := []interface{}{tenantID}
+	if deviceIMEI != "" {
+		query += " AND device_imei=?"
+		args = append(args, deviceIMEI)
+	}
+	if !from.IsZero() {
+		query += " AND created_at >= ?"
+		args = append(args, from.Format(time.DateTime))
+	}
+	if !to.IsZero() {
+		query += " AND created_at <= ?"
+		args = append(args, to.Format(time.DateTime))
+	}
+	query += " ORDER BY created_at DESC"
+	if limit <= 0 {
+		limit = 100
+	}
+	query += fmt.Sprintf(" LIMIT %d", limit)
+
+	rows, err := d.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+	var entries []store.CostEntry
+	for rows.Next() {
+		var c store.CostEntry
+		var createdAt string
+		if err := rows.Scan(&c.ID, &c.DeviceIMEI, &c.InterfaceType, &c.Direction, &c.CostUSD, &c.MessageID, &c.Detail, &createdAt); err != nil {
+			return nil, err
+		}
+		c.CreatedAt, _ = time.Parse(time.DateTime, createdAt)
+		entries = append(entries, c)
+	}
+	return entries, nil
+}
+
+func (d *DB) AggregateCosts(ctx context.Context, tenantID string, from, to time.Time, groupBy string) ([]store.CostAggregate, error) {
+	var groupExpr string
+	switch groupBy {
+	case "month":
+		groupExpr = "strftime('%Y-%m', created_at)"
+	default: // "device"
+		groupExpr = "device_imei"
+	}
+	query := fmt.Sprintf("SELECT %s AS group_key, SUM(cost_usd) AS total_usd, COUNT(*) AS cnt FROM cost_ledger WHERE tenant_id=?", groupExpr)
+	args := []interface{}{tenantID}
+	if !from.IsZero() {
+		query += " AND created_at >= ?"
+		args = append(args, from.Format(time.DateTime))
+	}
+	if !to.IsZero() {
+		query += " AND created_at <= ?"
+		args = append(args, to.Format(time.DateTime))
+	}
+	query += fmt.Sprintf(" GROUP BY %s ORDER BY total_usd DESC", groupExpr)
+
+	rows, err := d.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+	var aggs []store.CostAggregate
+	for rows.Next() {
+		var a store.CostAggregate
+		if err := rows.Scan(&a.GroupKey, &a.TotalUSD, &a.Count); err != nil {
+			return nil, err
+		}
+		aggs = append(aggs, a)
+	}
+	return aggs, nil
 }
 
 // Ensure DB implements Store at compile time.

@@ -71,6 +71,27 @@ import (
 
 var version = "dev"
 
+// costRecorderAdapter adapts a store.Store to cloudloop.CostRecorder.
+type costRecorderAdapter struct {
+	store store.Store
+}
+
+func (a *costRecorderAdapter) InsertCostEntry(ctx context.Context, tenantID string, c *cloudloop.CostEntry) error {
+	sc := &store.CostEntry{
+		ID:            c.ID,
+		DeviceIMEI:    c.DeviceIMEI,
+		InterfaceType: c.InterfaceType,
+		Direction:     c.Direction,
+		CostUSD:       c.CostUSD,
+		MessageID:     c.MessageID,
+		Detail:        c.Detail,
+	}
+	if tenantID == "" {
+		tenantID = store.DefaultTenantID
+	}
+	return a.store.InsertCostEntry(ctx, tenantID, sc)
+}
+
 // @title        MeshSat Hub API
 // @version      1.1
 // @description  Multi-tenant SaaS platform for satellite device management. Ingests MO messages from Iridium/Astrocast/Globalstar, manages devices, SOS escalation, dead man's switch, and E2E encryption.
@@ -229,6 +250,8 @@ func main() {
 	mtSender.SetRateLimiter(limiter)
 	mtSender.SetAudit(auditSvc)
 	mtSender.SetDeviceResolver(thingResolver)
+	mtSender.SetCostRecorder(&costRecorderAdapter{store: dataStore})
+	mtSender.SetCostPerMessage(0.05) // Iridium default
 	if msgBus.IsConnected() {
 		if err := mtSender.Start(); err != nil {
 			slog.Error("failed to start MT sender", "error", err)
@@ -1053,6 +1076,11 @@ func main() {
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(balance)
 	})
+
+	// Cost tracking ledger
+	costsHandler := api.NewCostsHandler(dataStore)
+	r.Get("/api/costs", costsHandler.ListCosts)
+	r.Get("/api/costs/summary", costsHandler.Summary)
 
 	// Notification preferences (per-device Apprise URLs)
 	notifHandler := api.NewNotificationHandler(dataStore)

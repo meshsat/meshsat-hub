@@ -259,6 +259,15 @@ func (m *mockStore) ListBridgesWithCredentials(context.Context) ([]*store.Bridge
 	return nil, nil
 }
 
+// Cost ledger
+func (m *mockStore) InsertCostEntry(context.Context, string, *store.CostEntry) error { return nil }
+func (m *mockStore) ListCostEntries(context.Context, string, string, time.Time, time.Time, int) ([]store.CostEntry, error) {
+	return nil, nil
+}
+func (m *mockStore) AggregateCosts(context.Context, string, time.Time, time.Time, string) ([]store.CostAggregate, error) {
+	return nil, nil
+}
+
 // System config
 func (m *mockStore) GetSystemConfig(context.Context, string) (string, error) { return "", nil }
 func (m *mockStore) SetSystemConfig(context.Context, string, string) error   { return nil }

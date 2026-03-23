@@ -14,6 +14,7 @@ import (
 	"github.com/cubeos-app/meshsat-hub/internal/compress"
 	"github.com/cubeos-app/meshsat-hub/internal/fragment"
 	hubmqtt "github.com/cubeos-app/meshsat-hub/internal/mqtt"
+	"github.com/google/uuid"
 )
 
 // MTSendRequest is the JSON payload expected on meshsat/+/mt/send topics.
@@ -49,16 +50,35 @@ type DeviceResolver interface {
 	Resolve(imei string) (thingID string, isIMT bool)
 }
 
+// CostRecorder records satellite message costs.
+type CostRecorder interface {
+	InsertCostEntry(ctx context.Context, tenantID string, c *CostEntry) error
+}
+
+// CostEntry records the cost of a single satellite message send.
+// Mirrors store.CostEntry to avoid import cycle.
+type CostEntry struct {
+	ID            string
+	DeviceIMEI    string
+	InterfaceType string
+	Direction     string
+	CostUSD       float64
+	MessageID     string
+	Detail        string
+}
+
 // Sender listens on MQTT for MT send requests and forwards them via Cloudloop.
 type Sender struct {
-	client     *Client
-	mqtt       bus.MessageBus
-	limiter    interface{ Allow(string, bool) bool }
-	audit      *audit.Service
-	resolver   DeviceResolver
-	maxRetries int
-	mtMTU      int           // MT payload MTU (default: 270)
-	msgIDSeq   atomic.Uint64 // wrapping msg ID counter for fragmentation
+	client       *Client
+	mqtt         bus.MessageBus
+	limiter      interface{ Allow(string, bool) bool }
+	audit        *audit.Service
+	resolver     DeviceResolver
+	costRecorder CostRecorder
+	costPerMsg   float64 // cost per message (USD), set via SetCostPerMessage
+	maxRetries   int
+	mtMTU        int           // MT payload MTU (default: 270)
+	msgIDSeq     atomic.Uint64 // wrapping msg ID counter for fragmentation
 }
 
 // NewSender creates a new MT message sender.
@@ -92,6 +112,16 @@ func (s *Sender) SetRateLimiter(l interface{ Allow(string, bool) bool }) {
 // and defaults to SBD protocol.
 func (s *Sender) SetDeviceResolver(r DeviceResolver) {
 	s.resolver = r
+}
+
+// SetCostRecorder attaches a cost recorder for tracking satellite message costs.
+func (s *Sender) SetCostRecorder(r CostRecorder) {
+	s.costRecorder = r
+}
+
+// SetCostPerMessage sets the cost per message in USD for cost tracking.
+func (s *Sender) SetCostPerMessage(cost float64) {
+	s.costPerMsg = cost
 }
 
 // resolveDevice returns the Cloudloop thingID and protocol for a device IMEI.
@@ -225,6 +255,24 @@ func (s *Sender) sendPayload(thingID string, isIMT bool, imtTopic, ringStyle str
 				thingID, protocol, resp.ID, len(data), fragIdx+1, fragTotal)
 			if err := s.audit.Log(context.Background(), "", "message_sent", "system", detail, ""); err != nil {
 				slog.Warn("audit: failed to log message_sent", "error", err)
+			}
+		}
+		if s.costRecorder != nil && s.costPerMsg > 0 {
+			ifaceType := "iridium_sbd"
+			if isIMT {
+				ifaceType = "iridium_imt"
+			}
+			entry := &CostEntry{
+				ID:            uuid.NewString(),
+				DeviceIMEI:    thingID,
+				InterfaceType: ifaceType,
+				Direction:     "mt",
+				CostUSD:       s.costPerMsg,
+				MessageID:     resp.ID,
+				Detail:        fmt.Sprintf("frag=%d/%d bytes=%d", fragIdx+1, fragTotal, len(data)),
+			}
+			if err := s.costRecorder.InsertCostEntry(context.Background(), "", entry); err != nil {
+				slog.Warn("cost: failed to record cost entry", "error", err)
 			}
 		}
 		if fragTotal == 1 {

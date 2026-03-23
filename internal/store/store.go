@@ -135,6 +135,11 @@ type Store interface {
 	SetBridgeCertificate(ctx context.Context, tenantID, bridgeID, certPEM string, expiry time.Time) error
 	ListBridgesWithCredentials(ctx context.Context) ([]*Bridge, error)
 
+	// Cost ledger
+	InsertCostEntry(ctx context.Context, tenantID string, c *CostEntry) error
+	ListCostEntries(ctx context.Context, tenantID string, deviceIMEI string, from, to time.Time, limit int) ([]CostEntry, error)
+	AggregateCosts(ctx context.Context, tenantID string, from, to time.Time, groupBy string) ([]CostAggregate, error)
+
 	// System config (key-value settings, e.g. hub identity keys)
 	GetSystemConfig(ctx context.Context, key string) (string, error)
 	SetSystemConfig(ctx context.Context, key, value string) error
@@ -389,6 +394,25 @@ type DeviceWireguard struct {
 	VPNAddress string    `json:"vpn_address"` // allocated VPN IP (e.g. "10.8.0.5/32")
 	PublicKey  string    `json:"public_key,omitempty"`
 	CreatedAt  time.Time `json:"created_at"`
+}
+
+// CostEntry records the cost of a single satellite message send.
+type CostEntry struct {
+	ID            string    `json:"id"`
+	DeviceIMEI    string    `json:"device_imei"`
+	InterfaceType string    `json:"interface_type"` // iridium_sbd, iridium_imt, astrocast, globalstar
+	Direction     string    `json:"direction"`      // mo or mt
+	CostUSD       float64   `json:"cost_usd"`
+	MessageID     string    `json:"message_id"`
+	Detail        string    `json:"detail,omitempty"`
+	CreatedAt     time.Time `json:"created_at"`
+}
+
+// CostAggregate holds aggregated cost data grouped by device or month.
+type CostAggregate struct {
+	GroupKey string  `json:"group_key"` // device IMEI or month string
+	TotalUSD float64 `json:"total_usd"`
+	Count    int     `json:"count"`
 }
 
 // APIKey represents a tenant-scoped API key for programmatic access.
