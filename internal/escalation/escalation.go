@@ -127,9 +127,8 @@ func (e *Engine) Acknowledge(ctx context.Context, tenantID, alertID, ackedBy str
 
 // processAlerts checks all active alerts and escalates as needed.
 func (e *Engine) processAlerts(ctx context.Context) {
-	// Process all tenants by listing active alerts globally.
-	// In practice, we'd need a tenant-aware query. For now, use default tenant.
-	// TODO: support multi-tenant alert processing
+	// List active alerts across all tenants. Each alert carries its TenantID,
+	// which is used for tenant-scoped store calls during processing.
 	alerts, err := e.store.ListAlerts(ctx, "", true, 100)
 	if err != nil {
 		slog.Error("escalation: list active alerts", "error", err)
@@ -148,7 +147,7 @@ func (e *Engine) processAlerts(ctx context.Context) {
 
 func (e *Engine) processAlert(ctx context.Context, alert *store.Alert, now time.Time) {
 	// Load the chain to get tier configuration.
-	chain, err := e.store.GetEscalationChain(ctx, "", alert.ChainID)
+	chain, err := e.store.GetEscalationChain(ctx, alert.TenantID, alert.ChainID)
 	if err != nil {
 		slog.Error("escalation: chain not found", "chain_id", alert.ChainID, "error", err)
 		return
@@ -158,7 +157,7 @@ func (e *Engine) processAlert(ctx context.Context, alert *store.Alert, now time.
 		// All tiers exhausted.
 		alert.State = store.AlertStateExhausted
 		alert.UpdatedAt = now
-		_ = e.store.UpdateAlert(ctx, "", alert)
+		_ = e.store.UpdateAlert(ctx, alert.TenantID, alert)
 		slog.Warn("escalation: alert exhausted all tiers",
 			"id", alert.ID, "type", alert.Type, "device", alert.DeviceIMEI)
 		return
@@ -188,10 +187,10 @@ func (e *Engine) processAlert(ctx context.Context, alert *store.Alert, now time.
 	copy(targets, tier.Targets)
 	if alert.DeviceIMEI != "" {
 		// Try device-specific prefs first, then tenant-wide default ("*").
-		if pref, err := e.store.GetNotificationPref(ctx, "", alert.DeviceIMEI); err == nil && pref.Enabled {
+		if pref, err := e.store.GetNotificationPref(ctx, alert.TenantID, alert.DeviceIMEI); err == nil && pref.Enabled {
 			targets = append(targets, pref.URLs...)
 		}
-		if pref, err := e.store.GetNotificationPref(ctx, "", "*"); err == nil && pref.Enabled {
+		if pref, err := e.store.GetNotificationPref(ctx, alert.TenantID, "*"); err == nil && pref.Enabled {
 			targets = append(targets, pref.URLs...)
 		}
 	}
@@ -229,7 +228,7 @@ func (e *Engine) processAlert(ctx context.Context, alert *store.Alert, now time.
 	}
 
 	alert.UpdatedAt = now
-	if err := e.store.UpdateAlert(ctx, "", alert); err != nil {
+	if err := e.store.UpdateAlert(ctx, alert.TenantID, alert); err != nil {
 		slog.Error("escalation: update alert", "id", alert.ID, "error", err)
 	}
 

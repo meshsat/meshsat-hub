@@ -855,14 +855,14 @@ func (d *DB) CreateAlert(ctx context.Context, tenantID string, a *store.Alert) e
 
 func (d *DB) GetAlert(ctx context.Context, tenantID string, id string) (*store.Alert, error) {
 	var a store.Alert
-	query := "SELECT id, chain_id, device_imei, type, detail, state, current_tier, retries, acked_by, acked_at, next_esc_at, created_at, updated_at FROM alerts WHERE id=?"
+	query := "SELECT id, tenant_id, chain_id, device_imei, type, detail, state, current_tier, retries, acked_by, acked_at, next_esc_at, created_at, updated_at FROM alerts WHERE id=?"
 	args := []interface{}{id}
 	if tenantID != "" {
 		query += " AND tenant_id=?"
 		args = append(args, tenantID)
 	}
 	if err := d.db.QueryRowContext(ctx, query, args...).Scan(
-		&a.ID, &a.ChainID, &a.DeviceIMEI, &a.Type, &a.Detail, &a.State,
+		&a.ID, &a.TenantID, &a.ChainID, &a.DeviceIMEI, &a.Type, &a.Detail, &a.State,
 		&a.CurrentTier, &a.Retries, &a.AckedBy, &a.AckedAt, &a.NextEscAt, &a.CreatedAt, &a.UpdatedAt,
 	); err != nil {
 		return nil, err
@@ -871,7 +871,7 @@ func (d *DB) GetAlert(ctx context.Context, tenantID string, id string) (*store.A
 }
 
 func (d *DB) ListAlerts(ctx context.Context, tenantID string, activeOnly bool, limit int) ([]store.Alert, error) {
-	query := "SELECT id, chain_id, device_imei, type, detail, state, current_tier, retries, acked_by, acked_at, next_esc_at, created_at, updated_at FROM alerts WHERE 1=1"
+	query := "SELECT id, tenant_id, chain_id, device_imei, type, detail, state, current_tier, retries, acked_by, acked_at, next_esc_at, created_at, updated_at FROM alerts WHERE 1=1"
 	var args []interface{}
 	if tenantID != "" {
 		query += " AND tenant_id=?"
@@ -892,7 +892,7 @@ func (d *DB) ListAlerts(ctx context.Context, tenantID string, activeOnly bool, l
 	for rows.Next() {
 		var a store.Alert
 		if err := rows.Scan(
-			&a.ID, &a.ChainID, &a.DeviceIMEI, &a.Type, &a.Detail, &a.State,
+			&a.ID, &a.TenantID, &a.ChainID, &a.DeviceIMEI, &a.Type, &a.Detail, &a.State,
 			&a.CurrentTier, &a.Retries, &a.AckedBy, &a.AckedAt, &a.NextEscAt, &a.CreatedAt, &a.UpdatedAt,
 		); err != nil {
 			return nil, err

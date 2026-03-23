@@ -314,6 +314,7 @@ const (
 // Alert represents an active or resolved escalation alert.
 type Alert struct {
 	ID          string    `json:"id"`
+	TenantID    string    `json:"tenant_id"`
 	ChainID     string    `json:"chain_id"`
 	DeviceIMEI  string    `json:"device_imei"`
 	Type        string    `json:"type"`         // "sos", "deadman", "geofence", "custom"
