@@ -71,6 +71,8 @@ export const positions = {
   allLatest: () => fetchJSON('/positions/latest'),
   latest: (imei) => fetchJSON(`/devices/${imei}/position`),
   history: (imei, limit = 100) => fetchJSON(`/devices/${imei}/positions?limit=${limit}`),
+  historyRange: (imei, from, to, limit = 1000, simplify = 0.0001) =>
+    fetchJSON(`/devices/${imei}/positions?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}&limit=${limit}&simplify=${simplify}`),
 }
 
 export const credits = {
