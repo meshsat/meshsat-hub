@@ -81,6 +81,7 @@ type WebhookHandler struct {
 	deadman     *deadman.Monitor
 	msvqsc      *msvqsc.Decoder
 	retIface    reticulumReceiver
+	resolver    *ThingResolver
 	allowedIPs  []string
 	store       interface {
 		InsertMessage(ctx context.Context, tenantID string, m *store.Message) error
@@ -142,6 +143,13 @@ func (h *WebhookHandler) SetReticulumIface(iface reticulumReceiver) {
 // If empty, all IPs are allowed.
 func (h *WebhookHandler) SetAllowedIPs(ips []string) {
 	h.allowedIPs = ips
+}
+
+// SetResolver attaches a ThingResolver for learning IMEI-to-thingID mappings
+// from incoming MO messages. Each processed LingoMO teaches the resolver
+// about the device's thingId and modem type (SBD vs IMT).
+func (h *WebhookHandler) SetResolver(r *ThingResolver) {
+	h.resolver = r
 }
 
 func (h *WebhookHandler) publish(topic string, qos byte, retained bool, v any) {
@@ -211,6 +219,11 @@ func (h *WebhookHandler) processLingoMO(ctx context.Context, mo *LingoMO, remote
 			"thing_id", mo.Identity.ThingID,
 			"account_id", mo.Identity.AccountID)
 		return "error_no_imei"
+	}
+
+	// Teach the resolver about this device's thingId and modem type.
+	if h.resolver != nil {
+		h.resolver.LearnFromMO(mo)
 	}
 
 	momsn := mo.MOMSN()

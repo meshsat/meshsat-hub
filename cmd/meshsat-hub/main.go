@@ -217,10 +217,17 @@ func main() {
 	// Cloudloop API client for MT sends.
 	cloudloopClient := cloudloop.NewClient(cfg.CloudloopAPIURL, cfg.CloudloopAPIKey)
 
+	// Device resolver: learns IMEI-to-thingID mappings from MO messages and Cloudloop API.
+	thingResolver := cloudloop.NewThingResolver(cloudloopClient)
+	if cfg.CloudloopAPIKey != "" {
+		go thingResolver.StartPeriodicRefresh(ctx, 5*time.Minute)
+	}
+
 	// Start MT sender (subscribes to meshsat/+/mt/send).
 	mtSender := cloudloop.NewSender(cloudloopClient, msgBus)
 	mtSender.SetRateLimiter(limiter)
 	mtSender.SetAudit(auditSvc)
+	mtSender.SetDeviceResolver(thingResolver)
 	if msgBus.IsConnected() {
 		if err := mtSender.Start(); err != nil {
 			slog.Error("failed to start MT sender", "error", err)
@@ -730,6 +737,7 @@ func main() {
 	clHandler.SetDeadman(deadmanMonitor)
 	clHandler.SetMSVQSC(msvqscDecoder)
 	clHandler.SetStore(dataStore)
+	clHandler.SetResolver(thingResolver)
 	if cfg.CloudloopWebhookAllowedIPs != "" {
 		clHandler.SetAllowedIPs(strings.Split(cfg.CloudloopWebhookAllowedIPs, ","))
 	}
