@@ -7,8 +7,10 @@ import (
 )
 
 // IridiumBackend wraps the Cloudloop client as a constellation Backend.
+// Uses the official Cloudloop Data API (SendSBD) for MT message delivery.
 type IridiumBackend struct {
-	client *cloudloop.Client
+	client   *cloudloop.Client
+	resolver cloudloop.DeviceResolver
 }
 
 // NewIridiumBackend creates an Iridium backend from an existing Cloudloop client.
@@ -16,10 +18,27 @@ func NewIridiumBackend(client *cloudloop.Client) *IridiumBackend {
 	return &IridiumBackend{client: client}
 }
 
+// SetDeviceResolver attaches a resolver for IMEI → thingID + protocol lookup.
+func (b *IridiumBackend) SetDeviceResolver(r cloudloop.DeviceResolver) {
+	b.resolver = r
+}
+
 func (b *IridiumBackend) Name() string { return "iridium" }
 
 func (b *IridiumBackend) Send(ctx context.Context, deviceID string, payload []byte) (*SendResult, error) {
-	resp, err := b.client.SendMT(ctx, deviceID, payload)
+	thingID := deviceID
+	isIMT := false
+	if b.resolver != nil {
+		thingID, isIMT = b.resolver.Resolve(deviceID)
+	}
+
+	var resp *cloudloop.MTResponse
+	var err error
+	if isIMT {
+		resp, err = b.client.SendIMT(ctx, thingID, payload, "", "")
+	} else {
+		resp, err = b.client.SendSBD(ctx, thingID, payload)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -31,7 +50,7 @@ func (b *IridiumBackend) Send(ctx context.Context, deviceID string, payload []by
 }
 
 func (b *IridiumBackend) CheckStatus(ctx context.Context, sendID string) (*SendResult, error) {
-	resp, err := b.client.CheckMTStatus(ctx, sendID)
+	resp, err := b.client.GetDeliveryStatus(ctx, sendID)
 	if err != nil {
 		return nil, err
 	}
