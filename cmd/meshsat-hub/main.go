@@ -43,6 +43,7 @@ import (
 	"github.com/cubeos-app/meshsat-hub/internal/ipougrs"
 	"github.com/cubeos-app/meshsat-hub/internal/leader"
 	hubmessage "github.com/cubeos-app/meshsat-hub/internal/message"
+	"github.com/cubeos-app/meshsat-hub/internal/metrics"
 	"github.com/cubeos-app/meshsat-hub/internal/mptcp"
 	hubmsvqsc "github.com/cubeos-app/meshsat-hub/internal/msvqsc"
 	"github.com/cubeos-app/meshsat-hub/internal/ntfy"
@@ -844,9 +845,11 @@ func main() {
 	// Tenant isolation middleware — resolves tenant from JWT claim / X-Tenant-ID header / default.
 	// Enforce mode disabled for backward compatibility; enable via HUB_TENANT_ENFORCE=true.
 	r.Use(hubauth.TenantMiddleware(cfg.TenantEnforce))
+	r.Use(metrics.ChiMiddleware)
 
 	r.Get("/healthz", health.LivezHandler)
 	r.Get("/readyz", checker.ReadyzHandler)
+	r.Handle("/metrics", metrics.Handler())
 
 	// WebSocket real-time event hub
 	wsHub := api.NewWSHub()
