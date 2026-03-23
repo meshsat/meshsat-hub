@@ -1247,6 +1247,15 @@ func main() {
 		_, _ = w.Write([]byte(swaggerUIHTML))
 	})
 
+	// API versioning: /api/v1/* forwards to /api/* for backwards-compatible versioning
+	r.Mount("/api/v1", http.StripPrefix("/api/v1", http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		req.URL.Path = "/api" + req.URL.Path
+		if req.URL.RawPath != "" {
+			req.URL.RawPath = "/api" + req.URL.RawPath
+		}
+		r.ServeHTTP(w, req)
+	})))
+
 	// Embedded Vue SPA — serve from Go binary (catch-all after API routes)
 	distFS, err := fs.Sub(web.DistFS, "dist")
 	if err != nil {
