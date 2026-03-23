@@ -24,7 +24,11 @@ type MTSendRequest struct {
 	Compress   bool   `json:"compress,omitempty"`
 	Encrypt    bool   `json:"encrypt,omitempty"`
 	TTLSeconds int    `json:"ttl_seconds,omitempty"`
+	IMTTopic   string `json:"imt_topic,omitempty"`  // IMT only: PURPLE/PINK/RED/ORANGE/YELLOW/RAW
+	RingStyle  string `json:"ring_style,omitempty"` // IMT only: NORMAL/URGENT/EXTENDED
 }
+
+const imtMTU = 100000 // IMT supports up to 100KB MT messages
 
 // MTStatusMessage is published to meshsat/{device_id}/mt/status.
 type MTStatusMessage struct {
@@ -37,12 +41,21 @@ type MTStatusMessage struct {
 	Timestamp string `json:"timestamp"`
 }
 
+// DeviceResolver looks up Cloudloop metadata for a device.
+// Returns the Cloudloop thingID and whether the device uses IMT (9704) vs SBD (9603).
+type DeviceResolver interface {
+	// Resolve returns the Cloudloop thingID and true if the device uses IMT protocol.
+	// If the device is unknown, thingID should be the IMEI itself and isIMT false.
+	Resolve(imei string) (thingID string, isIMT bool)
+}
+
 // Sender listens on MQTT for MT send requests and forwards them via Cloudloop.
 type Sender struct {
 	client     *Client
 	mqtt       bus.MessageBus
 	limiter    interface{ Allow(string, bool) bool }
 	audit      *audit.Service
+	resolver   DeviceResolver
 	maxRetries int
 	mtMTU      int           // MT payload MTU (default: 270)
 	msgIDSeq   atomic.Uint64 // wrapping msg ID counter for fragmentation
@@ -74,6 +87,21 @@ func (s *Sender) SetRateLimiter(l interface{ Allow(string, bool) bool }) {
 	s.limiter = l
 }
 
+// SetDeviceResolver attaches a resolver for looking up Cloudloop thingIDs
+// and modem types. Without a resolver, the sender uses IMEI as thingID
+// and defaults to SBD protocol.
+func (s *Sender) SetDeviceResolver(r DeviceResolver) {
+	s.resolver = r
+}
+
+// resolveDevice returns the Cloudloop thingID and protocol for a device IMEI.
+func (s *Sender) resolveDevice(imei string) (thingID string, isIMT bool) {
+	if s.resolver != nil {
+		return s.resolver.Resolve(imei)
+	}
+	return imei, false
+}
+
 // Start subscribes to MT send topics and begins processing.
 func (s *Sender) Start() error {
 	return s.mqtt.Subscribe(hubmqtt.TopicMTSendWildcard(), 1, s.handleMTSend)
@@ -93,8 +121,13 @@ func (s *Sender) handleMTSend(topic string, payload []byte) {
 		return
 	}
 
+	// Resolve device: determine Cloudloop thingID and protocol (SBD vs IMT).
+	thingID, isIMT := s.resolveDevice(deviceID)
+
 	slog.Info("cloudloop: MT send request",
 		"device", deviceID,
+		"thing", thingID,
+		"imt", isIMT,
 		"text_len", len(req.Text),
 		"compress", req.Compress,
 	)
@@ -116,14 +149,20 @@ func (s *Sender) handleMTSend(topic string, payload []byte) {
 	// Prepend protocol version byte before fragmentation.
 	data = codec.PrependVersionByte(data)
 
+	// IMT supports 100KB — fragmentation rarely needed. SBD uses 270-byte MT MTU.
+	mtu := s.mtMTU
+	if isIMT {
+		mtu = imtMTU
+	}
+
 	// Fragment if payload exceeds MT MTU.
-	frags := fragment.Fragment(data, s.mtMTU, s.nextMsgID())
+	frags := fragment.Fragment(data, mtu, s.nextMsgID())
 	if frags != nil {
 		slog.Info("cloudloop: fragmenting MT message",
 			"device", deviceID, "total_bytes", len(data), "fragments", len(frags),
 		)
 		for i, frag := range frags {
-			if err := s.sendWithRetry(deviceID, frag, i, len(frags)); err != nil {
+			if err := s.sendPayload(thingID, isIMT, req.IMTTopic, req.RingStyle, frag, i, len(frags)); err != nil {
 				slog.Error("cloudloop: fragment send failed, aborting remaining",
 					"device", deviceID, "frag", i+1, "total", len(frags), "error", err,
 				)
@@ -138,46 +177,58 @@ func (s *Sender) handleMTSend(topic string, payload []byte) {
 	}
 
 	// Single message — send directly.
-	if err := s.sendWithRetry(deviceID, data, 0, 1); err != nil {
+	if err := s.sendPayload(thingID, isIMT, req.IMTTopic, req.RingStyle, data, 0, 1); err != nil {
 		s.publishStatus(deviceID, "", "failed", err.Error())
 		return
 	}
 }
 
-// sendWithRetry sends a single payload (possibly a fragment) with exponential backoff retry.
-func (s *Sender) sendWithRetry(deviceID string, data []byte, fragIdx, fragTotal int) error {
+// sendPayload sends a single payload with exponential backoff retry.
+// Uses the official Cloudloop Data API: SendSBD for 9603, SendIMT for 9704.
+func (s *Sender) sendPayload(thingID string, isIMT bool, imtTopic, ringStyle string, data []byte, fragIdx, fragTotal int) error {
+	protocol := "SBD"
+	if isIMT {
+		protocol = "IMT"
+	}
+
 	var lastErr error
 	for attempt := 0; attempt <= s.maxRetries; attempt++ {
 		if attempt > 0 {
 			backoff := time.Duration(1<<uint(attempt-1)) * time.Second
 			slog.Info("cloudloop: retrying MT send",
-				"attempt", attempt, "backoff", backoff, "device", deviceID,
-				"frag", fragIdx+1, "total", fragTotal,
+				"attempt", attempt, "backoff", backoff, "thing", thingID,
+				"protocol", protocol, "frag", fragIdx+1, "total", fragTotal,
 			)
 			time.Sleep(backoff)
 		}
 
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-		resp, err := s.client.SendMT(ctx, deviceID, data)
+		var resp *MTResponse
+		var err error
+		if isIMT {
+			resp, err = s.client.SendIMT(ctx, thingID, data, imtTopic, ringStyle)
+		} else {
+			resp, err = s.client.SendSBD(ctx, thingID, data)
+		}
 		cancel()
 
 		if err != nil {
 			lastErr = err
 			slog.Warn("cloudloop: MT send failed",
-				"error", err, "device", deviceID, "attempt", attempt,
+				"error", err, "thing", thingID, "protocol", protocol, "attempt", attempt,
 			)
 			continue
 		}
 
 		if s.audit != nil {
-			detail := fmt.Sprintf("device=%s mt_id=%s bytes=%d frag=%d/%d",
-				deviceID, resp.ID, len(data), fragIdx+1, fragTotal)
+			detail := fmt.Sprintf("thing=%s protocol=%s mt_id=%s bytes=%d frag=%d/%d",
+				thingID, protocol, resp.ID, len(data), fragIdx+1, fragTotal)
 			if err := s.audit.Log(context.Background(), "", "message_sent", "system", detail, ""); err != nil {
 				slog.Warn("audit: failed to log message_sent", "error", err)
 			}
 		}
 		if fragTotal == 1 {
-			s.publishStatus(deviceID, resp.ID, resp.Status, "")
+			s.publishStatus(thingID, resp.ID, resp.Status, "")
 		}
 		return nil
 	}
