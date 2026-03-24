@@ -498,3 +498,72 @@ func TestResolveTenantID(t *testing.T) {
 		t.Errorf("resolveTenantID(%q) = %q, want %q", "", got, "default")
 	}
 }
+
+func TestHandleBridgeBirth_StaleBirthNotMarkedOnline(t *testing.T) {
+	ms := newMockStore()
+	mb := newMockBus()
+	sub := NewSubscriber(mb, ms, "default")
+	sub.SetStaleThreshold(5 * time.Minute)
+	if err := sub.Start(); err != nil {
+		t.Fatal(err)
+	}
+
+	// Simulate a retained birth with a timestamp 2 hours ago.
+	birth := protocol.BridgeBirth{
+		Protocol:     protocol.ProtocolVersion,
+		BridgeID:     "stale-bridge",
+		Version:      "0.18.0",
+		Hostname:     "stale-bridge.local",
+		Mode:         "direct",
+		TenantID:     "default",
+		Interfaces:   []protocol.InterfaceInfo{{Name: "mesh_0", Type: "meshtastic", Status: "online"}},
+		Capabilities: []string{"meshtastic"},
+		Timestamp:    time.Now().Add(-2 * time.Hour),
+	}
+	payload, _ := json.Marshal(birth)
+	mb.deliver("meshsat/bridge/stale-bridge/birth", payload)
+
+	// Bridge metadata should still be stored.
+	b, ok := ms.bridges["stale-bridge"]
+	if !ok {
+		t.Fatal("bridge metadata not created in store")
+	}
+	if b.Hostname != "stale-bridge.local" {
+		t.Errorf("hostname = %q, want %q", b.Hostname, "stale-bridge.local")
+	}
+
+	// But it should NOT be marked online.
+	if online, ok := ms.bridgeOnline["stale-bridge"]; ok && online {
+		t.Error("stale retained birth should NOT set bridge online")
+	}
+}
+
+func TestHandleBridgeBirth_FreshBirthMarkedOnline(t *testing.T) {
+	ms := newMockStore()
+	mb := newMockBus()
+	sub := NewSubscriber(mb, ms, "default")
+	sub.SetStaleThreshold(5 * time.Minute)
+	if err := sub.Start(); err != nil {
+		t.Fatal(err)
+	}
+
+	// Fresh birth — timestamp is now.
+	birth := protocol.BridgeBirth{
+		Protocol:     protocol.ProtocolVersion,
+		BridgeID:     "fresh-bridge",
+		Version:      "0.18.0",
+		Hostname:     "fresh-bridge.local",
+		Mode:         "direct",
+		TenantID:     "default",
+		Interfaces:   []protocol.InterfaceInfo{{Name: "mesh_0", Type: "meshtastic", Status: "online"}},
+		Capabilities: []string{"meshtastic"},
+		Timestamp:    time.Now(),
+	}
+	payload, _ := json.Marshal(birth)
+	mb.deliver("meshsat/bridge/fresh-bridge/birth", payload)
+
+	// Should be marked online.
+	if online, ok := ms.bridgeOnline["fresh-bridge"]; !ok || !online {
+		t.Error("fresh birth should set bridge online")
+	}
+}

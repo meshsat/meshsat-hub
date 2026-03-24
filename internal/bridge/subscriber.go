@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+	"time"
 
 	"github.com/cubeos-app/meshsat-hub/internal/bus"
 	"github.com/cubeos-app/meshsat-hub/internal/protocol"
@@ -18,9 +19,10 @@ import (
 // Subscriber listens on bridge lifecycle MQTT topics and auto-provisions
 // bridge and device records in the Hub store.
 type Subscriber struct {
-	mqtt     bus.MessageBus
-	store    store.Store
-	tenantID string
+	mqtt           bus.MessageBus
+	store          store.Store
+	tenantID       string
+	staleThreshold time.Duration // birth messages older than this are treated as retained replays
 }
 
 // NewSubscriber creates a new bridge MQTT subscriber.
@@ -29,10 +31,17 @@ func NewSubscriber(mqtt bus.MessageBus, store store.Store, defaultTenantID strin
 		defaultTenantID = "default"
 	}
 	return &Subscriber{
-		mqtt:     mqtt,
-		store:    store,
-		tenantID: defaultTenantID,
+		mqtt:           mqtt,
+		store:          store,
+		tenantID:       defaultTenantID,
+		staleThreshold: 5 * time.Minute,
 	}
+}
+
+// SetStaleThreshold configures how old a birth timestamp can be before it is
+// treated as a retained replay rather than a fresh connection.
+func (s *Subscriber) SetStaleThreshold(d time.Duration) {
+	s.staleThreshold = d
 }
 
 // Start subscribes to all bridge lifecycle MQTT topics.
@@ -123,13 +132,25 @@ func (s *Subscriber) handleBridgeBirth(topic string, payload []byte) {
 	ctx := context.Background()
 	tenantID := s.resolveTenantID(birth.TenantID)
 
+	// Detect stale retained birth messages: if the timestamp is older than
+	// staleThreshold, this is a retained replay from the broker (not a fresh
+	// connection). Update metadata but do NOT set online=true.
+	stale := !birth.Timestamp.IsZero() && time.Since(birth.Timestamp) > s.staleThreshold
+
+	if stale {
+		// Don't overwrite online status from a retained message.
+		b.Online = false
+	}
+
 	if err := s.store.CreateOrUpdateBridge(ctx, tenantID, b); err != nil {
 		slog.Error("bridge: failed to create/update bridge", "error", err, "bridge", bridgeID)
 		return
 	}
 
-	if err := s.store.SetBridgeOnline(ctx, tenantID, bridgeID, true); err != nil {
-		slog.Error("bridge: failed to set bridge online", "error", err, "bridge", bridgeID)
+	if !stale {
+		if err := s.store.SetBridgeOnline(ctx, tenantID, bridgeID, true); err != nil {
+			slog.Error("bridge: failed to set bridge online", "error", err, "bridge", bridgeID)
+		}
 	}
 
 	// Associate devices with IMEIs from the birth interfaces.
@@ -142,12 +163,21 @@ func (s *Subscriber) handleBridgeBirth(topic string, payload []byte) {
 		}
 	}
 
-	slog.Info("bridge: registered",
-		"bridge", bridgeID,
-		"version", birth.Version,
-		"hostname", birth.Hostname,
-		"interfaces", len(birth.Interfaces),
-	)
+	if stale {
+		slog.Info("bridge: registered (stale retained birth, not marking online)",
+			"bridge", bridgeID,
+			"version", birth.Version,
+			"hostname", birth.Hostname,
+			"birth_age", time.Since(birth.Timestamp).Round(time.Second).String(),
+		)
+	} else {
+		slog.Info("bridge: registered",
+			"bridge", bridgeID,
+			"version", birth.Version,
+			"hostname", birth.Hostname,
+			"interfaces", len(birth.Interfaces),
+		)
+	}
 }
 
 // handleBridgeDeath processes a bridge death notification.
