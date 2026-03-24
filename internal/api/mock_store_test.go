@@ -333,3 +333,7 @@ func (m *mockStore) ListAlertRules(context.Context, string) ([]store.AlertRule, 
 }
 func (m *mockStore) UpdateAlertRule(context.Context, string, *store.AlertRule) error { return nil }
 func (m *mockStore) DeleteAlertRule(context.Context, string, string) error           { return nil }
+
+func (m *mockStore) MarkStaleBridgesOffline(context.Context, time.Duration) (int64, error) {
+	return 0, nil
+}

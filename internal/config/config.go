@@ -124,6 +124,9 @@ type Config struct {
 	CloudloopMQTTKey           string `yaml:"cloudloop_mqtt_key"`            // Path to client key PEM
 	CloudloopAccountID         string `yaml:"cloudloop_account_id"`          // Cloudloop account ID for MQTT topic
 
+	// Bridge lifecycle
+	BridgeOfflineTimeout int `yaml:"bridge_offline_timeout"` // seconds without health before marking offline (default 300)
+
 	// WireGuard (wg-easy)
 	WGEnabled  bool   `yaml:"wg_enabled"`
 	WGURL      string `yaml:"wg_url"`      // wg-easy base URL (e.g., http://wg-easy:51821)
@@ -147,6 +150,7 @@ func Defaults() Config {
 		RateLimitDailyCap:     100,
 		ReticulumIdentityFile: "data/reticulum_identity.json",
 		ReticulumAppName:      "meshsat.hub",
+		BridgeOfflineTimeout:  300, // 5 minutes
 	}
 }
 
@@ -435,6 +439,13 @@ func Load() (Config, error) {
 	}
 	if v := os.Getenv("HUB_CLOUDLOOP_ACCOUNT_ID"); v != "" {
 		cfg.CloudloopAccountID = v
+	}
+
+	// Bridge lifecycle overrides
+	if v := os.Getenv("HUB_BRIDGE_OFFLINE_TIMEOUT"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			cfg.BridgeOfflineTimeout = n
+		}
 	}
 
 	// WireGuard overrides

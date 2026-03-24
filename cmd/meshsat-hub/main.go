@@ -406,6 +406,13 @@ func main() {
 		defer bridgeCommander.Stop()
 	}
 
+	// Bridge reaper: marks bridges offline when last_seen exceeds timeout.
+	if cfg.BridgeOfflineTimeout > 0 {
+		reaper := bridge.NewReaper(dataStore, time.Duration(cfg.BridgeOfflineTimeout)*time.Second)
+		reaper.Start()
+		defer reaper.Stop()
+	}
+
 	// Bridge certificate authority for MQTT TLS client certs.
 	var bridgeCA *bridge.CertAuthority
 	caCertPath := os.Getenv("MESHSAT_BRIDGE_CA_CERT")

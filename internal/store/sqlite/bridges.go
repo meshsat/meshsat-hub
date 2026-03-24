@@ -142,6 +142,17 @@ func (d *DB) TouchBridgeLastSeen(ctx context.Context, tenantID string, bridgeID 
 	return err
 }
 
+func (d *DB) MarkStaleBridgesOffline(ctx context.Context, timeout time.Duration) (int64, error) {
+	secs := int(timeout.Seconds())
+	res, err := d.db.ExecContext(ctx,
+		"UPDATE bridges SET online=0, updated_at=datetime('now') WHERE online=1 AND last_seen IS NOT NULL AND last_seen < datetime('now', ?)",
+		fmt.Sprintf("-%d seconds", secs))
+	if err != nil {
+		return 0, err
+	}
+	return res.RowsAffected()
+}
+
 func (d *DB) SetBridgeHealth(ctx context.Context, tenantID string, bridgeID string, health string) error {
 	_, err := d.db.ExecContext(ctx,
 		"UPDATE bridges SET last_health=?, updated_at=datetime('now') WHERE bridge_id=? AND tenant_id=?",

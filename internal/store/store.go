@@ -133,6 +133,7 @@ type Store interface {
 	TouchBridgeLastSeen(ctx context.Context, tenantID string, bridgeID string) error
 	SetBridgeHealth(ctx context.Context, tenantID string, bridgeID string, health string) error
 	AssociateDeviceWithBridge(ctx context.Context, tenantID string, imei string, bridgeID string) error
+	MarkStaleBridgesOffline(ctx context.Context, timeout time.Duration) (int64, error)
 
 	// Bridge MQTT credentials
 	SetBridgeCredentials(ctx context.Context, tenantID, bridgeID, username, passwordHash string) error
