@@ -18,11 +18,28 @@ import (
 // mockBridgeStore is a minimal mock for bridge auth tests.
 type mockBridgeStore struct {
 	store.Store // embed to satisfy interface (panics on unimplemented calls)
-	bridges     map[string]*store.Bridge
+	bridges      map[string]*store.Bridge
+	systemConfig map[string]string
 }
 
 func newMockBridgeStore() *mockBridgeStore {
-	return &mockBridgeStore{bridges: make(map[string]*store.Bridge)}
+	return &mockBridgeStore{
+		bridges:      make(map[string]*store.Bridge),
+		systemConfig: make(map[string]string),
+	}
+}
+
+func (m *mockBridgeStore) GetSystemConfig(_ context.Context, key string) (string, error) {
+	v, ok := m.systemConfig[key]
+	if !ok {
+		return "", fmt.Errorf("not found")
+	}
+	return v, nil
+}
+
+func (m *mockBridgeStore) SetSystemConfig(_ context.Context, key, value string) error {
+	m.systemConfig[key] = value
+	return nil
 }
 
 func (m *mockBridgeStore) GetBridge(_ context.Context, _ string, bridgeID string) (*store.Bridge, error) {
@@ -64,6 +81,7 @@ func withTenantCtx(ctx context.Context, tid string) context.Context {
 func TestGenerateCredentials(t *testing.T) {
 	ms := newMockBridgeStore()
 	ms.bridges["mule01"] = &store.Bridge{BridgeID: "mule01"}
+	ms.systemConfig[mqttPublicURLKey] = "wss://hub.example.com/mqtt"
 
 	handler := NewBridgeAuthHandler(ms, nil)
 
