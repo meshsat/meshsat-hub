@@ -270,6 +270,11 @@ export const credentials = {
   }
 }
 
+export const settings = {
+  getMqttUrl: () => fetchJSON('/settings/mqtt-url'),
+  setMqttUrl: (url) => fetchJSON('/settings/mqtt-url', { method: 'PUT', body: JSON.stringify({ mqtt_url: url }) }),
+}
+
 export const health = {
   check: () => fetch('/healthz').then(r => r.json()).catch(() => ({ status: 'error' })),
   readyz: () => fetch('/readyz').then(r => r.json()).catch(() => ({ status: 'error' })),

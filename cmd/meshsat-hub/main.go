@@ -1080,6 +1080,10 @@ func main() {
 	r.Post("/api/bridges/{id}/certificate", bridgeAuthHandler.IssueCertificate)
 	r.Post("/api/bridges/acl/regenerate", bridgeAuthHandler.RegenerateACL)
 
+	// Platform settings (MQTT public URL for bridge onboarding)
+	r.Get("/api/settings/mqtt-url", bridgeAuthHandler.GetMQTTURL)
+	r.Put("/api/settings/mqtt-url", bridgeAuthHandler.SetMQTTURL)
+
 	// Device registry API
 	deviceHandler := api.NewDeviceHandler(dataStore)
 	r.Get("/api/devices", deviceHandler.ListDevices)

@@ -1,6 +1,6 @@
 <script setup>
 import { ref, onMounted } from 'vue'
-import { health, constellations, mptcp as mptcpApi, tor, codecs, ipougrs, backup, reticulum } from '../api/client'
+import { health, constellations, mptcp as mptcpApi, tor, codecs, ipougrs, backup, reticulum, settings } from '../api/client'
 
 const loading = ref(true)
 const hubHealth = ref(null)
@@ -14,6 +14,9 @@ const retIdentity = ref(null)
 const error = ref('')
 const exportLoading = ref(false)
 const exportResult = ref(null)
+const mqttUrl = ref('')
+const mqttUrlSaving = ref(false)
+const mqttUrlSaved = ref(false)
 
 onMounted(async () => {
   const results = await Promise.allSettled([
@@ -25,6 +28,7 @@ onMounted(async () => {
     codecs.list(),
     ipougrs.status(),
     reticulum.identity(),
+    settings.getMqttUrl(),
   ])
 
   hubHealth.value = results[0].status === 'fulfilled' ? results[0].value : null
@@ -36,8 +40,23 @@ onMounted(async () => {
   codecList.value = results[5].status === 'fulfilled' && Array.isArray(results[5].value) ? results[5].value : []
   ipougrsStatus.value = results[6].status === 'fulfilled' ? results[6].value : null
   retIdentity.value = results[7].status === 'fulfilled' ? results[7].value : null
+  mqttUrl.value = results[8].status === 'fulfilled' ? (results[8].value?.mqtt_url || '') : ''
   loading.value = false
 })
+
+async function saveMqttUrl() {
+  mqttUrlSaving.value = true
+  mqttUrlSaved.value = false
+  try {
+    await settings.setMqttUrl(mqttUrl.value)
+    mqttUrlSaved.value = true
+    setTimeout(() => { mqttUrlSaved.value = false }, 3000)
+  } catch (e) {
+    error.value = e.message
+  } finally {
+    mqttUrlSaving.value = false
+  }
+}
 
 async function exportBackup() {
   exportLoading.value = true
@@ -103,6 +122,26 @@ function statusText(ok) {
             <div v-for="(status, name) in readyz.checks" :key="name" class="flex items-center gap-2">
               <span class="w-2 h-2 rounded-full" :class="statusDot(status === 'ok')"></span>
               <span class="text-sm text-gray-300">{{ name }}</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Platform Settings -->
+      <div class="bg-tactical-surface rounded-lg border border-tactical-border p-5 mb-6">
+        <h2 class="text-sm font-display font-semibold text-gray-200 uppercase tracking-wider mb-4">Platform</h2>
+        <div class="space-y-3">
+          <div>
+            <label class="text-gray-400 text-xs block mb-1">MQTT Public URL</label>
+            <p class="text-gray-500 text-xs mb-2">Shown to bridges during onboarding (Fleet page). Use <code class="text-gray-400">wss://</code> for WebSocket over TLS.</p>
+            <div class="flex items-center gap-2">
+              <input v-model="mqttUrl" type="text" placeholder="wss://hub.meshsat.net/mqtt"
+                class="flex-1 bg-gray-800 border border-gray-600 rounded px-3 py-1.5 text-sm text-gray-200 placeholder-gray-500 focus:border-teal-500 focus:outline-none" />
+              <button @click="saveMqttUrl" :disabled="mqttUrlSaving || !mqttUrl"
+                class="bg-teal-600 hover:bg-teal-500 disabled:bg-gray-600 text-white text-sm px-4 py-1.5 rounded whitespace-nowrap">
+                {{ mqttUrlSaving ? 'Saving...' : 'Save' }}
+              </button>
+              <span v-if="mqttUrlSaved" class="text-emerald-400 text-xs">Saved</span>
             </div>
           </div>
         </div>

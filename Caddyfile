@@ -7,6 +7,10 @@ hub.meshsat.io {
 	reverse_proxy /healthz hub:6070
 	reverse_proxy /readyz hub:6070
 
+	# MQTT over WebSocket — proxies to Mosquitto WS listener
+	@mqtt path /mqtt
+	reverse_proxy @mqtt mqtt:9001
+
 	# Security headers
 	header {
 		X-Content-Type-Options "nosniff"

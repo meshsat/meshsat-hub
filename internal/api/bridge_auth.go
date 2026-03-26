@@ -3,6 +3,7 @@ package api
 import (
 	"crypto/rand"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -15,6 +16,8 @@ import (
 	"github.com/go-chi/chi/v5"
 	"golang.org/x/crypto/bcrypt"
 )
+
+const mqttPublicURLKey = "mqtt_public_url"
 
 // BridgeAuthHandler provides REST endpoints for bridge MQTT authentication.
 type BridgeAuthHandler struct {
@@ -89,9 +92,13 @@ func (h *BridgeAuthHandler) GenerateCredentials(w http.ResponseWriter, r *http.R
 		return
 	}
 
-	mqttURL := os.Getenv("MESHSAT_MQTT_PUBLIC_URL")
+	mqttURL, _ := h.store.GetSystemConfig(r.Context(), mqttPublicURLKey)
 	if mqttURL == "" {
-		mqttURL = "mqtt://hub.meshsat.net:6071"
+		mqttURL = os.Getenv("MESHSAT_MQTT_PUBLIC_URL")
+	}
+	if mqttURL == "" {
+		writeError(w, http.StatusInternalServerError, "MQTT public URL not configured — set it in Settings")
+		return
 	}
 
 	writeJSON(w, http.StatusOK, credentialResponse{
@@ -147,6 +154,52 @@ func (h *BridgeAuthHandler) IssueCertificate(w http.ResponseWriter, r *http.Requ
 		CaPEM:    string(h.ca.CACertPEM()),
 		Expires:  expiry.Format(time.RFC3339),
 	})
+}
+
+// GetMQTTURL returns the current MQTT public URL setting.
+// @Summary Get MQTT public URL
+// @Description Returns the MQTT URL shown to bridges during onboarding.
+// @Tags settings
+// @Produce json
+// @Success 200 {object} map[string]string
+// @Router /api/settings/mqtt-url [get]
+func (h *BridgeAuthHandler) GetMQTTURL(w http.ResponseWriter, r *http.Request) {
+	url, _ := h.store.GetSystemConfig(r.Context(), mqttPublicURLKey)
+	if url == "" {
+		url = os.Getenv("MESHSAT_MQTT_PUBLIC_URL")
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"mqtt_url": url})
+}
+
+// SetMQTTURL saves the MQTT public URL setting.
+// @Summary Set MQTT public URL
+// @Description Saves the MQTT URL shown to bridges during onboarding.
+// @Tags settings
+// @Accept json
+// @Produce json
+// @Param body body object true "MQTT URL" SchemaExample({"mqtt_url":"wss://hub.meshsat.net/mqtt"})
+// @Success 200 {object} map[string]string
+// @Failure 400 {object} map[string]string
+// @Failure 500 {object} map[string]string
+// @Router /api/settings/mqtt-url [put]
+func (h *BridgeAuthHandler) SetMQTTURL(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		MQTTURL string `json:"mqtt_url"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON")
+		return
+	}
+	if req.MQTTURL == "" {
+		writeError(w, http.StatusBadRequest, "mqtt_url is required")
+		return
+	}
+	if err := h.store.SetSystemConfig(r.Context(), mqttPublicURLKey, req.MQTTURL); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to save MQTT URL")
+		return
+	}
+	slog.Info("mqtt public URL updated", "url", req.MQTTURL)
+	writeJSON(w, http.StatusOK, map[string]string{"mqtt_url": req.MQTTURL})
 }
 
 // RegenerateACL regenerates Mosquitto password and ACL files from bridge credentials.
