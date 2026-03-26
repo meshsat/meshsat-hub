@@ -1,29 +1,21 @@
-# Galera MariaDB + Arbitrator service definition.
-# All wsrep settings are passed via command-line args to avoid file
-# permission issues (mariadb:11-jammy drops to UID 999 "mysql" which
-# cannot read root-owned .cnf files mounted as :ro volumes).
+# MeshSat Hub — Unified Production Compose (Galera + Application)
 #
-# Per-node config via .env:
-#   WSREP_NODE_ADDRESS    — node IP (e.g. 192.168.192.10)
-#   SITE_NAME             — node name (e.g. meshsat-hub-nl)
-#   WSREP_CLUSTER_ADDRESS — ALWAYS the full address: gcomm://192.168.192.10,192.168.15.10
-#                           NEVER set to bare gcomm:// — the entrypoint will refuse to start.
+# Contains ALL services:
+#   - mariadb + garbd (Galera cluster, host network)
+#   - hub + nginx + nats + redis (application stack, hubnet bridge)
 #
-# Bootstrap (safe — no .env mutation):
-#   1. Stop MariaDB on ALL nodes
-#   2. On the authoritative node (highest wsrep_last_committed):
-#        docker run --rm -v meshsat-hub_mariadb-data:/var/lib/mysql alpine:3.21 \
-#          touch /var/lib/mysql/force-bootstrap
-#   3. docker compose up -d mariadb  (entrypoint detects flag, adds --wsrep-new-cluster)
-#   4. Wait for wsrep_cluster_size=1, wsrep_ready=ON
-#   5. Start MariaDB on other nodes (they join via IST/SST)
-#   6. Start garbd: docker compose up -d garbd
-#   7. Verify wsrep_cluster_size=3 on all data nodes
+# Deploy Hub only (safe, never touches MariaDB):
+#   docker compose up -d --no-deps --force-recreate hub
 #
-# The flag file is consumed (deleted) on first use. Next restart joins normally.
-# WSREP_CLUSTER_ADDRESS is NEVER modified.
+# NEVER run: docker compose up -d (without --no-deps)
+# NEVER run: docker compose pull (evaluates all services)
+# See CLAUDE.md for Galera safety rules.
 
 services:
+  # ===========================================================================
+  # GALERA CLUSTER (host network — direct host-to-host replication)
+  # ===========================================================================
+
   mariadb:
     image: mariadb:11-jammy
     container_name: meshsat-mariadb
@@ -66,12 +58,6 @@ services:
       start_period: 120s
       retries: 10
 
-  # -------------------------------------------------------------------------
-  # Galera Arbitrator (garbd) — lightweight 3rd quorum voter.
-  # No data, negligible CPU/RAM. Provides the critical 3rd vote so that
-  # any single failure preserves quorum (2 of 3 voters survive).
-  # Runs on NL node only (same host as MariaDB node 1).
-  # -------------------------------------------------------------------------
   garbd:
     build:
       context: .
@@ -89,5 +75,82 @@ services:
       mariadb:
         condition: service_healthy
 
+  # ===========================================================================
+  # APPLICATION STACK (hubnet bridge — isolated from Galera)
+  # ===========================================================================
+
+  nats:
+    image: nats:2-alpine
+    container_name: meshsat-nats
+    restart: unless-stopped
+    command: ["-c", "/etc/nats/nats.conf", "--name", "${SITE_NAME:-meshsat-nats}"]
+    ports:
+      - "4222:4222"
+      - "1883:1883"
+      - "8222:8222"
+    volumes:
+      - ./nats.conf:/etc/nats/nats.conf:ro
+      - nats-data:/data
+    networks:
+      - hubnet
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8222/healthz"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: meshsat-redis
+    restart: unless-stopped
+    command: redis-server --maxmemory 128mb --maxmemory-policy allkeys-lru --appendonly yes --bind 0.0.0.0 --protected-mode no
+    volumes:
+      - redis-data:/data
+    networks:
+      - hubnet
+
+  hub:
+    image: ghcr.io/cubeos-app/meshsat-hub:latest
+    container_name: meshsat-hub
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      HUB_MODE: cluster
+      HUB_PORT: "6070"
+      HUB_MQTT_BROKER_URL: tcp://nats:1883
+      HUB_NATS_URL: tcp://nats:1883
+      HUB_REDIS_URL: redis://redis:6379/0
+      HUB_LOG_LEVEL: info
+      HUB_LOG_FORMAT: json
+    volumes:
+      - /home/kyriakosp/meshsat-hub/certs:/certs:ro
+    networks:
+      - hubnet
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:6070/healthz"]
+      interval: 30s
+      timeout: 5s
+      start_period: 10s
+      retries: 3
+
+  nginx:
+    image: nginx:alpine
+    container_name: meshsat-hub-nginx
+    restart: unless-stopped
+    ports:
+      - "8451:8443"
+    volumes:
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - /srv/certs/meshsat.net.crt:/etc/nginx/certs/tls.crt:ro
+      - /srv/certs/meshsat.net.key:/etc/nginx/certs/tls.key:ro
+    networks:
+      - hubnet
+
 volumes:
   mariadb-data:
+  nats-data:
+  redis-data:
+
+networks:
+  hubnet:
+    driver: bridge
