@@ -3,12 +3,19 @@ import { ref, onMounted, onUnmounted, computed } from 'vue'
 import { reticulum } from '../api/client'
 import EmptyState from '../components/EmptyState.vue'
 
-const identity = ref(null)
-const routeData = ref({ count: 0, routes: [] })
-const relayData = ref({ stats: { forwarded: 0, dropped: 0, no_route: 0, rate_limited: 0 }, interfaces: [] })
+const topology = ref(null)
 const error = ref('')
 const loading = ref(true)
 let pollTimer = null
+
+const defaultTopology = {
+  hub: { dest_hash: '', app_name: '', role: '' },
+  routes: [],
+  interfaces: [],
+  relay_stats: { forwarded: 0, dropped: 0, no_route: 0, rate_limited: 0 },
+  path_stats: { requests_received: 0, responses_sent: 0, no_route: 0, deduplicated: 0 },
+  hints_published: 0,
+}
 
 onMounted(async () => {
   await loadData()
@@ -21,33 +28,39 @@ onUnmounted(() => {
 
 async function loadData() {
   try {
-    const [id, rt, rl] = await Promise.all([
-      reticulum.identity().catch(() => null),
-      reticulum.routes().catch(() => ({ count: 0, routes: [] })),
-      reticulum.relay().catch(() => ({ stats: {}, interfaces: [] })),
-    ])
-    identity.value = id
-    routeData.value = rt
-    relayData.value = rl
+    topology.value = await reticulum.topology()
     error.value = ''
   } catch (e) {
     error.value = e.message
+    if (!topology.value) topology.value = defaultTopology
   } finally {
     loading.value = false
   }
 }
 
-const freeRoutes = computed(() => routeData.value.routes.filter(r => r.cost === 0))
-const paidRoutes = computed(() => routeData.value.routes.filter(r => r.cost > 0))
-const totalPackets = computed(() => {
-  const s = relayData.value.stats
+const hub = computed(() => topology.value?.hub || defaultTopology.hub)
+const routeList = computed(() => topology.value?.routes || [])
+const routeCount = computed(() => routeList.value.length)
+const interfaces = computed(() => topology.value?.interfaces || [])
+const relayStats = computed(() => topology.value?.relay_stats || defaultTopology.relay_stats)
+const pathStats = computed(() => topology.value?.path_stats || defaultTopology.path_stats)
+const hintsPublished = computed(() => topology.value?.hints_published || 0)
+
+const freeRoutes = computed(() => routeList.value.filter(r => r.cost === 0))
+const paidRoutes = computed(() => routeList.value.filter(r => r.cost > 0))
+const totalRelayPackets = computed(() => {
+  const s = relayStats.value
   return (s.forwarded || 0) + (s.dropped || 0) + (s.no_route || 0) + (s.rate_limited || 0)
+})
+const totalPathOps = computed(() => {
+  const s = pathStats.value
+  return (s.requests_received || 0) + (s.responses_sent || 0) + (s.no_route || 0) + (s.deduplicated || 0)
 })
 
 // Group routes by interface for topology visualization
 const routesByInterface = computed(() => {
   const map = {}
-  for (const r of routeData.value.routes) {
+  for (const r of routeList.value) {
     if (!map[r.interface]) map[r.interface] = []
     map[r.interface].push(r)
   }
@@ -112,31 +125,25 @@ function timeSince(iso) {
         <div class="flex items-center gap-3 mb-3">
           <div class="w-3 h-3 rounded-full bg-teal-400 animate-pulse"></div>
           <h2 class="text-lg font-semibold uppercase tracking-wider">Hub Node</h2>
-          <span class="text-xs text-gray-500">Transport Node</span>
+          <span class="text-xs text-gray-500 capitalize">{{ hub.role.replace(/_/g, ' ') || 'Transport Node' }}</span>
         </div>
-        <div v-if="identity" class="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
+        <div v-if="hub.dest_hash" class="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
           <div>
             <span class="text-gray-400 text-xs">Destination Hash</span>
-            <p class="font-mono text-teal-400 break-all">{{ identity.dest_hash }}</p>
+            <p class="font-mono text-teal-400 break-all">{{ hub.dest_hash }}</p>
           </div>
           <div>
             <span class="text-gray-400 text-xs">App Name</span>
-            <p class="font-mono">{{ identity.app_name }}</p>
-          </div>
-          <div>
-            <span class="text-gray-400 text-xs">Public Key</span>
-            <p class="font-mono text-xs text-gray-300 break-all truncate" :title="identity.public_key_hex">
-              {{ identity.public_key_hex?.substring(0, 32) }}...
-            </p>
+            <p class="font-mono">{{ hub.app_name }}</p>
           </div>
         </div>
         <p v-else class="text-gray-500">Identity not loaded</p>
       </div>
 
       <!-- Stats Row -->
-      <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 mb-6">
+      <div class="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-3 mb-6">
         <div class="bg-tactical-surface rounded-lg border border-tactical-border p-4 text-center">
-          <p class="text-2xl font-display font-bold">{{ routeData.count }}</p>
+          <p class="text-2xl font-display font-bold">{{ routeCount }}</p>
           <p class="text-gray-400 text-xs">Known Nodes</p>
         </div>
         <div class="bg-tactical-surface rounded-lg border border-tactical-border p-4 text-center">
@@ -148,28 +155,36 @@ function timeSince(iso) {
           <p class="text-gray-400 text-xs">Paid Paths</p>
         </div>
         <div class="bg-tactical-surface rounded-lg border border-tactical-border p-4 text-center">
-          <p class="text-2xl font-display font-bold text-teal-400">{{ relayData.interfaces.length }}</p>
+          <p class="text-2xl font-display font-bold text-teal-400">{{ interfaces.length }}</p>
           <p class="text-gray-400 text-xs">Interfaces</p>
         </div>
         <div class="bg-tactical-surface rounded-lg border border-tactical-border p-4 text-center">
-          <p class="text-2xl font-display font-bold text-emerald-400">{{ relayData.stats.forwarded || 0 }}</p>
+          <p class="text-2xl font-display font-bold text-emerald-400">{{ relayStats.forwarded || 0 }}</p>
           <p class="text-gray-400 text-xs">Forwarded</p>
         </div>
         <div class="bg-tactical-surface rounded-lg border border-tactical-border p-4 text-center">
-          <p class="text-2xl font-display font-bold" :class="(relayData.stats.dropped || 0) > 0 ? 'text-red-400' : 'text-gray-500'">
-            {{ relayData.stats.dropped || 0 }}
+          <p class="text-2xl font-display font-bold" :class="(relayStats.dropped || 0) > 0 ? 'text-red-400' : 'text-gray-500'">
+            {{ relayStats.dropped || 0 }}
           </p>
           <p class="text-gray-400 text-xs">Dropped</p>
+        </div>
+        <div class="bg-tactical-surface rounded-lg border border-tactical-border p-4 text-center">
+          <p class="text-2xl font-display font-bold text-sky-400">{{ pathStats.responses_sent || 0 }}</p>
+          <p class="text-gray-400 text-xs">Path Replies</p>
+        </div>
+        <div class="bg-tactical-surface rounded-lg border border-tactical-border p-4 text-center">
+          <p class="text-2xl font-display font-bold text-purple-400">{{ hintsPublished }}</p>
+          <p class="text-gray-400 text-xs">Hints Sent</p>
         </div>
       </div>
 
       <!-- Transport Interfaces -->
       <div class="mb-6">
         <h2 class="text-sm font-display font-semibold text-gray-200 uppercase tracking-wider mb-3">Transport Interfaces</h2>
-        <EmptyState v-if="relayData.interfaces.length === 0" icon="globe" title="No interfaces"
+        <EmptyState v-if="interfaces.length === 0" icon="globe" title="No interfaces"
           message="Reticulum transport interfaces will appear here when registered." />
         <div v-else class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-          <div v-for="iface in relayData.interfaces" :key="iface.name"
+          <div v-for="iface in interfaces" :key="iface.name"
             class="bg-tactical-surface rounded-lg border p-4" :class="ifaceBorderColor(iface.name)">
             <div class="flex items-center justify-between mb-2">
               <div class="flex items-center gap-2">
@@ -198,7 +213,7 @@ function timeSince(iso) {
       </div>
 
       <!-- Network Topology Visualization -->
-      <div v-if="routeData.routes.length > 0" class="mb-6">
+      <div v-if="routeList.length > 0" class="mb-6">
         <h2 class="text-sm font-display font-semibold text-gray-200 uppercase tracking-wider mb-3">Network Map</h2>
         <div class="bg-tactical-surface rounded-lg border border-tactical-border p-6">
           <div class="flex items-center justify-center gap-8 flex-wrap">
@@ -243,10 +258,10 @@ function timeSince(iso) {
       <div class="bg-tactical-surface rounded-lg border border-tactical-border overflow-hidden">
         <div class="px-4 py-3 border-b border-tactical-border flex items-center justify-between">
           <h2 class="text-sm font-display font-semibold text-gray-200 uppercase tracking-wider">Routing Table</h2>
-          <span class="text-xs text-gray-500">{{ routeData.count }} entries</span>
+          <span class="text-xs text-gray-500">{{ routeCount }} entries</span>
         </div>
 
-        <EmptyState v-if="routeData.routes.length === 0" icon="globe" title="No routes learned"
+        <EmptyState v-if="routeList.length === 0" icon="globe" title="No routes learned"
           message="Waiting for announces from field devices. Routes appear when Reticulum nodes announce their identity." />
 
         <div v-else class="overflow-x-auto">
@@ -262,7 +277,7 @@ function timeSince(iso) {
               </tr>
             </thead>
             <tbody>
-              <tr v-for="route in routeData.routes" :key="route.dest_hash"
+              <tr v-for="route in routeList" :key="route.dest_hash"
                   class="border-b border-tactical-border/50 hover:bg-white/[0.02]">
                 <td class="px-4 py-2 font-mono text-xs">{{ route.dest_hash }}</td>
                 <td class="px-4 py-2">
@@ -282,25 +297,51 @@ function timeSince(iso) {
         </div>
       </div>
 
-      <!-- Relay Stats Detail -->
-      <div v-if="totalPackets > 0" class="mt-4 bg-tactical-surface rounded-lg border border-tactical-border p-4">
-        <h2 class="text-sm font-display font-semibold text-gray-200 uppercase tracking-wider mb-3">Relay Statistics</h2>
-        <div class="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
-          <div class="flex items-center justify-between">
-            <span class="text-gray-400">Forwarded</span>
-            <span class="text-emerald-400 font-medium">{{ relayData.stats.forwarded || 0 }}</span>
+      <!-- Relay & Path Stats -->
+      <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 mt-4">
+        <!-- Relay Stats -->
+        <div v-if="totalRelayPackets > 0" class="bg-tactical-surface rounded-lg border border-tactical-border p-4">
+          <h2 class="text-sm font-display font-semibold text-gray-200 uppercase tracking-wider mb-3">Relay Statistics</h2>
+          <div class="grid grid-cols-2 gap-4 text-sm">
+            <div class="flex items-center justify-between">
+              <span class="text-gray-400">Forwarded</span>
+              <span class="text-emerald-400 font-medium">{{ relayStats.forwarded || 0 }}</span>
+            </div>
+            <div class="flex items-center justify-between">
+              <span class="text-gray-400">Dropped</span>
+              <span class="text-red-400 font-medium">{{ relayStats.dropped || 0 }}</span>
+            </div>
+            <div class="flex items-center justify-between">
+              <span class="text-gray-400">No Route</span>
+              <span class="text-amber-400 font-medium">{{ relayStats.no_route || 0 }}</span>
+            </div>
+            <div class="flex items-center justify-between">
+              <span class="text-gray-400">Rate Limited</span>
+              <span class="text-gray-300 font-medium">{{ relayStats.rate_limited || 0 }}</span>
+            </div>
           </div>
-          <div class="flex items-center justify-between">
-            <span class="text-gray-400">Dropped</span>
-            <span class="text-red-400 font-medium">{{ relayData.stats.dropped || 0 }}</span>
-          </div>
-          <div class="flex items-center justify-between">
-            <span class="text-gray-400">No Route</span>
-            <span class="text-amber-400 font-medium">{{ relayData.stats.no_route || 0 }}</span>
-          </div>
-          <div class="flex items-center justify-between">
-            <span class="text-gray-400">Rate Limited</span>
-            <span class="text-gray-300 font-medium">{{ relayData.stats.rate_limited || 0 }}</span>
+        </div>
+
+        <!-- Path Discovery Stats -->
+        <div v-if="totalPathOps > 0 || hintsPublished > 0" class="bg-tactical-surface rounded-lg border border-tactical-border p-4">
+          <h2 class="text-sm font-display font-semibold text-gray-200 uppercase tracking-wider mb-3">Path Discovery</h2>
+          <div class="grid grid-cols-2 gap-4 text-sm">
+            <div class="flex items-center justify-between">
+              <span class="text-gray-400">Requests</span>
+              <span class="text-sky-400 font-medium">{{ pathStats.requests_received || 0 }}</span>
+            </div>
+            <div class="flex items-center justify-between">
+              <span class="text-gray-400">Responses</span>
+              <span class="text-emerald-400 font-medium">{{ pathStats.responses_sent || 0 }}</span>
+            </div>
+            <div class="flex items-center justify-between">
+              <span class="text-gray-400">Deduplicated</span>
+              <span class="text-gray-300 font-medium">{{ pathStats.deduplicated || 0 }}</span>
+            </div>
+            <div class="flex items-center justify-between">
+              <span class="text-gray-400">Hints Published</span>
+              <span class="text-purple-400 font-medium">{{ hintsPublished }}</span>
+            </div>
           </div>
         </div>
       </div>
