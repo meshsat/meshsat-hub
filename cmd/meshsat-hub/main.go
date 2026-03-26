@@ -8,6 +8,7 @@ import (
 	"io/fs"
 	"log/slog"
 	"net/http"
+	_ "net/http/pprof"
 	"os"
 	"os/signal"
 	"strings"
@@ -45,9 +46,11 @@ import (
 	"github.com/cubeos-app/meshsat-hub/internal/leader"
 	hubmessage "github.com/cubeos-app/meshsat-hub/internal/message"
 	"github.com/cubeos-app/meshsat-hub/internal/metrics"
+	hubmw "github.com/cubeos-app/meshsat-hub/internal/middleware"
 	"github.com/cubeos-app/meshsat-hub/internal/mptcp"
 	hubmsvqsc "github.com/cubeos-app/meshsat-hub/internal/msvqsc"
 	"github.com/cubeos-app/meshsat-hub/internal/ntfy"
+	"github.com/cubeos-app/meshsat-hub/internal/observability"
 	"github.com/cubeos-app/meshsat-hub/internal/position"
 	"github.com/cubeos-app/meshsat-hub/internal/ratelimit"
 	"github.com/cubeos-app/meshsat-hub/internal/reticulum"
@@ -129,10 +132,15 @@ func main() {
 	initLogger(cfg)
 	slog.Info("starting meshsat-hub", "version", version, "port", cfg.Port, "mode", cfg.Mode)
 
+	// Observability: build info metric and OTel tracing.
+	metrics.SetBuildInfo(version, cfg.Mode, fmt.Sprintf("go%d.%d", 1, 25))
+	otelShutdown, _ := observability.InitTracing(context.Background(), cfg.OTelServiceName, cfg.OTelEndpoint)
+
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	checker := health.New()
+	probeTimeout, _ := time.ParseDuration(cfg.HealthProbeTimeout)
+	checker := health.New(probeTimeout)
 
 	// --- Message bus (tri-mode) ---
 	var msgBus bus.MessageBus
@@ -147,6 +155,7 @@ func main() {
 	default: // "standalone"
 		msgBus = paho.New(cfg.MQTTBrokerURL, cfg.MQTTClientID)
 	}
+	msgBus = bus.NewObservedBus(msgBus) // Wrap with metrics instrumentation.
 	if err := msgBus.Connect(); err != nil {
 		slog.Warn("bus connection failed (will retry in background)", "error", err)
 	}
@@ -162,7 +171,8 @@ func main() {
 	var clusterMonitor *cluster.Monitor
 	switch cfg.Mode {
 	case "cluster", "kubernetes":
-		dbStore, err := mariadb.New(cfg.DatabaseURL)
+		slowQ := time.Duration(cfg.DBSlowQueryMS) * time.Millisecond
+		dbStore, err := mariadb.New(cfg.DatabaseURL, slowQ)
 		if err != nil {
 			slog.Error("mariadb connection failed", "error", err)
 			os.Exit(1)
@@ -185,7 +195,8 @@ func main() {
 		}
 		clusterMonitor = cluster.NewMonitor(dbStore.RawDB(), cfg.MQTTClientID, "", peers)
 	default: // "standalone"
-		sqlStore, err := sqlite.New("/data/hub.db")
+		slowQ := time.Duration(cfg.DBSlowQueryMS) * time.Millisecond
+		sqlStore, err := sqlite.New("/data/hub.db", slowQ)
 		if err != nil {
 			slog.Error("sqlite open failed", "error", err)
 			os.Exit(1)
@@ -200,6 +211,11 @@ func main() {
 
 	// Audit service (tamper-evident hash chain).
 	auditSvc := audit.New(dataStore)
+	// Audit log retention (background goroutine).
+	go audit.RunRetention(ctx, dataStore, audit.RetentionConfig{
+		RetentionDays: cfg.AuditRetentionDays,
+		ArchivePath:   cfg.AuditArchivePath,
+	})
 
 	// --- Dedup (tri-mode) ---
 	var dedupTracker dedup.Dedup
@@ -836,6 +852,7 @@ func main() {
 	r := chi.NewRouter()
 	r.Use(middleware.Recoverer)
 	r.Use(middleware.RealIP)
+	r.Use(hubmw.RequestID) // Assign/propagate correlation IDs.
 	r.Use(api.SecurityHeaders)
 	r.Use(api.WSTokenFromQuery) // Copy ?token= query param to Authorization header for WebSocket clients.
 
@@ -904,10 +921,19 @@ func main() {
 	// Enforce mode disabled for backward compatibility; enable via HUB_TENANT_ENFORCE=true.
 	r.Use(hubauth.TenantMiddleware(cfg.TenantEnforce))
 	r.Use(metrics.ChiMiddleware)
+	r.Use(hubmw.Logging) // Structured HTTP request logging (runs last to see auth context).
 
 	r.Get("/healthz", health.LivezHandler)
 	r.Get("/readyz", checker.ReadyzHandler)
+	r.Get("/startupz", checker.StartupzHandler)
 	r.Handle("/metrics", metrics.Handler())
+
+	// pprof profiling endpoints (opt-in, behind auth).
+	if cfg.PprofEnabled {
+		slog.Warn("pprof endpoints enabled at /debug/pprof/ — ensure auth is configured")
+		r.HandleFunc("/debug/pprof/", http.DefaultServeMux.ServeHTTP)
+		r.HandleFunc("/debug/pprof/{profile}", http.DefaultServeMux.ServeHTTP)
+	}
 
 	// WebSocket real-time event hub
 	wsHub := api.NewWSHub()
@@ -1434,6 +1460,7 @@ func main() {
 		takClient.Disconnect()
 	}
 	msgBus.Disconnect()
+	_ = otelShutdown(shutdownCtx)
 	slog.Info("stopped")
 }
 

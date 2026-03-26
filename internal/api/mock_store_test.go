@@ -113,6 +113,12 @@ func (m *mockStore) ListAuditEntries(_ context.Context, _ string, _ int) ([]stor
 func (m *mockStore) GetLatestAuditEntry(_ context.Context, _ string) (*store.AuditEntry, error) {
 	return m.auditEntry, m.auditErr
 }
+func (m *mockStore) ListAuditEntriesBefore(_ context.Context, _ string, _ time.Time, _ int) ([]store.AuditEntry, error) {
+	return nil, nil
+}
+func (m *mockStore) DeleteAuditEntriesBefore(_ context.Context, _ string, _ time.Time) (int64, error) {
+	return 0, nil
+}
 
 func (m *mockStore) CreateDeviceConfig(ctx context.Context, tid string, c *store.DeviceConfig) error {
 	if m.createCfgFn != nil {

@@ -54,6 +54,8 @@ type Store interface {
 	InsertAuditEntry(ctx context.Context, tenantID string, a *AuditEntry) error
 	ListAuditEntries(ctx context.Context, tenantID string, limit int) ([]AuditEntry, error)
 	GetLatestAuditEntry(ctx context.Context, tenantID string) (*AuditEntry, error)
+	ListAuditEntriesBefore(ctx context.Context, tenantID string, before time.Time, limit int) ([]AuditEntry, error)
+	DeleteAuditEntriesBefore(ctx context.Context, tenantID string, before time.Time) (int64, error)
 
 	// Device config versioning
 	CreateDeviceConfig(ctx context.Context, tenantID string, c *DeviceConfig) error

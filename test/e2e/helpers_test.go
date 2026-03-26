@@ -31,7 +31,7 @@ type testHarness struct {
 func newHarness(t *testing.T) *testHarness {
 	t.Helper()
 
-	s, err := sqlite.New(":memory:")
+	s, err := sqlite.New(":memory:", 0)
 	if err != nil {
 		t.Fatalf("sqlite open: %v", err)
 	}

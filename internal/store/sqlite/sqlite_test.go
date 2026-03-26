@@ -13,7 +13,7 @@ const testTenant = "test-tenant"
 
 func testDB(t *testing.T) *DB {
 	t.Helper()
-	db, err := New(filepath.Join(t.TempDir(), "test.db"))
+	db, err := New(filepath.Join(t.TempDir(), "test.db"), 0)
 	if err != nil {
 		t.Fatalf("open: %v", err)
 	}

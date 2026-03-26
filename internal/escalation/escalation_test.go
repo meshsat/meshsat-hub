@@ -12,7 +12,7 @@ import (
 
 func newTestStore(t *testing.T) store.Store {
 	t.Helper()
-	s, err := sqlite.New(":memory:")
+	s, err := sqlite.New(":memory:", 0)
 	if err != nil {
 		t.Fatal(err)
 	}

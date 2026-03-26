@@ -11,7 +11,7 @@ import (
 
 func testAuditService(t *testing.T) *Service {
 	t.Helper()
-	db, err := sqlite.New(filepath.Join(t.TempDir(), "test.db"))
+	db, err := sqlite.New(filepath.Join(t.TempDir(), "test.db"), 0)
 	if err != nil {
 		t.Fatalf("open: %v", err)
 	}

@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/cubeos-app/meshsat-hub/internal/bus"
+	"github.com/cubeos-app/meshsat-hub/internal/metrics"
 )
 
 // DeviceLimiter implements per-device token bucket rate limiting for MT satellite sends.
@@ -84,11 +85,13 @@ func NewDeviceLimiter(maxTokens float64, refillRate float64, dailyCap, monthlyCa
 func (l *DeviceLimiter) Allow(deviceID string, isSOS bool) bool {
 	if isSOS {
 		slog.Debug("ratelimit: SOS bypass", "device", deviceID)
+		metrics.RatelimitDecisions.WithLabelValues("allowed").Inc()
 		return true
 	}
 
 	// Check admin override
 	if isOverridden(deviceID) {
+		metrics.RatelimitDecisions.WithLabelValues("allowed").Inc()
 		return true
 	}
 
@@ -106,6 +109,8 @@ func (l *DeviceLimiter) Allow(deviceID string, isSOS bool) bool {
 		if mc.count >= l.monthlyCap {
 			slog.Warn("ratelimit: monthly cap exceeded", "device", deviceID, "count", mc.count, "cap", l.monthlyCap)
 			l.publishAlert(deviceID, "monthly_cap_exceeded", mc.count)
+			metrics.RatelimitDecisions.WithLabelValues("denied").Inc()
+			metrics.RatelimitViolations.WithLabelValues("monthly_cap").Inc()
 			return false
 		}
 	}
@@ -121,6 +126,8 @@ func (l *DeviceLimiter) Allow(deviceID string, isSOS bool) bool {
 		if dc.count >= l.dailyCap {
 			slog.Warn("ratelimit: daily cap exceeded", "device", deviceID, "count", dc.count, "cap", l.dailyCap)
 			l.publishAlert(deviceID, "daily_cap_exceeded", dc.count)
+			metrics.RatelimitDecisions.WithLabelValues("denied").Inc()
+			metrics.RatelimitViolations.WithLabelValues("daily_cap").Inc()
 			return false
 		}
 	}
@@ -131,6 +138,8 @@ func (l *DeviceLimiter) Allow(deviceID string, isSOS bool) bool {
 	if bucket.tokens < 1.0 {
 		slog.Warn("ratelimit: throttled", "device", deviceID, "tokens", bucket.tokens)
 		l.publishAlert(deviceID, "throttled", 0)
+		metrics.RatelimitDecisions.WithLabelValues("denied").Inc()
+		metrics.RatelimitViolations.WithLabelValues("throttled").Inc()
 		return false
 	}
 
@@ -146,6 +155,7 @@ func (l *DeviceLimiter) Allow(deviceID string, isSOS bool) bool {
 		mc.count++
 	}
 
+	metrics.RatelimitDecisions.WithLabelValues("allowed").Inc()
 	return true
 }
 
@@ -242,14 +252,19 @@ func SetOverride(deviceID string, duration time.Duration) {
 	overrides.Lock()
 	overrides.m[deviceID] = time.Now().Add(duration)
 	overrides.Unlock()
+	metrics.RatelimitOverridesActive.Inc()
 	slog.Info("ratelimit: override set", "device", deviceID, "duration", duration)
 }
 
 // ClearOverride removes a rate limit exemption.
 func ClearOverride(deviceID string) {
 	overrides.Lock()
+	_, existed := overrides.m[deviceID]
 	delete(overrides.m, deviceID)
 	overrides.Unlock()
+	if existed {
+		metrics.RatelimitOverridesActive.Dec()
+	}
 }
 
 func isOverridden(deviceID string) bool {

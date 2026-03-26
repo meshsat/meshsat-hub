@@ -13,22 +13,24 @@ import (
 	_ "modernc.org/sqlite"
 
 	"github.com/cubeos-app/meshsat-hub/internal/store"
+	"github.com/cubeos-app/meshsat-hub/internal/store/dbwrap"
 )
 
 // DB implements store.Store with SQLite.
 type DB struct {
-	db *sql.DB
+	db dbwrap.SQLDB
 }
 
 // New opens a SQLite database at the given path.
-func New(path string) (*DB, error) {
+// slowQueryThreshold controls slow query logging (0 = disabled).
+func New(path string, slowQueryThreshold time.Duration) (*DB, error) {
 	dsn := fmt.Sprintf("file:%s?_journal_mode=WAL&_busy_timeout=5000&_foreign_keys=ON&_synchronous=NORMAL", path)
 	conn, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		return nil, fmt.Errorf("sqlite open: %w", err)
 	}
 	conn.SetMaxOpenConns(1) // SQLite write serialization
-	return &DB{db: conn}, nil
+	return &DB{db: dbwrap.NewObservedDB(conn, "sqlite", slowQueryThreshold)}, nil
 }
 
 func (d *DB) Close() error { return d.db.Close() }
@@ -749,6 +751,42 @@ func (d *DB) GetLatestAuditEntry(ctx context.Context, tenantID string) (*store.A
 	}
 	a.CreatedAt, _ = time.Parse(time.DateTime, createdAt)
 	return &a, nil
+}
+
+func (d *DB) ListAuditEntriesBefore(ctx context.Context, tenantID string, before time.Time, limit int) ([]store.AuditEntry, error) {
+	q := "SELECT id, action, actor, detail, ip, prev_hash, hash, created_at FROM audit_log WHERE tenant_id=? AND created_at < ?"
+	args := []any{tenantID, before.Format(time.DateTime)}
+	if limit > 0 {
+		q += " LIMIT ?"
+		args = append(args, limit)
+	}
+	rows, err := d.db.QueryContext(ctx, q, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+	var entries []store.AuditEntry
+	for rows.Next() {
+		var a store.AuditEntry
+		var createdAt string
+		if err := rows.Scan(&a.ID, &a.Action, &a.Actor, &a.Detail, &a.IP, &a.PrevHash, &a.Hash, &createdAt); err != nil {
+			return nil, err
+		}
+		a.CreatedAt, _ = time.Parse(time.DateTime, createdAt)
+		entries = append(entries, a)
+	}
+	return entries, rows.Err()
+}
+
+func (d *DB) DeleteAuditEntriesBefore(ctx context.Context, tenantID string, before time.Time) (int64, error) {
+	res, err := d.db.ExecContext(ctx,
+		"DELETE FROM audit_log WHERE tenant_id=? AND created_at < ?",
+		tenantID, before.Format(time.DateTime),
+	)
+	if err != nil {
+		return 0, err
+	}
+	return res.RowsAffected()
 }
 
 // --- Device config versioning ---

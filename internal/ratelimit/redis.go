@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/cubeos-app/meshsat-hub/internal/metrics"
 	"github.com/redis/go-redis/v9"
 )
 
@@ -33,10 +34,12 @@ func NewRedisLimiter(client *redis.Client, dailyCap, monthlyCap int) *RedisLimit
 // SOS messages always bypass.
 func (l *RedisLimiter) Allow(deviceID string, isSOS bool) bool {
 	if isSOS {
+		metrics.RatelimitDecisions.WithLabelValues("allowed").Inc()
 		return true
 	}
 
 	if isOverridden(deviceID) {
+		metrics.RatelimitDecisions.WithLabelValues("allowed").Inc()
 		return true
 	}
 
@@ -49,6 +52,8 @@ func (l *RedisLimiter) Allow(deviceID string, isSOS bool) bool {
 		mCount, err := l.client.Get(ctx, monthKey).Int64()
 		if err == nil && int(mCount) >= l.monthlyCap {
 			slog.Warn("ratelimit: monthly cap exceeded", "device", deviceID, "count", mCount, "cap", l.monthlyCap)
+			metrics.RatelimitDecisions.WithLabelValues("denied").Inc()
+			metrics.RatelimitViolations.WithLabelValues("monthly_cap").Inc()
 			return false
 		}
 	}
@@ -61,6 +66,7 @@ func (l *RedisLimiter) Allow(deviceID string, isSOS bool) bool {
 		count, err := l.client.Incr(ctx, dayKey).Result()
 		if err != nil {
 			slog.Warn("ratelimit: redis incr error (fail-open)", "error", err, "device", deviceID)
+			metrics.RatelimitDecisions.WithLabelValues("allowed").Inc()
 			return true
 		}
 		if count == 1 {
@@ -68,6 +74,8 @@ func (l *RedisLimiter) Allow(deviceID string, isSOS bool) bool {
 		}
 		if int(count) > l.dailyCap {
 			slog.Warn("ratelimit: daily cap exceeded", "device", deviceID, "count", count, "cap", l.dailyCap)
+			metrics.RatelimitDecisions.WithLabelValues("denied").Inc()
+			metrics.RatelimitViolations.WithLabelValues("daily_cap").Inc()
 			return false
 		}
 	}
@@ -85,6 +93,7 @@ func (l *RedisLimiter) Allow(deviceID string, isSOS bool) bool {
 		}
 	}
 
+	metrics.RatelimitDecisions.WithLabelValues("allowed").Inc()
 	return true
 }
 

@@ -13,16 +13,19 @@ import (
 	_ "github.com/go-sql-driver/mysql"
 
 	"github.com/cubeos-app/meshsat-hub/internal/store"
+	"github.com/cubeos-app/meshsat-hub/internal/store/dbwrap"
 )
 
 // DB implements store.Store with MariaDB.
 type DB struct {
-	db *sql.DB
+	db    dbwrap.SQLDB
+	rawDB *sql.DB // kept for RawDB() / GaleraReady (needs raw driver access)
 }
 
 // New connects to MariaDB and returns a DB.
 // dsn format: "user:password@tcp(host:3306)/dbname?parseTime=true"
-func New(dsn string) (*DB, error) {
+// slowQueryThreshold controls slow query logging (0 = disabled).
+func New(dsn string, slowQueryThreshold time.Duration) (*DB, error) {
 	// Ensure parseTime is enabled for DATETIME scanning
 	if dsn != "" && !contains(dsn, "parseTime") {
 		sep := "?"
@@ -42,11 +45,14 @@ func New(dsn string) (*DB, error) {
 		_ = conn.Close()
 		return nil, fmt.Errorf("mariadb: ping: %w", err)
 	}
-	return &DB{db: conn}, nil
+	return &DB{
+		db:    dbwrap.NewObservedDB(conn, "mariadb", slowQueryThreshold),
+		rawDB: conn,
+	}, nil
 }
 
 // RawDB returns the underlying *sql.DB for direct queries (e.g., cluster health checks).
-func (d *DB) RawDB() *sql.DB                 { return d.db }
+func (d *DB) RawDB() *sql.DB                 { return d.rawDB }
 func (d *DB) Close() error                   { return d.db.Close() }
 func (d *DB) Ping(ctx context.Context) error { return d.db.PingContext(ctx) }
 
@@ -771,6 +777,40 @@ func (d *DB) GetLatestAuditEntry(ctx context.Context, tenantID string) (*store.A
 		return nil, err
 	}
 	return &a, nil
+}
+
+func (d *DB) ListAuditEntriesBefore(ctx context.Context, tenantID string, before time.Time, limit int) ([]store.AuditEntry, error) {
+	q := "SELECT id, action, actor, detail, ip, prev_hash, hash, created_at FROM audit_log WHERE tenant_id=? AND created_at < ?"
+	args := []any{tenantID, before}
+	if limit > 0 {
+		q += " LIMIT ?"
+		args = append(args, limit)
+	}
+	rows, err := d.db.QueryContext(ctx, q, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+	var entries []store.AuditEntry
+	for rows.Next() {
+		var a store.AuditEntry
+		if err := rows.Scan(&a.ID, &a.Action, &a.Actor, &a.Detail, &a.IP, &a.PrevHash, &a.Hash, &a.CreatedAt); err != nil {
+			return nil, err
+		}
+		entries = append(entries, a)
+	}
+	return entries, rows.Err()
+}
+
+func (d *DB) DeleteAuditEntriesBefore(ctx context.Context, tenantID string, before time.Time) (int64, error) {
+	res, err := d.db.ExecContext(ctx,
+		"DELETE FROM audit_log WHERE tenant_id=? AND created_at < ?",
+		tenantID, before,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return res.RowsAffected()
 }
 
 // --- Device config versioning ---

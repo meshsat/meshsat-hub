@@ -1,0 +1,104 @@
+{
+  "annotations": { "list": [] },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "links": [],
+  "panels": [
+    {
+      "title": "DB Query Latency",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(meshsat_hub_db_query_duration_seconds_bucket[5m])) by (le, store))",
+          "legendFormat": "p95 {{store}}"
+        },
+        {
+          "expr": "histogram_quantile(0.99, sum(rate(meshsat_hub_db_query_duration_seconds_bucket[5m])) by (le, store))",
+          "legendFormat": "p99 {{store}}"
+        }
+      ]
+    },
+    {
+      "title": "Slow Queries",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+      "targets": [
+        {
+          "expr": "sum(rate(meshsat_hub_db_slow_queries_total[5m])) by (store)",
+          "legendFormat": "{{store}}"
+        }
+      ]
+    },
+    {
+      "title": "DB Connection Pool",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+      "targets": [
+        { "expr": "meshsat_hub_db_pool_open_connections", "legendFormat": "open" },
+        { "expr": "meshsat_hub_db_pool_idle_connections", "legendFormat": "idle" }
+      ]
+    },
+    {
+      "title": "MQTT Status",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 6, "x": 12, "y": 8 },
+      "targets": [
+        { "expr": "meshsat_hub_mqtt_connected", "legendFormat": "connected" }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [
+            { "type": "value", "options": { "0": { "text": "Disconnected", "color": "red" }, "1": { "text": "Connected", "color": "green" } } }
+          ]
+        }
+      }
+    },
+    {
+      "title": "MQTT Reconnects",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 6, "x": 18, "y": 8 },
+      "targets": [
+        { "expr": "meshsat_hub_mqtt_reconnects_total", "legendFormat": "reconnects" }
+      ]
+    },
+    {
+      "title": "MQTT Publish Latency (p95)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 12 },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(meshsat_hub_mqtt_publish_duration_seconds_bucket[5m])) by (le))",
+          "legendFormat": "p95"
+        }
+      ]
+    },
+    {
+      "title": "Go Runtime",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 16 },
+      "targets": [
+        { "expr": "go_goroutines", "legendFormat": "goroutines" },
+        { "expr": "go_memstats_heap_alloc_bytes / 1024 / 1024", "legendFormat": "heap MB" }
+      ]
+    },
+    {
+      "title": "Health Probe Latency",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 16 },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(meshsat_hub_health_probe_duration_seconds_bucket[5m])) by (le, probe))",
+          "legendFormat": "p95 {{probe}}"
+        }
+      ]
+    }
+  ],
+  "schemaVersion": 39,
+  "tags": ["meshsat", "hub", "infrastructure"],
+  "templating": { "list": [] },
+  "time": { "from": "now-1h", "to": "now" },
+  "title": "MeshSat Hub — Infrastructure",
+  "uid": "meshsat-hub-infra"
+}

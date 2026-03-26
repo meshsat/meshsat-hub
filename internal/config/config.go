@@ -131,6 +131,15 @@ type Config struct {
 	WGEnabled  bool   `yaml:"wg_enabled"`
 	WGURL      string `yaml:"wg_url"`      // wg-easy base URL (e.g., http://wg-easy:51821)
 	WGPassword string `yaml:"wg_password"` // wg-easy web UI password
+
+	// Observability
+	PprofEnabled       bool   `yaml:"pprof_enabled"`        // Enable /debug/pprof/* endpoints (default false)
+	DBSlowQueryMS      int    `yaml:"db_slow_query_ms"`     // Slow query threshold in milliseconds (default 100)
+	AuditRetentionDays int    `yaml:"audit_retention_days"` // Days to keep audit log entries (default 90, 0=disabled)
+	AuditArchivePath   string `yaml:"audit_archive_path"`   // Path to archive purged audit entries as JSONL (empty=no archive)
+	HealthProbeTimeout string `yaml:"health_probe_timeout"` // Health probe timeout duration (default "3s")
+	OTelEndpoint       string `yaml:"otel_endpoint"`        // OTLP HTTP endpoint (empty=disabled)
+	OTelServiceName    string `yaml:"otel_service_name"`    // OTel service name (default "meshsat-hub")
 }
 
 // Defaults returns a Config with sensible default values.
@@ -151,6 +160,10 @@ func Defaults() Config {
 		ReticulumIdentityFile: "data/reticulum_identity.json",
 		ReticulumAppName:      "meshsat.hub",
 		BridgeOfflineTimeout:  300, // 5 minutes
+		DBSlowQueryMS:         100,
+		AuditRetentionDays:    90,
+		HealthProbeTimeout:    "3s",
+		OTelServiceName:       "meshsat-hub",
 	}
 }
 
@@ -446,6 +459,33 @@ func Load() (Config, error) {
 		if n, err := strconv.Atoi(v); err == nil {
 			cfg.BridgeOfflineTimeout = n
 		}
+	}
+
+	// Observability overrides
+	if v := os.Getenv("HUB_PPROF_ENABLED"); v != "" {
+		cfg.PprofEnabled = strings.EqualFold(v, "true") || v == "1"
+	}
+	if v := os.Getenv("HUB_DB_SLOW_QUERY_MS"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			cfg.DBSlowQueryMS = n
+		}
+	}
+	if v := os.Getenv("HUB_AUDIT_RETENTION_DAYS"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			cfg.AuditRetentionDays = n
+		}
+	}
+	if v := os.Getenv("HUB_AUDIT_ARCHIVE_PATH"); v != "" {
+		cfg.AuditArchivePath = v
+	}
+	if v := os.Getenv("HUB_HEALTH_PROBE_TIMEOUT"); v != "" {
+		cfg.HealthProbeTimeout = v
+	}
+	if v := os.Getenv("HUB_OTEL_ENDPOINT"); v != "" {
+		cfg.OTelEndpoint = v
+	}
+	if v := os.Getenv("HUB_OTEL_SERVICE_NAME"); v != "" {
+		cfg.OTelServiceName = v
 	}
 
 	// WireGuard overrides

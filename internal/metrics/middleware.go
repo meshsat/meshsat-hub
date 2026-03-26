@@ -19,7 +19,8 @@ func (w *statusWriter) WriteHeader(code int) {
 	w.ResponseWriter.WriteHeader(code)
 }
 
-// ChiMiddleware records HTTP request duration and count using chi route patterns.
+// ChiMiddleware records HTTP request duration, count, and active connections
+// using chi route patterns.
 func ChiMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Skip metrics and healthz paths from recording.
@@ -28,10 +29,13 @@ func ChiMiddleware(next http.Handler) http.Handler {
 			return
 		}
 
+		HTTPConnectionsActive.Inc()
 		start := time.Now()
 		sw := &statusWriter{ResponseWriter: w, code: http.StatusOK}
 
 		next.ServeHTTP(sw, r)
+
+		HTTPConnectionsActive.Dec()
 
 		// Use the chi route pattern to avoid high-cardinality labels.
 		pattern := r.URL.Path

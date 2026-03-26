@@ -1,0 +1,90 @@
+{
+  "annotations": { "list": [] },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "links": [],
+  "panels": [
+    {
+      "title": "Rate Limit Decisions",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "targets": [
+        {
+          "expr": "sum(rate(meshsat_hub_ratelimit_decisions_total[5m])) by (result)",
+          "legendFormat": "{{result}}"
+        }
+      ]
+    },
+    {
+      "title": "Rate Limit Violations",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+      "targets": [
+        {
+          "expr": "sum(rate(meshsat_hub_ratelimit_violations_total[5m])) by (type)",
+          "legendFormat": "{{type}}"
+        }
+      ]
+    },
+    {
+      "title": "Message Throughput by Channel",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+      "targets": [
+        {
+          "expr": "sum(rate(meshsat_hub_message_throughput_total[5m])) by (channel)",
+          "legendFormat": "{{channel}}"
+        }
+      ]
+    },
+    {
+      "title": "MQTT Messages by Topic",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
+      "targets": [
+        {
+          "expr": "sum(rate(meshsat_hub_mqtt_messages_published_total[5m])) by (topic_pattern)",
+          "legendFormat": "pub: {{topic_pattern}}"
+        },
+        {
+          "expr": "sum(rate(meshsat_hub_mqtt_messages_received_total[5m])) by (topic_pattern)",
+          "legendFormat": "recv: {{topic_pattern}}"
+        }
+      ]
+    },
+    {
+      "title": "Audit Entries Purged",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 16 },
+      "targets": [
+        { "expr": "meshsat_hub_audit_entries_purged_total", "legendFormat": "purged" }
+      ]
+    },
+    {
+      "title": "Active Rate Limit Overrides",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 6, "x": 6, "y": 16 },
+      "targets": [
+        { "expr": "meshsat_hub_ratelimit_overrides_active", "legendFormat": "overrides" }
+      ]
+    },
+    {
+      "title": "Relay Packets",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 16 },
+      "targets": [
+        {
+          "expr": "sum(rate(meshsat_hub_relay_packets_total[5m])) by (result)",
+          "legendFormat": "{{result}}"
+        }
+      ]
+    }
+  ],
+  "schemaVersion": 39,
+  "tags": ["meshsat", "hub", "business"],
+  "templating": { "list": [] },
+  "time": { "from": "now-1h", "to": "now" },
+  "title": "MeshSat Hub — Business Metrics",
+  "uid": "meshsat-hub-business"
+}
