@@ -281,3 +281,123 @@ func TestDefaultRouteTTL(t *testing.T) {
 		t.Errorf("expiry should be ~30min from now, got %v", entry.ExpiresAt)
 	}
 }
+
+func TestRouter_InjectRoute(t *testing.T) {
+	rt := NewRouter(5 * time.Minute)
+
+	// Valid 16-byte hex hash (32 hex chars).
+	destHex := "aabbccddeeff00112233445566778899"
+	pub := []byte("fake-signing-pub-key-32-bytes!!")
+
+	if !rt.InjectRoute(destHex, pub, "mqtt", 1) {
+		t.Error("expected inject to succeed")
+	}
+	if rt.RouteCount() != 1 {
+		t.Errorf("route count: got %d, want 1", rt.RouteCount())
+	}
+
+	entry := rt.LookupHex(destHex)
+	if entry == nil {
+		t.Fatal("injected route not found")
+	}
+	if entry.Interface != IfaceMQTT {
+		t.Errorf("iface: got %s, want mqtt", entry.Interface)
+	}
+	if entry.Cost != 0 {
+		t.Errorf("cost: got %f, want 0", entry.Cost)
+	}
+	if entry.Hops != 1 {
+		t.Errorf("hops: got %d, want 1", entry.Hops)
+	}
+}
+
+func TestRouter_InjectRoute_BadHash(t *testing.T) {
+	rt := NewRouter(5 * time.Minute)
+
+	// Too short.
+	if rt.InjectRoute("aabb", nil, "mqtt", 0) {
+		t.Error("expected inject to fail for short hash")
+	}
+	// Invalid hex.
+	if rt.InjectRoute("zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz", nil, "mqtt", 0) {
+		t.Error("expected inject to fail for invalid hex")
+	}
+	if rt.RouteCount() != 0 {
+		t.Errorf("route count should be 0, got %d", rt.RouteCount())
+	}
+}
+
+func TestRouter_InjectRoute_RefreshesExisting(t *testing.T) {
+	rt := NewRouter(5 * time.Minute)
+	destHex := "aabbccddeeff00112233445566778899"
+
+	rt.InjectRoute(destHex, nil, "mqtt", 1)
+	entry1 := rt.LookupHex(destHex)
+	firstSeen := entry1.LastSeen
+
+	// Small sleep to distinguish timestamps.
+	time.Sleep(2 * time.Millisecond)
+
+	// Re-inject same route — should refresh TTL.
+	if !rt.InjectRoute(destHex, nil, "mqtt", 1) {
+		t.Error("re-inject should succeed (refresh)")
+	}
+	entry2 := rt.LookupHex(destHex)
+	if !entry2.LastSeen.After(firstSeen) {
+		t.Error("last_seen should be updated on re-inject")
+	}
+	if rt.RouteCount() != 1 {
+		t.Error("should still be exactly 1 route")
+	}
+}
+
+func TestRouter_RemoveHex(t *testing.T) {
+	rt := NewRouter(5 * time.Minute)
+	destHex := "aabbccddeeff00112233445566778899"
+	rt.InjectRoute(destHex, nil, "mqtt", 1)
+
+	if !rt.RemoveHex(destHex) {
+		t.Error("expected remove to succeed")
+	}
+	if rt.RouteCount() != 0 {
+		t.Errorf("route count should be 0, got %d", rt.RouteCount())
+	}
+
+	// Remove non-existent.
+	if rt.RemoveHex(destHex) {
+		t.Error("remove of non-existent should return false")
+	}
+	// Bad hex.
+	if rt.RemoveHex("zzzz") {
+		t.Error("remove of bad hex should return false")
+	}
+}
+
+func TestRouter_RefreshRoute(t *testing.T) {
+	rt := NewRouter(5 * time.Minute)
+	destHex := "aabbccddeeff00112233445566778899"
+	rt.InjectRoute(destHex, nil, "mqtt", 1)
+
+	entry := rt.LookupHex(destHex)
+	firstExpiry := entry.ExpiresAt
+
+	time.Sleep(2 * time.Millisecond)
+
+	if !rt.RefreshRoute(destHex) {
+		t.Error("expected refresh to succeed")
+	}
+	entry = rt.LookupHex(destHex)
+	if !entry.ExpiresAt.After(firstExpiry) {
+		t.Error("expiry should be pushed forward after refresh")
+	}
+}
+
+func TestRouter_RefreshRoute_NonExistent(t *testing.T) {
+	rt := NewRouter(5 * time.Minute)
+	if rt.RefreshRoute("aabbccddeeff00112233445566778899") {
+		t.Error("refresh of non-existent route should return false")
+	}
+	if rt.RefreshRoute("bad") {
+		t.Error("refresh with bad hex should return false")
+	}
+}

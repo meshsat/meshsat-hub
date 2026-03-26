@@ -79,6 +79,45 @@ func (m *mockStore) CreateDevice(_ context.Context, _ string, d *store.Device) e
 	return nil
 }
 
+func (m *mockStore) GetBridge(_ context.Context, _ string, bridgeID string) (*store.Bridge, error) {
+	b, ok := m.bridges[bridgeID]
+	if !ok {
+		return nil, nil
+	}
+	return b, nil
+}
+
+// --- Mock Reticulum router ---
+
+type mockRetRouter struct {
+	injected  map[string]string // destHash -> iface
+	removed   map[string]bool
+	refreshed map[string]int
+}
+
+func newMockRetRouter() *mockRetRouter {
+	return &mockRetRouter{
+		injected:  make(map[string]string),
+		removed:   make(map[string]bool),
+		refreshed: make(map[string]int),
+	}
+}
+
+func (m *mockRetRouter) InjectRoute(destHashHex string, _ []byte, iface string, _ int) bool {
+	m.injected[destHashHex] = iface
+	return true
+}
+
+func (m *mockRetRouter) RemoveHex(destHex string) bool {
+	m.removed[destHex] = true
+	return true
+}
+
+func (m *mockRetRouter) RefreshRoute(destHashHex string) bool {
+	m.refreshed[destHashHex]++
+	return true
+}
+
 // --- Mock message bus ---
 
 type mockBus struct {
@@ -565,5 +604,160 @@ func TestHandleBridgeBirth_FreshBirthMarkedOnline(t *testing.T) {
 	// Should be marked online.
 	if online, ok := ms.bridgeOnline["fresh-bridge"]; !ok || !online {
 		t.Error("fresh birth should set bridge online")
+	}
+}
+
+// --- Reticulum router integration tests ---
+
+func TestBridgeBirth_InjectsReticulumRoute(t *testing.T) {
+	ms := newMockStore()
+	mb := newMockBus()
+	rr := newMockRetRouter()
+	sub := NewSubscriber(mb, ms, "default")
+	sub.SetReticulumRouter(rr)
+	if err := sub.Start(); err != nil {
+		t.Fatal(err)
+	}
+
+	birth := protocol.BridgeBirth{
+		Protocol:     protocol.ProtocolVersion,
+		BridgeID:     "pi-field-01",
+		Version:      "0.2.0",
+		Hostname:     "pi-field-01.local",
+		Mode:         "direct",
+		TenantID:     "default",
+		Interfaces:   []protocol.InterfaceInfo{{Name: "mesh_0", Type: "meshtastic", Status: "online"}},
+		Capabilities: []string{"meshtastic"},
+		Reticulum:    &protocol.ReticulumInfo{IdentityHash: "aabbccdd11223344", PublicKey: "deadbeef", TransportEnabled: true},
+		Timestamp:    time.Now(),
+	}
+	payload, _ := json.Marshal(birth)
+	mb.deliver("meshsat/bridge/pi-field-01/birth", payload)
+
+	// Verify route was injected.
+	if iface, ok := rr.injected["aabbccdd11223344"]; !ok {
+		t.Error("expected reticulum route to be injected on birth")
+	} else if iface != "mqtt" {
+		t.Errorf("injected iface = %q, want %q", iface, "mqtt")
+	}
+}
+
+func TestBridgeBirth_StaleBirthDoesNotInjectRoute(t *testing.T) {
+	ms := newMockStore()
+	mb := newMockBus()
+	rr := newMockRetRouter()
+	sub := NewSubscriber(mb, ms, "default")
+	sub.SetReticulumRouter(rr)
+	sub.SetStaleThreshold(5 * time.Minute)
+	if err := sub.Start(); err != nil {
+		t.Fatal(err)
+	}
+
+	birth := protocol.BridgeBirth{
+		Protocol:     protocol.ProtocolVersion,
+		BridgeID:     "stale-pi",
+		Version:      "0.2.0",
+		Hostname:     "stale-pi.local",
+		Mode:         "direct",
+		TenantID:     "default",
+		Capabilities: []string{"meshtastic"},
+		Reticulum:    &protocol.ReticulumInfo{IdentityHash: "aabbccdd11223344", PublicKey: "deadbeef", TransportEnabled: true},
+		Timestamp:    time.Now().Add(-2 * time.Hour),
+	}
+	payload, _ := json.Marshal(birth)
+	mb.deliver("meshsat/bridge/stale-pi/birth", payload)
+
+	// Stale birth should NOT inject a route.
+	if _, ok := rr.injected["aabbccdd11223344"]; ok {
+		t.Error("stale retained birth should NOT inject reticulum route")
+	}
+}
+
+func TestBridgeBirth_NoReticulumInfoDoesNotInjectRoute(t *testing.T) {
+	ms := newMockStore()
+	mb := newMockBus()
+	rr := newMockRetRouter()
+	sub := NewSubscriber(mb, ms, "default")
+	sub.SetReticulumRouter(rr)
+	if err := sub.Start(); err != nil {
+		t.Fatal(err)
+	}
+
+	birth := protocol.BridgeBirth{
+		Protocol:     protocol.ProtocolVersion,
+		BridgeID:     "no-ret",
+		Version:      "0.2.0",
+		Hostname:     "no-ret.local",
+		Mode:         "direct",
+		TenantID:     "default",
+		Capabilities: []string{"sbd"},
+		Timestamp:    time.Now(),
+	}
+	payload, _ := json.Marshal(birth)
+	mb.deliver("meshsat/bridge/no-ret/birth", payload)
+
+	if len(rr.injected) != 0 {
+		t.Error("bridge without reticulum info should not inject route")
+	}
+}
+
+func TestBridgeDeath_RemovesReticulumRoute(t *testing.T) {
+	ms := newMockStore()
+	mb := newMockBus()
+	rr := newMockRetRouter()
+	sub := NewSubscriber(mb, ms, "default")
+	sub.SetReticulumRouter(rr)
+	if err := sub.Start(); err != nil {
+		t.Fatal(err)
+	}
+
+	// Pre-populate bridge in store with Reticulum hash.
+	ms.bridges["pi-field-01"] = &store.Bridge{
+		BridgeID:      "pi-field-01",
+		ReticulumHash: "aabbccdd11223344",
+	}
+
+	death := protocol.BridgeDeath{
+		Protocol:  protocol.ProtocolVersion,
+		BridgeID:  "pi-field-01",
+		Reason:    "shutdown",
+		Timestamp: time.Now(),
+	}
+	payload, _ := json.Marshal(death)
+	mb.deliver("meshsat/bridge/pi-field-01/death", payload)
+
+	if !rr.removed["aabbccdd11223344"] {
+		t.Error("expected reticulum route to be removed on death")
+	}
+}
+
+func TestBridgeHealth_RefreshesReticulumRoute(t *testing.T) {
+	ms := newMockStore()
+	mb := newMockBus()
+	rr := newMockRetRouter()
+	sub := NewSubscriber(mb, ms, "default")
+	sub.SetReticulumRouter(rr)
+	if err := sub.Start(); err != nil {
+		t.Fatal(err)
+	}
+
+	// Pre-populate bridge in store with Reticulum hash.
+	ms.bridges["pi-field-01"] = &store.Bridge{
+		BridgeID:      "pi-field-01",
+		ReticulumHash: "aabbccdd11223344",
+	}
+
+	health := protocol.BridgeHealth{
+		Protocol:  protocol.ProtocolVersion,
+		BridgeID:  "pi-field-01",
+		UptimeSec: 3600,
+		CPUPct:    10,
+		Timestamp: time.Now(),
+	}
+	payload, _ := json.Marshal(health)
+	mb.deliver("meshsat/bridge/pi-field-01/health", payload)
+
+	if rr.refreshed["aabbccdd11223344"] != 1 {
+		t.Errorf("expected route refresh count = 1, got %d", rr.refreshed["aabbccdd11223344"])
 	}
 }

@@ -391,8 +391,9 @@ func main() {
 
 	// Bridge lifecycle subscriber: auto-provisions bridges and devices from MQTT birth/death/health.
 	var bridgeCommander *bridge.Commander
+	var bridgeSub *bridge.Subscriber
 	if msgBus.IsConnected() {
-		bridgeSub := bridge.NewSubscriber(msgBus, dataStore, store.DefaultTenantID)
+		bridgeSub = bridge.NewSubscriber(msgBus, dataStore, store.DefaultTenantID)
 		if err := bridgeSub.Start(); err != nil {
 			slog.Error("bridge: failed to start subscriber", "error", err)
 		}
@@ -593,6 +594,11 @@ func main() {
 
 	// Reticulum routing table.
 	reticulumRouter := reticulum.NewRouter(reticulum.DefaultRouteTTL)
+
+	// Wire Reticulum router to bridge subscriber so bridge births inject routes.
+	if bridgeSub != nil {
+		bridgeSub.SetReticulumRouter(reticulumRouter)
+	}
 
 	// Reticulum relay — forwards packets between interfaces.
 	reticulumRelay := reticulum.NewRelay(reticulumRouter, reticulum.DefaultRelayConfig())

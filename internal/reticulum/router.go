@@ -248,6 +248,98 @@ func (rt *Router) Remove(dest [TruncatedHashLen]byte) bool {
 	return false
 }
 
+// InjectRoute adds a route directly without requiring a full Announce packet.
+// Used when bridges report their Reticulum identity via MQTT birth messages.
+// The iface parameter is a plain string to allow callers outside this package
+// to use this method without importing InterfaceType.
+// Returns true if the route was added or updated.
+func (rt *Router) InjectRoute(destHashHex string, signingPub []byte, iface string, hops int) bool {
+	b, err := hex.DecodeString(destHashHex)
+	if err != nil || len(b) != TruncatedHashLen {
+		slog.Debug("reticulum: inject route failed (bad hash)", "hash", destHashHex)
+		return false
+	}
+	var dest [TruncatedHashLen]byte
+	copy(dest[:], b)
+
+	ifaceType := InterfaceType(iface)
+	cost := InterfaceCost(ifaceType)
+	now := time.Now()
+
+	rt.mu.Lock()
+	defer rt.mu.Unlock()
+
+	existing, exists := rt.routes[dest]
+
+	if exists && !existing.IsExpired() {
+		// Keep existing route if cheaper.
+		if existing.Cost < cost {
+			return false
+		}
+		if existing.Cost == cost && existing.Hops <= hops {
+			// Same cost, same or fewer hops — refresh TTL.
+			if existing.Interface == ifaceType && existing.Hops == hops {
+				existing.LastSeen = now
+				existing.ExpiresAt = now.Add(rt.ttl)
+				return true
+			}
+			return false
+		}
+	}
+
+	rt.routes[dest] = &RouteEntry{
+		DestHash:   dest,
+		Interface:  ifaceType,
+		Cost:       cost,
+		Hops:       hops,
+		LastSeen:   now,
+		ExpiresAt:  now.Add(rt.ttl),
+		SigningPub: signingPub,
+	}
+
+	slog.Info("reticulum: route injected from bridge",
+		"dest", destHashHex,
+		"iface", ifaceType,
+		"cost", cost,
+		"hops", hops,
+	)
+	return true
+}
+
+// RemoveHex removes a route by hex-encoded destination hash.
+func (rt *Router) RemoveHex(destHex string) bool {
+	b, err := hex.DecodeString(destHex)
+	if err != nil || len(b) != TruncatedHashLen {
+		return false
+	}
+	var dest [TruncatedHashLen]byte
+	copy(dest[:], b)
+	return rt.Remove(dest)
+}
+
+// RefreshRoute updates the TTL of an existing route without changing its
+// parameters. Returns true if the route existed and was refreshed.
+func (rt *Router) RefreshRoute(destHashHex string) bool {
+	b, err := hex.DecodeString(destHashHex)
+	if err != nil || len(b) != TruncatedHashLen {
+		return false
+	}
+	var dest [TruncatedHashLen]byte
+	copy(dest[:], b)
+
+	rt.mu.Lock()
+	defer rt.mu.Unlock()
+
+	entry, ok := rt.routes[dest]
+	if !ok || entry.IsExpired() {
+		return false
+	}
+	now := time.Now()
+	entry.LastSeen = now
+	entry.ExpiresAt = now.Add(rt.ttl)
+	return true
+}
+
 // BestInterface returns the cheapest interface to reach a destination.
 // Returns empty string if no route is known.
 func (rt *Router) BestInterface(dest [TruncatedHashLen]byte) InterfaceType {

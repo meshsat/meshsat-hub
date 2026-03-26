@@ -5,6 +5,7 @@ package bridge
 
 import (
 	"context"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"log/slog"
@@ -16,6 +17,14 @@ import (
 	"github.com/cubeos-app/meshsat-hub/internal/store"
 )
 
+// ReticulumRouter is the subset of the Reticulum routing table needed by the
+// bridge subscriber to inject/remove routes when bridges come online/offline.
+type ReticulumRouter interface {
+	InjectRoute(destHashHex string, signingPub []byte, iface string, hops int) bool
+	RemoveHex(destHex string) bool
+	RefreshRoute(destHashHex string) bool
+}
+
 // Subscriber listens on bridge lifecycle MQTT topics and auto-provisions
 // bridge and device records in the Hub store.
 type Subscriber struct {
@@ -23,6 +32,7 @@ type Subscriber struct {
 	store          store.Store
 	tenantID       string
 	staleThreshold time.Duration // birth messages older than this are treated as retained replays
+	retRouter      ReticulumRouter
 }
 
 // NewSubscriber creates a new bridge MQTT subscriber.
@@ -42,6 +52,13 @@ func NewSubscriber(mqtt bus.MessageBus, store store.Store, defaultTenantID strin
 // treated as a retained replay rather than a fresh connection.
 func (s *Subscriber) SetStaleThreshold(d time.Duration) {
 	s.staleThreshold = d
+}
+
+// SetReticulumRouter attaches a Reticulum router so routes are injected when
+// bridges with Reticulum identity come online, removed on death, and refreshed
+// on health reports.
+func (s *Subscriber) SetReticulumRouter(r ReticulumRouter) {
+	s.retRouter = r
 }
 
 // Start subscribes to all bridge lifecycle MQTT topics.
@@ -163,6 +180,19 @@ func (s *Subscriber) handleBridgeBirth(topic string, payload []byte) {
 		}
 	}
 
+	// Inject Reticulum route for bridges that report their identity.
+	// Only inject for fresh births (not stale retained replays) so we don't
+	// re-create routes for bridges that have since gone offline.
+	if !stale && s.retRouter != nil && birth.Reticulum != nil && birth.Reticulum.IdentityHash != "" {
+		pubKey, _ := hex.DecodeString(birth.Reticulum.PublicKey)
+		if s.retRouter.InjectRoute(birth.Reticulum.IdentityHash, pubKey, "mqtt", 1) {
+			slog.Info("bridge: injected reticulum route",
+				"bridge", bridgeID,
+				"dest", birth.Reticulum.IdentityHash,
+			)
+		}
+	}
+
 	if stale {
 		slog.Info("bridge: registered (stale retained birth, not marking online)",
 			"bridge", bridgeID,
@@ -206,6 +236,18 @@ func (s *Subscriber) handleBridgeDeath(topic string, payload []byte) {
 	ctx := context.Background()
 	tenantID := s.tenantID
 
+	// Remove Reticulum route if the bridge had one.
+	if s.retRouter != nil {
+		if b, err := s.store.GetBridge(ctx, tenantID, bridgeID); err == nil && b != nil && b.ReticulumHash != "" {
+			if s.retRouter.RemoveHex(b.ReticulumHash) {
+				slog.Info("bridge: removed reticulum route",
+					"bridge", bridgeID,
+					"dest", b.ReticulumHash,
+				)
+			}
+		}
+	}
+
 	if err := s.store.SetBridgeOnline(ctx, tenantID, bridgeID, false); err != nil {
 		slog.Error("bridge: failed to set bridge offline", "error", err, "bridge", bridgeID)
 		return
@@ -243,6 +285,14 @@ func (s *Subscriber) handleBridgeHealth(topic string, payload []byte) {
 
 	if err := s.store.TouchBridgeLastSeen(ctx, tenantID, bridgeID); err != nil {
 		slog.Debug("bridge: failed to touch last_seen", "error", err, "bridge", bridgeID)
+	}
+
+	// Refresh Reticulum route TTL on each health report so routes stay alive
+	// as long as the bridge is reporting healthy.
+	if s.retRouter != nil {
+		if b, err := s.store.GetBridge(ctx, tenantID, bridgeID); err == nil && b != nil && b.ReticulumHash != "" {
+			s.retRouter.RefreshRoute(b.ReticulumHash)
+		}
 	}
 }
 
