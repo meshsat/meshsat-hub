@@ -1976,5 +1976,98 @@ func (d *DB) DeleteAlertRule(ctx context.Context, tenantID string, id string) er
 	return err
 }
 
+// ---- Credential management (MESHSAT-356) ----
+// MariaDB implementation mirrors SQLite. Uses same table schema.
+
+func (d *DB) CreateCredential(ctx context.Context, tenantID string, c *store.Credential) error {
+	now := time.Now().UTC()
+	c.CreatedAt = now
+	c.UpdatedAt = now
+	_, err := d.db.ExecContext(ctx,
+		`INSERT INTO credentials (id, tenant_id, provider, name, cred_type, encrypted_data,
+		 cert_not_after, cert_subject, cert_issuer, cert_fingerprint, target_scope, target_bridge_id,
+		 status, version, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		c.ID, tenantID, c.Provider, c.Name, c.CredType, c.EncryptedData,
+		c.CertNotAfter, c.CertSubject, c.CertIssuer, c.CertFingerprint,
+		c.TargetScope, c.TargetBridgeID, c.Status, c.Version,
+		now, now)
+	return err
+}
+
+func (d *DB) GetCredential(ctx context.Context, tenantID string, id string) (*store.Credential, error) {
+	var c store.Credential
+	err := d.db.QueryRowContext(ctx,
+		"SELECT id, tenant_id, provider, name, cred_type, encrypted_data, cert_not_after, cert_subject, cert_issuer, cert_fingerprint, target_scope, target_bridge_id, status, version, distributed_at, created_at, updated_at FROM credentials WHERE id=? AND tenant_id=?",
+		id, tenantID).Scan(&c.ID, &c.TenantID, &c.Provider, &c.Name, &c.CredType, &c.EncryptedData,
+		&c.CertNotAfter, &c.CertSubject, &c.CertIssuer, &c.CertFingerprint,
+		&c.TargetScope, &c.TargetBridgeID, &c.Status, &c.Version, &c.DistributedAt, &c.CreatedAt, &c.UpdatedAt)
+	if err != nil {
+		return nil, err
+	}
+	return &c, nil
+}
+
+func (d *DB) ListCredentials(ctx context.Context, tenantID string) ([]store.Credential, error) {
+	var creds []store.Credential
+	rows, err := d.db.QueryContext(ctx,
+		"SELECT id, tenant_id, provider, name, cred_type, encrypted_data, cert_not_after, cert_subject, cert_issuer, cert_fingerprint, target_scope, target_bridge_id, status, version, distributed_at, created_at, updated_at FROM credentials WHERE tenant_id=? ORDER BY provider, name",
+		tenantID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var c store.Credential
+		if err := rows.Scan(&c.ID, &c.TenantID, &c.Provider, &c.Name, &c.CredType, &c.EncryptedData,
+			&c.CertNotAfter, &c.CertSubject, &c.CertIssuer, &c.CertFingerprint,
+			&c.TargetScope, &c.TargetBridgeID, &c.Status, &c.Version, &c.DistributedAt, &c.CreatedAt, &c.UpdatedAt); err != nil {
+			return nil, err
+		}
+		creds = append(creds, c)
+	}
+	return creds, nil
+}
+
+func (d *DB) UpdateCredential(ctx context.Context, tenantID string, c *store.Credential) error {
+	c.UpdatedAt = time.Now().UTC()
+	_, err := d.db.ExecContext(ctx,
+		`UPDATE credentials SET provider=?, name=?, cred_type=?, encrypted_data=?,
+		 cert_not_after=?, cert_subject=?, cert_issuer=?, cert_fingerprint=?,
+		 target_scope=?, target_bridge_id=?, status=?, version=?, updated_at=?
+		 WHERE id=? AND tenant_id=?`,
+		c.Provider, c.Name, c.CredType, c.EncryptedData,
+		c.CertNotAfter, c.CertSubject, c.CertIssuer, c.CertFingerprint,
+		c.TargetScope, c.TargetBridgeID, c.Status, c.Version,
+		c.UpdatedAt, c.ID, tenantID)
+	return err
+}
+
+func (d *DB) DeleteCredential(ctx context.Context, tenantID string, id string) error {
+	_, err := d.db.ExecContext(ctx, "DELETE FROM credentials WHERE id=? AND tenant_id=?", id, tenantID)
+	return err
+}
+
+func (d *DB) ListExpiringCredentials(ctx context.Context, before time.Time) ([]store.Credential, error) {
+	var creds []store.Credential
+	rows, err := d.db.QueryContext(ctx,
+		`SELECT id, tenant_id, provider, name, cred_type, encrypted_data, cert_not_after, cert_subject, cert_issuer, cert_fingerprint, target_scope, target_bridge_id, status, version, distributed_at, created_at, updated_at
+		 FROM credentials WHERE cert_not_after IS NOT NULL AND cert_not_after <= ? AND status IN ('active', 'expiring')
+		 ORDER BY cert_not_after ASC`, before)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var c store.Credential
+		if err := rows.Scan(&c.ID, &c.TenantID, &c.Provider, &c.Name, &c.CredType, &c.EncryptedData,
+			&c.CertNotAfter, &c.CertSubject, &c.CertIssuer, &c.CertFingerprint,
+			&c.TargetScope, &c.TargetBridgeID, &c.Status, &c.Version, &c.DistributedAt, &c.CreatedAt, &c.UpdatedAt); err != nil {
+			return nil, err
+		}
+		creds = append(creds, c)
+	}
+	return creds, nil
+}
+
 // Compile-time check.
 var _ store.Store = (*DB)(nil)

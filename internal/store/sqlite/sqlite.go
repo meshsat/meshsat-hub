@@ -341,6 +341,10 @@ var postAlterMigrations = []string{
 	// MESHSAT-313: configurable alerting rules engine
 	`CREATE TABLE IF NOT EXISTS alert_rules (id TEXT PRIMARY KEY, name TEXT NOT NULL DEFAULT '', condition_type TEXT NOT NULL DEFAULT '', condition_params TEXT NOT NULL DEFAULT '{}', chain_id TEXT NOT NULL DEFAULT '', device_filter TEXT NOT NULL DEFAULT '*', enabled INTEGER NOT NULL DEFAULT 1, last_evaluated TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL DEFAULT (datetime('now')), updated_at TEXT NOT NULL DEFAULT (datetime('now')), tenant_id TEXT NOT NULL DEFAULT 'default')`,
 	`CREATE INDEX IF NOT EXISTS idx_alert_rules_tenant ON alert_rules(tenant_id)`,
+	// MESHSAT-356: centralized credential management
+	`CREATE TABLE IF NOT EXISTS credentials (id TEXT PRIMARY KEY, tenant_id TEXT NOT NULL DEFAULT 'default', provider TEXT NOT NULL, name TEXT NOT NULL, cred_type TEXT NOT NULL, encrypted_data BLOB NOT NULL, cert_not_after TEXT, cert_subject TEXT NOT NULL DEFAULT '', cert_issuer TEXT NOT NULL DEFAULT '', cert_fingerprint TEXT NOT NULL DEFAULT '', target_scope TEXT NOT NULL DEFAULT 'hub', target_bridge_id TEXT NOT NULL DEFAULT '', status TEXT NOT NULL DEFAULT 'active', version INTEGER NOT NULL DEFAULT 1, distributed_at TEXT, created_at TEXT NOT NULL DEFAULT (datetime('now')), updated_at TEXT NOT NULL DEFAULT (datetime('now')))`,
+	`CREATE INDEX IF NOT EXISTS idx_credentials_tenant ON credentials(tenant_id, provider)`,
+	`CREATE INDEX IF NOT EXISTS idx_credentials_expiry ON credentials(cert_not_after, status)`,
 }
 
 // lateAlterMigrations alter tables created in postAlterMigrations.
@@ -1873,6 +1877,155 @@ func (d *DB) UpdateAlertRule(ctx context.Context, tenantID string, r *store.Aler
 func (d *DB) DeleteAlertRule(ctx context.Context, tenantID string, id string) error {
 	_, err := d.db.ExecContext(ctx, "DELETE FROM alert_rules WHERE id=? AND tenant_id=?", id, tenantID)
 	return err
+}
+
+// ---- Credential management (MESHSAT-356) ----
+
+func (d *DB) CreateCredential(ctx context.Context, tenantID string, c *store.Credential) error {
+	now := time.Now().UTC()
+	c.CreatedAt = now
+	c.UpdatedAt = now
+	var notAfter interface{}
+	if c.CertNotAfter != nil {
+		notAfter = c.CertNotAfter.Format(time.DateTime)
+	}
+	_, err := d.db.ExecContext(ctx,
+		`INSERT INTO credentials (id, tenant_id, provider, name, cred_type, encrypted_data,
+		 cert_not_after, cert_subject, cert_issuer, cert_fingerprint, target_scope, target_bridge_id,
+		 status, version, created_at, updated_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		c.ID, tenantID, c.Provider, c.Name, c.CredType, c.EncryptedData,
+		notAfter, c.CertSubject, c.CertIssuer, c.CertFingerprint,
+		c.TargetScope, c.TargetBridgeID, c.Status, c.Version,
+		now.Format(time.DateTime), now.Format(time.DateTime))
+	return err
+}
+
+func (d *DB) GetCredential(ctx context.Context, tenantID string, id string) (*store.Credential, error) {
+	row := d.db.QueryRowContext(ctx,
+		"SELECT id, tenant_id, provider, name, cred_type, encrypted_data, cert_not_after, cert_subject, cert_issuer, cert_fingerprint, target_scope, target_bridge_id, status, version, distributed_at, created_at, updated_at FROM credentials WHERE id=? AND tenant_id=?",
+		id, tenantID)
+	return d.scanCredential(row)
+}
+
+func (d *DB) ListCredentials(ctx context.Context, tenantID string) ([]store.Credential, error) {
+	rows, err := d.db.QueryContext(ctx,
+		"SELECT id, tenant_id, provider, name, cred_type, encrypted_data, cert_not_after, cert_subject, cert_issuer, cert_fingerprint, target_scope, target_bridge_id, status, version, distributed_at, created_at, updated_at FROM credentials WHERE tenant_id=? ORDER BY provider, name",
+		tenantID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var creds []store.Credential
+	for rows.Next() {
+		c, err := d.scanCredentialRow(rows)
+		if err != nil {
+			return nil, err
+		}
+		creds = append(creds, *c)
+	}
+	return creds, nil
+}
+
+func (d *DB) UpdateCredential(ctx context.Context, tenantID string, c *store.Credential) error {
+	c.UpdatedAt = time.Now().UTC()
+	var notAfter interface{}
+	if c.CertNotAfter != nil {
+		notAfter = c.CertNotAfter.Format(time.DateTime)
+	}
+	_, err := d.db.ExecContext(ctx,
+		`UPDATE credentials SET provider=?, name=?, cred_type=?, encrypted_data=?,
+		 cert_not_after=?, cert_subject=?, cert_issuer=?, cert_fingerprint=?,
+		 target_scope=?, target_bridge_id=?, status=?, version=?, updated_at=?
+		 WHERE id=? AND tenant_id=?`,
+		c.Provider, c.Name, c.CredType, c.EncryptedData,
+		notAfter, c.CertSubject, c.CertIssuer, c.CertFingerprint,
+		c.TargetScope, c.TargetBridgeID, c.Status, c.Version,
+		c.UpdatedAt.Format(time.DateTime), c.ID, tenantID)
+	return err
+}
+
+func (d *DB) DeleteCredential(ctx context.Context, tenantID string, id string) error {
+	_, err := d.db.ExecContext(ctx, "DELETE FROM credentials WHERE id=? AND tenant_id=?", id, tenantID)
+	return err
+}
+
+func (d *DB) ListExpiringCredentials(ctx context.Context, before time.Time) ([]store.Credential, error) {
+	rows, err := d.db.QueryContext(ctx,
+		`SELECT id, tenant_id, provider, name, cred_type, encrypted_data, cert_not_after, cert_subject, cert_issuer, cert_fingerprint, target_scope, target_bridge_id, status, version, distributed_at, created_at, updated_at
+		 FROM credentials WHERE cert_not_after IS NOT NULL AND cert_not_after != '' AND cert_not_after <= ? AND status IN ('active', 'expiring')
+		 ORDER BY cert_not_after ASC`, before.Format(time.DateTime))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var creds []store.Credential
+	for rows.Next() {
+		c, err := d.scanCredentialRow(rows)
+		if err != nil {
+			return nil, err
+		}
+		creds = append(creds, *c)
+	}
+	return creds, nil
+}
+
+func (d *DB) scanCredential(row *sql.Row) (*store.Credential, error) {
+	var c store.Credential
+	var notAfter, distAt, createdAt, updatedAt sql.NullString
+	err := row.Scan(&c.ID, &c.TenantID, &c.Provider, &c.Name, &c.CredType, &c.EncryptedData,
+		&notAfter, &c.CertSubject, &c.CertIssuer, &c.CertFingerprint,
+		&c.TargetScope, &c.TargetBridgeID, &c.Status, &c.Version,
+		&distAt, &createdAt, &updatedAt)
+	if err != nil {
+		return nil, err
+	}
+	if notAfter.Valid {
+		if t, err := time.Parse(time.DateTime, notAfter.String); err == nil {
+			c.CertNotAfter = &t
+		}
+	}
+	if distAt.Valid {
+		if t, err := time.Parse(time.DateTime, distAt.String); err == nil {
+			c.DistributedAt = &t
+		}
+	}
+	if createdAt.Valid {
+		c.CreatedAt, _ = time.Parse(time.DateTime, createdAt.String)
+	}
+	if updatedAt.Valid {
+		c.UpdatedAt, _ = time.Parse(time.DateTime, updatedAt.String)
+	}
+	return &c, nil
+}
+
+func (d *DB) scanCredentialRow(rows *sql.Rows) (*store.Credential, error) {
+	var c store.Credential
+	var notAfter, distAt, createdAt, updatedAt sql.NullString
+	err := rows.Scan(&c.ID, &c.TenantID, &c.Provider, &c.Name, &c.CredType, &c.EncryptedData,
+		&notAfter, &c.CertSubject, &c.CertIssuer, &c.CertFingerprint,
+		&c.TargetScope, &c.TargetBridgeID, &c.Status, &c.Version,
+		&distAt, &createdAt, &updatedAt)
+	if err != nil {
+		return nil, err
+	}
+	if notAfter.Valid {
+		if t, err := time.Parse(time.DateTime, notAfter.String); err == nil {
+			c.CertNotAfter = &t
+		}
+	}
+	if distAt.Valid {
+		if t, err := time.Parse(time.DateTime, distAt.String); err == nil {
+			c.DistributedAt = &t
+		}
+	}
+	if createdAt.Valid {
+		c.CreatedAt, _ = time.Parse(time.DateTime, createdAt.String)
+	}
+	if updatedAt.Valid {
+		c.UpdatedAt, _ = time.Parse(time.DateTime, updatedAt.String)
+	}
+	return &c, nil
 }
 
 // Ensure DB implements Store at compile time.

@@ -337,3 +337,17 @@ func (m *mockStore) DeleteAlertRule(context.Context, string, string) error      
 func (m *mockStore) MarkStaleBridgesOffline(context.Context, time.Duration) (int64, error) {
 	return 0, nil
 }
+
+// Credentials
+func (m *mockStore) CreateCredential(context.Context, string, *store.Credential) error { return nil }
+func (m *mockStore) GetCredential(context.Context, string, string) (*store.Credential, error) {
+	return nil, fmt.Errorf("not found")
+}
+func (m *mockStore) ListCredentials(context.Context, string) ([]store.Credential, error) {
+	return nil, nil
+}
+func (m *mockStore) UpdateCredential(context.Context, string, *store.Credential) error { return nil }
+func (m *mockStore) DeleteCredential(context.Context, string, string) error            { return nil }
+func (m *mockStore) ListExpiringCredentials(context.Context, time.Time) ([]store.Credential, error) {
+	return nil, nil
+}

@@ -1020,6 +1020,18 @@ func main() {
 		r.Post("/", rotationHandler.RotateBridgeCredentials)
 	})
 
+	// Credential management (MESHSAT-356)
+	credMasterKey := bootstrapCredentialMasterKey(dataStore)
+	credHandler := api.NewCredentialHandler(dataStore, credMasterKey)
+	r.Route("/api/credentials", func(r chi.Router) {
+		r.Use(hubauth.RequireRole(hubauth.RoleOperator))
+		r.Post("/upload", credHandler.Upload)
+		r.Get("/", credHandler.List)
+		r.Get("/expiry", credHandler.ListExpiring)
+		r.Get("/{id}", credHandler.Get)
+		r.Delete("/{id}", credHandler.Delete)
+	})
+
 	// Bridge registry API
 	bridgeHandler := api.NewBridgeHandler(dataStore)
 	r.Get("/api/bridges", bridgeHandler.ListBridges)
@@ -1461,6 +1473,31 @@ func (a *scheduledSenderAdapter) SendScheduled(ctx context.Context, msg *store.M
 	}
 	_, err := a.rock7.SendMT(ctx, msg.DeviceIMEI, dataHex)
 	return err
+}
+
+// bootstrapCredentialMasterKey loads or generates the master key for credential encryption.
+func bootstrapCredentialMasterKey(s store.Store) []byte {
+	ctx := context.Background()
+	keyHex, err := s.GetSystemConfig(ctx, "credential_master_key")
+	if err == nil && keyHex != "" {
+		key, err := hex.DecodeString(keyHex)
+		if err == nil && len(key) == 32 {
+			slog.Info("credential master key loaded from DB")
+			return key
+		}
+	}
+	// Bootstrap new key
+	key, err := hubcrypto.GenerateKey()
+	if err != nil {
+		slog.Error("failed to generate credential master key", "error", err)
+		return make([]byte, 32) // fallback — all zeros (not secure, but won't crash)
+	}
+	if err := s.SetSystemConfig(ctx, "credential_master_key", hex.EncodeToString(key)); err != nil {
+		slog.Error("failed to persist credential master key", "error", err)
+	} else {
+		slog.Info("credential master key bootstrapped")
+	}
+	return key
 }
 
 const swaggerUIHTML = `<!DOCTYPE html>

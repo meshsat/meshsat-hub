@@ -174,6 +174,14 @@ type Store interface {
 	ListAlertRules(ctx context.Context, tenantID string) ([]AlertRule, error)
 	UpdateAlertRule(ctx context.Context, tenantID string, r *AlertRule) error
 	DeleteAlertRule(ctx context.Context, tenantID string, id string) error
+
+	// Credential management (MESHSAT-356)
+	CreateCredential(ctx context.Context, tenantID string, c *Credential) error
+	GetCredential(ctx context.Context, tenantID string, id string) (*Credential, error)
+	ListCredentials(ctx context.Context, tenantID string) ([]Credential, error)
+	UpdateCredential(ctx context.Context, tenantID string, c *Credential) error
+	DeleteCredential(ctx context.Context, tenantID string, id string) error
+	ListExpiringCredentials(ctx context.Context, before time.Time) ([]Credential, error)
 }
 
 // Bridge represents a registered field bridge (parent of devices).
@@ -495,4 +503,25 @@ type AlertRule struct {
 	LastEvaluated   time.Time `json:"last_evaluated,omitempty"`
 	CreatedAt       time.Time `json:"created_at"`
 	UpdatedAt       time.Time `json:"updated_at"`
+}
+
+// Credential represents a provider certificate or credential stored encrypted at rest.
+type Credential struct {
+	ID              string     `json:"id"`
+	TenantID        string     `json:"tenant_id,omitempty"`
+	Provider        string     `json:"provider"`  // cloudloop_mqtt, rockblock, astrocast, etc.
+	Name            string     `json:"name"`      // human-readable label
+	CredType        string     `json:"cred_type"` // mtls_bundle, api_key, webhook_secret, username_password
+	EncryptedData   []byte     `json:"-"`         // AES-256-GCM encrypted JSON (never in API responses)
+	CertNotAfter    *time.Time `json:"cert_not_after,omitempty"`
+	CertSubject     string     `json:"cert_subject,omitempty"`
+	CertIssuer      string     `json:"cert_issuer,omitempty"`
+	CertFingerprint string     `json:"cert_fingerprint,omitempty"`
+	TargetScope     string     `json:"target_scope"` // hub, bridge, all
+	TargetBridgeID  string     `json:"target_bridge_id,omitempty"`
+	Status          string     `json:"status"` // active, expiring, expired, revoked
+	Version         int        `json:"version"`
+	DistributedAt   *time.Time `json:"distributed_at,omitempty"`
+	CreatedAt       time.Time  `json:"created_at"`
+	UpdatedAt       time.Time  `json:"updated_at"`
 }
