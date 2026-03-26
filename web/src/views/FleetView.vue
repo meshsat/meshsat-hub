@@ -1,7 +1,7 @@
 <script setup>
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { bridges } from '../api/client'
-import { timeAgo, formatUptime } from '../utils/time'
+import { timeAgo, formatUptime, formatUTC } from '../utils/time'
 import EmptyState from '../components/EmptyState.vue'
 
 const loading = ref(true)
@@ -9,6 +9,41 @@ const error = ref('')
 const bridgeList = ref([])
 const expandedBridge = ref(null)
 let pollTimer = null
+
+// Add bridge modal
+const showAddForm = ref(false)
+const addForm = ref({ bridge_id: '', label: '' })
+const addError = ref('')
+
+// Edit bridge modal
+const showEditModal = ref(false)
+const editForm = ref({ label: '', cot_callsign: '' })
+const editBridgeId = ref('')
+
+// Delete confirmation modal
+const showDeleteConfirm = ref(false)
+const bridgeToDelete = ref(null)
+
+// Credential display (one-time secrets)
+const credentialResult = ref(null)
+const certificateResult = ref(null)
+const credentialLoading = ref(false)
+const certificateLoading = ref(false)
+
+// Command state
+const commandLoading = ref({})
+const commandResult = ref({})
+
+// ACL regeneration
+const aclLoading = ref(false)
+const aclResult = ref(null)
+
+// Onboarding flow
+const onboardingBridgeId = ref(null)
+const onboardingStep = ref(0)
+
+// Clipboard feedback
+const copied = ref('')
 
 onMounted(async () => {
   await loadBridges()
@@ -30,12 +65,190 @@ async function loadBridges() {
   }
 }
 
-function toggleExpand(bridgeId) {
-  expandedBridge.value = expandedBridge.value === bridgeId ? null : bridgeId
-}
-
 const onlineCount = computed(() => bridgeList.value.filter(b => b.online).length)
 const totalCount = computed(() => bridgeList.value.length)
+
+// --- Add Bridge ---
+async function addBridge() {
+  if (!addForm.value.bridge_id.trim()) {
+    addError.value = 'Bridge ID is required'
+    return
+  }
+  addError.value = ''
+  try {
+    await bridges.create({
+      bridge_id: addForm.value.bridge_id.trim(),
+      label: addForm.value.label.trim() || addForm.value.bridge_id.trim(),
+    })
+    const newId = addForm.value.bridge_id.trim()
+    addForm.value = { bridge_id: '', label: '' }
+    showAddForm.value = false
+    await loadBridges()
+    // Start onboarding flow
+    onboardingBridgeId.value = newId
+    onboardingStep.value = 1
+    expandedBridge.value = newId
+  } catch (e) {
+    addError.value = e.message
+  }
+}
+
+// --- Edit Bridge ---
+function openEdit(b) {
+  editBridgeId.value = b.bridge_id
+  editForm.value = {
+    label: b.label || '',
+    cot_callsign: b.cot_callsign || '',
+  }
+  showEditModal.value = true
+}
+
+async function saveEdit() {
+  try {
+    const updates = {}
+    if (editForm.value.label !== undefined) updates.label = editForm.value.label
+    if (editForm.value.cot_callsign !== undefined) updates.cot_callsign = editForm.value.cot_callsign
+    await bridges.update(editBridgeId.value, updates)
+    showEditModal.value = false
+    await loadBridges()
+  } catch (e) {
+    error.value = e.message
+  }
+}
+
+// --- Delete Bridge ---
+function confirmDelete(b) {
+  bridgeToDelete.value = b
+  showDeleteConfirm.value = true
+}
+
+async function deleteBridge() {
+  if (!bridgeToDelete.value) return
+  const id = bridgeToDelete.value.bridge_id
+  showDeleteConfirm.value = false
+  bridgeToDelete.value = null
+  try {
+    await bridges.delete(id)
+    if (expandedBridge.value === id) expandedBridge.value = null
+    await loadBridges()
+  } catch (e) {
+    error.value = e.message
+  }
+}
+
+// --- Credentials ---
+async function generateCredentials(bridgeId) {
+  credentialLoading.value = true
+  credentialResult.value = null
+  try {
+    const result = await bridges.generateCredentials(bridgeId)
+    credentialResult.value = result
+    if (onboardingBridgeId.value === bridgeId && onboardingStep.value === 1) {
+      onboardingStep.value = 2
+    }
+  } catch (e) {
+    error.value = e.message
+  } finally {
+    credentialLoading.value = false
+  }
+}
+
+async function issueCertificate(bridgeId) {
+  certificateLoading.value = true
+  certificateResult.value = null
+  try {
+    const result = await bridges.issueCertificate(bridgeId)
+    certificateResult.value = result
+    if (onboardingBridgeId.value === bridgeId && onboardingStep.value === 2) {
+      onboardingStep.value = 3
+    }
+  } catch (e) {
+    error.value = e.message
+  } finally {
+    certificateLoading.value = false
+  }
+}
+
+function dismissCredentials() {
+  credentialResult.value = null
+}
+
+function dismissCertificate() {
+  certificateResult.value = null
+}
+
+// --- Commands ---
+async function sendCommand(bridgeId, cmd) {
+  commandLoading.value = { ...commandLoading.value, [bridgeId + cmd]: true }
+  commandResult.value = { ...commandResult.value, [bridgeId]: null }
+  try {
+    const result = await bridges.sendCommand(bridgeId, { cmd })
+    commandResult.value = { ...commandResult.value, [bridgeId]: result }
+  } catch (e) {
+    commandResult.value = { ...commandResult.value, [bridgeId]: { error: e.message } }
+  } finally {
+    commandLoading.value = { ...commandLoading.value, [bridgeId + cmd]: false }
+  }
+}
+
+// --- ACL ---
+async function regenerateACL() {
+  aclLoading.value = true
+  aclResult.value = null
+  try {
+    const result = await bridges.regenerateACL()
+    aclResult.value = result
+    setTimeout(() => { aclResult.value = null }, 5000)
+  } catch (e) {
+    error.value = e.message
+  } finally {
+    aclLoading.value = false
+  }
+}
+
+// --- Onboarding ---
+function dismissOnboarding() {
+  onboardingBridgeId.value = null
+  onboardingStep.value = 0
+}
+
+// --- Helpers ---
+function toggleExpand(bridgeId) {
+  expandedBridge.value = expandedBridge.value === bridgeId ? null : bridgeId
+  // Clear per-bridge state when collapsing
+  if (expandedBridge.value !== bridgeId) {
+    credentialResult.value = null
+    certificateResult.value = null
+  }
+}
+
+async function copyToClipboard(text, label) {
+  try {
+    await navigator.clipboard.writeText(text)
+    copied.value = label
+    setTimeout(() => { copied.value = '' }, 2000)
+  } catch {
+    // Fallback for non-HTTPS contexts
+    const ta = document.createElement('textarea')
+    ta.value = text
+    document.body.appendChild(ta)
+    ta.select()
+    document.execCommand('copy')
+    document.body.removeChild(ta)
+    copied.value = label
+    setTimeout(() => { copied.value = '' }, 2000)
+  }
+}
+
+function downloadFile(content, filename) {
+  const blob = new Blob([content], { type: 'application/x-pem-file' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = filename
+  a.click()
+  URL.revokeObjectURL(url)
+}
 
 function parseBirth(b) {
   if (!b.last_birth) return null
@@ -48,9 +261,9 @@ function parseHealth(b) {
 }
 
 function interfaceStatusDot(status) {
-  if (status === 'online') return 'bg-green-400'
+  if (status === 'online') return 'bg-emerald-400'
   if (status === 'error') return 'bg-red-400'
-  if (status === 'binding') return 'bg-yellow-400'
+  if (status === 'binding') return 'bg-amber-400'
   return 'bg-gray-500'
 }
 
@@ -95,6 +308,24 @@ function messageDisplay(iface) {
   if (iface.nodes_seen > 0) parts.push(`${iface.nodes_seen} nodes`)
   return parts.join(', ') || '—'
 }
+
+function hasCredentials(b) {
+  return !!b.mqtt_username
+}
+
+function hasCertificate(b) {
+  return !!b.cert_pem
+}
+
+function certExpiryStatus(b) {
+  if (!b.cert_expiry) return null
+  const exp = new Date(b.cert_expiry)
+  const now = new Date()
+  const days = Math.floor((exp - now) / 86400000)
+  if (days < 0) return { label: 'Expired', color: 'text-red-400' }
+  if (days < 14) return { label: `${days}d left`, color: 'text-amber-400' }
+  return { label: `${days}d left`, color: 'text-gray-400' }
+}
 </script>
 
 <template>
@@ -107,10 +338,93 @@ function messageDisplay(iface) {
           {{ totalCount }} bridge{{ totalCount !== 1 ? 's' : '' }}, {{ onlineCount }} online
         </p>
       </div>
+      <div class="flex items-center gap-2">
+        <button @click="regenerateACL" :disabled="aclLoading"
+          class="text-xs px-3 py-1.5 rounded border border-gray-600 text-gray-400 hover:text-gray-200 hover:border-gray-500 transition-colors disabled:opacity-50">
+          {{ aclLoading ? 'Regenerating...' : 'Regenerate ACL' }}
+        </button>
+        <span v-if="aclResult" class="text-xs text-emerald-400">{{ aclResult.bridges_configured }} bridges configured</span>
+        <button @click="showAddForm = !showAddForm"
+          class="bg-teal-600 hover:bg-teal-500 text-white px-3 py-1.5 rounded text-sm font-medium transition-colors">
+          {{ showAddForm ? 'Cancel' : '+ Add Bridge' }}
+        </button>
+      </div>
     </div>
 
     <!-- Error -->
-    <div v-if="error" class="bg-red-900/50 border border-red-700 text-red-200 px-4 py-3 rounded mb-4">{{ error }}</div>
+    <div v-if="error" class="bg-red-900/50 border border-red-700 text-red-200 px-4 py-3 rounded mb-4 flex items-center justify-between">
+      <span>{{ error }}</span>
+      <button @click="error = ''" class="text-red-400 hover:text-red-200 text-xs ml-4">dismiss</button>
+    </div>
+
+    <!-- Add bridge form -->
+    <div v-if="showAddForm" class="bg-tactical-surface rounded-lg border border-tactical-border p-4 mb-4">
+      <h3 class="text-sm font-display font-semibold mb-3">Pre-register Bridge</h3>
+      <p class="text-xs text-gray-400 mb-3">Create a bridge record before it connects. You'll generate credentials in the next step.</p>
+      <div v-if="addError" class="bg-red-900/50 border border-red-700 text-red-200 px-3 py-2 rounded text-xs mb-3">{{ addError }}</div>
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3">
+        <div>
+          <label class="text-xs text-gray-400 mb-1 block">Bridge ID</label>
+          <input v-model="addForm.bridge_id" placeholder="e.g. mule01, bananapi01"
+            class="bg-gray-800 border border-gray-700 px-3 py-2 rounded-lg text-gray-200 w-full placeholder-gray-500 focus:outline-none focus:border-teal-500 text-sm font-mono"
+            @keydown.enter="addBridge" />
+        </div>
+        <div>
+          <label class="text-xs text-gray-400 mb-1 block">Label (optional)</label>
+          <input v-model="addForm.label" placeholder="Human-readable name"
+            class="bg-gray-800 border border-gray-700 px-3 py-2 rounded-lg text-gray-200 w-full placeholder-gray-500 focus:outline-none focus:border-teal-500 text-sm"
+            @keydown.enter="addBridge" />
+        </div>
+      </div>
+      <div class="flex justify-end">
+        <button @click="addBridge"
+          class="bg-teal-600 hover:bg-teal-500 text-white px-4 py-2 rounded text-sm transition-colors">
+          Create Bridge
+        </button>
+      </div>
+    </div>
+
+    <!-- Onboarding banner -->
+    <div v-if="onboardingBridgeId && onboardingStep > 0" class="bg-teal-900/30 border border-teal-700/50 rounded-lg p-4 mb-4">
+      <div class="flex items-center justify-between mb-2">
+        <h3 class="text-sm font-display font-semibold text-teal-300">Onboarding: {{ onboardingBridgeId }}</h3>
+        <button @click="dismissOnboarding" class="text-xs text-gray-400 hover:text-gray-200">dismiss</button>
+      </div>
+      <div class="flex items-center gap-4 text-xs">
+        <div class="flex items-center gap-1.5" :class="onboardingStep >= 1 ? 'text-teal-400' : 'text-gray-500'">
+          <span class="w-5 h-5 rounded-full border flex items-center justify-center text-[10px] font-bold"
+            :class="onboardingStep > 1 ? 'bg-teal-600 border-teal-600' : onboardingStep === 1 ? 'border-teal-500 text-teal-400' : 'border-gray-600'">
+            {{ onboardingStep > 1 ? '\u2713' : '1' }}
+          </span>
+          MQTT Credentials
+        </div>
+        <div class="w-8 border-t border-gray-600" />
+        <div class="flex items-center gap-1.5" :class="onboardingStep >= 2 ? 'text-teal-400' : 'text-gray-500'">
+          <span class="w-5 h-5 rounded-full border flex items-center justify-center text-[10px] font-bold"
+            :class="onboardingStep > 2 ? 'bg-teal-600 border-teal-600' : onboardingStep === 2 ? 'border-teal-500 text-teal-400' : 'border-gray-600'">
+            {{ onboardingStep > 2 ? '\u2713' : '2' }}
+          </span>
+          TLS Certificate
+        </div>
+        <div class="w-8 border-t border-gray-600" />
+        <div class="flex items-center gap-1.5" :class="onboardingStep >= 3 ? 'text-teal-400' : 'text-gray-500'">
+          <span class="w-5 h-5 rounded-full border flex items-center justify-center text-[10px] font-bold"
+            :class="onboardingStep >= 3 ? 'bg-teal-600 border-teal-600' : 'border-gray-600'">
+            {{ onboardingStep >= 3 ? '\u2713' : '3' }}
+          </span>
+          Configure Bridge
+        </div>
+      </div>
+      <div v-if="onboardingStep === 1" class="mt-3 text-xs text-gray-300">
+        Expand the bridge card below and click <strong>Generate MQTT Credentials</strong> to get the username and password.
+      </div>
+      <div v-else-if="onboardingStep === 2" class="mt-3 text-xs text-gray-300">
+        Now click <strong>Issue TLS Certificate</strong> to generate the mutual TLS client certificate.
+      </div>
+      <div v-else-if="onboardingStep === 3" class="mt-3 text-xs text-gray-300">
+        Copy the credentials to your bridge's <code class="bg-gray-800 px-1 py-0.5 rounded font-mono text-teal-400">/cubeos/config/secrets.env</code> and restart the bridge service. It will appear as online once it connects via MQTT.
+      </div>
+    </div>
 
     <!-- Loading -->
     <div v-if="loading" class="text-center text-gray-500 py-12">Loading...</div>
@@ -118,22 +432,23 @@ function messageDisplay(iface) {
     <!-- Empty state -->
     <EmptyState v-else-if="!bridgeList.length"
       icon="satellite"
-      title="No bridges connected"
-      message="Configure MESHSAT_HUB_URL on your bridge to connect it to this Hub" />
+      title="No bridges registered"
+      message="Click '+ Add Bridge' to pre-register a bridge, or configure MESHSAT_HUB_URL on your bridge to auto-connect." />
 
     <!-- Bridge cards grid -->
     <div v-else class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
       <div v-for="b in bridgeList" :key="b.bridge_id">
         <!-- Card -->
         <div class="bg-tactical-surface rounded-lg border border-tactical-border p-4 cursor-pointer hover:border-gray-500 transition-colors"
+          :class="{ 'rounded-b-none': expandedBridge === b.bridge_id }"
           @click="toggleExpand(b.bridge_id)">
           <!-- Card header -->
           <div class="flex items-center justify-between mb-3">
             <div class="flex items-center gap-2 min-w-0">
               <h3 class="font-display font-semibold text-gray-200 truncate">{{ b.label || b.bridge_id }}</h3>
               <span class="flex items-center gap-1.5 text-xs font-medium shrink-0"
-                :class="b.online ? 'text-green-400' : 'text-red-400'">
-                <span class="w-2 h-2 rounded-full" :class="b.online ? 'bg-green-400 animate-pulse-dot' : 'bg-red-400'" />
+                :class="b.online ? 'text-emerald-400' : 'text-red-400'">
+                <span class="w-2 h-2 rounded-full" :class="b.online ? 'bg-emerald-400 animate-pulse-dot' : 'bg-red-400'" />
                 {{ b.online ? 'Online' : 'Offline' }}
               </span>
             </div>
@@ -146,8 +461,8 @@ function messageDisplay(iface) {
           <!-- Bridge meta -->
           <div class="grid grid-cols-2 gap-x-4 gap-y-1 text-xs mb-3">
             <div>
-              <span class="text-gray-500">Hostname</span>
-              <div class="text-gray-300 font-mono truncate">{{ b.hostname || '—' }}</div>
+              <span class="text-gray-500">ID</span>
+              <div class="text-gray-300 font-mono truncate">{{ b.bridge_id }}</div>
             </div>
             <div>
               <span class="text-gray-500">Version</span>
@@ -158,8 +473,8 @@ function messageDisplay(iface) {
               <div class="text-gray-300">{{ timeAgo(b.last_seen) }}</div>
             </div>
             <div>
-              <span class="text-gray-500">Mode</span>
-              <div class="text-gray-300">{{ b.mode || '—' }}</div>
+              <span class="text-gray-500">Hostname</span>
+              <div class="text-gray-300 font-mono truncate">{{ b.hostname || '—' }}</div>
             </div>
           </div>
 
@@ -177,7 +492,133 @@ function messageDisplay(iface) {
         <!-- Expanded detail panel -->
         <Transition name="expand">
           <div v-if="expandedBridge === b.bridge_id"
-            class="bg-tactical-surface rounded-b-lg border border-t-0 border-tactical-border p-4 -mt-1">
+            class="bg-tactical-surface rounded-b-lg border border-t-0 border-tactical-border p-4">
+
+            <!-- Action buttons -->
+            <div class="flex flex-wrap gap-2 mb-4 pb-4 border-b border-tactical-border">
+              <button @click.stop="openEdit(b)"
+                class="text-xs px-3 py-1.5 rounded border border-gray-600 text-gray-300 hover:text-gray-100 hover:border-gray-500 transition-colors">
+                Edit
+              </button>
+              <button @click.stop="confirmDelete(b)"
+                class="text-xs px-3 py-1.5 rounded border border-red-800 text-red-400 hover:text-red-300 hover:border-red-700 hover:bg-red-900/30 transition-colors">
+                Delete Bridge
+              </button>
+            </div>
+
+            <!-- Credentials section -->
+            <div class="mb-4 pb-4 border-b border-tactical-border">
+              <h4 class="text-xs text-gray-500 uppercase tracking-wider font-display mb-2">Credentials</h4>
+              <div class="flex flex-wrap items-center gap-3 mb-2">
+                <div class="text-xs">
+                  <span class="text-gray-500">MQTT:</span>
+                  <span :class="hasCredentials(b) ? 'text-emerald-400' : 'text-gray-500'" class="ml-1">
+                    {{ hasCredentials(b) ? 'Configured' : 'Not set' }}
+                  </span>
+                </div>
+                <div class="text-xs">
+                  <span class="text-gray-500">TLS:</span>
+                  <span v-if="hasCertificate(b)" :class="certExpiryStatus(b)?.color" class="ml-1">
+                    {{ certExpiryStatus(b)?.label }}
+                  </span>
+                  <span v-else class="text-gray-500 ml-1">Not issued</span>
+                </div>
+              </div>
+              <div class="flex flex-wrap gap-2">
+                <button @click.stop="generateCredentials(b.bridge_id)" :disabled="credentialLoading"
+                  class="text-xs px-3 py-1.5 rounded bg-gray-700 hover:bg-gray-600 text-gray-200 transition-colors disabled:opacity-50">
+                  {{ credentialLoading ? 'Generating...' : hasCredentials(b) ? 'Rotate MQTT Password' : 'Generate MQTT Credentials' }}
+                </button>
+                <button @click.stop="issueCertificate(b.bridge_id)" :disabled="certificateLoading"
+                  class="text-xs px-3 py-1.5 rounded bg-gray-700 hover:bg-gray-600 text-gray-200 transition-colors disabled:opacity-50">
+                  {{ certificateLoading ? 'Issuing...' : hasCertificate(b) ? 'Reissue TLS Certificate' : 'Issue TLS Certificate' }}
+                </button>
+              </div>
+
+              <!-- One-time MQTT credential display -->
+              <div v-if="credentialResult && credentialResult.bridge_id === b.bridge_id"
+                class="mt-3 bg-amber-900/20 border border-amber-700/50 rounded-lg p-3">
+                <div class="flex items-center justify-between mb-2">
+                  <span class="text-xs font-semibold text-amber-300">MQTT Credentials — copy now, shown only once</span>
+                  <button @click.stop="dismissCredentials" class="text-xs text-gray-400 hover:text-gray-200">dismiss</button>
+                </div>
+                <div class="space-y-2 text-xs font-mono">
+                  <div class="flex items-center gap-2">
+                    <span class="text-gray-400 w-16 shrink-0">URL:</span>
+                    <code class="text-gray-200 bg-gray-800 px-2 py-1 rounded flex-1 truncate">{{ credentialResult.mqtt_url }}</code>
+                    <button @click.stop="copyToClipboard(credentialResult.mqtt_url, 'url')"
+                      class="text-teal-400 hover:text-teal-300 shrink-0 text-xs">{{ copied === 'url' ? 'Copied!' : 'Copy' }}</button>
+                  </div>
+                  <div class="flex items-center gap-2">
+                    <span class="text-gray-400 w-16 shrink-0">User:</span>
+                    <code class="text-gray-200 bg-gray-800 px-2 py-1 rounded flex-1 truncate">{{ credentialResult.username }}</code>
+                    <button @click.stop="copyToClipboard(credentialResult.username, 'user')"
+                      class="text-teal-400 hover:text-teal-300 shrink-0 text-xs">{{ copied === 'user' ? 'Copied!' : 'Copy' }}</button>
+                  </div>
+                  <div class="flex items-center gap-2">
+                    <span class="text-gray-400 w-16 shrink-0">Pass:</span>
+                    <code class="text-gray-200 bg-gray-800 px-2 py-1 rounded flex-1 truncate">{{ credentialResult.password }}</code>
+                    <button @click.stop="copyToClipboard(credentialResult.password, 'pass')"
+                      class="text-teal-400 hover:text-teal-300 shrink-0 text-xs">{{ copied === 'pass' ? 'Copied!' : 'Copy' }}</button>
+                  </div>
+                </div>
+              </div>
+
+              <!-- One-time TLS certificate display -->
+              <div v-if="certificateResult && certificateResult.bridge_id === b.bridge_id"
+                class="mt-3 bg-amber-900/20 border border-amber-700/50 rounded-lg p-3">
+                <div class="flex items-center justify-between mb-2">
+                  <span class="text-xs font-semibold text-amber-300">TLS Certificate — private key shown only once</span>
+                  <button @click.stop="dismissCertificate" class="text-xs text-gray-400 hover:text-gray-200">dismiss</button>
+                </div>
+                <div class="text-xs text-gray-400 mb-2">
+                  Expires: <span class="text-gray-200">{{ formatUTC(certificateResult.expires) }}</span>
+                </div>
+                <div class="flex flex-wrap gap-2">
+                  <button @click.stop="downloadFile(certificateResult.cert_pem, b.bridge_id + '.crt')"
+                    class="text-xs px-2 py-1 rounded bg-gray-700 hover:bg-gray-600 text-gray-200 transition-colors">
+                    Download Certificate (.crt)
+                  </button>
+                  <button @click.stop="downloadFile(certificateResult.key_pem, b.bridge_id + '.key')"
+                    class="text-xs px-2 py-1 rounded bg-gray-700 hover:bg-gray-600 text-gray-200 transition-colors">
+                    Download Private Key (.key)
+                  </button>
+                  <button @click.stop="downloadFile(certificateResult.ca_pem, 'meshsat-hub-ca.crt')"
+                    class="text-xs px-2 py-1 rounded bg-gray-700 hover:bg-gray-600 text-gray-200 transition-colors">
+                    Download CA (.crt)
+                  </button>
+                  <button @click.stop="copyToClipboard(certificateResult.cert_pem + '\n' + certificateResult.key_pem, 'cert')"
+                    class="text-xs text-teal-400 hover:text-teal-300">{{ copied === 'cert' ? 'Copied!' : 'Copy All' }}</button>
+                </div>
+              </div>
+            </div>
+
+            <!-- Commands section (online only) -->
+            <div v-if="b.online" class="mb-4 pb-4 border-b border-tactical-border">
+              <h4 class="text-xs text-gray-500 uppercase tracking-wider font-display mb-2">Commands</h4>
+              <div class="flex flex-wrap gap-2">
+                <button @click.stop="sendCommand(b.bridge_id, 'ping')" :disabled="commandLoading[b.bridge_id + 'ping']"
+                  class="text-xs px-3 py-1.5 rounded bg-gray-700 hover:bg-gray-600 text-gray-200 transition-colors disabled:opacity-50">
+                  {{ commandLoading[b.bridge_id + 'ping'] ? 'Pinging...' : 'Ping' }}
+                </button>
+                <button @click.stop="sendCommand(b.bridge_id, 'reboot')" :disabled="commandLoading[b.bridge_id + 'reboot']"
+                  class="text-xs px-3 py-1.5 rounded bg-gray-700 hover:bg-gray-600 text-amber-300 transition-colors disabled:opacity-50">
+                  {{ commandLoading[b.bridge_id + 'reboot'] ? 'Rebooting...' : 'Reboot' }}
+                </button>
+                <button @click.stop="sendCommand(b.bridge_id, 'flush_burst')" :disabled="commandLoading[b.bridge_id + 'flush_burst']"
+                  class="text-xs px-3 py-1.5 rounded bg-gray-700 hover:bg-gray-600 text-gray-200 transition-colors disabled:opacity-50">
+                  {{ commandLoading[b.bridge_id + 'flush_burst'] ? 'Flushing...' : 'Flush Burst Queue' }}
+                </button>
+              </div>
+              <div v-if="commandResult[b.bridge_id]" class="mt-2 text-xs">
+                <div v-if="commandResult[b.bridge_id].error" class="text-red-400">
+                  Error: {{ commandResult[b.bridge_id].error }}
+                </div>
+                <div v-else class="text-emerald-400">
+                  {{ commandResult[b.bridge_id].status }} ({{ commandResult[b.bridge_id].latency_ms }}ms)
+                </div>
+              </div>
+            </div>
 
             <!-- System metrics -->
             <template v-if="parseHealth(b)">
@@ -190,7 +631,7 @@ function messageDisplay(iface) {
                   </div>
                   <div class="w-full bg-gray-700 rounded-full h-1.5">
                     <div class="h-1.5 rounded-full transition-all"
-                      :class="parseHealth(b).cpu_pct > 80 ? 'bg-red-400' : parseHealth(b).cpu_pct > 50 ? 'bg-yellow-400' : 'bg-teal-400'"
+                      :class="parseHealth(b).cpu_pct > 80 ? 'bg-red-400' : parseHealth(b).cpu_pct > 50 ? 'bg-amber-400' : 'bg-teal-400'"
                       :style="{ width: Math.min(parseHealth(b).cpu_pct || 0, 100) + '%' }" />
                   </div>
                 </div>
@@ -201,7 +642,7 @@ function messageDisplay(iface) {
                   </div>
                   <div class="w-full bg-gray-700 rounded-full h-1.5">
                     <div class="h-1.5 rounded-full transition-all"
-                      :class="parseHealth(b).mem_pct > 80 ? 'bg-red-400' : parseHealth(b).mem_pct > 50 ? 'bg-yellow-400' : 'bg-teal-400'"
+                      :class="parseHealth(b).mem_pct > 80 ? 'bg-red-400' : parseHealth(b).mem_pct > 50 ? 'bg-amber-400' : 'bg-teal-400'"
                       :style="{ width: Math.min(parseHealth(b).mem_pct || 0, 100) + '%' }" />
                   </div>
                 </div>
@@ -212,7 +653,7 @@ function messageDisplay(iface) {
                   </div>
                   <div class="w-full bg-gray-700 rounded-full h-1.5">
                     <div class="h-1.5 rounded-full transition-all"
-                      :class="parseHealth(b).disk_pct > 80 ? 'bg-red-400' : parseHealth(b).disk_pct > 50 ? 'bg-yellow-400' : 'bg-teal-400'"
+                      :class="parseHealth(b).disk_pct > 80 ? 'bg-red-400' : parseHealth(b).disk_pct > 50 ? 'bg-amber-400' : 'bg-teal-400'"
                       :style="{ width: Math.min(parseHealth(b).disk_pct || 0, 100) + '%' }" />
                   </div>
                 </div>
@@ -250,7 +691,7 @@ function messageDisplay(iface) {
                         <td class="py-1.5 pr-3">
                           <span class="flex items-center gap-1">
                             <span class="w-1.5 h-1.5 rounded-full" :class="interfaceStatusDot(iface.status)" />
-                            <span :class="iface.status === 'online' ? 'text-green-400' : iface.status === 'error' ? 'text-red-400' : 'text-gray-400'">
+                            <span :class="iface.status === 'online' ? 'text-emerald-400' : iface.status === 'error' ? 'text-red-400' : 'text-gray-400'">
                               {{ iface.status }}
                             </span>
                           </span>
@@ -258,7 +699,7 @@ function messageDisplay(iface) {
                         <td class="py-1.5 pr-3 text-gray-300">{{ signalDisplay(iface) }}</td>
                         <td class="py-1.5 pr-3">
                           <span v-if="iface.health_score > 0"
-                            :class="iface.health_score >= 80 ? 'text-green-400' : iface.health_score >= 50 ? 'text-yellow-400' : 'text-red-400'">
+                            :class="iface.health_score >= 80 ? 'text-emerald-400' : iface.health_score >= 50 ? 'text-amber-400' : 'text-red-400'">
                             {{ iface.health_score }}%
                           </span>
                           <span v-else class="text-gray-500">—</span>
@@ -314,17 +755,71 @@ function messageDisplay(iface) {
 
             <!-- Location -->
             <template v-if="b.location_lat && b.location_lon">
-              <div class="text-xs text-gray-400">
+              <div class="text-xs text-gray-400 mb-4">
                 Location: <span class="text-gray-300 font-mono">{{ b.location_lat.toFixed(6) }}, {{ b.location_lon.toFixed(6) }}</span>
+                <span v-if="b.location_alt" class="text-gray-500 ml-1">({{ b.location_alt.toFixed(0) }}m)</span>
               </div>
             </template>
 
+            <!-- Bridge meta -->
+            <div class="text-xs text-gray-500 mt-2 pt-2 border-t border-tactical-border/50">
+              Created: {{ formatUTC(b.created_at) }}
+              <span v-if="b.mode" class="ml-3">Mode: {{ b.mode }}</span>
+            </div>
+
             <!-- No health data -->
-            <div v-if="!parseHealth(b)" class="text-xs text-gray-500 italic">
-              No health data received yet
+            <div v-if="!parseHealth(b)" class="text-xs text-gray-500 italic mt-2">
+              No health data received yet — bridge has not connected.
             </div>
           </div>
         </Transition>
+      </div>
+    </div>
+
+    <!-- Edit modal -->
+    <div v-if="showEditModal" class="fixed inset-0 z-50 flex items-center justify-center" @click.self="showEditModal = false">
+      <div class="absolute inset-0 bg-black/50" />
+      <div class="relative bg-tactical-surface border border-tactical-border rounded-lg p-6 max-w-md mx-4 w-full">
+        <h3 class="text-lg font-display font-semibold mb-4">Edit Bridge</h3>
+        <div class="space-y-3 mb-4">
+          <div>
+            <label class="text-xs text-gray-400 mb-1 block">Label</label>
+            <input v-model="editForm.label"
+              class="bg-gray-800 border border-gray-700 px-3 py-2 rounded-lg text-gray-200 w-full placeholder-gray-500 focus:outline-none focus:border-teal-500 text-sm"
+              @keydown.enter="saveEdit" />
+          </div>
+          <div>
+            <label class="text-xs text-gray-400 mb-1 block">CoT Callsign</label>
+            <input v-model="editForm.cot_callsign" placeholder="e.g. MESHSAT-01"
+              class="bg-gray-800 border border-gray-700 px-3 py-2 rounded-lg text-gray-200 w-full placeholder-gray-500 focus:outline-none focus:border-teal-500 text-sm font-mono"
+              @keydown.enter="saveEdit" />
+          </div>
+        </div>
+        <div class="flex justify-end gap-3">
+          <button @click="showEditModal = false" class="px-4 py-2 text-sm text-gray-400 hover:text-gray-200">Cancel</button>
+          <button @click="saveEdit" class="px-4 py-2 text-sm bg-teal-600 hover:bg-teal-500 text-white rounded transition-colors">Save</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Delete confirmation modal -->
+    <div v-if="showDeleteConfirm" class="fixed inset-0 z-50 flex items-center justify-center" @click.self="showDeleteConfirm = false">
+      <div class="absolute inset-0 bg-black/50" />
+      <div class="relative bg-tactical-surface border border-tactical-border rounded-lg p-6 max-w-md mx-4">
+        <h3 class="text-lg font-display font-semibold mb-2">Delete Bridge</h3>
+        <p class="text-gray-400 text-sm mb-2">
+          Permanently remove <span class="text-gray-200 font-medium font-mono">{{ bridgeToDelete?.label || bridgeToDelete?.bridge_id }}</span>?
+        </p>
+        <p class="text-xs text-gray-500 mb-4">
+          This will delete the bridge record, disassociate all linked devices, and revoke MQTT credentials. This action cannot be undone.
+        </p>
+        <div v-if="bridgeToDelete?.online" class="text-amber-400 text-xs mb-4 bg-amber-900/20 border border-amber-700 rounded p-3">
+          Warning: This bridge is currently online. Deleting it will disconnect the active MQTT session.
+        </div>
+        <div class="flex justify-end gap-3">
+          <button @click="showDeleteConfirm = false" class="px-4 py-2 text-sm text-gray-400 hover:text-gray-200">Cancel</button>
+          <button @click="deleteBridge()" class="px-4 py-2 text-sm bg-red-600 hover:bg-red-500 text-white rounded transition-colors">Delete</button>
+        </div>
       </div>
     </div>
   </div>
@@ -344,6 +839,6 @@ function messageDisplay(iface) {
 .expand-enter-to,
 .expand-leave-from {
   opacity: 1;
-  max-height: 600px;
+  max-height: 1200px;
 }
 </style>

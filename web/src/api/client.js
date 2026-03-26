@@ -221,6 +221,13 @@ export const geofences = {
 export const bridges = {
   list: () => fetchJSON('/bridges'),
   get: (id) => fetchJSON(`/bridges/${id}`),
+  create: (data) => fetchJSON('/bridges', { method: 'POST', body: JSON.stringify(data) }),
+  update: (id, data) => fetchJSON(`/bridges/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+  delete: (id) => fetchJSON(`/bridges/${id}`, { method: 'DELETE' }),
+  generateCredentials: (id) => fetchJSON(`/bridges/${id}/credentials`, { method: 'POST' }),
+  issueCertificate: (id) => fetchJSON(`/bridges/${id}/certificate`, { method: 'POST' }),
+  sendCommand: (id, data) => fetchJSON(`/bridges/${id}/command`, { method: 'POST', body: JSON.stringify(data) }),
+  regenerateACL: () => fetchJSON('/bridges/acl/regenerate', { method: 'POST' }),
 }
 
 export const deviceGroups = {

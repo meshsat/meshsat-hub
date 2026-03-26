@@ -94,6 +94,7 @@ function formatLastSeen(d) {
         class="bg-gray-800 border border-gray-700 px-3 py-2 rounded-lg text-gray-200 focus:outline-none focus:border-teal-500">
         <option value="rockblock">RockBLOCK</option>
         <option value="astrocast">Astrocast</option>
+        <option value="android">Android</option>
         <option value="other">Other</option>
       </select>
       <button @click="addDevice"

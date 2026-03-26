@@ -1065,6 +1065,7 @@ func main() {
 	// Bridge registry API
 	bridgeHandler := api.NewBridgeHandler(dataStore)
 	r.Get("/api/bridges", bridgeHandler.ListBridges)
+	r.Post("/api/bridges", bridgeHandler.CreateBridge)
 	r.Get("/api/bridges/{id}", bridgeHandler.GetBridge)
 	r.Put("/api/bridges/{id}", bridgeHandler.UpdateBridge)
 	r.Delete("/api/bridges/{id}", bridgeHandler.DeleteBridge)
