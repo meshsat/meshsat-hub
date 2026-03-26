@@ -238,6 +238,31 @@ export const integrations = {
   list: () => fetchJSON('/integrations'),
 }
 
+export const credentials = {
+  list: () => fetchJSON('/credentials'),
+  get: (id) => fetchJSON(`/credentials/${id}`),
+  expiring: (days = 30) => fetchJSON(`/credentials/expiry?days=${days}`),
+  del: (id) => fetchJSON(`/credentials/${id}`, { method: 'DELETE' }),
+  distribute: (id) => fetchJSON(`/credentials/${id}/distribute`, { method: 'POST' }),
+  async upload(file, provider, name, targetScope = 'hub', targetBridgeID = '') {
+    const auth = (await import('../stores/auth')).useAuthStore()
+    const form = new FormData()
+    form.append('file', file)
+    form.append('provider', provider)
+    form.append('name', name)
+    form.append('target_scope', targetScope)
+    if (targetBridgeID) form.append('target_bridge_id', targetBridgeID)
+    const headers = {}
+    if (auth.token) headers['Authorization'] = `Bearer ${auth.token}`
+    const res = await fetch(`${BASE}/credentials/upload`, { method: 'POST', body: form, headers })
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: res.statusText }))
+      throw new Error(err.error || res.statusText)
+    }
+    return res.json()
+  }
+}
+
 export const health = {
   check: () => fetch('/healthz').then(r => r.json()).catch(() => ({ status: 'error' })),
   readyz: () => fetch('/readyz').then(r => r.json()).catch(() => ({ status: 'error' })),

@@ -29,6 +29,7 @@ const routes = [
   { path: '/users', name: 'users', component: () => import('./views/UsersView.vue'), meta: { requiresAuth: true } },
   { path: '/audit', name: 'audit', component: () => import('./views/AuditView.vue'), meta: { requiresAuth: true } },
   { path: '/api-keys', name: 'apikeys', component: () => import('./views/ApiKeys.vue'), meta: { requiresAuth: true } },
+  { path: '/credentials', name: 'credentials', component: () => import('./views/CredentialsView.vue'), meta: { requiresAuth: true } },
   { path: '/help', name: 'help', component: () => import('./views/HelpView.vue'), meta: { requiresAuth: true } },
 ]
 

@@ -135,7 +135,7 @@ const navGroups = [
             <!-- Admin group (owner-only) -->
             <div v-if="auth.isOwner" class="relative" @mouseenter="showDropdown('Admin')" @mouseleave="hideDropdown">
               <button class="px-3 py-1.5 rounded text-xs font-medium whitespace-nowrap transition-colors flex items-center gap-1"
-                :class="['/users', '/api-keys', '/audit'].includes(router.currentRoute.value.path)
+                :class="['/users', '/api-keys', '/audit', '/credentials'].includes(router.currentRoute.value.path)
                   ? 'bg-tactical-iridium/10 text-tactical-iridium'
                   : openDropdown === 'Admin'
                     ? 'text-gray-300 bg-white/5'
@@ -152,6 +152,8 @@ const navGroups = [
                   active-class="!text-tactical-iridium !bg-tactical-iridium/10" @click="openDropdown = null">API Keys</RouterLink>
                 <RouterLink to="/audit" class="block px-4 py-2 text-xs font-medium transition-colors text-gray-400 hover:text-gray-200 hover:bg-white/5"
                   active-class="!text-tactical-iridium !bg-tactical-iridium/10" @click="openDropdown = null">Audit</RouterLink>
+                <RouterLink to="/credentials" class="block px-4 py-2 text-xs font-medium transition-colors text-gray-400 hover:text-gray-200 hover:bg-white/5"
+                  active-class="!text-tactical-iridium !bg-tactical-iridium/10" @click="openDropdown = null">Credentials</RouterLink>
               </div>
             </div>
             <!-- Help: standalone link (matches Bridge) -->
@@ -246,6 +248,7 @@ const navGroups = [
                 <RouterLink to="/users" class="block px-3 py-2 rounded text-sm transition-colors text-gray-400 hover:text-gray-200 hover:bg-white/5" active-class="!bg-tactical-iridium/10 !text-tactical-iridium">Users</RouterLink>
                 <RouterLink to="/api-keys" class="block px-3 py-2 rounded text-sm transition-colors text-gray-400 hover:text-gray-200 hover:bg-white/5" active-class="!bg-tactical-iridium/10 !text-tactical-iridium">API Keys</RouterLink>
                 <RouterLink to="/audit" class="block px-3 py-2 rounded text-sm transition-colors text-gray-400 hover:text-gray-200 hover:bg-white/5" active-class="!bg-tactical-iridium/10 !text-tactical-iridium">Audit</RouterLink>
+                <RouterLink to="/credentials" class="block px-3 py-2 rounded text-sm transition-colors text-gray-400 hover:text-gray-200 hover:bg-white/5" active-class="!bg-tactical-iridium/10 !text-tactical-iridium">Credentials</RouterLink>
               </template>
               <div class="border-t border-tactical-border mt-2 pt-2">
                 <RouterLink to="/help" class="block px-3 py-2 rounded text-sm transition-colors text-gray-400 hover:text-gray-200 hover:bg-white/5" active-class="!bg-tactical-iridium/10 !text-tactical-iridium">Help</RouterLink>
