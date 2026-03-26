@@ -73,17 +73,18 @@ services:
   # Runs on NL node only (same host as MariaDB node 1).
   # -------------------------------------------------------------------------
   garbd:
-    image: mariadb:11-jammy
+    build:
+      context: .
+      dockerfile: Dockerfile.garbd
+    image: meshsat-garbd:latest
     container_name: meshsat-garbd
     restart: unless-stopped
     network_mode: host
-    entrypoint: ["garbd"]
     command:
       - --group=meshsat-galera
       - --address=gcomm://192.168.192.10,192.168.15.10
       - --name=meshsat-garbd
-      - --option=gmcast.listen_addr=tcp://0.0.0.0:4570
-      - --option=pc.weight=1
+      - --option=gmcast.listen_addr=tcp://0.0.0.0:4570;pc.weight=1
     depends_on:
       mariadb:
         condition: service_healthy
