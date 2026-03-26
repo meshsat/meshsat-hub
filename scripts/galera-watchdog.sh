@@ -34,6 +34,13 @@ check_and_fix() {
     "SELECT VARIABLE_VALUE FROM information_schema.global_status WHERE VARIABLE_NAME='wsrep_local_state_comment';" 2>/dev/null || echo "UNREACHABLE")
 
   if [ "$GALERA_STATUS" = "Synced" ]; then
+    # Check garbd is running (3rd quorum voter)
+    if ! docker ps --filter name=meshsat-garbd --format '{{.Names}}' | grep -q meshsat-garbd; then
+      log "garbd not running — restarting..."
+      docker restart meshsat-garbd 2>/dev/null || docker compose up -d garbd 2>/dev/null || true
+      sleep 5
+    fi
+
     # Also check Hub is running
     HUB_STATUS=$(docker inspect --format='{{.State.Health.Status}}' meshsat-hub 2>/dev/null || echo "unknown")
     if [ "$HUB_STATUS" = "healthy" ]; then
@@ -84,6 +91,11 @@ check_and_fix() {
   # Restore original cluster address (don't restart MariaDB — it's running fine)
   sed -i "s|WSREP_CLUSTER_ADDRESS=.*|WSREP_CLUSTER_ADDRESS=$ORIG_ADDR|" .env
   log "Cluster address restored (MariaDB still running with bootstrap, will rejoin on next restart)"
+
+  # Restart garbd (quorum voter)
+  log "Restarting garbd..."
+  docker restart meshsat-garbd 2>/dev/null || docker compose up -d garbd 2>/dev/null || true
+  sleep 5
 
   # Start Hub
   log "Starting Hub..."

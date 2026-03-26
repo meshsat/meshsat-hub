@@ -11,7 +11,7 @@ CONTAINER_NAME="${GALERA_CONTAINER:-meshsat-mariadb}"
 GARBD_CONTAINER="${GALERA_GARBD_CONTAINER:-meshsat-garbd}"
 GARBD_HOST="nllei01dmz01"
 DB_ROOT_PASS="${MARIADB_ROOT_PASSWORD:-}"
-MIN_CLUSTER_SIZE=2
+MIN_CLUSTER_SIZE=3
 HEALTHY=true
 
 echo "=== Galera Cluster Health Check ==="
@@ -85,8 +85,9 @@ for host in "${HOSTS[@]}"; do
         echo "  --- garbd (${GARBD_CONTAINER}) ---"
         GARBD_RUNNING=$(ssh -l "${SSH_USER}" "${host}" "docker ps --filter name=${GARBD_CONTAINER} --filter status=running --format '{{.Names}}'" 2>/dev/null) || true
         if [[ -z "${GARBD_RUNNING}" ]]; then
-            echo "  WARN: garbd not running on ${host} — cluster has NO fault tolerance!"
+            echo "  FAIL: garbd not running on ${host} — cluster has NO quorum voter!"
             echo "  FIX:  docker compose up -d garbd"
+            HEALTHY=false
         else
             echo "  garbd: running"
         fi

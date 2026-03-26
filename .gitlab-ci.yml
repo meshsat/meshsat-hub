@@ -213,15 +213,26 @@ pre-deploy:
           echo "  FAIL: wsrep_ready is OFF"
           HEALTHY=false
         fi
-        if [ "$CLUSTER_SIZE" -lt 2 ] 2>/dev/null; then
-          echo "  FAIL: cluster_size=$CLUSTER_SIZE < 2 (split-brain!)"
+        if [ "$CLUSTER_SIZE" -lt 3 ] 2>/dev/null; then
+          echo "  FAIL: cluster_size=$CLUSTER_SIZE < 3 (garbd missing or split-brain!)"
           HEALTHY=false
         fi
       done
 
+      # Verify garbd container is running on NL node
+      echo ""
+      echo "--- garbd ($DEPLOY_HOST_NL) ---"
+      GARBD_STATUS=$(ssh -i $SSH_KEY "${DEPLOY_USER}@${DEPLOY_HOST_NL}" \
+        "docker inspect --format='{{.State.Status}}' meshsat-garbd 2>/dev/null" 2>/dev/null) || GARBD_STATUS="not found"
+      echo "  garbd container: $GARBD_STATUS"
+      if [ "$GARBD_STATUS" != "running" ]; then
+        echo "  FAIL: garbd is not running — cluster has no quorum voter!"
+        HEALTHY=false
+      fi
+
       echo ""
       if [ "$HEALTHY" = "true" ]; then
-        echo "=== PASS: Galera healthy, deploy may proceed ==="
+        echo "=== PASS: Galera healthy (3 voters), deploy may proceed ==="
       else
         echo "=== BLOCKED: Galera cluster is NOT healthy ==="
         echo "Fix the cluster before deploying. See CLAUDE.md Galera rules."
@@ -343,15 +354,25 @@ verify:
 
         echo "  Galera cluster_size: $CLUSTER_SIZE"
 
-        if [ "$CLUSTER_SIZE" = "ERROR" ] || [ "$CLUSTER_SIZE" -lt 2 ] 2>/dev/null; then
-          echo "  FAIL: Galera cluster degraded after deploy!"
+        if [ "$CLUSTER_SIZE" = "ERROR" ] || [ "$CLUSTER_SIZE" -lt 3 ] 2>/dev/null; then
+          echo "  FAIL: Galera cluster degraded after deploy (cluster_size=$CLUSTER_SIZE, expected 3)!"
           GALERA_OK=false
         fi
       done
 
+      # Verify garbd still running post-deploy
+      GARBD_STATUS=$(ssh -i $SSH_KEY "${DEPLOY_USER}@${DEPLOY_HOST_NL}" \
+        "docker inspect --format='{{.State.Status}}' meshsat-garbd 2>/dev/null" 2>/dev/null) || GARBD_STATUS="not found"
+      echo ""
+      echo "  garbd post-deploy: $GARBD_STATUS"
+      if [ "$GARBD_STATUS" != "running" ]; then
+        echo "  WARN: garbd stopped during deploy — restart it!"
+        GALERA_OK=false
+      fi
+
       echo ""
       if [ "$GALERA_OK" = "true" ]; then
-        echo "=== PASS: Galera cluster healthy after deploy ==="
+        echo "=== PASS: Galera cluster healthy after deploy (3 voters) ==="
       else
         echo "=== WARN: Galera cluster may be degraded — investigate immediately ==="
       fi

@@ -54,8 +54,9 @@ if [ "$SIZE" = "1" ] && [ "$READY" = "ON" ]; then
   echo ""
   echo "Next steps:"
   echo "  1. Start other nodes: docker compose up -d mariadb"
-  echo "  2. Fresh joiner? Init DB first: see docker-compose.galera.yml header"
-  echo "  3. Verify: wsrep_cluster_size=2 on both nodes"
+  echo "  2. Start garbd:       docker compose up -d garbd"
+  echo "  3. Fresh joiner? Init DB first: see docker-compose.galera.yml header"
+  echo "  4. Verify: wsrep_cluster_size=3 on both nodes (2 data + 1 arbitrator)"
 else
   echo "ERROR: Bootstrap may have failed (size=$SIZE, ready=$READY)"
   echo "Restoring original cluster address..."
