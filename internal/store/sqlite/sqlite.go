@@ -1915,7 +1915,7 @@ func (d *DB) ListCredentials(ctx context.Context, tenantID string) ([]store.Cred
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	var creds []store.Credential
 	for rows.Next() {
 		c, err := d.scanCredentialRow(rows)
@@ -1958,7 +1958,7 @@ func (d *DB) ListExpiringCredentials(ctx context.Context, before time.Time) ([]s
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	var creds []store.Credential
 	for rows.Next() {
 		c, err := d.scanCredentialRow(rows)

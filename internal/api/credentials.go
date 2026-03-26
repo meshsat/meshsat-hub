@@ -76,7 +76,7 @@ func (h *CredentialHandler) Upload(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "file is required: "+err.Error())
 		return
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 
 	data, err := io.ReadAll(io.LimitReader(file, 1<<20))
 	if err != nil {
@@ -198,7 +198,7 @@ func (h *CredentialHandler) Delete(w http.ResponseWriter, r *http.Request) {
 func (h *CredentialHandler) ListExpiring(w http.ResponseWriter, r *http.Request) {
 	days := 30
 	if d := r.URL.Query().Get("days"); d != "" {
-		fmt.Sscanf(d, "%d", &days)
+		_, _ = fmt.Sscanf(d, "%d", &days)
 	}
 	before := time.Now().AddDate(0, 0, days)
 	creds, err := h.store.ListExpiringCredentials(r.Context(), before)
@@ -276,7 +276,7 @@ func (h *CredentialHandler) Distribute(w http.ResponseWriter, r *http.Request) {
 	// Update distributed_at timestamp
 	now := time.Now().UTC()
 	cred.DistributedAt = &now
-	h.store.UpdateCredential(r.Context(), tid, cred)
+	_ = h.store.UpdateCredential(r.Context(), tid, cred)
 
 	slog.Info("credential distributed", "id", id, "bridges", len(bridgeIDs))
 	writeJSON(w, http.StatusOK, map[string]interface{}{
@@ -337,7 +337,7 @@ func extractPEMsFromZIP(data []byte) (map[string][]byte, error) {
 				continue
 			}
 			content, err := io.ReadAll(io.LimitReader(rc, 1<<20))
-			rc.Close()
+			_ = rc.Close()
 			if err != nil {
 				continue
 			}
