@@ -173,8 +173,16 @@ pre-deploy:
         }
         echo "  $ADDR"
         if echo "$ADDR" | grep -qE 'gcomm://$' || echo "$ADDR" | grep -qE 'gcomm://[[:space:]]*$'; then
-          echo "  FAIL: BARE gcomm:// detected — split-brain risk!"
-          echo "  This MUST be fixed before any deploy."
+          echo "  FAIL: BARE gcomm:// in .env — split-brain risk!"
+          HEALTHY=false
+          continue
+        fi
+
+        # Check running container for stale bare gcomm:// (incident 7/8 root cause)
+        CONTAINER_CMD=$(ssh -i $SSH_KEY "${DEPLOY_USER}@${HOST}" \
+          "docker inspect ${GALERA_CONTAINER} --format '{{range .Config.Cmd}}{{.}} {{end}}'" 2>/dev/null) || true
+        if echo "$CONTAINER_CMD" | grep -qE 'wsrep-cluster-address=gcomm://$|wsrep-cluster-address=gcomm:// '; then
+          echo "  FAIL: Running container has BARE gcomm:// (stale bootstrap!)"
           HEALTHY=false
           continue
         fi

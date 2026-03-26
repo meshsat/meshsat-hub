@@ -8,6 +8,8 @@ set -euo pipefail
 SSH_USER="${DEPLOY_SSH_USER:-kyriakosp}"
 HOSTS=("nllei01dmz01" "grskg01dmz01")
 CONTAINER_NAME="${GALERA_CONTAINER:-meshsat-mariadb}"
+GARBD_CONTAINER="${GALERA_GARBD_CONTAINER:-meshsat-garbd}"
+GARBD_HOST="nllei01dmz01"
 DB_ROOT_PASS="${MARIADB_ROOT_PASSWORD:-}"
 MIN_CLUSTER_SIZE=2
 HEALTHY=true
@@ -28,6 +30,23 @@ for host in "${HOSTS[@]}"; do
     # Get root password from container env if not set
     if [[ -z "${DB_ROOT_PASS}" ]]; then
         DB_ROOT_PASS=$(ssh -l "${SSH_USER}" "${host}" "docker inspect ${CONTAINER_NAME} --format '{{range .Config.Env}}{{println .}}{{end}}'" 2>/dev/null | grep MARIADB_ROOT_PASSWORD | cut -d= -f2)
+    fi
+
+    # Check for bare gcomm:// in running container (incident 7/8 root cause)
+    CONTAINER_CMD=$(ssh -l "${SSH_USER}" "${host}" "docker inspect ${CONTAINER_NAME} --format '{{range .Config.Cmd}}{{.}} {{end}}'" 2>/dev/null) || true
+    if echo "${CONTAINER_CMD}" | grep -qE 'wsrep-cluster-address=gcomm://$|wsrep-cluster-address=gcomm:// '; then
+        echo "  FAIL: Running container has BARE gcomm:// in args (stale bootstrap!)"
+        echo "  FIX:  Restore .env, then: docker compose up -d mariadb (recreates container)"
+        HEALTHY=false
+    fi
+
+    # Check .env for bare gcomm:// (incident 2/3/5 root cause)
+    ENV_ADDR=$(ssh -l "${SSH_USER}" "${host}" "grep WSREP_CLUSTER_ADDRESS /srv/meshsat-hub/.env" 2>/dev/null) || true
+    if echo "${ENV_ADDR}" | grep -qE 'WSREP_CLUSTER_ADDRESS=gcomm://$'; then
+        echo "  FAIL: .env has bare gcomm:// (will cause split-brain on next recreate!)"
+        HEALTHY=false
+    else
+        echo "  .env: ${ENV_ADDR}"
     fi
 
     # Query Galera status
@@ -52,12 +71,25 @@ for host in "${HOSTS[@]}"; do
     fi
 
     if [[ "${CLUSTER_SIZE}" -lt "${MIN_CLUSTER_SIZE}" ]]; then
-        echo "  FAIL: cluster size ${CLUSTER_SIZE} < ${MIN_CLUSTER_SIZE}"
+        echo "  FAIL: cluster_size=${CLUSTER_SIZE} < ${MIN_CLUSTER_SIZE} (split-brain!)"
         HEALTHY=false
     fi
 
     if [[ "${STATE_COMMENT}" != "Synced" ]]; then
         echo "  WARN: node state is ${STATE_COMMENT} (expected Synced)"
+    fi
+
+    # Check garbd on its designated host
+    if [[ "${host}" == "${GARBD_HOST}" ]]; then
+        echo ""
+        echo "  --- garbd (${GARBD_CONTAINER}) ---"
+        GARBD_RUNNING=$(ssh -l "${SSH_USER}" "${host}" "docker ps --filter name=${GARBD_CONTAINER} --filter status=running --format '{{.Names}}'" 2>/dev/null) || true
+        if [[ -z "${GARBD_RUNNING}" ]]; then
+            echo "  WARN: garbd not running on ${host} — cluster has NO fault tolerance!"
+            echo "  FIX:  docker compose up -d garbd"
+        else
+            echo "  garbd: running"
+        fi
     fi
 done
 

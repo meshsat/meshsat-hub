@@ -1,33 +1,27 @@
-# Galera MariaDB service definition (standalone, for reference).
+# Galera MariaDB + Arbitrator service definition.
 # All wsrep settings are passed via command-line args to avoid file
 # permission issues (mariadb:11-jammy drops to UID 999 "mysql" which
 # cannot read root-owned .cnf files mounted as :ro volumes).
 #
 # Per-node config via .env:
-#   WSREP_NODE_ADDRESS  — node IP (e.g. 192.168.192.10)
-#   SITE_NAME           — node name (e.g. meshsat-hub-nl)
-#   WSREP_CLUSTER_ADDRESS — gcomm:// for bootstrap, full address for join
+#   WSREP_NODE_ADDRESS    — node IP (e.g. 192.168.192.10)
+#   SITE_NAME             — node name (e.g. meshsat-hub-nl)
+#   WSREP_CLUSTER_ADDRESS — ALWAYS the full address: gcomm://192.168.192.10,192.168.15.10
+#                           NEVER set to bare gcomm:// — the entrypoint will refuse to start.
 #
-# Bootstrap:
+# Bootstrap (safe — no .env mutation):
 #   1. Stop MariaDB on ALL nodes
-#   2. On bootstrap node: set WSREP_CLUSTER_ADDRESS=gcomm:// in .env
-#   3. Set safe_to_bootstrap=1 in grastate.dat:
-#      docker run --rm -v meshsat-hub_mariadb-data:/var/lib/mysql alpine:3.21 \
-#        sh -c 'sed -i "s/safe_to_bootstrap:.*/safe_to_bootstrap: 1/" /var/lib/mysql/grastate.dat'
-#   4. docker compose up -d mariadb (on bootstrap node)
-#   5. Verify: wsrep_cluster_size=1, wsrep_ready=ON
-#   6. Start other nodes (they SST from bootstrap)
-#   7. Restore WSREP_CLUSTER_ADDRESS to full address on bootstrap node
+#   2. On the authoritative node (highest wsrep_last_committed):
+#        docker run --rm -v meshsat-hub_mariadb-data:/var/lib/mysql alpine:3.21 \
+#          touch /var/lib/mysql/force-bootstrap
+#   3. docker compose up -d mariadb  (entrypoint detects flag, adds --wsrep-new-cluster)
+#   4. Wait for wsrep_cluster_size=1, wsrep_ready=ON
+#   5. Start MariaDB on other nodes (they join via IST/SST)
+#   6. Start garbd: docker compose up -d garbd
+#   7. Verify wsrep_cluster_size=3 on all data nodes
 #
-# Fresh joiner (no data):
-#   1. Init DB first without Galera:
-#      docker run --rm -v meshsat-hub_mariadb-data:/var/lib/mysql \
-#        -e MARIADB_ROOT_PASSWORD=... -e MARIADB_DATABASE=meshsat_hub \
-#        -e MARIADB_USER=meshsat -e MARIADB_PASSWORD=... \
-#        -e MARIADB_INITDB_SKIP_TZINFO=1 \
-#        mariadb:11-jammy --wsrep-on=OFF
-#   2. Stop the init container after "ready for connections"
-#   3. docker compose up -d mariadb (SST from donor provides data)
+# The flag file is consumed (deleted) on first use. Next restart joins normally.
+# WSREP_CLUSTER_ADDRESS is NEVER modified.
 
 services:
   mariadb:
@@ -35,6 +29,7 @@ services:
     container_name: meshsat-mariadb
     restart: unless-stopped
     network_mode: host
+    entrypoint: ["/galera-entrypoint.sh"]
     environment:
       MARIADB_ROOT_PASSWORD: ${MARIADB_ROOT_PASSWORD}
       MARIADB_DATABASE: meshsat_hub
@@ -44,6 +39,7 @@ services:
       MARIADB_INITDB_SKIP_TZINFO: 1
     volumes:
       - mariadb-data:/var/lib/mysql
+      - ./galera-entrypoint.sh:/galera-entrypoint.sh:ro
     command:
       - --wsrep-on=ON
       - --wsrep-provider=/usr/lib/galera/libgalera_smm.so
@@ -52,6 +48,7 @@ services:
       - --wsrep-node-address=${WSREP_NODE_ADDRESS}
       - --wsrep-node-name=${SITE_NAME}
       - --wsrep-sst-method=rsync
+      - --wsrep-provider-options=pc.recovery=TRUE;pc.weight=1;pc.wait_prim=TRUE;pc.wait_prim_timeout=PT30S;evs.keepalive_period=PT1S;evs.suspect_timeout=PT10S;evs.inactive_timeout=PT15S
       - --binlog-format=ROW
       - --default-storage-engine=InnoDB
       - --innodb-autoinc-lock-mode=2
@@ -68,6 +65,28 @@ services:
       timeout: 5s
       start_period: 120s
       retries: 10
+
+  # -------------------------------------------------------------------------
+  # Galera Arbitrator (garbd) — lightweight 3rd quorum voter.
+  # No data, negligible CPU/RAM. Provides the critical 3rd vote so that
+  # any single failure preserves quorum (2 of 3 voters survive).
+  # Runs on NL node only (same host as MariaDB node 1).
+  # -------------------------------------------------------------------------
+  garbd:
+    image: mariadb:11-jammy
+    container_name: meshsat-garbd
+    restart: unless-stopped
+    network_mode: host
+    entrypoint: ["garbd"]
+    command:
+      - --group=meshsat-galera
+      - --address=gcomm://192.168.192.10,192.168.15.10
+      - --name=meshsat-garbd
+      - --option=gmcast.listen_addr=tcp://0.0.0.0:4570
+      - --option=pc.weight=1
+    depends_on:
+      mariadb:
+        condition: service_healthy
 
 volumes:
   mariadb-data:
