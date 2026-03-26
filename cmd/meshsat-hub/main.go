@@ -1023,6 +1023,9 @@ func main() {
 	// Credential management (MESHSAT-356)
 	credMasterKey := bootstrapCredentialMasterKey(dataStore)
 	credHandler := api.NewCredentialHandler(dataStore, credMasterKey)
+	if bridgeCommander != nil {
+		credHandler.SetCommander(bridgeCommander)
+	}
 	r.Route("/api/credentials", func(r chi.Router) {
 		r.Use(hubauth.RequireRole(hubauth.RoleOperator))
 		r.Post("/upload", credHandler.Upload)
@@ -1030,6 +1033,7 @@ func main() {
 		r.Get("/expiry", credHandler.ListExpiring)
 		r.Get("/{id}", credHandler.Get)
 		r.Delete("/{id}", credHandler.Delete)
+		r.Post("/{id}/distribute", credHandler.Distribute)
 	})
 
 	// Bridge registry API

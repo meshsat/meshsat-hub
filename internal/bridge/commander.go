@@ -31,6 +31,38 @@ func CredentialUpdateCommand(username, password string) protocol.Command {
 	}
 }
 
+// CredentialPushCommand creates a command to push a credential to a bridge.
+func CredentialPushCommand(credID, provider, name, credType string, version int, encryptedData []byte, certNotAfter, certFingerprint string) protocol.Command {
+	payload, _ := json.Marshal(map[string]interface{}{
+		"credential_id":    credID,
+		"provider":         provider,
+		"name":             name,
+		"cred_type":        credType,
+		"version":          version,
+		"data":             encryptedData, // base64 via json.Marshal
+		"cert_not_after":   certNotAfter,
+		"cert_fingerprint": certFingerprint,
+	})
+	return protocol.Command{
+		Cmd:       "credential_push",
+		Payload:   json.RawMessage(payload),
+		Timestamp: time.Now().UTC(),
+	}
+}
+
+// CredentialRevokeCommand creates a command to revoke a credential on a bridge.
+func CredentialRevokeCommand(credID, reason string) protocol.Command {
+	payload, _ := json.Marshal(map[string]string{
+		"credential_id": credID,
+		"reason":        reason,
+	})
+	return protocol.Command{
+		Cmd:       "credential_revoke",
+		Payload:   json.RawMessage(payload),
+		Timestamp: time.Now().UTC(),
+	}
+}
+
 // Commander sends commands to field bridges via MQTT and correlates responses.
 type Commander struct {
 	mqtt    bus.MessageBus

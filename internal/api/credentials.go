@@ -3,6 +3,7 @@ package api
 import (
 	"archive/zip"
 	"bytes"
+	"context"
 	"crypto/sha256"
 	"crypto/x509"
 	"encoding/hex"
@@ -15,22 +16,34 @@ import (
 	"time"
 
 	"github.com/cubeos-app/meshsat-hub/internal/auth"
+	"github.com/cubeos-app/meshsat-hub/internal/bridge"
 	"github.com/cubeos-app/meshsat-hub/internal/crypto"
+	"github.com/cubeos-app/meshsat-hub/internal/protocol"
 	"github.com/cubeos-app/meshsat-hub/internal/store"
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 )
 
+// BridgeCommander sends commands to field bridges via MQTT.
+type BridgeCommander interface {
+	SendCommand(ctx context.Context, bridgeID string, cmd protocol.Command) (*protocol.CommandResponse, error)
+}
+
 // CredentialHandler handles credential management endpoints.
 type CredentialHandler struct {
 	store     store.Store
 	masterKey []byte // AES-256 master key for encrypting credential data
+	commander BridgeCommander
 }
 
 // NewCredentialHandler returns a new credential handler.
-// masterKey is loaded/bootstrapped from system_config on startup.
 func NewCredentialHandler(s store.Store, masterKey []byte) *CredentialHandler {
 	return &CredentialHandler{store: s, masterKey: masterKey}
+}
+
+// SetCommander sets the bridge commander for credential distribution.
+func (h *CredentialHandler) SetCommander(c BridgeCommander) {
+	h.commander = c
 }
 
 // Upload handles ZIP or PEM file upload with x509 parsing.
@@ -199,6 +212,76 @@ func (h *CredentialHandler) ListExpiring(w http.ResponseWriter, r *http.Request)
 	writeJSON(w, http.StatusOK, map[string]interface{}{
 		"credentials": creds,
 		"within_days": days,
+	})
+}
+
+// Distribute pushes a credential to the target bridge(s) via MQTT.
+func (h *CredentialHandler) Distribute(w http.ResponseWriter, r *http.Request) {
+	if h.commander == nil {
+		writeError(w, http.StatusServiceUnavailable, "bridge commander not available")
+		return
+	}
+	tid := auth.TenantIDFromContext(r.Context())
+	id := chi.URLParam(r, "id")
+
+	cred, err := h.store.GetCredential(r.Context(), tid, id)
+	if err != nil {
+		writeError(w, http.StatusNotFound, "credential not found")
+		return
+	}
+
+	// Determine target bridge(s)
+	var bridgeIDs []string
+	switch cred.TargetScope {
+	case "bridge":
+		if cred.TargetBridgeID == "" {
+			writeError(w, http.StatusBadRequest, "credential has no target_bridge_id")
+			return
+		}
+		bridgeIDs = []string{cred.TargetBridgeID}
+	case "all":
+		bridges, err := h.store.ListBridges(r.Context(), tid)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		for _, b := range bridges {
+			bridgeIDs = append(bridgeIDs, b.BridgeID)
+		}
+	default:
+		writeError(w, http.StatusBadRequest, "credential target_scope is 'hub' — not distributable to bridges")
+		return
+	}
+
+	var notAfterStr string
+	if cred.CertNotAfter != nil {
+		notAfterStr = cred.CertNotAfter.Format(time.RFC3339)
+	}
+
+	cmd := bridge.CredentialPushCommand(
+		cred.ID, cred.Provider, cred.Name, cred.CredType, cred.Version,
+		cred.EncryptedData, notAfterStr, cred.CertFingerprint,
+	)
+
+	results := make(map[string]string)
+	for _, bid := range bridgeIDs {
+		resp, err := h.commander.SendCommand(r.Context(), bid, cmd)
+		if err != nil {
+			results[bid] = "error: " + err.Error()
+			continue
+		}
+		results[bid] = resp.Status
+	}
+
+	// Update distributed_at timestamp
+	now := time.Now().UTC()
+	cred.DistributedAt = &now
+	h.store.UpdateCredential(r.Context(), tid, cred)
+
+	slog.Info("credential distributed", "id", id, "bridges", len(bridgeIDs))
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"status":  "distributed",
+		"bridges": results,
 	})
 }
 
