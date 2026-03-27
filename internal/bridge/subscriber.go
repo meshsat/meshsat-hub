@@ -287,6 +287,13 @@ func (s *Subscriber) handleBridgeHealth(topic string, payload []byte) {
 		slog.Debug("bridge: failed to touch last_seen", "error", err, "bridge", bridgeID)
 	}
 
+	// A bridge sending health is unambiguously alive. Re-set online=true in
+	// case the reaper marked it offline (e.g. after Hub/NATS restart where
+	// the retained birth was treated as stale but health keeps flowing).
+	if err := s.store.SetBridgeOnline(ctx, tenantID, bridgeID, true); err != nil {
+		slog.Debug("bridge: failed to re-set online from health", "error", err, "bridge", bridgeID)
+	}
+
 	// Refresh Reticulum route TTL on each health report so routes stay alive
 	// as long as the bridge is reporting healthy.
 	if s.retRouter != nil {

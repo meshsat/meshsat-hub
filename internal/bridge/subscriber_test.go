@@ -351,6 +351,35 @@ func TestHandleBridgeHealth(t *testing.T) {
 	}
 }
 
+func TestHandleBridgeHealth_SetsOnline(t *testing.T) {
+	ms := newMockStore()
+	mb := newMockBus()
+	sub := NewSubscriber(mb, ms, "default")
+	if err := sub.Start(); err != nil {
+		t.Fatal(err)
+	}
+
+	// Simulate a bridge that the reaper marked offline.
+	ms.bridgeOnline["mule01"] = false
+
+	health := protocol.BridgeHealth{
+		Protocol:  protocol.ProtocolVersion,
+		BridgeID:  "mule01",
+		UptimeSec: 7200,
+		CPUPct:    12.5,
+		MemPct:    45.0,
+		DiskPct:   30.0,
+		Timestamp: time.Now(),
+	}
+	payload, _ := json.Marshal(health)
+	mb.deliver("meshsat/bridge/mule01/health", payload)
+
+	// Health should re-set the bridge online.
+	if online, ok := ms.bridgeOnline["mule01"]; !ok || !online {
+		t.Error("health message should set bridge back online")
+	}
+}
+
 func TestHandleDeviceBirth_AutoProvision(t *testing.T) {
 	ms := newMockStore()
 	mb := newMockBus()
