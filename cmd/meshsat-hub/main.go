@@ -780,6 +780,44 @@ func main() {
 	)
 	go reticulumHintPublisher.Run(ctx)
 
+	// Reticulum TCP announce — periodically announce Hub identity to connected
+	// TCP clients (RNS nodes). Without this, RNS nodes can't discover the Hub.
+	if retTCPIface != nil && hubIdentity != nil && hubIdentity.IsLoaded() {
+		go func() {
+			// Initial delay for connections to establish.
+			time.Sleep(5 * time.Second)
+			announceToTCP := func() {
+				if retTCPIface.ClientCount() == 0 {
+					return
+				}
+				ann, err := reticulum.NewAnnounce(hubIdentity.Identity(), hubIdentity.AppName(), nil)
+				if err != nil {
+					slog.Error("reticulum: tcp announce failed", "error", err)
+					return
+				}
+				pkt := ann.MarshalPacket()
+				if err := retTCPIface.Send(ctx, "", pkt); err != nil {
+					slog.Debug("reticulum: tcp announce send failed", "error", err)
+				} else {
+					slog.Info("reticulum: announced hub identity to tcp clients",
+						"dest", hubIdentity.DestHashHex(), "clients", retTCPIface.ClientCount())
+				}
+			}
+
+			announceToTCP()
+			ticker := time.NewTicker(60 * time.Second)
+			defer ticker.Stop()
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				case <-ticker.C:
+					announceToTCP()
+				}
+			}
+		}()
+	}
+
 	// MSVQ-SC decoder (for Android-compressed messages).
 	var msvqscDecoder *hubmsvqsc.Decoder
 	msvqscCBPath := os.Getenv("HUB_MSVQSC_CODEBOOK")
