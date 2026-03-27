@@ -3,6 +3,7 @@
 package integration
 
 import (
+	"bytes"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -13,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/cubeos-app/meshsat-hub/internal/cloudloop"
 	"github.com/cubeos-app/meshsat-hub/internal/compress"
 	hubcrypto "github.com/cubeos-app/meshsat-hub/internal/crypto"
 	"github.com/cubeos-app/meshsat-hub/internal/fragment"
@@ -740,6 +742,218 @@ func TestSOS_MAYDAYKeyword(t *testing.T) {
 }
 
 // --- SMAZ2 Round-Trip ---
+
+// --- Cloudloop Webhook Tests (LingoMO — SBD + IMT) ---
+
+// TestCloudloop_SBD_MO_PublishesToMQTT posts a synthetic Cloudloop SBD LingoMO
+// and verifies MO messages appear on the correct MQTT topics.
+func TestCloudloop_SBD_MO_PublishesToMQTT(t *testing.T) {
+	env := testStack(t)
+
+	sub := testMQTTClient(t, env.BrokerAddr, "test-sub-cl-sbd")
+	rawCollector := newCollector(t, sub, "meshsat/+/mo/raw")
+	decodedCollector := newCollector(t, sub, "meshsat/+/mo/decoded")
+	posCollector := newCollector(t, sub, "meshsat/+/position")
+
+	mo := cloudloop.LingoMO{
+		ID:         "cl-sbd-001",
+		ReceivedAt: cloudloop.LingoTimestamp{Year: 2026, Month: 3, Day: 27, Hour: 12},
+		Identity: cloudloop.LingoIdentity{
+			AccountID: "acct-e2e",
+			Hardware:  &cloudloop.LingoHardware{ID: "hw-1", Type: "ROCKBLOCK_9603", IMEI: "300234063904190", Serial: "rb9603"},
+			ThingID:   "thing-sbd-e2e",
+		},
+		SBD: &cloudloop.LingoSBD{
+			IMEI:      "300234063904190",
+			MOMSN:     55,
+			SessionAt: cloudloop.LingoTimestamp{Year: 2026, Month: 3, Day: 27, Hour: 12},
+			Status:    "OK",
+			Location:  &cloudloop.LingoLocation{Latitude: 52.37, Longitude: 4.90, CEP: 8.0},
+		},
+		Message: "SGVsbG8gZnJvbSBTQkQ=", // "Hello from SBD"
+	}
+	body, _ := json.Marshal(mo)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/webhook/cloudloop", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	env.Router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("webhook returned %d: %s", w.Code, w.Body.String())
+	}
+
+	var resp map[string]string
+	json.NewDecoder(w.Body).Decode(&resp)
+	if resp["status"] != "ok" {
+		t.Fatalf("expected status=ok, got %s", resp["status"])
+	}
+
+	// Verify mo/raw.
+	rawMsgs := rawCollector.wait(1, 3*time.Second)
+	if len(rawMsgs) == 0 {
+		t.Fatal("no mo/raw message received on MQTT")
+	}
+	if rawMsgs[0].Topic != "meshsat/300234063904190/mo/raw" {
+		t.Errorf("mo/raw topic = %q, want meshsat/300234063904190/mo/raw", rawMsgs[0].Topic)
+	}
+
+	// Verify mo/decoded.
+	decodedMsgs := decodedCollector.wait(1, 3*time.Second)
+	if len(decodedMsgs) == 0 {
+		t.Fatal("no mo/decoded message received on MQTT")
+	}
+	var decoded map[string]interface{}
+	json.Unmarshal(decodedMsgs[0].Payload, &decoded)
+	if decoded["text"] != "Hello from SBD" {
+		t.Errorf("text = %q, want 'Hello from SBD'", decoded["text"])
+	}
+	if decoded["source"] != "cloudloop_sbd" {
+		t.Errorf("source = %q, want cloudloop_sbd", decoded["source"])
+	}
+
+	// Verify position (SBD has Iridium CEP location).
+	posMsgs := posCollector.wait(1, 3*time.Second)
+	if len(posMsgs) == 0 {
+		t.Fatal("no position message received on MQTT for SBD")
+	}
+	var pos map[string]interface{}
+	json.Unmarshal(posMsgs[0].Payload, &pos)
+	if pos["lat"].(float64) != 52.37 {
+		t.Errorf("lat = %v, want 52.37", pos["lat"])
+	}
+}
+
+// TestCloudloop_IMT_MO_PublishesToMQTT posts a synthetic Cloudloop IMT LingoMO
+// and verifies MO messages appear on the correct MQTT topics.
+func TestCloudloop_IMT_MO_PublishesToMQTT(t *testing.T) {
+	env := testStack(t)
+
+	sub := testMQTTClient(t, env.BrokerAddr, "test-sub-cl-imt")
+	decodedCollector := newCollector(t, sub, "meshsat/+/mo/decoded")
+
+	mo := cloudloop.LingoMO{
+		ID:         "cl-imt-001",
+		ReceivedAt: cloudloop.LingoTimestamp{Year: 2026, Month: 3, Day: 27, Hour: 13},
+		Identity: cloudloop.LingoIdentity{
+			AccountID: "acct-e2e",
+			Hardware:  &cloudloop.LingoHardware{ID: "hw-2", Type: "ROCKBLOCK_9704", IMEI: "300258060902280", Serial: "rb9704"},
+			ThingID:   "thing-imt-e2e",
+		},
+		IMT: &cloudloop.LingoIMT{
+			CMID:      "cm-e2e",
+			Topic:     "IMT_TOPIC_PURPLE",
+			MessageID: "msg-imt-e2e",
+			Size:      22,
+		},
+		Message: "SGVsbG8gZnJvbSBJTVQgOTcwNA==", // "Hello from IMT 9704"
+	}
+	body, _ := json.Marshal(mo)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/webhook/cloudloop", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	env.Router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("webhook returned %d: %s", w.Code, w.Body.String())
+	}
+
+	// Verify mo/decoded.
+	decodedMsgs := decodedCollector.wait(1, 3*time.Second)
+	if len(decodedMsgs) == 0 {
+		t.Fatal("no mo/decoded message received on MQTT")
+	}
+	var decoded map[string]interface{}
+	json.Unmarshal(decodedMsgs[0].Payload, &decoded)
+	if decoded["text"] != "Hello from IMT 9704" {
+		t.Errorf("text = %q, want 'Hello from IMT 9704'", decoded["text"])
+	}
+	if decoded["source"] != "cloudloop_imt" {
+		t.Errorf("source = %q, want cloudloop_imt", decoded["source"])
+	}
+	if decoded["imei"] != "300258060902280" {
+		t.Errorf("imei = %q, want 300258060902280", decoded["imei"])
+	}
+}
+
+// TestCloudloop_DualProtocol_SBDandIMT sends both SBD and IMT MO messages
+// through the Cloudloop webhook and verifies both paths work independently.
+func TestCloudloop_DualProtocol_SBDandIMT(t *testing.T) {
+	env := testStack(t)
+
+	sub := testMQTTClient(t, env.BrokerAddr, "test-sub-cl-dual")
+	decodedCollector := newCollector(t, sub, "meshsat/+/mo/decoded")
+
+	// SBD MO (9603).
+	sbdMO := cloudloop.LingoMO{
+		ID:         "cl-dual-sbd",
+		ReceivedAt: cloudloop.LingoTimestamp{Year: 2026, Month: 3, Day: 27, Hour: 14},
+		Identity: cloudloop.LingoIdentity{
+			AccountID: "acct",
+			Hardware:  &cloudloop.LingoHardware{IMEI: "300234063904190"},
+			ThingID:   "t-sbd",
+		},
+		SBD: &cloudloop.LingoSBD{
+			IMEI:      "300234063904190",
+			MOMSN:     60,
+			SessionAt: cloudloop.LingoTimestamp{Year: 2026, Month: 3, Day: 27, Hour: 14},
+			Status:    "OK",
+		},
+		Message: "U0JEIHBhdGg=", // "SBD path"
+	}
+
+	// IMT MO (9704).
+	imtMO := cloudloop.LingoMO{
+		ID:         "cl-dual-imt",
+		ReceivedAt: cloudloop.LingoTimestamp{Year: 2026, Month: 3, Day: 27, Hour: 14, Minute: 1},
+		Identity: cloudloop.LingoIdentity{
+			AccountID: "acct",
+			Hardware:  &cloudloop.LingoHardware{IMEI: "300258060902280"},
+			ThingID:   "t-imt",
+		},
+		IMT: &cloudloop.LingoIMT{
+			CMID:      "cm",
+			Topic:     "IMT_TOPIC_PURPLE",
+			MessageID: "msg-dual-imt",
+			Size:      8,
+		},
+		Message: "SU1UIHBhdGg=", // "IMT path"
+	}
+
+	for _, mo := range []cloudloop.LingoMO{sbdMO, imtMO} {
+		body, _ := json.Marshal(mo)
+		req := httptest.NewRequest(http.MethodPost, "/api/webhook/cloudloop", bytes.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+		env.Router.ServeHTTP(w, req)
+		if w.Code != http.StatusOK {
+			t.Fatalf("webhook returned %d for %s: %s", w.Code, mo.ID, w.Body.String())
+		}
+	}
+
+	// Collect both decoded messages.
+	msgs := decodedCollector.wait(2, 5*time.Second)
+	if len(msgs) < 2 {
+		t.Fatalf("expected 2 decoded messages, got %d", len(msgs))
+	}
+
+	sources := make(map[string]string) // source -> text
+	for _, m := range msgs {
+		var d map[string]interface{}
+		json.Unmarshal(m.Payload, &d)
+		if src, ok := d["source"].(string); ok {
+			sources[src] = fmt.Sprintf("%v", d["text"])
+		}
+	}
+
+	if sources["cloudloop_sbd"] != "SBD path" {
+		t.Errorf("SBD text = %q, want 'SBD path'", sources["cloudloop_sbd"])
+	}
+	if sources["cloudloop_imt"] != "IMT path" {
+		t.Errorf("IMT text = %q, want 'IMT path'", sources["cloudloop_imt"])
+	}
+}
 
 // TestSMAZ2_RoundTrip validates SMAZ2 compress/decompress across various inputs.
 func TestSMAZ2_RoundTrip(t *testing.T) {

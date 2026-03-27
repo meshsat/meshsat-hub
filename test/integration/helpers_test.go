@@ -19,6 +19,7 @@ import (
 
 	"github.com/cubeos-app/meshsat-hub/internal/cloudloop"
 	hubcrypto "github.com/cubeos-app/meshsat-hub/internal/crypto"
+	"github.com/cubeos-app/meshsat-hub/internal/dedup"
 	"github.com/cubeos-app/meshsat-hub/internal/fragment"
 	hubmqtt "github.com/cubeos-app/meshsat-hub/internal/mqtt"
 	"github.com/cubeos-app/meshsat-hub/internal/rockblock"
@@ -151,6 +152,7 @@ type testEnv struct {
 	CloudloopSrv  *httptest.Server
 	CloudloopReqs []cloudloopReq // captured MT requests
 	KeyStore      *hubcrypto.KeyStore
+	Dedup         *dedup.MemoryDedup
 	mu            sync.Mutex
 }
 
@@ -182,7 +184,10 @@ func testStack(t *testing.T) *testEnv {
 	// 3. Mock Cloudloop API.
 	env.CloudloopSrv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/sbd/mt" && r.Method == "POST" {
-			var req cloudloop.MTRequest
+			var req struct {
+				IMEI string `json:"imei"`
+				Data string `json:"data"`
+			}
 			json.NewDecoder(r.Body).Decode(&req)
 			env.mu.Lock()
 			env.CloudloopReqs = append(env.CloudloopReqs, cloudloopReq{
@@ -207,22 +212,32 @@ func testStack(t *testing.T) *testEnv {
 		t.Fatalf("start MT sender: %v", err)
 	}
 
-	// 5. RockBLOCK handler with fragment reassembler and keystore (mirrors main.go).
+	// 5. Shared dedup + keystore.
+	env.Dedup = dedup.NewMemoryDedup(5 * time.Minute)
+	t.Cleanup(func() { env.Dedup.Close() })
 	env.KeyStore = hubcrypto.NewKeyStore()
 	rbHandler := rockblock.NewHandler(env.HubMQTT, "test-secret")
 	reassembler := fragment.NewReassembler(5 * time.Minute)
 	rbHandler.SetReassembler(reassembler)
 	rbHandler.SetKeyStore(env.KeyStore)
 
-	// 6. SOS detector (subscribes to mo/decoded, publishes to sos topic).
+	// 6. Cloudloop webhook handler (modern LingoMO for SBD+IMT).
+	clWebhook := cloudloop.NewWebhookHandler(env.HubMQTT)
+	clReassembler := fragment.NewReassembler(5 * time.Minute)
+	clWebhook.SetReassembler(clReassembler)
+	clWebhook.SetKeyStore(env.KeyStore)
+	clWebhook.SetDedup(env.Dedup)
+
+	// 7. SOS detector (subscribes to mo/decoded, publishes to sos topic).
 	sosDetector := sos.NewDetector(env.HubMQTT, nil, nil, "", "")
 	if err := sosDetector.Start(); err != nil {
 		t.Fatalf("start SOS detector: %v", err)
 	}
 
-	// 7. Build chi router (mirrors main.go).
+	// 8. Build chi router (mirrors main.go).
 	r := chi.NewRouter()
 	r.Post("/api/webhook/rockblock", rbHandler.ServeHTTP)
+	r.Post("/api/webhook/cloudloop", clWebhook.ServeHTTP)
 	env.Router = r
 
 	// Give MQTT subscriptions time to propagate.
