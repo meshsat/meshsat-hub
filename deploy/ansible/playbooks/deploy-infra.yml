@@ -26,7 +26,7 @@
         mode: "0644"
       register: nats_changed
 
-    - name: Add leaf node remote for cross-site routing
+    - name: Add leaf node remote on spoke nodes only (prevents loop)
       blockinfile:
         path: "{{ compose_dir }}/nats.conf"
         marker: "# {mark} LEAF NODE REMOTE (managed by Ansible)"
@@ -38,7 +38,16 @@
             ]
           }
         state: present
+      when: not (garbd_host | default(false))
       register: leaf_changed
+
+    - name: Ensure hub node has no leaf remotes (listen only)
+      blockinfile:
+        path: "{{ compose_dir }}/nats.conf"
+        marker: "# {mark} LEAF NODE REMOTE (managed by Ansible)"
+        state: absent
+      when: garbd_host | default(false)
+      register: leaf_hub_changed
 
     - name: Remove duplicate leafnodes block from base config
       replace:
@@ -49,7 +58,7 @@
 
     - name: Recreate NATS container
       shell: "cd {{ compose_dir }} && docker compose up -d --no-deps --force-recreate nats"
-      when: nats_changed.changed or leaf_changed.changed
+      when: nats_changed.changed or (leaf_changed is defined and leaf_changed.changed) or (leaf_hub_changed is defined and leaf_hub_changed.changed)
 
     - name: Reload nginx
       shell: "docker exec meshsat-hub-nginx nginx -s reload"
