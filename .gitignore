@@ -35,6 +35,9 @@ data/
 test/owasp/reports/
 owasp-reports/
 
+# Python RNS compatibility tests (diagnostic tools, not CI)
+test/rns_compat/
+
 # Docker
 docker-compose.override.yml
 

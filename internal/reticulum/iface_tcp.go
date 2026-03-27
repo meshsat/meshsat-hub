@@ -61,15 +61,24 @@ func (t *TCPInterface) Send(_ context.Context, _ string, packet []byte) error {
 	}
 	t.mu.RUnlock()
 
+	if len(clients) > 0 {
+		slog.Debug("reticulum: tcp sending packet",
+			"packet_size", len(packet), "frame_size", len(frame),
+			"clients", len(clients))
+	}
+
 	for _, c := range clients {
 		c.writer.Lock()
 		_ = c.conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
-		_, err := c.conn.Write(frame)
+		n, err := c.conn.Write(frame)
 		c.writer.Unlock()
 		if err != nil {
 			slog.Debug("reticulum: tcp write failed, dropping client",
 				"client", c.id, "error", err)
 			t.removeClient(c.id)
+		} else {
+			slog.Debug("reticulum: tcp frame sent",
+				"client", c.id, "bytes_written", n)
 		}
 	}
 	return nil

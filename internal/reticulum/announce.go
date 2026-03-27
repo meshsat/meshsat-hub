@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"time"
 )
 
 // Announce represents a parsed Reticulum announce packet payload.
@@ -57,9 +58,19 @@ func NewAnnounce(id *Identity, appName string, appData []byte) (*Announce, error
 		sigPub:    id.SigningPublicKey(),
 	}
 
-	if _, err := io.ReadFull(rand.Reader, a.Random[:]); err != nil {
+	// Random hash format must match Python RNS:
+	//   [5 random bytes][5-byte big-endian unix timestamp]
+	// The timestamp in the last 5 bytes is used by RNS Transport for
+	// announce ordering, dedup, and rebroadcast decisions.
+	if _, err := io.ReadFull(rand.Reader, a.Random[:5]); err != nil {
 		return nil, fmt.Errorf("generate random: %w", err)
 	}
+	ts := time.Now().Unix()
+	a.Random[5] = byte(ts >> 32)
+	a.Random[6] = byte(ts >> 24)
+	a.Random[7] = byte(ts >> 16)
+	a.Random[8] = byte(ts >> 8)
+	a.Random[9] = byte(ts)
 
 	body := a.signableBody()
 	a.Signature = id.Sign(body)
