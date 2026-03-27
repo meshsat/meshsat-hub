@@ -159,8 +159,24 @@ func (s *Subscriber) handleBridgeBirth(topic string, payload []byte) {
 		b.Online = false
 	}
 
-	if err := s.store.CreateOrUpdateBridge(ctx, tenantID, b); err != nil {
-		slog.Error("bridge: failed to create/update bridge", "error", err, "bridge", bridgeID)
+	// Retry on Galera deadlock (Error 1213) — simultaneous births from both Hub
+	// instances hit the same rows via NATS leaf replication.
+	var createErr error
+	for attempt := 0; attempt < 3; attempt++ {
+		createErr = s.store.CreateOrUpdateBridge(ctx, tenantID, b)
+		if createErr == nil {
+			break
+		}
+		if strings.Contains(createErr.Error(), "1213") || strings.Contains(createErr.Error(), "Deadlock") {
+			slog.Warn("bridge: deadlock on create/update, retrying",
+				"bridge", bridgeID, "attempt", attempt+1)
+			time.Sleep(time.Duration(50*(attempt+1)) * time.Millisecond)
+			continue
+		}
+		break
+	}
+	if createErr != nil {
+		slog.Error("bridge: failed to create/update bridge", "error", createErr, "bridge", bridgeID)
 		return
 	}
 
