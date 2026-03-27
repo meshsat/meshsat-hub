@@ -33,8 +33,14 @@
   hosts: galera_nodes
   serial: 1
   tasks:
-    - name: Bootstrap MariaDB (primary only)
-      shell: "cd {{ compose_dir }} && WSREP_CLUSTER_ADDRESS=gcomm:// docker compose up -d mariadb"
+    - name: Set bootstrap flag file (galera-entrypoint.sh handles bootstrap)
+      shell: >
+        docker run --rm -v meshsat-hub_mariadb-data:/var/lib/mysql alpine:3.21
+        touch /var/lib/mysql/force-bootstrap
+      when: galera_bootstrap | default(false)
+
+    - name: Start MariaDB (entrypoint detects flag, bootstraps, deletes flag)
+      shell: "cd {{ compose_dir }} && docker compose up -d mariadb"
       when: galera_bootstrap | default(false)
 
     - name: Wait for MariaDB to become healthy

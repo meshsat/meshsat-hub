@@ -44,15 +44,14 @@
   hosts: galera_nodes
   serial: 1
   tasks:
-    - name: Set safe_to_bootstrap in grastate.dat
-      shell: |
-        docker run --rm -v meshsat-hub_mariadb-data:/var/lib/mysql \
-          {{ mariadb_image | default('mariadb:11-jammy') }} \
-          sed -i 's/safe_to_bootstrap: 0/safe_to_bootstrap: 1/' /var/lib/mysql/grastate.dat
+    - name: Set bootstrap flag file (entrypoint handles safe_to_bootstrap + --wsrep-new-cluster)
+      shell: >
+        docker run --rm -v meshsat-hub_mariadb-data:/var/lib/mysql alpine:3.21
+        touch /var/lib/mysql/force-bootstrap
       when: inventory_hostname == hostvars['localhost'].bootstrap_node
 
-    - name: Bootstrap MariaDB
-      shell: "cd {{ compose_dir }} && WSREP_CLUSTER_ADDRESS=gcomm:// docker compose up -d mariadb"
+    - name: Start MariaDB (entrypoint detects flag, bootstraps, deletes flag)
+      shell: "cd {{ compose_dir }} && docker compose up -d mariadb"
       when: inventory_hostname == hostvars['localhost'].bootstrap_node
 
     - name: Wait for bootstrap

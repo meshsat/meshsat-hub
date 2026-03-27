@@ -2,6 +2,9 @@
 # Bootstrap a fresh Galera cluster from this node.
 # Run on ONE node only. Other nodes join normally after.
 #
+# Uses the flag-file bootstrap method (galera-entrypoint.sh).
+# .env is NEVER modified — cluster address stays correct.
+#
 # Prerequisites:
 #   - All other nodes STOPPED
 #   - .env has MARIADB_ROOT_PASSWORD, WSREP_CLUSTER_ADDRESS, WSREP_NODE_ADDRESS, SITE_NAME
@@ -18,23 +21,31 @@ echo
 [ "$confirm" = "y" ] || exit 0
 
 DBPASS=$(grep MARIADB_ROOT_PASSWORD .env | cut -d= -f2)
-ORIG_ADDR=$(grep WSREP_CLUSTER_ADDRESS .env | cut -d= -f2)
+
+# Verify .env has proper cluster address (refuse to run if already bare)
+ENV_ADDR=$(grep WSREP_CLUSTER_ADDRESS .env | cut -d= -f2)
+if echo "$ENV_ADDR" | grep -qE '^gcomm://$'; then
+  echo "FATAL: .env has bare gcomm:// — fix it first:"
+  echo "  WSREP_CLUSTER_ADDRESS=gcomm://192.168.192.10,192.168.15.10"
+  exit 1
+fi
+echo "Cluster address in .env: $ENV_ADDR (will NOT be modified)"
 
 # Stop MariaDB
 echo "Stopping MariaDB..."
 docker compose stop mariadb 2>/dev/null || true
 
-# Set safe_to_bootstrap
-echo "Setting safe_to_bootstrap=1..."
+# Set bootstrap flag file — galera-entrypoint.sh will:
+#   1. Detect the flag
+#   2. Set safe_to_bootstrap=1 in grastate.dat
+#   3. Add --wsrep-new-cluster to startup args
+#   4. Delete the flag (next restart joins normally)
+echo "Setting bootstrap flag file..."
 docker run --rm -v meshsat-hub_mariadb-data:/var/lib/mysql alpine:3.21 \
-  sh -c 'sed -i "s/safe_to_bootstrap:.*/safe_to_bootstrap: 1/" /var/lib/mysql/grastate.dat 2>/dev/null || true'
+  touch /var/lib/mysql/force-bootstrap
 
-# Set bootstrap cluster address
-echo "Setting WSREP_CLUSTER_ADDRESS=gcomm:// (bootstrap mode)..."
-sed -i "s|WSREP_CLUSTER_ADDRESS=.*|WSREP_CLUSTER_ADDRESS=gcomm://|" .env
-
-# Start MariaDB (compose reads new .env, passes gcomm:// via command args)
-echo "Starting MariaDB in bootstrap mode..."
+# Start MariaDB — entrypoint handles bootstrap
+echo "Starting MariaDB in bootstrap mode (via flag file)..."
 docker compose up -d mariadb
 echo "Waiting 30s for bootstrap..."
 sleep 30
@@ -48,9 +59,6 @@ echo "Cluster size: $SIZE, Ready: $READY"
 
 if [ "$SIZE" = "1" ] && [ "$READY" = "ON" ]; then
   echo "Bootstrap successful!"
-  # Restore original cluster address
-  sed -i "s|WSREP_CLUSTER_ADDRESS=.*|WSREP_CLUSTER_ADDRESS=$ORIG_ADDR|" .env
-  echo "Cluster address restored to: $ORIG_ADDR"
   echo ""
   echo "Next steps:"
   echo "  1. Start other nodes: docker compose up -d mariadb"
@@ -59,7 +67,5 @@ if [ "$SIZE" = "1" ] && [ "$READY" = "ON" ]; then
   echo "  4. Verify: wsrep_cluster_size=3 on both nodes (2 data + 1 arbitrator)"
 else
   echo "ERROR: Bootstrap may have failed (size=$SIZE, ready=$READY)"
-  echo "Restoring original cluster address..."
-  sed -i "s|WSREP_CLUSTER_ADDRESS=.*|WSREP_CLUSTER_ADDRESS=$ORIG_ADDR|" .env
   exit 1
 fi

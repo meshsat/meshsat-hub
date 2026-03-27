@@ -8,8 +8,11 @@
 # What it does:
 #   1. Checks wsrep_local_state_comment
 #   2. If "Synced" → all good
-#   3. If not synced → stop MariaDB, set safe_to_bootstrap=1, restart with gcomm://
-#   4. After bootstrap, restore cluster address and start Hub
+#   3. If not synced → stop MariaDB, set bootstrap flag file, restart
+#   4. After bootstrap, start garbd + Hub
+#
+# IMPORTANT: This script NEVER modifies .env. Bootstrap uses the flag-file
+# method via galera-entrypoint.sh. See CLAUDE.md Galera rules.
 set -euo pipefail
 
 COMPOSE_DIR="/srv/meshsat-hub"
@@ -55,23 +58,28 @@ check_and_fix() {
 
   log "GALERA QUORUM LOST (status: $GALERA_STATUS) — initiating bootstrap..."
 
+  # Verify .env has proper cluster address (safety check)
+  ENV_ADDR=$(grep WSREP_CLUSTER_ADDRESS .env | cut -d= -f2)
+  if echo "$ENV_ADDR" | grep -qE '^gcomm://$'; then
+    log "FATAL: .env already has bare gcomm:// — manual intervention needed"
+    log "Fix .env first: WSREP_CLUSTER_ADDRESS=gcomm://192.168.192.10,192.168.15.10"
+    return 1
+  fi
+
   # Stop Hub and MariaDB
   log "Stopping Hub + MariaDB..."
   docker compose stop hub mariadb 2>/dev/null || true
   sleep 3
 
-  # Set safe_to_bootstrap in grastate
-  log "Setting safe_to_bootstrap=1..."
+  # Set bootstrap flag file (galera-entrypoint.sh handles the rest)
+  # This also sets safe_to_bootstrap=1 in grastate.dat
+  log "Setting bootstrap flag file..."
   docker run --rm -v meshsat-hub_mariadb-data:/var/lib/mysql alpine:3.21 \
-    sh -c 'sed -i "s/safe_to_bootstrap:.*/safe_to_bootstrap: 1/" /var/lib/mysql/grastate.dat' 2>/dev/null
+    touch /var/lib/mysql/force-bootstrap
 
-  # Temporarily set bootstrap address
-  ORIG_ADDR=$(grep WSREP_CLUSTER_ADDRESS .env | cut -d= -f2)
-  log "Original cluster address: $ORIG_ADDR"
-  sed -i "s|WSREP_CLUSTER_ADDRESS=.*|WSREP_CLUSTER_ADDRESS=gcomm://|" .env
-
-  # Start MariaDB with bootstrap address
-  log "Starting MariaDB with gcomm:// (bootstrap)..."
+  # Start MariaDB — entrypoint detects flag, adds --wsrep-new-cluster, deletes flag
+  # .env is NEVER modified — cluster address stays correct for next normal restart
+  log "Starting MariaDB with bootstrap flag..."
   docker compose up -d mariadb
   sleep 30
 
@@ -81,16 +89,10 @@ check_and_fix() {
 
   if [ "$GALERA_STATUS" != "Synced" ]; then
     log "BOOTSTRAP FAILED (status: $GALERA_STATUS) — manual intervention needed"
-    # Restore original address
-    sed -i "s|WSREP_CLUSTER_ADDRESS=.*|WSREP_CLUSTER_ADDRESS=$ORIG_ADDR|" .env
     return 1
   fi
 
   log "Galera bootstrapped: Synced ✓"
-
-  # Restore original cluster address (don't restart MariaDB — it's running fine)
-  sed -i "s|WSREP_CLUSTER_ADDRESS=.*|WSREP_CLUSTER_ADDRESS=$ORIG_ADDR|" .env
-  log "Cluster address restored (MariaDB still running with bootstrap, will rejoin on next restart)"
 
   # Restart garbd (quorum voter)
   log "Restarting garbd..."
