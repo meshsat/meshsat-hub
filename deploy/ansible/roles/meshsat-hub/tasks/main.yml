@@ -27,6 +27,26 @@
     dest: "{{ compose_dir }}/nats.conf"
     mode: "0644"
 
+- name: Deploy nginx.conf (WebSocket /mqtt + Hub API proxy)
+  copy:
+    src: "{{ playbook_dir }}/../../../nginx.conf"
+    dest: "{{ compose_dir }}/nginx.conf"
+    mode: "0644"
+  notify: reload nginx
+
+- name: Create mosquitto config directory
+  file:
+    path: "{{ compose_dir }}/mosquitto/config"
+    state: directory
+    mode: "0755"
+
+- name: Deploy mosquitto-ws.conf (WebSocket-to-NATS MQTT bridge)
+  copy:
+    src: "{{ playbook_dir }}/../../../mosquitto/config/mosquitto-ws.conf"
+    dest: "{{ compose_dir }}/mosquitto/config/mosquitto-ws.conf"
+    mode: "0644"
+  notify: restart mqtt-ws
+
 - name: Open Galera firewall ports (inbound from VPN)
   ufw:
     rule: allow

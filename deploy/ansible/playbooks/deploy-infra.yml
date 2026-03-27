@@ -1,0 +1,37 @@
+---
+# deploy-infra.yml — Update infrastructure sidecars (nginx, mqtt-ws).
+# Safe to run at any time. NEVER touches Hub, MariaDB, NATS, or garbd.
+#
+# Usage:
+#   ansible-playbook -i inventory.yml playbooks/deploy-infra.yml
+
+- name: Deploy infrastructure configs
+  hosts: galera_nodes
+  tasks:
+    - name: Deploy nginx.conf
+      copy:
+        src: "{{ playbook_dir }}/../../../nginx.conf"
+        dest: "{{ compose_dir }}/nginx.conf"
+        mode: "0644"
+      register: nginx_changed
+
+    - name: Create mosquitto config directory
+      file:
+        path: "{{ compose_dir }}/mosquitto/config"
+        state: directory
+        mode: "0755"
+
+    - name: Deploy mosquitto-ws.conf
+      copy:
+        src: "{{ playbook_dir }}/../../../mosquitto/config/mosquitto-ws.conf"
+        dest: "{{ compose_dir }}/mosquitto/config/mosquitto-ws.conf"
+        mode: "0644"
+      register: mqttws_changed
+
+    - name: Recreate mqtt-ws container
+      shell: "cd {{ compose_dir }} && docker compose up -d --no-deps --force-recreate mqtt-ws"
+      when: mqttws_changed.changed
+
+    - name: Reload nginx
+      shell: "docker exec meshsat-hub-nginx nginx -s reload"
+      when: nginx_changed.changed

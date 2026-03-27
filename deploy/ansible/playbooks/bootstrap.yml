@@ -89,8 +89,8 @@
     - name: Pull latest Hub image
       shell: "docker pull {{ hub_image }}"
 
-    - name: Start Redis, NATS, Hub, nginx
-      shell: "cd {{ compose_dir }} && docker compose up -d --no-deps redis nats && sleep 5 && docker compose up -d --no-deps hub nginx"
+    - name: Start Redis, NATS, mqtt-ws, Hub, nginx
+      shell: "cd {{ compose_dir }} && docker compose up -d --no-deps redis nats mqtt-ws && sleep 5 && docker compose up -d --no-deps hub nginx"
 
     - name: Wait for Hub health
       uri:
