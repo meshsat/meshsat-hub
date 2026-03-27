@@ -1498,23 +1498,30 @@ func defaultJSON(s, fallback string) string {
 func (d *DB) GetBridge(ctx context.Context, tenantID string, bridgeID string) (*store.Bridge, error) {
 	var b store.Bridge
 	var online int
-	var lastSeen sql.NullTime
+	var lastSeen, certExpiry sql.NullTime
 	err := d.db.QueryRowContext(ctx,
 		`SELECT bridge_id, tenant_id, label, hostname, version, mode,
 			location_lat, location_lon, location_alt, capabilities,
 			reticulum_hash, reticulum_pubkey, cot_type, cot_callsign,
-			online, last_birth, last_health, last_seen, created_at, updated_at
+			online, last_birth, last_health, last_seen,
+			mqtt_username, cert_pem, cert_expiry,
+			created_at, updated_at
 		 FROM bridges WHERE bridge_id=? AND tenant_id=?`, bridgeID, tenantID,
 	).Scan(&b.BridgeID, &b.TenantID, &b.Label, &b.Hostname, &b.Version, &b.Mode,
 		&b.LocationLat, &b.LocationLon, &b.LocationAlt, &b.Capabilities,
 		&b.ReticulumHash, &b.ReticulumPubkey, &b.CoTType, &b.CoTCallsign,
-		&online, &b.LastBirth, &b.LastHealth, &lastSeen, &b.CreatedAt, &b.UpdatedAt)
+		&online, &b.LastBirth, &b.LastHealth, &lastSeen,
+		&b.MQTTUsername, &b.CertPEM, &certExpiry,
+		&b.CreatedAt, &b.UpdatedAt)
 	if err != nil {
 		return nil, err
 	}
 	b.Online = online != 0
 	if lastSeen.Valid {
 		b.LastSeen = &lastSeen.Time
+	}
+	if certExpiry.Valid {
+		b.CertExpiry = &certExpiry.Time
 	}
 	return &b, nil
 }
@@ -1524,7 +1531,9 @@ func (d *DB) ListBridges(ctx context.Context, tenantID string) ([]*store.Bridge,
 		`SELECT bridge_id, tenant_id, label, hostname, version, mode,
 			location_lat, location_lon, location_alt, capabilities,
 			reticulum_hash, reticulum_pubkey, cot_type, cot_callsign,
-			online, last_birth, last_health, last_seen, created_at, updated_at
+			online, last_birth, last_health, last_seen,
+			mqtt_username, cert_pem, cert_expiry,
+			created_at, updated_at
 		 FROM bridges WHERE tenant_id=? ORDER BY label, bridge_id`, tenantID)
 	if err != nil {
 		return nil, err
@@ -1534,16 +1543,21 @@ func (d *DB) ListBridges(ctx context.Context, tenantID string) ([]*store.Bridge,
 	for rows.Next() {
 		var b store.Bridge
 		var online int
-		var lastSeen sql.NullTime
+		var lastSeen, certExpiry sql.NullTime
 		if err := rows.Scan(&b.BridgeID, &b.TenantID, &b.Label, &b.Hostname, &b.Version, &b.Mode,
 			&b.LocationLat, &b.LocationLon, &b.LocationAlt, &b.Capabilities,
 			&b.ReticulumHash, &b.ReticulumPubkey, &b.CoTType, &b.CoTCallsign,
-			&online, &b.LastBirth, &b.LastHealth, &lastSeen, &b.CreatedAt, &b.UpdatedAt); err != nil {
+			&online, &b.LastBirth, &b.LastHealth, &lastSeen,
+			&b.MQTTUsername, &b.CertPEM, &certExpiry,
+			&b.CreatedAt, &b.UpdatedAt); err != nil {
 			return nil, err
 		}
 		b.Online = online != 0
 		if lastSeen.Valid {
 			b.LastSeen = &lastSeen.Time
+		}
+		if certExpiry.Valid {
+			b.CertExpiry = &certExpiry.Time
 		}
 		bridges = append(bridges, &b)
 	}
