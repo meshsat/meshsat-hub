@@ -1,28 +1,29 @@
-# MeshSat Hub — HAProxy SNI Passthrough for mTLS
+# MeshSat Hub — HAProxy SNI Passthrough
 #
-# This runs on an EDGE/VPS node with a public IP. It peeks at the TLS SNI header
-# and routes traffic based on hostname:
+# This runs on a DMZ/edge node and peeks at the TLS SNI header to route traffic:
 #
-#   mqtt.example.com  → TCP passthrough to NATS :9443 (mTLS, no TLS termination)
-#   hub.example.com   → HTTPS backend to Hub nginx :8451 (TLS termination at nginx)
-#   *                 → Default HTTPS backend
+#   reticulum.example.com → TCP passthrough to stunnel :4243 (Reticulum HDLC)
+#   mqtt.example.com      → TCP passthrough to NATS :9443 (mTLS bridge connections)
+#   *                     → Default HTTPS backend (Hub nginx :8451 or other TLS service)
 #
-# The key design: HAProxy does NOT terminate TLS for MQTT traffic. It passes the
-# raw TCP stream to NATS, which handles TLS + client certificate verification.
-# This preserves the mTLS chain end-to-end.
+# HAProxy does NOT terminate TLS for any backend. It passes raw TCP streams:
+#   - Reticulum: stunnel terminates TLS, forwards plaintext HDLC to Hub :4242
+#   - MQTT: NATS handles TLS + client certificate verification directly
+#   - HTTPS: nginx or other service handles its own TLS
 #
 # Prerequisites:
-#   - Public IP with DNS A records for mqtt.example.com and hub.example.com
-#   - Backend nodes reachable on ports 9443 (NATS) and 8451 (nginx)
-#   - No other process on port 443
+#   - DNS A records for reticulum.example.com, mqtt.example.com, hub.example.com
+#   - stunnel on :4243 forwarding to Hub :4242 (see /etc/stunnel/reticulum.conf)
+#   - NATS on :9443 (mTLS WebSocket)
+#   - nginx on :8451 (Hub web UI, TLS)
 #
 # Usage:
 #   1. Copy this file and replace ALL example.com references with your domain
 #   2. Replace backend IPs with your actual node IPs
-#   3. Install HAProxy: apt install haproxy
-#   4. Copy to /etc/haproxy/haproxy.cfg
-#   5. Test: haproxy -c -f /etc/haproxy/haproxy.cfg
-#   6. Restart: systemctl restart haproxy
+#   3. Deploy as container: docker run -d --network host --user root \
+#        -v /srv/haproxy/haproxy.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro \
+#        haproxy:2.9-alpine
+#   4. Or install: apt install haproxy && cp haproxy.cfg /etc/haproxy/
 
 global
     log /dev/log local0
@@ -50,11 +51,26 @@ frontend tls_in
     tcp-request content accept if { req_ssl_hello_type 1 }
 
     # Route by SNI hostname
-    # CHANGE: Replace mqtt.example.com with your MQTT hostname
+    # CHANGE: Replace example.com with your domain
+    use_backend meshsat_reticulum if { req_ssl_sni -i reticulum.example.com }
     use_backend meshsat_mqtt if { req_ssl_sni -i mqtt.example.com }
 
     # Everything else goes to the default HTTPS backend
     default_backend meshsat_https
+
+# =============================================================================
+# BACKEND: Reticulum HDLC — TCP passthrough to stunnel
+# =============================================================================
+
+# stunnel terminates TLS and forwards plaintext HDLC to Hub :4242.
+# Python RNS and MeshSat Bridge nodes connect here for Reticulum transport.
+
+backend meshsat_reticulum
+    mode tcp
+    option tcp-check
+
+    # CHANGE: Replace with your stunnel address (usually localhost:4243)
+    server stunnel1 127.0.0.1:4243 check inter 10s fall 3 rise 2
 
 # =============================================================================
 # BACKEND: MQTT mTLS — TCP passthrough (no TLS termination)
