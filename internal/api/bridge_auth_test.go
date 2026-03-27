@@ -17,7 +17,7 @@ import (
 
 // mockBridgeStore is a minimal mock for bridge auth tests.
 type mockBridgeStore struct {
-	store.Store // embed to satisfy interface (panics on unimplemented calls)
+	store.Store  // embed to satisfy interface (panics on unimplemented calls)
 	bridges      map[string]*store.Bridge
 	systemConfig map[string]string
 }

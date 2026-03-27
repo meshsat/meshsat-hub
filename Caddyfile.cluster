@@ -1,6 +1,10 @@
 {$CADDY_DOMAIN:localhost} {
 	tls {$CADDY_EMAIL:internal}
 
+	# MQTT over WebSocket — NATS native WebSocket for field bridges
+	@mqtt path /mqtt
+	reverse_proxy @mqtt nats:9001
+
 	# Load balance between hub instances with health checks
 	reverse_proxy hub-1:6070 hub-2:6070 {
 		lb_policy round_robin

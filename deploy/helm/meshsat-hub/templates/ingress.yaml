@@ -23,6 +23,13 @@ spec:
     - host: {{ .Values.ingress.host }}
       http:
         paths:
+          - path: /mqtt
+            pathType: Exact
+            backend:
+              service:
+                name: {{ include "meshsat-hub.fullname" . }}-nats
+                port:
+                  number: 9001
           - path: /
             pathType: Prefix
             backend:

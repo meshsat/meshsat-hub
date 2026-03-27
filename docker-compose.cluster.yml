@@ -62,8 +62,8 @@ services:
           memory: 192M
 
   # ---------------------------------------------------------------------------
-  # NATS 2.10 — message bus with MQTT adapter (replaces Mosquitto)
-  # Field devices connect via MQTT on port 1883. Hub instances use MQTT protocol.
+  # NATS 2.10 — message bus with MQTT adapter + native WebSocket (replaces Mosquitto)
+  # Field devices connect via MQTT on port 1883 or WSS on port 443 (/mqtt path).
   # JetStream enabled for message persistence.
   # ---------------------------------------------------------------------------
   nats:
@@ -166,27 +166,6 @@ services:
           memory: 256M
           cpus: "1.0"
         reservations:
-          memory: 64M
-
-  # ---------------------------------------------------------------------------
-  # Mosquitto — WebSocket-to-MQTT bridge for field devices on port 443
-  # NATS does not support MQTT-over-WebSocket. This sidecar accepts WSS
-  # connections (proxied by Caddy/nginx on /mqtt) and bridges them to NATS :1883.
-  # ---------------------------------------------------------------------------
-  mqtt-ws:
-    image: eclipse-mosquitto:2
-    container_name: meshsat-mqtt-ws
-    restart: unless-stopped
-    volumes:
-      - ./mosquitto/config/mosquitto-ws.conf:/mosquitto/config/mosquitto.conf:ro
-    depends_on:
-      nats:
-        condition: service_healthy
-    networks:
-      - hubnet
-    deploy:
-      resources:
-        limits:
           memory: 64M
 
   # ---------------------------------------------------------------------------

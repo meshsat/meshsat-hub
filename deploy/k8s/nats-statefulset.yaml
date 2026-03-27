@@ -30,6 +30,11 @@ data:
       ]
     }
 
+    websocket {
+      port: 9001
+      no_tls: true
+    }
+
     cluster {
       name: meshsat-nats
       listen: 0.0.0.0:6222
@@ -70,6 +75,8 @@ spec:
               containerPort: 4222
             - name: mqtt
               containerPort: 1883
+            - name: websocket
+              containerPort: 9001
             - name: cluster
               containerPort: 6222
             - name: monitor
@@ -130,6 +137,9 @@ spec:
     - name: mqtt
       port: 1883
       targetPort: mqtt
+    - name: websocket
+      port: 9001
+      targetPort: websocket
     - name: monitor
       port: 8222
       targetPort: monitor

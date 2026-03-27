@@ -98,6 +98,7 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+    # Port 9001 (WebSocket) is internal only — nginx proxies /mqtt → nats:9001
 
   redis:
     image: redis:7-alpine

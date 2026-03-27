@@ -7,6 +7,8 @@ metadata:
     app.kubernetes.io/name: meshsat-hub
   annotations:
     cert-manager.io/cluster-issuer: letsencrypt-prod
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
 spec:
   ingressClassName: nginx
   tls:
@@ -17,6 +19,13 @@ spec:
     - host: hub.example.com
       http:
         paths:
+          - path: /mqtt
+            pathType: Exact
+            backend:
+              service:
+                name: meshsat-nats
+                port:
+                  number: 9001
           - path: /
             pathType: Prefix
             backend:

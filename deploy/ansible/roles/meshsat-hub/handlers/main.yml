@@ -2,8 +2,5 @@
 - name: restart hub
   shell: "cd {{ compose_dir }} && docker compose up -d --no-deps --force-recreate hub"
 
-- name: restart mqtt-ws
-  shell: "cd {{ compose_dir }} && docker compose up -d --no-deps --force-recreate mqtt-ws"
-
 - name: reload nginx
   shell: "docker exec meshsat-hub-nginx nginx -s reload"
