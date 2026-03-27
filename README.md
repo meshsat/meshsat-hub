@@ -2,7 +2,9 @@
 
 Self-hosted management platform for satellite-connected field devices. Ingests messages from Iridium and Astrocast constellations, provides a web dashboard with live mapping, and bridges traffic to TAK, APRS-IS, webhooks, and push notifications. Designed for search-and-rescue, remote monitoring, and off-grid communications where reliability matters more than features.
 
-Runs as a single Docker Compose stack or an active-active cluster with MariaDB Galera synchronous replication.
+Runs as a single Docker Compose stack or an active-active cluster with MariaDB Galera synchronous replication across geographically distributed sites.
+
+**Current version: v1.7** -- Fleet management UI, full observability stack, mTLS bridge authentication, Reticulum transport relay.
 
 ## What it does
 
@@ -11,111 +13,131 @@ Hub sits between satellite ground stations and operators. Field devices (running
 The reverse path works too. Operators send commands from the dashboard or API; Hub compresses, optionally encrypts, fragments if needed, and submits to the satellite provider's REST API for delivery on the next pass.
 
 ```
-Field Device                                             Operators
-  (Iridium 9603N)                                    (Dashboard, TAK, APRS)
-       |                                                      ^
-       v                                                      |
-  Iridium Constellation                              MeshSat Hub
-       |                                              ├─ RockBLOCK webhook
-       v                                              ├─ Cloudloop MT API
-  Ground Control ──webhook──> Hub ──MQTT──> TAK Server
-                                       └──> APRS-IS
-                                       └──> Webhooks
-                                       └──> Apprise/ntfy
+Field Device                                            Operators
+  (Iridium 9603N)                                   (Dashboard, TAK, APRS)
+       |                                                     ^
+       v                                                     |
+  Iridium Constellation                             MeshSat Hub
+       |                                             +-- RockBLOCK webhook (MO)
+       v                                             +-- Cloudloop MT API
+  Ground Control --webhook--> Hub --MQTT--> Dashboard
+                                      +--> TAK Server
+                                      +--> APRS-IS
+                                      +--> Webhooks
+                                      +--> Apprise/ntfy
+
+  Bridges connect directly via:
+    mTLS WebSocket (wss://mqtt.example.com/mqtt)
+    |   or Tor hidden service (.onion:1883)
+    |   or WireGuard tunnel
+    v
+  NATS (MQTT adapter + JetStream persistence)
 ```
 
 ## Features
 
 **Satellite Communications** --
-Iridium SBD via RockBLOCK/Cloudloop webhook (MO) and REST API (MT). Astrocast Astronode S via REST API. Multi-constellation router with four selection strategies (cheapest, fastest, available, preferred). SMAZ2 compression with Meshtastic-compatible dictionary. SBD fragmentation and reassembly. Message deduplication.
+Iridium SBD via RockBLOCK/Cloudloop webhook (MO) and REST API (MT). Astrocast Astronode S via REST API. Multi-constellation router with four selection strategies (cheapest, fastest, available, preferred). SMAZ2 compression with Meshtastic-compatible dictionary. SBD fragmentation and reassembly (340B MO / 270B MT). Message deduplication (in-memory + Redis). End-to-end AES-256-GCM encryption with per-device keystore.
 
-**Device Management** --
-Multi-tenant device registry with per-device YAML config versioning. Per-device daily and monthly rate limiting with SOS bypass. Iridium credit balance polling and budget tracking. OTA firmware management via Eclipse hawkBit.
+**Fleet Management** --
+Bridge lifecycle management with auto-provisioning on first contact. MQTT credential generation (bcrypt) and TLS client certificate issuance (ECDSA P-256, 90-day expiry). Command dispatch (ping, reboot, flush) with round-trip response. 3-step onboarding wizard. ACL regeneration. Android device type support. Real-time online/offline status with configurable reaper timeout.
+
+**mTLS Bridge Authentication** --
+Bridges connect via MQTT-over-WebSocket with mutual TLS. Hub acts as a Certificate Authority, issuing client certificates per bridge. NATS handles TLS termination and client cert verification. HAProxy on the edge does SNI-based TCP passthrough -- no TLS termination, preserving the mTLS chain end-to-end. Verified at 266-345ms round-trip latency.
+
+**Multi-Tenant Device Management** --
+Per-tenant device registry with YAML config versioning. Per-device daily and monthly rate limiting with SOS bypass. Iridium credit balance polling and budget tracking. OTA firmware management via Eclipse hawkBit.
 
 **Safety** --
-SOS escalation chains with multi-tier notification through Apprise (90+ services) and ntfy. Dead man's switch with configurable check-in intervals and grace periods. Polygon geofencing engine with enter/exit/both triggers and automatic escalation on breach. Tamper-evident SHA-256 hash-chain audit log with independent verification.
+SOS escalation chains with multi-tier notification through Apprise (90+ services) and ntfy. Dead man's switch with configurable check-in intervals and grace periods. Polygon geofencing engine with enter/exit/both triggers and automatic escalation on breach. Tamper-evident SHA-256 hash-chain audit log with independent verification and JSONL archival.
+
+**Routing Engine** --
+Any-to-any message routing with 7 destination handlers, default routes, and a Vue UI with visual flow diagram. SMS gateway with Twilio/Vonage integration and E2E encryption.
 
 **Situational Awareness** --
-GPS position storage with time-range queries and Douglas-Peucker track simplification. Leaflet map view with live device positions. TAK/CoT gateway (bidirectional TCP/TLS to OpenTAK Server). APRS-IS IGate with rate-limited position injection and inbound message forwarding.
+GPS position storage with time-range queries and Douglas-Peucker track simplification. Full-width Leaflet map with live device positions. TAK/CoT gateway (bidirectional TCP/TLS to OpenTAK Server). APRS-IS IGate with rate-limited position injection and inbound message forwarding.
+
+**Reticulum Transport** --
+Hub operates as a Reticulum transport node, relaying announces and maintaining a routing table. Bridges with Reticulum identity get routes injected on birth and removed on death. Health reports refresh route TTLs. Wire format compatible with the Reticulum Network Stack.
 
 **Authentication and Authorization** --
 Built-in user management with Argon2id password hashing, JWT access tokens, and rotating refresh tokens. API keys with SHA-256 hashing and RBAC (viewer, operator, owner). OIDC/OAuth2 support for enterprise SSO. Per-IP login rate limiting and account lockout.
 
 **Networking** --
-Tor v3 hidden service for CGNAT bypass (HTTP + MQTT on .onion). WireGuard peer management via wg-easy REST API. MPTCP concentrator for satellite + cellular link aggregation.
+Tor v3 hidden service for CGNAT bypass (HTTP + MQTT on .onion). WireGuard peer management via wg-easy REST API with auto-provisioning on device creation.
+
+**Observability** --
+Correlation IDs (xid) on every request. Structured JSON logging with slog. HTTP request/response logging middleware. DB query timing with slow query detection. MQTT bus metrics (ObservedBus wrapper). ~25 Prometheus metric families at `/metrics`. pprof endpoints (opt-in). Health probes: `/healthz`, `/readyz`, `/startupz` with latency tracking and detailed dependency checks. Audit log retention with JSONL archival. OpenTelemetry tracing scaffold (opt-in). 3 Grafana dashboards (overview, infrastructure, business).
 
 **Outbound Integration** --
 Configurable outbound webhooks with HMAC-SHA256 signing, retry with exponential backoff, and delivery logging. Apprise (Slack, email, Telegram, SMS via Twilio/Vonage, 90+ services). ntfy self-hosted push notifications.
 
 **Dashboard** --
-Vue 3 SPA with 17 views: devices, messages, map, escalation chains, dead man's switch, device config, notifications, webhooks, OTA, users, API keys, audit log, cluster health, network, and settings. Tailwind CSS, dark theme, all timestamps in UTC 24h.
+Vue 3 SPA with 21 views: dashboard with KPI sparklines, devices, messages, full-width map, fleet management, escalation chains, dead man's switch, geofencing, device config, routing with flow diagram, notifications, webhooks, OTA, users, API keys, audit log, cluster health, network, inline help, and settings. Tactical design system with Tailwind CSS. Grouped dropdown navigation. Compact status bar. Dark theme. Responsive. All timestamps in UTC 24h.
 
 ## Deployment
 
-Three deployment tiers, selected at startup via `HUB_MODE`:
+Three deployment tiers. See [docs/deployment.md](docs/deployment.md) for complete step-by-step guides.
 
 | Tier | Mode | Database | Message Bus | Use Case |
 |------|------|----------|-------------|----------|
 | 1 | `standalone` | SQLite | Mosquitto | Single server, development, edge |
-| 2 | `cluster` | MariaDB Galera | NATS | Production (active-active, multi-site) |
+| 2 | `cluster` | MariaDB Galera | NATS + leaf nodes | Production HA, multi-site, mTLS |
 | 3 | `kubernetes` | MariaDB Galera | NATS StatefulSet | Cloud-native, auto-scaling |
 
-### Standalone
+### Standalone (quickstart)
 
 ```bash
-cp config.example.yaml config.yaml
-# Edit: set rockblock_secret, jwt_signing_key
-docker compose up -d
-curl http://localhost:6070/healthz
-```
+git clone https://github.com/cubeos-app/meshsat-hub.git
+cd meshsat-hub
+cp .env.standalone.example .env
+nano .env   # set HUB_AUTH_TOKEN, CADDY_DOMAIN
 
-The dashboard is served at `http://localhost:6070`. Create the first user via the API:
-
-```bash
-curl -X POST http://localhost:6070/api/users \
-  -H "Authorization: Bearer $HUB_AUTH_TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{"email":"admin@example.com","password":"...","role":"owner"}'
+docker compose -f docker-compose.prod.yml up -d
+curl https://your-domain.com/healthz
 ```
 
 ### Cluster
 
-Requires two or more hosts with VPN connectivity and Ansible. See [docs/deployment.md](docs/deployment.md) for the full guide and [docs/RUNBOOK.md](docs/RUNBOOK.md) for operational procedures.
+Two or more hosts with MariaDB Galera (synchronous replication), NATS (cross-site MQTT via leaf nodes), Redis (shared rate limits), and HAProxy (SNI passthrough for mTLS). Includes garbd arbitrator for 3-voter quorum.
 
 ```bash
-cd deploy/ansible
-cp group_vars/vault.yml.example group_vars/vault.yml
-# Edit vault.yml with MariaDB, JWT, and auth credentials
-ansible-playbook -i inventory.yml playbooks/bootstrap.yml --ask-vault-pass
+cp .env.cluster.example .env   # on each node, fill in IPs
+# Follow the 7-step guide in docs/deployment.md
 ```
 
-Rolling updates deploy the Hub container without touching the database:
-
-```bash
-ansible-playbook -i inventory.yml playbooks/deploy-hub.yml
-```
-
-### Kubernetes
-
-Helm chart and raw manifests in `deploy/k8s/` and `deploy/helm/`. Code complete, not yet tested in production.
+Templates provided:
+- `.env.standalone.example` -- standalone configuration
+- `.env.cluster.example` -- cluster configuration (no hardcoded IPs)
+- `deploy/haproxy/haproxy.cfg.example` -- HAProxy SNI passthrough for mTLS
+- `nats-mtls.conf` -- NATS with mTLS WebSocket
+- `deploy/galera/Dockerfile.garbd` -- Galera arbitrator image
 
 ## Architecture
 
 ```
-              hub.meshsat.net (HAProxy)
-                     |
-            +--------+--------+
-            v                 v
-      NL (primary)      GR (secondary)
-      +-- Hub (6070)    +-- Hub (6070)
-      +-- MariaDB  <--> +-- MariaDB       Galera sync replication
-      +-- garbd         +-- Redis
-      +-- Redis         +-- NATS
-      +-- NATS          +-- nginx (:8451)
-      +-- nginx (:8451)
+                    Internet
+                       |
+              +--------+--------+
+              |                 |
+        VPS (HAProxy)    VPS (HAProxy)
+        SNI passthrough  SNI passthrough
+              |                 |
+       +------+------+  +------+------+
+       |   Node A    |  |   Node B    |
+       |  nginx:8451 |  |  nginx:8451 |
+       |  Hub:6070   |  |  Hub:6070   |
+       |  NATS:1883  |  |  NATS:1883  |
+       |       :9443 |  |       :9443 |  <-- mTLS WebSocket
+       |  Redis      |  |  Redis      |
+       |  MariaDB  <==>  |  MariaDB   |  <-- Galera sync replication
+       |  garbd      |  |             |
+       +------+------+  +------+------+
+              |                 |
+              +-- NATS leaf ----+         <-- Cross-site MQTT routing
 ```
 
-Each Hub instance is stateless. MariaDB Galera provides synchronous multi-master replication with a third-node arbitrator (garbd) for quorum. NATS handles cross-site MQTT topic replication. Redis provides distributed rate limiting and deduplication. Leader election (via NATS or Kubernetes Lease API) ensures singleton tasks (TAK subscriber, APRS-IS IGate, credit poller) run on exactly one node.
+Each Hub instance is stateless. MariaDB Galera provides synchronous multi-master replication with a third-node arbitrator (garbd) for quorum. NATS handles cross-site MQTT topic replication via leaf nodes (hub/spoke topology). Redis provides distributed rate limiting and deduplication. Leader election (via NATS or Kubernetes Lease API) ensures singleton tasks run on exactly one node.
 
 ## Configuration
 
@@ -123,21 +145,21 @@ Hub reads `config.yaml` (path: `HUB_CONFIG_FILE`) with environment variable over
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `HUB_MODE` | `standalone` | Deployment tier: `standalone`, `cluster`, `kubernetes` |
+| `HUB_MODE` | `standalone` | `standalone`, `cluster`, `kubernetes` |
 | `HUB_PORT` | `6070` | HTTP listen port |
-| `HUB_DATABASE_URL` | — | MariaDB DSN (cluster/kubernetes mode) |
-| `HUB_JWT_SIGNING_KEY` | — | HMAC-SHA256 key for JWT tokens (min 32 chars) |
-| `HUB_AUTH_TOKEN` | — | Static bearer token (standalone fallback) |
-| `HUB_ROCKBLOCK_SECRET` | — | RockBLOCK webhook HMAC secret |
-| `HUB_CLOUDLOOP_API_KEY` | — | Cloudloop REST API key (Iridium MT) |
-| `HUB_ASTROCAST_API_KEY` | — | Astrocast REST API key |
-| `HUB_MQTT_BROKER_URL` | `tcp://mqtt:1883` | MQTT broker connection |
-| `HUB_CLUSTER_PEERS` | — | Comma-separated peer Hub URLs |
-| `HUB_APPRISE_URL` | — | Apprise API URL for notifications |
-| `HUB_NTFY_URL` | — | ntfy server URL for push notifications |
-| `HUB_HAWKBIT_URL` | — | hawkBit server URL for OTA |
+| `HUB_AUTH_TOKEN` | -- | Static bearer token |
+| `HUB_DATABASE_URL` | -- | MariaDB DSN (cluster/k8s) |
+| `HUB_REDIS_URL` | -- | Redis URL (cluster/k8s) |
+| `HUB_MQTT_BROKER_URL` | `tcp://mqtt:1883` | MQTT broker |
+| `HUB_MQTT_CLIENT_ID` | `meshsat-hub` | **Must be unique per node in cluster** |
+| `HUB_ROCKBLOCK_SECRET` | -- | RockBLOCK webhook HMAC secret |
+| `HUB_CLOUDLOOP_API_KEY` | -- | Cloudloop REST API key (Iridium MT) |
+| `HUB_BRIDGE_OFFLINE_TIMEOUT` | `300` | Seconds before marking bridge offline |
+| `HUB_BRIDGE_CA_CERT_EXPORT_PATH` | -- | Path to export bridge CA cert for NATS mTLS |
 | `HUB_LOG_LEVEL` | `info` | `debug`, `info`, `warn`, `error` |
 | `HUB_LOG_FORMAT` | `json` | `json` or `text` |
+
+See `.env.standalone.example` and `.env.cluster.example` for the complete list.
 
 ## Development
 
@@ -145,15 +167,14 @@ Prerequisites: Go 1.24+, Node.js 20+, Docker Compose v2.
 
 ```bash
 make build              # Build Go binary
-make test               # Unit tests (486 tests, 28 packages)
+make test               # Unit tests (42 packages)
 make test-integration   # Integration tests (embedded MQTT broker)
 make lint               # golangci-lint
 make security           # gosec + govulncheck
 make fmt                # gofmt
 
-cd web && npm install
-cd web && npm run build       # Build Vue SPA to cmd/meshsat-hub/web/dist/
-cd web && npm run test:e2e    # Playwright browser tests (37 tests)
+cd web && npm install && npm run build   # Build Vue SPA
+cd web && npx playwright test            # Playwright E2E tests (53 tests)
 ```
 
 ## Project Layout
@@ -163,72 +184,78 @@ meshsat-hub/
 +-- cmd/meshsat-hub/            Entry point, router, graceful shutdown
 |   +-- web/dist/               Embedded Vue SPA (committed)
 +-- internal/
-|   +-- api/                    REST handlers + request validation (readJSON)
-|   +-- apprise/                Apprise notification client
+|   +-- api/                    REST handlers + strict request validation
 |   +-- aprsis/                 APRS-IS IGate (bidirectional)
-|   +-- astrocast/              Astrocast Astronode S API client
-|   +-- audit/                  SHA-256 hash-chain audit log
+|   +-- audit/                  SHA-256 hash-chain audit log + retention
 |   +-- auth/                   Auth middleware, Argon2id, JWT, RBAC, API keys
 |   +-- backup/                 Full-state ZIP export, diff, import
-|   +-- bus/                    MQTT message bus (Paho client)
+|   +-- bridge/                 Bridge lifecycle: subscriber, reaper, cert authority, ACL, commander
+|   +-- bus/                    MQTT message bus (Paho) + ObservedBus metrics wrapper
 |   +-- cloudloop/              Cloudloop/Iridium MT sender + credit poller
-|   +-- cluster/                Galera cluster health + node discovery
 |   +-- compress/               SMAZ2 compression (Meshtastic dictionary)
 |   +-- config/                 YAML + env config loading
-|   +-- constellation/          Multi-constellation router (4 strategies)
-|   +-- crypto/                 AES-256-GCM encryption + per-device keystore
-|   +-- deadman/                Dead man's switch monitor
+|   +-- constellation/          Multi-constellation send router
 |   +-- dedup/                  Message deduplication (memory + Redis)
-|   +-- escalation/             SOS escalation engine (multi-tier)
-|   +-- fragment/               SBD fragmentation/reassembly
-|   +-- geo/                    GPS codec, geofencing, Douglas-Peucker
-|   +-- handler/                Shared handler utilities
-|   +-- hawkbit/                Eclipse hawkBit OTA client
-|   +-- health/                 /healthz and /readyz with live probes
+|   +-- health/                 /healthz, /readyz, /startupz + DetailedProbe
 |   +-- leader/                 Leader election (Noop, NATS, KubeLease)
-|   +-- mptcp/                  MPTCP concentrator
-|   +-- mqtt/                   MQTT topic namespace helpers
-|   +-- ntfy/                   ntfy push notification client
-|   +-- position/               GPS position storage + subscriber
+|   +-- metrics/                Prometheus metrics (~25 families) + chi middleware
+|   +-- middleware/              RequestID (xid), HTTP logging
+|   +-- observability/          Error categorization + OTel tracing scaffold
+|   +-- protocol/               Wire format: birth/death/health/command structs
 |   +-- ratelimit/              Per-device rate limiting (memory + Redis)
-|   +-- rockblock/              RockBLOCK MO webhook handler
-|   +-- store/                  Store interface + SQLite + MariaDB impls
-|   +-- tak/                    TAK/CoT gateway (bidirectional)
+|   +-- rockblock/              RockBLOCK MO webhook handler + audit
+|   +-- store/                  Store interface + SQLite + MariaDB (Galera) impls
+|   |   +-- dbwrap/             DB query instrumentation (timing, slow query, pool stats)
+|   +-- tak/                    TAK/CoT gateway
 |   +-- webhook/                Outbound webhook dispatcher
-|   +-- wireguard/              WireGuard peer management
-+-- web/                        Vue 3 SPA source (17 views)
+|   +-- wireguard/              WireGuard peer management + auto-provisioning
++-- web/                        Vue 3 SPA source (21 views)
 +-- deploy/
-|   +-- ansible/                Playbooks: bootstrap, deploy, add-node, recover
+|   +-- ansible/                Playbooks: bootstrap, deploy, recover, infra
+|   +-- galera/                 Galera compose, entrypoint, garbd Dockerfile
+|   +-- haproxy/                HAProxy SNI passthrough template
+|   +-- grafana/                3 Grafana dashboards + provisioning
 |   +-- k8s/                    Kubernetes manifests
 |   +-- helm/meshsat-hub/       Helm chart
-+-- test/
-|   +-- integration/            End-to-end tests (embedded MQTT)
-|   +-- e2e/                    Post-deploy smoke tests
++-- test/integration/           End-to-end tests (embedded MQTT)
++-- web/e2e/                    Playwright browser tests
++-- test/e2e/                   Post-deploy smoke tests
++-- scripts/                    Galera watchdog, health check, migration
 +-- docs/
 |   +-- deployment.md           Tier 1/2/3 deployment guide
-|   +-- RUNBOOK.md              Operational runbook
 |   +-- ROADMAP.md              Version history + planned work
 |   +-- SECURITY_AUDIT.md       SAST/SCA/OWASP findings
 +-- docker-compose.yml          Development
-+-- docker-compose.prod.yml     Standalone production
-+-- docker-compose.cluster.yml  Cluster (Galera + Redis + NATS)
-+-- Dockerfile                  Multi-stage Alpine build
-+-- Makefile                    Build, test, lint, security targets
++-- docker-compose.prod.yml     Tier 1 standalone production
++-- docker-compose.cluster.yml  Tier 2 single-host cluster
++-- nats.conf                   NATS base config (MQTT adapter + JetStream)
++-- nats-mtls.conf              NATS config with mTLS WebSocket
++-- Dockerfile                  Multi-stage Alpine build (CGO_ENABLED=0)
++-- Makefile                    Build, test, lint, security, fmt
 +-- .gitlab-ci.yml              7-stage CI/CD pipeline
 ```
 
 ## CI/CD Pipeline
 
 ```
-lint --> security --> test --> build --> package --> deploy --> verify
+lint --> security --> test --> build --> package --> pre-deploy --> deploy --> verify --> owasp
 ```
 
-The `security` stage runs gosec (SAST) and govulncheck (known CVEs) on every push. The `verify` stage runs Playwright browser tests and E2E smoke tests against the live cluster after deployment.
+| Stage | Description |
+|-------|-------------|
+| lint | golangci-lint + swagger validation |
+| security | gosec (SAST, blocks on HIGH) + govulncheck (known CVEs) |
+| test | `go test ./...` (42 packages) |
+| build | `CGO_ENABLED=0 go build` |
+| package | Docker multi-stage build + push to GHCR |
+| pre-deploy | Galera health gate (cluster_size, wsrep_ready, .env validation) |
+| deploy | Rolling deploy to both DMZ nodes (--no-deps) |
+| verify | Post-deploy healthz + readyz + Galera cluster verification |
+| owasp | Automated OWASP ZAP scan (non-blocking) |
 
 ## Documentation
 
-- [Deployment Guide](docs/deployment.md) -- Tier 1/2/3 setup instructions
-- [Operational Runbook](docs/RUNBOOK.md) -- Cluster operations, Galera recovery, troubleshooting
+- [Deployment Guide](docs/deployment.md) -- Tier 1/2/3 setup with templates
 - [Roadmap](docs/ROADMAP.md) -- Version history and planned work
 - [Security Audit](docs/SECURITY_AUDIT.md) -- SAST, SCA, and OWASP scan results
 
@@ -236,8 +263,8 @@ The `security` stage runs gosec (SAST) and govulncheck (known CVEs) on every pus
 
 | Project | Description |
 |---------|-------------|
-| [MeshSat Bridge](https://github.com/cubeos-app/meshsat) | Field gateway firmware (Go, Raspberry Pi) -- connects Meshtastic mesh radios to Iridium/Astrocast satellites |
-| [MeshSat Android](https://github.com/cubeos-app/meshsat-android) | Mobile gateway app (Kotlin) -- phone-as-bridge with BLE mesh and SPP Iridium |
+| [MeshSat Bridge](https://github.com/cubeos-app/meshsat) | Field gateway firmware (Go, Raspberry Pi) -- connects Meshtastic mesh radios to Iridium/Astrocast satellites via mTLS |
+| [MeshSat Android](https://github.com/cubeos-app/meshsat-android) | Mobile gateway app (Kotlin) -- phone-as-bridge with BLE mesh, ONNX ML, and SPP Iridium |
 
 ## License
 
