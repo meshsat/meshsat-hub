@@ -125,7 +125,8 @@ type Config struct {
 	CloudloopAccountID         string `yaml:"cloudloop_account_id"`          // Cloudloop account ID for MQTT topic
 
 	// Bridge lifecycle
-	BridgeOfflineTimeout int `yaml:"bridge_offline_timeout"` // seconds without health before marking offline (default 300)
+	BridgeOfflineTimeout   int    `yaml:"bridge_offline_timeout"`     // seconds without health before marking offline (default 300)
+	BridgeCACertExportPath string `yaml:"bridge_ca_cert_export_path"` // path to export bridge CA cert for NATS mTLS (empty=disabled)
 
 	// WireGuard (wg-easy)
 	WGEnabled  bool   `yaml:"wg_enabled"`
@@ -459,6 +460,11 @@ func Load() (Config, error) {
 		if n, err := strconv.Atoi(v); err == nil {
 			cfg.BridgeOfflineTimeout = n
 		}
+	}
+
+	// Bridge CA cert export path override
+	if v := os.Getenv("HUB_BRIDGE_CA_CERT_EXPORT_PATH"); v != "" {
+		cfg.BridgeCACertExportPath = v
 	}
 
 	// Observability overrides

@@ -475,6 +475,17 @@ func main() {
 		}
 	}
 
+	// Export bridge CA cert to filesystem for NATS mTLS verification.
+	// NATS reads this file at startup to verify bridge client certificates.
+	// The export path is typically a shared volume between Hub and NATS containers.
+	if bridgeCA != nil && cfg.BridgeCACertExportPath != "" {
+		if err := os.WriteFile(cfg.BridgeCACertExportPath, bridgeCA.CACertPEM(), 0644); err != nil {
+			slog.Error("bridge-ca: failed to export CA cert for NATS mTLS", "path", cfg.BridgeCACertExportPath, "error", err)
+		} else {
+			slog.Info("bridge-ca: exported CA cert for NATS mTLS", "path", cfg.BridgeCACertExportPath)
+		}
+	}
+
 	// Escalation engine (SOS, dead man's switch, custom alerts).
 	var notifiers []escalation.Notifier
 	if cfg.AppriseEnabled && cfg.AppriseURL != "" {

@@ -76,9 +76,11 @@ services:
       - "6071:1883"   # MQTT adapter (same external port as standalone Mosquitto)
       - "7422:7422"   # Leaf node (cross-site message routing)
       - "8222:8222"   # HTTP monitoring
+      - "9443:9443"   # mTLS WebSocket (SNI passthrough from reverse proxy)
     volumes:
-      - ./nats.conf:/etc/nats/nats.conf:ro
+      - ${NATS_CONFIG:-./nats.conf}:/etc/nats/nats.conf:ro
       - nats-data:/data
+      - nats-certs:/etc/nats/certs:ro
     networks:
       - hubnet
     healthcheck:
@@ -107,6 +109,9 @@ services:
       HUB_REDIS_URL: ${HUB_REDIS_URL}
       HUB_NATS_URL: ${HUB_NATS_URL:-tcp://nats:1883}
       HUB_MQTT_BROKER_URL: ${HUB_MQTT_BROKER_URL:-tcp://nats:1883}
+      HUB_BRIDGE_CA_CERT_EXPORT_PATH: /nats-certs/bridge-ca.crt
+    volumes:
+      - nats-certs:/nats-certs
     depends_on:
       postgres:
         condition: service_healthy
@@ -146,6 +151,9 @@ services:
       HUB_REDIS_URL: ${HUB_REDIS_URL}
       HUB_NATS_URL: ${HUB_NATS_URL:-tcp://nats:1883}
       HUB_MQTT_BROKER_URL: ${HUB_MQTT_BROKER_URL:-tcp://nats:1883}
+      HUB_BRIDGE_CA_CERT_EXPORT_PATH: /nats-certs/bridge-ca.crt
+    volumes:
+      - nats-certs:/nats-certs
     depends_on:
       postgres:
         condition: service_healthy
@@ -216,6 +224,7 @@ volumes:
   pg-data:
   redis-data:
   nats-data:
+  nats-certs:    # Shared: Hub exports bridge CA cert, NATS reads for mTLS verification
   caddy-data:
   caddy-config:
   tor-keys:
