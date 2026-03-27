@@ -639,7 +639,12 @@ func main() {
 	reticulumPacketHandler := func(iface reticulum.InterfaceType, raw []byte) {
 		// Try to parse as announce to update routing table.
 		if ann, err := reticulum.UnmarshalAnnouncePacket(raw); err == nil {
-			reticulumRouter.ProcessAnnounce(ann, iface)
+			if reticulumRouter.ProcessAnnounce(ann, iface) {
+				// Flood announce to all other interfaces (Reticulum transport behavior).
+				// This ensures TCP-connected RNS nodes learn about MQTT-connected bridges
+				// and vice versa.
+				reticulumRelay.Broadcast(ctx, iface, raw)
+			}
 			return
 		}
 		// Check if this is a path request — Hub responds with routing info.

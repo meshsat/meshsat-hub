@@ -164,6 +164,32 @@ func (r *Relay) Forward(ctx context.Context, sourceIface InterfaceType, raw []by
 	return nil
 }
 
+// Broadcast sends a raw packet to all registered interfaces EXCEPT the source.
+// Used for flooding announces to all transport interfaces (Reticulum spec behavior).
+func (r *Relay) Broadcast(ctx context.Context, sourceIface InterfaceType, raw []byte) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	for name, iface := range r.interfaces {
+		if name == sourceIface {
+			continue // don't send back to source
+		}
+		if !iface.IsAvailable() {
+			continue
+		}
+		if len(raw) > iface.MTU() {
+			continue
+		}
+		if err := iface.Send(ctx, "", raw); err != nil {
+			slog.Debug("reticulum: broadcast send failed",
+				"iface", name, "error", err)
+		} else {
+			slog.Debug("reticulum: broadcast sent",
+				"from", sourceIface, "to", name, "size", len(raw))
+		}
+	}
+}
+
 // ListInterfaces returns all registered interfaces.
 func (r *Relay) ListInterfaces() []Interface {
 	r.mu.RLock()
