@@ -116,6 +116,10 @@ type Config struct {
 	ReticulumIdentityFile string `yaml:"reticulum_identity_file"` // Path to persist Hub's Reticulum identity keypair (default: data/reticulum_identity.json)
 	ReticulumAppName      string `yaml:"reticulum_app_name"`      // Reticulum destination app name (default: meshsat.hub)
 
+	// Reticulum TCP interface (HDLC framing for external RNS node connectivity)
+	ReticulumTCPEnabled bool   `yaml:"reticulum_tcp_enabled"` // Enable TCP listener for RNS nodes (default true)
+	ReticulumTCPAddr    string `yaml:"reticulum_tcp_addr"`    // TCP listen address (default ":4242")
+
 	// Cloudloop MO webhook + MQTT subscriber
 	CloudloopWebhookAllowedIPs string `yaml:"cloudloop_webhook_allowed_ips"` // comma-separated IP allowlist (default: Cloudloop IPs)
 	CloudloopMQTTBroker        string `yaml:"cloudloop_mqtt_broker"`         // MQTT broker URL (e.g., ssl://mqtt.cloudloop.com:8883)
@@ -160,6 +164,8 @@ func Defaults() Config {
 		RateLimitDailyCap:     100,
 		ReticulumIdentityFile: "data/reticulum_identity.json",
 		ReticulumAppName:      "meshsat.hub",
+		ReticulumTCPEnabled:   true,
+		ReticulumTCPAddr:      ":4242",
 		BridgeOfflineTimeout:  300, // 5 minutes
 		DBSlowQueryMS:         100,
 		AuditRetentionDays:    90,
@@ -433,6 +439,17 @@ func Load() (Config, error) {
 	}
 	if v := os.Getenv("HUB_RETICULUM_APP_NAME"); v != "" {
 		cfg.ReticulumAppName = v
+	}
+	if v := os.Getenv("HUB_RETICULUM_TCP_ENABLED"); v != "" {
+		cfg.ReticulumTCPEnabled = strings.EqualFold(v, "true") || v == "1"
+	}
+	if v := os.Getenv("HUB_RETICULUM_TCP_ADDR"); v != "" {
+		cfg.ReticulumTCPAddr = v
+	}
+	// Legacy: HUB_RETICULUM_TCP_PORT sets just the port (e.g. "4242" → ":4242").
+	if v := os.Getenv("HUB_RETICULUM_TCP_PORT"); v != "" {
+		cfg.ReticulumTCPEnabled = true
+		cfg.ReticulumTCPAddr = ":" + v
 	}
 
 	// Cloudloop MO webhook/MQTT overrides

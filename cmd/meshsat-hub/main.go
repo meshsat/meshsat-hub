@@ -666,6 +666,21 @@ func main() {
 	retMQTTIface.SetHandler(reticulumPacketHandler)
 	reticulumRelay.RegisterInterface(retMQTTIface)
 
+	// Reticulum TCP interface — external RNS nodes connect via HDLC framing.
+	// stunnel on DMZ terminates TLS; raw HDLC arrives here on port 4242.
+	var retTCPIface *reticulum.TCPInterface
+	if cfg.ReticulumTCPEnabled && cfg.ReticulumTCPAddr != "" {
+		retTCPIface = reticulum.NewTCPInterface(cfg.ReticulumTCPAddr)
+		retTCPIface.SetHandler(reticulumPacketHandler)
+		reticulumRelay.RegisterInterface(retTCPIface)
+		if err := retTCPIface.Start(); err != nil {
+			slog.Error("reticulum: tcp interface failed to start", "error", err)
+		} else {
+			slog.Info("reticulum: tcp interface started", "addr", cfg.ReticulumTCPAddr)
+			defer retTCPIface.Stop()
+		}
+	}
+
 	// Reticulum transport interfaces — satellite backends.
 	// These are registered now; webhook handlers wire SetReticulumIface later.
 	var retIridiumIface *reticulum.IridiumInterface

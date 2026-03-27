@@ -118,12 +118,15 @@ services:
     container_name: meshsat-hub
     restart: unless-stopped
     env_file: .env
+    ports:
+      - "4242:4242"   # Reticulum TCP (HDLC, stunnel terminates TLS upstream)
     environment:
       HUB_MODE: cluster
       HUB_PORT: "6070"
       HUB_MQTT_BROKER_URL: tcp://nats:1883
       HUB_NATS_URL: tcp://nats:1883
       HUB_REDIS_URL: redis://redis:6379/0
+      HUB_RETICULUM_TCP_PORT: "4242"
       HUB_LOG_LEVEL: info
       HUB_LOG_FORMAT: json
       HUB_BRIDGE_CA_CERT_EXPORT_PATH: /nats-certs/bridge-ca.crt

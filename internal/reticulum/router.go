@@ -15,6 +15,7 @@ type InterfaceType string
 
 const (
 	IfaceMQTT       InterfaceType = "mqtt"
+	IfaceTCP        InterfaceType = "tcp"
 	IfaceTor        InterfaceType = "tor"
 	IfaceWireGuard  InterfaceType = "wireguard"
 	IfaceIridium    InterfaceType = "iridium"
@@ -27,7 +28,7 @@ const (
 // Free interfaces return 0; satellite interfaces return their typical cost.
 func InterfaceCost(iface InterfaceType) float64 {
 	switch iface {
-	case IfaceMQTT, IfaceTor, IfaceWireGuard, IfaceLocal:
+	case IfaceMQTT, IfaceTCP, IfaceTor, IfaceWireGuard, IfaceLocal:
 		return 0
 	case IfaceIridium:
 		return 0.05
