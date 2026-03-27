@@ -68,7 +68,7 @@ services:
     network_mode: host
     command:
       - --group=meshsat-galera
-      - --address=gcomm://192.168.192.10,192.168.15.10
+      - --address=${WSREP_CLUSTER_ADDRESS}
       - --name=meshsat-garbd
       - --option=gmcast.listen_addr=tcp://0.0.0.0:4570;pc.weight=1
     depends_on:
@@ -88,9 +88,11 @@ services:
       - "4222:4222"
       - "1883:1883"
       - "8222:8222"
+      - "9443:9443"   # mTLS WebSocket (SNI passthrough from HAProxy)
     volumes:
-      - ./nats.conf:/etc/nats/nats.conf:ro
+      - ${NATS_CONFIG:-./nats.conf}:/etc/nats/nats.conf:ro
       - nats-data:/data
+      - nats-certs:/etc/nats/certs:ro
     networks:
       - hubnet
     healthcheck:
@@ -98,7 +100,8 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
-    # Port 9001 (WebSocket) is internal only — nginx proxies /mqtt → nats:9001
+    # Port 1883: internal MQTT (Hub ↔ NATS, plain TCP on hubnet)
+    # Port 9443: mTLS WebSocket (bridges via SNI passthrough, requires nats-mtls.conf)
 
   redis:
     image: redis:7-alpine
@@ -123,8 +126,10 @@ services:
       HUB_REDIS_URL: redis://redis:6379/0
       HUB_LOG_LEVEL: info
       HUB_LOG_FORMAT: json
+      HUB_BRIDGE_CA_CERT_EXPORT_PATH: /nats-certs/bridge-ca.crt
     volumes:
-      - /home/kyriakosp/meshsat-hub/certs:/certs:ro
+      - ${HUB_CERTS_PATH:-./certs}:/certs:ro
+      - nats-certs:/nats-certs
     networks:
       - hubnet
     healthcheck:
@@ -142,14 +147,15 @@ services:
       - "8451:8443"
     volumes:
       - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
-      - /srv/certs/meshsat.net.crt:/etc/nginx/certs/tls.crt:ro
-      - /srv/certs/meshsat.net.key:/etc/nginx/certs/tls.key:ro
+      - ${TLS_CERT_PATH:-/srv/certs/server.crt}:/etc/nginx/certs/tls.crt:ro
+      - ${TLS_KEY_PATH:-/srv/certs/server.key}:/etc/nginx/certs/tls.key:ro
     networks:
       - hubnet
 
 volumes:
   mariadb-data:
   nats-data:
+  nats-certs:    # Shared: Hub exports bridge CA cert, NATS reads it for mTLS verification
   redis-data:
 
 networks:

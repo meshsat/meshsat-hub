@@ -1,0 +1,101 @@
+# MeshSat Hub — HAProxy SNI Passthrough for mTLS
+#
+# This runs on an EDGE/VPS node with a public IP. It peeks at the TLS SNI header
+# and routes traffic based on hostname:
+#
+#   mqtt.example.com  → TCP passthrough to NATS :9443 (mTLS, no TLS termination)
+#   hub.example.com   → HTTPS backend to Hub nginx :8451 (TLS termination at nginx)
+#   *                 → Default HTTPS backend
+#
+# The key design: HAProxy does NOT terminate TLS for MQTT traffic. It passes the
+# raw TCP stream to NATS, which handles TLS + client certificate verification.
+# This preserves the mTLS chain end-to-end.
+#
+# Prerequisites:
+#   - Public IP with DNS A records for mqtt.example.com and hub.example.com
+#   - Backend nodes reachable on ports 9443 (NATS) and 8451 (nginx)
+#   - No other process on port 443
+#
+# Usage:
+#   1. Copy this file and replace ALL example.com references with your domain
+#   2. Replace backend IPs with your actual node IPs
+#   3. Install HAProxy: apt install haproxy
+#   4. Copy to /etc/haproxy/haproxy.cfg
+#   5. Test: haproxy -c -f /etc/haproxy/haproxy.cfg
+#   6. Restart: systemctl restart haproxy
+
+global
+    log /dev/log local0
+    maxconn 4096
+    daemon
+
+defaults
+    log     global
+    mode    tcp
+    option  tcplog
+    timeout connect 10s
+    timeout client  300s
+    timeout server  300s
+
+# =============================================================================
+# FRONTEND: Port 443 — SNI-based routing
+# =============================================================================
+
+frontend tls_in
+    bind *:443
+    mode tcp
+
+    # Peek at the TLS ClientHello to read the SNI hostname
+    tcp-request inspect-delay 5s
+    tcp-request content accept if { req_ssl_hello_type 1 }
+
+    # Route by SNI hostname
+    # CHANGE: Replace mqtt.example.com with your MQTT hostname
+    use_backend meshsat_mqtt if { req_ssl_sni -i mqtt.example.com }
+
+    # Everything else goes to the default HTTPS backend
+    default_backend meshsat_https
+
+# =============================================================================
+# BACKEND: MQTT mTLS — TCP passthrough (no TLS termination)
+# =============================================================================
+
+# NATS handles TLS directly — HAProxy just forwards the raw TCP stream.
+# Bridges present client certificates to NATS, not to HAProxy.
+
+backend meshsat_mqtt
+    mode tcp
+    balance roundrobin
+    option tcp-check
+
+    # CHANGE: Replace with your actual node IPs
+    # For a single-node setup, use one server line.
+    # For multi-node, add all nodes. HAProxy health-checks port 9443.
+    server node1 10.0.0.1:9443 check inter 10s fall 3 rise 2
+    server node2 10.0.0.2:9443 check inter 10s fall 3 rise 2 backup
+
+# =============================================================================
+# BACKEND: Hub HTTPS — TLS termination at nginx
+# =============================================================================
+
+backend meshsat_https
+    mode tcp
+    balance roundrobin
+    option tcp-check
+
+    # CHANGE: Replace with your actual node IPs
+    # Port 8451 is the nginx TLS listener in the Hub compose stack.
+    server node1 10.0.0.1:8451 check inter 10s fall 3 rise 2
+    server node2 10.0.0.2:8451 check inter 10s fall 3 rise 2 backup
+
+# =============================================================================
+# STATS (optional — access at http://localhost:8404/stats)
+# =============================================================================
+
+frontend stats
+    bind *:8404
+    mode http
+    stats enable
+    stats uri /stats
+    stats refresh 10s
+    stats admin if LOCALHOST
