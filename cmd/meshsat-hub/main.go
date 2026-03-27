@@ -1063,7 +1063,7 @@ func main() {
 	})
 
 	// Bridge registry API
-	bridgeHandler := api.NewBridgeHandler(dataStore)
+	bridgeHandler := api.NewBridgeHandler(dataStore, msgBus)
 	r.Get("/api/bridges", bridgeHandler.ListBridges)
 	r.Post("/api/bridges", bridgeHandler.CreateBridge)
 	r.Get("/api/bridges/{id}", bridgeHandler.GetBridge)

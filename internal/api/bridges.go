@@ -1,9 +1,12 @@
 package api
 
 import (
+	"log/slog"
 	"net/http"
 
 	"github.com/cubeos-app/meshsat-hub/internal/auth"
+	"github.com/cubeos-app/meshsat-hub/internal/bus"
+	"github.com/cubeos-app/meshsat-hub/internal/protocol"
 	"github.com/cubeos-app/meshsat-hub/internal/store"
 	"github.com/go-chi/chi/v5"
 )
@@ -11,11 +14,12 @@ import (
 // BridgeHandler provides REST endpoints for bridge management.
 type BridgeHandler struct {
 	store store.Store
+	bus   bus.MessageBus
 }
 
 // NewBridgeHandler creates a new bridge API handler.
-func NewBridgeHandler(s store.Store) *BridgeHandler {
-	return &BridgeHandler{store: s}
+func NewBridgeHandler(s store.Store, mb bus.MessageBus) *BridgeHandler {
+	return &BridgeHandler{store: s, bus: mb}
 }
 
 // bridgeCreateRequest is the request body for POST /api/bridges.
@@ -170,5 +174,19 @@ func (h *BridgeHandler) DeleteBridge(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+
+	// Clear retained MQTT messages so the bridge doesn't resurrect on subscriber reconnect.
+	if h.bus != nil && h.bus.IsConnected() {
+		for _, topic := range []string{
+			protocol.TopicBridgeBirth(id),
+			protocol.TopicBridgeDeath(id),
+			protocol.TopicBridgeHealth(id),
+		} {
+			if err := h.bus.Publish(topic, 1, true, []byte{}); err != nil {
+				slog.Warn("bridge delete: failed to clear retained message", "topic", topic, "error", err)
+			}
+		}
+	}
+
 	w.WriteHeader(http.StatusNoContent)
 }
