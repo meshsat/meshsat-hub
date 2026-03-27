@@ -74,6 +74,7 @@ services:
     ports:
       - "4222:4222"   # NATS client
       - "6071:1883"   # MQTT adapter (same external port as standalone Mosquitto)
+      - "7422:7422"   # Leaf node (cross-site message routing)
       - "8222:8222"   # HTTP monitoring
     volumes:
       - ./nats.conf:/etc/nats/nats.conf:ro

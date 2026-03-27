@@ -8,6 +8,9 @@
 
 - name: Deploy infrastructure configs
   hosts: galera_nodes
+  vars:
+    # Extract peer VPN IP from cluster_peers URL (e.g. "https://192.168.15.10:8451" → "192.168.15.10")
+    nats_leaf_peer: "{{ cluster_peers | regex_replace('https?://', '') | regex_replace(':.*', '') }}"
   tasks:
     - name: Deploy nginx.conf
       copy:
@@ -16,16 +19,37 @@
         mode: "0644"
       register: nginx_changed
 
-    - name: Deploy nats.conf
+    - name: Deploy nats.conf (base config from repo)
       copy:
         src: "{{ playbook_dir }}/../../../nats.conf"
         dest: "{{ compose_dir }}/nats.conf"
         mode: "0644"
       register: nats_changed
 
+    - name: Add leaf node remote for cross-site routing
+      blockinfile:
+        path: "{{ compose_dir }}/nats.conf"
+        marker: "# {mark} LEAF NODE REMOTE (managed by Ansible)"
+        block: |
+          leafnodes {
+            port: 7422
+            remotes [
+              { url: "nats-leaf://{{ nats_leaf_peer }}:7422" }
+            ]
+          }
+        state: present
+      register: leaf_changed
+
+    - name: Remove duplicate leafnodes block from base config
+      replace:
+        path: "{{ compose_dir }}/nats.conf"
+        regexp: '# Leaf nodes.*?leafnodes \{\n  port: 7422\n\}\n'
+        replace: ''
+      when: nats_changed.changed
+
     - name: Recreate NATS container
       shell: "cd {{ compose_dir }} && docker compose up -d --no-deps --force-recreate nats"
-      when: nats_changed.changed
+      when: nats_changed.changed or leaf_changed.changed
 
     - name: Reload nginx
       shell: "docker exec meshsat-hub-nginx nginx -s reload"
