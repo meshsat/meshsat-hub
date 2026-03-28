@@ -146,9 +146,22 @@ const (
 	MaxAnnounceHops = PathfinderM
 
 	// Bridge link/keepalive type bytes (first byte of packet).
+	// 0x10-0x12: Hub uses 3-packet link handshake (Request→Response→Confirm).
+	// Bridge uses 2-packet (Request→Proof at 0x11, Data at 0x12).
+	// Keepalive at 0x13 matches bridge wire format.
 	BridgeLinkRequest  byte = 0x10
-	BridgeLinkResponse byte = 0x11
-	BridgeLinkConfirm  byte = 0x12
-	BridgeLinkData     byte = 0x13
-	BridgeKeepalive    byte = 0x14
+	BridgeLinkResponse byte = 0x11 // Hub: link response; Bridge: link proof
+	BridgeLinkConfirm  byte = 0x12 // Hub: link confirm; Bridge: link data
+	BridgeKeepalive    byte = 0x13 // aligned with bridge (was 0x14)
+
+	// Protocol enhancement type bytes (MESHSAT-407).
+	BridgeTimeSyncReq  byte = 0x14 // time sync request (MESHSAT-410)
+	BridgeTimeSyncResp byte = 0x15 // time sync response (MESHSAT-410)
+	BridgeCustodyOffer byte = 0x16 // DTN custody transfer offer (MESHSAT-408)
+	BridgeCustodyACK   byte = 0x17 // DTN custody transfer acknowledgement (MESHSAT-408)
+)
+
+// Resource context types for RLNC (MESHSAT-411).
+const (
+	ContextResourceRLNC byte = 0x0F // RLNC coded resource segment
 )

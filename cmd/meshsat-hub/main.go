@@ -64,6 +64,7 @@ import (
 	"github.com/cubeos-app/meshsat-hub/internal/store/mariadb"
 	"github.com/cubeos-app/meshsat-hub/internal/store/sqlite"
 	"github.com/cubeos-app/meshsat-hub/internal/tak"
+	"github.com/cubeos-app/meshsat-hub/internal/timesync"
 	hubtor "github.com/cubeos-app/meshsat-hub/internal/tor"
 	"github.com/cubeos-app/meshsat-hub/internal/webhook"
 	"github.com/cubeos-app/meshsat-hub/internal/wireguard"
@@ -635,7 +636,14 @@ func main() {
 		reticulumRouter, reticulumRelay, reticulum.DefaultPathHandlerConfig(),
 	)
 
-	// Reticulum packet handler — processes announces, path requests, and forwards data packets.
+	// Time sync service — Hub is the NTP authority (stratum 1).
+	hubTimeService := timesync.NewTimeService(nil)
+	hubTimeService.AddSource(timesync.NewLocalNTPSource())
+	hubTimeService.Start(ctx)
+	slog.Info("timesync: hub service started (NTP authority)")
+
+	// Reticulum packet handler — processes announces, path requests, protocol
+	// enhancement packets (MESHSAT-407), and forwards data packets.
 	reticulumPacketHandler := func(iface reticulum.InterfaceType, raw []byte) {
 		// Try to parse as announce to update routing table.
 		if ann, err := reticulum.UnmarshalAnnouncePacket(raw); err == nil {
@@ -650,6 +658,31 @@ func main() {
 		// Check if this is a path request — Hub responds with routing info.
 		if reticulumPathHandler.HandlePacket(ctx, iface, raw) {
 			return
+		}
+		// Dispatch protocol enhancement packets (MESHSAT-407).
+		if len(raw) > 0 {
+			switch raw[0] {
+			case reticulum.BridgeTimeSyncReq:
+				// Bridge asking for time — respond with Hub's NTP-authoritative time.
+				slog.Debug("timesync: received request", "from", iface)
+				resp := timesync.BuildTimeSyncResponse(raw, hubTimeService)
+				if resp != nil {
+					// Broadcast response — requesting bridge matches by dest hash.
+					reticulumRelay.Broadcast(ctx, iface, resp)
+				}
+				return
+			case reticulum.BridgeTimeSyncResp:
+				slog.Debug("timesync: received response (hub ignores — we are authority)")
+				return
+			case reticulum.BridgeCustodyOffer:
+				slog.Debug("reticulum: custody offer received", "from", iface)
+				// Hub accepts custody — it's the relay of last resort.
+				// TODO: wire CustodyManager for hub-side custody acceptance.
+				return
+			case reticulum.BridgeCustodyACK:
+				slog.Debug("reticulum: custody ack received", "from", iface)
+				return
+			}
 		}
 		// Otherwise, attempt to relay the packet.
 		if err := reticulumRelay.Forward(ctx, iface, raw); err != nil {

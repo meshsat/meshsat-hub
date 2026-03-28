@@ -16,9 +16,16 @@ require (
 
 require (
 	github.com/go-sql-driver/mysql v1.9.3
+	github.com/klauspost/reedsolomon v1.13.3
 	github.com/prometheus/client_golang v1.23.2
-	github.com/rs/xid v1.4.0
+	github.com/rs/xid v1.6.0
+	github.com/rs/zerolog v1.35.0
 	golang.org/x/crypto v0.49.0
+)
+
+require (
+	github.com/klauspost/cpuid/v2 v2.3.0 // indirect
+	github.com/mattn/go-colorable v0.1.14 // indirect
 )
 
 require (
