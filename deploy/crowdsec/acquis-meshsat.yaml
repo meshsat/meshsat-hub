@@ -1,0 +1,43 @@
+# CrowdSec acquisition for MeshSat Hub services.
+# Append to /etc/crowdsec/acquis.yaml on both DMZ hosts.
+#
+# These sources are in addition to the default syslog/SSH/nginx sources.
+# Custom parsers and scenarios can be added later — at minimum the raw
+# logs are ingested for forensic analysis.
+
+# NATS MQTT broker (Docker container logs)
+---
+source: docker
+container_name:
+  - meshsat-nats
+labels:
+  type: syslog
+
+# MariaDB / Galera (Docker container logs — auth failures, wsrep state)
+---
+source: docker
+container_name:
+  - meshsat-mariadb
+labels:
+  type: mysql
+
+# stunnel Reticulum (logs to syslog by default)
+# Verify with: grep stunnel /var/log/syslog
+# If not appearing, add explicit file source:
+---
+source: file
+filenames:
+  - /var/log/syslog
+labels:
+  type: syslog
+# stunnel events are mixed into syslog — the syslog parser handles them.
+
+# Hub service (Docker container logs — API auth failures, webhook errors)
+---
+source: docker
+container_name:
+  - meshsat-hub
+  - meshsat-hub-1
+  - meshsat-hub-2
+labels:
+  type: syslog

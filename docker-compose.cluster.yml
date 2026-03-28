@@ -41,7 +41,7 @@ services:
     restart: unless-stopped
     command: >
       redis-server
-      --requirepass ${REDIS_PASSWORD:-}
+      --requirepass ${REDIS_PASSWORD:?Set REDIS_PASSWORD in .env}
       --maxmemory 128mb
       --maxmemory-policy allkeys-lru
       --appendonly yes
@@ -71,10 +71,13 @@ services:
     container_name: meshsat-nats
     restart: unless-stopped
     command: ["-c", "/etc/nats/nats.conf"]
+    environment:
+      NATS_MQTT_PASSWORD: ${NATS_MQTT_PASSWORD:?Set NATS_MQTT_PASSWORD in .env}
+      NATS_LEAFNODE_TOKEN: ${NATS_LEAFNODE_TOKEN:-}
     ports:
-      - "4222:4222"   # NATS client
+      # 4222 removed — NATS client port internal only (no host mapping needed)
       - "6071:1883"   # MQTT adapter (same external port as standalone Mosquitto)
-      - "7422:7422"   # Leaf node (cross-site message routing)
+      - "7422:7422"   # Leaf node (cross-site message routing, token-authenticated)
       - "8222:8222"   # HTTP monitoring
       - "9443:9443"   # mTLS WebSocket (SNI passthrough from reverse proxy)
     volumes:

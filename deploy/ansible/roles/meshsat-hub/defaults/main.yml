@@ -12,6 +12,14 @@ galera_sst_method: rsync
 hub_port: 6070
 nginx_port: 8451
 
+# Service authentication (override in vault or host_vars)
+nats_mqtt_password: ""
+nats_leafnode_token: ""
+redis_password: ""
+
+# Docker bridge subnet for UFW (default Docker bridge or custom hubnet)
+docker_bridge_subnet: "172.18.0.0/16"
+
 # Timeouts
 mariadb_health_start_period: 120
 hub_health_start_period: 15

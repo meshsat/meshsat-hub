@@ -63,11 +63,25 @@
   become: true
   when: galera_ports is defined
 
-- name: Allow Docker bridge to MariaDB
+- name: Allow Docker bridge to MariaDB (restrict to hubnet subnet)
   ufw:
     rule: allow
-    from_addr: 172.16.0.0/12
+    from_addr: "{{ docker_bridge_subnet | default('172.18.0.0/16') }}"
     port: "3306"
     proto: tcp
-    comment: "Docker to MariaDB"
+    comment: "Docker hubnet to MariaDB"
   become: true
+
+# Tighten Galera UFW: remove any stale /24 rules and ensure only specific peer IPs.
+- name: Remove overly broad Galera UFW rules (if present)
+  ufw:
+    rule: allow
+    from_addr: "{{ item }}"
+    port: "3306,4444,4567,4568"
+    proto: tcp
+    delete: true
+  loop:
+    - "192.168.192.0/24"
+    - "192.168.15.0/24"
+  become: true
+  ignore_errors: true
