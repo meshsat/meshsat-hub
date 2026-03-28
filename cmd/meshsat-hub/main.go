@@ -1195,6 +1195,11 @@ func main() {
 	r.Get("/api/settings/mqtt-url", bridgeAuthHandler.GetMQTTURL)
 	r.Put("/api/settings/mqtt-url", bridgeAuthHandler.SetMQTTURL)
 
+	// Service security status + password rotation
+	securityHandler := api.NewSecuritySettingsHandler(dataStore)
+	r.Get("/api/settings/security", securityHandler.GetSecurityStatus)
+	r.Post("/api/settings/security/rotate", securityHandler.RotateServicePasswords)
+
 	// Device registry API
 	deviceHandler := api.NewDeviceHandler(dataStore)
 	r.Get("/api/devices", deviceHandler.ListDevices)

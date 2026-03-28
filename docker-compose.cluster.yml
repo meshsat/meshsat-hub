@@ -5,6 +5,21 @@
 
 services:
   # ---------------------------------------------------------------------------
+  # Secrets init — auto-generates service passwords on first boot.
+  # Runs once, creates /data/secrets/.secrets.env with NATS, Redis, leafnode
+  # passwords. All other services read from this file via env_file.
+  # No manual env var setup needed.
+  # ---------------------------------------------------------------------------
+  secrets-init:
+    image: alpine:3.19
+    container_name: meshsat-secrets-init
+    entrypoint: ["/bin/sh", "/scripts/init-secrets.sh"]
+    volumes:
+      - ./scripts/init-secrets.sh:/scripts/init-secrets.sh:ro
+      - secrets-data:/data/secrets
+    restart: "no"
+
+  # ---------------------------------------------------------------------------
   # PostgreSQL 16 — shared persistent store (replaces per-instance SQLite)
   # ---------------------------------------------------------------------------
   postgres:
@@ -39,9 +54,12 @@ services:
     image: redis:7-alpine
     container_name: meshsat-redis
     restart: unless-stopped
+    env_file:
+      - path: /data/secrets/.secrets.env
+        required: false
     command: >
       redis-server
-      --requirepass ${REDIS_PASSWORD:?Set REDIS_PASSWORD in .env}
+      --requirepass ${REDIS_PASSWORD:-changeme}
       --maxmemory 128mb
       --maxmemory-policy allkeys-lru
       --appendonly yes
@@ -71,8 +89,11 @@ services:
     container_name: meshsat-nats
     restart: unless-stopped
     command: ["-c", "/etc/nats/nats.conf"]
+    env_file:
+      - path: /data/secrets/.secrets.env
+        required: false
     environment:
-      NATS_MQTT_PASSWORD: ${NATS_MQTT_PASSWORD:?Set NATS_MQTT_PASSWORD in .env}
+      NATS_MQTT_PASSWORD: ${NATS_MQTT_PASSWORD:-changeme}
       NATS_LEAFNODE_TOKEN: ${NATS_LEAFNODE_TOKEN:-}
     ports:
       # 4222 removed — NATS client port internal only (no host mapping needed)
@@ -103,19 +124,22 @@ services:
     image: ${MESHSAT_HUB_IMAGE:-ghcr.io/cubeos-app/meshsat-hub:latest}
     container_name: meshsat-hub-1
     restart: unless-stopped
-    env_file: .env
+    env_file:
+      - .env
+      - path: /data/secrets/.secrets.env
+        required: false
     environment:
       HUB_MODE: cluster
       HUB_PORT: "6070"
       HUB_MQTT_CLIENT_ID: meshsat-hub-1
       HUB_DATABASE_URL: ${HUB_DATABASE_URL}
-      HUB_REDIS_URL: ${HUB_REDIS_URL}
-      HUB_NATS_URL: ${HUB_NATS_URL:-tcp://nats:1883}
-      HUB_MQTT_BROKER_URL: ${HUB_MQTT_BROKER_URL:-tcp://nats:1883}
       HUB_BRIDGE_CA_CERT_EXPORT_PATH: /nats-certs/bridge-ca.crt
     volumes:
       - nats-certs:/nats-certs
+      - secrets-data:/data/secrets:ro
     depends_on:
+      secrets-init:
+        condition: service_completed_successfully
       postgres:
         condition: service_healthy
       redis:
@@ -145,19 +169,22 @@ services:
     image: ${MESHSAT_HUB_IMAGE:-ghcr.io/cubeos-app/meshsat-hub:latest}
     container_name: meshsat-hub-2
     restart: unless-stopped
-    env_file: .env
+    env_file:
+      - .env
+      - path: /data/secrets/.secrets.env
+        required: false
     environment:
       HUB_MODE: cluster
       HUB_PORT: "6070"
       HUB_MQTT_CLIENT_ID: meshsat-hub-2
       HUB_DATABASE_URL: ${HUB_DATABASE_URL}
-      HUB_REDIS_URL: ${HUB_REDIS_URL}
-      HUB_NATS_URL: ${HUB_NATS_URL:-tcp://nats:1883}
-      HUB_MQTT_BROKER_URL: ${HUB_MQTT_BROKER_URL:-tcp://nats:1883}
       HUB_BRIDGE_CA_CERT_EXPORT_PATH: /nats-certs/bridge-ca.crt
     volumes:
       - nats-certs:/nats-certs
+      - secrets-data:/data/secrets:ro
     depends_on:
+      secrets-init:
+        condition: service_completed_successfully
       postgres:
         condition: service_healthy
       redis:
@@ -227,7 +254,8 @@ volumes:
   pg-data:
   redis-data:
   nats-data:
-  nats-certs:    # Shared: Hub exports bridge CA cert, NATS reads for mTLS verification
+  nats-certs:      # Shared: Hub exports bridge CA cert, NATS reads for mTLS verification
+  secrets-data:    # Auto-generated service passwords (init-secrets.sh)
   caddy-data:
   caddy-config:
   tor-keys:
