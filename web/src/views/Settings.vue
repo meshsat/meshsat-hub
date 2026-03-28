@@ -17,6 +17,9 @@ const exportResult = ref(null)
 const mqttUrl = ref('')
 const mqttUrlSaving = ref(false)
 const mqttUrlSaved = ref(false)
+const securityStatus = ref(null)
+const rotateLoading = ref(false)
+const rotateResult = ref(null)
 
 onMounted(async () => {
   const results = await Promise.allSettled([
@@ -29,6 +32,7 @@ onMounted(async () => {
     ipougrs.status(),
     reticulum.identity(),
     settings.getMqttUrl(),
+    settings.getSecurity(),
   ])
 
   hubHealth.value = results[0].status === 'fulfilled' ? results[0].value : null
@@ -41,6 +45,7 @@ onMounted(async () => {
   ipougrsStatus.value = results[6].status === 'fulfilled' ? results[6].value : null
   retIdentity.value = results[7].status === 'fulfilled' ? results[7].value : null
   mqttUrl.value = results[8].status === 'fulfilled' ? (results[8].value?.mqtt_url || '') : ''
+  securityStatus.value = results[9].status === 'fulfilled' ? results[9].value : null
   loading.value = false
 })
 
@@ -75,6 +80,21 @@ async function exportBackup() {
     error.value = e.message
   } finally {
     exportLoading.value = false
+  }
+}
+
+async function rotateServicePasswords() {
+  if (!confirm('Rotate all service passwords? This requires restarting NATS, Redis, and Hub services.')) return
+  rotateLoading.value = true
+  rotateResult.value = null
+  try {
+    const result = await settings.rotatePasswords()
+    rotateResult.value = result.message || 'Passwords rotated'
+    securityStatus.value = await settings.getSecurity()
+  } catch (e) {
+    error.value = e.message
+  } finally {
+    rotateLoading.value = false
   }
 }
 
@@ -145,6 +165,62 @@ function statusText(ok) {
             </div>
           </div>
         </div>
+      </div>
+
+      <!-- Service Security -->
+      <div class="bg-tactical-surface rounded-lg border border-tactical-border p-5 mb-6">
+        <h2 class="text-sm font-display font-semibold text-gray-200 uppercase tracking-wider mb-4">Service Security</h2>
+        <div v-if="securityStatus" class="space-y-3">
+          <div class="grid grid-cols-2 sm:grid-cols-4 gap-4">
+            <div>
+              <span class="text-gray-400 text-xs">NATS MQTT Auth</span>
+              <div class="flex items-center gap-2 mt-1">
+                <span class="w-2 h-2 rounded-full" :class="statusDot(securityStatus.nats_mqtt_auth)"></span>
+                <span class="text-sm" :class="statusText(securityStatus.nats_mqtt_auth)">
+                  {{ securityStatus.nats_mqtt_auth ? 'Password' : 'None' }}
+                </span>
+              </div>
+            </div>
+            <div>
+              <span class="text-gray-400 text-xs">NATS Leafnode Auth</span>
+              <div class="flex items-center gap-2 mt-1">
+                <span class="w-2 h-2 rounded-full" :class="statusDot(securityStatus.nats_leaf_auth)"></span>
+                <span class="text-sm" :class="statusText(securityStatus.nats_leaf_auth)">
+                  {{ securityStatus.nats_leaf_auth ? 'Token' : 'None' }}
+                </span>
+              </div>
+            </div>
+            <div>
+              <span class="text-gray-400 text-xs">Redis Auth</span>
+              <div class="flex items-center gap-2 mt-1">
+                <span class="w-2 h-2 rounded-full" :class="statusDot(securityStatus.redis_auth)"></span>
+                <span class="text-sm" :class="statusText(securityStatus.redis_auth)">
+                  {{ securityStatus.redis_auth ? 'Password' : 'None' }}
+                </span>
+              </div>
+            </div>
+            <div>
+              <span class="text-gray-400 text-xs">stunnel mTLS</span>
+              <div class="flex items-center gap-2 mt-1">
+                <span class="w-2 h-2 rounded-full" :class="statusDot(securityStatus.stunnel_mtls)"></span>
+                <span class="text-sm" :class="statusText(securityStatus.stunnel_mtls)">
+                  {{ securityStatus.stunnel_mtls ? 'verify=2' : 'No verify' }}
+                </span>
+              </div>
+            </div>
+          </div>
+          <div v-if="securityStatus.auto_generated" class="text-xs text-gray-500 mt-2">
+            Passwords auto-generated on first boot
+          </div>
+          <div class="flex items-center gap-3 pt-2 border-t border-gray-700">
+            <button @click="rotateServicePasswords" :disabled="rotateLoading"
+              class="text-xs px-3 py-1.5 rounded bg-amber-700 hover:bg-amber-600 text-white transition-colors disabled:opacity-50">
+              {{ rotateLoading ? 'Rotating...' : 'Rotate Service Passwords' }}
+            </button>
+            <span v-if="rotateResult" class="text-xs text-amber-300">{{ rotateResult }}</span>
+          </div>
+        </div>
+        <p v-else class="text-gray-500 text-sm">Security status unavailable</p>
       </div>
 
       <!-- Network Identity & Services -->

@@ -289,6 +289,8 @@ export const credentials = {
 export const settings = {
   getMqttUrl: () => fetchJSON('/settings/mqtt-url'),
   setMqttUrl: (url) => fetchJSON('/settings/mqtt-url', { method: 'PUT', body: JSON.stringify({ mqtt_url: url }) }),
+  getSecurity: () => fetchJSON('/settings/security'),
+  rotatePasswords: () => fetchJSON('/settings/security/rotate', { method: 'POST' }),
 }
 
 export const health = {
