@@ -2,7 +2,6 @@ package api
 
 import (
 	"crypto/rand"
-	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -19,68 +18,64 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
-// ProvisionBundle contains everything a bridge/Android app needs to connect
-// to the Hub. Single-use: each POST /provision generates fresh credentials
-// and a nonce. The previous password hash is overwritten, so old QR codes
-// stop working immediately.
+// ProvisionBundle contains everything a bridge/Android app needs to connect.
+// Returned by the nonce-authenticated claim endpoint, NOT embedded in the QR.
 type ProvisionBundle struct {
-	Version      string `json:"v"`        // "1" — bundle version
+	Version      string `json:"v"`        // "1"
 	BridgeID     string `json:"bid"`      // bridge identifier
-	Nonce        string `json:"nonce"`    // single-use token (8 hex chars) — cleared on first MQTT birth
 	MQTTURL      string `json:"mqtt"`     // wss://mqtt-hub.meshsat.net/mqtt
 	Username     string `json:"user"`     // MQTT username
 	Password     string `json:"pass"`     // MQTT password (plaintext, one-time)
 	CertPEM      string `json:"cert"`     // client TLS certificate
 	KeyPEM       string `json:"key"`      // client TLS private key (one-time)
-	CaPEM        string `json:"ca"`       // CA certificate for server verification
+	CaPEM        string `json:"ca"`       // CA certificate
 	CertExpires  string `json:"cert_exp"` // certificate expiry (RFC3339)
-	ReticulumTCP string `json:"ret_tcp"`  // Reticulum TCP peer (e.g. reticulum.meshsat.net:443)
+	ReticulumTCP string `json:"ret_tcp"`  // Reticulum TCP peer
 }
 
-// BridgeProvisionHandler provides QR-based provisioning for bridges and Android apps.
+// provisionStash holds pre-generated credentials waiting to be claimed.
+// Stored as JSON in system_config with key "provision_stash:{bridge_id}".
+type provisionStash struct {
+	Nonce     string          `json:"nonce"`
+	Bundle    ProvisionBundle `json:"bundle"`
+	CreatedAt time.Time       `json:"created_at"`
+}
+
+// BridgeProvisionHandler provides QR-based provisioning.
 type BridgeProvisionHandler struct {
 	store store.Store
 	ca    *bridge.CertAuthority
 }
 
-// NewBridgeProvisionHandler creates a new provisioning handler.
 func NewBridgeProvisionHandler(s store.Store, ca *bridge.CertAuthority) *BridgeProvisionHandler {
 	return &BridgeProvisionHandler{store: s, ca: ca}
 }
 
-// generateBundle creates fresh MQTT credentials, mTLS cert, and a single-use
-// nonce for the given bridge. The nonce is stored in system_config as
-// "provision_nonce:{bridge_id}" and cleared when the bridge sends its first
-// MQTT birth message (or on the next provision call, whichever comes first).
-func (h *BridgeProvisionHandler) generateBundle(r *http.Request, id, tid string) (*ProvisionBundle, error) {
-	// Generate single-use nonce (4 random bytes = 8 hex chars).
-	nonceBytes := make([]byte, 4)
+// generateAndStash creates fresh credentials, stores them in a stash keyed
+// by nonce, and returns the nonce. The full bundle is claimed via ClaimProvision.
+func (h *BridgeProvisionHandler) generateAndStash(r *http.Request, id, tid string) (string, error) {
+	// Generate single-use nonce (16 random bytes = 32 hex chars for security).
+	nonceBytes := make([]byte, 16)
 	if _, err := rand.Read(nonceBytes); err != nil {
-		return nil, fmt.Errorf("generate nonce: %w", err)
+		return "", fmt.Errorf("generate nonce: %w", err)
 	}
 	nonce := hex.EncodeToString(nonceBytes)
-
-	// Store nonce — overwrites any previous nonce (invalidates old QRs).
-	nonceKey := "provision_nonce:" + id
-	if err := h.store.SetSystemConfig(r.Context(), nonceKey, nonce); err != nil {
-		slog.Warn("provision: failed to store nonce", "bridge_id", id, "error", err)
-	}
 
 	// Generate MQTT password.
 	passwordBytes := make([]byte, 32)
 	if _, err := rand.Read(passwordBytes); err != nil {
-		return nil, fmt.Errorf("generate password: %w", err)
+		return "", fmt.Errorf("generate password: %w", err)
 	}
 	password := hex.EncodeToString(passwordBytes)
 
 	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
 	if err != nil {
-		return nil, fmt.Errorf("hash password: %w", err)
+		return "", fmt.Errorf("hash password: %w", err)
 	}
 
 	username := id
 	if err := h.store.SetBridgeCredentials(r.Context(), tid, id, username, string(hash)); err != nil {
-		return nil, fmt.Errorf("store credentials: %w", err)
+		return "", fmt.Errorf("store credentials: %w", err)
 	}
 
 	mqttURL, _ := h.store.GetSystemConfig(r.Context(), mqttPublicURLKey)
@@ -88,21 +83,21 @@ func (h *BridgeProvisionHandler) generateBundle(r *http.Request, id, tid string)
 		mqttURL = os.Getenv("MESHSAT_MQTT_PUBLIC_URL")
 	}
 	if mqttURL == "" {
-		return nil, fmt.Errorf("MQTT public URL not configured")
+		return "", fmt.Errorf("MQTT public URL not configured")
 	}
 
 	if h.ca == nil {
-		return nil, fmt.Errorf("certificate authority not configured")
+		return "", fmt.Errorf("certificate authority not configured")
 	}
 
 	certPEM, keyPEM, err := h.ca.IssueBridgeCert(id, 90)
 	if err != nil {
-		return nil, fmt.Errorf("issue certificate: %w", err)
+		return "", fmt.Errorf("issue certificate: %w", err)
 	}
 
 	expiry := time.Now().Add(90 * 24 * time.Hour)
 	if err := h.store.SetBridgeCertificate(r.Context(), tid, id, string(certPEM), expiry); err != nil {
-		return nil, fmt.Errorf("store certificate: %w", err)
+		return "", fmt.Errorf("store certificate: %w", err)
 	}
 
 	retTCP := os.Getenv("MESHSAT_RETICULUM_PUBLIC_TCP")
@@ -110,31 +105,43 @@ func (h *BridgeProvisionHandler) generateBundle(r *http.Request, id, tid string)
 		retTCP = "reticulum.meshsat.net:443"
 	}
 
-	return &ProvisionBundle{
-		Version:      "1",
-		BridgeID:     id,
-		Nonce:        nonce,
-		MQTTURL:      mqttURL,
-		Username:     username,
-		Password:     password,
-		CertPEM:      string(certPEM),
-		KeyPEM:       string(keyPEM),
-		CaPEM:        string(h.ca.CACertPEM()),
-		CertExpires:  expiry.Format(time.RFC3339),
-		ReticulumTCP: retTCP,
-	}, nil
+	stash := provisionStash{
+		Nonce: nonce,
+		Bundle: ProvisionBundle{
+			Version:      "1",
+			BridgeID:     id,
+			MQTTURL:      mqttURL,
+			Username:     username,
+			Password:     password,
+			CertPEM:      string(certPEM),
+			KeyPEM:       string(keyPEM),
+			CaPEM:        string(h.ca.CACertPEM()),
+			CertExpires:  expiry.Format(time.RFC3339),
+			ReticulumTCP: retTCP,
+		},
+		CreatedAt: time.Now(),
+	}
+
+	stashJSON, err := json.Marshal(stash)
+	if err != nil {
+		return "", fmt.Errorf("marshal stash: %w", err)
+	}
+
+	// Store stash — overwrites any previous (invalidates old QRs).
+	stashKey := "provision_stash:" + id
+	if err := h.store.SetSystemConfig(r.Context(), stashKey, string(stashJSON)); err != nil {
+		return "", fmt.Errorf("store stash: %w", err)
+	}
+
+	return nonce, nil
 }
 
-// Provision generates MQTT credentials + mTLS certificate in a single call
-// and returns a JSON bundle suitable for QR encoding.
+// Provision generates credentials and returns the full bundle (authenticated endpoint).
 // @Summary One-step bridge provisioning
-// @Description Generates MQTT credentials, mTLS certificate, and a single-use nonce. Returns a JSON bundle. Each call invalidates previous credentials.
 // @Tags bridges
 // @Produce json
 // @Param id path string true "Bridge ID"
 // @Success 200 {object} ProvisionBundle
-// @Failure 404 {object} map[string]string
-// @Failure 500 {object} map[string]string
 // @Router /api/bridges/{id}/provision [post]
 func (h *BridgeProvisionHandler) Provision(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
@@ -145,31 +152,40 @@ func (h *BridgeProvisionHandler) Provision(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	bundle, err := h.generateBundle(r, id, tid)
+	nonce, err := h.generateAndStash(r, id, tid)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 
-	slog.Info("bridge provisioned",
-		"bridge_id", id,
-		"nonce", bundle.Nonce,
-		"cert_expires", bundle.CertExpires)
+	// For the direct API, return the full bundle immediately.
+	stashKey := "provision_stash:" + id
+	stashJSON, err := h.store.GetSystemConfig(r.Context(), stashKey)
+	if err != nil || stashJSON == "" {
+		writeError(w, http.StatusInternalServerError, "stash not found")
+		return
+	}
 
-	writeJSON(w, http.StatusOK, bundle)
+	var stash provisionStash
+	if err := json.Unmarshal([]byte(stashJSON), &stash); err != nil {
+		writeError(w, http.StatusInternalServerError, "corrupt stash")
+		return
+	}
+
+	slog.Info("bridge provisioned (direct)", "bridge_id", id, "nonce", nonce[:8])
+	writeJSON(w, http.StatusOK, stash.Bundle)
 }
 
-// ProvisionQR renders the provision bundle as a QR code PNG image.
-// The QR encodes: meshsat://provision/<base64url-encoded-json>
+// ProvisionQR renders a QR code containing a short provisioning URL.
+// The QR encodes: meshsat://provision/{bridge_id}/{nonce}?hub={hub_host}
+// The app scans this, then fetches the full bundle from the Hub via the
+// ClaimProvision endpoint (no auth needed — the nonce IS the auth).
 // @Summary Generate provisioning QR code
-// @Description Generates credentials + certificate and returns a QR code PNG. Single-use: each call invalidates previous credentials.
 // @Tags bridges
 // @Produce image/png
 // @Param id path string true "Bridge ID"
 // @Param size query int false "QR code size in pixels (default 512)"
 // @Success 200 {file} image/png
-// @Failure 404 {object} map[string]string
-// @Failure 500 {object} map[string]string
 // @Router /api/bridges/{id}/provision/qr [post]
 func (h *BridgeProvisionHandler) ProvisionQR(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
@@ -180,20 +196,24 @@ func (h *BridgeProvisionHandler) ProvisionQR(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	bundle, err := h.generateBundle(r, id, tid)
+	nonce, err := h.generateAndStash(r, id, tid)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 
-	bundleJSON, err := json.Marshal(bundle)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to marshal bundle")
-		return
+	// Hub public hostname for the claim URL.
+	hubHost := os.Getenv("MESHSAT_HUB_PUBLIC_HOST")
+	if hubHost == "" {
+		hubHost = r.Host // fallback to request host
+	}
+	if hubHost == "" {
+		hubHost = "hub.meshsat.net"
 	}
 
-	// Encode as meshsat://provision/<base64url>
-	qrContent := "meshsat://provision/" + base64.RawURLEncoding.EncodeToString(bundleJSON)
+	// QR content: ~100 bytes, fits easily in any QR code.
+	// Format: meshsat://provision/{bridge_id}/{nonce}?hub={host}
+	qrContent := fmt.Sprintf("meshsat://provision/%s/%s?hub=%s", id, nonce, hubHost)
 
 	// QR code size.
 	size := 512
@@ -215,14 +235,78 @@ func (h *BridgeProvisionHandler) ProvisionQR(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	slog.Info("bridge provisioned via QR",
+	slog.Info("provision QR generated",
 		"bridge_id", id,
-		"nonce", bundle.Nonce,
-		"qr_size", size,
-		"content_len", len(qrContent))
+		"nonce", nonce[:8]+"...",
+		"qr_content_len", len(qrContent),
+		"qr_size", size)
 
 	w.Header().Set("Content-Type", "image/png")
 	w.Header().Set("Content-Disposition", fmt.Sprintf("inline; filename=\"meshsat-provision-%s.png\"", id))
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write(png)
+}
+
+// ClaimProvision is the unauthenticated endpoint that the Android app calls
+// after scanning the QR code. The nonce acts as a single-use bearer token.
+// Returns the full ProvisionBundle and deletes the stash (one-time use).
+// @Summary Claim provisioning bundle (no auth, nonce-authenticated)
+// @Tags bridges
+// @Produce json
+// @Param id path string true "Bridge ID"
+// @Param nonce path string true "Single-use provisioning nonce"
+// @Success 200 {object} ProvisionBundle
+// @Failure 404 {object} map[string]string "Invalid or expired nonce"
+// @Router /api/bridges/{id}/provision/{nonce} [get]
+func (h *BridgeProvisionHandler) ClaimProvision(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	nonce := chi.URLParam(r, "nonce")
+
+	stashKey := "provision_stash:" + id
+	stashJSON, err := h.store.GetSystemConfig(r.Context(), stashKey)
+	if err != nil || stashJSON == "" {
+		writeError(w, http.StatusNotFound, "no pending provision for this bridge")
+		return
+	}
+
+	var stash provisionStash
+	if err := json.Unmarshal([]byte(stashJSON), &stash); err != nil {
+		writeError(w, http.StatusInternalServerError, "corrupt provision data")
+		return
+	}
+
+	// Verify nonce matches.
+	if stash.Nonce != nonce {
+		slog.Warn("provision claim: nonce mismatch",
+			"bridge_id", id,
+			"expected", stash.Nonce[:8]+"...",
+			"got", nonce[:min(8, len(nonce))]+"...")
+		writeError(w, http.StatusNotFound, "invalid or expired provisioning token")
+		return
+	}
+
+	// Check age — reject if older than 30 minutes.
+	if time.Since(stash.CreatedAt) > 30*time.Minute {
+		// Clean up expired stash.
+		_ = h.store.SetSystemConfig(r.Context(), stashKey, "")
+		writeError(w, http.StatusGone, "provisioning token expired (>30 minutes)")
+		return
+	}
+
+	// Delete the stash — single use.
+	_ = h.store.SetSystemConfig(r.Context(), stashKey, "")
+
+	slog.Info("provision claimed",
+		"bridge_id", id,
+		"nonce", nonce[:8]+"...",
+		"age_sec", int(time.Since(stash.CreatedAt).Seconds()))
+
+	writeJSON(w, http.StatusOK, stash.Bundle)
+}
+
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }

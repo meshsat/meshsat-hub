@@ -1055,6 +1055,10 @@ func main() {
 	r.Post("/api/webhook/globalstar", gsHandler.ServeHTTP)
 	r.Post("/api/webhook/cloudloop", clHandler.ServeHTTP)
 
+	// QR provision claim — unauthenticated (nonce IS the auth, single-use, 30min TTL).
+	provisionClaimHandler := api.NewBridgeProvisionHandler(dataStore, bridgeCA)
+	r.Get("/api/bridges/{id}/provision/{nonce}", provisionClaimHandler.ClaimProvision)
+
 	// SMS gateway (optional — inbound webhook + outbound subscriber + send API)
 	var smsClientForSend *sms.Client
 	if cfg.SMSEnabled && cfg.SMSAccountSID != "" {
