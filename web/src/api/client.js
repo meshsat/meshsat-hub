@@ -30,6 +30,20 @@ async function fetchJSON(url, opts = {}) {
   return res.json()
 }
 
+async function fetchBlob(url, opts = {}) {
+  const auth = useAuthStore()
+  const headers = { ...opts.headers }
+  if (auth.token) {
+    headers['Authorization'] = `Bearer ${auth.token}`
+  }
+  const res = await fetch(BASE + url, { ...opts, headers })
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: res.statusText }))
+    throw new Error(err.error || res.statusText)
+  }
+  return res.blob()
+}
+
 export const devices = {
   list: () => fetchJSON('/devices'),
   get: (imei) => fetchJSON(`/devices/${imei}`),
@@ -226,6 +240,8 @@ export const bridges = {
   delete: (id) => fetchJSON(`/bridges/${id}`, { method: 'DELETE' }),
   generateCredentials: (id) => fetchJSON(`/bridges/${id}/credentials`, { method: 'POST' }),
   issueCertificate: (id) => fetchJSON(`/bridges/${id}/certificate`, { method: 'POST' }),
+  provision: (id) => fetchJSON(`/bridges/${id}/provision`, { method: 'POST' }),
+  provisionQR: (id, size = 512) => fetchBlob(`/bridges/${id}/provision/qr?size=${size}`, { method: 'POST' }),
   sendCommand: (id, data) => fetchJSON(`/bridges/${id}/command`, { method: 'POST', body: JSON.stringify(data) }),
   regenerateACL: () => fetchJSON('/bridges/acl/regenerate', { method: 'POST' }),
 }

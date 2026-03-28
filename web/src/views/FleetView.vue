@@ -42,6 +42,12 @@ const aclResult = ref(null)
 const onboardingBridgeId = ref(null)
 const onboardingStep = ref(0)
 
+// QR Provision modal
+const showProvisionQR = ref(false)
+const provisionQRUrl = ref('')
+const provisionQRBridgeId = ref('')
+const provisionLoading = ref(false)
+
 // Clipboard feedback
 const copied = ref('')
 
@@ -175,6 +181,32 @@ function dismissCredentials() {
 
 function dismissCertificate() {
   certificateResult.value = null
+}
+
+// --- QR Provisioning ---
+async function provisionWithQR(bridgeId) {
+  provisionLoading.value = true
+  provisionQRBridgeId.value = bridgeId
+  try {
+    const blob = await bridges.provisionQR(bridgeId, 512)
+    provisionQRUrl.value = URL.createObjectURL(blob)
+    showProvisionQR.value = true
+  } catch (e) {
+    error.value = 'QR provisioning failed: ' + e.message
+  } finally {
+    provisionLoading.value = false
+  }
+}
+
+function dismissProvisionQR() {
+  showProvisionQR.value = false
+  if (provisionQRUrl.value) {
+    URL.revokeObjectURL(provisionQRUrl.value)
+    provisionQRUrl.value = ''
+  }
+  provisionQRBridgeId.value = ''
+  // Reload to show updated credentials
+  loadBridges()
 }
 
 // --- Commands ---
@@ -533,6 +565,11 @@ function certExpiryStatus(b) {
                   class="text-xs px-3 py-1.5 rounded bg-gray-700 hover:bg-gray-600 text-gray-200 transition-colors disabled:opacity-50">
                   {{ certificateLoading ? 'Issuing...' : hasCertificate(b) ? 'Reissue TLS Certificate' : 'Issue TLS Certificate' }}
                 </button>
+                <button @click.stop="provisionWithQR(b.bridge_id)" :disabled="provisionLoading"
+                  class="text-xs px-3 py-1.5 rounded bg-teal-700 hover:bg-teal-600 text-white transition-colors disabled:opacity-50"
+                  title="Generate a QR code with MQTT credentials + TLS certificate for one-step provisioning">
+                  {{ provisionLoading ? 'Generating...' : 'Provision QR' }}
+                </button>
               </div>
 
               <!-- One-time MQTT credential display -->
@@ -819,6 +856,31 @@ function certExpiryStatus(b) {
         <div class="flex justify-end gap-3">
           <button @click="showDeleteConfirm = false" class="px-4 py-2 text-sm text-gray-400 hover:text-gray-200">Cancel</button>
           <button @click="deleteBridge()" class="px-4 py-2 text-sm bg-red-600 hover:bg-red-500 text-white rounded transition-colors">Delete</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- QR Provision Modal -->
+    <div v-if="showProvisionQR" class="fixed inset-0 z-50 flex items-center justify-center" @click.self="dismissProvisionQR">
+      <div class="fixed inset-0 bg-black/60"></div>
+      <div class="relative bg-tactical-card border border-tactical-border rounded-xl p-6 max-w-lg w-full mx-4 shadow-2xl">
+        <h3 class="text-lg font-display font-semibold text-teal-300 mb-1">Provision QR Code</h3>
+        <p class="text-xs text-gray-400 mb-4">
+          Scan with the MeshSat Android app to auto-configure Hub connection.
+          <span class="text-amber-400">Single-use</span> — credentials are regenerated each time.
+        </p>
+        <div class="flex justify-center bg-white rounded-lg p-4 mb-4">
+          <img v-if="provisionQRUrl" :src="provisionQRUrl" :alt="'Provision QR for ' + provisionQRBridgeId"
+            class="w-80 h-80 object-contain" />
+        </div>
+        <div class="text-center text-xs text-gray-500 mb-4">
+          Bridge: <span class="text-gray-300 font-mono">{{ provisionQRBridgeId }}</span>
+        </div>
+        <div class="flex justify-end">
+          <button @click="dismissProvisionQR"
+            class="px-4 py-2 text-sm bg-gray-700 hover:bg-gray-600 text-gray-200 rounded transition-colors">
+            Done
+          </button>
         </div>
       </div>
     </div>
