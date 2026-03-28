@@ -20,10 +20,13 @@ import (
 )
 
 // ProvisionBundle contains everything a bridge/Android app needs to connect
-// to the Hub. This is the JSON payload embedded in the QR code.
+// to the Hub. Single-use: each POST /provision generates fresh credentials
+// and a nonce. The previous password hash is overwritten, so old QR codes
+// stop working immediately.
 type ProvisionBundle struct {
 	Version      string `json:"v"`        // "1" — bundle version
 	BridgeID     string `json:"bid"`      // bridge identifier
+	Nonce        string `json:"nonce"`    // single-use token (8 hex chars) — cleared on first MQTT birth
 	MQTTURL      string `json:"mqtt"`     // wss://mqtt-hub.meshsat.net/mqtt
 	Username     string `json:"user"`     // MQTT username
 	Password     string `json:"pass"`     // MQTT password (plaintext, one-time)
@@ -45,10 +48,87 @@ func NewBridgeProvisionHandler(s store.Store, ca *bridge.CertAuthority) *BridgeP
 	return &BridgeProvisionHandler{store: s, ca: ca}
 }
 
+// generateBundle creates fresh MQTT credentials, mTLS cert, and a single-use
+// nonce for the given bridge. The nonce is stored in system_config as
+// "provision_nonce:{bridge_id}" and cleared when the bridge sends its first
+// MQTT birth message (or on the next provision call, whichever comes first).
+func (h *BridgeProvisionHandler) generateBundle(r *http.Request, id, tid string) (*ProvisionBundle, error) {
+	// Generate single-use nonce (4 random bytes = 8 hex chars).
+	nonceBytes := make([]byte, 4)
+	if _, err := rand.Read(nonceBytes); err != nil {
+		return nil, fmt.Errorf("generate nonce: %w", err)
+	}
+	nonce := hex.EncodeToString(nonceBytes)
+
+	// Store nonce — overwrites any previous nonce (invalidates old QRs).
+	nonceKey := "provision_nonce:" + id
+	if err := h.store.SetSystemConfig(r.Context(), nonceKey, nonce); err != nil {
+		slog.Warn("provision: failed to store nonce", "bridge_id", id, "error", err)
+	}
+
+	// Generate MQTT password.
+	passwordBytes := make([]byte, 32)
+	if _, err := rand.Read(passwordBytes); err != nil {
+		return nil, fmt.Errorf("generate password: %w", err)
+	}
+	password := hex.EncodeToString(passwordBytes)
+
+	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	if err != nil {
+		return nil, fmt.Errorf("hash password: %w", err)
+	}
+
+	username := id
+	if err := h.store.SetBridgeCredentials(r.Context(), tid, id, username, string(hash)); err != nil {
+		return nil, fmt.Errorf("store credentials: %w", err)
+	}
+
+	mqttURL, _ := h.store.GetSystemConfig(r.Context(), mqttPublicURLKey)
+	if mqttURL == "" {
+		mqttURL = os.Getenv("MESHSAT_MQTT_PUBLIC_URL")
+	}
+	if mqttURL == "" {
+		return nil, fmt.Errorf("MQTT public URL not configured")
+	}
+
+	if h.ca == nil {
+		return nil, fmt.Errorf("certificate authority not configured")
+	}
+
+	certPEM, keyPEM, err := h.ca.IssueBridgeCert(id, 90)
+	if err != nil {
+		return nil, fmt.Errorf("issue certificate: %w", err)
+	}
+
+	expiry := time.Now().Add(90 * 24 * time.Hour)
+	if err := h.store.SetBridgeCertificate(r.Context(), tid, id, string(certPEM), expiry); err != nil {
+		return nil, fmt.Errorf("store certificate: %w", err)
+	}
+
+	retTCP := os.Getenv("MESHSAT_RETICULUM_PUBLIC_TCP")
+	if retTCP == "" {
+		retTCP = "reticulum.meshsat.net:443"
+	}
+
+	return &ProvisionBundle{
+		Version:      "1",
+		BridgeID:     id,
+		Nonce:        nonce,
+		MQTTURL:      mqttURL,
+		Username:     username,
+		Password:     password,
+		CertPEM:      string(certPEM),
+		KeyPEM:       string(keyPEM),
+		CaPEM:        string(h.ca.CACertPEM()),
+		CertExpires:  expiry.Format(time.RFC3339),
+		ReticulumTCP: retTCP,
+	}, nil
+}
+
 // Provision generates MQTT credentials + mTLS certificate in a single call
 // and returns a JSON bundle suitable for QR encoding.
 // @Summary One-step bridge provisioning
-// @Description Generates MQTT credentials and mTLS certificate in one call. Returns a JSON bundle that can be QR-encoded for scanning by Android/bridge apps.
+// @Description Generates MQTT credentials, mTLS certificate, and a single-use nonce. Returns a JSON bundle. Each call invalidates previous credentials.
 // @Tags bridges
 // @Produce json
 // @Param id path string true "Bridge ID"
@@ -65,74 +145,16 @@ func (h *BridgeProvisionHandler) Provision(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	// Generate MQTT password.
-	passwordBytes := make([]byte, 32)
-	if _, err := rand.Read(passwordBytes); err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to generate password")
-		return
-	}
-	password := hex.EncodeToString(passwordBytes)
-
-	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	bundle, err := h.generateBundle(r, id, tid)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to hash password")
+		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 
-	username := id
-	if err := h.store.SetBridgeCredentials(r.Context(), tid, id, username, string(hash)); err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to store credentials")
-		return
-	}
-
-	mqttURL, _ := h.store.GetSystemConfig(r.Context(), mqttPublicURLKey)
-	if mqttURL == "" {
-		mqttURL = os.Getenv("MESHSAT_MQTT_PUBLIC_URL")
-	}
-	if mqttURL == "" {
-		writeError(w, http.StatusInternalServerError, "MQTT public URL not configured")
-		return
-	}
-
-	// Generate mTLS certificate.
-	if h.ca == nil {
-		writeError(w, http.StatusInternalServerError, "certificate authority not configured")
-		return
-	}
-
-	certPEM, keyPEM, err := h.ca.IssueBridgeCert(id, 90)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, fmt.Sprintf("failed to issue certificate: %v", err))
-		return
-	}
-
-	expiry := time.Now().Add(90 * 24 * time.Hour)
-
-	if err := h.store.SetBridgeCertificate(r.Context(), tid, id, string(certPEM), expiry); err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to store certificate")
-		return
-	}
-
-	// Reticulum TCP peer — from env or default.
-	retTCP := os.Getenv("MESHSAT_RETICULUM_PUBLIC_TCP")
-	if retTCP == "" {
-		retTCP = "reticulum.meshsat.net:443"
-	}
-
-	bundle := ProvisionBundle{
-		Version:      "1",
-		BridgeID:     id,
-		MQTTURL:      mqttURL,
-		Username:     username,
-		Password:     password,
-		CertPEM:      string(certPEM),
-		KeyPEM:       string(keyPEM),
-		CaPEM:        string(h.ca.CACertPEM()),
-		CertExpires:  expiry.Format(time.RFC3339),
-		ReticulumTCP: retTCP,
-	}
-
-	slog.Info("bridge provisioned (one-step)", "bridge_id", id, "cert_expires", expiry.Format(time.RFC3339))
+	slog.Info("bridge provisioned",
+		"bridge_id", id,
+		"nonce", bundle.Nonce,
+		"cert_expires", bundle.CertExpires)
 
 	writeJSON(w, http.StatusOK, bundle)
 }
@@ -140,7 +162,7 @@ func (h *BridgeProvisionHandler) Provision(w http.ResponseWriter, r *http.Reques
 // ProvisionQR renders the provision bundle as a QR code PNG image.
 // The QR encodes: meshsat://provision/<base64url-encoded-json>
 // @Summary Generate provisioning QR code
-// @Description Generates MQTT credentials + mTLS certificate and returns a QR code PNG that the Android app can scan to auto-configure.
+// @Description Generates credentials + certificate and returns a QR code PNG. Single-use: each call invalidates previous credentials.
 // @Tags bridges
 // @Produce image/png
 // @Param id path string true "Bridge ID"
@@ -158,61 +180,10 @@ func (h *BridgeProvisionHandler) ProvisionQR(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	// Generate the full provision bundle (reuse Provision logic).
-	passwordBytes := make([]byte, 32)
-	if _, err := rand.Read(passwordBytes); err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to generate password")
-		return
-	}
-	password := hex.EncodeToString(passwordBytes)
-
-	hashBytes, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	bundle, err := h.generateBundle(r, id, tid)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to hash password")
+		writeError(w, http.StatusInternalServerError, err.Error())
 		return
-	}
-
-	username := id
-	if err := h.store.SetBridgeCredentials(r.Context(), tid, id, username, string(hashBytes)); err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to store credentials")
-		return
-	}
-
-	mqttURL, _ := h.store.GetSystemConfig(r.Context(), mqttPublicURLKey)
-	if mqttURL == "" {
-		mqttURL = os.Getenv("MESHSAT_MQTT_PUBLIC_URL")
-	}
-
-	if h.ca == nil {
-		writeError(w, http.StatusInternalServerError, "certificate authority not configured")
-		return
-	}
-
-	certPEM, keyPEM, err := h.ca.IssueBridgeCert(id, 90)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, fmt.Sprintf("failed to issue certificate: %v", err))
-		return
-	}
-
-	expiry := time.Now().Add(90 * 24 * time.Hour)
-	_ = h.store.SetBridgeCertificate(r.Context(), tid, id, string(certPEM), expiry)
-
-	retTCP := os.Getenv("MESHSAT_RETICULUM_PUBLIC_TCP")
-	if retTCP == "" {
-		retTCP = "reticulum.meshsat.net:443"
-	}
-
-	bundle := ProvisionBundle{
-		Version:      "1",
-		BridgeID:     id,
-		MQTTURL:      mqttURL,
-		Username:     username,
-		Password:     password,
-		CertPEM:      string(certPEM),
-		KeyPEM:       string(keyPEM),
-		CaPEM:        string(h.ca.CACertPEM()),
-		CertExpires:  expiry.Format(time.RFC3339),
-		ReticulumTCP: retTCP,
 	}
 
 	bundleJSON, err := json.Marshal(bundle)
@@ -227,15 +198,14 @@ func (h *BridgeProvisionHandler) ProvisionQR(w http.ResponseWriter, r *http.Requ
 	// QR code size.
 	size := 512
 	if s := r.URL.Query().Get("size"); s != "" {
-		if n := 0; len(s) <= 4 {
-			for _, c := range s {
-				if c >= '0' && c <= '9' {
-					n = n*10 + int(c-'0')
-				}
+		n := 0
+		for _, c := range s {
+			if c >= '0' && c <= '9' {
+				n = n*10 + int(c-'0')
 			}
-			if n >= 128 && n <= 2048 {
-				size = n
-			}
+		}
+		if n >= 128 && n <= 2048 {
+			size = n
 		}
 	}
 
@@ -245,7 +215,11 @@ func (h *BridgeProvisionHandler) ProvisionQR(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	slog.Info("bridge provisioned via QR", "bridge_id", id, "qr_size", size, "content_len", len(qrContent))
+	slog.Info("bridge provisioned via QR",
+		"bridge_id", id,
+		"nonce", bundle.Nonce,
+		"qr_size", size,
+		"content_len", len(qrContent))
 
 	w.Header().Set("Content-Type", "image/png")
 	w.Header().Set("Content-Disposition", fmt.Sprintf("inline; filename=\"meshsat-provision-%s.png\"", id))
