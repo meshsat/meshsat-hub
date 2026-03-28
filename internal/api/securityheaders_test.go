@@ -3,7 +3,6 @@ package api
 import (
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"testing"
 )
 
