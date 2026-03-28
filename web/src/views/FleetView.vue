@@ -187,12 +187,17 @@ function dismissCertificate() {
 async function provisionWithQR(bridgeId) {
   provisionLoading.value = true
   provisionQRBridgeId.value = bridgeId
+  error.value = ''
   try {
     const blob = await bridges.provisionQR(bridgeId, 512)
+    if (!blob || blob.size === 0) {
+      throw new Error('Empty response from server')
+    }
     provisionQRUrl.value = URL.createObjectURL(blob)
     showProvisionQR.value = true
   } catch (e) {
-    error.value = 'QR provisioning failed: ' + e.message
+    error.value = 'QR provisioning failed: ' + (e.message || e.toString() || 'Unknown error')
+    console.error('QR provisioning error:', e)
   } finally {
     provisionLoading.value = false
   }

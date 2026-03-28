@@ -36,10 +36,22 @@ async function fetchBlob(url, opts = {}) {
   if (auth.token) {
     headers['Authorization'] = `Bearer ${auth.token}`
   }
-  const res = await fetch(BASE + url, { ...opts, headers })
+  let res = await fetch(BASE + url, { ...opts, headers })
+  if (res.status === 401) {
+    const refreshed = await auth.refreshToken()
+    if (refreshed) {
+      headers['Authorization'] = `Bearer ${auth.token}`
+      res = await fetch(BASE + url, { ...opts, headers })
+    }
+    if (res.status === 401) {
+      auth.logout()
+      window.location.hash = '#/login'
+      throw new Error('Session expired — please log in again')
+    }
+  }
   if (!res.ok) {
-    const err = await res.json().catch(() => ({ error: res.statusText }))
-    throw new Error(err.error || res.statusText)
+    const err = await res.json().catch(() => ({ error: res.statusText || 'Unknown error' }))
+    throw new Error(err.error || res.statusText || `HTTP ${res.status}`)
   }
   return res.blob()
 }
