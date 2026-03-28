@@ -136,7 +136,7 @@ func TestBundleReassemblyBufferReap(t *testing.T) {
 	_, frags, _ := FragmentBundle(payload, 100)
 
 	// Add only the first fragment (incomplete).
-	rb.Reassemble(frags[0])
+	_, _ = rb.Reassemble(frags[0])
 	if rb.PendingCount() != 1 {
 		t.Fatalf("expected 1 pending, got %d", rb.PendingCount())
 	}
@@ -188,7 +188,7 @@ func TestPendingBundleInfo(t *testing.T) {
 	}
 
 	// After first fragment.
-	rb.Reassemble(frags[0])
+	_, _ = rb.Reassemble(frags[0])
 	recv, total = rb.PendingBundleInfo(bundleID)
 	if recv != 1 {
 		t.Fatalf("expected 1 received, got %d", recv)

@@ -20,7 +20,8 @@ func TestTimeServiceBasic(t *testing.T) {
 	}
 
 	// Now() should be close to time.Now().
-	diff := ts.Now().Sub(time.Now())
+	corrected := ts.Now()
+	diff := corrected.Sub(time.Now())
 	if diff > 10*time.Millisecond || diff < -10*time.Millisecond {
 		t.Fatalf("Now() differs from time.Now() by %v", diff)
 	}

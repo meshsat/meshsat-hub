@@ -31,9 +31,6 @@ const fecHeaderLenV1 = 5
 // fecHeaderLenV2 is the fixed header size for v2: version+k+m+shardSize(2)+flags(1).
 const fecHeaderLenV2 = 6
 
-// fecHeaderLen is the minimum header size (v1 compatible).
-const fecHeaderLen = fecHeaderLenV1
-
 // FEC flags byte (v2):
 //
 //	bit 0:    interleaved (1 = yes)
