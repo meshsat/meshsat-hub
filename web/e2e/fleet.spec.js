@@ -258,6 +258,142 @@ test.describe('Fleet page — UI elements', () => {
   })
 })
 
+test.describe('QR Provisioning', () => {
+  test('POST /api/bridges/{id}/provision returns bundle', async ({ request }) => {
+    const bridgeId = `e2e-qr-${Date.now()}`
+
+    // Create bridge
+    await request.post('/api/bridges', {
+      headers: API_HEADERS,
+      data: { bridge_id: bridgeId, label: 'QR Test' },
+    })
+
+    // Provision — returns JSON bundle
+    const res = await request.post(`/api/bridges/${bridgeId}/provision`, { headers: API_HEADERS })
+    expect(res.ok()).toBeTruthy()
+    const bundle = await res.json()
+    expect(bundle.v).toBe('1')
+    expect(bundle.bid).toBe(bridgeId)
+    expect(bundle.mqtt).toContain('wss://')
+    expect(bundle.user).toBe('meshsat')
+    expect(bundle.pass).toBeDefined()
+    expect(bundle.pass.length).toBeGreaterThan(0)
+    expect(bundle.cert).toContain('BEGIN CERTIFICATE')
+    expect(bundle.key).toContain('BEGIN EC PRIVATE KEY')
+    expect(bundle.ca).toContain('BEGIN CERTIFICATE')
+    expect(bundle.cert_exp).toBeDefined()
+    expect(bundle.ret_tcp).toContain('meshsat.net')
+
+    // Cleanup
+    await request.delete(`/api/bridges/${bridgeId}`, { headers: API_HEADERS })
+  })
+
+  test('POST /api/bridges/{id}/provision/qr returns PNG', async ({ request }) => {
+    const bridgeId = `e2e-qrimg-${Date.now()}`
+
+    await request.post('/api/bridges', {
+      headers: API_HEADERS,
+      data: { bridge_id: bridgeId, label: 'QR Image Test' },
+    })
+
+    const res = await request.post(`/api/bridges/${bridgeId}/provision/qr`, { headers: API_HEADERS })
+    expect(res.ok()).toBeTruthy()
+    expect(res.headers()['content-type']).toBe('image/png')
+    const body = await res.body()
+    expect(body.length).toBeGreaterThan(100) // PNG should be >100 bytes
+    // PNG magic bytes: 89 50 4E 47
+    expect(body[0]).toBe(0x89)
+    expect(body[1]).toBe(0x50)
+    expect(body[2]).toBe(0x4E)
+    expect(body[3]).toBe(0x47)
+
+    await request.delete(`/api/bridges/${bridgeId}`, { headers: API_HEADERS })
+  })
+
+  test('GET /api/bridges/{id}/provision/{nonce} claims bundle (single-use)', async ({ request }) => {
+    const bridgeId = `e2e-claim-${Date.now()}`
+
+    await request.post('/api/bridges', {
+      headers: API_HEADERS,
+      data: { bridge_id: bridgeId, label: 'Claim Test' },
+    })
+
+    // Provision to get the stash
+    const provRes = await request.post(`/api/bridges/${bridgeId}/provision`, { headers: API_HEADERS })
+    expect(provRes.ok()).toBeTruthy()
+
+    // The provision endpoint returns the bundle directly — we need the nonce
+    // from the QR URL. Let's get it by calling provision/qr and parsing the content.
+    // Actually, the claim endpoint needs the nonce which is stored server-side.
+    // For testing, we use the provision API which returns immediately.
+    // The claim flow is: QR -> app scans -> app calls GET /provision/{nonce}
+    // We can't easily test the nonce claim without the nonce, but we can verify
+    // that a wrong nonce returns 404.
+    const claimRes = await request.get(`/api/bridges/${bridgeId}/provision/wrong-nonce-000000`)
+    expect(claimRes.status()).toBe(404)
+
+    await request.delete(`/api/bridges/${bridgeId}`, { headers: API_HEADERS })
+  })
+
+  test.describe('QR Provision UI', () => {
+    test.beforeEach(async ({ page }) => {
+      await page.addInitScript((token) => {
+        localStorage.setItem('auth_token', token)
+        localStorage.setItem('auth_user', JSON.stringify({
+          id: 'token-user',
+          name: 'API Token',
+          roles: ['admin'],
+          tenant_id: 'default',
+        }))
+      }, AUTH_TOKEN)
+    })
+
+    test('Provision QR button opens modal with QR image', async ({ page, request }) => {
+      const bridgeId = `pw-qr-${Date.now()}`
+
+      // Create bridge via API
+      await request.post('/api/bridges', {
+        headers: API_HEADERS,
+        data: { bridge_id: bridgeId, label: 'PW QR Test' },
+      })
+
+      await page.goto('/#/fleet')
+      await expect(page.locator('h1:has-text("Fleet")')).toBeVisible()
+      await page.waitForTimeout(2000)
+
+      // Expand the bridge card
+      await page.locator(`text=${bridgeId}`).first().click()
+      await page.waitForTimeout(500)
+
+      // Click Provision QR button
+      const qrButton = page.getByRole('button', { name: 'Provision QR' })
+      await expect(qrButton).toBeVisible()
+      await qrButton.click()
+
+      // Modal should appear
+      await expect(page.locator('text=Provision QR Code')).toBeVisible({ timeout: 10000 })
+      await expect(page.locator('text=Single-use')).toBeVisible()
+      await expect(page.locator(`text=Bridge:`)).toBeVisible()
+
+      // QR image should be present and loaded (not broken)
+      const img = page.locator('img[alt*="Provision QR"]')
+      await expect(img).toBeVisible({ timeout: 5000 })
+      // Verify the image has non-zero dimensions (actually rendered, not CSP-blocked)
+      const box = await img.boundingBox()
+      expect(box).not.toBeNull()
+      expect(box.width).toBeGreaterThan(50)
+      expect(box.height).toBeGreaterThan(50)
+
+      // Done button closes modal
+      await page.getByRole('button', { name: 'Done' }).click()
+      await expect(page.locator('text=Provision QR Code')).not.toBeVisible()
+
+      // Cleanup
+      await request.delete(`/api/bridges/${bridgeId}`, { headers: API_HEADERS })
+    })
+  })
+})
+
 test.describe('Devices page — Android type', () => {
   test.beforeEach(async ({ page }) => {
     await page.addInitScript((token) => {

@@ -20,7 +20,7 @@ func SecurityHeaders(next http.Handler) http.Handler {
 			"default-src 'self'; "+
 				"script-src 'self'; "+
 				"style-src 'self' 'unsafe-inline'; "+ // Tailwind injects inline styles
-				"img-src 'self' data: https://*.tile.openstreetmap.org https://*.basemaps.cartocdn.com; "+ // Leaflet map tiles
+				"img-src 'self' data: blob: https://*.tile.openstreetmap.org https://*.basemaps.cartocdn.com; "+ // Leaflet map tiles + QR blob URLs
 				"connect-src 'self'; "+
 				"font-src 'self'; "+
 				"object-src 'none'; "+
