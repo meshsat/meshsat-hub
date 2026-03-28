@@ -11,11 +11,25 @@ import (
 	"github.com/cubeos-app/meshsat-hub/internal/compress"
 )
 
-func TestHandler_ValidPayload_NoSecret(t *testing.T) {
-	// Create handler with no secret (accepts all).
-	h := &Handler{secret: ""}
+const testSecret = "test-webhook-secret"
 
-	// Create a synthetic RockBLOCK payload.
+func TestHandler_NoSecret_Rejected(t *testing.T) {
+	// Webhook handler with no secret must reject all requests.
+	h := &Handler{secret: ""}
+	form := url.Values{"imei": {"300234065123456"}, "data": {"deadbeef"}}
+	req := httptest.NewRequest("POST", "/api/webhook/rockblock",
+		strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+	if w.Code != http.StatusForbidden {
+		t.Errorf("expected 403 when secret not configured, got %d", w.Code)
+	}
+}
+
+func TestHandler_ValidPayload_WithSecret(t *testing.T) {
+	h := &Handler{secret: testSecret}
+
 	plaintext := "Battery level 85 percent signal strength good"
 	compressed := compress.CompressString(plaintext)
 	dataHex := hex.EncodeToString(compressed)
@@ -28,6 +42,7 @@ func TestHandler_ValidPayload_NoSecret(t *testing.T) {
 		"iridium_longitude": {"4.5094"},
 		"iridium_cep":       {"10"},
 		"data":              {dataHex},
+		"JWT":               {testSecret},
 	}
 
 	req := httptest.NewRequest("POST", "/api/webhook/rockblock",
@@ -35,7 +50,6 @@ func TestHandler_ValidPayload_NoSecret(t *testing.T) {
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	w := httptest.NewRecorder()
 
-	// Without MQTT client, the publishes will fail but the handler should still return 200.
 	h.ServeHTTP(w, req)
 
 	if w.Code != http.StatusOK {
@@ -44,10 +58,11 @@ func TestHandler_ValidPayload_NoSecret(t *testing.T) {
 }
 
 func TestHandler_MissingIMEI(t *testing.T) {
-	h := &Handler{secret: ""}
+	h := &Handler{secret: testSecret}
 
 	form := url.Values{
 		"data": {"deadbeef"},
+		"JWT":  {testSecret},
 	}
 	req := httptest.NewRequest("POST", "/api/webhook/rockblock",
 		strings.NewReader(form.Encode()))
@@ -62,11 +77,12 @@ func TestHandler_MissingIMEI(t *testing.T) {
 }
 
 func TestHandler_InvalidHex(t *testing.T) {
-	h := &Handler{secret: ""}
+	h := &Handler{secret: testSecret}
 
 	form := url.Values{
 		"imei": {"300234065123456"},
 		"data": {"not-valid-hex!!"},
+		"JWT":  {testSecret},
 	}
 	req := httptest.NewRequest("POST", "/api/webhook/rockblock",
 		strings.NewReader(form.Encode()))
@@ -100,7 +116,7 @@ func TestHandler_SecretRequired_NoSecret(t *testing.T) {
 }
 
 func TestHandler_MethodNotAllowed(t *testing.T) {
-	h := &Handler{secret: ""}
+	h := &Handler{secret: testSecret}
 
 	req := httptest.NewRequest("GET", "/api/webhook/rockblock", nil)
 	w := httptest.NewRecorder()

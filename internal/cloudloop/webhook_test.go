@@ -57,6 +57,14 @@ func (b *mockBus) getMessages() []mockMessage {
 	return cp
 }
 
+// newTestWebhookHandler creates a WebhookHandler with default test IP allowlist.
+// httptest requests come from "192.0.2.1:1234" by default.
+func newTestWebhookHandler(bus bus.MessageBus) *WebhookHandler {
+	h := NewWebhookHandler(bus)
+	h.SetAllowedIPs([]string{"192.0.2.1"})
+	return h
+}
+
 func newTestLingoMO(imei, text string) LingoMO {
 	return LingoMO{
 		ID:         "test-id-001",
@@ -76,9 +84,23 @@ func newTestLingoMO(imei, text string) LingoMO {
 	}
 }
 
+func TestWebhookHandler_NoAllowlist_Rejected(t *testing.T) {
+	bus := &mockBus{}
+	h := NewWebhookHandler(bus) // no allowlist
+	mo := newTestLingoMO("300258060902280", "test")
+	body, _ := json.Marshal(mo)
+	req := httptest.NewRequest(http.MethodPost, "/api/webhook/cloudloop", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rr := httptest.NewRecorder()
+	h.ServeHTTP(rr, req)
+	if rr.Code != http.StatusForbidden {
+		t.Fatalf("expected 403 when IP allowlist not configured, got %d", rr.Code)
+	}
+}
+
 func TestWebhookHandler_BasicMO(t *testing.T) {
 	bus := &mockBus{}
-	h := NewWebhookHandler(bus)
+	h := newTestWebhookHandler(bus)
 	dd := dedup.NewMemoryDedup(5 * time.Minute)
 	defer dd.Close()
 	h.SetDedup(dd)
@@ -137,7 +159,7 @@ func TestWebhookHandler_BasicMO(t *testing.T) {
 
 func TestWebhookHandler_Dedup(t *testing.T) {
 	bus := &mockBus{}
-	h := NewWebhookHandler(bus)
+	h := newTestWebhookHandler(bus)
 	dd := dedup.NewMemoryDedup(5 * time.Minute)
 	defer dd.Close()
 	h.SetDedup(dd)
@@ -238,7 +260,7 @@ func TestWebhookHandler_NoIMEI(t *testing.T) {
 
 func TestWebhookHandler_InvalidJSON(t *testing.T) {
 	bus := &mockBus{}
-	h := NewWebhookHandler(bus)
+	h := newTestWebhookHandler(bus)
 
 	req := httptest.NewRequest(http.MethodPost, "/api/webhook/cloudloop",
 		bytes.NewReader([]byte("{invalid json")))
@@ -307,7 +329,7 @@ func newTestLingoMO_SBD(imei, text string) LingoMO {
 
 func TestWebhookHandler_SBD_MO(t *testing.T) {
 	bus := &mockBus{}
-	h := NewWebhookHandler(bus)
+	h := newTestWebhookHandler(bus)
 	dd := dedup.NewMemoryDedup(5 * time.Minute)
 	defer dd.Close()
 	h.SetDedup(dd)
@@ -382,7 +404,7 @@ func TestWebhookHandler_SBD_MO(t *testing.T) {
 
 func TestWebhookHandler_DualProtocol_SBDandIMT(t *testing.T) {
 	bus := &mockBus{}
-	h := NewWebhookHandler(bus)
+	h := newTestWebhookHandler(bus)
 	dd := dedup.NewMemoryDedup(5 * time.Minute)
 	defer dd.Close()
 	h.SetDedup(dd)
@@ -429,7 +451,7 @@ func TestWebhookHandler_DualProtocol_SBDandIMT(t *testing.T) {
 
 func TestWebhookHandler_MethodNotAllowed(t *testing.T) {
 	bus := &mockBus{}
-	h := NewWebhookHandler(bus)
+	h := newTestWebhookHandler(bus)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/webhook/cloudloop", nil)
 	rr := httptest.NewRecorder()

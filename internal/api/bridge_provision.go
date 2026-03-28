@@ -154,7 +154,8 @@ func (h *BridgeProvisionHandler) Provision(w http.ResponseWriter, r *http.Reques
 
 	nonce, err := h.generateAndStash(r, id, tid)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		slog.Error("bridge provision failed", "bridge_id", id, "error", err)
+		writeError(w, http.StatusInternalServerError, "provisioning failed")
 		return
 	}
 
@@ -198,7 +199,8 @@ func (h *BridgeProvisionHandler) ProvisionQR(w http.ResponseWriter, r *http.Requ
 
 	nonce, err := h.generateAndStash(r, id, tid)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		slog.Error("bridge provision QR failed", "bridge_id", id, "error", err)
+		writeError(w, http.StatusInternalServerError, "provisioning failed")
 		return
 	}
 
@@ -231,7 +233,8 @@ func (h *BridgeProvisionHandler) ProvisionQR(w http.ResponseWriter, r *http.Requ
 
 	png, err := qrcode.Encode(qrContent, qrcode.Medium, size)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, fmt.Sprintf("failed to generate QR code: %v", err))
+		slog.Error("failed to generate QR code", "bridge_id", id, "error", err)
+		writeError(w, http.StatusInternalServerError, "QR code generation failed")
 		return
 	}
 

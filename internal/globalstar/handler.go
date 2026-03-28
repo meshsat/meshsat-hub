@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
-	"strings"
 	"time"
 
 	"github.com/cubeos-app/meshsat-hub/internal/audit"
@@ -147,13 +146,16 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// Limit request body to 1MB.
 	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
 
-	// Verify HMAC signature if secret is configured.
-	if h.secret != "" {
-		if !h.verifySignature(r) {
-			slog.Warn("globalstar: signature verification failed")
-			http.Error(w, `{"error":"unauthorized"}`, http.StatusUnauthorized)
-			return
-		}
+	// Verify HMAC signature — reject unsigned requests when secret is not configured.
+	if h.secret == "" {
+		slog.Warn("globalstar: webhook secret not configured, rejecting unsigned request")
+		http.Error(w, `{"error":"webhook secret not configured"}`, http.StatusForbidden)
+		return
+	}
+	if !h.verifySignature(r) {
+		slog.Warn("globalstar: signature verification failed")
+		http.Error(w, `{"error":"unauthorized"}`, http.StatusUnauthorized)
+		return
 	}
 
 	var payload MOPayload
@@ -334,14 +336,11 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.deadman.CheckIn(deviceID)
 	}
 
-	// Audit: log message_received event.
+	// Audit: log message_received event (use RemoteAddr directly — never trust X-Forwarded-For in webhook handlers).
 	if h.audit != nil {
 		tid := auth.TenantIDFromContext(r.Context())
 		detail := fmt.Sprintf("device=%s message=%s bytes=%d channel=globalstar", payload.DeviceID, payload.MessageID, len(rawBytes))
 		ip := r.RemoteAddr
-		if fwd := r.Header.Get("X-Forwarded-For"); fwd != "" {
-			ip = strings.Split(fwd, ",")[0]
-		}
 		if err := h.audit.Log(r.Context(), tid, "message_received", "webhook", detail, ip); err != nil {
 			slog.Warn("audit: failed to log message_received", "error", err)
 		}

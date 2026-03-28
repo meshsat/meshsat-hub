@@ -51,13 +51,10 @@ func newTestPayload(deviceGUID, msgGUID, text string) MOPayload {
 	}
 }
 
+const testSecret = "test-webhook-secret"
+
 func postWebhook(h *Handler, payload MOPayload) *httptest.ResponseRecorder {
-	body, _ := json.Marshal(payload)
-	req := httptest.NewRequest("POST", "/api/webhook/astrocast", bytes.NewReader(body))
-	req.Header.Set("Content-Type", "application/json")
-	w := httptest.NewRecorder()
-	h.ServeHTTP(w, req)
-	return w
+	return postWebhookSigned(h, payload, testSecret)
 }
 
 func postWebhookSigned(h *Handler, payload MOPayload, secret string) *httptest.ResponseRecorder {
@@ -76,7 +73,7 @@ func postWebhookSigned(h *Handler, payload MOPayload, secret string) *httptest.R
 
 func TestServeHTTP_ValidPayload(t *testing.T) {
 	mb := &mockBus{}
-	h := NewHandler(mb, "")
+	h := NewHandler(mb, testSecret)
 	payload := newTestPayload("dev-001", "msg-abc", "Hello from space")
 
 	w := postWebhook(h, payload)
@@ -103,7 +100,7 @@ func TestServeHTTP_ValidPayload(t *testing.T) {
 }
 
 func TestServeHTTP_MissingDeviceGUID(t *testing.T) {
-	h := NewHandler(&mockBus{}, "")
+	h := NewHandler(&mockBus{}, testSecret)
 	payload := MOPayload{
 		MessageGUID: "msg-abc",
 		Data:        base64.StdEncoding.EncodeToString([]byte("test")),
@@ -116,7 +113,7 @@ func TestServeHTTP_MissingDeviceGUID(t *testing.T) {
 }
 
 func TestServeHTTP_InvalidBase64(t *testing.T) {
-	h := NewHandler(&mockBus{}, "")
+	h := NewHandler(&mockBus{}, testSecret)
 	payload := MOPayload{
 		DeviceGUID:  "dev-001",
 		MessageGUID: "msg-abc",
@@ -130,7 +127,7 @@ func TestServeHTTP_InvalidBase64(t *testing.T) {
 }
 
 func TestServeHTTP_MethodNotAllowed(t *testing.T) {
-	h := NewHandler(&mockBus{}, "")
+	h := NewHandler(&mockBus{}, testSecret)
 	req := httptest.NewRequest("GET", "/api/webhook/astrocast", nil)
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, req)
@@ -139,9 +136,22 @@ func TestServeHTTP_MethodNotAllowed(t *testing.T) {
 	}
 }
 
+func TestServeHTTP_NoSecret_Rejected(t *testing.T) {
+	h := NewHandler(&mockBus{}, "")
+	payload := newTestPayload("dev-001", "msg-abc", "Hello")
+	body, _ := json.Marshal(payload)
+	req := httptest.NewRequest("POST", "/api/webhook/astrocast", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("expected 403 when secret not configured, got %d", w.Code)
+	}
+}
+
 func TestServeHTTP_Dedup(t *testing.T) {
 	mb := &mockBus{}
-	h := NewHandler(mb, "")
+	h := NewHandler(mb, testSecret)
 	h.SetDedup(dedup.NewMemoryDedup(1 * time.Hour)) // long TTL = never expires during test
 	payload := newTestPayload("dev-001", "msg-abc", "Hello")
 
@@ -203,7 +213,7 @@ func TestServeHTTP_InvalidSignature(t *testing.T) {
 
 func TestServeHTTP_PositionPublished(t *testing.T) {
 	mb := &mockBus{}
-	h := NewHandler(mb, "")
+	h := NewHandler(mb, testSecret)
 	payload := newTestPayload("dev-001", "msg-abc", "pos test")
 	payload.Latitude = 52.16
 	payload.Longitude = 4.51
@@ -224,7 +234,7 @@ func TestServeHTTP_PositionPublished(t *testing.T) {
 
 func TestServeHTTP_NoPositionWhenZero(t *testing.T) {
 	mb := &mockBus{}
-	h := NewHandler(mb, "")
+	h := NewHandler(mb, testSecret)
 	payload := newTestPayload("dev-001", "msg-abc", "no pos")
 	payload.Latitude = 0
 	payload.Longitude = 0
@@ -242,7 +252,7 @@ func TestServeHTTP_NoPositionWhenZero(t *testing.T) {
 
 func TestServeHTTP_DecodedMessageChannel(t *testing.T) {
 	mb := &mockBus{}
-	h := NewHandler(mb, "")
+	h := NewHandler(mb, testSecret)
 	payload := newTestPayload("dev-001", "msg-abc", "channel test")
 
 	_ = postWebhook(h, payload)

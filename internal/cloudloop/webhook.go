@@ -178,8 +178,13 @@ func (h *WebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// IP allowlist check.
-	if len(h.allowedIPs) > 0 && !h.isAllowedIP(r) {
+	// IP allowlist check — reject all requests when no allowlist is configured.
+	if len(h.allowedIPs) == 0 {
+		slog.Warn("cloudloop: webhook IP allowlist not configured, rejecting request")
+		http.Error(w, `{"error":"webhook IP allowlist not configured"}`, http.StatusForbidden)
+		return
+	}
+	if !h.isAllowedIP(r) {
 		slog.Warn("cloudloop: request from disallowed IP", "remote", r.RemoteAddr)
 		http.Error(w, `{"error":"forbidden"}`, http.StatusForbidden)
 		return
@@ -518,17 +523,53 @@ func (h *WebhookHandler) handleBridgeSatUplink(ctx context.Context, imei string,
 	return true
 }
 
+// trustedProxyNets defines private/Docker subnets from which X-Forwarded-For is trusted.
+var trustedProxyNets = func() []*net.IPNet {
+	cidrs := []string{
+		"10.0.0.0/8",     // RFC 1918
+		"172.16.0.0/12",  // RFC 1918 / Docker bridge
+		"192.168.0.0/16", // RFC 1918
+		"127.0.0.0/8",    // loopback
+		"::1/128",        // IPv6 loopback
+		"fd00::/8",       // IPv6 ULA
+	}
+	var nets []*net.IPNet
+	for _, c := range cidrs {
+		_, n, _ := net.ParseCIDR(c)
+		nets = append(nets, n)
+	}
+	return nets
+}()
+
+// isTrustedProxy checks if an IP belongs to a known reverse proxy subnet.
+func isTrustedProxy(ip string) bool {
+	parsed := net.ParseIP(ip)
+	if parsed == nil {
+		return false
+	}
+	for _, n := range trustedProxyNets {
+		if n.Contains(parsed) {
+			return true
+		}
+	}
+	return false
+}
+
 // isAllowedIP checks if the request IP is in the allowlist.
+// X-Forwarded-For is only trusted when the direct connection is from a known proxy subnet.
 func (h *WebhookHandler) isAllowedIP(r *http.Request) bool {
-	ip := r.RemoteAddr
-	// Use X-Forwarded-For if present (behind reverse proxy).
-	if fwd := r.Header.Get("X-Forwarded-For"); fwd != "" {
+	directIP := r.RemoteAddr
+	// Strip port from RemoteAddr.
+	if host, _, err := net.SplitHostPort(directIP); err == nil {
+		directIP = host
+	}
+
+	ip := directIP
+	// Only trust X-Forwarded-For if direct connection is from a trusted proxy.
+	if fwd := r.Header.Get("X-Forwarded-For"); fwd != "" && isTrustedProxy(directIP) {
 		ip = strings.TrimSpace(strings.Split(fwd, ",")[0])
 	}
-	// Strip port.
-	if host, _, err := net.SplitHostPort(ip); err == nil {
-		ip = host
-	}
+
 	for _, allowed := range h.allowedIPs {
 		if ip == strings.TrimSpace(allowed) {
 			return true

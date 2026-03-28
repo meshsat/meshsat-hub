@@ -4,7 +4,6 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
-	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
@@ -135,7 +134,8 @@ func (h *BridgeAuthHandler) IssueCertificate(w http.ResponseWriter, r *http.Requ
 
 	certPEM, keyPEM, err := h.ca.IssueBridgeCert(id, 90)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, fmt.Sprintf("failed to issue certificate: %v", err))
+		slog.Error("failed to issue certificate", "bridge_id", id, "error", err)
+		writeError(w, http.StatusInternalServerError, "certificate generation failed")
 		return
 	}
 
@@ -213,7 +213,8 @@ func (h *BridgeAuthHandler) SetMQTTURL(w http.ResponseWriter, r *http.Request) {
 func (h *BridgeAuthHandler) RegenerateACL(w http.ResponseWriter, r *http.Request) {
 	bridges, err := h.store.ListBridgesWithCredentials(r.Context())
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, fmt.Sprintf("failed to list bridges: %v", err))
+		slog.Error("failed to list bridges for ACL regeneration", "error", err)
+		writeError(w, http.StatusInternalServerError, "failed to list bridges")
 		return
 	}
 
@@ -229,14 +230,14 @@ func (h *BridgeAuthHandler) RegenerateACL(w http.ResponseWriter, r *http.Request
 	passwdData := bridge.GeneratePasswordFile(bridges)
 	if err := os.WriteFile(passwdFile, passwdData, 0600); err != nil {
 		slog.Error("acl: failed to write password file", "path", passwdFile, "error", err)
-		writeError(w, http.StatusInternalServerError, fmt.Sprintf("failed to write password file: %v", err))
+		writeError(w, http.StatusInternalServerError, "failed to write password file")
 		return
 	}
 
 	aclData := bridge.GenerateACLFile(bridges)
 	if err := os.WriteFile(aclFile, aclData, 0600); err != nil {
 		slog.Error("acl: failed to write ACL file", "path", aclFile, "error", err)
-		writeError(w, http.StatusInternalServerError, fmt.Sprintf("failed to write ACL file: %v", err))
+		writeError(w, http.StatusInternalServerError, "failed to write ACL file")
 		return
 	}
 

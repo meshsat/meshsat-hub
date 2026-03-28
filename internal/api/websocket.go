@@ -3,6 +3,7 @@ package api
 import (
 	"log/slog"
 	"net/http"
+	"net/url"
 	"os"
 	"strings"
 	"sync"
@@ -20,13 +21,21 @@ var wsUpgrader = websocket.Upgrader{
 		if origin == "" {
 			return true // non-browser clients
 		}
+		u, err := url.Parse(origin)
+		if err != nil {
+			return false
+		}
 		if allowed == "" {
-			// Default: same-origin only.
-			return strings.Contains(origin, r.Host)
+			// Default: same-origin only — compare parsed hostname, not substring.
+			return u.Host == r.Host || u.Hostname() == r.Host
 		}
 		for _, o := range strings.Split(allowed, ",") {
 			o = strings.TrimSpace(o)
-			if o == "*" || strings.Contains(origin, o) {
+			if o == "*" {
+				return true
+			}
+			// Compare the origin's hostname against the allowed value.
+			if u.Host == o || u.Hostname() == o {
 				return true
 			}
 		}

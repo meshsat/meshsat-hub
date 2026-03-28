@@ -954,7 +954,8 @@ func main() {
 	r := chi.NewRouter()
 	r.Use(middleware.Recoverer)
 	r.Use(middleware.RealIP)
-	r.Use(hubmw.RequestID) // Assign/propagate correlation IDs.
+	r.Use(hubmw.RequestID)             // Assign/propagate correlation IDs.
+	r.Use(hubmw.MaxBodySize(10 << 20)) // 10MB global request body limit (webhook handlers override).
 	r.Use(api.SecurityHeaders)
 	r.Use(api.WSTokenFromQuery) // Copy ?token= query param to Authorization header for WebSocket clients.
 
@@ -1049,11 +1050,11 @@ func main() {
 			})
 		}
 	}
-	r.Post("/api/webhook/rockblock", rbHandler.ServeHTTP)
-
-	r.Post("/api/webhook/astrocast", acHandler.ServeHTTP)
-	r.Post("/api/webhook/globalstar", gsHandler.ServeHTTP)
-	r.Post("/api/webhook/cloudloop", clHandler.ServeHTTP)
+	// Webhook endpoints — rate limited to 60 requests/minute per source IP.
+	r.Post("/api/webhook/rockblock", hubmw.WebhookRateLimit(http.HandlerFunc(rbHandler.ServeHTTP), 60).ServeHTTP)
+	r.Post("/api/webhook/astrocast", hubmw.WebhookRateLimit(http.HandlerFunc(acHandler.ServeHTTP), 60).ServeHTTP)
+	r.Post("/api/webhook/globalstar", hubmw.WebhookRateLimit(http.HandlerFunc(gsHandler.ServeHTTP), 60).ServeHTTP)
+	r.Post("/api/webhook/cloudloop", hubmw.WebhookRateLimit(http.HandlerFunc(clHandler.ServeHTTP), 60).ServeHTTP)
 
 	// QR provision claim — unauthenticated (nonce IS the auth, single-use, 30min TTL).
 	provisionClaimHandler := api.NewBridgeProvisionHandler(dataStore, bridgeCA)

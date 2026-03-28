@@ -177,13 +177,16 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Verify shared secret if configured.
-	if h.secret != "" {
-		if !h.verifySignature(r) {
-			slog.Warn("rockblock: signature verification failed")
-			http.Error(w, `{"error":"unauthorized"}`, http.StatusUnauthorized)
-			return
-		}
+	// Verify shared secret — reject unsigned requests when secret is not configured.
+	if h.secret == "" {
+		slog.Warn("rockblock: webhook secret not configured, rejecting unsigned request")
+		http.Error(w, `{"error":"webhook secret not configured"}`, http.StatusForbidden)
+		return
+	}
+	if !h.verifySignature(r) {
+		slog.Warn("rockblock: signature verification failed")
+		http.Error(w, `{"error":"unauthorized"}`, http.StatusUnauthorized)
+		return
 	}
 
 	imei := r.FormValue("imei")
@@ -404,14 +407,11 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.deadman.CheckIn(imei)
 	}
 
-	// Audit: log message_received event.
+	// Audit: log message_received event (use RemoteAddr directly — never trust X-Forwarded-For in webhook handlers).
 	if h.audit != nil {
 		tid := auth.TenantIDFromContext(r.Context())
 		detail := fmt.Sprintf("imei=%s momsn=%d bytes=%d", imei, momsn, len(rawBytes))
 		ip := r.RemoteAddr
-		if fwd := r.Header.Get("X-Forwarded-For"); fwd != "" {
-			ip = strings.Split(fwd, ",")[0]
-		}
 		if err := h.audit.Log(r.Context(), tid, "message_received", "webhook", detail, ip); err != nil {
 			slog.Warn("audit: failed to log message_received", "error", err)
 		}

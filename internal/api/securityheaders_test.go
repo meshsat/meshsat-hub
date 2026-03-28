@@ -3,6 +3,7 @@ package api
 import (
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"testing"
 )
 
@@ -39,6 +40,10 @@ func TestSecurityHeaders_Present(t *testing.T) {
 }
 
 func TestSecurityHeaders_NoHSTS_WithoutTLS(t *testing.T) {
+	// When HUB_FORCE_HSTS=false, HSTS should not be set without TLS.
+	os.Setenv("HUB_FORCE_HSTS", "false")
+	defer os.Unsetenv("HUB_FORCE_HSTS")
+
 	handler := SecurityHeaders(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
@@ -48,7 +53,24 @@ func TestSecurityHeaders_NoHSTS_WithoutTLS(t *testing.T) {
 	handler.ServeHTTP(rec, req)
 
 	if hsts := rec.Header().Get("Strict-Transport-Security"); hsts != "" {
-		t.Errorf("HSTS should not be set without TLS, got %q", hsts)
+		t.Errorf("HSTS should not be set without TLS when HUB_FORCE_HSTS=false, got %q", hsts)
+	}
+}
+
+func TestSecurityHeaders_HSTS_ForcedByDefault(t *testing.T) {
+	// Default behavior: HSTS is always set (HUB_FORCE_HSTS defaults to true).
+	os.Unsetenv("HUB_FORCE_HSTS")
+	handler := SecurityHeaders(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	hsts := rec.Header().Get("Strict-Transport-Security")
+	if hsts == "" {
+		t.Error("HSTS should be set by default (HUB_FORCE_HSTS not explicitly false)")
 	}
 }
 

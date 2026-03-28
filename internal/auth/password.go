@@ -60,6 +60,11 @@ func VerifyPassword(password, encoded string) (bool, error) {
 		return false, fmt.Errorf("parse params: %w", err)
 	}
 
+	// Bounds check to prevent resource exhaustion from crafted hashes.
+	if memory > 256*1024 || iterations > 20 || parallel > 8 {
+		return false, fmt.Errorf("argon2 parameters out of bounds")
+	}
+
 	salt, err := base64.RawStdEncoding.DecodeString(parts[4])
 	if err != nil {
 		return false, fmt.Errorf("decode salt: %w", err)

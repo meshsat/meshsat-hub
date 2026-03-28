@@ -16,14 +16,45 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"net"
 	"net/http"
 	"os"
 	"os/exec"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
 )
+
+// validInterface matches alphanumeric interface names (letters, digits, underscore, hyphen).
+var validInterface = regexp.MustCompile(`^[a-zA-Z0-9_-]+$`)
+
+// validateEndpointID rejects non-numeric endpoint IDs to prevent command injection.
+func validateEndpointID(id string) error {
+	for _, c := range id {
+		if c < '0' || c > '9' {
+			return fmt.Errorf("endpoint id must be numeric, got %q", id)
+		}
+	}
+	return nil
+}
+
+// validateAddress checks that an address is a valid IP (v4 or v6).
+func validateAddress(addr string) error {
+	if net.ParseIP(addr) == nil {
+		return fmt.Errorf("invalid IP address: %q", addr)
+	}
+	return nil
+}
+
+// validateInterfaceName checks that an interface name contains only safe characters.
+func validateInterfaceName(iface string) error {
+	if !validInterface.MatchString(iface) {
+		return fmt.Errorf("invalid interface name: %q (must be alphanumeric, underscore, or hyphen)", iface)
+	}
+	return nil
+}
 
 // Subflow represents a single MPTCP subflow (network path).
 type Subflow struct {
@@ -384,6 +415,14 @@ func AddEndpoint(ep Endpoint) error {
 	if ep.Address == "" {
 		return fmt.Errorf("address is required")
 	}
+	if err := validateAddress(ep.Address); err != nil {
+		return err
+	}
+	if ep.Interface != "" {
+		if err := validateInterfaceName(ep.Interface); err != nil {
+			return err
+		}
+	}
 
 	args := []string{"mptcp", "endpoint", "add", ep.Address}
 	if ep.Interface != "" {
@@ -411,6 +450,9 @@ func AddEndpoint(ep Endpoint) error {
 func RemoveEndpoint(id string) error {
 	if id == "" {
 		return fmt.Errorf("endpoint id is required")
+	}
+	if err := validateEndpointID(id); err != nil {
+		return err
 	}
 
 	out, err := exec.Command("ip", "mptcp", "endpoint", "delete", "id", id).CombinedOutput()
