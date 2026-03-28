@@ -17,6 +17,37 @@ data:
       max_file: 1GB
     }
 
+    accounts {
+      HUB {
+        users = [
+          { user: meshsat, password: "$NATS_MQTT_PASSWORD" }
+        ]
+        exports = [
+          { stream: ">" }
+          { service: ">" }
+        ]
+        imports = [
+          { stream: { account: BRIDGE, subject: ">" } }
+          { service: { account: BRIDGE, subject: ">" } }
+        ]
+        jetstream: enabled
+      }
+      BRIDGE {
+        users = [
+          { user: bridge }
+        ]
+        exports = [
+          { stream: ">" }
+          { service: ">" }
+        ]
+        imports = [
+          { stream: { account: HUB, subject: ">" } }
+          { service: { account: HUB, subject: ">" } }
+        ]
+        jetstream: enabled
+      }
+    }
+
     mqtt {
       listen: 0.0.0.0:1883
       no_auth_user: meshsat
@@ -24,14 +55,9 @@ data:
       max_ack_pending: 100
     }
 
-    authorization {
-      users = [
-        { user: meshsat, password: "" }
-      ]
-    }
-
     websocket {
       port: 9001
+      no_auth_user: bridge
       no_tls: true
     }
 
