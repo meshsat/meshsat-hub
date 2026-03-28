@@ -1182,6 +1182,11 @@ func main() {
 	r.Post("/api/bridges/{id}/certificate", bridgeAuthHandler.IssueCertificate)
 	r.Post("/api/bridges/acl/regenerate", bridgeAuthHandler.RegenerateACL)
 
+	// One-step bridge provisioning with QR code (MESHSAT-414)
+	provisionHandler := api.NewBridgeProvisionHandler(dataStore, bridgeCA)
+	r.Post("/api/bridges/{id}/provision", provisionHandler.Provision)
+	r.Post("/api/bridges/{id}/provision/qr", provisionHandler.ProvisionQR)
+
 	// Platform settings (MQTT public URL for bridge onboarding)
 	r.Get("/api/settings/mqtt-url", bridgeAuthHandler.GetMQTTURL)
 	r.Put("/api/settings/mqtt-url", bridgeAuthHandler.SetMQTTURL)
