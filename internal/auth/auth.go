@@ -216,10 +216,23 @@ func MiddlewareWithProvider(provider *JWKSProvider, issuerURL, audience string) 
 func isExempt(path string) bool {
 	return path == "/healthz" || path == "/readyz" ||
 		strings.HasPrefix(path, "/api/webhook/") || // all inbound webhooks are auth-exempt
+		isProvisionClaim(path) || // QR provision claim — nonce IS the auth (MESHSAT-414)
 		path == "/api/auth/login" ||
 		path == "/api/auth/refresh" ||
 		path == "/api/cluster/node" ||
 		!strings.HasPrefix(path, "/api/")
+}
+
+// isProvisionClaim matches GET /api/bridges/{id}/provision/{nonce} —
+// the nonce acts as a single-use bearer token, no auth header needed.
+func isProvisionClaim(path string) bool {
+	// Pattern: /api/bridges/SOMETHING/provision/SOMETHING
+	if !strings.HasPrefix(path, "/api/bridges/") {
+		return false
+	}
+	parts := strings.Split(path, "/")
+	// /api/bridges/{id}/provision/{nonce} = 6 parts (empty, api, bridges, id, provision, nonce)
+	return len(parts) == 6 && parts[4] == "provision"
 }
 
 func noopMiddleware() func(http.Handler) http.Handler {
