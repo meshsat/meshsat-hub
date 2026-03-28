@@ -24,8 +24,8 @@ type ProvisionBundle struct {
 	Version      string `json:"v"`        // "1"
 	BridgeID     string `json:"bid"`      // bridge identifier
 	MQTTURL      string `json:"mqtt"`     // wss://mqtt-hub.meshsat.net/mqtt
-	Username     string `json:"user"`     // MQTT username
-	Password     string `json:"pass"`     // MQTT password (plaintext, one-time)
+	Username     string `json:"user"`     // MQTT username (always "meshsat" for NATS auth)
+	Password     string `json:"pass"`     // MQTT password (shared NATS auth password)
 	CertPEM      string `json:"cert"`     // client TLS certificate
 	KeyPEM       string `json:"key"`      // client TLS private key (one-time)
 	CaPEM        string `json:"ca"`       // CA certificate
@@ -105,14 +105,18 @@ func (h *BridgeProvisionHandler) generateAndStash(r *http.Request, id, tid strin
 		retTCP = "reticulum.meshsat.net:443"
 	}
 
+	// NATS MQTT auth: bridges use shared username "meshsat" with the NATS password.
+	// Per-bridge identity comes from MQTT client ID + mTLS certificate CN.
+	natsMQTTPassword := os.Getenv("NATS_MQTT_PASSWORD")
+
 	stash := provisionStash{
 		Nonce: nonce,
 		Bundle: ProvisionBundle{
 			Version:      "1",
 			BridgeID:     id,
 			MQTTURL:      mqttURL,
-			Username:     username,
-			Password:     password,
+			Username:     "meshsat",
+			Password:     natsMQTTPassword,
 			CertPEM:      string(certPEM),
 			KeyPEM:       string(keyPEM),
 			CaPEM:        string(h.ca.CACertPEM()),
