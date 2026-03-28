@@ -2,7 +2,13 @@ package bridge
 
 import (
 	"context"
+	"crypto/ecdsa"
+	"crypto/rand"
+	"crypto/sha256"
+	"crypto/x509"
+	"encoding/base64"
 	"encoding/json"
+	"encoding/pem"
 	"testing"
 	"time"
 
@@ -788,5 +794,211 @@ func TestBridgeHealth_RefreshesReticulumRoute(t *testing.T) {
 
 	if rr.refreshed["aabbccdd11223344"] != 1 {
 		t.Errorf("expected route refresh count = 1, got %d", rr.refreshed["aabbccdd11223344"])
+	}
+}
+
+// --- Birth signature verification tests ---
+
+// buildSignedBirthPayload creates a signed birth message using the given CA.
+func buildSignedBirthPayload(t *testing.T, ca *CertAuthority, bridgeID string) []byte {
+	t.Helper()
+	certPEM, keyPEM, err := ca.IssueBridgeCert(bridgeID, 90)
+	if err != nil {
+		t.Fatalf("issue cert: %v", err)
+	}
+	block, _ := pem.Decode(keyPEM)
+	privKey, err := x509.ParseECPrivateKey(block.Bytes)
+	if err != nil {
+		t.Fatalf("parse key: %v", err)
+	}
+
+	birth := protocol.BridgeBirth{
+		Protocol:     protocol.ProtocolVersion,
+		BridgeID:     bridgeID,
+		Version:      "0.20.0",
+		Hostname:     bridgeID + ".local",
+		Mode:         "direct",
+		TenantID:     "default",
+		Interfaces:   []protocol.InterfaceInfo{{Name: "mesh_0", Type: "meshtastic", Status: "online"}},
+		Capabilities: []string{"meshtastic"},
+		CoTType:      protocol.CoTBridge,
+		CoTCallsign:  "TEST",
+		Timestamp:    time.Now().UTC(),
+		Certificate:  base64.StdEncoding.EncodeToString(certPEM),
+		Signature:    "",
+	}
+
+	// Create canonical JSON without signature.
+	raw, _ := json.Marshal(birth)
+	var m map[string]interface{}
+	json.Unmarshal(raw, &m)
+	delete(m, "signature")
+	canonical, _ := json.Marshal(m)
+
+	hash := sha256.Sum256(canonical)
+	sig, err := ecdsa.SignASN1(rand.Reader, privKey, hash[:])
+	if err != nil {
+		t.Fatalf("sign: %v", err)
+	}
+	birth.Signature = base64.StdEncoding.EncodeToString(sig)
+
+	payload, _ := json.Marshal(birth)
+	return payload
+}
+
+func TestHandleBridgeBirth_SignedBirthVerified(t *testing.T) {
+	ca, _, _, err := NewSelfSignedCA("MeshSat Test")
+	if err != nil {
+		t.Fatalf("setup: %v", err)
+	}
+
+	ms := newMockStore()
+	mb := newMockBus()
+	sub := NewSubscriber(mb, ms, "default")
+	sub.SetCertAuthority(ca)
+	sub.SetBirthSignatureMode(BirthSignatureModeWarn)
+	if err := sub.Start(); err != nil {
+		t.Fatal(err)
+	}
+
+	payload := buildSignedBirthPayload(t, ca, "signed-bridge")
+	mb.deliver("meshsat/bridge/signed-bridge/birth", payload)
+
+	b, ok := ms.bridges["signed-bridge"]
+	if !ok {
+		t.Fatal("bridge not created in store")
+	}
+	if !b.BirthVerified {
+		t.Error("bridge should be marked as birth_verified")
+	}
+}
+
+func TestHandleBridgeBirth_UnsignedBirthWarnMode(t *testing.T) {
+	ca, _, _, _ := NewSelfSignedCA("MeshSat Test")
+
+	ms := newMockStore()
+	mb := newMockBus()
+	sub := NewSubscriber(mb, ms, "default")
+	sub.SetCertAuthority(ca)
+	sub.SetBirthSignatureMode(BirthSignatureModeWarn)
+	if err := sub.Start(); err != nil {
+		t.Fatal(err)
+	}
+
+	// Unsigned birth (no certificate or signature fields).
+	birth := protocol.BridgeBirth{
+		Protocol:     protocol.ProtocolVersion,
+		BridgeID:     "unsigned-bridge",
+		Version:      "0.19.0",
+		Hostname:     "unsigned-bridge.local",
+		Mode:         "direct",
+		TenantID:     "default",
+		Interfaces:   []protocol.InterfaceInfo{{Name: "mesh_0", Type: "meshtastic", Status: "online"}},
+		Capabilities: []string{"meshtastic"},
+		Timestamp:    time.Now().UTC(),
+	}
+	payload, _ := json.Marshal(birth)
+	mb.deliver("meshsat/bridge/unsigned-bridge/birth", payload)
+
+	// In warn mode, unsigned births should be accepted but unverified.
+	b, ok := ms.bridges["unsigned-bridge"]
+	if !ok {
+		t.Fatal("unsigned birth should be accepted in warn mode")
+	}
+	if b.BirthVerified {
+		t.Error("unsigned bridge should NOT be marked as birth_verified")
+	}
+}
+
+func TestHandleBridgeBirth_UnsignedBirthEnforceMode(t *testing.T) {
+	ca, _, _, _ := NewSelfSignedCA("MeshSat Test")
+
+	ms := newMockStore()
+	mb := newMockBus()
+	sub := NewSubscriber(mb, ms, "default")
+	sub.SetCertAuthority(ca)
+	sub.SetBirthSignatureMode(BirthSignatureModeEnforce)
+	if err := sub.Start(); err != nil {
+		t.Fatal(err)
+	}
+
+	// Unsigned birth.
+	birth := protocol.BridgeBirth{
+		Protocol:     protocol.ProtocolVersion,
+		BridgeID:     "unsigned-bridge",
+		Version:      "0.19.0",
+		Hostname:     "unsigned-bridge.local",
+		Mode:         "direct",
+		TenantID:     "default",
+		Interfaces:   []protocol.InterfaceInfo{{Name: "mesh_0", Type: "meshtastic", Status: "online"}},
+		Capabilities: []string{"meshtastic"},
+		Timestamp:    time.Now().UTC(),
+	}
+	payload, _ := json.Marshal(birth)
+	mb.deliver("meshsat/bridge/unsigned-bridge/birth", payload)
+
+	// In enforce mode, unsigned births should be rejected.
+	if _, ok := ms.bridges["unsigned-bridge"]; ok {
+		t.Fatal("unsigned birth should be REJECTED in enforce mode")
+	}
+}
+
+func TestHandleBridgeBirth_InvalidSignatureRejected(t *testing.T) {
+	ca, _, _, _ := NewSelfSignedCA("MeshSat Test")
+
+	ms := newMockStore()
+	mb := newMockBus()
+	sub := NewSubscriber(mb, ms, "default")
+	sub.SetCertAuthority(ca)
+	sub.SetBirthSignatureMode(BirthSignatureModeWarn)
+	if err := sub.Start(); err != nil {
+		t.Fatal(err)
+	}
+
+	// Build a signed birth, then tamper with the hostname.
+	payload := buildSignedBirthPayload(t, ca, "tampered-bridge")
+	var m map[string]interface{}
+	json.Unmarshal(payload, &m)
+	m["hostname"] = "evil-host.local"
+	tamperedPayload, _ := json.Marshal(m)
+
+	mb.deliver("meshsat/bridge/tampered-bridge/birth", tamperedPayload)
+
+	// Tampered births should be rejected even in warn mode.
+	if _, ok := ms.bridges["tampered-bridge"]; ok {
+		t.Fatal("tampered birth should be REJECTED")
+	}
+}
+
+func TestHandleBridgeBirth_NoCARevertsToUnsigned(t *testing.T) {
+	// Without a CA configured, all births should be accepted (no verification).
+	ms := newMockStore()
+	mb := newMockBus()
+	sub := NewSubscriber(mb, ms, "default")
+	// No SetCertAuthority called.
+	if err := sub.Start(); err != nil {
+		t.Fatal(err)
+	}
+
+	birth := protocol.BridgeBirth{
+		Protocol:     protocol.ProtocolVersion,
+		BridgeID:     "no-ca-bridge",
+		Version:      "0.20.0",
+		Hostname:     "no-ca-bridge.local",
+		Mode:         "direct",
+		TenantID:     "default",
+		Interfaces:   []protocol.InterfaceInfo{{Name: "mesh_0", Type: "meshtastic", Status: "online"}},
+		Capabilities: []string{"meshtastic"},
+		Timestamp:    time.Now().UTC(),
+	}
+	payload, _ := json.Marshal(birth)
+	mb.deliver("meshsat/bridge/no-ca-bridge/birth", payload)
+
+	b, ok := ms.bridges["no-ca-bridge"]
+	if !ok {
+		t.Fatal("bridge should be accepted when no CA is configured")
+	}
+	if b.BirthVerified {
+		t.Error("bridge should NOT be verified when no CA is configured")
 	}
 }

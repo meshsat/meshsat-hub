@@ -5,8 +5,10 @@ package bridge
 
 import (
 	"context"
+	"crypto/x509"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -28,11 +30,13 @@ type ReticulumRouter interface {
 // Subscriber listens on bridge lifecycle MQTT topics and auto-provisions
 // bridge and device records in the Hub store.
 type Subscriber struct {
-	mqtt           bus.MessageBus
-	store          store.Store
-	tenantID       string
-	staleThreshold time.Duration // birth messages older than this are treated as retained replays
-	retRouter      ReticulumRouter
+	mqtt               bus.MessageBus
+	store              store.Store
+	tenantID           string
+	staleThreshold     time.Duration // birth messages older than this are treated as retained replays
+	retRouter          ReticulumRouter
+	caCertPool         *x509.CertPool // bridge CA for birth signature verification
+	birthSignatureMode string         // "warn" (default) or "enforce"
 }
 
 // NewSubscriber creates a new bridge MQTT subscriber.
@@ -59,6 +63,28 @@ func (s *Subscriber) SetStaleThreshold(d time.Duration) {
 // on health reports.
 func (s *Subscriber) SetReticulumRouter(r ReticulumRouter) {
 	s.retRouter = r
+}
+
+// SetCertAuthority configures the CA certificate pool for verifying birth
+// message signatures. If not set, birth signature verification is skipped.
+func (s *Subscriber) SetCertAuthority(ca *CertAuthority) {
+	if ca == nil {
+		return
+	}
+	pool := x509.NewCertPool()
+	pool.AddCert(ca.caCert)
+	s.caCertPool = pool
+}
+
+// SetBirthSignatureMode configures how unsigned births are handled.
+// "warn" (default): accept unsigned births, log a warning, mark bridge as unverified.
+// "enforce": reject unsigned births entirely.
+func (s *Subscriber) SetBirthSignatureMode(mode string) {
+	if mode == BirthSignatureModeEnforce {
+		s.birthSignatureMode = BirthSignatureModeEnforce
+	} else {
+		s.birthSignatureMode = BirthSignatureModeWarn
+	}
 }
 
 // Start subscribes to all bridge lifecycle MQTT topics.
@@ -115,6 +141,38 @@ func (s *Subscriber) handleBridgeBirth(topic string, payload []byte) {
 		return
 	}
 
+	// Verify birth signature if CA is configured.
+	birthVerified := false
+	if s.caCertPool != nil {
+		err := VerifyBirthSignature(payload, birth.Signature, birth.Certificate, bridgeID, s.caCertPool)
+		if err == nil {
+			birthVerified = true
+			slog.Info("bridge: birth signature verified",
+				"bridge", bridgeID,
+			)
+		} else if errors.Is(err, ErrBirthUnsigned) {
+			mode := s.birthSignatureMode
+			if mode == "" {
+				mode = BirthSignatureModeWarn
+			}
+			if mode == BirthSignatureModeEnforce {
+				slog.Warn("bridge: rejecting unsigned birth (enforce mode)",
+					"bridge", bridgeID,
+				)
+				return
+			}
+			slog.Warn("bridge: unsigned birth accepted (warn mode, upgrade bridge to enable signing)",
+				"bridge", bridgeID,
+			)
+		} else {
+			slog.Warn("bridge: birth signature verification failed, rejecting",
+				"bridge", bridgeID,
+				"error", err,
+			)
+			return
+		}
+	}
+
 	// Marshal the full birth cert for storage.
 	birthJSON, _ := json.Marshal(birth)
 
@@ -122,17 +180,18 @@ func (s *Subscriber) handleBridgeBirth(topic string, payload []byte) {
 	capsJSON, _ := json.Marshal(birth.Capabilities)
 
 	b := &store.Bridge{
-		BridgeID:     birth.BridgeID,
-		TenantID:     s.resolveTenantID(birth.TenantID),
-		Label:        birth.BridgeID,
-		Hostname:     birth.Hostname,
-		Version:      birth.Version,
-		Mode:         birth.Mode,
-		Capabilities: string(capsJSON),
-		CoTType:      birth.CoTType,
-		CoTCallsign:  birth.CoTCallsign,
-		Online:       true,
-		LastBirth:    string(birthJSON),
+		BridgeID:      birth.BridgeID,
+		TenantID:      s.resolveTenantID(birth.TenantID),
+		Label:         birth.BridgeID,
+		Hostname:      birth.Hostname,
+		Version:       birth.Version,
+		Mode:          birth.Mode,
+		Capabilities:  string(capsJSON),
+		CoTType:       birth.CoTType,
+		CoTCallsign:   birth.CoTCallsign,
+		Online:        true,
+		LastBirth:     string(birthJSON),
+		BirthVerified: birthVerified,
 	}
 
 	if birth.Location != nil {

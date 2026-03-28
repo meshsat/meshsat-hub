@@ -210,6 +210,7 @@ type Bridge struct {
 	MQTTPasswordHash string     `json:"-"` // bcrypt hash — NEVER exposed in JSON
 	CertPEM          string     `json:"cert_pem,omitempty"`
 	CertExpiry       *time.Time `json:"cert_expiry,omitempty"`
+	BirthVerified    bool       `json:"birth_verified"` // true if last birth had valid ECDSA signature
 	CreatedAt        time.Time  `json:"created_at"`
 	UpdatedAt        time.Time  `json:"updated_at"`
 }

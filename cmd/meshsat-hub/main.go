@@ -628,6 +628,17 @@ func main() {
 		bridgeSub.SetReticulumRouter(reticulumRouter)
 	}
 
+	// Wire bridge CA to subscriber for birth signature verification.
+	if bridgeSub != nil && bridgeCA != nil {
+		bridgeSub.SetCertAuthority(bridgeCA)
+		mode := os.Getenv("HUB_BIRTH_SIGNATURE_MODE")
+		if mode == "" {
+			mode = bridge.BirthSignatureModeWarn
+		}
+		bridgeSub.SetBirthSignatureMode(mode)
+		slog.Info("bridge: birth signature verification enabled", "mode", mode)
+	}
+
 	// Reticulum relay — forwards packets between interfaces.
 	reticulumRelay := reticulum.NewRelay(reticulumRouter, reticulum.DefaultRelayConfig())
 
