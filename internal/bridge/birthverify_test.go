@@ -49,7 +49,7 @@ func signedBirth(t *testing.T, ca *CertAuthority, bridgeID string) (birthJSON []
 	// Create canonical JSON (without signature).
 	raw, _ := json.Marshal(birth)
 	var m map[string]interface{}
-	json.Unmarshal(raw, &m)
+	_ = json.Unmarshal(raw, &m)
 	delete(m, "signature")
 	canonical, _ := json.Marshal(m)
 
@@ -135,7 +135,7 @@ func TestVerifyBirthSignature_TamperedPayload(t *testing.T) {
 
 	// Tamper with the birth JSON by changing the hostname.
 	var m map[string]interface{}
-	json.Unmarshal(birthJSON, &m)
+	_ = json.Unmarshal(birthJSON, &m)
 	m["hostname"] = "evil-host.local"
 	tamperedJSON, _ := json.Marshal(m)
 
@@ -198,7 +198,7 @@ func TestVerifyBirthSignature_NonECDSACert(t *testing.T) {
 
 	raw, _ := json.Marshal(birth)
 	var m map[string]interface{}
-	json.Unmarshal(raw, &m)
+	_ = json.Unmarshal(raw, &m)
 	delete(m, "signature")
 	canonical, _ := json.Marshal(m)
 
