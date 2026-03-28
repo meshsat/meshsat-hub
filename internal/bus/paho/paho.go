@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"net/url"
 	"os"
 	"sync"
 	"sync/atomic"
@@ -53,8 +54,20 @@ func New(brokerURL, clientID string) *Bus {
 func NewWithTLS(brokerURL, clientID string, tlsCfg *TLSConfig) *Bus {
 	b := &Bus{brokerURL: brokerURL, clientID: clientID}
 
+	// Parse credentials from broker URL if present (tcp://user:pass@host:port).
+	// Paho's AddBroker only uses the host:port — it ignores userinfo.
+	cleanBrokerURL := brokerURL
+	if u, err := url.Parse(brokerURL); err == nil && u.User != nil {
+		if user := u.User.Username(); user != "" {
+			slog.Info("bus: mqtt auth from broker URL", "user", user)
+			// Reconstruct URL without userinfo for AddBroker.
+			u.User = nil
+			cleanBrokerURL = u.String()
+		}
+	}
+
 	opts := pahomqtt.NewClientOptions().
-		AddBroker(brokerURL).
+		AddBroker(cleanBrokerURL).
 		SetClientID(clientID).
 		SetProtocolVersion(4). // MQTT 3.1.1 — required by NATS MQTT adapter
 		SetAutoReconnect(true).
@@ -73,6 +86,14 @@ func NewWithTLS(brokerURL, clientID string, tlsCfg *TLSConfig) *Bus {
 		SetReconnectingHandler(func(_ pahomqtt.Client, _ *pahomqtt.ClientOptions) {
 			slog.Info("bus: mqtt reconnecting", "broker", brokerURL)
 		})
+
+	// Apply credentials from URL userinfo (tcp://user:pass@host:port).
+	if u, err := url.Parse(brokerURL); err == nil && u.User != nil {
+		opts.SetUsername(u.User.Username())
+		if pass, ok := u.User.Password(); ok {
+			opts.SetPassword(pass)
+		}
+	}
 
 	if tlsCfg != nil {
 		tc, err := loadTLSConfig(tlsCfg)
