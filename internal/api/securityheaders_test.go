@@ -41,8 +41,7 @@ func TestSecurityHeaders_Present(t *testing.T) {
 
 func TestSecurityHeaders_NoHSTS_WithoutTLS(t *testing.T) {
 	// When HUB_FORCE_HSTS=false, HSTS should not be set without TLS.
-	os.Setenv("HUB_FORCE_HSTS", "false")
-	defer os.Unsetenv("HUB_FORCE_HSTS")
+	t.Setenv("HUB_FORCE_HSTS", "false")
 
 	handler := SecurityHeaders(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -59,7 +58,7 @@ func TestSecurityHeaders_NoHSTS_WithoutTLS(t *testing.T) {
 
 func TestSecurityHeaders_HSTS_ForcedByDefault(t *testing.T) {
 	// Default behavior: HSTS is always set (HUB_FORCE_HSTS defaults to true).
-	os.Unsetenv("HUB_FORCE_HSTS")
+	t.Setenv("HUB_FORCE_HSTS", "")
 	handler := SecurityHeaders(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
