@@ -143,6 +143,11 @@ type Store interface {
 	SetBridgeCertificate(ctx context.Context, tenantID, bridgeID, certPEM string, expiry time.Time) error
 	ListBridgesWithCredentials(ctx context.Context) ([]*Bridge, error)
 
+	// HeMB bond groups (MESHSAT-429)
+	CreateBondGroup(ctx context.Context, tenantID, bridgeID string, g *BondGroup) error
+	GetBondGroups(ctx context.Context, tenantID, bridgeID string) ([]BondGroup, error)
+	DeleteBondGroup(ctx context.Context, tenantID, bridgeID, groupID string) error
+
 	// Cost ledger
 	InsertCostEntry(ctx context.Context, tenantID string, c *CostEntry) error
 	ListCostEntries(ctx context.Context, tenantID string, deviceIMEI string, from, to time.Time, limit int) ([]CostEntry, error)
@@ -229,6 +234,17 @@ type BridgeCredentials struct {
 type BridgeUpdate struct {
 	Label       *string `json:"label,omitempty"`
 	CoTCallsign *string `json:"cot_callsign,omitempty"`
+}
+
+// BondGroup defines a HeMB bonding group for multi-path delivery.
+type BondGroup struct {
+	ID         string  `json:"id"`
+	TenantID   string  `json:"tenant_id"`
+	BridgeID   string  `json:"bridge_id"`
+	Label      string  `json:"label"`
+	Members    string  `json:"members"` // JSON array of interface IDs
+	CostBudget float64 `json:"cost_budget"`
+	CreatedAt  string  `json:"created_at"`
 }
 
 // Route defines a configurable message routing rule.

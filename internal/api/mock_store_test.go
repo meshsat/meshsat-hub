@@ -357,3 +357,13 @@ func (m *mockStore) DeleteCredential(context.Context, string, string) error     
 func (m *mockStore) ListExpiringCredentials(context.Context, time.Time) ([]store.Credential, error) {
 	return nil, nil
 }
+
+func (m *mockStore) CreateBondGroup(context.Context, string, string, *store.BondGroup) error {
+	return nil
+}
+func (m *mockStore) GetBondGroups(context.Context, string, string) ([]store.BondGroup, error) {
+	return nil, nil
+}
+func (m *mockStore) DeleteBondGroup(context.Context, string, string, string) error {
+	return nil
+}

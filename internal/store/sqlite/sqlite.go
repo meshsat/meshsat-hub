@@ -347,6 +347,9 @@ var postAlterMigrations = []string{
 	`CREATE TABLE IF NOT EXISTS credentials (id TEXT PRIMARY KEY, tenant_id TEXT NOT NULL DEFAULT 'default', provider TEXT NOT NULL, name TEXT NOT NULL, cred_type TEXT NOT NULL, encrypted_data BLOB NOT NULL, cert_not_after TEXT, cert_subject TEXT NOT NULL DEFAULT '', cert_issuer TEXT NOT NULL DEFAULT '', cert_fingerprint TEXT NOT NULL DEFAULT '', target_scope TEXT NOT NULL DEFAULT 'hub', target_bridge_id TEXT NOT NULL DEFAULT '', status TEXT NOT NULL DEFAULT 'active', version INTEGER NOT NULL DEFAULT 1, distributed_at TEXT, created_at TEXT NOT NULL DEFAULT (datetime('now')), updated_at TEXT NOT NULL DEFAULT (datetime('now')))`,
 	`CREATE INDEX IF NOT EXISTS idx_credentials_tenant ON credentials(tenant_id, provider)`,
 	`CREATE INDEX IF NOT EXISTS idx_credentials_expiry ON credentials(cert_not_after, status)`,
+	// MESHSAT-429: HeMB bond group management
+	`CREATE TABLE IF NOT EXISTS bond_groups (id TEXT NOT NULL, tenant_id TEXT NOT NULL DEFAULT 'default', bridge_id TEXT NOT NULL, label TEXT NOT NULL DEFAULT '', members TEXT NOT NULL DEFAULT '[]', cost_budget REAL NOT NULL DEFAULT 0, created_at TEXT NOT NULL DEFAULT (datetime('now')), PRIMARY KEY (tenant_id, bridge_id, id))`,
+	`CREATE INDEX IF NOT EXISTS idx_bond_groups_bridge ON bond_groups(tenant_id, bridge_id)`,
 }
 
 // lateAlterMigrations alter tables created in postAlterMigrations.

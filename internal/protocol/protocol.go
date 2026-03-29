@@ -39,6 +39,11 @@ const (
 	SubBridgeCmdResp = "meshsat/bridge/+/cmd/response"
 	SubDeviceBirth   = "meshsat/bridge/+/device/+/birth"
 	SubDeviceDeath   = "meshsat/bridge/+/device/+/death"
+
+	// HeMB bonded symbol relay — bridges publish individual RLNC-coded
+	// symbols here; Hub reassembles across bearers.
+	topicBridgeHeMB = "meshsat/bridge/%s/hemb"
+	SubBridgeHeMB   = "meshsat/bridge/+/hemb"
 )
 
 // CoT type constants (MIL-STD-2525 symbology).
@@ -71,6 +76,7 @@ func TopicBridgeDeath(bridgeID string) string   { return fmt.Sprintf(topicBridge
 func TopicBridgeHealth(bridgeID string) string  { return fmt.Sprintf(topicBridgeHealth, bridgeID) }
 func TopicBridgeCmd(bridgeID string) string     { return fmt.Sprintf(topicBridgeCmd, bridgeID) }
 func TopicBridgeCmdResp(bridgeID string) string { return fmt.Sprintf(topicBridgeCmdResp, bridgeID) }
+func TopicBridgeHeMB(bridgeID string) string    { return fmt.Sprintf(topicBridgeHeMB, bridgeID) }
 
 func TopicDeviceBirth(bridgeID, deviceID string) string {
 	return fmt.Sprintf(topicDeviceBirth, bridgeID, deviceID)
@@ -211,7 +217,18 @@ type BridgeHealth struct {
 	BurstQueue *BurstQueueInfo   `json:"burst_queue,omitempty"`
 	Reticulum  *ReticulumStats   `json:"reticulum,omitempty"`
 	Outbox     *OutboxInfo       `json:"outbox,omitempty"`
+	HeMB       *HeMBHealthStats  `json:"hemb,omitempty"`
 	Timestamp  time.Time         `json:"timestamp"`
+}
+
+// HeMBHealthStats reports HeMB bonding metrics from a bridge.
+type HeMBHealthStats struct {
+	ActiveBondGroups   int     `json:"active_bond_groups"`
+	SymbolsSent        int64   `json:"symbols_sent"`
+	SymbolsReceived    int64   `json:"symbols_received"`
+	GenerationsDecoded int64   `json:"generations_decoded"`
+	GenerationsFailed  int64   `json:"generations_failed"`
+	CostIncurred       float64 `json:"cost_incurred"`
 }
 
 // --- Device lifecycle messages ---
