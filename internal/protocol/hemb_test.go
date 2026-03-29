@@ -152,7 +152,7 @@ func TestHeMBReassemblyReap(t *testing.T) {
 	buf := NewHeMBReassemblyBuffer(nil)
 	buf.maxAge = 0 // expire immediately
 
-	buf.AddSymbol(0, 0, HeMBCodedSymbol{K: 2, Coefficients: []byte{1, 0}, Data: []byte{0x01}})
+	_, _ = buf.AddSymbol(0, 0, HeMBCodedSymbol{K: 2, Coefficients: []byte{1, 0}, Data: []byte{0x01}})
 	if buf.Stats().ActiveStreams != 1 {
 		t.Errorf("expected 1 active stream, got %d", buf.Stats().ActiveStreams)
 	}

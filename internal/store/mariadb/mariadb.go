@@ -2142,7 +2142,7 @@ func (d *DB) GetBondGroups(ctx context.Context, tenantID, bridgeID string) ([]st
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	for rows.Next() {
 		var g store.BondGroup
 		if err := rows.Scan(&g.ID, &g.TenantID, &g.BridgeID, &g.Label, &g.Members, &g.CostBudget, &g.CreatedAt); err != nil {

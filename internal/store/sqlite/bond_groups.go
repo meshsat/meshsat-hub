@@ -27,7 +27,7 @@ func (d *DB) GetBondGroups(ctx context.Context, tenantID, bridgeID string) ([]st
 	if err != nil {
 		return nil, fmt.Errorf("query bond groups: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	for rows.Next() {
 		var g store.BondGroup
