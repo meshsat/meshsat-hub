@@ -106,6 +106,14 @@ func (rb *HeMBReassemblyBuffer) tryDecode(streamID uint8, gen *hembGenerationSta
 		rb.deliverFn(streamID, payload)
 	}
 
+	// Remove decoded generation to free stream+gen ID for reuse.
+	if stream, ok := rb.streams[streamID]; ok {
+		delete(stream.generations, gen.genID)
+		if len(stream.generations) == 0 {
+			delete(rb.streams, streamID)
+		}
+	}
+
 	return payload, nil
 }
 

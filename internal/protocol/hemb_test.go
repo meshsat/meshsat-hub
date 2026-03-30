@@ -148,6 +148,26 @@ func TestHeMBReassemblyRoundtrip(t *testing.T) {
 	}
 }
 
+func TestHeMBGenerationCleanupAfterDecode(t *testing.T) {
+	var delivered int
+	buf := NewHeMBReassemblyBuffer(func(_ uint8, _ []byte) { delivered++ })
+
+	// K=1: single identity symbol decodes immediately
+	_, _ = buf.AddSymbol(5, 0, HeMBCodedSymbol{GenID: 0, K: 1, Coefficients: []byte{1}, Data: []byte{0xAA}})
+	if delivered != 1 {
+		t.Fatalf("expected 1 delivery, got %d", delivered)
+	}
+	// Generation should be cleaned up — stream removed
+	if buf.Stats().ActiveStreams != 0 {
+		t.Fatalf("expected 0 active streams after decode cleanup, got %d", buf.Stats().ActiveStreams)
+	}
+	// Reuse same stream+gen ID — must NOT hit "already decoded"
+	_, _ = buf.AddSymbol(5, 0, HeMBCodedSymbol{GenID: 0, K: 1, Coefficients: []byte{1}, Data: []byte{0xBB}})
+	if delivered != 2 {
+		t.Fatalf("expected 2 deliveries (reused stream ID), got %d", delivered)
+	}
+}
+
 func TestHeMBReassemblyReap(t *testing.T) {
 	buf := NewHeMBReassemblyBuffer(nil)
 	buf.maxAge = 0 // expire immediately
