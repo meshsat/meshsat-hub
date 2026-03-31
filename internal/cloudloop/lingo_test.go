@@ -79,7 +79,7 @@ func TestLingoMO_ParseIMT(t *testing.T) {
 		"imt": {
 			"cmid": "cm-001",
 			"topic": "IMT_TOPIC_PURPLE",
-			"messageId": "msg-001",
+			"messageId": 1,
 			"crcError": false,
 			"size": 256
 		},
