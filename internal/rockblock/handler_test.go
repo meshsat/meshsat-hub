@@ -13,8 +13,9 @@ import (
 
 const testSecret = "test-webhook-secret"
 
-func TestHandler_NoSecret_Rejected(t *testing.T) {
-	// Webhook handler with no secret must reject all requests.
+func TestHandler_NoSecret_Accepted(t *testing.T) {
+	// Rock7 portal does not support webhook signing — no shared secret field.
+	// When HUB_ROCKBLOCK_SECRET is empty, accept unsigned requests. [MESHSAT-446]
 	h := &Handler{secret: ""}
 	form := url.Values{"imei": {"300234065123456"}, "data": {"deadbeef"}}
 	req := httptest.NewRequest("POST", "/api/webhook/rockblock",
@@ -22,8 +23,8 @@ func TestHandler_NoSecret_Rejected(t *testing.T) {
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, req)
-	if w.Code != http.StatusForbidden {
-		t.Errorf("expected 403 when secret not configured, got %d", w.Code)
+	if w.Code != http.StatusOK {
+		t.Errorf("expected 200 when secret not configured (Rock7 has no signing), got %d", w.Code)
 	}
 }
 
