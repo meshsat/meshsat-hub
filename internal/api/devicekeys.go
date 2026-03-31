@@ -6,6 +6,7 @@ import (
 	"net/http"
 
 	"github.com/cubeos-app/meshsat-hub/internal/auth"
+	"github.com/cubeos-app/meshsat-hub/internal/bridge"
 	hubcrypto "github.com/cubeos-app/meshsat-hub/internal/crypto"
 	"github.com/cubeos-app/meshsat-hub/internal/store"
 	"github.com/go-chi/chi/v5"
@@ -13,13 +14,14 @@ import (
 
 // DeviceKeyHandler handles device encryption key management endpoints.
 type DeviceKeyHandler struct {
-	store    store.Store
-	keyStore *hubcrypto.KeyStore
+	store     store.Store
+	keyStore  *hubcrypto.KeyStore
+	commander *bridge.Commander
 }
 
 // NewDeviceKeyHandler returns a new device key handler.
-func NewDeviceKeyHandler(s store.Store, ks *hubcrypto.KeyStore) *DeviceKeyHandler {
-	return &DeviceKeyHandler{store: s, keyStore: ks}
+func NewDeviceKeyHandler(s store.Store, ks *hubcrypto.KeyStore, cmdr *bridge.Commander) *DeviceKeyHandler {
+	return &DeviceKeyHandler{store: s, keyStore: ks, commander: cmdr}
 }
 
 type createDeviceKeyRequest struct {
@@ -242,4 +244,175 @@ func (h *DeviceKeyHandler) DeleteKey(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+type rotateDistributeRequest struct {
+	ChannelType string   `json:"channel_type"` // e.g. "sms", "mesh", "iridium"
+	Address     string   `json:"address"`      // e.g. "+31653618463", "!abcd1234"
+	BridgeIDs   []string `json:"bridge_ids"`   // target bridges to push key to
+}
+
+type distributeKeyRequest struct {
+	BridgeIDs []string `json:"bridge_ids"` // target bridges
+}
+
+type rotateDistributeResponse struct {
+	KeyHash     string                  `json:"key_hash"`
+	Version     int                     `json:"version"`
+	Distributed []distributeResultEntry `json:"distributed"`
+}
+
+type distributeResultEntry struct {
+	BridgeID string `json:"bridge_id"`
+	Status   string `json:"status"` // "ok" or "error"
+	Error    string `json:"error,omitempty"`
+}
+
+// RotateAndDistribute generates a new encryption key and pushes it to the specified bridges.
+//
+//	@Summary      Rotate device key and distribute to bridges
+//	@Description  Generates a new AES-256-GCM key for a device, persists it, and pushes a key_rotate command to the specified bridges via MQTT.
+//	@Tags         devices
+//	@Accept       json
+//	@Produce      json
+//	@Param        imei  path  string  true  "Device IMEI"
+//	@Param        body  body  rotateDistributeRequest  true  "Rotation parameters"
+//	@Success      200  {object}  rotateDistributeResponse
+//	@Failure      400  {object}  map[string]string
+//	@Failure      500  {object}  map[string]string
+//	@Router       /api/devices/{imei}/keys/rotate [post]
+func (h *DeviceKeyHandler) RotateAndDistribute(w http.ResponseWriter, r *http.Request) {
+	tid := auth.TenantIDFromContext(r.Context())
+	imei := chi.URLParam(r, "imei")
+	if imei == "" {
+		writeError(w, http.StatusBadRequest, "missing imei")
+		return
+	}
+
+	var req rotateDistributeRequest
+	if err := readJSON(w, r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	if req.ChannelType == "" {
+		writeError(w, http.StatusBadRequest, "channel_type is required")
+		return
+	}
+	if req.Address == "" {
+		writeError(w, http.StatusBadRequest, "address is required")
+		return
+	}
+
+	// Generate a new key via the in-memory keystore.
+	entry, rawKey, err := h.keyStore.GenerateAndStore(imei, "decrypt")
+	if err != nil {
+		slog.Error("key rotation generation failed", "error", err)
+		writeError(w, http.StatusInternalServerError, "key generation failed")
+		return
+	}
+
+	keyHex := hex.EncodeToString(rawKey)
+
+	dk := &store.DeviceKey{
+		DeviceIMEI: imei,
+		KeyHash:    entry.KeyHashHex,
+		KeyHex:     keyHex,
+		Mode:       "decrypt",
+	}
+	if err := h.store.CreateDeviceKey(r.Context(), tid, dk); err != nil {
+		slog.Error("key rotation persistence failed", "error", err)
+		writeError(w, http.StatusInternalServerError, "key persistence failed")
+		return
+	}
+
+	// Distribute key to each target bridge via MQTT command.
+	results := make([]distributeResultEntry, 0, len(req.BridgeIDs))
+	for _, bid := range req.BridgeIDs {
+		cmd := bridge.KeyRotateCommand(req.ChannelType, req.Address, keyHex, entry.Version)
+		_, err := h.commander.SendCommand(r.Context(), bid, cmd)
+		res := distributeResultEntry{BridgeID: bid, Status: "ok"}
+		if err != nil {
+			res.Status = "error"
+			res.Error = err.Error()
+			slog.Warn("key rotation distribute failed", "bridge", bid, "error", err)
+		}
+		results = append(results, res)
+	}
+
+	slog.Info("crypto: key rotated and distributed", "device", imei, "version", entry.Version, "bridges", len(req.BridgeIDs))
+
+	writeJSON(w, http.StatusOK, rotateDistributeResponse{
+		KeyHash:     entry.KeyHashHex,
+		Version:     entry.Version,
+		Distributed: results,
+	})
+}
+
+// DistributeKey pushes the latest encryption key to the specified bridges.
+//
+//	@Summary      Distribute existing device key to bridges
+//	@Description  Retrieves the latest key for a device and pushes a key_rotate command to the specified bridges via MQTT.
+//	@Tags         devices
+//	@Accept       json
+//	@Produce      json
+//	@Param        imei  path  string  true  "Device IMEI"
+//	@Param        body  body  distributeKeyRequest  true  "Distribution parameters"
+//	@Success      200  {object}  rotateDistributeResponse
+//	@Failure      400  {object}  map[string]string
+//	@Failure      404  {object}  map[string]string
+//	@Failure      500  {object}  map[string]string
+//	@Router       /api/devices/{imei}/keys/distribute [post]
+func (h *DeviceKeyHandler) DistributeKey(w http.ResponseWriter, r *http.Request) {
+	imei := chi.URLParam(r, "imei")
+	if imei == "" {
+		writeError(w, http.StatusBadRequest, "missing imei")
+		return
+	}
+
+	var req distributeKeyRequest
+	if err := readJSON(w, r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	if len(req.BridgeIDs) == 0 {
+		writeError(w, http.StatusBadRequest, "bridge_ids is required")
+		return
+	}
+
+	// Get the latest key for this device.
+	entry, err := h.keyStore.GetLatest(imei)
+	if err != nil {
+		writeError(w, http.StatusNotFound, "no key found for device")
+		return
+	}
+
+	if entry.KeyHex == "" {
+		writeError(w, http.StatusBadRequest, "key material not available (passthrough mode)")
+		return
+	}
+
+	// Distribute key to each target bridge via MQTT command.
+	// Use empty channel_type and address — bridge uses key for all channels on this device.
+	results := make([]distributeResultEntry, 0, len(req.BridgeIDs))
+	for _, bid := range req.BridgeIDs {
+		cmd := bridge.KeyRotateCommand("", "", entry.KeyHex, entry.Version)
+		_, err := h.commander.SendCommand(r.Context(), bid, cmd)
+		res := distributeResultEntry{BridgeID: bid, Status: "ok"}
+		if err != nil {
+			res.Status = "error"
+			res.Error = err.Error()
+			slog.Warn("key distribute failed", "bridge", bid, "error", err)
+		}
+		results = append(results, res)
+	}
+
+	slog.Info("crypto: key distributed", "device", imei, "version", entry.Version, "bridges", len(req.BridgeIDs))
+
+	writeJSON(w, http.StatusOK, rotateDistributeResponse{
+		KeyHash:     entry.KeyHashHex,
+		Version:     entry.Version,
+		Distributed: results,
+	})
 }
