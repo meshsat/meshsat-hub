@@ -252,22 +252,14 @@ func (h *SendHandler) SendSMS(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Step 2: AES-256-GCM encryption (opt-in)
+	// Key resolution: channel key (sms:*) → recipient-specific → global "sms". [MESHSAT-447]
 	if req.Encrypt && h.keyStore != nil {
-		// Try recipient-specific key first, then global "sms" key.
-		// Auto-generate "sms" key on first encrypted send.
-		keyID := req.To // per-recipient key
-		ct, encErr := h.keyStore.EncryptMessage(keyID, payload)
+		ct, encErr := h.keyStore.EncryptMessage("sms:*", payload) // Hub-rotated channel key
 		if encErr != nil {
-			// Try global "sms" key
-			ct, encErr = h.keyStore.EncryptMessage("sms", payload)
+			ct, encErr = h.keyStore.EncryptMessage(req.To, payload) // per-recipient
 		}
 		if encErr != nil {
-			// Auto-generate global SMS key
-			_, _, genErr := h.keyStore.GenerateAndStore("sms", "decrypt")
-			if genErr == nil {
-				ct, encErr = h.keyStore.EncryptMessage("sms", payload)
-				slog.Info("sms: auto-generated encryption key", "key_id", "sms")
-			}
+			ct, encErr = h.keyStore.EncryptMessage("sms", payload) // global "sms"
 		}
 		if encErr == nil {
 			payload = ct
