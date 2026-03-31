@@ -192,7 +192,7 @@ func (h *WebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, `{"error":"webhook IP allowlist not configured"}`, http.StatusForbidden)
 		return
 	}
-	if !(len(h.allowedIPs) == 1 && h.allowedIPs[0] == "*") && !h.isAllowedIP(r) {
+	if (len(h.allowedIPs) != 1 || h.allowedIPs[0] != "*") && !h.isAllowedIP(r) {
 		slog.Warn("cloudloop: request from disallowed IP", "remote", r.RemoteAddr)
 		http.Error(w, `{"error":"forbidden"}`, http.StatusForbidden)
 		return
