@@ -787,7 +787,10 @@ func main() {
 		reticulumRelay.RegisterInterface(retGlobalstarIface)
 	}
 
-	// SMS Reticulum interface deferred to MESHSAT-404 (needs dedicated interface type).
+	// SMS as Reticulum interface (RX-only, inbound via Twilio webhook). [MESHSAT-446]
+	retSMSIface := reticulum.NewSMSInterface()
+	retSMSIface.SetHandler(reticulumPacketHandler)
+	reticulumRelay.RegisterInterface(retSMSIface)
 
 	// Tor as Reticulum interface (proxied via MQTT).
 	torOnion := os.Getenv("HUB_TOR_ONION")
@@ -1100,7 +1103,7 @@ func main() {
 		smsWebhook.SetMSVQSC(msvqscDecoder)
 		smsWebhook.SetDeadman(deadmanMonitor)
 		smsWebhook.SetAudit(auditSvc)
-		// smsWebhook.SetReticulumIface — deferred to MESHSAT-404
+		smsWebhook.SetReticulumIface(retSMSIface)
 		r.Post("/api/webhook/sms", smsWebhook.ServeHTTP)
 		if msgBus.IsConnected() {
 			smsSub := sms.NewSubscriber(smsClient, msgBus)
