@@ -186,12 +186,13 @@ func (h *WebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// IP allowlist check — reject all requests when no allowlist is configured.
+	// Use "*" to allow all IPs (useful when webhook signature validation suffices).
 	if len(h.allowedIPs) == 0 {
 		slog.Warn("cloudloop: webhook IP allowlist not configured, rejecting request")
 		http.Error(w, `{"error":"webhook IP allowlist not configured"}`, http.StatusForbidden)
 		return
 	}
-	if !h.isAllowedIP(r) {
+	if !(len(h.allowedIPs) == 1 && h.allowedIPs[0] == "*") && !h.isAllowedIP(r) {
 		slog.Warn("cloudloop: request from disallowed IP", "remote", r.RemoteAddr)
 		http.Error(w, `{"error":"forbidden"}`, http.StatusForbidden)
 		return
