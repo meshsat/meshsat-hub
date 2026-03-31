@@ -121,6 +121,17 @@ func isNotDecodable(err error) bool {
 	return err != nil && err.Error() == ErrHeMBNotDecodable.Error()
 }
 
+// AddRawFrame parses an HeMB frame and feeds it into the reassembly buffer.
+// Returns the decoded payload when a generation is complete, nil otherwise.
+// Satisfies the hembReassemblerIface used by webhook handlers.
+func (rb *HeMBReassemblyBuffer) AddRawFrame(data []byte) ([]byte, error) {
+	sym, streamID, bearerIdx, err := ParseHeMBSymbol(data)
+	if err != nil {
+		return nil, err
+	}
+	return rb.AddSymbol(streamID, bearerIdx, sym)
+}
+
 // Reap removes streams older than maxAge. Returns number of streams removed.
 func (rb *HeMBReassemblyBuffer) Reap() int {
 	rb.mu.Lock()

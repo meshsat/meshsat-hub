@@ -24,6 +24,7 @@ import (
 	"github.com/cubeos-app/meshsat-hub/internal/fragment"
 	hubmqtt "github.com/cubeos-app/meshsat-hub/internal/mqtt"
 	"github.com/cubeos-app/meshsat-hub/internal/msvqsc"
+	"github.com/cubeos-app/meshsat-hub/internal/protocol"
 	"github.com/cubeos-app/meshsat-hub/internal/store"
 )
 
@@ -73,17 +74,18 @@ type WebhookPositionMessage struct {
 
 // WebhookHandler handles Cloudloop LingoMO webhook POST requests.
 type WebhookHandler struct {
-	mqtt        bus.MessageBus
-	audit       *audit.Service
-	dedup       dedup.Dedup
-	reassembler *fragment.Reassembler
-	keyStore    *hubcrypto.KeyStore
-	deadman     *deadman.Monitor
-	msvqsc      *msvqsc.Decoder
-	retIface    reticulumReceiver
-	resolver    *ThingResolver
-	allowedIPs  []string
-	store       interface {
+	mqtt            bus.MessageBus
+	audit           *audit.Service
+	dedup           dedup.Dedup
+	reassembler     *fragment.Reassembler
+	keyStore        *hubcrypto.KeyStore
+	deadman         *deadman.Monitor
+	msvqsc          *msvqsc.Decoder
+	retIface        reticulumReceiver
+	hembReassembler interface{ AddRawFrame([]byte) ([]byte, error) }
+	resolver        *ThingResolver
+	allowedIPs      []string
+	store           interface {
 		InsertMessage(ctx context.Context, tenantID string, m *store.Message) error
 		SetBridgeOnline(ctx context.Context, tenantID string, bridgeID string, online bool) error
 		SetBridgeHealth(ctx context.Context, tenantID string, bridgeID string, health string) error
@@ -137,6 +139,11 @@ func (h *WebhookHandler) SetStore(s interface {
 // SetReticulumIface attaches a Reticulum interface for forwarding raw packets.
 func (h *WebhookHandler) SetReticulumIface(iface reticulumReceiver) {
 	h.retIface = iface
+}
+
+// SetHeMBReassembler attaches a HeMB reassembly buffer for inbound coded symbols.
+func (h *WebhookHandler) SetHeMBReassembler(r interface{ AddRawFrame([]byte) ([]byte, error) }) {
+	h.hembReassembler = r
 }
 
 // SetAllowedIPs sets the IP allowlist for webhook requests.
@@ -251,6 +258,19 @@ func (h *WebhookHandler) processLingoMO(ctx context.Context, mo *LingoMO, remote
 			slog.Info("cloudloop: duplicate MO suppressed", "imei", imei, "id", mo.ID)
 			return "duplicate"
 		}
+	}
+
+	// HeMB frame detection — intercept before other processing.
+	if protocol.IsHeMBFrame(rawBytes) {
+		slog.Info("cloudloop: HeMB frame detected", "imei", imei, "bytes", len(rawBytes))
+		if h.hembReassembler != nil {
+			if decoded, err := h.hembReassembler.AddRawFrame(rawBytes); err != nil {
+				slog.Warn("cloudloop: HeMB reassembly error", "error", err, "imei", imei)
+			} else if decoded != nil {
+				slog.Info("cloudloop: HeMB decoded", "imei", imei, "payload_bytes", len(decoded))
+			}
+		}
+		return "hemb_symbol"
 	}
 
 	// Check if this is a bridge satellite uplink message (magic 0x4D53 "MS").

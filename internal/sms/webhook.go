@@ -24,6 +24,7 @@ import (
 	"github.com/cubeos-app/meshsat-hub/internal/fragment"
 	hubmqtt "github.com/cubeos-app/meshsat-hub/internal/mqtt"
 	"github.com/cubeos-app/meshsat-hub/internal/msvqsc"
+	"github.com/cubeos-app/meshsat-hub/internal/protocol"
 	"github.com/cubeos-app/meshsat-hub/internal/store"
 )
 
@@ -57,16 +58,23 @@ type reticulumReceiver interface {
 // [MESHSAT-446] Now matches Rock7/Cloudloop pipeline: dedup, fragment
 // reassembly, SMAZ2/MSVQ-SC compression, Reticulum relay, bridge uplink.
 type WebhookHandler struct {
-	mqtt        bus.MessageBus
-	secret      string // webhook validation secret
-	store       store.Store
-	keyStore    *hubcrypto.KeyStore
-	dedup       dedup.Dedup
-	reassembler *fragment.Reassembler
-	msvqsc      *msvqsc.Decoder
-	retIface    reticulumReceiver
-	deadman     *deadman.Monitor
-	audit       *audit.Service
+	mqtt            bus.MessageBus
+	secret          string // webhook validation secret
+	store           store.Store
+	keyStore        *hubcrypto.KeyStore
+	dedup           dedup.Dedup
+	reassembler     *fragment.Reassembler
+	msvqsc          *msvqsc.Decoder
+	retIface        reticulumReceiver
+	deadman         *deadman.Monitor
+	audit           *audit.Service
+	hembReassembler hembReassemblerIface
+}
+
+// hembReassemblerIface allows the SMS handler to feed HeMB symbols into the
+// Hub's reassembly buffer without importing the protocol package directly.
+type hembReassemblerIface interface {
+	AddRawFrame(data []byte) ([]byte, error)
 }
 
 // NewWebhookHandler creates a new inbound SMS webhook handler.
@@ -97,6 +105,9 @@ func (h *WebhookHandler) SetDeadman(dm *deadman.Monitor) { h.deadman = dm }
 
 // SetAudit attaches an audit service for logging. [MESHSAT-446]
 func (h *WebhookHandler) SetAudit(a *audit.Service) { h.audit = a }
+
+// SetHeMBReassembler attaches a HeMB reassembly buffer for inbound coded symbols.
+func (h *WebhookHandler) SetHeMBReassembler(r hembReassemblerIface) { h.hembReassembler = r }
 
 func (h *WebhookHandler) publish(topic string, qos byte, retained bool, v any) {
 	if h.mqtt == nil {
@@ -195,6 +206,22 @@ func (h *WebhookHandler) processBinaryPipeline(r *http.Request, w http.ResponseW
 			_ = json.NewEncoder(w).Encode(map[string]string{"status": "duplicate"})
 			return
 		}
+	}
+
+	// HeMB frame detection — intercept before other processing.
+	if protocol.IsHeMBFrame(rawBytes) {
+		slog.Info("sms: HeMB frame detected", "from", from, "bytes", len(rawBytes))
+		if h.hembReassembler != nil {
+			if decoded, err := h.hembReassembler.AddRawFrame(rawBytes); err != nil {
+				slog.Warn("sms: HeMB reassembly error", "error", err, "from", from)
+			} else if decoded != nil {
+				slog.Info("sms: HeMB decoded", "from", from, "payload_bytes", len(decoded))
+			}
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_ = json.NewEncoder(w).Encode(map[string]string{"status": "hemb_symbol"})
+		return
 	}
 
 	// Bridge satellite uplink detection (magic 0x4D53 "MS").

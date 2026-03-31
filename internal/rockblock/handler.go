@@ -26,6 +26,7 @@ import (
 	"github.com/cubeos-app/meshsat-hub/internal/fragment"
 	hubmqtt "github.com/cubeos-app/meshsat-hub/internal/mqtt"
 	"github.com/cubeos-app/meshsat-hub/internal/msvqsc"
+	"github.com/cubeos-app/meshsat-hub/internal/protocol"
 	"github.com/cubeos-app/meshsat-hub/internal/store"
 )
 
@@ -77,16 +78,17 @@ type reticulumReceiver interface {
 }
 
 type Handler struct {
-	mqtt        bus.MessageBus
-	secret      string
-	audit       *audit.Service
-	dedup       dedup.Dedup
-	reassembler *fragment.Reassembler
-	keyStore    *hubcrypto.KeyStore
-	deadman     *deadman.Monitor
-	msvqsc      *msvqsc.Decoder
-	retIface    reticulumReceiver
-	store       interface {
+	mqtt            bus.MessageBus
+	secret          string
+	audit           *audit.Service
+	dedup           dedup.Dedup
+	reassembler     *fragment.Reassembler
+	keyStore        *hubcrypto.KeyStore
+	deadman         *deadman.Monitor
+	msvqsc          *msvqsc.Decoder
+	retIface        reticulumReceiver
+	hembReassembler interface{ AddRawFrame([]byte) ([]byte, error) }
+	store           interface {
 		InsertMessage(ctx context.Context, tenantID string, m *store.Message) error
 		SetBridgeOnline(ctx context.Context, tenantID string, bridgeID string, online bool) error
 		SetBridgeHealth(ctx context.Context, tenantID string, bridgeID string, health string) error
@@ -140,6 +142,11 @@ func (h *Handler) SetStore(s interface {
 // SetReticulumIface attaches a Reticulum interface for forwarding raw packets.
 func (h *Handler) SetReticulumIface(iface reticulumReceiver) {
 	h.retIface = iface
+}
+
+// SetHeMBReassembler attaches a HeMB reassembly buffer for inbound coded symbols.
+func (h *Handler) SetHeMBReassembler(r interface{ AddRawFrame([]byte) ([]byte, error) }) {
+	h.hembReassembler = r
 }
 
 func (h *Handler) publish(topic string, qos byte, retained bool, v any) {
@@ -222,6 +229,22 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			_ = json.NewEncoder(w).Encode(map[string]string{"status": "duplicate"})
 			return
 		}
+	}
+
+	// HeMB frame detection — intercept before other processing.
+	if protocol.IsHeMBFrame(rawBytes) {
+		slog.Info("rockblock: HeMB frame detected", "imei", imei, "bytes", len(rawBytes))
+		if h.hembReassembler != nil {
+			if decoded, err := h.hembReassembler.AddRawFrame(rawBytes); err != nil {
+				slog.Warn("rockblock: HeMB reassembly error", "error", err, "imei", imei)
+			} else if decoded != nil {
+				slog.Info("rockblock: HeMB decoded", "imei", imei, "payload_bytes", len(decoded))
+			}
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_ = json.NewEncoder(w).Encode(map[string]string{"status": "hemb_symbol"})
+		return
 	}
 
 	// Check if this is a bridge satellite uplink message (magic 0x4D53 "MS").

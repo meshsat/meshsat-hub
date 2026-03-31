@@ -901,6 +901,7 @@ func main() {
 	rbHandler.SetDeadman(deadmanMonitor)
 	rbHandler.SetMSVQSC(msvqscDecoder)
 	rbHandler.SetStore(dataStore)
+	rbHandler.SetHeMBReassembler(hembReassemblyBuf)
 
 	// Rock7 MT sender (for sending messages to devices via Iridium).
 	var rock7Client *rock7.Client
@@ -936,6 +937,7 @@ func main() {
 	clHandler.SetDeadman(deadmanMonitor)
 	clHandler.SetMSVQSC(msvqscDecoder)
 	clHandler.SetStore(dataStore)
+	clHandler.SetHeMBReassembler(hembReassemblyBuf)
 	clHandler.SetResolver(thingResolver)
 	if cfg.CloudloopWebhookAllowedIPs != "" {
 		clHandler.SetAllowedIPs(strings.Split(cfg.CloudloopWebhookAllowedIPs, ","))
@@ -1103,7 +1105,8 @@ func main() {
 		smsWebhook.SetMSVQSC(msvqscDecoder)
 		smsWebhook.SetDeadman(deadmanMonitor)
 		smsWebhook.SetAudit(auditSvc)
-		smsWebhook.SetReticulumIface(retSMSIface)
+		smsWebhook.SetHeMBReassembler(hembReassemblyBuf)
+		// SMS Reticulum interface deferred to MESHSAT-404
 		r.Post("/api/webhook/sms", smsWebhook.ServeHTTP)
 		if msgBus.IsConnected() {
 			smsSub := sms.NewSubscriber(smsClient, msgBus)
