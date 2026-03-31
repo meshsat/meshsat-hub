@@ -77,7 +77,7 @@ func newTestLingoMO(imei, text string) LingoMO {
 		IMT: &LingoIMT{
 			CMID:      "cm-001",
 			Topic:     "IMT_TOPIC_PURPLE",
-			MessageID: "msg-001",
+			MessageID: json.Number("1"),
 			Size:      len(text),
 		},
 		Message: base64.StdEncoding.EncodeToString([]byte(text)),
