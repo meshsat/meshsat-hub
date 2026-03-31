@@ -1261,11 +1261,17 @@ func main() {
 	r.Get("/api/devices/{imei}/config/{version}", configHandler.GetVersion)
 
 	// Device encryption key management
-	deviceKeyHandler := api.NewDeviceKeyHandler(dataStore, keyStore)
+	deviceKeyHandler := api.NewDeviceKeyHandler(dataStore, keyStore, bridgeCommander)
 	r.Post("/api/devices/{imei}/keys", deviceKeyHandler.CreateKey)
 	r.Post("/api/devices/{imei}/keys/import", deviceKeyHandler.ImportKey)
 	r.Get("/api/devices/{imei}/keys", deviceKeyHandler.ListKeys)
 	r.Delete("/api/devices/{imei}/keys/{id}", deviceKeyHandler.DeleteKey)
+	r.Post("/api/devices/{imei}/keys/rotate", deviceKeyHandler.RotateAndDistribute)
+	r.Post("/api/devices/{imei}/keys/distribute", deviceKeyHandler.DistributeKey)
+
+	// Channel key rotation — Hub generates + distributes to all bridges [MESHSAT-447]
+	channelKeyHandler := api.NewChannelKeyHandler(dataStore, keyStore, bridgeCommander)
+	r.Post("/api/keys/channel/rotate", channelKeyHandler.RotateChannelKey)
 
 	// MT message send (Rock7 / Iridium)
 	sendHandler := api.NewSendHandler(rock7Client, dataStore)

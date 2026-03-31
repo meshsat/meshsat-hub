@@ -63,6 +63,22 @@ func CredentialRevokeCommand(credID, reason string) protocol.Command {
 	}
 }
 
+// KeyRotateCommand creates a command to push a new encryption key to a bridge or Android device.
+// The bridge stores this key in its keystore; the old key is retired with a grace period. [MESHSAT-447]
+func KeyRotateCommand(channelType, address, keyHex string, version int) protocol.Command {
+	payload, _ := json.Marshal(map[string]interface{}{
+		"channel_type": channelType,
+		"address":      address,
+		"key_hex":      keyHex,
+		"version":      version,
+	})
+	return protocol.Command{
+		Cmd:       "key_rotate",
+		Payload:   json.RawMessage(payload),
+		Timestamp: time.Now().UTC(),
+	}
+}
+
 // Commander sends commands to field bridges via MQTT and correlates responses.
 type Commander struct {
 	mqtt    bus.MessageBus
