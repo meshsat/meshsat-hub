@@ -21,6 +21,7 @@ const (
 	IfaceIridium    InterfaceType = "iridium"
 	IfaceAstrocast  InterfaceType = "astrocast"
 	IfaceGlobalstar InterfaceType = "globalstar"
+	IfaceSMS        InterfaceType = "sms"
 	IfaceLocal      InterfaceType = "local"
 )
 
@@ -28,7 +29,7 @@ const (
 // Free interfaces return 0; satellite interfaces return their typical cost.
 func InterfaceCost(iface InterfaceType) float64 {
 	switch iface {
-	case IfaceMQTT, IfaceTCP, IfaceTor, IfaceWireGuard, IfaceLocal:
+	case IfaceMQTT, IfaceTCP, IfaceTor, IfaceWireGuard, IfaceSMS, IfaceLocal:
 		return 0
 	case IfaceIridium:
 		return 0.05

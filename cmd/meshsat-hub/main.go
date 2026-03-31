@@ -52,6 +52,7 @@ import (
 	"github.com/cubeos-app/meshsat-hub/internal/ntfy"
 	"github.com/cubeos-app/meshsat-hub/internal/observability"
 	"github.com/cubeos-app/meshsat-hub/internal/position"
+	"github.com/cubeos-app/meshsat-hub/internal/protocol"
 	"github.com/cubeos-app/meshsat-hub/internal/ratelimit"
 	"github.com/cubeos-app/meshsat-hub/internal/reticulum"
 	"github.com/cubeos-app/meshsat-hub/internal/rock7"
@@ -409,8 +410,14 @@ func main() {
 	// Bridge lifecycle subscriber: auto-provisions bridges and devices from MQTT birth/death/health.
 	var bridgeCommander *bridge.Commander
 	var bridgeSub *bridge.Subscriber
+	var hembReassemblyBuf *protocol.HeMBReassemblyBuffer
 	if msgBus.IsConnected() {
 		bridgeSub = bridge.NewSubscriber(msgBus, dataStore, store.DefaultTenantID)
+
+		// HeMB reassembly: decode bonded RLNC-coded symbols from bridges.
+		hembReassemblyBuf = protocol.NewHeMBReassemblyBuffer(nil) // deliverFn set via subscriber handler
+		bridgeSub.SetHeMBReassembler(hembReassemblyBuf)
+
 		if err := bridgeSub.Start(); err != nil {
 			slog.Error("bridge: failed to start subscriber", "error", err)
 		}
@@ -780,6 +787,11 @@ func main() {
 		reticulumRelay.RegisterInterface(retGlobalstarIface)
 	}
 
+	// SMS as Reticulum interface (RX-only, inbound via Twilio webhook). [MESHSAT-446]
+	retSMSIface := reticulum.NewSMSInterface()
+	retSMSIface.SetHandler(reticulumPacketHandler)
+	reticulumRelay.RegisterInterface(retSMSIface)
+
 	// Tor as Reticulum interface (proxied via MQTT).
 	torOnion := os.Getenv("HUB_TOR_ONION")
 	if torOnion != "" {
@@ -1085,6 +1097,13 @@ func main() {
 		smsWebhook := sms.NewWebhookHandler(msgBus, cfg.SMSWebhookSecret)
 		smsWebhook.SetStore(dataStore)
 		smsWebhook.SetKeyStore(keyStore)
+		// [MESHSAT-446] Wire full pipeline (parity with Rock7/Cloudloop)
+		smsWebhook.SetDedup(dedupTracker)
+		smsWebhook.SetReassembler(reassembler)
+		smsWebhook.SetMSVQSC(msvqscDecoder)
+		smsWebhook.SetDeadman(deadmanMonitor)
+		smsWebhook.SetAudit(auditSvc)
+		smsWebhook.SetReticulumIface(retSMSIface)
 		r.Post("/api/webhook/sms", smsWebhook.ServeHTTP)
 		if msgBus.IsConnected() {
 			smsSub := sms.NewSubscriber(smsClient, msgBus)

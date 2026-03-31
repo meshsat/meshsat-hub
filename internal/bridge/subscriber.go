@@ -27,6 +27,14 @@ type ReticulumRouter interface {
 	RefreshRoute(destHashHex string) bool
 }
 
+// HeMBReassembler is the interface for the HeMB reassembly buffer used by the
+// bridge subscriber to reassemble bonded traffic from bridges.
+type HeMBReassembler interface {
+	AddSymbol(streamID uint8, bearerIndex uint8, sym protocol.HeMBCodedSymbol) ([]byte, error)
+	Reap() int
+	Stats() protocol.HeMBReassemblyStats
+}
+
 // Subscriber listens on bridge lifecycle MQTT topics and auto-provisions
 // bridge and device records in the Hub store.
 type Subscriber struct {
@@ -37,6 +45,7 @@ type Subscriber struct {
 	retRouter          ReticulumRouter
 	caCertPool         *x509.CertPool // bridge CA for birth signature verification
 	birthSignatureMode string         // "warn" (default) or "enforce"
+	hembReassembler    HeMBReassembler
 }
 
 // NewSubscriber creates a new bridge MQTT subscriber.
@@ -76,6 +85,13 @@ func (s *Subscriber) SetCertAuthority(ca *CertAuthority) {
 	s.caCertPool = pool
 }
 
+// SetHeMBReassembler attaches a HeMB reassembly buffer so that bonded
+// RLNC-coded symbols from bridges are decoded and the resulting payloads
+// are re-published to the standard MO pipeline.
+func (s *Subscriber) SetHeMBReassembler(r HeMBReassembler) {
+	s.hembReassembler = r
+}
+
 // SetBirthSignatureMode configures how unsigned births are handled.
 // "warn" (default): accept unsigned births, log a warning, mark bridge as unverified.
 // "enforce": reject unsigned births entirely.
@@ -100,6 +116,14 @@ func (s *Subscriber) Start() error {
 		{protocol.SubDeviceDeath, s.handleDeviceDeath},
 	}
 
+	// Subscribe to HeMB bonded symbols if a reassembler is configured.
+	if s.hembReassembler != nil {
+		subs = append(subs, struct {
+			topic   string
+			handler func(string, []byte)
+		}{protocol.SubBridgeHeMB, s.handleHeMBSymbol})
+	}
+
 	for _, sub := range subs {
 		if err := s.mqtt.Subscribe(sub.topic, 1, sub.handler); err != nil {
 			return fmt.Errorf("bridge subscriber: %w", err)
@@ -109,6 +133,7 @@ func (s *Subscriber) Start() error {
 	slog.Info("bridge: subscriber started",
 		"tenant_id", s.tenantID,
 		"topics", len(subs),
+		"hemb", s.hembReassembler != nil,
 	)
 	return nil
 }
@@ -467,6 +492,70 @@ func (s *Subscriber) handleDeviceDeath(topic string, payload []byte) {
 		"bridge", bridgeID,
 		"device", deviceID,
 		"reason", death.Reason,
+	)
+}
+
+// handleHeMBSymbol processes a single HeMB RLNC-coded symbol from a bridge.
+// When the reassembly buffer collects K independent symbols for a generation,
+// it decodes the original payload and re-publishes it to the bridge's MO topic.
+func (s *Subscriber) handleHeMBSymbol(topic string, payload []byte) {
+	if s.hembReassembler == nil || len(payload) == 0 {
+		return
+	}
+
+	bridgeID := extractBridgeIDFromTopic(topic)
+	if bridgeID == "" {
+		slog.Debug("hemb: symbol on unparseable topic", "topic", topic)
+		return
+	}
+
+	if !protocol.IsHeMBFrame(payload) {
+		slog.Debug("hemb: payload is not a valid HeMB frame",
+			"bridge", bridgeID, "len", len(payload))
+		return
+	}
+
+	sym, streamID, bearerIdx, err := protocol.ParseHeMBSymbol(payload)
+	if err != nil {
+		slog.Debug("hemb: failed to parse symbol",
+			"bridge", bridgeID, "error", err)
+		return
+	}
+
+	decoded, err := s.hembReassembler.AddSymbol(streamID, bearerIdx, sym)
+	if err != nil {
+		slog.Warn("hemb: reassembly error",
+			"bridge", bridgeID,
+			"stream", streamID,
+			"gen", sym.GenID,
+			"error", err,
+		)
+		return
+	}
+
+	if decoded == nil {
+		return
+	}
+
+	// Generation fully decoded — re-publish the reassembled payload to the
+	// bridge's MO decoded topic so it flows through the standard pipeline
+	// (persistence, WebSocket broadcast, routing, etc.).
+	moTopic := protocol.TopicDeviceMessage(bridgeID)
+	if err := s.mqtt.Publish(moTopic, 1, false, decoded); err != nil {
+		slog.Error("hemb: failed to publish reassembled payload",
+			"bridge", bridgeID,
+			"topic", moTopic,
+			"error", err,
+		)
+		return
+	}
+
+	slog.Info("hemb: generation decoded",
+		"bridge", bridgeID,
+		"stream", streamID,
+		"gen", sym.GenID,
+		"k", sym.K,
+		"payload_bytes", len(decoded),
 	)
 }
 
