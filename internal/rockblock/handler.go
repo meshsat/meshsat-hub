@@ -184,16 +184,15 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Verify shared secret — reject unsigned requests when secret is not configured.
-	if h.secret == "" {
-		slog.Warn("rockblock: webhook secret not configured, rejecting unsigned request")
-		http.Error(w, `{"error":"webhook secret not configured"}`, http.StatusForbidden)
-		return
-	}
-	if !h.verifySignature(r) {
-		slog.Warn("rockblock: signature verification failed")
-		http.Error(w, `{"error":"unauthorized"}`, http.StatusUnauthorized)
-		return
+	// Verify shared secret if configured. Rock7's portal does NOT support
+	// webhook signing (no shared secret field), so when HUB_ROCKBLOCK_SECRET
+	// is empty we accept unsigned requests. [MESHSAT-446]
+	if h.secret != "" {
+		if !h.verifySignature(r) {
+			slog.Warn("rockblock: signature verification failed")
+			http.Error(w, `{"error":"unauthorized"}`, http.StatusUnauthorized)
+			return
+		}
 	}
 
 	imei := r.FormValue("imei")
