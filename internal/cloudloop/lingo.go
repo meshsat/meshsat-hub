@@ -1,6 +1,9 @@
 package cloudloop
 
-import "time"
+import (
+	"encoding/json"
+	"time"
+)
 
 // LingoMO is the Cloudloop Data MO message format (LingoMO JSON).
 // Received via HTTP webhook or MQTT subscriber from Cloudloop Ground Control.
@@ -65,11 +68,11 @@ type LingoSBD struct {
 
 // LingoIMT contains IMT-specific fields for an MO message (RockBLOCK 9704).
 type LingoIMT struct {
-	CMID      string `json:"cmid"`
-	Topic     string `json:"topic"` // IMT_TOPIC_PURPLE, PINK, RED, etc.
-	MessageID string `json:"messageId"`
-	CRCError  bool   `json:"crcError"`
-	Size      int    `json:"size"`
+	CMID      string      `json:"cmid"`
+	Topic     string      `json:"topic"`     // IMT_TOPIC_PURPLE, PINK, RED, etc.
+	MessageID json.Number `json:"messageId"` // number on wire, not string [MESHSAT-447]
+	CRCError  bool        `json:"crcError"`
+	Size      int         `json:"size"`
 }
 
 // LingoCellular contains cellular-specific fields for an MO message.
