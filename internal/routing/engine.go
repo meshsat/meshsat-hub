@@ -95,8 +95,12 @@ func (e *Engine) handleMODecoded(topic string, payload []byte) {
 		if !matchSource(route.SourceType, sourceType) {
 			continue
 		}
-		if !matchFilter(route.Filter, deviceID, msg.Text) {
-			continue
+		// For sms/email destinations, the filter IS the recipient address —
+		// not a message match condition. Skip matchFilter for these. [MESHSAT-448]
+		if !isRecipientDestination(route.DestinationType) {
+			if !matchFilter(route.Filter, deviceID, msg.Text) {
+				continue
+			}
 		}
 
 		handler, ok := handlers[route.DestinationType]
@@ -104,6 +108,8 @@ func (e *Engine) handleMODecoded(topic string, payload []byte) {
 			continue
 		}
 
+		slog.Info("routing: route matched", "route", route.Name, "dest", route.DestinationType,
+			"device", deviceID, "source", sourceType)
 		handler(context.Background(), route, deviceID, json.RawMessage(payload))
 	}
 }
@@ -144,6 +150,12 @@ func (e *Engine) InvalidateCache() {
 	e.mu.Lock()
 	e.lastRefresh = time.Time{}
 	e.mu.Unlock()
+}
+
+// isRecipientDestination returns true for destination types where the filter
+// field is a recipient address (phone number, email), not a message match condition.
+func isRecipientDestination(destType string) bool {
+	return destType == "sms" || destType == "email"
 }
 
 // matchSource returns true if the route's source matches the message source.

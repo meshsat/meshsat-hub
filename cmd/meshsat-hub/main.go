@@ -1474,9 +1474,9 @@ func main() {
 	// Message routing engine (configurable source→destination rules)
 	routeEngine := routing.NewEngine(dataStore, msgBus, store.DefaultTenantID)
 	// Register SMS destination handler if SMS is enabled.
-	if cfg.SMSEnabled && cfg.SMSAccountSID != "" {
-		routeSMSClient := sms.NewClient(cfg.SMSAccountSID, cfg.SMSAuthToken, cfg.SMSFromNumber)
-		routeEngine.RegisterHandler("sms", routing.NewSMSHandler(routeSMSClient))
+	// Use the same API-key-authenticated client as the send endpoint. [MESHSAT-448]
+	if smsClientForSend != nil {
+		routeEngine.RegisterHandler("sms", routing.NewSMSHandler(smsClientForSend))
 	}
 	// Register Email destination handler if email is enabled.
 	if emailKeyRing != nil {
