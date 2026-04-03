@@ -10,6 +10,14 @@
 # NEVER run: docker compose up -d (without --no-deps)
 # NEVER run: docker compose pull (evaluates all services)
 # See CLAUDE.md for Galera safety rules.
+#
+# NOTE: wsrep-cluster-address is HARDCODED (not a variable) because
+# Docker Compose v5 bakes command args at container creation time and
+# does not update them on recreate without --force-recreate. Using a
+# variable caused 9+ split-brain incidents. The address is identical
+# on all nodes so hardcoding is safe. Node-specific values
+# (WSREP_NODE_ADDRESS, SITE_NAME) remain as variables since they
+# never change on a given host.
 
 services:
   # ===========================================================================
@@ -36,7 +44,7 @@ services:
       - --wsrep-on=ON
       - --wsrep-provider=/usr/lib/galera/libgalera_smm.so
       - --wsrep-cluster-name=meshsat-galera
-      - --wsrep-cluster-address=${WSREP_CLUSTER_ADDRESS}
+      - --wsrep-cluster-address=gcomm://192.168.192.10,192.168.15.10
       - --wsrep-node-address=${WSREP_NODE_ADDRESS}
       - --wsrep-node-name=${SITE_NAME}
       - --wsrep-sst-method=rsync
@@ -68,7 +76,7 @@ services:
     network_mode: host
     command:
       - --group=meshsat-galera
-      - --address=${WSREP_CLUSTER_ADDRESS}
+      - --address=gcomm://192.168.192.10,192.168.15.10
       - --name=meshsat-garbd
       - --option=gmcast.listen_addr=tcp://0.0.0.0:4570;pc.weight=1
     depends_on:
