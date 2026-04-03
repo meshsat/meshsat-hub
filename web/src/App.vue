@@ -82,6 +82,7 @@ const navGroups = [
     { to: '/email', label: 'Email' },
     { to: '/routing', label: 'Routing' },
     { to: '/integrations', label: 'Integrations' },
+    { to: '/tak', label: 'TAK Ops' },
     { to: '/webhooks', label: 'Webhooks' },
   ]},
   { label: 'Infrastructure', items: [
