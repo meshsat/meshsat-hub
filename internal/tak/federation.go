@@ -57,7 +57,6 @@ type federationPeer struct {
 	addr      string
 	conn      net.Conn
 	connected atomic.Bool
-	wg        sync.WaitGroup
 }
 
 // NewFederation creates a TAK Federation v2 instance.
