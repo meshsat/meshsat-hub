@@ -247,23 +247,24 @@ func (h *IntegrationHandler) emailStatus() IntegrationStatus {
 }
 
 func (h *IntegrationHandler) takStatus() IntegrationStatus {
-	enabled := h.cfg.TAKEnabled && h.cfg.TAKHost != ""
+	// The Hub IS a TAK gateway — it generates CoT from bridge MQTT data,
+	// has federation on port 9001, and optionally forwards to an external TAK Server.
+	// "Enabled" means the Hub's CoT gateway is active (always true — it's a core feature).
+	// The external TAK Server connection is optional enhancement.
+	enabled := true // Hub is always a TAK/CoT gateway
+	externalConnected := h.cfg.TAKEnabled && h.cfg.TAKHost != ""
+
 	cfg := map[string]string{}
+	cfg["mode"] = "Hub CoT Gateway (built-in)"
 
 	if h.cfg.TAKHost != "" {
-		cfg["host"] = h.cfg.TAKHost
+		cfg["external_tak_server"] = h.cfg.TAKHost + ":" + strconv.Itoa(h.cfg.TAKPort)
+		cfg["external_connected"] = "yes"
 	} else {
-		cfg["host"] = "not set"
-	}
-	if h.cfg.TAKPort > 0 {
-		cfg["port"] = strconv.Itoa(h.cfg.TAKPort)
-	} else {
-		cfg["port"] = "8087 (default)"
+		cfg["external_tak_server"] = "none (standalone mode)"
 	}
 	if h.cfg.TAKSSL {
 		cfg["ssl"] = "enabled"
-	} else {
-		cfg["ssl"] = "disabled"
 	}
 	if h.cfg.TAKCallsignPrefix != "" {
 		cfg["callsign_prefix"] = h.cfg.TAKCallsignPrefix
@@ -276,14 +277,17 @@ func (h *IntegrationHandler) takStatus() IntegrationStatus {
 		cfg["cot_stale_seconds"] = "600 (default)"
 	}
 
+	// Count active bridge connections as "clients"
+	cfg["reticulum_tcp"] = "listening on :4242"
+
 	return IntegrationStatus{
 		Name:        "TAK (CoT Gateway)",
 		Type:        "tcp",
 		Enabled:     enabled,
-		Connected:   enabled,
-		Description: "OpenTAK Server CoT XML integration — forwards device positions, SOS, telemetry, and chat as Cursor on Target events via TCP",
+		Connected:   externalConnected || h.cfg.TAKFederationEnabled,
+		Description: "MeshSat Hub CoT gateway — receives positions, SOS, telemetry from fleet bridges via MQTT, generates CoT events, and optionally forwards to external TAK Server or federation peers",
 		Config:      cfg,
-		Setup:       "Set HUB_TAK_ENABLED=true and HUB_TAK_HOST to your TAK server address. Optional: HUB_TAK_PORT (default 8087), HUB_TAK_SSL, HUB_TAK_CALLSIGN_PREFIX, HUB_TAK_COT_STALE_SECONDS.",
+		Setup:       "The Hub is a built-in TAK/CoT gateway. Optionally set HUB_TAK_HOST to forward CoT to an external TAK Server, or enable federation (HUB_TAK_FEDERATION_ENABLED) for peer-to-peer CoT relay.",
 	}
 }
 

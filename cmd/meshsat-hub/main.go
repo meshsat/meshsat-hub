@@ -1385,12 +1385,14 @@ func main() {
 			fedIn, fedOut, fedPeers = integrationHandler.GetFederation().Stats()
 		}
 		api.WriteJSON(w, http.StatusOK, map[string]interface{}{
-			"tak_enabled":        cfg.TAKEnabled,
-			"tak_host":           cfg.TAKHost,
-			"federation_enabled": cfg.TAKFederationEnabled,
-			"federation_peers":   fedPeers,
-			"federation_in":      fedIn,
-			"federation_out":     fedOut,
+			"tak_enabled":            true, // Hub is always a TAK/CoT gateway
+			"tak_host":               cfg.TAKHost,
+			"external_tak_connected": cfg.TAKEnabled && cfg.TAKHost != "",
+			"federation_enabled":     cfg.TAKFederationEnabled,
+			"federation_peers":       fedPeers,
+			"federation_in":          fedIn,
+			"federation_out":         fedOut,
+			"mode":                   "Hub CoT Gateway",
 		})
 	})
 
