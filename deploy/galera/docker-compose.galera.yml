@@ -44,7 +44,7 @@ services:
       - --wsrep-on=ON
       - --wsrep-provider=/usr/lib/galera/libgalera_smm.so
       - --wsrep-cluster-name=meshsat-galera
-      - --wsrep-cluster-address=gcomm://192.168.192.10,192.168.15.10
+      - --wsrep-cluster-address=gcomm://192.168.192.10,192.168.15.10,192.168.192.10:4570
       - --wsrep-node-address=${WSREP_NODE_ADDRESS}
       - --wsrep-node-name=${SITE_NAME}
       - --wsrep-sst-method=rsync
@@ -76,7 +76,7 @@ services:
     network_mode: host
     command:
       - --group=meshsat-galera
-      - --address=gcomm://192.168.192.10,192.168.15.10
+      - --address=gcomm://192.168.192.10,192.168.15.10,192.168.192.10:4570
       - --name=meshsat-garbd
       - --option=gmcast.listen_addr=tcp://0.0.0.0:4570;pc.weight=1
     depends_on:

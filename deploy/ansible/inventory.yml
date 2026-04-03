@@ -38,5 +38,5 @@ all:
 
       vars:
         # All Galera node VPN IPs (auto-built from inventory)
-        galera_cluster_address: "gcomm://192.168.192.10,192.168.15.10"
+        galera_cluster_address: "gcomm://192.168.192.10,192.168.15.10,192.168.192.10:4570"
         galera_ports: [3306, 4444, 4567, 4568, 4570]
