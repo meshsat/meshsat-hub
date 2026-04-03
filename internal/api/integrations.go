@@ -3,6 +3,7 @@ package api
 import (
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -48,6 +49,7 @@ func (h *IntegrationHandler) ListIntegrations(w http.ResponseWriter, _ *http.Req
 		h.globalstarStatus(),
 		h.smsStatus(),
 		h.emailStatus(),
+		h.takStatus(),
 	}
 	writeJSON(w, http.StatusOK, integrations)
 }
@@ -219,6 +221,47 @@ func (h *IntegrationHandler) emailStatus() IntegrationStatus {
 		Description: "Inbound email messages via HTTP POST webhook (PGP encrypted)",
 		Config:      cfg,
 		Setup:       "Configure your email server to forward inbound messages to this webhook.",
+	}
+}
+
+func (h *IntegrationHandler) takStatus() IntegrationStatus {
+	enabled := h.cfg.TAKEnabled && h.cfg.TAKHost != ""
+	cfg := map[string]string{}
+
+	if h.cfg.TAKHost != "" {
+		cfg["host"] = h.cfg.TAKHost
+	} else {
+		cfg["host"] = "not set"
+	}
+	if h.cfg.TAKPort > 0 {
+		cfg["port"] = strconv.Itoa(h.cfg.TAKPort)
+	} else {
+		cfg["port"] = "8087 (default)"
+	}
+	if h.cfg.TAKSSL {
+		cfg["ssl"] = "enabled"
+	} else {
+		cfg["ssl"] = "disabled"
+	}
+	if h.cfg.TAKCallsignPrefix != "" {
+		cfg["callsign_prefix"] = h.cfg.TAKCallsignPrefix
+	} else {
+		cfg["callsign_prefix"] = "MESHSAT-HUB (default)"
+	}
+	if h.cfg.TAKCotStaleSec > 0 {
+		cfg["cot_stale_seconds"] = strconv.Itoa(h.cfg.TAKCotStaleSec)
+	} else {
+		cfg["cot_stale_seconds"] = "600 (default)"
+	}
+
+	return IntegrationStatus{
+		Name:        "TAK (CoT Gateway)",
+		Type:        "tcp",
+		Enabled:     enabled,
+		Connected:   enabled,
+		Description: "OpenTAK Server CoT XML integration — forwards device positions, SOS, telemetry, and chat as Cursor on Target events via TCP",
+		Config:      cfg,
+		Setup:       "Set HUB_TAK_ENABLED=true and HUB_TAK_HOST to your TAK server address. Optional: HUB_TAK_PORT (default 8087), HUB_TAK_SSL, HUB_TAK_CALLSIGN_PREFIX, HUB_TAK_COT_STALE_SECONDS.",
 	}
 }
 
