@@ -48,6 +48,14 @@ type Config struct {
 	TAKCallsignPrefix string `yaml:"tak_callsign_prefix"`
 	TAKCotStaleSec    int    `yaml:"tak_cot_stale_seconds"`
 
+	// TAK Federation v2
+	TAKFederationEnabled bool     `yaml:"tak_federation_enabled"`
+	TAKFederationPort    int      `yaml:"tak_federation_port"`  // default 9001
+	TAKFederationPeers   []string `yaml:"tak_federation_peers"` // remote TAK server host:port
+	TAKFederationCert    string   `yaml:"tak_federation_cert"`
+	TAKFederationKey     string   `yaml:"tak_federation_key"`
+	TAKFederationCA      string   `yaml:"tak_federation_ca"`
+
 	// APRS-IS IGate
 	APRSISEnabled  bool   `yaml:"aprsis_enabled"`
 	APRSISServer   string `yaml:"aprsis_server"`
@@ -299,6 +307,28 @@ func Load() (Config, error) {
 		if n, err := strconv.Atoi(v); err == nil {
 			cfg.TAKCotStaleSec = n
 		}
+	}
+
+	// TAK Federation overrides
+	if v := os.Getenv("HUB_TAK_FEDERATION_ENABLED"); v != "" {
+		cfg.TAKFederationEnabled = strings.EqualFold(v, "true") || v == "1"
+	}
+	if v := os.Getenv("HUB_TAK_FEDERATION_PORT"); v != "" {
+		if p, err := strconv.Atoi(v); err == nil {
+			cfg.TAKFederationPort = p
+		}
+	}
+	if v := os.Getenv("HUB_TAK_FEDERATION_PEERS"); v != "" {
+		cfg.TAKFederationPeers = strings.Split(v, ",")
+	}
+	if v := os.Getenv("HUB_TAK_FEDERATION_CERT"); v != "" {
+		cfg.TAKFederationCert = v
+	}
+	if v := os.Getenv("HUB_TAK_FEDERATION_KEY"); v != "" {
+		cfg.TAKFederationKey = v
+	}
+	if v := os.Getenv("HUB_TAK_FEDERATION_CA"); v != "" {
+		cfg.TAKFederationCA = v
 	}
 
 	// APRS-IS overrides

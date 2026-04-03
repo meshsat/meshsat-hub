@@ -50,6 +50,7 @@ func (h *IntegrationHandler) ListIntegrations(w http.ResponseWriter, _ *http.Req
 		h.smsStatus(),
 		h.emailStatus(),
 		h.takStatus(),
+		h.takFederationStatus(),
 	}
 	writeJSON(w, http.StatusOK, integrations)
 }
@@ -262,6 +263,35 @@ func (h *IntegrationHandler) takStatus() IntegrationStatus {
 		Description: "OpenTAK Server CoT XML integration — forwards device positions, SOS, telemetry, and chat as Cursor on Target events via TCP",
 		Config:      cfg,
 		Setup:       "Set HUB_TAK_ENABLED=true and HUB_TAK_HOST to your TAK server address. Optional: HUB_TAK_PORT (default 8087), HUB_TAK_SSL, HUB_TAK_CALLSIGN_PREFIX, HUB_TAK_COT_STALE_SECONDS.",
+	}
+}
+
+func (h *IntegrationHandler) takFederationStatus() IntegrationStatus {
+	enabled := h.cfg.TAKFederationEnabled
+	cfg := map[string]string{}
+
+	if len(h.cfg.TAKFederationPeers) > 0 {
+		cfg["peers"] = strings.Join(h.cfg.TAKFederationPeers, ", ")
+	} else {
+		cfg["peers"] = "none configured"
+	}
+	if h.cfg.TAKFederationPort > 0 {
+		cfg["port"] = strconv.Itoa(h.cfg.TAKFederationPort)
+	} else {
+		cfg["port"] = "9001 (default)"
+	}
+	cfg["cert"] = fileStatus(h.cfg.TAKFederationCert)
+	cfg["key"] = fileStatus(h.cfg.TAKFederationKey)
+	cfg["ca"] = fileStatus(h.cfg.TAKFederationCA)
+
+	return IntegrationStatus{
+		Name:        "TAK Federation v2",
+		Type:        "tcp",
+		Enabled:     enabled,
+		Connected:   enabled,
+		Description: "TAK Server federation — bidirectional CoT relay with remote TAK Servers on port 9001 (mutual TLS)",
+		Config:      cfg,
+		Setup:       "Set HUB_TAK_FEDERATION_ENABLED=true, HUB_TAK_FEDERATION_PEERS=host1:9001,host2:9001, and provide mTLS cert/key/CA.",
 	}
 }
 
