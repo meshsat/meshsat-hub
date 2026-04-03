@@ -62,7 +62,7 @@ func (p *MartiProxy) ListMissions() ([]MartiMission, error) {
 	if err != nil {
 		return nil, fmt.Errorf("marti proxy: list missions: %w", err)
 	}
-	defer resp.Body.Close()
+	defer resp.Body.Close() //nolint:errcheck
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
@@ -85,7 +85,7 @@ func (p *MartiProxy) DownloadContent(hash string) ([]byte, string, error) {
 	if err != nil {
 		return nil, "", fmt.Errorf("marti proxy: download %s: %w", hash, err)
 	}
-	defer resp.Body.Close()
+	defer resp.Body.Close() //nolint:errcheck
 
 	if resp.StatusCode != http.StatusOK {
 		return nil, "", fmt.Errorf("marti proxy: download %s: %d", hash, resp.StatusCode)
@@ -105,7 +105,7 @@ func (p *MartiProxy) GetSASnapshot() ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("marti proxy: SA: %w", err)
 	}
-	defer resp.Body.Close()
+	defer resp.Body.Close() //nolint:errcheck
 
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("marti proxy: SA: %d", resp.StatusCode)
