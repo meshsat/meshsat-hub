@@ -41,6 +41,7 @@ type Federation struct {
 	peers    []*federationPeer
 	mu       sync.Mutex
 	running  atomic.Bool
+	wg       sync.WaitGroup //nolint:unused // used for graceful shutdown coordination
 	msgsIn   atomic.Int64
 	msgsOut  atomic.Int64
 	cancel   context.CancelFunc
