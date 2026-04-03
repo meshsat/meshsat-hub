@@ -28,7 +28,8 @@ check_and_fix() {
   # Check if MariaDB container is running
   if ! docker ps --filter name=meshsat-mariadb --format '{{.Names}}' | grep -q meshsat-mariadb; then
     log "MariaDB container not running — starting..."
-    docker compose start mariadb 2>/dev/null || true
+    # Use --force-recreate to ensure command args reflect current .env values
+    docker compose up -d --no-deps --force-recreate mariadb 2>/dev/null || true
     sleep 20
   fi
 
@@ -79,8 +80,10 @@ check_and_fix() {
 
   # Start MariaDB — entrypoint detects flag, adds --wsrep-new-cluster, deletes flag
   # .env is NEVER modified — cluster address stays correct for next normal restart
+  # IMPORTANT: --force-recreate is required because Docker Compose v5 does not
+  # update baked-in command args without it, even when .env has changed.
   log "Starting MariaDB with bootstrap flag..."
-  docker compose up -d mariadb
+  docker compose up -d --no-deps --force-recreate mariadb
   sleep 30
 
   # Verify bootstrap
