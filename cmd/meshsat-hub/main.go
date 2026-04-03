@@ -1366,6 +1366,19 @@ func main() {
 	})
 	r.Get("/api/integrations", integrationHandler.ListIntegrations)
 	r.Get("/api/tak/federation/peers", integrationHandler.ListFederationPeers)
+	r.Get("/api/tak/missions", func(w http.ResponseWriter, r *http.Request) {
+		if cfg.TAKHost == "" {
+			api.WriteJSON(w, http.StatusOK, []interface{}{})
+			return
+		}
+		proxy := tak.NewMartiProxy(cfg.TAKHost, 8443, true)
+		missions, err := proxy.ListMissions()
+		if err != nil {
+			api.WriteJSON(w, http.StatusBadGateway, map[string]string{"error": err.Error()})
+			return
+		}
+		api.WriteJSON(w, http.StatusOK, missions)
+	})
 
 	r.Get("/api/constellations", func(w http.ResponseWriter, r *http.Request) {
 		backends := constellationRouter.ListBackends()
