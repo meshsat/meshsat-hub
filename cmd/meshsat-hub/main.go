@@ -1379,6 +1379,20 @@ func main() {
 		}
 		api.WriteJSON(w, http.StatusOK, missions)
 	})
+	r.Get("/api/tak/fleet-status", func(w http.ResponseWriter, r *http.Request) {
+		fedIn, fedOut, fedPeers := int64(0), int64(0), 0
+		if integrationHandler.GetFederation() != nil {
+			fedIn, fedOut, fedPeers = integrationHandler.GetFederation().Stats()
+		}
+		api.WriteJSON(w, http.StatusOK, map[string]interface{}{
+			"tak_enabled":        cfg.TAKEnabled,
+			"tak_host":           cfg.TAKHost,
+			"federation_enabled": cfg.TAKFederationEnabled,
+			"federation_peers":   fedPeers,
+			"federation_in":      fedIn,
+			"federation_out":     fedOut,
+		})
+	})
 
 	r.Get("/api/constellations", func(w http.ResponseWriter, r *http.Request) {
 		backends := constellationRouter.ListBackends()

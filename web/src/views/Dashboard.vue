@@ -1,6 +1,6 @@
 <script setup>
 import { ref, computed, onMounted, onUnmounted } from 'vue'
-import { devices, health, credits, ratelimit, messages, escalation, deadman, constellations, reticulum as reticulumApi, bridges, integrations } from '../api/client'
+import { devices, health, credits, ratelimit, messages, escalation, deadman, constellations, reticulum as reticulumApi, bridges, integrations, tak } from '../api/client'
 import { formatUTC } from '../utils/time'
 import { exportCSV } from '../utils/csv'
 import Sparkline from '../components/Sparkline.vue'
@@ -68,9 +68,14 @@ async function loadAll() {
     const intList = await integrations.list()
     const takInt = (intList || []).find(i => i.name && i.name.includes('TAK') && !i.name.includes('Federation'))
     const fedInt = (intList || []).find(i => i.name && i.name.includes('Federation'))
+    let missionCount = 0
+    try { const m = await tak.missions(); missionCount = Array.isArray(m) ? m.length : 0 } catch {}
     dash.setTakStatus(
       takInt?.enabled || false,
-      fedInt?.config?.connected_peers ? parseInt(fedInt.config.connected_peers) : 0
+      fedInt?.config?.connected_peers ? parseInt(fedInt.config.connected_peers) : 0,
+      fedInt?.config?.msgs_in ? parseInt(fedInt.config.msgs_in) : 0,
+      fedInt?.config?.msgs_out ? parseInt(fedInt.config.msgs_out) : 0,
+      missionCount
     )
   } catch {}
 
@@ -281,13 +286,23 @@ function directionColor(d) {
           <div class="text-gray-500 text-[10px] mt-0.5">online / total</div>
         </div>
 
-        <!-- TAK / CoT -->
-        <div class="bg-tactical-surface rounded-lg p-4 border border-tactical-border">
-          <div class="text-blue-400 text-xs uppercase tracking-wider mb-1">TAK</div>
+        <!-- TAK Server -->
+        <div class="bg-tactical-surface rounded-lg p-4 border border-tactical-border cursor-pointer" @click="$router.push('/tak')">
+          <div class="text-blue-400 text-xs uppercase tracking-wider mb-1">TAK Server</div>
           <div class="flex items-baseline gap-1">
-            <span class="text-xl font-bold" :class="dash.takEnabled ? 'text-blue-400' : 'text-gray-600'">{{ dash.takEnabled ? 'ON' : 'OFF' }}</span>
+            <span class="text-xl font-bold" :class="dash.takEnabled ? 'text-emerald-400' : 'text-gray-600'">{{ dash.takEnabled ? 'ON' : 'OFF' }}</span>
           </div>
-          <div class="text-gray-500 text-[10px] mt-0.5">{{ dash.takFedPeers > 0 ? dash.takFedPeers + ' federation peers' : 'no federation' }}</div>
+          <div class="text-gray-500 text-[10px] mt-0.5">{{ dash.takMissions }} missions</div>
+        </div>
+
+        <!-- TAK Federation -->
+        <div class="bg-tactical-surface rounded-lg p-4 border border-tactical-border cursor-pointer" @click="$router.push('/tak')">
+          <div class="text-purple-400 text-xs uppercase tracking-wider mb-1">Federation</div>
+          <div class="flex items-baseline gap-1">
+            <span class="text-xl font-bold" :class="dash.takFedPeers > 0 ? 'text-purple-400' : 'text-gray-600'">{{ dash.takFedPeers }}</span>
+            <span class="text-gray-500 text-xs">peers</span>
+          </div>
+          <div class="text-gray-500 text-[10px] mt-0.5">{{ dash.takFedIn + dash.takFedOut }} CoT relayed</div>
         </div>
 
         <!-- Devices Online/Idle/Offline -->

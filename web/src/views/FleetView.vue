@@ -515,6 +515,12 @@ function certExpiryStatus(b) {
             </div>
           </div>
 
+          <!-- CoT TAK badges -->
+          <div v-if="b.cot_callsign || b.cot_type" class="flex flex-wrap gap-1.5">
+            <span v-if="b.cot_callsign" class="inline-flex items-center gap-1 text-xs px-1.5 py-0.5 rounded border border-blue-600/30 bg-blue-600/10 text-blue-400 font-mono">&#9670; {{ b.cot_callsign }}</span>
+            <span v-if="b.cot_type" class="inline-flex items-center gap-1 text-xs px-1.5 py-0.5 rounded border border-gray-600/30 bg-gray-600/10 text-gray-400">{{ b.cot_type }}</span>
+          </div>
+
           <!-- Interface badges -->
           <div v-if="parseBirth(b)?.interfaces?.length" class="flex flex-wrap gap-1.5">
             <span v-for="iface in parseBirth(b).interfaces" :key="iface.name"

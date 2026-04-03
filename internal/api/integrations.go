@@ -46,6 +46,14 @@ func (h *IntegrationHandler) SetFederationGetter(fn func() FederationStatter) {
 	h.getFederation = fn
 }
 
+// GetFederation returns the current federation instance (or nil).
+func (h *IntegrationHandler) GetFederation() FederationStatter {
+	if h.getFederation == nil {
+		return nil
+	}
+	return h.getFederation()
+}
+
 // ListIntegrations returns the status of all inbound integration channels.
 // @Summary List integration channel status
 // @Description Returns the enabled/connected status of all inbound message channels (Rock7, Cloudloop, Twilio SMS, Email, Astrocast, Globalstar).

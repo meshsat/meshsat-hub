@@ -81,11 +81,17 @@ export const useDashboardStore = defineStore('dashboard', () => {
   // TAK status (populated by Dashboard.vue from integrations API)
   const takEnabled = ref(false)
   const takFedPeers = ref(0)
+  const takFedIn = ref(0)
+  const takFedOut = ref(0)
+  const takMissions = ref(0)
 
-  function setTakStatus(enabled, fedPeers) {
+  function setTakStatus(enabled, fedPeers, fedIn, fedOut, missions) {
     takEnabled.value = enabled
-    takFedPeers.value = fedPeers
+    takFedPeers.value = fedPeers || 0
+    takFedIn.value = fedIn || 0
+    takFedOut.value = fedOut || 0
+    takMissions.value = missions || 0
   }
 
-  return { widgets, customizing, toggle, moveUp, moveDown, reset, isVisible, orderedVisible, takEnabled, takFedPeers, setTakStatus }
+  return { widgets, customizing, toggle, moveUp, moveDown, reset, isVisible, orderedVisible, takEnabled, takFedPeers, takFedIn, takFedOut, takMissions, setTakStatus }
 })

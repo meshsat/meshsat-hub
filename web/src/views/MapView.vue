@@ -7,7 +7,13 @@ const mapContainer = ref(null)
 let map = null
 let markers = {}
 let markerColors = {}
+let markerCategories = {} // key → 'bridge' | 'satellite' | 'ground'
 let refreshInterval = null
+
+// CoT type filter — all visible by default
+const filterBridge = ref(true)
+const filterSatellite = ref(true)
+const filterGround = ref(true)
 
 const trackRange = ref('24h')
 let activeTrackImei = null
@@ -189,11 +195,36 @@ onUnmounted(() => {
   if (map) map.remove()
 })
 
+function markerCategory(type, source) {
+  if (type === 'bridge') return 'bridge'
+  if (type === 'iridium_sbd' || type === 'iridium_imt' || type === 'astrocast') return 'satellite'
+  return 'ground'
+}
+
+function isFilteredOut(category) {
+  if (category === 'bridge') return !filterBridge.value
+  if (category === 'satellite') return !filterSatellite.value
+  return !filterGround.value
+}
+
+function applyFilters() {
+  for (const [key, marker] of Object.entries(markers)) {
+    const cat = markerCategories[key]
+    if (isFilteredOut(cat)) {
+      marker.getElement()?.style && (marker.getElement().style.display = 'none')
+    } else {
+      marker.getElement()?.style && (marker.getElement().style.display = '')
+    }
+  }
+}
+
 function upsertMarker(key, lat, lon, type, source, label, lastSeen) {
   const stale = isStale(lastSeen)
   const icon = makeTakIcon(type, source, label, stale)
   const color = type === 'bridge' ? bridgeColor : getColor(type, source)
   markerColors[key] = color
+  const cat = markerCategory(type, source)
+  markerCategories[key] = cat
 
   if (markers[key]) {
     markers[key].setLatLng([lat, lon])
@@ -201,6 +232,10 @@ function upsertMarker(key, lat, lon, type, source, label, lastSeen) {
   } else {
     markers[key] = L.marker([lat, lon], { icon }).addTo(map)
     markers[key].on('click', () => onMarkerClick(key))
+  }
+  // Apply filter visibility after adding/updating
+  if (isFilteredOut(cat) && markers[key].getElement()) {
+    markers[key].getElement().style.display = 'none'
   }
   return { stale }
 }

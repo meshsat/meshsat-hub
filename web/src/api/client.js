@@ -309,3 +309,9 @@ export const health = {
   check: () => fetch('/healthz').then(r => r.json()).catch(() => ({ status: 'error' })),
   readyz: () => fetch('/readyz').then(r => r.json()).catch(() => ({ status: 'error' })),
 }
+
+export const tak = {
+  fleetStatus: () => fetchJSON('/tak/fleet-status'),
+  federationPeers: () => fetchJSON('/tak/federation/peers'),
+  missions: () => fetchJSON('/tak/missions'),
+}
