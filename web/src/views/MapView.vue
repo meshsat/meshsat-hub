@@ -70,6 +70,35 @@ function onMarkerClick(imei) {
   }
 }
 
+// TAK/CoT marker icon system
+function cotColor(source) {
+  if (source === 'iridium_cep' || source === 'iridium') return '#4A90D9'
+  if (source === 'bridge') return '#4A90D9'
+  if (source === 'emergency' || source === 'sos') return '#FF0000'
+  if (source === 'astrocast') return '#9B59B6'
+  return '#4A90D9'
+}
+
+function cotMarkerIcon(source, label, stale) {
+  const color = cotColor(source)
+  const opacity = stale ? 0.45 : 1.0
+  const shortLabel = label && label.length > 8 ? label.slice(-6) : (label || '')
+  const labelSvg = shortLabel ? `<text x="16" y="39" text-anchor="middle" fill="#fff" font-size="9" font-family="sans-serif" style="text-shadow:0 0 3px #000">${shortLabel}</text>` : ''
+
+  // Bridges → square, devices → diamond, Iridium → diamond with amber accent
+  let shape
+  if (source === 'bridge') {
+    shape = `<rect x="3" y="3" width="26" height="26" fill="${color}" stroke="#fff" stroke-width="2" rx="2"/>`
+  } else if (source === 'emergency' || source === 'sos') {
+    shape = `<circle cx="16" cy="16" r="14" fill="#FF0000" stroke="#fff" stroke-width="2"/><line x1="8" y1="8" x2="24" y2="24" stroke="#fff" stroke-width="3"/><line x1="24" y1="8" x2="8" y2="24" stroke="#fff" stroke-width="3"/>`
+  } else {
+    shape = `<polygon points="16,2 30,16 16,30 2,16" fill="${color}" stroke="#fff" stroke-width="2"/>`
+  }
+
+  const svg = `<svg width="32" height="42" viewBox="0 0 32 42" opacity="${opacity}">${shape}${labelSvg}</svg>`
+  return L.divIcon({ html: svg, className: '', iconSize: [32, 42], iconAnchor: [16, 30], popupAnchor: [0, -30] })
+}
+
 function onRangeChange() {
   if (activeTrackImei) {
     loadTrack(activeTrackImei)
@@ -107,19 +136,20 @@ async function refreshPositions() {
         Source: ${pos.source}<br/>
         Last seen: ${pos.last_seen}`
 
+      const stale = pos.last_seen ? (Date.now() - new Date(pos.last_seen).getTime() > 300000) : false
+      const icon = cotMarkerIcon(pos.source, label, stale)
+      const cotPopup = `<b>${label}</b><br/>
+        IMEI: ${pos.imei}<br/>
+        ${pos.lat.toFixed(6)}, ${pos.lon.toFixed(6)}<br/>
+        Source: ${pos.source}<br/>
+        Last seen: ${pos.last_seen}${stale ? '<br/><span style="color:#f59e0b">Stale</span>' : ''}`
+
       if (markers[key]) {
         markers[key].setLatLng([pos.lat, pos.lon])
-        markers[key].setPopupContent(popup)
+        markers[key].setPopupContent(cotPopup)
+        markers[key].setIcon(icon)
       } else {
-        markers[key] = L.circleMarker([pos.lat, pos.lon], {
-          radius: 8,
-          fillColor: pos.source === 'iridium_cep' ? '#f59e0b' : '#22d3ee',
-          color: '#fff',
-          weight: 2,
-          opacity: 1,
-          fillOpacity: 0.8,
-        }).addTo(map).bindPopup(popup)
-
+        markers[key] = L.marker([pos.lat, pos.lon], { icon }).addTo(map).bindPopup(cotPopup)
         markers[key].on('click', () => onMarkerClick(key))
       }
     }
