@@ -114,6 +114,21 @@ func (a *escalationAdapter) Trigger(ctx context.Context, tenantID, chainID, devi
 	return a.engine.Trigger(ctx, tenantID, alert)
 }
 
+// federationBusAdapter wraps bus.MessageBus to satisfy tak.FederationBus.
+// Needed because bus.MessageBus.Subscribe takes a named MessageHandler type
+// while tak.FederationBus.Subscribe takes func(string, []byte) directly.
+type federationBusAdapter struct {
+	mb bus.MessageBus
+}
+
+func (a *federationBusAdapter) Publish(topic string, qos byte, retained bool, payload []byte) error {
+	return a.mb.Publish(topic, qos, retained, payload)
+}
+
+func (a *federationBusAdapter) Subscribe(topic string, qos byte, handler func(string, []byte)) error {
+	return a.mb.Subscribe(topic, qos, handler)
+}
+
 // @title        MeshSat Hub API
 // @version      1.1
 // @description  Multi-tenant SaaS platform for satellite device management. Ingests MO messages from Iridium/Astrocast/Globalstar, manages devices, SOS escalation, dead man's switch, and E2E encryption.
@@ -327,13 +342,14 @@ func main() {
 	mptcpMonitor := mptcp.NewMonitor(30*time.Second, msgBus)
 	go mptcpMonitor.Start(ctx)
 
-	// TAK/CoT gateway and APRS-IS IGate are singletons — run inside leader election callback.
+	// TAK/CoT gateway, TAK Federation, and APRS-IS IGate are singletons — run inside leader election callback.
 	var takClient *tak.Client
+	var takFederation *tak.Federation
 	var aprsisClient *aprsis.Client
 
 	go leaderElector.Run(ctx, func() {
 		// onAcquired: start singleton services
-		slog.Info("leader acquired — starting TAK and APRS-IS")
+		slog.Info("leader acquired — starting TAK, Federation, and APRS-IS")
 
 		// TAK/CoT gateway (optional — subscribe to MQTT, forward to OpenTAKServer).
 		if cfg.TAKEnabled && cfg.TAKHost != "" {
@@ -349,6 +365,25 @@ func main() {
 				if err := takSub.Start(); err != nil {
 					slog.Error("tak: failed to start subscriber", "error", err)
 				}
+			}
+		}
+
+		// TAK Federation v2 (optional — bidirectional CoT relay with remote TAK servers).
+		if cfg.TAKFederationEnabled && msgBus.IsConnected() {
+			fedCfg := tak.FederationConfig{
+				Enabled:        true,
+				Port:           cfg.TAKFederationPort,
+				Peers:          cfg.TAKFederationPeers,
+				CertFile:       cfg.TAKFederationCert,
+				KeyFile:        cfg.TAKFederationKey,
+				CAFile:         cfg.TAKFederationCA,
+				CallsignPrefix: cfg.TAKCallsignPrefix,
+				CotStaleSec:    cfg.TAKCotStaleSec,
+			}
+			takFederation = tak.NewFederation(fedCfg, &federationBusAdapter{mb: msgBus})
+			if err := takFederation.Start(ctx); err != nil {
+				slog.Error("tak federation: failed to start", "error", err)
+				takFederation = nil
 			}
 		}
 
@@ -370,10 +405,14 @@ func main() {
 		}
 	}, func() {
 		// onLost: stop singleton services
-		slog.Info("leader lost — stopping TAK and APRS-IS")
+		slog.Info("leader lost — stopping TAK, Federation, and APRS-IS")
 		if aprsisClient != nil {
 			aprsisClient.Disconnect()
 			aprsisClient = nil
+		}
+		if takFederation != nil {
+			takFederation.Stop()
+			takFederation = nil
 		}
 		if takClient != nil {
 			takClient.Disconnect()
@@ -1319,7 +1358,14 @@ func main() {
 
 	// Integration channel status API
 	integrationHandler := api.NewIntegrationHandler(cfg)
+	integrationHandler.SetFederationGetter(func() api.FederationStatter {
+		if takFederation == nil {
+			return nil
+		}
+		return takFederation
+	})
 	r.Get("/api/integrations", integrationHandler.ListIntegrations)
+	r.Get("/api/tak/federation/peers", integrationHandler.ListFederationPeers)
 
 	r.Get("/api/constellations", func(w http.ResponseWriter, r *http.Request) {
 		backends := constellationRouter.ListBackends()

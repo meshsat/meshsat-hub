@@ -1,6 +1,6 @@
 <script setup>
 import { ref, computed, onMounted, onUnmounted } from 'vue'
-import { devices, health, credits, ratelimit, messages, escalation, deadman, constellations, reticulum as reticulumApi, bridges } from '../api/client'
+import { devices, health, credits, ratelimit, messages, escalation, deadman, constellations, reticulum as reticulumApi, bridges, integrations } from '../api/client'
 import { formatUTC } from '../utils/time'
 import { exportCSV } from '../utils/csv'
 import Sparkline from '../components/Sparkline.vue'
@@ -62,6 +62,17 @@ async function loadAll() {
   retIdentity.value = results[8].status === 'fulfilled' ? results[8].value : null
   retRoutes.value = results[9].status === 'fulfilled' ? results[9].value : { count: 0 }
   bridgeList.value = results[10].status === 'fulfilled' && Array.isArray(results[10].value) ? results[10].value : []
+
+  // Load TAK integration status for KPI widget
+  try {
+    const intList = await integrations.list()
+    const takInt = (intList || []).find(i => i.name && i.name.includes('TAK') && !i.name.includes('Federation'))
+    const fedInt = (intList || []).find(i => i.name && i.name.includes('Federation'))
+    dash.setTakStatus(
+      takInt?.enabled || false,
+      fedInt?.config?.connected_peers ? parseInt(fedInt.config.connected_peers) : 0
+    )
+  } catch {}
 
   lastRefresh.value = new Date()
   loading.value = false
@@ -268,6 +279,15 @@ function directionColor(d) {
             <span class="text-sm text-gray-400">{{ bridgeList.length }}</span>
           </div>
           <div class="text-gray-500 text-[10px] mt-0.5">online / total</div>
+        </div>
+
+        <!-- TAK / CoT -->
+        <div class="bg-tactical-surface rounded-lg p-4 border border-tactical-border">
+          <div class="text-blue-400 text-xs uppercase tracking-wider mb-1">TAK</div>
+          <div class="flex items-baseline gap-1">
+            <span class="text-xl font-bold" :class="dash.takEnabled ? 'text-blue-400' : 'text-gray-600'">{{ dash.takEnabled ? 'ON' : 'OFF' }}</span>
+          </div>
+          <div class="text-gray-500 text-[10px] mt-0.5">{{ dash.takFedPeers > 0 ? dash.takFedPeers + ' federation peers' : 'no federation' }}</div>
         </div>
 
         <!-- Devices Online/Idle/Offline -->

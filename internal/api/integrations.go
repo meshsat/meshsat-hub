@@ -23,14 +23,27 @@ type IntegrationStatus struct {
 	Setup       string            `json:"setup,omitempty"`
 }
 
+// FederationStatter provides live stats from the TAK Federation instance.
+type FederationStatter interface {
+	Stats() (in, out int64, peerCount int)
+	ConnectedPeers() []string
+}
+
 // IntegrationHandler returns the status of all inbound integration channels.
 type IntegrationHandler struct {
-	cfg config.Config
+	cfg           config.Config
+	getFederation func() FederationStatter // returns current federation or nil
 }
 
 // NewIntegrationHandler creates a new IntegrationHandler from the Hub config.
 func NewIntegrationHandler(cfg config.Config) *IntegrationHandler {
 	return &IntegrationHandler{cfg: cfg}
+}
+
+// SetFederationGetter sets a function that returns the current TAK Federation instance.
+// This uses a closure to safely read the federation pointer set by the leader election goroutine.
+func (h *IntegrationHandler) SetFederationGetter(fn func() FederationStatter) {
+	h.getFederation = fn
 }
 
 // ListIntegrations returns the status of all inbound integration channels.
@@ -284,15 +297,73 @@ func (h *IntegrationHandler) takFederationStatus() IntegrationStatus {
 	cfg["key"] = fileStatus(h.cfg.TAKFederationKey)
 	cfg["ca"] = fileStatus(h.cfg.TAKFederationCA)
 
+	connected := false
+	if h.getFederation != nil {
+		if fed := h.getFederation(); fed != nil {
+			in, out, pc := fed.Stats()
+			connected = pc > 0
+			cfg["connected_peers"] = strconv.Itoa(pc)
+			cfg["msgs_in"] = strconv.FormatInt(in, 10)
+			cfg["msgs_out"] = strconv.FormatInt(out, 10)
+			if peers := fed.ConnectedPeers(); len(peers) > 0 {
+				cfg["peer_addrs"] = strings.Join(peers, ", ")
+			}
+		}
+	}
+
 	return IntegrationStatus{
 		Name:        "TAK Federation v2",
 		Type:        "tcp",
 		Enabled:     enabled,
-		Connected:   enabled,
+		Connected:   connected,
 		Description: "TAK Server federation — bidirectional CoT relay with remote TAK Servers on port 9001 (mutual TLS)",
 		Config:      cfg,
 		Setup:       "Set HUB_TAK_FEDERATION_ENABLED=true, HUB_TAK_FEDERATION_PEERS=host1:9001,host2:9001, and provide mTLS cert/key/CA.",
 	}
+}
+
+// FederationPeerInfo describes a federation peer for the API.
+type FederationPeerInfo struct {
+	Address   string `json:"address"`
+	Connected bool   `json:"connected"`
+	MsgsIn    int64  `json:"msgs_in"`
+	MsgsOut   int64  `json:"msgs_out"`
+}
+
+// ListFederationPeers returns connected TAK federation peers.
+// @Summary TAK federation peers
+// @Tags tak
+// @Produce json
+// @Success 200 {object} map[string]interface{}
+// @Router /api/tak/federation/peers [get]
+func (h *IntegrationHandler) ListFederationPeers(w http.ResponseWriter, _ *http.Request) {
+	result := map[string]interface{}{
+		"enabled":    h.cfg.TAKFederationEnabled,
+		"peers":      []FederationPeerInfo{},
+		"total_in":   int64(0),
+		"total_out":  int64(0),
+		"peer_count": 0,
+	}
+
+	if h.getFederation != nil {
+		if fed := h.getFederation(); fed != nil {
+			in, out, pc := fed.Stats()
+			result["total_in"] = in
+			result["total_out"] = out
+			result["peer_count"] = pc
+
+			peers := []FederationPeerInfo{}
+			for _, addr := range fed.ConnectedPeers() {
+				peers = append(peers, FederationPeerInfo{
+					Address:   addr,
+					Connected: true,
+				})
+			}
+			result["peers"] = peers
+		}
+	}
+
+	writeJSON(w, http.StatusOK, result)
 }
 
 // maskSecret returns a masked version of a secret string, showing only the
