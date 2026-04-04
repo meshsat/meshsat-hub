@@ -23,7 +23,7 @@ onMounted(async () => {
     const data = await bridgesApi.list()
     bridgeList.value = Array.isArray(data) ? data : []
     if (bridgeList.value.length > 0) {
-      selectedBridge.value = bridgeList.value[0].id
+      selectedBridge.value = bridgeList.value[0].bridge_id
     }
   } catch (e) {
     toast.error('Failed to load bridges: ' + e.message)
@@ -139,8 +139,8 @@ async function deleteGroup() {
       <select v-model="selectedBridge"
         class="bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-200 focus:outline-none focus:border-teal-500 w-full max-w-xs">
         <option value="" disabled>Select a bridge...</option>
-        <option v-for="b in bridgeList" :key="b.id" :value="b.id">
-          {{ b.label || b.id }}
+        <option v-for="b in bridgeList" :key="b.bridge_id" :value="b.bridge_id">
+          {{ b.label || b.bridge_id }}
         </option>
       </select>
     </div>

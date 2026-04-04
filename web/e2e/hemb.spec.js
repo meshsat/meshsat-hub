@@ -175,11 +175,11 @@ test.describe('HeMB — UI elements', () => {
     const bridgeId = await createTempBridge(request, 'ui1')
     try {
       await page.goto('/#/bond-groups')
-      await page.waitForTimeout(1000)
+      await page.waitForTimeout(2000)
 
-      // Select the bridge
-      await page.locator('select').selectOption({ label: `HeMB Test ui1` })
-      await page.waitForTimeout(500)
+      // Select the bridge by value (bridgeId)
+      await page.locator('select').selectOption(bridgeId)
+      await page.waitForTimeout(1000)
 
       // Open form
       await page.getByRole('button', { name: 'New Bond Group' }).click()
@@ -196,11 +196,11 @@ test.describe('HeMB — UI elements', () => {
     const bridgeId = await createTempBridge(request, 'uicrud')
     try {
       await page.goto('/#/bond-groups')
-      await page.waitForTimeout(1000)
+      await page.waitForTimeout(2000)
 
-      // Select bridge
-      await page.locator('select').selectOption({ label: `HeMB Test uicrud` })
-      await page.waitForTimeout(500)
+      // Select bridge by value
+      await page.locator('select').selectOption(bridgeId)
+      await page.waitForTimeout(1000)
 
       // Create
       await page.getByRole('button', { name: 'New Bond Group' }).click()
