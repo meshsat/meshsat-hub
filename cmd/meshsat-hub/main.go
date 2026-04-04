@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"crypto/ed25519"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -730,6 +731,27 @@ func main() {
 	hubTimeService.Start(ctx)
 	slog.Info("timesync: hub service started (NTP authority)")
 
+	// DTN custody manager — Hub always accepts custody (relay of last resort) [MESHSAT-491].
+	custodyMgr := protocol.NewCustodyManager(30 * time.Second)
+	go func() {
+		ticker := time.NewTicker(15 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				expired := custodyMgr.Reap()
+				if expired > 0 {
+					metrics.CustodyExpiredTotal.Add(float64(expired))
+					slog.Debug("custody: reaped expired offers", "count", expired)
+				}
+				metrics.CustodyPending.Set(float64(custodyMgr.PendingCount()))
+				custodyMgr.Clear()
+			}
+		}
+	}()
+
 	// Reticulum packet handler — processes announces, path requests, protocol
 	// enhancement packets (MESHSAT-407), and forwards data packets.
 	reticulumPacketHandler := func(iface reticulum.InterfaceType, raw []byte) {
@@ -763,12 +785,44 @@ func main() {
 				slog.Debug("timesync: received response (hub ignores — we are authority)")
 				return
 			case reticulum.BridgeCustodyOffer:
-				slog.Debug("reticulum: custody offer received", "from", iface)
-				// Hub accepts custody — it's the relay of last resort.
-				// TODO: wire CustodyManager for hub-side custody acceptance.
+				offer, err := protocol.UnmarshalCustodyOffer(raw)
+				if err != nil {
+					slog.Warn("custody: malformed offer", "from", iface, "error", err)
+					return
+				}
+				if hubIdentity == nil || !hubIdentity.IsLoaded() {
+					slog.Warn("custody: cannot accept — identity not loaded")
+					return
+				}
+				destHash := hubIdentity.DestHash()
+				var acceptorHash [16]byte
+				copy(acceptorHash[:], destHash[:])
+				privKey := ed25519.PrivateKey(hubIdentity.Identity().SigningPrivateBytes())
+				ack := protocol.SignCustodyACK(offer.CustodyID, acceptorHash, privKey)
+				ackData := protocol.MarshalCustodyACK(ack)
+				if err := reticulumRelay.SendVia(ctx, iface, ackData); err != nil {
+					slog.Warn("custody: failed to send ACK", "from", iface, "error", err)
+				} else {
+					metrics.CustodyAcceptedTotal.Inc()
+					slog.Info("custody: accepted offer",
+						"custody_id", hex.EncodeToString(offer.CustodyID[:]),
+						"source", hex.EncodeToString(offer.SourceHash[:]),
+						"delivery_id", offer.DeliveryID,
+						"from", iface,
+					)
+				}
 				return
 			case reticulum.BridgeCustodyACK:
-				slog.Debug("reticulum: custody ack received", "from", iface)
+				ack, err := protocol.UnmarshalCustodyACK(raw)
+				if err != nil {
+					slog.Warn("custody: malformed ACK", "from", iface, "error", err)
+					return
+				}
+				if custodyMgr.HandleACK(ack) {
+					slog.Info("custody: ACK matched pending offer",
+						"custody_id", hex.EncodeToString(ack.CustodyID[:]),
+					)
+				}
 				return
 			}
 		}

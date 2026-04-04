@@ -190,6 +190,25 @@ func (r *Relay) Broadcast(ctx context.Context, sourceIface InterfaceType, raw []
 	}
 }
 
+// SendVia sends a raw packet to a specific named interface.
+// Used for directed responses (e.g. custody ACKs back to the offering bridge).
+func (r *Relay) SendVia(ctx context.Context, ifaceName InterfaceType, raw []byte) error {
+	r.mu.RLock()
+	iface, ok := r.interfaces[ifaceName]
+	r.mu.RUnlock()
+
+	if !ok {
+		return fmt.Errorf("relay: interface %s not registered", ifaceName)
+	}
+	if !iface.IsAvailable() {
+		return fmt.Errorf("relay: interface %s not available", ifaceName)
+	}
+	if len(raw) > iface.MTU() {
+		return fmt.Errorf("relay: packet %d bytes exceeds %s MTU %d", len(raw), ifaceName, iface.MTU())
+	}
+	return iface.Send(ctx, "", raw)
+}
+
 // ListInterfaces returns all registered interfaces.
 func (r *Relay) ListInterfaces() []Interface {
 	r.mu.RLock()

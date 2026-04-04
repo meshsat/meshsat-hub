@@ -315,3 +315,55 @@ func TestRelay_RateLimiting(t *testing.T) {
 		t.Errorf("rate_limit: got %d, want >= 1", stats.RateLimit)
 	}
 }
+
+func TestRelay_SendVia_Success(t *testing.T) {
+	router := NewRouter(5 * time.Minute)
+	relay := NewRelay(router, DefaultRelayConfig())
+
+	mqttIface := &mockInterface{name: IfaceMQTT, mtu: 500, available: true}
+	relay.RegisterInterface(mqttIface)
+
+	data := []byte("custody-ack-payload")
+	if err := relay.SendVia(context.Background(), IfaceMQTT, data); err != nil {
+		t.Fatalf("SendVia: %v", err)
+	}
+	if mqttIface.sent != 1 {
+		t.Fatalf("expected 1 send, got %d", mqttIface.sent)
+	}
+}
+
+func TestRelay_SendVia_NotRegistered(t *testing.T) {
+	router := NewRouter(5 * time.Minute)
+	relay := NewRelay(router, DefaultRelayConfig())
+
+	err := relay.SendVia(context.Background(), IfaceMQTT, []byte("data"))
+	if err == nil {
+		t.Fatal("expected error for unregistered interface")
+	}
+}
+
+func TestRelay_SendVia_Unavailable(t *testing.T) {
+	router := NewRouter(5 * time.Minute)
+	relay := NewRelay(router, DefaultRelayConfig())
+
+	mqttIface := &mockInterface{name: IfaceMQTT, mtu: 500, available: false}
+	relay.RegisterInterface(mqttIface)
+
+	err := relay.SendVia(context.Background(), IfaceMQTT, []byte("data"))
+	if err == nil {
+		t.Fatal("expected error for unavailable interface")
+	}
+}
+
+func TestRelay_SendVia_MTUExceeded(t *testing.T) {
+	router := NewRouter(5 * time.Minute)
+	relay := NewRelay(router, DefaultRelayConfig())
+
+	mqttIface := &mockInterface{name: IfaceMQTT, mtu: 10, available: true}
+	relay.RegisterInterface(mqttIface)
+
+	err := relay.SendVia(context.Background(), IfaceMQTT, make([]byte, 20))
+	if err == nil {
+		t.Fatal("expected error for MTU exceeded")
+	}
+}

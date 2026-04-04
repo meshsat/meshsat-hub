@@ -127,6 +127,26 @@ var (
 		Name: "meshsat_hub_hemb_bond_groups_total",
 		Help: "Number of HeMB bond groups configured per bridge.",
 	}, []string{"bridge_id"})
+
+	// DTN custody transfer metrics (MESHSAT-491)
+
+	// CustodyAcceptedTotal counts custody offers accepted by the Hub.
+	CustodyAcceptedTotal = promauto.NewCounter(prometheus.CounterOpts{
+		Name: "meshsat_hub_custody_accepted_total",
+		Help: "Total DTN custody offers accepted by the Hub.",
+	})
+
+	// CustodyExpiredTotal counts custody offers that expired without ACK.
+	CustodyExpiredTotal = promauto.NewCounter(prometheus.CounterOpts{
+		Name: "meshsat_hub_custody_expired_total",
+		Help: "Total DTN custody offers expired without acknowledgement.",
+	})
+
+	// CustodyPending tracks currently pending custody offers.
+	CustodyPending = promauto.NewGauge(prometheus.GaugeOpts{
+		Name: "meshsat_hub_custody_pending",
+		Help: "Number of pending DTN custody offers awaiting acknowledgement.",
+	})
 )
 
 // SetBuildInfo sets the build info metric labels. Call once at startup.
