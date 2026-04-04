@@ -277,6 +277,11 @@ else
     # In GitLab CI Docker executor, the CI container's /builds/ path doesn't
     # exist on the Docker host — volume mounts silently fail. Use docker create
     # + docker cp to inject the config file and extract reports instead.
+    # /zap/wrk/ doesn't exist in the image before start, so copy a directory.
+    ZAP_WRK=$(mktemp -d)
+    mkdir -p "${ZAP_WRK}/reports"
+    cp "${ZAP_CONF}" "${ZAP_WRK}/zap-baseline.conf"
+
     ZAP_EXIT=0
     ZAP_CONTAINER=$(docker create \
         --network host \
@@ -292,11 +297,12 @@ else
         -J "reports/zap-baseline-${TIMESTAMP}.json" \
         -r "reports/zap-baseline-${TIMESTAMP}.html" \
         -I)
-    docker cp "${ZAP_CONF}" "${ZAP_CONTAINER}:/zap/wrk/zap-baseline.conf"
+    docker cp "${ZAP_WRK}" "${ZAP_CONTAINER}:/zap/wrk"
     docker start -a "${ZAP_CONTAINER}" || ZAP_EXIT=$?
     mkdir -p "${REPORT_DIR}"
     docker cp "${ZAP_CONTAINER}:/zap/wrk/reports/." "${REPORT_DIR}/" 2>/dev/null || true
     docker rm "${ZAP_CONTAINER}" >/dev/null 2>&1 || true
+    rm -rf "${ZAP_WRK}"
 
     echo ""
     if [ "$ZAP_EXIT" -eq 0 ]; then
@@ -325,6 +331,10 @@ else
         ZAP_FULL_HTML="${REPORT_DIR}/zap-full-${TIMESTAMP}.html"
         ZAP_FULL_JSON="${REPORT_DIR}/zap-full-${TIMESTAMP}.json"
 
+        ZAP_FULL_WRK=$(mktemp -d)
+        mkdir -p "${ZAP_FULL_WRK}/reports"
+        cp "${ZAP_CONF}" "${ZAP_FULL_WRK}/zap-baseline.conf"
+
         ZAP_FULL_EXIT=0
         ZAP_FULL_CONTAINER=$(docker create \
             --network host \
@@ -340,10 +350,11 @@ else
             -J "reports/zap-full-${TIMESTAMP}.json" \
             -r "reports/zap-full-${TIMESTAMP}.html" \
             -I)
-        docker cp "${ZAP_CONF}" "${ZAP_FULL_CONTAINER}:/zap/wrk/zap-baseline.conf"
+        docker cp "${ZAP_FULL_WRK}" "${ZAP_FULL_CONTAINER}:/zap/wrk"
         docker start -a "${ZAP_FULL_CONTAINER}" || ZAP_FULL_EXIT=$?
         docker cp "${ZAP_FULL_CONTAINER}:/zap/wrk/reports/." "${REPORT_DIR}/" 2>/dev/null || true
         docker rm "${ZAP_FULL_CONTAINER}" >/dev/null 2>&1 || true
+        rm -rf "${ZAP_FULL_WRK}"
 
         echo ""
         if [ "$ZAP_FULL_EXIT" -eq 0 ]; then
