@@ -129,7 +129,7 @@ func (p *OTSPoller) login() error {
 	if err != nil {
 		return fmt.Errorf("login request: %w", err)
 	}
-	defer resp.Body.Close()
+	defer resp.Body.Close() //nolint:errcheck
 	_, _ = io.Copy(io.Discard, resp.Body)
 
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusFound {
@@ -144,7 +144,7 @@ func (p *OTSPoller) poll() error {
 	if err != nil {
 		return fmt.Errorf("get markers: %w", err)
 	}
-	defer resp.Body.Close()
+	defer resp.Body.Close() //nolint:errcheck
 
 	if resp.StatusCode == http.StatusFound || resp.StatusCode == http.StatusUnauthorized {
 		return fmt.Errorf("auth expired (status %d)", resp.StatusCode)
