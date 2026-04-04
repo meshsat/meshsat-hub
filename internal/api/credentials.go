@@ -47,6 +47,20 @@ func (h *CredentialHandler) SetCommander(c BridgeCommander) {
 }
 
 // Upload handles ZIP or PEM file upload with x509 parsing.
+// @Summary      Upload credential file
+// @Description  Accepts a ZIP or PEM file containing certificates and/or keys. Parses x509 metadata, encrypts with the master key, and stores the credential.
+// @Tags         credentials
+// @Accept       multipart/form-data
+// @Produce      json
+// @Param        file             formData  file    true   "PEM or ZIP file containing certificates/keys"
+// @Param        provider         formData  string  true   "Credential provider name"
+// @Param        name             formData  string  false  "Credential display name (defaults to provider)"
+// @Param        target_scope     formData  string  false  "Target scope: hub, bridge, or all (default hub)"
+// @Param        target_bridge_id formData  string  false  "Target bridge ID (required when target_scope=bridge)"
+// @Success      201  {object}  map[string]interface{}
+// @Failure      400  {object}  map[string]string
+// @Failure      500  {object}  map[string]string
+// @Router       /api/credentials [post]
 func (h *CredentialHandler) Upload(w http.ResponseWriter, r *http.Request) {
 	tid := auth.TenantIDFromContext(r.Context())
 
@@ -155,6 +169,13 @@ func (h *CredentialHandler) Upload(w http.ResponseWriter, r *http.Request) {
 }
 
 // List returns all credentials for the tenant (no encrypted data).
+// @Summary      List credentials
+// @Description  Returns all credentials for the tenant. Encrypted data is stripped from the response.
+// @Tags         credentials
+// @Produce      json
+// @Success      200  {object}  map[string]interface{}
+// @Failure      500  {object}  map[string]string
+// @Router       /api/credentials [get]
 func (h *CredentialHandler) List(w http.ResponseWriter, r *http.Request) {
 	tid := auth.TenantIDFromContext(r.Context())
 	creds, err := h.store.ListCredentials(r.Context(), tid)
@@ -170,6 +191,14 @@ func (h *CredentialHandler) List(w http.ResponseWriter, r *http.Request) {
 }
 
 // Get returns a single credential (no encrypted data).
+// @Summary      Get credential by ID
+// @Description  Returns a single credential. Encrypted data is stripped from the response.
+// @Tags         credentials
+// @Produce      json
+// @Param        id   path      string  true  "Credential ID"
+// @Success      200  {object}  store.Credential
+// @Failure      404  {object}  map[string]string
+// @Router       /api/credentials/{id} [get]
 func (h *CredentialHandler) Get(w http.ResponseWriter, r *http.Request) {
 	tid := auth.TenantIDFromContext(r.Context())
 	id := chi.URLParam(r, "id")
@@ -183,6 +212,14 @@ func (h *CredentialHandler) Get(w http.ResponseWriter, r *http.Request) {
 }
 
 // Delete removes a credential.
+// @Summary      Delete credential
+// @Description  Permanently removes a credential from the store.
+// @Tags         credentials
+// @Produce      json
+// @Param        id   path      string  true  "Credential ID"
+// @Success      200  {object}  map[string]string
+// @Failure      404  {object}  map[string]string
+// @Router       /api/credentials/{id} [delete]
 func (h *CredentialHandler) Delete(w http.ResponseWriter, r *http.Request) {
 	tid := auth.TenantIDFromContext(r.Context())
 	id := chi.URLParam(r, "id")
@@ -195,6 +232,14 @@ func (h *CredentialHandler) Delete(w http.ResponseWriter, r *http.Request) {
 }
 
 // ListExpiring returns credentials expiring within N days.
+// @Summary      List expiring credentials
+// @Description  Returns credentials with certificates expiring within the specified number of days (default 30).
+// @Tags         credentials
+// @Produce      json
+// @Param        days  query     int  false  "Days until expiry threshold"  default(30)
+// @Success      200   {object}  map[string]interface{}
+// @Failure      500   {object}  map[string]string
+// @Router       /api/credentials/expiring [get]
 func (h *CredentialHandler) ListExpiring(w http.ResponseWriter, r *http.Request) {
 	days := 30
 	if d := r.URL.Query().Get("days"); d != "" {
@@ -216,6 +261,17 @@ func (h *CredentialHandler) ListExpiring(w http.ResponseWriter, r *http.Request)
 }
 
 // Distribute pushes a credential to the target bridge(s) via MQTT.
+// @Summary      Distribute credential to bridges
+// @Description  Pushes a credential to the target bridge(s) via MQTT command. Only works for credentials with target_scope 'bridge' or 'all'.
+// @Tags         credentials
+// @Produce      json
+// @Param        id   path      string  true  "Credential ID"
+// @Success      200  {object}  map[string]interface{}
+// @Failure      400  {object}  map[string]string
+// @Failure      404  {object}  map[string]string
+// @Failure      500  {object}  map[string]string
+// @Failure      503  {object}  map[string]string
+// @Router       /api/credentials/{id}/distribute [post]
 func (h *CredentialHandler) Distribute(w http.ResponseWriter, r *http.Request) {
 	if h.commander == nil {
 		writeError(w, http.StatusServiceUnavailable, "bridge commander not available")
