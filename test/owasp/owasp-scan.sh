@@ -279,8 +279,10 @@ else
     # + docker cp to inject the config file and extract reports instead.
     # /zap/wrk/ doesn't exist in the image before start, so copy a directory.
     ZAP_WRK=$(mktemp -d)
-    mkdir -p "${ZAP_WRK}/reports"
+    mkdir -m 777 -p "${ZAP_WRK}/reports"
     cp "${ZAP_CONF}" "${ZAP_WRK}/zap-baseline.conf"
+    chmod 644 "${ZAP_WRK}/zap-baseline.conf"
+    chmod 755 "${ZAP_WRK}"
 
     ZAP_EXIT=0
     ZAP_CONTAINER=$(docker create \
@@ -332,8 +334,10 @@ else
         ZAP_FULL_JSON="${REPORT_DIR}/zap-full-${TIMESTAMP}.json"
 
         ZAP_FULL_WRK=$(mktemp -d)
-        mkdir -p "${ZAP_FULL_WRK}/reports"
+        mkdir -m 777 -p "${ZAP_FULL_WRK}/reports"
         cp "${ZAP_CONF}" "${ZAP_FULL_WRK}/zap-baseline.conf"
+        chmod 644 "${ZAP_FULL_WRK}/zap-baseline.conf"
+        chmod 755 "${ZAP_FULL_WRK}"
 
         ZAP_FULL_EXIT=0
         ZAP_FULL_CONTAINER=$(docker create \
