@@ -274,18 +274,11 @@ else
     echo "Config: ${ZAP_CONF}"
     echo "Reports: ${REPORT_DIR}/"
 
-    # Copy ZAP config into report dir so we can mount a single directory.
-    # Docker volume mounts require absolute paths for bind mounts — a relative
-    # path like "owasp-reports" is treated as a named volume (empty).
-    # Resolve to absolute, copy config in, then mount as /zap/wrk/.
-    mkdir -p "${REPORT_DIR}/reports"
-    REPORT_DIR="$(cd "${REPORT_DIR}" && pwd)"
-    cp "${ZAP_CONF}" "${REPORT_DIR}/zap-baseline.conf"
-
-    # ZAP baseline scan with auth header hook
+    # In GitLab CI Docker executor, the CI container's /builds/ path doesn't
+    # exist on the Docker host — volume mounts silently fail. Use docker create
+    # + docker cp to inject the config file and extract reports instead.
     ZAP_EXIT=0
-    docker run --rm \
-        -v "${REPORT_DIR}:/zap/wrk:rw" \
+    ZAP_CONTAINER=$(docker create \
         --network host \
         "$ZAP_IMAGE" zap-baseline.py \
         -t "$HUB_TARGET_URL" \
@@ -298,7 +291,12 @@ else
             -config replacer.full_list\\(0\\).initiators=" \
         -J "reports/zap-baseline-${TIMESTAMP}.json" \
         -r "reports/zap-baseline-${TIMESTAMP}.html" \
-        -I || ZAP_EXIT=$?
+        -I)
+    docker cp "${ZAP_CONF}" "${ZAP_CONTAINER}:/zap/wrk/zap-baseline.conf"
+    docker start -a "${ZAP_CONTAINER}" || ZAP_EXIT=$?
+    mkdir -p "${REPORT_DIR}"
+    docker cp "${ZAP_CONTAINER}:/zap/wrk/reports/." "${REPORT_DIR}/" 2>/dev/null || true
+    docker rm "${ZAP_CONTAINER}" >/dev/null 2>&1 || true
 
     echo ""
     if [ "$ZAP_EXIT" -eq 0 ]; then
@@ -328,8 +326,7 @@ else
         ZAP_FULL_JSON="${REPORT_DIR}/zap-full-${TIMESTAMP}.json"
 
         ZAP_FULL_EXIT=0
-        docker run --rm \
-            -v "${REPORT_DIR}:/zap/wrk:rw" \
+        ZAP_FULL_CONTAINER=$(docker create \
             --network host \
             "$ZAP_IMAGE" zap-full-scan.py \
             -t "$HUB_TARGET_URL" \
@@ -342,7 +339,11 @@ else
                 -config replacer.full_list\\(0\\).initiators=" \
             -J "reports/zap-full-${TIMESTAMP}.json" \
             -r "reports/zap-full-${TIMESTAMP}.html" \
-            -I || ZAP_FULL_EXIT=$?
+            -I)
+        docker cp "${ZAP_CONF}" "${ZAP_FULL_CONTAINER}:/zap/wrk/zap-baseline.conf"
+        docker start -a "${ZAP_FULL_CONTAINER}" || ZAP_FULL_EXIT=$?
+        docker cp "${ZAP_FULL_CONTAINER}:/zap/wrk/reports/." "${REPORT_DIR}/" 2>/dev/null || true
+        docker rm "${ZAP_FULL_CONTAINER}" >/dev/null 2>&1 || true
 
         echo ""
         if [ "$ZAP_FULL_EXIT" -eq 0 ]; then
