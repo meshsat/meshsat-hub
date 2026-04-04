@@ -368,7 +368,7 @@ func main() {
 	// events back. This poller provides the reverse path via the REST API.
 	var otsPoller *tak.OTSPoller
 	if cfg.TAKAPIBaseURL != "" && cfg.TAKAPIUsername != "" {
-		otsPoller = tak.NewOTSPoller(cfg.TAKAPIBaseURL, cfg.TAKAPIUsername, cfg.TAKAPIPassword, cfg.TAKAPIPollSec, msgBus)
+		otsPoller = tak.NewOTSPoller(cfg.TAKAPIBaseURL, cfg.TAKAPIUsername, cfg.TAKAPIPassword, cfg.TAKAPIPollSec, msgBus, dataStore, store.DefaultTenantID)
 		otsPoller.Start()
 	}
 

@@ -1,6 +1,7 @@
 package tak
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -11,6 +12,7 @@ import (
 	"time"
 
 	"github.com/cubeos-app/meshsat-hub/internal/bus"
+	"github.com/cubeos-app/meshsat-hub/internal/store"
 )
 
 // OTSPoller polls the OpenTAKServer REST API for markers and forwards new/updated
@@ -24,11 +26,14 @@ type OTSPoller struct {
 	username string
 	password string
 	pollSec  int
+	tenantID string
 
 	mqtt       bus.MessageBus
+	db         store.Store
 	httpClient *http.Client
 
 	knownMarkers map[string]otsMarkerState // uid → last seen state
+	knownDevices map[string]bool           // uid → device registered
 	mu           sync.Mutex
 	stopCh       chan struct{}
 }
@@ -69,7 +74,7 @@ type otsPoint struct {
 }
 
 // NewOTSPoller creates a new OpenTAKServer REST API poller.
-func NewOTSPoller(baseURL, username, password string, pollSec int, mqtt bus.MessageBus) *OTSPoller {
+func NewOTSPoller(baseURL, username, password string, pollSec int, mqtt bus.MessageBus, db store.Store, tenantID string) *OTSPoller {
 	if pollSec <= 0 {
 		pollSec = 10
 	}
@@ -79,9 +84,12 @@ func NewOTSPoller(baseURL, username, password string, pollSec int, mqtt bus.Mess
 		username:     username,
 		password:     password,
 		pollSec:      pollSec,
+		tenantID:     tenantID,
 		mqtt:         mqtt,
+		db:           db,
 		httpClient:   &http.Client{Jar: jar, Timeout: 10 * time.Second},
 		knownMarkers: make(map[string]otsMarkerState),
+		knownDevices: make(map[string]bool),
 		stopCh:       make(chan struct{}),
 	}
 }
@@ -207,6 +215,9 @@ func (p *OTSPoller) poll() error {
 			continue
 		}
 
+		// Store position in Hub DB so it appears on the Hub map.
+		p.ensureDeviceAndPosition(m)
+
 		action := "new"
 		if known {
 			action = "updated"
@@ -250,6 +261,51 @@ func (p *OTSPoller) markerToCotEvent(m otsMarker) CotEvent {
 			Contact: &CotContact{Callsign: callsign},
 			Remarks: &CotRemarks{Source: "OTS", Text: "Via OpenTAKServer"},
 		},
+	}
+}
+
+// ensureDeviceAndPosition auto-registers a TAK marker as a device in the Hub DB
+// and stores its latest position so it appears on the Hub map.
+func (p *OTSPoller) ensureDeviceAndPosition(m otsMarker) {
+	if p.db == nil {
+		return
+	}
+	ctx := context.Background()
+
+	// Auto-register device if not yet known.
+	if !p.knownDevices[m.UID] {
+		_, err := p.db.GetDevice(ctx, p.tenantID, m.UID)
+		if err != nil {
+			// Device doesn't exist — create it.
+			label := m.Callsign
+			if label == "" {
+				label = m.UID
+			}
+			d := &store.Device{
+				IMEI:  m.UID,
+				Label: label,
+				Type:  "tak",
+				Notes: "Auto-registered from OpenTAKServer",
+			}
+			if createErr := p.db.CreateDevice(ctx, p.tenantID, d); createErr != nil {
+				slog.Debug("tak: auto-register device", "error", createErr, "uid", m.UID)
+			}
+		}
+		p.knownDevices[m.UID] = true
+	}
+
+	// Store position.
+	pos := &store.Position{
+		ID:         fmt.Sprintf("tak-%s-%d", m.UID, time.Now().UnixNano()),
+		DeviceIMEI: m.UID,
+		Lat:        m.Point.Lat,
+		Lon:        m.Point.Lon,
+		Alt:        m.Point.Hae,
+		Source:     "tak",
+		CEP:        m.Point.Ce,
+	}
+	if err := p.db.InsertPosition(ctx, p.tenantID, pos); err != nil {
+		slog.Debug("tak: store position", "error", err, "uid", m.UID)
 	}
 }
 
