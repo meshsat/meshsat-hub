@@ -77,8 +77,10 @@ func TopicBridgeDeath(bridgeID string) string   { return fmt.Sprintf(topicBridge
 func TopicBridgeHealth(bridgeID string) string  { return fmt.Sprintf(topicBridgeHealth, bridgeID) }
 func TopicBridgeCmd(bridgeID string) string     { return fmt.Sprintf(topicBridgeCmd, bridgeID) }
 func TopicBridgeCmdResp(bridgeID string) string { return fmt.Sprintf(topicBridgeCmdResp, bridgeID) }
-func TopicBridgeHeMB(bridgeID string) string       { return fmt.Sprintf(topicBridgeHeMB, bridgeID) }
-func TopicBridgeConfigHeMB(bridgeID string) string { return fmt.Sprintf(topicBridgeConfigHeMB, bridgeID) }
+func TopicBridgeHeMB(bridgeID string) string    { return fmt.Sprintf(topicBridgeHeMB, bridgeID) }
+func TopicBridgeConfigHeMB(bridgeID string) string {
+	return fmt.Sprintf(topicBridgeConfigHeMB, bridgeID)
+}
 
 func TopicDeviceBirth(bridgeID, deviceID string) string {
 	return fmt.Sprintf(topicDeviceBirth, bridgeID, deviceID)

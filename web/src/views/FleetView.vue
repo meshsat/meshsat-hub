@@ -781,6 +781,25 @@ function certExpiryStatus(b) {
                 </div>
               </template>
 
+              <!-- HeMB bonding stats -->
+              <template v-if="parseHealth(b).hemb">
+                <h4 class="text-xs text-gray-500 uppercase tracking-wider font-display mb-2">HeMB Bonding</h4>
+                <div class="grid grid-cols-3 gap-3 text-xs mb-4">
+                  <div>
+                    <span class="text-gray-500">Bond Groups</span>
+                    <div class="text-gray-300 font-mono">{{ parseHealth(b).hemb.active_bond_groups }}</div>
+                  </div>
+                  <div>
+                    <span class="text-gray-500">Symbols Tx/Rx</span>
+                    <div class="text-gray-300 font-mono">{{ parseHealth(b).hemb.symbols_sent }}/{{ parseHealth(b).hemb.symbols_received }}</div>
+                  </div>
+                  <div>
+                    <span class="text-gray-500">Decoded/Failed</span>
+                    <div class="font-mono"><span class="text-emerald-400">{{ parseHealth(b).hemb.generations_decoded }}</span>/<span class="text-red-400">{{ parseHealth(b).hemb.generations_failed }}</span></div>
+                  </div>
+                </div>
+              </template>
+
               <!-- Burst queue -->
               <template v-if="parseHealth(b).burst_queue">
                 <div class="text-xs text-gray-400 mb-4">
