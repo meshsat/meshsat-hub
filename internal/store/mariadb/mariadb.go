@@ -2153,6 +2153,26 @@ func (d *DB) GetBondGroups(ctx context.Context, tenantID, bridgeID string) ([]st
 	return groups, rows.Err()
 }
 
+func (d *DB) GetBondGroup(ctx context.Context, tenantID, bridgeID, groupID string) (*store.BondGroup, error) {
+	var g store.BondGroup
+	err := d.db.QueryRowContext(ctx,
+		`SELECT id, tenant_id, bridge_id, label, members, cost_budget, created_at FROM bond_groups WHERE tenant_id = ? AND bridge_id = ? AND id = ?`,
+		tenantID, bridgeID, groupID,
+	).Scan(&g.ID, &g.TenantID, &g.BridgeID, &g.Label, &g.Members, &g.CostBudget, &g.CreatedAt)
+	if err != nil {
+		return nil, err
+	}
+	return &g, nil
+}
+
+func (d *DB) UpdateBondGroup(ctx context.Context, tenantID, bridgeID string, g *store.BondGroup) error {
+	_, err := d.db.ExecContext(ctx,
+		`UPDATE bond_groups SET label = ?, members = ?, cost_budget = ? WHERE tenant_id = ? AND bridge_id = ? AND id = ?`,
+		g.Label, g.Members, g.CostBudget, tenantID, bridgeID, g.ID,
+	)
+	return err
+}
+
 func (d *DB) DeleteBondGroup(ctx context.Context, tenantID, bridgeID, groupID string) error {
 	_, err := d.db.ExecContext(ctx,
 		`DELETE FROM bond_groups WHERE tenant_id = ? AND bridge_id = ? AND id = ?`,

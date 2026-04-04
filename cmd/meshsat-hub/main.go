@@ -479,6 +479,26 @@ func main() {
 			slog.Error("bridge: failed to start commander", "error", err)
 		}
 		defer bridgeCommander.Stop()
+
+		// HeMB reassembly reaper: purge stale streams and update metrics.
+		go func() {
+			ticker := time.NewTicker(60 * time.Second)
+			defer ticker.Stop()
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				case <-ticker.C:
+					if n := hembReassemblyBuf.Reap(); n > 0 {
+						slog.Info("hemb: reaped stale streams", "count", n)
+						metrics.HeMBStaleStreamsPurged.Add(float64(n))
+					}
+					stats := hembReassemblyBuf.Stats()
+					metrics.HeMBActiveStreams.Set(float64(stats.ActiveStreams))
+					metrics.HeMBReassemblyPending.Set(float64(stats.GenerationsPending))
+				}
+			}
+		}()
 	}
 
 	// Bridge reaper: marks bridges offline when last_seen exceeds timeout.
@@ -1274,6 +1294,20 @@ func main() {
 	provisionHandler := api.NewBridgeProvisionHandler(dataStore, bridgeCA)
 	r.Post("/api/bridges/{id}/provision", provisionHandler.Provision)
 	r.Post("/api/bridges/{id}/provision/qr", provisionHandler.ProvisionQR)
+
+	// HeMB bond group management (MESHSAT-487)
+	bondGroupHandler := api.NewBondGroupHandler(dataStore, msgBus)
+	r.Get("/api/bridges/{bridgeID}/bond-groups", bondGroupHandler.ListBondGroups)
+	r.Post("/api/bridges/{bridgeID}/bond-groups", bondGroupHandler.CreateBondGroup)
+	r.Get("/api/bridges/{bridgeID}/bond-groups/{groupID}", bondGroupHandler.GetBondGroup)
+	r.Put("/api/bridges/{bridgeID}/bond-groups/{groupID}", bondGroupHandler.UpdateBondGroup)
+	r.Delete("/api/bridges/{bridgeID}/bond-groups/{groupID}", bondGroupHandler.DeleteBondGroup)
+
+	// HeMB reassembly stats (MESHSAT-489)
+	if hembReassemblyBuf != nil {
+		hembStatsHandler := api.NewHeMBStatsHandler(hembReassemblyBuf)
+		r.Get("/api/hemb/stats", hembStatsHandler.GetStats)
+	}
 
 	// Platform settings (MQTT public URL for bridge onboarding)
 	r.Get("/api/settings/mqtt-url", bridgeAuthHandler.GetMQTTURL)

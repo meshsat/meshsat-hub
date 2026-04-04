@@ -89,6 +89,44 @@ var (
 		Help:    "Duration of health probe checks in seconds.",
 		Buckets: []float64{.001, .005, .01, .025, .05, .1, .25, .5, 1, 2.5, 5},
 	}, []string{"probe"})
+
+	// HeMB reassembly metrics (MESHSAT-489)
+
+	// HeMBGenerationsDecoded counts successfully decoded HeMB generations.
+	HeMBGenerationsDecoded = promauto.NewCounterVec(prometheus.CounterOpts{
+		Name: "meshsat_hub_hemb_generations_decoded_total",
+		Help: "Total HeMB generations successfully decoded.",
+	}, []string{"bridge_id"})
+
+	// HeMBSymbolsReceived counts individual RLNC-coded symbols received.
+	HeMBSymbolsReceived = promauto.NewCounterVec(prometheus.CounterOpts{
+		Name: "meshsat_hub_hemb_symbols_received_total",
+		Help: "Total HeMB RLNC-coded symbols received.",
+	}, []string{"bridge_id"})
+
+	// HeMBActiveStreams tracks currently active reassembly streams.
+	HeMBActiveStreams = promauto.NewGauge(prometheus.GaugeOpts{
+		Name: "meshsat_hub_hemb_active_streams",
+		Help: "Number of currently active HeMB reassembly streams.",
+	})
+
+	// HeMBStaleStreamsPurged counts streams removed by the reap goroutine.
+	HeMBStaleStreamsPurged = promauto.NewCounter(prometheus.CounterOpts{
+		Name: "meshsat_hub_hemb_stale_streams_purged_total",
+		Help: "Total HeMB streams removed due to timeout.",
+	})
+
+	// HeMBReassemblyPending tracks pending (not yet decodable) generations.
+	HeMBReassemblyPending = promauto.NewGauge(prometheus.GaugeOpts{
+		Name: "meshsat_hub_hemb_reassembly_pending",
+		Help: "Number of pending HeMB generations awaiting more symbols.",
+	})
+
+	// HeMBBondGroupsTotal tracks configured bond groups per bridge.
+	HeMBBondGroupsTotal = promauto.NewGaugeVec(prometheus.GaugeOpts{
+		Name: "meshsat_hub_hemb_bond_groups_total",
+		Help: "Number of HeMB bond groups configured per bridge.",
+	}, []string{"bridge_id"})
 )
 
 // SetBuildInfo sets the build info metric labels. Call once at startup.

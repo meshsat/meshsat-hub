@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/cubeos-app/meshsat-hub/internal/bus"
+	"github.com/cubeos-app/meshsat-hub/internal/metrics"
 	"github.com/cubeos-app/meshsat-hub/internal/protocol"
 	"github.com/cubeos-app/meshsat-hub/internal/store"
 )
@@ -522,6 +523,8 @@ func (s *Subscriber) handleHeMBSymbol(topic string, payload []byte) {
 		return
 	}
 
+	metrics.HeMBSymbolsReceived.WithLabelValues(bridgeID).Inc()
+
 	decoded, err := s.hembReassembler.AddSymbol(streamID, bearerIdx, sym)
 	if err != nil {
 		slog.Warn("hemb: reassembly error",
@@ -536,6 +539,8 @@ func (s *Subscriber) handleHeMBSymbol(topic string, payload []byte) {
 	if decoded == nil {
 		return
 	}
+
+	metrics.HeMBGenerationsDecoded.WithLabelValues(bridgeID).Inc()
 
 	// Generation fully decoded — re-publish the reassembled payload to the
 	// bridge's MO decoded topic so it flows through the standard pipeline

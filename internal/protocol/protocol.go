@@ -42,8 +42,9 @@ const (
 
 	// HeMB bonded symbol relay — bridges publish individual RLNC-coded
 	// symbols here; Hub reassembles across bearers.
-	topicBridgeHeMB = "meshsat/bridge/%s/hemb"
-	SubBridgeHeMB   = "meshsat/bridge/+/hemb"
+	topicBridgeHeMB       = "meshsat/bridge/%s/hemb"
+	topicBridgeConfigHeMB = "meshsat/bridge/%s/config/hemb"
+	SubBridgeHeMB         = "meshsat/bridge/+/hemb"
 )
 
 // CoT type constants (MIL-STD-2525 symbology).
@@ -76,7 +77,8 @@ func TopicBridgeDeath(bridgeID string) string   { return fmt.Sprintf(topicBridge
 func TopicBridgeHealth(bridgeID string) string  { return fmt.Sprintf(topicBridgeHealth, bridgeID) }
 func TopicBridgeCmd(bridgeID string) string     { return fmt.Sprintf(topicBridgeCmd, bridgeID) }
 func TopicBridgeCmdResp(bridgeID string) string { return fmt.Sprintf(topicBridgeCmdResp, bridgeID) }
-func TopicBridgeHeMB(bridgeID string) string    { return fmt.Sprintf(topicBridgeHeMB, bridgeID) }
+func TopicBridgeHeMB(bridgeID string) string       { return fmt.Sprintf(topicBridgeHeMB, bridgeID) }
+func TopicBridgeConfigHeMB(bridgeID string) string { return fmt.Sprintf(topicBridgeConfigHeMB, bridgeID) }
 
 func TopicDeviceBirth(bridgeID, deviceID string) string {
 	return fmt.Sprintf(topicDeviceBirth, bridgeID, deviceID)

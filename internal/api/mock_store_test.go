@@ -361,8 +361,14 @@ func (m *mockStore) ListExpiringCredentials(context.Context, time.Time) ([]store
 func (m *mockStore) CreateBondGroup(context.Context, string, string, *store.BondGroup) error {
 	return nil
 }
+func (m *mockStore) GetBondGroup(_ context.Context, _, _, _ string) (*store.BondGroup, error) {
+	return nil, nil
+}
 func (m *mockStore) GetBondGroups(context.Context, string, string) ([]store.BondGroup, error) {
 	return nil, nil
+}
+func (m *mockStore) UpdateBondGroup(context.Context, string, string, *store.BondGroup) error {
+	return nil
 }
 func (m *mockStore) DeleteBondGroup(context.Context, string, string, string) error {
 	return nil

@@ -273,6 +273,18 @@ export const deviceGroups = {
   removeMember: (id, imei) => fetchJSON(`/device-groups/${id}/members/${imei}`, { method: 'DELETE' }),
 }
 
+export const bondGroups = {
+  list: (bridgeId) => fetchJSON(`/bridges/${bridgeId}/bond-groups`),
+  get: (bridgeId, groupId) => fetchJSON(`/bridges/${bridgeId}/bond-groups/${groupId}`),
+  create: (bridgeId, data) => fetchJSON(`/bridges/${bridgeId}/bond-groups`, { method: 'POST', body: JSON.stringify(data) }),
+  update: (bridgeId, groupId, data) => fetchJSON(`/bridges/${bridgeId}/bond-groups/${groupId}`, { method: 'PUT', body: JSON.stringify(data) }),
+  delete: (bridgeId, groupId) => fetchJSON(`/bridges/${bridgeId}/bond-groups/${groupId}`, { method: 'DELETE' }),
+}
+
+export const hembStats = {
+  get: () => fetchJSON('/hemb/stats'),
+}
+
 export const integrations = {
   list: () => fetchJSON('/integrations'),
 }

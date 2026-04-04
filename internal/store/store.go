@@ -143,9 +143,11 @@ type Store interface {
 	SetBridgeCertificate(ctx context.Context, tenantID, bridgeID, certPEM string, expiry time.Time) error
 	ListBridgesWithCredentials(ctx context.Context) ([]*Bridge, error)
 
-	// HeMB bond groups (MESHSAT-429)
+	// HeMB bond groups (MESHSAT-429, MESHSAT-487)
 	CreateBondGroup(ctx context.Context, tenantID, bridgeID string, g *BondGroup) error
+	GetBondGroup(ctx context.Context, tenantID, bridgeID, groupID string) (*BondGroup, error)
 	GetBondGroups(ctx context.Context, tenantID, bridgeID string) ([]BondGroup, error)
+	UpdateBondGroup(ctx context.Context, tenantID, bridgeID string, g *BondGroup) error
 	DeleteBondGroup(ctx context.Context, tenantID, bridgeID, groupID string) error
 
 	// Cost ledger

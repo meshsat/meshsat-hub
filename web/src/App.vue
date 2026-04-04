@@ -67,6 +67,7 @@ const navGroups = [
   { label: 'Operations', items: [
     { to: '/', label: 'Dashboard' },
     { to: '/fleet', label: 'Fleet' },
+    { to: '/bond-groups', label: 'Bonding' },
     { to: '/map', label: 'Map' },
     { to: '/devices', label: 'Devices' },
     { to: '/device-groups', label: 'Groups' },
