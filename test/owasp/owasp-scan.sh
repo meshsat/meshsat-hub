@@ -274,20 +274,20 @@ else
     echo "Config: ${ZAP_CONF}"
     echo "Reports: ${REPORT_DIR}/"
 
-    # In GitLab CI Docker executor, the CI container's /builds/ path doesn't
-    # exist on the Docker host — volume mounts silently fail. Use docker create
-    # + docker cp to inject the config file and extract reports instead.
-    # /zap/wrk/ doesn't exist in the image before start, so copy a directory.
-    ZAP_WRK=$(mktemp -d)
-    mkdir -m 777 -p "${ZAP_WRK}/reports"
-    cp "${ZAP_CONF}" "${ZAP_WRK}/zap-baseline.conf"
-    chmod 644 "${ZAP_WRK}/zap-baseline.conf"
-    chmod 755 "${ZAP_WRK}"
-
+    # GitLab CI Docker executor: volume mounts fail because /builds/ path
+    # inside the CI container differs from the host path. ZAP runs as uid
+    # 1000 (zap user) and needs to WRITE to /zap/wrk/ (AF plan, reports).
+    # Pattern: create+start with sleep, exec -u 0 to set up wrk dir with
+    # correct ownership, docker cp config in, exec the scan, cp reports out.
+    # Ref: https://github.com/zaproxy/zaproxy/issues/9193
     ZAP_EXIT=0
-    ZAP_CONTAINER=$(docker create \
-        --network host \
-        "$ZAP_IMAGE" zap-baseline.py \
+    ZAP_CONTAINER=$(docker create --network host "$ZAP_IMAGE" sleep 3600)
+    docker start "${ZAP_CONTAINER}"
+    docker exec -u 0 "${ZAP_CONTAINER}" mkdir -p /zap/wrk/reports
+    docker exec -u 0 "${ZAP_CONTAINER}" chown -R 1000:1000 /zap/wrk
+    docker cp "${ZAP_CONF}" "${ZAP_CONTAINER}:/zap/wrk/zap-baseline.conf"
+    docker exec -u 0 "${ZAP_CONTAINER}" chown 1000:1000 /zap/wrk/zap-baseline.conf
+    docker exec "${ZAP_CONTAINER}" zap-baseline.py \
         -t "$HUB_TARGET_URL" \
         -c zap-baseline.conf \
         -z "-config replacer.full_list\\(0\\).description=auth \
@@ -298,13 +298,11 @@ else
             -config replacer.full_list\\(0\\).initiators=" \
         -J "reports/zap-baseline-${TIMESTAMP}.json" \
         -r "reports/zap-baseline-${TIMESTAMP}.html" \
-        -I)
-    docker cp "${ZAP_WRK}" "${ZAP_CONTAINER}:/zap/wrk"
-    docker start -a "${ZAP_CONTAINER}" || ZAP_EXIT=$?
+        -I || ZAP_EXIT=$?
     mkdir -p "${REPORT_DIR}"
     docker cp "${ZAP_CONTAINER}:/zap/wrk/reports/." "${REPORT_DIR}/" 2>/dev/null || true
+    docker stop "${ZAP_CONTAINER}" >/dev/null 2>&1 || true
     docker rm "${ZAP_CONTAINER}" >/dev/null 2>&1 || true
-    rm -rf "${ZAP_WRK}"
 
     echo ""
     if [ "$ZAP_EXIT" -eq 0 ]; then
@@ -333,16 +331,14 @@ else
         ZAP_FULL_HTML="${REPORT_DIR}/zap-full-${TIMESTAMP}.html"
         ZAP_FULL_JSON="${REPORT_DIR}/zap-full-${TIMESTAMP}.json"
 
-        ZAP_FULL_WRK=$(mktemp -d)
-        mkdir -m 777 -p "${ZAP_FULL_WRK}/reports"
-        cp "${ZAP_CONF}" "${ZAP_FULL_WRK}/zap-baseline.conf"
-        chmod 644 "${ZAP_FULL_WRK}/zap-baseline.conf"
-        chmod 755 "${ZAP_FULL_WRK}"
-
         ZAP_FULL_EXIT=0
-        ZAP_FULL_CONTAINER=$(docker create \
-            --network host \
-            "$ZAP_IMAGE" zap-full-scan.py \
+        ZAP_FULL_CONTAINER=$(docker create --network host "$ZAP_IMAGE" sleep 3600)
+        docker start "${ZAP_FULL_CONTAINER}"
+        docker exec -u 0 "${ZAP_FULL_CONTAINER}" mkdir -p /zap/wrk/reports
+        docker exec -u 0 "${ZAP_FULL_CONTAINER}" chown -R 1000:1000 /zap/wrk
+        docker cp "${ZAP_CONF}" "${ZAP_FULL_CONTAINER}:/zap/wrk/zap-baseline.conf"
+        docker exec -u 0 "${ZAP_FULL_CONTAINER}" chown 1000:1000 /zap/wrk/zap-baseline.conf
+        docker exec "${ZAP_FULL_CONTAINER}" zap-full-scan.py \
             -t "$HUB_TARGET_URL" \
             -c zap-baseline.conf \
             -z "-config replacer.full_list\\(0\\).description=auth \
@@ -353,12 +349,10 @@ else
                 -config replacer.full_list\\(0\\).initiators=" \
             -J "reports/zap-full-${TIMESTAMP}.json" \
             -r "reports/zap-full-${TIMESTAMP}.html" \
-            -I)
-        docker cp "${ZAP_FULL_WRK}" "${ZAP_FULL_CONTAINER}:/zap/wrk"
-        docker start -a "${ZAP_FULL_CONTAINER}" || ZAP_FULL_EXIT=$?
+            -I || ZAP_FULL_EXIT=$?
         docker cp "${ZAP_FULL_CONTAINER}:/zap/wrk/reports/." "${REPORT_DIR}/" 2>/dev/null || true
+        docker stop "${ZAP_FULL_CONTAINER}" >/dev/null 2>&1 || true
         docker rm "${ZAP_FULL_CONTAINER}" >/dev/null 2>&1 || true
-        rm -rf "${ZAP_FULL_WRK}"
 
         echo ""
         if [ "$ZAP_FULL_EXIT" -eq 0 ]; then
