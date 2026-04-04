@@ -147,7 +147,10 @@ async function generateCredentials(bridgeId) {
   credentialLoading.value = true
   credentialResult.value = null
   try {
-    const result = await bridges.generateCredentials(bridgeId)
+    const bridge = bridgeList.value.find(b => b.bridge_id === bridgeId)
+    const result = bridge && hasCredentials(bridge)
+      ? await bridges.rotateCredentials(bridgeId)
+      : await bridges.generateCredentials(bridgeId)
     credentialResult.value = result
     if (onboardingBridgeId.value === bridgeId && onboardingStep.value === 1) {
       onboardingStep.value = 2

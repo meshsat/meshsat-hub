@@ -68,6 +68,9 @@ export const deviceKeys = {
   list: (imei) => fetchJSON(`/devices/${imei}/keys`),
   create: (imei, data) => fetchJSON(`/devices/${imei}/keys`, { method: 'POST', body: JSON.stringify(data) }),
   delete: (imei, id) => fetchJSON(`/devices/${imei}/keys/${id}`, { method: 'DELETE' }),
+  import: (imei, data) => fetchJSON(`/devices/${imei}/keys/import`, { method: 'POST', body: JSON.stringify(data) }),
+  rotateAndDistribute: (imei, data) => fetchJSON(`/devices/${imei}/keys/rotate`, { method: 'POST', body: JSON.stringify(data) }),
+  distribute: (imei, data) => fetchJSON(`/devices/${imei}/keys/distribute`, { method: 'POST', body: JSON.stringify(data) }),
 }
 
 export const deviceConfig = {
@@ -256,6 +259,7 @@ export const bridges = {
   provisionQR: (id, size = 512) => fetchBlob(`/bridges/${id}/provision/qr?size=${size}`, { method: 'POST' }),
   sendCommand: (id, data) => fetchJSON(`/bridges/${id}/command`, { method: 'POST', body: JSON.stringify(data) }),
   regenerateACL: () => fetchJSON('/bridges/acl/regenerate', { method: 'POST' }),
+  rotateCredentials: (id) => fetchJSON(`/bridges/${id}/credentials/rotate`, { method: 'POST' }),
 }
 
 export const deviceGroups = {
@@ -314,4 +318,34 @@ export const tak = {
   fleetStatus: () => fetchJSON('/tak/fleet-status'),
   federationPeers: () => fetchJSON('/tak/federation/peers'),
   missions: () => fetchJSON('/tak/missions'),
+}
+
+export const alertRules = {
+  list: () => fetchJSON('/alert-rules'),
+  get: (id) => fetchJSON(`/alert-rules/${id}`),
+  create: (data) => fetchJSON('/alert-rules', { method: 'POST', body: JSON.stringify(data) }),
+  update: (id, data) => fetchJSON(`/alert-rules/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+  delete: (id) => fetchJSON(`/alert-rules/${id}`, { method: 'DELETE' }),
+}
+
+export const costs = {
+  list: (device, from, to, limit) => {
+    const p = new URLSearchParams()
+    if (device) p.set('device', device)
+    if (from) p.set('from', from)
+    if (to) p.set('to', to)
+    if (limit) p.set('limit', limit)
+    return fetchJSON(`/costs?${p}`)
+  },
+  summary: (groupBy, from, to) => {
+    const p = new URLSearchParams()
+    if (groupBy) p.set('group_by', groupBy)
+    if (from) p.set('from', from)
+    if (to) p.set('to', to)
+    return fetchJSON(`/costs/summary?${p}`)
+  },
+}
+
+export const channelKeys = {
+  rotate: (data) => fetchJSON('/keys/channel/rotate', { method: 'POST', body: JSON.stringify(data) }),
 }
