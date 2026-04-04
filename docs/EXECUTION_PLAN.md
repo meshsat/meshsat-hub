@@ -76,9 +76,9 @@ Complete last-mile integration for features that are built but disconnected from
 
 ---
 
-## Phase 2: v1.2 — Channel Completion (5 tasks, ~28h)
+## Phase 2: v1.2 — Channel Completion — Complete (2026-04-04)
 
-### Task 7: SMS gateway (MESHSAT-174)
+### Task 7: SMS gateway (MESHSAT-174) — DONE
 **Files:** new: `internal/sms/`, `cmd/meshsat-hub/main.go`
 **Steps:**
 1. Create `sms.Client` with Twilio REST API (send SMS, check status)
@@ -87,14 +87,14 @@ Complete last-mile integration for features that are built but disconnected from
 4. On outbound: subscribe to `meshsat/+/mt/sms`, send via Twilio
 5. Config: `sms_provider` (twilio|vonage), `sms_api_key`, `sms_from_number`
 
-### Task 8: SMS as escalation notifier (MESHSAT-175)
+### Task 8: SMS as escalation notifier (MESHSAT-175) — DONE
 **Depends on:** MESHSAT-174
 **Steps:**
 1. Implement `escalation.Notifier` interface in sms package
 2. Register as notifier in main.go if SMS configured
 3. Escalation chains can include phone numbers as targets
 
-### Task 9: PGP Email gateway (MESHSAT-186)
+### Task 9: PGP Email gateway (MESHSAT-186) — DONE
 **Files:** new: `internal/email/`, `cmd/meshsat-hub/main.go`
 **Steps:**
 1. Create `email.Client` — SMTP sender with optional PGP encryption (golang.org/x/crypto/openpgp)
@@ -106,7 +106,7 @@ Complete last-mile integration for features that are built but disconnected from
 7. On inbound email: decrypt if PGP, verify signature, publish to `meshsat/hub/email/inbound` on MQTT
 8. Config: `email_smtp_host`, `email_smtp_port`, `email_from`, `email_imap_host`, `email_pgp_key_path`
 
-### Task 10: WireGuard auto-provisioning (MESHSAT-176)
+### Task 10: WireGuard auto-provisioning (MESHSAT-176) — DONE
 **Files:** `internal/wireguard/client.go`, `internal/api/devices.go`
 **Steps:**
 1. On device creation (POST /api/devices): auto-create WG peer if WG enabled
@@ -114,7 +114,7 @@ Complete last-mile integration for features that are built but disconnected from
 3. Return WG config in device creation response
 4. Add `GET /api/devices/{imei}/wireguard` for config download
 
-### Task 11: Tor .onion address API (MESHSAT-177)
+### Task 11: Tor .onion address API (MESHSAT-177) — DONE
 **Files:** new: `internal/tor/onion.go`, `internal/api/`
 **Steps:**
 1. Read .onion hostname from Tor volume (`/var/lib/tor/hidden_service/hostname`)

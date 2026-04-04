@@ -1,17 +1,12 @@
 package email
 
 import (
-	"encoding/json"
-	"fmt"
-	"io"
 	"log/slog"
 	"net/http"
 
+	"github.com/cubeos-app/meshsat-hub/internal/api"
 	"github.com/go-chi/chi/v5"
 )
-
-// suppress unused import warning
-var _ = slog.Info
 
 // APIHandler provides REST endpoints for PGP key management and email testing.
 type APIHandler struct {
@@ -54,8 +49,7 @@ func (h *APIHandler) ListContacts(w http.ResponseWriter, _ *http.Request) {
 	if infos == nil {
 		infos = []ContactInfo{}
 	}
-	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(infos)
+	api.WriteJSON(w, http.StatusOK, infos)
 }
 
 type addContactRequest struct {
@@ -74,33 +68,25 @@ type addContactRequest struct {
 //	@Failure      400  {object}  map[string]string
 //	@Router       /api/email/keys [post]
 func (h *APIHandler) AddContact(w http.ResponseWriter, r *http.Request) {
-	body, err := io.ReadAll(io.LimitReader(r.Body, 1<<20))
-	if err != nil {
-		http.Error(w, `{"error":"read body failed"}`, http.StatusBadRequest)
-		return
-	}
-
 	var req addContactRequest
-	if err := json.Unmarshal(body, &req); err != nil {
-		http.Error(w, `{"error":"invalid json"}`, http.StatusBadRequest)
+	if err := api.ReadJSON(w, r, &req); err != nil {
+		api.WriteError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 
 	if req.Email == "" || req.ArmoredKey == "" {
-		http.Error(w, `{"error":"email and armored_key required"}`, http.StatusBadRequest)
+		api.WriteError(w, http.StatusBadRequest, "email and armored_key required")
 		return
 	}
 
 	if err := h.keyRing.AddContact(req.Email, req.ArmoredKey); err != nil {
 		slog.Error("email: add contact key failed", "email", req.Email, "error", err)
-		http.Error(w, `{"error":"invalid PGP key"}`, http.StatusBadRequest)
+		api.WriteError(w, http.StatusBadRequest, "invalid PGP key")
 		return
 	}
 
 	slog.Info("email: contact key added", "email", req.Email)
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusCreated)
-	_ = json.NewEncoder(w).Encode(map[string]string{"status": "ok", "email": req.Email})
+	api.WriteJSON(w, http.StatusCreated, map[string]string{"status": "ok", "email": req.Email})
 }
 
 // DeleteContact removes a recipient's PGP public key.
@@ -113,7 +99,7 @@ func (h *APIHandler) AddContact(w http.ResponseWriter, r *http.Request) {
 func (h *APIHandler) DeleteContact(w http.ResponseWriter, r *http.Request) {
 	email := chi.URLParam(r, "email")
 	if email == "" {
-		http.Error(w, `{"error":"missing email"}`, http.StatusBadRequest)
+		api.WriteError(w, http.StatusBadRequest, "missing email")
 		return
 	}
 	h.keyRing.RemoveContact(email)
@@ -132,25 +118,19 @@ func (h *APIHandler) DeleteContact(w http.ResponseWriter, r *http.Request) {
 //	@Failure      500  {object}  map[string]string
 //	@Router       /api/email/test [post]
 func (h *APIHandler) TestSend(w http.ResponseWriter, r *http.Request) {
-	body, err := io.ReadAll(io.LimitReader(r.Body, 1<<20))
-	if err != nil {
-		http.Error(w, `{"error":"read body failed"}`, http.StatusBadRequest)
-		return
-	}
-
 	var req testEmailRequest
-	if err := json.Unmarshal(body, &req); err != nil {
-		http.Error(w, `{"error":"invalid json"}`, http.StatusBadRequest)
+	if err := api.ReadJSON(w, r, &req); err != nil {
+		api.WriteError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 
 	if req.To == "" {
-		http.Error(w, `{"error":"to is required"}`, http.StatusBadRequest)
+		api.WriteError(w, http.StatusBadRequest, "to is required")
 		return
 	}
 
 	if h.client == nil {
-		http.Error(w, `{"error":"email gateway not configured"}`, http.StatusServiceUnavailable)
+		api.WriteError(w, http.StatusServiceUnavailable, "email gateway not configured")
 		return
 	}
 
@@ -164,13 +144,12 @@ func (h *APIHandler) TestSend(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := h.client.Send(req.To, subject, msgBody); err != nil {
-		http.Error(w, fmt.Sprintf(`{"error":"send failed: %s"}`, err.Error()), http.StatusInternalServerError)
+		api.WriteError(w, http.StatusInternalServerError, "send failed: "+err.Error())
 		return
 	}
 
 	encrypted := h.keyRing.GetContact(req.To) != nil
-	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(map[string]interface{}{
+	api.WriteJSON(w, http.StatusOK, map[string]interface{}{
 		"status":    "sent",
 		"to":        req.To,
 		"encrypted": encrypted,

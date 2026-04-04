@@ -3,6 +3,7 @@
 package wireguard
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -52,8 +53,13 @@ func NewClient(baseURL, password string) *Client {
 
 // Login authenticates with wg-easy and stores the session cookie.
 func (c *Client) Login(ctx context.Context) error {
-	body := fmt.Sprintf(`{"password":"%s"}`, c.password)
-	req, err := http.NewRequestWithContext(ctx, "POST", c.baseURL+"/api/session", strings.NewReader(body))
+	data, err := json.Marshal(struct {
+		Password string `json:"password"`
+	}{Password: c.password})
+	if err != nil {
+		return fmt.Errorf("wg-easy login: marshal: %w", err)
+	}
+	req, err := http.NewRequestWithContext(ctx, "POST", c.baseURL+"/api/session", bytes.NewReader(data))
 	if err != nil {
 		return err
 	}
@@ -96,8 +102,13 @@ func (c *Client) ListPeers(ctx context.Context) ([]Peer, error) {
 
 // CreatePeer creates a new WireGuard peer with the given name.
 func (c *Client) CreatePeer(ctx context.Context, name string) (*Peer, error) {
-	body := fmt.Sprintf(`{"name":"%s"}`, name)
-	req, err := http.NewRequestWithContext(ctx, "POST", c.baseURL+"/api/wireguard/client", strings.NewReader(body))
+	data, err := json.Marshal(struct {
+		Name string `json:"name"`
+	}{Name: name})
+	if err != nil {
+		return nil, fmt.Errorf("wg-easy create peer: marshal: %w", err)
+	}
+	req, err := http.NewRequestWithContext(ctx, "POST", c.baseURL+"/api/wireguard/client", bytes.NewReader(data))
 	if err != nil {
 		return nil, err
 	}
@@ -110,7 +121,7 @@ func (c *Client) CreatePeer(ctx context.Context, name string) (*Peer, error) {
 	}
 	defer func() { _ = resp.Body.Close() }()
 
-	data, err := io.ReadAll(resp.Body)
+	data, err = io.ReadAll(resp.Body)
 	if err != nil {
 		return nil, err
 	}

@@ -38,7 +38,7 @@ async function addContact() {
   if (!formEmail.value) return
   error.value = ''
   try {
-    await email.addContact({ email: formEmail.value, pgp_key: formKey.value || undefined })
+    await email.addContact({ email: formEmail.value, armored_key: formKey.value || undefined })
     formEmail.value = ''
     formKey.value = ''
     showForm.value = false

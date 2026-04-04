@@ -112,19 +112,19 @@ A comprehensive code audit revealed that while all v0.1–v1.0 epics are closed,
 
 ---
 
-## v1.2 — Channel Completion (After v1.1)
+## v1.2 — Channel Completion — Complete (2026-04-04)
 
 **Goal:** Add the missing communication channels that make Hub a complete multi-channel gateway.
 
-| Issue | Summary | Depends On | Est. |
-|-------|---------|-----------|------|
-| MESHSAT-174 | SMS gateway: outbound via Twilio/Vonage REST API, inbound via webhook receiver | — | 8h |
-| MESHSAT-175 | SMS escalation notifier: wire SMS gateway to escalation engine as Notifier | MESHSAT-174 | 2h |
-| MESHSAT-186 | PGP Email gateway: SMTP outbound + IMAP inbound, auto PGP encrypt/decrypt, key management API | — | 10h |
-| MESHSAT-176 | WireGuard auto-provisioning: generate peer config on device registration, assign VPN IP | — | 6h |
-| MESHSAT-177 | Tor .onion address API: expose Hub's .onion in /api/config for device provisioning | — | 2h |
+| Issue | Summary | Status |
+|-------|---------|--------|
+| MESHSAT-174 | SMS gateway: outbound via Twilio/Vonage REST API, inbound via webhook receiver | Done |
+| MESHSAT-175 | SMS escalation notifier: wire SMS gateway to escalation engine as Notifier | Done |
+| MESHSAT-186 | PGP Email gateway: SMTP outbound + inbound webhook, auto PGP encrypt/decrypt, key management API + Vue UI | Done |
+| MESHSAT-176 | WireGuard auto-provisioning: generate peer config on device registration, assign VPN IP | Done |
+| MESHSAT-177 | Tor .onion address API: expose Hub's .onion in /api/tor/onion for device provisioning | Done |
 
-**Acceptance:** SMS send+receive works with test Twilio account. PGP email send+receive with auto-encryption. WG config auto-generated on POST /api/devices. .onion address visible in API.
+**Acceptance:** All channels operational. SMS send+receive via Twilio. PGP email with auto-encryption and key management UI. WG config auto-generated on device creation. .onion address exposed via API.
 
 ---
 

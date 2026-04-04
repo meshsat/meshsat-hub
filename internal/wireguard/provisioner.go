@@ -4,8 +4,13 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"regexp"
 	"sync"
 )
+
+// deviceIDPattern validates device identifiers before use in peer names.
+// Relaxed to accept Astrocast and other constellation IDs (not just 15-digit IMEI).
+var deviceIDPattern = regexp.MustCompile(`^[a-zA-Z0-9]{5,20}$`)
 
 // Provisioner auto-creates WireGuard peers when devices are registered
 // and removes them when devices are deleted.
@@ -46,6 +51,9 @@ func (p *Provisioner) Hydrate(ctx context.Context) {
 // OnDeviceCreated creates a WireGuard peer for a newly registered device.
 // Returns the peer's VPN address (e.g., "10.8.0.5/32"), the Peer object, or error.
 func (p *Provisioner) OnDeviceCreated(ctx context.Context, imei string) (string, *Peer, error) {
+	if !deviceIDPattern.MatchString(imei) {
+		return "", nil, fmt.Errorf("wireguard: invalid device ID format: %s", imei)
+	}
 	peerName := "meshsat-" + imei
 	peer, err := p.client.CreatePeer(ctx, peerName)
 	if err != nil {
