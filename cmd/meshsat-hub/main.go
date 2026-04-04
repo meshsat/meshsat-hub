@@ -342,31 +342,33 @@ func main() {
 	mptcpMonitor := mptcp.NewMonitor(30*time.Second, msgBus)
 	go mptcpMonitor.Start(ctx)
 
-	// TAK/CoT gateway, TAK Federation, and APRS-IS IGate are singletons — run inside leader election callback.
+	// TAK/CoT gateway starts unconditionally (each site has its own OTS, no conflict).
+	// TAK Federation and APRS-IS remain singletons inside leader election.
 	var takClient *tak.Client
+	if cfg.TAKEnabled && cfg.TAKHost != "" {
+		takPort := cfg.TAKPort
+		if takPort == 0 {
+			takPort = 8087
+		}
+		takClient = tak.NewClient(cfg.TAKHost, takPort, cfg.TAKSSL)
+		if err := takClient.Connect(); err != nil {
+			slog.Warn("tak: connection failed (will not forward CoT)", "error", err)
+		} else if msgBus.IsConnected() {
+			takSub := tak.NewSubscriber(msgBus, takClient, cfg.TAKCallsignPrefix, cfg.TAKCotStaleSec)
+			if err := takSub.Start(); err != nil {
+				slog.Error("tak: failed to start subscriber", "error", err)
+			} else {
+				slog.Info("tak: CoT gateway started", "host", cfg.TAKHost, "port", takPort)
+			}
+		}
+	}
+
 	var takFederation *tak.Federation
 	var aprsisClient *aprsis.Client
 
 	go leaderElector.Run(ctx, func() {
-		// onAcquired: start singleton services
-		slog.Info("leader acquired — starting TAK, Federation, and APRS-IS")
-
-		// TAK/CoT gateway (optional — subscribe to MQTT, forward to OpenTAKServer).
-		if cfg.TAKEnabled && cfg.TAKHost != "" {
-			takPort := cfg.TAKPort
-			if takPort == 0 {
-				takPort = 8087
-			}
-			takClient = tak.NewClient(cfg.TAKHost, takPort, cfg.TAKSSL)
-			if err := takClient.Connect(); err != nil {
-				slog.Warn("tak: connection failed (will not forward CoT)", "error", err)
-			} else if msgBus.IsConnected() {
-				takSub := tak.NewSubscriber(msgBus, takClient, cfg.TAKCallsignPrefix, cfg.TAKCotStaleSec)
-				if err := takSub.Start(); err != nil {
-					slog.Error("tak: failed to start subscriber", "error", err)
-				}
-			}
-		}
+		// onAcquired: start singleton services (Federation + APRS-IS only)
+		slog.Info("leader acquired — starting Federation and APRS-IS")
 
 		// TAK Federation v2 (optional — bidirectional CoT relay with remote TAK servers).
 		if cfg.TAKFederationEnabled && msgBus.IsConnected() {
