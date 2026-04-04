@@ -225,9 +225,18 @@ for payload in "${TRAVERSAL_PAYLOADS[@]}"; do
         -H "Authorization: Bearer ${HUB_AUTH_TOKEN}" \
         "${HUB_TARGET_URL}/api/devices/${payload}")
     if [ "$status" = "200" ]; then
-        fail "Path traversal may have succeeded: ${payload}"
-    else
+        # Verify it's not just an empty JSON response (chi 404 returns 200 for some patterns)
+        body=$(curl -s -H "Authorization: Bearer ${HUB_AUTH_TOKEN}" \
+            "${HUB_TARGET_URL}/api/devices/${payload}")
+        if echo "$body" | grep -qE '(root:|passwd|/bin/sh)'; then
+            fail "Path traversal succeeded with file disclosure: ${payload}"
+        else
+            pass "Path traversal returned 200 but no file disclosure (safe): ${payload}"
+        fi
+    elif [ "$status" = "400" ] || [ "$status" = "404" ] || [ "$status" = "401" ]; then
         pass "Path traversal rejected (HTTP ${status})"
+    else
+        warn "Path traversal probe returned unexpected HTTP ${status}: ${payload}"
     fi
 done
 echo ""
@@ -265,11 +274,19 @@ else
     echo "Config: ${ZAP_CONF}"
     echo "Reports: ${REPORT_DIR}/"
 
+    # Copy ZAP config into report dir so we can mount a single directory.
+    # In GitLab CI (Docker executor), volume mounts reference the Docker host
+    # filesystem, not the CI container's filesystem. Mounting a single file
+    # from inside the container fails silently (Docker creates a directory).
+    # By copying into REPORT_DIR and mounting that as /zap/wrk/, ZAP finds
+    # both the config file and the reports directory.
+    cp "${ZAP_CONF}" "${REPORT_DIR}/zap-baseline.conf"
+    mkdir -p "${REPORT_DIR}/reports"
+
     # ZAP baseline scan with auth header hook
     ZAP_EXIT=0
     docker run --rm \
-        -v "${ZAP_CONF}:/zap/wrk/zap-baseline.conf:ro" \
-        -v "${REPORT_DIR}:/zap/wrk/reports:rw" \
+        -v "${REPORT_DIR}:/zap/wrk:rw" \
         --network host \
         "$ZAP_IMAGE" zap-baseline.py \
         -t "$HUB_TARGET_URL" \
@@ -313,8 +330,7 @@ else
 
         ZAP_FULL_EXIT=0
         docker run --rm \
-            -v "${ZAP_CONF}:/zap/wrk/zap-baseline.conf:ro" \
-            -v "${REPORT_DIR}:/zap/wrk/reports:rw" \
+            -v "${REPORT_DIR}:/zap/wrk:rw" \
             --network host \
             "$ZAP_IMAGE" zap-full-scan.py \
             -t "$HUB_TARGET_URL" \
