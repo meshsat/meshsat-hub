@@ -426,6 +426,19 @@ var migrations = []string{
 		updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
 		INDEX idx_alert_rules_tenant (tenant_id)
 	) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
+
+	// MESHSAT-487: HeMB bond group management
+	`CREATE TABLE IF NOT EXISTS bond_groups (
+		id VARCHAR(64) NOT NULL,
+		tenant_id VARCHAR(64) NOT NULL DEFAULT 'default',
+		bridge_id VARCHAR(128) NOT NULL,
+		label VARCHAR(255) NOT NULL DEFAULT '',
+		members TEXT NOT NULL,
+		cost_budget DOUBLE NOT NULL DEFAULT 0,
+		created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+		PRIMARY KEY (tenant_id, bridge_id, id),
+		INDEX idx_bond_groups_bridge (tenant_id, bridge_id)
+	) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
 }
 
 // --- Devices ---
