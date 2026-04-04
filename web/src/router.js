@@ -25,12 +25,14 @@ const routes = [
   { path: '/devices/:imei', name: 'deviceDetail', component: () => import('./views/DeviceDetail.vue'), meta: { requiresAuth: true } },
   { path: '/email', name: 'email', component: () => import('./views/EmailView.vue'), meta: { requiresAuth: true } },
   { path: '/geofences', name: 'geofences', component: () => import('./views/GeofenceView.vue'), meta: { requiresAuth: true } },
+  { path: '/alert-rules', name: 'alertRules', component: () => import('./views/AlertRulesView.vue'), meta: { requiresAuth: true } },
   { path: '/backup', name: 'backup', component: () => import('./views/BackupView.vue'), meta: { requiresAuth: true } },
   { path: '/settings', name: 'settings', component: () => import('./views/Settings.vue'), meta: { requiresAuth: true } },
   { path: '/users', name: 'users', component: () => import('./views/UsersView.vue'), meta: { requiresAuth: true } },
   { path: '/audit', name: 'audit', component: () => import('./views/AuditView.vue'), meta: { requiresAuth: true } },
   { path: '/api-keys', name: 'apikeys', component: () => import('./views/ApiKeys.vue'), meta: { requiresAuth: true } },
   { path: '/credentials', name: 'credentials', component: () => import('./views/CredentialsView.vue'), meta: { requiresAuth: true } },
+  { path: '/costs', name: 'costs', component: () => import('./views/CostsView.vue'), meta: { requiresAuth: true } },
   { path: '/help', name: 'help', component: () => import('./views/HelpView.vue'), meta: { requiresAuth: true } },
 ]
 

@@ -71,12 +71,14 @@ const navGroups = [
     { to: '/devices', label: 'Devices' },
     { to: '/device-groups', label: 'Groups' },
     { to: '/messages', label: 'Messages' },
+    { to: '/costs', label: 'Costs' },
   ]},
   { label: 'Safety', items: [
     { to: '/escalation', label: 'Escalation' },
     { to: '/deadman', label: 'Deadman' },
     { to: '/geofences', label: 'Geofences' },
     { to: '/notifications', label: 'Notifications' },
+    { to: '/alert-rules', label: 'Alert Rules' },
   ]},
   { label: 'Channels', items: [
     { to: '/email', label: 'Email' },

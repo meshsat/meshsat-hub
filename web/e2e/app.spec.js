@@ -509,5 +509,53 @@ test.describe('Untested view interactions', () => {
     await expect(page.locator('a[href="#/routing"]').first()).toBeAttached()
     // Check users link
     await expect(page.locator('a[href="#/users"]').first()).toBeAttached()
+    // Check costs link
+    await expect(page.locator('a[href="#/costs"]').first()).toBeAttached()
+  })
+
+  test('costs page loads with summary and filters', async ({ page }) => {
+    await page.goto('/#/costs')
+    await expect(page.locator('h1:has-text("Cost Tracking")')).toBeVisible()
+    // Summary cards should be visible
+    await expect(page.locator('text=Total Cost')).toBeVisible()
+    await expect(page.locator('text=Messages')).toBeVisible()
+    // Filter controls should be present
+    await expect(page.locator('select').first()).toBeVisible()
+    await expect(page.locator('input[type="date"]').first()).toBeVisible()
+    // Summary table should be visible (default view)
+    await expect(page.locator('text=Summary by').or(page.locator('text=No cost data'))).toBeVisible({ timeout: 10000 })
+  })
+})
+
+test.describe('Cost tracking API', () => {
+  const headers = { 'Authorization': `Bearer ${AUTH_TOKEN}`, 'Content-Type': 'application/json' }
+
+  test('GET /api/costs returns array', async ({ request }) => {
+    const res = await request.get('/api/costs', { headers })
+    expect(res.ok()).toBeTruthy()
+    const body = await res.json()
+    expect(Array.isArray(body)).toBeTruthy()
+  })
+
+  test('GET /api/costs/summary returns array', async ({ request }) => {
+    const res = await request.get('/api/costs/summary', { headers })
+    expect(res.ok()).toBeTruthy()
+    const body = await res.json()
+    expect(Array.isArray(body)).toBeTruthy()
+  })
+
+  test('GET /api/costs supports device filter', async ({ request }) => {
+    const res = await request.get('/api/costs?device=nonexistent', { headers })
+    expect(res.ok()).toBeTruthy()
+    const body = await res.json()
+    expect(Array.isArray(body)).toBeTruthy()
+    expect(body.length).toBe(0)
+  })
+
+  test('GET /api/costs/summary supports group_by', async ({ request }) => {
+    const res = await request.get('/api/costs/summary?group_by=month', { headers })
+    expect(res.ok()).toBeTruthy()
+    const body = await res.json()
+    expect(Array.isArray(body)).toBeTruthy()
   })
 })
