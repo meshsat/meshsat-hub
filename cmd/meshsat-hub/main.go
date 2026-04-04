@@ -363,6 +363,15 @@ func main() {
 		}
 	}
 
+	// OTS REST API poller — inbound CoT relay (OTS → Hub → MQTT → bridges).
+	// The TCP connection above is Hub→OTS only. OTS plain TCP does not relay
+	// events back. This poller provides the reverse path via the REST API.
+	var otsPoller *tak.OTSPoller
+	if cfg.TAKAPIBaseURL != "" && cfg.TAKAPIUsername != "" {
+		otsPoller = tak.NewOTSPoller(cfg.TAKAPIBaseURL, cfg.TAKAPIUsername, cfg.TAKAPIPassword, cfg.TAKAPIPollSec, msgBus)
+		otsPoller.Start()
+	}
+
 	var takFederation *tak.Federation
 	var aprsisClient *aprsis.Client
 
@@ -1693,6 +1702,9 @@ func main() {
 	close(touchCh) // drain remaining API key last_used updates
 	if aprsisClient != nil {
 		aprsisClient.Disconnect()
+	}
+	if otsPoller != nil {
+		otsPoller.Stop()
 	}
 	if takClient != nil {
 		takClient.Disconnect()

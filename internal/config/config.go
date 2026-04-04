@@ -48,6 +48,12 @@ type Config struct {
 	TAKCallsignPrefix string `yaml:"tak_callsign_prefix"`
 	TAKCotStaleSec    int    `yaml:"tak_cot_stale_seconds"`
 
+	// OTS (OpenTAKServer) REST API polling — inbound CoT relay
+	TAKAPIBaseURL  string `yaml:"tak_api_base_url"` // e.g. http://192.168.192.10:8880
+	TAKAPIUsername string `yaml:"tak_api_username"` // OTS login username
+	TAKAPIPassword string `yaml:"tak_api_password"` // OTS login password
+	TAKAPIPollSec  int    `yaml:"tak_api_poll_sec"` // poll interval seconds (default 10)
+
 	// TAK Federation v2
 	TAKFederationEnabled bool     `yaml:"tak_federation_enabled"`
 	TAKFederationPort    int      `yaml:"tak_federation_port"`  // default 9001
@@ -306,6 +312,22 @@ func Load() (Config, error) {
 	if v := os.Getenv("HUB_TAK_COT_STALE_SECONDS"); v != "" {
 		if n, err := strconv.Atoi(v); err == nil {
 			cfg.TAKCotStaleSec = n
+		}
+	}
+
+	// OTS API overrides
+	if v := os.Getenv("HUB_TAK_API_BASE_URL"); v != "" {
+		cfg.TAKAPIBaseURL = v
+	}
+	if v := os.Getenv("HUB_TAK_API_USERNAME"); v != "" {
+		cfg.TAKAPIUsername = v
+	}
+	if v := os.Getenv("HUB_TAK_API_PASSWORD"); v != "" {
+		cfg.TAKAPIPassword = v
+	}
+	if v := os.Getenv("HUB_TAK_API_POLL_SEC"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			cfg.TAKAPIPollSec = n
 		}
 	}
 
