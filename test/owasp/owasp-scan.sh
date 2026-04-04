@@ -275,13 +275,12 @@ else
     echo "Reports: ${REPORT_DIR}/"
 
     # Copy ZAP config into report dir so we can mount a single directory.
-    # In GitLab CI (Docker executor), volume mounts reference the Docker host
-    # filesystem, not the CI container's filesystem. Mounting a single file
-    # from inside the container fails silently (Docker creates a directory).
-    # By copying into REPORT_DIR and mounting that as /zap/wrk/, ZAP finds
-    # both the config file and the reports directory.
-    cp "${ZAP_CONF}" "${REPORT_DIR}/zap-baseline.conf"
+    # Docker volume mounts require absolute paths for bind mounts — a relative
+    # path like "owasp-reports" is treated as a named volume (empty).
+    # Resolve to absolute, copy config in, then mount as /zap/wrk/.
     mkdir -p "${REPORT_DIR}/reports"
+    REPORT_DIR="$(cd "${REPORT_DIR}" && pwd)"
+    cp "${ZAP_CONF}" "${REPORT_DIR}/zap-baseline.conf"
 
     # ZAP baseline scan with auth header hook
     ZAP_EXIT=0
