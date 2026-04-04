@@ -365,21 +365,27 @@ func (s *Subscriber) handleInboundCoT(ev CotEvent) {
 		text = fmt.Sprintf("[TAK:%s] position %.4f,%.4f", callsign, ev.Point.Lat, ev.Point.Lon)
 	}
 
-	// Publish to a generic TAK inbound topic
-	msg := map[string]interface{}{
-		"uid":      uid,
-		"type":     ev.Type,
-		"callsign": callsign,
-		"lat":      ev.Point.Lat,
-		"lon":      ev.Point.Lon,
-		"text":     text,
-		"source":   "tak",
+	// Publish CoT XML to broadcast topic so ALL bridges + Android devices receive it.
+	// Android listens on meshsat/{deviceId}/tak/cot/in (GatewayService.kt line 987).
+	// Bridge will listen on meshsat/broadcast/tak/cot/in.
+	cotXML, err := MarshalCotEvent(ev)
+	if err != nil {
+		slog.Warn("tak: marshal inbound CoT failed", "error", err, "uid", uid)
+		return
 	}
 
-	topic := "meshsat/hub/tak/inbound"
-	if err := s.mqtt.PublishJSON(topic, 1, false, msg); err != nil {
-		slog.Warn("tak: publish inbound event failed", "error", err, "uid", uid)
+	// Broadcast to all bridges/devices
+	broadcastTopic := "meshsat/broadcast/tak/cot/in"
+	if err := s.mqtt.Publish(broadcastTopic, 1, false, cotXML); err != nil {
+		slog.Warn("tak: publish broadcast CoT failed", "error", err, "uid", uid)
 	}
+
+	// Also publish JSON summary to hub's internal topic (for dashboard/logging)
+	msg := map[string]interface{}{
+		"uid": uid, "type": ev.Type, "callsign": callsign,
+		"lat": ev.Point.Lat, "lon": ev.Point.Lon, "text": text, "source": "tak",
+	}
+	s.mqtt.PublishJSON("meshsat/hub/tak/inbound", 0, false, msg) //nolint:errcheck
 }
 
 // shortID returns the last 4 characters of a device ID for callsign suffix.
