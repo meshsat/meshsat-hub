@@ -113,27 +113,45 @@ This is fundamentally incompatible with Docker's container lifecycle model.
 
 ### P0 — This week
 
-**1. Move garbd to a 3rd network location.**
+**1. Move garbd to a 3rd network location.** — OPEN
 Deploy garbd on a lightweight VM outside both NL and GR networks (management VLAN, VPS, or cloud instance). This is the only way garbd can act as a true tiebreaker for site-level partitions. The current placement is security theater.
 
-**2. Hub: retry WSREP 1047 with exponential backoff instead of shutting down.** (MESHSAT-TBD)
-Hub currently treats 30s of 1047 as fatal and exits. WSREP 1047 during view transitions is expected and transient (typically <5s). Hub should retry DB connections indefinitely with backoff (1s, 2s, 4s, 8s... cap at 60s).
+**2. Hub: retry WSREP 1047 with exponential backoff instead of shutting down.** (MESHSAT-501) — DONE 2026-04-07
+Added retry logic in `internal/store/dbwrap/dbwrap.go`: `isWSREPNotReady()` detects MySQL error 1047, `retryOnWSREP()` retries `ExecContext` and `QueryContext` with exponential backoff (1s, 2s, 4s, 8s... cap at 60s). Prometheus counter `meshsat_hub_db_wsrep_retries_total`. 5 unit tests. Deployed to both nodes via CI pipeline 17444.
 
 ### P1 — This sprint
 
-**3. S2S IPsec tunnel health monitoring.**
+**3. S2S IPsec tunnel health monitoring.** — OPEN
 Add a cron probe (every 30s) that tests TCP connectivity between DMZ nodes on Galera port 4567. On 3 consecutive failures → alert via ntfy/Matrix.
 
-**4. Entrypoint smart auto-bootstrap.** (MESHSAT-TBD)
-Enhance `galera-entrypoint.sh`: if gvwstate.dat is missing AND this node can reach garbd (local) but NOT the remote data node, automatically set safe_to_bootstrap=1 and bootstrap. Add a 60s delay + recheck before bootstrapping to avoid racing with a recovering tunnel.
+**4. Entrypoint smart auto-bootstrap.** (MESHSAT-504) — DONE 2026-04-07
+Enhanced `scripts/galera-entrypoint.sh`: on startup, checks if `gvwstate.dat` is missing AND `grastate.dat` exists (not a fresh install). If garbd is reachable locally but remote data node is unreachable, waits 60s (tunnel recovery window), rechecks, then auto-bootstraps with `--wsrep-new-cluster`. All decisions logged with timestamps. Deployed to `/srv/meshsat-hub/galera-entrypoint.sh` on both DMZ nodes.
 
 ### P2 — Medium-term
 
-**5. Fix GR NATS JetStream account resolution.** (MESHSAT-TBD)
-The MESHSAT JetStream account healthcheck has been failing continuously since 2026-03-31.
+**5. Fix GR NATS JetStream account resolution.** (MESHSAT-502) — DONE 2026-04-07
+Root cause: stale JetStream data from a previous account-based NATS config. The internal MQTT session streams referenced a `MESHSAT` account that no longer existed in the flat `authorization` config. Fix: cleared `/data/jetstream` on GR NATS container. NATS recreated MQTT session state under the global account on restart. GR NATS healthcheck now passes.
 
-**6. Investigate Galera wsrep_node_name persistence.** (MESHSAT-TBD)
-Research whether setting a fixed wsrep_node_name and wsrep_node_address prevents UUID regeneration across container restarts.
+**6. Galera UUID fragmentation mitigation.** (MESHSAT-503) — DONE 2026-04-07
+Research finding: WSREP node UUID is generated fresh on every startup and **cannot be persisted** — it is not the same as the cluster UUID in `grastate.dat`, and `wsrep_node_name` (already set to a fixed value) does not prevent UUID regeneration.
+
+Mitigation: reduced `evs.view_forget_timeout` from PT24H (default) to PT5M in `--wsrep-provider-options`. Old phantom UUIDs are pruned from the quorum denominator within 5 minutes instead of 24 hours. This prevents the cascading fragmentation where each Docker restart inflates the known-member count. Deployed via rolling MariaDB restart (`--force-recreate --no-deps`) on both nodes. Verified: both nodes show `evs.view_forget_timeout = PT5M`.
+
+---
+
+## Remediation Impact Assessment
+
+If the same S2S tunnel failure recurs, the fixes change the outcome:
+
+| Phase | Before (Incident 11) | After (fixes deployed) |
+|-------|----------------------|----------------------|
+| **View transition (0–10s)** | Hub dies from WSREP 1047 | Hub retries transparently, stays alive |
+| **Steady-state partition** | Both Hubs dead, no service | NL Hub serves requests; GR Hub retries in background |
+| **GR MariaDB restarts** | UUID fragmentation (2/4, 2/5... never quorum) | Old UUIDs pruned in 5min (view_forget_timeout) |
+| **NL MariaDB also crashes** | Crash loop, 90min manual recovery | Entrypoint auto-bootstraps in ~90 seconds |
+| **Full NL site failure** | No recovery possible | Still requires manual intervention (garbd co-located) |
+
+**Remaining gap:** Full NL site failure (power, kernel panic) — requires garbd on a 3rd site (P0 #1).
 
 ---
 
@@ -165,5 +183,17 @@ Post-recovery cluster state (2026-04-07 11:33 UTC):
 | garbd | Running | — |
 | Hub | healthy | healthy |
 | hub.meshsat.net | healthz=ok, readyz=ok (mariadb 1ms, mqtt ok, redis ok, reticulum ok) |
+
+Post-fix deployment state (2026-04-07 12:17 UTC):
+
+| Check | NL | GR |
+|-------|----|----|
+| MariaDB | Synced, healthy | Synced, healthy |
+| cluster_size | 3 | 3 |
+| wsrep_last_committed | 697 | 697 |
+| evs.view_forget_timeout | PT5M | PT5M |
+| Hub | healthy (with WSREP retry) | healthy (with WSREP retry) |
+| NATS | healthy | healthy (JetStream fixed) |
+| Entrypoint | v2 (auto-bootstrap) | v2 (auto-bootstrap) |
 
 InnoDB "LSN in the future" warning on GR after SST is transient and harmless — GR is Synced and applying transactions normally.
