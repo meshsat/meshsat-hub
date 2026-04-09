@@ -46,7 +46,21 @@ auto_bootstrap() {
     local reason="$1"
     log "AUTO-BOOTSTRAPPING: ${reason}"
     rm -f "$RETRY_FILE"
+
+    # --- SEQNO SAFETY CHECK (Incident 14 fix) ---
+    # If grastate.dat has seqno: -1, bootstrapping creates an EMPTY cluster.
+    # Both nodes then need SST but neither has data to donate → deadlock.
+    # Refuse auto-bootstrap with seqno -1 — require manual intervention.
     if [ -f "$GRASTATE" ]; then
+        local current_seqno
+        current_seqno=$(grep -oP 'seqno:\s+\K-?\d+' "$GRASTATE" 2>/dev/null || echo "unknown")
+        if [ "$current_seqno" = "-1" ]; then
+            log "REFUSING auto-bootstrap: grastate seqno is -1 (unknown/crashed state)"
+            log "Bootstrapping with seqno -1 creates an empty cluster → SST deadlock"
+            log "Manual intervention required: set force-bootstrap flag after verifying data"
+            log "Proceeding with normal join instead (will retry)"
+            return 0  # Fall through to normal start
+        fi
         sed -i 's/safe_to_bootstrap: 0/safe_to_bootstrap: 1/' "$GRASTATE"
         log "Set safe_to_bootstrap=1 in grastate.dat"
     fi

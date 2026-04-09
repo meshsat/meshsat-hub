@@ -49,7 +49,7 @@ services:
       - --wsrep-node-address=${WSREP_NODE_ADDRESS}
       - --wsrep-node-name=${SITE_NAME}
       - --wsrep-sst-method=rsync
-      - --wsrep-provider-options=pc.recovery=TRUE;pc.weight=1;pc.wait_prim=TRUE;pc.wait_prim_timeout=PT30S;evs.keepalive_period=PT1S;evs.suspect_timeout=PT10S;evs.inactive_timeout=PT15S;evs.view_forget_timeout=PT5M
+      - --wsrep-provider-options=pc.recovery=TRUE;pc.weight=1;pc.wait_prim=TRUE;pc.wait_prim_timeout=PT30S;evs.keepalive_period=PT1S;evs.suspect_timeout=PT60S;evs.inactive_timeout=PT120S;evs.view_forget_timeout=PT5M
       - --binlog-format=ROW
       - --default-storage-engine=InnoDB
       - --innodb-autoinc-lock-mode=2
