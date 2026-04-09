@@ -73,6 +73,20 @@ for arg in "$@"; do
     fi
 done
 
+# --- PROTO VERSION POISON GUARD (Incident 14 fix) ---
+# garbd advertises proto 127/127 when it forms PRIMARY alone. If gvwstate.dat
+# contains these values, joining that group will crash MariaDB with SIGSEGV.
+# Detect and clean before attempting to join.
+if [ -f "$GVWSTATE" ]; then
+    # Check for proto 127 in the saved primary component state
+    if grep -qE 'Protocols\s*:\s*2\s*/\s*127\s*/\s*127' "$GVWSTATE" 2>/dev/null; then
+        log "DANGER: gvwstate.dat contains garbd proto 127/127 poison (Incident 14)"
+        log "Removing poisoned gvwstate.dat to prevent SIGSEGV crash loop"
+        rm -f "$GVWSTATE"
+        # Fall through to auto-bootstrap logic (gvwstate.dat now missing)
+    fi
+fi
+
 # --- MANUAL BOOTSTRAP (flag file) ---
 if [ -f "$BOOTSTRAP_FLAG" ]; then
     log "Bootstrap flag detected at ${BOOTSTRAP_FLAG}"
