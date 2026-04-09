@@ -37,6 +37,7 @@ services:
       MARIADB_PASSWORD: ${MARIADB_PASSWORD}
       MARIADB_MYSQL_LOCALHOST_USER: 1
       MARIADB_INITDB_SKIP_TZINFO: 1
+      WSREP_NODE_ADDRESS: ${WSREP_NODE_ADDRESS}  # Incident 13 fix: entrypoint needs this for auto-bootstrap
     volumes:
       - mariadb-data:/var/lib/mysql
       - ./galera-entrypoint.sh:/galera-entrypoint.sh:ro
@@ -91,12 +92,16 @@ services:
     image: nats:2-alpine
     container_name: meshsat-nats
     restart: unless-stopped
+    environment:
+      NATS_MQTT_PASSWORD: ${NATS_MQTT_PASSWORD}
+      NATS_LEAFNODE_TOKEN: ${NATS_LEAFNODE_TOKEN}
     command: ["-c", "/etc/nats/nats.conf", "--name", "${SITE_NAME:-meshsat-nats}"]
     ports:
       - "4222:4222"
       - "1883:1883"
       - "8222:8222"
       - "9443:9443"   # mTLS WebSocket (SNI passthrough from HAProxy)
+      - "7422:7422"   # NATS leafnode (cross-site cluster routing)
     volumes:
       - ${NATS_CONFIG:-./nats.conf}:/etc/nats/nats.conf:ro
       - nats-data:/data
@@ -131,8 +136,8 @@ services:
     environment:
       HUB_MODE: cluster
       HUB_PORT: "6070"
-      HUB_MQTT_BROKER_URL: tcp://nats:1883
-      HUB_NATS_URL: tcp://nats:1883
+      HUB_MQTT_BROKER_URL: tcp://meshsat:${NATS_MQTT_PASSWORD}@nats:1883
+      HUB_NATS_URL: tcp://meshsat:${NATS_MQTT_PASSWORD}@nats:1883
       HUB_REDIS_URL: redis://redis:6379/0
       HUB_RETICULUM_TCP_PORT: "4242"
       HUB_LOG_LEVEL: info
