@@ -74,7 +74,7 @@ func (s *Subscriber) handlePosition(topic string, payload []byte) {
 	}
 
 	// Only inject satellite-originated positions (not mesh/SMS)
-	if pos.Source != "iridium" && pos.Source != "iridium_cep" && pos.Source != "astrocast" {
+	if pos.Source != "iridium" && pos.Source != "iridium_cep" && pos.Source != "globalstar" {
 		return
 	}
 

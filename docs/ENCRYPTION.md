@@ -6,7 +6,7 @@ MeshSat uses two distinct encryption models depending on the communication path:
 
 ### 1. Static Per-Device Keys (Hub ↔ Device)
 
-**Used for:** All satellite traffic (Iridium SBD, Astrocast) between field devices and Hub.
+**Used for:** All satellite traffic (Iridium SBD) between field devices and Hub.
 
 **Key management:**
 - Hub generates AES-256 key via `POST /api/devices/{imei}/keys`
@@ -55,7 +55,6 @@ MeshSat uses two distinct encryption models depending on the communication path:
 | Path | Key Model | Why |
 |------|-----------|-----|
 | Device → Iridium → Hub | Static AES-256 | Satellite is slow + expensive for handshake |
-| Device → Astrocast → Hub | Static AES-256 | Same reason |
 | Device → Globalstar → Hub | Static AES-256 | Same reason |
 | Bridge → LoRa → Bridge | X25519 ECDH | LoRa is fast, free, bidirectional |
 | Bridge → WiFi → Bridge | X25519 ECDH | Same reason |

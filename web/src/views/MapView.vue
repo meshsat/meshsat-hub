@@ -29,7 +29,6 @@ const rangeOptions = [
 const typeColorMap = {
   iridium_sbd: '#A855F7',    // purple — satellite
   iridium_imt: '#A855F7',
-  astrocast: '#818CF8',       // indigo — satellite
   meshtastic_node: '#06B6D4', // cyan — mesh/LoRa
   zigbee: '#06B6D4',
   aprs: '#10B981',            // emerald
@@ -98,7 +97,7 @@ function makeTakIcon(type, source, label, stale) {
     svg = svgSOS(label)
   } else if (type === 'bridge') {
     svg = svgSquare(bridgeColor, label, stale)
-  } else if (type === 'iridium_sbd' || type === 'iridium_imt' || type === 'astrocast') {
+  } else if (type === 'iridium_sbd' || type === 'iridium_imt') {
     svg = svgDiamond(getColor(type, source), label, stale)
   } else {
     svg = svgCircle(getColor(type, source), label, stale)
@@ -197,7 +196,7 @@ onUnmounted(() => {
 
 function markerCategory(type, source) {
   if (type === 'bridge') return 'bridge'
-  if (type === 'iridium_sbd' || type === 'iridium_imt' || type === 'astrocast') return 'satellite'
+  if (type === 'iridium_sbd' || type === 'iridium_imt') return 'satellite'
   return 'ground'
 }
 

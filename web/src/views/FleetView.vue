@@ -320,7 +320,6 @@ function interfaceTypeLabel(type) {
     iridium_sbd: 'Iridium SBD',
     iridium_imt: 'Iridium IMT',
     cellular: 'Cellular',
-    astrocast: 'Astrocast',
     zigbee: 'ZigBee',
     aprs: 'APRS',
     tcp: 'TCP',

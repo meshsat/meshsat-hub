@@ -265,7 +265,7 @@ type Route struct {
 type Device struct {
 	IMEI      string    `json:"imei"`
 	Label     string    `json:"label"`
-	Type      string    `json:"type"` // "rockblock", "astrocast", etc.
+	Type      string    `json:"type"` // "rockblock", "globalstar", etc.
 	Notes     string    `json:"notes,omitempty"`
 	LastSeen  time.Time `json:"last_seen,omitempty"`
 	CreatedAt time.Time `json:"created_at"`
@@ -277,7 +277,7 @@ type Message struct {
 	ID          string    `json:"id"`
 	DeviceIMEI  string    `json:"device_imei"`
 	Direction   string    `json:"direction"` // "mo" or "mt"
-	Channel     string    `json:"channel"`   // "iridium", "astrocast"
+	Channel     string    `json:"channel"`   // "iridium", "globalstar"
 	MOMSN       int       `json:"momsn,omitempty"`
 	Text        string    `json:"text,omitempty"`
 	RawHex      string    `json:"raw_hex,omitempty"`
@@ -324,7 +324,7 @@ type Position struct {
 	Speed      float64   `json:"speed,omitempty"`   // m/s
 	Heading    float64   `json:"heading,omitempty"` // degrees 0-360
 	Sats       int       `json:"sats,omitempty"`    // satellites in view
-	Source     string    `json:"source"`            // "gps", "iridium_cep", "astrocast"
+	Source     string    `json:"source"`            // "gps", "iridium_cep", "globalstar"
 	CEP        float64   `json:"cep,omitempty"`
 	CreatedAt  time.Time `json:"created_at"`
 }
@@ -461,7 +461,7 @@ type DeviceWireguard struct {
 type CostEntry struct {
 	ID            string    `json:"id"`
 	DeviceIMEI    string    `json:"device_imei"`
-	InterfaceType string    `json:"interface_type"` // iridium_sbd, iridium_imt, astrocast, globalstar
+	InterfaceType string    `json:"interface_type"` // iridium_sbd, iridium_imt, globalstar
 	Direction     string    `json:"direction"`      // mo or mt
 	CostUSD       float64   `json:"cost_usd"`
 	MessageID     string    `json:"message_id"`
@@ -530,7 +530,7 @@ type AlertRule struct {
 type Credential struct {
 	ID              string     `json:"id"`
 	TenantID        string     `json:"tenant_id,omitempty"`
-	Provider        string     `json:"provider"`  // cloudloop_mqtt, rockblock, astrocast, etc.
+	Provider        string     `json:"provider"`  // cloudloop_mqtt, rockblock, globalstar, etc.
 	Name            string     `json:"name"`      // human-readable label
 	CredType        string     `json:"cred_type"` // mtls_bundle, api_key, webhook_secret, username_password
 	EncryptedData   []byte     `json:"-"`         // AES-256-GCM encrypted JSON (never in API responses)

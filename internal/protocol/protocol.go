@@ -65,7 +65,6 @@ const (
 	DeviceIridiumSBD = "iridium_sbd"
 	DeviceIridiumIMT = "iridium_imt"
 	DeviceCellular   = "cellular"
-	DeviceAstrocast  = "astrocast"
 	DeviceZigBee     = "zigbee"
 	DeviceAPRS       = "aprs"
 )
@@ -129,7 +128,7 @@ type Location struct {
 // InterfaceInfo describes a transport interface on the bridge.
 type InterfaceInfo struct {
 	Name   string `json:"name"`           // e.g. "mesh_0", "iridium_0"
-	Type   string `json:"type"`           // "meshtastic", "iridium_sbd", "iridium_imt", "cellular", "astrocast", "zigbee", "aprs", "tcp"
+	Type   string `json:"type"`           // "meshtastic", "iridium_sbd", "iridium_imt", "cellular", "zigbee", "aprs", "tcp"
 	Status string `json:"status"`         // "online", "offline", "error", "binding"
 	Port   string `json:"port,omitempty"` // serial port path
 	IMEI   string `json:"imei,omitempty"` // satellite/cellular modem IMEI
@@ -335,7 +334,7 @@ func CoTTypeForDevice(deviceType string) string {
 	switch deviceType {
 	case DeviceMeshtastic:
 		return CoTMeshNode
-	case DeviceIridiumSBD, DeviceIridiumIMT, DeviceAstrocast:
+	case DeviceIridiumSBD, DeviceIridiumIMT:
 		return CoTSatModem
 	case DeviceCellular:
 		return CoTCellModem

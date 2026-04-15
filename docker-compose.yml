@@ -111,7 +111,7 @@ services:
     profiles:
       - tak
 
-  # MeshSat Simulator — virtual Iridium/Astrocast modem for development.
+  # MeshSat Simulator — virtual Iridium modem for development.
   # Enabled with: docker compose --profile sim up
   simulator:
     build:

@@ -56,7 +56,7 @@ func (h *IntegrationHandler) GetFederation() FederationStatter {
 
 // ListIntegrations returns the status of all inbound integration channels.
 // @Summary List integration channel status
-// @Description Returns the enabled/connected status of all inbound message channels (Rock7, Cloudloop, Twilio SMS, Email, Astrocast, Globalstar).
+// @Description Returns the enabled/connected status of all inbound message channels (Rock7, Cloudloop, Twilio SMS, Email, Globalstar).
 // @Tags integrations
 // @Produce json
 // @Success 200 {array} IntegrationStatus
@@ -66,7 +66,6 @@ func (h *IntegrationHandler) ListIntegrations(w http.ResponseWriter, _ *http.Req
 		h.rock7Status(),
 		h.cloudloopWebhookStatus(),
 		h.cloudloopMQTTStatus(),
-		h.astrocastStatus(),
 		h.globalstarStatus(),
 		h.smsStatus(),
 		h.emailStatus(),
@@ -139,30 +138,6 @@ func (h *IntegrationHandler) cloudloopMQTTStatus() IntegrationStatus {
 		Description: "Cloudloop LingoMO messages via MQTT subscription (mTLS)",
 		Config:      cfg,
 		Setup:       "Generate MQTT certificates in Cloudloop > Destinations > MQTT. Provide CA, client cert, and key via HUB_CLOUDLOOP_MQTT_* env vars.",
-	}
-}
-
-func (h *IntegrationHandler) astrocastStatus() IntegrationStatus {
-	cfg := map[string]string{}
-	if h.cfg.AstrocastAPIKey != "" {
-		cfg["api_key"] = maskSecret(h.cfg.AstrocastAPIKey)
-	} else {
-		cfg["api_key"] = "not set"
-	}
-	if h.cfg.AstrocastWebhookSecret != "" {
-		cfg["webhook_secret"] = "configured"
-	} else {
-		cfg["webhook_secret"] = "not set"
-	}
-
-	return IntegrationStatus{
-		Name:        "Astrocast",
-		Type:        "webhook",
-		Enabled:     true, // webhook handler is always registered
-		WebhookURL:  "/api/webhook/astrocast",
-		Description: "Astrocast satellite MO messages via HTTP POST (HMAC-verified)",
-		Config:      cfg,
-		Setup:       "Configure this webhook URL in the Astrocast portal under Webhooks. Enable HMAC verification for security.",
 	}
 }
 

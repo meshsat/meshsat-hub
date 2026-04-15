@@ -244,7 +244,6 @@ Status values: `ok`, `error`.
 | Meshtastic node | `a-f-G-U-C` | Friendly Ground Unit | Blue diamond |
 | Iridium modem (SBD/IMT) | `a-f-G-E-S` | Friendly Ground Equipment Sensor | Blue rectangle |
 | Cellular modem | `a-f-G-E-C` | Friendly Ground Equipment Comms | Blue rectangle |
-| Astrocast module | `a-f-G-E-S` | Friendly Ground Equipment Sensor | Blue rectangle |
 | ZigBee device | `a-f-G-U-C` | Friendly Ground Unit | Blue diamond |
 | Android phone | `a-f-G-U-C` | Friendly Ground Unit (mobile) | Blue diamond |
 | Hub server | `a-f-G-I-H` | Friendly Ground Installation HQ | Blue tent |
@@ -259,7 +258,6 @@ Status values: `ok`, `error`.
 | `iridium_sbd` | Iridium 9603N SBD modem |
 | `iridium_imt` | RockBLOCK 9704 IMT modem |
 | `cellular` | Cellular modem (LTE/4G/5G) |
-| `astrocast` | Astronode S LEO satellite module |
 | `zigbee` | ZigBee coordinator or end device |
 | `aprs` | APRS/AX.25 station |
 

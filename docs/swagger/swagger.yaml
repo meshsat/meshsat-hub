@@ -125,7 +125,7 @@ definitions:
       notes:
         type: string
       type:
-        description: '"rockblock", "astrocast", etc.'
+        description: '"rockblock", etc.'
         type: string
       updated_at:
         type: string
@@ -218,7 +218,7 @@ definitions:
   github_com_cubeos-app_meshsat-hub_internal_store.Message:
     properties:
       channel:
-        description: '"iridium", "astrocast"'
+        description: '"iridium"'
         type: string
       compressed:
         type: boolean
@@ -296,7 +296,7 @@ definitions:
         description: satellites in view
         type: integer
       source:
-        description: '"gps", "iridium_cep", "astrocast"'
+        description: '"gps", "iridium_cep"'
         type: string
       speed:
         description: m/s
@@ -419,7 +419,7 @@ definitions:
       notes:
         type: string
       type:
-        description: '"rockblock", "astrocast", etc.'
+        description: '"rockblock", etc.'
         type: string
       updated_at:
         type: string
@@ -963,7 +963,7 @@ host: localhost:6070
 info:
   contact: {}
   description: Multi-tenant SaaS platform for satellite device management. Ingests
-    MO messages from Iridium/Astrocast, manages devices, SOS escalation, dead man's
+    MO messages from Iridium, manages devices, SOS escalation, dead man's
     switch, and E2E encryption.
   license:
     name: Apache 2.0
@@ -3179,31 +3179,6 @@ paths:
       summary: Update user
       tags:
       - users
-  /api/webhook/astrocast:
-    post:
-      consumes:
-      - application/json
-      description: Astrocast portal posts MO messages here via webhook callback
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-        "400":
-          description: Bad Request
-          schema:
-            additionalProperties:
-              type: string
-            type: object
-        "401":
-          description: Unauthorized
-          schema:
-            additionalProperties:
-              type: string
-            type: object
-      summary: Receive Astrocast MO message
-      tags:
-      - webhook
   /api/webhook/email:
     post:
       consumes:

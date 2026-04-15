@@ -30,7 +30,7 @@ func TestListDevices(t *testing.T) {
 			name: "returns devices",
 			store: &mockStore{devices: []store.Device{
 				{IMEI: "123456789012345", Label: "Test", Type: "rockblock", CreatedAt: now},
-				{IMEI: "987654321098765", Label: "Probe", Type: "astrocast", CreatedAt: now},
+				{IMEI: "987654321098765", Label: "Probe", Type: "globalstar", CreatedAt: now},
 			}},
 			wantCode:  http.StatusOK,
 			wantCount: 2,
@@ -168,7 +168,7 @@ func TestUpdateDevice(t *testing.T) {
 	}{
 		{
 			name:     "success",
-			body:     `{"label":"New","type":"astrocast","notes":"updated"}`,
+			body:     `{"label":"New","type":"globalstar","notes":"updated"}`,
 			store:    &mockStore{device: existing},
 			wantCode: http.StatusOK,
 		},

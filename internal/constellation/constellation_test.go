@@ -46,35 +46,35 @@ func TestRouter_SingleBackend(t *testing.T) {
 func TestRouter_CheapestStrategy(t *testing.T) {
 	r := NewRouter(StrategyCheapest)
 	expensive := &mockBackend{name: "iridium", available: true, maxPayload: 340, cost: 0.05}
-	cheap := &mockBackend{name: "astrocast", available: true, maxPayload: 160, cost: 0.01}
+	cheap := &mockBackend{name: "globalstar", available: true, maxPayload: 128, cost: 0.02}
 	r.Register(expensive)
 	r.Register(cheap)
 
 	_, _ = r.Send(context.Background(), "device-1", []byte("hello"))
 
 	if len(cheap.sent) != 1 {
-		t.Errorf("cheapest backend should be selected, but got iridium=%d astrocast=%d", len(expensive.sent), len(cheap.sent))
+		t.Errorf("cheapest backend should be selected, but got iridium=%d globalstar=%d", len(expensive.sent), len(cheap.sent))
 	}
 }
 
 func TestRouter_PreferredStrategy(t *testing.T) {
 	r := NewRouter(StrategyPreferred)
 	ir := &mockBackend{name: "iridium", available: true, maxPayload: 340, cost: 0.05}
-	ac := &mockBackend{name: "astrocast", available: true, maxPayload: 160, cost: 0.01}
+	gs := &mockBackend{name: "globalstar", available: true, maxPayload: 128, cost: 0.02}
 	r.Register(ir)
-	r.Register(ac)
+	r.Register(gs)
 
-	r.SetDevicePreference("device-1", "astrocast")
+	r.SetDevicePreference("device-1", "globalstar")
 	_, _ = r.Send(context.Background(), "device-1", []byte("hello"))
 
-	if len(ac.sent) != 1 {
-		t.Errorf("preferred backend should be astrocast, got iridium=%d astrocast=%d", len(ir.sent), len(ac.sent))
+	if len(gs.sent) != 1 {
+		t.Errorf("preferred backend should be globalstar, got iridium=%d globalstar=%d", len(ir.sent), len(gs.sent))
 	}
 }
 
 func TestRouter_PayloadTooLarge(t *testing.T) {
 	r := NewRouter(StrategyAvailable)
-	r.Register(&mockBackend{name: "astrocast", available: true, maxPayload: 10, cost: 0.01})
+	r.Register(&mockBackend{name: "globalstar", available: true, maxPayload: 10, cost: 0.02})
 
 	_, err := r.Send(context.Background(), "device-1", make([]byte, 100))
 	if err == nil {
@@ -95,14 +95,14 @@ func TestRouter_Unavailable(t *testing.T) {
 func TestRouter_FallbackWhenPreferredUnavailable(t *testing.T) {
 	r := NewRouter(StrategyPreferred)
 	ir := &mockBackend{name: "iridium", available: true, maxPayload: 340, cost: 0.05}
-	ac := &mockBackend{name: "astrocast", available: false, maxPayload: 160, cost: 0.01}
+	gs := &mockBackend{name: "globalstar", available: false, maxPayload: 128, cost: 0.02}
 	r.Register(ir)
-	r.Register(ac)
+	r.Register(gs)
 
-	r.SetDevicePreference("device-1", "astrocast")
+	r.SetDevicePreference("device-1", "globalstar")
 	_, _ = r.Send(context.Background(), "device-1", []byte("hello"))
 
-	// Astrocast unavailable, should fall back to iridium
+	// Globalstar unavailable, should fall back to iridium
 	if len(ir.sent) != 1 {
 		t.Errorf("should fall back to iridium, got iridium=%d", len(ir.sent))
 	}
@@ -119,7 +119,7 @@ func TestRouter_NoBackends(t *testing.T) {
 func TestRouter_ListBackends(t *testing.T) {
 	r := NewRouter(StrategyAvailable)
 	r.Register(&mockBackend{name: "iridium", available: true, maxPayload: 340})
-	r.Register(&mockBackend{name: "astrocast", available: true, maxPayload: 160})
+	r.Register(&mockBackend{name: "globalstar", available: true, maxPayload: 128})
 
 	backends := r.ListBackends()
 	if len(backends) != 2 {

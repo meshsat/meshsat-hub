@@ -11,7 +11,6 @@ const loading = ref(true)
 
 const knownConstellations = {
   iridium:    { name: 'Iridium',    mtu: '270 byte MT / 340 byte MO', cost: '$0.05 per msg' },
-  astrocast:  { name: 'Astrocast',  mtu: '160 byte MT / 160 byte MO', cost: '$0.01 per msg' },
   globalstar: { name: 'Globalstar', mtu: '9 byte MT / 9 byte MO',     cost: '$0.25 per msg' },
 }
 

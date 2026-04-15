@@ -79,7 +79,6 @@ function ifaceColor(iface) {
     tor: 'bg-purple-700',
     wireguard: 'bg-blue-700',
     iridium: 'bg-orange-700',
-    astrocast: 'bg-amber-700',
     globalstar: 'bg-yellow-700',
   }
   return colors[iface] || 'bg-gray-700'
@@ -91,7 +90,6 @@ function ifaceBorderColor(iface) {
     tor: 'border-purple-600',
     wireguard: 'border-blue-600',
     iridium: 'border-orange-600',
-    astrocast: 'border-amber-600',
     globalstar: 'border-yellow-600',
   }
   return colors[iface] || 'border-gray-600'

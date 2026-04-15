@@ -10,9 +10,9 @@
       <div class="bg-tactical-surface rounded-lg border border-tactical-border p-4">
         <h2 class="text-sm font-display font-semibold text-gray-200 uppercase tracking-wider mb-2">Getting Started</h2>
         <div class="space-y-2 text-[12px] text-gray-400 leading-relaxed">
-          <p>MeshSat Hub is the cloud-side management platform for MeshSat field devices. It receives satellite messages (Iridium SBD, Astrocast, Globalstar), manages device fleets, and provides routing, alerting, and situational awareness.</p>
-          <p><strong class="text-gray-300">1.</strong> Register a device in <strong class="text-gray-300">Devices</strong> — enter the IMEI and select the modem type (RockBLOCK, Astrocast, or Globalstar).</p>
-          <p><strong class="text-gray-300">2.</strong> Configure your webhook — point your Ground Control (Rock7) or Astrocast account's HTTP callback to <code class="text-gray-300 bg-gray-800 px-1 rounded">https://your-hub/api/webhook/rockblock</code>.</p>
+          <p>MeshSat Hub is the cloud-side management platform for MeshSat field devices. It receives satellite messages (Iridium SBD, Globalstar), manages device fleets, and provides routing, alerting, and situational awareness.</p>
+          <p><strong class="text-gray-300">1.</strong> Register a device in <strong class="text-gray-300">Devices</strong> — enter the IMEI and select the modem type (RockBLOCK or Globalstar).</p>
+          <p><strong class="text-gray-300">2.</strong> Configure your webhook — point your Ground Control (Rock7) account's HTTP callback to <code class="text-gray-300 bg-gray-800 px-1 rounded">https://your-hub/api/webhook/rockblock</code>.</p>
           <p><strong class="text-gray-300">3.</strong> Set up routing rules in <strong class="text-gray-300">Routing</strong> to forward incoming messages to notifications, webhooks, MQTT, TAK, or APRS.</p>
         </div>
       </div>
@@ -39,7 +39,7 @@
 
           <div class="font-display text-[10px] text-gray-500 uppercase tracking-wider mt-3">Infrastructure</div>
           <div><strong class="text-gray-300">Cluster</strong> — MariaDB Galera cluster health: node status, sync state, remediation actions (force resync, flush tables, desynced node).</div>
-          <div><strong class="text-gray-300">Network</strong> — Satellite constellation status (Iridium, Astrocast, Globalstar) and MPTCP concentrator configuration.</div>
+          <div><strong class="text-gray-300">Network</strong> — Satellite constellation status (Iridium, Globalstar) and MPTCP concentrator configuration.</div>
           <div><strong class="text-gray-300">Topology</strong> — Reticulum transport layer: hub identity, transport interfaces, routing table, relay statistics.</div>
           <div><strong class="text-gray-300">OTA</strong> — Over-the-air firmware updates for field devices via hawkBit. Register targets, create rollouts, monitor deployments.</div>
           <div><strong class="text-gray-300">Backup</strong> — Export all devices, messages, routes, and configuration as JSON. Import to restore or migrate.</div>
@@ -57,7 +57,6 @@
         <div class="space-y-2 text-[12px] text-gray-400 leading-relaxed">
           <p><strong class="text-gray-300">RockBLOCK (Iridium SBD)</strong> — In your Rock7 Core account, set the delivery URL to <code class="text-gray-300 bg-gray-800 px-1 rounded">https://your-hub/api/webhook/rockblock</code>. Set a shared secret and configure it as <code class="text-gray-300 bg-gray-800 px-1 rounded">HUB_ROCKBLOCK_SECRET</code> in Hub's config.</p>
           <p><strong class="text-gray-300">Twilio (SMS)</strong> — Configure your Twilio phone number's webhook URL to <code class="text-gray-300 bg-gray-800 px-1 rounded">https://your-hub/api/webhook/sms</code>. Set <code class="text-gray-300 bg-gray-800 px-1 rounded">HUB_TWILIO_*</code> env vars for outbound SMS.</p>
-          <p><strong class="text-gray-300">Astrocast</strong> — Set the Astronode API callback to <code class="text-gray-300 bg-gray-800 px-1 rounded">https://your-hub/api/webhook/astrocast</code>.</p>
           <p><strong class="text-gray-300">Globalstar</strong> — Set the SPOT/Globalstar callback to <code class="text-gray-300 bg-gray-800 px-1 rounded">https://your-hub/api/webhook/globalstar</code>.</p>
         </div>
       </div>
@@ -66,7 +65,7 @@
         <h2 class="text-sm font-display font-semibold text-gray-200 uppercase tracking-wider mb-2">Routing Rules</h2>
         <div class="space-y-2 text-[12px] text-gray-400 leading-relaxed">
           <p>Routing rules define how incoming messages are processed and forwarded. Each rule has a source (satellite channel), destination (handler), optional filter, and enabled/disabled state.</p>
-          <p><strong class="text-gray-300">Sources</strong> — Any satellite constellation (Iridium, Astrocast, Globalstar) or "all" for catch-all rules.</p>
+          <p><strong class="text-gray-300">Sources</strong> — Any satellite constellation (Iridium, Globalstar) or "all" for catch-all rules.</p>
           <p><strong class="text-gray-300">Destinations</strong> — SMS, Email, Webhook, Notification (Apprise/ntfy), MQTT topic, TAK/CoT server, or APRS-IS.</p>
           <p><strong class="text-gray-300">Filters</strong> — Match on device IMEI, message content, or channel. Empty filter matches all messages.</p>
           <p><strong class="text-gray-300">Default routes</strong> — Hub ships with 5 default routes (APRS, MQTT, Notifications, TAK, Webhooks) that can be enabled/disabled.</p>

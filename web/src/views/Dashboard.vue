@@ -193,7 +193,6 @@ function budgetBarColor(pct) {
 function channelBadge(ch) {
   const colors = {
     iridium: 'bg-transport-iridium',
-    astrocast: 'bg-amber-700',
     globalstar: 'bg-yellow-700',
     sms: 'bg-transport-sms',
     email: 'bg-purple-700',

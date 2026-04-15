@@ -1,5 +1,5 @@
 // Package constellation provides a unified satellite send interface
-// supporting multiple satellite constellations (Iridium, Astrocast, etc.).
+// supporting multiple satellite constellations (Iridium, Globalstar, etc.).
 // Backend selection by cost, latency, availability, and device preference.
 package constellation
 
@@ -12,7 +12,7 @@ import (
 
 // Backend is the interface for a satellite constellation send provider.
 type Backend interface {
-	// Name returns the constellation name ("iridium", "astrocast").
+	// Name returns the constellation name ("iridium", "globalstar").
 	Name() string
 
 	// Send transmits a payload to the device.

@@ -19,7 +19,6 @@ const (
 	IfaceTor        InterfaceType = "tor"
 	IfaceWireGuard  InterfaceType = "wireguard"
 	IfaceIridium    InterfaceType = "iridium"
-	IfaceAstrocast  InterfaceType = "astrocast"
 	IfaceGlobalstar InterfaceType = "globalstar"
 	IfaceSMS        InterfaceType = "sms"
 	IfaceLocal      InterfaceType = "local"
@@ -33,8 +32,6 @@ func InterfaceCost(iface InterfaceType) float64 {
 		return 0
 	case IfaceIridium:
 		return 0.05
-	case IfaceAstrocast:
-		return 0.01
 	case IfaceGlobalstar:
 		return 0.02
 	default:

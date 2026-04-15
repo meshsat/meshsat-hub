@@ -9,7 +9,7 @@ import (
 )
 
 // deviceIDPattern validates device identifiers before use in peer names.
-// Relaxed to accept Astrocast and other constellation IDs (not just 15-digit IMEI).
+// Relaxed to accept various constellation IDs (not just 15-digit IMEI).
 var deviceIDPattern = regexp.MustCompile(`^[a-zA-Z0-9]{5,20}$`)
 
 // Provisioner auto-creates WireGuard peers when devices are registered

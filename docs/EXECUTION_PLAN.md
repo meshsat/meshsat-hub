@@ -5,7 +5,7 @@
 
 ---
 
-## Phase 1: v1.1 — Wire the Unwired (6 tasks, ~23h)
+## Phase 1: v1.1 — Wire the Unwired (5 tasks, ~19h)
 
 Complete last-mile integration for features that are built but disconnected from the runtime. After this phase, every implemented package is functional end-to-end.
 
@@ -53,17 +53,7 @@ Complete last-mile integration for features that are built but disconnected from
 4. Add integration test: configure 1-minute window, verify escalation fires after 1 minute with no check-in
 **Acceptance:** Device sending positions resets its DMS timer. Missing check-in triggers escalation.
 
-### Task 5: Astrocast MO webhook receiver (MESHSAT-172)
-**Priority:** P2 — enables receive from second constellation
-**Files:** new: `internal/astrocast/webhook.go`, `cmd/meshsat-hub/main.go`
-**Steps:**
-1. Create webhook handler for Astrocast callback format (research their MO webhook spec)
-2. Register at `/api/webhook/astrocast` with signature verification
-3. Decode payload, decompress if SMAZ2, publish to MQTT topics (same as RockBLOCK flow)
-4. Wire to dedup to prevent duplicate processing
-**Acceptance:** Astrocast MO webhook arrives, gets decoded, appears in messages view.
-
-### Task 6: OpenAPI spec generation (MESHSAT-173)
+### Task 5: OpenAPI spec generation (MESHSAT-173)
 **Priority:** P3 — developer experience, not runtime
 **Files:** `Makefile`, go.mod, new: `docs/swagger.json`
 **Steps:**
@@ -170,7 +160,6 @@ MESHSAT-168 (fragments)
     └→ MESHSAT-169 (encryption, depends on 168)
 MESHSAT-170 (SOS trigger)
     └→ MESHSAT-171 (dead man's switch, depends on 170)
-MESHSAT-172 (Astrocast webhook)         ← independent
 MESHSAT-173 (OpenAPI)                   ← independent
 MESHSAT-174 (SMS gateway)              ← independent, start of v1.2
     └→ MESHSAT-175 (SMS notifier, depends on 174)
@@ -188,8 +177,7 @@ MESHSAT-178 (routing engine)            ← start of v1.3
 2. MESHSAT-169 (encryption wiring, builds on 168)
 3. MESHSAT-171 (DMS wiring, builds on 170)
 4. MESHSAT-173 (OpenAPI, independent, improves DX)
-5. MESHSAT-172 (Astrocast webhook, independent)
-6. MESHSAT-174 → MESHSAT-175 (SMS, new channel)
+5. MESHSAT-174 → MESHSAT-175 (SMS, new channel)
 7. MESHSAT-186 (PGP Email, new channel)
 8. MESHSAT-176 + MESHSAT-177 (WG + Tor, network provisioning)
 9. MESHSAT-178 → MESHSAT-179 → MESHSAT-180 → MESHSAT-181 (routing engine)

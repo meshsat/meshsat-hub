@@ -314,7 +314,7 @@ func TestDeviceWithPositionsAndMessages(t *testing.T) {
 	// Create two devices via API.
 	resp := doRequest(t, h, http.MethodPost, "/api/devices", `{"imei":"111111111111111","label":"Alpha","type":"rockblock"}`)
 	expectStatus(t, resp, http.StatusCreated)
-	resp = doRequest(t, h, http.MethodPost, "/api/devices", `{"imei":"222222222222222","label":"Bravo","type":"astrocast"}`)
+	resp = doRequest(t, h, http.MethodPost, "/api/devices", `{"imei":"222222222222222","label":"Bravo","type":"rockblock"}`)
 	expectStatus(t, resp, http.StatusCreated)
 
 	// Insert messages for both devices.

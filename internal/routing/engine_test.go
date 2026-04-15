@@ -10,11 +10,11 @@ func TestMatchSource(t *testing.T) {
 		want                   bool
 	}{
 		{"*", "iridium", true},
-		{"*", "astrocast", true},
+		{"*", "globalstar", true},
 		{"iridium", "iridium", true},
 		{"iridium", "Iridium", true},
-		{"iridium", "astrocast", false},
-		{"astrocast", "iridium", false},
+		{"iridium", "globalstar", false},
+		{"globalstar", "iridium", false},
 		{"sms", "sms", true},
 	}
 	for _, tt := range tests {

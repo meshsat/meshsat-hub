@@ -1,7 +1,7 @@
 {
     "swagger": "2.0",
     "info": {
-        "description": "Multi-tenant SaaS platform for satellite device management. Ingests MO messages from Iridium/Astrocast, manages devices, SOS escalation, dead man's switch, and E2E encryption.",
+        "description": "Multi-tenant SaaS platform for satellite device management. Ingests MO messages from Iridium, manages devices, SOS escalation, dead man's switch, and E2E encryption.",
         "title": "MeshSat Hub API",
         "contact": {},
         "license": {
@@ -3388,44 +3388,6 @@
                 }
             }
         },
-        "/api/webhook/astrocast": {
-            "post": {
-                "description": "Astrocast portal posts MO messages here via webhook callback",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "webhook"
-                ],
-                "summary": "Receive Astrocast MO message",
-                "responses": {
-                    "200": {
-                        "description": "OK"
-                    },
-                    "400": {
-                        "description": "Bad Request",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": {
-                                "type": "string"
-                            }
-                        }
-                    },
-                    "401": {
-                        "description": "Unauthorized",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": {
-                                "type": "string"
-                            }
-                        }
-                    }
-                }
-            }
-        },
         "/api/webhook/email": {
             "post": {
                 "description": "Email service (Mailgun/SendGrid) posts inbound emails here",
@@ -4030,7 +3992,7 @@
                     "type": "string"
                 },
                 "type": {
-                    "description": "\"rockblock\", \"astrocast\", etc.",
+                    "description": "\"rockblock\", etc.",
                     "type": "string"
                 },
                 "updated_at": {
@@ -4166,7 +4128,7 @@
             "type": "object",
             "properties": {
                 "channel": {
-                    "description": "\"iridium\", \"astrocast\"",
+                    "description": "\"iridium\"",
                     "type": "string"
                 },
                 "compressed": {
@@ -4278,7 +4240,7 @@
                     "type": "integer"
                 },
                 "source": {
-                    "description": "\"gps\", \"iridium_cep\", \"astrocast\"",
+                    "description": "\"gps\", \"iridium_cep\"",
                     "type": "string"
                 },
                 "speed": {
@@ -4463,7 +4425,7 @@
                     "type": "string"
                 },
                 "type": {
-                    "description": "\"rockblock\", \"astrocast\", etc.",
+                    "description": "\"rockblock\", etc.",
                     "type": "string"
                 },
                 "updated_at": {

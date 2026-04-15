@@ -21,7 +21,6 @@ import (
 	"github.com/cubeos-app/meshsat-hub/internal/api"
 	"github.com/cubeos-app/meshsat-hub/internal/apprise"
 	"github.com/cubeos-app/meshsat-hub/internal/aprsis"
-	"github.com/cubeos-app/meshsat-hub/internal/astrocast"
 	"github.com/cubeos-app/meshsat-hub/internal/audit"
 	hubauth "github.com/cubeos-app/meshsat-hub/internal/auth"
 	"github.com/cubeos-app/meshsat-hub/internal/backup"
@@ -132,7 +131,7 @@ func (a *federationBusAdapter) Subscribe(topic string, qos byte, handler func(st
 
 // @title        MeshSat Hub API
 // @version      1.1
-// @description  Multi-tenant SaaS platform for satellite device management. Ingests MO messages from Iridium/Astrocast/Globalstar, manages devices, SOS escalation, dead man's switch, and E2E encryption.
+// @description  Multi-tenant SaaS platform for satellite device management. Ingests MO messages from Iridium/Globalstar, manages devices, SOS escalation, dead man's switch, and E2E encryption.
 // @license.name Apache 2.0
 // @license.url  https://www.apache.org/licenses/LICENSE-2.0
 // @host         localhost:6070
@@ -315,14 +314,7 @@ func main() {
 		go creditPoller.Start(ctx)
 	}
 
-	// Astrocast API client (optional — second satellite constellation).
-	var astrocastClient *astrocast.Client
-	if cfg.AstrocastAPIKey != "" {
-		astrocastClient = astrocast.NewClient(cfg.AstrocastAPIURL, cfg.AstrocastAPIKey)
-		slog.Info("astrocast: API client enabled", "url", cfg.AstrocastAPIURL)
-	}
-
-	// Globalstar API client (optional — third satellite constellation).
+	// Globalstar API client (optional — second satellite constellation).
 	var globalstarClient *globalstar.Client
 	if cfg.GlobalstarAPIKey != "" {
 		globalstarClient = globalstar.NewClient(cfg.GlobalstarAPIURL, cfg.GlobalstarAPIKey)
@@ -332,9 +324,6 @@ func main() {
 	// Constellation router — multi-backend satellite send.
 	constellationRouter := constellation.NewRouter(constellation.StrategyAvailable)
 	constellationRouter.Register(constellation.NewIridiumBackend(cloudloopClient))
-	if astrocastClient != nil {
-		constellationRouter.Register(constellation.NewAstrocastBackend(astrocastClient))
-	}
 	if globalstarClient != nil {
 		constellationRouter.Register(constellation.NewGlobalstarBackend(globalstarClient))
 	}
@@ -879,22 +868,6 @@ func main() {
 		reticulumRelay.RegisterInterface(retIridiumIface)
 	}
 
-	var retAstrocastIface *reticulum.AstrocastInterface
-	if astrocastClient != nil {
-		astrocastBackend := constellation.NewAstrocastBackend(astrocastClient)
-		retAstrocastIface = reticulum.NewAstrocastInterface(reticulum.NewBackendAdapter(
-			func(ctx2 context.Context, deviceID string, payload []byte) error {
-				_, err2 := astrocastBackend.Send(ctx2, deviceID, payload)
-				return err2
-			},
-			astrocastBackend.IsAvailable,
-			astrocastBackend.MaxPayload(),
-			astrocastBackend.CostPerMessage(),
-		))
-		retAstrocastIface.SetHandler(reticulumPacketHandler)
-		reticulumRelay.RegisterInterface(retAstrocastIface)
-	}
-
 	var retGlobalstarIface *reticulum.GlobalstarInterface
 	if globalstarClient != nil {
 		globalstarBackend := constellation.NewGlobalstarBackend(globalstarClient)
@@ -1034,15 +1007,6 @@ func main() {
 		slog.Info("rock7: MT sender enabled", "username", cfg.Rock7Username)
 	}
 
-	// Astrocast MO webhook handler.
-	acHandler := astrocast.NewHandler(msgBus, cfg.AstrocastWebhookSecret)
-	acHandler.SetAudit(auditSvc)
-	acHandler.SetDedup(dedupTracker)
-	acHandler.SetReassembler(reassembler)
-	acHandler.SetKeyStore(keyStore)
-	acHandler.SetDeadman(deadmanMonitor)
-	acHandler.SetMSVQSC(msvqscDecoder)
-
 	// Globalstar MO webhook handler.
 	gsHandler := globalstar.NewHandler(msgBus, cfg.GlobalstarWebhookSecret)
 	gsHandler.SetAudit(auditSvc)
@@ -1071,9 +1035,6 @@ func main() {
 	if retIridiumIface != nil {
 		rbHandler.SetReticulumIface(retIridiumIface)
 		clHandler.SetReticulumIface(retIridiumIface)
-	}
-	if retAstrocastIface != nil {
-		acHandler.SetReticulumIface(retAstrocastIface)
 	}
 	if retGlobalstarIface != nil {
 		gsHandler.SetReticulumIface(retGlobalstarIface)
@@ -1201,7 +1162,6 @@ func main() {
 	}
 	// Webhook endpoints — rate limited to 60 requests/minute per source IP.
 	r.Post("/api/webhook/rockblock", hubmw.WebhookRateLimit(http.HandlerFunc(rbHandler.ServeHTTP), 60).ServeHTTP)
-	r.Post("/api/webhook/astrocast", hubmw.WebhookRateLimit(http.HandlerFunc(acHandler.ServeHTTP), 60).ServeHTTP)
 	r.Post("/api/webhook/globalstar", hubmw.WebhookRateLimit(http.HandlerFunc(gsHandler.ServeHTTP), 60).ServeHTTP)
 	r.Post("/api/webhook/cloudloop", hubmw.WebhookRateLimit(http.HandlerFunc(clHandler.ServeHTTP), 60).ServeHTTP)
 

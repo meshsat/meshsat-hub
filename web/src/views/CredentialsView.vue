@@ -135,7 +135,6 @@ function expiryLabel(c) {
             <option value="cloudloop_mqtt">Cloudloop MQTT</option>
             <option value="cloudloop_api">Cloudloop API</option>
             <option value="rockblock">RockBLOCK</option>
-            <option value="astrocast">Astrocast</option>
             <option value="globalstar">Globalstar</option>
             <option value="hub_mqtt">Hub MQTT</option>
             <option value="tak">TAK</option>

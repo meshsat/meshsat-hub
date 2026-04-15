@@ -25,7 +25,7 @@ const testText = ref('')
 const testResults = ref(null)
 const testLoading = ref(false)
 
-const sourceTypes = ['*', 'iridium', 'astrocast', 'sms', 'email']
+const sourceTypes = ['*', 'iridium', 'sms', 'email']
 const destTypes = ['tak', 'aprs', 'sms', 'email', 'webhook', 'notification', 'mqtt']
 
 const showDeleteConfirm = ref(false)
@@ -169,7 +169,6 @@ const flowGroups = computed(() => {
 function sourceBadgeClass(type) {
   if (type === '*' || type === 'All Sources') return 'bg-gray-700 text-gray-300'
   if (type === 'iridium') return 'bg-blue-900/50 text-blue-300'
-  if (type === 'astrocast') return 'bg-indigo-900/50 text-indigo-300'
   if (type === 'sms') return 'bg-green-900/50 text-green-300'
   if (type === 'email') return 'bg-yellow-900/50 text-yellow-300'
   return 'bg-gray-700 text-gray-300'

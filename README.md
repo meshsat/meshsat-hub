@@ -1,6 +1,6 @@
 # MeshSat Hub
 
-Self-hosted management platform for satellite-connected field devices. Ingests messages from Iridium and Astrocast constellations, provides a web dashboard with live mapping, and bridges traffic to TAK, APRS-IS, webhooks, and push notifications. Designed for search-and-rescue, remote monitoring, and off-grid communications where reliability matters more than features.
+Self-hosted management platform for satellite-connected field devices. Ingests messages from Iridium constellations, provides a web dashboard with live mapping, and bridges traffic to TAK, APRS-IS, webhooks, and push notifications. Designed for search-and-rescue, remote monitoring, and off-grid communications where reliability matters more than features.
 
 Runs as a single Docker Compose stack or an active-active cluster with MariaDB Galera synchronous replication across geographically distributed sites.
 
@@ -8,7 +8,7 @@ Runs as a single Docker Compose stack or an active-active cluster with MariaDB G
 
 ## What it does
 
-Hub sits between satellite ground stations and operators. Field devices (running [MeshSat Bridge](https://github.com/cubeos-app/meshsat) or the [Android app](https://github.com/cubeos-app/meshsat-android)) send compressed binary messages over Iridium or Astrocast. Ground Control delivers those messages to Hub via webhook. Hub decompresses, decodes, stores, and fans out each message to every configured output: the web dashboard, a TAK server, APRS-IS, outbound webhooks, and notification services.
+Hub sits between satellite ground stations and operators. Field devices (running [MeshSat Bridge](https://github.com/cubeos-app/meshsat) or the [Android app](https://github.com/cubeos-app/meshsat-android)) send compressed binary messages over Iridium. Ground Control delivers those messages to Hub via webhook. Hub decompresses, decodes, stores, and fans out each message to every configured output: the web dashboard, a TAK server, APRS-IS, outbound webhooks, and notification services.
 
 The reverse path works too. Operators send commands from the dashboard or API; Hub compresses, optionally encrypts, fragments if needed, and submits to the satellite provider's REST API for delivery on the next pass.
 
@@ -37,7 +37,7 @@ Field Device                                            Operators
 ## Features
 
 **Satellite Communications** --
-Iridium SBD via RockBLOCK/Cloudloop webhook (MO) and REST API (MT). Astrocast Astronode S via REST API. Multi-constellation router with four selection strategies (cheapest, fastest, available, preferred). SMAZ2 compression with Meshtastic-compatible dictionary. SBD fragmentation and reassembly (340B MO / 270B MT). Message deduplication (in-memory + Redis). End-to-end AES-256-GCM encryption with per-device keystore.
+Iridium SBD via RockBLOCK/Cloudloop webhook (MO) and REST API (MT). Multi-constellation router with four selection strategies (cheapest, fastest, available, preferred). SMAZ2 compression with Meshtastic-compatible dictionary. SBD fragmentation and reassembly (340B MO / 270B MT). Message deduplication (in-memory + Redis). End-to-end AES-256-GCM encryption with per-device keystore.
 
 **Fleet Management** --
 Bridge lifecycle management with auto-provisioning on first contact. MQTT credential generation (bcrypt) and TLS client certificate issuance (ECDSA P-256, 90-day expiry). Command dispatch (ping, reboot, flush) with round-trip response. 3-step onboarding wizard. ACL regeneration. Android device type support. Real-time online/offline status with configurable reaper timeout.
@@ -263,7 +263,7 @@ lint --> security --> test --> build --> package --> pre-deploy --> deploy --> v
 
 | Project | Description |
 |---------|-------------|
-| [MeshSat Bridge](https://github.com/cubeos-app/meshsat) | Field gateway firmware (Go, Raspberry Pi) -- connects Meshtastic mesh radios to Iridium/Astrocast satellites via mTLS |
+| [MeshSat Bridge](https://github.com/cubeos-app/meshsat) | Field gateway firmware (Go, Raspberry Pi) -- connects Meshtastic mesh radios to Iridium satellites via mTLS |
 | [MeshSat Android](https://github.com/cubeos-app/meshsat-android) | Mobile gateway app (Kotlin) -- phone-as-bridge with BLE mesh, ONNX ML, and SPP Iridium |
 
 ## License

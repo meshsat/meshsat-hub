@@ -211,7 +211,7 @@ func TestTenantIsolation(t *testing.T) {
 
 	// Create devices in different tenants with same IMEI (allowed since tenant_id differentiates).
 	devA := &store.Device{IMEI: "111111111111111", Label: "Alpha Device", Type: "rockblock"}
-	devB := &store.Device{IMEI: "222222222222222", Label: "Beta Device", Type: "astrocast"}
+	devB := &store.Device{IMEI: "222222222222222", Label: "Beta Device", Type: "globalstar"}
 	if err := db.CreateDevice(ctx, tenantA, devA); err != nil {
 		t.Fatalf("create A: %v", err)
 	}

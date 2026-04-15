@@ -16,7 +16,7 @@ type RelayConfig struct {
 	MaxPacketsPerSec int
 
 	// RequireCreditsForPaid controls whether relay refuses to forward to
-	// paid interfaces (Iridium, Astrocast, Globalstar) without credits.
+	// paid interfaces (Iridium, Globalstar) without credits.
 	RequireCreditsForPaid bool
 }
 

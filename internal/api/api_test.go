@@ -193,7 +193,7 @@ func TestDeviceHandler_Update(t *testing.T) {
 
 	rec := env.doJSON(http.MethodPut, "/api/devices/300234065123456", map[string]string{
 		"label": "Updated",
-		"type":  "astrocast",
+		"type":  "globalstar",
 		"notes": "test notes",
 	})
 	if rec.Code != http.StatusOK {

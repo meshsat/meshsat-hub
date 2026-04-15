@@ -415,7 +415,6 @@ test.describe('Devices page — Android type', () => {
     const select = page.locator('select')
     await expect(select.locator('option[value="android"]')).toBeAttached()
     await expect(select.locator('option[value="rockblock"]')).toBeAttached()
-    await expect(select.locator('option[value="astrocast"]')).toBeAttached()
     await expect(select.locator('option[value="other"]')).toBeAttached()
   })
 

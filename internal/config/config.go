@@ -26,9 +26,6 @@ type Config struct {
 	RockBLOCKSecret         string `yaml:"rockblock_secret"`
 	CloudloopAPIKey         string `yaml:"cloudloop_api_key"`
 	CloudloopAPIURL         string `yaml:"cloudloop_api_url"`
-	AstrocastAPIKey         string `yaml:"astrocast_api_key"`
-	AstrocastAPIURL         string `yaml:"astrocast_api_url"`
-	AstrocastWebhookSecret  string `yaml:"astrocast_webhook_secret"` // HMAC-SHA256 secret for Astrocast MO webhook verification
 	GlobalstarAPIKey        string `yaml:"globalstar_api_key"`
 	GlobalstarAPIURL        string `yaml:"globalstar_api_url"`
 	GlobalstarWebhookSecret string `yaml:"globalstar_webhook_secret"` // HMAC-SHA256 secret for Globalstar MO webhook verification
@@ -169,7 +166,6 @@ func Defaults() Config {
 		Mode:                  "standalone",
 		MQTTClientID:          "meshsat-hub",
 		CloudloopAPIURL:       "https://api.cloudloop.com",
-		AstrocastAPIURL:       "https://api.astrocast.com/v1",
 		GlobalstarAPIURL:      "https://api.globalstar.com/v1",
 		LogLevel:              "info",
 		LogFormat:             "json",
@@ -234,15 +230,6 @@ func Load() (Config, error) {
 	}
 	if v := os.Getenv("HUB_CLOUDLOOP_API_URL"); v != "" {
 		cfg.CloudloopAPIURL = v
-	}
-	if v := os.Getenv("HUB_ASTROCAST_API_KEY"); v != "" {
-		cfg.AstrocastAPIKey = v
-	}
-	if v := os.Getenv("HUB_ASTROCAST_API_URL"); v != "" {
-		cfg.AstrocastAPIURL = v
-	}
-	if v := os.Getenv("HUB_ASTROCAST_WEBHOOK_SECRET"); v != "" {
-		cfg.AstrocastWebhookSecret = v
 	}
 	if v := os.Getenv("HUB_GLOBALSTAR_API_KEY"); v != "" {
 		cfg.GlobalstarAPIKey = v

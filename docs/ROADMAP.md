@@ -56,7 +56,7 @@ GPS position model, Douglas-Peucker simplification, polygon geofencing with esca
 
 ### v0.5 — Connectivity and Federation (Complete, 2026-03-18)
 
-Astrocast API client, MPTCP concentrator, WireGuard peer management, multi-constellation router (4 strategies).
+MPTCP concentrator, WireGuard peer management, multi-constellation router (4 strategies).
 
 ### v1.0 — Production Hardening (Complete, 2026-03-18)
 
@@ -83,7 +83,6 @@ A comprehensive code audit revealed that while all v0.1–v1.0 epics are closed,
 |---------|--------|
 | SMS gateway (inbound + outbound) | Can't reach operators without internet/app |
 | PGP Email gateway (inbound + outbound) | No email channel for store-and-forward comms |
-| Astrocast MO webhook receiver | Can only send via Astrocast, not receive |
 | OpenAPI spec generation (swagger.json) | No machine-readable API docs |
 | Configurable message routing engine | Fanout is hardcoded MQTT subscriptions, not user-configurable rules |
 | MeshSat Simulator / virtual modem | Can't develop or demo without hardware |
@@ -105,10 +104,10 @@ A comprehensive code audit revealed that while all v0.1–v1.0 epics are closed,
 | MESHSAT-169 | Wire E2E encryption: instantiate keystore, decrypt in RockBLOCK handler, add key CRUD API | MESHSAT-168 | 6h |
 | MESHSAT-170 | Implement SOS trigger: detect SOS in MO messages, publish to sos topic, fire escalation | — | 4h |
 | MESHSAT-171 | Wire dead man's switch to device heartbeats from position/telemetry updates | MESHSAT-170 | 3h |
-| MESHSAT-172 | Astrocast MO webhook receiver (POST /api/webhook/astrocast) | — | 4h |
+| ~~MESHSAT-172~~ | ~~Astrocast MO webhook receiver~~ | — | ~~Removed~~ |
 | MESHSAT-173 | OpenAPI spec generation with swaggo/swag + CI auto-generate | — | 4h |
 
-**Acceptance:** All unit tests pass. Integration test for fragment reassembly + encrypted MO message. SOS trigger fires escalation chain in test. swagger.json served at /api/docs.
+**Acceptance:** All unit tests pass. Integration test for fragment reassembly + encrypted MO message. SOS trigger fires escalation chain in test. swagger.json served at /api/docs. (Note: MESHSAT-172 Astrocast webhook removed -- Astrocast discontinued from project.)
 
 ---
 
@@ -150,7 +149,7 @@ A comprehensive code audit revealed that while all v0.1–v1.0 epics are closed,
 
 | Issue | Summary | Depends On | Est. |
 |-------|---------|-----------|------|
-| MESHSAT-182 | MeshSat Simulator: virtual Iridium/Astrocast modem, synthetic MO generator | — | 12h |
+| MESHSAT-182 | MeshSat Simulator: virtual Iridium modem, synthetic MO generator | — | 12h |
 | MESHSAT-183 | IPoUGRS adapter: IP-over-Iridium tunnel (experimental, mark as alpha) | — | 16h |
 | MESHSAT-184 | Developer onboarding: `make dev` starts Hub + Simulator + all deps, no hardware needed | MESHSAT-182 | 4h |
 | MESHSAT-185 | Sensor payload framework: pluggable decoders (ZigBee, LoRa, Protobuf) with registration API | — | 8h |
