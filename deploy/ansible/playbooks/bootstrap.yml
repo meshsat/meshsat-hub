@@ -86,7 +86,7 @@
           --group={{ galera_cluster_name }} \
           --address={{ galera_cluster_address }} \
           --name=meshsat-garbd \
-          --option=gmcast.listen_addr=tcp://0.0.0.0:4570
+          --option=gmcast.listen_addr=tcp://0.0.0.0:4570;pc.weight=1;evs.keepalive_period=PT1S;evs.suspect_timeout=PT60S;evs.inactive_timeout=PT120S;evs.view_forget_timeout=PT5M
       when: garbd_host | default(false)
 
 - name: Start Hub and supporting services
