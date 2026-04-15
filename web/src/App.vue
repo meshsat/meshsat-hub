@@ -288,7 +288,7 @@ const navGroups = [
       </Transition>
     </template>
 
-    <main :class="auth.isAuthenticated ? 'p-3 sm:p-4 lg:p-5' : ''">
+    <main class="relative z-0" :class="auth.isAuthenticated ? 'p-3 sm:p-4 lg:p-5' : ''">
       <RouterView />
     </main>
 
