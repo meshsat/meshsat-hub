@@ -104,10 +104,9 @@ A comprehensive code audit revealed that while all v0.1–v1.0 epics are closed,
 | MESHSAT-169 | Wire E2E encryption: instantiate keystore, decrypt in RockBLOCK handler, add key CRUD API | MESHSAT-168 | 6h |
 | MESHSAT-170 | Implement SOS trigger: detect SOS in MO messages, publish to sos topic, fire escalation | — | 4h |
 | MESHSAT-171 | Wire dead man's switch to device heartbeats from position/telemetry updates | MESHSAT-170 | 3h |
-| ~~MESHSAT-172~~ | ~~Astrocast MO webhook receiver~~ | — | ~~Removed~~ |
 | MESHSAT-173 | OpenAPI spec generation with swaggo/swag + CI auto-generate | — | 4h |
 
-**Acceptance:** All unit tests pass. Integration test for fragment reassembly + encrypted MO message. SOS trigger fires escalation chain in test. swagger.json served at /api/docs. (Note: MESHSAT-172 Astrocast webhook removed -- Astrocast discontinued from project.)
+**Acceptance:** All unit tests pass. Integration test for fragment reassembly + encrypted MO message. SOS trigger fires escalation chain in test. swagger.json served at /api/docs.
 
 ---
 
