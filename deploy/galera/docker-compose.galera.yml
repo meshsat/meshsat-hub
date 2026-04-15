@@ -82,7 +82,7 @@ services:
       - --group=meshsat-galera
       - --address=gcomm://192.168.192.10,192.168.15.10,192.168.192.10:4570
       - --name=meshsat-garbd
-      - --option=gmcast.listen_addr=tcp://0.0.0.0:4570;pc.weight=1
+      - --option=gmcast.listen_addr=tcp://0.0.0.0:4570;pc.weight=1;evs.keepalive_period=PT1S;evs.suspect_timeout=PT60S;evs.inactive_timeout=PT120S;evs.view_forget_timeout=PT5M
     depends_on:
       mariadb:
         condition: service_healthy
