@@ -1343,7 +1343,21 @@ func main() {
 				r.Get("/api/v1/directory/contacts/{id}", directoryHandler.GetContact)
 				r.Put("/api/v1/directory/contacts/{id}", directoryHandler.UpdateContact)
 				r.Delete("/api/v1/directory/contacts/{id}", directoryHandler.DeleteContact)
+				r.Get("/api/v1/directory/groups", directoryHandler.ListGroups)
+				r.Post("/api/v1/directory/groups", directoryHandler.CreateGroup)
+				r.Get("/api/v1/directory/groups/{id}", directoryHandler.GetGroup)
+				r.Put("/api/v1/directory/groups/{id}", directoryHandler.UpdateGroup)
+				r.Delete("/api/v1/directory/groups/{id}", directoryHandler.DeleteGroup)
+				r.Get("/api/v1/directory/policies", directoryHandler.ListPolicies)
+				r.Post("/api/v1/directory/policies", directoryHandler.CreatePolicy)
+				r.Get("/api/v1/directory/policies/{id}", directoryHandler.GetPolicy)
+				r.Put("/api/v1/directory/policies/{id}", directoryHandler.UpdatePolicy)
+				r.Delete("/api/v1/directory/policies/{id}", directoryHandler.DeletePolicy)
 				r.Get("/api/v1/directory/snapshot", directoryHandler.GetSnapshot)
+				// vCard 4.0 / CSV import + export [MESHSAT-541]
+				r.Post("/api/v1/directory/import/vcard", directoryHandler.ImportVCard)
+				r.Post("/api/v1/directory/import/csv", directoryHandler.ImportCSV)
+				r.Get("/api/v1/directory/export/vcard", directoryHandler.ExportVCard)
 				slog.Info("directory REST registered")
 			}
 		}
