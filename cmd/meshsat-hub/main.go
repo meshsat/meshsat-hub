@@ -1337,6 +1337,15 @@ func main() {
 			if err := directorySQLStore.Migrate(ctx); err != nil {
 				slog.Error("directory: migrate failed", "error", err)
 			} else {
+				// Seed STANAG 4406 precedence → strategy fall-backs for
+				// the default tenant. Idempotent; future per-tenant
+				// lifecycle code should call this on tenant creation.
+				// [MESHSAT-547 / S2-04]
+				if n, err := directorySQLStore.SeedPrecedenceDefaults(ctx, store.DefaultTenantID); err != nil {
+					slog.Warn("directory: precedence defaults seed failed", "error", err)
+				} else if n > 0 {
+					slog.Info("directory: seeded precedence defaults", "tenant", store.DefaultTenantID, "inserted", n)
+				}
 				directoryHandler := api.NewDirectoryHandler(directorySQLStore, directoryTrustAnchor)
 				r.Get("/api/v1/directory/contacts", directoryHandler.ListContacts)
 				r.Post("/api/v1/directory/contacts", directoryHandler.CreateContact)

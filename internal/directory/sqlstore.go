@@ -41,6 +41,65 @@ func (s *SQLStore) Migrate(ctx context.Context) error {
 	return nil
 }
 
+// precedenceDefault is one row SeedPrecedenceDefaults installs.
+type precedenceDefault struct {
+	scopeType string
+	scopeID   string
+	strategy  string
+}
+
+// PrecedenceDefaults are the STANAG 4406 precedence → dispatch
+// strategy fall-backs installed per tenant by
+// [SQLStore.SeedPrecedenceDefaults]. The set matches the Bridge's
+// v48 migration so a fresh tenant on the Hub resolves identically
+// to a fresh Bridge install. [MESHSAT-547]
+var PrecedenceDefaults = []precedenceDefault{
+	{"default", "", "PRIMARY_ONLY"},
+	{"precedence", "Override", "HEMB_BONDED"},
+	{"precedence", "Flash", "HEMB_BONDED"},
+	{"precedence", "Immediate", "ANY_REACHABLE"},
+	{"precedence", "Priority", "ORDERED_FALLBACK"},
+	{"precedence", "Routine", "PRIMARY_ONLY"},
+	{"precedence", "Deferred", "PRIMARY_ONLY"},
+}
+
+// SeedPrecedenceDefaults installs the per-tenant precedence → strategy
+// fall-backs used by the dispatcher when no contact- or group-specific
+// policy matches. Idempotent: existing rows for (tenant, scope_type,
+// scope_id) are left in place; only missing defaults are inserted.
+//
+// Hub callers invoke this at startup for the default tenant and on
+// tenant creation. Returns the number of rows actually inserted so
+// callers can log first-boot provisioning. [MESHSAT-547 / S2-04]
+func (s *SQLStore) SeedPrecedenceDefaults(ctx context.Context, tenantID string) (int, error) {
+	if tenantID == "" {
+		return 0, ErrEmptyID
+	}
+	inserted := 0
+	now := nowUTC()
+	for _, d := range PrecedenceDefaults {
+		var exists int
+		if err := s.db.QueryRowContext(ctx,
+			`SELECT COUNT(*) FROM directory_dispatch_policy WHERE tenant_id = ? AND scope_type = ? AND scope_id = ?`,
+			tenantID, d.scopeType, d.scopeID).Scan(&exists); err != nil {
+			return inserted, fmt.Errorf("check precedence default %s:%s: %w", d.scopeType, d.scopeID, err)
+		}
+		if exists > 0 {
+			continue
+		}
+		if _, err := s.db.ExecContext(ctx,
+			`INSERT INTO directory_dispatch_policy
+			(id, tenant_id, name, scope_type, scope_id, strategy, preferred, fallback,
+			 require_encryption, max_retries, retry_delay_ns, created_at, updated_at)
+			VALUES (?, ?, '', ?, ?, ?, '[]', '[]', 0, 0, 0, ?, ?)`,
+			NewID(), tenantID, d.scopeType, d.scopeID, d.strategy, now, now); err != nil {
+			return inserted, fmt.Errorf("insert precedence default %s:%s: %w", d.scopeType, d.scopeID, err)
+		}
+		inserted++
+	}
+	return inserted, nil
+}
+
 // schemaStatements is the directory DDL. Everything uses CREATE …
 // IF NOT EXISTS so it is safe to run every boot. Column types match
 // the bridge-side v44-v48 schema so Hub snapshots and bridge rows

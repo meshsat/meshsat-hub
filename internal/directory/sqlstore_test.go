@@ -277,3 +277,70 @@ func TestSQLStore_EmptyIDGuards(t *testing.T) {
 		t.Errorf("empty bump: %v", err)
 	}
 }
+
+// --- MESHSAT-547 S2-04 precedence defaults ---------------------------
+
+func TestSeedPrecedenceDefaults(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+
+	inserted, err := s.SeedPrecedenceDefaults(ctx, "acme")
+	if err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	if inserted != 7 {
+		t.Errorf("first-run insert count: got %d, want 7", inserted)
+	}
+
+	// Second call is a no-op.
+	inserted2, err := s.SeedPrecedenceDefaults(ctx, "acme")
+	if err != nil {
+		t.Fatalf("re-seed: %v", err)
+	}
+	if inserted2 != 0 {
+		t.Errorf("second-run should insert 0, got %d", inserted2)
+	}
+
+	// Policies are retrievable with the expected strategies.
+	want := map[string]string{
+		"Override":  "HEMB_BONDED",
+		"Flash":     "HEMB_BONDED",
+		"Immediate": "ANY_REACHABLE",
+		"Priority":  "ORDERED_FALLBACK",
+		"Routine":   "PRIMARY_ONLY",
+		"Deferred":  "PRIMARY_ONLY",
+	}
+	list, err := s.ListPolicies(ctx, "acme")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := map[string]string{}
+	for _, p := range list {
+		if p.ScopeType == "precedence" {
+			got[p.ScopeID] = string(p.Strategy)
+		}
+	}
+	for k, v := range want {
+		if got[k] != v {
+			t.Errorf("precedence %s: got %q, want %q", k, got[k], v)
+		}
+	}
+
+	// Tenant isolation: a different tenant starts empty, then seeds.
+	list2, _ := s.ListPolicies(ctx, "other")
+	if len(list2) != 0 {
+		t.Errorf("tenant 'other' should start empty, got %d", len(list2))
+	}
+	_, _ = s.SeedPrecedenceDefaults(ctx, "other")
+	list2, _ = s.ListPolicies(ctx, "other")
+	if len(list2) != 7 {
+		t.Errorf("tenant 'other' after seed: got %d, want 7", len(list2))
+	}
+}
+
+func TestSeedPrecedenceDefaults_EmptyTenant(t *testing.T) {
+	s := newTestStore(t)
+	if _, err := s.SeedPrecedenceDefaults(context.Background(), ""); err == nil {
+		t.Error("empty tenant: expected error")
+	}
+}
