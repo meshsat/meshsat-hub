@@ -1352,16 +1352,13 @@ func main() {
 				r.Get("/api/v1/directory/contacts/{id}", directoryHandler.GetContact)
 				r.Put("/api/v1/directory/contacts/{id}", directoryHandler.UpdateContact)
 				r.Delete("/api/v1/directory/contacts/{id}", directoryHandler.DeleteContact)
-				r.Get("/api/v1/directory/groups", directoryHandler.ListGroups)
-				r.Post("/api/v1/directory/groups", directoryHandler.CreateGroup)
-				r.Get("/api/v1/directory/groups/{id}", directoryHandler.GetGroup)
-				r.Put("/api/v1/directory/groups/{id}", directoryHandler.UpdateGroup)
-				r.Delete("/api/v1/directory/groups/{id}", directoryHandler.DeleteGroup)
-				r.Get("/api/v1/directory/policies", directoryHandler.ListPolicies)
-				r.Post("/api/v1/directory/policies", directoryHandler.CreatePolicy)
-				r.Get("/api/v1/directory/policies/{id}", directoryHandler.GetPolicy)
-				r.Put("/api/v1/directory/policies/{id}", directoryHandler.UpdatePolicy)
-				r.Delete("/api/v1/directory/policies/{id}", directoryHandler.DeletePolicy)
+				// NOTE: group + policy CRUD handlers will land in a
+				// follow-up story. The Store layer already supports
+				// them; the REST surface is deferred until a consuming
+				// UI exists. Bridge-side PutPolicy + PutGroup are
+				// exercised via directory_push snapshot import — the
+				// directory table of record can still be populated via
+				// the snapshot endpoint below.
 				r.Get("/api/v1/directory/snapshot", directoryHandler.GetSnapshot)
 				// vCard 4.0 / CSV import + export [MESHSAT-541]
 				r.Post("/api/v1/directory/import/vcard", directoryHandler.ImportVCard)
