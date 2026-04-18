@@ -188,7 +188,7 @@ func (s *SQLStore) ListContacts(ctx context.Context, tenantID string) ([]Contact
 	if err != nil {
 		return nil, fmt.Errorf("list contacts: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	var out []Contact
 	for rows.Next() {
 		c, err := scanContact(rows)
@@ -381,7 +381,7 @@ func (s *SQLStore) ListGroups(ctx context.Context, tenantID string) ([]Group, er
 	if err != nil {
 		return nil, fmt.Errorf("list groups: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	var out []Group
 	for rows.Next() {
 		g, err := scanGroup(rows)
@@ -496,7 +496,7 @@ func (s *SQLStore) ListPolicies(ctx context.Context, tenantID string) ([]Dispatc
 	if err != nil {
 		return nil, fmt.Errorf("list policies: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	var out []DispatchPolicy
 	for rows.Next() {
 		p, err := scanPolicy(rows)
@@ -679,7 +679,7 @@ func (s *SQLStore) loadAddresses(ctx context.Context, contactID string) ([]Addre
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	var out []Address
 	for rows.Next() {
 		var a Address
@@ -707,7 +707,7 @@ func (s *SQLStore) loadKeys(ctx context.Context, contactID string) ([]ContactKey
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	var out []ContactKey
 	for rows.Next() {
 		var k ContactKey
@@ -729,7 +729,7 @@ func (s *SQLStore) groupIDsForContact(ctx context.Context, contactID string) ([]
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	var out []string
 	for rows.Next() {
 		var g string
@@ -747,7 +747,7 @@ func (s *SQLStore) groupMemberIDs(ctx context.Context, groupID string) ([]string
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	var out []string
 	for rows.Next() {
 		var c string
