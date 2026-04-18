@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"crypto/ed25519"
+	"database/sql"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -35,6 +36,7 @@ import (
 	hubcrypto "github.com/cubeos-app/meshsat-hub/internal/crypto"
 	"github.com/cubeos-app/meshsat-hub/internal/deadman"
 	"github.com/cubeos-app/meshsat-hub/internal/dedup"
+	"github.com/cubeos-app/meshsat-hub/internal/directory"
 	hubemail "github.com/cubeos-app/meshsat-hub/internal/email"
 	"github.com/cubeos-app/meshsat-hub/internal/escalation"
 	"github.com/cubeos-app/meshsat-hub/internal/fragment"
@@ -541,6 +543,15 @@ func main() {
 				slog.Info("bridge-ca: generated and stored self-signed CA")
 			}
 		}
+	}
+
+	// Directory-signing trust anchor (MESHSAT-539): bridges pin this pubkey
+	// on first provision and use it to verify directory snapshots offline.
+	directoryTrustAnchor, err := directory.LoadOrCreateTrustAnchor(ctx, dataStore)
+	if err != nil {
+		slog.Error("directory-trust-anchor: failed to initialise", "error", err)
+	} else {
+		slog.Info("directory-trust-anchor: ready", "pubkey_bytes", len(directoryTrustAnchor.PublicKey()))
 	}
 
 	// Export bridge CA cert to filesystem for NATS mTLS verification.
@@ -1166,7 +1177,7 @@ func main() {
 	r.Post("/api/webhook/cloudloop", hubmw.WebhookRateLimit(http.HandlerFunc(clHandler.ServeHTTP), 60).ServeHTTP)
 
 	// QR provision claim — unauthenticated (nonce IS the auth, single-use, 30min TTL).
-	provisionClaimHandler := api.NewBridgeProvisionHandler(dataStore, bridgeCA)
+	provisionClaimHandler := api.NewBridgeProvisionHandler(dataStore, bridgeCA, directoryTrustAnchor)
 	r.Get("/api/bridges/{id}/provision/{nonce}", provisionClaimHandler.ClaimProvision)
 
 	// SMS gateway (optional — inbound webhook + outbound subscriber + send API)
@@ -1305,9 +1316,38 @@ func main() {
 	r.Post("/api/bridges/acl/regenerate", bridgeAuthHandler.RegenerateACL)
 
 	// One-step bridge provisioning with QR code (MESHSAT-414)
-	provisionHandler := api.NewBridgeProvisionHandler(dataStore, bridgeCA)
+	provisionHandler := api.NewBridgeProvisionHandler(dataStore, bridgeCA, directoryTrustAnchor)
 	r.Post("/api/bridges/{id}/provision", provisionHandler.Provision)
 	r.Post("/api/bridges/{id}/provision/qr", provisionHandler.ProvisionQR)
+
+	// Directory REST — tenant-scoped contacts + signed snapshot
+	// [MESHSAT-538]. Opens a dedicated *sql.DB connection on the
+	// same SQLite file so the directory package can own its
+	// transactions without threading through the dbwrap interface
+	// (which doesn't expose BeginTx). Only wired in standalone mode
+	// today; cluster/MariaDB support lands in a follow-up once a
+	// MariaDB-compatible SQLStore is added.
+	if cfg.Mode == "" || cfg.Mode == "standalone" {
+		directoryRawDB, err := sql.Open("sqlite", "file:/data/hub.db?_journal_mode=WAL&_busy_timeout=5000&_foreign_keys=ON&_synchronous=NORMAL")
+		if err != nil {
+			slog.Error("directory: open raw sqlite failed", "error", err)
+		} else {
+			directoryRawDB.SetMaxOpenConns(1)
+			directorySQLStore := directory.NewSQLStore(directoryRawDB)
+			if err := directorySQLStore.Migrate(ctx); err != nil {
+				slog.Error("directory: migrate failed", "error", err)
+			} else {
+				directoryHandler := api.NewDirectoryHandler(directorySQLStore, directoryTrustAnchor)
+				r.Get("/api/v1/directory/contacts", directoryHandler.ListContacts)
+				r.Post("/api/v1/directory/contacts", directoryHandler.CreateContact)
+				r.Get("/api/v1/directory/contacts/{id}", directoryHandler.GetContact)
+				r.Put("/api/v1/directory/contacts/{id}", directoryHandler.UpdateContact)
+				r.Delete("/api/v1/directory/contacts/{id}", directoryHandler.DeleteContact)
+				r.Get("/api/v1/directory/snapshot", directoryHandler.GetSnapshot)
+				slog.Info("directory REST registered")
+			}
+		}
+	}
 
 	// HeMB bond group management (MESHSAT-487)
 	bondGroupHandler := api.NewBondGroupHandler(dataStore, msgBus)

@@ -12,6 +12,7 @@ import (
 
 	"github.com/cubeos-app/meshsat-hub/internal/auth"
 	"github.com/cubeos-app/meshsat-hub/internal/bridge"
+	"github.com/cubeos-app/meshsat-hub/internal/directory"
 	"github.com/cubeos-app/meshsat-hub/internal/store"
 	"github.com/go-chi/chi/v5"
 	qrcode "github.com/skip2/go-qrcode"
@@ -21,16 +22,17 @@ import (
 // ProvisionBundle contains everything a bridge/Android app needs to connect.
 // Returned by the nonce-authenticated claim endpoint, NOT embedded in the QR.
 type ProvisionBundle struct {
-	Version      string `json:"v"`        // "1"
-	BridgeID     string `json:"bid"`      // bridge identifier
-	MQTTURL      string `json:"mqtt"`     // wss://mqtt-hub.meshsat.net/mqtt
-	Username     string `json:"user"`     // MQTT username (always "meshsat" for NATS auth)
-	Password     string `json:"pass"`     // MQTT password (shared NATS auth password)
-	CertPEM      string `json:"cert"`     // client TLS certificate
-	KeyPEM       string `json:"key"`      // client TLS private key (one-time)
-	CaPEM        string `json:"ca"`       // CA certificate
-	CertExpires  string `json:"cert_exp"` // certificate expiry (RFC3339)
-	ReticulumTCP string `json:"ret_tcp"`  // Reticulum TCP peer
+	Version             string `json:"v"`            // "1"
+	BridgeID            string `json:"bid"`          // bridge identifier
+	MQTTURL             string `json:"mqtt"`         // wss://mqtt-hub.meshsat.net/mqtt
+	Username            string `json:"user"`         // MQTT username (always "meshsat" for NATS auth)
+	Password            string `json:"pass"`         // MQTT password (shared NATS auth password)
+	CertPEM             string `json:"cert"`         // client TLS certificate
+	KeyPEM              string `json:"key"`          // client TLS private key (one-time)
+	CaPEM               string `json:"ca"`           // CA certificate
+	CertExpires         string `json:"cert_exp"`     // certificate expiry (RFC3339)
+	ReticulumTCP        string `json:"ret_tcp"`      // Reticulum TCP peer
+	DirectorySigningPub []byte `json:"dir_sign_pub"` // Hub's ECDSA-P256 directory-signing pubkey (PKIX DER) — bridge pins on first provision [MESHSAT-539]
 }
 
 // provisionStash holds pre-generated credentials waiting to be claimed.
@@ -43,12 +45,16 @@ type provisionStash struct {
 
 // BridgeProvisionHandler provides QR-based provisioning.
 type BridgeProvisionHandler struct {
-	store store.Store
-	ca    *bridge.CertAuthority
+	store       store.Store
+	ca          *bridge.CertAuthority
+	trustAnchor *directory.TrustAnchor
 }
 
-func NewBridgeProvisionHandler(s store.Store, ca *bridge.CertAuthority) *BridgeProvisionHandler {
-	return &BridgeProvisionHandler{store: s, ca: ca}
+// NewBridgeProvisionHandler returns a handler that stashes credentials for
+// nonce-authenticated claim. trustAnchor supplies the Hub's directory-signing
+// pubkey published in the bundle (MESHSAT-539); it may be nil in test setups.
+func NewBridgeProvisionHandler(s store.Store, ca *bridge.CertAuthority, trustAnchor *directory.TrustAnchor) *BridgeProvisionHandler {
+	return &BridgeProvisionHandler{store: s, ca: ca, trustAnchor: trustAnchor}
 }
 
 // generateAndStash creates fresh credentials, stores them in a stash keyed
@@ -109,19 +115,25 @@ func (h *BridgeProvisionHandler) generateAndStash(r *http.Request, id, tid strin
 	// Per-bridge identity comes from MQTT client ID + mTLS certificate CN.
 	natsMQTTPassword := os.Getenv("NATS_MQTT_PASSWORD")
 
+	var dirSignPub []byte
+	if h.trustAnchor != nil {
+		dirSignPub = h.trustAnchor.PublicKey()
+	}
+
 	stash := provisionStash{
 		Nonce: nonce,
 		Bundle: ProvisionBundle{
-			Version:      "1",
-			BridgeID:     id,
-			MQTTURL:      mqttURL,
-			Username:     "meshsat",
-			Password:     natsMQTTPassword,
-			CertPEM:      string(certPEM),
-			KeyPEM:       string(keyPEM),
-			CaPEM:        string(h.ca.CACertPEM()),
-			CertExpires:  expiry.Format(time.RFC3339),
-			ReticulumTCP: retTCP,
+			Version:             "1",
+			BridgeID:            id,
+			MQTTURL:             mqttURL,
+			Username:            "meshsat",
+			Password:            natsMQTTPassword,
+			CertPEM:             string(certPEM),
+			KeyPEM:              string(keyPEM),
+			CaPEM:               string(h.ca.CACertPEM()),
+			CertExpires:         expiry.Format(time.RFC3339),
+			ReticulumTCP:        retTCP,
+			DirectorySigningPub: dirSignPub,
 		},
 		CreatedAt: time.Now(),
 	}

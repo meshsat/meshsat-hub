@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/cubeos-app/meshsat-hub/internal/bus"
+	"github.com/cubeos-app/meshsat-hub/internal/directory"
 	"github.com/cubeos-app/meshsat-hub/internal/protocol"
 	"github.com/cubeos-app/meshsat-hub/internal/store"
 	"github.com/google/uuid"
@@ -58,6 +59,45 @@ func CredentialRevokeCommand(credID, reason string) protocol.Command {
 	})
 	return protocol.Command{
 		Cmd:       "credential_revoke",
+		Payload:   json.RawMessage(payload),
+		Timestamp: time.Now().UTC(),
+	}
+}
+
+// DirectoryTrustAnchorRotateCommand creates a command that replaces the
+// bridge's pinned directory-signing public key with newPubKey (PKIX DER,
+// ECDSA-P256). version identifies the new key so bridges can ignore stale
+// or replayed rotates. [MESHSAT-539]
+func DirectoryTrustAnchorRotateCommand(newPubKey []byte, version int) protocol.Command {
+	payload, _ := json.Marshal(map[string]interface{}{
+		"public_key": newPubKey, // base64 via json.Marshal
+		"algorithm":  "ecdsa-p256",
+		"version":    version,
+	})
+	return protocol.Command{
+		Cmd:       "directory_trust_anchor_rotate",
+		Payload:   json.RawMessage(payload),
+		Timestamp: time.Now().UTC(),
+	}
+}
+
+// DirectoryPushCommand creates a command that ships a signed tenant
+// directory snapshot to a bridge. The bridge's directory_push handler
+// verifies the ECDSA-P256 signature against the trust anchor it
+// pinned at provisioning time (MESHSAT-539) and — on success —
+// replaces its local directory_{contacts,addresses,keys,groups,
+// dispatch_policy} rows with the snapshot's contents.
+//
+// The snapshot MUST already be signed by the Hub's directory
+// TrustAnchor before it reaches this function; DirectoryPushCommand
+// does not resign. Callers in api.DirectoryHandler.GetSnapshot and
+// the Hub's change-watcher use api.SignSnapshot to produce the
+// signature over api.CanonicalSnapshotBytes(snap) — the bridge
+// verifies against the same canonical form. [MESHSAT-540]
+func DirectoryPushCommand(snapshot *directory.Snapshot) protocol.Command {
+	payload, _ := json.Marshal(snapshot)
+	return protocol.Command{
+		Cmd:       "directory_push",
 		Payload:   json.RawMessage(payload),
 		Timestamp: time.Now().UTC(),
 	}

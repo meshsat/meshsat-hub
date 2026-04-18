@@ -108,6 +108,36 @@ func TestUnknownRequestIDNoPanic(t *testing.T) {
 	// If we get here without panic, the test passes.
 }
 
+func TestDirectoryTrustAnchorRotateCommand(t *testing.T) {
+	pub := []byte{0x30, 0x59, 0x01, 0x02, 0x03, 0x04}
+	cmd := DirectoryTrustAnchorRotateCommand(pub, 7)
+
+	if cmd.Cmd != "directory_trust_anchor_rotate" {
+		t.Fatalf("cmd = %q, want directory_trust_anchor_rotate", cmd.Cmd)
+	}
+	if cmd.Timestamp.IsZero() {
+		t.Fatal("timestamp not set")
+	}
+
+	var payload struct {
+		PublicKey []byte `json:"public_key"`
+		Algorithm string `json:"algorithm"`
+		Version   int    `json:"version"`
+	}
+	if err := json.Unmarshal(cmd.Payload, &payload); err != nil {
+		t.Fatalf("unmarshal payload: %v", err)
+	}
+	if payload.Algorithm != "ecdsa-p256" {
+		t.Fatalf("algorithm = %q, want ecdsa-p256", payload.Algorithm)
+	}
+	if payload.Version != 7 {
+		t.Fatalf("version = %d, want 7", payload.Version)
+	}
+	if string(payload.PublicKey) != string(pub) {
+		t.Fatalf("public_key round-trip mismatch: got %x, want %x", payload.PublicKey, pub)
+	}
+}
+
 // stringContains checks if s contains substr.
 func stringContains(s, substr string) bool {
 	for i := 0; i <= len(s)-len(substr); i++ {
