@@ -1,0 +1,69 @@
+{
+  "feature_id": "013-sensor-payload-framework",
+  "parent_epic": "MESHSAT-185",
+  "spec_revision": "1 (2026-05-17 — Path A Batch 3)",
+  "tasks": [
+    {
+      "id": "T-001",
+      "status": "pending",
+      "title": "sensor_decoder table + Store CRUD + startup loader + Prometheus counter",
+      "prompt": "FIRST: read spec/013-sensor-payload-framework/{requirements.md, design.md, contracts/schemas/sensor-decoder.json}. SECOND: (REQ-1207/1208) add sensor_decoder table in BOTH sqlite + mariadb per Article XII. Store methods: ListSensorDecoders(ctx, tenantID) + CreateSensorDecoder(ctx, tenantID, d) + GetSensorDecoder(ctx, tenantID, id) + UpdateSensorDecoder(ctx, tenantID, id, patch) + DeleteSensorDecoder(ctx, tenantID, id). (REQ-1216) at Hub startup, list all decoders + increment hub_sensor_decoders_loaded_total{kind} per row.",
+      "files_owned": [
+        "internal/store/sqlite/sensor_decoders.go",
+        "internal/store/sqlite/sensor_decoders_test.go",
+        "internal/store/store.go"
+      ],
+      "acceptance_test": "go test -count=1 -timeout 60s ./internal/store/... -run SensorDecoder",
+      "dependencies": [],
+      "parallelizable": true,
+      "bounded_context": "store",
+      "requirement_ids": ["REQ-1207", "REQ-1208", "REQ-1216"],
+      "complexity": 3,
+      "risk_score": 0.3,
+      "max_wall_clock_minutes": 30,
+      "max_loc_delta": 300
+    },
+    {
+      "id": "T-002",
+      "status": "pending",
+      "title": "internal/sensor/ package — 4 built-in decoder implementations + routing integration",
+      "prompt": "FIRST: read spec/013-sensor-payload-framework/{requirements.md, design.md, acceptance/sensor-decoders.feature}. SECOND: (REQ-1201) create internal/sensor/ with `Decoder` interface {Decode([]byte) (map[string]any, error)} + 4 implementations: zigbee_cluster (REQ-1212 — handle Basic/Temp/Humidity/Battery), lora_cayenne_lpp (REQ-1213), protobuf (REQ-1214 — protoreflect.NewMessage from descriptor), json_passthrough (REQ-1215 — json.Unmarshal). (REQ-1209) in internal/routing/engine.go Dispatch path, add `enrichWithDecoder(msg, decoder)` step. (REQ-1210) merge decoded fields into msg.decoded. (REQ-1211) on decode error: log WARN + hub_sensor_decode_error_total{kind}++ + pass original. Tests cover each kind + error path.",
+      "files_owned": [
+        "internal/sensor/decoder.go",
+        "internal/sensor/zigbee.go",
+        "internal/sensor/cayenne.go",
+        "internal/sensor/protobuf.go",
+        "internal/sensor/json_passthrough.go",
+        "internal/sensor/decoder_test.go"
+      ],
+      "acceptance_test": "go test -count=1 -timeout 60s ./internal/sensor/...",
+      "dependencies": ["T-001"],
+      "parallelizable": false,
+      "bounded_context": "codec",
+      "requirement_ids": ["REQ-1201", "REQ-1209", "REQ-1210", "REQ-1211", "REQ-1212", "REQ-1213", "REQ-1214", "REQ-1215"],
+      "complexity": 6,
+      "risk_score": 0.5,
+      "max_wall_clock_minutes": 70,
+      "max_loc_delta": 800
+    },
+    {
+      "id": "T-003",
+      "status": "pending",
+      "title": "REST API: /api/sensor-decoders CRUD with tenant filter + audit + kind validation",
+      "prompt": "FIRST: read spec/013-sensor-payload-framework/{requirements.md, contracts/openapi.yaml, contracts/schemas/sensor-decoder.json, acceptance/sensor-decoders.feature}. SECOND: implement internal/api/sensor_decoders.go with GET/POST/PUT/DELETE. (REQ-1202..1205) wire to Store. (REQ-1206) tenant filter; cross-tenant 403; missing 404. (REQ-1217) audit on every mutation. (REQ-1218) POST/PUT validates `kind` is one of the 4 built-in values; `wasm` returns 400 with deferred message. Use httpjson.ReadJSON. Add @Summary/@Tags/@Router Swagger annotations.",
+      "files_owned": [
+        "internal/api/sensor_decoders.go",
+        "internal/api/sensor_decoders_test.go"
+      ],
+      "acceptance_test": "go test -count=1 -timeout 60s ./internal/api/... -run TestSensorDecoders",
+      "dependencies": ["T-002"],
+      "parallelizable": false,
+      "bounded_context": "api",
+      "requirement_ids": ["REQ-1202", "REQ-1203", "REQ-1204", "REQ-1205", "REQ-1206", "REQ-1217", "REQ-1218"],
+      "complexity": 4,
+      "risk_score": 0.3,
+      "max_wall_clock_minutes": 35,
+      "max_loc_delta": 400
+    }
+  ]
+}

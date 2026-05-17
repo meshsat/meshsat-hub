@@ -1,0 +1,33 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "sos-detection-rule.json",
+  "title": "SosDetectionRule",
+  "description": "Tenant-scoped rule controlling which MO messages flag as SOS.",
+  "type": "object",
+  "required": ["rule_id", "tenant_id", "keywords", "enabled"],
+  "properties": {
+    "rule_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64
+    },
+    "tenant_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "keywords": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 50
+      },
+      "description": "Literal tokens that, when found in MO message text, flag the message as SOS"
+    },
+    "enabled": {
+      "type": "boolean"
+    }
+  },
+  "additionalProperties": false
+}

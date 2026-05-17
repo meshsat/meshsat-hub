@@ -1,0 +1,40 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "deadman-config.json",
+  "title": "DeadmanConfig",
+  "description": "Per-device dead-man-switch configuration row in the device_deadman_config table.",
+  "type": "object",
+  "required": ["device_imei", "tenant_id", "enabled", "timeout_seconds", "updated_at"],
+  "properties": {
+    "device_imei": {
+      "type": "string",
+      "pattern": "^[0-9]{15}$"
+    },
+    "tenant_id": {
+      "type": "string"
+    },
+    "enabled": {
+      "type": "boolean"
+    },
+    "timeout_seconds": {
+      "type": "integer",
+      "minimum": 60,
+      "maximum": 86400,
+      "description": "Window after last_seen_at before the dead-man fires"
+    },
+    "last_seen_at": {
+      "type": ["integer", "null"],
+      "minimum": 1700000000
+    },
+    "triggered_at": {
+      "type": ["integer", "null"],
+      "minimum": 1700000000,
+      "description": "Set when the dead-man fires; cleared when the device next checks in"
+    },
+    "updated_at": {
+      "type": "integer",
+      "minimum": 1700000000
+    }
+  },
+  "additionalProperties": false
+}

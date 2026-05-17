@@ -1,0 +1,132 @@
+openapi: 3.0.3
+info:
+  title: MeshSat Hub — Dead Man's Switch Configuration API
+  version: 1.0.0
+  description: >
+    REST endpoints for per-device dead-man-switch configuration. Part of v1.1
+    "Wire the Unwired" (MESHSAT-171). Reads + writes the device_deadman_config
+    table.
+servers:
+  - url: https://hub.meshsat.net
+    description: Production NL+GR cluster
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  schemas:
+    DeadmanConfig:
+      type: object
+      required:
+        - enabled
+        - timeout_seconds
+      properties:
+        enabled:
+          type: boolean
+        timeout_seconds:
+          type: integer
+          minimum: 60
+          maximum: 86400
+          description: Per-device window after last_seen_at before dead-man fires
+    DeadmanState:
+      allOf:
+        - $ref: '#/components/schemas/DeadmanConfig'
+        - type: object
+          properties:
+            last_seen_at:
+              type: integer
+              minimum: 1700000000
+              nullable: true
+            triggered_at:
+              type: integer
+              minimum: 1700000000
+              nullable: true
+            updated_at:
+              type: integer
+              minimum: 1700000000
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: string
+security:
+  - bearerAuth: []
+paths:
+  /api/devices/{imei}/deadman:
+    parameters:
+      - name: imei
+        in: path
+        required: true
+        schema:
+          type: string
+          pattern: '^[0-9]{15}$'
+    get:
+      summary: Get the device's dead-man-switch state (config + last_seen + triggered)
+      operationId: getDeviceDeadman
+      responses:
+        '200':
+          description: Current dead-man state
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeadmanState'
+        '401':
+          description: Missing or invalid bearer token
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Device does not belong to caller's tenant
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Device not registered
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+    post:
+      summary: Configure the device's dead-man-switch (enabled + timeout window)
+      operationId: setDeviceDeadman
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DeadmanConfig'
+      responses:
+        '200':
+          description: Config saved
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeadmanState'
+        '400':
+          description: timeout_seconds outside the allowed range (60..86400)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Missing or invalid bearer token
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Device does not belong to caller's tenant
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Device not registered
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'

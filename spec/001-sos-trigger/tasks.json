@@ -1,0 +1,83 @@
+{
+  "feature_id": "001-sos-trigger",
+  "parent_epic": "MESHSAT-170",
+  "spec_revision": "1 (2026-05-17 initial author)",
+  "tasks": [
+    {
+      "id": "T-001",
+      "status": "pending",
+      "title": "internal/sos/detector.go — keyword + device-flag + JSON-field detection (MESHSAT-170 core)",
+      "prompt": "FIRST: read spec/001-sos-trigger/{requirements.md, design.md, contracts/schemas/sos-event.json, contracts/asyncapi.yaml, acceptance/sos-trigger.feature}. SECOND: implement internal/sos/detector.go with a Detector type that exposes Flag(msg DecodedMo) (*SosEvent, error). Detection covers REQ-002 (SOS literal), REQ-003 (MAYDAY literal), REQ-004 (EMERGENCY literal), REQ-005 (device sos_flagged), REQ-006 (JSON sos:true), REQ-016 (malformed UTF-8 OR JSON parse failure returns (nil,nil) and the caller writes the sos.malformed audit entry). NO MQTT publish in this file (that lives in T-002). Detection-reason enum: keyword|device_flag|payload_field per the schema. Capture keyword_matched when reason=keyword. Use crypto/rand for event_id UUID generation. Tests: internal/sos/detector_test.go covers each REQ-NNN with a table-driven test; one test per REQ-NNN row.",
+      "files_owned": [
+        "internal/sos/detector.go",
+        "internal/sos/detector_test.go"
+      ],
+      "acceptance_test": "go test -count=1 -timeout 60s ./internal/sos/...",
+      "dependencies": [],
+      "parallelizable": true,
+      "bounded_context": "sos",
+      "requirement_ids": ["REQ-002", "REQ-003", "REQ-004", "REQ-005", "REQ-006", "REQ-016"],
+      "complexity": 4,
+      "risk_score": 0.4,
+      "max_wall_clock_minutes": 45,
+      "max_loc_delta": 450
+    },
+    {
+      "id": "T-002",
+      "status": "pending",
+      "title": "internal/rockblock/sos_hook.go — MQTT subscribe + publish + audit + Prometheus wiring",
+      "prompt": "FIRST: read spec/001-sos-trigger/{requirements.md, design.md, contracts/asyncapi.yaml, contracts/schemas/sos-event.json}. SECOND: wire the SOS hook into the existing rockblock handler — REQ-001 (subscribe meshsat/+/mo/decoded on startup), REQ-007 (publish meshsat/{device_id}/sos on Detector.Flag returning non-nil event), REQ-010 (audit entry sos.detected), REQ-011 (payload conforms to sos-event.json — use the same schema-package as other code), REQ-012 (block publishes during detector startup via a sync.WaitGroup), REQ-017 (increment hub_sos_events_total Prometheus counter labelled by device_id). DO NOT import internal/escalation here — that integration is T-003.",
+      "files_owned": [
+        "internal/rockblock/sos_hook.go",
+        "internal/rockblock/sos_hook_test.go"
+      ],
+      "acceptance_test": "go test -count=1 -timeout 60s ./internal/rockblock/... -run TestSos",
+      "dependencies": [],
+      "parallelizable": true,
+      "bounded_context": "rockblock",
+      "requirement_ids": ["REQ-001", "REQ-007", "REQ-010", "REQ-011", "REQ-012", "REQ-017"],
+      "complexity": 4,
+      "risk_score": 0.5,
+      "max_wall_clock_minutes": 50,
+      "max_loc_delta": 500
+    },
+    {
+      "id": "T-003",
+      "status": "pending",
+      "title": "internal/escalation/sos_handler.go — escalation fan-out + retry + default-chain fallback + rate-limit bypass",
+      "prompt": "FIRST: read spec/001-sos-trigger/{requirements.md, design.md, acceptance/sos-trigger.feature}. SECOND: implement the SOS-to-escalation glue — REQ-008 (invoke Engine.Trigger on every flagged event), REQ-009 (call ratelimit.BypassFor(deviceID) BEFORE the escalation Trigger), REQ-013 (retry-with-exponential-backoff: 1s, 2s, 4s, then write audit + give up), REQ-014 (fall back to the global default chain when per-device chain is nil), REQ-015 (when both per-device and global-default chains are nil, log WARN with type sos.no-chain + write audit entry sos.no-chain). Tests cover the retry timing with a fake clock; cover both fallback branches.",
+      "files_owned": [
+        "internal/escalation/sos_handler.go",
+        "internal/escalation/sos_handler_test.go"
+      ],
+      "acceptance_test": "go test -count=1 -timeout 60s ./internal/escalation/... -run TestSos",
+      "dependencies": [],
+      "parallelizable": true,
+      "bounded_context": "escalation",
+      "requirement_ids": ["REQ-008", "REQ-009", "REQ-013", "REQ-014", "REQ-015"],
+      "complexity": 5,
+      "risk_score": 0.5,
+      "max_wall_clock_minutes": 50,
+      "max_loc_delta": 500
+    },
+    {
+      "id": "T-004",
+      "status": "pending",
+      "title": "internal/api/sos.go — GET /api/sos/recent + POST /api/sos/rules + tenant filter + schema validation",
+      "prompt": "FIRST: read spec/001-sos-trigger/{requirements.md, design.md, contracts/openapi.yaml, contracts/schemas/sos-detection-rule.json, acceptance/sos-trigger.feature}. SECOND: implement the REST surface — REQ-018 (GET /api/sos/recent?limit=N), REQ-019 (tenant_id JWT-claim filter on every query — re-use the existing tenant-extraction middleware), REQ-020 (POST /api/sos/rules validates body against sos-detection-rule.json schema before applying, returns 400 with descriptive error on failure). Re-use readJSON() per Constitution Article III (already exported as api.ReadJSON for sibling packages, but you are inside internal/api so the unexported form works). Include OpenAPI/Swagger annotations per repo convention.",
+      "files_owned": [
+        "internal/api/sos.go",
+        "internal/api/sos_test.go"
+      ],
+      "acceptance_test": "go test -count=1 -timeout 60s ./internal/api/... -run TestSos",
+      "dependencies": ["T-001", "T-002", "T-003"],
+      "parallelizable": false,
+      "bounded_context": "api",
+      "requirement_ids": ["REQ-018", "REQ-019", "REQ-020"],
+      "complexity": 4,
+      "risk_score": 0.4,
+      "max_wall_clock_minutes": 40,
+      "max_loc_delta": 400
+    }
+  ]
+}

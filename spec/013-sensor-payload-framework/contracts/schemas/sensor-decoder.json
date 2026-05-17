@@ -1,0 +1,25 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "sensor-decoder.json",
+  "title": "SensorDecoder",
+  "description": "Tenant-scoped pluggable payload decoder registered in sensor_decoder table.",
+  "type": "object",
+  "required": ["decoder_id", "tenant_id", "name", "kind", "created_at", "updated_at"],
+  "properties": {
+    "decoder_id": {"type": "string", "minLength": 1, "maxLength": 64},
+    "tenant_id": {"type": "string"},
+    "name": {"type": "string", "minLength": 1, "maxLength": 200},
+    "kind": {
+      "type": "string",
+      "enum": ["zigbee_cluster", "lora_cayenne_lpp", "protobuf", "json_passthrough"]
+    },
+    "config": {
+      "type": "object",
+      "description": "Kind-dependent JSON. zigbee_cluster: {enabled_clusters: [hex_string]}. lora_cayenne_lpp: {}. protobuf: {proto_file_id: uuid}. json_passthrough: {}.",
+      "additionalProperties": true
+    },
+    "created_at": {"type": "integer", "minimum": 1700000000},
+    "updated_at": {"type": "integer", "minimum": 1700000000}
+  },
+  "additionalProperties": false
+}

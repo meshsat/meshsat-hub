@@ -1,0 +1,33 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "swagger-build-info.json",
+  "title": "SwaggerBuildInfo",
+  "description": "Metadata about the embedded swagger.json — exposed by GET /api/docs/swagger.json's response headers for monitoring + drift detection.",
+  "type": "object",
+  "required": ["spec_version", "openapi_version", "generator", "generated_at"],
+  "properties": {
+    "spec_version": {
+      "type": "string",
+      "description": "Value of info.version in the served swagger.json (sourced from git describe at build time)"
+    },
+    "openapi_version": {
+      "type": "string",
+      "enum": ["3.0.3"]
+    },
+    "generator": {
+      "type": "string",
+      "description": "swaggo/swag CLI version that produced the spec"
+    },
+    "generated_at": {
+      "type": "integer",
+      "minimum": 1700000000,
+      "description": "Unix epoch seconds when swag init ran"
+    },
+    "endpoint_count": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Number of paths declared in the spec"
+    }
+  },
+  "additionalProperties": false
+}

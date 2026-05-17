@@ -1,0 +1,42 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "device-key.json",
+  "title": "DeviceKey",
+  "description": "Device key descriptor returned from GET /api/devices/{imei}/keys. The raw key (`key_hex`) is intentionally absent — it is returned only in the POST create response.",
+  "type": "object",
+  "required": ["key_id", "created_at", "algorithm", "key_hex_first_8"],
+  "properties": {
+    "key_id": {
+      "type": "string",
+      "minLength": 8,
+      "maxLength": 64,
+      "description": "Stable identifier for the key, opaque to clients"
+    },
+    "tenant_id": {
+      "type": "string",
+      "description": "Tenant scope (populated by API; not a key property)"
+    },
+    "device_imei": {
+      "type": "string",
+      "pattern": "^[0-9]{15}$"
+    },
+    "algorithm": {
+      "type": "string",
+      "enum": ["AES-256-GCM"]
+    },
+    "created_at": {
+      "type": "integer",
+      "minimum": 1700000000
+    },
+    "revoked_at": {
+      "type": ["integer", "null"],
+      "minimum": 1700000000
+    },
+    "key_hex_first_8": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}$",
+      "description": "First 8 hex chars of the raw key — safe-to-log identifier per Constitution Article XIV"
+    }
+  },
+  "additionalProperties": false
+}

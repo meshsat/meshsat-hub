@@ -1,0 +1,38 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "ipougrs-frame.json",
+  "title": "IPoUGRSFrame",
+  "description": "Logical representation of an IPoUGRS-encoded wire frame for inspection + debugging. Used by GET /api/ipougrs/recent if exposed; primarily a documentation contract for the codec implementation.",
+  "type": "object",
+  "required": ["magic", "version", "ip_packet_hex"],
+  "properties": {
+    "magic": {
+      "type": "integer",
+      "const": 73,
+      "description": "0x49 = 'I' (IPoUGRS magic byte, first byte of every encoded frame)"
+    },
+    "version": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 255,
+      "description": "Format version byte — currently 0x01"
+    },
+    "ip_packet_hex": {
+      "type": "string",
+      "pattern": "^[0-9a-f]+$",
+      "description": "Decoded IPv4 packet bytes, hex-encoded for inspection (NOT the wire form)"
+    },
+    "encoded_size_bytes": {
+      "type": "integer",
+      "minimum": 2,
+      "maximum": 340,
+      "description": "Total wire-frame size including magic + version"
+    },
+    "compression": {
+      "type": "string",
+      "enum": ["none", "smaz2"],
+      "description": "Encoding strategy used for the inner packet"
+    }
+  },
+  "additionalProperties": false
+}

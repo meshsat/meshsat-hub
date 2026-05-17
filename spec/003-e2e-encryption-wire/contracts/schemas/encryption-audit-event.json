@@ -1,0 +1,37 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "encryption-audit-event.json",
+  "title": "EncryptionAuditEvent",
+  "description": "Audit-log event for device-key lifecycle. NEVER contains raw key bytes per Constitution Article XIV.",
+  "type": "object",
+  "required": ["event_type", "event_at", "tenant_id", "device_imei", "key_id", "key_hex_first_8"],
+  "properties": {
+    "event_type": {
+      "type": "string",
+      "enum": ["device_key.created", "device_key.revoked"]
+    },
+    "event_at": {
+      "type": "integer",
+      "minimum": 1700000000
+    },
+    "tenant_id": {
+      "type": "string"
+    },
+    "device_imei": {
+      "type": "string",
+      "pattern": "^[0-9]{15}$"
+    },
+    "key_id": {
+      "type": "string"
+    },
+    "key_hex_first_8": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}$"
+    },
+    "operator_session_id": {
+      "type": "string",
+      "description": "JWT session id of the operator who triggered the action"
+    }
+  },
+  "additionalProperties": false
+}

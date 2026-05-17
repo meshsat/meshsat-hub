@@ -1,0 +1,84 @@
+{
+  "feature_id": "002-mo-fragment-reassembly",
+  "parent_epic": "MESHSAT-168",
+  "spec_revision": "1 (2026-05-17 initial author — Path A mass-spec, Batch 1)",
+  "tasks": [
+    {
+      "id": "T-001",
+      "status": "pending",
+      "title": "Wire fragment.NewReassembler in main.go + spawn expiry goroutine + shared instance into both webhook handlers",
+      "prompt": "FIRST: read spec/002-mo-fragment-reassembly/{requirements.md, design.md}. SECOND: edit cmd/meshsat-hub/main.go to: (REQ-100) instantiate `fragment.NewReassembler(5*time.Minute)` exactly once during startup; (REQ-101) call `rbHandler.SetReassembler(reassembler)` before the HTTP router starts; (REQ-102) call `clHandler.SetReassembler(reassembler)` against the SAME instance; (REQ-103) spawn a goroutine that calls `reassembler.Expire()` every 60 seconds, gated on shutdown context; (REQ-111) call `reassembler.Stop()` from the graceful-shutdown path. No new files outside main.go. Tests in cmd/meshsat-hub/main_test.go (if it exists) OR a new small smoke test verifying SetReassembler is called.",
+      "files_owned": [
+        "cmd/meshsat-hub/main.go",
+        "cmd/meshsat-hub/main_test.go"
+      ],
+      "acceptance_test": "go build ./... && grep -c 'reassembler.SetReassembler\\|SetReassembler(reassembler)' cmd/meshsat-hub/main.go",
+      "dependencies": [],
+      "parallelizable": false,
+      "bounded_context": "cmd",
+      "requirement_ids": ["REQ-100", "REQ-101", "REQ-102", "REQ-103", "REQ-111"],
+      "complexity": 3,
+      "risk_score": 0.4,
+      "max_wall_clock_minutes": 30,
+      "max_loc_delta": 200
+    },
+    {
+      "id": "T-002",
+      "status": "pending",
+      "title": "Augment fragment.Reassembler with audit + Prometheus + duplicate detection hooks",
+      "prompt": "FIRST: read spec/002-mo-fragment-reassembly/{requirements.md, design.md, contracts/schemas/fragment-event.json, acceptance/fragment-reassembly.feature}. SECOND: extend internal/fragment/fragment.go to: (REQ-112) emit `hub_fragment_received_total{state=buffered|reassembled|error|timeout|duplicate}` Prometheus counter — accept a Prometheus registerer or a no-op interface, do NOT hard-couple to metrics package; (REQ-113) detect duplicate (imei, message_id, fragment_index) arrivals as no-op; (REQ-107) return error path returns typed error so caller can write audit entry; (REQ-108) Expire emits a callback (registered via SetTimeoutCallback) that the caller wires to audit.Service. Tests cover duplicate detection, expiry callback, all 5 counter states. Existing fragment_test.go stays passing.",
+      "files_owned": [
+        "internal/fragment/fragment.go",
+        "internal/fragment/fragment_metrics.go",
+        "internal/fragment/fragment_metrics_test.go"
+      ],
+      "acceptance_test": "go test -count=1 -timeout 60s ./internal/fragment/...",
+      "dependencies": [],
+      "parallelizable": true,
+      "bounded_context": "fragment",
+      "requirement_ids": ["REQ-107", "REQ-108", "REQ-112", "REQ-113"],
+      "complexity": 4,
+      "risk_score": 0.4,
+      "max_wall_clock_minutes": 40,
+      "max_loc_delta": 350
+    },
+    {
+      "id": "T-003",
+      "status": "pending",
+      "title": "Wire RockBLOCK + Cloudloop handlers to call AddFragment + publish reassembled bytes downstream",
+      "prompt": "FIRST: read spec/002-mo-fragment-reassembly/{requirements.md, design.md, contracts/asyncapi.yaml}. SECOND: in both internal/rockblock/handler.go AND internal/cloudloop/webhook.go, locate the MO ingress path AFTER body decode + HMAC verify and BEFORE mo/raw publish. (REQ-104) When `fragment.IsFragment(rawBytes)` is true, call `h.reassembler.AddFragment(imei, rawBytes)`. (REQ-105) If reassembled bytes returned non-nil, set rawBytes := reassembled + add `was_reassembled=true` and `fragments_count=N` fields to the published mo/raw + mo/decoded messages. (REQ-106) If reassembled nil + no error, return early with INFO log `msg=fragment buffered, waiting for more`. (REQ-107) If error returned, call audit.Log(...) with type=fragment.error + return without publishing. Both handlers do this identically — extract a helper if it reduces duplication. Update WebhookMOMessage + WebhookRawMessage Go structs in both packages to add was_reassembled + fragments_count fields.",
+      "files_owned": [
+        "internal/rockblock/handler.go",
+        "internal/cloudloop/webhook.go"
+      ],
+      "acceptance_test": "go test -count=1 -timeout 60s ./internal/rockblock/... ./internal/cloudloop/...",
+      "dependencies": ["T-001", "T-002"],
+      "parallelizable": false,
+      "bounded_context": "rockblock",
+      "requirement_ids": ["REQ-104", "REQ-105", "REQ-106", "REQ-107", "REQ-114", "REQ-115", "REQ-116"],
+      "complexity": 5,
+      "risk_score": 0.5,
+      "max_wall_clock_minutes": 50,
+      "max_loc_delta": 500
+    },
+    {
+      "id": "T-004",
+      "status": "pending",
+      "title": "GET /api/fragments/inflight endpoint + tenant filter",
+      "prompt": "FIRST: read spec/002-mo-fragment-reassembly/{requirements.md, contracts/openapi.yaml, contracts/schemas/fragment-group.json}. SECOND: implement internal/api/fragments.go exposing `GET /api/fragments/inflight`. (REQ-109) Returns in-flight fragment groups as an array per fragment-group.json schema. (REQ-110) Filters by `tenant_id` JWT claim using the existing auth middleware pattern. Use the existing readJSON pattern for any future POST endpoints; this is a GET so just standard query handling. Mount the route in the existing router (likely cmd/meshsat-hub/main.go or wherever bridges/devices routes are mounted). Add @Summary/@Tags/@Router Swagger annotations matching repo convention. Tests cover the happy path + tenant-filter behavior.",
+      "files_owned": [
+        "internal/api/fragments.go",
+        "internal/api/fragments_test.go"
+      ],
+      "acceptance_test": "go test -count=1 -timeout 60s ./internal/api/... -run TestFragments",
+      "dependencies": ["T-002"],
+      "parallelizable": true,
+      "bounded_context": "api",
+      "requirement_ids": ["REQ-109", "REQ-110"],
+      "complexity": 3,
+      "risk_score": 0.3,
+      "max_wall_clock_minutes": 30,
+      "max_loc_delta": 300
+    }
+  ]
+}

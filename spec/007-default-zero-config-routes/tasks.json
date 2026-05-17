@@ -1,0 +1,45 @@
+{
+  "feature_id": "007-default-zero-config-routes",
+  "parent_epic": "MESHSAT-179",
+  "spec_revision": "1 (2026-05-17 — Path A Batch 2)",
+  "tasks": [
+    {
+      "id": "T-001",
+      "status": "pending",
+      "title": "routing.SeedDefaults(ctx, tenantID, actor) + tenant-creation hook + Prometheus counter",
+      "prompt": "FIRST: read spec/007-default-zero-config-routes/{requirements.md, design.md, acceptance/default-routes.feature} AND spec/006-routing-engine-core/contracts/schemas/route.json. SECOND: in internal/routing/, add SeedDefaults(ctx, tenantID, actorSessionID) inserting the 8 routes from REQ-601 with name=`default:<src>-<dst>`, enabled=true, empty filter. (REQ-605) idempotent — skip rows where (tenant_id, name) already exists; do NOT modify existing enabled flag. (REQ-603) write audit_log entries with actor_session_id=actorSessionID. (REQ-609) emit hub_default_routes_seeded_total{tenant_id} counter. Find the tenant-creation site (likely internal/auth/ or internal/store/) and add a call to SeedDefaults(ctx, newTenantID, \"system:tenant-onboarding\").",
+      "files_owned": [
+        "internal/routing/defaults.go",
+        "internal/routing/defaults_test.go"
+      ],
+      "acceptance_test": "go test -count=1 -timeout 60s ./internal/routing/... -run Default",
+      "dependencies": [],
+      "parallelizable": true,
+      "bounded_context": "routing",
+      "requirement_ids": ["REQ-600", "REQ-601", "REQ-602", "REQ-603", "REQ-605", "REQ-608", "REQ-609"],
+      "complexity": 4,
+      "risk_score": 0.4,
+      "max_wall_clock_minutes": 40,
+      "max_loc_delta": 400
+    },
+    {
+      "id": "T-002",
+      "status": "pending",
+      "title": "POST /api/routes/seed-defaults endpoint with owner-role gate",
+      "prompt": "FIRST: read spec/007-default-zero-config-routes/{requirements.md, contracts/openapi.yaml, acceptance/default-routes.feature}. SECOND: implement the POST /api/routes/seed-defaults handler in internal/api/routes.go (extend the file from spec/006 T-003). (REQ-604) accept empty body via httpjson.ReadJSON. (REQ-606) verify operator JWT role == `owner` — use the existing auth.RequireRole(\"owner\") middleware. Return 403 on non-owner. (REQ-607) response body is {seeded_count, skipped_count} from routing.SeedDefaults. Tests cover happy path + role-deny + idempotent re-seed.",
+      "files_owned": [
+        "internal/api/routes_seed.go",
+        "internal/api/routes_seed_test.go"
+      ],
+      "acceptance_test": "go test -count=1 -timeout 60s ./internal/api/... -run TestRoutesSeed",
+      "dependencies": ["T-001"],
+      "parallelizable": false,
+      "bounded_context": "api",
+      "requirement_ids": ["REQ-604", "REQ-606", "REQ-607"],
+      "complexity": 3,
+      "risk_score": 0.3,
+      "max_wall_clock_minutes": 25,
+      "max_loc_delta": 200
+    }
+  ]
+}

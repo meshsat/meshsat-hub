@@ -1,0 +1,133 @@
+openapi: 3.0.3
+info:
+  title: MeshSat Hub — Sensor Payload Framework API
+  version: 1.0.0
+  description: Per-tenant pluggable payload decoders (ZigBee, Cayenne LPP, Protobuf). MESHSAT-185.
+servers:
+  - url: https://hub.meshsat.net
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  schemas:
+    SensorDecoder:
+      type: object
+      required: [decoder_id, tenant_id, name, kind, created_at, updated_at]
+      properties:
+        decoder_id:
+          type: string
+          minLength: 1
+          maxLength: 64
+        tenant_id:
+          type: string
+        name:
+          type: string
+          minLength: 1
+          maxLength: 200
+        kind:
+          type: string
+          enum: [zigbee_cluster, lora_cayenne_lpp, protobuf, json_passthrough]
+        config:
+          type: object
+          additionalProperties: true
+        created_at:
+          type: integer
+          minimum: 1700000000
+        updated_at:
+          type: integer
+          minimum: 1700000000
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: string
+security:
+  - bearerAuth: []
+paths:
+  /api/sensor-decoders:
+    get:
+      summary: List sensor decoders for the caller's tenant
+      operationId: listSensorDecoders
+      responses:
+        '200':
+          description: Array of decoders
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/SensorDecoder'
+    post:
+      summary: Register a new sensor decoder
+      operationId: createSensorDecoder
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SensorDecoder'
+      responses:
+        '201':
+          description: Decoder created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SensorDecoder'
+        '400':
+          description: Body failed validation
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /api/sensor-decoders/{decoder_id}:
+    parameters:
+      - name: decoder_id
+        in: path
+        required: true
+        schema:
+          type: string
+    put:
+      summary: Update decoder config
+      operationId: updateSensorDecoder
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SensorDecoder'
+      responses:
+        '200':
+          description: Decoder updated
+        '403':
+          description: Decoder belongs to another tenant
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Decoder not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+    delete:
+      summary: Delete a sensor decoder
+      operationId: deleteSensorDecoder
+      responses:
+        '204':
+          description: Decoder deleted
+        '403':
+          description: Decoder belongs to another tenant
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Decoder not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'

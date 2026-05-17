@@ -1,0 +1,83 @@
+{
+  "feature_id": "005-openapi-spec-generation",
+  "parent_epic": "MESHSAT-173",
+  "spec_revision": "1 (2026-05-17 initial author — Path A mass-spec, Batch 1)",
+  "tasks": [
+    {
+      "id": "T-001",
+      "status": "pending",
+      "title": "Add tools/tools.go + Makefile targets + swag tool dependency",
+      "prompt": "FIRST: read spec/005-openapi-spec-generation/{requirements.md, design.md}. SECOND: (REQ-401) create tools/tools.go with build tag `tools` importing github.com/swaggo/swag/cmd/swag (underscore import). Run `go mod tidy` so go.mod + go.sum pin the swag version. (REQ-400) add `swagger` target to the top-level Makefile that runs `go run github.com/swaggo/swag/cmd/swag init -g cmd/meshsat-hub/main.go -o docs/`. (REQ-406) add `swagger-check` target that runs swag init into a temp dir + diffs against docs/swagger.json + exits non-zero on drift. (REQ-408) the drift failure message includes the literal string `make swagger && git add docs/swagger.json docs/swagger.yaml`. (REQ-416) docs/swagger.json + docs/swagger.yaml are committed to git, NOT in .gitignore.",
+      "files_owned": [
+        "tools/tools.go",
+        "Makefile",
+        ".gitignore"
+      ],
+      "acceptance_test": "make swagger-check && ls docs/swagger.json docs/swagger.yaml",
+      "dependencies": [],
+      "parallelizable": true,
+      "bounded_context": "scripts",
+      "requirement_ids": ["REQ-400", "REQ-401", "REQ-406", "REQ-408", "REQ-416", "REQ-417"],
+      "complexity": 3,
+      "risk_score": 0.3,
+      "max_wall_clock_minutes": 30,
+      "max_loc_delta": 200
+    },
+    {
+      "id": "T-002",
+      "status": "pending",
+      "title": "Add Swagger annotations to remaining unannotated handlers",
+      "prompt": "FIRST: read spec/005-openapi-spec-generation/requirements.md. SECOND: scan every file under internal/api/ for exported HTTP handler functions (signature `func (h *X) Foo(w http.ResponseWriter, r *http.Request)`). For any handler missing (REQ-409) @Summary/@Tags/@Router/@Success — add them, matching the style already used in bond_groups.go / apikeys.go. (REQ-410) for handlers accepting a request body, add @Accept json + @Param body body <Type> true. (REQ-411) for tenant-scoped handlers, add @Security ApiKeyAuth []. Per docs/PRODUCTION_READINESS_AUDIT_2026-04-04.md §2.1, roughly 25 handlers need annotations. DO NOT change handler logic — annotations only. After your edits run `make swagger` once + commit docs/swagger.json so it reflects all annotations.",
+      "files_owned": [
+        "internal/api/swagger_annotations_audit.md"
+      ],
+      "acceptance_test": "make swagger && jq '.paths | keys | length' docs/swagger.json | grep -E '^[0-9]+$' | awk '$1 >= 230 { exit 0 } { exit 1 }'",
+      "dependencies": ["T-001"],
+      "parallelizable": true,
+      "bounded_context": "api",
+      "requirement_ids": ["REQ-409", "REQ-410", "REQ-411"],
+      "complexity": 4,
+      "risk_score": 0.3,
+      "max_wall_clock_minutes": 60,
+      "max_loc_delta": 500
+    },
+    {
+      "id": "T-003",
+      "status": "pending",
+      "title": "Runtime endpoints: /api/docs/swagger.json + .yaml + Swagger UI HTML shell",
+      "prompt": "FIRST: read spec/005-openapi-spec-generation/{requirements.md, design.md, contracts/openapi.yaml}. SECOND: create internal/api/docs.go that (REQ-404) embeds docs/swagger.json and docs/swagger.yaml via //go:embed; (REQ-402) serves GET /api/docs/swagger.json with Content-Type application/json; (REQ-403) serves GET /api/docs/swagger.yaml with Content-Type application/yaml; (REQ-412) serves GET /api/docs/ with a minimal HTML page loading Swagger UI from unpkg.com/swagger-ui-dist@5; (REQ-413) the HTML MUST NOT reference google-analytics.com, sentry.io, or any other telemetry domain. (REQ-414) at request time, patch info.version in the JSON response from a package-level `Version` string injected via -ldflags. (REQ-415) if env HUB_PUBLIC_BASE_URL is set + non-empty, patch servers[0].url at request time. Mount the routes in the existing router. Tests verify all 4 endpoints + the patching logic.",
+      "files_owned": [
+        "internal/api/docs.go",
+        "internal/api/docs_test.go"
+      ],
+      "acceptance_test": "go test -count=1 -timeout 60s ./internal/api/... -run TestSwaggerDocs",
+      "dependencies": ["T-001"],
+      "parallelizable": true,
+      "bounded_context": "api",
+      "requirement_ids": ["REQ-402", "REQ-403", "REQ-404", "REQ-412", "REQ-413", "REQ-414", "REQ-415"],
+      "complexity": 4,
+      "risk_score": 0.3,
+      "max_wall_clock_minutes": 40,
+      "max_loc_delta": 400
+    },
+    {
+      "id": "T-004",
+      "status": "pending",
+      "title": "CI lint stage: wire swagger-check into .gitlab-ci.yml",
+      "prompt": "FIRST: read spec/005-openapi-spec-generation/{requirements.md, design.md}. SECOND: edit .gitlab-ci.yml lint stage to (REQ-407) run `make swagger-check` after the existing lint commands (golangci-lint, etc.). The job MUST fail the pipeline on annotation drift. (REQ-405) `make swagger` shall always regenerate. Verify the existing lint stage definition + insert the new command + DO NOT break existing checks. Add a small README section in docs/ explaining the workflow: 'When adding a new handler with @Router annotation, run make swagger + git add docs/swagger.json + commit'.",
+      "files_owned": [
+        ".gitlab-ci.yml",
+        "docs/swagger-workflow.md"
+      ],
+      "acceptance_test": "grep -c 'swagger-check' .gitlab-ci.yml",
+      "dependencies": ["T-001"],
+      "parallelizable": true,
+      "bounded_context": "scripts",
+      "requirement_ids": ["REQ-405", "REQ-407"],
+      "complexity": 2,
+      "risk_score": 0.2,
+      "max_wall_clock_minutes": 20,
+      "max_loc_delta": 100
+    }
+  ]
+}

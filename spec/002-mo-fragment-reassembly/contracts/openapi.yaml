@@ -1,0 +1,74 @@
+openapi: 3.0.3
+info:
+  title: MeshSat Hub — MO Fragment Reassembly inspection API
+  version: 1.0.0
+  description: >
+    REST endpoint for inspecting in-flight MO fragment groups (groups where
+    some but not all fragments have arrived). Part of v1.1 "Wire the Unwired"
+    (MESHSAT-168). The reassembler itself is wired implicitly into the
+    RockBLOCK + Cloudloop ingress handlers at Hub startup.
+servers:
+  - url: https://hub.meshsat.net
+    description: Production NL+GR cluster
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  schemas:
+    FragmentGroup:
+      type: object
+      required:
+        - imei
+        - message_id
+        - fragments_received
+        - fragments_total
+        - first_seen_at
+      properties:
+        imei:
+          type: string
+          pattern: '^[0-9]{15}$'
+        message_id:
+          type: integer
+          minimum: 0
+          maximum: 65535
+        fragments_received:
+          type: integer
+          minimum: 1
+        fragments_total:
+          type: integer
+          minimum: 2
+        first_seen_at:
+          type: integer
+          minimum: 1700000000
+          description: Unix epoch seconds when the first fragment in this group arrived
+    Error:
+      type: object
+      required:
+        - error
+      properties:
+        error:
+          type: string
+security:
+  - bearerAuth: []
+paths:
+  /api/fragments/inflight:
+    get:
+      summary: List in-flight MO fragment groups for the caller's tenant
+      operationId: getInflightFragments
+      responses:
+        '200':
+          description: Array of in-flight fragment groups, filtered by tenant_id JWT claim
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/FragmentGroup'
+        '401':
+          description: Missing or invalid bearer token
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'

@@ -1,0 +1,105 @@
+{
+  "feature_id": "003-e2e-encryption-wire",
+  "parent_epic": "MESHSAT-169",
+  "spec_revision": "1 (2026-05-17 initial author — Path A mass-spec, Batch 1)",
+  "tasks": [
+    {
+      "id": "T-001",
+      "status": "pending",
+      "title": "Schema migration: device_keys table in both sqlite + mariadb",
+      "prompt": "FIRST: read spec/003-e2e-encryption-wire/{requirements.md, design.md, contracts/schemas/device-key.json}. SECOND: add the device_keys table per Constitution Article XII (single-source migrations) — same DDL in BOTH internal/store/sqlite/ AND internal/store/mariadb/mariadb.go. Schema columns per REQ-211: key_id TEXT PRIMARY KEY, tenant_id TEXT NOT NULL, device_imei TEXT NOT NULL, key_hash BLOB NOT NULL, key_hex_first_8 TEXT NOT NULL, algorithm TEXT NOT NULL, created_at INTEGER NOT NULL, revoked_at INTEGER. Plus two indexes: idx_device_keys_imei_active on (device_imei) WHERE revoked_at IS NULL; idx_device_keys_tenant on (tenant_id). Add Store interface methods: InsertDeviceKey(ctx, tenantID, key) + ListDeviceKeys(ctx, tenantID, imei) + RevokeDeviceKey(ctx, tenantID, imei, keyID) + GetActiveDeviceKeys(ctx, tenantID, imei) (returns newest-first). All methods take tenant_id as second param per Constitution Article IV.",
+      "files_owned": [
+        "internal/store/sqlite/device_keys.go",
+        "internal/store/sqlite/device_keys_test.go",
+        "internal/store/store.go"
+      ],
+      "acceptance_test": "go test -count=1 -timeout 60s ./internal/store/... -run DeviceKey",
+      "dependencies": [],
+      "parallelizable": true,
+      "bounded_context": "store",
+      "requirement_ids": ["REQ-211", "REQ-212"],
+      "complexity": 4,
+      "risk_score": 0.4,
+      "max_wall_clock_minutes": 40,
+      "max_loc_delta": 400
+    },
+    {
+      "id": "T-002",
+      "status": "pending",
+      "title": "Wire crypto.KeyStore lifecycle in main.go + attach to ingress handlers",
+      "prompt": "FIRST: read spec/003-e2e-encryption-wire/{requirements.md, design.md}. SECOND: edit cmd/meshsat-hub/main.go to (REQ-200) instantiate keyStore := crypto.NewKeyStore(dataStore) once during startup; (REQ-200) call rbHandler.SetKeyStore(keyStore) and clHandler.SetKeyStore(keyStore) against the SAME instance. Verify the existing rockblock.Handler + cloudloop.WebhookHandler types already have SetKeyStore methods (they do per repo grep). If KeyStore needs a store reference for multi-key lookup (per REQ-216), pass dataStore; otherwise pass a thin adapter that wraps store.GetActiveDeviceKeys.",
+      "files_owned": [
+        "cmd/meshsat-hub/main.go"
+      ],
+      "acceptance_test": "go build ./... && grep -c 'NewKeyStore\\|SetKeyStore' cmd/meshsat-hub/main.go",
+      "dependencies": ["T-001"],
+      "parallelizable": false,
+      "bounded_context": "cmd",
+      "requirement_ids": ["REQ-200"],
+      "complexity": 2,
+      "risk_score": 0.3,
+      "max_wall_clock_minutes": 20,
+      "max_loc_delta": 100
+    },
+    {
+      "id": "T-003",
+      "status": "pending",
+      "title": "Augment crypto.KeyStore: per-IMEI multi-key lookup + audit hooks + Prometheus counters",
+      "prompt": "FIRST: read spec/003-e2e-encryption-wire/{requirements.md, design.md, contracts/schemas/encryption-audit-event.json, acceptance/e2e-encryption.feature}. SECOND: extend internal/crypto/ so DecryptMessage(imei, ct) (REQ-216) loads ALL non-revoked keys for IMEI from the store and tries newest-first; (REQ-217/019/020) emits Prometheus counters hub_decrypt_success_total + hub_decrypt_failure_total{reason=no-key|mac}; (REQ-219) once-per-MO accounting — counter increments at MOST once per DecryptMessage call regardless of how many keys were tried. Add CreateKey(ctx, tenantID, imei) → (DeviceKey, rawKeyHex, error) that (REQ-213) writes audit event AND (REQ-215) NEVER logs the raw key bytes — only key_hex_first_8. Add RevokeKey(ctx, tenantID, imei, keyID) (REQ-214) audit write. Existing crypto_test.go stays passing.",
+      "files_owned": [
+        "internal/crypto/keystore_lifecycle.go",
+        "internal/crypto/keystore_lifecycle_test.go",
+        "internal/crypto/metrics.go"
+      ],
+      "acceptance_test": "go test -count=1 -timeout 60s ./internal/crypto/...",
+      "dependencies": ["T-001"],
+      "parallelizable": true,
+      "bounded_context": "crypto",
+      "requirement_ids": ["REQ-213", "REQ-214", "REQ-215", "REQ-216", "REQ-217", "REQ-218", "REQ-219"],
+      "complexity": 5,
+      "risk_score": 0.5,
+      "max_wall_clock_minutes": 60,
+      "max_loc_delta": 600
+    },
+    {
+      "id": "T-004",
+      "status": "pending",
+      "title": "Wire decryption into RockBLOCK + Cloudloop ingress — replace hardcoded encrypted=false",
+      "prompt": "FIRST: read spec/003-e2e-encryption-wire/{requirements.md, design.md, contracts/asyncapi.yaml, acceptance/e2e-encryption.feature}. SECOND: in BOTH internal/rockblock/handler.go AND internal/cloudloop/webhook.go, find the place where WebhookMOMessage.Encrypted is currently set. (REQ-201) After body-decode + HMAC-verify (rockblock) or IP-allowlist (cloudloop) AND BEFORE decompression, IF keystore is non-nil AND len(rawBytes) >= 12+16 (nonce + tag minimum), try plaintext, _, err := h.keyStore.DecryptMessage(imei, rawBytes). (REQ-202) On success: set rawBytes = plaintext + encrypted := true + capture key_id used. (REQ-203) On error: leave rawBytes unchanged + encrypted := false (do NOT drop). (REQ-204) STOP setting encrypted := false unconditionally — the value MUST come from the decrypt step. (REQ-205) Both handlers must use the same logic. Update WebhookMOMessage + WebhookRawMessage Go structs to add key_id field. Add 5 new test scenarios covering happy path + no-key + bad-MAC + cloudloop-equivalent + key-rotation-grace.",
+      "files_owned": [
+        "internal/rockblock/handler.go",
+        "internal/cloudloop/webhook.go",
+        "internal/cloudloop/webhook_encryption_test.go",
+        "internal/rockblock/handler_encryption_test.go"
+      ],
+      "acceptance_test": "go test -count=1 -timeout 60s ./internal/rockblock/... ./internal/cloudloop/... -run Encryption",
+      "dependencies": ["T-002", "T-003"],
+      "parallelizable": false,
+      "bounded_context": "rockblock",
+      "requirement_ids": ["REQ-201", "REQ-202", "REQ-203", "REQ-204", "REQ-205", "REQ-220"],
+      "complexity": 5,
+      "risk_score": 0.6,
+      "max_wall_clock_minutes": 60,
+      "max_loc_delta": 600
+    },
+    {
+      "id": "T-005",
+      "status": "pending",
+      "title": "REST API: POST + GET + DELETE /api/devices/{imei}/keys with tenant filter",
+      "prompt": "FIRST: read spec/003-e2e-encryption-wire/{requirements.md, design.md, contracts/openapi.yaml, contracts/schemas/device-key.json, acceptance/e2e-encryption.feature}. SECOND: implement internal/api/device_keys.go exposing the three endpoints per contracts/openapi.yaml. (REQ-206 + REQ-207) POST returns DeviceKeyCreated with raw key_hex EXACTLY ONCE; subsequent reads omit it. (REQ-208) GET returns array per DeviceKey schema (no raw key). (REQ-209) DELETE sets revoked_at = now(). (REQ-210) Every endpoint extracts tenant_id from JWT, looks up device by (tenant_id, imei), returns 403 on cross-tenant access AND 404 on unknown device. (REQ-221) Use httpjson.ReadJSON for the POST even though body is empty — preserves the Article III invariant for future schema additions. Include @Summary/@Tags/@Router Swagger annotations.",
+      "files_owned": [
+        "internal/api/device_keys.go",
+        "internal/api/device_keys_test.go"
+      ],
+      "acceptance_test": "go test -count=1 -timeout 60s ./internal/api/... -run TestDeviceKeys",
+      "dependencies": ["T-003"],
+      "parallelizable": true,
+      "bounded_context": "api",
+      "requirement_ids": ["REQ-206", "REQ-207", "REQ-208", "REQ-209", "REQ-210", "REQ-221"],
+      "complexity": 5,
+      "risk_score": 0.5,
+      "max_wall_clock_minutes": 50,
+      "max_loc_delta": 500
+    }
+  ]
+}

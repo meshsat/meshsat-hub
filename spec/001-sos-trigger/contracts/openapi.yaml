@@ -1,0 +1,150 @@
+openapi: 3.0.3
+info:
+  title: MeshSat Hub — SOS Trigger API
+  version: 1.0.0
+  description: >
+    REST endpoints for SOS event inspection (recent events scoped to caller's tenant)
+    and per-tenant SOS detection rule management. Part of v1.1 "Wire the Unwired"
+    (MESHSAT-170).
+servers:
+  - url: https://hub.meshsat.net
+    description: Production NL+GR cluster
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  schemas:
+    SosEvent:
+      type: object
+      required:
+        - event_id
+        - device_id
+        - tenant_id
+        - detected_at
+        - source_topic
+        - detection_reason
+      properties:
+        event_id:
+          type: string
+          format: uuid
+        device_id:
+          type: string
+          pattern: '^[A-Za-z0-9_-]{3,64}$'
+        tenant_id:
+          type: string
+        detected_at:
+          type: integer
+          minimum: 1700000000
+        source_topic:
+          type: string
+        detection_reason:
+          type: string
+          enum:
+            - keyword
+            - device_flag
+            - payload_field
+        keyword_matched:
+          type: string
+          maxLength: 50
+    SosDetectionRule:
+      type: object
+      required:
+        - rule_id
+        - tenant_id
+        - keywords
+        - enabled
+      properties:
+        rule_id:
+          type: string
+        tenant_id:
+          type: string
+        keywords:
+          type: array
+          minItems: 1
+          items:
+            type: string
+            minLength: 1
+        enabled:
+          type: boolean
+    Error:
+      type: object
+      required:
+        - error
+      properties:
+        error:
+          type: string
+security:
+  - bearerAuth: []
+paths:
+  /api/sos/recent:
+    get:
+      summary: List recent SOS events for the caller's tenant
+      operationId: getRecentSosEvents
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 1000
+            default: 50
+      responses:
+        '200':
+          description: List of SOS events scoped to caller's tenant_id JWT claim
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/SosEvent'
+        '401':
+          description: Missing or invalid bearer token
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /api/sos/rules:
+    get:
+      summary: List active SOS detection rules for caller's tenant
+      operationId: listSosRules
+      responses:
+        '200':
+          description: Array of detection rules
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/SosDetectionRule'
+        '401':
+          description: Missing or invalid bearer token
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+    post:
+      summary: Create or update an SOS detection rule
+      operationId: upsertSosRule
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SosDetectionRule'
+      responses:
+        '201':
+          description: Rule created or updated
+        '400':
+          description: Request body failed sos-detection-rule.json schema validation
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Missing or invalid bearer token
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'

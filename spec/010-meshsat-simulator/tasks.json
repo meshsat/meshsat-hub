@@ -1,0 +1,48 @@
+{
+  "feature_id": "010-meshsat-simulator",
+  "parent_epic": "MESHSAT-182",
+  "spec_revision": "1 (2026-05-17 — Path A Batch 3)",
+  "tasks": [
+    {
+      "id": "T-001",
+      "status": "pending",
+      "title": "internal/simulator/ package — goroutine-per-device + payload generators + Prometheus counter",
+      "prompt": "FIRST: read spec/010-meshsat-simulator/{requirements.md, design.md, acceptance/simulator.feature}. SECOND: create internal/simulator/ with `Manager` type owning a map[imei]*Simulator. (REQ-904..907) implement 5 payload generators (text Markov-ish, position random-walk, telemetry random, sos literal, binary_random). (REQ-908) each simulator POSTs to the local /api/webhook/rockblock with the configured HMAC secret — use net/http client against http://127.0.0.1:6070. (REQ-901) duplicate start returns ErrAlreadyRunning. (REQ-911) increment hub_simulator_messages_total{device_imei, payload_pattern}. (REQ-912) Stop() shuts down all goroutines + writes simulator.stopped audit. Tests cover all 5 patterns + duplicate-start + clean shutdown.",
+      "files_owned": [
+        "internal/simulator/manager.go",
+        "internal/simulator/payloads.go",
+        "internal/simulator/manager_test.go",
+        "internal/simulator/payloads_test.go"
+      ],
+      "acceptance_test": "go test -count=1 -timeout 60s ./internal/simulator/...",
+      "dependencies": [],
+      "parallelizable": true,
+      "bounded_context": "scripts",
+      "requirement_ids": ["REQ-901", "REQ-904", "REQ-905", "REQ-906", "REQ-907", "REQ-908", "REQ-911", "REQ-912"],
+      "complexity": 5,
+      "risk_score": 0.4,
+      "max_wall_clock_minutes": 60,
+      "max_loc_delta": 600
+    },
+    {
+      "id": "T-002",
+      "status": "pending",
+      "title": "REST API: /api/simulator/{start,stop,active} with owner role + mode-gated mount",
+      "prompt": "FIRST: read spec/010-meshsat-simulator/{requirements.md, contracts/openapi.yaml, acceptance/simulator.feature}. SECOND: implement internal/api/simulator.go with the 3 endpoints. (REQ-900/902/903) wire to internal/simulator.Manager. (REQ-909) auth.RequireRole(\"owner\") middleware. (REQ-910 + REQ-913) at router mount time, check cfg.Mode == \"standalone\" OR HUB_SIMULATOR_ENABLED env var; mount endpoints only if either is true; in cluster-mode-with-explicit-opt-in, log WARN at startup. Tests cover all 3 verbs + role-deny + mode-gating.",
+      "files_owned": [
+        "internal/api/simulator.go",
+        "internal/api/simulator_test.go",
+        "cmd/meshsat-hub/main.go"
+      ],
+      "acceptance_test": "go test -count=1 -timeout 60s ./internal/api/... -run TestSimulator",
+      "dependencies": ["T-001"],
+      "parallelizable": false,
+      "bounded_context": "api",
+      "requirement_ids": ["REQ-900", "REQ-902", "REQ-903", "REQ-909", "REQ-910", "REQ-913"],
+      "complexity": 4,
+      "risk_score": 0.3,
+      "max_wall_clock_minutes": 35,
+      "max_loc_delta": 400
+    }
+  ]
+}

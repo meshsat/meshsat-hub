@@ -1,0 +1,41 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "fragment-group.json",
+  "title": "FragmentGroup",
+  "description": "In-flight MO fragment group state — returned by GET /api/fragments/inflight. Mirrors the in-memory state of fragment.Reassembler.",
+  "type": "object",
+  "required": ["imei", "message_id", "fragments_received", "fragments_total", "first_seen_at"],
+  "properties": {
+    "imei": {
+      "type": "string",
+      "pattern": "^[0-9]{15}$",
+      "description": "Iridium device IMEI (15-digit numeric)"
+    },
+    "message_id": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 65535,
+      "description": "Per-IMEI fragment-group identifier (lives in the SBD fragment header)"
+    },
+    "fragments_received": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Count of fragments arrived for this group so far"
+    },
+    "fragments_total": {
+      "type": "integer",
+      "minimum": 2,
+      "description": "Total fragments expected (declared in the first fragment's header)"
+    },
+    "first_seen_at": {
+      "type": "integer",
+      "minimum": 1700000000,
+      "description": "Unix epoch seconds when the first fragment for this group arrived"
+    },
+    "tenant_id": {
+      "type": "string",
+      "description": "Tenant scope (populated by the API layer when serving /api/fragments/inflight)"
+    }
+  },
+  "additionalProperties": false
+}

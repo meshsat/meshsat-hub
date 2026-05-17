@@ -1,0 +1,176 @@
+openapi: 3.0.3
+info:
+  title: MeshSat Hub — Routing Engine CRUD API
+  version: 1.0.0
+  description: >
+    REST endpoints for per-tenant routing rule management. Part of v1.3
+    Routing Engine (MESHSAT-178). Routes drive the in-process routing.Engine
+    which subscribes to inbound MQTT topics and dispatches to destination handlers.
+servers:
+  - url: https://hub.meshsat.net
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  schemas:
+    Route:
+      type: object
+      required: [route_id, tenant_id, name, source_type, destination_type, enabled, created_at, updated_at]
+      properties:
+        route_id:
+          type: string
+          minLength: 1
+          maxLength: 64
+        tenant_id:
+          type: string
+        name:
+          type: string
+          minLength: 1
+          maxLength: 200
+        source_type:
+          type: string
+          enum: [mo_decoded, position, sos, telemetry]
+        destination_type:
+          type: string
+          enum: [tak, aprs_is, webhook, notification, mqtt, sms, email]
+        filter:
+          type: object
+          properties:
+            keyword:
+              type: string
+              maxLength: 200
+            portnum:
+              type: integer
+              minimum: 0
+              maximum: 511
+            device_imei:
+              type: string
+              pattern: '^[0-9]{15}$'
+        enabled:
+          type: boolean
+        created_at:
+          type: integer
+          minimum: 1700000000
+        updated_at:
+          type: integer
+          minimum: 1700000000
+    RoutePatch:
+      type: object
+      properties:
+        name:
+          type: string
+        filter:
+          type: object
+        enabled:
+          type: boolean
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: string
+security:
+  - bearerAuth: []
+paths:
+  /api/routes:
+    get:
+      summary: List routes for the caller's tenant
+      operationId: listRoutes
+      responses:
+        '200':
+          description: Array of routes
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Route'
+        '401':
+          description: Missing or invalid bearer token
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+    post:
+      summary: Create a new route
+      operationId: createRoute
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Route'
+      responses:
+        '201':
+          description: Route created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Route'
+        '400':
+          description: Body failed schema validation
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Missing or invalid bearer token
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /api/routes/{route_id}:
+    parameters:
+      - name: route_id
+        in: path
+        required: true
+        schema:
+          type: string
+    put:
+      summary: Patch a route (partial update)
+      operationId: patchRoute
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RoutePatch'
+      responses:
+        '200':
+          description: Route updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Route'
+        '403':
+          description: Route belongs to another tenant
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Route not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+    delete:
+      summary: Delete a route
+      operationId: deleteRoute
+      responses:
+        '204':
+          description: Route deleted
+        '403':
+          description: Route belongs to another tenant
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Route not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'

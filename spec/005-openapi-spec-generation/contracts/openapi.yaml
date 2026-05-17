@@ -1,0 +1,51 @@
+openapi: 3.0.3
+info:
+  title: MeshSat Hub — API Documentation Endpoints
+  version: 1.0.0
+  description: >
+    Endpoints serving the auto-generated OpenAPI 3.0.3 spec for the Hub
+    (the same spec, fetched from its canonical home in the deployed binary).
+    Part of v1.1 "Wire the Unwired" (MESHSAT-173).
+servers:
+  - url: https://hub.meshsat.net
+    description: Production NL+GR cluster
+components:
+  schemas:
+    OpenAPISpec:
+      type: object
+      description: OpenAPI 3.0.3 spec object as produced by swaggo/swag
+      additionalProperties: true
+paths:
+  /api/docs/swagger.json:
+    get:
+      summary: Serve the embedded OpenAPI 3.0.3 spec as JSON
+      operationId: getSwaggerJSON
+      responses:
+        '200':
+          description: The auto-generated swagger.json with runtime-patched version + server URL
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OpenAPISpec'
+  /api/docs/swagger.yaml:
+    get:
+      summary: Serve the embedded OpenAPI 3.0.3 spec as YAML
+      operationId: getSwaggerYAML
+      responses:
+        '200':
+          description: The auto-generated swagger.yaml
+          content:
+            application/yaml:
+              schema:
+                type: string
+  /api/docs/:
+    get:
+      summary: Serve the Swagger UI HTML shell pointing at /api/docs/swagger.json
+      operationId: getSwaggerUI
+      responses:
+        '200':
+          description: Minimal HTML page hosting Swagger UI
+          content:
+            text/html:
+              schema:
+                type: string

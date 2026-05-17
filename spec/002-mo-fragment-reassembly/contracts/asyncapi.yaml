@@ -1,0 +1,84 @@
+asyncapi: 2.6.0
+info:
+  title: MeshSat Hub — Fragment-reassembly MQTT topics
+  version: 1.0.0
+  description: >
+    MQTT topic contracts for the fragment-reassembly feature. The reassembler
+    runs in-process during MO ingress; this AsyncAPI documents the topics
+    that change behavior once reassembly is wired (single reassembled message
+    instead of partial publishes per fragment).
+defaultContentType: application/json
+servers:
+  hub-mqtt:
+    url: mqtt://hub.meshsat.net:1883
+    protocol: mqtt
+channels:
+  meshsat/{device_id}/mo/raw:
+    description: Publication channel — Hub emits the raw reassembled MO payload after fragment reassembly completes
+    parameters:
+      device_id:
+        schema:
+          type: string
+    publish:
+      operationId: publishReassembledMoRaw
+      summary: Emit the reassembled raw MO payload (base64-encoded bytes)
+      message:
+        $ref: '#/components/messages/ReassembledMoRaw'
+  meshsat/{device_id}/mo/decoded:
+    description: Publication channel — Hub emits the decoded MO payload (decompressed + decrypted if applicable)
+    parameters:
+      device_id:
+        schema:
+          type: string
+    publish:
+      operationId: publishReassembledMoDecoded
+      summary: Emit the decoded reassembled MO payload
+      message:
+        $ref: '#/components/messages/ReassembledMoDecoded'
+components:
+  messages:
+    ReassembledMoRaw:
+      contentType: application/json
+      summary: Raw reassembled MO bytes — emitted ONCE per fragment group after the last fragment arrives
+      payload:
+        type: object
+        required:
+          - imei
+          - raw
+          - received_at
+          - was_reassembled
+        properties:
+          imei:
+            type: string
+            pattern: '^[0-9]{15}$'
+          raw:
+            type: string
+            description: Base64-encoded reassembled payload bytes
+          received_at:
+            type: integer
+            minimum: 1700000000
+          was_reassembled:
+            type: boolean
+            description: True when this payload was reconstructed from multiple fragments (set by fragment reassembler)
+          fragments_count:
+            type: integer
+            minimum: 2
+            description: Present when was_reassembled=true; total fragments combined
+    ReassembledMoDecoded:
+      contentType: application/json
+      summary: Decoded reassembled MO payload
+      payload:
+        type: object
+        required:
+          - imei
+          - text
+          - received_at
+        properties:
+          imei:
+            type: string
+          text:
+            type: string
+          received_at:
+            type: integer
+          was_reassembled:
+            type: boolean

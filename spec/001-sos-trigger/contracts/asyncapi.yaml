@@ -1,0 +1,90 @@
+asyncapi: 2.6.0
+info:
+  title: MeshSat Hub — SOS MQTT Topics
+  version: 1.0.0
+  description: >
+    MQTT topic contracts for the SOS trigger feature. Hub subscribes to decoded MO
+    messages, applies detector logic, and publishes SOS events. Part of v1.1
+    "Wire the Unwired" (MESHSAT-170).
+defaultContentType: application/json
+servers:
+  hub-mqtt:
+    url: mqtt://hub.meshsat.net:1883
+    protocol: mqtt
+    description: Hub's internal MQTT broker (NATS MQTT adapter in cluster mode)
+channels:
+  meshsat/+/mo/decoded:
+    description: Subscription channel — Hub consumes decoded MO messages from the satellite ingest path
+    subscribe:
+      operationId: subscribeDecodedMo
+      summary: Receive decoded MO messages emitted by the rockblock handler
+      message:
+        $ref: '#/components/messages/DecodedMoMessage'
+  meshsat/{device_id}/sos:
+    description: Publication channel — Hub emits an SOS event when the detector flags an emergency
+    parameters:
+      device_id:
+        description: Hub-known device identifier
+        schema:
+          type: string
+          pattern: '^[A-Za-z0-9_-]{3,64}$'
+    publish:
+      operationId: publishSosEvent
+      summary: Emit an SOS event for the named device
+      message:
+        $ref: '#/components/messages/SosEvent'
+components:
+  messages:
+    DecodedMoMessage:
+      contentType: application/json
+      summary: Decoded MO message emitted by the rockblock handler after fragment reassembly + decryption
+      payload:
+        type: object
+        required:
+          - device_id
+          - text
+          - received_at
+        properties:
+          device_id:
+            type: string
+          text:
+            type: string
+          received_at:
+            type: integer
+            minimum: 1700000000
+          sos:
+            type: boolean
+    SosEvent:
+      contentType: application/json
+      summary: SOS event payload — conforms to sos-event.json schema
+      payload:
+        type: object
+        required:
+          - event_id
+          - device_id
+          - tenant_id
+          - detected_at
+          - source_topic
+          - detection_reason
+        properties:
+          event_id:
+            type: string
+            format: uuid
+          device_id:
+            type: string
+          tenant_id:
+            type: string
+          detected_at:
+            type: integer
+            minimum: 1700000000
+          source_topic:
+            type: string
+          detection_reason:
+            type: string
+            enum:
+              - keyword
+              - device_flag
+              - payload_field
+          keyword_matched:
+            type: string
+            maxLength: 50

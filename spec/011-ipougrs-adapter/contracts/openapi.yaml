@@ -1,0 +1,89 @@
+openapi: 3.0.3
+info:
+  title: MeshSat Hub — IPoUGRS Adapter API (alpha)
+  version: 0.1.0
+  description: >
+    Experimental IP-over-Iridium adapter. Marked alpha — wire format may change
+    before v2.0 GA. Enabled via HUB_IPOUGRS_ENABLED=true. MESHSAT-183.
+servers:
+  - url: https://hub.meshsat.net
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  schemas:
+    IPoUGRSStatus:
+      type: object
+      required: [enabled, tun_interface, encoded_in_total, encoded_out_total]
+      properties:
+        enabled:
+          type: boolean
+        tun_interface:
+          type: string
+        encoded_in_total:
+          type: integer
+          minimum: 0
+        encoded_out_total:
+          type: integer
+          minimum: 0
+        startup_error:
+          type: string
+    IPoUGRSSend:
+      type: object
+      required: [destination_imei, payload]
+      properties:
+        destination_imei:
+          type: string
+          pattern: '^[0-9]{15}$'
+        payload:
+          type: string
+          description: Base64-encoded IPv4 packet (after IP header)
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: string
+security:
+  - bearerAuth: []
+paths:
+  /api/ipougrs/status:
+    get:
+      summary: Get IPoUGRS adapter status (alpha)
+      operationId: getIPoUGRSStatus
+      x-stability: alpha
+      responses:
+        '200':
+          description: Adapter status snapshot
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IPoUGRSStatus'
+  /api/ipougrs/send:
+    post:
+      summary: Encode + send an IPv4 packet via Iridium MT (alpha)
+      operationId: sendIPoUGRS
+      x-stability: alpha
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/IPoUGRSSend'
+      responses:
+        '202':
+          description: Packet accepted for encoding + MT delivery
+        '400':
+          description: Payload exceeds MTU or fails decode
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '503':
+          description: IPoUGRS adapter is disabled or inert (capability missing)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'

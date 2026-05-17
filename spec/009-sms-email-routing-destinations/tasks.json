@@ -1,0 +1,64 @@
+{
+  "feature_id": "009-sms-email-routing-destinations",
+  "parent_epic": "MESHSAT-181",
+  "spec_revision": "1 (2026-05-17 — Path A Batch 2)",
+  "tasks": [
+    {
+      "id": "T-001",
+      "status": "pending",
+      "title": "Schema delta: add destination_address column + extend route.json + Store methods",
+      "prompt": "FIRST: read spec/009-sms-email-routing-destinations/{requirements.md, design.md, contracts/schemas/route-with-address.json}. SECOND: extend the `route` table from spec/006 with `destination_address TEXT` (nullable) in BOTH sqlite + mariadb (Constitution Article XII). Update spec/006's route.json schema reference if needed (or this spec's new schema fully supersedes). (REQ-811) update OpenAPI schema in internal/api/routes.go to accept the new field. (REQ-812) on POST /api/routes with destination_type=sms|email AND empty destination_address AND no device-contact-list match, return 400 with descriptive error.",
+      "files_owned": [
+        "internal/store/sqlite/routes_address_migration.go",
+        "internal/store/sqlite/routes_address_migration_test.go"
+      ],
+      "acceptance_test": "go test -count=1 -timeout 60s ./internal/store/... -run RoutesAddress",
+      "dependencies": [],
+      "parallelizable": true,
+      "bounded_context": "store",
+      "requirement_ids": ["REQ-804", "REQ-811", "REQ-812"],
+      "complexity": 3,
+      "risk_score": 0.3,
+      "max_wall_clock_minutes": 25,
+      "max_loc_delta": 250
+    },
+    {
+      "id": "T-002",
+      "status": "pending",
+      "title": "SMS handler — bridge routing dispatch to internal/sms.Gateway",
+      "prompt": "FIRST: read spec/009-sms-email-routing-destinations/{requirements.md, design.md, acceptance/sms-email-routing.feature}. SECOND: create internal/routing/handlers/sms.go implementing the Handler interface from spec/006. (REQ-802) resolveDestination(route, msg, \"sms\") = route.destination_address OR device.ContactList.Lookup(\"sms\"). (REQ-805) override semantics. (REQ-810) ErrNoAddress + counter increment on no-address. (REQ-807) propagate gateway errors back; the engine's existing counter wiring handles handler-error. Register the handler in dispatch.Registry at startup (in cmd/meshsat-hub/main.go).",
+      "files_owned": [
+        "internal/routing/handlers/sms.go",
+        "internal/routing/handlers/sms_test.go"
+      ],
+      "acceptance_test": "go test -count=1 -timeout 60s ./internal/routing/handlers/ -run TestSMS",
+      "dependencies": ["T-001"],
+      "parallelizable": true,
+      "bounded_context": "sms",
+      "requirement_ids": ["REQ-800", "REQ-802", "REQ-805", "REQ-807", "REQ-810"],
+      "complexity": 3,
+      "risk_score": 0.3,
+      "max_wall_clock_minutes": 30,
+      "max_loc_delta": 250
+    },
+    {
+      "id": "T-003",
+      "status": "pending",
+      "title": "Email handler — bridge routing dispatch to internal/email.Gateway + PGP",
+      "prompt": "FIRST: read spec/009-sms-email-routing-destinations/{requirements.md, design.md, acceptance/sms-email-routing.feature}. SECOND: create internal/routing/handlers/email.go implementing Handler. (REQ-803) subject = `MeshSat: <source_type> from <device_imei>`. (REQ-806) destination_address override. (REQ-809) on PGP key match in email.Keystore, encrypt body before invoking gateway.Send. (REQ-810) ErrNoAddress + counter increment. (REQ-808) propagate gateway errors. Register in dispatch.Registry at startup.",
+      "files_owned": [
+        "internal/routing/handlers/email.go",
+        "internal/routing/handlers/email_test.go"
+      ],
+      "acceptance_test": "go test -count=1 -timeout 60s ./internal/routing/handlers/ -run TestEmail",
+      "dependencies": ["T-001"],
+      "parallelizable": true,
+      "bounded_context": "email",
+      "requirement_ids": ["REQ-801", "REQ-803", "REQ-806", "REQ-808", "REQ-809", "REQ-810"],
+      "complexity": 4,
+      "risk_score": 0.4,
+      "max_wall_clock_minutes": 40,
+      "max_loc_delta": 400
+    }
+  ]
+}

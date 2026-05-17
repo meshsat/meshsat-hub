@@ -1,0 +1,166 @@
+openapi: 3.0.3
+info:
+  title: MeshSat Hub — E2E Encryption Key Management API
+  version: 1.0.0
+  description: >
+    REST endpoints for per-device AES-256-GCM key management. Part of v1.1
+    "Wire the Unwired" (MESHSAT-169). Wire format and decryption semantics
+    documented in adr/0007-two-key-encryption-model.md.
+servers:
+  - url: https://hub.meshsat.net
+    description: Production NL+GR cluster
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  schemas:
+    DeviceKey:
+      type: object
+      required:
+        - key_id
+        - created_at
+        - algorithm
+      properties:
+        key_id:
+          type: string
+          minLength: 8
+          maxLength: 64
+        created_at:
+          type: integer
+          minimum: 1700000000
+        revoked_at:
+          type: integer
+          minimum: 1700000000
+          nullable: true
+        algorithm:
+          type: string
+          enum: ["AES-256-GCM"]
+        key_hex_first_8:
+          type: string
+          pattern: '^[0-9a-f]{8}$'
+          description: First 8 hex chars of the raw key — safe-to-log identifier
+    DeviceKeyCreated:
+      allOf:
+        - $ref: '#/components/schemas/DeviceKey'
+        - type: object
+          required: [key_hex]
+          properties:
+            key_hex:
+              type: string
+              pattern: '^[0-9a-f]{64}$'
+              description: Raw 32-byte AES-256 key — returned ONLY in the create response, NEVER again
+    Error:
+      type: object
+      required:
+        - error
+      properties:
+        error:
+          type: string
+security:
+  - bearerAuth: []
+paths:
+  /api/devices/{imei}/keys:
+    parameters:
+      - name: imei
+        in: path
+        required: true
+        schema:
+          type: string
+          pattern: '^[0-9]{15}$'
+    get:
+      summary: List active keys for the device (no raw key material returned)
+      operationId: listDeviceKeys
+      responses:
+        '200':
+          description: Array of device keys for the named device in the caller's tenant
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/DeviceKey'
+        '401':
+          description: Missing or invalid bearer token
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Device does not belong to caller's tenant
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Device not registered
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+    post:
+      summary: Generate a new AES-256-GCM key for the device (raw key returned ONCE)
+      operationId: createDeviceKey
+      responses:
+        '201':
+          description: Key created — raw key returned exactly once; persist it on the device immediately
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeviceKeyCreated'
+        '401':
+          description: Missing or invalid bearer token
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Device does not belong to caller's tenant
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Device not registered
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /api/devices/{imei}/keys/{key_id}:
+    parameters:
+      - name: imei
+        in: path
+        required: true
+        schema:
+          type: string
+          pattern: '^[0-9]{15}$'
+      - name: key_id
+        in: path
+        required: true
+        schema:
+          type: string
+    delete:
+      summary: Revoke a device key (sets revoked_at = now)
+      operationId: revokeDeviceKey
+      responses:
+        '204':
+          description: Key revoked
+        '401':
+          description: Missing or invalid bearer token
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Device does not belong to caller's tenant
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Key not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'

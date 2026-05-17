@@ -1,0 +1,83 @@
+openapi: 3.0.3
+info:
+  title: MeshSat Hub — Routing UI test-helper endpoint
+  version: 1.0.0
+  description: One new endpoint added by MESHSAT-180 to support the Routes view's "Test against sample" feature.
+servers:
+  - url: https://hub.meshsat.net
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  schemas:
+    TestRequest:
+      type: object
+      required: [sample]
+      properties:
+        sample:
+          type: object
+          description: Sample message body to evaluate against the route's filter
+          additionalProperties: true
+    TestResult:
+      type: object
+      required: [matched, destination_type]
+      properties:
+        matched:
+          type: boolean
+        destination_type:
+          type: string
+          enum: [tak, aprs_is, webhook, notification, mqtt, sms, email]
+        error_if_any:
+          type: string
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: string
+security:
+  - bearerAuth: []
+paths:
+  /api/routes/{route_id}/test:
+    parameters:
+      - name: route_id
+        in: path
+        required: true
+        schema:
+          type: string
+    post:
+      summary: Evaluate a route's filter against a sample message without invoking the destination handler
+      operationId: testRoute
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TestRequest'
+      responses:
+        '200':
+          description: Test result with matched=true/false and the route's destination_type
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TestResult'
+        '400':
+          description: Sample body failed validation
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Route belongs to another tenant
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Route not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'

@@ -1,0 +1,67 @@
+{
+  "feature_id": "011-ipougrs-adapter",
+  "parent_epic": "MESHSAT-183",
+  "spec_revision": "1 (2026-05-17 — Path A Batch 3 alpha)",
+  "tasks": [
+    {
+      "id": "T-001",
+      "status": "pending",
+      "title": "internal/ipougrs/ codec — Encode/Decode + version byte + MTU enforcement + counters",
+      "prompt": "FIRST: read spec/011-ipougrs-adapter/{requirements.md, design.md, contracts/schemas/ipougrs-frame.json}. SECOND: implement internal/ipougrs/codec.go with Encode(ipPacket []byte) and Decode(encodedPayload []byte). (REQ-1000) Encode prepends 0x49 0x01; Decode validates the magic + version. (REQ-1001) Encode returns ErrMTUExceeded if total wire size > 340. (REQ-1012) Decode returns ErrUnknownVersion for any version byte != 0x01. (REQ-1008) emit hub_ipougrs_encoded_total{direction=in|out} + hub_ipougrs_decode_error_total{reason}. v0.1 reference impl: naive `magic + version + ip_packet_bytes` (no compression). Tests cover round-trip + MTU + version-mismatch + edge cases (1-byte packet, exactly-340-byte packet).",
+      "files_owned": [
+        "internal/ipougrs/codec.go",
+        "internal/ipougrs/codec_test.go",
+        "internal/ipougrs/metrics.go"
+      ],
+      "acceptance_test": "go test -count=1 -timeout 60s ./internal/ipougrs/...",
+      "dependencies": [],
+      "parallelizable": true,
+      "bounded_context": "ipougrs",
+      "requirement_ids": ["REQ-1000", "REQ-1001", "REQ-1008", "REQ-1012"],
+      "complexity": 4,
+      "risk_score": 0.3,
+      "max_wall_clock_minutes": 35,
+      "max_loc_delta": 350
+    },
+    {
+      "id": "T-002",
+      "status": "pending",
+      "title": "TUN interface management + RockBLOCK ingress hook + capability check",
+      "prompt": "FIRST: read spec/011-ipougrs-adapter/{requirements.md, design.md, acceptance/ipougrs-adapter.feature}. SECOND: in internal/ipougrs/tun.go implement TUN interface creation (`meshsat-ipougrs0`) using github.com/songgao/water or stdlib syscalls. (REQ-1003) only when HUB_IPOUGRS_ENABLED=true. (REQ-1004) on CAP_NET_ADMIN denial, log ERROR + mark adapter inert (do NOT crash). (REQ-1002) edit internal/rockblock/handler.go (and cloudloop/webhook.go) to check first byte == 0x49 + delegate to ipougrs.Decode + write the decoded packet to the TUN. (REQ-1009) when env IPoUGRS_DEBUG_PCAP is set, write each encoded + decoded packet to a pcap file using github.com/google/gopacket or similar.",
+      "files_owned": [
+        "internal/ipougrs/tun.go",
+        "internal/ipougrs/tun_test.go",
+        "internal/ipougrs/pcap.go"
+      ],
+      "acceptance_test": "go test -count=1 -timeout 60s ./internal/ipougrs/... -run TestTUN",
+      "dependencies": ["T-001"],
+      "parallelizable": false,
+      "bounded_context": "ipougrs",
+      "requirement_ids": ["REQ-1002", "REQ-1003", "REQ-1004", "REQ-1009"],
+      "complexity": 5,
+      "risk_score": 0.6,
+      "max_wall_clock_minutes": 60,
+      "max_loc_delta": 500
+    },
+    {
+      "id": "T-003",
+      "status": "pending",
+      "title": "REST API: /api/ipougrs/status + send + Cloudloop MT integration + mode gating",
+      "prompt": "FIRST: read spec/011-ipougrs-adapter/{requirements.md, contracts/openapi.yaml, acceptance/ipougrs-adapter.feature}. SECOND: implement internal/api/ipougrs.go with GET /api/ipougrs/status + POST /api/ipougrs/send. (REQ-1005) status returns enabled + tun_interface + counters + startup_error. (REQ-1006) send calls ipougrs.Encode then existing cloudloop.Client.SendMT. (REQ-1007) on MTU overflow, return 400. (REQ-1010) include `x-stability: alpha` extension in OpenAPI annotations. (REQ-1011 + REQ-1013-equivalent) mount only when cfg.Mode == \"standalone\" OR HUB_IPOUGRS_ENABLED env set; cluster mode without env returns 404 at mount time AND 503 when called.",
+      "files_owned": [
+        "internal/api/ipougrs.go",
+        "internal/api/ipougrs_test.go",
+        "cmd/meshsat-hub/main.go"
+      ],
+      "acceptance_test": "go test -count=1 -timeout 60s ./internal/api/... -run TestIPoUGRS",
+      "dependencies": ["T-002"],
+      "parallelizable": false,
+      "bounded_context": "api",
+      "requirement_ids": ["REQ-1005", "REQ-1006", "REQ-1007", "REQ-1010", "REQ-1011"],
+      "complexity": 4,
+      "risk_score": 0.4,
+      "max_wall_clock_minutes": 40,
+      "max_loc_delta": 400
+    }
+  ]
+}

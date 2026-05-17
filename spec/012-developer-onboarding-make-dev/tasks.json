@@ -1,0 +1,47 @@
+{
+  "feature_id": "012-developer-onboarding-make-dev",
+  "parent_epic": "MESHSAT-184",
+  "spec_revision": "1 (2026-05-17 — Path A Batch 3)",
+  "tasks": [
+    {
+      "id": "T-001",
+      "status": "pending",
+      "title": "docker-compose.dev.yml + Makefile targets + helper scripts",
+      "prompt": "FIRST: read spec/012-developer-onboarding-make-dev/{requirements.md, design.md}. SECOND: create docker-compose.dev.yml per design.md with meshsat-hub + mosquitto services + meshsat-dev-data named volume + optional tak-server profile. (REQ-1100..1107, REQ-1112) extend Makefile with `dev`, `dev-down`, `dev-clean`, `dev-logs`, `dev-shell` targets. (REQ-1104) `dev` target prereq-checks `docker compose version`. (REQ-1108) all env vars set per design. (REQ-1111) named volume mount. (REQ-1115) verify completion within 60s on the build host. Create scripts/dev-wait-for-hub.sh (polls /healthz) + scripts/dev-seed-simulators.sh (POSTs 3 simulators).",
+      "files_owned": [
+        "docker-compose.dev.yml",
+        "Makefile",
+        "scripts/dev-wait-for-hub.sh",
+        "scripts/dev-seed-simulators.sh"
+      ],
+      "acceptance_test": "make dev && curl -fsS http://localhost:6070/healthz && make dev-down",
+      "dependencies": [],
+      "parallelizable": true,
+      "bounded_context": "scripts",
+      "requirement_ids": ["REQ-1100", "REQ-1101", "REQ-1102", "REQ-1104", "REQ-1105", "REQ-1106", "REQ-1107", "REQ-1108", "REQ-1111", "REQ-1112", "REQ-1115"],
+      "complexity": 3,
+      "risk_score": 0.3,
+      "max_wall_clock_minutes": 40,
+      "max_loc_delta": 300
+    },
+    {
+      "id": "T-002",
+      "status": "pending",
+      "title": "Auto-seed dev-tenant + default routes + no-op gateway modes + docs page",
+      "prompt": "FIRST: read spec/012-developer-onboarding-make-dev/{requirements.md, design.md}. SECOND: extend cmd/meshsat-hub/main.go so when HUB_MODE=standalone AND env HUB_DEV_AUTO_SEED=true (default true in dev compose), the Hub seeds a `dev-tenant` tenant + calls routing.SeedDefaults(ctx, \"dev-tenant\", \"system:dev-bootstrap\") on startup per spec/007 REQ-600. (REQ-1109/REQ-1113) ensure SMS, email, Cloudloop MT gateways short-circuit to no-op when their respective env vars are unset (some already do — verify + extend if needed). (REQ-1114) write docs/dev-onboarding.md with usage, troubleshooting, URL list (Hub UI, Mosquitto, optional TAK), known issues.",
+      "files_owned": [
+        "cmd/meshsat-hub/main.go",
+        "docs/dev-onboarding.md"
+      ],
+      "acceptance_test": "test -f docs/dev-onboarding.md && grep -c 'make dev' docs/dev-onboarding.md",
+      "dependencies": ["T-001"],
+      "parallelizable": false,
+      "bounded_context": "cmd",
+      "requirement_ids": ["REQ-1103", "REQ-1109", "REQ-1110", "REQ-1113", "REQ-1114"],
+      "complexity": 3,
+      "risk_score": 0.3,
+      "max_wall_clock_minutes": 30,
+      "max_loc_delta": 250
+    }
+  ]
+}

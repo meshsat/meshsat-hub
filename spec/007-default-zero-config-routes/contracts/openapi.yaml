@@ -1,0 +1,56 @@
+openapi: 3.0.3
+info:
+  title: MeshSat Hub — Default Route Seeding API
+  version: 1.0.0
+  description: Operator-initiated re-seeding of default routes per tenant. Part of MESHSAT-179.
+servers:
+  - url: https://hub.meshsat.net
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  schemas:
+    SeedResult:
+      type: object
+      required: [seeded_count, skipped_count]
+      properties:
+        seeded_count:
+          type: integer
+          minimum: 0
+        skipped_count:
+          type: integer
+          minimum: 0
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: string
+security:
+  - bearerAuth: []
+paths:
+  /api/routes/seed-defaults:
+    post:
+      summary: Re-seed the default route set for the caller's tenant (owner role only)
+      operationId: seedDefaultRoutes
+      responses:
+        '200':
+          description: Seed result with seeded + skipped counts
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SeedResult'
+        '401':
+          description: Missing or invalid bearer token
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Operator does not have the owner role
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'

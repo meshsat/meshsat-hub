@@ -1,0 +1,68 @@
+{
+  "feature_id": "006-routing-engine-core",
+  "parent_epic": "MESHSAT-178",
+  "spec_revision": "1 (2026-05-17 — Path A Batch 2)",
+  "tasks": [
+    {
+      "id": "T-001",
+      "status": "pending",
+      "title": "route table migration + Store CRUD methods (sqlite+mariadb)",
+      "prompt": "FIRST: read spec/006-routing-engine-core/{requirements.md, design.md, contracts/schemas/route.json}. SECOND: add the `route` table per REQ-511 in BOTH internal/store/sqlite/ AND internal/store/mariadb/mariadb.go (Constitution Article XII). Add Store methods: ListRoutes(ctx, tenantID) + CreateRoute(ctx, tenantID, route) + GetRoute(ctx, tenantID, routeID) + UpdateRoute(ctx, tenantID, routeID, patch) + DeleteRoute(ctx, tenantID, routeID) + ListAllEnabledRoutes(ctx) for the engine's cache reload. All tenant-scoped per Constitution Article IV.",
+      "files_owned": [
+        "internal/store/sqlite/routes.go",
+        "internal/store/sqlite/routes_test.go",
+        "internal/store/store.go"
+      ],
+      "acceptance_test": "go test -count=1 -timeout 60s ./internal/store/... -run Route",
+      "dependencies": [],
+      "parallelizable": true,
+      "bounded_context": "store",
+      "requirement_ids": ["REQ-511", "REQ-512"],
+      "complexity": 3,
+      "risk_score": 0.3,
+      "max_wall_clock_minutes": 30,
+      "max_loc_delta": 350
+    },
+    {
+      "id": "T-002",
+      "status": "pending",
+      "title": "internal/routing/ package — Engine + dispatch.Registry + filter matcher + Prometheus counters",
+      "prompt": "FIRST: read spec/006-routing-engine-core/{requirements.md, design.md, acceptance/routing-engine.feature}. SECOND: create internal/routing/engine.go with `Engine` type that (REQ-501) subscribes to the 4 MQTT topic shapes; (REQ-502) on inbound, queries the in-memory route cache filtered by (tenant, source_type, filter-match); (REQ-503) iterates matching routes invoking dispatch.Registry handlers. (REQ-513) implement filter matcher accepting JSON `{keyword?, portnum?, device_imei?}` with AND-semantics across present fields. (REQ-514/515/516) emit Prometheus counters hub_route_dispatch_success_total{destination_type} + hub_route_dispatch_error_total{reason=unknown-destination|handler-error}. (REQ-517/518) Engine.Reload() refreshes the cache within 1s; called by the API layer on every mutation. Define `Handler` interface {Dispatch(ctx, route, msg) error} + `Registry` map[string]Handler.",
+      "files_owned": [
+        "internal/routing/engine.go",
+        "internal/routing/engine_test.go",
+        "internal/routing/registry.go",
+        "internal/routing/filter.go",
+        "internal/routing/filter_test.go"
+      ],
+      "acceptance_test": "go test -count=1 -timeout 60s ./internal/routing/...",
+      "dependencies": ["T-001"],
+      "parallelizable": false,
+      "bounded_context": "routing",
+      "requirement_ids": ["REQ-501", "REQ-502", "REQ-503", "REQ-504", "REQ-513", "REQ-514", "REQ-515", "REQ-516", "REQ-517", "REQ-518"],
+      "complexity": 6,
+      "risk_score": 0.6,
+      "max_wall_clock_minutes": 70,
+      "max_loc_delta": 700
+    },
+    {
+      "id": "T-003",
+      "status": "pending",
+      "title": "REST API: /api/routes CRUD with tenant filter + audit + engine.Reload() on mutation",
+      "prompt": "FIRST: read spec/006-routing-engine-core/{requirements.md, contracts/openapi.yaml, contracts/schemas/route.json, acceptance/routing-engine.feature}. SECOND: implement internal/api/routes.go with GET/POST/PUT/DELETE per contracts/openapi.yaml. (REQ-505..508) handlers wired to Store methods. (REQ-509) tenant filter on every endpoint; cross-tenant → 403, missing → 404. (REQ-510) write audit_log entry on every mutation. (REQ-506) httpjson.ReadJSON for POST + PUT bodies (Constitution Article III). After each successful mutation, call routing.Engine.Reload() to satisfy REQ-517/REQ-518. Add @Summary/@Tags/@Router Swagger annotations. Tests cover all 4 verbs + happy paths + tenant filter + 403/404.",
+      "files_owned": [
+        "internal/api/routes.go",
+        "internal/api/routes_test.go"
+      ],
+      "acceptance_test": "go test -count=1 -timeout 60s ./internal/api/... -run TestRoutes",
+      "dependencies": ["T-002"],
+      "parallelizable": false,
+      "bounded_context": "api",
+      "requirement_ids": ["REQ-505", "REQ-506", "REQ-507", "REQ-508", "REQ-509", "REQ-510"],
+      "complexity": 5,
+      "risk_score": 0.4,
+      "max_wall_clock_minutes": 50,
+      "max_loc_delta": 500
+    }
+  ]
+}

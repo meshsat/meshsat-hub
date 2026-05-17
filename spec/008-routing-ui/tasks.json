@@ -1,0 +1,53 @@
+{
+  "feature_id": "008-routing-ui",
+  "parent_epic": "MESHSAT-180",
+  "spec_revision": "1 (2026-05-17 — Path A Batch 2)",
+  "tasks": [
+    {
+      "id": "T-001",
+      "status": "pending",
+      "title": "POST /api/routes/{route_id}/test endpoint (read-only filter eval)",
+      "prompt": "FIRST: read spec/008-routing-ui/{requirements.md, design.md, contracts/openapi.yaml}. SECOND: implement POST /api/routes/{route_id}/test in internal/api/routes_test_helper.go. (REQ-709) Load route by (tenant_id, route_id), parse body via httpjson.ReadJSON, invoke routing.filter.Match(route.filter, sample) — read-only, no destination invocation. Return {matched, destination_type, error_if_any}. 403 on cross-tenant, 404 on missing. Tests cover happy path + tenant filter + malformed sample.",
+      "files_owned": [
+        "internal/api/routes_test_helper.go",
+        "internal/api/routes_test_helper_test.go"
+      ],
+      "acceptance_test": "go test -count=1 -timeout 60s ./internal/api/... -run TestRouteTest",
+      "dependencies": [],
+      "parallelizable": true,
+      "bounded_context": "api",
+      "requirement_ids": ["REQ-709"],
+      "complexity": 3,
+      "risk_score": 0.2,
+      "max_wall_clock_minutes": 25,
+      "max_loc_delta": 250
+    },
+    {
+      "id": "T-002",
+      "status": "pending",
+      "title": "Vue: RoutesView + 4 child components + Pinia store + router entry",
+      "prompt": "FIRST: read spec/008-routing-ui/{requirements.md, design.md, acceptance/routing-ui.feature} AND web/src/router.js for existing pattern AND web/src/stores/ for Pinia conventions. SECOND: implement web/src/views/RoutesView.vue + 4 child components (RouteList, RouteEditModal, RouteDeleteModal, RouteTestModal, RouteFlowDiagram) + web/src/stores/routes.js Pinia store + web/src/api/routes.js API client. (REQ-700) router entry at /routes. (REQ-701..706) full CRUD UI. (REQ-707) SVG flow diagram component. (REQ-708) test modal wired to POST /api/routes/{id}/test. (REQ-711) header badge with total count. (REQ-712) Vue 3 Composition API + Tailwind only — no other frameworks. (REQ-713) keyboard-accessible (tab order, Escape closes modals, autofocus on modal open). Playwright e2e covers create + toggle + delete + test flows.",
+      "files_owned": [
+        "web/src/views/RoutesView.vue",
+        "web/src/components/RouteList.vue",
+        "web/src/components/RouteEditModal.vue",
+        "web/src/components/RouteDeleteModal.vue",
+        "web/src/components/RouteTestModal.vue",
+        "web/src/components/RouteFlowDiagram.vue",
+        "web/src/stores/routes.js",
+        "web/src/api/routes.js",
+        "web/src/router.js",
+        "web/e2e/routes.spec.js"
+      ],
+      "acceptance_test": "ssh ansible@nllei01androidsdk01 'cd /home/claude-runner/gitlab/products/cubeos/meshsat-hub/web && npm install && npx playwright test --grep Routes'",
+      "dependencies": ["T-001"],
+      "parallelizable": false,
+      "bounded_context": "web",
+      "requirement_ids": ["REQ-700", "REQ-701", "REQ-702", "REQ-703", "REQ-704", "REQ-705", "REQ-706", "REQ-707", "REQ-708", "REQ-710", "REQ-711", "REQ-712", "REQ-713"],
+      "complexity": 6,
+      "risk_score": 0.5,
+      "max_wall_clock_minutes": 80,
+      "max_loc_delta": 1200
+    }
+  ]
+}

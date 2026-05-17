@@ -1,0 +1,83 @@
+asyncapi: 2.6.0
+info:
+  title: MeshSat Hub — Encryption flag on MO MQTT topics
+  version: 1.0.0
+  description: >
+    Documents the change to the existing mo/raw + mo/decoded MQTT topics
+    once E2E encryption wiring lands: the encrypted flag now reflects the
+    actual decryption outcome instead of being hardcoded false.
+defaultContentType: application/json
+servers:
+  hub-mqtt:
+    url: mqtt://hub.meshsat.net:1883
+    protocol: mqtt
+channels:
+  meshsat/{device_id}/mo/raw:
+    description: Existing topic; the `encrypted` field on the payload now reflects actual decrypt status
+    parameters:
+      device_id:
+        schema:
+          type: string
+    publish:
+      operationId: publishMoRawWithEncryption
+      message:
+        $ref: '#/components/messages/MoRawWithEncryption'
+  meshsat/{device_id}/mo/decoded:
+    description: Existing topic; the `encrypted` field on the payload now reflects actual decrypt status
+    parameters:
+      device_id:
+        schema:
+          type: string
+    publish:
+      operationId: publishMoDecodedWithEncryption
+      message:
+        $ref: '#/components/messages/MoDecodedWithEncryption'
+components:
+  messages:
+    MoRawWithEncryption:
+      contentType: application/json
+      summary: Raw MO bytes (post-decrypt if applicable) — encrypted flag now real
+      payload:
+        type: object
+        required:
+          - imei
+          - raw
+          - received_at
+          - encrypted
+        properties:
+          imei:
+            type: string
+            pattern: '^[0-9]{15}$'
+          raw:
+            type: string
+            description: Base64-encoded payload (decrypted if encrypted=true, original otherwise)
+          received_at:
+            type: integer
+            minimum: 1700000000
+          encrypted:
+            type: boolean
+            description: True when DecryptMessage returned successfully against a registered key
+          key_id:
+            type: string
+            description: Present when encrypted=true; identifies which device_key decrypted
+    MoDecodedWithEncryption:
+      contentType: application/json
+      summary: Decoded MO payload — encrypted flag reflects actual decryption
+      payload:
+        type: object
+        required:
+          - imei
+          - text
+          - received_at
+          - encrypted
+        properties:
+          imei:
+            type: string
+          text:
+            type: string
+          received_at:
+            type: integer
+          encrypted:
+            type: boolean
+          key_id:
+            type: string

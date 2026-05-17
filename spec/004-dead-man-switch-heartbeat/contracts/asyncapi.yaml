@@ -1,0 +1,59 @@
+asyncapi: 2.6.0
+info:
+  title: MeshSat Hub — Dead-man-switch MQTT Topics
+  version: 1.0.0
+  description: >
+    MQTT topic emitted when the dead-man-switch fires for a device.
+    Part of v1.1 "Wire the Unwired" (MESHSAT-171).
+defaultContentType: application/json
+servers:
+  hub-mqtt:
+    url: mqtt://hub.meshsat.net:1883
+    protocol: mqtt
+channels:
+  meshsat/{device_id}/deadman/triggered:
+    description: Publication channel — Hub emits when the dead-man condition fires for a device
+    parameters:
+      device_id:
+        description: Hub-known device identifier (IMEI)
+        schema:
+          type: string
+          pattern: '^[0-9]{15}$'
+    publish:
+      operationId: publishDeadmanTriggered
+      summary: Emit a dead-man-triggered event when the timeout fires
+      message:
+        $ref: '#/components/messages/DeadmanEvent'
+components:
+  messages:
+    DeadmanEvent:
+      contentType: application/json
+      summary: Dead-man-switch firing event — conforms to deadman-event.json schema
+      payload:
+        type: object
+        required:
+          - event_type
+          - event_at
+          - device_imei
+          - tenant_id
+          - last_seen_at
+          - timeout_seconds
+        properties:
+          event_type:
+            type: string
+            enum: [deadman.triggered, deadman.recovered]
+          event_at:
+            type: integer
+            minimum: 1700000000
+          device_imei:
+            type: string
+            pattern: '^[0-9]{15}$'
+          tenant_id:
+            type: string
+          last_seen_at:
+            type: integer
+            minimum: 1700000000
+          timeout_seconds:
+            type: integer
+            minimum: 60
+            maximum: 86400

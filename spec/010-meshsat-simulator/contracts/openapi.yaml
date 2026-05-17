@@ -1,0 +1,133 @@
+openapi: 3.0.3
+info:
+  title: MeshSat Hub — Simulator Control API
+  version: 1.0.0
+  description: Endpoints for starting, stopping, and inspecting virtual-Iridium-modem simulators. Available in standalone mode (or explicitly enabled in cluster mode). MESHSAT-182.
+servers:
+  - url: http://localhost:6070
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  schemas:
+    SimulatorStart:
+      type: object
+      required: [device_imei, message_rate_per_minute, payload_pattern]
+      properties:
+        device_imei:
+          type: string
+          pattern: '^[0-9]{15}$'
+        message_rate_per_minute:
+          type: integer
+          minimum: 1
+          maximum: 120
+        payload_pattern:
+          type: string
+          enum: [text, position, telemetry, sos, binary_random]
+        starting_lat:
+          type: number
+          minimum: -90
+          maximum: 90
+          description: Required when payload_pattern=position
+        starting_lon:
+          type: number
+          minimum: -180
+          maximum: 180
+          description: Required when payload_pattern=position
+    SimulatorActive:
+      type: object
+      required: [device_imei, started_at, message_count_so_far, message_rate_per_minute, payload_pattern]
+      properties:
+        device_imei:
+          type: string
+        started_at:
+          type: integer
+          minimum: 1700000000
+        message_count_so_far:
+          type: integer
+          minimum: 0
+        message_rate_per_minute:
+          type: integer
+        payload_pattern:
+          type: string
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: string
+security:
+  - bearerAuth: []
+paths:
+  /api/simulator/start:
+    post:
+      summary: Start a synthetic-MO simulator for a virtual device
+      operationId: startSimulator
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SimulatorStart'
+      responses:
+        '201':
+          description: Simulator started
+        '400':
+          description: Body failed validation
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Operator does not have owner role
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Simulator not available in this HUB_MODE
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: Simulator for this device_imei is already running
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /api/simulator/stop/{device_imei}:
+    parameters:
+      - name: device_imei
+        in: path
+        required: true
+        schema:
+          type: string
+          pattern: '^[0-9]{15}$'
+    post:
+      summary: Stop a running simulator
+      operationId: stopSimulator
+      responses:
+        '204':
+          description: Simulator stopped
+        '404':
+          description: No simulator running for this device_imei
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /api/simulator/active:
+    get:
+      summary: List currently running simulators
+      operationId: listActiveSimulators
+      responses:
+        '200':
+          description: Array of active simulator descriptors
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/SimulatorActive'

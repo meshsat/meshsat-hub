@@ -1,0 +1,86 @@
+{
+  "feature_id": "004-dead-man-switch-heartbeat",
+  "parent_epic": "MESHSAT-171",
+  "spec_revision": "1 (2026-05-17 initial author — Path A mass-spec, Batch 1)",
+  "tasks": [
+    {
+      "id": "T-001",
+      "status": "pending",
+      "title": "Schema migration: device_deadman_config in sqlite + mariadb + Store methods",
+      "prompt": "FIRST: read spec/004-dead-man-switch-heartbeat/{requirements.md, design.md, contracts/schemas/deadman-config.json}. SECOND: add device_deadman_config table per REQ-312 in BOTH internal/store/sqlite/ AND internal/store/mariadb/mariadb.go (Constitution Article XII). Columns: device_imei TEXT PRIMARY KEY, tenant_id TEXT NOT NULL, enabled INTEGER NOT NULL DEFAULT 0, timeout_seconds INTEGER NOT NULL DEFAULT 3600, last_seen_at INTEGER, triggered_at INTEGER, updated_at INTEGER NOT NULL. Add Store interface methods: GetDeadmanConfig(ctx, tenantID, imei) + UpsertDeadmanConfig(ctx, tenantID, imei, enabled, timeoutSeconds) + TouchLastSeen(ctx, tenantID, imei, ts) + SetTriggeredAt(ctx, tenantID, imei, ts) + ClearTriggeredAt(ctx, tenantID, imei) + ListDeadmanEnabled(ctx). All tenant-scoped per Constitution Article IV.",
+      "files_owned": [
+        "internal/store/sqlite/deadman_config.go",
+        "internal/store/sqlite/deadman_config_test.go",
+        "internal/store/store.go"
+      ],
+      "acceptance_test": "go test -count=1 -timeout 60s ./internal/store/... -run Deadman",
+      "dependencies": [],
+      "parallelizable": true,
+      "bounded_context": "store",
+      "requirement_ids": ["REQ-312", "REQ-313"],
+      "complexity": 3,
+      "risk_score": 0.3,
+      "max_wall_clock_minutes": 30,
+      "max_loc_delta": 350
+    },
+    {
+      "id": "T-002",
+      "status": "pending",
+      "title": "Augment deadman.Monitor with DB-backed tick + Prometheus + escalation/audit/MQTT emit",
+      "prompt": "FIRST: read spec/004-dead-man-switch-heartbeat/{requirements.md, design.md, contracts/asyncapi.yaml, contracts/schemas/deadman-event.json}. SECOND: extend internal/deadman/ so Monitor (REQ-311) reads from device_deadman_config via the Store interface — no in-memory map; (REQ-303) on tick, for any (enabled=1 AND triggered_at IS NULL AND last_seen_at + timeout_seconds < now()) row, invoke escalation.Engine.Trigger; (REQ-304) write audit_log entry deadman.triggered; (REQ-305) publish to meshsat/{imei}/deadman/triggered via bus.MessageBus; (REQ-314) SetTriggeredAt to prevent re-fire; (REQ-316) increment hub_deadman_triggered_total. CheckIn(imei) (REQ-315) also calls ClearTriggeredAt when triggered_at was non-null + writes audit deadman.recovered + (REQ-317) increments hub_deadman_recovered_total. (REQ-318) tick interval defaults to 30 seconds, configurable via constructor.",
+      "files_owned": [
+        "internal/deadman/deadman.go",
+        "internal/deadman/deadman_metrics.go",
+        "internal/deadman/deadman_metrics_test.go"
+      ],
+      "acceptance_test": "go test -count=1 -timeout 60s ./internal/deadman/...",
+      "dependencies": ["T-001"],
+      "parallelizable": false,
+      "bounded_context": "deadman",
+      "requirement_ids": ["REQ-303", "REQ-304", "REQ-305", "REQ-311", "REQ-314", "REQ-315", "REQ-316", "REQ-317", "REQ-318"],
+      "complexity": 5,
+      "risk_score": 0.5,
+      "max_wall_clock_minutes": 50,
+      "max_loc_delta": 500
+    },
+    {
+      "id": "T-003",
+      "status": "pending",
+      "title": "Wire CheckIn into RockBLOCK + Cloudloop + position subscriber",
+      "prompt": "FIRST: read spec/004-dead-man-switch-heartbeat/{requirements.md, design.md}. SECOND: edit (REQ-300) internal/rockblock/handler.go and (REQ-301) internal/cloudloop/webhook.go — after a MO message is decoded SUCCESSFULLY (NOT in error/malformed paths), call h.deadmanMonitor.CheckIn(imei). The handlers already have SetDeadman() setters — main.go just needs to wire the same monitor instance to both (mirror the rockblock pattern). (REQ-302) Also wire CheckIn into the position subscriber's onPositionUpdate handler (locate via grep for SetDeadman or position.Subscriber). Both check-ins MUST happen AFTER any conditional reassembly (spec 002) and decryption (spec 003) — so a fragmented or encrypted message that successfully resolves counts as one CheckIn, not multiple. Edit cmd/meshsat-hub/main.go to call SetDeadman on the cloudloop handler and on the position subscriber if not already wired.",
+      "files_owned": [
+        "internal/rockblock/handler.go",
+        "internal/cloudloop/webhook.go",
+        "cmd/meshsat-hub/main.go"
+      ],
+      "acceptance_test": "go test -count=1 -timeout 60s ./internal/rockblock/... ./internal/cloudloop/... -run Deadman",
+      "dependencies": ["T-002"],
+      "parallelizable": false,
+      "bounded_context": "rockblock",
+      "requirement_ids": ["REQ-300", "REQ-301", "REQ-302"],
+      "complexity": 3,
+      "risk_score": 0.4,
+      "max_wall_clock_minutes": 30,
+      "max_loc_delta": 250
+    },
+    {
+      "id": "T-004",
+      "status": "pending",
+      "title": "REST API: GET + POST /api/devices/{imei}/deadman with tenant filter + bounds check",
+      "prompt": "FIRST: read spec/004-dead-man-switch-heartbeat/{requirements.md, contracts/openapi.yaml, contracts/schemas/deadman-config.json, acceptance/deadman-heartbeat.feature}. SECOND: implement internal/api/deadman.go exposing GET + POST per contracts/openapi.yaml. (REQ-306) GET returns the row + state from device_deadman_config. (REQ-307) POST uses httpjson.ReadJSON to parse {enabled, timeout_seconds}. (REQ-308) reject timeout_seconds < 60 with 400. (REQ-309) reject timeout_seconds > 86400 with 400. (REQ-310) tenant filter on every call; cross-tenant returns 403. Add @Summary/@Tags/@Router Swagger annotations. Tests cover happy path + bounds + cross-tenant + 404-on-unknown-device.",
+      "files_owned": [
+        "internal/api/deadman.go",
+        "internal/api/deadman_test.go"
+      ],
+      "acceptance_test": "go test -count=1 -timeout 60s ./internal/api/... -run TestDeadman",
+      "dependencies": ["T-001"],
+      "parallelizable": true,
+      "bounded_context": "api",
+      "requirement_ids": ["REQ-306", "REQ-307", "REQ-308", "REQ-309", "REQ-310"],
+      "complexity": 4,
+      "risk_score": 0.3,
+      "max_wall_clock_minutes": 35,
+      "max_loc_delta": 400
+    }
+  ]
+}

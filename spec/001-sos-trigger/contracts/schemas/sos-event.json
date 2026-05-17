@@ -1,0 +1,44 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "sos-event.json",
+  "title": "SosEvent",
+  "description": "SOS event payload — published to meshsat/{device_id}/sos MQTT topic AND returned from GET /api/sos/recent.",
+  "type": "object",
+  "required": ["event_id", "device_id", "tenant_id", "detected_at", "source_topic", "detection_reason"],
+  "properties": {
+    "event_id": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+      "description": "UUID v4 unique per SOS event (lowercase hex, dash-separated)"
+    },
+    "device_id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_-]{3,64}$",
+      "description": "Hub-known device identifier"
+    },
+    "tenant_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "detected_at": {
+      "type": "integer",
+      "minimum": 1700000000,
+      "description": "Unix epoch seconds when the detector flagged the event"
+    },
+    "source_topic": {
+      "type": "string",
+      "description": "The MQTT topic the source MO message arrived on (typically meshsat/{device_id}/mo/decoded)"
+    },
+    "detection_reason": {
+      "type": "string",
+      "enum": ["keyword", "device_flag", "payload_field"],
+      "description": "Which detection branch fired"
+    },
+    "keyword_matched": {
+      "type": "string",
+      "maxLength": 50,
+      "description": "Present when detection_reason=keyword; the literal token that matched"
+    }
+  },
+  "additionalProperties": false
+}

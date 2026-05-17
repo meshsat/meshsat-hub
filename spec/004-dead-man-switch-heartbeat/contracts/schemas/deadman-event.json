@@ -1,0 +1,41 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "deadman-event.json",
+  "title": "DeadmanEvent",
+  "description": "Dead-man-switch lifecycle event emitted to MQTT + audit log when the timeout fires or a recovery clears it.",
+  "type": "object",
+  "required": ["event_type", "event_at", "device_imei", "tenant_id", "last_seen_at", "timeout_seconds"],
+  "properties": {
+    "event_type": {
+      "type": "string",
+      "enum": ["deadman.triggered", "deadman.recovered"]
+    },
+    "event_at": {
+      "type": "integer",
+      "minimum": 1700000000
+    },
+    "device_imei": {
+      "type": "string",
+      "pattern": "^[0-9]{15}$"
+    },
+    "tenant_id": {
+      "type": "string"
+    },
+    "last_seen_at": {
+      "type": "integer",
+      "minimum": 1700000000,
+      "description": "Unix epoch seconds of the most recent CheckIn before this event"
+    },
+    "timeout_seconds": {
+      "type": "integer",
+      "minimum": 60,
+      "maximum": 86400
+    },
+    "triggered_at": {
+      "type": "integer",
+      "minimum": 1700000000,
+      "description": "Present on deadman.recovered events — when the prior triggered state was set"
+    }
+  },
+  "additionalProperties": false
+}
