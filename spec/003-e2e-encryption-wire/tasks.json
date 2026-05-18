@@ -1,5 +1,6 @@
 {
   "feature_id": "003-e2e-encryption-wire",
+  "_cgc_verified_at": "2026-05-18",
   "parent_epic": "MESHSAT-169",
   "spec_revision": "1 (2026-05-18)",
   "tasks": [

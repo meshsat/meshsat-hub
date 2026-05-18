@@ -1,5 +1,6 @@
 {
   "feature_id": "013-sensor-payload-framework",
+  "_cgc_verified_at": "2026-05-18",
   "parent_epic": "MESHSAT-185",
   "spec_revision": "1 (2026-05-18)",
   "tasks": [
