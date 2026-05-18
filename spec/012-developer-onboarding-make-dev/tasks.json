@@ -33,7 +33,8 @@
       "complexity": 5,
       "risk_score": 0.4,
       "max_wall_clock_minutes": 90,
-      "max_loc_delta": 1000
+      "max_loc_delta": 1000,
+      "no_observability_required": "doc/config-only task \u2014 no runtime to instrument"
     }
   ]
 }

@@ -2,13 +2,13 @@
   "feature_id": "001-sos-trigger",
   "_cgc_verified_at": "2026-05-18",
   "parent_epic": "MESHSAT-170",
-  "spec_revision": "2 (2026-05-18 — concrete CGC-grounded REQs replacing templated v1)",
+  "spec_revision": "2 (2026-05-18 \u2014 concrete CGC-grounded REQs replacing templated v1)",
   "tasks": [
     {
       "id": "T-001",
       "status": "completed",
-      "title": "SOS Detector — bus subscriber + keyword + explicit-field + escalation engine fire",
-      "prompt": "(RETROSPECTIVE — shipped.) CGC-verified at internal/sos/detector.go. Detector subscribes to meshsat/+/mo/decoded, applies sosKeywords case-insensitive match OR explicit SOS field, publishes SOSEvent JSON to meshsat/{IMEI}/sos, fires escalation.Engine for the configured tenant + chain.",
+      "title": "SOS Detector \u2014 bus subscriber + keyword + explicit-field + escalation engine fire",
+      "prompt": "(RETROSPECTIVE \u2014 shipped.) CGC-verified at internal/sos/detector.go. Detector subscribes to meshsat/+/mo/decoded, applies sosKeywords case-insensitive match OR explicit SOS field, publishes SOSEvent JSON to meshsat/{IMEI}/sos, fires escalation.Engine for the configured tenant + chain.",
       "files_owned": [
         "internal/sos/detector.go",
         "internal/sos/detector_test.go"
@@ -18,12 +18,45 @@
       "dependencies": [],
       "parallelizable": true,
       "bounded_context": "sos",
-      "requirement_ids": ["REQ-001", "REQ-002", "REQ-003", "REQ-004", "REQ-005", "REQ-006", "REQ-007", "REQ-008", "REQ-009", "REQ-010", "REQ-011", "REQ-012", "REQ-013", "REQ-016", "REQ-017", "REQ-018", "REQ-019", "REQ-020"],
+      "requirement_ids": [
+        "REQ-001",
+        "REQ-002",
+        "REQ-003",
+        "REQ-004",
+        "REQ-005",
+        "REQ-006",
+        "REQ-007",
+        "REQ-008",
+        "REQ-009",
+        "REQ-010",
+        "REQ-011",
+        "REQ-012",
+        "REQ-013",
+        "REQ-016",
+        "REQ-017",
+        "REQ-018",
+        "REQ-019",
+        "REQ-020"
+      ],
       "complexity": 5,
       "risk_score": 0.0,
       "max_wall_clock_minutes": 90,
       "max_loc_delta": 600,
-      "completed_at": "2026-03"
+      "completed_at": "2026-03",
+      "observability": {
+        "prometheus_metrics": [
+          "meshsat_hub_sos_trigger_requests_total",
+          "meshsat_hub_sos_trigger_request_duration_seconds",
+          "meshsat_hub_sos_trigger_errors_total"
+        ],
+        "slo_targets": {
+          "p95_latency_ms": 200,
+          "p99_latency_ms": 500,
+          "error_rate_max": 0.001,
+          "_notes": "placeholder \u2014 refine during task execution based on profiling"
+        },
+        "_notes": "Placeholder block for T-001. Replace with concrete metric names as code lands. If this task does NOT need metrics (e.g. CI/build task), replace this block with `no_observability_required: \"<reason>\"` instead."
+      }
     },
     {
       "id": "T-002",
@@ -37,11 +70,15 @@
       "dependencies": [],
       "parallelizable": true,
       "bounded_context": "sos",
-      "requirement_ids": ["REQ-014", "REQ-015"],
+      "requirement_ids": [
+        "REQ-014",
+        "REQ-015"
+      ],
       "complexity": 4,
       "risk_score": 0.4,
       "max_wall_clock_minutes": 60,
-      "max_loc_delta": 400
+      "max_loc_delta": 400,
+      "no_observability_required": "test-only task \u2014 metrics produced by the system-under-test, not the test itself"
     }
   ]
 }
