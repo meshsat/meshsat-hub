@@ -1,0 +1,65 @@
+openapi: 3.0.3
+info:
+  title: meshsat-hub — SOS + cluster endpoints
+  version: 1.1.0
+  description: |
+    OpenAPI subset relevant to spec/001. Full spec at /docs/openapi.yaml.
+servers:
+  - url: https://hub.meshsat.net/api
+paths:
+  /sos/events:
+    get:
+      summary: List recent SOS events
+      operationId: listSosEvents
+      responses:
+        '200':
+          description: Recent SOS events
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [events]
+                properties:
+                  events:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/SosEvent'
+  /cluster/status:
+    get:
+      summary: Get cluster status (per Article XVI)
+      operationId: getClusterStatus
+      responses:
+        '200':
+          description: Cluster status
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [mode, is_leader]
+                properties:
+                  mode:
+                    type: string
+                    enum: [standalone, cluster, kubernetes]
+                  node_id: {type: string}
+                  is_leader: {type: boolean}
+components:
+  schemas:
+    SosEvent:
+      type: object
+      required: [id, tenant_id, bridge_id, triggered_at, status]
+      properties:
+        id: {type: string}
+        tenant_id: {type: string}
+        bridge_id: {type: string}
+        device_id:
+          type: string
+          nullable: true
+        triggered_at:
+          type: string
+          pattern: "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}.*$"
+        trigger_token:
+          type: string
+          enum: [SOS, MAYDAY, EMERGENCY]
+        status:
+          type: string
+          enum: [active, acknowledged, resolved]

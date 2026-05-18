@@ -1,0 +1,37 @@
+{
+  "feature_id": "008-routing-ui",
+  "parent_epic": "MESHSAT-180",
+  "spec_revision": "1 (2026-05-18)",
+  "tasks": [
+    {
+      "id": "T-001",
+      "status": "pending",
+      "title": "Routing UI Vue 3 + Pinia",
+      "prompt": "FIRST: read spec/008-routing-ui/{requirements.md, design.md, acceptance/routing-ui.feature}. SECOND: implement per ROADMAP + EXECUTION_PLAN MESHSAT-180.",
+      "files_owned": [
+        "web/src/views/RouterView.vue",
+        "web/src/stores/router.js"
+      ],
+      "acceptance_test": "cd meshsat-hub && make test",
+      "dependencies": [],
+      "parallelizable": true,
+      "bounded_context": "web",
+      "requirement_ids": [
+        "REQ-700",
+        "REQ-701",
+        "REQ-702",
+        "REQ-703",
+        "REQ-704",
+        "REQ-705",
+        "REQ-706",
+        "REQ-707",
+        "REQ-708",
+        "REQ-709"
+      ],
+      "complexity": 5,
+      "risk_score": 0.4,
+      "max_wall_clock_minutes": 90,
+      "max_loc_delta": 1000
+    }
+  ]
+}

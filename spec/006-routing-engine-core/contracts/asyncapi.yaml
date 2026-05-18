@@ -1,0 +1,52 @@
+asyncapi: 2.6.0
+info:
+  title: meshsat-hub — Bridge↔Hub MQTT protocol (meshsat-uplink/v1)
+  version: 1.0.0
+  description: |
+    AsyncAPI for the Sparkplug-B-inspired protocol per Article XVII.
+servers:
+  hub-mqtt:
+    url: mqtt://hub.meshsat.net:6071
+    protocol: mqtt
+channels:
+  meshsat/bridge/{bridge_id}/birth:
+    description: Retained BIRTH message
+    parameters:
+      bridge_id:
+        schema: {type: string}
+    publish:
+      operationId: publishBridgeBirth
+      message:
+        contentType: application/json
+        payload:
+          type: object
+          required: [protocol, timestamp, bridge_id]
+          properties:
+            protocol: {type: string, enum: ["meshsat-uplink/v1"]}
+            timestamp:
+              type: string
+              pattern: "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}.*$"
+            bridge_id: {type: string}
+            firmware_version: {type: string}
+            capabilities:
+              type: array
+              items: {type: string}
+  meshsat/bridge/{bridge_id}/death:
+    description: LWT-backed DEATH message
+    parameters:
+      bridge_id:
+        schema: {type: string}
+    publish:
+      operationId: publishBridgeDeath
+      message:
+        contentType: application/json
+        payload:
+          type: object
+          required: [protocol, timestamp, bridge_id]
+          properties:
+            protocol: {type: string, enum: ["meshsat-uplink/v1"]}
+            timestamp:
+              type: string
+              pattern: "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}.*$"
+            bridge_id: {type: string}
+            reason: {type: string}

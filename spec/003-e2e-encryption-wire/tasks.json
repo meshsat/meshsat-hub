@@ -1,0 +1,38 @@
+{
+  "feature_id": "003-e2e-encryption-wire",
+  "parent_epic": "MESHSAT-169",
+  "spec_revision": "1 (2026-05-18)",
+  "tasks": [
+    {
+      "id": "T-001",
+      "status": "pending",
+      "title": "E2E encryption + key management API",
+      "prompt": "FIRST: read spec/003-e2e-encryption-wire/{requirements.md, design.md, acceptance/e2e-encryption-wire.feature}. SECOND: implement per ROADMAP + EXECUTION_PLAN MESHSAT-169.",
+      "files_owned": [
+        "internal/crypto/e2e.go",
+        "internal/crypto/keymgmt.go",
+        "internal/crypto/e2e_test.go"
+      ],
+      "acceptance_test": "cd meshsat-hub && make test",
+      "dependencies": [],
+      "parallelizable": true,
+      "bounded_context": "crypto",
+      "requirement_ids": [
+        "REQ-200",
+        "REQ-201",
+        "REQ-202",
+        "REQ-203",
+        "REQ-204",
+        "REQ-205",
+        "REQ-206",
+        "REQ-207",
+        "REQ-208",
+        "REQ-209"
+      ],
+      "complexity": 5,
+      "risk_score": 0.4,
+      "max_wall_clock_minutes": 90,
+      "max_loc_delta": 1000
+    }
+  ]
+}

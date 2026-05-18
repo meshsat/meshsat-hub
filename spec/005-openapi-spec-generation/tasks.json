@@ -1,0 +1,39 @@
+{
+  "feature_id": "005-openapi-spec-generation",
+  "parent_epic": "MESHSAT-173",
+  "spec_revision": "1 (2026-05-18)",
+  "tasks": [
+    {
+      "id": "T-001",
+      "status": "pending",
+      "title": "OpenAPI spec generation via swag init",
+      "prompt": "FIRST: read spec/005-openapi-spec-generation/{requirements.md, design.md, acceptance/openapi-spec-generation.feature}. SECOND: implement per ROADMAP + EXECUTION_PLAN MESHSAT-173.",
+      "files_owned": [
+        "docs/swagger.json",
+        "docs/swagger.yaml",
+        "Makefile",
+        "scripts/gen-openapi.sh"
+      ],
+      "acceptance_test": "cd meshsat-hub && make test",
+      "dependencies": [],
+      "parallelizable": true,
+      "bounded_context": "api",
+      "requirement_ids": [
+        "REQ-400",
+        "REQ-401",
+        "REQ-402",
+        "REQ-403",
+        "REQ-404",
+        "REQ-405",
+        "REQ-406",
+        "REQ-407",
+        "REQ-408",
+        "REQ-409"
+      ],
+      "complexity": 5,
+      "risk_score": 0.4,
+      "max_wall_clock_minutes": 90,
+      "max_loc_delta": 1000
+    }
+  ]
+}

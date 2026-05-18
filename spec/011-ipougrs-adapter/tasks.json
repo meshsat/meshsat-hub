@@ -1,0 +1,37 @@
+{
+  "feature_id": "011-ipougrs-adapter",
+  "parent_epic": "MESHSAT-183",
+  "spec_revision": "1 (2026-05-18)",
+  "tasks": [
+    {
+      "id": "T-001",
+      "status": "pending",
+      "title": "IPoUGRS adapter alpha",
+      "prompt": "FIRST: read spec/011-ipougrs-adapter/{requirements.md, design.md, acceptance/ipougrs-adapter.feature}. SECOND: implement per ROADMAP + EXECUTION_PLAN MESHSAT-183.",
+      "files_owned": [
+        "internal/ipougrs/adapter.go",
+        "internal/ipougrs/adapter_test.go"
+      ],
+      "acceptance_test": "cd meshsat-hub && make test",
+      "dependencies": [],
+      "parallelizable": true,
+      "bounded_context": "ipougrs",
+      "requirement_ids": [
+        "REQ-1000",
+        "REQ-1001",
+        "REQ-1002",
+        "REQ-1003",
+        "REQ-1004",
+        "REQ-1005",
+        "REQ-1006",
+        "REQ-1007",
+        "REQ-1008",
+        "REQ-1009"
+      ],
+      "complexity": 5,
+      "risk_score": 0.4,
+      "max_wall_clock_minutes": 90,
+      "max_loc_delta": 1000
+    }
+  ]
+}

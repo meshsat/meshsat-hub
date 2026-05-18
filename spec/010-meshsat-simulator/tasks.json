@@ -1,0 +1,38 @@
+{
+  "feature_id": "010-meshsat-simulator",
+  "parent_epic": "MESHSAT-182",
+  "spec_revision": "1 (2026-05-18)",
+  "tasks": [
+    {
+      "id": "T-001",
+      "status": "pending",
+      "title": "meshsat-sim binary (cmd/meshsat-sim/main.go CGC-verified exists)",
+      "prompt": "FIRST: read spec/010-meshsat-simulator/{requirements.md, design.md, acceptance/meshsat-simulator.feature}. SECOND: implement per ROADMAP + EXECUTION_PLAN MESHSAT-182.",
+      "files_owned": [
+        "cmd/meshsat-sim/main.go",
+        "internal/simulator/sim.go",
+        "internal/simulator/sim_test.go"
+      ],
+      "acceptance_test": "cd meshsat-hub && make test",
+      "dependencies": [],
+      "parallelizable": true,
+      "bounded_context": "cmd",
+      "requirement_ids": [
+        "REQ-900",
+        "REQ-901",
+        "REQ-902",
+        "REQ-903",
+        "REQ-904",
+        "REQ-905",
+        "REQ-906",
+        "REQ-907",
+        "REQ-908",
+        "REQ-909"
+      ],
+      "complexity": 5,
+      "risk_score": 0.4,
+      "max_wall_clock_minutes": 90,
+      "max_loc_delta": 1000
+    }
+  ]
+}

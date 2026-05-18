@@ -1,0 +1,38 @@
+{
+  "feature_id": "012-developer-onboarding-make-dev",
+  "parent_epic": "MESHSAT-184",
+  "spec_revision": "1 (2026-05-18)",
+  "tasks": [
+    {
+      "id": "T-001",
+      "status": "pending",
+      "title": "make dev target + docker-compose dev stack",
+      "prompt": "FIRST: read spec/012-developer-onboarding-make-dev/{requirements.md, design.md, acceptance/developer-onboarding-make-dev.feature}. SECOND: implement per ROADMAP + EXECUTION_PLAN MESHSAT-184.",
+      "files_owned": [
+        "Makefile",
+        "deploy/dev/docker-compose.yml",
+        "scripts/dev-setup.sh"
+      ],
+      "acceptance_test": "cd meshsat-hub && make test",
+      "dependencies": [],
+      "parallelizable": true,
+      "bounded_context": "scripts",
+      "requirement_ids": [
+        "REQ-1100",
+        "REQ-1101",
+        "REQ-1102",
+        "REQ-1103",
+        "REQ-1104",
+        "REQ-1105",
+        "REQ-1106",
+        "REQ-1107",
+        "REQ-1108",
+        "REQ-1109"
+      ],
+      "complexity": 5,
+      "risk_score": 0.4,
+      "max_wall_clock_minutes": 90,
+      "max_loc_delta": 1000
+    }
+  ]
+}

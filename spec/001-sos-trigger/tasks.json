@@ -1,0 +1,39 @@
+{
+  "feature_id": "001-sos-trigger",
+  "parent_epic": "MESHSAT-170",
+  "spec_revision": "1 (2026-05-18)",
+  "tasks": [
+    {
+      "id": "T-001",
+      "status": "completed",
+      "title": "SOS detection + emergency contact dispatch (RETROSPECTIVE)",
+      "prompt": "(RETROSPECTIVE \u2014 shipped per CGC.) FIRST: read spec/001-sos-trigger/{requirements.md, design.md, acceptance/sos-trigger.feature}. SECOND: implement per ROADMAP + EXECUTION_PLAN MESHSAT-170.",
+      "files_owned": [
+        "internal/sos/detector.go",
+        "internal/sos/dispatcher.go",
+        "internal/sos/detector_test.go"
+      ],
+      "acceptance_test": "cd meshsat-hub && make test",
+      "dependencies": [],
+      "parallelizable": true,
+      "bounded_context": "sos",
+      "requirement_ids": [
+        "REQ-001",
+        "REQ-002",
+        "REQ-003",
+        "REQ-004",
+        "REQ-005",
+        "REQ-006",
+        "REQ-007",
+        "REQ-008",
+        "REQ-009",
+        "REQ-010"
+      ],
+      "complexity": 5,
+      "risk_score": 0.0,
+      "max_wall_clock_minutes": 90,
+      "max_loc_delta": 1000,
+      "completed_at": "2026-03"
+    }
+  ]
+}

@@ -1,0 +1,37 @@
+{
+  "feature_id": "002-mo-fragment-reassembly",
+  "parent_epic": "MESHSAT-168",
+  "spec_revision": "1 (2026-05-18)",
+  "tasks": [
+    {
+      "id": "T-001",
+      "status": "pending",
+      "title": "Wire fragment reassembly for multi-part MO messages",
+      "prompt": "FIRST: read spec/002-mo-fragment-reassembly/{requirements.md, design.md, acceptance/mo-fragment-reassembly.feature}. SECOND: implement per ROADMAP + EXECUTION_PLAN MESHSAT-168.",
+      "files_owned": [
+        "internal/fragment/reassembler.go",
+        "internal/fragment/reassembler_test.go"
+      ],
+      "acceptance_test": "cd meshsat-hub && make test",
+      "dependencies": [],
+      "parallelizable": true,
+      "bounded_context": "fragment",
+      "requirement_ids": [
+        "REQ-100",
+        "REQ-101",
+        "REQ-102",
+        "REQ-103",
+        "REQ-104",
+        "REQ-105",
+        "REQ-106",
+        "REQ-107",
+        "REQ-108",
+        "REQ-109"
+      ],
+      "complexity": 5,
+      "risk_score": 0.4,
+      "max_wall_clock_minutes": 90,
+      "max_loc_delta": 1000
+    }
+  ]
+}

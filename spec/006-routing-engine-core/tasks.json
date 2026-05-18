@@ -1,0 +1,38 @@
+{
+  "feature_id": "006-routing-engine-core",
+  "parent_epic": "MESHSAT-178",
+  "spec_revision": "1 (2026-05-18)",
+  "tasks": [
+    {
+      "id": "T-001",
+      "status": "pending",
+      "title": "Routing engine core with per-rule dispatch",
+      "prompt": "FIRST: read spec/006-routing-engine-core/{requirements.md, design.md, acceptance/routing-engine-core.feature}. SECOND: implement per ROADMAP + EXECUTION_PLAN MESHSAT-178.",
+      "files_owned": [
+        "internal/routing/engine.go",
+        "internal/routing/registry.go",
+        "internal/routing/engine_test.go"
+      ],
+      "acceptance_test": "cd meshsat-hub && make test",
+      "dependencies": [],
+      "parallelizable": true,
+      "bounded_context": "routing",
+      "requirement_ids": [
+        "REQ-500",
+        "REQ-501",
+        "REQ-502",
+        "REQ-503",
+        "REQ-504",
+        "REQ-505",
+        "REQ-506",
+        "REQ-507",
+        "REQ-508",
+        "REQ-509"
+      ],
+      "complexity": 5,
+      "risk_score": 0.4,
+      "max_wall_clock_minutes": 90,
+      "max_loc_delta": 1000
+    }
+  ]
+}

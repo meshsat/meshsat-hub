@@ -1,0 +1,38 @@
+{
+  "feature_id": "009-sms-email-routing-destinations",
+  "parent_epic": "MESHSAT-181",
+  "spec_revision": "1 (2026-05-18)",
+  "tasks": [
+    {
+      "id": "T-001",
+      "status": "pending",
+      "title": "SMS + Email destinations under routing engine",
+      "prompt": "FIRST: read spec/009-sms-email-routing-destinations/{requirements.md, design.md, acceptance/sms-email-routing-destinations.feature}. SECOND: implement per ROADMAP + EXECUTION_PLAN MESHSAT-181.",
+      "files_owned": [
+        "internal/routing/destinations/sms.go",
+        "internal/routing/destinations/email.go",
+        "internal/routing/destinations/sms_test.go"
+      ],
+      "acceptance_test": "cd meshsat-hub && make test",
+      "dependencies": [],
+      "parallelizable": true,
+      "bounded_context": "routing",
+      "requirement_ids": [
+        "REQ-800",
+        "REQ-801",
+        "REQ-802",
+        "REQ-803",
+        "REQ-804",
+        "REQ-805",
+        "REQ-806",
+        "REQ-807",
+        "REQ-808",
+        "REQ-809"
+      ],
+      "complexity": 5,
+      "risk_score": 0.4,
+      "max_wall_clock_minutes": 90,
+      "max_loc_delta": 1000
+    }
+  ]
+}

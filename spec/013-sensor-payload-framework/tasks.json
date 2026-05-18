@@ -1,0 +1,37 @@
+{
+  "feature_id": "013-sensor-payload-framework",
+  "parent_epic": "MESHSAT-185",
+  "spec_revision": "1 (2026-05-18)",
+  "tasks": [
+    {
+      "id": "T-001",
+      "status": "pending",
+      "title": "Sensor payload framework with schema validation",
+      "prompt": "FIRST: read spec/013-sensor-payload-framework/{requirements.md, design.md, acceptance/sensor-payload-framework.feature}. SECOND: implement per ROADMAP + EXECUTION_PLAN MESHSAT-185.",
+      "files_owned": [
+        "internal/protocol/sensor.go",
+        "internal/protocol/sensor_test.go"
+      ],
+      "acceptance_test": "cd meshsat-hub && make test",
+      "dependencies": [],
+      "parallelizable": true,
+      "bounded_context": "protocol",
+      "requirement_ids": [
+        "REQ-1200",
+        "REQ-1201",
+        "REQ-1202",
+        "REQ-1203",
+        "REQ-1204",
+        "REQ-1205",
+        "REQ-1206",
+        "REQ-1207",
+        "REQ-1208",
+        "REQ-1209"
+      ],
+      "complexity": 5,
+      "risk_score": 0.4,
+      "max_wall_clock_minutes": 90,
+      "max_loc_delta": 1000
+    }
+  ]
+}

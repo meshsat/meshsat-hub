@@ -1,0 +1,66 @@
+{
+  "slug": "meshsat-hub",
+  "title": "MeshSat Hub — multi-tenant SaaS management platform",
+  "youtrack_prefix": "MESHSAT",
+  "youtrack_disambiguator": "tag:hub OR summary contains 'hub' / 'galera' / 'tenant'",
+  "matrix_room": "!miZJJDwFQZDkuMcBqL:matrix.nuclearlighters.net",
+  "primary_language": "go",
+  "test_command": "make test",
+  "lint_command": "make lint && make security",
+  "build_command": "make build",
+  "ci_pipeline": ".gitlab-ci.yml",
+  "parent_project": {
+    "slug": "cubeos",
+    "project_id": 16,
+    "spec_home": "/home/claude-runner/gitlab/products/cubeos/docs",
+    "note": "Track D of CubeOS — cloud counterpart for MeshSat Bridge devices. Runs on CubeOS Tier 2 cluster."
+  },
+  "bounded_contexts": [
+    "alerting", "api", "apprise", "aprsis", "audit", "auth", "backup",
+    "bridge", "bus", "cloudloop", "cluster", "codec", "compress", "config",
+    "constellation", "crypto", "deadman", "dedup", "directory", "email",
+    "escalation", "fragment", "geo", "globalstar", "hawkbit", "health",
+    "httpjson", "ipougrs", "leader", "message", "metrics", "middleware",
+    "mptcp", "mqtt", "msvqsc", "ntfy", "observability", "position",
+    "protocol", "ratelimit", "reticulum", "rock7", "rockblock", "routing",
+    "scheduler", "sms", "sos", "store", "tak", "timesync", "tlspin",
+    "tor", "webhook", "wireguard", "web", "cmd", "deploy", "scripts"
+  ],
+  "_bounded_contexts_note": "1:1 with real top-level directories under internal/ (CGC-verified 2026-05-18: 53+ internal packages).",
+  "max_parallel_workers": 3,
+  "max_loc_per_worker": 500,
+  "owners": ["ufwtqkgz@meshsat.net"],
+  "risk_profile": "high",
+  "gitlab_project_id": 35,
+  "deployment_targets": [
+    "nllei01dmz01 (NL, 192.168.192.10)",
+    "grskg01dmz01 (GR, 192.168.15.10)"
+  ],
+  "deployment_tiers": [
+    "Tier 1: Docker Compose standalone (SQLite + Mosquitto)",
+    "Tier 2: Docker Compose cluster + Galera + NATS + Redis",
+    "Tier 3: Helm chart (StatefulSets + Lease-API leader)"
+  ],
+  "release_workflow": "push-to-main-deploys-automatically",
+  "parallel_dev_exception": {
+    "allowed": true,
+    "workflow": "merge/<feature_id> short-lived branch + 1 MR per feature + auto-delete branch on merge",
+    "rationale": "Repo's default 'push to main' rule conflicts with parallel-dev. Override applies only to parallel-dev waves."
+  },
+  "security_posture": "internet-exposed; security is #1 priority above features",
+  "compliance_targets": [
+    "OWASP ZAP per v0.X release",
+    "WCAG 2.1 AAA (in-progress)",
+    "FIPS-140-3 (deferred)"
+  ],
+  "schema_migration_strategy": "hand-rolled idempotent CREATE-IF-NOT-EXISTS + ALTER-IGNORE-DUPE; MUST update BOTH internal/store/sqlite/*.go AND internal/store/mariadb/mariadb.go per change",
+  "current_version": "1.1",
+  "current_mode_env": "HUB_MODE",
+  "current_modes": ["standalone", "cluster", "kubernetes"],
+  "test_count": 112,
+  "surfaces": {
+    "http_api": true,
+    "events": true,
+    "persistent_data": true
+  }
+}

@@ -1,0 +1,38 @@
+{
+  "feature_id": "004-dead-man-switch-heartbeat",
+  "parent_epic": "MESHSAT-171",
+  "spec_revision": "1 (2026-05-18)",
+  "tasks": [
+    {
+      "id": "T-001",
+      "status": "pending",
+      "title": "Wire dead-man-switch heartbeats",
+      "prompt": "FIRST: read spec/004-dead-man-switch-heartbeat/{requirements.md, design.md, acceptance/dead-man-switch-heartbeat.feature}. SECOND: implement per ROADMAP + EXECUTION_PLAN MESHSAT-171.",
+      "files_owned": [
+        "internal/deadman/scheduler.go",
+        "internal/deadman/heartbeat.go",
+        "internal/deadman/scheduler_test.go"
+      ],
+      "acceptance_test": "cd meshsat-hub && make test",
+      "dependencies": [],
+      "parallelizable": true,
+      "bounded_context": "deadman",
+      "requirement_ids": [
+        "REQ-300",
+        "REQ-301",
+        "REQ-302",
+        "REQ-303",
+        "REQ-304",
+        "REQ-305",
+        "REQ-306",
+        "REQ-307",
+        "REQ-308",
+        "REQ-309"
+      ],
+      "complexity": 5,
+      "risk_score": 0.4,
+      "max_wall_clock_minutes": 90,
+      "max_loc_delta": 1000
+    }
+  ]
+}
