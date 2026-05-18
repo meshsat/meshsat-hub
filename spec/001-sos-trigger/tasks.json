@@ -2,39 +2,46 @@
   "feature_id": "001-sos-trigger",
   "_cgc_verified_at": "2026-05-18",
   "parent_epic": "MESHSAT-170",
-  "spec_revision": "1 (2026-05-18)",
+  "spec_revision": "2 (2026-05-18 — concrete CGC-grounded REQs replacing templated v1)",
   "tasks": [
     {
       "id": "T-001",
       "status": "completed",
-      "title": "SOS detection + emergency contact dispatch (RETROSPECTIVE)",
-      "prompt": "(RETROSPECTIVE \u2014 shipped per CGC.) FIRST: read spec/001-sos-trigger/{requirements.md, design.md, acceptance/sos-trigger.feature}. SECOND: implement per ROADMAP + EXECUTION_PLAN MESHSAT-170.",
+      "title": "SOS Detector — bus subscriber + keyword + explicit-field + escalation engine fire",
+      "prompt": "(RETROSPECTIVE — shipped.) CGC-verified at internal/sos/detector.go. Detector subscribes to meshsat/+/mo/decoded, applies sosKeywords case-insensitive match OR explicit SOS field, publishes SOSEvent JSON to meshsat/{IMEI}/sos, fires escalation.Engine for the configured tenant + chain.",
       "files_owned": [
         "internal/sos/detector.go",
         "internal/sos/detector_test.go"
       ],
-      "acceptance_test": "cd meshsat-hub && make test",
+      "_files_owned_note": "CGC-verified 2026-05-18: package sos contains exactly detector.go + detector_test.go. NO dispatcher.go (dispatch is inside escalation.Engine, not the sos package).",
+      "acceptance_test": "cd meshsat-hub && go test -v ./internal/sos/",
       "dependencies": [],
       "parallelizable": true,
       "bounded_context": "sos",
-      "requirement_ids": [
-        "REQ-001",
-        "REQ-002",
-        "REQ-003",
-        "REQ-004",
-        "REQ-005",
-        "REQ-006",
-        "REQ-007",
-        "REQ-008",
-        "REQ-009",
-        "REQ-010"
-      ],
+      "requirement_ids": ["REQ-001", "REQ-002", "REQ-003", "REQ-004", "REQ-005", "REQ-006", "REQ-007", "REQ-008", "REQ-009", "REQ-010", "REQ-011", "REQ-012", "REQ-013", "REQ-016", "REQ-017", "REQ-018", "REQ-019", "REQ-020"],
       "complexity": 5,
       "risk_score": 0.0,
       "max_wall_clock_minutes": 90,
-      "max_loc_delta": 1000,
-      "completed_at": "2026-03",
-      "_files_owned_note": "CGC-verified 2026-05-18: internal/sos/ contains detector.go + detector_test.go. No separate dispatcher.go (logic is inline in detector.go)."
+      "max_loc_delta": 600,
+      "completed_at": "2026-03"
+    },
+    {
+      "id": "T-002",
+      "status": "pending",
+      "title": "Article VII fail-OPEN posture verification + chaos test (Hub unreachable scenario)",
+      "prompt": "FIRST: read spec/001-sos-trigger/{requirements.md, design.md}. SECOND: add a chaos test in internal/sos/ that simulates bus.MessageBus failures during Detector startup AND mid-handler runs. Verify the Detector logs + retries rather than panicking (REQ-014/015).",
+      "files_owned": [
+        "internal/sos/chaos_test.go"
+      ],
+      "acceptance_test": "cd meshsat-hub && go test -v -run TestSOSChaos ./internal/sos/",
+      "dependencies": [],
+      "parallelizable": true,
+      "bounded_context": "sos",
+      "requirement_ids": ["REQ-014", "REQ-015"],
+      "complexity": 4,
+      "risk_score": 0.4,
+      "max_wall_clock_minutes": 60,
+      "max_loc_delta": 400
     }
   ]
 }
