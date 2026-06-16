@@ -403,3 +403,43 @@ func TestThingResolver_RefreshFromAPI_SkipsExisting(t *testing.T) {
 func TestThingResolver_ImplementsDeviceResolver(t *testing.T) {
 	var _ DeviceResolver = (*ThingResolver)(nil)
 }
+
+// IFRNLLEI01PRD-906: Cloudloop changed subscriberCertus from object to string,
+// which used to fail the entire GetThings decode once per minute. Verify both
+// shapes (and null) now parse.
+func TestCloudloopSubscRef_UnmarshalJSON_StringOrObject(t *testing.T) {
+	var obj CloudloopSubscRef
+	if err := json.Unmarshal([]byte(`{"id":"sub-1","imei":"300123"}`), &obj); err != nil {
+		t.Fatalf("object form: unexpected error: %v", err)
+	}
+	if obj.ID != "sub-1" || obj.IMEI != "300123" {
+		t.Fatalf("object form: got %+v", obj)
+	}
+	var str CloudloopSubscRef
+	if err := json.Unmarshal([]byte(`"sub-2"`), &str); err != nil {
+		t.Fatalf("string form: unexpected error: %v", err)
+	}
+	if str.ID != "sub-2" {
+		t.Fatalf("string form: got %+v", str)
+	}
+	var nul CloudloopSubscRef
+	if err := json.Unmarshal([]byte(`null`), &nul); err != nil {
+		t.Fatalf("null: unexpected error: %v", err)
+	}
+	if nul.ID != "" {
+		t.Fatalf("null: expected zero value, got %+v", nul)
+	}
+	// The exact -906 failure mode: a full GetThings response with a STRING
+	// subscriberCertus must decode cleanly (object subscriberSbd alongside).
+	body := `{"things":[{"id":"t1","account":"a","supportsP6":true,"subscriberCertus":"certus-ref-123","subscriberSbd":{"id":"sbd-1","imei":"300999"}}]}`
+	var resp GetThingsResponse
+	if err := json.Unmarshal([]byte(body), &resp); err != nil {
+		t.Fatalf("GetThings with string subscriberCertus: unexpected error: %v", err)
+	}
+	if len(resp.Things) != 1 || resp.Things[0].SubscriberCertus == nil || resp.Things[0].SubscriberCertus.ID != "certus-ref-123" {
+		t.Fatalf("GetThings: subscriberCertus not parsed: %+v", resp.Things)
+	}
+	if resp.Things[0].SubscriberSBD == nil || resp.Things[0].SubscriberSBD.IMEI != "300999" {
+		t.Fatalf("GetThings: subscriberSbd object not parsed: %+v", resp.Things[0].SubscriberSBD)
+	}
+}

@@ -39,6 +39,33 @@ type CloudloopSubscRef struct {
 	IMEI string `json:"imei,omitempty"`
 }
 
+// UnmarshalJSON tolerates Cloudloop's GetThings schema drift (IFRNLLEI01PRD-906,
+// observed 2026-05-15): the subscriber-ref fields (subscriberCertus, and
+// potentially subscriberSbd/Bgan/Cellular) may arrive as a plain JSON string
+// instead of an object. Before this, the fixed `*CloudloopSubscRef` decode failed
+// the entire GetThings unmarshal once per minute, breaking periodic API refresh.
+// Accept both shapes: a bare string is taken as the subscriber ID; an object
+// decodes normally. null leaves the ref zero-valued.
+func (r *CloudloopSubscRef) UnmarshalJSON(data []byte) error {
+	if string(data) == "null" {
+		return nil
+	}
+	// String form (post-drift): the value IS the subscriber id.
+	var s string
+	if err := json.Unmarshal(data, &s); err == nil {
+		r.ID = s
+		return nil
+	}
+	// Object form (original schema). Alias breaks the UnmarshalJSON recursion.
+	type alias CloudloopSubscRef
+	var a alias
+	if err := json.Unmarshal(data, &a); err != nil {
+		return err
+	}
+	*r = CloudloopSubscRef(a)
+	return nil
+}
+
 // GetThingsResponse is the response from Data/GetThings.
 type GetThingsResponse struct {
 	Things []CloudloopThing `json:"things"`
