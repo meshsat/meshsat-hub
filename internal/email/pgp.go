@@ -1,5 +1,5 @@
 // Package email provides PGP-encrypted email send/receive for MeshSat Hub.
-// Uses golang.org/x/crypto/openpgp for PGP operations.
+// Uses github.com/ProtonMail/go-crypto/openpgp for PGP operations.
 package email
 
 import (
@@ -12,10 +12,10 @@ import (
 	"sync"
 	"time"
 
-	"golang.org/x/crypto/openpgp"        //nolint:staticcheck // using x/crypto/openpgp to avoid new dependency; security fixes still applied
-	"golang.org/x/crypto/openpgp/armor"  //nolint:staticcheck
-	"golang.org/x/crypto/openpgp/packet" //nolint:staticcheck
-	_ "golang.org/x/crypto/ripemd160"    //nolint:staticcheck // required by openpgp for hash registration
+	"github.com/ProtonMail/go-crypto/openpgp"
+	"github.com/ProtonMail/go-crypto/openpgp/armor"
+	"github.com/ProtonMail/go-crypto/openpgp/packet"
+	_ "golang.org/x/crypto/ripemd160" //nolint:staticcheck // required by openpgp for hash registration
 )
 
 // KeyRing manages PGP keys for the Hub and per-contact recipients.
