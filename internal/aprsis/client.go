@@ -144,16 +144,22 @@ func (c *Client) readLoop() {
 	c.mu.Unlock()
 
 	scanner := bufio.NewScanner(conn)
-	// Clear the login-phase read deadline: the loop must block. A deadline
-	// expiry poisons bufio.Scanner (sticky error -> busy spin,
-	// IFRNLLEI01PRD-905); dead peers surface via OS TCP keepalive instead.
-	_ = conn.SetReadDeadline(time.Time{})
 	for c.running.Load() {
+		_ = conn.SetReadDeadline(time.Now().Add(90 * time.Second)) // APRS-IS keepalive is ~30s
 		if !scanner.Scan() {
 			if !c.running.Load() {
 				return
 			}
-			if err := scanner.Err(); err != nil {
+			err := scanner.Err()
+			if err != nil {
+				if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
+					// A read-deadline timeout puts bufio.Scanner into a
+					// permanent error state; reusing it makes Scan() return
+					// false instantly and spins one CPU core at 100%.
+					// Recreate the scanner to resume reading. [MESHSAT-697]
+					scanner = bufio.NewScanner(conn)
+					continue
+				}
 				slog.Warn("aprsis: read error", "error", err)
 			} else {
 				slog.Warn("aprsis: connection closed by server")

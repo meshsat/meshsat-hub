@@ -121,17 +121,25 @@ func (c *Client) readLoop() {
 	scanner := bufio.NewScanner(conn)
 	scanner.Buffer(make([]byte, 64*1024), 256*1024)
 
-	// No read deadline here: OTS plain TCP can stay silent indefinitely, and
-	// a deadline expiry poisons bufio.Scanner — its error is sticky, so every
-	// later Scan() returns false without reading, turning this loop into a
-	// CPU-bound spin (IFRNLLEI01PRD-905). Dead peers surface as read errors
-	// via the OS TCP keepalive that Go dialers enable by default.
 	for c.running.Load() {
+		if err := conn.SetReadDeadline(time.Now().Add(60 * time.Second)); err != nil {
+			break
+		}
 		if !scanner.Scan() {
 			if !c.running.Load() {
 				return
 			}
-			if err := scanner.Err(); err != nil {
+			err := scanner.Err()
+			if err != nil {
+				if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
+					// A read-deadline timeout puts bufio.Scanner into a
+					// permanent error state; reusing it makes Scan() return
+					// false instantly and spins one CPU core at 100%.
+					// Recreate the scanner to resume reading. [MESHSAT-697]
+					scanner = bufio.NewScanner(conn)
+					scanner.Buffer(make([]byte, 64*1024), 256*1024)
+					continue // read timeout, keep going
+				}
 				slog.Warn("tak: read error", "error", err)
 			} else {
 				slog.Warn("tak: connection closed by server")

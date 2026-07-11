@@ -295,10 +295,6 @@ func (f *Federation) readPeer(ctx context.Context, peer *federationPeer) {
 	scanner := bufio.NewScanner(peer.conn)
 	scanner.Buffer(make([]byte, 64*1024), 256*1024)
 
-	// No read deadline: a deadline expiry poisons bufio.Scanner (sticky
-	// error -> busy spin, IFRNLLEI01PRD-905). Idle peers are normal; dead
-	// peers surface as read errors via OS TCP keepalive, and Stop() closes
-	// peer conns to unblock Scan.
 	for f.running.Load() {
 		select {
 		case <-ctx.Done():
@@ -306,11 +302,25 @@ func (f *Federation) readPeer(ctx context.Context, peer *federationPeer) {
 		default:
 		}
 
+		if err := peer.conn.SetReadDeadline(time.Now().Add(60 * time.Second)); err != nil {
+			return
+		}
+
 		if !scanner.Scan() {
 			if !f.running.Load() {
 				return
 			}
-			if err := scanner.Err(); err != nil {
+			err := scanner.Err()
+			if err != nil {
+				if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
+					// A read-deadline timeout puts bufio.Scanner into a
+					// permanent error state; reusing it makes Scan() return
+					// false instantly and spins one CPU core at 100%.
+					// Recreate the scanner to resume reading. [MESHSAT-697]
+					scanner = bufio.NewScanner(peer.conn)
+					scanner.Buffer(make([]byte, 64*1024), 256*1024)
+					continue
+				}
 				slog.Debug("tak federation: peer read error", "peer", peer.addr, "error", err)
 			}
 			return
