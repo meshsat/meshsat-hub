@@ -4,7 +4,7 @@ go 1.25.0
 
 require (
 	github.com/eclipse/paho.mqtt.golang v1.5.1
-	github.com/go-chi/chi/v5 v5.2.5
+	github.com/go-chi/chi/v5 v5.3.0
 	github.com/golang-jwt/jwt/v5 v5.3.1
 	github.com/mochi-mqtt/server/v2 v2.7.9 // test-only: embedded broker for integration tests
 	github.com/redis/go-redis/v9 v9.18.0
