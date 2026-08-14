@@ -1074,7 +1074,13 @@ func main() {
 
 	r := chi.NewRouter()
 	r.Use(middleware.Recoverer)
-	r.Use(middleware.RealIP)
+	// middleware.RealIP was removed (chi v5.3.0 deprecates it as spoofable —
+	// GHSA-3fxj-6jh8-hvhx): it rewrote r.RemoteAddr from X-Forwarded-For /
+	// True-Client-IP before the webhook IP allowlists ran, defeating their
+	// "direct peer only" checks (internal/cloudloop/webhook.go isAllowedIP
+	// implements trusted-proxy XFF handling itself). RemoteAddr is now always
+	// the direct TCP peer. Consumers needing the end-client IP behind the
+	// reverse proxy should use chi's ClientIPFromXFFTrustedProxies + GetClientIP.
 	r.Use(hubmw.RequestID)             // Assign/propagate correlation IDs.
 	r.Use(hubmw.MaxBodySize(10 << 20)) // 10MB global request body limit (webhook handlers override).
 	r.Use(api.SecurityHeaders)
