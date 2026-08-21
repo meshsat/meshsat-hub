@@ -62,6 +62,14 @@ MPTCP concentrator, WireGuard peer management, multi-constellation router (4 str
 
 hawkBit OTA, built-in user management (Argon2id + JWT + refresh tokens), security headers (HSTS/CSP/CORS), OWASP testing, security MCP tools. Tech debt: MQTT reconnect fix, API handler tests, Swagger annotations, goroutine pool.
 
+### Maintenance — 2026-08-21 (MESHSAT-710/711/712)
+
+**MESHSAT-710 (fixed, commit ffdce80):** the shared Paho MQTT client keeps one callback per exact topic filter, so every later `Subscribe` on the same filter silently replaced the earlier handler. In production the SOS detector, position subscriber, MO message subscriber, and TAK SOS relay received nothing (routing engine and WebSocket bridge, the last subscribers, held the filters). `internal/bus/paho` now multiplexes same-filter subscriptions: one broker subscription per filter, fan-out dispatch to all handlers, QoS-upgrade resubscribe, reconnect replay. Verified end-to-end on both production nodes.
+
+**MESHSAT-712 (fixed, commit 803c530):** CI lint pinned to golangci-lint v2.11.3 — `@latest` (v2.13.1+) requires Go 1.26 while the CI image is golang:1.25.
+
+**MESHSAT-711 (open):** the routing engine runs on every cluster node, dispatching each matched route once per node (observed 2× SMS per message). Fix direction: leader-gate dispatch or shared subscriptions.
+
 ---
 
 ## Post-v1.0 Gap Analysis (2026-03-19 Audit)
