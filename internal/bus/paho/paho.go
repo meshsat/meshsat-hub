@@ -20,11 +20,16 @@ import (
 	"github.com/cubeos-app/meshsat-hub/internal/bus"
 )
 
-// subscription records a Subscribe or QueueSubscribe call for replay on reconnect.
-type subscription struct {
-	topic   string
-	qos     byte
-	handler bus.MessageHandler
+// route holds every handler registered for one exact topic filter.
+//
+// Paho's client-side router keeps a single callback per exact filter string —
+// a second Subscribe on the same filter REPLACES the first callback
+// (router.addRoute), silently starving the earlier subscriber. The bus
+// therefore registers exactly one Paho subscription per filter, whose
+// dispatcher fans out to every handler recorded here (MESHSAT-710).
+type route struct {
+	qos      byte
+	handlers []bus.MessageHandler
 }
 
 // Bus implements bus.MessageBus using Paho MQTT.
@@ -34,8 +39,13 @@ type Bus struct {
 	inner     pahomqtt.Client
 	connected atomic.Bool
 
-	mu   sync.Mutex
-	subs []subscription
+	// subMu serialises Subscribe and resubscribe so the handler registry and
+	// the broker's subscription state cannot diverge under concurrent calls.
+	// Never held while dispatching messages.
+	subMu sync.Mutex
+
+	mu     sync.Mutex // guards routes
+	routes map[string]*route
 }
 
 // TLSConfig holds optional TLS settings for MQTT connections.
@@ -137,26 +147,46 @@ func loadTLSConfig(cfg *TLSConfig) (*tls.Config, error) {
 
 // resubscribe replays all registered subscriptions after a reconnect.
 func (b *Bus) resubscribe(c pahomqtt.Client) {
+	b.subMu.Lock()
+	defer b.subMu.Unlock()
+
 	b.mu.Lock()
-	snapshot := make([]subscription, len(b.subs))
-	copy(snapshot, b.subs)
+	filters := make(map[string]byte, len(b.routes))
+	for topic, r := range b.routes {
+		filters[topic] = r.qos
+	}
 	b.mu.Unlock()
 
-	if len(snapshot) == 0 {
+	if len(filters) == 0 {
 		return
 	}
 
-	slog.Info("bus: replaying subscriptions after reconnect", "count", len(snapshot))
-	for _, s := range snapshot {
-		handler := s.handler // capture for closure
-		token := c.Subscribe(s.topic, s.qos, func(_ pahomqtt.Client, msg pahomqtt.Message) {
-			handler(msg.Topic(), msg.Payload())
-		})
+	slog.Info("bus: replaying subscriptions after reconnect", "count", len(filters))
+	for topic, qos := range filters {
+		token := c.Subscribe(topic, qos, b.dispatcherFor(topic))
 		token.Wait()
 		if err := token.Error(); err != nil {
-			slog.Error("bus: resubscribe failed", "topic", s.topic, "error", err)
+			slog.Error("bus: resubscribe failed", "topic", topic, "error", err)
 		} else {
-			slog.Debug("bus: resubscribed", "topic", s.topic)
+			slog.Debug("bus: resubscribed", "topic", topic)
+		}
+	}
+}
+
+// dispatcherFor returns the single Paho callback shared by all handlers of one
+// topic filter: it snapshots the filter's handlers under the lock and invokes
+// each in registration order, outside the lock.
+func (b *Bus) dispatcherFor(filter string) pahomqtt.MessageHandler {
+	return func(_ pahomqtt.Client, msg pahomqtt.Message) {
+		b.mu.Lock()
+		var handlers []bus.MessageHandler
+		if r, ok := b.routes[filter]; ok {
+			handlers = make([]bus.MessageHandler, len(r.handlers))
+			copy(handlers, r.handlers)
+		}
+		b.mu.Unlock()
+		for _, h := range handlers {
+			h(msg.Topic(), msg.Payload())
 		}
 	}
 }
@@ -201,17 +231,42 @@ func (b *Bus) PublishJSON(topic string, qos byte, retained bool, v any) error {
 }
 
 func (b *Bus) Subscribe(topic string, qos byte, handler bus.MessageHandler) error {
-	token := b.inner.Subscribe(topic, qos, func(_ pahomqtt.Client, msg pahomqtt.Message) {
-		handler(msg.Topic(), msg.Payload())
-	})
-	token.Wait()
-	if err := token.Error(); err != nil {
-		return fmt.Errorf("bus: subscribe %s: %w", topic, err)
-	}
+	b.subMu.Lock()
+	defer b.subMu.Unlock()
+
 	b.mu.Lock()
-	b.subs = append(b.subs, subscription{topic: topic, qos: qos, handler: handler})
+	if b.routes == nil {
+		b.routes = make(map[string]*route)
+	}
+	r, exists := b.routes[topic]
+	subQoS := qos
+	if exists && r.qos > subQoS {
+		subQoS = r.qos
+	}
+	// The broker needs a (re)subscribe only for a new filter or a QoS upgrade;
+	// otherwise the existing shared subscription already covers this handler.
+	needSubscribe := !exists || subQoS > r.qos
 	b.mu.Unlock()
-	slog.Debug("bus: subscribed", "topic", topic)
+
+	if needSubscribe {
+		token := b.inner.Subscribe(topic, subQoS, b.dispatcherFor(topic))
+		token.Wait()
+		if err := token.Error(); err != nil {
+			return fmt.Errorf("bus: subscribe %s: %w", topic, err)
+		}
+	}
+
+	b.mu.Lock()
+	if r == nil {
+		r = &route{}
+		b.routes[topic] = r
+	}
+	r.qos = subQoS
+	r.handlers = append(r.handlers, handler)
+	count := len(r.handlers)
+	b.mu.Unlock()
+
+	slog.Debug("bus: subscribed", "topic", topic, "qos", subQoS, "handlers", count)
 	return nil
 }
 
