@@ -11,8 +11,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/cubeos-app/meshsat-hub/internal/apprise"
-	"github.com/cubeos-app/meshsat-hub/internal/store"
+	"github.com/meshsat/meshsat-hub/internal/apprise"
+	"github.com/meshsat/meshsat-hub/internal/store"
 )
 
 // Notifier sends a notification to a set of targets.

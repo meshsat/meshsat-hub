@@ -16,7 +16,7 @@ import (
 
 	"github.com/golang-jwt/jwt/v5"
 
-	"github.com/cubeos-app/meshsat-hub/internal/tlspin"
+	"github.com/meshsat/meshsat-hub/internal/tlspin"
 )
 
 type contextKey string

@@ -12,8 +12,8 @@ import (
 
 	_ "github.com/go-sql-driver/mysql"
 
-	"github.com/cubeos-app/meshsat-hub/internal/store"
-	"github.com/cubeos-app/meshsat-hub/internal/store/dbwrap"
+	"github.com/meshsat/meshsat-hub/internal/store"
+	"github.com/meshsat/meshsat-hub/internal/store/dbwrap"
 )
 
 // DB implements store.Store with MariaDB.

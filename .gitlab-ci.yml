@@ -13,7 +13,7 @@ stages:
 
 variables:
   CGO_ENABLED: "0"
-  MESHSAT_HUB_IMAGE: "ghcr.io/cubeos-app/meshsat-hub"
+  MESHSAT_HUB_IMAGE: "ghcr.io/meshsat/meshsat-hub"
   AWX_HOST: "https://awx.nuclearlighters.net"
   # Deploy targets — use IPs (runner Docker containers lack internal DNS).
   DEPLOY_HOST_NL: "192.168.192.10"

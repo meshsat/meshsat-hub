@@ -8,8 +8,8 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/cubeos-app/meshsat-hub/internal/auth"
 	"github.com/gorilla/websocket"
+	"github.com/meshsat/meshsat-hub/internal/auth"
 )
 
 // wsUpgrader checks the Origin header against allowed origins.

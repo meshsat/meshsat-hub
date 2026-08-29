@@ -6,8 +6,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/cubeos-app/meshsat-hub/internal/bus"
-	"github.com/cubeos-app/meshsat-hub/internal/metrics"
+	"github.com/meshsat/meshsat-hub/internal/bus"
+	"github.com/meshsat/meshsat-hub/internal/metrics"
 )
 
 // DeviceLimiter implements per-device token bucket rate limiting for MT satellite sends.

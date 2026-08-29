@@ -3,7 +3,7 @@ package constellation
 import (
 	"context"
 
-	"github.com/cubeos-app/meshsat-hub/internal/globalstar"
+	"github.com/meshsat/meshsat-hub/internal/globalstar"
 )
 
 // GlobalstarBackend wraps the Globalstar client as a constellation Backend.

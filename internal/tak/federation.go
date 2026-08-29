@@ -16,8 +16,8 @@ import (
 	"sync/atomic"
 	"time"
 
-	hubmqtt "github.com/cubeos-app/meshsat-hub/internal/mqtt"
-	"github.com/cubeos-app/meshsat-hub/internal/protocol"
+	hubmqtt "github.com/meshsat/meshsat-hub/internal/mqtt"
+	"github.com/meshsat/meshsat-hub/internal/protocol"
 )
 
 // FederationConfig holds TAK Federation v2 configuration.

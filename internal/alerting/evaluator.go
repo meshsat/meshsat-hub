@@ -10,7 +10,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/cubeos-app/meshsat-hub/internal/store"
+	"github.com/meshsat/meshsat-hub/internal/store"
 )
 
 // EscalationTrigger is the interface for triggering escalation chains.

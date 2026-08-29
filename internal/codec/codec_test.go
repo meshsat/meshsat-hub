@@ -5,7 +5,7 @@ import (
 	"math"
 	"testing"
 
-	"github.com/cubeos-app/meshsat-hub/internal/geo"
+	"github.com/meshsat/meshsat-hub/internal/geo"
 )
 
 func TestRegistry_List(t *testing.T) {

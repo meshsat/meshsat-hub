@@ -6,9 +6,9 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/cubeos-app/meshsat-hub/internal/auth"
-	"github.com/cubeos-app/meshsat-hub/internal/directory"
 	"github.com/go-chi/chi/v5"
+	"github.com/meshsat/meshsat-hub/internal/auth"
+	"github.com/meshsat/meshsat-hub/internal/directory"
 )
 
 // DirectoryHandler serves the Hub directory REST API: per-tenant

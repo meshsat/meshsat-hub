@@ -7,7 +7,7 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/cubeos-app/meshsat-hub/internal/metrics"
+	"github.com/meshsat/meshsat-hub/internal/metrics"
 	"github.com/redis/go-redis/v9"
 )
 

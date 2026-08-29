@@ -17,14 +17,14 @@ import (
 	"github.com/mochi-mqtt/server/v2/hooks/auth"
 	"github.com/mochi-mqtt/server/v2/listeners"
 
-	"github.com/cubeos-app/meshsat-hub/internal/cloudloop"
-	hubcrypto "github.com/cubeos-app/meshsat-hub/internal/crypto"
-	"github.com/cubeos-app/meshsat-hub/internal/dedup"
-	"github.com/cubeos-app/meshsat-hub/internal/fragment"
-	hubmqtt "github.com/cubeos-app/meshsat-hub/internal/mqtt"
-	"github.com/cubeos-app/meshsat-hub/internal/rockblock"
-	"github.com/cubeos-app/meshsat-hub/internal/sos"
 	"github.com/go-chi/chi/v5"
+	"github.com/meshsat/meshsat-hub/internal/cloudloop"
+	hubcrypto "github.com/meshsat/meshsat-hub/internal/crypto"
+	"github.com/meshsat/meshsat-hub/internal/dedup"
+	"github.com/meshsat/meshsat-hub/internal/fragment"
+	hubmqtt "github.com/meshsat/meshsat-hub/internal/mqtt"
+	"github.com/meshsat/meshsat-hub/internal/rockblock"
+	"github.com/meshsat/meshsat-hub/internal/sos"
 )
 
 // testBroker starts an embedded MQTT broker on a random port.

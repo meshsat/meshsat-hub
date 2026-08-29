@@ -14,11 +14,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/cubeos-app/meshsat-hub/internal/cloudloop"
-	"github.com/cubeos-app/meshsat-hub/internal/compress"
-	hubcrypto "github.com/cubeos-app/meshsat-hub/internal/crypto"
-	"github.com/cubeos-app/meshsat-hub/internal/fragment"
-	hubmqtt "github.com/cubeos-app/meshsat-hub/internal/mqtt"
+	"github.com/meshsat/meshsat-hub/internal/cloudloop"
+	"github.com/meshsat/meshsat-hub/internal/compress"
+	hubcrypto "github.com/meshsat/meshsat-hub/internal/crypto"
+	"github.com/meshsat/meshsat-hub/internal/fragment"
+	hubmqtt "github.com/meshsat/meshsat-hub/internal/mqtt"
 )
 
 // --- MO Flow Tests (RockBLOCK Webhook → MQTT) ---

@@ -10,8 +10,8 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/cubeos-app/meshsat-hub/internal/auth"
-	"github.com/cubeos-app/meshsat-hub/internal/directory"
+	"github.com/meshsat/meshsat-hub/internal/auth"
+	"github.com/meshsat/meshsat-hub/internal/directory"
 )
 
 // Directory vCard + CSV import / export — Hub side. Writes go

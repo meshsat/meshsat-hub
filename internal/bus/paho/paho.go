@@ -17,7 +17,7 @@ import (
 
 	pahomqtt "github.com/eclipse/paho.mqtt.golang"
 
-	"github.com/cubeos-app/meshsat-hub/internal/bus"
+	"github.com/meshsat/meshsat-hub/internal/bus"
 )
 
 // route holds every handler registered for one exact topic filter.

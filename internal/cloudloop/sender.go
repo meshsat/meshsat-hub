@@ -8,13 +8,13 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/cubeos-app/meshsat-hub/internal/audit"
-	"github.com/cubeos-app/meshsat-hub/internal/bus"
-	"github.com/cubeos-app/meshsat-hub/internal/codec"
-	"github.com/cubeos-app/meshsat-hub/internal/compress"
-	"github.com/cubeos-app/meshsat-hub/internal/fragment"
-	hubmqtt "github.com/cubeos-app/meshsat-hub/internal/mqtt"
 	"github.com/google/uuid"
+	"github.com/meshsat/meshsat-hub/internal/audit"
+	"github.com/meshsat/meshsat-hub/internal/bus"
+	"github.com/meshsat/meshsat-hub/internal/codec"
+	"github.com/meshsat/meshsat-hub/internal/compress"
+	"github.com/meshsat/meshsat-hub/internal/fragment"
+	hubmqtt "github.com/meshsat/meshsat-hub/internal/mqtt"
 )
 
 // MTSendRequest is the JSON payload expected on meshsat/+/mt/send topics.

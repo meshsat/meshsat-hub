@@ -5,8 +5,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 
-	"github.com/cubeos-app/meshsat-hub/internal/auth"
 	"github.com/go-chi/chi/v5"
+	"github.com/meshsat/meshsat-hub/internal/auth"
 )
 
 // withTenant returns a context with tenant ID set.

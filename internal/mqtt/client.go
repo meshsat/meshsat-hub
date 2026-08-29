@@ -9,7 +9,7 @@ import (
 
 	pahomqtt "github.com/eclipse/paho.mqtt.golang"
 
-	"github.com/cubeos-app/meshsat-hub/internal/bus"
+	"github.com/meshsat/meshsat-hub/internal/bus"
 )
 
 // Client wraps the Paho MQTT client with auto-reconnect and health tracking.

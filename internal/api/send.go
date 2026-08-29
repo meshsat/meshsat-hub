@@ -8,13 +8,13 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/cubeos-app/meshsat-hub/internal/auth"
-	"github.com/cubeos-app/meshsat-hub/internal/compress"
-	hubcrypto "github.com/cubeos-app/meshsat-hub/internal/crypto"
-	"github.com/cubeos-app/meshsat-hub/internal/rock7"
-	"github.com/cubeos-app/meshsat-hub/internal/sms"
-	"github.com/cubeos-app/meshsat-hub/internal/store"
 	"github.com/go-chi/chi/v5"
+	"github.com/meshsat/meshsat-hub/internal/auth"
+	"github.com/meshsat/meshsat-hub/internal/compress"
+	hubcrypto "github.com/meshsat/meshsat-hub/internal/crypto"
+	"github.com/meshsat/meshsat-hub/internal/rock7"
+	"github.com/meshsat/meshsat-hub/internal/sms"
+	"github.com/meshsat/meshsat-hub/internal/store"
 )
 
 // SendHandler handles MT message and SMS send requests.

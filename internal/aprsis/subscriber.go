@@ -8,8 +8,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/cubeos-app/meshsat-hub/internal/bus"
-	hubmqtt "github.com/cubeos-app/meshsat-hub/internal/mqtt"
+	"github.com/meshsat/meshsat-hub/internal/bus"
+	hubmqtt "github.com/meshsat/meshsat-hub/internal/mqtt"
 )
 
 // Subscriber listens on Hub MQTT position topics and injects satellite-originated

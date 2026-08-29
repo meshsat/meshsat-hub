@@ -10,8 +10,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/cubeos-app/meshsat-hub/internal/auth"
-	"github.com/cubeos-app/meshsat-hub/internal/store"
+	"github.com/meshsat/meshsat-hub/internal/auth"
+	"github.com/meshsat/meshsat-hub/internal/store"
 )
 
 func TestGetLatestConfig(t *testing.T) {

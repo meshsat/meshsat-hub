@@ -130,7 +130,7 @@ services:
       - hubnet
 
   hub:
-    image: ghcr.io/cubeos-app/meshsat-hub:latest
+    image: ghcr.io/meshsat/meshsat-hub:latest
     container_name: meshsat-hub
     restart: unless-stopped
     env_file: .env

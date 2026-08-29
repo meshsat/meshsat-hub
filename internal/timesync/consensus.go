@@ -8,7 +8,7 @@ import (
 
 	"github.com/rs/zerolog/log"
 
-	"github.com/cubeos-app/meshsat-hub/internal/reticulum"
+	"github.com/meshsat/meshsat-hub/internal/reticulum"
 )
 
 // Mesh time consensus packet types -- aligned with bridge wire format.

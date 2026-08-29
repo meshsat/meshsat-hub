@@ -5,8 +5,8 @@ import (
 	"encoding/hex"
 	"net/http"
 
-	"github.com/cubeos-app/meshsat-hub/internal/geo"
 	"github.com/go-chi/chi/v5"
+	"github.com/meshsat/meshsat-hub/internal/geo"
 )
 
 // GeofenceHandler provides CRUD for geofences via the in-memory geo.Engine.

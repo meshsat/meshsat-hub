@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/cubeos-app/meshsat-hub/internal/protocol"
+	"github.com/meshsat/meshsat-hub/internal/protocol"
 )
 
 func TestSendCommandTimeout(t *testing.T) {

@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/cubeos-app/meshsat-hub/internal/store"
+	"github.com/meshsat/meshsat-hub/internal/store"
 )
 
 // --- Bridges ---

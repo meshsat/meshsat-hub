@@ -6,7 +6,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/cubeos-app/meshsat-hub/internal/auth"
+	"github.com/meshsat/meshsat-hub/internal/auth"
 )
 
 func TestAuthMeHandler(t *testing.T) {

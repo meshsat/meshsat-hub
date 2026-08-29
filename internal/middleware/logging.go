@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"time"
 
-	hubauth "github.com/cubeos-app/meshsat-hub/internal/auth"
+	hubauth "github.com/meshsat/meshsat-hub/internal/auth"
 )
 
 // statusRecorder wraps http.ResponseWriter to capture status code and bytes written.

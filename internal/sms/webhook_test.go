@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/cubeos-app/meshsat-hub/internal/bus"
+	"github.com/meshsat/meshsat-hub/internal/bus"
 )
 
 type mockBus struct {

@@ -8,11 +8,11 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/cubeos-app/meshsat-hub/internal/audit"
-	hubauth "github.com/cubeos-app/meshsat-hub/internal/auth"
-	"github.com/cubeos-app/meshsat-hub/internal/store"
-	"github.com/cubeos-app/meshsat-hub/internal/store/sqlite"
 	"github.com/go-chi/chi/v5"
+	"github.com/meshsat/meshsat-hub/internal/audit"
+	hubauth "github.com/meshsat/meshsat-hub/internal/auth"
+	"github.com/meshsat/meshsat-hub/internal/store"
+	"github.com/meshsat/meshsat-hub/internal/store/sqlite"
 )
 
 // testEnv holds a fully wired test environment for API handler tests.

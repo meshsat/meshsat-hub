@@ -46,7 +46,7 @@ ansible-playbook -i deploy/ansible/inventory.yml deploy/ansible/playbooks/deploy
 **Manual equivalent (per host):**
 ```bash
 cd /srv/meshsat-hub
-docker pull ghcr.io/cubeos-app/meshsat-hub:latest
+docker pull ghcr.io/meshsat/meshsat-hub:latest
 docker compose up -d --no-deps --force-recreate hub
 ```
 

@@ -10,9 +10,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/cubeos-app/meshsat-hub/internal/audit"
-	hubauth "github.com/cubeos-app/meshsat-hub/internal/auth"
-	"github.com/cubeos-app/meshsat-hub/internal/store"
+	"github.com/meshsat/meshsat-hub/internal/audit"
+	hubauth "github.com/meshsat/meshsat-hub/internal/auth"
+	"github.com/meshsat/meshsat-hub/internal/store"
 )
 
 // LoginHandler handles user authentication with local accounts.

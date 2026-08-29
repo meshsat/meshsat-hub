@@ -5,9 +5,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/cubeos-app/meshsat-hub/internal/escalation"
-	"github.com/cubeos-app/meshsat-hub/internal/store"
-	"github.com/cubeos-app/meshsat-hub/internal/store/sqlite"
+	"github.com/meshsat/meshsat-hub/internal/escalation"
+	"github.com/meshsat/meshsat-hub/internal/store"
+	"github.com/meshsat/meshsat-hub/internal/store/sqlite"
 )
 
 func newTestStore(t *testing.T) store.Store {

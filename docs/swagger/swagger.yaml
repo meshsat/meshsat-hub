@@ -1,6 +1,6 @@
 basePath: /
 definitions:
-  github_com_cubeos-app_meshsat-hub_internal_auth.User:
+  github_com_meshsat_meshsat-hub_internal_auth.User:
     properties:
       email:
         type: string
@@ -15,7 +15,7 @@ definitions:
       tenant_id:
         type: string
     type: object
-  github_com_cubeos-app_meshsat-hub_internal_deadman.Config:
+  github_com_meshsat_meshsat-hub_internal_deadman.Config:
     properties:
       chain_id:
         description: escalation chain to trigger
@@ -33,7 +33,7 @@ definitions:
         - $ref: '#/definitions/time.Duration'
         description: expected check-in interval
     type: object
-  github_com_cubeos-app_meshsat-hub_internal_store.APIKey:
+  github_com_meshsat_meshsat-hub_internal_store.APIKey:
     properties:
       created_at:
         type: string
@@ -56,7 +56,7 @@ definitions:
         description: '"viewer", "operator", "owner"'
         type: string
     type: object
-  github_com_cubeos-app_meshsat-hub_internal_store.Alert:
+  github_com_meshsat_meshsat-hub_internal_store.Alert:
     properties:
       acked_at:
         type: string
@@ -91,7 +91,7 @@ definitions:
       updated_at:
         type: string
     type: object
-  github_com_cubeos-app_meshsat-hub_internal_store.AuditEntry:
+  github_com_meshsat_meshsat-hub_internal_store.AuditEntry:
     properties:
       action:
         type: string
@@ -112,7 +112,7 @@ definitions:
         description: SHA-256 hash of the previous entry
         type: string
     type: object
-  github_com_cubeos-app_meshsat-hub_internal_store.Device:
+  github_com_meshsat_meshsat-hub_internal_store.Device:
     properties:
       created_at:
         type: string
@@ -130,7 +130,7 @@ definitions:
       updated_at:
         type: string
     type: object
-  github_com_cubeos-app_meshsat-hub_internal_store.DeviceConfig:
+  github_com_meshsat_meshsat-hub_internal_store.DeviceConfig:
     properties:
       author:
         description: who made this change
@@ -150,7 +150,7 @@ definitions:
       version:
         type: integer
     type: object
-  github_com_cubeos-app_meshsat-hub_internal_store.DeviceKey:
+  github_com_meshsat_meshsat-hub_internal_store.DeviceKey:
     properties:
       created_at:
         type: string
@@ -168,7 +168,7 @@ definitions:
         description: '"decrypt" (server can read) or "passthrough" (opaque)'
         type: string
     type: object
-  github_com_cubeos-app_meshsat-hub_internal_store.DeviceWireguard:
+  github_com_meshsat_meshsat-hub_internal_store.DeviceWireguard:
     properties:
       created_at:
         type: string
@@ -183,7 +183,7 @@ definitions:
         description: allocated VPN IP (e.g. "10.8.0.5/32")
         type: string
     type: object
-  github_com_cubeos-app_meshsat-hub_internal_store.EscalationChain:
+  github_com_meshsat_meshsat-hub_internal_store.EscalationChain:
     properties:
       created_at:
         type: string
@@ -193,12 +193,12 @@ definitions:
         type: string
       tiers:
         items:
-          $ref: '#/definitions/github_com_cubeos-app_meshsat-hub_internal_store.EscalationTier'
+          $ref: '#/definitions/github_com_meshsat_meshsat-hub_internal_store.EscalationTier'
         type: array
       updated_at:
         type: string
     type: object
-  github_com_cubeos-app_meshsat-hub_internal_store.EscalationTier:
+  github_com_meshsat_meshsat-hub_internal_store.EscalationTier:
     properties:
       max_retries:
         description: max delivery retries within this tier
@@ -215,7 +215,7 @@ definitions:
         description: seconds to wait before escalating to next tier
         type: integer
     type: object
-  github_com_cubeos-app_meshsat-hub_internal_store.Message:
+  github_com_meshsat_meshsat-hub_internal_store.Message:
     properties:
       channel:
         description: '"iridium"'
@@ -247,7 +247,7 @@ definitions:
       text:
         type: string
     type: object
-  github_com_cubeos-app_meshsat-hub_internal_store.NotificationPref:
+  github_com_meshsat_meshsat-hub_internal_store.NotificationPref:
     properties:
       created_at:
         type: string
@@ -273,7 +273,7 @@ definitions:
           type: string
         type: array
     type: object
-  github_com_cubeos-app_meshsat-hub_internal_store.Position:
+  github_com_meshsat_meshsat-hub_internal_store.Position:
     properties:
       alt:
         type: number
@@ -302,7 +302,7 @@ definitions:
         description: m/s
         type: number
     type: object
-  github_com_cubeos-app_meshsat-hub_internal_store.Route:
+  github_com_meshsat_meshsat-hub_internal_store.Route:
     properties:
       created_at:
         type: string
@@ -424,7 +424,7 @@ definitions:
       updated_at:
         type: string
       wireguard:
-        $ref: '#/definitions/github_com_cubeos-app_meshsat-hub_internal_store.DeviceWireguard'
+        $ref: '#/definitions/github_com_meshsat_meshsat-hub_internal_store.DeviceWireguard'
     type: object
   internal_api.loginRequest:
     properties:
@@ -453,7 +453,7 @@ definitions:
         type: integer
       positions:
         items:
-          $ref: '#/definitions/github_com_cubeos-app_meshsat-hub_internal_store.Position'
+          $ref: '#/definitions/github_com_meshsat_meshsat-hub_internal_store.Position'
         type: array
       total:
         type: integer
@@ -991,7 +991,7 @@ paths:
           description: OK
           schema:
             items:
-              $ref: '#/definitions/github_com_cubeos-app_meshsat-hub_internal_store.Alert'
+              $ref: '#/definitions/github_com_meshsat_meshsat-hub_internal_store.Alert'
             type: array
         "500":
           description: Internal Server Error
@@ -1018,7 +1018,7 @@ paths:
         "201":
           description: Created
           schema:
-            $ref: '#/definitions/github_com_cubeos-app_meshsat-hub_internal_store.Alert'
+            $ref: '#/definitions/github_com_meshsat_meshsat-hub_internal_store.Alert'
         "400":
           description: Bad Request
           schema:
@@ -1048,7 +1048,7 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/github_com_cubeos-app_meshsat-hub_internal_store.Alert'
+            $ref: '#/definitions/github_com_meshsat_meshsat-hub_internal_store.Alert'
         "404":
           description: Not Found
           schema:
@@ -1080,7 +1080,7 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/github_com_cubeos-app_meshsat-hub_internal_store.Alert'
+            $ref: '#/definitions/github_com_meshsat_meshsat-hub_internal_store.Alert'
         "400":
           description: Bad Request
           schema:
@@ -1111,7 +1111,7 @@ paths:
           description: OK
           schema:
             items:
-              $ref: '#/definitions/github_com_cubeos-app_meshsat-hub_internal_store.AuditEntry'
+              $ref: '#/definitions/github_com_meshsat_meshsat-hub_internal_store.AuditEntry'
             type: array
       summary: List audit log entries
       tags:
@@ -1138,7 +1138,7 @@ paths:
           description: OK
           schema:
             items:
-              $ref: '#/definitions/github_com_cubeos-app_meshsat-hub_internal_store.APIKey'
+              $ref: '#/definitions/github_com_meshsat_meshsat-hub_internal_store.APIKey'
             type: array
       summary: List API keys
       tags:
@@ -1262,7 +1262,7 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/github_com_cubeos-app_meshsat-hub_internal_auth.User'
+            $ref: '#/definitions/github_com_meshsat_meshsat-hub_internal_auth.User'
       summary: Get current user
       tags:
       - auth
@@ -1481,7 +1481,7 @@ paths:
           description: OK
           schema:
             items:
-              $ref: '#/definitions/github_com_cubeos-app_meshsat-hub_internal_deadman.Config'
+              $ref: '#/definitions/github_com_meshsat_meshsat-hub_internal_deadman.Config'
             type: array
       summary: List dead man's switch configs
       tags:
@@ -1521,7 +1521,7 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/github_com_cubeos-app_meshsat-hub_internal_deadman.Config'
+            $ref: '#/definitions/github_com_meshsat_meshsat-hub_internal_deadman.Config'
         "400":
           description: Bad Request
           schema:
@@ -1574,7 +1574,7 @@ paths:
           description: OK
           schema:
             items:
-              $ref: '#/definitions/github_com_cubeos-app_meshsat-hub_internal_store.Device'
+              $ref: '#/definitions/github_com_meshsat_meshsat-hub_internal_store.Device'
             type: array
         "500":
           description: Internal Server Error
@@ -1596,7 +1596,7 @@ paths:
         name: body
         required: true
         schema:
-          $ref: '#/definitions/github_com_cubeos-app_meshsat-hub_internal_store.Device'
+          $ref: '#/definitions/github_com_meshsat_meshsat-hub_internal_store.Device'
       produces:
       - application/json
       responses:
@@ -1659,7 +1659,7 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/github_com_cubeos-app_meshsat-hub_internal_store.Device'
+            $ref: '#/definitions/github_com_meshsat_meshsat-hub_internal_store.Device'
         "404":
           description: Not Found
           schema:
@@ -1690,7 +1690,7 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/github_com_cubeos-app_meshsat-hub_internal_store.Device'
+            $ref: '#/definitions/github_com_meshsat_meshsat-hub_internal_store.Device'
         "400":
           description: Bad Request
           schema:
@@ -1726,7 +1726,7 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/github_com_cubeos-app_meshsat-hub_internal_store.DeviceConfig'
+            $ref: '#/definitions/github_com_meshsat_meshsat-hub_internal_store.DeviceConfig'
         "404":
           description: Not Found
           schema:
@@ -1757,7 +1757,7 @@ paths:
         "201":
           description: Created
           schema:
-            $ref: '#/definitions/github_com_cubeos-app_meshsat-hub_internal_store.DeviceConfig'
+            $ref: '#/definitions/github_com_meshsat_meshsat-hub_internal_store.DeviceConfig'
         "400":
           description: Bad Request
           schema:
@@ -1786,7 +1786,7 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/github_com_cubeos-app_meshsat-hub_internal_store.DeviceConfig'
+            $ref: '#/definitions/github_com_meshsat_meshsat-hub_internal_store.DeviceConfig'
         "404":
           description: Not Found
           schema:
@@ -1816,7 +1816,7 @@ paths:
           description: OK
           schema:
             items:
-              $ref: '#/definitions/github_com_cubeos-app_meshsat-hub_internal_store.DeviceConfig'
+              $ref: '#/definitions/github_com_meshsat_meshsat-hub_internal_store.DeviceConfig'
             type: array
       summary: List config version history
       tags:
@@ -1836,7 +1836,7 @@ paths:
           description: OK
           schema:
             items:
-              $ref: '#/definitions/github_com_cubeos-app_meshsat-hub_internal_store.DeviceKey'
+              $ref: '#/definitions/github_com_meshsat_meshsat-hub_internal_store.DeviceKey'
             type: array
       summary: List device encryption keys
       tags:
@@ -1907,7 +1907,7 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/github_com_cubeos-app_meshsat-hub_internal_store.Position'
+            $ref: '#/definitions/github_com_meshsat_meshsat-hub_internal_store.Position'
         "404":
           description: Not Found
           schema:
@@ -2113,7 +2113,7 @@ paths:
           description: OK
           schema:
             items:
-              $ref: '#/definitions/github_com_cubeos-app_meshsat-hub_internal_store.EscalationChain'
+              $ref: '#/definitions/github_com_meshsat_meshsat-hub_internal_store.EscalationChain'
             type: array
         "500":
           description: Internal Server Error
@@ -2133,14 +2133,14 @@ paths:
         name: body
         required: true
         schema:
-          $ref: '#/definitions/github_com_cubeos-app_meshsat-hub_internal_store.EscalationChain'
+          $ref: '#/definitions/github_com_meshsat_meshsat-hub_internal_store.EscalationChain'
       produces:
       - application/json
       responses:
         "201":
           description: Created
           schema:
-            $ref: '#/definitions/github_com_cubeos-app_meshsat-hub_internal_store.EscalationChain'
+            $ref: '#/definitions/github_com_meshsat_meshsat-hub_internal_store.EscalationChain'
         "400":
           description: Bad Request
           schema:
@@ -2189,7 +2189,7 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/github_com_cubeos-app_meshsat-hub_internal_store.EscalationChain'
+            $ref: '#/definitions/github_com_meshsat_meshsat-hub_internal_store.EscalationChain'
         "404":
           description: Not Found
           schema:
@@ -2234,7 +2234,7 @@ paths:
           description: OK
           schema:
             items:
-              $ref: '#/definitions/github_com_cubeos-app_meshsat-hub_internal_store.Message'
+              $ref: '#/definitions/github_com_meshsat_meshsat-hub_internal_store.Message'
             type: array
         "500":
           description: Internal Server Error
@@ -2259,7 +2259,7 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/github_com_cubeos-app_meshsat-hub_internal_store.Message'
+            $ref: '#/definitions/github_com_meshsat_meshsat-hub_internal_store.Message'
         "404":
           description: Not Found
           schema:
@@ -2417,7 +2417,7 @@ paths:
           description: OK
           schema:
             items:
-              $ref: '#/definitions/github_com_cubeos-app_meshsat-hub_internal_store.NotificationPref'
+              $ref: '#/definitions/github_com_meshsat_meshsat-hub_internal_store.NotificationPref'
             type: array
         "500":
           description: Internal Server Error
@@ -2461,7 +2461,7 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/github_com_cubeos-app_meshsat-hub_internal_store.NotificationPref'
+            $ref: '#/definitions/github_com_meshsat_meshsat-hub_internal_store.NotificationPref'
         "404":
           description: Not Found
           schema:
@@ -2485,14 +2485,14 @@ paths:
         name: body
         required: true
         schema:
-          $ref: '#/definitions/github_com_cubeos-app_meshsat-hub_internal_store.NotificationPref'
+          $ref: '#/definitions/github_com_meshsat_meshsat-hub_internal_store.NotificationPref'
       produces:
       - application/json
       responses:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/github_com_cubeos-app_meshsat-hub_internal_store.NotificationPref'
+            $ref: '#/definitions/github_com_meshsat_meshsat-hub_internal_store.NotificationPref'
         "400":
           description: Bad Request
           schema:
@@ -2899,7 +2899,7 @@ paths:
           description: OK
           schema:
             items:
-              $ref: '#/definitions/github_com_cubeos-app_meshsat-hub_internal_store.Route'
+              $ref: '#/definitions/github_com_meshsat_meshsat-hub_internal_store.Route'
             type: array
       summary: List routing rules
       tags:
@@ -2920,7 +2920,7 @@ paths:
         "201":
           description: Created
           schema:
-            $ref: '#/definitions/github_com_cubeos-app_meshsat-hub_internal_store.Route'
+            $ref: '#/definitions/github_com_meshsat_meshsat-hub_internal_store.Route'
         "400":
           description: Bad Request
           schema:
@@ -2963,7 +2963,7 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/github_com_cubeos-app_meshsat-hub_internal_store.Route'
+            $ref: '#/definitions/github_com_meshsat_meshsat-hub_internal_store.Route'
         "404":
           description: Not Found
           schema:
@@ -2994,7 +2994,7 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/github_com_cubeos-app_meshsat-hub_internal_store.Route'
+            $ref: '#/definitions/github_com_meshsat_meshsat-hub_internal_store.Route'
         "400":
           description: Bad Request
           schema:

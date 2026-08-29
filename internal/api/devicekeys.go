@@ -5,11 +5,11 @@ import (
 	"log/slog"
 	"net/http"
 
-	"github.com/cubeos-app/meshsat-hub/internal/auth"
-	"github.com/cubeos-app/meshsat-hub/internal/bridge"
-	hubcrypto "github.com/cubeos-app/meshsat-hub/internal/crypto"
-	"github.com/cubeos-app/meshsat-hub/internal/store"
 	"github.com/go-chi/chi/v5"
+	"github.com/meshsat/meshsat-hub/internal/auth"
+	"github.com/meshsat/meshsat-hub/internal/bridge"
+	hubcrypto "github.com/meshsat/meshsat-hub/internal/crypto"
+	"github.com/meshsat/meshsat-hub/internal/store"
 )
 
 // DeviceKeyHandler handles device encryption key management endpoints.

@@ -1,6 +1,6 @@
 ---
 compose_dir: /srv/meshsat-hub
-hub_image: ghcr.io/cubeos-app/meshsat-hub:latest
+hub_image: ghcr.io/meshsat/meshsat-hub:latest
 garbd_image: meshsat-garbd:latest
 
 # Galera

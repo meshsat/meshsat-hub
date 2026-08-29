@@ -9,7 +9,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/cubeos-app/meshsat-hub/internal/bus"
+	"github.com/meshsat/meshsat-hub/internal/bus"
 )
 
 // CreditBalance represents the Iridium credit balance from Cloudloop.

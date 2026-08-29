@@ -3,7 +3,7 @@ package api
 import (
 	"net/http"
 
-	"github.com/cubeos-app/meshsat-hub/internal/auth"
+	"github.com/meshsat/meshsat-hub/internal/auth"
 )
 
 // AuthMeHandler returns the current authenticated user info.

@@ -4,7 +4,7 @@
 #
 # Usage:
 #   ansible-playbook -i inventory.yml playbooks/deploy-hub.yml
-#   ansible-playbook -i inventory.yml playbooks/deploy-hub.yml -e hub_image=ghcr.io/cubeos-app/meshsat-hub:abc123
+#   ansible-playbook -i inventory.yml playbooks/deploy-hub.yml -e hub_image=ghcr.io/meshsat/meshsat-hub:abc123
 #
 # This is the playbook that CI/CD should trigger for every push to main.
 

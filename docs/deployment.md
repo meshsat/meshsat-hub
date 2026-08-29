@@ -43,7 +43,7 @@ Field bridges:
 
 ```bash
 # 1. Clone
-git clone https://github.com/cubeos-app/meshsat-hub.git
+git clone https://github.com/meshsat/meshsat-hub.git
 cd meshsat-hub
 
 # 2. Configure

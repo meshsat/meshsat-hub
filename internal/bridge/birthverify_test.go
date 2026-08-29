@@ -13,7 +13,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/cubeos-app/meshsat-hub/internal/protocol"
+	"github.com/meshsat/meshsat-hub/internal/protocol"
 )
 
 // helper: issue a bridge cert, sign a birth message, return payload+signature+cert.

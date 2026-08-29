@@ -10,8 +10,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/cubeos-app/meshsat-hub/internal/escalation"
-	"github.com/cubeos-app/meshsat-hub/internal/store"
+	"github.com/meshsat/meshsat-hub/internal/escalation"
+	"github.com/meshsat/meshsat-hub/internal/store"
 )
 
 // Config holds dead man's switch settings for a single device.

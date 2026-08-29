@@ -8,9 +8,9 @@ import (
 	"strings"
 	"time"
 
-	hubauth "github.com/cubeos-app/meshsat-hub/internal/auth"
-	"github.com/cubeos-app/meshsat-hub/internal/store"
 	"github.com/go-chi/chi/v5"
+	hubauth "github.com/meshsat/meshsat-hub/internal/auth"
+	"github.com/meshsat/meshsat-hub/internal/store"
 )
 
 // UserHandler provides owner-only CRUD for local user accounts.

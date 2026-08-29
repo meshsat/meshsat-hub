@@ -9,8 +9,8 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/cubeos-app/meshsat-hub/internal/metrics"
-	"github.com/cubeos-app/meshsat-hub/internal/store"
+	"github.com/meshsat/meshsat-hub/internal/metrics"
+	"github.com/meshsat/meshsat-hub/internal/store"
 )
 
 // RetentionConfig holds retention policy settings.

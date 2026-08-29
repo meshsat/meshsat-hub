@@ -14,10 +14,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/cubeos-app/meshsat-hub/internal/bus"
-	"github.com/cubeos-app/meshsat-hub/internal/metrics"
-	"github.com/cubeos-app/meshsat-hub/internal/protocol"
-	"github.com/cubeos-app/meshsat-hub/internal/store"
+	"github.com/meshsat/meshsat-hub/internal/bus"
+	"github.com/meshsat/meshsat-hub/internal/metrics"
+	"github.com/meshsat/meshsat-hub/internal/protocol"
+	"github.com/meshsat/meshsat-hub/internal/store"
 )
 
 // ReticulumRouter is the subset of the Reticulum routing table needed by the

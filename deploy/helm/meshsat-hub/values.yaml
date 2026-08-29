@@ -5,7 +5,7 @@ hub:
   # -- Number of Hub replicas
   replicaCount: 2
   image:
-    repository: ghcr.io/cubeos-app/meshsat-hub
+    repository: ghcr.io/meshsat/meshsat-hub
     tag: latest
     pullPolicy: IfNotPresent
   # -- Hub configuration (injected as env vars via ConfigMap)

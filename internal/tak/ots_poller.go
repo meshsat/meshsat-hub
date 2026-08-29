@@ -11,8 +11,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/cubeos-app/meshsat-hub/internal/bus"
-	"github.com/cubeos-app/meshsat-hub/internal/store"
+	"github.com/meshsat/meshsat-hub/internal/bus"
+	"github.com/meshsat/meshsat-hub/internal/store"
 )
 
 // OTSPoller polls the OpenTAKServer REST API for markers and forwards new/updated

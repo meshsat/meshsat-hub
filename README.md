@@ -8,7 +8,7 @@ Runs as a single Docker Compose stack or an active-active cluster with MariaDB G
 
 ## What it does
 
-Hub sits between satellite ground stations and operators. Field devices (running [MeshSat Bridge](https://github.com/cubeos-app/meshsat) or the [Android app](https://github.com/cubeos-app/meshsat-android)) send compressed binary messages over Iridium. Ground Control delivers those messages to Hub via webhook. Hub decompresses, decodes, stores, and fans out each message to every configured output: the web dashboard, a TAK server, APRS-IS, outbound webhooks, and notification services.
+Hub sits between satellite ground stations and operators. Field devices (running [MeshSat Bridge](https://github.com/meshsat/meshsat) or the [Android app](https://github.com/meshsat/meshsat-android)) send compressed binary messages over Iridium. Ground Control delivers those messages to Hub via webhook. Hub decompresses, decodes, stores, and fans out each message to every configured output: the web dashboard, a TAK server, APRS-IS, outbound webhooks, and notification services.
 
 The reverse path works too. Operators send commands from the dashboard or API; Hub compresses, optionally encrypts, fragments if needed, and submits to the satellite provider's REST API for delivery on the next pass.
 
@@ -88,7 +88,7 @@ Three deployment tiers. See [docs/deployment.md](docs/deployment.md) for complet
 ### Standalone (quickstart)
 
 ```bash
-git clone https://github.com/cubeos-app/meshsat-hub.git
+git clone https://github.com/meshsat/meshsat-hub.git
 cd meshsat-hub
 cp .env.standalone.example .env
 nano .env   # set HUB_AUTH_TOKEN, CADDY_DOMAIN
@@ -263,8 +263,8 @@ lint --> security --> test --> build --> package --> pre-deploy --> deploy --> v
 
 | Project | Description |
 |---------|-------------|
-| [MeshSat Bridge](https://github.com/cubeos-app/meshsat) | Field gateway firmware (Go, Raspberry Pi) -- connects Meshtastic mesh radios to Iridium satellites via mTLS |
-| [MeshSat Android](https://github.com/cubeos-app/meshsat-android) | Mobile gateway app (Kotlin) -- phone-as-bridge with BLE mesh, ONNX ML, and SPP Iridium |
+| [MeshSat Bridge](https://github.com/meshsat/meshsat) | Field gateway firmware (Go, Raspberry Pi) -- connects Meshtastic mesh radios to Iridium satellites via mTLS |
+| [MeshSat Android](https://github.com/meshsat/meshsat-android) | Mobile gateway app (Kotlin) -- phone-as-bridge with BLE mesh, ONNX ML, and SPP Iridium |
 
 ## License
 

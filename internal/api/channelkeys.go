@@ -13,9 +13,9 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/cubeos-app/meshsat-hub/internal/bridge"
-	hubcrypto "github.com/cubeos-app/meshsat-hub/internal/crypto"
-	"github.com/cubeos-app/meshsat-hub/internal/store"
+	"github.com/meshsat/meshsat-hub/internal/bridge"
+	hubcrypto "github.com/meshsat/meshsat-hub/internal/crypto"
+	"github.com/meshsat/meshsat-hub/internal/store"
 )
 
 // ChannelKeyHandler handles channel encryption key rotation and distribution.

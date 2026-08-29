@@ -11,7 +11,7 @@ import (
 	"net/http"
 	"testing"
 
-	"github.com/cubeos-app/meshsat-hub/internal/store"
+	"github.com/meshsat/meshsat-hub/internal/store"
 )
 
 // ---------- Device CRUD ----------

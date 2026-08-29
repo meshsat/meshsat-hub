@@ -8,13 +8,13 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	hubauth "github.com/cubeos-app/meshsat-hub/internal/auth"
-	"github.com/cubeos-app/meshsat-hub/internal/store"
-	"github.com/cubeos-app/meshsat-hub/internal/store/sqlite"
+	hubauth "github.com/meshsat/meshsat-hub/internal/auth"
+	"github.com/meshsat/meshsat-hub/internal/store"
+	"github.com/meshsat/meshsat-hub/internal/store/sqlite"
 
-	"github.com/cubeos-app/meshsat-hub/internal/api"
-	"github.com/cubeos-app/meshsat-hub/internal/audit"
 	"github.com/go-chi/chi/v5"
+	"github.com/meshsat/meshsat-hub/internal/api"
+	"github.com/meshsat/meshsat-hub/internal/audit"
 )
 
 // testHarness holds a fully wired E2E test environment with real SQLite store

@@ -6,8 +6,8 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"github.com/cubeos-app/meshsat-hub/internal/store"
-	"github.com/cubeos-app/meshsat-hub/internal/webhook"
+	"github.com/meshsat/meshsat-hub/internal/store"
+	"github.com/meshsat/meshsat-hub/internal/webhook"
 )
 
 func TestParseRecipients(t *testing.T) {

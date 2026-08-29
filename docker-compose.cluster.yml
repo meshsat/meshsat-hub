@@ -121,7 +121,7 @@ services:
   # Hub instance 1
   # ---------------------------------------------------------------------------
   hub-1:
-    image: ${MESHSAT_HUB_IMAGE:-ghcr.io/cubeos-app/meshsat-hub:latest}
+    image: ${MESHSAT_HUB_IMAGE:-ghcr.io/meshsat/meshsat-hub:latest}
     container_name: meshsat-hub-1
     restart: unless-stopped
     env_file:
@@ -166,7 +166,7 @@ services:
   # Hub instance 2
   # ---------------------------------------------------------------------------
   hub-2:
-    image: ${MESHSAT_HUB_IMAGE:-ghcr.io/cubeos-app/meshsat-hub:latest}
+    image: ${MESHSAT_HUB_IMAGE:-ghcr.io/meshsat/meshsat-hub:latest}
     container_name: meshsat-hub-2
     restart: unless-stopped
     env_file:

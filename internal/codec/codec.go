@@ -9,7 +9,7 @@ import (
 	"log/slog"
 	"sync"
 
-	"github.com/cubeos-app/meshsat-hub/internal/geo"
+	"github.com/meshsat/meshsat-hub/internal/geo"
 )
 
 // DecodedPayload is the output of a decoder — structured key-value telemetry.

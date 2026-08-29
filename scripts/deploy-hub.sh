@@ -28,7 +28,7 @@ log "Galera: Synced ✓"
 
 # Step 2: Pull new image
 log "Step 2: Pulling latest Hub image..."
-docker pull ghcr.io/cubeos-app/meshsat-hub:latest || die "Pull failed"
+docker pull ghcr.io/meshsat/meshsat-hub:latest || die "Pull failed"
 
 # Step 3: Restart ONLY Hub (--no-deps = never touch MariaDB/Redis/NATS)
 log "Step 3: Restarting Hub container (--no-deps)..."

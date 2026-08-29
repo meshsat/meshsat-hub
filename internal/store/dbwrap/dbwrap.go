@@ -9,8 +9,8 @@ import (
 	"math"
 	"time"
 
-	"github.com/cubeos-app/meshsat-hub/internal/observability"
 	"github.com/go-sql-driver/mysql"
+	"github.com/meshsat/meshsat-hub/internal/observability"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 )

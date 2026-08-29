@@ -6,7 +6,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/cubeos-app/meshsat-hub/internal/bus"
+	"github.com/meshsat/meshsat-hub/internal/bus"
 )
 
 // NATSLeader uses MQTT exclusive subscription for leader election.

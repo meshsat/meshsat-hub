@@ -21,7 +21,7 @@ spec:
       serviceAccountName: meshsat-hub
       containers:
         - name: hub
-          image: ghcr.io/cubeos-app/meshsat-hub:latest
+          image: ghcr.io/meshsat/meshsat-hub:latest
           ports:
             - name: http
               containerPort: 6070

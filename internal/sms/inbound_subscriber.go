@@ -7,10 +7,10 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/cubeos-app/meshsat-hub/internal/bus"
-	hubcrypto "github.com/cubeos-app/meshsat-hub/internal/crypto"
-	hubmqtt "github.com/cubeos-app/meshsat-hub/internal/mqtt"
-	"github.com/cubeos-app/meshsat-hub/internal/store"
+	"github.com/meshsat/meshsat-hub/internal/bus"
+	hubcrypto "github.com/meshsat/meshsat-hub/internal/crypto"
+	hubmqtt "github.com/meshsat/meshsat-hub/internal/mqtt"
+	"github.com/meshsat/meshsat-hub/internal/store"
 )
 
 // InboundMQTTPayload is the JSON payload Android publishes to meshsat/{deviceId}/sms/inbound.

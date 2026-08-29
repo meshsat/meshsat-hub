@@ -4,8 +4,8 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/cubeos-app/meshsat-hub/internal/deadman"
 	"github.com/go-chi/chi/v5"
+	"github.com/meshsat/meshsat-hub/internal/deadman"
 )
 
 // DeadmanHandler provides REST endpoints for dead man's switch management.

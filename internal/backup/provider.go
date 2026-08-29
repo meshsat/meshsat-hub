@@ -3,7 +3,7 @@ package backup
 import (
 	"encoding/json"
 
-	"github.com/cubeos-app/meshsat-hub/internal/config"
+	"github.com/meshsat/meshsat-hub/internal/config"
 )
 
 // WebhookLister is the interface for listing webhook configurations.

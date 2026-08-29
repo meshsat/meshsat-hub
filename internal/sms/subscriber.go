@@ -5,8 +5,8 @@ import (
 	"encoding/json"
 	"log/slog"
 
-	"github.com/cubeos-app/meshsat-hub/internal/bus"
-	hubmqtt "github.com/cubeos-app/meshsat-hub/internal/mqtt"
+	"github.com/meshsat/meshsat-hub/internal/bus"
+	hubmqtt "github.com/meshsat/meshsat-hub/internal/mqtt"
 )
 
 // OutboundRequest is the JSON payload on meshsat/+/mt/sms to trigger an outbound SMS.

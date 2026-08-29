@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/cubeos-app/meshsat-hub/internal/store"
+	"github.com/meshsat/meshsat-hub/internal/store"
 )
 
 func (d *DB) CreateBondGroup(ctx context.Context, tenantID, bridgeID string, g *store.BondGroup) error {

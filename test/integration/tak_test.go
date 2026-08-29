@@ -13,8 +13,8 @@ import (
 	"testing"
 	"time"
 
-	hubmqtt "github.com/cubeos-app/meshsat-hub/internal/mqtt"
-	"github.com/cubeos-app/meshsat-hub/internal/tak"
+	hubmqtt "github.com/meshsat/meshsat-hub/internal/mqtt"
+	"github.com/meshsat/meshsat-hub/internal/tak"
 )
 
 // mockTAKServer accepts CoT XML events over TCP.

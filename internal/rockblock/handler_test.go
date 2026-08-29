@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/cubeos-app/meshsat-hub/internal/compress"
+	"github.com/meshsat/meshsat-hub/internal/compress"
 )
 
 const testSecret = "test-webhook-secret"

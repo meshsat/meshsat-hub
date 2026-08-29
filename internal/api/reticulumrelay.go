@@ -3,7 +3,7 @@ package api
 import (
 	"net/http"
 
-	"github.com/cubeos-app/meshsat-hub/internal/reticulum"
+	"github.com/meshsat/meshsat-hub/internal/reticulum"
 )
 
 // ReticulumRelayHandler serves relay stats and interface info.

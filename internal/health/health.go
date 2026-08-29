@@ -7,7 +7,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/cubeos-app/meshsat-hub/internal/metrics"
+	"github.com/meshsat/meshsat-hub/internal/metrics"
 )
 
 // Probe is a function that checks the health of a dependency.

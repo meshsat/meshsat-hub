@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/cubeos-app/meshsat-hub/internal/config"
+	"github.com/meshsat/meshsat-hub/internal/config"
 )
 
 // IntegrationStatus describes the state of a single inbound integration channel.

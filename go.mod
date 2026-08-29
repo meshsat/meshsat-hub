@@ -1,4 +1,4 @@
-module github.com/cubeos-app/meshsat-hub
+module github.com/meshsat/meshsat-hub
 
 go 1.25.0
 

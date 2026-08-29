@@ -322,6 +322,6 @@ When MQTT is unreachable for >5 minutes and satellite is available:
 
 Types are defined in two independent packages (not a shared module):
 - **Bridge:** `meshsat/internal/hubreporter/protocol.go`
-- **Hub:** `github.com/cubeos-app/meshsat-hub/internal/protocol/protocol.go`
+- **Hub:** `github.com/meshsat/meshsat-hub/internal/protocol/protocol.go`
 
 Keep in sync via the `protocol` version field in all messages.

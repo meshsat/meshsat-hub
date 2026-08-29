@@ -4,7 +4,7 @@ title: "MeshSat Hub"
 
 # MeshSat Hub
 
-Cloud relay for [MeshSat](https://github.com/cubeos-app/meshsat) field devices. Self-hosted Docker Compose stack — no cloud dependencies beyond your Iridium gateway provider.
+Cloud relay for [MeshSat](https://github.com/meshsat/meshsat) field devices. Self-hosted Docker Compose stack — no cloud dependencies beyond your Iridium gateway provider.
 
 ## What Hub Does
 
@@ -20,7 +20,7 @@ Cloud relay for [MeshSat](https://github.com/cubeos-app/meshsat) field devices. 
 ## Quick Start
 
 ```bash
-git clone https://github.com/cubeos-app/meshsat-hub.git
+git clone https://github.com/meshsat/meshsat-hub.git
 cd meshsat-hub
 cp .env.example .env   # fill in RockBLOCK secret + Cloudloop key
 docker compose -f docker-compose.prod.yml up -d
@@ -62,6 +62,6 @@ Hub is **optional** — Bridge and Android work fully without it. Hub adds alway
 
 ## Links
 
-- [GitHub](https://github.com/cubeos-app/meshsat-hub)
-- [MeshSat Bridge](https://github.com/cubeos-app/meshsat)
-- [MeshSat Android](https://github.com/cubeos-app/meshsat-android)
+- [GitHub](https://github.com/meshsat/meshsat-hub)
+- [MeshSat Bridge](https://github.com/meshsat/meshsat)
+- [MeshSat Android](https://github.com/meshsat/meshsat-android)

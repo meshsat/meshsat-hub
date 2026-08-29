@@ -6,9 +6,9 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/cubeos-app/meshsat-hub/internal/audit"
-	"github.com/cubeos-app/meshsat-hub/internal/auth"
-	"github.com/cubeos-app/meshsat-hub/internal/store"
+	"github.com/meshsat/meshsat-hub/internal/audit"
+	"github.com/meshsat/meshsat-hub/internal/auth"
+	"github.com/meshsat/meshsat-hub/internal/store"
 )
 
 // AuditHandler handles audit log API endpoints.

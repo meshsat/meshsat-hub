@@ -7,11 +7,11 @@ import (
 	"log/slog"
 	"strings"
 
-	"github.com/cubeos-app/meshsat-hub/internal/sms"
-	"github.com/cubeos-app/meshsat-hub/internal/store"
-	"github.com/cubeos-app/meshsat-hub/internal/webhook"
+	"github.com/meshsat/meshsat-hub/internal/sms"
+	"github.com/meshsat/meshsat-hub/internal/store"
+	"github.com/meshsat/meshsat-hub/internal/webhook"
 
-	hubemail "github.com/cubeos-app/meshsat-hub/internal/email"
+	hubemail "github.com/meshsat/meshsat-hub/internal/email"
 )
 
 // moDecodedPayload is the subset of mo/decoded fields needed for routing dispatch.

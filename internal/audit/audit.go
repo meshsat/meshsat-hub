@@ -11,7 +11,7 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/cubeos-app/meshsat-hub/internal/store"
+	"github.com/meshsat/meshsat-hub/internal/store"
 )
 
 // Service manages the append-only audit log with hash-chain tamper evidence.

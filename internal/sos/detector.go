@@ -10,10 +10,10 @@ import (
 	"log/slog"
 	"strings"
 
-	"github.com/cubeos-app/meshsat-hub/internal/bus"
-	"github.com/cubeos-app/meshsat-hub/internal/escalation"
-	hubmqtt "github.com/cubeos-app/meshsat-hub/internal/mqtt"
-	"github.com/cubeos-app/meshsat-hub/internal/store"
+	"github.com/meshsat/meshsat-hub/internal/bus"
+	"github.com/meshsat/meshsat-hub/internal/escalation"
+	hubmqtt "github.com/meshsat/meshsat-hub/internal/mqtt"
+	"github.com/meshsat/meshsat-hub/internal/store"
 )
 
 // sosKeywords are the keywords that trigger SOS detection (case-insensitive).

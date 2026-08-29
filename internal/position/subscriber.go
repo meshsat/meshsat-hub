@@ -11,11 +11,11 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/cubeos-app/meshsat-hub/internal/bus"
-	"github.com/cubeos-app/meshsat-hub/internal/deadman"
-	"github.com/cubeos-app/meshsat-hub/internal/geo"
-	hubmqtt "github.com/cubeos-app/meshsat-hub/internal/mqtt"
-	"github.com/cubeos-app/meshsat-hub/internal/store"
+	"github.com/meshsat/meshsat-hub/internal/bus"
+	"github.com/meshsat/meshsat-hub/internal/deadman"
+	"github.com/meshsat/meshsat-hub/internal/geo"
+	hubmqtt "github.com/meshsat/meshsat-hub/internal/mqtt"
+	"github.com/meshsat/meshsat-hub/internal/store"
 )
 
 // positionPayload is the JSON schema published on meshsat/{device}/position.

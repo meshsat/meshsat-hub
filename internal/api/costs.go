@@ -6,8 +6,8 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/cubeos-app/meshsat-hub/internal/auth"
-	"github.com/cubeos-app/meshsat-hub/internal/store"
+	"github.com/meshsat/meshsat-hub/internal/auth"
+	"github.com/meshsat/meshsat-hub/internal/store"
 )
 
 // CostsHandler provides REST endpoints for the cost tracking ledger.

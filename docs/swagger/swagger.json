@@ -44,7 +44,7 @@
                         "schema": {
                             "type": "array",
                             "items": {
-                                "$ref": "#/definitions/github_com_cubeos-app_meshsat-hub_internal_store.Alert"
+                                "$ref": "#/definitions/github_com_meshsat_meshsat-hub_internal_store.Alert"
                             }
                         }
                     },
@@ -85,7 +85,7 @@
                     "201": {
                         "description": "Created",
                         "schema": {
-                            "$ref": "#/definitions/github_com_cubeos-app_meshsat-hub_internal_store.Alert"
+                            "$ref": "#/definitions/github_com_meshsat_meshsat-hub_internal_store.Alert"
                         }
                     },
                     "400": {
@@ -131,7 +131,7 @@
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/github_com_cubeos-app_meshsat-hub_internal_store.Alert"
+                            "$ref": "#/definitions/github_com_meshsat_meshsat-hub_internal_store.Alert"
                         }
                     },
                     "404": {
@@ -180,7 +180,7 @@
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/github_com_cubeos-app_meshsat-hub_internal_store.Alert"
+                            "$ref": "#/definitions/github_com_meshsat_meshsat-hub_internal_store.Alert"
                         }
                     },
                     "400": {
@@ -228,7 +228,7 @@
                         "schema": {
                             "type": "array",
                             "items": {
-                                "$ref": "#/definitions/github_com_cubeos-app_meshsat-hub_internal_store.AuditEntry"
+                                "$ref": "#/definitions/github_com_meshsat_meshsat-hub_internal_store.AuditEntry"
                             }
                         }
                     }
@@ -270,7 +270,7 @@
                         "schema": {
                             "type": "array",
                             "items": {
-                                "$ref": "#/definitions/github_com_cubeos-app_meshsat-hub_internal_store.APIKey"
+                                "$ref": "#/definitions/github_com_meshsat_meshsat-hub_internal_store.APIKey"
                             }
                         }
                     }
@@ -461,7 +461,7 @@
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/github_com_cubeos-app_meshsat-hub_internal_auth.User"
+                            "$ref": "#/definitions/github_com_meshsat_meshsat-hub_internal_auth.User"
                         }
                     }
                 }
@@ -801,7 +801,7 @@
                         "schema": {
                             "type": "array",
                             "items": {
-                                "$ref": "#/definitions/github_com_cubeos-app_meshsat-hub_internal_deadman.Config"
+                                "$ref": "#/definitions/github_com_meshsat_meshsat-hub_internal_deadman.Config"
                             }
                         }
                     }
@@ -842,7 +842,7 @@
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/github_com_cubeos-app_meshsat-hub_internal_deadman.Config"
+                            "$ref": "#/definitions/github_com_meshsat_meshsat-hub_internal_deadman.Config"
                         }
                     },
                     "400": {
@@ -944,7 +944,7 @@
                         "schema": {
                             "type": "array",
                             "items": {
-                                "$ref": "#/definitions/github_com_cubeos-app_meshsat-hub_internal_store.Device"
+                                "$ref": "#/definitions/github_com_meshsat_meshsat-hub_internal_store.Device"
                             }
                         }
                     },
@@ -978,7 +978,7 @@
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/github_com_cubeos-app_meshsat-hub_internal_store.Device"
+                            "$ref": "#/definitions/github_com_meshsat_meshsat-hub_internal_store.Device"
                         }
                     }
                 ],
@@ -1032,7 +1032,7 @@
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/github_com_cubeos-app_meshsat-hub_internal_store.Device"
+                            "$ref": "#/definitions/github_com_meshsat_meshsat-hub_internal_store.Device"
                         }
                     },
                     "404": {
@@ -1079,7 +1079,7 @@
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/github_com_cubeos-app_meshsat-hub_internal_store.Device"
+                            "$ref": "#/definitions/github_com_meshsat_meshsat-hub_internal_store.Device"
                         }
                     },
                     "400": {
@@ -1173,7 +1173,7 @@
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/github_com_cubeos-app_meshsat-hub_internal_store.DeviceConfig"
+                            "$ref": "#/definitions/github_com_meshsat_meshsat-hub_internal_store.DeviceConfig"
                         }
                     },
                     "404": {
@@ -1220,7 +1220,7 @@
                     "201": {
                         "description": "Created",
                         "schema": {
-                            "$ref": "#/definitions/github_com_cubeos-app_meshsat-hub_internal_store.DeviceConfig"
+                            "$ref": "#/definitions/github_com_meshsat_meshsat-hub_internal_store.DeviceConfig"
                         }
                     },
                     "400": {
@@ -1266,7 +1266,7 @@
                         "schema": {
                             "type": "array",
                             "items": {
-                                "$ref": "#/definitions/github_com_cubeos-app_meshsat-hub_internal_store.DeviceConfig"
+                                "$ref": "#/definitions/github_com_meshsat_meshsat-hub_internal_store.DeviceConfig"
                             }
                         }
                     }
@@ -1302,7 +1302,7 @@
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/github_com_cubeos-app_meshsat-hub_internal_store.DeviceConfig"
+                            "$ref": "#/definitions/github_com_meshsat_meshsat-hub_internal_store.DeviceConfig"
                         }
                     },
                     "404": {
@@ -1341,7 +1341,7 @@
                         "schema": {
                             "type": "array",
                             "items": {
-                                "$ref": "#/definitions/github_com_cubeos-app_meshsat-hub_internal_store.DeviceKey"
+                                "$ref": "#/definitions/github_com_meshsat_meshsat-hub_internal_store.DeviceKey"
                             }
                         }
                     }
@@ -1447,7 +1447,7 @@
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/github_com_cubeos-app_meshsat-hub_internal_store.Position"
+                            "$ref": "#/definitions/github_com_meshsat_meshsat-hub_internal_store.Position"
                         }
                     },
                     "404": {
@@ -1762,7 +1762,7 @@
                         "schema": {
                             "type": "array",
                             "items": {
-                                "$ref": "#/definitions/github_com_cubeos-app_meshsat-hub_internal_store.EscalationChain"
+                                "$ref": "#/definitions/github_com_meshsat_meshsat-hub_internal_store.EscalationChain"
                             }
                         }
                     },
@@ -1795,7 +1795,7 @@
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/github_com_cubeos-app_meshsat-hub_internal_store.EscalationChain"
+                            "$ref": "#/definitions/github_com_meshsat_meshsat-hub_internal_store.EscalationChain"
                         }
                     }
                 ],
@@ -1803,7 +1803,7 @@
                     "201": {
                         "description": "Created",
                         "schema": {
-                            "$ref": "#/definitions/github_com_cubeos-app_meshsat-hub_internal_store.EscalationChain"
+                            "$ref": "#/definitions/github_com_meshsat_meshsat-hub_internal_store.EscalationChain"
                         }
                     },
                     "400": {
@@ -1849,7 +1849,7 @@
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/github_com_cubeos-app_meshsat-hub_internal_store.EscalationChain"
+                            "$ref": "#/definitions/github_com_meshsat_meshsat-hub_internal_store.EscalationChain"
                         }
                     },
                     "404": {
@@ -1948,7 +1948,7 @@
                         "schema": {
                             "type": "array",
                             "items": {
-                                "$ref": "#/definitions/github_com_cubeos-app_meshsat-hub_internal_store.Message"
+                                "$ref": "#/definitions/github_com_meshsat_meshsat-hub_internal_store.Message"
                             }
                         }
                     },
@@ -1986,7 +1986,7 @@
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/github_com_cubeos-app_meshsat-hub_internal_store.Message"
+                            "$ref": "#/definitions/github_com_meshsat_meshsat-hub_internal_store.Message"
                         }
                     },
                     "404": {
@@ -2221,7 +2221,7 @@
                         "schema": {
                             "type": "array",
                             "items": {
-                                "$ref": "#/definitions/github_com_cubeos-app_meshsat-hub_internal_store.NotificationPref"
+                                "$ref": "#/definitions/github_com_meshsat_meshsat-hub_internal_store.NotificationPref"
                             }
                         }
                     },
@@ -2259,7 +2259,7 @@
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/github_com_cubeos-app_meshsat-hub_internal_store.NotificationPref"
+                            "$ref": "#/definitions/github_com_meshsat_meshsat-hub_internal_store.NotificationPref"
                         }
                     },
                     "404": {
@@ -2298,7 +2298,7 @@
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/github_com_cubeos-app_meshsat-hub_internal_store.NotificationPref"
+                            "$ref": "#/definitions/github_com_meshsat_meshsat-hub_internal_store.NotificationPref"
                         }
                     }
                 ],
@@ -2306,7 +2306,7 @@
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/github_com_cubeos-app_meshsat-hub_internal_store.NotificationPref"
+                            "$ref": "#/definitions/github_com_meshsat_meshsat-hub_internal_store.NotificationPref"
                         }
                     },
                     "400": {
@@ -2961,7 +2961,7 @@
                         "schema": {
                             "type": "array",
                             "items": {
-                                "$ref": "#/definitions/github_com_cubeos-app_meshsat-hub_internal_store.Route"
+                                "$ref": "#/definitions/github_com_meshsat_meshsat-hub_internal_store.Route"
                             }
                         }
                     }
@@ -2993,7 +2993,7 @@
                     "201": {
                         "description": "Created",
                         "schema": {
-                            "$ref": "#/definitions/github_com_cubeos-app_meshsat-hub_internal_store.Route"
+                            "$ref": "#/definitions/github_com_meshsat_meshsat-hub_internal_store.Route"
                         }
                     },
                     "400": {
@@ -3075,7 +3075,7 @@
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/github_com_cubeos-app_meshsat-hub_internal_store.Route"
+                            "$ref": "#/definitions/github_com_meshsat_meshsat-hub_internal_store.Route"
                         }
                     },
                     "404": {
@@ -3122,7 +3122,7 @@
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/github_com_cubeos-app_meshsat-hub_internal_store.Route"
+                            "$ref": "#/definitions/github_com_meshsat_meshsat-hub_internal_store.Route"
                         }
                     },
                     "400": {
@@ -3805,7 +3805,7 @@
         }
     },
     "definitions": {
-        "github_com_cubeos-app_meshsat-hub_internal_auth.User": {
+        "github_com_meshsat_meshsat-hub_internal_auth.User": {
             "type": "object",
             "properties": {
                 "email": {
@@ -3828,7 +3828,7 @@
                 }
             }
         },
-        "github_com_cubeos-app_meshsat-hub_internal_deadman.Config": {
+        "github_com_meshsat_meshsat-hub_internal_deadman.Config": {
             "type": "object",
             "properties": {
                 "chain_id": {
@@ -3859,7 +3859,7 @@
                 }
             }
         },
-        "github_com_cubeos-app_meshsat-hub_internal_store.APIKey": {
+        "github_com_meshsat_meshsat-hub_internal_store.APIKey": {
             "type": "object",
             "properties": {
                 "created_at": {
@@ -3892,7 +3892,7 @@
                 }
             }
         },
-        "github_com_cubeos-app_meshsat-hub_internal_store.Alert": {
+        "github_com_meshsat_meshsat-hub_internal_store.Alert": {
             "type": "object",
             "properties": {
                 "acked_at": {
@@ -3942,7 +3942,7 @@
                 }
             }
         },
-        "github_com_cubeos-app_meshsat-hub_internal_store.AuditEntry": {
+        "github_com_meshsat_meshsat-hub_internal_store.AuditEntry": {
             "type": "object",
             "properties": {
                 "action": {
@@ -3973,7 +3973,7 @@
                 }
             }
         },
-        "github_com_cubeos-app_meshsat-hub_internal_store.Device": {
+        "github_com_meshsat_meshsat-hub_internal_store.Device": {
             "type": "object",
             "properties": {
                 "created_at": {
@@ -4000,7 +4000,7 @@
                 }
             }
         },
-        "github_com_cubeos-app_meshsat-hub_internal_store.DeviceConfig": {
+        "github_com_meshsat_meshsat-hub_internal_store.DeviceConfig": {
             "type": "object",
             "properties": {
                 "author": {
@@ -4029,7 +4029,7 @@
                 }
             }
         },
-        "github_com_cubeos-app_meshsat-hub_internal_store.DeviceKey": {
+        "github_com_meshsat_meshsat-hub_internal_store.DeviceKey": {
             "type": "object",
             "properties": {
                 "created_at": {
@@ -4055,7 +4055,7 @@
                 }
             }
         },
-        "github_com_cubeos-app_meshsat-hub_internal_store.DeviceWireguard": {
+        "github_com_meshsat_meshsat-hub_internal_store.DeviceWireguard": {
             "type": "object",
             "properties": {
                 "created_at": {
@@ -4077,7 +4077,7 @@
                 }
             }
         },
-        "github_com_cubeos-app_meshsat-hub_internal_store.EscalationChain": {
+        "github_com_meshsat_meshsat-hub_internal_store.EscalationChain": {
             "type": "object",
             "properties": {
                 "created_at": {
@@ -4092,7 +4092,7 @@
                 "tiers": {
                     "type": "array",
                     "items": {
-                        "$ref": "#/definitions/github_com_cubeos-app_meshsat-hub_internal_store.EscalationTier"
+                        "$ref": "#/definitions/github_com_meshsat_meshsat-hub_internal_store.EscalationTier"
                     }
                 },
                 "updated_at": {
@@ -4100,7 +4100,7 @@
                 }
             }
         },
-        "github_com_cubeos-app_meshsat-hub_internal_store.EscalationTier": {
+        "github_com_meshsat_meshsat-hub_internal_store.EscalationTier": {
             "type": "object",
             "properties": {
                 "max_retries": {
@@ -4124,7 +4124,7 @@
                 }
             }
         },
-        "github_com_cubeos-app_meshsat-hub_internal_store.Message": {
+        "github_com_meshsat_meshsat-hub_internal_store.Message": {
             "type": "object",
             "properties": {
                 "channel": {
@@ -4171,7 +4171,7 @@
                 }
             }
         },
-        "github_com_cubeos-app_meshsat-hub_internal_store.NotificationPref": {
+        "github_com_meshsat_meshsat-hub_internal_store.NotificationPref": {
             "type": "object",
             "properties": {
                 "created_at": {
@@ -4207,7 +4207,7 @@
                 }
             }
         },
-        "github_com_cubeos-app_meshsat-hub_internal_store.Position": {
+        "github_com_meshsat_meshsat-hub_internal_store.Position": {
             "type": "object",
             "properties": {
                 "alt": {
@@ -4249,7 +4249,7 @@
                 }
             }
         },
-        "github_com_cubeos-app_meshsat-hub_internal_store.Route": {
+        "github_com_meshsat_meshsat-hub_internal_store.Route": {
             "type": "object",
             "properties": {
                 "created_at": {
@@ -4432,7 +4432,7 @@
                     "type": "string"
                 },
                 "wireguard": {
-                    "$ref": "#/definitions/github_com_cubeos-app_meshsat-hub_internal_store.DeviceWireguard"
+                    "$ref": "#/definitions/github_com_meshsat_meshsat-hub_internal_store.DeviceWireguard"
                 }
             }
         },
@@ -4477,7 +4477,7 @@
                 "positions": {
                     "type": "array",
                     "items": {
-                        "$ref": "#/definitions/github_com_cubeos-app_meshsat-hub_internal_store.Position"
+                        "$ref": "#/definitions/github_com_meshsat_meshsat-hub_internal_store.Position"
                     }
                 },
                 "total": {

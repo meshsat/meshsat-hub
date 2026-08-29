@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/cubeos-app/meshsat-hub/internal/bus"
+	"github.com/meshsat/meshsat-hub/internal/bus"
 )
 
 // InboundEmail is published to MQTT when an email is received.

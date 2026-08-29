@@ -12,8 +12,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/cubeos-app/meshsat-hub/internal/bus"
-	"github.com/cubeos-app/meshsat-hub/internal/dedup"
+	"github.com/meshsat/meshsat-hub/internal/bus"
+	"github.com/meshsat/meshsat-hub/internal/dedup"
 )
 
 // mockBus implements bus.MessageBus for testing.

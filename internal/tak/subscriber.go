@@ -7,9 +7,9 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/cubeos-app/meshsat-hub/internal/bus"
-	hubmqtt "github.com/cubeos-app/meshsat-hub/internal/mqtt"
-	"github.com/cubeos-app/meshsat-hub/internal/protocol"
+	"github.com/meshsat/meshsat-hub/internal/bus"
+	hubmqtt "github.com/meshsat/meshsat-hub/internal/mqtt"
+	"github.com/meshsat/meshsat-hub/internal/protocol"
 )
 
 // bridgeStaleSec is the CoT stale time for bridge entities (120s per MIL-STD-2525 infrastructure).

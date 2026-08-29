@@ -4,7 +4,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/cubeos-app/meshsat-hub/internal/observability"
+	"github.com/meshsat/meshsat-hub/internal/observability"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 )

@@ -11,7 +11,7 @@
 all:
   vars:
     compose_dir: /srv/meshsat-hub
-    hub_image: ghcr.io/cubeos-app/meshsat-hub:latest
+    hub_image: ghcr.io/meshsat/meshsat-hub:latest
     mariadb_root_password: "{{ vault_mariadb_root_password }}"
     mariadb_password: "{{ vault_mariadb_password }}"
     jwt_signing_key: "{{ vault_jwt_signing_key }}"

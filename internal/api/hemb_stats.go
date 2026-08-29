@@ -3,7 +3,7 @@ package api
 import (
 	"net/http"
 
-	"github.com/cubeos-app/meshsat-hub/internal/protocol"
+	"github.com/meshsat/meshsat-hub/internal/protocol"
 )
 
 // HeMBStatsProvider returns HeMB reassembly buffer statistics.

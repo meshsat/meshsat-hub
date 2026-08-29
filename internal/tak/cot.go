@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/cubeos-app/meshsat-hub/internal/protocol"
+	"github.com/meshsat/meshsat-hub/internal/protocol"
 )
 
 // CoT XML structs — ported from meshsat Bridge (internal/gateway/tak_cot.go).

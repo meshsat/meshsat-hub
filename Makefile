@@ -1,7 +1,7 @@
 .PHONY: build build-arm64 build-x86_64 build-sim test test-integration lint fmt clean docker run dev security gosec govulncheck owasp owasp-full swagger
 
 BINARY := meshsat-hub
-PKG := github.com/cubeos-app/meshsat-hub
+PKG := github.com/meshsat/meshsat-hub
 VERSION := $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
 LDFLAGS := -s -w -X main.version=$(VERSION)
 

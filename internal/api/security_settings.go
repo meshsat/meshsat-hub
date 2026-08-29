@@ -8,7 +8,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/cubeos-app/meshsat-hub/internal/store"
+	"github.com/meshsat/meshsat-hub/internal/store"
 )
 
 // SecurityStatus represents the current service authentication state.

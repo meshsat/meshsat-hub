@@ -4,7 +4,7 @@ import (
 	"encoding/hex"
 	"net/http"
 
-	"github.com/cubeos-app/meshsat-hub/internal/reticulum"
+	"github.com/meshsat/meshsat-hub/internal/reticulum"
 )
 
 // ReticulumIdentityHandler serves the Hub's Reticulum identity info.

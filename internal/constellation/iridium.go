@@ -3,7 +3,7 @@ package constellation
 import (
 	"context"
 
-	"github.com/cubeos-app/meshsat-hub/internal/cloudloop"
+	"github.com/meshsat/meshsat-hub/internal/cloudloop"
 )
 
 // IridiumBackend wraps the Cloudloop client as a constellation Backend.

@@ -12,8 +12,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/cubeos-app/meshsat-hub/internal/aprsis"
-	hubmqtt "github.com/cubeos-app/meshsat-hub/internal/mqtt"
+	"github.com/meshsat/meshsat-hub/internal/aprsis"
+	hubmqtt "github.com/meshsat/meshsat-hub/internal/mqtt"
 )
 
 // mockAPRSISServer simulates an APRS-IS server.

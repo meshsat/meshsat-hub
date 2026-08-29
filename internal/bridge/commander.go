@@ -11,11 +11,11 @@ import (
 	"sync"
 	"time"
 
-	"github.com/cubeos-app/meshsat-hub/internal/bus"
-	"github.com/cubeos-app/meshsat-hub/internal/directory"
-	"github.com/cubeos-app/meshsat-hub/internal/protocol"
-	"github.com/cubeos-app/meshsat-hub/internal/store"
 	"github.com/google/uuid"
+	"github.com/meshsat/meshsat-hub/internal/bus"
+	"github.com/meshsat/meshsat-hub/internal/directory"
+	"github.com/meshsat/meshsat-hub/internal/protocol"
+	"github.com/meshsat/meshsat-hub/internal/store"
 )
 
 // CredentialUpdateCommand returns a protocol.Command that tells a bridge to
