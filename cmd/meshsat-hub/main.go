@@ -293,6 +293,10 @@ func main() {
 
 	// Device resolver: learns IMEI-to-thingID mappings from MO messages and Cloudloop API.
 	thingResolver := cloudloop.NewThingResolver(cloudloopClient)
+	if spec := os.Getenv("HUB_CLOUDLOOP_DEVICE_MAP"); spec != "" {
+		slog.Info("resolver: seeded device mappings from HUB_CLOUDLOOP_DEVICE_MAP",
+			"count", thingResolver.SeedFromSpec(spec))
+	}
 	if cfg.CloudloopAPIKey != "" {
 		go thingResolver.StartPeriodicRefresh(ctx, 5*time.Minute)
 	}

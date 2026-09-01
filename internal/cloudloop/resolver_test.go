@@ -229,20 +229,14 @@ func TestThingResolver_LearnFromMO_OverwritesPrevious(t *testing.T) {
 func TestListThings_Success(t *testing.T) {
 	things := []CloudloopThing{
 		{
-			ID:          "ThingABCDEFGH123456789012345A",
-			SupportsSBD: true,
-			SubscriberSBD: &CloudloopSubscRef{
-				ID:   "sub-sbd-001",
-				IMEI: "300234065000001",
-			},
+			ID:            "ThingABCDEFGH123456789012345A",
+			SupportsSBD:   true,
+			SubscriberSBD: json.RawMessage(`{"id":"sub-sbd-001","imei":"300234065000001"}`),
 		},
 		{
-			ID:         "ThingXYZ98765432109876543210BC",
-			SupportsP6: true,
-			SubscriberCertus: &CloudloopSubscRef{
-				ID:   "sub-certus-001",
-				IMEI: "300258060902280",
-			},
+			ID:               "ThingXYZ98765432109876543210BC",
+			SupportsP6:       true,
+			SubscriberCertus: json.RawMessage(`{"id":"sub-certus-001","imei":"300258060902280"}`),
 		},
 		{
 			ID:          "ThingNoIMEI000000000000000000",
@@ -301,20 +295,14 @@ func TestListThings_APIError(t *testing.T) {
 func TestThingResolver_RefreshFromAPI(t *testing.T) {
 	things := []CloudloopThing{
 		{
-			ID:          "ThingSBD00000000000000000000AB",
-			SupportsSBD: true,
-			SubscriberSBD: &CloudloopSubscRef{
-				ID:   "sub-sbd-001",
-				IMEI: "300234065000001",
-			},
+			ID:            "ThingSBD00000000000000000000AB",
+			SupportsSBD:   true,
+			SubscriberSBD: json.RawMessage(`{"id":"sub-sbd-001","imei":"300234065000001"}`),
 		},
 		{
-			ID:         "ThingIMT00000000000000000000CD",
-			SupportsP6: true,
-			SubscriberCertus: &CloudloopSubscRef{
-				ID:   "sub-certus-001",
-				IMEI: "300258060902280",
-			},
+			ID:               "ThingIMT00000000000000000000CD",
+			SupportsP6:       true,
+			SubscriberCertus: json.RawMessage(`{"id":"sub-certus-001","imei":"300258060902280"}`),
 		},
 	}
 
@@ -365,12 +353,9 @@ func TestThingResolver_RefreshFromAPI_NoClient(t *testing.T) {
 func TestThingResolver_RefreshFromAPI_SkipsExisting(t *testing.T) {
 	things := []CloudloopThing{
 		{
-			ID:          "APIThingId00000000000000000001",
-			SupportsSBD: true,
-			SubscriberSBD: &CloudloopSubscRef{
-				ID:   "sub-001",
-				IMEI: "300234065000001",
-			},
+			ID:            "APIThingId00000000000000000001",
+			SupportsSBD:   true,
+			SubscriberSBD: json.RawMessage(`{"id":"sub-001","imei":"300234065000001"}`),
 		},
 	}
 
@@ -436,10 +421,14 @@ func TestCloudloopSubscRef_UnmarshalJSON_StringOrObject(t *testing.T) {
 	if err := json.Unmarshal([]byte(body), &resp); err != nil {
 		t.Fatalf("GetThings with string subscriberCertus: unexpected error: %v", err)
 	}
-	if len(resp.Things) != 1 || resp.Things[0].SubscriberCertus == nil || resp.Things[0].SubscriberCertus.ID != "certus-ref-123" {
+	if len(resp.Things) != 1 {
+		t.Fatalf("GetThings: expected 1 thing: %+v", resp.Things)
+	}
+	certusID, _ := subscRef(resp.Things[0].SubscriberCertus)
+	if certusID != "certus-ref-123" {
 		t.Fatalf("GetThings: subscriberCertus not parsed: %+v", resp.Things)
 	}
-	if resp.Things[0].SubscriberSBD == nil || resp.Things[0].SubscriberSBD.IMEI != "300999" {
+	if _, sbdIMEI := subscRef(resp.Things[0].SubscriberSBD); sbdIMEI != "300999" {
 		t.Fatalf("GetThings: subscriberSbd object not parsed: %+v", resp.Things[0].SubscriberSBD)
 	}
 }

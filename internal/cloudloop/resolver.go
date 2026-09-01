@@ -21,16 +21,33 @@ type ThingInfo struct {
 
 // CloudloopThing represents a thing returned by the Data/GetThings API.
 type CloudloopThing struct {
-	ID                 string             `json:"id"`
-	Account            string             `json:"account"`
-	SupportsSBD        bool               `json:"supportsSbd"`
-	SupportsP6         bool               `json:"supportsP6"`     // P6 = Certus/IMT
-	SupportsCeefax     bool               `json:"supportsCeefax"` // Ceefax = IoT
-	SupportsIOT        bool               `json:"supportsIot"`
-	SubscriberSBD      *CloudloopSubscRef `json:"subscriberSbd,omitempty"`
-	SubscriberCertus   *CloudloopSubscRef `json:"subscriberCertus,omitempty"`
-	SubscriberBGAN     *CloudloopSubscRef `json:"subscriberBgan,omitempty"`
-	SubscriberCellular *CloudloopSubscRef `json:"subscriberCellular,omitempty"`
+	ID                 string          `json:"id"`
+	Account            string          `json:"account"`
+	SupportsSBD        bool            `json:"supportsSbd"`
+	SupportsP6         bool            `json:"supportsP6"`     // P6 = Certus/IMT
+	SupportsCeefax     bool            `json:"supportsCeefax"` // Ceefax = IoT
+	SupportsIOT        bool            `json:"supportsIot"`
+	SubscriberSBD      json.RawMessage `json:"subscriberSbd,omitempty"`
+	SubscriberCertus   json.RawMessage `json:"subscriberCertus,omitempty"`
+	SubscriberBGAN     json.RawMessage `json:"subscriberBgan,omitempty"`
+	SubscriberCellular json.RawMessage `json:"subscriberCellular,omitempty"`
+}
+
+// subscRef parses a subscriber reference that the live API returns either as
+// a bare ID string or (legacy) as an object with id and imei. [MESHSAT-750]
+func subscRef(raw json.RawMessage) (id, imei string) {
+	if len(raw) == 0 || string(raw) == "null" {
+		return "", ""
+	}
+	if raw[0] == '"' {
+		_ = json.Unmarshal(raw, &id)
+		return id, ""
+	}
+	var ref CloudloopSubscRef
+	if err := json.Unmarshal(raw, &ref); err != nil {
+		return "", ""
+	}
+	return ref.ID, ref.IMEI
 }
 
 // CloudloopSubscRef is a reference to a subscriber record within a thing.
@@ -230,15 +247,20 @@ func (r *ThingResolver) RefreshFromAPI(ctx context.Context) error {
 
 	added := 0
 	for _, t := range things {
-		isIMT := t.SupportsP6
+		// A Certus subscriber on the thing means IMT regardless of the
+		// supportsP6 flag, which the live API reports false even for
+		// active Certus things. [MESHSAT-750]
+		certusID, certusIMEI := subscRef(t.SubscriberCertus)
+		_, sbdIMEI := subscRef(t.SubscriberSBD)
+		isIMT := t.SupportsP6 || certusID != ""
 
-		// Try to extract IMEI from subscriber references.
-		imei := ""
-		if t.SubscriberSBD != nil && t.SubscriberSBD.IMEI != "" {
-			imei = t.SubscriberSBD.IMEI
-		}
-		if t.SubscriberCertus != nil && t.SubscriberCertus.IMEI != "" {
-			imei = t.SubscriberCertus.IMEI
+		// Try to extract IMEI from subscriber references. The live API
+		// returns bare subscriber IDs with no IMEI, so this usually
+		// yields nothing and mappings come from MO learning or the
+		// HUB_CLOUDLOOP_DEVICE_MAP seed.
+		imei := sbdIMEI
+		if certusIMEI != "" {
+			imei = certusIMEI
 			isIMT = true
 		}
 
@@ -258,6 +280,30 @@ func (r *ThingResolver) RefreshFromAPI(ctx context.Context) error {
 	slog.Info("resolver: API refresh complete",
 		"things_total", len(things), "new_mappings", added, "cache_size", r.Count())
 	return nil
+}
+
+// SeedFromSpec registers device mappings from a config string of the form
+// "imei:thingID:imt,imei:thingID:sbd". Returns the number of entries
+// registered. Used with HUB_CLOUDLOOP_DEVICE_MAP so IMT devices route
+// correctly from first boot, since the Data API exposes no IMEIs and MO
+// learning is in-memory only. [MESHSAT-750]
+func (r *ThingResolver) SeedFromSpec(spec string) int {
+	n := 0
+	for _, entry := range strings.Split(spec, ",") {
+		entry = strings.TrimSpace(entry)
+		if entry == "" {
+			continue
+		}
+		parts := strings.Split(entry, ":")
+		if len(parts) < 2 {
+			slog.Warn("resolver: bad HUB_CLOUDLOOP_DEVICE_MAP entry", "entry", entry)
+			continue
+		}
+		isIMT := len(parts) >= 3 && strings.EqualFold(parts[2], "imt")
+		r.Register(parts[0], parts[1], isIMT)
+		n++
+	}
+	return n
 }
 
 // StartPeriodicRefresh runs RefreshFromAPI at the given interval.
