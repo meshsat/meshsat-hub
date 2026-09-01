@@ -1441,7 +1441,12 @@ func main() {
 	sendHandler := api.NewSendHandler(rock7Client, dataStore)
 	sendHandler.SetKeyStore(keyStore)
 	sendHandler.SetSMSClient(smsClientForSend)
+	sendHandler.SetIMTSender(mtSender)
 	r.Post("/api/devices/{imei}/send", sendHandler.SendMessage)
+	// Explicit provider routes fail loudly on protocol mismatch [MESHSAT-750].
+	// chi gives static segments precedence over {imei}, so these coexist.
+	r.Post("/api/devices/rock7/{imei}/send", sendHandler.SendMessageRock7)
+	r.Post("/api/devices/cloudloop/{imei}/send", sendHandler.SendMessageCloudloop)
 	r.Post("/api/sms/send", sendHandler.SendSMS)
 
 	// Message history API
