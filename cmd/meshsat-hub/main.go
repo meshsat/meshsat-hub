@@ -1038,9 +1038,17 @@ func main() {
 	clHandler.SetStore(dataStore)
 	clHandler.SetHeMBReassembler(hembReassemblyBuf)
 	clHandler.SetResolver(thingResolver)
-	if cfg.CloudloopWebhookAllowedIPs != "" {
-		clHandler.SetAllowedIPs(strings.Split(cfg.CloudloopWebhookAllowedIPs, ","))
+	// IP allowlist for inbound Cloudloop webhooks: operator-supplied via env/yaml,
+	// or fall back to Cloudloop's published outbound IPs (config.DefaultCloudloopWebhookIPs).
+	// Cloudloop offers no HMAC signature, so IP allowlist is the only documented
+	// authenticity layer — Constitution Article IX carves out this case.
+	clIPs, clIPsFromOperator := config.ResolveCloudloopAllowedIPs(cfg.CloudloopWebhookAllowedIPs)
+	if !clIPsFromOperator {
+		slog.Info("cloudloop: webhook allowlist using documented Cloudloop IPs",
+			"ips", clIPs,
+			"source", "https://knowledge.cloudloop.com/docs/destinations/http")
 	}
+	clHandler.SetAllowedIPs(clIPs)
 
 	// Wire Reticulum interfaces to webhook handlers for inbound packet detection.
 	if retIridiumIface != nil {
@@ -1435,7 +1443,12 @@ func main() {
 	sendHandler := api.NewSendHandler(rock7Client, dataStore)
 	sendHandler.SetKeyStore(keyStore)
 	sendHandler.SetSMSClient(smsClientForSend)
+	sendHandler.SetIMTSender(mtSender)
 	r.Post("/api/devices/{imei}/send", sendHandler.SendMessage)
+	// Explicit provider routes fail loudly on protocol mismatch [MESHSAT-750].
+	// chi gives static segments precedence over {imei}, so these coexist.
+	r.Post("/api/devices/rock7/{imei}/send", sendHandler.SendMessageRock7)
+	r.Post("/api/devices/cloudloop/{imei}/send", sendHandler.SendMessageCloudloop)
 	r.Post("/api/sms/send", sendHandler.SendSMS)
 
 	// Message history API

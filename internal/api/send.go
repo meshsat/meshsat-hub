@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/cubeos-app/meshsat-hub/internal/auth"
+	"github.com/cubeos-app/meshsat-hub/internal/cloudloop"
 	"github.com/cubeos-app/meshsat-hub/internal/compress"
 	hubcrypto "github.com/cubeos-app/meshsat-hub/internal/crypto"
 	"github.com/cubeos-app/meshsat-hub/internal/rock7"
@@ -23,6 +24,7 @@ type SendHandler struct {
 	smsClient   *sms.Client
 	store       store.Store
 	keyStore    *hubcrypto.KeyStore
+	imtSender   *cloudloop.Sender
 }
 
 // NewSendHandler creates a new MT send handler.
@@ -40,11 +42,19 @@ func (h *SendHandler) SetSMSClient(c *sms.Client) {
 	h.smsClient = c
 }
 
+// SetIMTSender enables MT sends to IMT (9704) devices via Cloudloop. [MESHSAT-750]
+func (h *SendHandler) SetIMTSender(s *cloudloop.Sender) {
+	h.imtSender = s
+}
+
 type sendMessageRequest struct {
 	Text        string `json:"text"`
 	Compress    bool   `json:"compress"`               // SMAZ2 compress before sending (default: true)
 	Encrypt     bool   `json:"encrypt"`                // AES-256-GCM encrypt with device key (default: true if key exists)
 	ScheduledAt string `json:"scheduled_at,omitempty"` // RFC3339 timestamp for future delivery (empty = send now)
+	Priority    int    `json:"priority,omitempty"`     // >=9 bypasses per-device rate limiting (SOS)
+	IMTTopic    string `json:"imt_topic,omitempty"`    // IMT only: PURPLE/PINK/RED/ORANGE/YELLOW/RAW
+	RingStyle   string `json:"ring_style,omitempty"`   // IMT only: NORMAL/URGENT/EXTENDED
 }
 
 // SendMessage sends an MT message to a device via Rock7/Iridium.
@@ -112,6 +122,17 @@ func (h *SendHandler) SendMessage(w http.ResponseWriter, r *http.Request) {
 		// scheduled_at is in the past — fall through to send immediately.
 	}
 
+	// MESHSAT-750: route by device protocol. IMT (9704) devices send via
+	// Cloudloop; everything else takes the Rock7/SBD path.
+	if h.imtSender != nil && h.imtSender.IsIMTDevice(imei) {
+		h.sendViaCloudloop(w, r, imei, &req)
+		return
+	}
+	h.sendViaRock7(w, r, imei, &req)
+}
+
+// sendViaRock7 sends the MT via the Rock7 (SBD) API and writes the response.
+func (h *SendHandler) sendViaRock7(w http.ResponseWriter, r *http.Request, imei string, req *sendMessageRequest) {
 	if h.rock7Client == nil {
 		writeError(w, http.StatusServiceUnavailable, "MT send not configured (set HUB_ROCK7_USERNAME)")
 		return
@@ -185,14 +206,16 @@ func (h *SendHandler) SendMessage(w http.ResponseWriter, r *http.Request) {
 
 	if err != nil {
 		writeJSON(w, http.StatusBadGateway, map[string]interface{}{
-			"status": "failed",
-			"error":  errMsg,
+			"status":   "failed",
+			"provider": "rock7",
+			"error":    errMsg,
 		})
 		return
 	}
 
 	writeJSON(w, http.StatusOK, map[string]interface{}{
 		"status":         "queued",
+		"provider":       "rock7",
 		"mt_id":          mtID,
 		"imei":           imei,
 		"compressed":     compressed,
@@ -325,4 +348,142 @@ func (h *SendHandler) SendSMS(w http.ResponseWriter, r *http.Request) {
 		"original_bytes": originalSize,
 		"wire_bytes":     len(finalBody),
 	})
+}
+
+// sendViaCloudloop sends the MT via the Cloudloop API (IMT/9704 path), reusing
+// the MQTT mt/send pipeline, and writes the response. [MESHSAT-750]
+func (h *SendHandler) sendViaCloudloop(w http.ResponseWriter, r *http.Request, imei string, req *sendMessageRequest) {
+	if h.imtSender == nil {
+		writeError(w, http.StatusServiceUnavailable, "IMT send not configured (Cloudloop sender unavailable)")
+		return
+	}
+
+	mtReq := cloudloop.MTSendRequest{
+		Text:      req.Text,
+		Priority:  req.Priority,
+		Compress:  req.Compress || req.Text != "",
+		IMTTopic:  req.IMTTopic,
+		RingStyle: req.RingStyle,
+	}
+
+	result, err := h.imtSender.SendDirect(imei, mtReq)
+
+	tid := auth.TenantIDFromContext(r.Context())
+	status := "queued"
+	errMsg := ""
+	if err != nil {
+		status = "failed"
+		errMsg = err.Error()
+		slog.Error("send: IMT MT failed", "imei", imei, "error", err)
+	} else {
+		slog.Info("send: IMT MT queued", "imei", imei, "thing", result.ThingID,
+			"fragments", result.Fragments, "wire_bytes", result.WireBytes)
+	}
+
+	msg := &store.Message{
+		ID:         "mt-" + time.Now().Format("20060102150405"),
+		DeviceIMEI: imei,
+		Direction:  "mt",
+		Channel:    "iridium_imt",
+		Text:       req.Text,
+		Status:     status,
+		Error:      errMsg,
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	_ = h.store.InsertMessage(ctx, tid, msg)
+
+	if err != nil {
+		writeJSON(w, http.StatusBadGateway, map[string]interface{}{
+			"status":   "failed",
+			"provider": "cloudloop",
+			"error":    errMsg,
+		})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"status":     "queued",
+		"provider":   "cloudloop",
+		"imei":       imei,
+		"thing_id":   result.ThingID,
+		"fragments":  result.Fragments,
+		"wire_bytes": result.WireBytes,
+	})
+}
+
+// SendMessageRock7 sends an MT message explicitly via Rock7 (SBD), failing
+// loudly on protocol mismatch instead of trying anyway. [MESHSAT-750]
+//
+//	@Summary      Send MT message via Rock7 (explicit provider route)
+//	@Tags         devices
+//	@Accept       json
+//	@Produce      json
+//	@Param        imei  path  string              true  "Device IMEI"
+//	@Param        body  body  sendMessageRequest  true  "Message to send"
+//	@Success      200   {object}  map[string]interface{}
+//	@Failure      400   {object}  map[string]string
+//	@Failure      409   {object}  map[string]string
+//	@Router       /api/devices/rock7/{imei}/send [post]
+func (h *SendHandler) SendMessageRock7(w http.ResponseWriter, r *http.Request) {
+	imei := chi.URLParam(r, "imei")
+	if imei == "" {
+		writeError(w, http.StatusBadRequest, "missing imei")
+		return
+	}
+	var req sendMessageRequest
+	if err := readJSON(w, r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if req.Text == "" {
+		writeError(w, http.StatusBadRequest, "text is required")
+		return
+	}
+	if h.imtSender != nil && h.imtSender.IsIMTDevice(imei) {
+		writeError(w, http.StatusConflict,
+			"device "+imei+" is an IMT/Cloudloop device; use /api/devices/cloudloop/"+imei+"/send or the generic route")
+		return
+	}
+	h.sendViaRock7(w, r, imei, &req)
+}
+
+// SendMessageCloudloop sends an MT message explicitly via Cloudloop (IMT),
+// failing loudly on protocol mismatch instead of trying anyway. [MESHSAT-750]
+//
+//	@Summary      Send MT message via Cloudloop (explicit provider route)
+//	@Tags         devices
+//	@Accept       json
+//	@Produce      json
+//	@Param        imei  path  string              true  "Device IMEI"
+//	@Param        body  body  sendMessageRequest  true  "Message to send"
+//	@Success      200   {object}  map[string]interface{}
+//	@Failure      400   {object}  map[string]string
+//	@Failure      409   {object}  map[string]string
+//	@Failure      503   {object}  map[string]string
+//	@Router       /api/devices/cloudloop/{imei}/send [post]
+func (h *SendHandler) SendMessageCloudloop(w http.ResponseWriter, r *http.Request) {
+	imei := chi.URLParam(r, "imei")
+	if imei == "" {
+		writeError(w, http.StatusBadRequest, "missing imei")
+		return
+	}
+	var req sendMessageRequest
+	if err := readJSON(w, r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if req.Text == "" {
+		writeError(w, http.StatusBadRequest, "text is required")
+		return
+	}
+	if h.imtSender == nil {
+		writeError(w, http.StatusServiceUnavailable, "IMT send not configured (Cloudloop sender unavailable)")
+		return
+	}
+	if !h.imtSender.IsIMTDevice(imei) {
+		writeError(w, http.StatusConflict,
+			"device "+imei+" is not a Cloudloop IMT device on this Hub; use /api/devices/rock7/"+imei+"/send or the generic route")
+		return
+	}
+	h.sendViaCloudloop(w, r, imei, &req)
 }

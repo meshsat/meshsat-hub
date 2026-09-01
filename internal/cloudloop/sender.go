@@ -296,3 +296,64 @@ func (s *Sender) publishStatus(deviceID, mtID, status, errMsg string) {
 		slog.Error("cloudloop: publish mt/status failed", "error", err, "device", deviceID)
 	}
 }
+
+// SendDirectResult reports the outcome of a REST-initiated MT send.
+type SendDirectResult struct {
+	ThingID   string
+	IsIMT     bool
+	Fragments int
+	WireBytes int
+}
+
+// IsIMTDevice reports whether the resolver maps this IMEI to an IMT (9704)
+// device. Unknown devices resolve as SBD.
+func (s *Sender) IsIMTDevice(imei string) bool {
+	_, isIMT := s.resolveDevice(imei)
+	return isIMT
+}
+
+// SendDirect prepares and sends one MT message through Cloudloop synchronously,
+// reusing the same resolve, compress, version-byte and fragmentation pipeline
+// as the MQTT mt/send path. Rate limiting, retries, audit, cost recording and
+// mt/status publication behave exactly as for MQTT-initiated sends. The
+// single-fragment success status is published by sendPayload. [MESHSAT-750]
+func (s *Sender) SendDirect(imei string, req MTSendRequest) (*SendDirectResult, error) {
+	thingID, isIMT := s.resolveDevice(imei)
+
+	isSOS := req.Priority >= 9
+	if s.limiter != nil && !s.limiter.Allow(imei, isSOS) {
+		return nil, fmt.Errorf("device rate limit exceeded")
+	}
+
+	data := []byte(req.Text)
+	if req.Compress {
+		data = compress.Compress(data)
+	}
+	data = codec.PrependVersionByte(data)
+
+	mtu := s.mtMTU
+	if isIMT {
+		mtu = imtMTU
+	}
+
+	res := &SendDirectResult{ThingID: thingID, IsIMT: isIMT, WireBytes: len(data), Fragments: 1}
+
+	frags := fragment.Fragment(data, mtu, s.nextMsgID())
+	if frags != nil {
+		res.Fragments = len(frags)
+		for i, frag := range frags {
+			if err := s.sendPayload(thingID, isIMT, req.IMTTopic, req.RingStyle, frag, i, len(frags)); err != nil {
+				s.publishStatus(imei, "", "failed", fmt.Sprintf("fragment %d/%d failed: %s", i+1, len(frags), err))
+				return nil, fmt.Errorf("fragment %d/%d: %w", i+1, len(frags), err)
+			}
+		}
+		s.publishStatus(imei, "", "sent", fmt.Sprintf("sent %d fragments", len(frags)))
+		return res, nil
+	}
+
+	if err := s.sendPayload(thingID, isIMT, req.IMTTopic, req.RingStyle, data, 0, 1); err != nil {
+		s.publishStatus(imei, "", "failed", err.Error())
+		return nil, err
+	}
+	return res, nil
+}
