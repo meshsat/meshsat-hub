@@ -462,3 +462,20 @@ changelog:
     expire_in: 1 year
   rules:
     - if: $CI_COMMIT_TAG
+
+# -----------------------------------------------------------------------------
+# CHANGELOG — tell meshsat.net to regenerate /changelog/ when a tag is cut
+# [MESHSAT-853]. Downstream: meshsat-website job changelog:regenerate (source
+# "pipeline", CHANGELOG_RUN=1); it commits the new section and deploys only
+# when the pages changed. The nightly schedule there covers everything else.
+# -----------------------------------------------------------------------------
+changelog:notify-website:
+  stage: release
+  rules:
+    - if: $CI_COMMIT_TAG
+  allow_failure: true
+  variables:
+    CHANGELOG_RUN: "1"
+  trigger:
+    project: products/cubeos/meshsat-website
+    branch: main
