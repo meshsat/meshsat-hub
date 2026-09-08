@@ -6,8 +6,12 @@ import "math"
 
 // Point represents a geographic coordinate.
 type Point struct {
-	Lat float64
-	Lon float64
+	// The JSON names are lower case on purpose: geofence polygons are read
+	// and written by the SPA, which sends {"lat","lon"} on create. Without
+	// the tags the API answered {"Lat","Lon"} and the map drew nothing
+	// (MESHSAT-967).
+	Lat float64 `json:"lat"`
+	Lon float64 `json:"lon"`
 }
 
 // Simplify applies the Douglas-Peucker algorithm to reduce the number of points
