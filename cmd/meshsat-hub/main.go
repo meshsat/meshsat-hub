@@ -177,9 +177,9 @@ func main() {
 		if cfg.NATSUrl != "" {
 			brokerURL = cfg.NATSUrl
 		}
-		msgBus = paho.New(brokerURL, cfg.MQTTClientID)
+		msgBus = paho.New(brokerURL, mqttClientID(cfg.MQTTClientID))
 	default: // "standalone"
-		msgBus = paho.New(cfg.MQTTBrokerURL, cfg.MQTTClientID)
+		msgBus = paho.New(cfg.MQTTBrokerURL, mqttClientID(cfg.MQTTClientID))
 	}
 	msgBus = bus.NewObservedBus(msgBus) // Wrap with metrics instrumentation.
 	if migrateOnly() {
@@ -2191,6 +2191,21 @@ func (a *scheduledSenderAdapter) SendScheduled(ctx context.Context, msg *store.M
 	}
 	_, err := client.SendMT(ctx, msg.DeviceIMEI, dataHex)
 	return err
+}
+
+// mqttClientID makes the broker client id unique per replica: an MQTT
+// broker keeps one session per client id and NATS replaces the older
+// connection ("Replacing old client"), so two pods with the same id kick each
+// other off every few seconds and lose subscriptions (seen 2026-09-08 with
+// replicas=2, MESHSAT-980). POD_NAME comes from the downward API.
+func mqttClientID(base string) string {
+	if pod := os.Getenv("POD_NAME"); pod != "" {
+		return base + "-" + pod
+	}
+	if host, err := os.Hostname(); err == nil && host != "" && os.Getenv("HUB_MODE") == "kubernetes" {
+		return base + "-" + host
+	}
+	return base
 }
 
 // bootstrapCredentialMasterKey loads or generates the master key for credential encryption.
