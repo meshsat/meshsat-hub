@@ -241,7 +241,16 @@ func (e *Engine) processAlert(ctx context.Context, alert *store.Alert, now time.
 		}
 	} else {
 		// Retry within current tier with exponential backoff.
-		backoff := time.Duration(1<<uint(alert.Retries)) * time.Second
+		// Shift is clamped: at 2^16 s the tier cap below always wins, and an
+		// unbounded shift wrapped to zero (see dbwrap, MESHSAT-833).
+		shift := alert.Retries
+		if shift < 0 {
+			shift = 0
+		}
+		if shift > 16 {
+			shift = 16
+		}
+		backoff := time.Duration(1<<shift) * time.Second
 		if maxWait := time.Duration(tier.WaitSec) * time.Second; backoff > maxWait {
 			backoff = maxWait
 		}

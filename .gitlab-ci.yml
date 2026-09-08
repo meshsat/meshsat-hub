@@ -60,16 +60,20 @@ gosec:
   image: golang:1.25-alpine
   tags: [multiarch]
   before_script:
-    - go install github.com/securego/gosec/v2/cmd/gosec@latest
+    # Pinned: rule sets change between releases and the gate must be reproducible (MESHSAT-966).
+    - go install github.com/securego/gosec/v2/cmd/gosec@v2.29.0
   script:
     - gosec -fmt json -out gosec-report.json -severity high ./... || true
     - |
-      # Fail on HIGH severity issues only; MEDIUM/LOW are tracked as tech debt
-      HIGH_COUNT=$(gosec -fmt json -severity high ./... 2>/dev/null | grep -c '"severity": "HIGH"' || echo 0)
-      echo "High severity issues: $HIGH_COUNT"
-      if [ "$HIGH_COUNT" -gt 0 ]; then
+      # Fail on HIGH severity issues only; MEDIUM/LOW are tracked as tech debt.
+      # Count from the report file: piping gosec (non-zero exit on findings)
+      # through grep under pipefail produced "79\n0" and `[ -gt ]` silently
+      # failed with "bad number" for months (MESHSAT-966).
+      HIGH_COUNT=$(grep -c '"severity": "HIGH"' gosec-report.json || true)
+      echo "High severity issues: ${HIGH_COUNT:-0}"
+      if [ "${HIGH_COUNT:-0}" -gt 0 ]; then
         echo "BLOCKED: gosec found HIGH severity issues"
-        gosec -fmt text -severity high ./...
+        gosec -fmt text -severity high ./... || true
         exit 1
       fi
   artifacts:

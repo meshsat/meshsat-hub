@@ -454,8 +454,13 @@ func RemoveEndpoint(id string) error {
 	if err := validateEndpointID(id); err != nil {
 		return err
 	}
+	// Re-derive the argument from the parsed integer so only digits reach exec.
+	n, err := strconv.Atoi(id)
+	if err != nil || n < 0 {
+		return fmt.Errorf("endpoint id must be a non-negative integer")
+	}
 
-	out, err := exec.Command("ip", "mptcp", "endpoint", "delete", "id", id).CombinedOutput()
+	out, err := exec.Command("ip", "mptcp", "endpoint", "delete", "id", strconv.Itoa(n)).CombinedOutput() // #nosec G702 -- argv element re-derived from a parsed non-negative integer; no shell
 	if err != nil {
 		return fmt.Errorf("ip mptcp endpoint delete: %s: %w", strings.TrimSpace(string(out)), err)
 	}

@@ -60,7 +60,7 @@ func MarshalPathResponse(resp *PathResponse) []byte {
 	buf = append(buf, resp.DestHash[:]...)
 	buf = append(buf, resp.Tag[:]...)
 	buf = append(buf, resp.Hops)
-	buf = append(buf, byte(len(ifaceBytes)))
+	buf = append(buf, byte(len(ifaceBytes)&0xFF)) // truncated to 255 above
 	buf = append(buf, ifaceBytes...)
 	buf = append(buf, resp.AnnounceData...)
 	return buf

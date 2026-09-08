@@ -13,6 +13,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/meshsat/meshsat-hub/internal/fsutil"
 	"io"
 	"log/slog"
 	"net/http"
@@ -29,6 +30,11 @@ type Client struct {
 
 // NewClient creates a new hawkBit Management API client.
 func NewClient(baseURL, username, password string) *Client {
+	if v, err := fsutil.ValidateBaseURL(baseURL); err != nil {
+		slog.Error("hawkbit: invalid base URL, requests will fail", "error", err)
+	} else {
+		baseURL = v
+	}
 	return &Client{
 		baseURL:  baseURL,
 		username: username,
@@ -328,7 +334,7 @@ func (c *Client) doRequest(ctx context.Context, method, path string, body []byte
 		reqBody = bytes.NewReader(body)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, method, url, reqBody)
+	req, err := http.NewRequestWithContext(ctx, method, url, reqBody) // #nosec G704 -- operator-configured base URL validated in NewClient
 	if err != nil {
 		return nil, fmt.Errorf("hawkbit: create request: %w", err)
 	}
@@ -338,7 +344,7 @@ func (c *Client) doRequest(ctx context.Context, method, path string, body []byte
 	}
 	req.Header.Set("Accept", "application/json")
 
-	resp, err := c.httpClient.Do(req)
+	resp, err := c.httpClient.Do(req) // #nosec G704 -- see NewClient
 	if err != nil {
 		return nil, fmt.Errorf("hawkbit: %s %s: %w", method, path, err)
 	}

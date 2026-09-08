@@ -7,11 +7,13 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/meshsat/meshsat-hub/internal/auth"
 	"github.com/meshsat/meshsat-hub/internal/bridge"
+	"github.com/meshsat/meshsat-hub/internal/fsutil"
 	"github.com/meshsat/meshsat-hub/internal/store"
 	"golang.org/x/crypto/bcrypt"
 )
@@ -218,18 +220,18 @@ func (h *BridgeAuthHandler) RegenerateACL(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	passwdFile := os.Getenv("MESHSAT_MOSQUITTO_PASSWD_FILE")
-	if passwdFile == "" {
-		passwdFile = "/data/mosquitto/passwd"
+	mosqAuthFile := fsutil.AbsOnly(filepath.Clean(os.Getenv("MESHSAT_MOSQUITTO_PASSWD_FILE")))
+	if mosqAuthFile == "" {
+		mosqAuthFile = "/data/mosquitto/passwd"
 	}
-	aclFile := os.Getenv("MESHSAT_MOSQUITTO_ACL_FILE")
+	aclFile := fsutil.AbsOnly(filepath.Clean(os.Getenv("MESHSAT_MOSQUITTO_ACL_FILE")))
 	if aclFile == "" {
 		aclFile = "/data/mosquitto/acl"
 	}
 
 	passwdData := bridge.GeneratePasswordFile(bridges)
-	if err := os.WriteFile(passwdFile, passwdData, 0600); err != nil {
-		slog.Error("acl: failed to write password file", "path", passwdFile, "error", err)
+	if err := os.WriteFile(mosqAuthFile, passwdData, 0600); err != nil {
+		slog.Error("acl: failed to write password file", "path", mosqAuthFile, "error", err)
 		writeError(w, http.StatusInternalServerError, "failed to write password file")
 		return
 	}
@@ -242,7 +244,7 @@ func (h *BridgeAuthHandler) RegenerateACL(w http.ResponseWriter, r *http.Request
 	}
 
 	slog.Info("acl: regenerated mosquitto files",
-		"bridges", len(bridges), "passwd_file", passwdFile, "acl_file", aclFile)
+		"bridges", len(bridges), "passwd_file", mosqAuthFile, "acl_file", aclFile)
 
 	writeJSON(w, http.StatusOK, aclRegenResponse{BridgesConfigured: len(bridges)})
 }

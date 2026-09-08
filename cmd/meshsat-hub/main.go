@@ -10,9 +10,10 @@ import (
 	"io/fs"
 	"log/slog"
 	"net/http"
-	_ "net/http/pprof"
+	"net/http/pprof"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strings"
 	"syscall"
 	"time"
@@ -40,6 +41,7 @@ import (
 	hubemail "github.com/meshsat/meshsat-hub/internal/email"
 	"github.com/meshsat/meshsat-hub/internal/escalation"
 	"github.com/meshsat/meshsat-hub/internal/fragment"
+	"github.com/meshsat/meshsat-hub/internal/fsutil"
 	"github.com/meshsat/meshsat-hub/internal/geo"
 	"github.com/meshsat/meshsat-hub/internal/globalstar"
 	"github.com/meshsat/meshsat-hub/internal/hawkbit"
@@ -548,8 +550,8 @@ func main() {
 
 	// Bridge certificate authority for MQTT TLS client certs.
 	var bridgeCA *bridge.CertAuthority
-	caCertPath := os.Getenv("MESHSAT_BRIDGE_CA_CERT")
-	caKeyPath := os.Getenv("MESHSAT_BRIDGE_CA_KEY")
+	caCertPath := fsutil.AbsOnly(filepath.Clean(os.Getenv("MESHSAT_BRIDGE_CA_CERT")))
+	caKeyPath := fsutil.AbsOnly(filepath.Clean(os.Getenv("MESHSAT_BRIDGE_CA_KEY")))
 	if caCertPath != "" && caKeyPath != "" {
 		certPEM, err := os.ReadFile(caCertPath)
 		if err != nil {
@@ -603,8 +605,8 @@ func main() {
 	// Export bridge CA cert to filesystem for NATS mTLS verification.
 	// NATS reads this file at startup to verify bridge client certificates.
 	// The export path is typically a shared volume between Hub and NATS containers.
-	if bridgeCA != nil && cfg.BridgeCACertExportPath != "" {
-		if err := os.WriteFile(cfg.BridgeCACertExportPath, bridgeCA.CACertPEM(), 0644); err != nil {
+	if exportPath := fsutil.AbsOnly(filepath.Clean(cfg.BridgeCACertExportPath)); bridgeCA != nil && exportPath != "" {
+		if err := os.WriteFile(exportPath, bridgeCA.CACertPEM(), 0644); err != nil { // #nosec G306 G703 -- cleaned absolute path; the payload is the public CA certificate read by the NATS container
 			slog.Error("bridge-ca: failed to export CA cert for NATS mTLS", "path", cfg.BridgeCACertExportPath, "error", err)
 		} else {
 			slog.Info("bridge-ca: exported CA cert for NATS mTLS", "path", cfg.BridgeCACertExportPath)
@@ -1252,8 +1254,14 @@ func main() {
 	// pprof profiling endpoints (opt-in, behind auth).
 	if cfg.PprofEnabled {
 		slog.Warn("pprof endpoints enabled at /debug/pprof/ — ensure auth is configured")
-		r.HandleFunc("/debug/pprof/", http.DefaultServeMux.ServeHTTP)
-		r.HandleFunc("/debug/pprof/{profile}", http.DefaultServeMux.ServeHTTP)
+		r.HandleFunc("/debug/pprof/", pprof.Index)
+		r.HandleFunc("/debug/pprof/cmdline", pprof.Cmdline)
+		r.HandleFunc("/debug/pprof/profile", pprof.Profile)
+		r.HandleFunc("/debug/pprof/symbol", pprof.Symbol)
+		r.HandleFunc("/debug/pprof/trace", pprof.Trace)
+		r.HandleFunc("/debug/pprof/{profile}", func(w http.ResponseWriter, req *http.Request) {
+			pprof.Handler(chi.URLParam(req, "profile")).ServeHTTP(w, req)
+		})
 	}
 
 	// WebSocket real-time event hub
@@ -1613,7 +1621,7 @@ func main() {
 			api.WriteJSON(w, http.StatusOK, []interface{}{})
 			return
 		}
-		proxy := tak.NewMartiProxy(cfg.TAKHost, 8443, true)
+		proxy := tak.NewMartiProxy(cfg.TAKHost, 8443, true, cfg.TAKAPIInsecureTLS)
 		missions, err := proxy.ListMissions()
 		if err != nil {
 			api.WriteJSON(w, http.StatusBadGateway, map[string]string{"error": err.Error()})

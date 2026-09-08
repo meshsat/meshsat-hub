@@ -59,15 +59,26 @@ func PinnedTransport(pin *Pin) *http.Transport {
 		return http.DefaultTransport.(*http.Transport).Clone()
 	}
 
+	verify := func(verifiedChains [][]*x509.Certificate) error {
+		if err := pin.Verify(verifiedChains); err != nil {
+			slog.Warn("tlspin: certificate pin mismatch", "error", err)
+			return err
+		}
+		return nil
+	}
 	transport := http.DefaultTransport.(*http.Transport).Clone()
 	transport.TLSClientConfig = &tls.Config{
 		MinVersion: tls.VersionTLS12,
+		// VerifyPeerCertificate runs only on full handshakes; a resumed
+		// session would skip the pin. VerifyConnection runs on every
+		// connection and session tickets are disabled so nothing resumes.
+		SessionTicketsDisabled: true,
+		ClientSessionCache:     nil,
 		VerifyPeerCertificate: func(rawCerts [][]byte, verifiedChains [][]*x509.Certificate) error {
-			if err := pin.Verify(verifiedChains); err != nil {
-				slog.Warn("tlspin: certificate pin mismatch", "error", err)
-				return err
-			}
-			return nil
+			return verify(verifiedChains)
+		},
+		VerifyConnection: func(cs tls.ConnectionState) error {
+			return verify(cs.VerifiedChains)
 		},
 	}
 

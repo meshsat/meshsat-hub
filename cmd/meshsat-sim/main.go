@@ -106,8 +106,8 @@ func (d *simulatedDevice) updatePosition() {
 		d.lat = *centerLat + radius*math.Sin(angle)
 		d.lon = *centerLon + radius*math.Cos(angle)
 	default: // "random"
-		d.lat += (rand.Float64() - 0.5) * 0.005
-		d.lon += (rand.Float64() - 0.5) * 0.005
+		d.lat += (rand.Float64() - 0.5) * 0.005 // #nosec G404 -- simulator jitter, not security
+		d.lon += (rand.Float64() - 0.5) * 0.005 // #nosec G404 -- simulator jitter, not security
 	}
 }
 
@@ -146,8 +146,8 @@ func main() {
 		imei := imeiPool[i%len(imeiPool)]
 		devs[i] = &simulatedDevice{
 			imei:    imei,
-			lat:     *centerLat + (rand.Float64()-0.5)*0.1,
-			lon:     *centerLon + (rand.Float64()-0.5)*0.1,
+			lat:     *centerLat + (rand.Float64()-0.5)*0.1, // #nosec G404 -- simulator jitter, not security
+			lon:     *centerLon + (rand.Float64()-0.5)*0.1, // #nosec G404 -- simulator jitter, not security
 			momsn:   1,
 			pattern: *pattern,
 		}
@@ -253,13 +253,13 @@ func makeMTHandler(c mqtt.Client, dev *simulatedDevice) mqtt.MessageHandler {
 
 		// Simulate satellite delivery delay.
 		go func() {
-			delay := time.Duration(5+rand.IntN(10)) * time.Second
+			delay := time.Duration(5+rand.IntN(10)) * time.Second // #nosec G404 -- simulator jitter, not security
 			time.Sleep(delay)
 
 			// 95% delivery success rate.
 			status := "delivered"
 			errMsg := ""
-			if rand.IntN(20) == 0 {
+			if rand.IntN(20) == 0 { // #nosec G404 -- simulator jitter, not security
 				status = "failed"
 				errMsg = "simulated: satellite pass timeout"
 			}
@@ -291,8 +291,8 @@ func sendMessage(client *http.Client, dev *simulatedDevice) {
 	momsn := dev.nextMOSN()
 
 	// Pick message: 1 in 50 chance of SOS.
-	text := messagePool[rand.IntN(len(messagePool))]
-	if rand.IntN(50) == 0 {
+	text := messagePool[rand.IntN(len(messagePool))] // #nosec G404 -- simulator jitter, not security
+	if rand.IntN(50) == 0 {                          // #nosec G404 -- simulator jitter, not security
 		text = "SOS EMERGENCY need immediate assistance at current position"
 	}
 
@@ -313,7 +313,7 @@ func sendRockBLOCK(client *http.Client, imei string, momsn int, lat, lon float64
 		"transmit_time":     {transmitTime},
 		"iridium_latitude":  {fmt.Sprintf("%.4f", lat)},
 		"iridium_longitude": {fmt.Sprintf("%.4f", lon)},
-		"iridium_cep":       {fmt.Sprintf("%d", 5+rand.IntN(20))},
+		"iridium_cep":       {fmt.Sprintf("%d", 5+rand.IntN(20))}, // #nosec G404 -- simulator jitter, not security
 		"data":              {hex.EncodeToString([]byte(text))},
 	}
 	if *secret != "" {
