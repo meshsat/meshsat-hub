@@ -185,6 +185,20 @@ planet when no peer is serving yet. Scaling out, or replacing a lost machine,
 now costs one LAN copy. A genuinely cold set still goes to the planet, one
 replica at a time, which is the case the throttle exists for.
 
+**Measured, 2026-09-08.** First build on dmz05: 40 GB transferred, 123 requests,
+5m08s, archive 35.3 GB on disk. Peer copy to dmz04: 35.3 GB in about nine
+minutes at 71 to 75 MB/s, verified with `pmtiles show` before being accepted.
+Pod replacement with the archive already on the volume: no build at all, the
+init container prints "already present" and nginx is serving in under a minute.
+Disk afterwards: dmz04 57 GB of 166 (35 percent), dmz05 66 GB of 166 (40
+percent), so about 100 GB spare on each against a 60 Gi claim cap.
+
+Street detail confirmed at zoom 15 by pulling tiles through the public ingress
+and reading their names: Paris 68, Berlin 27, Madrid 233, Athens 623, Lisbon
+93, Rome 79, Amsterdam 44, Dublin 69, Oslo 51. Before this the deep archive
+covered two countries and everywhere else was zoom 11, which draws roads
+without names.
+
 The map reads two archives. The **world** one lives in the object store and the Hub streams it
 at `/basemap/basemap.pmtiles`; it stops at zoom 11, which is as deep as a global archive can be
 and still fit there. The **deep** one is Europe to zoom 15, which is the zoom where street names
