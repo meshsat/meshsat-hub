@@ -131,6 +131,8 @@ type Config struct {
 	EmailUsername string `yaml:"email_username"`  // SMTP auth username
 	EmailPassword string `yaml:"email_password"`  // SMTP auth password
 	EmailPGPKey   string `yaml:"email_pgp_key"`   // Hub PGP private key (armored) — empty = generate on start
+	// EmailWebhookSecret gates POST /api/webhook/email (X-Webhook-Secret or ?secret=); unset = webhook refused.
+	EmailWebhookSecret string `yaml:"email_webhook_secret"`
 
 	// SMS gateway (Twilio)
 	SMSEnabled       bool   `yaml:"sms_enabled"`
@@ -150,6 +152,7 @@ type Config struct {
 
 	// Cloudloop MO webhook + MQTT subscriber
 	CloudloopWebhookAllowedIPs string `yaml:"cloudloop_webhook_allowed_ips"` // comma-separated IP allowlist (default: Cloudloop IPs)
+	CloudloopWebhookToken      string `yaml:"cloudloop_webhook_token"`       // shared token (?token= or X-Webhook-Token); required when the allowlist is "*"
 	CloudloopMQTTBroker        string `yaml:"cloudloop_mqtt_broker"`         // MQTT broker URL (e.g., ssl://mqtt.cloudloop.com:8883)
 	CloudloopMQTTCACert        string `yaml:"cloudloop_mqtt_ca_cert"`        // Path to CA cert PEM
 	CloudloopMQTTCert          string `yaml:"cloudloop_mqtt_cert"`           // Path to client cert PEM
@@ -538,6 +541,9 @@ func Load() (Config, error) {
 	if v := os.Getenv("HUB_EMAIL_PGP_KEY"); v != "" {
 		cfg.EmailPGPKey = v
 	}
+	if v := os.Getenv("HUB_EMAIL_WEBHOOK_SECRET"); v != "" {
+		cfg.EmailWebhookSecret = v
+	}
 
 	// SMS overrides
 	if v := os.Getenv("HUB_SMS_ENABLED"); v != "" {
@@ -581,6 +587,9 @@ func Load() (Config, error) {
 	// Cloudloop MO webhook/MQTT overrides
 	if v := os.Getenv("HUB_CLOUDLOOP_WEBHOOK_ALLOWED_IPS"); v != "" {
 		cfg.CloudloopWebhookAllowedIPs = v
+	}
+	if v := os.Getenv("HUB_CLOUDLOOP_WEBHOOK_TOKEN"); v != "" {
+		cfg.CloudloopWebhookToken = v
 	}
 	if v := os.Getenv("HUB_CLOUDLOOP_MQTT_BROKER"); v != "" {
 		cfg.CloudloopMQTTBroker = v
