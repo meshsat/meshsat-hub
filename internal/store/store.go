@@ -325,14 +325,18 @@ type BondGroup struct {
 
 // Route defines a configurable message routing rule.
 type Route struct {
-	ID              string    `json:"id"`
-	Name            string    `json:"name"`
-	SourceType      string    `json:"source_type"`
-	DestinationType string    `json:"destination_type"`
-	Filter          string    `json:"filter,omitempty"`
-	Enabled         bool      `json:"enabled"`
-	CreatedAt       time.Time `json:"created_at"`
-	UpdatedAt       time.Time `json:"updated_at"`
+	ID              string `json:"id"`
+	Name            string `json:"name"`
+	SourceType      string `json:"source_type"`
+	DestinationType string `json:"destination_type"`
+	Filter          string `json:"filter,omitempty"`
+	// Senders restricts the route to messages whose origin (device IMEI or
+	// phone number) is in this comma-separated list; empty = any sender
+	// (MESHSAT-964). "*" matches everyone.
+	Senders   string    `json:"senders,omitempty"`
+	Enabled   bool      `json:"enabled"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
 }
 
 // Device represents a registered field device.
