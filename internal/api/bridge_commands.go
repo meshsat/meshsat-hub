@@ -3,6 +3,7 @@ package api
 import (
 	"encoding/json"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -28,6 +29,11 @@ type commandRequest struct {
 	Cmd          string          `json:"cmd"`
 	TargetDevice string          `json:"target_device,omitempty"`
 	Payload      json.RawMessage `json:"payload,omitempty"`
+	// Via selects the leg: "" (MQTT while online, else the out-of-band
+	// bearer the bridge is paired for), "mqtt", "sms", "imt" or "sbd"
+	// (MESHSAT-964). Out-of-band legs carry mgmt_ping, mgmt_status,
+	// mgmt_log, mgmt_reset, mgmt_bearer, mgmt_restart and reboot.
+	Via string `json:"via,omitempty"`
 }
 
 // commandResponse is the response body for POST /api/bridges/{id}/command.
@@ -41,7 +47,7 @@ type commandResponse struct {
 
 // SendCommand sends a command to a bridge and waits for the response.
 // @Summary Send command to bridge
-// @Description Sends a command to a field bridge via MQTT and waits for the response. Supported commands: ping, flush_burst, send_text, send_mt, config_update, reboot.
+// @Description Sends a command to a field bridge and waits for the response. Over MQTT: ping, flush_burst, send_text, send_mt, config_update, reboot, mgmt_*. With via sms|imt|sbd (or automatically while the bridge is MQTT-offline and paired): mgmt_ping, mgmt_status, mgmt_log, mgmt_reset, mgmt_bearer, mgmt_restart, reboot as sealed OOB frames.
 // @Tags bridges
 // @Accept json
 // @Produce json
@@ -64,12 +70,6 @@ func (h *BridgeCommandHandler) SendCommand(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	// Check bridge is online.
-	if !b.Online {
-		writeError(w, http.StatusConflict, "bridge is offline")
-		return
-	}
-
 	// Parse request body.
 	var req commandRequest
 	if err := readJSON(w, r, &req); err != nil {
@@ -78,6 +78,18 @@ func (h *BridgeCommandHandler) SendCommand(w http.ResponseWriter, r *http.Reques
 	}
 	if req.Cmd == "" {
 		writeError(w, http.StatusBadRequest, "cmd is required")
+		return
+	}
+	via := strings.ToLower(strings.TrimSpace(req.Via))
+	switch via {
+	case "", "mqtt", "sms", "imt", "sbd":
+	default:
+		writeError(w, http.StatusBadRequest, "via must be mqtt, sms, imt or sbd")
+		return
+	}
+	// MQTT needs the bridge online; an out-of-band leg is for when it is not.
+	if via == "mqtt" && !b.Online {
+		writeError(w, http.StatusConflict, "bridge is offline")
 		return
 	}
 
@@ -89,7 +101,7 @@ func (h *BridgeCommandHandler) SendCommand(w http.ResponseWriter, r *http.Reques
 	}
 
 	start := time.Now()
-	resp, err := h.commander.SendCommand(r.Context(), bridgeID, cmd)
+	resp, err := h.commander.SendCommandVia(r.Context(), tid, bridgeID, cmd, via, b.Online)
 	latency := time.Since(start).Milliseconds()
 
 	if err != nil {
