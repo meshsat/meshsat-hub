@@ -259,6 +259,18 @@ func (m *mockStore) TouchBridgeLastSeen(context.Context, string, string) error  
 func (m *mockStore) SetBridgeLastReport(context.Context, string, string, string, time.Time) error {
 	return nil
 }
+func (m *mockStore) UpsertOOBPeer(context.Context, *store.OOBPeer) error { return nil }
+func (m *mockStore) GetOOBPeer(context.Context, string, string) (*store.OOBPeer, error) {
+	return nil, fmt.Errorf("not found")
+}
+func (m *mockStore) ListOOBPeersByPeerID(context.Context, int) ([]store.OOBPeer, error) {
+	return nil, nil
+}
+func (m *mockStore) DeleteOOBPeer(context.Context, string, string) error           { return nil }
+func (m *mockStore) NextOOBCounter(context.Context, string, string) (int64, error) { return 1, nil }
+func (m *mockStore) SetOOBReplayWindow(context.Context, string, string, int64, int64) error {
+	return nil
+}
 func (m *mockStore) SetBridgeHealth(context.Context, string, string, string) error { return nil }
 func (m *mockStore) AssociateDeviceWithBridge(context.Context, string, string, string) error {
 	return nil

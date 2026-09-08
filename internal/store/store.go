@@ -163,6 +163,18 @@ type Store interface {
 	// SetBridgeLastReport records the bearer and time of the latest report
 	// from the bridge (MESHSAT-964).
 	SetBridgeLastReport(ctx context.Context, tenantID string, bridgeID string, bearer string, at time.Time) error
+
+	// OOB management pairings (MESHSAT-964 C).
+	UpsertOOBPeer(ctx context.Context, p *OOBPeer) error
+	GetOOBPeer(ctx context.Context, tenantID string, bridgeID string) (*OOBPeer, error)
+	// ListOOBPeersByPeerID returns every pairing with the 16-bit wire peer id,
+	// across tenants (ids can collide; the caller tries the keys).
+	ListOOBPeersByPeerID(ctx context.Context, peerID int) ([]OOBPeer, error)
+	DeleteOOBPeer(ctx context.Context, tenantID string, bridgeID string) error
+	// NextOOBCounter atomically increments and returns the Hub's transmit counter.
+	NextOOBCounter(ctx context.Context, tenantID string, bridgeID string) (int64, error)
+	// SetOOBReplayWindow persists the receive window after an accepted frame.
+	SetOOBReplayWindow(ctx context.Context, tenantID string, bridgeID string, high int64, window int64) error
 	SetBridgeHealth(ctx context.Context, tenantID string, bridgeID string, health string) error
 	AssociateDeviceWithBridge(ctx context.Context, tenantID string, imei string, bridgeID string) error
 	MarkStaleBridgesOffline(ctx context.Context, timeout time.Duration) (int64, error)
@@ -268,6 +280,27 @@ type Store interface {
 	// ListHubCredentialsByProvider returns, across all tenants, the hub-scoped
 	// credentials of one provider (per-tenant provider accounts, MESHSAT-977).
 	ListHubCredentialsByProvider(ctx context.Context, provider string) ([]Credential, error)
+}
+
+// OOBPeer is the Hub's out-of-band management pairing with one bridge
+// (MESHSAT-964 C): the shared AES-256 key (encrypted at rest with the
+// credentials master key), the Hub's role in the key relationship, the
+// bridge's bearer addresses, the Hub's transmit counter and the receive
+// replay window.
+type OOBPeer struct {
+	TenantID  string    `json:"tenant_id"`
+	BridgeID  string    `json:"bridge_id"`
+	PeerID    int       `json:"peer_id"`            // derived from the key, never 0
+	KeyEnc    []byte    `json:"-"`                  // AES-GCM under the master key
+	LocalRole int       `json:"local_role"`         // 0 issuer (Hub generated the key), 1 importer (key came from the kit's bundle)
+	Phone     string    `json:"phone,omitempty"`    // the kit's SIM, E.164, for the SMS bearer
+	SatIMEI   string    `json:"sat_imei,omitempty"` // the kit's Iridium modem IMEI for MT
+	TxCounter int64     `json:"tx_counter"`
+	RxHigh    int64     `json:"rx_high"`
+	RxWindow  int64     `json:"-"`
+	Enabled   bool      `json:"enabled"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
 }
 
 // Bridge represents a registered field bridge (parent of devices).

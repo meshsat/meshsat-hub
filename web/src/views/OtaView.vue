@@ -7,6 +7,7 @@ import EmptyState from '../components/EmptyState.vue'
 const targets = ref([])
 const error = ref('')
 const loading = ref(true)
+const unavailable = ref(false) // hawkBit is not wired on this Hub (API answers 404)
 
 const showTargetForm = ref(false)
 const newTarget = ref({ controllerId: '', name: '' })
@@ -23,7 +24,7 @@ onMounted(async () => {
 async function loadData() {
   loading.value = true
   try {
-    const resp = await ota.listTargets().catch(() => ({ targets: [] }))
+    const resp = await ota.listTargets().catch((e) => { unavailable.value = /not found|404/i.test(String(e?.message || '')); return { targets: [] } })
     targets.value = resp.targets || resp || []
   } catch (e) {
     error.value = e.message
@@ -117,11 +118,11 @@ function statusColor(s) {
       <div class="flex items-center justify-between mb-3">
         <h2 class="text-lg font-semibold uppercase tracking-wider">Targets</h2>
         <div class="flex gap-2">
-          <button @click="showRolloutForm = !showRolloutForm"
+          <button v-if="!unavailable" @click="showRolloutForm = !showRolloutForm"
             class="bg-brand-accent hover:bg-brand-primary text-ms-on-primary px-3 py-1 rounded text-sm transition-colors">
             {{ showRolloutForm ? 'Cancel' : '+ Rollout' }}
           </button>
-          <button @click="showTargetForm = !showTargetForm"
+          <button v-if="!unavailable" @click="showTargetForm = !showTargetForm"
             class="bg-brand-accent hover:bg-brand-primary text-ms-on-primary px-3 py-1 rounded text-sm transition-colors">
             {{ showTargetForm ? 'Cancel' : '+ Target' }}
           </button>
@@ -216,7 +217,8 @@ function statusColor(s) {
             </template>
             <tr v-if="targets.length === 0 && !loading">
               <td colspan="5" class="px-3 py-0">
-                <EmptyState icon="device" title="No OTA targets" message="Register field devices as OTA targets to manage firmware updates remotely." />
+                <EmptyState v-if="unavailable" icon="device" title="OTA updates not enabled on this Hub" message="The platform runs without a hawkBit server (HUB_HAWKBIT_ENABLED). Targets and rollouts become available once it is configured." />
+                <EmptyState v-else icon="device" title="No OTA targets" message="Register field devices as OTA targets to manage firmware updates remotely." />
               </td>
             </tr>
           </tbody>

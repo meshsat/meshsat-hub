@@ -65,6 +65,7 @@ type WebhookHandler struct {
 	mqtt            bus.MessageBus
 	secret          string                // platform webhook validation secret (default tenant)
 	accounts        *integrations.Service // per-tenant webhook tokens/secrets (MESHSAT-977)
+	oob             OOBClassifier         // management frames (MESHSAT-964)
 	store           store.Store
 	keyStore        *hubcrypto.KeyStore
 	dedup           dedup.Dedup
@@ -86,6 +87,15 @@ type hembReassemblerIface interface {
 func NewWebhookHandler(mqtt bus.MessageBus, secret string) *WebhookHandler {
 	return &WebhookHandler{mqtt: mqtt, secret: secret}
 }
+
+// OOBClassifier is the out-of-band management service: it takes "MS:" frames
+// out of the message flow before anything else sees them (MESHSAT-964 C).
+type OOBClassifier interface {
+	HandleInbound(ctx context.Context, bearer, origin, text string) bool
+}
+
+// SetOOB attaches the out-of-band classifier.
+func (h *WebhookHandler) SetOOB(c OOBClassifier) { h.oob = c }
 
 // SetAccounts enables per-tenant webhook tokens: ?token= selects the tenant
 // (and its optional signing secret); the sender must belong to that tenant.
@@ -410,6 +420,14 @@ func (h *WebhookHandler) processPlaintextSMS(r *http.Request, w http.ResponseWri
 	from, to, body, messageSID string) {
 
 	msgID := smsMessageID(messageSID)
+	// An OOB management frame is a reply to a command the Hub sent; it never
+	// enters the message pipeline (no persistence, no routes).
+	if h.oob != nil && h.oob.HandleInbound(r.Context(), "sms", from, body) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_ = json.NewEncoder(w).Encode(map[string]string{"status": "oob_frame", "id": msgID})
+		return
+	}
 	msg := InboundSMS{
 		ID:         msgID,
 		From:       from,
