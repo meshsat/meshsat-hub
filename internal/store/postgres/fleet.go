@@ -443,6 +443,10 @@ func (d *DB) GetCredential(ctx context.Context, tenantID string, id string) (*st
 	return scanCredential(row)
 }
 
+func (d *DB) ListHubCredentialsByProvider(ctx context.Context, provider string) ([]store.Credential, error) {
+	return d.queryCredentials(ctx, "WHERE provider=$1 AND target_scope='hub' ORDER BY tenant_id", provider)
+}
+
 func (d *DB) ListCredentials(ctx context.Context, tenantID string) ([]store.Credential, error) {
 	return d.queryCredentials(ctx, "WHERE tenant_id=$1 ORDER BY provider, name", tenantID)
 }
