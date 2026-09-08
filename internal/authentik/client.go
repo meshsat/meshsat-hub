@@ -46,7 +46,6 @@ type PendingUser struct {
 	Name          string    `json:"name"`
 	Email         string    `json:"email"`
 	Active        bool      `json:"is_active"`
-	Groups        []string  `json:"groups_obj_names,omitempty"`
 	SignupIP      string    `json:"signup_ip,omitempty"`
 	Organisation  string    `json:"organisation,omitempty"`
 	Country       string    `json:"country,omitempty"`
@@ -58,13 +57,15 @@ type PendingUser struct {
 }
 
 type akUser struct {
-	PK         int            `json:"pk"`
-	Username   string         `json:"username"`
-	Name       string         `json:"name"`
-	Email      string         `json:"email"`
-	IsActive   bool           `json:"is_active"`
-	Groups     []string       `json:"groups"`
-	GroupNames []string       `json:"groups_obj"`
+	PK       int      `json:"pk"`
+	Username string   `json:"username"`
+	Name     string   `json:"name"`
+	Email    string   `json:"email"`
+	IsActive bool     `json:"is_active"`
+	Groups   []string `json:"groups"`
+	// groups_obj is deliberately not decoded: authentik returns full group
+	// objects there, not names, and decoding it into the wrong shape made the
+	// whole list fail the moment a real user appeared. Nothing here needs it.
 	Attributes map[string]any `json:"attributes"`
 	DateJoined time.Time      `json:"date_joined"`
 }
