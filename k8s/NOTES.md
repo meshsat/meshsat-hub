@@ -161,6 +161,14 @@ that this exact image digest has been in production in the omoikane namespace si
 
 ## The deep basemap (MESHSAT-967, 2026-09-08)
 
+**The build needs memory, and Go will not ask for it politely.** The first
+attempt ran the extractor with a 1Gi limit and it was OOMKilled 34 seconds in,
+during chunk fetching rather than the directory build. The extractor is Go: left
+alone the runtime grows the heap until the cgroup kills the process, and a
+killed build has already pulled several GB for nothing. The fix is `GOMEMLIMIT`
+at 3000MiB under a 4Gi limit, so the collector runs instead of the OOM killer.
+If you ever widen the bbox or raise the zoom, raise both together.
+
 The map reads two archives. The **world** one lives in the object store and the Hub streams it
 at `/basemap/basemap.pmtiles`; it stops at zoom 11, which is as deep as a global archive can be
 and still fit there. The **deep** one is Europe to zoom 15, which is the zoom where street names
