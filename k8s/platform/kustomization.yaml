@@ -1,6 +1,7 @@
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 resources:
+  - priorityclass.yaml
   - serviceaccount.yaml
   - registry-externalsecret.yaml
   - tls-externalsecret.yaml

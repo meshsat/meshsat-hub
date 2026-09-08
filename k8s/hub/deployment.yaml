@@ -1,4 +1,4 @@
-# The Hub, two replicas on two workers (MESHSAT-711, plan phase 7): routing
+# The Hub, two replicas across the three workers (MESHSAT-711): routing
 # dispatch is single-writer through dispatch_claims, singletons run on the
 # Lease holder (identity = pod name), the MQTT client id carries the pod name,
 # and the audit archive goes to the S3 sink, so no pod owns a volume. Rolling
@@ -12,14 +12,13 @@ metadata:
     app.kubernetes.io/name: hub
 spec:
   replicas: 2
-  # Only two workers are eligible (dmz01, dmz02; dmz06 excluded, dmz03-05 are
-  # tainted control-plane), so with the required anti-affinity a surge pod has
-  # nowhere to go: roll by replacing one pod at a time instead.
+  # Three eligible workers and two replicas, so a surge pod has a node to land
+  # on and the roll keeps both replicas serving.
   strategy:
     type: RollingUpdate
     rollingUpdate:
-      maxSurge: 0
-      maxUnavailable: 1
+      maxSurge: 1
+      maxUnavailable: 0
   selector:
     matchLabels:
       app.kubernetes.io/name: hub
@@ -40,18 +39,25 @@ spec:
         nodeAffinity:
           requiredDuringSchedulingIgnoredDuringExecution:
             nodeSelectorTerms:
+              # Any worker. The dmz06 exclusion was about volumes and the Hub has
+              # none since the audit archive moved to the S3 sink, so all three
+              # workers are eligible and a lost replica has somewhere to land.
               - matchExpressions:
                   - key: node-role.kubernetes.io/worker
                     operator: Exists
-                  - key: kubernetes.io/hostname
-                    operator: NotIn
-                    values: ["notrf01dmz06"]
         podAntiAffinity:
           requiredDuringSchedulingIgnoredDuringExecution:
             - topologyKey: kubernetes.io/hostname
               labelSelector:
                 matchLabels:
                   app.kubernetes.io/name: hub
+      priorityClassName: meshsat-hub-critical
+      # The default is 300s, so a dead node keeps counting as a replica for five
+      # minutes before a replacement is even created. Sixty seconds is long
+      # enough to ride out a network blip and short enough to matter.
+      tolerations:
+        - {key: node.kubernetes.io/not-ready, operator: Exists, effect: NoExecute, tolerationSeconds: 60}
+        - {key: node.kubernetes.io/unreachable, operator: Exists, effect: NoExecute, tolerationSeconds: 60}
       terminationGracePeriodSeconds: 30
       containers:
         - name: hub
