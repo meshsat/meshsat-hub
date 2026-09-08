@@ -24,7 +24,7 @@ func TestRenderNATSUsers(t *testing.T) {
 	}, ns))
 	for _, want := range []string{
 		"authorization {",
-		"{ user: meshsat, password: $NATS_MQTT_PASSWORD }",
+		"{ user: meshsat, password: $NATS_MQTT_PASSWORD, permissions: { publish: { allow: [\">\"] }, subscribe: { allow: [\">\"] } } }",
 		`{ user: "kit-a", password: "$2a$10$hashA", permissions: { publish: { allow: ["meshsat.bridge.kit-a.>", "meshsat.*.position"`,
 		`subscribe: { allow: ["meshsat.bridge.kit-a.>", "meshsat.*.mt.>", "meshsat.*.config.>", "meshsat.broadcast.>", "meshsat.hub.>", "$MQTT.sub.>"]`,
 		`{ user: "kit-b", password: "$2a$10$hashB", permissions: { publish: { allow: ["meshsat.t_x.bridge.kit-b.>", "meshsat.t_x.*.position"`,
