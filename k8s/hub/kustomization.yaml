@@ -3,6 +3,7 @@ kind: Kustomization
 resources:
   - configmap.yaml
   - externalsecret.yaml
+  - externalsecret-cloudloop.yaml
   - deployment.yaml
   - pdb.yaml
   - service.yaml
