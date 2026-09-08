@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/meshsat/meshsat-hub/internal/integrations"
 	"github.com/meshsat/meshsat-hub/internal/tenancy"
 	"log/slog"
 	"net/http"
@@ -82,7 +83,8 @@ type reticulumReceiver interface {
 type Handler struct {
 	tenants         *tenancy.Resolver // device → tenant for topic namespaces; nil = default tenant
 	mqtt            bus.MessageBus
-	secret          string
+	secret          string                // platform webhook secret (default tenant)
+	accounts        *integrations.Service // per-tenant webhook secrets (MESHSAT-977)
 	audit           *audit.Service
 	dedup           dedup.Dedup
 	reassembler     *fragment.Reassembler
@@ -187,10 +189,29 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Verify shared secret if configured. Rock7's portal does NOT support
-	// webhook signing (no shared secret field), so when HUB_ROCKBLOCK_SECRET
-	// is empty we accept unsigned requests. [MESHSAT-446]
-	if h.secret != "" {
+	// A tenant's webhook secret in ?token= selects the tenant (Rock7's portal
+	// cannot sign, so the URL token is the credential; MESHSAT-977).
+	ctx := r.Context()
+	tokenTenant := ""
+	if tok := r.URL.Query().Get("token"); tok != "" && h.accounts != nil {
+		tenant, _, err := h.accounts.LookupByToken(ctx, integrations.ProviderRockBLOCK, "webhook_secret", tok)
+		if err != nil {
+			slog.Error("rockblock: webhook token lookup failed", "error", err)
+		}
+		if tenant == "" {
+			slog.Warn("rockblock: unknown webhook token", "remote", r.RemoteAddr)
+			http.Error(w, `{"error":"unauthorized"}`, http.StatusUnauthorized)
+			return
+		}
+		tokenTenant = tenant
+		ctx = tenancy.WithTenant(ctx, tenant)
+		r = r.WithContext(ctx)
+	}
+
+	// Platform path: verify the shared secret if configured. Rock7's portal
+	// does NOT support webhook signing (no shared secret field), so when
+	// HUB_ROCKBLOCK_SECRET is empty we accept unsigned requests. [MESHSAT-446]
+	if tokenTenant == "" && h.secret != "" {
 		if !h.verifySignature(r) {
 			slog.Warn("rockblock: signature verification failed")
 			http.Error(w, `{"error":"unauthorized"}`, http.StatusUnauthorized)
@@ -201,6 +222,11 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	imei := r.FormValue("imei")
 	if imei == "" {
 		http.Error(w, `{"error":"missing imei"}`, http.StatusBadRequest)
+		return
+	}
+	if tokenTenant != "" && h.tenants != nil && h.tenants.ForDeviceTopic(ctx, imei, tokenTenant) != tokenTenant {
+		slog.Warn("rockblock: webhook token tenant does not own the device", "imei", imei, "token_tenant", tokenTenant)
+		http.Error(w, `{"error":"forbidden"}`, http.StatusForbidden)
 		return
 	}
 
@@ -285,7 +311,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		IridiumLongitude: iridiumLon,
 		IridiumCEP:       iridiumCEP,
 	}
-	h.publish(hubmqtt.TopicMORawFor(h.tenantOf(imei), imei), 1, false, rawMsg)
+	h.publish(hubmqtt.TopicMORawFor(h.tenantOf(ctx, imei), imei), 1, false, rawMsg)
 
 	// Fragment reassembly: if payload is a fragment, collect and reassemble.
 	if h.reassembler != nil && fragment.IsFragment(rawBytes) {
@@ -388,11 +414,11 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		IridiumLongitude: iridiumLon,
 		IridiumCEP:       iridiumCEP,
 	}
-	h.publish(hubmqtt.TopicMODecodedFor(h.tenantOf(imei), imei), 1, false, decoded)
+	h.publish(hubmqtt.TopicMODecodedFor(h.tenantOf(ctx, imei), imei), 1, false, decoded)
 
 	// Persist MO message to database.
 	if h.store != nil {
-		tid := h.tenantOf(imei)
+		tid := h.tenantOf(ctx, imei)
 		msg := &store.Message{
 			ID:         msgID,
 			DeviceIMEI: imei,
@@ -428,7 +454,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			Source:    "iridium_cep",
 			Timestamp: ts,
 		}
-		h.publish(hubmqtt.TopicPositionFor(h.tenantOf(imei), imei), 1, true, pos)
+		h.publish(hubmqtt.TopicPositionFor(h.tenantOf(ctx, imei), imei), 1, true, pos)
 	}
 
 	// Dead man's switch: device sent an MO message, reset its timer.
@@ -438,7 +464,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	// Audit: log message_received event (use RemoteAddr directly — never trust X-Forwarded-For in webhook handlers).
 	if h.audit != nil {
-		tid := h.tenantOf(imei)
+		tid := h.tenantOf(ctx, imei)
 		detail := fmt.Sprintf("imei=%s momsn=%d bytes=%d", imei, momsn, len(rawBytes))
 		ip := r.RemoteAddr
 		if err := h.audit.Log(r.Context(), tid, "message_received", "webhook", detail, ip); err != nil {
@@ -480,10 +506,10 @@ func (h *Handler) handleBridgeSatUplink(ctx context.Context, imei string, rawByt
 			Source:    "satellite_uplink",
 			Timestamp: ts.Format(time.RFC3339),
 		}
-		h.publish(hubmqtt.TopicPositionFor(h.tenantOf(bridgeID), bridgeID), 1, true, pos)
+		h.publish(hubmqtt.TopicPositionFor(h.tenantOf(ctx, bridgeID), bridgeID), 1, true, pos)
 		// Mark bridge as online via satellite.
 		if h.store != nil {
-			tid := h.tenantOf(bridgeID)
+			tid := h.tenantOf(ctx, bridgeID)
 			_ = h.store.SetBridgeOnline(ctx, tid, bridgeID, true)
 		}
 
@@ -504,7 +530,7 @@ func (h *Handler) handleBridgeSatUplink(ctx context.Context, imei string, rawByt
 			"source":    "satellite_uplink",
 			"timestamp": ts.Format(time.RFC3339),
 		}
-		h.publish(hubmqtt.TopicSOSFor(h.tenantOf(bridgeID), bridgeID), 1, false, sos)
+		h.publish(hubmqtt.TopicSOSFor(h.tenantOf(ctx, bridgeID), bridgeID), 1, false, sos)
 
 	case bridge.SatMsgHealthSummary:
 		bridgeID, uptimeSec, cpuPct, memPct, diskPct, ifaces, ts, err := bridge.DecodeSatHealth(payload)
@@ -516,7 +542,7 @@ func (h *Handler) handleBridgeSatUplink(ctx context.Context, imei string, rawByt
 			"bridge_id", bridgeID, "uptime", uptimeSec, "cpu", cpuPct, "mem", memPct, "disk", diskPct,
 			"interfaces", len(ifaces), "timestamp", ts)
 		if h.store != nil {
-			tid := h.tenantOf(bridgeID)
+			tid := h.tenantOf(ctx, bridgeID)
 			healthJSON, _ := json.Marshal(map[string]interface{}{
 				"uptime_sec": uptimeSec,
 				"cpu_pct":    cpuPct,
@@ -536,7 +562,7 @@ func (h *Handler) handleBridgeSatUplink(ctx context.Context, imei string, rawByt
 
 	// Audit: log bridge satellite uplink event.
 	if h.audit != nil {
-		tid := h.tenantOf(imei)
+		tid := h.tenantOf(ctx, imei)
 		detail := fmt.Sprintf("imei=%s type=0x%02x bytes=%d", imei, msgType, len(rawBytes))
 		_ = h.audit.Log(ctx, tid, "bridge_sat_uplink", "webhook", detail, "")
 	}
@@ -588,9 +614,17 @@ func sbdMessageID(imei string, momsn int) string {
 // (MESHSAT-864 MR 20). Without it every topic uses the default namespace.
 func (h *Handler) SetTenants(r *tenancy.Resolver) { h.tenants = r }
 
-func (h *Handler) tenantOf(id string) string {
+// tenantOf returns the tenant a message belongs to: the tenant the webhook
+// token authenticated (carried in ctx), else the device's owner.
+func (h *Handler) tenantOf(ctx context.Context, id string) string {
+	if t := tenancy.FromContext(ctx); t != "" {
+		return t
+	}
 	if h.tenants == nil {
 		return hubmqtt.DefaultTenant
 	}
-	return h.tenants.ForDevice(context.Background(), id)
+	return h.tenants.ForDevice(ctx, id)
 }
+
+// SetAccounts enables per-tenant webhook secrets (?token= selects the tenant).
+func (h *Handler) SetAccounts(a *integrations.Service) { h.accounts = a }
