@@ -20,8 +20,9 @@ WEBHOOK_URL="${MESHSAT_SIGNUP_WEBHOOK:-https://n8n.nuclearlighters.net/webhook/m
 ak() {
   local code
   code="$(cat)"
+  # grep -v exits 1 when it filters every line; that must not trip pipefail.
   kubectl --context "$CTX" -n "$NS" exec -i "$DEPLOY" -- ak shell -c "$code" 2>&1 \
-    | grep -v '^{"event"' | grep -v '^###' | grep -v 'objects imported automatically'
+    | { grep -v '^{"event"' || true; } | { grep -v '^###' || true; } | { grep -v 'objects imported automatically' || true; }
 }
 
 # Emits `NAME = <python literal>` lines for the values the scripts read.
