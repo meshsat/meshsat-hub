@@ -1,7 +1,8 @@
-# The Hub. replicas 0 until phase 2 exit (application MRs merged, digest pinned,
-# rehearsal done); the cutover session sets 1. Stays x1 + Recreate until the
-# single-writer work (claims + leader singletons) is proven on the cluster,
-# then x2 + PDB (plan phase 7).
+# The Hub, two replicas on two workers (MESHSAT-711, plan phase 7): routing
+# dispatch is single-writer through dispatch_claims, singletons run on the
+# Lease holder (identity = pod name), the MQTT client id carries the pod name,
+# and the audit archive goes to the S3 sink, so no pod owns a volume. Rolling
+# updates keep one pod serving; the PDB keeps one through node drains.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -10,9 +11,12 @@ metadata:
   labels:
     app.kubernetes.io/name: hub
 spec:
-  replicas: 1
+  replicas: 2
   strategy:
-    type: Recreate
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
   selector:
     matchLabels:
       app.kubernetes.io/name: hub
@@ -39,6 +43,12 @@ spec:
                   - key: kubernetes.io/hostname
                     operator: NotIn
                     values: ["notrf01dmz06"]
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - topologyKey: kubernetes.io/hostname
+              labelSelector:
+                matchLabels:
+                  app.kubernetes.io/name: hub
       terminationGracePeriodSeconds: 30
       containers:
         - name: hub
@@ -54,7 +64,8 @@ spec:
                 fieldRef:
                   fieldPath: metadata.namespace
             # MESHSAT-980: the MQTT client id is suffixed with the pod name so
-            # two replicas never share a broker session.
+            # two replicas never share a broker session; the same name is the
+            # leader election identity (MESHSAT-711).
             - name: POD_NAME
               valueFrom:
                 fieldRef:
@@ -85,10 +96,3 @@ spec:
           resources:
             requests: {memory: 256Mi, cpu: 200m}
             limits: {memory: 1Gi}
-          volumeMounts:
-            - name: audit
-              mountPath: /data/audit
-      volumes:
-        - name: audit
-          persistentVolumeClaim:
-            claimName: hub-audit-archive

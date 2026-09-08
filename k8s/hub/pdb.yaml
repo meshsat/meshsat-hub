@@ -1,0 +1,13 @@
+# One Hub pod stays up through node drains and evictions (MESHSAT-711).
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: hub
+  namespace: meshsat-hub
+  labels:
+    app.kubernetes.io/name: hub
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: hub
