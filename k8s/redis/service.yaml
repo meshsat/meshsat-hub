@@ -1,12 +1,33 @@
+# The client-facing Service keeps the name `redis`: HUB_REDIS_URL and every
+# other reference stay exactly as they are, so replacing the store underneath
+# needed no Hub change at all. It selects the KeyDB pods, either of which
+# accepts writes.
 apiVersion: v1
 kind: Service
 metadata:
   name: redis
   namespace: meshsat-hub
   labels:
-    app.kubernetes.io/name: redis
+    app.kubernetes.io/name: keydb
 spec:
   selector:
-    app.kubernetes.io/name: redis
+    app.kubernetes.io/name: keydb
+  ports:
+    - {name: redis, port: 6379, targetPort: redis}
+---
+# Peering. Headless and publishing not-ready addresses, because each pod's
+# --replicaof must resolve its peer at boot, before either is Ready.
+apiVersion: v1
+kind: Service
+metadata:
+  name: keydb-hs
+  namespace: meshsat-hub
+  labels:
+    app.kubernetes.io/name: keydb
+spec:
+  clusterIP: None
+  publishNotReadyAddresses: true
+  selector:
+    app.kubernetes.io/name: keydb
   ports:
     - {name: redis, port: 6379, targetPort: redis}
