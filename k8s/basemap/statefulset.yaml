@@ -1,0 +1,122 @@
+# The deep basemap: Europe to zoom 15, which is where street names live.
+#
+# It does not live in the object store like the world archive, because 37 GB
+# would take essentially all the free space on the two workers that hold the
+# object store, and filling those has taken the S3 write path down before. The
+# control-plane machines have 121 to 129 GB free each, so the archive sits on
+# their own disks instead, capped at 60 GB so it cannot creep.
+#
+# Two replicas on two machines, because a local volume belongs to one machine
+# and losing it should degrade the map to the world archive for nobody
+# (MESHSAT-967).
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: basemap
+  namespace: meshsat-hub
+  labels:
+    app.kubernetes.io/name: basemap
+spec:
+  serviceName: basemap
+  replicas: 2
+  # OrderedReady on purpose: the two first builds each pull about 37 GB, and
+  # doing that one at a time is kinder to the source and to the tunnel.
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: basemap
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: basemap
+    spec:
+      serviceAccountName: meshsat-hub
+      automountServiceAccountToken: false
+      priorityClassName: meshsat-hub-critical
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        fsGroup: 65532
+      nodeSelector:
+        node-role.kubernetes.io/control-plane: ""
+      tolerations:
+        - {key: node-role.kubernetes.io/control-plane, operator: Exists, effect: NoSchedule}
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - topologyKey: kubernetes.io/hostname
+              labelSelector:
+                matchLabels:
+                  app.kubernetes.io/name: basemap
+      initContainers:
+        # Builds the archive if the volume does not have it: a new machine, a
+        # restored volume, or a deliberate rebuild after deleting the file.
+        # The extractor is pinned by version and verified by checksum, and is
+        # cached on the volume so the second start costs nothing.
+        - name: build
+          image: docker.io/library/alpine
+          envFrom:
+            - configMapRef:
+                name: basemap-config
+          command:
+            - sh
+            - -c
+            - |
+              set -eu
+              if [ -s "/data/$ARCHIVE" ]; then
+                echo "basemap: $ARCHIVE already present, $(du -h "/data/$ARCHIVE" | cut -f1)"
+                exit 0
+              fi
+              if [ ! -x /data/bin/pmtiles ]; then
+                echo "basemap: fetching the extractor"
+                wget -q -O /tmp/pmtiles.tgz "$PMTILES_URL"
+                echo "$PMTILES_SHA256  /tmp/pmtiles.tgz" | sha256sum -c -
+                mkdir -p /data/bin
+                tar xzf /tmp/pmtiles.tgz -C /data/bin pmtiles
+              fi
+              echo "basemap: extracting $BBOX to zoom $MAXZOOM from $PLANET_URL"
+              /data/bin/pmtiles extract "$PLANET_URL" "/data/$ARCHIVE.partial" \
+                --maxzoom="$MAXZOOM" --bbox="$BBOX"
+              mv "/data/$ARCHIVE.partial" "/data/$ARCHIVE"
+              echo "basemap: built $(du -h "/data/$ARCHIVE" | cut -f1)"
+          resources:
+            requests: {memory: 256Mi, cpu: 200m}
+            limits: {memory: 1Gi}
+          volumeMounts:
+            - {name: data, mountPath: /data}
+      containers:
+        - name: nginx
+          image: docker.io/nginxinc/nginx-unprivileged
+          ports:
+            - name: http
+              containerPort: 8080
+          readinessProbe:
+            httpGet: {path: /healthz, port: http}
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: {path: /healthz, port: http}
+            initialDelaySeconds: 15
+            periodSeconds: 30
+          resources:
+            requests: {memory: 32Mi, cpu: 20m}
+            limits: {memory: 256Mi}
+          volumeMounts:
+            - {name: data, mountPath: /data, readOnly: true}
+            - {name: config, mountPath: /etc/nginx/nginx.conf, subPath: nginx.conf, readOnly: true}
+      volumes:
+        - name: config
+          configMap: {name: basemap-config}
+  persistentVolumeClaimRetentionPolicy:
+    whenDeleted: Retain
+    whenScaled: Retain
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+        labels:
+          app.kubernetes.io/name: basemap
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        storageClassName: local-hostpath-retain
+        resources:
+          requests:
+            storage: 60Gi
