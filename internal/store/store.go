@@ -220,6 +220,21 @@ type Store interface {
 	ListDeadmanConfigs(ctx context.Context) ([]DeadmanConfig, error)
 	DeleteDeadmanConfig(ctx context.Context, tenantID string, deviceIMEI string) error
 
+	// Tenants (MESHSAT-916): one tenant per approved account.
+	CreateTenant(ctx context.Context, t *Tenant) error
+	GetTenant(ctx context.Context, id string) (*Tenant, error)
+	GetTenantBySlug(ctx context.Context, slug string) (*Tenant, error)
+	ListTenants(ctx context.Context) ([]Tenant, error)
+	UpdateTenant(ctx context.Context, t *Tenant) error
+
+	// Tenant invites: an owner invites an email address into a tenant with a
+	// role; the invite is claimed at the invitee's first login.
+	CreateInvite(ctx context.Context, tenantID string, inv *TenantInvite) error
+	GetPendingInviteByEmail(ctx context.Context, email string) (*TenantInvite, error)
+	AcceptInvite(ctx context.Context, id string) error
+	ListInvites(ctx context.Context, tenantID string) ([]TenantInvite, error)
+	DeleteInvite(ctx context.Context, tenantID string, id string) error
+
 	// Credential management (MESHSAT-356)
 	CreateCredential(ctx context.Context, tenantID string, c *Credential) error
 	GetCredential(ctx context.Context, tenantID string, id string) (*Credential, error)
@@ -430,6 +445,39 @@ type Alert struct {
 	CreatedAt   time.Time `json:"created_at"`
 	UpdatedAt   time.Time `json:"updated_at"`
 }
+
+// Tenant is an isolation boundary: an organisation or an individual account.
+// Every tenant-scoped row carries its ID. "default" is seeded by migrations
+// so pre-tenancy data keeps a home.
+type Tenant struct {
+	ID          string    `json:"id"`
+	Slug        string    `json:"slug"`
+	Name        string    `json:"name"`
+	OwnerUserID string    `json:"owner_user_id,omitempty"`
+	Plan        string    `json:"plan"`   // beta, ...
+	Status      string    `json:"status"` // active, suspended
+	CreatedAt   time.Time `json:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
+}
+
+// TenantInvite lets an owner bring another account into their tenant.
+type TenantInvite struct {
+	ID         string    `json:"id"`
+	TenantID   string    `json:"tenant_id"`
+	Email      string    `json:"email"`
+	Role       string    `json:"role"` // viewer, operator, owner
+	TokenHash  string    `json:"-"`
+	ExpiresAt  time.Time `json:"expires_at"`
+	AcceptedAt time.Time `json:"accepted_at,omitempty"`
+	CreatedAt  time.Time `json:"created_at"`
+}
+
+// ReservedTenantIDs are the first path segments of non-tenant MQTT topics;
+// a tenant ID must never collide with them once topics carry the tenant.
+var ReservedTenantIDs = map[string]bool{"bridge": true, "hub": true, "broadcast": true, "reticulum": true, "federation": true, "routed": true}
+
+// ErrReservedTenantID is returned by CreateTenant for a reserved word.
+var ErrReservedTenantID = errors.New("store: reserved tenant id")
 
 // DeadmanConfig is the persisted dead man's switch state for one device.
 type DeadmanConfig struct {

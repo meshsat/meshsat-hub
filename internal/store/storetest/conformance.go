@@ -38,6 +38,7 @@ func Run(t *testing.T, open Opener) {
 		{"DeviceConfigVersioning", testDeviceConfigVersioning},
 		{"SystemConfig", testSystemConfig},
 		{"ClaimsAndDeadman", testClaims},
+		{"TenantsAndInvites", testTenants},
 	}
 	for _, s := range suites {
 		t.Run(s.name, func(t *testing.T) {
@@ -493,5 +494,79 @@ func testClaims(t *testing.T, db store.Store) {
 	}
 	if list, _ := db.ListDeadmanConfigs(ctx); len(list) != 0 {
 		t.Errorf("list after delete: %d", len(list))
+	}
+}
+
+func testTenants(t *testing.T, db store.Store) {
+	ctx := context.Background()
+	def, err := db.GetTenant(ctx, store.DefaultTenantID)
+	if err != nil || def.Slug != "default" {
+		t.Fatalf("default tenant must be seeded by migrations: %v %+v", err, def)
+	}
+	if err := db.CreateTenant(ctx, &store.Tenant{ID: "bridge", Name: "x"}); !errors.Is(err, store.ErrReservedTenantID) {
+		t.Errorf("reserved id must be rejected, got %v", err)
+	}
+	tn := &store.Tenant{Name: "Alpine SAR", Slug: "alpine-sar"}
+	if err := db.CreateTenant(ctx, tn); err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	if tn.ID == "" || tn.Plan != "beta" || tn.Status != "active" || tn.CreatedAt.IsZero() {
+		t.Errorf("defaults not applied: %+v", tn)
+	}
+	if got, err := db.GetTenantBySlug(ctx, "alpine-sar"); err != nil || got.ID != tn.ID {
+		t.Errorf("by slug: %v %+v", err, got)
+	}
+	tn.Name, tn.OwnerUserID = "Alpine SAR e.V.", "usr-1"
+	if err := db.UpdateTenant(ctx, tn); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := db.GetTenant(ctx, tn.ID)
+	if got.Name != "Alpine SAR e.V." || got.OwnerUserID != "usr-1" {
+		t.Errorf("update not applied: %+v", got)
+	}
+	if all, _ := db.ListTenants(ctx); len(all) != 2 {
+		t.Errorf("list: %d", len(all))
+	}
+	if err := db.CreateTenant(ctx, &store.Tenant{Name: "dup", Slug: "alpine-sar"}); err == nil {
+		t.Error("duplicate slug must fail")
+	}
+
+	// Invites.
+	inv := &store.TenantInvite{Email: "  Ops@Example.ORG ", Role: "operator", TokenHash: "h"}
+	if err := db.CreateInvite(ctx, tn.ID, inv); err != nil {
+		t.Fatal(err)
+	}
+	if inv.Email != "ops@example.org" || inv.ExpiresAt.IsZero() || inv.ID == "" {
+		t.Errorf("invite normalisation: %+v", inv)
+	}
+	p, err := db.GetPendingInviteByEmail(ctx, "OPS@example.org")
+	if err != nil || p.ID != inv.ID || p.TenantID != tn.ID || p.Role != "operator" {
+		t.Fatalf("pending by email: %v %+v", err, p)
+	}
+	if list, _ := db.ListInvites(ctx, tn.ID); len(list) != 1 {
+		t.Errorf("list invites: %d", len(list))
+	}
+	if err := db.AcceptInvite(ctx, inv.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.GetPendingInviteByEmail(ctx, "ops@example.org"); err == nil {
+		t.Error("accepted invite must not be pending")
+	}
+	exp := &store.TenantInvite{Email: "late@example.org", ExpiresAt: time.Now().Add(-time.Hour)}
+	_ = db.CreateInvite(ctx, tn.ID, exp)
+	if _, err := db.GetPendingInviteByEmail(ctx, "late@example.org"); err == nil {
+		t.Error("expired invite must not be pending")
+	}
+	if err := db.DeleteInvite(ctx, "other", inv.ID); err != nil {
+		t.Fatal(err)
+	}
+	if list, _ := db.ListInvites(ctx, tn.ID); len(list) != 2 {
+		t.Errorf("delete must be tenant scoped: %d", len(list))
+	}
+	if err := db.DeleteInvite(ctx, tn.ID, inv.ID); err != nil {
+		t.Fatal(err)
+	}
+	if list, _ := db.ListInvites(ctx, tn.ID); len(list) != 1 {
+		t.Errorf("after delete: %d", len(list))
 	}
 }
