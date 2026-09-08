@@ -119,3 +119,10 @@ body {
 .animate-pulse-dot {
   animation: pulse-dot 2s ease-in-out infinite;
 }
+
+/* Map tiles: OSM raster tiles are light; invert them under the dark theme so the
+   basemap matches the brand ground (MapView.vue, MESHSAT-967 for a real dark map). */
+html.dark .ms-tiles { filter: invert(1) hue-rotate(180deg) brightness(0.82) contrast(0.9) saturate(0.5); }
+html.dark .leaflet-container { background: #14120F; }
+html.dark .leaflet-control-attribution { background: rgba(20, 18, 15, 0.8); color: #A79B8B; }
+html.dark .leaflet-control-attribution a { color: #FF7A2E; }

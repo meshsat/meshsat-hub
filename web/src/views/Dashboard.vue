@@ -69,7 +69,7 @@ async function loadAll() {
     const takInt = (intList || []).find(i => i.name && i.name.includes('TAK') && !i.name.includes('Federation'))
     const fedInt = (intList || []).find(i => i.name && i.name.includes('Federation'))
     let missionCount = 0
-    try { const m = await tak.missions(); missionCount = Array.isArray(m) ? m.length : 0 } catch {}
+    try { const m = await tak.missions(); const list = Array.isArray(m) ? m : (m?.missions || []); missionCount = list.length } catch {}
     dash.setTakStatus(
       takInt?.enabled || false,
       fedInt?.config?.connected_peers ? parseInt(fedInt.config.connected_peers) : 0,
@@ -167,7 +167,7 @@ const lastMessageTime = computed(() => {
 })
 
 function timeSince(ts) {
-  if (!ts) return 'never'
+  if (!ts || String(ts).startsWith('0001-')) return 'never' // Go zero time
   const ms = Date.now() - new Date(ts).getTime()
   if (ms < 0) return 'now'
   const sec = Math.floor(ms / 1000)

@@ -180,9 +180,13 @@ function onRangeChange() {
 onMounted(async () => {
   map = L.map(mapContainer.value).setView([52.37, 4.90], 4)
 
-  L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
-    attribution: '&copy; OpenStreetMap &copy; CARTO',
+  // OpenStreetMap standard tiles (CARTO's basemaps now watermark "API KEY
+  // REQUIRED" without a key). Dark theme is applied with a CSS filter on the
+  // tile pane (style.css .ms-tiles); a vector basemap is MESHSAT-967.
+  L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
     maxZoom: 19,
+    className: 'ms-tiles',
   }).addTo(map)
 
   await refreshPositions()
