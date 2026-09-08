@@ -33,6 +33,376 @@ definitions:
         - $ref: '#/definitions/time.Duration'
         description: expected check-in interval
     type: object
+  github_com_meshsat_meshsat-hub_internal_directory.Address:
+    properties:
+      bearer_hint:
+        type: integer
+      id:
+        type: string
+      kind:
+        $ref: '#/definitions/github_com_meshsat_meshsat-hub_internal_directory.AddressKind'
+      label:
+        type: string
+      max_cost_cents:
+        type: integer
+      primary_rank:
+        description: 0 = primary, 1+ = secondary
+        type: integer
+      subvalue:
+        type: string
+      value:
+        type: string
+      verified:
+        type: boolean
+    type: object
+  github_com_meshsat_meshsat-hub_internal_directory.AddressKind:
+    enum:
+    - SMS
+    - MESHTASTIC
+    - APRS
+    - IRIDIUM_SBD
+    - IRIDIUM_IMT
+    - CELLULAR
+    - TAK
+    - RETICULUM
+    - ZIGBEE
+    - BLE
+    - WEBHOOK
+    - EMAIL
+    - MQTT
+    type: string
+    x-enum-comments:
+      KindMQTT: '[MESHSAT-538] mirrors bridge-side v45'
+    x-enum-descriptions:
+    - ""
+    - ""
+    - ""
+    - ""
+    - ""
+    - ""
+    - ""
+    - ""
+    - ""
+    - ""
+    - ""
+    - ""
+    - '[MESHSAT-538] mirrors bridge-side v45'
+    x-enum-varnames:
+    - KindSMS
+    - KindMeshtastic
+    - KindAPRS
+    - KindIridiumSBD
+    - KindIridiumIMT
+    - KindCellular
+    - KindTAK
+    - KindReticulum
+    - KindZigbee
+    - KindBLE
+    - KindWebhook
+    - KindEmail
+    - KindMQTT
+  github_com_meshsat_meshsat-hub_internal_directory.Contact:
+    properties:
+      addresses:
+        items:
+          $ref: '#/definitions/github_com_meshsat_meshsat-hub_internal_directory.Address'
+        type: array
+      created_at:
+        type: string
+      display_name:
+        type: string
+      family_name:
+        type: string
+      given_name:
+        type: string
+      group_ids:
+        items:
+          type: string
+        type: array
+      hub_etag:
+        type: string
+      hub_version:
+        type: integer
+      id:
+        type: string
+      keys:
+        items:
+          $ref: '#/definitions/github_com_meshsat_meshsat-hub_internal_directory.ContactKey'
+        type: array
+      metadata:
+        additionalProperties:
+          type: string
+        type: object
+      notes:
+        type: string
+      org:
+        type: string
+      origin:
+        $ref: '#/definitions/github_com_meshsat_meshsat-hub_internal_directory.Origin'
+      policy_id:
+        type: string
+      role:
+        type: string
+      sidc:
+        type: string
+      team:
+        type: string
+      tenant_id:
+        type: string
+      trust_level:
+        $ref: '#/definitions/github_com_meshsat_meshsat-hub_internal_directory.TrustLevel'
+      trust_verified_at:
+        type: string
+      updated_at:
+        type: string
+    type: object
+  github_com_meshsat_meshsat-hub_internal_directory.ContactKey:
+    properties:
+      algorithm:
+        description: free-text; e.g. Ed25519, X25519
+        type: string
+      created_at:
+        type: string
+      fingerprint:
+        type: string
+      id:
+        type: string
+      kind:
+        description: AES256_GCM_SHARED / X25519_LT_PUB / …
+        type: string
+      public:
+        items:
+          type: integer
+        type: array
+      status:
+        description: active / retired / revoked
+        type: string
+      trust_anchor:
+        description: hub / qr / manual / in_person / local
+        type: string
+      version:
+        type: integer
+    type: object
+  github_com_meshsat_meshsat-hub_internal_directory.DispatchPolicy:
+    properties:
+      created_at:
+        type: string
+      fallback:
+        items:
+          $ref: '#/definitions/github_com_meshsat_meshsat-hub_internal_directory.AddressKind'
+        type: array
+      id:
+        type: string
+      max_retries:
+        type: integer
+      name:
+        type: string
+      preferred:
+        items:
+          $ref: '#/definitions/github_com_meshsat_meshsat-hub_internal_directory.AddressKind'
+        type: array
+      require_encryption:
+        type: boolean
+      retry_delay:
+        $ref: '#/definitions/time.Duration'
+      scope_id:
+        type: string
+      scope_type:
+        description: contact / group / precedence / default
+        type: string
+      strategy:
+        $ref: '#/definitions/github_com_meshsat_meshsat-hub_internal_directory.Strategy'
+      updated_at:
+        type: string
+    type: object
+  github_com_meshsat_meshsat-hub_internal_directory.Group:
+    properties:
+      created_at:
+        type: string
+      hub_etag:
+        type: string
+      hub_version:
+        type: integer
+      id:
+        type: string
+      kind:
+        description: TEAM / ROLE / LIST / MLS_GROUP (bridge-side shape)
+        type: string
+      member_ids:
+        items:
+          type: string
+        type: array
+      mls_group_id:
+        type: string
+      name:
+        type: string
+      policy_id:
+        type: string
+      sidc:
+        type: string
+      tenant_id:
+        type: string
+      updated_at:
+        type: string
+    type: object
+  github_com_meshsat_meshsat-hub_internal_directory.Origin:
+    enum:
+    - local
+    - hub
+    - imported
+    - qr
+    type: string
+    x-enum-varnames:
+    - OriginLocal
+    - OriginHub
+    - OriginImported
+    - OriginQR
+  github_com_meshsat_meshsat-hub_internal_directory.Snapshot:
+    properties:
+      contacts:
+        items:
+          $ref: '#/definitions/github_com_meshsat_meshsat-hub_internal_directory.Contact'
+        type: array
+      etag:
+        type: string
+      groups:
+        items:
+          $ref: '#/definitions/github_com_meshsat_meshsat-hub_internal_directory.Group'
+        type: array
+      policies:
+        items:
+          $ref: '#/definitions/github_com_meshsat_meshsat-hub_internal_directory.DispatchPolicy'
+        type: array
+      signature:
+        description: ECDSA-P256-SHA256 over canonical(payload)
+        items:
+          type: integer
+        type: array
+      signed_at:
+        type: string
+      tenant_id:
+        type: string
+      version:
+        type: integer
+    type: object
+  github_com_meshsat_meshsat-hub_internal_directory.Strategy:
+    enum:
+    - PRIMARY_ONLY
+    - ANY_REACHABLE
+    - ORDERED_FALLBACK
+    - HEMB_BONDED
+    - ALL_BEARERS
+    type: string
+    x-enum-varnames:
+    - StrategyPrimaryOnly
+    - StrategyAnyReachable
+    - StrategyOrderedFallback
+    - StrategyHeMBBonded
+    - StrategyAllBearers
+  github_com_meshsat_meshsat-hub_internal_directory.TrustLevel:
+    enum:
+    - 0
+    - 1
+    - 2
+    - 3
+    type: integer
+    x-enum-varnames:
+    - TrustUnknown
+    - TrustAuto
+    - TrustQR
+    - TrustInPerson
+  github_com_meshsat_meshsat-hub_internal_geo.Fence:
+    properties:
+      chain_id:
+        description: escalation chain to trigger
+        type: string
+      enabled:
+        type: boolean
+      id:
+        type: string
+      name:
+        type: string
+      polygon:
+        description: ordered vertices (closed polygon)
+        items:
+          $ref: '#/definitions/github_com_meshsat_meshsat-hub_internal_geo.Point'
+        type: array
+      tenant_id:
+        type: string
+      trigger:
+        allOf:
+        - $ref: '#/definitions/github_com_meshsat_meshsat-hub_internal_geo.TriggerMode'
+        description: '"enter", "exit", "both"'
+    type: object
+  github_com_meshsat_meshsat-hub_internal_geo.Point:
+    properties:
+      lat:
+        format: float64
+        type: number
+      lon:
+        format: float64
+        type: number
+    type: object
+  github_com_meshsat_meshsat-hub_internal_geo.TriggerMode:
+    enum:
+    - enter
+    - exit
+    - both
+    type: string
+    x-enum-varnames:
+    - TriggerEnter
+    - TriggerExit
+    - TriggerBoth
+  github_com_meshsat_meshsat-hub_internal_protocol.HeMBReassemblyStats:
+    properties:
+      active_streams:
+        type: integer
+      generations_decoded:
+        type: integer
+      generations_pending:
+        type: integer
+    type: object
+  github_com_meshsat_meshsat-hub_internal_reticulum.PathHandlerStatsSnapshot:
+    properties:
+      deduplicated:
+        type: integer
+      no_route:
+        type: integer
+      requests_received:
+        type: integer
+      responses_sent:
+        type: integer
+    type: object
+  github_com_meshsat_meshsat-hub_internal_reticulum.RelayStatsSnapshot:
+    properties:
+      dropped:
+        type: integer
+      forwarded:
+        type: integer
+      no_route:
+        type: integer
+      rate_limited:
+        type: integer
+    type: object
+  github_com_meshsat_meshsat-hub_internal_reticulum.RouteInfo:
+    properties:
+      app_data:
+        type: string
+      cost:
+        type: number
+      dest_hash:
+        type: string
+      expires_at:
+        type: string
+      hops:
+        type: integer
+      interface:
+        type: string
+      last_seen:
+        type: string
+      signing_pub_hex:
+        type: string
+    type: object
   github_com_meshsat_meshsat-hub_internal_store.APIKey:
     properties:
       created_at:
@@ -55,6 +425,9 @@ definitions:
       role:
         description: '"viewer", "operator", "owner"'
         type: string
+      rotation_days:
+        description: auto-rotation period (0=disabled)
+        type: integer
     type: object
   github_com_meshsat_meshsat-hub_internal_store.Alert:
     properties:
@@ -85,8 +458,39 @@ definitions:
       state:
         description: triggered, escalating, acknowledged, exhausted
         type: string
+      tenant_id:
+        type: string
       type:
         description: '"sos", "deadman", "geofence", "custom"'
+        type: string
+      updated_at:
+        type: string
+    type: object
+  github_com_meshsat_meshsat-hub_internal_store.AlertRule:
+    properties:
+      chain_id:
+        description: escalation chain to trigger
+        type: string
+      condition_params:
+        description: 'JSON: {"threshold_hours":6} or {"threshold_pct":20}'
+        type: string
+      condition_type:
+        description: device_not_seen, battery_low, geofence_breach, message_rate_drop
+        type: string
+      created_at:
+        type: string
+      device_filter:
+        description: '"*" for all, or specific IMEI, or group ID'
+        type: string
+      enabled:
+        type: boolean
+      id:
+        type: string
+      last_evaluated:
+        type: string
+      name:
+        type: string
+      tenant_id:
         type: string
       updated_at:
         type: string
@@ -112,6 +516,157 @@ definitions:
         description: SHA-256 hash of the previous entry
         type: string
     type: object
+  github_com_meshsat_meshsat-hub_internal_store.BondGroup:
+    properties:
+      bridge_id:
+        type: string
+      cost_budget:
+        type: number
+      created_at:
+        type: string
+      id:
+        type: string
+      label:
+        type: string
+      members:
+        description: JSON array of interface IDs
+        type: string
+      tenant_id:
+        type: string
+    type: object
+  github_com_meshsat_meshsat-hub_internal_store.Bridge:
+    properties:
+      birth_verified:
+        description: true if last birth had valid ECDSA signature
+        type: boolean
+      bridge_id:
+        type: string
+      capabilities:
+        description: JSON array
+        type: string
+      cert_expiry:
+        type: string
+      cert_pem:
+        type: string
+      cot_callsign:
+        type: string
+      cot_type:
+        type: string
+      created_at:
+        type: string
+      hostname:
+        type: string
+      label:
+        type: string
+      last_birth:
+        description: JSON
+        type: string
+      last_health:
+        description: JSON
+        type: string
+      last_seen:
+        type: string
+      location_alt:
+        type: number
+      location_lat:
+        type: number
+      location_lon:
+        type: number
+      mode:
+        type: string
+      mqtt_username:
+        type: string
+      online:
+        type: boolean
+      reticulum_hash:
+        type: string
+      reticulum_pubkey:
+        type: string
+      tenant_id:
+        type: string
+      updated_at:
+        type: string
+      version:
+        type: string
+    type: object
+  github_com_meshsat_meshsat-hub_internal_store.BridgeUpdate:
+    properties:
+      cot_callsign:
+        type: string
+      label:
+        type: string
+    type: object
+  github_com_meshsat_meshsat-hub_internal_store.CostAggregate:
+    properties:
+      count:
+        type: integer
+      group_key:
+        description: device IMEI or month string
+        type: string
+      total_usd:
+        type: number
+    type: object
+  github_com_meshsat_meshsat-hub_internal_store.CostEntry:
+    properties:
+      cost_usd:
+        type: number
+      created_at:
+        type: string
+      detail:
+        type: string
+      device_imei:
+        type: string
+      direction:
+        description: mo or mt
+        type: string
+      id:
+        type: string
+      interface_type:
+        description: iridium_sbd, iridium_imt, globalstar
+        type: string
+      message_id:
+        type: string
+    type: object
+  github_com_meshsat_meshsat-hub_internal_store.Credential:
+    properties:
+      cert_fingerprint:
+        type: string
+      cert_issuer:
+        type: string
+      cert_not_after:
+        type: string
+      cert_subject:
+        type: string
+      created_at:
+        type: string
+      cred_type:
+        description: mtls_bundle, api_key, webhook_secret, username_password
+        type: string
+      distributed_at:
+        type: string
+      id:
+        type: string
+      name:
+        description: human-readable label
+        type: string
+      provider:
+        description: cloudloop_mqtt, rockblock, globalstar, etc.
+        type: string
+      status:
+        description: active, expiring, expired, revoked
+        type: string
+      target_bridge_id:
+        type: string
+      target_scope:
+        description: hub, bridge, all
+        type: string
+      tenant_id:
+        type: string
+      updated_at:
+        type: string
+      version:
+        type: integer
+    type: object
   github_com_meshsat_meshsat-hub_internal_store.Device:
     properties:
       created_at:
@@ -125,7 +680,7 @@ definitions:
       notes:
         type: string
       type:
-        description: '"rockblock", etc.'
+        description: '"rockblock", "globalstar", etc.'
         type: string
       updated_at:
         type: string
@@ -149,6 +704,23 @@ definitions:
         type: string
       version:
         type: integer
+    type: object
+  github_com_meshsat_meshsat-hub_internal_store.DeviceGroup:
+    properties:
+      color:
+        type: string
+      created_at:
+        type: string
+      description:
+        type: string
+      id:
+        type: string
+      member_count:
+        type: integer
+      name:
+        type: string
+      updated_at:
+        type: string
     type: object
   github_com_meshsat_meshsat-hub_internal_store.DeviceKey:
     properties:
@@ -218,7 +790,7 @@ definitions:
   github_com_meshsat_meshsat-hub_internal_store.Message:
     properties:
       channel:
-        description: '"iridium"'
+        description: '"iridium", "globalstar"'
         type: string
       compressed:
         type: boolean
@@ -241,11 +813,30 @@ definitions:
         type: integer
       raw_hex:
         type: string
+      scheduled_at:
+        type: string
       status:
-        description: '"received", "queued", "sent", "delivered", "failed"'
+        description: '"received", "queued", "sent", "delivered", "failed", "scheduled"'
         type: string
       text:
         type: string
+    type: object
+  github_com_meshsat_meshsat-hub_internal_store.MessageTemplate:
+    properties:
+      body:
+        type: string
+      created_at:
+        type: string
+      id:
+        type: string
+      name:
+        type: string
+      updated_at:
+        type: string
+      variables:
+        items:
+          type: string
+        type: array
     type: object
   github_com_meshsat_meshsat-hub_internal_store.NotificationPref:
     properties:
@@ -296,7 +887,7 @@ definitions:
         description: satellites in view
         type: integer
       source:
-        description: '"gps", "iridium_cep"'
+        description: '"gps", "iridium_cep", "globalstar"'
         type: string
       speed:
         description: m/s
@@ -321,10 +912,177 @@ definitions:
       updated_at:
         type: string
     type: object
+  internal_api.IntegrationStatus:
+    properties:
+      config:
+        additionalProperties:
+          type: string
+        type: object
+      connected:
+        type: boolean
+      description:
+        type: string
+      enabled:
+        type: boolean
+      last_message:
+        type: string
+      name:
+        type: string
+      setup:
+        type: string
+      type:
+        type: string
+      webhook_url:
+        type: string
+    type: object
+  internal_api.ProvisionBundle:
+    properties:
+      bid:
+        description: bridge identifier
+        type: string
+      ca:
+        description: CA certificate
+        type: string
+      cert:
+        description: client TLS certificate
+        type: string
+      cert_exp:
+        description: certificate expiry (RFC3339)
+        type: string
+      dir_sign_pub:
+        description: Hub's ECDSA-P256 directory-signing pubkey (PKIX DER) — bridge
+          pins on first provision [MESHSAT-539]
+        items:
+          type: integer
+        type: array
+      key:
+        description: client TLS private key (one-time)
+        type: string
+      mqtt:
+        description: wss://mqtt-hub.meshsat.net/mqtt
+        type: string
+      pass:
+        description: MQTT password (shared NATS auth password)
+        type: string
+      ret_tcp:
+        description: Reticulum TCP peer
+        type: string
+      user:
+        description: MQTT username (always "meshsat" for NATS auth)
+        type: string
+      v:
+        description: '"1"'
+        type: string
+    type: object
+  internal_api.SecurityStatus:
+    properties:
+      auto_generated:
+        description: passwords were auto-generated
+        type: boolean
+      nats_leaf_auth:
+        description: NATS leafnode has token
+        type: boolean
+      nats_mqtt_auth:
+        description: NATS MQTT has password configured
+        type: boolean
+      redis_auth:
+        description: Redis has password
+        type: boolean
+      secrets_file:
+        description: path to secrets file (admin info)
+        type: string
+      stunnel_mtls:
+        description: stunnel has client cert verification
+        type: boolean
+    type: object
   internal_api.ackRequest:
     properties:
       acked_by:
         type: string
+    type: object
+  internal_api.aclRegenResponse:
+    properties:
+      bridges_configured:
+        type: integer
+    type: object
+  internal_api.bridgeCreateRequest:
+    properties:
+      bridge_id:
+        type: string
+      label:
+        type: string
+      location:
+        type: string
+    type: object
+  internal_api.certificateResponse:
+    properties:
+      bridge_id:
+        type: string
+      ca_pem:
+        type: string
+      cert_pem:
+        type: string
+      expires:
+        type: string
+      key_pem:
+        type: string
+    type: object
+  internal_api.channelKeyRotateResponse:
+    properties:
+      address:
+        type: string
+      channel_type:
+        type: string
+      distributed:
+        description: number of bridges notified
+        type: integer
+      failed_bridges:
+        description: bridges that failed to receive
+        items:
+          type: string
+        type: array
+      key_hex:
+        description: plaintext — shown once
+        type: string
+      version:
+        type: integer
+    type: object
+  internal_api.commandRequest:
+    properties:
+      cmd:
+        type: string
+      payload:
+        items:
+          type: integer
+        type: array
+      target_device:
+        type: string
+    type: object
+  internal_api.commandResponse:
+    properties:
+      error:
+        type: string
+      latency_ms:
+        type: integer
+      request_id:
+        type: string
+      result:
+        items:
+          type: integer
+        type: array
+      status:
+        type: string
+    type: object
+  internal_api.createBondGroupRequest:
+    properties:
+      cost_budget:
+        type: number
+      label:
+        type: string
+      members:
+        items:
+          type: string
+        type: array
     type: object
   internal_api.createConfigRequest:
     properties:
@@ -381,6 +1139,13 @@ definitions:
       role:
         type: string
     type: object
+  internal_api.createTemplateRequest:
+    properties:
+      body:
+        type: string
+      name:
+        type: string
+    type: object
   internal_api.createUserRequest:
     properties:
       email:
@@ -391,6 +1156,17 @@ definitions:
         type: string
       role:
         description: '"viewer", "operator", "owner"'
+        type: string
+    type: object
+  internal_api.credentialResponse:
+    properties:
+      bridge_id:
+        type: string
+      mqtt_url:
+        type: string
+      password:
+        type: string
+      username:
         type: string
     type: object
   internal_api.deadmanConfigRequest:
@@ -419,12 +1195,39 @@ definitions:
       notes:
         type: string
       type:
-        description: '"rockblock", etc.'
+        description: '"rockblock", "globalstar", etc.'
         type: string
       updated_at:
         type: string
       wireguard:
         $ref: '#/definitions/github_com_meshsat_meshsat-hub_internal_store.DeviceWireguard'
+    type: object
+  internal_api.distributeKeyRequest:
+    properties:
+      bridge_ids:
+        description: target bridges
+        items:
+          type: string
+        type: array
+    type: object
+  internal_api.distributeResultEntry:
+    properties:
+      bridge_id:
+        type: string
+      error:
+        type: string
+      status:
+        description: '"ok" or "error"'
+        type: string
+    type: object
+  internal_api.importDeviceKeyRequest:
+    properties:
+      key_hex:
+        description: hex-encoded AES-256 key (64 hex chars = 32 bytes)
+        type: string
+      mode:
+        description: '"decrypt" or "passthrough"'
+        type: string
     type: object
   internal_api.loginRequest:
     properties:
@@ -458,10 +1261,177 @@ definitions:
       total:
         type: integer
     type: object
+  internal_api.relayInterfaceInfo:
+    properties:
+      available:
+        type: boolean
+      cost:
+        type: number
+      mtu:
+        type: integer
+      name:
+        type: string
+    type: object
+  internal_api.relayStatusResponse:
+    properties:
+      interfaces:
+        items:
+          $ref: '#/definitions/internal_api.relayInterfaceInfo'
+        type: array
+      stats:
+        $ref: '#/definitions/github_com_meshsat_meshsat-hub_internal_reticulum.RelayStatsSnapshot'
+    type: object
+  internal_api.renderTemplateRequest:
+    properties:
+      variables:
+        additionalProperties:
+          type: string
+        type: object
+    type: object
+  internal_api.renderTemplateResponse:
+    properties:
+      text:
+        type: string
+    type: object
+  internal_api.reticulumIdentityResponse:
+    properties:
+      app_name:
+        type: string
+      dest_hash:
+        type: string
+      public_key_hex:
+        type: string
+    type: object
+  internal_api.rotateBridgeCredentialsResponse:
+    properties:
+      bridge_id:
+        type: string
+      mqtt_url:
+        type: string
+      password:
+        type: string
+      username:
+        type: string
+    type: object
+  internal_api.rotateDistributeRequest:
+    properties:
+      address:
+        description: e.g. "+31653618463", "!abcd1234"
+        type: string
+      bridge_ids:
+        description: target bridges to push key to
+        items:
+          type: string
+        type: array
+      channel_type:
+        description: e.g. "sms", "mesh", "iridium"
+        type: string
+    type: object
+  internal_api.rotateDistributeResponse:
+    properties:
+      distributed:
+        items:
+          $ref: '#/definitions/internal_api.distributeResultEntry'
+        type: array
+      key_hash:
+        type: string
+      version:
+        type: integer
+    type: object
+  internal_api.rotateKeyResponse:
+    properties:
+      expires_at:
+        type: string
+      id:
+        type: string
+      key:
+        description: plaintext — shown once
+        type: string
+      key_prefix:
+        type: string
+      label:
+        type: string
+      role:
+        type: string
+    type: object
+  internal_api.routeTableResponse:
+    properties:
+      count:
+        type: integer
+      routes:
+        items:
+          $ref: '#/definitions/github_com_meshsat_meshsat-hub_internal_reticulum.RouteInfo'
+        type: array
+    type: object
+  internal_api.sendMessageRequest:
+    properties:
+      compress:
+        description: 'SMAZ2 compress before sending (default: true)'
+        type: boolean
+      encrypt:
+        description: 'AES-256-GCM encrypt with device key (default: true if key exists)'
+        type: boolean
+      imt_topic:
+        description: 'IMT only: PURPLE/PINK/RED/ORANGE/YELLOW/RAW'
+        type: string
+      priority:
+        description: '>=9 bypasses per-device rate limiting (SOS)'
+        type: integer
+      ring_style:
+        description: 'IMT only: NORMAL/URGENT/EXTENDED'
+        type: string
+      scheduled_at:
+        description: RFC3339 timestamp for future delivery (empty = send now)
+        type: string
+      text:
+        type: string
+    type: object
+  internal_api.sendSMSRequest:
+    properties:
+      compress:
+        description: SMAZ2 compress (default false for SMS — human-readable)
+        type: boolean
+      encrypt:
+        description: AES-256-GCM encrypt (base64-encoded in SMS body)
+        type: boolean
+      text:
+        type: string
+      to:
+        description: E.164 phone number
+        type: string
+    type: object
   internal_api.snoozeRequest:
     properties:
       duration_min:
         type: integer
+    type: object
+  internal_api.topologyHub:
+    properties:
+      app_name:
+        type: string
+      dest_hash:
+        type: string
+      role:
+        type: string
+    type: object
+  internal_api.topologyResponse:
+    properties:
+      hints_published:
+        type: integer
+      hub:
+        $ref: '#/definitions/internal_api.topologyHub'
+      interfaces:
+        items:
+          $ref: '#/definitions/internal_api.relayInterfaceInfo'
+        type: array
+      path_stats:
+        $ref: '#/definitions/github_com_meshsat_meshsat-hub_internal_reticulum.PathHandlerStatsSnapshot'
+      relay_stats:
+        $ref: '#/definitions/github_com_meshsat_meshsat-hub_internal_reticulum.RelayStatsSnapshot'
+      routes:
+        items:
+          $ref: '#/definitions/github_com_meshsat_meshsat-hub_internal_reticulum.RouteInfo'
+        type: array
     type: object
   internal_api.triggerAlertRequest:
     properties:
@@ -472,6 +1442,24 @@ definitions:
       device_imei:
         type: string
       type:
+        type: string
+    type: object
+  internal_api.updateBondGroupRequest:
+    properties:
+      cost_budget:
+        type: number
+      label:
+        type: string
+      members:
+        items:
+          type: string
+        type: array
+    type: object
+  internal_api.updateTemplateRequest:
+    properties:
+      body:
+        type: string
+      name:
         type: string
     type: object
   internal_api.updateUserRequest:
@@ -669,11 +1657,25 @@ definitions:
         description: '"registered", "in_sync", "pending", "error"'
         type: string
     type: object
+  internal_health.CheckResult:
+    properties:
+      detail:
+        additionalProperties: {}
+        type: object
+      latency_ms:
+        type: integer
+      status:
+        type: string
+    type: object
   internal_health.Response:
     properties:
       checks:
         additionalProperties:
-          type: string
+          $ref: '#/definitions/internal_health.CheckResult'
+        type: object
+      info:
+        additionalProperties:
+          $ref: '#/definitions/internal_health.CheckResult'
         type: object
       status:
         type: string
@@ -941,7 +1943,6 @@ definitions:
     - 1000000
     - 1000000000
     - 60000000000
-    - 3600000000000
     format: int64
     type: integer
     x-enum-varnames:
@@ -958,12 +1959,11 @@ definitions:
     - Millisecond
     - Second
     - Minute
-    - Hour
 host: localhost:6070
 info:
   contact: {}
   description: Multi-tenant SaaS platform for satellite device management. Ingests
-    MO messages from Iridium, manages devices, SOS escalation, dead man's
+    MO messages from Iridium/Globalstar, manages devices, SOS escalation, dead man's
     switch, and E2E encryption.
   license:
     name: Apache 2.0
@@ -971,6 +1971,144 @@ info:
   title: MeshSat Hub API
   version: "1.1"
 paths:
+  /api/alert-rules:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/github_com_meshsat_meshsat-hub_internal_store.AlertRule'
+            type: array
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: List alert rules
+      tags:
+      - alerting
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Alert rule configuration
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/github_com_meshsat_meshsat-hub_internal_store.AlertRule'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/github_com_meshsat_meshsat-hub_internal_store.AlertRule'
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Create alert rule
+      tags:
+      - alerting
+  /api/alert-rules/{id}:
+    delete:
+      parameters:
+      - description: Rule ID
+        in: path
+        name: id
+        required: true
+        type: string
+      responses:
+        "204":
+          description: No Content
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Delete alert rule
+      tags:
+      - alerting
+    get:
+      parameters:
+      - description: Rule ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/github_com_meshsat_meshsat-hub_internal_store.AlertRule'
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Get alert rule
+      tags:
+      - alerting
+    put:
+      consumes:
+      - application/json
+      parameters:
+      - description: Rule ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Updated alert rule
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/github_com_meshsat_meshsat-hub_internal_store.AlertRule'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/github_com_meshsat_meshsat-hub_internal_store.AlertRule'
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Update alert rule
+      tags:
+      - alerting
   /api/alerts:
     get:
       parameters:
@@ -1195,6 +2333,38 @@ paths:
       summary: Revoke API key
       tags:
       - auth
+  /api/auth/keys/{id}/rotate:
+    post:
+      description: Generates a new secret for an existing API key. Returns the new
+        plaintext key exactly once.
+      parameters:
+      - description: Key ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_api.rotateKeyResponse'
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Rotate API key
+      tags:
+      - auth
   /api/auth/login:
     post:
       consumes:
@@ -1363,6 +2533,578 @@ paths:
       summary: Restore from backup ZIP
       tags:
       - backup
+  /api/bridges:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/github_com_meshsat_meshsat-hub_internal_store.Bridge'
+            type: array
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: List bridges
+      tags:
+      - bridges
+    post:
+      consumes:
+      - application/json
+      description: Creates a bridge record for manual provisioning. The bridge will
+        appear as offline until it connects via MQTT.
+      parameters:
+      - description: Bridge to create
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/internal_api.bridgeCreateRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/github_com_meshsat_meshsat-hub_internal_store.Bridge'
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "409":
+          description: Conflict
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Pre-register a bridge
+      tags:
+      - bridges
+  /api/bridges/{bridgeID}/bond-groups:
+    get:
+      parameters:
+      - description: Bridge ID
+        in: path
+        name: bridgeID
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/github_com_meshsat_meshsat-hub_internal_store.BondGroup'
+            type: array
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: List bond groups for a bridge
+      tags:
+      - bond-groups
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Bridge ID
+        in: path
+        name: bridgeID
+        required: true
+        type: string
+      - description: Bond group data
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/internal_api.createBondGroupRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/github_com_meshsat_meshsat-hub_internal_store.BondGroup'
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Create bond group
+      tags:
+      - bond-groups
+  /api/bridges/{bridgeID}/bond-groups/{groupID}:
+    delete:
+      parameters:
+      - description: Bridge ID
+        in: path
+        name: bridgeID
+        required: true
+        type: string
+      - description: Bond group ID
+        in: path
+        name: groupID
+        required: true
+        type: string
+      responses:
+        "204":
+          description: No Content
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Delete bond group
+      tags:
+      - bond-groups
+    get:
+      parameters:
+      - description: Bridge ID
+        in: path
+        name: bridgeID
+        required: true
+        type: string
+      - description: Bond group ID
+        in: path
+        name: groupID
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/github_com_meshsat_meshsat-hub_internal_store.BondGroup'
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Get bond group
+      tags:
+      - bond-groups
+    put:
+      consumes:
+      - application/json
+      parameters:
+      - description: Bridge ID
+        in: path
+        name: bridgeID
+        required: true
+        type: string
+      - description: Bond group ID
+        in: path
+        name: groupID
+        required: true
+        type: string
+      - description: Fields to update
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/internal_api.updateBondGroupRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/github_com_meshsat_meshsat-hub_internal_store.BondGroup'
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Update bond group
+      tags:
+      - bond-groups
+  /api/bridges/{id}:
+    delete:
+      parameters:
+      - description: Bridge ID
+        in: path
+        name: id
+        required: true
+        type: string
+      responses:
+        "204":
+          description: No Content
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Delete bridge
+      tags:
+      - bridges
+    get:
+      parameters:
+      - description: Bridge ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/github_com_meshsat_meshsat-hub_internal_store.Bridge'
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Get bridge by ID
+      tags:
+      - bridges
+    put:
+      consumes:
+      - application/json
+      parameters:
+      - description: Bridge ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Fields to update
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/github_com_meshsat_meshsat-hub_internal_store.BridgeUpdate'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/github_com_meshsat_meshsat-hub_internal_store.Bridge'
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Update bridge
+      tags:
+      - bridges
+  /api/bridges/{id}/certificate:
+    post:
+      description: Generates an ECDSA P-256 client certificate. Returns the private
+        key once — it is never stored server-side.
+      parameters:
+      - description: Bridge ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_api.certificateResponse'
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Issue TLS client certificate for a bridge
+      tags:
+      - bridges
+  /api/bridges/{id}/command:
+    post:
+      consumes:
+      - application/json
+      description: 'Sends a command to a field bridge via MQTT and waits for the response.
+        Supported commands: ping, flush_burst, send_text, send_mt, config_update,
+        reboot.'
+      parameters:
+      - description: Bridge ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Command to send
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/internal_api.commandRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_api.commandResponse'
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "409":
+          description: Bridge is offline
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "504":
+          description: Timeout waiting for bridge response
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Send command to bridge
+      tags:
+      - bridges
+  /api/bridges/{id}/credentials:
+    post:
+      description: Generates a random password and stores the bcrypt hash. Returns
+        the plaintext password once — it is never stored.
+      parameters:
+      - description: Bridge ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_api.credentialResponse'
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Generate MQTT credentials for a bridge
+      tags:
+      - bridges
+  /api/bridges/{id}/credentials/rotate:
+    post:
+      description: Generates a new MQTT password for the bridge. Returns the new plaintext
+        password exactly once.
+      parameters:
+      - description: Bridge ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_api.rotateBridgeCredentialsResponse'
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Rotate bridge MQTT credentials
+      tags:
+      - bridges
+  /api/bridges/{id}/provision:
+    post:
+      parameters:
+      - description: Bridge ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_api.ProvisionBundle'
+      summary: One-step bridge provisioning
+      tags:
+      - bridges
+  /api/bridges/{id}/provision/{nonce}:
+    get:
+      parameters:
+      - description: Bridge ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Single-use provisioning nonce
+        in: path
+        name: nonce
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_api.ProvisionBundle'
+        "404":
+          description: Invalid or expired nonce
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Claim provisioning bundle (no auth, nonce-authenticated)
+      tags:
+      - bridges
+  /api/bridges/{id}/provision/qr:
+    post:
+      parameters:
+      - description: Bridge ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: QR code size in pixels (default 512)
+        in: query
+        name: size
+        type: integer
+      produces:
+      - image/png
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: file
+      summary: Generate provisioning QR code
+      tags:
+      - bridges
+  /api/bridges/acl/regenerate:
+    post:
+      description: Reads all bridges with credentials and generates Mosquitto password
+        and ACL files.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_api.aclRegenResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Regenerate Mosquitto ACL files
+      tags:
+      - bridges
   /api/cluster/actions:
     get:
       produces:
@@ -1472,6 +3214,274 @@ paths:
       summary: List available payload decoders
       tags:
       - codecs
+  /api/costs:
+    get:
+      parameters:
+      - description: Filter by device IMEI
+        in: query
+        name: device
+        type: string
+      - description: Start time (RFC3339)
+        in: query
+        name: from
+        type: string
+      - description: End time (RFC3339)
+        in: query
+        name: to
+        type: string
+      - default: 100
+        description: Max results
+        in: query
+        name: limit
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/github_com_meshsat_meshsat-hub_internal_store.CostEntry'
+            type: array
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: List cost entries
+      tags:
+      - costs
+  /api/costs/summary:
+    get:
+      parameters:
+      - default: device
+        description: 'Group by: device or month'
+        in: query
+        name: group_by
+        type: string
+      - description: Start time (RFC3339)
+        in: query
+        name: from
+        type: string
+      - description: End time (RFC3339)
+        in: query
+        name: to
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/github_com_meshsat_meshsat-hub_internal_store.CostAggregate'
+            type: array
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Aggregate costs
+      tags:
+      - costs
+  /api/credentials:
+    get:
+      description: Returns all credentials for the tenant. Encrypted data is stripped
+        from the response.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: List credentials
+      tags:
+      - credentials
+    post:
+      consumes:
+      - multipart/form-data
+      description: Accepts a ZIP or PEM file containing certificates and/or keys.
+        Parses x509 metadata, encrypts with the master key, and stores the credential.
+      parameters:
+      - description: PEM or ZIP file containing certificates/keys
+        in: formData
+        name: file
+        required: true
+        type: file
+      - description: Credential provider name
+        in: formData
+        name: provider
+        required: true
+        type: string
+      - description: Credential display name (defaults to provider)
+        in: formData
+        name: name
+        type: string
+      - description: 'Target scope: hub, bridge, or all (default hub)'
+        in: formData
+        name: target_scope
+        type: string
+      - description: Target bridge ID (required when target_scope=bridge)
+        in: formData
+        name: target_bridge_id
+        type: string
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Upload credential file
+      tags:
+      - credentials
+  /api/credentials/{id}:
+    delete:
+      description: Permanently removes a credential from the store.
+      parameters:
+      - description: Credential ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Delete credential
+      tags:
+      - credentials
+    get:
+      description: Returns a single credential. Encrypted data is stripped from the
+        response.
+      parameters:
+      - description: Credential ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/github_com_meshsat_meshsat-hub_internal_store.Credential'
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Get credential by ID
+      tags:
+      - credentials
+  /api/credentials/{id}/distribute:
+    post:
+      description: Pushes a credential to the target bridge(s) via MQTT command. Only
+        works for credentials with target_scope 'bridge' or 'all'.
+      parameters:
+      - description: Credential ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "503":
+          description: Service Unavailable
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Distribute credential to bridges
+      tags:
+      - credentials
+  /api/credentials/expiring:
+    get:
+      description: Returns credentials with certificates expiring within the specified
+        number of days (default 30).
+      parameters:
+      - default: 30
+        description: Days until expiry threshold
+        in: query
+        name: days
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: List expiring credentials
+      tags:
+      - credentials
   /api/deadman:
     get:
       produces:
@@ -1565,6 +3575,253 @@ paths:
       summary: Snooze dead man's switch
       tags:
       - deadman
+  /api/device-groups:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/github_com_meshsat_meshsat-hub_internal_store.DeviceGroup'
+            type: array
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: List device groups
+      tags:
+      - device-groups
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Group data (name required)
+        in: body
+        name: body
+        required: true
+        schema:
+          type: object
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/github_com_meshsat_meshsat-hub_internal_store.DeviceGroup'
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Create device group
+      tags:
+      - device-groups
+  /api/device-groups/{id}:
+    delete:
+      parameters:
+      - description: Group ID
+        in: path
+        name: id
+        required: true
+        type: string
+      responses:
+        "204":
+          description: No Content
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Delete device group
+      tags:
+      - device-groups
+    get:
+      parameters:
+      - description: Group ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/github_com_meshsat_meshsat-hub_internal_store.DeviceGroup'
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Get device group
+      tags:
+      - device-groups
+    put:
+      consumes:
+      - application/json
+      parameters:
+      - description: Group ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Fields to update (name, description, color)
+        in: body
+        name: body
+        required: true
+        schema:
+          type: object
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/github_com_meshsat_meshsat-hub_internal_store.DeviceGroup'
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Update device group
+      tags:
+      - device-groups
+  /api/device-groups/{id}/devices:
+    get:
+      parameters:
+      - description: Group ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/github_com_meshsat_meshsat-hub_internal_store.Device'
+            type: array
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: List devices in group
+      tags:
+      - device-groups
+  /api/device-groups/{id}/members:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Group ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Device IMEI
+        in: body
+        name: body
+        required: true
+        schema:
+          type: object
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Add device to group
+      tags:
+      - device-groups
+  /api/device-groups/{id}/members/{imei}:
+    delete:
+      parameters:
+      - description: Group ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Device IMEI
+        in: path
+        name: imei
+        required: true
+        type: string
+      responses:
+        "204":
+          description: No Content
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Remove device from group
+      tags:
+      - device-groups
   /api/devices:
     get:
       produces:
@@ -1893,6 +4150,126 @@ paths:
       summary: Delete device encryption key
       tags:
       - devices
+  /api/devices/{imei}/keys/distribute:
+    post:
+      consumes:
+      - application/json
+      description: Retrieves the latest key for a device and pushes a key_rotate command
+        to the specified bridges via MQTT.
+      parameters:
+      - description: Device IMEI
+        in: path
+        name: imei
+        required: true
+        type: string
+      - description: Distribution parameters
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/internal_api.distributeKeyRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_api.rotateDistributeResponse'
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Distribute existing device key to bridges
+      tags:
+      - devices
+  /api/devices/{imei}/keys/import:
+    post:
+      consumes:
+      - application/json
+      description: Imports an existing AES-256 key (hex-encoded) for a device or global
+        key ID (e.g. "sms").
+      parameters:
+      - description: Device IMEI or key ID (e.g. sms)
+        in: path
+        name: imei
+        required: true
+        type: string
+      - description: Key to import
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/internal_api.importDeviceKeyRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/internal_api.createDeviceKeyResponse'
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Import device encryption key
+      tags:
+      - devices
+  /api/devices/{imei}/keys/rotate:
+    post:
+      consumes:
+      - application/json
+      description: Generates a new AES-256-GCM key for a device, persists it, and
+        pushes a key_rotate command to the specified bridges via MQTT.
+      parameters:
+      - description: Device IMEI
+        in: path
+        name: imei
+        required: true
+        type: string
+      - description: Rotation parameters
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/internal_api.rotateDistributeRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_api.rotateDistributeResponse'
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Rotate device key and distribute to bridges
+      tags:
+      - devices
   /api/devices/{imei}/position:
     get:
       parameters:
@@ -1971,6 +4348,45 @@ paths:
       summary: List device position history
       tags:
       - positions
+  /api/devices/{imei}/send:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Device IMEI
+        in: path
+        name: imei
+        required: true
+        type: string
+      - description: Message to send
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/internal_api.sendMessageRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "502":
+          description: Bad Gateway
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Send MT message to device
+      tags:
+      - devices
   /api/devices/{imei}/wireguard:
     get:
       parameters:
@@ -1999,6 +4415,90 @@ paths:
               type: string
             type: object
       summary: Get device WireGuard config
+      tags:
+      - devices
+  /api/devices/cloudloop/{imei}/send:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Device IMEI
+        in: path
+        name: imei
+        required: true
+        type: string
+      - description: Message to send
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/internal_api.sendMessageRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "409":
+          description: Conflict
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "503":
+          description: Service Unavailable
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Send MT message via Cloudloop (explicit provider route)
+      tags:
+      - devices
+  /api/devices/rock7/{imei}/send:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Device IMEI
+        in: path
+        name: imei
+        required: true
+        type: string
+      - description: Message to send
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/internal_api.sendMessageRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "409":
+          description: Conflict
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Send MT message via Rock7 (explicit provider route)
       tags:
       - devices
   /api/email/keys:
@@ -2199,6 +4699,75 @@ paths:
       summary: Get escalation chain
       tags:
       - escalation
+  /api/geofences:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/github_com_meshsat_meshsat-hub_internal_geo.Fence'
+            type: array
+      summary: List geofences
+      tags:
+      - geofences
+    post:
+      consumes:
+      - application/json
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/github_com_meshsat_meshsat-hub_internal_geo.Fence'
+      summary: Create geofence
+      tags:
+      - geofences
+  /api/geofences/{id}:
+    delete:
+      parameters:
+      - description: Fence ID
+        in: path
+        name: id
+        required: true
+        type: string
+      responses:
+        "204":
+          description: No Content
+      summary: Delete geofence
+      tags:
+      - geofences
+  /api/hemb/stats:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/github_com_meshsat_meshsat-hub_internal_protocol.HeMBReassemblyStats'
+      summary: Get HeMB reassembly statistics
+      tags:
+      - hemb
+  /api/integrations:
+    get:
+      description: Returns the enabled/connected status of all inbound message channels
+        (Rock7, Cloudloop, Twilio SMS, Email, Globalstar).
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/internal_api.IntegrationStatus'
+            type: array
+      summary: List integration channel status
+      tags:
+      - integrations
   /api/ipougrs/status:
     get:
       description: Returns the configuration and statistics of the experimental IP-over-satellite
@@ -2215,6 +4784,186 @@ paths:
       summary: Get IPoUGRS tunnel status
       tags:
       - ipougrs
+  /api/keys/channel/rotate:
+    post:
+      consumes:
+      - application/json
+      description: Generates a new AES-256 key, stores in Hub keystore, pushes to
+        bridges via MQTT
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/internal_api.channelKeyRotateResponse'
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Rotate channel encryption key
+      tags:
+      - keys
+  /api/message-templates:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/github_com_meshsat_meshsat-hub_internal_store.MessageTemplate'
+            type: array
+      summary: List message templates
+      tags:
+      - message-templates
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Template parameters
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/internal_api.createTemplateRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/github_com_meshsat_meshsat-hub_internal_store.MessageTemplate'
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Create message template
+      tags:
+      - message-templates
+  /api/message-templates/{id}:
+    delete:
+      parameters:
+      - description: Template ID
+        in: path
+        name: id
+        required: true
+        type: string
+      responses:
+        "204":
+          description: No Content
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Delete message template
+      tags:
+      - message-templates
+    get:
+      parameters:
+      - description: Template ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/github_com_meshsat_meshsat-hub_internal_store.MessageTemplate'
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Get message template
+      tags:
+      - message-templates
+    put:
+      consumes:
+      - application/json
+      parameters:
+      - description: Template ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Template parameters
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/internal_api.updateTemplateRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/github_com_meshsat_meshsat-hub_internal_store.MessageTemplate'
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Update message template
+      tags:
+      - message-templates
+  /api/message-templates/{id}/render:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Template ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Variable values
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/internal_api.renderTemplateRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_api.renderTemplateResponse'
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Render message template
+      tags:
+      - message-templates
   /api/messages:
     get:
       parameters:
@@ -2890,6 +5639,68 @@ paths:
       summary: Set rate limit override for device
       tags:
       - ratelimit
+  /api/reticulum/identity:
+    get:
+      description: Returns the Hub's Reticulum destination hash and public key. Private
+        key is never exposed.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_api.reticulumIdentityResponse'
+        "503":
+          description: Service Unavailable
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Get Hub Reticulum identity
+      tags:
+      - reticulum
+  /api/reticulum/relay:
+    get:
+      description: Returns packet forwarding stats and registered transport interfaces
+        with availability.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_api.relayStatusResponse'
+      summary: Get Reticulum relay status
+      tags:
+      - reticulum
+  /api/reticulum/routes:
+    get:
+      description: Returns all non-expired entries in the Reticulum routing table
+        with interface, cost, and hop count.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_api.routeTableResponse'
+      summary: List Reticulum routes
+      tags:
+      - reticulum
+  /api/reticulum/topology:
+    get:
+      description: Returns Hub identity, all known routes, interfaces, relay stats,
+        and path discovery stats.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_api.topologyResponse'
+      summary: Get Reticulum network topology
+      tags:
+      - reticulum
   /api/routes:
     get:
       produces:
@@ -3039,6 +5850,138 @@ paths:
       summary: Test routing rules against sample message
       tags:
       - routing
+  /api/settings/mqtt-url:
+    get:
+      description: Returns the MQTT URL shown to bridges during onboarding.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Get MQTT public URL
+      tags:
+      - settings
+    put:
+      consumes:
+      - application/json
+      description: Saves the MQTT URL shown to bridges during onboarding.
+      parameters:
+      - description: MQTT URL
+        in: body
+        name: body
+        required: true
+        schema:
+          type: object
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Set MQTT public URL
+      tags:
+      - settings
+  /api/settings/security:
+    get:
+      description: Shows which internal services have authentication configured.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_api.SecurityStatus'
+      summary: Get service security status
+      tags:
+      - settings
+  /api/settings/security/rotate:
+    post:
+      description: Generates new NATS MQTT, leafnode, and Redis passwords. Requires
+        service restart to take effect.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Rotate service passwords
+      tags:
+      - settings
+  /api/sms/send:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: SMS parameters
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/internal_api.sendSMSRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "502":
+          description: Bad Gateway
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Send SMS message
+      tags:
+      - sms
+  /api/tak/federation/peers:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      summary: TAK federation peers
+      tags:
+      - tak
   /api/tor/onion:
     get:
       description: Returns the Hub's Tor hidden service .onion addresses for HTTP
@@ -3179,6 +6122,314 @@ paths:
       summary: Update user
       tags:
       - users
+  /api/v1/directory/contacts:
+    get:
+      description: |-
+        Returns every contact in the caller's tenant. Newest
+        clients also honour ?kind=<bearer> to narrow to
+        contacts that have at least one address of the given
+        kind.
+      parameters:
+      - description: Optional bearer kind filter (SMS, MESHTASTIC, APRS, IRIDIUM_SBD,
+          IRIDIUM_IMT, CELLULAR, TAK, RETICULUM, ZIGBEE, BLE, WEBHOOK, EMAIL, MQTT)
+        in: query
+        name: kind
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/github_com_meshsat_meshsat-hub_internal_directory.Contact'
+            type: array
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: List directory contacts
+      tags:
+      - directory
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Contact (tenant_id will be overridden by the caller's tenant)
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/github_com_meshsat_meshsat-hub_internal_directory.Contact'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/github_com_meshsat_meshsat-hub_internal_directory.Contact'
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Create directory contact
+      tags:
+      - directory
+  /api/v1/directory/contacts/{id}:
+    delete:
+      parameters:
+      - description: Contact UUID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "204":
+          description: No Content
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Delete directory contact
+      tags:
+      - directory
+    get:
+      parameters:
+      - description: Contact UUID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/github_com_meshsat_meshsat-hub_internal_directory.Contact'
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Get directory contact
+      tags:
+      - directory
+    put:
+      consumes:
+      - application/json
+      parameters:
+      - description: Contact UUID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Contact
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/github_com_meshsat_meshsat-hub_internal_directory.Contact'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/github_com_meshsat_meshsat-hub_internal_directory.Contact'
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Update directory contact
+      tags:
+      - directory
+  /api/v1/directory/export/vcard:
+    get:
+      description: |-
+        Streams every contact in the caller's tenant as a
+        concatenated vCard 4.0 document. X-MESHSAT-*
+        extensions carry the bearer-kind metadata not covered
+        by standard TEL/EMAIL.
+      parameters:
+      - description: Max contacts (default 10000)
+        in: query
+        name: limit
+        type: integer
+      produces:
+      - text/vcard
+      responses:
+        "200":
+          description: vCard 4.0 text
+          schema:
+            type: string
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Export tenant contacts as vCard 4.0
+      tags:
+      - directory
+  /api/v1/directory/import/csv:
+    post:
+      consumes:
+      - text/csv
+      description: |-
+        Uploads a CSV file with header row:
+        `display_name,sms,meshtastic,aprs,email,team,role`.
+        Unknown columns ignored; missing columns treated as
+        empty. One contact per data row.
+      parameters:
+      - description: CSV with header row
+        in: body
+        name: body
+        required: true
+        schema:
+          type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              type: integer
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Import contacts from CSV
+      tags:
+      - directory
+  /api/v1/directory/import/vcard:
+    post:
+      consumes:
+      - text/vcard
+      description: |-
+        Uploads a .vcf file (Content-Type: text/vcard) and
+        creates directory_contacts + directory_addresses rows
+        for each record. X-MESHSAT-* extensions cover the
+        bearer kinds that standard vCard does not
+        (MESHTASTIC, APRS, IRIDIUM_SBD/IMT, CELLULAR, TAK,
+        RETICULUM, ZIGBEE, BLE, WEBHOOK, MQTT) plus team /
+        role / SIDC / trust-level metadata. Response reports
+        parsed / imported / errors counts.
+      parameters:
+      - description: vCard 4.0 text (one or more BEGIN/END records)
+        in: body
+        name: body
+        required: true
+        schema:
+          type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              type: integer
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Import contacts from vCard 4.0
+      tags:
+      - directory
+  /api/v1/directory/snapshot:
+    get:
+      description: |-
+        Full tenant directory payload with an ECDSA-P256-SHA256
+        signature over its canonical JSON. Bridges consume via
+        the directory_push MQTT command (MESHSAT-540) or by
+        polling this endpoint on reconnect. since is advisory —
+        v1 always returns the full snapshot; a future delta
+        endpoint (MESHSAT-540) ships incremental changes.
+      parameters:
+      - description: 'Hint: only return data if stored version > since'
+        in: query
+        name: since
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/github_com_meshsat_meshsat-hub_internal_directory.Snapshot'
+        "304":
+          description: Not modified — stored version <= since
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Get signed directory snapshot
+      tags:
+      - directory
+  /api/webhook/cloudloop:
+    post:
+      consumes:
+      - application/json
+      description: Cloudloop posts LingoMO JSON messages here (SBD, IMT, or cellular)
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Receive Cloudloop LingoMO message
+      tags:
+      - webhook
   /api/webhook/email:
     post:
       consumes:
@@ -3196,6 +6447,31 @@ paths:
               type: string
             type: object
       summary: Receive inbound email
+      tags:
+      - webhook
+  /api/webhook/globalstar:
+    post:
+      consumes:
+      - application/json
+      description: Globalstar gateway posts MO messages here via webhook callback
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Receive Globalstar MO message
       tags:
       - webhook
   /api/webhook/rockblock:
@@ -3420,6 +6696,19 @@ paths:
       summary: Get WireGuard peer config
       tags:
       - wireguard
+  /api/ws:
+    get:
+      description: Real-time stream of messages, positions, and alerts. Pass token
+        via ?token= query param or Authorization header.
+      parameters:
+      - description: Auth token (JWT or API key)
+        in: query
+        name: token
+        type: string
+      responses: {}
+      summary: WebSocket event stream
+      tags:
+      - websocket
   /healthz:
     get:
       produces:
@@ -3434,6 +6723,11 @@ paths:
       - health
   /readyz:
     get:
+      parameters:
+      - description: Include informational dependencies (1)
+        in: query
+        name: verbose
+        type: string
       produces:
       - application/json
       responses:
@@ -3446,6 +6740,22 @@ paths:
           schema:
             $ref: '#/definitions/internal_health.Response'
       summary: Readiness probe
+      tags:
+      - health
+  /startupz:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_health.Response'
+        "503":
+          description: Service Unavailable
+          schema:
+            $ref: '#/definitions/internal_health.Response'
+      summary: Startup probe
       tags:
       - health
 securityDefinitions:
