@@ -442,3 +442,12 @@ func (m *mockStore) LookupDeviceTenant(_ context.Context, _ string) (string, err
 func (m *mockStore) LookupBridgeTenant(_ context.Context, _ string) (string, error) {
 	return "", store.ErrNotFound
 }
+
+func (m *mockStore) SoftDeleteTenant(context.Context, string, time.Time) error { return nil }
+func (m *mockStore) ListTenantsDeletedBefore(context.Context, time.Time) ([]store.Tenant, error) {
+	return nil, nil
+}
+func (m *mockStore) PurgeTenant(context.Context, string) error { return nil }
+func (m *mockStore) ExportTenant(context.Context, string) (map[string][]map[string]any, error) {
+	return nil, nil
+}
