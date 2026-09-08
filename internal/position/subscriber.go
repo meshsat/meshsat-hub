@@ -57,7 +57,12 @@ func (s *Subscriber) SetDeadman(dm *deadman.Monitor) {
 
 // Start subscribes to the position wildcard topic.
 func (s *Subscriber) Start() error {
-	return s.bus.Subscribe("meshsat/+/position", 1, s.handlePosition)
+	for _, f := range hubmqtt.DualFilters("meshsat/+/position") {
+		if err := s.bus.Subscribe(f, 1, s.handlePosition); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (s *Subscriber) handlePosition(topic string, payload []byte) {
@@ -72,7 +77,7 @@ func (s *Subscriber) handlePosition(topic string, payload []byte) {
 		slog.Warn("position: invalid JSON", "error", err, "device", deviceID)
 		return
 	}
-	tenantID := s.tenants.ForDevice(context.Background(), deviceID)
+	tenantID := s.tenants.ForDeviceTopic(context.Background(), deviceID, hubmqtt.ExtractTenantID(topic))
 
 	// If a raw GPS binary frame is included, decode it for richer fields.
 	// Supports hub format (0xA5, BE, ×1e7) and bridge/Android format (0x50/0x44, LE, ×1e6).

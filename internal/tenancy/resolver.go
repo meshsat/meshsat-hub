@@ -22,10 +22,12 @@ import (
 type lookupStore interface {
 	LookupDeviceTenant(ctx context.Context, imei string) (string, error)
 	LookupBridgeTenant(ctx context.Context, bridgeID string) (string, error)
+	GetTenant(ctx context.Context, id string) (*store.Tenant, error)
 }
 
 type entry struct {
 	tenant string
+	known  bool // the id is registered (tenant is not just the fallback)
 	expiry time.Time
 }
 
@@ -37,6 +39,7 @@ type Resolver struct {
 	mu      sync.Mutex
 	devices map[string]entry
 	bridges map[string]entry
+	tenants map[string]entry // tenant id → "1" when it exists
 	now     func() time.Time
 }
 
@@ -47,7 +50,7 @@ func NewResolver(s lookupStore, defaultTenant string, ttl time.Duration) *Resolv
 	if defaultTenant == "" {
 		defaultTenant = store.DefaultTenantID
 	}
-	return &Resolver{store: s, def: defaultTenant, ttl: ttl, devices: map[string]entry{}, bridges: map[string]entry{}, now: time.Now}
+	return &Resolver{store: s, def: defaultTenant, ttl: ttl, devices: map[string]entry{}, bridges: map[string]entry{}, tenants: map[string]entry{}, now: time.Now}
 }
 
 // Default returns the fallback tenant.
@@ -64,6 +67,91 @@ func (r *Resolver) ForBridge(ctx context.Context, bridgeID string) string {
 	return r.resolve(ctx, r.bridges, bridgeID, r.store.LookupBridgeTenant, "bridge")
 }
 
+// ForDeviceTopic resolves the tenant of a message received on a device topic.
+// The store is authoritative for registered devices (a publisher cannot move a
+// device by using another tenant's prefix); an unregistered device is placed
+// in the tenant named by the topic when that tenant exists, else the default.
+func (r *Resolver) ForDeviceTopic(ctx context.Context, imei, topicTenant string) string {
+	owner, known := r.known(ctx, r.devices, imei, r.store.LookupDeviceTenant, "device")
+	return r.reconcile(ctx, owner, known, topicTenant, "device", imei)
+}
+
+// ForBridgeTopic is ForDeviceTopic for bridge topics.
+func (r *Resolver) ForBridgeTopic(ctx context.Context, bridgeID, topicTenant string) string {
+	owner, known := r.known(ctx, r.bridges, bridgeID, r.store.LookupBridgeTenant, "bridge")
+	return r.reconcile(ctx, owner, known, topicTenant, "bridge", bridgeID)
+}
+
+func (r *Resolver) reconcile(ctx context.Context, owner string, known bool, topicTenant, kind, id string) string {
+	if known {
+		if topicTenant != "" && topicTenant != owner {
+			slog.Warn("tenancy: topic tenant differs from the owner, using the owner", "kind", kind, "id", id, "topic_tenant", topicTenant, "owner", owner)
+		}
+		return owner
+	}
+	if topicTenant == "" || topicTenant == r.def {
+		return r.def
+	}
+	if r.tenantExists(ctx, topicTenant) {
+		return topicTenant
+	}
+	slog.Warn("tenancy: topic names an unknown tenant, using default", "kind", kind, "id", id, "topic_tenant", topicTenant)
+	return r.def
+}
+
+// known returns the owning tenant and whether the id is registered at all.
+func (r *Resolver) known(ctx context.Context, cache map[string]entry, key string, lookup func(context.Context, string) (string, error), kind string) (string, bool) {
+	if key == "" || r.store == nil {
+		return r.def, false
+	}
+	if r.ttl > 0 {
+		r.mu.Lock()
+		e, ok := cache[key]
+		r.mu.Unlock()
+		if ok && r.now().Before(e.expiry) {
+			return e.tenant, e.tenant != "" && e.known
+		}
+	}
+	tenant, err := lookup(ctx, key)
+	found := err == nil && tenant != ""
+	switch {
+	case found:
+	case errors.Is(err, store.ErrNotFound):
+		tenant = r.def
+	case errors.Is(err, store.ErrAmbiguousTenant):
+		slog.Warn("tenancy: id present in several tenants, using default", "kind", kind, "id", key)
+		tenant = r.def
+	default:
+		slog.Warn("tenancy: lookup failed, using default", "kind", kind, "id", key, "error", err)
+		return r.def, false
+	}
+	if r.ttl > 0 {
+		r.mu.Lock()
+		cache[key] = entry{tenant: tenant, known: found, expiry: r.now().Add(r.ttl)}
+		r.mu.Unlock()
+	}
+	return tenant, found
+}
+
+func (r *Resolver) tenantExists(ctx context.Context, id string) bool {
+	if r.ttl > 0 {
+		r.mu.Lock()
+		e, ok := r.tenants[id]
+		r.mu.Unlock()
+		if ok && r.now().Before(e.expiry) {
+			return e.known
+		}
+	}
+	t, err := r.store.GetTenant(ctx, id)
+	exists := err == nil && t != nil
+	if r.ttl > 0 && (exists || errors.Is(err, store.ErrNotFound) || err == nil) {
+		r.mu.Lock()
+		r.tenants[id] = entry{known: exists, expiry: r.now().Add(r.ttl)}
+		r.mu.Unlock()
+	}
+	return exists
+}
+
 // Forget drops cached answers for a device (call after moving or deleting it).
 func (r *Resolver) Forget(imei string) {
 	r.mu.Lock()
@@ -72,35 +160,7 @@ func (r *Resolver) Forget(imei string) {
 }
 
 func (r *Resolver) resolve(ctx context.Context, cache map[string]entry, key string, lookup func(context.Context, string) (string, error), kind string) string {
-	if key == "" || r.store == nil {
-		return r.def
-	}
-	if r.ttl > 0 {
-		r.mu.Lock()
-		e, ok := cache[key]
-		r.mu.Unlock()
-		if ok && r.now().Before(e.expiry) {
-			return e.tenant
-		}
-	}
-	tenant, err := lookup(ctx, key)
-	switch {
-	case err == nil && tenant != "":
-	case errors.Is(err, store.ErrNotFound):
-		tenant = r.def
-	case errors.Is(err, store.ErrAmbiguousTenant):
-		slog.Warn("tenancy: id present in several tenants, using default", "kind", kind, "id", key)
-		tenant = r.def
-	default:
-		// Store trouble: do not cache, do not drop the message.
-		slog.Warn("tenancy: lookup failed, using default", "kind", kind, "id", key, "error", err)
-		return r.def
-	}
-	if r.ttl > 0 {
-		r.mu.Lock()
-		cache[key] = entry{tenant: tenant, expiry: r.now().Add(r.ttl)}
-		r.mu.Unlock()
-	}
+	tenant, _ := r.known(ctx, cache, key, lookup, kind)
 	return tenant
 }
 

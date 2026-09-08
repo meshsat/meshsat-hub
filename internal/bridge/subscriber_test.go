@@ -566,12 +566,16 @@ func TestStart_SubscribesAllTopics(t *testing.T) {
 func TestResolveTenantID(t *testing.T) {
 	sub := &Subscriber{tenants: tenancy.NewResolver(newMockStore(), "default", 0)}
 
-	if got := sub.resolveTenantID("custom", "b1"); got != "custom" {
+	if got := sub.resolveTenantID("custom", "b1", "meshsat/bridge/b1/birth"); got != "custom" {
 		t.Errorf("resolveTenantID(%q) = %q, want %q", "custom", got, "custom")
 	}
 	// Unknown bridge, no tenant in the birth: the default tenant.
-	if got := sub.resolveTenantID("", "b1"); got != "default" {
+	if got := sub.resolveTenantID("", "b1", "meshsat/bridge/b1/birth"); got != "default" {
 		t.Errorf("resolveTenantID(%q) = %q, want %q", "", got, "default")
+	}
+	// Tenant-prefixed topic naming a tenant the store does not know: default.
+	if got := sub.resolveTenantID("", "b1", "meshsat/t_ghost/bridge/b1/birth"); got != "default" {
+		t.Errorf("unknown topic tenant: %q", got)
 	}
 }
 
@@ -1011,4 +1015,8 @@ func (m *mockStore) LookupDeviceTenant(_ context.Context, _ string) (string, err
 
 func (m *mockStore) LookupBridgeTenant(_ context.Context, _ string) (string, error) {
 	return "", store.ErrNotFound
+}
+
+func (m *mockStore) GetTenant(_ context.Context, _ string) (*store.Tenant, error) {
+	return nil, store.ErrNotFound
 }

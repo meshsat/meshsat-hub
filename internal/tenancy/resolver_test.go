@@ -35,6 +35,31 @@ func (s *stubStore) LookupBridgeTenant(_ context.Context, id string) (string, er
 	return "", store.ErrNotFound
 }
 
+func (s *stubStore) GetTenant(_ context.Context, id string) (*store.Tenant, error) {
+	if id == "t_known" {
+		return &store.Tenant{ID: id}, nil
+	}
+	return nil, store.ErrNotFound
+}
+
+func TestResolver_ForDeviceTopic(t *testing.T) {
+	st := &stubStore{devices: map[string]string{"111": "tenant-a"}}
+	r := NewResolver(st, "default", time.Minute)
+	ctx := context.Background()
+	if got := r.ForDeviceTopic(ctx, "111", "t_other"); got != "tenant-a" {
+		t.Fatalf("owner must win over the topic: %q", got)
+	}
+	if got := r.ForDeviceTopic(ctx, "999", "t_known"); got != "t_known" {
+		t.Fatalf("unregistered device joins the existing topic tenant: %q", got)
+	}
+	if got := r.ForDeviceTopic(ctx, "999", "t_ghost"); got != "default" {
+		t.Fatalf("unknown topic tenant falls back: %q", got)
+	}
+	if got := r.ForDeviceTopic(ctx, "999", ""); got != "default" {
+		t.Fatalf("legacy topic: %q", got)
+	}
+}
+
 func TestResolver_KnownUnknownAndCache(t *testing.T) {
 	st := &stubStore{devices: map[string]string{"111": "tenant-a"}, bridges: map[string]string{"b1": "tenant-b"}}
 	r := NewResolver(st, "default", time.Minute)
