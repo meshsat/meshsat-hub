@@ -44,11 +44,12 @@ data:
   # streams them at /basemap/. Endpoint, bucket and credentials fall back to the
   # audit archive values. Rebuild with k8s/scripts/basemap/build-basemap.sh.
   # The world archive stops at zoom 11 (major roads and their names) and the
-  # regional one carries the Netherlands to zoom 15, which is where street
-  # names live. Add another region by building it and pointing the local key
-  # at it; see k8s/scripts/basemap/build-basemap.sh for the sizes.
+  # regional one carries the Netherlands and Greece to zoom 15, which is where
+  # street names live. Those are the two countries the fleet is actually in.
+  # Adding a country is one line in k8s/scripts/basemap/fleet-regions.geojson
+  # and a rebuild; see build-basemap.sh for the sizes.
   HUB_BASEMAP_S3_KEY: "basemap/protomaps-world-z11-20260907.pmtiles"
-  HUB_BASEMAP_S3_LOCAL_KEY: "basemap/protomaps-nl-z15-20260907.pmtiles"
+  HUB_BASEMAP_S3_LOCAL_KEY: "basemap/protomaps-fleet-z15-20260907.pmtiles"
   HUB_BASEMAP_S3_ASSET_PREFIX: "basemap/assets"
   # --- carried over from the compose .env ---
   HUB_RATELIMIT_BURST: "10"
