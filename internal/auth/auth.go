@@ -26,12 +26,13 @@ const TenantContextKey contextKey = "tenant_id"
 
 // User represents an authenticated user or API client.
 type User struct {
-	ID        string    `json:"id"`
-	Email     string    `json:"email,omitempty"`
-	Name      string    `json:"name,omitempty"`
-	Roles     []string  `json:"roles,omitempty"`
-	TenantID  string    `json:"tenant_id,omitempty"`
-	ExpiresAt time.Time `json:"-"` // API key expiry (zero = no expiry)
+	ID            string    `json:"id"`
+	Email         string    `json:"email,omitempty"`
+	Name          string    `json:"name,omitempty"`
+	Roles         []string  `json:"roles,omitempty"`
+	TenantID      string    `json:"tenant_id,omitempty"`
+	PlatformAdmin bool      `json:"platform_admin,omitempty"` // may act across tenants (X-Tenant-ID)
+	ExpiresAt     time.Time `json:"-"`                        // API key expiry (zero = no expiry)
 }
 
 // HasRole returns true if the user has the specified role.
@@ -118,6 +119,19 @@ type Config struct {
 	JWTSecret         []byte // HMAC-SHA256 key (mode=local)
 	OIDCCertPin       string // base64-encoded SHA-256 SPKI hash for OIDC provider cert pin
 	OIDCCertPinBackup string // backup pin for zero-downtime rotation
+
+	// Provider is an already constructed JWKS provider (mode=oidc); when nil
+	// one is built from OIDCIssuerURL.
+	Provider *JWKSProvider
+	// Resolver maps a verified provider subject to the local user (role and
+	// tenant come from the users table, never from provider claims). When nil,
+	// provider bearer tokens are rejected and only Hub sessions are accepted.
+	Resolver SubjectResolver
+}
+
+// SubjectResolver looks up the local user for an IdP (issuer, subject).
+type SubjectResolver interface {
+	ResolveSubject(ctx context.Context, issuer, subject string) (*User, error)
 }
 
 // Middleware returns an HTTP middleware that authenticates requests.
@@ -125,21 +139,16 @@ func Middleware(cfg Config) func(http.Handler) http.Handler {
 	switch cfg.Mode {
 	case "oidc":
 		slog.Info("auth: OIDC mode", "issuer", cfg.OIDCIssuerURL)
-		var httpClient *http.Client
-		if cfg.OIDCCertPin != "" {
-			var hashes []string
-			hashes = append(hashes, cfg.OIDCCertPin)
-			if cfg.OIDCCertPinBackup != "" {
-				hashes = append(hashes, cfg.OIDCCertPinBackup)
-			}
-			pin := tlspin.NewPin(hashes...)
-			httpClient = &http.Client{
-				Transport: tlspin.PinnedTransport(pin),
-				Timeout:   10 * time.Second,
-			}
-			slog.Info("auth: OIDC cert pinning enabled", "pins", len(hashes))
+		provider := cfg.Provider
+		if provider == nil {
+			provider = NewJWKSProvider(cfg.OIDCIssuerURL, OIDCHTTPClient(cfg))
 		}
-		provider := NewJWKSProvider(cfg.OIDCIssuerURL, httpClient)
+		if len(cfg.JWTSecret) >= 32 {
+			// Hub sessions (issued by the OIDC callback) first, then provider
+			// bearers resolved through the users table.
+			sm := NewSessionManager(cfg.JWTSecret, "meshsat-hub")
+			return sessionOrProviderMiddleware(sm, cfg.Token, provider, cfg.OIDCIssuerURL, cfg.OIDCAudience, cfg.Resolver)
+		}
 		return jwtMiddleware(provider, cfg.OIDCIssuerURL, cfg.OIDCAudience)
 	case "token":
 		slog.Info("auth: token mode")
@@ -192,11 +201,12 @@ func localMiddleware(jwtSecret []byte, legacyToken string) func(http.Handler) ht
 			}
 
 			user := &User{
-				ID:       claims.UserID,
-				Email:    claims.Email,
-				Name:     claims.Name,
-				Roles:    []string{claims.Role},
-				TenantID: claims.TenantID,
+				ID:            claims.UserID,
+				Email:         claims.Email,
+				Name:          claims.Name,
+				Roles:         []string{claims.Role},
+				TenantID:      claims.TenantID,
+				PlatformAdmin: claims.PlatformAdmin,
 			}
 			ctx := context.WithValue(r.Context(), UserContextKey, user)
 			if claims.TenantID != "" {
@@ -219,6 +229,9 @@ func isExempt(path string) bool {
 		isProvisionClaim(path) || // QR provision claim — nonce IS the auth (MESHSAT-414)
 		path == "/api/auth/login" ||
 		path == "/api/auth/refresh" ||
+		path == "/api/auth/config" ||
+		path == "/api/auth/oidc/login" ||
+		path == "/api/auth/oidc/callback" ||
 		path == "/api/cluster/node" ||
 		!strings.HasPrefix(path, "/api/")
 }
@@ -390,4 +403,80 @@ func writeAuthError(w http.ResponseWriter, msg string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusUnauthorized)
 	_, _ = fmt.Fprintf(w, `{"error":"%s"}`, msg)
+}
+
+// OIDCHTTPClient returns the HTTP client for provider calls, with SPKI pinning
+// when configured.
+func OIDCHTTPClient(cfg Config) *http.Client {
+	if cfg.OIDCCertPin == "" {
+		return nil
+	}
+	hashes := []string{cfg.OIDCCertPin}
+	if cfg.OIDCCertPinBackup != "" {
+		hashes = append(hashes, cfg.OIDCCertPinBackup)
+	}
+	pin := tlspin.NewPin(hashes...)
+	slog.Info("auth: OIDC cert pinning enabled", "pins", len(hashes))
+	return &http.Client{Transport: tlspin.PinnedTransport(pin), Timeout: 10 * time.Second}
+}
+
+// sessionOrProviderMiddleware accepts, in order: the legacy static token, a
+// Hub session token (HS256, issued after an OIDC login or a local login),
+// or a provider-signed bearer whose subject is known to the users table.
+func sessionOrProviderMiddleware(sm *SessionManager, legacyToken string, provider *JWKSProvider, issuerURL, audience string, resolver SubjectResolver) func(http.Handler) http.Handler {
+	providerMW := jwtMiddleware(provider, issuerURL, audience)
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if isExempt(r.URL.Path) {
+				next.ServeHTTP(w, r)
+				return
+			}
+			if FromContext(r.Context()) != nil {
+				next.ServeHTTP(w, r)
+				return
+			}
+			provided := extractBearer(r)
+			if provided == "" {
+				writeAuthError(w, "missing Authorization header")
+				return
+			}
+			if legacyToken != "" && subtle.ConstantTimeCompare([]byte(provided), []byte(legacyToken)) == 1 {
+				user := &User{ID: "token-user", Name: "API Token", Roles: []string{"admin"}}
+				next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), UserContextKey, user)))
+				return
+			}
+			if claims, err := sm.VerifyAccessToken(provided); err == nil {
+				user := &User{ID: claims.UserID, Email: claims.Email, Name: claims.Name, Roles: []string{claims.Role}, TenantID: claims.TenantID, PlatformAdmin: claims.PlatformAdmin}
+				ctx := context.WithValue(r.Context(), UserContextKey, user)
+				if claims.TenantID != "" {
+					ctx = context.WithValue(ctx, TenantContextKey, claims.TenantID)
+				}
+				next.ServeHTTP(w, r.WithContext(ctx))
+				return
+			}
+			if resolver == nil {
+				writeAuthError(w, "invalid token")
+				return
+			}
+			// Provider bearer: verify with the JWKS, then replace the claim-derived
+			// user with the local one (role/tenant are ours, not the IdP's).
+			providerMW(http.HandlerFunc(func(w2 http.ResponseWriter, r2 *http.Request) {
+				claimUser := FromContext(r2.Context())
+				if claimUser == nil {
+					writeAuthError(w2, "invalid token")
+					return
+				}
+				local, err := resolver.ResolveSubject(r2.Context(), provider.ExpectedIssuer(), claimUser.ID)
+				if err != nil || local == nil {
+					writeAuthError(w2, "unknown subject")
+					return
+				}
+				ctx := context.WithValue(r2.Context(), UserContextKey, local)
+				if local.TenantID != "" {
+					ctx = context.WithValue(ctx, TenantContextKey, local.TenantID)
+				}
+				next.ServeHTTP(w2, r2.WithContext(ctx))
+			})).ServeHTTP(w, r)
+		})
+	}
 }

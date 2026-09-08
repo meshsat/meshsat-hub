@@ -402,5 +402,16 @@ CREATE TABLE IF NOT EXISTS tenant_invites (
 );
 CREATE INDEX IF NOT EXISTS idx_tenant_invites_email ON tenant_invites (email_lower, accepted_at);
 CREATE INDEX IF NOT EXISTS idx_tenant_invites_tenant ON tenant_invites (tenant_id);
+CREATE TABLE IF NOT EXISTS oidc_identities (
+	issuer VARCHAR(255) NOT NULL,
+	subject VARCHAR(255) NOT NULL,
+	user_id VARCHAR(64) NOT NULL,
+	tenant_id VARCHAR(64) NOT NULL,
+	email VARCHAR(255) NOT NULL DEFAULT '',
+	platform_admin BOOLEAN NOT NULL DEFAULT FALSE,
+	last_login_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+	created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+	PRIMARY KEY (issuer, subject)
+);
 `},
 }
