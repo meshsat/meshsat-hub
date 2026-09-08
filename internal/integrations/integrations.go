@@ -32,6 +32,7 @@ const (
 	ProviderRock7      = "rock7"
 	ProviderRockBLOCK  = "rockblock"
 	ProviderGlobalstar = "globalstar"
+	ProviderEmail      = "email"
 
 	// CredType marks a provider-account row in the credentials table.
 	CredType = "provider_account"
@@ -67,7 +68,7 @@ var Specs = []Spec{
 			{Key: "api_url", Label: "API URL", Default: "https://api.cloudloop.com"},
 			{Key: "api_key", Label: "API key", Secret: true, Required: true},
 			{Key: "account_id", Label: "Account ID", Hint: "Used for the Cloudloop MQTT topic; optional."},
-			{Key: "webhook_token", Label: "Webhook token", Secret: true, Generate: true, Hint: "Append ?token=<value> to the webhook URL in the Cloudloop console. Generated when left empty."},
+			{Key: "webhook_token", Label: "Webhook token", Secret: true, Generate: true, Hint: "The last segment of this tenant's webhook URL. Generated when left empty."},
 		}},
 	{Provider: ProviderTwilio, Label: "Twilio (SMS)", Description: "Outbound SMS, escalation SMS and the inbound SMS webhook.",
 		Webhook: "/api/webhook/sms",
@@ -75,7 +76,7 @@ var Specs = []Spec{
 			{Key: "account_sid", Label: "Account SID", Required: true},
 			{Key: "auth_token", Label: "Auth token", Secret: true, Required: true, Hint: "Also validates X-Twilio-Signature on the inbound webhook."},
 			{Key: "from_number", Label: "From number", Required: true, Hint: "E.164, e.g. +3197010000000"},
-			{Key: "webhook_token", Label: "Webhook token", Secret: true, Generate: true, Hint: "Append ?token=<value> to the inbound SMS webhook URL in the Twilio console. Generated when left empty."},
+			{Key: "webhook_token", Label: "Webhook token", Secret: true, Generate: true, Hint: "The last segment of this tenant's inbound SMS webhook URL. Generated when left empty."},
 			{Key: "webhook_secret", Label: "Webhook signing secret", Secret: true, Hint: "Optional: HMAC-SHA256 of From+Body presented as X-Signature by a custom relay."},
 		}},
 	{Provider: ProviderRock7, Label: "Rock7 (RockBLOCK MT API)", Description: "Rock7 Core account for direct RockBLOCK MT sends.",
@@ -93,6 +94,11 @@ var Specs = []Spec{
 		Fields: []Field{
 			{Key: "api_url", Label: "API URL"},
 			{Key: "api_key", Label: "API key", Secret: true, Required: true},
+			{Key: "webhook_secret", Label: "Webhook secret", Secret: true, Required: true, Generate: true},
+		}},
+	{Provider: ProviderEmail, Label: "Email gateway (inbound)", Description: "The secret the mail relay presents when delivering inbound mail for this tenant.",
+		Webhook: "/api/webhook/email",
+		Fields: []Field{
 			{Key: "webhook_secret", Label: "Webhook secret", Secret: true, Required: true, Generate: true},
 		}},
 }
@@ -491,4 +497,17 @@ func randomID() string {
 	b := make([]byte, 8)
 	_, _ = rand.Read(b)
 	return hex.EncodeToString(b)
+}
+
+// WebhookSecretField names the field whose value is the last segment of the
+// provider's per-tenant webhook URL. Empty when the provider has no inbound
+// webhook.
+func WebhookSecretField(provider string) string {
+	switch provider {
+	case ProviderCloudloop, ProviderTwilio:
+		return "webhook_token"
+	case ProviderRockBLOCK, ProviderGlobalstar, ProviderEmail:
+		return "webhook_secret"
+	}
+	return ""
 }
