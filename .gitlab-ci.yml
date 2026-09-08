@@ -51,6 +51,39 @@ swagger:
     - echo "swagger.json generated successfully ($(wc -l < docs/swagger/swagger.json) lines)"
 
 # -----------------------------------------------------------------------------
+# KUBECONFORM — the k8s/ kustomize tree must render and validate (MESHSAT-930).
+# Schemas: upstream for core kinds, the datreeio CRD catalog for CNPG, ESO,
+# monitoring and Argo kinds. Runs only when the tree exists and changed.
+# -----------------------------------------------------------------------------
+kubeconform:
+  stage: lint
+  image: alpine:3.21
+  tags: [multiarch]
+  variables:
+    KUSTOMIZE_VERSION: "v5.6.0"
+    KUBECONFORM_VERSION: "v0.7.0"
+  before_script:
+    - apk add --no-cache curl tar
+    - curl -fsSL "https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize%2F${KUSTOMIZE_VERSION}/kustomize_${KUSTOMIZE_VERSION}_linux_amd64.tar.gz" | tar -xz -C /usr/local/bin kustomize
+    - curl -fsSL "https://github.com/yannh/kubeconform/releases/download/${KUBECONFORM_VERSION}/kubeconform-linux-amd64.tar.gz" | tar -xz -C /usr/local/bin kubeconform
+  script:
+    - kustomize build k8s/ > /tmp/rendered.yaml
+    - |
+      kubeconform -strict -summary -ignore-missing-schemas \
+        -schema-location default \
+        -schema-location 'https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json' \
+        /tmp/rendered.yaml
+    - grep -c '^kind:' /tmp/rendered.yaml | xargs echo "rendered objects:"
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "schedule"
+      when: never
+    - exists:
+        - k8s/kustomization.yaml
+      changes:
+        - k8s/**/*
+        - .gitlab-ci.yml
+
+# -----------------------------------------------------------------------------
 # SECURITY — SAST (gosec) + vulnerability scan (govulncheck)
 # This is internet-exposed software — security scanning is mandatory.
 # Failures BLOCK the pipeline. No exceptions.
@@ -158,6 +191,99 @@ package:
     - if: $CI_COMMIT_BRANCH == "main"
 
 # -----------------------------------------------------------------------------
+# TRIVY — fixable CRITICAL/HIGH CVEs in the pushed image block the pipeline
+# (MESHSAT-930). The scanner image is the job image and pulls the artifact
+# straight from GHCR with the registry credentials; no docker daemon needed.
+# -----------------------------------------------------------------------------
+trivy:
+  stage: package
+  tags: [multiarch]
+  image:
+    name: aquasec/trivy:0.58.2
+    entrypoint: [""]
+  needs:
+    - job: package
+      artifacts: false
+  timeout: 30m
+  variables:
+    TRIVY_USERNAME: $GHCR_USER
+    TRIVY_PASSWORD: $GHCR_TOKEN
+    TRIVY_CACHE_DIR: .trivycache
+  cache:
+    key: trivy-db
+    paths:
+      - .trivycache/
+  script:
+    - IMAGE="${MESHSAT_HUB_IMAGE}:${CI_COMMIT_SHORT_SHA}"
+    # Full census, informational.
+    - trivy image --scanners vuln --quiet --format table --severity CRITICAL,HIGH "$IMAGE" || true
+    # The gate: its exit status is the job's.
+    - trivy image --scanners vuln --quiet --ignore-unfixed --severity CRITICAL,HIGH --exit-code 1 "$IMAGE"
+    - echo "no fixable CRITICAL/HIGH CVEs in $IMAGE"
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "schedule"
+      when: never
+    - if: $CI_COMMIT_BRANCH == "main"
+
+# -----------------------------------------------------------------------------
+# BUMP K8S PIN — GitOps deploy path for the notrf01 cluster (MESHSAT-930).
+# Writes the pushed image digest into k8s/kustomization.yaml on main; Argo CD
+# rolls it out. Copy of the omoikane daemon job. Needs the file variable
+# K8S_PIN_SSH_KEY (deploy key "k8s-pin-bump", write access). Skipped until the
+# k8s tree exists.
+# -----------------------------------------------------------------------------
+bump_k8s_pin:
+  stage: deploy
+  interruptible: false
+  resource_group: k8s-pin-bump
+  image: docker:28
+  tags: [multiarch]
+  cache: []
+  variables:
+    GIT_STRATEGY: none
+    PIN_REMOTE: "git@nllei01gitlab01.nuclearlighters.net:products/cubeos/meshsat-hub.git"
+  needs:
+    - job: trivy
+      artifacts: false
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "schedule"
+      when: never
+    - if: $CI_COMMIT_BRANCH == "main"
+      exists:
+        - k8s/kustomization.yaml
+  retry:
+    max: 1
+    when:
+      - runner_system_failure
+  before_script:
+    - apk add --no-cache bash git openssh-client python3
+    - docker info >/dev/null 2>&1 || { echo "FATAL - host docker.sock not reachable"; exit 1; }
+    - echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GHCR_USER" --password-stdin
+  script:
+    - |
+      bash -euo pipefail -c '
+      [ -n "${K8S_PIN_SSH_KEY:-}" ] || { echo "FATAL - K8S_PIN_SSH_KEY file variable not set on this project"; exit 1; }
+      install -m 600 "$K8S_PIN_SSH_KEY" /tmp/pin_key
+      export GIT_SSH_COMMAND="ssh -i /tmp/pin_key -o StrictHostKeyChecking=accept-new"
+      git clone --depth 10 --branch main "$PIN_REMOTE" /tmp/pin-repo
+      cd /tmp/pin-repo
+      git config user.name "k8s-pin-bump"
+      git config user.email "k8s-pin-bump@nuclearlighters.net"
+      digest=$(docker buildx imagetools inspect "$MESHSAT_HUB_IMAGE:$CI_COMMIT_SHORT_SHA" --format "{{json .Manifest}}" \
+               | python3 -c "import json,sys; print(json.load(sys.stdin)[\"digest\"])")
+      rc=0
+      python3 k8s/scripts/bump-pin.py k8s/kustomization.yaml "$MESHSAT_HUB_IMAGE" "$digest" || rc=$?
+      case "$rc" in 0) : ;; 3) echo "pin already current"; exit 0;; *) exit "$rc";; esac
+      git commit -am "[skip ci] chore(k8s): bump $MESHSAT_HUB_IMAGE pin to $CI_COMMIT_SHORT_SHA" \
+        -m "Source: $CI_PROJECT_PATH@$CI_COMMIT_SHA (pipeline $CI_PIPELINE_ID)"
+      for i in 1 2 3; do
+        git push origin HEAD:main && exit 0
+        git fetch origin main && git rebase origin/main
+      done
+      echo "FATAL: could not push pin bump after 3 attempts"; exit 1
+      '
+
+# -----------------------------------------------------------------------------
 # PRE-DEPLOY — Galera cluster health gate
 # Checks wsrep_cluster_size, wsrep_ready, wsrep_local_state_comment on both
 # nodes. If the cluster is unhealthy, deploy is BLOCKED.
@@ -262,7 +388,7 @@ pre-deploy:
         exit 1
       fi
   rules:
-    - if: $CI_COMMIT_BRANCH == "main"
+    - if: $CI_COMMIT_BRANCH == "main" && $DMZ_DEPLOY_ENABLED == "true"
 
 # -----------------------------------------------------------------------------
 # DEPLOY — Safe rolling update of Hub container only
@@ -328,7 +454,8 @@ deploy:
       [ "$FAILED" = "1" ] && exit 1
       echo "=== Deploy complete on all hosts ==="
   rules:
-    - if: $CI_COMMIT_BRANCH == "main"
+    # DMZ compose chain; DMZ_DEPLOY_ENABLED=false retires it after the k8s cutover (MESHSAT-944).
+    - if: $CI_COMMIT_BRANCH == "main" && $DMZ_DEPLOY_ENABLED == "true"
   environment:
     name: production
 
@@ -407,7 +534,7 @@ verify:
         bash test/e2e/smoke_test.sh
       fi
   rules:
-    - if: $CI_COMMIT_BRANCH == "main"
+    - if: $CI_COMMIT_BRANCH == "main" && $DMZ_DEPLOY_ENABLED == "true"
 
 # -----------------------------------------------------------------------------
 # OWASP — OWASP compliance testing on live deployment (release milestones)
@@ -442,8 +569,9 @@ owasp:
     when: always
   allow_failure: true
   rules:
-    - if: $CI_COMMIT_BRANCH == "main"
-    - if: $CI_COMMIT_TAG =~ /^v\d+\.\d+\.\d+$/
+    # DMZ compose chain; DMZ_DEPLOY_ENABLED=false retires it after the k8s cutover (MESHSAT-944).
+    - if: $CI_COMMIT_BRANCH == "main" && $DMZ_DEPLOY_ENABLED == "true"
+    - if: $CI_COMMIT_TAG =~ /^v\d+\.\d+\.\d+$/ && $DMZ_DEPLOY_ENABLED == "true"
 
 # -----------------------------------------------------------------------------
 # PAGES — Hugo documentation site
