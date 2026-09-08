@@ -99,11 +99,11 @@ async function rotateServicePasswords() {
 }
 
 function statusDot(ok) {
-  return ok ? 'bg-emerald-400' : 'bg-red-400'
+  return ok ? 'bg-ms-success' : 'bg-ms-error'
 }
 
 function statusText(ok) {
-  return ok ? 'text-emerald-400' : 'text-red-400'
+  return ok ? 'text-ms-success' : 'text-ms-error'
 }
 </script>
 
@@ -156,12 +156,12 @@ function statusText(ok) {
             <p class="text-gray-500 text-xs mb-2">Shown to bridges during onboarding (Fleet page). Use <code class="text-gray-400">wss://</code> for WebSocket over TLS.</p>
             <div class="flex items-center gap-2">
               <input v-model="mqttUrl" type="text" placeholder="wss://hub.meshsat.net/mqtt"
-                class="flex-1 bg-gray-800 border border-gray-600 rounded px-3 py-1.5 text-sm text-gray-200 placeholder-gray-500 focus:border-teal-500 focus:outline-none" />
+                class="flex-1 bg-gray-800 border border-gray-600 rounded px-3 py-1.5 text-sm text-gray-200 placeholder-gray-500 focus:border-brand-primary focus:outline-none" />
               <button @click="saveMqttUrl" :disabled="mqttUrlSaving || !mqttUrl"
-                class="bg-teal-600 hover:bg-teal-500 disabled:bg-gray-600 text-white text-sm px-4 py-1.5 rounded whitespace-nowrap">
+                class="bg-brand-accent hover:bg-brand-primary disabled:bg-gray-600 text-ms-on-primary text-sm px-4 py-1.5 rounded whitespace-nowrap">
                 {{ mqttUrlSaving ? 'Saving...' : 'Save' }}
               </button>
-              <span v-if="mqttUrlSaved" class="text-emerald-400 text-xs">Saved</span>
+              <span v-if="mqttUrlSaved" class="text-ms-success text-xs">Saved</span>
             </div>
           </div>
         </div>
@@ -231,7 +231,7 @@ function statusText(ok) {
           <div v-if="retIdentity" class="space-y-2 text-sm">
             <div>
               <span class="text-gray-400">Dest Hash</span>
-              <p class="font-mono text-teal-400 text-xs break-all">{{ retIdentity.dest_hash }}</p>
+              <p class="font-mono text-brand-primary text-xs break-all">{{ retIdentity.dest_hash }}</p>
             </div>
             <div>
               <span class="text-gray-400">App Name</span>
@@ -286,12 +286,12 @@ function statusText(ok) {
         <h2 class="text-sm font-display font-semibold text-gray-200 uppercase tracking-wider mb-3">Backup & Data</h2>
         <div class="flex items-center gap-3">
           <button @click="exportBackup" :disabled="exportLoading"
-            class="bg-teal-600 hover:bg-teal-500 disabled:bg-gray-600 text-white text-sm px-4 py-2 rounded">
+            class="bg-brand-accent hover:bg-brand-primary disabled:bg-gray-600 text-ms-on-primary text-sm px-4 py-2 rounded">
             {{ exportLoading ? 'Exporting...' : 'Export Backup' }}
           </button>
-          <span v-if="exportResult" class="text-emerald-400 text-sm">{{ exportResult }}</span>
+          <span v-if="exportResult" class="text-ms-success text-sm">{{ exportResult }}</span>
         </div>
-        <div v-if="error" class="mt-2 text-red-400 text-sm">{{ error }}</div>
+        <div v-if="error" class="mt-2 text-ms-error text-sm">{{ error }}</div>
       </div>
 
       <!-- API Documentation -->
@@ -299,7 +299,7 @@ function statusText(ok) {
         <h2 class="text-sm font-display font-semibold text-gray-200 uppercase tracking-wider mb-3">API Documentation</h2>
         <div class="space-y-2 text-sm">
           <a href="/api/docs" target="_blank"
-             class="inline-flex items-center gap-2 text-teal-400 hover:text-teal-300">
+             class="inline-flex items-center gap-2 text-brand-primary hover:text-brand-primary">
             Swagger UI
             <span class="text-xs text-gray-500">/api/docs</span>
           </a>

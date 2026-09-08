@@ -82,7 +82,7 @@ async function importBackup() {
       <h2 class="text-sm font-display font-semibold text-gray-200 uppercase tracking-wider mb-3">Export</h2>
       <p class="text-sm text-gray-400 mb-3">Download a full backup of devices, messages, routes, escalation chains, and configuration.</p>
       <button @click="exportBackup" :disabled="exporting"
-        class="bg-teal-600 hover:bg-teal-500 disabled:bg-gray-600 text-white text-sm px-4 py-2 rounded">
+        class="bg-brand-accent hover:bg-brand-primary disabled:bg-gray-600 text-ms-on-primary text-sm px-4 py-2 rounded">
         {{ exporting ? 'Exporting...' : 'Export JSON Backup' }}
       </button>
     </div>

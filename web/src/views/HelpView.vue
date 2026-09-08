@@ -108,13 +108,13 @@
     <div class="bg-tactical-surface rounded-lg border border-tactical-border p-4 mt-4">
       <h2 class="text-sm font-display font-semibold text-gray-200 uppercase tracking-wider mb-2">Additional Resources</h2>
       <div class="flex flex-wrap gap-x-6 gap-y-2 text-sm">
-        <a href="/api/docs" target="_blank" class="text-teal-400 hover:text-teal-300">Swagger API Docs</a>
+        <a href="/api/docs" target="_blank" class="text-brand-primary hover:text-brand-primary">Swagger API Docs</a>
         <a href="/api/docs/swagger.json" target="_blank" class="text-gray-400 hover:text-gray-300">OpenAPI JSON</a>
         <a href="/api/docs/swagger.yaml" target="_blank" class="text-gray-400 hover:text-gray-300">OpenAPI YAML</a>
       </div>
     </div>
 
     <!-- Version -->
-    <p class="text-[10px] text-gray-600 mt-6 text-center">MeshSat Hub v1.1</p>
+    <p class="text-[10px] text-ms-muted mt-6 text-center">MeshSat Hub v1.1</p>
   </div>
 </template>

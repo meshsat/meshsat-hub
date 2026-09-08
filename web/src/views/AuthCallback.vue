@@ -2,6 +2,7 @@
 import { ref, onMounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
+import BrandLockup from '../components/BrandLockup.vue'
 
 const authStore = useAuthStore()
 const router = useRouter()
@@ -47,13 +48,13 @@ onMounted(async () => {
 <template>
   <div class="min-h-screen bg-tactical-bg flex items-center justify-center px-4">
     <div class="w-full max-w-sm">
-      <h1 class="text-2xl font-display font-bold text-gray-200 text-center mb-8 tracking-wide">MeshSat Hub</h1>
+      <h1 class="flex justify-center mb-8"><BrandLockup size="lg" /></h1>
       <div class="bg-tactical-surface rounded-lg p-6 space-y-4 text-center" data-testid="auth-callback">
         <template v-if="state === 'working'">
           <p class="text-gray-300 text-sm">Completing sign-in…</p>
         </template>
         <template v-else-if="state === 'pending'">
-          <p class="text-amber-400 font-medium">Awaiting approval</p>
+          <p class="text-ms-warning font-medium">Awaiting approval</p>
           <p class="text-gray-400 text-sm">{{ message }}</p>
           <p class="text-gray-500 text-xs">
             Questions? Write to
@@ -63,7 +64,7 @@ onMounted(async () => {
           <router-link :to="{ name: 'login' }" class="inline-block text-sm text-gray-300 hover:text-white underline">Back to sign-in</router-link>
         </template>
         <template v-else>
-          <p class="text-red-400 font-medium">Sign-in failed</p>
+          <p class="text-ms-error font-medium">Sign-in failed</p>
           <p class="text-gray-400 text-sm">{{ message }}</p>
           <router-link :to="{ name: 'login' }" class="inline-block text-sm text-gray-300 hover:text-white underline">Back to sign-in</router-link>
         </template>
