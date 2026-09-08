@@ -1,5 +1,10 @@
 package mqtt
 
+import (
+	"crypto/sha256"
+	"encoding/hex"
+)
+
 import "fmt"
 
 // Topic patterns for the MeshSat Hub MQTT namespace.
@@ -96,4 +101,15 @@ func ExtractDeviceID(topic string) string {
 		}
 	}
 	return ""
+}
+
+// FallbackMessageID derives a stable message ID from a topic and payload for
+// publishers that carry no "id" field. Two replicas receiving the same MQTT
+// message derive the same ID, so the second insert is a duplicate no-op.
+func FallbackMessageID(topic string, payload []byte) string {
+	h := sha256.New()
+	h.Write([]byte(topic))
+	h.Write([]byte{0})
+	h.Write(payload)
+	return "mo-" + hex.EncodeToString(h.Sum(nil))[:16]
 }

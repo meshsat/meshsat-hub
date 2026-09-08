@@ -7,10 +7,11 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
 
-	_ "github.com/go-sql-driver/mysql"
+	"github.com/go-sql-driver/mysql"
 
 	"github.com/meshsat/meshsat-hub/internal/store"
 	"github.com/meshsat/meshsat-hub/internal/store/dbwrap"
@@ -511,6 +512,10 @@ func (d *DB) InsertMessage(ctx context.Context, tenantID string, m *store.Messag
 		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		m.ID, m.DeviceIMEI, m.Direction, m.Channel, m.MOMSN, m.Text, m.RawHex,
 		m.Compressed, m.Status, m.Error, m.Lat, m.Lon, tenantID, scheduledAt)
+	var mysqlErr *mysql.MySQLError
+	if errors.As(err, &mysqlErr) && mysqlErr.Number == 1062 {
+		return store.ErrDuplicate
+	}
 	return err
 }
 

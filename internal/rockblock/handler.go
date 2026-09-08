@@ -7,6 +7,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -32,6 +33,7 @@ import (
 
 // MOMessage represents a decoded Mobile Originated SBD message.
 type MOMessage struct {
+	ID               string  `json:"id"`
 	IMEI             string  `json:"imei"`
 	MOMSN            int     `json:"momsn"`
 	Channel          string  `json:"channel"`
@@ -369,7 +371,9 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Publish decoded message to mo/decoded.
+	msgID := sbdMessageID(imei, momsn)
 	decoded := MOMessage{
+		ID:               msgID,
 		IMEI:             imei,
 		MOMSN:            momsn,
 		Channel:          "iridium",
@@ -389,7 +393,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if h.store != nil {
 		tid := auth.TenantIDFromContext(r.Context())
 		msg := &store.Message{
-			ID:         fmt.Sprintf("mo-%d", time.Now().UnixNano()),
+			ID:         msgID,
 			DeviceIMEI: imei,
 			Direction:  "mo",
 			Channel:    "iridium",
@@ -401,7 +405,9 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			Lat:        iridiumLat,
 			Lon:        iridiumLon,
 		}
-		if err := h.store.InsertMessage(r.Context(), tid, msg); err != nil {
+		if err := h.store.InsertMessage(r.Context(), tid, msg); errors.Is(err, store.ErrDuplicate) {
+			slog.Debug("rockblock: message already persisted", "id", msgID)
+		} else if err != nil {
 			slog.Warn("rockblock: message persist failed", "error", err, "imei", imei)
 		} else {
 			slog.Info("rockblock: message persisted", "imei", imei, "momsn", momsn)
@@ -568,4 +574,11 @@ func isPrintable(b []byte) bool {
 		}
 	}
 	return len(b) > 0
+}
+
+// sbdMessageID is the stable ID of an SBD mobile-originated message: the
+// MOMSN is a per-IMEI sequence number, so Ground Control retries and a second
+// Hub replica produce the same ID and the store collapses them.
+func sbdMessageID(imei string, momsn int) string {
+	return fmt.Sprintf("mo-%s-%d", imei, momsn)
 }
