@@ -37,6 +37,7 @@ func Run(t *testing.T, open Opener) {
 		{"APIKeyTenantIsolation", testAPIKeyTenantIsolation},
 		{"DeviceConfigVersioning", testDeviceConfigVersioning},
 		{"SystemConfig", testSystemConfig},
+		{"ClaimsAndDeadman", testClaims},
 	}
 	for _, s := range suites {
 		t.Run(s.name, func(t *testing.T) {
@@ -381,5 +382,116 @@ func testSystemConfig(t *testing.T, db store.Store) {
 	}
 	if _, err := db.GetSystemConfig(ctx, "missing-key"); err == nil {
 		t.Error("missing key should error")
+	}
+}
+
+func testClaims(t *testing.T, db store.Store) {
+	ctx := context.Background()
+	won, err := db.ClaimOnce(ctx, "route:t:m1:r1")
+	if err != nil || !won {
+		t.Fatalf("first claim: won=%v err=%v", won, err)
+	}
+	won, err = db.ClaimOnce(ctx, "route:t:m1:r1")
+	if err != nil || won {
+		t.Fatalf("second claim must lose: won=%v err=%v", won, err)
+	}
+	if won, _ = db.ClaimOnce(ctx, "route:t:m1:r2"); !won {
+		t.Error("a different key is a different claim")
+	}
+	if n, err := db.PurgeClaims(ctx, time.Now().Add(-time.Hour)); err != nil || n != 0 {
+		t.Errorf("purge of fresh claims: n=%d err=%v", n, err)
+	}
+	if n, err := db.PurgeClaims(ctx, time.Now().Add(time.Hour)); err != nil || n != 2 {
+		t.Errorf("purge all: n=%d err=%v", n, err)
+	}
+	if won, _ = db.ClaimOnce(ctx, "route:t:m1:r1"); !won {
+		t.Error("claim can be re-taken after purge")
+	}
+
+	// Scheduled message claim: scheduled -> sending exactly once.
+	_ = db.CreateDevice(ctx, tenant, &store.Device{IMEI: "300234063904190", Label: "T", Type: "rockblock"})
+	m := &store.Message{DeviceIMEI: "300234063904190", Direction: "mt", Channel: "iridium", Text: "later", Status: "scheduled", ScheduledAt: time.Now().Add(-time.Minute)}
+	if err := db.InsertMessage(ctx, tenant, m); err != nil {
+		t.Fatal(err)
+	}
+	if won, err := db.ClaimScheduledMessage(ctx, m.ID); err != nil || !won {
+		t.Fatalf("first scheduled claim: %v %v", won, err)
+	}
+	if won, err := db.ClaimScheduledMessage(ctx, m.ID); err != nil || won {
+		t.Fatalf("second scheduled claim must lose: %v %v", won, err)
+	}
+	got, _ := db.GetMessage(ctx, tenant, m.ID)
+	if got.Status != "sending" {
+		t.Errorf("status after claim: %q", got.Status)
+	}
+	if due, _ := db.ListScheduledMessages(ctx, time.Now(), 10); len(due) != 0 {
+		t.Errorf("claimed message must not be listed as due: %+v", due)
+	}
+	if n, err := db.ExpireStaleSends(ctx, time.Hour); err != nil || n != 0 {
+		t.Errorf("fresh send must not expire: n=%d err=%v", n, err)
+	}
+	if n, err := db.ExpireStaleSends(ctx, -time.Minute); err != nil || n != 1 {
+		t.Errorf("stale send must expire: n=%d err=%v", n, err)
+	}
+	got, _ = db.GetMessage(ctx, tenant, m.ID)
+	if got.Status != "failed" {
+		t.Errorf("status after expiry: %q", got.Status)
+	}
+
+	// Alert compare-and-set.
+	base := time.Now().UTC().Truncate(time.Second)
+	a := &store.Alert{ID: "alert-cas", ChainID: "c", DeviceIMEI: "300234063904190", Type: "sos", State: store.AlertStateTriggered, NextEscAt: base, CreatedAt: base, UpdatedAt: base}
+	if err := db.CreateAlert(ctx, tenant, a); err != nil {
+		t.Fatal(err)
+	}
+	stored, err := db.GetAlert(ctx, tenant, a.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lease := *stored
+	lease.State = store.AlertStateEscalating
+	lease.NextEscAt = base.Add(2 * time.Minute)
+	lease.UpdatedAt = base.Add(time.Second)
+	if won, err := db.AdvanceAlert(ctx, tenant, &lease, stored.NextEscAt); err != nil || !won {
+		t.Fatalf("CAS with the current next_esc_at must win: %v %v", won, err)
+	}
+	again := *stored
+	again.NextEscAt = base.Add(5 * time.Minute)
+	if won, err := db.AdvanceAlert(ctx, tenant, &again, stored.NextEscAt); err != nil || won {
+		t.Fatalf("CAS with a stale next_esc_at must lose: %v %v", won, err)
+	}
+	if won, _ := db.AdvanceAlert(ctx, "other-tenant", &lease, lease.NextEscAt); won {
+		t.Error("CAS must be tenant scoped")
+	}
+	after, _ := db.GetAlert(ctx, tenant, a.ID)
+	if after.State != store.AlertStateEscalating || !after.NextEscAt.Equal(lease.NextEscAt) {
+		t.Errorf("CAS result not applied: %+v", after)
+	}
+
+	// Dead man's switch configs.
+	dc := &store.DeadmanConfig{DeviceIMEI: "300234063904190", ChainID: "c", IntervalSec: 3600, GraceSec: 600, Enabled: true}
+	if err := db.SaveDeadmanConfig(ctx, tenant, dc); err != nil {
+		t.Fatal(err)
+	}
+	dc.SnoozedUntil = base.Add(time.Hour)
+	dc.Alerted = true
+	if err := db.SaveDeadmanConfig(ctx, tenant, dc); err != nil {
+		t.Fatal(err)
+	}
+	rd, err := db.GetDeadmanConfig(ctx, tenant, dc.DeviceIMEI)
+	if err != nil || !rd.Alerted || rd.SnoozedUntil.IsZero() || rd.IntervalSec != 3600 || rd.TenantID != tenant {
+		t.Fatalf("deadman round trip: %v %+v", err, rd)
+	}
+	if list, _ := db.ListDeadmanConfigs(ctx); len(list) != 1 {
+		t.Errorf("list deadman: %d", len(list))
+	}
+	if _, err := db.GetDeadmanConfig(ctx, "other-tenant", dc.DeviceIMEI); err == nil {
+		t.Error("deadman config must be tenant scoped")
+	}
+	if err := db.DeleteDeadmanConfig(ctx, tenant, dc.DeviceIMEI); err != nil {
+		t.Fatal(err)
+	}
+	if list, _ := db.ListDeadmanConfigs(ctx); len(list) != 0 {
+		t.Errorf("list after delete: %d", len(list))
 	}
 }

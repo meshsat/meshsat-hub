@@ -358,4 +358,24 @@ CREATE TABLE IF NOT EXISTS credentials (
 );
 CREATE INDEX IF NOT EXISTS idx_credentials_tenant ON credentials (tenant_id);
 `},
+	{Version: 2, Name: "claims_and_deadman", SQL: `
+CREATE TABLE IF NOT EXISTS dispatch_claims (
+	key VARCHAR(255) PRIMARY KEY,
+	claimed_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_dispatch_claims_at ON dispatch_claims (claimed_at);
+ALTER TABLE messages ADD COLUMN IF NOT EXISTS claimed_at TIMESTAMPTZ NULL;
+CREATE TABLE IF NOT EXISTS deadman_configs (
+	device_imei VARCHAR(64) NOT NULL,
+	tenant_id VARCHAR(64) NOT NULL DEFAULT 'default',
+	chain_id VARCHAR(64) NOT NULL DEFAULT '',
+	interval_sec INTEGER NOT NULL DEFAULT 3600,
+	grace_sec INTEGER NOT NULL DEFAULT 600,
+	enabled BOOLEAN NOT NULL DEFAULT TRUE,
+	snoozed_until TIMESTAMPTZ NULL,
+	alerted BOOLEAN NOT NULL DEFAULT FALSE,
+	updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+	PRIMARY KEY (device_imei, tenant_id)
+);
+`},
 }
