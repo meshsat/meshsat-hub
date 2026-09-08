@@ -54,6 +54,18 @@ Things Argo CD cannot do by itself, in the order they happen. Keep this current.
   the NL forward zone publishes two A records and 192.168.2.43 is unreachable from NO, which
   made the Argo repo-server time out on every clone (omoikane's too, 58 times in 6h).
 
+## Phase 3 applied 2026-09-08
+
+- Edge `patch-haproxy.py auth` applied on NO, CH, TX (backups `haproxy.cfg.bak-20260908-MESHSAT-944*`);
+  `meshsat_auth` UP x3 on each. Health check is a static asset because authentik's
+  `/-/health/live/` answers 500 on ~50% of requests behind ingress (MESHSAT-968).
+- TX had NO established IPsec SAs to the notrf01 DMZ hosts although `no-dmz01..06` are
+  configured with `start_action = start` (L4CON on every cluster node); `swanctl --initiate
+  --child no-dmz0N` brought all six up. Watch after a TX reboot.
+- `run-bootstrap.sh bootstrap` ran: groups, scope mapping, provider + application,
+  meshsat-enrollment and meshsat-authentication flows, Brand meshsat.net, notification rule.
+  OpenBao `hub` now holds the real HUB_OIDC_CLIENT_ID/SECRET; hub-secrets refreshed.
+
 ## Certificates
 
 - `meshsat-net-tls` renews end to end (Let's Encrypt → NL cert-manager → OpenBao → ES).
