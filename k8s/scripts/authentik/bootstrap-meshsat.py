@@ -42,7 +42,7 @@ REDIRECT = f"{HUB_URL}/api/auth/oidc/callback"
 MATRIX_ROOM = "https://matrix.to/#/#meshsat:matrix.nuclearlighters.net"
 # authentik accounts that receive signup notifications and get the
 # meshsat-platform-admin claim (Hub platform_admin). Operator accounts only.
-PLATFORM_ADMIN_USERNAMES = ("adm-kyriakosp",)
+PLATFORM_ADMIN_USERNAMES = ("meshsat-admin",)  # dedicated MeshSat identity (admin@meshsat.net); never an omoikane account
 try:
     MESHSAT_CSS  # noqa: F821  (prepended by run-bootstrap.sh)
 except NameError:

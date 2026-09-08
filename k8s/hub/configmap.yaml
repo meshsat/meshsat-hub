@@ -27,7 +27,7 @@ data:
   HUB_OIDC_SIGNUP_URL: "https://auth.meshsat.net/if/flow/meshsat-enrollment/"
   # The owner's MeshSat ID attaches to the migrated `default` tenant at first login
   # instead of creating a new one (MR 16); everyone else gets their own tenant.
-  HUB_OIDC_BOOTSTRAP_OWNER_EMAIL: "adm-kyriakosp@omoikane.coach"
+  HUB_OIDC_BOOTSTRAP_OWNER_EMAIL: "admin@meshsat.net"
   HUB_TENANT_ENFORCE: "true"
   HUB_LOCAL_LOGIN_ENABLED: "false"
   # --- bridges ---
