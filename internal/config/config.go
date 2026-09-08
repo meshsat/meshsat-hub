@@ -444,9 +444,12 @@ func Load() (Config, error) {
 		}
 	}
 
-	// Tenant isolation overrides
+	// Tenant isolation overrides. On the cluster (HUB_MODE=kubernetes) the
+	// SaaS runs with isolation on unless explicitly switched off.
 	if v := os.Getenv("HUB_TENANT_ENFORCE"); v != "" {
 		cfg.TenantEnforce = strings.EqualFold(v, "true") || v == "1"
+	} else if cfg.Mode == "kubernetes" {
+		cfg.TenantEnforce = true
 	}
 
 	// Apprise overrides

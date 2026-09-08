@@ -82,15 +82,19 @@ func TenantMiddleware(enforce bool) func(http.Handler) http.Handler {
 			}
 
 			var tenantID string
+			u := FromContext(r.Context())
 
-			// 1. From authenticated user (JWT claim).
-			if u := FromContext(r.Context()); u != nil && u.TenantID != "" {
-				tenantID = u.TenantID
+			// 1. Platform admins may act on any tenant via X-Tenant-ID.
+			if u != nil && u.PlatformAdmin {
+				if h := strings.TrimSpace(r.Header.Get("X-Tenant-ID")); h != "" {
+					tenantID = h
+				}
 			}
 
-			// 2. From X-Tenant-ID header (service-to-service).
-			if tenantID == "" {
-				tenantID = r.Header.Get("X-Tenant-ID")
+			// 2. From the authenticated user (JWT claim / users row). The
+			// header is never trusted for anyone else (MESHSAT-916).
+			if tenantID == "" && u != nil && u.TenantID != "" {
+				tenantID = u.TenantID
 			}
 
 			// 3. Default fallback.
@@ -187,7 +191,7 @@ func localMiddleware(jwtSecret []byte, legacyToken string) func(http.Handler) ht
 
 			// Try legacy static token first (backward compat during migration)
 			if legacyToken != "" && subtle.ConstantTimeCompare([]byte(provided), []byte(legacyToken)) == 1 {
-				user := &User{ID: "token-user", Name: "API Token", Roles: []string{"admin"}}
+				user := &User{ID: "token-user", Name: "API Token", Roles: []string{"admin"}, PlatformAdmin: true}
 				ctx := context.WithValue(r.Context(), UserContextKey, user)
 				next.ServeHTTP(w, r.WithContext(ctx))
 				return
@@ -282,7 +286,7 @@ func tokenMiddleware(token string) func(http.Handler) http.Handler {
 				return
 			}
 
-			user := &User{ID: "token-user", Name: "API Token", Roles: []string{"admin"}}
+			user := &User{ID: "token-user", Name: "API Token", Roles: []string{"admin"}, PlatformAdmin: true}
 			ctx := context.WithValue(r.Context(), UserContextKey, user)
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
@@ -441,7 +445,7 @@ func sessionOrProviderMiddleware(sm *SessionManager, legacyToken string, provide
 				return
 			}
 			if legacyToken != "" && subtle.ConstantTimeCompare([]byte(provided), []byte(legacyToken)) == 1 {
-				user := &User{ID: "token-user", Name: "API Token", Roles: []string{"admin"}}
+				user := &User{ID: "token-user", Name: "API Token", Roles: []string{"admin"}, PlatformAdmin: true}
 				next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), UserContextKey, user)))
 				return
 			}
@@ -477,6 +481,23 @@ func sessionOrProviderMiddleware(sm *SessionManager, legacyToken string, provide
 				}
 				next.ServeHTTP(w2, r2.WithContext(ctx))
 			})).ServeHTTP(w, r)
+		})
+	}
+}
+
+// RequirePlatformAdmin allows only users flagged as platform administrators
+// (members of the IdP admin group, or the legacy static token).
+func RequirePlatformAdmin() func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			u := FromContext(r.Context())
+			if u == nil || !u.PlatformAdmin {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusForbidden)
+				_, _ = fmt.Fprint(w, `{"error":"platform administrator required"}`)
+				return
+			}
+			next.ServeHTTP(w, r)
 		})
 	}
 }
