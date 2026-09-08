@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/meshsat/meshsat-hub/internal/tenancy"
 	"log/slog"
 	"time"
 
@@ -31,14 +32,17 @@ type moDecodedPayload struct {
 
 // Subscriber persists MO decoded messages from MQTT to the database.
 type Subscriber struct {
-	bus      bus.MessageBus
-	store    store.Store
-	tenantID string
+	bus     bus.MessageBus
+	store   store.Store
+	tenants *tenancy.Resolver
 }
 
 // NewSubscriber creates a message persistence subscriber.
-func NewSubscriber(b bus.MessageBus, s store.Store, tenantID string) *Subscriber {
-	return &Subscriber{bus: b, store: s, tenantID: tenantID}
+func NewSubscriber(b bus.MessageBus, s store.Store, tenants *tenancy.Resolver) *Subscriber {
+	if tenants == nil {
+		tenants = tenancy.NewResolver(s, store.DefaultTenantID, 30*time.Second)
+	}
+	return &Subscriber{bus: b, store: s, tenants: tenants}
 }
 
 // Start subscribes to mo/decoded and persists messages.
@@ -92,7 +96,8 @@ func (s *Subscriber) handleMODecoded(topic string, payload []byte) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	if err := s.store.InsertMessage(ctx, s.tenantID, m); err != nil {
+	tenantID := s.tenants.ForDevice(ctx, imei)
+	if err := s.store.InsertMessage(ctx, tenantID, m); err != nil {
 		if errors.Is(err, store.ErrDuplicate) {
 			slog.Debug("message: already persisted", "id", id, "device", imei)
 			return

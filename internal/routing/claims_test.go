@@ -30,8 +30,8 @@ func TestTwoEnginesOneStoreDispatchOnce(t *testing.T) {
 
 	var calls atomic.Int32
 	handler := func(_ context.Context, _ *store.Route, _ string, _ json.RawMessage) { calls.Add(1) }
-	e1 := NewEngine(s, nil, store.DefaultTenantID)
-	e2 := NewEngine(s, nil, store.DefaultTenantID)
+	e1 := NewEngine(s, nil, nil)
+	e2 := NewEngine(s, nil, nil)
 	e1.RegisterHandler("webhook", handler)
 	e2.RegisterHandler("webhook", handler)
 

@@ -8,6 +8,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"github.com/meshsat/meshsat-hub/internal/tenancy"
 	"log/slog"
 	"time"
 
@@ -35,15 +36,18 @@ type positionPayload struct {
 
 // Subscriber listens on meshsat/+/position and stores positions to the database.
 type Subscriber struct {
-	bus      bus.MessageBus
-	store    store.Store
-	tenantID string // default tenant for MQTT-ingested positions
-	deadman  *deadman.Monitor
+	bus     bus.MessageBus
+	store   store.Store
+	tenants *tenancy.Resolver // device → tenant
+	deadman *deadman.Monitor
 }
 
 // NewSubscriber creates a position subscriber.
-func NewSubscriber(b bus.MessageBus, s store.Store, defaultTenantID string) *Subscriber {
-	return &Subscriber{bus: b, store: s, tenantID: defaultTenantID}
+func NewSubscriber(b bus.MessageBus, s store.Store, tenants *tenancy.Resolver) *Subscriber {
+	if tenants == nil {
+		tenants = tenancy.NewResolver(s, store.DefaultTenantID, 30*time.Second)
+	}
+	return &Subscriber{bus: b, store: s, tenants: tenants}
 }
 
 // SetDeadman attaches a dead man's switch monitor for check-in on position updates.
@@ -68,6 +72,7 @@ func (s *Subscriber) handlePosition(topic string, payload []byte) {
 		slog.Warn("position: invalid JSON", "error", err, "device", deviceID)
 		return
 	}
+	tenantID := s.tenants.ForDevice(context.Background(), deviceID)
 
 	// If a raw GPS binary frame is included, decode it for richer fields.
 	// Supports hub format (0xA5, BE, ×1e7) and bridge/Android format (0x50/0x44, LE, ×1e6).
@@ -82,7 +87,7 @@ func (s *Subscriber) handlePosition(topic string, payload []byte) {
 			case len(raw) >= 11 && raw[0] == 0x44:
 				// Delta frame — resolve against last known position.
 				ctx2, cancel2 := context.WithTimeout(context.Background(), 2*time.Second)
-				prev, err2 := s.store.LatestPosition(ctx2, s.tenantID, deviceID)
+				prev, err2 := s.store.LatestPosition(ctx2, tenantID, deviceID)
 				cancel2()
 				if err2 == nil && prev != nil {
 					prevGPS := &geo.GPSPosition{Lat: prev.Lat, Lon: prev.Lon, Alt: prev.Alt}
@@ -141,13 +146,13 @@ func (s *Subscriber) handlePosition(topic string, payload []byte) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	if err := s.store.InsertPosition(ctx, s.tenantID, pos); err != nil {
+	if err := s.store.InsertPosition(ctx, tenantID, pos); err != nil {
 		slog.Warn("position: store failed", "error", err, "device", deviceID)
 		return
 	}
 
 	// Touch device last_seen and dead man's switch check-in.
-	_ = s.store.TouchDeviceLastSeen(ctx, s.tenantID, deviceID)
+	_ = s.store.TouchDeviceLastSeen(ctx, tenantID, deviceID)
 	if s.deadman != nil {
 		s.deadman.CheckIn(deviceID)
 	}

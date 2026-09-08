@@ -279,6 +279,16 @@ func testTenantIsolation(t *testing.T, db store.Store) {
 	if audit, _ := db.ListAuditEntries(ctx, a, 100); len(audit) != 1 || audit[0].Actor != "admin-a" {
 		t.Errorf("tenant A audit: %+v", audit)
 	}
+	// Tenant lookups (used by the routing engine and subscribers).
+	if tid, err := db.LookupDeviceTenant(ctx, "111111111111111"); err != nil || tid != a {
+		t.Errorf("LookupDeviceTenant: %v %q (want %q)", err, tid, a)
+	}
+	if _, err := db.LookupDeviceTenant(ctx, "000000000000000"); !errors.Is(err, store.ErrNotFound) {
+		t.Errorf("LookupDeviceTenant unknown: %v", err)
+	}
+	if _, err := db.LookupBridgeTenant(ctx, "no-such-bridge"); !errors.Is(err, store.ErrNotFound) {
+		t.Errorf("LookupBridgeTenant unknown: %v", err)
+	}
 }
 
 func testAPIKeys(t *testing.T, db store.Store) {

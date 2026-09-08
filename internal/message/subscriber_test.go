@@ -28,7 +28,7 @@ func (c *captureStore) InsertMessage(_ context.Context, _ string, m *store.Messa
 
 func TestHandleMODecoded_UsesPublisherID(t *testing.T) {
 	cs := &captureStore{}
-	s := NewSubscriber(nil, cs, "default")
+	s := NewSubscriber(nil, cs, nil)
 	payload := []byte(`{"id":"mo-300434060000001-42","imei":"300434060000001","momsn":42,"channel":"iridium","text":"hello"}`)
 	s.handleMODecoded("meshsat/300434060000001/mo/decoded", payload)
 	s.handleMODecoded("meshsat/300434060000001/mo/decoded", payload) // second replica / redelivery
@@ -42,7 +42,7 @@ func TestHandleMODecoded_UsesPublisherID(t *testing.T) {
 
 func TestHandleMODecoded_FallbackIDIsDeterministic(t *testing.T) {
 	cs := &captureStore{}
-	s := NewSubscriber(nil, cs, "default")
+	s := NewSubscriber(nil, cs, nil)
 	payload := []byte(`{"imei":"300434060000001","channel":"iridium","text":"no id"}`)
 	s.handleMODecoded("meshsat/300434060000001/mo/decoded", payload)
 	s.handleMODecoded("meshsat/300434060000001/mo/decoded", payload)
@@ -55,4 +55,12 @@ func TestHandleMODecoded_FallbackIDIsDeterministic(t *testing.T) {
 	if !errors.Is(cs.InsertMessage(context.Background(), "default", cs.inserted[0]), store.ErrDuplicate) {
 		t.Error("capture store should report the duplicate")
 	}
+}
+
+func (c *captureStore) LookupDeviceTenant(_ context.Context, _ string) (string, error) {
+	return "", store.ErrNotFound
+}
+
+func (c *captureStore) LookupBridgeTenant(_ context.Context, _ string) (string, error) {
+	return "", store.ErrNotFound
 }

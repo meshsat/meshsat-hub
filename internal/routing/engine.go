@@ -7,6 +7,7 @@ package routing
 import (
 	"context"
 	"encoding/json"
+	"github.com/meshsat/meshsat-hub/internal/tenancy"
 	"log/slog"
 	"strings"
 	"sync"
@@ -24,21 +25,31 @@ type DestinationHandler func(ctx context.Context, route *store.Route, deviceID s
 type Engine struct {
 	store           store.Store
 	mqtt            bus.MessageBus
-	tenantID        string
+	tenants         *tenancy.Resolver
 	handlers        map[string]DestinationHandler // destination_type → handler
 	mu              sync.RWMutex
-	cachedRoutes    []store.Route
-	lastRefresh     time.Time
+	cachedRoutes    map[string]routeCache // tenant → routes
 	refreshInterval time.Duration
 }
 
-// NewEngine creates a new routing engine.
-func NewEngine(s store.Store, mqtt bus.MessageBus, tenantID string) *Engine {
+type routeCache struct {
+	routes    []store.Route
+	refreshed time.Time
+}
+
+// NewEngine creates a new routing engine. Routes are evaluated per tenant:
+// the tenant of an inbound message is the tenant that owns the publishing
+// device (tenancy.Resolver), so one engine serves every tenant.
+func NewEngine(s store.Store, mqtt bus.MessageBus, tenants *tenancy.Resolver) *Engine {
+	if tenants == nil {
+		tenants = tenancy.NewResolver(s, store.DefaultTenantID, 30*time.Second)
+	}
 	return &Engine{
 		store:           s,
 		mqtt:            mqtt,
-		tenantID:        tenantID,
+		tenants:         tenants,
 		handlers:        make(map[string]DestinationHandler),
+		cachedRoutes:    make(map[string]routeCache),
 		refreshInterval: 30 * time.Second,
 	}
 }
@@ -88,7 +99,9 @@ func (e *Engine) handleMODecoded(topic string, payload []byte) {
 		sourceType = "*"
 	}
 
-	routes := e.getRoutes()
+	tenantID := e.tenants.ForDevice(context.Background(), deviceID)
+	routes := e.getRoutes(tenantID)
+	handlerCtx := tenancy.WithTenant(context.Background(), tenantID)
 
 	e.mu.RLock()
 	handlers := e.handlers
@@ -118,7 +131,7 @@ func (e *Engine) handleMODecoded(topic string, payload []byte) {
 		// Exactly one replica dispatches a given (message, route) pair: the
 		// claim is a primary-key insert, so a second replica (or a redelivery)
 		// gets false. On a store error we skip rather than risk a double send.
-		claimKey := "route:" + e.tenantID + ":" + msgID + ":" + route.ID
+		claimKey := "route:" + tenantID + ":" + msgID + ":" + route.ID
 		claimCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		won, err := e.store.ClaimOnce(claimCtx, claimKey)
 		cancel()
@@ -132,46 +145,38 @@ func (e *Engine) handleMODecoded(topic string, payload []byte) {
 		}
 
 		slog.Info("routing: route matched", "route", route.Name, "dest", route.DestinationType,
-			"device", deviceID, "source", sourceType, "message", msgID)
-		handler(context.Background(), route, deviceID, json.RawMessage(payload))
+			"device", deviceID, "tenant", tenantID, "source", sourceType, "message", msgID)
+		handler(handlerCtx, route, deviceID, json.RawMessage(payload))
 	}
 }
 
-// getRoutes returns cached routes, refreshing from DB if stale.
-func (e *Engine) getRoutes() []store.Route {
+// getRoutes returns the tenant's cached routes, refreshing from DB if stale.
+func (e *Engine) getRoutes(tenantID string) []store.Route {
 	e.mu.RLock()
-	if time.Since(e.lastRefresh) < e.refreshInterval && e.cachedRoutes != nil {
-		routes := e.cachedRoutes
-		e.mu.RUnlock()
-		return routes
-	}
+	c, ok := e.cachedRoutes[tenantID]
 	e.mu.RUnlock()
+	if ok && time.Since(c.refreshed) < e.refreshInterval {
+		return c.routes
+	}
 
-	// Refresh from store.
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-
-	routes, err := e.store.ListRoutes(ctx, e.tenantID)
+	routes, err := e.store.ListRoutes(ctx, tenantID)
 	if err != nil {
-		slog.Warn("routing: failed to refresh routes", "error", err)
-		e.mu.RLock()
-		routes = e.cachedRoutes // use stale cache
-		e.mu.RUnlock()
-		return routes
+		slog.Error("routing: failed to load routes", "tenant", tenantID, "error", err)
+		return c.routes // stale is better than nothing
 	}
 
 	e.mu.Lock()
-	e.cachedRoutes = routes
-	e.lastRefresh = time.Now()
+	e.cachedRoutes[tenantID] = routeCache{routes: routes, refreshed: time.Now()}
 	e.mu.Unlock()
-
 	return routes
 }
 
-// InvalidateCache forces a refresh on the next message.
+// InvalidateCache forces a route reload for every tenant on the next message.
 func (e *Engine) InvalidateCache() {
 	e.mu.Lock()
-	e.lastRefresh = time.Time{}
+	e.cachedRoutes = make(map[string]routeCache)
 	e.mu.Unlock()
 }
 
