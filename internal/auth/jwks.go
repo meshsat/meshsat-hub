@@ -3,6 +3,10 @@ package auth
 
 import (
 	"context"
+	"crypto"
+	"crypto/ecdh"
+	"crypto/ecdsa"
+	"crypto/elliptic"
 	"crypto/rsa"
 	"encoding/base64"
 	"encoding/json"
@@ -22,18 +26,25 @@ type JWKSProvider struct {
 	httpClient *http.Client
 
 	mu        sync.RWMutex
-	keys      map[string]*rsa.PublicKey // kid → public key
+	keys      map[string]crypto.PublicKey // kid → *rsa.PublicKey or *ecdsa.PublicKey
 	fetchedAt time.Time
 	jwksURI   string // discovered from .well-known/openid-configuration
+	discovery *Discovery
 
 	// cacheTTL controls how long cached keys are valid before a background refresh.
 	cacheTTL time.Duration
 }
 
-// oidcDiscovery represents the subset of OpenID Connect Discovery we need.
-type oidcDiscovery struct {
-	Issuer  string `json:"issuer"`
-	JWKSURI string `json:"jwks_uri"`
+// Discovery is the subset of the OpenID Connect Discovery document the Hub
+// uses: key verification (jwks_uri), the authorization-code flow endpoints and
+// the issuer string the IdP itself claims (authoritative for the iss check).
+type Discovery struct {
+	Issuer                string `json:"issuer"`
+	JWKSURI               string `json:"jwks_uri"`
+	AuthorizationEndpoint string `json:"authorization_endpoint"`
+	TokenEndpoint         string `json:"token_endpoint"`
+	UserinfoEndpoint      string `json:"userinfo_endpoint"`
+	EndSessionEndpoint    string `json:"end_session_endpoint"`
 }
 
 // jwksResponse represents the JWKS endpoint response.
@@ -41,14 +52,18 @@ type jwksResponse struct {
 	Keys []jwkKey `json:"keys"`
 }
 
-// jwkKey represents a single JWK (only RSA supported for now — covers Keycloak, Auth0, etc.).
+// jwkKey represents a single JWK: RSA (Keycloak, Auth0, authentik default) or
+// EC P-256/P-384/P-521 (authentik with an EC signing key, Entra).
 type jwkKey struct {
-	Kty string `json:"kty"` // Key type: "RSA"
+	Kty string `json:"kty"` // Key type: "RSA" or "EC"
 	Use string `json:"use"` // Key use: "sig"
 	Kid string `json:"kid"` // Key ID
-	Alg string `json:"alg"` // Algorithm: "RS256", "RS384", "RS512"
+	Alg string `json:"alg"` // Algorithm: "RS256"..., "ES256"...
 	N   string `json:"n"`   // RSA modulus (base64url)
 	E   string `json:"e"`   // RSA exponent (base64url)
+	Crv string `json:"crv"` // EC curve: "P-256", "P-384", "P-521"
+	X   string `json:"x"`   // EC x coordinate (base64url)
+	Y   string `json:"y"`   // EC y coordinate (base64url)
 }
 
 // NewJWKSProvider creates a JWKS provider for the given OIDC issuer URL.
@@ -60,15 +75,54 @@ func NewJWKSProvider(issuerURL string, httpClient *http.Client) *JWKSProvider {
 	return &JWKSProvider{
 		issuerURL:  strings.TrimRight(issuerURL, "/"),
 		httpClient: httpClient,
-		keys:       make(map[string]*rsa.PublicKey),
+		keys:       make(map[string]crypto.PublicKey),
 		cacheTTL:   1 * time.Hour,
 	}
 }
 
-// GetKey returns the RSA public key for the given kid.
+// IssuerURL returns the configured issuer with any trailing slash removed.
+func (p *JWKSProvider) IssuerURL() string {
+	return p.issuerURL
+}
+
+// ExpectedIssuer returns the issuer string tokens must carry: the value the
+// discovery document reported when known (authentik's issuer ends with a
+// slash, the configured URL usually does not), else the configured URL.
+// Compare with IssuerMatches so either spelling validates.
+func (p *JWKSProvider) ExpectedIssuer() string {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	if p.discovery != nil && p.discovery.Issuer != "" {
+		return p.discovery.Issuer
+	}
+	return p.issuerURL
+}
+
+// IssuerMatches compares two issuer strings ignoring a trailing slash.
+func IssuerMatches(got, want string) bool {
+	return strings.TrimRight(got, "/") == strings.TrimRight(want, "/")
+}
+
+// Discover returns the OIDC discovery document, fetching it on first use.
+func (p *JWKSProvider) Discover(ctx context.Context) (*Discovery, error) {
+	p.mu.RLock()
+	d := p.discovery
+	p.mu.RUnlock()
+	if d != nil {
+		return d, nil
+	}
+	if _, err := p.discover(ctx); err != nil {
+		return nil, err
+	}
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	return p.discovery, nil
+}
+
+// GetKey returns the public key (RSA or ECDSA) for the given kid.
 // If the kid is unknown, it attempts a single refresh from the JWKS endpoint
 // (handles key rotation at the IdP).
-func (p *JWKSProvider) GetKey(kid string) (*rsa.PublicKey, error) {
+func (p *JWKSProvider) GetKey(kid string) (crypto.PublicKey, error) {
 	// Fast path: check cache.
 	p.mu.RLock()
 	key, ok := p.keys[kid]
@@ -153,7 +207,7 @@ func (p *JWKSProvider) discover(ctx context.Context) (string, error) {
 		return "", fmt.Errorf("read discovery: %w", err)
 	}
 
-	var doc oidcDiscovery
+	var doc Discovery
 	if err := json.Unmarshal(body, &doc); err != nil {
 		return "", fmt.Errorf("parse discovery: %w", err)
 	}
@@ -161,13 +215,21 @@ func (p *JWKSProvider) discover(ctx context.Context) (string, error) {
 	if doc.JWKSURI == "" {
 		return "", fmt.Errorf("discovery document missing jwks_uri")
 	}
+	if doc.Issuer != "" && !IssuerMatches(doc.Issuer, p.issuerURL) {
+		slog.Warn("auth: discovery issuer differs from configured issuer; tokens are checked against the discovered value",
+			"configured", p.issuerURL, "discovered", doc.Issuer)
+	}
+
+	p.mu.Lock()
+	p.discovery = &doc
+	p.mu.Unlock()
 
 	slog.Info("auth: OIDC discovery complete", "issuer", doc.Issuer, "jwks_uri", doc.JWKSURI)
 	return doc.JWKSURI, nil
 }
 
-// fetchJWKS fetches and parses the JWKS endpoint, returning a map of kid → RSA public key.
-func (p *JWKSProvider) fetchJWKS(ctx context.Context, jwksURI string) (map[string]*rsa.PublicKey, error) {
+// fetchJWKS fetches and parses the JWKS endpoint, returning a map of kid → public key.
+func (p *JWKSProvider) fetchJWKS(ctx context.Context, jwksURI string) (map[string]crypto.PublicKey, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, jwksURI, nil)
 	if err != nil {
 		return nil, err
@@ -193,27 +255,78 @@ func (p *JWKSProvider) fetchJWKS(ctx context.Context, jwksURI string) (map[strin
 		return nil, fmt.Errorf("parse JWKS: %w", err)
 	}
 
-	keys := make(map[string]*rsa.PublicKey)
+	keys := make(map[string]crypto.PublicKey)
 	for _, k := range jwks.Keys {
-		if k.Kty != "RSA" {
-			continue // skip non-RSA keys (EC support can be added later)
-		}
 		if k.Use != "" && k.Use != "sig" {
 			continue // skip encryption keys
 		}
-		pub, err := parseRSAPublicKey(k.N, k.E)
+		var (
+			pub crypto.PublicKey
+			err error
+		)
+		switch k.Kty {
+		case "RSA":
+			pub, err = parseRSAPublicKey(k.N, k.E)
+		case "EC":
+			pub, err = parseECPublicKey(k.Crv, k.X, k.Y)
+		default:
+			continue // OKP and symmetric keys are not accepted for signatures here
+		}
 		if err != nil {
-			slog.Warn("auth: skipping invalid JWKS key", "kid", k.Kid, "error", err)
+			slog.Warn("auth: skipping invalid JWKS key", "kid", k.Kid, "kty", k.Kty, "error", err)
 			continue
 		}
 		keys[k.Kid] = pub
 	}
 
 	if len(keys) == 0 {
-		return nil, fmt.Errorf("no usable RSA signing keys in JWKS")
+		return nil, fmt.Errorf("no usable RSA or EC signing keys in JWKS")
 	}
 
 	return keys, nil
+}
+
+// parseECPublicKey builds an *ecdsa.PublicKey from a JWK curve name and
+// base64url-encoded coordinates.
+func parseECPublicKey(crv, xB64, yB64 string) (*ecdsa.PublicKey, error) {
+	var (
+		curve     elliptic.Curve
+		ecdhCurve ecdh.Curve
+	)
+	switch crv {
+	case "P-256":
+		curve, ecdhCurve = elliptic.P256(), ecdh.P256()
+	case "P-384":
+		curve, ecdhCurve = elliptic.P384(), ecdh.P384()
+	case "P-521":
+		curve, ecdhCurve = elliptic.P521(), ecdh.P521()
+	default:
+		return nil, fmt.Errorf("unsupported curve %q", crv)
+	}
+	xBytes, err := base64.RawURLEncoding.DecodeString(xB64)
+	if err != nil {
+		return nil, fmt.Errorf("decode x: %w", err)
+	}
+	yBytes, err := base64.RawURLEncoding.DecodeString(yB64)
+	if err != nil {
+		return nil, fmt.Errorf("decode y: %w", err)
+	}
+	size := (curve.Params().BitSize + 7) / 8
+	if len(xBytes) > size || len(yBytes) > size {
+		return nil, fmt.Errorf("coordinate longer than the %s field", crv)
+	}
+	x := new(big.Int).SetBytes(xBytes)
+	y := new(big.Int).SetBytes(yBytes)
+	// On-curve check through crypto/ecdh (the supported replacement for the
+	// deprecated elliptic.IsOnCurve): NewPublicKey rejects off-curve points.
+	point := make([]byte, 1+2*size)
+	point[0] = 4 // uncompressed
+	x.FillBytes(point[1 : 1+size])
+	y.FillBytes(point[1+size:])
+	if _, err := ecdhCurve.NewPublicKey(point); err != nil {
+		return nil, fmt.Errorf("point is not on curve %s: %w", crv, err)
+	}
+	return &ecdsa.PublicKey{Curve: curve, X: x, Y: y}, nil
 }
 
 // parseRSAPublicKey builds an *rsa.PublicKey from base64url-encoded modulus and exponent.
