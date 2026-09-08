@@ -371,6 +371,28 @@ func (s *Service) Delete(ctx context.Context, tenantID, provider string) error {
 	return nil
 }
 
+// TenantsWith lists the tenants that have an account for the provider; the
+// default tenant is included when a platform account exists.
+func (s *Service) TenantsWith(ctx context.Context, provider string) ([]string, error) {
+	rows, err := s.store.ListHubCredentialsByProvider(ctx, provider)
+	if err != nil {
+		return nil, err
+	}
+	seen := map[string]bool{}
+	var out []string
+	for i := range rows {
+		if rows[i].CredType == CredType && rows[i].Status != "revoked" && !seen[rows[i].TenantID] {
+			seen[rows[i].TenantID] = true
+			out = append(out, rows[i].TenantID)
+		}
+	}
+	if s.Platform(provider) != nil && !seen[s.defaultID] {
+		out = append(out, s.defaultID)
+	}
+	sort.Strings(out)
+	return out, nil
+}
+
 // Invalidate drops the cache for a tenant (and all token hits).
 func (s *Service) Invalidate(tenantID string) {
 	s.mu.Lock()
