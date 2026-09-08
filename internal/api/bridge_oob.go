@@ -55,7 +55,7 @@ type oobStatus struct {
 }
 
 func roleName(r int) string {
-	if oob.Role(r) == oob.RoleIssuer {
+	if oob.RoleOf(r) == oob.RoleIssuer {
 		return "issuer"
 	}
 	return "importer"
