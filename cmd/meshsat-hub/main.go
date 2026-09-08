@@ -304,7 +304,9 @@ func main() {
 
 	// --- Leader election (tri-mode) ---
 	var leaderElector leader.Leader
-	instanceID := fmt.Sprintf("%s-%d", cfg.MQTTClientID, os.Getpid())
+	// One identity per pod: the pid is 1 in every container, so a pid-based
+	// identity made two replicas the same Lease holder (MESHSAT-711).
+	instanceID := leaderInstanceID(cfg.MQTTClientID)
 	switch cfg.Mode {
 	case "cluster":
 		leaderElector = leader.NewNATS(msgBus, instanceID)
@@ -2206,6 +2208,18 @@ func mqttClientID(base string) string {
 		return base + "-" + host
 	}
 	return base
+}
+
+// leaderInstanceID is the identity a replica presents to the leader election:
+// the pod name on Kubernetes, else the hostname and pid behind the client id.
+func leaderInstanceID(base string) string {
+	if pod := os.Getenv("POD_NAME"); pod != "" {
+		return pod
+	}
+	if host, err := os.Hostname(); err == nil && host != "" {
+		return fmt.Sprintf("%s-%s-%d", base, host, os.Getpid())
+	}
+	return fmt.Sprintf("%s-%d", base, os.Getpid())
 }
 
 // bootstrapCredentialMasterKey loads or generates the master key for credential encryption.
