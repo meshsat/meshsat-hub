@@ -142,22 +142,32 @@ func (h *LoginHandler) Login(w http.ResponseWriter, r *http.Request) {
 	// Success — reset failed logins
 	_ = h.store.ResetFailedLogins(r.Context(), tenantID, user.ID)
 
-	// Issue access token
-	accessToken, err := h.sessions.IssueAccessToken(user.ID, user.Email, user.Name, user.Role, tenantID)
+	resp, err := h.issueSession(w, r, user, tenantID, false)
 	if err != nil {
-		slog.Error("auth: failed to issue access token", "error", err)
+		slog.Error("auth: failed to issue session", "error", err)
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal error"})
 		return
 	}
 
-	// Issue refresh token
+	h.auditLog(r, "login_success", req.Email, clientIP)
+	slog.Info("auth: login success", "email", req.Email, "role", user.Role)
+
+	writeJSON(w, http.StatusOK, resp)
+}
+
+// issueSession mints the access token and a rotated refresh token for user,
+// stores the refresh token hash and sets the HttpOnly refresh cookie. Shared
+// by the password login and the OIDC callback so both produce the same
+// session shape.
+func (h *LoginHandler) issueSession(w http.ResponseWriter, r *http.Request, user *store.LocalUser, tenantID string, platformAdmin bool) (loginResponse, error) {
+	accessToken, err := h.sessions.IssueAccessTokenFor(user.ID, user.Email, user.Name, user.Role, tenantID, platformAdmin)
+	if err != nil {
+		return loginResponse{}, fmt.Errorf("issue access token: %w", err)
+	}
 	refreshPlain, refreshHash, err := hubauth.GenerateRefreshToken()
 	if err != nil {
-		slog.Error("auth: failed to generate refresh token", "error", err)
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal error"})
-		return
+		return loginResponse{}, fmt.Errorf("generate refresh token: %w", err)
 	}
-
 	rtID, _ := generateID()
 	rt := &store.RefreshToken{
 		ID:        rtID,
@@ -168,12 +178,8 @@ func (h *LoginHandler) Login(w http.ResponseWriter, r *http.Request) {
 		CreatedAt: time.Now().UTC(),
 	}
 	if err := h.store.StoreRefreshToken(r.Context(), tenantID, rt); err != nil {
-		slog.Error("auth: failed to store refresh token", "error", err)
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal error"})
-		return
+		return loginResponse{}, fmt.Errorf("store refresh token: %w", err)
 	}
-
-	// Set refresh token as HttpOnly cookie
 	http.SetCookie(w, &http.Cookie{
 		Name:     "meshsat_refresh",
 		Value:    refreshPlain,
@@ -183,16 +189,12 @@ func (h *LoginHandler) Login(w http.ResponseWriter, r *http.Request) {
 		Secure:   r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https",
 		SameSite: http.SameSiteStrictMode,
 	})
-
-	h.auditLog(r, "login_success", req.Email, clientIP)
-	slog.Info("auth: login success", "email", req.Email, "role", user.Role)
-
-	writeJSON(w, http.StatusOK, loginResponse{
+	return loginResponse{
 		AccessToken:  accessToken,
 		RefreshToken: refreshPlain,
 		ExpiresIn:    int(hubauth.AccessTokenTTL.Seconds()),
 		TokenType:    "Bearer",
-	})
+	}, nil
 }
 
 // Refresh exchanges a valid refresh token for a new access token + rotated refresh token.

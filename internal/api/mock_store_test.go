@@ -407,4 +407,8 @@ func (m *mockStore) AcceptInvite(context.Context, string) error { return nil }
 func (m *mockStore) ListInvites(context.Context, string) ([]store.TenantInvite, error) {
 	return nil, nil
 }
-func (m *mockStore) DeleteInvite(context.Context, string, string) error { return nil }
+func (m *mockStore) DeleteInvite(context.Context, string, string) error          { return nil }
+func (m *mockStore) LinkOIDCIdentity(context.Context, *store.OIDCIdentity) error { return nil }
+func (m *mockStore) GetOIDCIdentity(context.Context, string, string) (*store.OIDCIdentity, error) {
+	return nil, nil
+}

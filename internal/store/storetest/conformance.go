@@ -39,6 +39,7 @@ func Run(t *testing.T, open Opener) {
 		{"SystemConfig", testSystemConfig},
 		{"ClaimsAndDeadman", testClaims},
 		{"TenantsAndInvites", testTenants},
+		{"OIDCIdentities", testOIDCIdentities},
 	}
 	for _, s := range suites {
 		t.Run(s.name, func(t *testing.T) {
@@ -568,5 +569,28 @@ func testTenants(t *testing.T, db store.Store) {
 	}
 	if list, _ := db.ListInvites(ctx, tn.ID); len(list) != 1 {
 		t.Errorf("after delete: %d", len(list))
+	}
+}
+
+func testOIDCIdentities(t *testing.T, db store.Store) {
+	ctx := context.Background()
+	if _, err := db.GetOIDCIdentity(ctx, "https://idp/", "sub-1"); err == nil {
+		t.Error("missing identity must error")
+	}
+	id := &store.OIDCIdentity{Issuer: "https://idp/", Subject: "sub-1", UserID: "usr-1", TenantID: tenant, Email: "a@example.org"}
+	if err := db.LinkOIDCIdentity(ctx, id); err != nil {
+		t.Fatal(err)
+	}
+	got, err := db.GetOIDCIdentity(ctx, "https://idp/", "sub-1")
+	if err != nil || got.UserID != "usr-1" || got.TenantID != tenant || got.PlatformAdmin || got.CreatedAt.IsZero() {
+		t.Fatalf("round trip: %v %+v", err, got)
+	}
+	id.PlatformAdmin = true
+	if err := db.LinkOIDCIdentity(ctx, id); err != nil {
+		t.Fatal(err)
+	}
+	got, _ = db.GetOIDCIdentity(ctx, "https://idp/", "sub-1")
+	if !got.PlatformAdmin || got.LastLoginAt.IsZero() {
+		t.Errorf("upsert must update admin flag and last login: %+v", got)
 	}
 }
