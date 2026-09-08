@@ -67,6 +67,20 @@ data:
   HUB_CLOUDLOOP_DEVICE_MAP: "300258060902280:OVdRorbmlwqkNBpaVOXnJYPZvxaXpzjL:imt"
   HUB_CLOUDLOOP_MQTT_BROKER: "ssl://mqtt.cloudloop.com:8883"
   # "*" is only honoured together with HUB_CLOUDLOOP_WEBHOOK_TOKEN (ExternalSecret, ?token= in the Cloudloop console URL); without it the webhook rejects every request (MESHSAT-971).
+  # Researched 2026-09-09. Cloudloop publishes no egress addresses anywhere in
+  # its documentation, and it runs on AWS eu-west-2 (api.cloudloop.com resolves
+  # to 18.132.81.144 / 3.8.7.26), so there is no list to put here and an AWS
+  # region would not be a control. The tenant's secret in the webhook path is
+  # what authenticates a Cloudloop delivery. Ask Ground Control support if you
+  # want a real list; if they give one, put it here and the check applies to
+  # path-authenticated requests too.
+  #
+  # RockBLOCK is different and needs no allowlist at all: Ground Control signs
+  # every delivery with a key it publishes, and the Hub verifies it
+  # (internal/rockblock/jwt.go). For reference, the two addresses its docs say
+  # to allow through a firewall are 109.74.196.135 and 212.71.235.32, both
+  # Linode UK -- separate infrastructure from Cloudloop's, so they do not
+  # transfer.
   HUB_CLOUDLOOP_WEBHOOK_ALLOWED_IPS: "*"
   HUB_APRSIS_ENABLED: "false"
   HUB_WG_ENABLED: "false"
