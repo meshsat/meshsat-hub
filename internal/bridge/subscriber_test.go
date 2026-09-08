@@ -63,6 +63,10 @@ func (m *mockStore) TouchBridgeLastSeen(_ context.Context, _ string, bridgeID st
 	return nil
 }
 
+func (m *mockStore) SetBridgeLastReport(context.Context, string, string, string, time.Time) error {
+	return nil
+}
+
 func (m *mockStore) MarkStaleBridgesOffline(_ context.Context, _ time.Duration) (int64, error) {
 	return 0, nil
 }

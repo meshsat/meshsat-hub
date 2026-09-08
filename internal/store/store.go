@@ -160,6 +160,9 @@ type Store interface {
 	DeleteBridge(ctx context.Context, tenantID string, bridgeID string) error
 	SetBridgeOnline(ctx context.Context, tenantID string, bridgeID string, online bool) error
 	TouchBridgeLastSeen(ctx context.Context, tenantID string, bridgeID string) error
+	// SetBridgeLastReport records the bearer and time of the latest report
+	// from the bridge (MESHSAT-964).
+	SetBridgeLastReport(ctx context.Context, tenantID string, bridgeID string, bearer string, at time.Time) error
 	SetBridgeHealth(ctx context.Context, tenantID string, bridgeID string, health string) error
 	AssociateDeviceWithBridge(ctx context.Context, tenantID string, imei string, bridgeID string) error
 	MarkStaleBridgesOffline(ctx context.Context, timeout time.Duration) (int64, error)
@@ -269,24 +272,28 @@ type Store interface {
 
 // Bridge represents a registered field bridge (parent of devices).
 type Bridge struct {
-	BridgeID         string     `json:"bridge_id"`
-	TenantID         string     `json:"tenant_id"`
-	Label            string     `json:"label"`
-	Hostname         string     `json:"hostname"`
-	Version          string     `json:"version"`
-	Mode             string     `json:"mode"`
-	LocationLat      float64    `json:"location_lat"`
-	LocationLon      float64    `json:"location_lon"`
-	LocationAlt      float64    `json:"location_alt"`
-	Capabilities     string     `json:"capabilities"` // JSON array
-	ReticulumHash    string     `json:"reticulum_hash"`
-	ReticulumPubkey  string     `json:"reticulum_pubkey"`
-	CoTType          string     `json:"cot_type"`
-	CoTCallsign      string     `json:"cot_callsign"`
-	Online           bool       `json:"online"`
-	LastBirth        string     `json:"last_birth"`  // JSON
-	LastHealth       string     `json:"last_health"` // JSON
-	LastSeen         *time.Time `json:"last_seen,omitempty"`
+	BridgeID        string     `json:"bridge_id"`
+	TenantID        string     `json:"tenant_id"`
+	Label           string     `json:"label"`
+	Hostname        string     `json:"hostname"`
+	Version         string     `json:"version"`
+	Mode            string     `json:"mode"`
+	LocationLat     float64    `json:"location_lat"`
+	LocationLon     float64    `json:"location_lon"`
+	LocationAlt     float64    `json:"location_alt"`
+	Capabilities    string     `json:"capabilities"` // JSON array
+	ReticulumHash   string     `json:"reticulum_hash"`
+	ReticulumPubkey string     `json:"reticulum_pubkey"`
+	CoTType         string     `json:"cot_type"`
+	CoTCallsign     string     `json:"cot_callsign"`
+	Online          bool       `json:"online"`
+	LastBirth       string     `json:"last_birth"`  // JSON
+	LastHealth      string     `json:"last_health"` // JSON
+	LastSeen        *time.Time `json:"last_seen,omitempty"`
+	// Last report received over any bearer (mqtt, sms, sbd, imt, globalstar)
+	// and when: uplink frames while MQTT is down keep these current (MESHSAT-964).
+	LastReportBearer string     `json:"last_report_bearer,omitempty"`
+	LastReportAt     *time.Time `json:"last_report_at,omitempty"`
 	MQTTUsername     string     `json:"mqtt_username,omitempty"`
 	MQTTPasswordHash string     `json:"-"` // bcrypt hash — NEVER exposed in JSON
 	CertPEM          string     `json:"cert_pem,omitempty"`

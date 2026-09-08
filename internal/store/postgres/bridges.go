@@ -36,19 +36,19 @@ func bridgeColumns(withSecret bool) string {
 	return `bridge_id, tenant_id, label, hostname, version, mode,
 			location_lat, location_lon, location_alt, capabilities,
 			reticulum_hash, reticulum_pubkey, cot_type, cot_callsign,
-			online, last_birth, last_health, last_seen,
+			online, last_birth, last_health, last_seen, last_report_bearer, last_report_at,
 			mqtt_username, ` + secret + `cert_pem, cert_expiry,
 			created_at, updated_at`
 }
 
 func scanBridge(s rowScanner, withSecret bool) (*store.Bridge, error) {
 	var b store.Bridge
-	var lastSeen, certExpiry sql.NullTime
+	var lastSeen, lastReportAt, certExpiry sql.NullTime
 	var createdAt, updatedAt time.Time
 	dest := []any{&b.BridgeID, &b.TenantID, &b.Label, &b.Hostname, &b.Version, &b.Mode,
 		&b.LocationLat, &b.LocationLon, &b.LocationAlt, &b.Capabilities,
 		&b.ReticulumHash, &b.ReticulumPubkey, &b.CoTType, &b.CoTCallsign,
-		&b.Online, &b.LastBirth, &b.LastHealth, &lastSeen,
+		&b.Online, &b.LastBirth, &b.LastHealth, &lastSeen, &b.LastReportBearer, &lastReportAt,
 		&b.MQTTUsername}
 	if withSecret {
 		dest = append(dest, &b.MQTTPasswordHash)
@@ -58,6 +58,7 @@ func scanBridge(s rowScanner, withSecret bool) (*store.Bridge, error) {
 		return nil, err
 	}
 	b.LastSeen = utcPtr(lastSeen)
+	b.LastReportAt = utcPtr(lastReportAt)
 	b.CertExpiry = utcPtr(certExpiry)
 	b.CreatedAt = utc(createdAt)
 	b.UpdatedAt = utc(updatedAt)
@@ -146,6 +147,13 @@ func (d *DB) SetBridgeOnline(ctx context.Context, tenantID string, bridgeID stri
 	_, err := d.db.ExecContext(ctx,
 		"UPDATE bridges SET online=$1, updated_at=now() WHERE bridge_id=$2 AND tenant_id=$3",
 		online, bridgeID, tenantID)
+	return err
+}
+
+func (d *DB) SetBridgeLastReport(ctx context.Context, tenantID string, bridgeID string, bearer string, at time.Time) error {
+	_, err := d.db.ExecContext(ctx,
+		"UPDATE bridges SET last_report_bearer=$1, last_report_at=$2, updated_at=now() WHERE bridge_id=$3 AND tenant_id=$4",
+		bearer, at.UTC(), bridgeID, tenantID)
 	return err
 }
 

@@ -37,26 +37,30 @@ func (d *DB) CreateOrUpdateBridge(ctx context.Context, tenantID string, b *store
 func (d *DB) GetBridge(ctx context.Context, tenantID string, bridgeID string) (*store.Bridge, error) {
 	var b store.Bridge
 	var online int
-	var lastSeen, createdAt, updatedAt sql.NullString
+	var lastSeen, lastReportAt, createdAt, updatedAt sql.NullString
 	var certExpiry sql.NullString
 	err := d.db.QueryRowContext(ctx,
 		`SELECT bridge_id, tenant_id, label, hostname, version, mode,
 			location_lat, location_lon, location_alt, capabilities,
 			reticulum_hash, reticulum_pubkey, cot_type, cot_callsign,
-			online, last_birth, last_health, last_seen,
+			online, last_birth, last_health, last_seen, last_report_bearer, last_report_at,
 			mqtt_username, cert_pem, cert_expiry,
 			created_at, updated_at
 		 FROM bridges WHERE bridge_id=? AND tenant_id=?`, bridgeID, tenantID,
 	).Scan(&b.BridgeID, &b.TenantID, &b.Label, &b.Hostname, &b.Version, &b.Mode,
 		&b.LocationLat, &b.LocationLon, &b.LocationAlt, &b.Capabilities,
 		&b.ReticulumHash, &b.ReticulumPubkey, &b.CoTType, &b.CoTCallsign,
-		&online, &b.LastBirth, &b.LastHealth, &lastSeen,
+		&online, &b.LastBirth, &b.LastHealth, &lastSeen, &b.LastReportBearer, &lastReportAt,
 		&b.MQTTUsername, &b.CertPEM, &certExpiry,
 		&createdAt, &updatedAt)
 	if err != nil {
 		return nil, err
 	}
 	b.Online = online != 0
+	if lastReportAt.Valid && lastReportAt.String != "" {
+		t, _ := time.Parse(time.DateTime, lastReportAt.String)
+		b.LastReportAt = &t
+	}
 	if lastSeen.Valid {
 		t, _ := time.Parse(time.DateTime, lastSeen.String)
 		b.LastSeen = &t
@@ -79,7 +83,7 @@ func (d *DB) ListBridges(ctx context.Context, tenantID string) ([]*store.Bridge,
 		`SELECT bridge_id, tenant_id, label, hostname, version, mode,
 			location_lat, location_lon, location_alt, capabilities,
 			reticulum_hash, reticulum_pubkey, cot_type, cot_callsign,
-			online, last_birth, last_health, last_seen,
+			online, last_birth, last_health, last_seen, last_report_bearer, last_report_at,
 			mqtt_username, cert_pem, cert_expiry,
 			created_at, updated_at
 		 FROM bridges WHERE tenant_id=? ORDER BY label, bridge_id`, tenantID)
@@ -91,16 +95,24 @@ func (d *DB) ListBridges(ctx context.Context, tenantID string) ([]*store.Bridge,
 	for rows.Next() {
 		var b store.Bridge
 		var online int
-		var lastSeen, certExpiry, createdAt, updatedAt sql.NullString
+		var lastSeen, lastReportAt, certExpiry, createdAt, updatedAt sql.NullString
 		if err := rows.Scan(&b.BridgeID, &b.TenantID, &b.Label, &b.Hostname, &b.Version, &b.Mode,
 			&b.LocationLat, &b.LocationLon, &b.LocationAlt, &b.Capabilities,
 			&b.ReticulumHash, &b.ReticulumPubkey, &b.CoTType, &b.CoTCallsign,
-			&online, &b.LastBirth, &b.LastHealth, &lastSeen,
+			&online, &b.LastBirth, &b.LastHealth, &lastSeen, &b.LastReportBearer, &lastReportAt,
 			&b.MQTTUsername, &b.CertPEM, &certExpiry,
 			&createdAt, &updatedAt); err != nil {
 			return nil, err
 		}
 		b.Online = online != 0
+		if lastReportAt.Valid && lastReportAt.String != "" {
+			t, _ := time.Parse(time.DateTime, lastReportAt.String)
+			b.LastReportAt = &t
+		}
+		if lastReportAt.Valid && lastReportAt.String != "" {
+			t, _ := time.Parse(time.DateTime, lastReportAt.String)
+			b.LastReportAt = &t
+		}
 		if lastSeen.Valid {
 			t, _ := time.Parse(time.DateTime, lastSeen.String)
 			b.LastSeen = &t
@@ -150,6 +162,13 @@ func (d *DB) SetBridgeOnline(ctx context.Context, tenantID string, bridgeID stri
 	_, err := d.db.ExecContext(ctx,
 		"UPDATE bridges SET online=?, updated_at=datetime('now') WHERE bridge_id=? AND tenant_id=?",
 		boolToInt(online), bridgeID, tenantID)
+	return err
+}
+
+func (d *DB) SetBridgeLastReport(ctx context.Context, tenantID string, bridgeID string, bearer string, at time.Time) error {
+	_, err := d.db.ExecContext(ctx,
+		"UPDATE bridges SET last_report_bearer=?, last_report_at=?, updated_at=datetime('now') WHERE bridge_id=? AND tenant_id=?",
+		bearer, at.UTC().Format(time.DateTime), bridgeID, tenantID)
 	return err
 }
 
@@ -223,7 +242,7 @@ func (d *DB) ListBridgesWithCredentials(ctx context.Context) ([]*store.Bridge, e
 		`SELECT bridge_id, tenant_id, label, hostname, version, mode,
 			location_lat, location_lon, location_alt, capabilities,
 			reticulum_hash, reticulum_pubkey, cot_type, cot_callsign,
-			online, last_birth, last_health, last_seen,
+			online, last_birth, last_health, last_seen, last_report_bearer, last_report_at,
 			mqtt_username, mqtt_password_hash, cert_pem, cert_expiry,
 			created_at, updated_at
 		 FROM bridges WHERE mqtt_username != '' ORDER BY bridge_id`)
@@ -235,16 +254,24 @@ func (d *DB) ListBridgesWithCredentials(ctx context.Context) ([]*store.Bridge, e
 	for rows.Next() {
 		var b store.Bridge
 		var online int
-		var lastSeen, certExpiry, createdAt, updatedAt sql.NullString
+		var lastSeen, lastReportAt, certExpiry, createdAt, updatedAt sql.NullString
 		if err := rows.Scan(&b.BridgeID, &b.TenantID, &b.Label, &b.Hostname, &b.Version, &b.Mode,
 			&b.LocationLat, &b.LocationLon, &b.LocationAlt, &b.Capabilities,
 			&b.ReticulumHash, &b.ReticulumPubkey, &b.CoTType, &b.CoTCallsign,
-			&online, &b.LastBirth, &b.LastHealth, &lastSeen,
+			&online, &b.LastBirth, &b.LastHealth, &lastSeen, &b.LastReportBearer, &lastReportAt,
 			&b.MQTTUsername, &b.MQTTPasswordHash, &b.CertPEM, &certExpiry,
 			&createdAt, &updatedAt); err != nil {
 			return nil, err
 		}
 		b.Online = online != 0
+		if lastReportAt.Valid && lastReportAt.String != "" {
+			t, _ := time.Parse(time.DateTime, lastReportAt.String)
+			b.LastReportAt = &t
+		}
+		if lastReportAt.Valid && lastReportAt.String != "" {
+			t, _ := time.Parse(time.DateTime, lastReportAt.String)
+			b.LastReportAt = &t
+		}
 		if lastSeen.Valid {
 			t, _ := time.Parse(time.DateTime, lastSeen.String)
 			b.LastSeen = &t
