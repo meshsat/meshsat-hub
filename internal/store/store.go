@@ -262,6 +262,9 @@ type Store interface {
 	UpdateCredential(ctx context.Context, tenantID string, c *Credential) error
 	DeleteCredential(ctx context.Context, tenantID string, id string) error
 	ListExpiringCredentials(ctx context.Context, before time.Time) ([]Credential, error)
+	// ListHubCredentialsByProvider returns, across all tenants, the hub-scoped
+	// credentials of one provider (per-tenant provider accounts, MESHSAT-977).
+	ListHubCredentialsByProvider(ctx context.Context, provider string) ([]Credential, error)
 }
 
 // Bridge represents a registered field bridge (parent of devices).
