@@ -22,9 +22,12 @@
 #
 # So: world at 11, and one deeper archive per operating area at 15.
 #
-#   build-basemap.sh 20260907 11                              # the world
-#   build-basemap.sh 20260907 15 3.2,50.7,7.3,53.6 nl         # the Netherlands
-#   build-basemap.sh 20260907 15 19.3,34.8,28.3,41.8 gr       # Greece
+#   build-basemap.sh 20260907 11                        # the world
+#   build-basemap.sh 20260907 15 @fleet-regions.geojson fleet   # where the fleet is
+#
+# fleet-regions.geojson beside this script holds one polygon per country the
+# fleet operates in. Add a country there and rebuild; the Netherlands and
+# Greece together come to 2.6 GB at zoom 15.
 #
 # Point HUB_BASEMAP_S3_KEY at the world archive and HUB_BASEMAP_S3_LOCAL_KEY at
 # the deep one. The map draws the deep layers on top from zoom 11; outside their
@@ -38,6 +41,7 @@ set -euo pipefail
 
 BUILD="${1:-$(date -u -d yesterday +%Y%m%d)}"
 MAXZOOM="${2:-11}"
+# A bbox, or @file for a GeoJSON polygon set (one archive, several countries).
 BBOX="${3:--180,-85.05,180,85.05}"
 NAME="${4:-world}"
 ENDPOINT="${S3_ENDPOINT:-https://nl-s3.nuclearlighters.net}"
@@ -53,7 +57,12 @@ command -v "$PMTILES" >/dev/null || { echo "go-pmtiles not found; see https://gi
 curl -sfI "$PLANET" >/dev/null || { echo "no planet build at $PLANET (builds are kept about a week)" >&2; exit 1; }
 
 echo "extracting ${NAME} z0-${MAXZOOM} from ${BUILD}"
-"$PMTILES" extract "$PLANET" "$WORK/$ARCHIVE" --maxzoom="$MAXZOOM" --bbox="$BBOX"
+case "$BBOX" in
+  @*) REGION="$(dirname "$0")/${BBOX#@}"
+      [ -f "$REGION" ] || { echo "no region file at $REGION" >&2; exit 1; }
+      "$PMTILES" extract "$PLANET" "$WORK/$ARCHIVE" --maxzoom="$MAXZOOM" --region="$REGION" ;;
+   *) "$PMTILES" extract "$PLANET" "$WORK/$ARCHIVE" --maxzoom="$MAXZOOM" --bbox="$BBOX" ;;
+esac
 
 echo "fetching the glyph and sprite assets"
 git clone --depth 1 -q https://github.com/protomaps/basemaps-assets.git "$WORK/assets"
