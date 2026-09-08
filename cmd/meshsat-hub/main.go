@@ -10,6 +10,8 @@ import (
 	"fmt"
 	"github.com/meshsat/meshsat-hub/internal/integrations"
 	hubmqtt "github.com/meshsat/meshsat-hub/internal/mqtt"
+	"github.com/meshsat/meshsat-hub/internal/oob"
+	"github.com/meshsat/meshsat-hub/internal/oob/bearers"
 	"github.com/meshsat/meshsat-hub/internal/tenancy"
 	"io/fs"
 	"log/slog"
@@ -1138,6 +1140,21 @@ func main() {
 	}
 	rock7Pool := rock7.NewClientPool(rock7Client, providerAccounts)
 
+	// Out-of-band bridge commands (MESHSAT-964 C): sealed OOB frames over the
+	// kit's SIM (Twilio), a 9704 modem (Cloudloop IMT) or a 9603 modem
+	// (Rock7 MT), replies classified out of the three inbound webhooks.
+	oobSvc := oob.New(dataStore, credMasterKey, auditSvc, oob.Options{Encrypt: cfg.OOBEncrypt, MaxPerHour: cfg.OOBMaxPerHour})
+	oobSvc.RegisterTransport(oob.BearerSMS, &bearers.SMS{Pool: smsPool, Wait: cfg.OOBSMSTimeout})
+	oobSvc.RegisterTransport(oob.BearerIMT, &bearers.IMT{Pool: cloudloopPool, Resolver: thingResolver, Wait: cfg.OOBSatTimeout})
+	oobSvc.RegisterTransport(oob.BearerSBD, &bearers.SBD{Pool: rock7Pool, Wait: cfg.OOBSatTimeout})
+	if bridgeCommander != nil {
+		bridgeCommander.SetOOB(oobSvc, func(imei string) bool {
+			_, imt := thingResolver.Resolve(tenants.ForDevice(context.Background(), imei), imei)
+			return imt
+		})
+	}
+	rbHandler.SetOOB(oobSvc)
+
 	// Globalstar MO webhook handler.
 	gsHandler := globalstar.NewHandler(msgBus, cfg.GlobalstarWebhookSecret)
 	gsHandler.SetTenants(tenants)
@@ -1153,6 +1170,7 @@ func main() {
 	clHandler := cloudloop.NewWebhookHandler(msgBus)
 	clHandler.SetTenants(tenants)
 	clHandler.SetAccounts(providerAccounts)
+	clHandler.SetOOB(oobSvc)
 	clHandler.SetAudit(auditSvc)
 	clHandler.SetDedup(dedupTracker)
 	clHandler.SetReassembler(reassembler)
@@ -1370,6 +1388,7 @@ func main() {
 		smsWebhook := sms.NewWebhookHandler(msgBus, cfg.SMSWebhookSecret)
 		smsWebhook.SetTenants(tenants)
 		smsWebhook.SetAccounts(providerAccounts)
+		smsWebhook.SetOOB(oobSvc)
 		smsWebhook.SetStore(dataStore)
 		smsWebhook.SetKeyStore(keyStore)
 		// [MESHSAT-446] Wire full pipeline (parity with Rock7/Cloudloop)
@@ -1534,6 +1553,12 @@ func main() {
 		bridgeCmdHandler := api.NewBridgeCommandHandler(dataStore, bridgeCommander)
 		r.Post("/api/bridges/{id}/command", bridgeCmdHandler.SendCommand)
 	}
+	// Out-of-band pairing (MESHSAT-964 C); owners only.
+	oobAPI := api.NewBridgeOOBHandler(dataStore, oobSvc, bridgeCommander)
+	r.Get("/api/bridges/{id}/oob", oobAPI.Get)
+	r.With(hubauth.RequireRole(hubauth.RoleOwner)).Post("/api/bridges/{id}/oob", oobAPI.Pair)
+	r.With(hubauth.RequireRole(hubauth.RoleOwner)).Post("/api/bridges/{id}/oob/provision", oobAPI.Provision)
+	r.With(hubauth.RequireRole(hubauth.RoleOwner)).Delete("/api/bridges/{id}/oob", oobAPI.Unpair)
 
 	// Bridge MQTT authentication API
 	bridgeAuthHandler := api.NewBridgeAuthHandler(dataStore, bridgeCA)
@@ -1914,6 +1939,21 @@ func main() {
 		routeEngine.RegisterHandler("email", routing.NewEmailHandler(routeEmailClient))
 	}
 	// Register webhook, notification, MQTT, TAK, and APRS destination handlers.
+	// Satellite destination (MESHSAT-964 D): the text goes to a bridge's
+	// modem, IMT through the tenant's Cloudloop account for a 9704, Rock7 MT
+	// for a 9603; the route filter lists the modem IMEIs.
+	routeEngine.RegisterHandler("satellite", routing.NewSatelliteHandler(func(ctx context.Context, tenantID, imei, text string) error {
+		if _, imt := thingResolver.Resolve(tenantID, imei); imt {
+			_, err := mtSender.SendDirect(imei, cloudloop.MTSendRequest{Text: text})
+			return err
+		}
+		client := rock7Pool.ForTenant(ctx, tenantID)
+		if client == nil {
+			return fmt.Errorf("no Rock7 account configured for tenant %s", tenantID)
+		}
+		_, err := client.SendMT(ctx, imei, hex.EncodeToString([]byte(text)))
+		return err
+	}))
 	routeEngine.RegisterHandler("webhook", routing.NewWebhookHandler(webhookDispatcher))
 	routeEngine.RegisterHandler("mqtt", routing.NewMQTTHandler(msgBus))
 	routeEngine.RegisterHandler("tak", routing.NewTAKHandler(msgBus))
