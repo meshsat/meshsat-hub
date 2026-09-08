@@ -89,6 +89,12 @@ for username in PLATFORM_ADMIN_USERNAMES:
         note(f"platform admin {username} added to meshsat-platform-admin")
     else:
         note(f"platform admin {username} ok")
+    # Operator accounts never pass the enrollment flow, so they carry no
+    # email_verified marker; the Hub refuses unverified emails at JIT.
+    if u.attributes.get("email_verified") not in (True, "true"):
+        u.attributes["email_verified"] = "true"
+        u.save()
+        note(f"platform admin {username} marked email_verified")
 
 # ---------------------------------------------------------------- scope mapping
 GROUPS_EXPR = 'return {"groups": [g.name for g in request.user.groups.all() if g.name.startswith("meshsat-")]}'
