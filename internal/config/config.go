@@ -5,6 +5,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 
 	"gopkg.in/yaml.v3"
 )
@@ -131,6 +132,12 @@ type Config struct {
 	EmailUsername string `yaml:"email_username"`  // SMTP auth username
 	EmailPassword string `yaml:"email_password"`  // SMTP auth password
 	EmailPGPKey   string `yaml:"email_pgp_key"`   // Hub PGP private key (armored) — empty = generate on start
+	// Out-of-band bridge commands over SMS / Iridium MT (MESHSAT-964).
+	OOBEncrypt    bool          `yaml:"oob_encrypt"`      // seal frame args encrypted (default true)
+	OOBMaxPerHour int           `yaml:"oob_max_per_hour"` // outbound frames per bridge per bearer per hour (default 20)
+	OOBSMSTimeout time.Duration `yaml:"oob_sms_timeout"`  // reply wait over SMS (default 60s)
+	OOBSatTimeout time.Duration `yaml:"oob_sat_timeout"`  // reply wait over Iridium (default 10m)
+
 	// EmailWebhookSecret gates POST /api/webhook/email (X-Webhook-Secret or ?secret=); unset = webhook refused.
 	EmailWebhookSecret string `yaml:"email_webhook_secret"`
 
@@ -543,6 +550,29 @@ func Load() (Config, error) {
 	}
 	if v := os.Getenv("HUB_EMAIL_WEBHOOK_SECRET"); v != "" {
 		cfg.EmailWebhookSecret = v
+	}
+	// OOB defaults then overrides.
+	cfg.OOBEncrypt = true
+	cfg.OOBMaxPerHour = 20
+	cfg.OOBSMSTimeout = 60 * time.Second
+	cfg.OOBSatTimeout = 10 * time.Minute
+	if v := os.Getenv("HUB_OOB_ENCRYPT"); v != "" {
+		cfg.OOBEncrypt = v == "true" || v == "1"
+	}
+	if v := os.Getenv("HUB_OOB_MAX_PER_HOUR"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			cfg.OOBMaxPerHour = n
+		}
+	}
+	if v := os.Getenv("HUB_OOB_SMS_TIMEOUT"); v != "" {
+		if d, err := time.ParseDuration(v); err == nil && d > 0 {
+			cfg.OOBSMSTimeout = d
+		}
+	}
+	if v := os.Getenv("HUB_OOB_SAT_TIMEOUT"); v != "" {
+		if d, err := time.ParseDuration(v); err == nil && d > 0 {
+			cfg.OOBSatTimeout = d
+		}
 	}
 
 	// SMS overrides
