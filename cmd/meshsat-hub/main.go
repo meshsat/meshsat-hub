@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	hubmqtt "github.com/meshsat/meshsat-hub/internal/mqtt"
 	"github.com/meshsat/meshsat-hub/internal/tenancy"
 	"io/fs"
 	"log/slog"
@@ -624,6 +625,21 @@ func main() {
 			checker.AddInfoProbe("bridge_ca_export", func(_ context.Context) error { return caWriter.LastError() })
 			ca := bridgeCA
 			go caWriter.Run(ctx, 10*time.Minute, func() []byte { return ca.CACertPEM() })
+		}
+	}
+
+	// Per-bridge NATS users and permissions rendered into a Secret that the NATS
+	// pod includes and reloads (MESHSAT-864 MR 21); probe nats_auth_export.
+	var natsAuth *bridge.NATSAuthSyncer
+	if cfg.NATSAuthSecretName != "" {
+		w, err := bridge.NewNATSAuthSecretWriter(cfg.NATSAuthSecretName, "users.conf")
+		if err != nil {
+			slog.Error("nats-auth: secret writer unavailable", "error", err)
+			checker.AddInfoProbe("nats_auth_export", func(_ context.Context) error { return err })
+		} else {
+			natsAuth = bridge.NewNATSAuthSyncer(dataStore, w, hubmqtt.Namespace, 5*time.Minute)
+			checker.AddInfoProbe("nats_auth_export", func(_ context.Context) error { return natsAuth.LastError() })
+			go natsAuth.Run(ctx)
 		}
 	}
 
@@ -1322,6 +1338,7 @@ func main() {
 
 	// QR provision claim — unauthenticated (nonce IS the auth, single-use, 30min TTL).
 	provisionClaimHandler := api.NewBridgeProvisionHandler(dataStore, bridgeCA, directoryTrustAnchor)
+	provisionClaimHandler.SetNATSAuth(natsAuth)
 	r.Get("/api/bridges/{id}/provision/{nonce}", provisionClaimHandler.ClaimProvision)
 
 	// SMS gateway (optional — inbound webhook + outbound subscriber + send API)
@@ -1481,6 +1498,7 @@ func main() {
 
 	// Bridge registry API
 	bridgeHandler := api.NewBridgeHandler(dataStore, msgBus)
+	bridgeHandler.SetNATSAuth(natsAuth)
 	r.Get("/api/bridges", bridgeHandler.ListBridges)
 	r.Post("/api/bridges", bridgeHandler.CreateBridge)
 	r.Get("/api/bridges/{id}", bridgeHandler.GetBridge)
@@ -1493,12 +1511,14 @@ func main() {
 
 	// Bridge MQTT authentication API
 	bridgeAuthHandler := api.NewBridgeAuthHandler(dataStore, bridgeCA)
+	bridgeAuthHandler.SetNATSAuth(natsAuth)
 	r.Post("/api/bridges/{id}/credentials", bridgeAuthHandler.GenerateCredentials)
 	r.Post("/api/bridges/{id}/certificate", bridgeAuthHandler.IssueCertificate)
 	r.Post("/api/bridges/acl/regenerate", bridgeAuthHandler.RegenerateACL)
 
 	// One-step bridge provisioning with QR code (MESHSAT-414)
 	provisionHandler := api.NewBridgeProvisionHandler(dataStore, bridgeCA, directoryTrustAnchor)
+	provisionHandler.SetNATSAuth(natsAuth)
 	r.Post("/api/bridges/{id}/provision", provisionHandler.Provision)
 	r.Post("/api/bridges/{id}/provision/qr", provisionHandler.ProvisionQR)
 
