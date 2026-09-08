@@ -84,12 +84,22 @@ def ensure_line_after(text, anchor_regex, line):
     return text[:end] + line + "\n" + text[end:]
 
 
+# Health check path for authentik: a static asset served by the Rust front
+# directly. /-/health/live/ answers 500 on ~50% of requests behind ingress
+# (its pooled connection to the core races; MESHSAT-968, omoikane host too)
+# and made the backend flap DOWN/UP on every VPS. Switch back when 968 is fixed.
+AUTH_CHECK_URI = "/static/dist/assets/icons/icon.png"
+
+
 def add_auth(text):
-    # 1. backend (right before backend meshsat_hub)
+    # 1. backend (right before backend meshsat_hub); always rewritten so a
+    #    check-path change propagates on re-run.
+    block = http_backend("meshsat_auth", "auth.meshsat.net", AUTH_CHECK_URI,
+                         "    # authentik (namespace omoikane) behind the auth.meshsat.net Ingress; cookie domain rewritten by ingress-nginx (MESHSAT-936)")
     if "backend meshsat_auth\n" not in text:
-        block = http_backend("meshsat_auth", "auth.meshsat.net", "/-/health/live/",
-                             "    # authentik (namespace omoikane) behind the auth.meshsat.net Ingress; cookie domain rewritten by ingress-nginx (MESHSAT-936)")
         text = text.replace("backend meshsat_hub\n", block + "\nbackend meshsat_hub\n", 1)
+    else:
+        text = replace_backend(text, "meshsat_auth", block)
     # 2. routing + guard + authenticated-site + Tier 5a, each next to the hub.meshsat.net twin
     text = ensure_line_after(text, r"^    use_backend meshsat_hub if \{ hdr\(host\) -i hub\.meshsat\.net \}$",
                              "    use_backend meshsat_auth if { hdr(host) -i auth.meshsat.net }")
