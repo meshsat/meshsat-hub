@@ -663,11 +663,11 @@ func (d *DB) ListPositionsRange(ctx context.Context, tenantID string, deviceIMEI
 	args := []interface{}{deviceIMEI, tenantID}
 	if !from.IsZero() {
 		countQuery += " AND created_at >= ?"
-		args = append(args, from.Format(time.DateTime))
+		args = append(args, from.UTC().Format(time.DateTime))
 	}
 	if !to.IsZero() {
 		countQuery += " AND created_at <= ?"
-		args = append(args, to.Format(time.DateTime))
+		args = append(args, to.UTC().Format(time.DateTime))
 	}
 
 	var total int
@@ -680,11 +680,11 @@ func (d *DB) ListPositionsRange(ctx context.Context, tenantID string, deviceIMEI
 	fetchArgs := []interface{}{deviceIMEI, tenantID}
 	if !from.IsZero() {
 		query += " AND created_at >= ?"
-		fetchArgs = append(fetchArgs, from.Format(time.DateTime))
+		fetchArgs = append(fetchArgs, from.UTC().Format(time.DateTime))
 	}
 	if !to.IsZero() {
 		query += " AND created_at <= ?"
-		fetchArgs = append(fetchArgs, to.Format(time.DateTime))
+		fetchArgs = append(fetchArgs, to.UTC().Format(time.DateTime))
 	}
 	query += " ORDER BY created_at DESC"
 	if limit > 0 {
@@ -764,7 +764,7 @@ func (d *DB) GetLatestAuditEntry(ctx context.Context, tenantID string) (*store.A
 
 func (d *DB) ListAuditEntriesBefore(ctx context.Context, tenantID string, before time.Time, limit int) ([]store.AuditEntry, error) {
 	q := "SELECT id, action, actor, detail, ip, prev_hash, hash, created_at FROM audit_log WHERE tenant_id=? AND created_at < ?"
-	args := []any{tenantID, before.Format(time.DateTime)}
+	args := []any{tenantID, before.UTC().Format(time.DateTime)}
 	if limit > 0 {
 		q += " LIMIT ?"
 		args = append(args, limit)
@@ -790,7 +790,7 @@ func (d *DB) ListAuditEntriesBefore(ctx context.Context, tenantID string, before
 func (d *DB) DeleteAuditEntriesBefore(ctx context.Context, tenantID string, before time.Time) (int64, error) {
 	res, err := d.db.ExecContext(ctx,
 		"DELETE FROM audit_log WHERE tenant_id=? AND created_at < ?",
-		tenantID, before.Format(time.DateTime),
+		tenantID, before.UTC().Format(time.DateTime),
 	)
 	if err != nil {
 		return 0, err
@@ -882,7 +882,7 @@ func (d *DB) CreateAPIKey(ctx context.Context, tenantID string, k *store.APIKey)
 	}
 	var expiresAt string
 	if !k.ExpiresAt.IsZero() {
-		expiresAt = k.ExpiresAt.Format(time.DateTime)
+		expiresAt = k.ExpiresAt.UTC().Format(time.DateTime)
 	}
 	_, err := d.db.ExecContext(ctx,
 		`INSERT INTO api_keys (id, key_hash, key_prefix, role, label, device_imei, expires_at, tenant_id)
@@ -950,7 +950,7 @@ func (d *DB) ListExpiringAPIKeys(ctx context.Context, before time.Time, limit in
 	query := `SELECT id, key_prefix, role, label, device_imei, last_used, expires_at, rotation_days, created_at
 		FROM api_keys WHERE expires_at != '' AND expires_at <= ? AND expires_at != '0001-01-01T00:00:00Z'
 		ORDER BY expires_at ASC`
-	args := []interface{}{before.Format(time.DateTime)}
+	args := []interface{}{before.UTC().Format(time.DateTime)}
 	if limit > 0 {
 		query += fmt.Sprintf(" LIMIT %d", limit)
 	}
@@ -977,7 +977,7 @@ func (d *DB) ListExpiringAPIKeys(ctx context.Context, before time.Time, limit in
 func (d *DB) UpdateAPIKeySecret(ctx context.Context, tenantID string, id string, keyHash, keyPrefix string, expiresAt time.Time) error {
 	var exp string
 	if !expiresAt.IsZero() {
-		exp = expiresAt.Format(time.DateTime)
+		exp = expiresAt.UTC().Format(time.DateTime)
 	}
 	_, err := d.db.ExecContext(ctx,
 		"UPDATE api_keys SET key_hash=?, key_prefix=?, expires_at=? WHERE id=? AND tenant_id=?",
@@ -1357,7 +1357,7 @@ func (d *DB) StoreRefreshToken(ctx context.Context, tenantID string, t *store.Re
 	_, err := d.db.ExecContext(ctx,
 		`INSERT INTO refresh_tokens (id, user_id, tenant_id, token_hash, expires_at)
 		 VALUES (?, ?, ?, ?, ?)`,
-		t.ID, t.UserID, tenantID, t.TokenHash, t.ExpiresAt.Format(time.DateTime))
+		t.ID, t.UserID, tenantID, t.TokenHash, t.ExpiresAt.UTC().Format(time.DateTime))
 	return err
 }
 
@@ -1488,7 +1488,7 @@ func (d *DB) CreateRoute(ctx context.Context, tenantID string, r *store.Route) e
 		`INSERT INTO routes (id, name, source_type, destination_type, filter, enabled, created_at, updated_at, tenant_id)
 		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		r.ID, r.Name, r.SourceType, r.DestinationType, r.Filter, boolToInt(r.Enabled),
-		r.CreatedAt.Format(time.DateTime), r.UpdatedAt.Format(time.DateTime), tenantID)
+		r.CreatedAt.UTC().Format(time.DateTime), r.UpdatedAt.UTC().Format(time.DateTime), tenantID)
 	return err
 }
 
@@ -1538,7 +1538,7 @@ func (d *DB) UpdateRoute(ctx context.Context, tenantID string, r *store.Route) e
 	_, err := d.db.ExecContext(ctx,
 		"UPDATE routes SET name=?, source_type=?, destination_type=?, filter=?, enabled=?, updated_at=? WHERE id=? AND tenant_id=?",
 		r.Name, r.SourceType, r.DestinationType, r.Filter, boolToInt(r.Enabled),
-		r.UpdatedAt.Format(time.DateTime), r.ID, tenantID)
+		r.UpdatedAt.UTC().Format(time.DateTime), r.ID, tenantID)
 	return err
 }
 
@@ -1583,11 +1583,11 @@ func (d *DB) ListCostEntries(ctx context.Context, tenantID string, deviceIMEI st
 	}
 	if !from.IsZero() {
 		query += " AND created_at >= ?"
-		args = append(args, from.Format(time.DateTime))
+		args = append(args, from.UTC().Format(time.DateTime))
 	}
 	if !to.IsZero() {
 		query += " AND created_at <= ?"
-		args = append(args, to.Format(time.DateTime))
+		args = append(args, to.UTC().Format(time.DateTime))
 	}
 	query += " ORDER BY created_at DESC"
 	if limit <= 0 {
@@ -1625,11 +1625,11 @@ func (d *DB) AggregateCosts(ctx context.Context, tenantID string, from, to time.
 	args := []interface{}{tenantID}
 	if !from.IsZero() {
 		query += " AND created_at >= ?"
-		args = append(args, from.Format(time.DateTime))
+		args = append(args, from.UTC().Format(time.DateTime))
 	}
 	if !to.IsZero() {
 		query += " AND created_at <= ?"
-		args = append(args, to.Format(time.DateTime))
+		args = append(args, to.UTC().Format(time.DateTime))
 	}
 	query += fmt.Sprintf(" GROUP BY %s ORDER BY total_usd DESC", groupExpr)
 
@@ -1787,7 +1787,7 @@ func (d *DB) CreateMessageTemplate(ctx context.Context, tenantID string, t *stor
 		`INSERT INTO message_templates (id, name, body, variables, created_at, updated_at, tenant_id)
 		 VALUES (?, ?, ?, ?, ?, ?, ?)`,
 		t.ID, t.Name, t.Body, string(vars),
-		t.CreatedAt.Format(time.DateTime), t.UpdatedAt.Format(time.DateTime), tenantID)
+		t.CreatedAt.UTC().Format(time.DateTime), t.UpdatedAt.UTC().Format(time.DateTime), tenantID)
 	return err
 }
 
@@ -1835,7 +1835,7 @@ func (d *DB) UpdateMessageTemplate(ctx context.Context, tenantID string, t *stor
 	vars, _ := json.Marshal(t.Variables)
 	_, err := d.db.ExecContext(ctx,
 		"UPDATE message_templates SET name=?, body=?, variables=?, updated_at=? WHERE id=? AND tenant_id=?",
-		t.Name, t.Body, string(vars), t.UpdatedAt.Format(time.DateTime), t.ID, tenantID)
+		t.Name, t.Body, string(vars), t.UpdatedAt.UTC().Format(time.DateTime), t.ID, tenantID)
 	return err
 }
 
@@ -1857,7 +1857,7 @@ func (d *DB) CreateAlertRule(ctx context.Context, tenantID string, r *store.Aler
 		`INSERT INTO alert_rules (id, name, condition_type, condition_params, chain_id, device_filter, enabled, last_evaluated, created_at, updated_at, tenant_id)
 		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		r.ID, r.Name, r.ConditionType, r.ConditionParams, r.ChainID, r.DeviceFilter,
-		boolToInt(r.Enabled), "", r.CreatedAt.Format(time.DateTime), r.UpdatedAt.Format(time.DateTime), tenantID)
+		boolToInt(r.Enabled), "", r.CreatedAt.UTC().Format(time.DateTime), r.UpdatedAt.UTC().Format(time.DateTime), tenantID)
 	return err
 }
 
@@ -1916,8 +1916,8 @@ func (d *DB) UpdateAlertRule(ctx context.Context, tenantID string, r *store.Aler
 	_, err := d.db.ExecContext(ctx,
 		"UPDATE alert_rules SET name=?, condition_type=?, condition_params=?, chain_id=?, device_filter=?, enabled=?, last_evaluated=?, updated_at=? WHERE id=? AND tenant_id=?",
 		r.Name, r.ConditionType, r.ConditionParams, r.ChainID, r.DeviceFilter,
-		boolToInt(r.Enabled), r.LastEvaluated.Format(time.DateTime),
-		r.UpdatedAt.Format(time.DateTime), r.ID, tenantID)
+		boolToInt(r.Enabled), r.LastEvaluated.UTC().Format(time.DateTime),
+		r.UpdatedAt.UTC().Format(time.DateTime), r.ID, tenantID)
 	return err
 }
 
@@ -1934,7 +1934,7 @@ func (d *DB) CreateCredential(ctx context.Context, tenantID string, c *store.Cre
 	c.UpdatedAt = now
 	var notAfter interface{}
 	if c.CertNotAfter != nil {
-		notAfter = c.CertNotAfter.Format(time.DateTime)
+		notAfter = c.CertNotAfter.UTC().Format(time.DateTime)
 	}
 	_, err := d.db.ExecContext(ctx,
 		`INSERT INTO credentials (id, tenant_id, provider, name, cred_type, encrypted_data,
@@ -1944,7 +1944,7 @@ func (d *DB) CreateCredential(ctx context.Context, tenantID string, c *store.Cre
 		c.ID, tenantID, c.Provider, c.Name, c.CredType, c.EncryptedData,
 		notAfter, c.CertSubject, c.CertIssuer, c.CertFingerprint,
 		c.TargetScope, c.TargetBridgeID, c.Status, c.Version,
-		now.Format(time.DateTime), now.Format(time.DateTime))
+		now.UTC().Format(time.DateTime), now.UTC().Format(time.DateTime))
 	return err
 }
 
@@ -1978,7 +1978,7 @@ func (d *DB) UpdateCredential(ctx context.Context, tenantID string, c *store.Cre
 	c.UpdatedAt = time.Now().UTC()
 	var notAfter interface{}
 	if c.CertNotAfter != nil {
-		notAfter = c.CertNotAfter.Format(time.DateTime)
+		notAfter = c.CertNotAfter.UTC().Format(time.DateTime)
 	}
 	_, err := d.db.ExecContext(ctx,
 		`UPDATE credentials SET provider=?, name=?, cred_type=?, encrypted_data=?,
@@ -1988,7 +1988,7 @@ func (d *DB) UpdateCredential(ctx context.Context, tenantID string, c *store.Cre
 		c.Provider, c.Name, c.CredType, c.EncryptedData,
 		notAfter, c.CertSubject, c.CertIssuer, c.CertFingerprint,
 		c.TargetScope, c.TargetBridgeID, c.Status, c.Version,
-		c.UpdatedAt.Format(time.DateTime), c.ID, tenantID)
+		c.UpdatedAt.UTC().Format(time.DateTime), c.ID, tenantID)
 	return err
 }
 
@@ -2001,7 +2001,7 @@ func (d *DB) ListExpiringCredentials(ctx context.Context, before time.Time) ([]s
 	rows, err := d.db.QueryContext(ctx,
 		`SELECT id, tenant_id, provider, name, cred_type, encrypted_data, cert_not_after, cert_subject, cert_issuer, cert_fingerprint, target_scope, target_bridge_id, status, version, distributed_at, created_at, updated_at
 		 FROM credentials WHERE cert_not_after IS NOT NULL AND cert_not_after != '' AND cert_not_after <= ? AND status IN ('active', 'expiring')
-		 ORDER BY cert_not_after ASC`, before.Format(time.DateTime))
+		 ORDER BY cert_not_after ASC`, before.UTC().Format(time.DateTime))
 	if err != nil {
 		return nil, err
 	}
