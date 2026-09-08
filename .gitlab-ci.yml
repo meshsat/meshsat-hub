@@ -126,6 +126,7 @@ package:
   script:
     - |
       docker build \
+        --build-arg VERSION=${CI_COMMIT_SHORT_SHA} \
         -t ${MESHSAT_HUB_IMAGE}:${CI_COMMIT_SHORT_SHA} \
         -t ${MESHSAT_HUB_IMAGE}:latest \
         .

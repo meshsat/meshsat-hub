@@ -23,6 +23,13 @@ var (
 		Help: "Total number of HTTP requests.",
 	}, []string{"method", "path", "status_code"})
 
+	// LeaderStatus is 1 while this instance holds leadership for singleton
+	// services, 0 otherwise, labelled by elector backend.
+	LeaderStatus = promauto.NewGaugeVec(prometheus.GaugeOpts{
+		Name: "meshsat_hub_leader",
+		Help: "1 when this instance is the leader for singleton services, 0 otherwise.",
+	}, []string{"backend"})
+
 	// HTTPConnectionsActive tracks current in-flight HTTP requests.
 	HTTPConnectionsActive = promauto.NewGauge(prometheus.GaugeOpts{
 		Name: "meshsat_hub_http_connections_active",
