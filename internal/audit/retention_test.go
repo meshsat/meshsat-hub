@@ -11,11 +11,10 @@ import (
 )
 
 type fakeRetentionStore struct {
-	tenants  []store.Tenant
-	entries  map[string][]store.AuditEntry
-	deleted  []string
-	listErr  error
-	deleteOK bool
+	tenants []store.Tenant
+	entries map[string][]store.AuditEntry
+	deleted []string
+	listErr error
 }
 
 func (f *fakeRetentionStore) ListTenants(context.Context) ([]store.Tenant, error) {

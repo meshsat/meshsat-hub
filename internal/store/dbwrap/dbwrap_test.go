@@ -8,8 +8,6 @@ import (
 	"fmt"
 	"testing"
 	"time"
-
-	"github.com/go-sql-driver/mysql"
 )
 
 // pgErr mimics pgconn.PgError / pq.Error without importing a Postgres driver.
@@ -29,13 +27,9 @@ func TestIsTransient(t *testing.T) {
 		{"generic", fmt.Errorf("connection refused"), "", false},
 		{"bad conn", driver.ErrBadConn, ReasonConnection, true},
 		{"wrapped bad conn", fmt.Errorf("exec: %w", driver.ErrBadConn), ReasonConnection, true},
-		{"mysql access denied", &mysql.MySQLError{Number: 1045}, "", false},
-		{"mysql wsrep 1047", &mysql.MySQLError{Number: 1047}, ReasonWSREP, true},
-		{"wrapped wsrep", fmt.Errorf("q: %w", &mysql.MySQLError{Number: 1047}), ReasonWSREP, true},
-		{"mysql deadlock 1213", &mysql.MySQLError{Number: 1213}, ReasonDeadlock, true},
-		{"mysql lock wait 1205", &mysql.MySQLError{Number: 1205}, ReasonLockWait, true},
 		{"pg serialization", &pgErr{"40001"}, ReasonSerialize, true},
 		{"pg deadlock", &pgErr{"40P01"}, ReasonDeadlock, true},
+		{"wrapped pg deadlock", fmt.Errorf("q: %w", &pgErr{"40P01"}), ReasonDeadlock, true},
 		{"pg admin shutdown", &pgErr{"57P01"}, ReasonPGShutdown, true},
 		{"pg crash shutdown", &pgErr{"57P02"}, ReasonPGShutdown, true},
 		{"pg cannot connect now", &pgErr{"57P03"}, ReasonPGStarting, true},
@@ -61,7 +55,7 @@ func TestIsTransient(t *testing.T) {
 // math.Pow(2, attempt) overflowed int64 at attempt 63, the cap never fired and
 // the timer fired instantly (backoff:0) at ~1,000 retries/s for five days.
 func TestBackoffNeverNegative(t *testing.T) {
-	for _, p := range []policy{policyFor(ReasonWSREP), policyFor(ReasonDeadlock)} {
+	for _, p := range []policy{policyFor(ReasonPGStarting), policyFor(ReasonDeadlock)} {
 		for attempt := -1; attempt <= 10_000; attempt++ {
 			d := Backoff(attempt, p)
 			if d <= 0 {
@@ -75,7 +69,7 @@ func TestBackoffNeverNegative(t *testing.T) {
 }
 
 func TestBackoffGrowsThenCaps(t *testing.T) {
-	p := policyFor(ReasonWSREP)
+	p := policyFor(ReasonPGStarting) // slow policy
 	want := []time.Duration{1 * time.Second, 2 * time.Second, 4 * time.Second, 8 * time.Second, 16 * time.Second, 30 * time.Second, 30 * time.Second}
 	for attempt, base := range want {
 		got := Backoff(attempt, p)
@@ -154,7 +148,7 @@ func TestRetry_RetriesAndSucceeds(t *testing.T) {
 }
 
 func TestRetry_Bounded(t *testing.T) {
-	deadlock := &mysql.MySQLError{Number: 1213}
+	deadlock := &pgErr{"40P01"}
 	errs := make([]error, 50)
 	for i := range errs {
 		errs[i] = deadlock
@@ -166,8 +160,8 @@ func TestRetry_Bounded(t *testing.T) {
 	if !errors.Is(err, ErrRetryExhausted) {
 		t.Fatalf("expected ErrRetryExhausted, got %v", err)
 	}
-	var me *mysql.MySQLError
-	if !errors.As(err, &me) || me.Number != 1213 {
+	var pe *pgErr
+	if !errors.As(err, &pe) || pe.SQLState() != "40P01" {
 		t.Errorf("exhausted error should wrap the last cause, got %v", err)
 	}
 	if mock.callCount != 4 {
@@ -176,8 +170,8 @@ func TestRetry_Bounded(t *testing.T) {
 }
 
 func TestRetry_RespectsContextCancellation(t *testing.T) {
-	wsrepErr := &mysql.MySQLError{Number: 1047, Message: "WSREP"}
-	mock := &mockDB{execErrors: []error{wsrepErr, wsrepErr, wsrepErr, wsrepErr, wsrepErr}}
+	starting := &pgErr{"57P03"} // slow policy: 1 s first backoff
+	mock := &mockDB{execErrors: []error{starting, starting, starting, starting, starting}}
 	obs := NewObservedDB(mock, "test", 0)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
@@ -213,7 +207,7 @@ func TestRetryShort(t *testing.T) {
 	err := RetryShort(context.Background(), func() error {
 		calls++
 		if calls < 3 {
-			return &mysql.MySQLError{Number: 1213}
+			return &pgErr{"40P01"}
 		}
 		return nil
 	})
