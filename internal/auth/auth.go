@@ -277,13 +277,13 @@ func tokenMiddleware(token string) func(http.Handler) http.Handler {
 }
 
 func jwtMiddleware(provider *JWKSProvider, issuerURL, audience string) func(http.Handler) http.Handler {
-	// Build parser options.
+	// Build parser options. The issuer is checked after parsing (see below)
+	// rather than with jwt.WithIssuer: authentik reports its issuer with a
+	// trailing slash while the configured URL usually has none, and the
+	// authoritative value is only known after discovery.
 	opts := []jwt.ParserOption{
-		jwt.WithValidMethods([]string{"RS256", "RS384", "RS512"}),
+		jwt.WithValidMethods([]string{"RS256", "RS384", "RS512", "ES256", "ES384", "ES512"}),
 		jwt.WithExpirationRequired(),
-	}
-	if issuerURL != "" {
-		opts = append(opts, jwt.WithIssuer(issuerURL))
 	}
 	if audience != "" {
 		opts = append(opts, jwt.WithAudience(audience))
@@ -328,6 +328,15 @@ func jwtMiddleware(provider *JWKSProvider, issuerURL, audience string) func(http
 			if !ok {
 				writeAuthError(w, "invalid token claims")
 				return
+			}
+
+			if issuerURL != "" {
+				iss, _ := claims["iss"].(string)
+				if iss == "" || !IssuerMatches(iss, provider.ExpectedIssuer()) {
+					slog.Debug("auth: JWT issuer mismatch", "iss", iss, "expected", provider.ExpectedIssuer())
+					writeAuthError(w, "invalid token")
+					return
+				}
 			}
 
 			user := extractUser(claims)
