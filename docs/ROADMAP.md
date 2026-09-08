@@ -25,10 +25,10 @@ Tier 1: STANDALONE           Tier 2: CLUSTER              Tier 3: KUBERNETES
 | Tier | Mode | Store | Bus | Dedup/RL | Leader | Status |
 |------|------|-------|-----|----------|--------|--------|
 | 1 | `standalone` | SQLite | Mosquitto | In-memory | Noop | **Production** |
-| 2 | `cluster` | MariaDB Galera | NATS+MQTT | Redis | NATS queues | **Production** (2 nodes, active-active) |
-| 3 | `kubernetes` | MariaDB Galera | NATS StatefulSet | Redis | k8s Lease API | **Code complete**, untested |
+| 2 | `cluster` | Postgres | NATS+MQTT | Redis | NATS queues | Retired (the Galera compose stack left the DMZ hosts on 2026-09-08) |
+| 3 | `kubernetes` | Postgres (CNPG) | NATS StatefulSet | Redis | k8s Lease API | **Production** (notrf01cl01k8s, MESHSAT-864) |
 
-**Current production:** Tier 2 cluster across `nllei01dmz01` (NL) + `grskg01dmz01` (GR).
+**Current production:** Tier 3 on notrf01cl01k8s (`k8s/`, Argo CD); MariaDB/Galera support was removed in MR 23.
 
 ---
 
@@ -203,8 +203,6 @@ lint -> security -> test -> build -> package (GHCR) -> deploy (AWX) -> verify (E
 
 ### Deployment
 
-Use `/deploy` slash command or Ansible:
-```bash
-cd deploy/ansible && ansible-playbook -i inventory.yml playbooks/deploy-hub.yml
-```
-Pre-deploy Galera health gate: `scripts/check-galera-health.sh`
+Merge to `main`: CI builds and scans the image, `bump_k8s_pin` rewrites the digest in
+`k8s/kustomization.yaml`, Argo CD rolls the Deployment on notrf01cl01k8s. The Galera/Ansible
+path was retired on 2026-09-08 (MESHSAT-864).

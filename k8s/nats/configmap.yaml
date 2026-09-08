@@ -1,5 +1,5 @@
-# NATS server config: nats-mtls.conf from the compose deployment minus the leafnode
-# block (single site now). Bridges connect over wss://mqtt-hub.meshsat.net:443
+# NATS server config, descended from the compose-era nats-mtls.conf (removed in MR 23)
+# minus the leafnode block (single site now). Bridges connect over wss://mqtt-hub.meshsat.net:443
 # -> edge -> edge-relay :9443 -> this websocket listener (TLS termination + bridge
 # client certificate verification against the Hub bridge CA). The Hub connects
 # over plain MQTT :1883 in-cluster. $NATS_MQTT_PASSWORD comes from the pod env.

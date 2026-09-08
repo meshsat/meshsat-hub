@@ -500,10 +500,6 @@ test.describe('Untested view interactions', () => {
     await expect(page.locator('text=Routing Table')).toBeVisible()
   })
 
-  test('cluster page loads', async ({ page }) => {
-    await page.goto('/#/cluster')
-    await expect(page.locator('h1:has-text("Cluster")')).toBeVisible()
-  })
 
   test('users page loads with form toggle', async ({ page }) => {
     await page.goto('/#/users')

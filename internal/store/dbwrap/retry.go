@@ -10,8 +10,6 @@ import (
 	"strings"
 	"sync/atomic"
 	"time"
-
-	"github.com/go-sql-driver/mysql"
 )
 
 // ErrRetryExhausted wraps the last transient error once a bounded retry loop
@@ -49,11 +47,9 @@ type sqlStater interface {
 
 // Retry reasons. They label the transient-retry metric and choose the backoff
 // policy: lock conflicts are retried fast and few, connectivity/readiness
-// errors slow and long.
+// errors slow and long. (The MySQL/Galera reasons went with MR 23.)
 const (
-	ReasonWSREP      = "wsrep_1047"    // Galera node not ready for application use
-	ReasonDeadlock   = "deadlock"      // MySQL 1213, Postgres 40P01
-	ReasonLockWait   = "lock_wait"     // MySQL 1205
+	ReasonDeadlock   = "deadlock"      // Postgres 40P01
 	ReasonSerialize  = "serialization" // Postgres 40001
 	ReasonConnection = "connection"    // driver.ErrBadConn, Postgres class 08
 	ReasonPGShutdown = "pg_shutdown"   // Postgres 57P01/57P02 (CNPG switchover)
@@ -69,18 +65,6 @@ func IsTransient(err error) (reason string, ok bool) {
 	}
 	if errors.Is(err, driver.ErrBadConn) {
 		return ReasonConnection, true
-	}
-	var mysqlErr *mysql.MySQLError
-	if errors.As(err, &mysqlErr) {
-		switch mysqlErr.Number {
-		case 1047:
-			return ReasonWSREP, true
-		case 1213:
-			return ReasonDeadlock, true
-		case 1205:
-			return ReasonLockWait, true
-		}
-		return "", false
 	}
 	var st sqlStater
 	if errors.As(err, &st) {
@@ -117,7 +101,7 @@ type policy struct {
 
 func policyFor(reason string) policy {
 	switch reason {
-	case ReasonDeadlock, ReasonLockWait, ReasonSerialize:
+	case ReasonDeadlock, ReasonSerialize:
 		return policy{base: 50 * time.Millisecond, cap: time.Second}
 	default:
 		return policy{base: time.Second, cap: 30 * time.Second}
@@ -172,9 +156,6 @@ func (o *ObservedDB) retryTransient(ctx context.Context, operation string, fn fu
 		}
 		backoff := Backoff(attempt-1, policyFor(reason))
 		dbTransientRetries.WithLabelValues(o.storeName, reason).Inc()
-		if reason == ReasonWSREP {
-			dbWSREPRetries.Inc()
-		}
 		if shouldLog(attempt) {
 			slog.Warn("db: transient error, retrying",
 				"store", o.storeName, "operation", operation, "reason", reason,

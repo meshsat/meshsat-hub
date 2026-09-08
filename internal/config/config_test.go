@@ -90,9 +90,10 @@ func TestResolvedDBDriver(t *testing.T) {
 		{"explicit sqlite", Config{DBDriver: "sqlite", Mode: "kubernetes"}, "sqlite"},
 		{"sniff postgres url", Config{DatabaseURL: "postgres://u:p@h:5432/db?sslmode=require"}, "postgres"},
 		{"sniff postgresql url", Config{DatabaseURL: "postgresql://u:p@h/db"}, "postgres"},
-		{"sniff mysql dsn", Config{Mode: "cluster", DatabaseURL: "meshsat:pw@tcp(127.0.0.1:3306)/meshsat_hub?parseTime=true"}, "mariadb"},
-		{"cluster default", Config{Mode: "cluster"}, "mariadb"},
-		{"kubernetes default", Config{Mode: "kubernetes"}, "mariadb"},
+		{"mysql dsn is no longer a driver", Config{Mode: "cluster", DatabaseURL: "meshsat:pw@tcp(127.0.0.1:3306)/meshsat_hub?parseTime=true"}, "postgres"},
+		{"explicit mariadb ignored", Config{DBDriver: "mariadb", Mode: "standalone"}, "sqlite"},
+		{"cluster default", Config{Mode: "cluster"}, "postgres"},
+		{"kubernetes default", Config{Mode: "kubernetes"}, "postgres"},
 		{"standalone default", Config{Mode: "standalone"}, "sqlite"},
 		{"empty", Config{}, "sqlite"},
 	}

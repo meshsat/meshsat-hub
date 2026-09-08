@@ -14,7 +14,7 @@ type Config struct {
 	// Tri-mode: "standalone" (default), "cluster", "kubernetes"
 	Mode        string `yaml:"mode"`
 	DatabaseURL string `yaml:"database_url"` // MariaDB or Postgres DSN (cluster/k8s)
-	DBDriver    string `yaml:"db_driver"`    // "sqlite", "mariadb" or "postgres"; empty = sniffed from DatabaseURL
+	DBDriver    string `yaml:"db_driver"`    // "sqlite" or "postgres"; empty = sniffed from DatabaseURL
 	SQLitePath  string `yaml:"sqlite_path"`  // SQLite database file (default /data/hub.db)
 	RedisURL    string `yaml:"redis_url"`    // Redis URL (cluster/k8s only)
 	NATSUrl     string `yaml:"nats_url"`     // External NATS URL (cluster/k8s only)
@@ -689,24 +689,21 @@ func envOr(key, fallback string) string {
 	return fallback
 }
 
-// ResolvedDBDriver returns the store backend: DBDriver when set, else a guess
-// from the DSN (postgres:// or postgresql:// -> postgres, a mysql DSN with
-// @tcp( -> mariadb), else the mode default (mariadb in cluster/kubernetes
-// mode for compatibility with existing deployments, sqlite otherwise).
+// ResolvedDBDriver returns "sqlite" or "postgres": HUB_DB_DRIVER when set,
+// else sniffed from the DSN (postgres:// -> postgres), else the mode default
+// (postgres in cluster/kubernetes mode, sqlite otherwise). MariaDB/Galera
+// support was removed with the notrf01 cutover (MESHSAT-864 MR 23).
 func (c Config) ResolvedDBDriver() string {
 	switch c.DBDriver {
-	case "sqlite", "mariadb", "postgres":
+	case "sqlite", "postgres":
 		return c.DBDriver
 	}
 	dsn := strings.ToLower(c.DatabaseURL)
-	switch {
-	case strings.HasPrefix(dsn, "postgres://"), strings.HasPrefix(dsn, "postgresql://"):
+	if strings.HasPrefix(dsn, "postgres://") || strings.HasPrefix(dsn, "postgresql://") {
 		return "postgres"
-	case strings.Contains(dsn, "@tcp("), strings.HasPrefix(dsn, "mysql://"):
-		return "mariadb"
 	}
 	if c.Mode == "cluster" || c.Mode == "kubernetes" {
-		return "mariadb"
+		return "postgres"
 	}
 	return "sqlite"
 }
