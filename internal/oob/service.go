@@ -277,8 +277,8 @@ func (s *Service) Send(ctx context.Context, tenantID, bridgeID, bearer, cmdName 
 		return nil, errors.New("oob: key exhausted, re-pair the bridge")
 	}
 	counter := uint32(n)
-	f := Frame{Enc: s.encrypt, NoReply: noReply, PeerID: uint16(p.PeerID), Counter: counter, Cmd: cmd.Code, Args: wireArgs}
-	wire, err := Seal(f, key, Role(p.LocalRole))
+	f := Frame{Enc: s.encrypt, NoReply: noReply, PeerID: peerIDOf(p.PeerID), Counter: counter, Cmd: cmd.Code, Args: wireArgs}
+	wire, err := Seal(f, key, RoleOf(p.LocalRole))
 	if err != nil {
 		return nil, err
 	}
@@ -344,19 +344,19 @@ func (s *Service) HandleInbound(ctx context.Context, bearer, origin, text string
 		if err != nil {
 			continue
 		}
-		f, err := Open(wire, key, Role(p.LocalRole).Other())
+		f, err := Open(wire, key, RoleOf(p.LocalRole).Other())
 		if err != nil {
 			continue
 		}
 		var w Window
-		w.Load(uint32(p.RxHigh), uint64(p.RxWindow))
+		w.Load(windowState(p.RxHigh, p.RxWindow))
 		if !w.Accept(f.Counter) {
 			slog.Warn("oob: replayed frame dropped", "bridge", p.BridgeID, "counter", f.Counter, "bearer", bearer)
 			s.log(ctx, p.TenantID, "oob_replay_dropped", origin, fmt.Sprintf("bridge=%s bearer=%s counter=%d", p.BridgeID, bearer, f.Counter))
 			return true
 		}
 		high, bits := w.State()
-		if err := s.store.SetOOBReplayWindow(ctx, p.TenantID, p.BridgeID, int64(high), int64(bits)); err != nil {
+		if err := s.store.SetOOBReplayWindow(ctx, p.TenantID, p.BridgeID, int64(high), int64(bits)); err != nil { // #nosec G115 -- the 64-bit mask round-trips through the signed column
 			slog.Warn("oob: persist replay window", "error", err)
 		}
 		if !f.Reply {
@@ -394,6 +394,31 @@ func (s *Service) log(ctx context.Context, tenantID, action, actor, detail strin
 	if err := s.audit.Log(ctx, tenantID, action, actor, detail, ""); err != nil {
 		slog.Warn("audit: oob", "action", action, "error", err)
 	}
+}
+
+// RoleOf maps the stored local_role column onto a Role without a narrowing
+// conversion (0 = issuer, anything else = importer).
+func RoleOf(local int) Role {
+	if local == 0 {
+		return RoleIssuer
+	}
+	return RoleImporter
+}
+
+// peerIDOf bounds the stored peer id to the 16-bit wire field.
+func peerIDOf(stored int) uint16 {
+	if stored <= 0 || stored > 0xFFFF {
+		return 0
+	}
+	return uint16(stored) // #nosec G115 -- bounded just above
+}
+
+// windowState converts the persisted replay window (signed columns) back.
+func windowState(high, bits int64) (uint32, uint64) {
+	if high < 0 || high > 0xFFFFFFFF {
+		high = 0
+	}
+	return uint32(high), uint64(bits) // #nosec G115 -- high bounded above; bits is the 64-bit mask stored as-is
 }
 
 // KeyHex renders a key for the pairing response (shown once).
