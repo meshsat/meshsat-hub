@@ -153,7 +153,11 @@ govulncheck:
   image: golang:1.25-alpine
   tags: [docker]
   before_script:
-    - go install golang.org/x/vuln/cmd/govulncheck@latest
+    # Pinned, not @latest: v1.8.0 requires Go 1.26 and this job runs on the
+    # Go 1.25 image, so @latest broke every merge the day it was published.
+    # The same thing happened to golangci-lint (MESHSAT-712). Bump this and
+    # the image together, deliberately.
+    - go install golang.org/x/vuln/cmd/govulncheck@v1.7.0
   script:
     - govulncheck ./...
 
