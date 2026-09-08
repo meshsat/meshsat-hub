@@ -108,7 +108,7 @@ func (d *DB) ExportTenant(ctx context.Context, id string) (map[string][]map[stri
 		if err != nil {
 			return nil, fmt.Errorf("export %s: %w", t, err)
 		}
-		recs, err := scanAll(rows)
+		recs, err := scanAll(t, rows)
 		if err != nil {
 			return nil, fmt.Errorf("export %s: %w", t, err)
 		}
@@ -118,7 +118,7 @@ func (d *DB) ExportTenant(ctx context.Context, id string) (map[string][]map[stri
 	if err != nil {
 		return nil, err
 	}
-	recs, err := scanAll(rows)
+	recs, err := scanAll("tenants", rows)
 	if err != nil {
 		return nil, err
 	}
@@ -141,7 +141,7 @@ func quoteIdent(s string) string {
 // scanAll turns a result set into plain maps, closing the rows. Kept beside
 // the Postgres twin rather than shared: the two store packages deliberately
 // do not depend on each other.
-func scanAll(rows *sql.Rows) ([]map[string]any, error) {
+func scanAll(table string, rows *sql.Rows) ([]map[string]any, error) {
 	defer func() { _ = rows.Close() }()
 	cols, err := rows.Columns()
 	if err != nil {
@@ -159,11 +159,7 @@ func scanAll(rows *sql.Rows) ([]map[string]any, error) {
 		}
 		rec := make(map[string]any, len(cols))
 		for i, c := range cols {
-			if b, ok := vals[i].([]byte); ok {
-				rec[c] = string(b)
-			} else {
-				rec[c] = vals[i]
-			}
+			rec[c] = store.ExportValue(table, c, vals[i])
 		}
 		out = append(out, rec)
 	}

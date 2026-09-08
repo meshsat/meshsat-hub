@@ -52,6 +52,22 @@ func testTenantOffboarding(t *testing.T, s store.Store) {
 		}
 	}
 
+	// Secret material must not travel in an export.
+	if err := s.CreateAPIKey(ctx, "off-going", &store.APIKey{ID: "k1", KeyHash: "a-real-hash", KeyPrefix: "meshsat_x", Role: "viewer", Label: "k"}); err == nil {
+		exp2, err := s.ExportTenant(ctx, "off-going")
+		if err != nil {
+			t.Fatalf("export after key: %v", err)
+		}
+		for _, r := range exp2["api_keys"] {
+			if got, ok := r["key_hash"]; ok && got != store.RedactionMarker {
+				t.Errorf("api key hash exported in the clear: %v", got)
+			}
+			if r["key_prefix"] == store.RedactionMarker {
+				t.Error("the key prefix is not a secret and should survive the export")
+			}
+		}
+	}
+
 	// Soft delete blocks but keeps the data.
 	if err := s.SoftDeleteTenant(ctx, "off-going", now); err != nil {
 		t.Fatalf("soft delete: %v", err)
