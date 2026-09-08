@@ -368,6 +368,8 @@ var postAlterMigrations = []string{
 // lateAlterMigrations alter tables created in postAlterMigrations.
 // Duplicate column errors are ignored for idempotency.
 var lateAlterMigrations = []string{
+	// MESHSAT-964: optional sender list per route
+	`ALTER TABLE routes ADD COLUMN senders TEXT NOT NULL DEFAULT ''`,
 	// MESHSAT-291: bridge MQTT authentication
 	`ALTER TABLE bridges ADD COLUMN mqtt_username TEXT NOT NULL DEFAULT ''`,
 	`ALTER TABLE bridges ADD COLUMN mqtt_password_hash TEXT NOT NULL DEFAULT ''`,
@@ -1498,9 +1500,9 @@ func (d *DB) CreateRoute(ctx context.Context, tenantID string, r *store.Route) e
 	r.CreatedAt = now
 	r.UpdatedAt = now
 	_, err := d.db.ExecContext(ctx,
-		`INSERT INTO routes (id, name, source_type, destination_type, filter, enabled, created_at, updated_at, tenant_id)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		r.ID, r.Name, r.SourceType, r.DestinationType, r.Filter, boolToInt(r.Enabled),
+		`INSERT INTO routes (id, name, source_type, destination_type, filter, senders, enabled, created_at, updated_at, tenant_id)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		r.ID, r.Name, r.SourceType, r.DestinationType, r.Filter, r.Senders, boolToInt(r.Enabled),
 		r.CreatedAt.UTC().Format(time.DateTime), r.UpdatedAt.UTC().Format(time.DateTime), tenantID)
 	return err
 }
@@ -1510,9 +1512,9 @@ func (d *DB) GetRoute(ctx context.Context, tenantID string, id string) (*store.R
 	var enabled int
 	var createdAt, updatedAt string
 	err := d.db.QueryRowContext(ctx,
-		"SELECT id, name, source_type, destination_type, filter, enabled, created_at, updated_at FROM routes WHERE id=? AND tenant_id=?",
+		"SELECT id, name, source_type, destination_type, filter, senders, enabled, created_at, updated_at FROM routes WHERE id=? AND tenant_id=?",
 		id, tenantID,
-	).Scan(&r.ID, &r.Name, &r.SourceType, &r.DestinationType, &r.Filter, &enabled, &createdAt, &updatedAt)
+	).Scan(&r.ID, &r.Name, &r.SourceType, &r.DestinationType, &r.Filter, &r.Senders, &enabled, &createdAt, &updatedAt)
 	if err != nil {
 		return nil, err
 	}
@@ -1524,7 +1526,7 @@ func (d *DB) GetRoute(ctx context.Context, tenantID string, id string) (*store.R
 
 func (d *DB) ListRoutes(ctx context.Context, tenantID string) ([]store.Route, error) {
 	rows, err := d.db.QueryContext(ctx,
-		"SELECT id, name, source_type, destination_type, filter, enabled, created_at, updated_at FROM routes WHERE tenant_id=? ORDER BY name",
+		"SELECT id, name, source_type, destination_type, filter, senders, enabled, created_at, updated_at FROM routes WHERE tenant_id=? ORDER BY name",
 		tenantID)
 	if err != nil {
 		return nil, err
@@ -1535,7 +1537,7 @@ func (d *DB) ListRoutes(ctx context.Context, tenantID string) ([]store.Route, er
 		var r store.Route
 		var enabled int
 		var createdAt, updatedAt string
-		if err := rows.Scan(&r.ID, &r.Name, &r.SourceType, &r.DestinationType, &r.Filter, &enabled, &createdAt, &updatedAt); err != nil {
+		if err := rows.Scan(&r.ID, &r.Name, &r.SourceType, &r.DestinationType, &r.Filter, &r.Senders, &enabled, &createdAt, &updatedAt); err != nil {
 			return nil, err
 		}
 		r.Enabled = enabled != 0
@@ -1549,8 +1551,8 @@ func (d *DB) ListRoutes(ctx context.Context, tenantID string) ([]store.Route, er
 func (d *DB) UpdateRoute(ctx context.Context, tenantID string, r *store.Route) error {
 	r.UpdatedAt = time.Now().UTC()
 	_, err := d.db.ExecContext(ctx,
-		"UPDATE routes SET name=?, source_type=?, destination_type=?, filter=?, enabled=?, updated_at=? WHERE id=? AND tenant_id=?",
-		r.Name, r.SourceType, r.DestinationType, r.Filter, boolToInt(r.Enabled),
+		"UPDATE routes SET name=?, source_type=?, destination_type=?, filter=?, senders=?, enabled=?, updated_at=? WHERE id=? AND tenant_id=?",
+		r.Name, r.SourceType, r.DestinationType, r.Filter, r.Senders, boolToInt(r.Enabled),
 		r.UpdatedAt.UTC().Format(time.DateTime), r.ID, tenantID)
 	return err
 }

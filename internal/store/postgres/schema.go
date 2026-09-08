@@ -414,4 +414,7 @@ CREATE TABLE IF NOT EXISTS oidc_identities (
 	PRIMARY KEY (issuer, subject)
 );
 `},
+	{Version: 4, Name: "route_senders", SQL: `
+ALTER TABLE routes ADD COLUMN IF NOT EXISTS senders TEXT NOT NULL DEFAULT '';
+`},
 }
