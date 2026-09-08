@@ -19,6 +19,9 @@ data:
   # this build has expired, the extract fails, the pod stays unready, and the
   # map falls back to the world archive. Update the date and it rebuilds.
   PLANET_URL: https://build.protomaps.com/20260907.pmtiles
+  # The client Service, deliberately: its endpoints are exactly the pods
+  # that already serve the archive, which is what a cold replica wants.
+  PEER_URL: http://basemap.meshsat-hub.svc.cluster.local/basemap/local.pmtiles
   PMTILES_URL: https://github.com/protomaps/go-pmtiles/releases/download/v1.31.2/go-pmtiles_1.31.2_Linux_x86_64.tar.gz
   PMTILES_SHA256: 3ed7dbf4ec2e6dfe5e25b6f70d1ffc932729f93c86db353bf514dd71010a312f
   nginx.conf: |
