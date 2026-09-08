@@ -15,6 +15,13 @@ import (
 // no-op, not a second row.
 var ErrDuplicate = errors.New("store: duplicate")
 
+// ErrNotFound is returned by the tenant lookups when no row matches.
+var ErrNotFound = errors.New("store: not found")
+
+// ErrAmbiguousTenant is returned by the tenant lookups when the same device
+// IMEI or bridge ID exists in more than one tenant.
+var ErrAmbiguousTenant = errors.New("store: id present in several tenants")
+
 // ReadinessProber is implemented by stores that can say whether they accept
 // writes right now (Galera wsrep_ready, Postgres not in recovery). Stores
 // without it are probed with Ping.
@@ -37,6 +44,9 @@ type Store interface {
 	// Devices
 	CreateDevice(ctx context.Context, tenantID string, d *Device) error
 	GetDevice(ctx context.Context, tenantID string, imei string) (*Device, error)
+	// LookupDeviceTenant returns the tenant that owns the device with this
+	// IMEI (ErrNotFound when none, ErrAmbiguousTenant when several).
+	LookupDeviceTenant(ctx context.Context, imei string) (string, error)
 	ListDevices(ctx context.Context, tenantID string) ([]Device, error)
 	UpdateDevice(ctx context.Context, tenantID string, d *Device) error
 	DeleteDevice(ctx context.Context, tenantID string, imei string) error
@@ -142,6 +152,9 @@ type Store interface {
 	// Bridges
 	CreateOrUpdateBridge(ctx context.Context, tenantID string, b *Bridge) error
 	GetBridge(ctx context.Context, tenantID string, bridgeID string) (*Bridge, error)
+	// LookupBridgeTenant returns the tenant that owns the bridge (ErrNotFound /
+	// ErrAmbiguousTenant as for LookupDeviceTenant).
+	LookupBridgeTenant(ctx context.Context, bridgeID string) (string, error)
 	ListBridges(ctx context.Context, tenantID string) ([]*Bridge, error)
 	UpdateBridge(ctx context.Context, tenantID string, bridgeID string, updates BridgeUpdate) error
 	DeleteBridge(ctx context.Context, tenantID string, bridgeID string) error
