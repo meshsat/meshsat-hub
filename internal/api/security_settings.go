@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"os"
 	"strings"
 
@@ -13,6 +14,8 @@ import (
 
 // SecurityStatus represents the current service authentication state.
 type SecurityStatus struct {
+	PlatformManaged bool   `json:"platform_managed"`       // kubernetes: secrets come from the platform (OpenBao/ExternalSecrets)
+	NATSLeafApplies bool   `json:"nats_leaf_applicable"`   // false on a single-site deployment
 	NATSMQTTAuth    bool   `json:"nats_mqtt_auth"`         // NATS MQTT has password configured
 	NATSLeafAuth    bool   `json:"nats_leaf_auth"`         // NATS leafnode has token
 	RedisAuth       bool   `json:"redis_auth"`             // Redis has password
@@ -39,7 +42,19 @@ func NewSecuritySettingsHandler(s store.Store) *SecuritySettingsHandler {
 // @Success 200 {object} SecurityStatus
 // @Router /api/settings/security [get]
 func (h *SecuritySettingsHandler) GetSecurityStatus(w http.ResponseWriter, r *http.Request) {
-	status := SecurityStatus{}
+	status := SecurityStatus{NATSLeafApplies: true}
+
+	if os.Getenv("HUB_MODE") == "kubernetes" {
+		// On the cluster the Hub sees the credentials only through the URLs the
+		// ExternalSecrets render; the compose-era env names do not exist there.
+		status.PlatformManaged = true
+		status.NATSLeafApplies = false // single site, no leafnode
+		status.NATSMQTTAuth = urlHasPassword(os.Getenv("HUB_MQTT_BROKER_URL"))
+		status.RedisAuth = urlHasPassword(os.Getenv("HUB_REDIS_URL"))
+		status.StunnelMTLS = true // k8s/stunnel/configmap.yaml: verify = 2 against the bridge CA
+		writeJSON(w, http.StatusOK, status)
+		return
+	}
 
 	// Check NATS MQTT password.
 	if v := os.Getenv("NATS_MQTT_PASSWORD"); v != "" && v != "changeme" {
@@ -86,6 +101,10 @@ const serviceEnvFile = "/data/secrets/.secrets.env"
 // @Failure 500 {object} map[string]string
 // @Router /api/settings/security/rotate [post]
 func (h *SecuritySettingsHandler) RotateServicePasswords(w http.ResponseWriter, r *http.Request) {
+	if os.Getenv("HUB_MODE") == "kubernetes" {
+		writeError(w, http.StatusConflict, "service passwords are managed by the platform (OpenBao + ExternalSecrets); rotate them there")
+		return
+	}
 	newNATS := generateHexPassword(32)
 	newLeaf := generateHexPassword(32)
 	newRedis := generateHexPassword(32)
@@ -117,4 +136,14 @@ func generateHexPassword(bytes int) string {
 		return "fallback-" + hex.EncodeToString(b[:8])
 	}
 	return hex.EncodeToString(b)
+}
+
+// urlHasPassword reports whether a URL carries a non-empty password in its userinfo.
+func urlHasPassword(raw string) bool {
+	u, err := url.Parse(raw)
+	if err != nil || u.User == nil {
+		return false
+	}
+	pw, ok := u.User.Password()
+	return ok && pw != ""
 }
