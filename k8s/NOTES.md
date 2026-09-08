@@ -22,7 +22,7 @@ Things Argo CD cannot do by itself, in the order they happen. Keep this current.
   (ingress VIP), added the same way as the `omoikane.coach` block. Needed for the in-cluster
   OIDC hairpin (Hub → `auth.meshsat.net` discovery/token). Not in git; re-apply after any
   CoreDNS ConfigMap reset. Status: **TODO at phase 1 apply.**
-- `hub` Deployment `replicas: 0` in git until phase 2 exit; the cutover session bumps it to 1.
+- `hub` Deployment `replicas: 1` since the cutover (2026-09-08); it was 0 until phase 4 passed.
 
 ## First sync checklist (phase 1)
 
