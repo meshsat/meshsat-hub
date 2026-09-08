@@ -73,6 +73,9 @@ func (d *DB) GaleraReady(ctx context.Context) error {
 	return nil
 }
 
+// Ready implements store.ReadinessProber (Galera wsrep_ready, or ping).
+func (d *DB) Ready(ctx context.Context) error { return d.GaleraReady(ctx) }
+
 // Migrate creates all tables. Safe to re-run (IF NOT EXISTS).
 func (d *DB) Migrate(ctx context.Context) error {
 	for i, m := range migrations {
