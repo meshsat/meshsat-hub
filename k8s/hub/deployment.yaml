@@ -53,6 +53,12 @@ spec:
               valueFrom:
                 fieldRef:
                   fieldPath: metadata.namespace
+            # MESHSAT-980: the MQTT client id is suffixed with the pod name so
+            # two replicas never share a broker session.
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
           envFrom:
             - configMapRef:
                 name: hub-config
