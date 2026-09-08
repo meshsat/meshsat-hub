@@ -28,7 +28,7 @@ column and an end-to-end request prove the wiring.
 
 | phase | what changes |
 |---|---|
-| `auth` (phase 3) | `backend meshsat_auth` → the three worker mesh IPs `:8443` with `sni str(auth.meshsat.net)`, health `/-/health/live/`; `use_backend`, `nbsrv` silent-drop guard, `is_authenticated_site` and `tier5a_host` entries for `auth.meshsat.net` |
+| `auth` (phase 3) | `backend meshsat_auth` → the three worker mesh IPs `:8443` with `sni str(auth.meshsat.net)`, health `GET /static/dist/assets/icons/icon.png` (not `/-/health/live/`, which 500s on ~50% of requests behind ingress, MESHSAT-968); `use_backend`, `nbsrv` silent-drop guard, `is_authenticated_site` and `tier5a_host` entries for `auth.meshsat.net` |
 | `cutover` (phase 5) | `auth` + `meshsat_hub` → `:8443` x3 (`sni hub.meshsat.net`, `/healthz`), `meshsat_mqtt` → `:9443` x3, `meshsat_reticulum` → `:4243` x3 (TCP passthrough; Tier 5b reject line untouched) |
 | `rollback` | DMZ backends for hub/mqtt/reticulum restored (NL primary, GR backup); `meshsat_auth` stays |
 
