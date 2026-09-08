@@ -1817,6 +1817,33 @@ func main() {
 	msgScheduler := scheduler.New(dataStore, &scheduledSenderAdapter{rock7: rock7Client}, 30*time.Second)
 	go msgScheduler.Run(ctx)
 
+	// Store maintenance for the single-writer claims (MESHSAT-910): drop
+	// dispatch claims older than a day and fail scheduled sends whose owner
+	// died. Idempotent, so safe on every replica until the leader gate lands.
+	go func() {
+		t := time.NewTicker(10 * time.Minute)
+		defer t.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-t.C:
+				mctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+				if n, err := dataStore.PurgeClaims(mctx, time.Now().Add(-24*time.Hour)); err != nil {
+					slog.Warn("maintenance: purge claims", "error", err)
+				} else if n > 0 {
+					slog.Debug("maintenance: purged claims", "count", n)
+				}
+				if n, err := dataStore.ExpireStaleSends(mctx, 10*time.Minute); err != nil {
+					slog.Warn("maintenance: expire stale sends", "error", err)
+				} else if n > 0 {
+					slog.Warn("maintenance: expired stale scheduled sends", "count", n)
+				}
+				cancel()
+			}
+		}
+	}()
+
 	srv := &http.Server{
 		Addr:              fmt.Sprintf(":%d", cfg.Port),
 		Handler:           r,

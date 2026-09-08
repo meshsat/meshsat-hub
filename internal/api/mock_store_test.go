@@ -373,3 +373,22 @@ func (m *mockStore) UpdateBondGroup(context.Context, string, string, *store.Bond
 func (m *mockStore) DeleteBondGroup(context.Context, string, string, string) error {
 	return nil
 }
+
+// --- Dispatch claims + dead man's switch (MESHSAT-910) ---
+func (m *mockStore) ClaimOnce(context.Context, string) (bool, error)                { return true, nil }
+func (m *mockStore) PurgeClaims(context.Context, time.Time) (int64, error)          { return 0, nil }
+func (m *mockStore) ClaimScheduledMessage(context.Context, string) (bool, error)    { return true, nil }
+func (m *mockStore) ExpireStaleSends(context.Context, time.Duration) (int64, error) { return 0, nil }
+func (m *mockStore) AdvanceAlert(context.Context, string, *store.Alert, time.Time) (bool, error) {
+	return true, nil
+}
+func (m *mockStore) SaveDeadmanConfig(context.Context, string, *store.DeadmanConfig) error {
+	return nil
+}
+func (m *mockStore) GetDeadmanConfig(context.Context, string, string) (*store.DeadmanConfig, error) {
+	return nil, nil
+}
+func (m *mockStore) ListDeadmanConfigs(context.Context) ([]store.DeadmanConfig, error) {
+	return nil, nil
+}
+func (m *mockStore) DeleteDeadmanConfig(context.Context, string, string) error { return nil }

@@ -303,16 +303,17 @@ func TestCheckIn_ClearsAlertFlag(t *testing.T) {
 	// We can't easily set last_seen to old via the store API, but we can verify
 	// that the flag was actually reset by checking it doesn't block future alerts
 	// when combined with the ClearAlert_AllowsRetrigger pattern.
-	m.mu.Lock()
-	alerted := m.alerted["dev7"]
-	m.mu.Unlock()
-	if alerted {
-		t.Error("expected alerted flag to be false after CheckIn")
+	c, err := s.GetDeadmanConfig(ctx, "default", "dev7")
+	if err != nil {
+		t.Fatalf("stored config missing: %v", err)
+	}
+	if c.Alerted {
+		t.Error("expected persisted alerted flag to be false after CheckIn")
 	}
 }
 
 func TestConfigureDisabled_RemovesMonitoring(t *testing.T) {
-	m := NewMonitor(nil, nil)
+	m := NewMonitor(newTestStore(t), nil)
 	m.Configure(Config{DeviceIMEI: "dev1", Enabled: true, Interval: time.Hour})
 	if len(m.ListConfigs()) != 1 {
 		t.Fatal("expected 1 config")
@@ -324,11 +325,30 @@ func TestConfigureDisabled_RemovesMonitoring(t *testing.T) {
 }
 
 func TestRemove_CleansUp(t *testing.T) {
-	m := NewMonitor(nil, nil)
+	m := NewMonitor(newTestStore(t), nil)
 	m.Configure(Config{DeviceIMEI: "dev1", Enabled: true, Interval: time.Hour})
 	m.Snooze("dev1", time.Hour)
 	m.Remove("dev1")
 	if len(m.ListConfigs()) != 0 {
 		t.Fatal("expected 0 configs after remove")
+	}
+}
+
+// TestStatePersistsAcrossMonitors: a second Monitor (another replica or a
+// restart) sees the same config, snooze and alerted state.
+func TestStatePersistsAcrossMonitors(t *testing.T) {
+	s := newTestStore(t)
+	m1 := NewMonitor(s, escalation.New(s, escalation.LogNotifier{}))
+	m1.Configure(Config{DeviceIMEI: "dev9", ChainID: "c", Interval: time.Hour, Grace: time.Minute, Enabled: true})
+	m1.Snooze("dev9", time.Hour)
+
+	m2 := NewMonitor(s, escalation.New(s, escalation.LogNotifier{}))
+	cfgs := m2.ListConfigs()
+	if len(cfgs) != 1 || cfgs[0].DeviceIMEI != "dev9" || cfgs[0].Interval != time.Hour {
+		t.Fatalf("second monitor does not see the config: %+v", cfgs)
+	}
+	c, err := s.GetDeadmanConfig(context.Background(), "default", "dev9")
+	if err != nil || c.SnoozedUntil.IsZero() {
+		t.Fatalf("snooze not persisted: %v %+v", err, c)
 	}
 }

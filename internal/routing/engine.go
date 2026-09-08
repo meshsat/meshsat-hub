@@ -69,11 +69,18 @@ func (e *Engine) handleMODecoded(topic string, payload []byte) {
 
 	// Extract source channel from message.
 	var msg struct {
+		ID      string `json:"id"`
 		Channel string `json:"channel"`
 		Text    string `json:"text"`
 	}
 	if err := json.Unmarshal(payload, &msg); err != nil {
 		return
+	}
+	// Stable message identity for the dispatch claim: the publisher's id, else
+	// a hash of topic+payload that every replica derives identically.
+	msgID := msg.ID
+	if msgID == "" {
+		msgID = hubmqtt.FallbackMessageID(topic, payload)
 	}
 
 	sourceType := msg.Channel
@@ -108,8 +115,24 @@ func (e *Engine) handleMODecoded(topic string, payload []byte) {
 			continue
 		}
 
+		// Exactly one replica dispatches a given (message, route) pair: the
+		// claim is a primary-key insert, so a second replica (or a redelivery)
+		// gets false. On a store error we skip rather than risk a double send.
+		claimKey := "route:" + e.tenantID + ":" + msgID + ":" + route.ID
+		claimCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		won, err := e.store.ClaimOnce(claimCtx, claimKey)
+		cancel()
+		if err != nil {
+			slog.Error("routing: claim failed, not dispatching", "route", route.Name, "message", msgID, "error", err)
+			continue
+		}
+		if !won {
+			slog.Debug("routing: already dispatched by another replica", "route", route.Name, "message", msgID)
+			continue
+		}
+
 		slog.Info("routing: route matched", "route", route.Name, "dest", route.DestinationType,
-			"device", deviceID, "source", sourceType)
+			"device", deviceID, "source", sourceType, "message", msgID)
 		handler(context.Background(), route, deviceID, json.RawMessage(payload))
 	}
 }

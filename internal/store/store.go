@@ -198,6 +198,28 @@ type Store interface {
 	UpdateAlertRule(ctx context.Context, tenantID string, r *AlertRule) error
 	DeleteAlertRule(ctx context.Context, tenantID string, id string) error
 
+	// Dispatch claims (single-writer correctness across replicas, MESHSAT-711).
+	// ClaimOnce records key atomically; exactly one caller across all replicas
+	// gets true for a given key. PurgeClaims drops claims older than before.
+	ClaimOnce(ctx context.Context, key string) (bool, error)
+	PurgeClaims(ctx context.Context, before time.Time) (int64, error)
+	// ClaimScheduledMessage moves a due message from "scheduled" to "sending";
+	// only the replica that flipped the status gets true. ExpireStaleSends
+	// fails "sending" rows whose claim is older than olderThan (a replica died).
+	ClaimScheduledMessage(ctx context.Context, id string) (bool, error)
+	ExpireStaleSends(ctx context.Context, olderThan time.Duration) (int64, error)
+	// AdvanceAlert writes a's state/tier/retries/next_esc_at only if the stored
+	// next_esc_at still equals expectedNextEscAt (compare-and-set); false means
+	// another replica already advanced this alert.
+	AdvanceAlert(ctx context.Context, tenantID string, a *Alert, expectedNextEscAt time.Time) (bool, error)
+
+	// Dead man's switch configs (persisted so every replica and every pod
+	// restart sees the same state).
+	SaveDeadmanConfig(ctx context.Context, tenantID string, c *DeadmanConfig) error
+	GetDeadmanConfig(ctx context.Context, tenantID string, deviceIMEI string) (*DeadmanConfig, error)
+	ListDeadmanConfigs(ctx context.Context) ([]DeadmanConfig, error)
+	DeleteDeadmanConfig(ctx context.Context, tenantID string, deviceIMEI string) error
+
 	// Credential management (MESHSAT-356)
 	CreateCredential(ctx context.Context, tenantID string, c *Credential) error
 	GetCredential(ctx context.Context, tenantID string, id string) (*Credential, error)
@@ -407,6 +429,19 @@ type Alert struct {
 	NextEscAt   time.Time `json:"next_esc_at"` // when to escalate to next tier
 	CreatedAt   time.Time `json:"created_at"`
 	UpdatedAt   time.Time `json:"updated_at"`
+}
+
+// DeadmanConfig is the persisted dead man's switch state for one device.
+type DeadmanConfig struct {
+	DeviceIMEI   string    `json:"device_imei"`
+	TenantID     string    `json:"tenant_id,omitempty"`
+	ChainID      string    `json:"chain_id"`
+	IntervalSec  int       `json:"interval_sec"`
+	GraceSec     int       `json:"grace_sec"`
+	Enabled      bool      `json:"enabled"`
+	SnoozedUntil time.Time `json:"snoozed_until,omitempty"`
+	Alerted      bool      `json:"alerted"`
+	UpdatedAt    time.Time `json:"updated_at"`
 }
 
 // NotificationPref stores per-device Apprise notification URLs and settings.
