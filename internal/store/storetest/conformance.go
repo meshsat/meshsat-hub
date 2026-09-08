@@ -221,6 +221,13 @@ func testAuditLog(t *testing.T, db store.Store) {
 	if err != nil || len(entries) != 2 {
 		t.Fatalf("list: %v %d", err, len(entries))
 	}
+	// limit 0 = the whole chain (audit.VerifyChain relies on it); limit 1 = newest only.
+	if all, err := db.ListAuditEntries(ctx, tenant, 0); err != nil || len(all) != 2 {
+		t.Fatalf("list limit 0 must return every entry: %v %d", err, len(all))
+	}
+	if one, err := db.ListAuditEntries(ctx, tenant, 1); err != nil || len(one) != 1 || one[0].Hash != "h2" {
+		t.Fatalf("list limit 1: %v %+v", err, one)
+	}
 	latest, err := db.GetLatestAuditEntry(ctx, tenant)
 	if err != nil || latest.Hash != "h2" {
 		t.Fatalf("latest: %v %+v", err, latest)
