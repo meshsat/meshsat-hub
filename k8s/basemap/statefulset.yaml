@@ -79,9 +79,15 @@ spec:
                 --maxzoom="$MAXZOOM" --bbox="$BBOX"
               mv "/data/$ARCHIVE.partial" "/data/$ARCHIVE"
               echo "basemap: built $(du -h "/data/$ARCHIVE" | cut -f1)"
+          env:
+            # The extractor is Go, and left alone the runtime grows its heap
+            # until the cgroup kills it: a 1Gi limit died 34 seconds in. A soft
+            # limit under the hard one makes the collector work instead, so the
+            # build stays inside its bounds rather than being killed at 40 GB.
+            - {name: GOMEMLIMIT, value: "3000MiB"}
           resources:
             requests: {memory: 256Mi, cpu: 200m}
-            limits: {memory: 1Gi}
+            limits: {memory: 4Gi}
           volumeMounts:
             - {name: data, mountPath: /data}
       containers:
