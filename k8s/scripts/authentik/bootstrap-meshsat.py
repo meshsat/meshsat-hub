@@ -287,6 +287,25 @@ for order, st in ((10, st_account), (20, st_details), (30, st_write), (40, st_em
         b.order = order
         b.save()
 FlowStageBinding.objects.filter(target=enroll).exclude(stage__in=[st_account, st_details, st_write, st_email, st_marker, st_write_marker]).delete()
+
+# Gated registration (MESHSAT-978): the address the signup came from is kept on
+# the user (attributes.signup_ip) so approval can admit it on the edge
+# (k8s/scripts/edge/whitelist-ip.sh). Bound to the user_write binding, the
+# policy runs right before the user row is written; ingress-nginx sets
+# X-Forwarded-For from the VPS/relay hop (proxy-real-ip-cidr, phase 0).
+SIGNUP_IP_EXPR = (
+    'meta = request.http_request.META\n'
+    'ip = (meta.get("HTTP_X_FORWARDED_FOR") or "").split(",")[0].strip() or meta.get("REMOTE_ADDR", "")\n'
+    'request.context.setdefault("prompt_data", {})["attributes.signup_ip"] = ip\n'
+    'return True\n'
+)
+signup_ip_policy, _ = ExpressionPolicy.objects.get_or_create(name="meshsat-enrollment-signup-ip", defaults={"expression": SIGNUP_IP_EXPR})
+if signup_ip_policy.expression != SIGNUP_IP_EXPR:
+    signup_ip_policy.expression = SIGNUP_IP_EXPR
+    signup_ip_policy.save()
+write_binding = FlowStageBinding.objects.get(target=enroll, stage=st_write)
+PolicyBinding.objects.get_or_create(policy=signup_ip_policy, target=write_binding, defaults={"order": 0, "enabled": True})
+note("signup_ip policy bound to the enrollment user_write stage")
 note(f"flow meshsat-enrollment {'created' if e_created else 'ok'}")
 
 # ---------------------------------------------------------------- authentication flow (brand-specific, links enrollment)
