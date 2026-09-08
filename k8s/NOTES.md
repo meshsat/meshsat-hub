@@ -176,6 +176,15 @@ the archive underneath it was perfectly fine. emptyDirs at `/var/cache/nginx`
 and `/tmp` pick up the fsGroup and cost nothing. Watch for this in any pod that
 pairs this image with a nonroot uid.
 
+**Replicas copy from each other, not from the planet.** The first build pulled
+40 GB in 5m08s; the second, an hour later from the same egress address, was
+rate limited to 464 KB/s, which is 23 hours. build.protomaps.com is a free
+community service and throttling a repeat 40 GB pull is entirely fair of it. So
+the init container asks the `basemap` Service first and only falls back to the
+planet when no peer is serving yet. Scaling out, or replacing a lost machine,
+now costs one LAN copy. A genuinely cold set still goes to the planet, one
+replica at a time, which is the case the throttle exists for.
+
 The map reads two archives. The **world** one lives in the object store and the Hub streams it
 at `/basemap/basemap.pmtiles`; it stops at zoom 11, which is as deep as a global archive can be
 and still fit there. The **deep** one is Europe to zoom 15, which is the zoom where street names
