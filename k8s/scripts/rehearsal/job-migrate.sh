@@ -31,7 +31,7 @@ spec:
           image: $IMAGE
           # hub-secrets carries HUB_DATABASE_URL for meshsat-hub-main-rw; point the same
           # credentials at the requested rw Service (drill cluster or main).
-          command: ["sh", "-c", "export HUB_DATABASE_URL=\"$(printf '%s' \"$HUB_DATABASE_URL\" | sed 's/meshsat-hub-main-rw/$RW/')\"; exec meshsat-hub --migrate-only"]
+          command: ["sh", "-c", "export HUB_DATABASE_URL=\"\$(printf '%s' \"\$HUB_DATABASE_URL\" | sed 's/meshsat-hub-main-rw/$RW/')\"; exec meshsat-hub --migrate-only"]
           envFrom:
             - configMapRef: {name: hub-config}
             - secretRef: {name: hub-secrets}

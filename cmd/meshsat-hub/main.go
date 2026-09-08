@@ -178,7 +178,11 @@ func main() {
 		msgBus = paho.New(cfg.MQTTBrokerURL, cfg.MQTTClientID)
 	}
 	msgBus = bus.NewObservedBus(msgBus) // Wrap with metrics instrumentation.
-	if err := msgBus.Connect(); err != nil {
+	if migrateOnly() {
+		// --migrate-only needs the store only; do not spend the retry budget
+		// on a broker the migration Job cannot reach anyway.
+		slog.Info("migrate-only: skipping message bus connect")
+	} else if err := msgBus.Connect(); err != nil {
 		slog.Warn("bus connection failed (will retry in background)", "error", err)
 	}
 	checker.AddInfoProbe("mqtt", func(_ context.Context) error {
