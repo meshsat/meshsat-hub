@@ -55,5 +55,9 @@ else:
         'Docs: <a href="https://meshsat.net/docs/">meshsat.net/docs</a></p>'
         "<p>Your first sign-in creates your organisation on the Hub; the Fleet page walks you through adding a bridge.</p>"
     )
-    sent = send_mail("Your MeshSat Hub beta access is approved", body, None, [user.email], html_message=html, fail_silently=False)
-    print(f"approved {email} as {role}; activation email sent={sent}")
+    # The account is active from here; a mail failure must not look like a failed approval.
+    try:
+        sent = send_mail("Your MeshSat Hub beta access is approved", body, None, [user.email], html_message=html, fail_silently=False)
+        print(f"approved {email} as {role}; activation email sent={sent}")
+    except Exception as exc:  # noqa: BLE001
+        print(f"approved {email} as {role}; activation email FAILED ({exc!r}) - tell them by hand")
