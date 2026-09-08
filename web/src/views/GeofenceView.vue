@@ -1,6 +1,6 @@
 <script setup>
 import { ref, onMounted, onUnmounted, watch } from 'vue'
-import { createMap, setMapTheme, maplibregl } from '../map/basemap'
+import { createMap, setMapTheme, probeLocalArchive, maplibregl } from '../map/basemap'
 import { useThemeStore } from '../stores/theme'
 import { geofences } from '../api/client'
 
@@ -194,6 +194,8 @@ function cancelDrawing() {
 }
 
 onMounted(async () => {
+  // Resolve the deeper regional archive first: the style is built once.
+  await probeLocalArchive()
   map = createMap({
     container: mapContainer.value,
     center: [4.9, 52.37],
