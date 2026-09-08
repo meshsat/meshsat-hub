@@ -1,0 +1,72 @@
+# meshsat-hub-main: the Hub's PostgreSQL cluster (CNPG). Replaces MariaDB Galera
+# (NL + GR + garbd; 20 incidents) for MESHSAT-864. 3 instances on the control-plane
+# tier, quorum-synchronous (1 sync replica required): a single-node loss neither
+# blocks writes nor loses acknowledged commits. Same template as omoikane-main.
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: meshsat-hub-main
+  namespace: meshsat-hub-db
+  labels:
+    app.kubernetes.io/name: meshsat-hub-main
+spec:
+  instances: 3
+  primaryUpdateStrategy: unsupervised
+
+  postgresql:
+    parameters:
+      synchronous_commit: "on"
+      max_connections: "200"
+  minSyncReplicas: 1
+  maxSyncReplicas: 1
+
+  storage:
+    size: 10Gi
+    storageClass: local-hostpath-retain
+
+  # DB pods on the control-plane nodes (dmz03/04/05), one instance per node.
+  # Never on dmz06 (81% disk, memory-saturated) — the CP selector guarantees it.
+  affinity:
+    enablePodAntiAffinity: true
+    topologyKey: kubernetes.io/hostname
+    nodeSelector:
+      node-role.kubernetes.io/control-plane: ""
+    tolerations:
+      - key: node-role.kubernetes.io/control-plane
+        operator: Exists
+        effect: NoSchedule
+
+  # barman owns DB backups; Velero must NOT fs-copy pgdata.
+  inheritedMetadata:
+    annotations:
+      backup.velero.io/backup-volumes-excludes: pgdata
+
+  bootstrap:
+    initdb:
+      database: meshsat_hub
+      owner: meshsat
+      secret:
+        name: meshsat-hub-db-credentials
+
+  managed:
+    roles:
+      - name: meshsat
+        ensure: present
+        login: true
+        passwordSecret:
+          name: db-role-meshsat
+
+  backup:
+    barmanObjectStore:
+      destinationPath: s3://cnpg-meshsat-hub
+      endpointURL: https://nl-s3.nuclearlighters.net
+      s3Credentials:
+        accessKeyId:
+          name: cnpg-barman-creds
+          key: ACCESS_KEY_ID
+        secretAccessKey:
+          name: cnpg-barman-creds
+          key: SECRET_ACCESS_KEY
+      wal:
+        compression: gzip
+    retentionPolicy: "14d"

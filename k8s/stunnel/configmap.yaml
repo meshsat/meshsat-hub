@@ -1,0 +1,28 @@
+# deploy/stunnel/reticulum.conf translated for the cluster: TLS termination with
+# bridge client certificate verification, forwarding raw HDLC to the Hub's
+# Reticulum TCP listener. Same bridge CA as NATS (Secret meshsat-bridge-ca).
+# Certificate renewals need a rollout restart (stunnel reads files at start).
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: stunnel-config
+  namespace: meshsat-hub
+  labels:
+    app.kubernetes.io/name: stunnel
+data:
+  stunnel.conf: |
+    foreground = yes
+    pid = /tmp/stunnel.pid
+    debug = 4
+    sslVersion = TLSv1.2
+    options = NO_SSLv2
+    options = NO_SSLv3
+
+    [reticulum]
+    accept = 0.0.0.0:4243
+    connect = hub.meshsat-hub.svc.cluster.local:4242
+    cert = /etc/stunnel/tls/tls.crt
+    key = /etc/stunnel/tls/tls.key
+    CAfile = /etc/stunnel/bridge-ca/ca.crt
+    verify = 2
+    verifyChain = yes

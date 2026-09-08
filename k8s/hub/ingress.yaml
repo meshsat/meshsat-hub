@@ -1,0 +1,38 @@
+# hub.meshsat.net -> hub:6070. tls block with the ES-provided wildcard (needed for
+# the in-cluster hairpin through CoreDNS; the edge re-encrypts with verify + SNI).
+# 3600s proxy timeouts for the SSE/long-poll surfaces, 16m body for uploads.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: hub
+  namespace: meshsat-hub
+  labels:
+    app.kubernetes.io/name: hub
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-body-size: "16m"
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts:
+        - hub.meshsat.net
+      secretName: meshsat-net-tls
+  rules:
+    - host: hub.meshsat.net
+      http:
+        paths:
+          - path: /metrics
+            pathType: Exact
+            backend:
+              service:
+                name: hub-metrics-deny
+                port:
+                  number: 6070
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: hub
+                port:
+                  number: 6070
