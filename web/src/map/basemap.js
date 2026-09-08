@@ -59,6 +59,15 @@ function mapTheme(dark) {
   const base = namedTheme(dark ? 'dark' : 'light')
   const bg = token('--ms-bg', dark ? '#14120f' : '#f7f5f2')
   const well = token('--ms-well', dark ? '#1a1714' : '#efebe5')
+  // Label colours have to come from the brand tokens as well. The theme's own
+  // are tuned for the background it ships with, and against ours the minor
+  // road names sat at 2.4:1 and the state names at 1.7:1 -- rendered, but
+  // legible only if you already knew what they said. Text takes the secondary
+  // token and halos take the map background, so a name stays readable where it
+  // crosses water or a park. Minor stays a step below major so the hierarchy
+  // survives the lift: 9.6:1 against 13.2:1 on the dark map.
+  const label = token('--ms-text2', dark ? '#ded8cf' : '#2a2622')
+  const labelMuted = token(dark ? '--ms-muted2' : '--ms-muted', dark ? '#c4b8a8' : '#5c544a')
   return {
     ...base,
     background: bg,
@@ -68,6 +77,22 @@ function mapTheme(dark) {
     park_b: well,
     wood_a: well,
     wood_b: well,
+    roads_label_minor: labelMuted,
+    roads_label_minor_halo: bg,
+    roads_label_major: label,
+    roads_label_major_halo: bg,
+    address_label: labelMuted,
+    address_label_halo: bg,
+    subplace_label: labelMuted,
+    subplace_label_halo: bg,
+    city_label: label,
+    city_label_halo: bg,
+    state_label: labelMuted,
+    state_label_halo: bg,
+    country_label: label,
+    waterway_label: labelMuted,
+    ocean_label: labelMuted,
+    peak_label: labelMuted,
   }
 }
 
