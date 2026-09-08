@@ -64,6 +64,7 @@ import (
 	"github.com/meshsat/meshsat-hub/internal/sms"
 	"github.com/meshsat/meshsat-hub/internal/sos"
 	"github.com/meshsat/meshsat-hub/internal/store"
+	"github.com/meshsat/meshsat-hub/internal/store/dbwrap"
 	"github.com/meshsat/meshsat-hub/internal/store/mariadb"
 	"github.com/meshsat/meshsat-hub/internal/store/sqlite"
 	"github.com/meshsat/meshsat-hub/internal/tak"
@@ -186,6 +187,7 @@ func main() {
 	})
 
 	// --- Store (tri-mode) ---
+	dbwrap.SetDefaultMaxAttempts(cfg.DBRetryMaxAttempts)
 	var dataStore store.Store
 	var clusterMonitor *cluster.Monitor
 	switch cfg.Mode {

@@ -149,13 +149,14 @@ type Config struct {
 	WGPassword string `yaml:"wg_password"` // wg-easy web UI password
 
 	// Observability
-	PprofEnabled       bool   `yaml:"pprof_enabled"`        // Enable /debug/pprof/* endpoints (default false)
-	DBSlowQueryMS      int    `yaml:"db_slow_query_ms"`     // Slow query threshold in milliseconds (default 100)
-	AuditRetentionDays int    `yaml:"audit_retention_days"` // Days to keep audit log entries (default 90, 0=disabled)
-	AuditArchivePath   string `yaml:"audit_archive_path"`   // Path to archive purged audit entries as JSONL (empty=no archive)
-	HealthProbeTimeout string `yaml:"health_probe_timeout"` // Health probe timeout duration (default "3s")
-	OTelEndpoint       string `yaml:"otel_endpoint"`        // OTLP HTTP endpoint (empty=disabled)
-	OTelServiceName    string `yaml:"otel_service_name"`    // OTel service name (default "meshsat-hub")
+	PprofEnabled       bool   `yaml:"pprof_enabled"`         // Enable /debug/pprof/* endpoints (default false)
+	DBSlowQueryMS      int    `yaml:"db_slow_query_ms"`      // Slow query threshold in milliseconds (default 100)
+	DBRetryMaxAttempts int    `yaml:"db_retry_max_attempts"` // Bound on transient DB error retries per operation (default 8)
+	AuditRetentionDays int    `yaml:"audit_retention_days"`  // Days to keep audit log entries (default 90, 0=disabled)
+	AuditArchivePath   string `yaml:"audit_archive_path"`    // Path to archive purged audit entries as JSONL (empty=no archive)
+	HealthProbeTimeout string `yaml:"health_probe_timeout"`  // Health probe timeout duration (default "3s")
+	OTelEndpoint       string `yaml:"otel_endpoint"`         // OTLP HTTP endpoint (empty=disabled)
+	OTelServiceName    string `yaml:"otel_service_name"`     // OTel service name (default "meshsat-hub")
 }
 
 // Defaults returns a Config with sensible default values.
@@ -178,6 +179,7 @@ func Defaults() Config {
 		ReticulumTCPAddr:      ":4242",
 		BridgeOfflineTimeout:  300, // 5 minutes
 		DBSlowQueryMS:         100,
+		DBRetryMaxAttempts:    8,
 		AuditRetentionDays:    90,
 		HealthProbeTimeout:    "3s",
 		OTelServiceName:       "meshsat-hub",
@@ -530,6 +532,11 @@ func Load() (Config, error) {
 	if v := os.Getenv("HUB_DB_SLOW_QUERY_MS"); v != "" {
 		if n, err := strconv.Atoi(v); err == nil {
 			cfg.DBSlowQueryMS = n
+		}
+	}
+	if v := os.Getenv("HUB_DB_RETRY_MAX_ATTEMPTS"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n >= 1 {
+			cfg.DBRetryMaxAttempts = n
 		}
 	}
 	if v := os.Getenv("HUB_AUDIT_RETENTION_DAYS"); v != "" {

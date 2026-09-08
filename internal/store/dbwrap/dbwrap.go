@@ -4,12 +4,9 @@ package dbwrap
 import (
 	"context"
 	"database/sql"
-	"errors"
 	"log/slog"
-	"math"
 	"time"
 
-	"github.com/go-sql-driver/mysql"
 	"github.com/meshsat/meshsat-hub/internal/observability"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
@@ -32,10 +29,22 @@ var (
 		Help: "Total slow database queries.",
 	}, []string{"store"})
 
+	// Deprecated alias kept for one release: incremented only for reason
+	// wsrep_1047. Dashboards should move to meshsat_hub_db_transient_retries_total.
 	dbWSREPRetries = promauto.NewCounter(prometheus.CounterOpts{
 		Name: "meshsat_hub_db_wsrep_retries_total",
-		Help: "Total WSREP 1047 retry attempts (Galera view transition).",
+		Help: "Total WSREP 1047 retry attempts (Galera view transition). Deprecated: use meshsat_hub_db_transient_retries_total.",
 	})
+
+	dbTransientRetries = promauto.NewCounterVec(prometheus.CounterOpts{
+		Name: "meshsat_hub_db_transient_retries_total",
+		Help: "Total retries of transient database errors by store and reason.",
+	}, []string{"store", "reason"})
+
+	dbRetriesExhausted = promauto.NewCounterVec(prometheus.CounterOpts{
+		Name: "meshsat_hub_db_retries_exhausted_total",
+		Help: "Total operations that gave up after the retry budget was spent.",
+	}, []string{"store", "reason"})
 )
 
 // SQLDB defines the subset of *sql.DB methods used by store implementations.
@@ -53,23 +62,27 @@ type ObservedDB struct {
 	inner         SQLDB
 	storeName     string
 	slowThreshold time.Duration
+	// MaxAttempts bounds transient-error retries for this store. Zero means
+	// the package default (see SetDefaultMaxAttempts).
+	MaxAttempts int
 }
 
-// NewObservedDB wraps a SQLDB with instrumentation.
-// storeName should be "sqlite" or "mariadb".
+// NewObservedDB wraps a SQLDB with instrumentation and bounded transient-error
+// retries. storeName should be "sqlite", "mariadb" or "postgres".
 // slowThreshold is the duration above which a query is logged as slow (0 = disabled).
 func NewObservedDB(db SQLDB, storeName string, slowThreshold time.Duration) *ObservedDB {
 	return &ObservedDB{
 		inner:         db,
 		storeName:     storeName,
 		slowThreshold: slowThreshold,
+		MaxAttempts:   DefaultMaxAttempts(),
 	}
 }
 
 func (o *ObservedDB) ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error) {
 	start := time.Now()
 	var result sql.Result
-	err := o.retryOnWSREP(ctx, "exec", func() error {
+	err := o.retryTransient(ctx, "exec", func() error {
 		var e error
 		result, e = o.inner.ExecContext(ctx, query, args...)
 		return e
@@ -81,7 +94,7 @@ func (o *ObservedDB) ExecContext(ctx context.Context, query string, args ...any)
 func (o *ObservedDB) QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error) {
 	start := time.Now()
 	var rows *sql.Rows
-	err := o.retryOnWSREP(ctx, "query", func() error {
+	err := o.retryTransient(ctx, "query", func() error {
 		var e error
 		rows, e = o.inner.QueryContext(ctx, query, args...)
 		return e
@@ -112,55 +125,6 @@ func (o *ObservedDB) Stats() sql.DBStats {
 // Inner returns the underlying SQLDB for operations that need the raw connection.
 func (o *ObservedDB) Inner() SQLDB {
 	return o.inner
-}
-
-// isWSREPNotReady returns true if the error is MySQL 1047 (WSREP has not yet
-// prepared node for application use). This transient error occurs during Galera
-// view transitions and typically resolves within seconds.
-func isWSREPNotReady(err error) bool {
-	var mysqlErr *mysql.MySQLError
-	if errors.As(err, &mysqlErr) {
-		return mysqlErr.Number == 1047
-	}
-	return false
-}
-
-// wsrepBackoff returns the backoff duration for the given attempt (0-indexed).
-// Exponential: 1s, 2s, 4s, 8s, 16s, 32s, 60s cap.
-func wsrepBackoff(attempt int) time.Duration {
-	d := time.Duration(math.Pow(2, float64(attempt))) * time.Second
-	if d > 60*time.Second {
-		d = 60 * time.Second
-	}
-	return d
-}
-
-// retryOnWSREP runs fn and retries with exponential backoff if the error is
-// WSREP 1047 (Galera view transition). Retries indefinitely until the error
-// clears or the context is cancelled.
-func (o *ObservedDB) retryOnWSREP(ctx context.Context, operation string, fn func() error) error {
-	err := fn()
-	for attempt := 0; isWSREPNotReady(err); attempt++ {
-		backoff := wsrepBackoff(attempt)
-		dbWSREPRetries.Inc()
-		slog.Warn("wsrep 1047: retrying",
-			"store", o.storeName,
-			"operation", operation,
-			"attempt", attempt+1,
-			"backoff", backoff,
-		)
-		t := time.NewTimer(backoff)
-		select {
-		case <-ctx.Done():
-			t.Stop()
-		case <-t.C:
-		}
-		if ctx.Err() != nil {
-			break
-		}
-		err = fn()
-	}
-	return err
 }
 
 func (o *ObservedDB) record(operation string, start time.Time, err error) {
