@@ -1,0 +1,4 @@
+{"type":"FeatureCollection","features":[
+ {"type":"Feature","properties":{"name":"netherlands"},"geometry":{"type":"Polygon","coordinates":[[[3.2,50.7],[7.3,50.7],[7.3,53.7],[3.2,53.7],[3.2,50.7]]]}},
+ {"type":"Feature","properties":{"name":"greece"},"geometry":{"type":"Polygon","coordinates":[[[19.3,34.8],[28.3,34.8],[28.3,41.8],[19.3,41.8],[19.3,34.8]]]}}
+]}
