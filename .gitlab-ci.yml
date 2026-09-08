@@ -4,6 +4,7 @@ stages:
   - test
   - build
   - package
+  - deploy      # bump_k8s_pin: rewrites the image digest in k8s/kustomization.yaml (Argo CD deploys)
   - pages
   - release
 
