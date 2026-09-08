@@ -1,6 +1,7 @@
 package email
 
 import (
+	"crypto/subtle"
 	"encoding/json"
 	"log/slog"
 	"net/http"
@@ -27,6 +28,18 @@ type InboundEmail struct {
 type WebhookHandler struct {
 	mqtt    bus.MessageBus
 	keyRing *KeyRing
+	secret  string // shared secret (X-Webhook-Secret or ?secret=); empty = every request refused
+}
+
+// SetSecret configures the shared secret the email service must present (MESHSAT-976).
+func (h *WebhookHandler) SetSecret(s string) { h.secret = s }
+
+func (h *WebhookHandler) secretOK(r *http.Request) bool {
+	got := r.Header.Get("X-Webhook-Secret")
+	if got == "" {
+		got = r.URL.Query().Get("secret")
+	}
+	return got != "" && subtle.ConstantTimeCompare([]byte(got), []byte(h.secret)) == 1
 }
 
 // NewWebhookHandler creates a new inbound email webhook handler.
@@ -43,10 +56,23 @@ func NewWebhookHandler(mqtt bus.MessageBus, kr *KeyRing) *WebhookHandler {
 //	@Produce      json
 //	@Success      200
 //	@Failure      400  {object}  map[string]string
+//	@Failure      401  {object}  map[string]string
+//	@Failure      403  {object}  map[string]string
 //	@Router       /api/webhook/email [post]
 func (h *WebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, `{"error":"method not allowed"}`, http.StatusMethodNotAllowed)
+		return
+	}
+
+	if h.secret == "" {
+		slog.Warn("email: webhook secret not configured, rejecting request")
+		http.Error(w, `{"error":"webhook secret not configured"}`, http.StatusForbidden)
+		return
+	}
+	if !h.secretOK(r) {
+		slog.Warn("email: webhook secret missing or wrong", "remote", r.RemoteAddr)
+		http.Error(w, `{"error":"unauthorized"}`, http.StatusUnauthorized)
 		return
 	}
 
