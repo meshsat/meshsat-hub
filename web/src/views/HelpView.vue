@@ -40,7 +40,6 @@
           <div><strong class="text-gray-300">Webhooks</strong> — Outbound webhook dispatcher. Forward device events to external HTTP endpoints with delivery logs and retry.</div>
 
           <div class="font-display text-[10px] text-gray-500 uppercase tracking-wider mt-3">Infrastructure</div>
-          <div><strong class="text-gray-300">Cluster</strong> — MariaDB Galera cluster health: node status, sync state, remediation actions (force resync, flush tables, desynced node).</div>
           <div><strong class="text-gray-300">Network</strong> — Satellite constellation status (Iridium, Globalstar) and MPTCP concentrator configuration.</div>
           <div><strong class="text-gray-300">Topology</strong> — Reticulum transport layer: hub identity, transport interfaces, routing table, relay statistics.</div>
           <div><strong class="text-gray-300">OTA</strong> — Over-the-air firmware updates for field devices via hawkBit. Register targets, create rollouts, monitor deployments.</div>

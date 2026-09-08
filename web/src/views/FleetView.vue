@@ -385,7 +385,7 @@ function certExpiryStatus(b) {
       <div class="flex items-center gap-2">
         <button @click="regenerateACL" :disabled="aclLoading"
           class="text-xs px-3 py-1.5 rounded border border-gray-600 text-gray-400 hover:text-gray-200 hover:border-gray-500 transition-colors disabled:opacity-50">
-          {{ aclLoading ? 'Regenerating...' : 'Regenerate ACL' }}
+          {{ aclLoading ? 'Re-rendering...' : 'Re-render NATS users' }}
         </button>
         <span v-if="aclResult" class="text-xs text-ms-success">{{ aclResult.bridges_configured }} bridges configured</span>
         <button @click="showAddForm = !showAddForm"

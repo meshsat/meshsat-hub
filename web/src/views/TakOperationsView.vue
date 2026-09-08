@@ -15,6 +15,7 @@ const loading = ref(true)
 const fleetStatus = ref(null)
 const fedPeers = ref({ enabled: false, peers: [], total_in: 0, total_out: 0, peer_count: 0 })
 const missions = ref([])
+const missionsAvailable = ref(true)
 const bridgeList = ref([])
 const intList = ref([])
 const chatMessages = ref([])
@@ -43,7 +44,10 @@ async function loadAll() {
   ])
   fleetStatus.value = results[0].status === 'fulfilled' ? results[0].value : null
   fedPeers.value = results[1].status === 'fulfilled' ? results[1].value : fedPeers.value
-  missions.value = results[2].status === 'fulfilled' && Array.isArray(results[2].value) ? results[2].value : []
+  // The Hub answers {missions, available}; older builds answered a bare array.
+  const mres = results[2].status === 'fulfilled' ? results[2].value : null
+  missions.value = Array.isArray(mres) ? mres : (mres?.missions || [])
+  missionsAvailable.value = mres ? (Array.isArray(mres) || mres.available !== false) : false
   bridgeList.value = results[3].status === 'fulfilled' && Array.isArray(results[3].value) ? results[3].value : []
   intList.value = results[4].status === 'fulfilled' && Array.isArray(results[4].value) ? results[4].value : []
   loading.value = false
@@ -156,6 +160,7 @@ function cotTypeName(t) {
 
       <!-- MISSIONS -->
       <div v-if="activeTab === 'missions'">
+        <p v-if="!missionsAvailable" class="text-xs text-gray-500 mb-3">This TAK server does not expose the Marti mission API; missions are not available here.</p>
         <div v-if="!fleetStatus?.tak_enabled" class="p-8 text-center text-gray-500 text-sm">
           TAK gateway disabled — enable to view missions
         </div>

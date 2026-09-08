@@ -1,12 +1,15 @@
 package tak
 
 import (
+	"bytes"
 	"crypto/tls"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
+	"strings"
 	"time"
 )
 
@@ -58,6 +61,11 @@ func NewMartiProxy(takHost string, takPort int, takSSL bool, insecureTLS bool) *
 	}
 }
 
+// ErrMartiUnavailable means the TAK server answered the Marti API with a web
+// page instead of JSON (OpenTAKServer serves its UI there): the mission API
+// is not available on that server.
+var ErrMartiUnavailable = errors.New("marti proxy: mission API not available on this TAK server")
+
 // ListMissions returns all missions from the TAK Server.
 func (p *MartiProxy) ListMissions() ([]MartiMission, error) {
 	resp, err := p.client.Get(p.baseURL + "/Marti/api/missions")
@@ -71,8 +79,15 @@ func (p *MartiProxy) ListMissions() ([]MartiMission, error) {
 		return nil, fmt.Errorf("marti proxy: %d: %s", resp.StatusCode, string(body))
 	}
 
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 4<<20))
+	if err != nil {
+		return nil, fmt.Errorf("marti proxy: read: %w", err)
+	}
+	if ct := resp.Header.Get("Content-Type"); strings.Contains(ct, "text/html") || bytes.HasPrefix(bytes.TrimSpace(body), []byte("<")) {
+		return nil, ErrMartiUnavailable
+	}
 	var result MartiMissionsResponse
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+	if err := json.Unmarshal(body, &result); err != nil {
 		return nil, fmt.Errorf("marti proxy: decode: %w", err)
 	}
 
