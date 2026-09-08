@@ -39,11 +39,14 @@ has its own `kustomization.yaml`. A service dir contains, as applicable: `deploy
 - Probes: Hub `startupz`/`readyz`/`healthz`; NATS `/healthz` on the monitor port; Redis
   `redis-cli ping` with `REDISCLI_AUTH` (password never in argv); TCP for stunnel/relay.
 - **Placement rule: no Hub volume on `notrf01dmz06`** (81% disk, memory-saturated). Every
-  PVC-bearing pod (hub, nats, redis) carries a `required` nodeAffinity `hostname NotIn
-  [notrf01dmz06]` + worker. `preferred` guarantees nothing: LocalPV binds permanently on first
-  schedule. CNPG runs on the control-plane tier.
-- Replicas: hub x1 + `Recreate` until the single-writer work is proven on the cluster (plan
-  phase 7), then x2 + PDB. NATS/Redis/stunnel x1.
+  PVC-bearing pod (nats, redis) carries a `required` nodeAffinity `hostname NotIn
+  [notrf01dmz06]` + worker, and so does the hub, which has no volume since the audit archive
+  moved to the S3 sink (MESHSAT-711). `preferred` guarantees nothing: LocalPV binds permanently
+  on first schedule. CNPG runs on the control-plane tier.
+- Replicas: hub x2 on two workers (`RollingUpdate` maxSurge 1 / maxUnavailable 0, PDB
+  `minAvailable 1`, required podAntiAffinity on hostname) since the single-writer proof of
+  2026-09-08 (MESHSAT-980): dispatch_claims, Lease singletons with the pod name as identity,
+  MQTT client id per pod. NATS/Redis/stunnel x1.
 
 ## Config & secrets
 
