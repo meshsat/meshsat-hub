@@ -21,7 +21,7 @@ data:
   HUB_AUTH_MODE: "oidc"
   HUB_OIDC_ISSUER_URL: "https://auth.meshsat.net/application/o/meshsat-hub/"
   HUB_OIDC_REDIRECT_URI: "https://hub.meshsat.net/api/auth/oidc/callback"
-  HUB_OIDC_SCOPES: "openid profile email"
+  HUB_OIDC_SCOPES: "openid profile email meshsat"  # meshsat = groups claim (bootstrap-meshsat.py ScopeMapping)
   HUB_OIDC_GROUPS_CLAIM: "groups"
   HUB_OIDC_ADMIN_GROUP: "meshsat-platform-admin"
   HUB_OIDC_SIGNUP_URL: "https://auth.meshsat.net/if/flow/meshsat-enrollment/"
