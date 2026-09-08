@@ -231,3 +231,17 @@ func TestSubscribeErrorLeavesNoRegistration(t *testing.T) {
 		t.Fatalf("retry handler must receive, got %d", n)
 	}
 }
+
+func TestRedactURL(t *testing.T) {
+	cases := map[string]string{
+		"tcp://meshsat:s3cret@nats:1883": "tcp://meshsat:xxxxx@nats:1883",
+		"tcp://nats:1883":                "tcp://nats:1883",
+		"ssl://user@host:8883":           "ssl://user@host:8883",
+		"://bad":                         "<invalid broker url>",
+	}
+	for in, want := range cases {
+		if got := redactURL(in); got != want {
+			t.Errorf("redactURL(%q) = %q, want %q", in, got, want)
+		}
+	}
+}

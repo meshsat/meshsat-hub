@@ -76,6 +76,7 @@ func NewWithTLS(brokerURL, clientID string, tlsCfg *TLSConfig) *Bus {
 		}
 	}
 
+	shownURL := redactURL(brokerURL)
 	opts := pahomqtt.NewClientOptions().
 		AddBroker(cleanBrokerURL).
 		SetClientID(clientID).
@@ -86,7 +87,7 @@ func NewWithTLS(brokerURL, clientID string, tlsCfg *TLSConfig) *Bus {
 		SetCleanSession(true).
 		SetOnConnectHandler(func(c pahomqtt.Client) {
 			b.connected.Store(true)
-			slog.Info("bus: mqtt connected", "broker", brokerURL)
+			slog.Info("bus: mqtt connected", "broker", shownURL)
 			b.resubscribe(c)
 		}).
 		SetConnectionLostHandler(func(_ pahomqtt.Client, err error) {
@@ -94,7 +95,7 @@ func NewWithTLS(brokerURL, clientID string, tlsCfg *TLSConfig) *Bus {
 			slog.Warn("bus: mqtt connection lost", "error", err)
 		}).
 		SetReconnectingHandler(func(_ pahomqtt.Client, _ *pahomqtt.ClientOptions) {
-			slog.Info("bus: mqtt reconnecting", "broker", brokerURL)
+			slog.Info("bus: mqtt reconnecting", "broker", shownURL)
 		})
 
 	// Apply credentials from URL userinfo (tcp://user:pass@host:port).
@@ -210,7 +211,7 @@ func (b *Bus) Connect() error {
 		}
 		return nil
 	}
-	return fmt.Errorf("bus: mqtt connect to %s: %w", b.brokerURL, lastErr)
+	return fmt.Errorf("bus: mqtt connect to %s: %w", redactURL(b.brokerURL), lastErr)
 }
 
 func (b *Bus) Publish(topic string, qos byte, retained bool, payload []byte) error {
@@ -296,3 +297,15 @@ func (b *Bus) Disconnect() {
 
 // Compile-time check.
 var _ bus.MessageBus = (*Bus)(nil)
+
+// redactURL returns the broker URL with any password replaced by "xxxxx"
+// (net/url's Redacted form). Broker URLs carry the NATS MQTT credentials in
+// their userinfo, and they used to be printed verbatim into the connect
+// error and the connected/reconnecting log lines.
+func redactURL(raw string) string {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return "<invalid broker url>"
+	}
+	return u.Redacted()
+}
