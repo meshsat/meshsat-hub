@@ -21,6 +21,12 @@ func (d *DB) LinkOIDCIdentity(ctx context.Context, id *store.OIDCIdentity) error
 	return err
 }
 
+func (d *DB) IsPlatformAdmin(ctx context.Context, tenantID, userID string) (bool, error) {
+	var n int
+	err := d.db.QueryRowContext(ctx, "SELECT COUNT(1) FROM oidc_identities WHERE tenant_id=? AND user_id=? AND platform_admin=1", tenantID, userID).Scan(&n)
+	return n > 0, err
+}
+
 func (d *DB) GetOIDCIdentity(ctx context.Context, issuer, subject string) (*store.OIDCIdentity, error) {
 	var id store.OIDCIdentity
 	var admin int

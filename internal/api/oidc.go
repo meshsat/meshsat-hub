@@ -303,8 +303,11 @@ func (h *OIDCHandler) resolveUser(ctx context.Context, issuer, sub, email string
 		if err != nil {
 			return nil, "", fmt.Errorf("linked user %s missing: %w", ident.UserID, err)
 		}
-		if u.Role != role {
+		if u.Role != role || (name != "" && u.Name != name) {
 			u.Role = role
+			if name != "" {
+				u.Name = name
+			}
 			if err := h.store.UpdateUser(ctx, ident.TenantID, u); err != nil {
 				return nil, "", err
 			}
@@ -359,6 +362,13 @@ func (h *OIDCHandler) resolveUser(ctx context.Context, issuer, sub, email string
 
 func (h *OIDCHandler) findOrCreateUser(ctx context.Context, tenantID, email, name, role string) (*store.LocalUser, string, error) {
 	if u, err := h.store.GetUserByEmail(ctx, tenantID, email); err == nil && u != nil {
+		// A pre-existing row (migrated local account) takes the IdP's display name.
+		if name != "" && u.Name != name {
+			u.Name = name
+			if err := h.store.UpdateUser(ctx, tenantID, u); err != nil {
+				return nil, "", err
+			}
+		}
 		return u, tenantID, nil
 	}
 	id, err := generateUserID()
