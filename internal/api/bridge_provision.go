@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	hubmqtt "github.com/meshsat/meshsat-hub/internal/mqtt"
 	"log/slog"
 	"net/http"
 	"os"
@@ -22,17 +23,18 @@ import (
 // ProvisionBundle contains everything a bridge/Android app needs to connect.
 // Returned by the nonce-authenticated claim endpoint, NOT embedded in the QR.
 type ProvisionBundle struct {
-	Version             string `json:"v"`            // "1"
-	BridgeID            string `json:"bid"`          // bridge identifier
-	MQTTURL             string `json:"mqtt"`         // wss://mqtt-hub.meshsat.net/mqtt
-	Username            string `json:"user"`         // MQTT username (always "meshsat" for NATS auth)
-	Password            string `json:"pass"`         // MQTT password (shared NATS auth password)
-	CertPEM             string `json:"cert"`         // client TLS certificate
-	KeyPEM              string `json:"key"`          // client TLS private key (one-time)
-	CaPEM               string `json:"ca"`           // CA certificate
-	CertExpires         string `json:"cert_exp"`     // certificate expiry (RFC3339)
-	ReticulumTCP        string `json:"ret_tcp"`      // Reticulum TCP peer
-	DirectorySigningPub []byte `json:"dir_sign_pub"` // Hub's ECDSA-P256 directory-signing pubkey (PKIX DER) — bridge pins on first provision [MESHSAT-539]
+	Version             string `json:"v"`                 // "1"
+	BridgeID            string `json:"bid"`               // bridge identifier
+	MQTTURL             string `json:"mqtt"`              // wss://mqtt-hub.meshsat.net/mqtt
+	MQTTTopicPrefix     string `json:"mqtt_topic_prefix"` // "meshsat" (default tenant) or "meshsat/{tenant}"; bridge publishes {prefix}/bridge/{id}/... and {prefix}/{device}/...
+	Username            string `json:"user"`              // MQTT username (always "meshsat" for NATS auth)
+	Password            string `json:"pass"`              // MQTT password (shared NATS auth password)
+	CertPEM             string `json:"cert"`              // client TLS certificate
+	KeyPEM              string `json:"key"`               // client TLS private key (one-time)
+	CaPEM               string `json:"ca"`                // CA certificate
+	CertExpires         string `json:"cert_exp"`          // certificate expiry (RFC3339)
+	ReticulumTCP        string `json:"ret_tcp"`           // Reticulum TCP peer
+	DirectorySigningPub []byte `json:"dir_sign_pub"`      // Hub's ECDSA-P256 directory-signing pubkey (PKIX DER) — bridge pins on first provision [MESHSAT-539]
 }
 
 // provisionStash holds pre-generated credentials waiting to be claimed.
@@ -126,6 +128,7 @@ func (h *BridgeProvisionHandler) generateAndStash(r *http.Request, id, tid strin
 			Version:             "1",
 			BridgeID:            id,
 			MQTTURL:             mqttURL,
+			MQTTTopicPrefix:     hubmqtt.Namespace(tid),
 			Username:            "meshsat",
 			Password:            natsMQTTPassword,
 			CertPEM:             string(certPEM),

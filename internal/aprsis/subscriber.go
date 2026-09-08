@@ -40,10 +40,12 @@ func NewSubscriber(mqtt bus.MessageBus, client *Client, coalesceSec int) *Subscr
 
 // Start subscribes to position MQTT topics and sets up the APRS-IS inbound handler.
 func (s *Subscriber) Start() error {
-	if err := s.mqtt.Subscribe("meshsat/+/position", 1, s.handlePosition); err != nil {
-		return fmt.Errorf("aprsis subscriber: %w", err)
+	for _, f := range hubmqtt.DualFilters("meshsat/+/position") {
+		if err := s.mqtt.Subscribe(f, 1, s.handlePosition); err != nil {
+			return err
+		}
 	}
-	if err := s.mqtt.Subscribe("meshsat/+/mo/decoded", 1, s.handleMODecoded); err != nil {
+	if err := s.subscribeMO(); err != nil {
 		return fmt.Errorf("aprsis subscriber: %w", err)
 	}
 
@@ -218,4 +220,13 @@ func (s *Subscriber) shouldSend(deviceID string) bool {
 	}
 	s.lastSent[deviceID] = now
 	return true
+}
+
+func (s *Subscriber) subscribeMO() error {
+	for _, f := range hubmqtt.DualFilters("meshsat/+/mo/decoded") {
+		if err := s.mqtt.Subscribe(f, 1, s.handleMODecoded); err != nil {
+			return err
+		}
+	}
+	return nil
 }

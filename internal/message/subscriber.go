@@ -47,7 +47,12 @@ func NewSubscriber(b bus.MessageBus, s store.Store, tenants *tenancy.Resolver) *
 
 // Start subscribes to mo/decoded and persists messages.
 func (s *Subscriber) Start() error {
-	return s.bus.Subscribe("meshsat/+/mo/decoded", 1, s.handleMODecoded)
+	for _, f := range hubmqtt.DualFilters("meshsat/+/mo/decoded") {
+		if err := s.bus.Subscribe(f, 1, s.handleMODecoded); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (s *Subscriber) handleMODecoded(topic string, payload []byte) {
@@ -96,7 +101,7 @@ func (s *Subscriber) handleMODecoded(topic string, payload []byte) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	tenantID := s.tenants.ForDevice(ctx, imei)
+	tenantID := s.tenants.ForDeviceTopic(ctx, imei, hubmqtt.ExtractTenantID(topic))
 	if err := s.store.InsertMessage(ctx, tenantID, m); err != nil {
 		if errors.Is(err, store.ErrDuplicate) {
 			slog.Debug("message: already persisted", "id", id, "device", imei)

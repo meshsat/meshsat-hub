@@ -36,7 +36,12 @@ func NewSubscriber(client *Client, mqtt bus.MessageBus) *Subscriber {
 
 // Start subscribes to the outbound SMS topic.
 func (s *Subscriber) Start() error {
-	return s.mqtt.Subscribe("meshsat/+/mt/sms", 1, s.handle)
+	for _, f := range hubmqtt.DualFilters("meshsat/+/mt/sms") {
+		if err := s.mqtt.Subscribe(f, 1, s.handle); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (s *Subscriber) handle(topic string, payload []byte) {
@@ -68,7 +73,7 @@ func (s *Subscriber) handle(topic string, payload []byte) {
 	}
 
 	// Publish status to MQTT.
-	statusTopic := "meshsat/" + deviceID + "/mt/sms/status"
+	statusTopic := hubmqtt.DeviceTopic(hubmqtt.ExtractTenantID(topic), deviceID, "mt/sms/status")
 	if s.mqtt != nil {
 		if err := s.mqtt.PublishJSON(statusTopic, 1, false, status); err != nil {
 			slog.Error("sms: mqtt publish status failed", "error", err)
