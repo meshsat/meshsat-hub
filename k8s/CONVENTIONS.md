@@ -38,19 +38,35 @@ has its own `kustomization.yaml`. A service dir contains, as applicable: `deploy
   `requests.cpu` 20m–200m, **no CPU limits**.
 - Probes: Hub `startupz`/`readyz`/`healthz`; NATS `/healthz` on the monitor port; Redis
   `redis-cli ping` with `REDISCLI_AUTH` (password never in argv); TCP for stunnel/relay.
-- **Placement rule: no Hub volume on `notrf01dmz06`** (81% disk, memory-saturated). Every
-  PVC-bearing pod (nats, redis) carries a `required` nodeAffinity `hostname NotIn
-  [notrf01dmz06]` + worker, and so does the hub, which has no volume since the audit archive
-  moved to the S3 sink (MESHSAT-711). `preferred` guarantees nothing: LocalPV binds permanently
-  on first schedule. CNPG runs on the control-plane tier.
-- Replicas: hub x2 on the two eligible workers dmz01/dmz02 (`RollingUpdate` maxSurge 0 /
-  maxUnavailable 1 because a third pod has no node, PDB `minAvailable 1`, required
-  podAntiAffinity on hostname) since the single-writer proof of 2026-09-08 (MESHSAT-980):
-  dispatch_claims, Lease singletons with the pod name as identity, MQTT client id per pod.
-  Redis/stunnel x1; NATS x3 spreads over the same two workers (preferred anti-affinity).
-
-## Config & secrets
-
+- **Placement rule: stateful on the control-plane tier, stateless on the workers**
+  (rewritten 2026-09-08, MESHSAT-711). Anything holding a local volume (CNPG, NATS, KeyDB) runs
+  on dmz03/04/05 with `nodeSelector: node-role.kubernetes.io/control-plane` plus the matching
+  toleration and **required** hostname anti-affinity. Anything stateless (hub, stunnel, edge
+  relay) runs on the workers. The reason is capacity, measured: the workers are 49, 90 and 92
+  percent committed by other namespaces while the control-plane nodes sit at 1, 2 and 0.
+  Anti-affinity must be `required` and not `preferred`, because a local volume binds permanently
+  on first schedule, so `preferred` can put two members of a three-member quorum on one machine
+  and lose the group when it dies. The old rule, "no Hub volume on dmz06", is retired: dmz06 and
+  dmz01 are now within three percentage points of each other on disk, and the Hub has no volume
+  at all since the audit archive moved to the object store.
+- **Tolerations**: stateless pods never carry control-plane tolerations. Stateful ones do, and
+  in exchange must carry a memory limit and `priorityClassName: meshsat-hub-critical` so they
+  can never starve etcd or the API server.
+- **Priority**: everything in the Hub's data path carries `meshsat-hub-critical`
+  (`k8s/platform/priorityclass.yaml`), queue priority with no preemption. Without it a
+  replacement pod competes on equal terms with tens of gigabytes of other namespaces' workloads
+  at the moment a node dies. A Pending Hub pod during a failure drill is the signal to raise
+  preemption, deliberately, with the omoikane owner.
+- Replicas: hub x2 across all three workers (`RollingUpdate` maxSurge 1 / maxUnavailable 0, PDB
+  `minAvailable 1`, required podAntiAffinity, 60s not-ready tolerations); NATS x3, one per
+  control-plane node, PDB `minAvailable 2` because a Raft group must never be drained below
+  quorum; KeyDB x2 on the control-plane tier, PDB `minAvailable 1`; stunnel x2 on the workers,
+  PDB `minAvailable 1`.
+- **Failure domains**: losing any one machine leaves the Hub serving, the database with a
+  primary and a synchronous replica, and the broker and cache with quorum. In-cluster failover
+  has a floor of roughly 45 to 60 seconds, because a dead node is not marked NotReady before
+  then; the external edge fails a dead worker over in about 4 to 10 seconds. Losing the whole
+  site is not covered: all six machines are one site with no zone labels.
 - Non-secret env → `<name>-config` ConfigMap (`envFrom`).
 - Secrets → ExternalSecret `<name>-secrets`, `secretStoreRef {name: openbao, kind:
   ClusterSecretStore}`, `refreshInterval: 1h`, `creationPolicy: Owner`, **`deletionPolicy:
