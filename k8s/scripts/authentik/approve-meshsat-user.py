@@ -38,6 +38,11 @@ else:
     user.is_active = True
     user.attributes["meshsat_approved"] = True
     user.save()
+    signup_ip = user.attributes.get("signup_ip") or ""
+    if signup_ip:
+        print(f"signup address {signup_ip}: admit it on the edge with  k8s/scripts/edge/whitelist-ip.sh {signup_ip}  (MESHSAT-978)")
+    else:
+        print("no signup address recorded (enrolled before the signup_ip policy); ask the tester for their address and run k8s/scripts/edge/whitelist-ip.sh <ip>")
     body = (
         f"Hi {user.name or user.username},\n\n"
         "Your MeshSat Hub beta access is approved.\n\n"

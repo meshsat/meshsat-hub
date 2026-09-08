@@ -6,6 +6,9 @@ Usage: patch-haproxy.py <phase> <haproxy.cfg> [--out FILE]
   phase = cutover  : point hub.meshsat.net / mqtt-hub.meshsat.net / reticulum.meshsat.net
                      at the cluster (phase 5); implies `auth`
   phase = rollback : restore the DMZ backends for hub/mqtt/reticulum (keeps auth)
+  phase = registration : gated registration (MESHSAT-978): approved signup addresses from
+                     /etc/haproxy/meshsat-whitelist.lst may reach hub/auth.meshsat.net, and the
+                     enrollment flow on auth.meshsat.net is reachable from anywhere; implies `auth`
 
 Reads the LIVE file fetched from the VPS (the repo snapshot is not the source of
 truth), applies idempotent text edits and prints a unified diff to stderr. Never
@@ -121,6 +124,41 @@ def cutover(text):
     return text
 
 
+WHITELIST_FILE = "/etc/haproxy/meshsat-whitelist.lst"
+
+REGISTRATION_BLOCK = """    # --- Gated registration (MESHSAT-978, 2026-09-08) ---
+    # Approved MeshSat beta testers are admitted by address: the file is fed by
+    # k8s/scripts/edge/whitelist-ip.sh at approval time (runtime `add acl` plus
+    # the file for reloads). It applies to the MeshSat hosts ONLY; the ASA-WAN
+    # whitelisted_ip and the omoikane hosts are untouched. The enrollment flow
+    # on auth.meshsat.net (and the static assets it needs) is reachable from
+    # anywhere so a stranger can request access; everything else on auth and
+    # all of hub stays behind the gate. The per-IP budgets above still apply.
+    acl meshsat_gated_host hdr(host) -i hub.meshsat.net
+    acl meshsat_gated_host hdr(host) -i auth.meshsat.net
+    acl meshsat_signup_ip src -f %s
+    acl meshsat_enroll_host hdr(host) -i auth.meshsat.net
+    acl meshsat_enroll_path path_beg /if/flow/meshsat-enrollment/ /api/v3/flows/executor/meshsat-enrollment/ /static/ /media/ /api/v3/root/config/ /favicon
+    http-request set-var(txn.meshsat_admit) str(yes) if meshsat_gated_host meshsat_signup_ip
+    http-request set-var(txn.meshsat_admit) str(yes) if meshsat_enroll_host meshsat_enroll_path
+""" % WHITELIST_FILE
+
+TIER5A_DENY = "    http-request deny deny_status 403 if tier5a_host !whitelisted_ip !omoikane_infra_src\n"
+TIER5A_DENY_GATED = "    http-request deny deny_status 403 if tier5a_host !whitelisted_ip !omoikane_infra_src !{ var(txn.meshsat_admit) -m str yes }\n"
+
+
+def registration(text):
+    text = add_auth(text)
+    if "acl meshsat_signup_ip src -f" not in text:
+        anchor = "    acl tier5a_host hdr(host) -i hub.meshsat.net\n"
+        assert anchor in text, "tier5a_host block not found"
+        text = text.replace(anchor, REGISTRATION_BLOCK + anchor, 1)
+    if TIER5A_DENY in text:
+        text = text.replace(TIER5A_DENY, TIER5A_DENY_GATED, 1)
+    assert TIER5A_DENY_GATED in text, "Tier 5a deny line not found"
+    return text
+
+
 def rollback(text):
     text = replace_backend(text, "meshsat_hub", DMZ_HTTP)
     for name, block in DMZ_TCP.items():
@@ -135,7 +173,7 @@ def main():
     phase, path = sys.argv[1], sys.argv[2]
     out = sys.argv[sys.argv.index("--out") + 1] if "--out" in sys.argv else None
     orig = open(path).read()
-    new = {"auth": add_auth, "cutover": cutover, "rollback": rollback}[phase](orig)
+    new = {"auth": add_auth, "cutover": cutover, "rollback": rollback, "registration": registration}[phase](orig)
     diff = difflib.unified_diff(orig.splitlines(True), new.splitlines(True), fromfile=path, tofile=f"{path} ({phase})")
     sys.stderr.write("".join(diff))
     if out:
