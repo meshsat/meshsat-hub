@@ -1,0 +1,13 @@
+# One of the two stays up through node drains and evictions.
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: keydb
+  namespace: meshsat-hub
+  labels:
+    app.kubernetes.io/name: keydb
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: keydb
