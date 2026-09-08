@@ -48,7 +48,7 @@ type MTStatusMessage struct {
 type DeviceResolver interface {
 	// Resolve returns the Cloudloop thingID and true if the device uses IMT protocol.
 	// If the device is unknown, thingID should be the IMEI itself and isIMT false.
-	Resolve(imei string) (thingID string, isIMT bool)
+	Resolve(tenantID, imei string) (thingID string, isIMT bool)
 }
 
 // CostRecorder records satellite message costs.
@@ -71,7 +71,8 @@ type CostEntry struct {
 // Sender listens on MQTT for MT send requests and forwards them via Cloudloop.
 type Sender struct {
 	tenants      *tenancy.Resolver // nil = default namespace
-	client       *Client
+	client       *Client           // platform client (used when no pool is set)
+	pool         *ClientPool       // per-tenant clients (MESHSAT-977)
 	mqtt         bus.MessageBus
 	limiter      interface{ Allow(string, bool) bool }
 	audit        *audit.Service
@@ -116,6 +117,18 @@ func (s *Sender) SetDeviceResolver(r DeviceResolver) {
 	s.resolver = r
 }
 
+// SetClientPool makes sends use the owning tenant's Cloudloop account.
+func (s *Sender) SetClientPool(p *ClientPool) { s.pool = p }
+
+// clientFor returns the client for a device's tenant (nil = no account).
+func (s *Sender) clientFor(imei string) (*Client, string) {
+	tenant := s.tenantOf(imei)
+	if s.pool == nil {
+		return s.client, tenant
+	}
+	return s.pool.ForTenant(context.Background(), tenant), tenant
+}
+
 // SetCostRecorder attaches a cost recorder for tracking satellite message costs.
 func (s *Sender) SetCostRecorder(r CostRecorder) {
 	s.costRecorder = r
@@ -129,7 +142,7 @@ func (s *Sender) SetCostPerMessage(cost float64) {
 // resolveDevice returns the Cloudloop thingID and protocol for a device IMEI.
 func (s *Sender) resolveDevice(imei string) (thingID string, isIMT bool) {
 	if s.resolver != nil {
-		return s.resolver.Resolve(imei)
+		return s.resolver.Resolve(s.tenantOf(imei), imei)
 	}
 	return imei, false
 }
@@ -177,6 +190,13 @@ func (s *Sender) handleMTSend(topic string, payload []byte) {
 		return
 	}
 
+	client, tenant := s.clientFor(deviceID)
+	if client == nil {
+		slog.Warn("cloudloop: no account for the device's tenant", "device", deviceID, "tenant", tenant)
+		s.publishStatus(deviceID, "", "failed", "no Cloudloop account configured for this tenant")
+		return
+	}
+
 	// Prepare payload.
 	data := []byte(req.Text)
 	if req.Compress {
@@ -199,7 +219,7 @@ func (s *Sender) handleMTSend(topic string, payload []byte) {
 			"device", deviceID, "total_bytes", len(data), "fragments", len(frags),
 		)
 		for i, frag := range frags {
-			if err := s.sendPayload(deviceID, thingID, isIMT, req.IMTTopic, req.RingStyle, frag, i, len(frags)); err != nil {
+			if err := s.sendPayload(client, deviceID, thingID, isIMT, req.IMTTopic, req.RingStyle, frag, i, len(frags)); err != nil {
 				slog.Error("cloudloop: fragment send failed, aborting remaining",
 					"device", deviceID, "frag", i+1, "total", len(frags), "error", err,
 				)
@@ -214,7 +234,7 @@ func (s *Sender) handleMTSend(topic string, payload []byte) {
 	}
 
 	// Single message — send directly.
-	if err := s.sendPayload(deviceID, thingID, isIMT, req.IMTTopic, req.RingStyle, data, 0, 1); err != nil {
+	if err := s.sendPayload(client, deviceID, thingID, isIMT, req.IMTTopic, req.RingStyle, data, 0, 1); err != nil {
 		s.publishStatus(deviceID, "", "failed", err.Error())
 		return
 	}
@@ -222,7 +242,7 @@ func (s *Sender) handleMTSend(topic string, payload []byte) {
 
 // sendPayload sends a single payload with exponential backoff retry.
 // Uses the official Cloudloop Data API: SendSBD for 9603, SendIMT for 9704.
-func (s *Sender) sendPayload(imei, thingID string, isIMT bool, imtTopic, ringStyle string, data []byte, fragIdx, fragTotal int) error {
+func (s *Sender) sendPayload(client *Client, imei, thingID string, isIMT bool, imtTopic, ringStyle string, data []byte, fragIdx, fragTotal int) error {
 	protocol := "SBD"
 	if isIMT {
 		protocol = "IMT"
@@ -243,9 +263,9 @@ func (s *Sender) sendPayload(imei, thingID string, isIMT bool, imtTopic, ringSty
 		var resp *MTResponse
 		var err error
 		if isIMT {
-			resp, err = s.client.SendIMT(ctx, thingID, data, imtTopic, ringStyle)
+			resp, err = client.SendIMT(ctx, thingID, data, imtTopic, ringStyle)
 		} else {
-			resp, err = s.client.SendSBD(ctx, thingID, data)
+			resp, err = client.SendSBD(ctx, thingID, data)
 		}
 		cancel()
 
@@ -334,6 +354,10 @@ func (s *Sender) SendDirect(imei string, req MTSendRequest) (*SendDirectResult, 
 	if s.limiter != nil && !s.limiter.Allow(imei, isSOS) {
 		return nil, fmt.Errorf("device rate limit exceeded")
 	}
+	client, tenant := s.clientFor(imei)
+	if client == nil {
+		return nil, fmt.Errorf("no Cloudloop account configured for tenant %s", tenant)
+	}
 
 	data := []byte(req.Text)
 	if req.Compress {
@@ -352,7 +376,7 @@ func (s *Sender) SendDirect(imei string, req MTSendRequest) (*SendDirectResult, 
 	if frags != nil {
 		res.Fragments = len(frags)
 		for i, frag := range frags {
-			if err := s.sendPayload(imei, thingID, isIMT, req.IMTTopic, req.RingStyle, frag, i, len(frags)); err != nil {
+			if err := s.sendPayload(client, imei, thingID, isIMT, req.IMTTopic, req.RingStyle, frag, i, len(frags)); err != nil {
 				s.publishStatus(imei, "", "failed", fmt.Sprintf("fragment %d/%d failed: %s", i+1, len(frags), err))
 				return nil, fmt.Errorf("fragment %d/%d: %w", i+1, len(frags), err)
 			}
@@ -361,7 +385,7 @@ func (s *Sender) SendDirect(imei string, req MTSendRequest) (*SendDirectResult, 
 		return res, nil
 	}
 
-	if err := s.sendPayload(imei, thingID, isIMT, req.IMTTopic, req.RingStyle, data, 0, 1); err != nil {
+	if err := s.sendPayload(client, imei, thingID, isIMT, req.IMTTopic, req.RingStyle, data, 0, 1); err != nil {
 		s.publishStatus(imei, "", "failed", err.Error())
 		return nil, err
 	}
