@@ -43,10 +43,11 @@ has its own `kustomization.yaml`. A service dir contains, as applicable: `deploy
   [notrf01dmz06]` + worker, and so does the hub, which has no volume since the audit archive
   moved to the S3 sink (MESHSAT-711). `preferred` guarantees nothing: LocalPV binds permanently
   on first schedule. CNPG runs on the control-plane tier.
-- Replicas: hub x2 on two workers (`RollingUpdate` maxSurge 1 / maxUnavailable 0, PDB
-  `minAvailable 1`, required podAntiAffinity on hostname) since the single-writer proof of
-  2026-09-08 (MESHSAT-980): dispatch_claims, Lease singletons with the pod name as identity,
-  MQTT client id per pod. NATS/Redis/stunnel x1.
+- Replicas: hub x2 on the two eligible workers dmz01/dmz02 (`RollingUpdate` maxSurge 0 /
+  maxUnavailable 1 because a third pod has no node, PDB `minAvailable 1`, required
+  podAntiAffinity on hostname) since the single-writer proof of 2026-09-08 (MESHSAT-980):
+  dispatch_claims, Lease singletons with the pod name as identity, MQTT client id per pod.
+  Redis/stunnel x1; NATS x3 spreads over the same two workers (preferred anti-affinity).
 
 ## Config & secrets
 
