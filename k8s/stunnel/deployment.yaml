@@ -6,7 +6,10 @@ metadata:
   labels:
     app.kubernetes.io/name: stunnel
 spec:
-  replicas: 1
+  replicas: 2
+  strategy:
+    type: RollingUpdate
+    rollingUpdate: {maxSurge: 1, maxUnavailable: 0}
   selector:
     matchLabels:
       app.kubernetes.io/name: stunnel
@@ -17,6 +20,20 @@ spec:
     spec:
       serviceAccountName: meshsat-hub
       automountServiceAccountToken: false
+      priorityClassName: meshsat-hub-critical
+      # One pod per worker: it terminates the Reticulum TLS leg and has no
+      # volume, so there is no reason for a single machine to be able to take
+      # it out (MESHSAT-711).
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - topologyKey: kubernetes.io/hostname
+              labelSelector:
+                matchLabels:
+                  app.kubernetes.io/name: stunnel
+      tolerations:
+        - {key: node.kubernetes.io/not-ready, operator: Exists, effect: NoExecute, tolerationSeconds: 60}
+        - {key: node.kubernetes.io/unreachable, operator: Exists, effect: NoExecute, tolerationSeconds: 60}
       securityContext:
         runAsNonRoot: true
         runAsUser: 65532
