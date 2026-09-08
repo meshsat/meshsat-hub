@@ -18,6 +18,7 @@ import (
 	"github.com/meshsat/meshsat-hub/internal/metrics"
 	"github.com/meshsat/meshsat-hub/internal/protocol"
 	"github.com/meshsat/meshsat-hub/internal/store"
+	"github.com/meshsat/meshsat-hub/internal/store/dbwrap"
 )
 
 // ReticulumRouter is the subset of the Reticulum routing table needed by the
@@ -244,22 +245,11 @@ func (s *Subscriber) handleBridgeBirth(topic string, payload []byte) {
 		b.Online = false
 	}
 
-	// Retry on Galera deadlock (Error 1213) — simultaneous births from both Hub
-	// instances hit the same rows via NATS leaf replication.
-	var createErr error
-	for attempt := 0; attempt < 3; attempt++ {
-		createErr = s.store.CreateOrUpdateBridge(ctx, tenantID, b)
-		if createErr == nil {
-			break
-		}
-		if strings.Contains(createErr.Error(), "1213") || strings.Contains(createErr.Error(), "Deadlock") {
-			slog.Warn("bridge: deadlock on create/update, retrying",
-				"bridge", bridgeID, "attempt", attempt+1)
-			time.Sleep(time.Duration(50*(attempt+1)) * time.Millisecond)
-			continue
-		}
-		break
-	}
+	// Retry transient store errors (Galera 1213 deadlock, Postgres 40P01/40001):
+	// simultaneous births from two Hub instances hit the same rows.
+	createErr := dbwrap.RetryShort(ctx, func() error {
+		return s.store.CreateOrUpdateBridge(ctx, tenantID, b)
+	})
 	if createErr != nil {
 		slog.Error("bridge: failed to create/update bridge", "error", createErr, "bridge", bridgeID)
 		return
