@@ -84,3 +84,6 @@ ak-message-container { background: transparent; }
 
 /* Footer links (help/back) */
 .pf-c-login__footer, .pf-c-login__main-footer-links, .pf-c-list { color: #A79B8B; }
+
+/* Narrow screens: PatternFly overlays the language switcher on the card; keep the card below it. */
+@media (max-width: 767px) { .pf-c-login__main { margin-top: 3.25rem; } .pf-c-login__header { padding-bottom: 0; } }
