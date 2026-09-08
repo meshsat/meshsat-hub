@@ -28,3 +28,5 @@ spec:
     app.kubernetes.io/name: nats
   ports:
     - {name: websocket, port: 9443, targetPort: websocket}
+    # monitor: the edge relay's health check target (GET /healthz), see platform/edge-relay.yaml
+    - {name: monitor, port: 8222, targetPort: monitor}
