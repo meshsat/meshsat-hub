@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"github.com/meshsat/meshsat-hub/internal/tenancy"
 	"io/fs"
 	"log/slog"
 	"net/http"
@@ -253,6 +254,10 @@ func main() {
 		_ = dataStore.Close()
 		os.Exit(0)
 	}
+	// Tenant resolution for inbound MQTT traffic: device/bridge → owning tenant,
+	// default tenant for unregistered ones (MESHSAT-864 MR 19).
+	tenants := tenancy.NewResolver(dataStore, store.DefaultTenantID, 30*time.Second)
+
 	// Readiness: the database is the one critical dependency. Stores that
 	// know whether they accept writes (Galera, Postgres primary) say so.
 	if prober, ok := dataStore.(store.ReadinessProber); ok {
@@ -490,7 +495,7 @@ func main() {
 	// Position subscriber: stores MQTT position updates to the database.
 	var posSub *position.Subscriber
 	if msgBus.IsConnected() {
-		posSub = position.NewSubscriber(msgBus, dataStore, store.DefaultTenantID)
+		posSub = position.NewSubscriber(msgBus, dataStore, tenants)
 		if err := posSub.Start(); err != nil {
 			slog.Error("position: failed to start subscriber", "error", err)
 		}
@@ -498,7 +503,7 @@ func main() {
 
 	// Message subscriber: persists MO decoded messages from MQTT to the database.
 	if msgBus.IsConnected() {
-		msgSub := hubmessage.NewSubscriber(msgBus, dataStore, store.DefaultTenantID)
+		msgSub := hubmessage.NewSubscriber(msgBus, dataStore, tenants)
 		if err := msgSub.Start(); err != nil {
 			slog.Error("message: failed to start subscriber", "error", err)
 		}
@@ -509,7 +514,7 @@ func main() {
 	var bridgeSub *bridge.Subscriber
 	var hembReassemblyBuf *protocol.HeMBReassemblyBuffer
 	if msgBus.IsConnected() {
-		bridgeSub = bridge.NewSubscriber(msgBus, dataStore, store.DefaultTenantID)
+		bridgeSub = bridge.NewSubscriber(msgBus, dataStore, tenants)
 
 		// HeMB reassembly: decode bonded RLNC-coded symbols from bridges.
 		hembReassemblyBuf = protocol.NewHeMBReassemblyBuffer(nil) // deliverFn set via subscriber handler
@@ -705,7 +710,7 @@ func main() {
 
 	// SOS detector (subscribes to mo/decoded, triggers escalation on SOS messages).
 	if msgBus.IsConnected() {
-		sosDetector := sos.NewDetector(msgBus, escEngine, dataStore, store.DefaultTenantID, cfg.SOSChainID)
+		sosDetector := sos.NewDetector(msgBus, escEngine, dataStore, tenants, cfg.SOSChainID)
 		if err := sosDetector.Start(); err != nil {
 			slog.Error("sos: failed to start detector", "error", err)
 		} else {
@@ -1843,7 +1848,7 @@ func main() {
 	}
 
 	// Message routing engine (configurable source→destination rules)
-	routeEngine := routing.NewEngine(dataStore, msgBus, store.DefaultTenantID)
+	routeEngine := routing.NewEngine(dataStore, msgBus, tenants)
 	// Register SMS destination handler if SMS is enabled.
 	// Use the same API-key-authenticated client as the send endpoint. [MESHSAT-448]
 	if smsClientForSend != nil {
