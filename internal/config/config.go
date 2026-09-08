@@ -174,15 +174,23 @@ type Config struct {
 	WGPassword string `yaml:"wg_password"` // wg-easy web UI password
 
 	// Observability
-	PprofEnabled         bool   `yaml:"pprof_enabled"`          // Enable /debug/pprof/* endpoints (default false)
-	DBSlowQueryMS        int    `yaml:"db_slow_query_ms"`       // Slow query threshold in milliseconds (default 100)
-	DBRetryMaxAttempts   int    `yaml:"db_retry_max_attempts"`  // Bound on transient DB error retries per operation (default 8)
-	AuditRetentionDays   int    `yaml:"audit_retention_days"`   // Days to keep audit log entries (default 90, 0=disabled)
-	AuditArchivePath     string `yaml:"audit_archive_path"`     // Path to archive purged audit entries as JSONL (empty=no archive)
-	HealthProbeTimeout   string `yaml:"health_probe_timeout"`   // Health probe timeout duration (default "3s")
-	ShutdownDrainSeconds int    `yaml:"shutdown_drain_seconds"` // Seconds /readyz reports draining before the listener closes (default 0)
-	OTelEndpoint         string `yaml:"otel_endpoint"`          // OTLP HTTP endpoint (empty=disabled)
-	OTelServiceName      string `yaml:"otel_service_name"`      // OTel service name (default "meshsat-hub")
+	PprofEnabled       bool   `yaml:"pprof_enabled"`         // Enable /debug/pprof/* endpoints (default false)
+	DBSlowQueryMS      int    `yaml:"db_slow_query_ms"`      // Slow query threshold in milliseconds (default 100)
+	DBRetryMaxAttempts int    `yaml:"db_retry_max_attempts"` // Bound on transient DB error retries per operation (default 8)
+	AuditRetentionDays int    `yaml:"audit_retention_days"`  // Days to keep audit log entries (default 90, 0=disabled)
+	AuditArchivePath   string `yaml:"audit_archive_path"`    // Path to archive purged audit entries as JSONL (empty=no archive)
+	// S3-compatible archive for purged audit entries (MR 22); when the endpoint,
+	// bucket and keys are set it replaces AuditArchivePath.
+	AuditArchiveS3Endpoint  string `yaml:"audit_archive_s3_endpoint"`
+	AuditArchiveS3Bucket    string `yaml:"audit_archive_s3_bucket"`
+	AuditArchiveS3Prefix    string `yaml:"audit_archive_s3_prefix"`
+	AuditArchiveS3Region    string `yaml:"audit_archive_s3_region"`
+	AuditArchiveS3AccessKey string `yaml:"-"`
+	AuditArchiveS3SecretKey string `yaml:"-"`
+	HealthProbeTimeout      string `yaml:"health_probe_timeout"`   // Health probe timeout duration (default "3s")
+	ShutdownDrainSeconds    int    `yaml:"shutdown_drain_seconds"` // Seconds /readyz reports draining before the listener closes (default 0)
+	OTelEndpoint            string `yaml:"otel_endpoint"`          // OTLP HTTP endpoint (empty=disabled)
+	OTelServiceName         string `yaml:"otel_service_name"`      // OTel service name (default "meshsat-hub")
 }
 
 // Defaults returns a Config with sensible default values.
@@ -637,6 +645,18 @@ func Load() (Config, error) {
 	}
 	if v := os.Getenv("HUB_AUDIT_ARCHIVE_PATH"); v != "" {
 		cfg.AuditArchivePath = v
+	}
+	for env, dst := range map[string]*string{
+		"HUB_AUDIT_ARCHIVE_S3_ENDPOINT":   &cfg.AuditArchiveS3Endpoint,
+		"HUB_AUDIT_ARCHIVE_S3_BUCKET":     &cfg.AuditArchiveS3Bucket,
+		"HUB_AUDIT_ARCHIVE_S3_PREFIX":     &cfg.AuditArchiveS3Prefix,
+		"HUB_AUDIT_ARCHIVE_S3_REGION":     &cfg.AuditArchiveS3Region,
+		"HUB_AUDIT_ARCHIVE_S3_ACCESS_KEY": &cfg.AuditArchiveS3AccessKey,
+		"HUB_AUDIT_ARCHIVE_S3_SECRET_KEY": &cfg.AuditArchiveS3SecretKey,
+	} {
+		if v := os.Getenv(env); v != "" {
+			*dst = v
+		}
 	}
 	if v := os.Getenv("HUB_HEALTH_PROBE_TIMEOUT"); v != "" {
 		cfg.HealthProbeTimeout = v
