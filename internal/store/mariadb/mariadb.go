@@ -431,6 +431,26 @@ var migrations = []string{
 		INDEX idx_alert_rules_tenant (tenant_id)
 	) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
 
+	// MESHSAT-910: single-writer claims + persisted dead man's switch
+	`CREATE TABLE IF NOT EXISTS dispatch_claims (
+		` + "`key`" + ` VARCHAR(255) PRIMARY KEY,
+		claimed_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+		INDEX idx_dispatch_claims_at (claimed_at)
+	) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
+	"ALTER TABLE messages ADD COLUMN IF NOT EXISTS claimed_at DATETIME NULL",
+	`CREATE TABLE IF NOT EXISTS deadman_configs (
+		device_imei VARCHAR(64) NOT NULL,
+		tenant_id VARCHAR(64) NOT NULL DEFAULT 'default',
+		chain_id VARCHAR(64) NOT NULL DEFAULT '',
+		interval_sec INT NOT NULL DEFAULT 3600,
+		grace_sec INT NOT NULL DEFAULT 600,
+		enabled TINYINT(1) NOT NULL DEFAULT 1,
+		snoozed_until DATETIME NULL,
+		alerted TINYINT(1) NOT NULL DEFAULT 0,
+		updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+		PRIMARY KEY (device_imei, tenant_id)
+	) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
+
 	// MESHSAT-487: HeMB bond group management
 	`CREATE TABLE IF NOT EXISTS bond_groups (
 		id VARCHAR(64) NOT NULL,

@@ -61,6 +61,16 @@ func (s *Scheduler) tick(ctx context.Context) {
 	}
 	for _, msg := range msgs {
 		m := msg // capture loop var
+		// Flip scheduled -> sending atomically; only the replica that wins
+		// the row sends it. A crashed sender is reaped by ExpireStaleSends.
+		won, err := s.store.ClaimScheduledMessage(ctx, m.ID)
+		if err != nil {
+			slog.Error("scheduler: claim failed", "id", m.ID, "error", err)
+			continue
+		}
+		if !won {
+			continue
+		}
 		sendErr := s.sender.SendScheduled(ctx, &m)
 		status := "sent"
 		errMsg := ""

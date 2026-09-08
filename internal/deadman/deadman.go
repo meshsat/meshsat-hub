@@ -2,12 +2,15 @@
 // Each device has a configurable check-in window. If the device does not
 // send an MO message within that window + grace period, an alert is
 // triggered via the escalation engine.
+//
+// State (configs, snoozes, the "already alerted" flag) is persisted in the
+// store so every replica and every restart sees the same switch; the scan
+// itself is meant to run on the leader only (MESHSAT-910).
 package deadman
 
 import (
 	"context"
 	"log/slog"
-	"sync"
 	"time"
 
 	"github.com/meshsat/meshsat-hub/internal/escalation"
@@ -28,11 +31,7 @@ type Monitor struct {
 	store    store.Store
 	engine   *escalation.Engine
 	interval time.Duration // how often to scan for missed check-ins
-
-	mu      sync.Mutex
-	configs map[string]*Config   // key: device IMEI
-	snoozed map[string]time.Time // key: device IMEI, value: snooze-until
-	alerted map[string]bool      // key: device IMEI, true if alert already active
+	tenantID string
 }
 
 // NewMonitor creates a dead man's switch monitor.
@@ -41,20 +40,54 @@ func NewMonitor(s store.Store, e *escalation.Engine) *Monitor {
 		store:    s,
 		engine:   e,
 		interval: 30 * time.Second,
-		configs:  make(map[string]*Config),
-		snoozed:  make(map[string]time.Time),
-		alerted:  make(map[string]bool),
+		tenantID: store.DefaultTenantID,
 	}
 }
 
-// Configure sets the dead man's switch config for a device.
+func (m *Monitor) ctx() (context.Context, context.CancelFunc) {
+	return context.WithTimeout(context.Background(), 5*time.Second)
+}
+
+func toStored(cfg Config) *store.DeadmanConfig {
+	return &store.DeadmanConfig{
+		DeviceIMEI:  cfg.DeviceIMEI,
+		ChainID:     cfg.ChainID,
+		IntervalSec: int(cfg.Interval / time.Second),
+		GraceSec:    int(cfg.Grace / time.Second),
+		Enabled:     cfg.Enabled,
+	}
+}
+
+func fromStored(c store.DeadmanConfig) Config {
+	return Config{
+		DeviceIMEI: c.DeviceIMEI,
+		ChainID:    c.ChainID,
+		Interval:   time.Duration(c.IntervalSec) * time.Second,
+		Grace:      time.Duration(c.GraceSec) * time.Second,
+		Enabled:    c.Enabled,
+	}
+}
+
+// Configure sets the dead man's switch config for a device. Disabling
+// removes it.
 func (m *Monitor) Configure(cfg Config) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	if cfg.Enabled {
-		m.configs[cfg.DeviceIMEI] = &cfg
-	} else {
-		delete(m.configs, cfg.DeviceIMEI)
+	ctx, cancel := m.ctx()
+	defer cancel()
+	if !cfg.Enabled {
+		if err := m.store.DeleteDeadmanConfig(ctx, m.tenantID, cfg.DeviceIMEI); err != nil {
+			slog.Error("deadman: delete config", "device", cfg.DeviceIMEI, "error", err)
+		}
+		slog.Info("deadman: disabled", "device", cfg.DeviceIMEI)
+		return
+	}
+	stored := toStored(cfg)
+	// Keep snooze/alerted state across a reconfigure.
+	if prev, err := m.store.GetDeadmanConfig(ctx, m.tenantID, cfg.DeviceIMEI); err == nil {
+		stored.SnoozedUntil, stored.Alerted = prev.SnoozedUntil, prev.Alerted
+	}
+	if err := m.store.SaveDeadmanConfig(ctx, m.tenantID, stored); err != nil {
+		slog.Error("deadman: save config", "device", cfg.DeviceIMEI, "error", err)
+		return
 	}
 	slog.Info("deadman: configured",
 		"device", cfg.DeviceIMEI, "interval", cfg.Interval, "grace", cfg.Grace, "enabled", cfg.Enabled)
@@ -62,62 +95,72 @@ func (m *Monitor) Configure(cfg Config) {
 
 // Remove disables the dead man's switch for a device.
 func (m *Monitor) Remove(deviceIMEI string) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	delete(m.configs, deviceIMEI)
-	delete(m.snoozed, deviceIMEI)
-	delete(m.alerted, deviceIMEI)
+	ctx, cancel := m.ctx()
+	defer cancel()
+	if err := m.store.DeleteDeadmanConfig(ctx, m.tenantID, deviceIMEI); err != nil {
+		slog.Error("deadman: remove config", "device", deviceIMEI, "error", err)
+	}
+	slog.Info("deadman: removed", "device", deviceIMEI)
 }
 
 // Snooze temporarily suppresses the dead man's switch for a device.
 func (m *Monitor) Snooze(deviceIMEI string, duration time.Duration) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.snoozed[deviceIMEI] = time.Now().Add(duration)
-	slog.Info("deadman: snoozed", "device", deviceIMEI, "until", m.snoozed[deviceIMEI])
+	m.update(deviceIMEI, func(c *store.DeadmanConfig) { c.SnoozedUntil = time.Now().UTC().Add(duration) })
+	slog.Info("deadman: snoozed", "device", deviceIMEI, "duration", duration)
 }
 
-// ClearSnooze removes the snooze for a device.
+// ClearSnooze removes an active snooze.
 func (m *Monitor) ClearSnooze(deviceIMEI string) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	delete(m.snoozed, deviceIMEI)
+	m.update(deviceIMEI, func(c *store.DeadmanConfig) { c.SnoozedUntil = time.Time{} })
 }
 
-// ClearAlert resets the alert flag for a device (e.g., after device checks in again).
+// ClearAlert resets the alert state so the device can trigger again.
 func (m *Monitor) ClearAlert(deviceIMEI string) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	delete(m.alerted, deviceIMEI)
+	m.update(deviceIMEI, func(c *store.DeadmanConfig) { c.Alerted = false })
 }
 
-// CheckIn records device activity: touches last_seen in the store and clears
-// any active dead man's switch alert so the device can re-trigger if it goes
-// silent again. Call this from position subscriber and MO handler.
-func (m *Monitor) CheckIn(deviceIMEI string) {
-	// Clear alert so device can re-trigger on next silence.
-	m.mu.Lock()
-	wasAlerted := m.alerted[deviceIMEI]
-	delete(m.alerted, deviceIMEI)
-	m.mu.Unlock()
-
-	if wasAlerted {
-		slog.Info("deadman: device checked in, alert cleared", "device", deviceIMEI)
-	}
-
-	// Touch last_seen in the store.
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+// update applies fn to the stored config of a device, if it exists.
+func (m *Monitor) update(deviceIMEI string, fn func(*store.DeadmanConfig)) {
+	ctx, cancel := m.ctx()
 	defer cancel()
-	_ = m.store.TouchDeviceLastSeen(ctx, store.DefaultTenantID, deviceIMEI)
+	c, err := m.store.GetDeadmanConfig(ctx, m.tenantID, deviceIMEI)
+	if err != nil {
+		return
+	}
+	fn(c)
+	if err := m.store.SaveDeadmanConfig(ctx, m.tenantID, c); err != nil {
+		slog.Error("deadman: update config", "device", deviceIMEI, "error", err)
+	}
+}
+
+// CheckIn records that a device has sent a message (resets the window).
+func (m *Monitor) CheckIn(deviceIMEI string) {
+	ctx, cancel := m.ctx()
+	defer cancel()
+	if c, err := m.store.GetDeadmanConfig(ctx, m.tenantID, deviceIMEI); err == nil && c.Alerted {
+		c.Alerted = false
+		if err := m.store.SaveDeadmanConfig(ctx, m.tenantID, c); err == nil {
+			slog.Info("deadman: device checked in, alert cleared", "device", deviceIMEI)
+		}
+	}
+	// Touch last_seen in the store.
+	_ = m.store.TouchDeviceLastSeen(ctx, m.tenantID, deviceIMEI)
 }
 
 // ListConfigs returns all active dead man's switch configs.
 func (m *Monitor) ListConfigs() []Config {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	configs := make([]Config, 0, len(m.configs))
-	for _, c := range m.configs {
-		configs = append(configs, *c)
+	ctx, cancel := m.ctx()
+	defer cancel()
+	stored, err := m.store.ListDeadmanConfigs(ctx)
+	if err != nil {
+		slog.Error("deadman: list configs", "error", err)
+		return nil
+	}
+	configs := make([]Config, 0, len(stored))
+	for _, c := range stored {
+		if c.Enabled {
+			configs = append(configs, fromStored(c))
+		}
 	}
 	return configs
 }
@@ -140,50 +183,45 @@ func (m *Monitor) Start(ctx context.Context) {
 }
 
 func (m *Monitor) scan(ctx context.Context) {
-	m.mu.Lock()
-	configs := make([]*Config, 0, len(m.configs))
-	for _, c := range m.configs {
-		configs = append(configs, c)
+	configs, err := m.store.ListDeadmanConfigs(ctx)
+	if err != nil {
+		slog.Error("deadman: list configs", "error", err)
+		return
 	}
-	m.mu.Unlock()
-
 	now := time.Now().UTC()
-	for _, cfg := range configs {
-		m.checkDevice(ctx, cfg, now)
+	for i := range configs {
+		if configs[i].Enabled {
+			m.checkDevice(ctx, &configs[i], now)
+		}
 	}
 }
 
-func (m *Monitor) checkDevice(ctx context.Context, cfg *Config, now time.Time) {
-	m.mu.Lock()
-	// Check snooze.
-	if until, ok := m.snoozed[cfg.DeviceIMEI]; ok && now.Before(until) {
-		m.mu.Unlock()
+func (m *Monitor) checkDevice(ctx context.Context, cfg *store.DeadmanConfig, now time.Time) {
+	if !cfg.SnoozedUntil.IsZero() && now.Before(cfg.SnoozedUntil) {
 		return
 	}
-	// Check if already alerted.
-	if m.alerted[cfg.DeviceIMEI] {
-		m.mu.Unlock()
+	if cfg.Alerted {
 		return
 	}
-	m.mu.Unlock()
 
-	// Get device last_seen from store.
-	// Use empty tenant for cross-tenant monitoring (dead man's switch is safety-critical).
-	device, err := m.store.GetDevice(ctx, store.DefaultTenantID, cfg.DeviceIMEI)
+	device, err := m.store.GetDevice(ctx, cfg.TenantID, cfg.DeviceIMEI)
 	if err != nil {
 		slog.Debug("deadman: device not found", "device", cfg.DeviceIMEI, "error", err)
 		return
 	}
 
-	deadline := device.LastSeen.Add(cfg.Interval).Add(cfg.Grace)
+	deadline := device.LastSeen.Add(time.Duration(cfg.IntervalSec) * time.Second).Add(time.Duration(cfg.GraceSec) * time.Second)
 	if now.Before(deadline) {
 		return // device checked in within the window
 	}
 
-	// Device missed check-in — trigger alert.
-	m.mu.Lock()
-	m.alerted[cfg.DeviceIMEI] = true
-	m.mu.Unlock()
+	// Mark alerted first (persisted) so a second replica or a restart does
+	// not trigger the same alert again.
+	cfg.Alerted = true
+	if err := m.store.SaveDeadmanConfig(ctx, cfg.TenantID, cfg); err != nil {
+		slog.Error("deadman: persist alerted flag", "device", cfg.DeviceIMEI, "error", err)
+		return
+	}
 
 	alert := &store.Alert{
 		ChainID:    cfg.ChainID,
@@ -191,7 +229,7 @@ func (m *Monitor) checkDevice(ctx context.Context, cfg *Config, now time.Time) {
 		Type:       "deadman",
 		Detail:     "Device missed check-in. Last seen: " + device.LastSeen.Format(time.RFC3339),
 	}
-	if err := m.engine.Trigger(ctx, store.DefaultTenantID, alert); err != nil {
+	if err := m.engine.Trigger(ctx, cfg.TenantID, alert); err != nil {
 		slog.Error("deadman: trigger alert failed", "device", cfg.DeviceIMEI, "error", err)
 		return
 	}

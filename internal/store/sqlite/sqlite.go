@@ -142,6 +142,8 @@ var migrations = []string{
 // which cannot be made idempotent in SQLite, so errors for duplicate columns
 // are ignored by the Migrate function.
 var alterMigrations = []string{
+	// MESHSAT-910: scheduled-send claim timestamp
+	`ALTER TABLE messages ADD COLUMN claimed_at TEXT NOT NULL DEFAULT ''`,
 	`ALTER TABLE devices ADD COLUMN tenant_id TEXT NOT NULL DEFAULT 'default'`,
 	`ALTER TABLE messages ADD COLUMN tenant_id TEXT NOT NULL DEFAULT 'default'`,
 	`ALTER TABLE webhook_configs ADD COLUMN tenant_id TEXT NOT NULL DEFAULT 'default'`,
@@ -160,6 +162,9 @@ var alterMigrations = []string{
 
 // postAlterMigrations create indexes and new tables. Safe to re-run.
 var postAlterMigrations = []string{
+	// MESHSAT-910: single-writer claims + persisted dead man's switch
+	`CREATE TABLE IF NOT EXISTS dispatch_claims (key TEXT PRIMARY KEY, claimed_at TEXT NOT NULL DEFAULT (datetime('now')))`,
+	`CREATE TABLE IF NOT EXISTS deadman_configs (device_imei TEXT NOT NULL, tenant_id TEXT NOT NULL DEFAULT 'default', chain_id TEXT NOT NULL DEFAULT '', interval_sec INTEGER NOT NULL DEFAULT 3600, grace_sec INTEGER NOT NULL DEFAULT 600, enabled INTEGER NOT NULL DEFAULT 1, snoozed_until TEXT NOT NULL DEFAULT '', alerted INTEGER NOT NULL DEFAULT 0, updated_at TEXT NOT NULL DEFAULT (datetime('now')), PRIMARY KEY (device_imei, tenant_id))`,
 	`CREATE TABLE IF NOT EXISTS api_keys (
 		id TEXT PRIMARY KEY,
 		key_hash TEXT NOT NULL UNIQUE,

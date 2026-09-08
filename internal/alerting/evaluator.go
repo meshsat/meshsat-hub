@@ -143,6 +143,15 @@ func (e *Evaluator) evalDeviceNotSeen(ctx context.Context, rule *store.AlertRule
 		}
 		e.fired[dedupKey] = now
 		e.mu.Unlock()
+		// Cross-replica dedup: one firing per rule+device per hour bucket.
+		won, err := e.store.ClaimOnce(ctx, "alertrule:"+rule.ID+":"+dev.IMEI+":"+now.UTC().Format("2006010215"))
+		if err != nil {
+			slog.Error("alerting: claim failed, not firing", "rule", rule.ID, "device", dev.IMEI, "error", err)
+			continue
+		}
+		if !won {
+			continue
+		}
 
 		detail := "Device " + dev.IMEI + " not seen for " + now.Sub(dev.LastSeen).Truncate(time.Minute).String()
 		if err := e.escalator.Trigger(ctx, rule.TenantID, rule.ChainID, dev.IMEI, "device_not_seen", detail); err != nil {
