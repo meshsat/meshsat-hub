@@ -11,6 +11,7 @@ import (
 
 	_ "github.com/jackc/pgx/v5/stdlib" // database/sql driver "pgx"
 
+	"github.com/meshsat/meshsat-hub/internal/store"
 	"github.com/meshsat/meshsat-hub/internal/store/dbwrap"
 )
 
@@ -65,3 +66,6 @@ func (d *DB) Ready(ctx context.Context) error {
 	}
 	return nil
 }
+
+// Compile-time check: every domain of the Store interface is implemented.
+var _ store.Store = (*DB)(nil)
