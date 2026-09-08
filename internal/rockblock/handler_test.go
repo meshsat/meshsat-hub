@@ -2,6 +2,7 @@ package rockblock
 
 import (
 	"encoding/hex"
+	"github.com/golang-jwt/jwt/v5"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -14,13 +15,12 @@ import (
 const testSecret = "test-webhook-secret"
 
 func TestHandler_NoSecret_Refused(t *testing.T) {
-	// Rock7's portal cannot sign, which used to be the argument for accepting
-	// unsigned requests on the platform path when HUB_ROCKBLOCK_SECRET was
-	// empty [MESHSAT-446]. That made an internet-reachable unauthenticated
-	// write, because /api/webhook/ is open at the edge. The per-tenant webhook
-	// path is the answer to the portal's limitation; with nothing configured
-	// this refuses, the way the Globalstar handler already does.
-	// [MESHSAT-975]
+	// Unsigned requests used to be accepted whenever HUB_ROCKBLOCK_SECRET was
+	// empty, on the belief that Rock7 could not sign [MESHSAT-446]. It can:
+	// Ground Control signs every delivery and publishes the key. So a request
+	// carrying no signature and no secret is not a portal limitation to work
+	// around, it is an unauthenticated write to an endpoint that is open at
+	// the edge, and it is refused. [MESHSAT-975]
 	h := &Handler{secret: ""}
 	form := url.Values{"imei": {"300234065123456"}, "data": {"deadbeef"}}
 	req := httptest.NewRequest("POST", "/api/webhook/rockblock",
@@ -34,6 +34,7 @@ func TestHandler_NoSecret_Refused(t *testing.T) {
 }
 
 func TestHandler_ValidPayload_WithSecret(t *testing.T) {
+	useTestKey(t)
 	h := &Handler{secret: testSecret}
 
 	plaintext := "Battery level 85 percent signal strength good"
@@ -48,8 +49,11 @@ func TestHandler_ValidPayload_WithSecret(t *testing.T) {
 		"iridium_longitude": {"4.5094"},
 		"iridium_cep":       {"10"},
 		"data":              {dataHex},
-		"JWT":               {testSecret},
 	}
+	form.Set("JWT", signedJWT(t, jwt.MapClaims{
+		"imei": form.Get("imei"), "momsn": 42, "data": dataHex,
+		"transmit_time": form.Get("transmit_time"),
+	}))
 
 	req := httptest.NewRequest("POST", "/api/webhook/rockblock",
 		strings.NewReader(form.Encode()))
@@ -64,12 +68,13 @@ func TestHandler_ValidPayload_WithSecret(t *testing.T) {
 }
 
 func TestHandler_MissingIMEI(t *testing.T) {
+	useTestKey(t)
 	h := &Handler{secret: testSecret}
 
 	form := url.Values{
 		"data": {"deadbeef"},
-		"JWT":  {testSecret},
 	}
+	form.Set("JWT", signedJWT(t, jwt.MapClaims{"imei": form.Get("imei"), "data": form.Get("data")}))
 	req := httptest.NewRequest("POST", "/api/webhook/rockblock",
 		strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
@@ -83,13 +88,14 @@ func TestHandler_MissingIMEI(t *testing.T) {
 }
 
 func TestHandler_InvalidHex(t *testing.T) {
+	useTestKey(t)
 	h := &Handler{secret: testSecret}
 
 	form := url.Values{
 		"imei": {"300234065123456"},
 		"data": {"not-valid-hex!!"},
-		"JWT":  {testSecret},
 	}
+	form.Set("JWT", signedJWT(t, jwt.MapClaims{"imei": form.Get("imei"), "data": form.Get("data")}))
 	req := httptest.NewRequest("POST", "/api/webhook/rockblock",
 		strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
@@ -109,6 +115,7 @@ func TestHandler_SecretRequired_NoSecret(t *testing.T) {
 		"imei": {"300234065123456"},
 		"data": {"deadbeef"},
 	}
+	form.Set("JWT", signedJWT(t, jwt.MapClaims{"imei": form.Get("imei"), "data": form.Get("data")}))
 	req := httptest.NewRequest("POST", "/api/webhook/rockblock",
 		strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")

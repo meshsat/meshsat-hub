@@ -63,8 +63,12 @@ func TestHandler_TenantTokens(t *testing.T) {
 	if c := post(imeiB, "", ""); c != http.StatusUnauthorized {
 		t.Errorf("platform path without secret: %d", c)
 	}
-	if c := post(imeiB, "", "platform-secret"); c != http.StatusOK {
-		t.Errorf("platform JWT: %d", c)
+	// The platform path's remaining shared-secret mechanism is the
+	// X-Hub-Signature HMAC. A bare secret dropped in the JWT field is not a
+	// signature and is refused now, which is the point of the change: that
+	// field carries a token Ground Control signed, and it is checked as one.
+	if c := post(imeiB, "", "platform-secret"); c != http.StatusUnauthorized {
+		t.Errorf("a secret pasted into the JWT field should be refused: %d", c)
 	}
 	if c := post(imeiB, "nope", ""); c != http.StatusUnauthorized {
 		t.Errorf("unknown token: %d", c)
