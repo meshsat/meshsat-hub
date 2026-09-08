@@ -7,6 +7,7 @@ package escalation
 import (
 	"context"
 	"fmt"
+	"github.com/meshsat/meshsat-hub/internal/tenancy"
 	"log/slog"
 	"sync"
 	"time"
@@ -220,7 +221,10 @@ func (e *Engine) processAlert(ctx context.Context, alert *store.Alert, now time.
 	notifier := e.notifier
 	e.mu.Unlock()
 
-	if err := notifier.Notify(ctx, targets, subject, body); err != nil {
+	// The notifier picks the tenant's own provider account (Twilio) from the
+	// context (MESHSAT-977); the alert knows its tenant.
+	notifyCtx := tenancy.WithTenant(ctx, alert.TenantID)
+	if err := notifier.Notify(notifyCtx, targets, subject, body); err != nil {
 		slog.Error("escalation: notify failed",
 			"alert", alert.ID, "tier", tier.Name, "error", err)
 	}
