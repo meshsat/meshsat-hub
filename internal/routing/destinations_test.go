@@ -3,6 +3,7 @@ package routing
 import (
 	"context"
 	"encoding/json"
+	"github.com/meshsat/meshsat-hub/internal/tenancy"
 	"sync/atomic"
 	"testing"
 
@@ -147,5 +148,26 @@ func TestNewAPRSHandler(t *testing.T) {
 	}
 	if pub.lastTopic != "meshsat/dev1/aprs/out" {
 		t.Errorf("topic: got %s", pub.lastTopic)
+	}
+}
+
+// The satellite destination sends "[origin] text" to every modem IMEI in
+// the route filter except the origin itself (MESHSAT-964 D).
+func TestNewSatelliteHandler(t *testing.T) {
+	var got []string
+	h := NewSatelliteHandler(func(_ context.Context, tenantID, imei, text string) error {
+		got = append(got, tenantID+"|"+imei+"|"+text)
+		return nil
+	})
+	route := &store.Route{ID: "r1", Filter: "300434067943980, 300258060902280"}
+	payload, _ := json.Marshal(map[string]any{"text": "meet at the booth"})
+	h(tenancy.WithTenant(context.Background(), "t1"), route, "300258060902280", payload)
+	if len(got) != 1 || got[0] != "t1|300434067943980|[300258060902280] meet at the booth" {
+		t.Fatalf("sends = %v", got)
+	}
+	got = nil
+	h(context.Background(), &store.Route{ID: "r2"}, "x", payload)
+	if len(got) != 0 {
+		t.Fatalf("empty filter sent %v", got)
 	}
 }

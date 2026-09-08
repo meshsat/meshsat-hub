@@ -1939,6 +1939,21 @@ func main() {
 		routeEngine.RegisterHandler("email", routing.NewEmailHandler(routeEmailClient))
 	}
 	// Register webhook, notification, MQTT, TAK, and APRS destination handlers.
+	// Satellite destination (MESHSAT-964 D): the text goes to a bridge's
+	// modem, IMT through the tenant's Cloudloop account for a 9704, Rock7 MT
+	// for a 9603; the route filter lists the modem IMEIs.
+	routeEngine.RegisterHandler("satellite", routing.NewSatelliteHandler(func(ctx context.Context, tenantID, imei, text string) error {
+		if _, imt := thingResolver.Resolve(tenantID, imei); imt {
+			_, err := mtSender.SendDirect(imei, cloudloop.MTSendRequest{Text: text})
+			return err
+		}
+		client := rock7Pool.ForTenant(ctx, tenantID)
+		if client == nil {
+			return fmt.Errorf("no Rock7 account configured for tenant %s", tenantID)
+		}
+		_, err := client.SendMT(ctx, imei, hex.EncodeToString([]byte(text)))
+		return err
+	}))
 	routeEngine.RegisterHandler("webhook", routing.NewWebhookHandler(webhookDispatcher))
 	routeEngine.RegisterHandler("mqtt", routing.NewMQTTHandler(msgBus))
 	routeEngine.RegisterHandler("tak", routing.NewTAKHandler(msgBus))

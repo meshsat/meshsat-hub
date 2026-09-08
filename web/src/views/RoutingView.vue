@@ -27,7 +27,7 @@ const testResults = ref(null)
 const testLoading = ref(false)
 
 const sourceTypes = ['*', 'iridium', 'sms', 'email']
-const destTypes = ['tak', 'aprs', 'sms', 'email', 'webhook', 'notification', 'mqtt']
+const destTypes = ['tak', 'aprs', 'sms', 'email', 'satellite', 'webhook', 'notification', 'mqtt']
 
 const showDeleteConfirm = ref(false)
 const routeToDelete = ref(null)
