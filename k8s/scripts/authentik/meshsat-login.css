@@ -54,14 +54,22 @@
 
 /* Solid Space Black ground with the brand dot grid; no photo, no orb. */
 .pf-c-background-image, .pf-c-login { background: #040406 radial-gradient(circle, rgba(247,247,244,0.03) 1px, transparent 1px) 0 0 / 24px 24px !important; }
-#omoikane-orb, .omoikane-orb, canvas.omoikane-orb { display: none !important; }
+#omoikane-orb, .omoikane-orb, canvas.omoikane-orb, #omk-sky { display: none !important; }
+
+/* The card container itself and the "Need an account?" band were still white
+ * (only header/body/footer were themed): visible as white corners and a strip. */
+.pf-c-login__main { background: #1A1714; }
+.pf-c-login__main-footer-band { background: #1A1714; color: #A79B8B; border-top: 1px solid #2E2822; }
+ak-message-container { background: transparent; }
 
 /* Card */
 .pf-c-login__main { border: 1px solid #2E2822; border-radius: 12px; box-shadow: 0 24px 64px rgba(0,0,0,0.45); }
 .pf-c-login__main-header, .pf-c-login__main-body, .pf-c-login__main-footer { background: #1A1714; color: #F2EDE6; }
 .pf-c-title, h1, h2, h3 { font-family: 'IBM Plex Mono', ui-monospace, monospace; letter-spacing: 0.02em; color: #F2EDE6; }
 .pf-c-login__main-header-desc, .pf-c-form__label-text, .pf-c-form__helper-text { color: #A79B8B; }
-.pf-c-brand { max-height: 44px; }
+.pf-c-brand { max-height: 56px; overflow: visible; }
+/* The lockup SVG is 1200x244: scale it into the header instead of clipping it. */
+.pf-c-brand img, img.branding-logo, .pf-c-login__main-header img { max-height: 44px; max-width: 220px; width: auto; height: auto; object-fit: contain; }
 
 /* Inputs */
 .pf-c-form-control { background: #14120F; color: #F2EDE6; border-color: #2E2822 #2E2822 #423A31; border-radius: 5px; }
