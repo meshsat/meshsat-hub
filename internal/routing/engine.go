@@ -191,7 +191,7 @@ func (e *Engine) InvalidateCache() {
 // isRecipientDestination returns true for destination types where the filter
 // field is a recipient address (phone number, email), not a message match condition.
 func isRecipientDestination(destType string) bool {
-	return destType == "sms" || destType == "email"
+	return destType == "sms" || destType == "email" || destType == "satellite"
 }
 
 // matchSource returns true if the route's source matches the message source.

@@ -67,6 +67,42 @@ func NewSMSHandlerPool(pool *sms.ClientPool) DestinationHandler {
 	}
 }
 
+// SatelliteSender delivers one text to a bridge over its satellite modem
+// (Cloudloop IMT for a 9704, Rock7 MT for a 9603), keyed by the modem IMEI.
+type SatelliteSender func(ctx context.Context, tenantID, imei, text string) error
+
+// NewSatelliteHandler creates a routing destination that sends the message
+// text to one or more bridges over their satellite modems (MESHSAT-964 D).
+// The route's Filter is the recipient list of modem IMEIs; the text carries
+// the "[origin] text" prefix the kits parse.
+func NewSatelliteHandler(send SatelliteSender) DestinationHandler {
+	return func(ctx context.Context, route *store.Route, deviceID string, payload json.RawMessage) {
+		var msg moDecodedPayload
+		if err := json.Unmarshal(payload, &msg); err != nil {
+			slog.Warn("routing/satellite: unmarshal payload failed", "error", err)
+			return
+		}
+		recipients := parseRecipients(route.Filter)
+		if len(recipients) == 0 {
+			slog.Debug("routing/satellite: no recipients in route filter", "route", route.ID)
+			return
+		}
+		tenantID := tenancy.FromContext(ctx)
+		if tenantID == "" {
+			tenantID = store.DefaultTenantID
+		}
+		text := formatRoutedSMS(deviceID, msg.Text)
+		for _, imei := range recipients {
+			if imei == deviceID {
+				continue // never back to the origin
+			}
+			if err := send(ctx, tenantID, imei, text); err != nil {
+				slog.Error("routing/satellite: send failed", "imei", imei, "device", deviceID, "error", err)
+			}
+		}
+	}
+}
+
 // NewEmailHandler creates a routing destination handler that sends email.
 // The route's Filter field should contain recipient email address(es) (comma-separated).
 func NewEmailHandler(client *hubemail.Client) DestinationHandler {
