@@ -73,15 +73,32 @@ for name, role in (
     note(f"group {name} {'created' if created else 'ok'}")
 
 # ---------------------------------------------------------------- scope mapping
+GROUPS_EXPR = 'return {"groups": [g.name for g in request.user.groups.all() if g.name.startswith("meshsat-")]}'
 scope, created = ScopeMapping.objects.get_or_create(
     scope_name="meshsat",
-    defaults={
-        "name": "MeshSat groups",
-        "description": "MeshSat Hub roles",
-        "expression": 'return {"groups": [g.name for g in request.user.ak_groups.all() if g.name.startswith("meshsat-")]}',
-    },
+    defaults={"name": "MeshSat groups", "description": "MeshSat Hub roles", "expression": GROUPS_EXPR},
 )
+if scope.expression != GROUPS_EXPR:
+    scope.expression = GROUPS_EXPR
+    scope.save()
 note(f"scope mapping meshsat {'created' if created else 'ok'}")
+
+# authentik's default 'email' mapping returns email_verified: False for everyone; the Hub
+# refuses unverified emails at JIT (provision error). This mapping reports the marker the
+# enrollment flow writes after the email stage (attributes.email_verified).
+EMAIL_EXPR = (
+    'return {"email": request.user.email, '
+    '"email_verified": request.user.attributes.get("email_verified") in (True, "true")}'
+)
+email_scope, e_created = ScopeMapping.objects.get_or_create(
+    name="MeshSat email",
+    defaults={"scope_name": "email", "description": "email + verified flag from the enrollment marker", "expression": EMAIL_EXPR},
+)
+if email_scope.expression != EMAIL_EXPR or email_scope.scope_name != "email":
+    email_scope.expression = EMAIL_EXPR
+    email_scope.scope_name = "email"
+    email_scope.save()
+note(f"scope mapping MeshSat email {'created' if e_created else 'ok'}")
 
 # ---------------------------------------------------------------- provider + application
 cert = CertificateKeyPair.objects.filter(name__icontains="authentik Self-signed").first() or CertificateKeyPair.objects.first()
@@ -121,7 +138,7 @@ if cert and not provider.signing_key_id:
     provider.signing_key = cert
 provider.include_claims_in_id_token = True
 provider.save()
-wanted = list(ScopeMapping.objects.filter(scope_name__in=["openid", "profile", "email"])) + [scope]
+wanted = list(ScopeMapping.objects.filter(scope_name__in=["openid", "profile"], managed__isnull=False)) + [email_scope, scope]
 assert len(wanted) == 4, f"default scope mappings missing: {[s.scope_name for s in wanted]}"
 provider.property_mappings.set(wanted)
 note(f"provider MeshSat Hub {'created' if p_created else 'ok'}")
