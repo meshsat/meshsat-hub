@@ -1,0 +1,30 @@
+# In-cluster endpoints (Hub -> nats:1883, exporter scrape) and the websocket
+# Service the edge relay targets.
+apiVersion: v1
+kind: Service
+metadata:
+  name: nats
+  namespace: meshsat-hub
+  labels:
+    app.kubernetes.io/name: nats
+spec:
+  selector:
+    app.kubernetes.io/name: nats
+  ports:
+    - {name: client, port: 4222, targetPort: client}
+    - {name: mqtt, port: 1883, targetPort: mqtt}
+    - {name: monitor, port: 8222, targetPort: monitor}
+    - {name: metrics, port: 7777, targetPort: metrics}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: nats-ws
+  namespace: meshsat-hub
+  labels:
+    app.kubernetes.io/name: nats
+spec:
+  selector:
+    app.kubernetes.io/name: nats
+  ports:
+    - {name: websocket, port: 9443, targetPort: websocket}

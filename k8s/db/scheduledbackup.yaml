@@ -1,0 +1,14 @@
+# Daily base backup of meshsat-hub-main at 02:45 (CNPG cron is 6-field, seconds first;
+# omoikane-main runs at 02:30 on the same bucket host).
+apiVersion: postgresql.cnpg.io/v1
+kind: ScheduledBackup
+metadata:
+  name: meshsat-hub-main-daily
+  namespace: meshsat-hub-db
+  labels:
+    app.kubernetes.io/name: meshsat-hub-main
+spec:
+  schedule: "0 45 2 * * *"
+  backupOwnerReference: self
+  cluster:
+    name: meshsat-hub-main

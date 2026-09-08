@@ -1,0 +1,58 @@
+# Hub non-secret config. Values carried over from the NL compose .env capture
+# (2026-09-08) where they are not cluster-specific; cluster settings per the
+# MESHSAT-864 plan. Secrets and templated URLs live in hub-secrets (ES).
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: hub-config
+  namespace: meshsat-hub
+  labels:
+    app.kubernetes.io/name: hub
+data:
+  HUB_PORT: "6070"
+  HUB_MODE: "kubernetes"
+  HUB_DB_DRIVER: "postgres"
+  HUB_DB_RETRY_MAX_ATTEMPTS: "8"
+  HUB_SHUTDOWN_DRAIN_SECONDS: "5"
+  HUB_LOG_FORMAT: "json"
+  HUB_LOG_LEVEL: "info"
+  HUB_MQTT_CLIENT_ID: "meshsat-hub"
+  # --- identity: authentik at auth.meshsat.net (MESHSAT-936); issuer exactly as discovery reports it ---
+  HUB_AUTH_MODE: "oidc"
+  HUB_OIDC_ISSUER_URL: "https://auth.meshsat.net/application/o/meshsat-hub/"
+  HUB_OIDC_REDIRECT_URI: "https://hub.meshsat.net/api/auth/oidc/callback"
+  HUB_OIDC_SCOPES: "openid profile email"
+  HUB_OIDC_GROUPS_CLAIM: "groups"
+  HUB_OIDC_ADMIN_GROUP: "meshsat-platform-admin"
+  HUB_OIDC_SIGNUP_URL: "https://auth.meshsat.net/if/flow/meshsat-enrollment/"
+  HUB_TENANT_ENFORCE: "true"
+  HUB_LOCAL_LOGIN_ENABLED: "false"
+  # --- bridges ---
+  MESHSAT_MQTT_PUBLIC_URL: "wss://mqtt-hub.meshsat.net:443"
+  HUB_BRIDGE_CA_SECRET_NAME: "meshsat-bridge-ca"
+  HUB_RETICULUM_TCP_ENABLED: "true"
+  HUB_RETICULUM_TCP_ADDR: ":4242"
+  HUB_AUDIT_ARCHIVE_PATH: "/data/audit"
+  # --- carried over from the compose .env ---
+  HUB_RATELIMIT_BURST: "10"
+  HUB_RATELIMIT_DAILY_CAP: "100"
+  HUB_RATELIMIT_REFILL_PER_MIN: "1"
+  HUB_SMS_ENABLED: "true"
+  HUB_CLOUDLOOP_DEVICE_MAP: "300258060902280:OVdRorbmlwqkNBpaVOXnJYPZvxaXpzjL:imt"
+  HUB_CLOUDLOOP_MQTT_BROKER: "ssl://mqtt.cloudloop.com:8883"
+  HUB_CLOUDLOOP_WEBHOOK_ALLOWED_IPS: "*"
+  HUB_APRSIS_ENABLED: "false"
+  HUB_WG_ENABLED: "false"
+  HUB_HAWKBIT_ENABLED: "false"
+  # TAK: OpenTAKServer stays on the DMZ hosts (not part of this migration). The
+  # values are the NL compose ones; reachability of 192.168.192.10 from the
+  # cluster is verified at rehearsal (NOTES.md). Self-signed OTS certificate.
+  HUB_TAK_ENABLED: "true"
+  HUB_TAK_HOST: "192.168.192.10"
+  HUB_TAK_PORT: "8088"
+  HUB_TAK_API_BASE_URL: "http://192.168.192.10:8880"
+  HUB_TAK_API_POLL_SEC: "10"
+  HUB_TAK_API_INSECURE_TLS: "true"
+  HUB_TAK_CALLSIGN_PREFIX: "MESHSAT-HUB"
+  HUB_TAK_FEDERATION_ENABLED: "true"
+  HUB_TAK_FEDERATION_PEERS: "192.168.15.10:9001"
