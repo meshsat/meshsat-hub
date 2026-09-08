@@ -1,12 +1,35 @@
 <script setup>
-import { ref } from 'vue'
-import { useRouter } from 'vue-router'
+import { ref, computed, onMounted } from 'vue'
+import { useRouter, useRoute } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
 
 const authStore = useAuthStore()
 const router = useRouter()
+const route = useRoute()
 
 const mode = ref('email') // 'email' or 'token'
+const modes = ref(null) // from /api/auth/config; null until loaded
+const showOther = ref(false) // local/token forms behind a disclosure when OIDC is offered
+const hasOIDC = computed(() => modes.value?.includes('oidc'))
+const hasLocal = computed(() => !modes.value || modes.value.includes('local'))
+const redirectTarget = computed(() => {
+  const r = route.query.redirect
+  return typeof r === 'string' && r.startsWith('/') && !r.startsWith('//') ? r : ''
+})
+
+onMounted(async () => {
+  const cfg = await authStore.fetchAuthConfig()
+  modes.value = cfg.modes || ['local']
+  if (!hasLocal.value) mode.value = 'token'
+  if (route.query.error === 'pending_approval') {
+    error.value = 'Your MeshSat ID is registered but not approved yet. You will get an email when access is granted.'
+  }
+})
+
+function signInWithMeshSatID() {
+  authStore.startOIDCLogin(redirectTarget.value)
+}
+
 const email = ref('')
 const password = ref('')
 const apiToken = ref('')
@@ -66,7 +89,7 @@ async function loginWithEmail() {
   if (data.refresh_token) {
     localStorage.setItem('auth_refresh_token', data.refresh_token)
   }
-  router.push({ name: 'dashboard' })
+  router.push(redirectTarget.value || { name: 'dashboard' })
 }
 
 async function loginWithToken() {
@@ -87,7 +110,7 @@ async function loginWithToken() {
     return
   }
   authStore.login(apiToken.value)
-  router.push({ name: 'dashboard' })
+  router.push(redirectTarget.value || { name: 'dashboard' })
 }
 </script>
 
@@ -96,9 +119,33 @@ async function loginWithToken() {
     <div class="w-full max-w-sm">
       <h1 class="text-2xl font-display font-bold text-gray-200 text-center mb-8 tracking-wide">MeshSat Hub</h1>
 
-      <form @submit.prevent="handleLogin" class="bg-tactical-surface rounded-lg p-6 space-y-4">
+      <!-- Single sign-on (MeshSat ID) when the Hub offers it -->
+      <div v-if="hasOIDC" class="bg-tactical-surface rounded-lg p-6 space-y-4 mb-4" data-testid="sso-panel">
+        <button
+          type="button"
+          @click="signInWithMeshSatID"
+          class="w-full py-2.5 bg-brand-primary hover:bg-brand-accent text-white rounded-lg font-medium transition-colors"
+        >
+          Sign in with MeshSat ID
+        </button>
+        <p class="text-xs text-gray-500 text-center">
+          No account yet?
+          <a href="/api/auth/oidc/login" class="text-gray-300 hover:text-white underline">Request beta access</a>
+        </p>
+        <p v-if="error && !showOther" class="text-red-400 text-sm">{{ error }}</p>
+        <button
+          type="button"
+          @click="showOther = !showOther; error = ''"
+          class="w-full text-xs text-gray-500 hover:text-gray-300"
+          :aria-expanded="showOther"
+        >
+          {{ showOther ? 'Hide other sign-in options' : 'Other sign-in options' }}
+        </button>
+      </div>
+
+      <form v-if="!hasOIDC || showOther" @submit.prevent="handleLogin" class="bg-tactical-surface rounded-lg p-6 space-y-4" data-testid="local-panel">
         <!-- Mode toggle -->
-        <div class="flex rounded-lg overflow-hidden border border-gray-700">
+        <div v-if="hasLocal" class="flex rounded-lg overflow-hidden border border-gray-700">
           <button type="button" @click="mode = 'email'; error = ''"
             class="flex-1 py-2 text-sm font-medium transition-colors"
             :class="mode === 'email' ? 'bg-brand-primary text-white' : 'bg-gray-800 text-gray-400 hover:text-gray-200'">
@@ -112,7 +159,7 @@ async function loginWithToken() {
         </div>
 
         <!-- Email/Password fields -->
-        <template v-if="mode === 'email'">
+        <template v-if="mode === 'email' && hasLocal">
           <div>
             <label for="email" class="block text-sm text-gray-400 mb-1">Email</label>
             <input

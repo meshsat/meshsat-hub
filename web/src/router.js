@@ -3,6 +3,7 @@ import { useAuthStore } from './stores/auth'
 
 const routes = [
   { path: '/login', name: 'login', component: () => import('./views/Login.vue') },
+  { path: '/auth/callback', name: 'authCallback', component: () => import('./views/AuthCallback.vue') },
   { path: '/', name: 'dashboard', component: () => import('./views/Dashboard.vue'), meta: { requiresAuth: true } },
   { path: '/map', name: 'map', component: () => import('./views/MapView.vue'), meta: { requiresAuth: true } },
   { path: '/fleet', name: 'fleet', component: () => import('./views/FleetView.vue'), meta: { requiresAuth: true } },
@@ -45,7 +46,7 @@ const router = createRouter({
 router.beforeEach((to) => {
   const auth = useAuthStore()
   if (to.meta.requiresAuth && !auth.isAuthenticated) {
-    return { name: 'login' }
+    return { name: 'login', query: to.fullPath && to.fullPath !== '/' ? { redirect: to.fullPath } : {} }
   }
   if (to.name === 'login' && auth.isAuthenticated) {
     return { name: 'dashboard' }

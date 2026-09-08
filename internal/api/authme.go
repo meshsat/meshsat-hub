@@ -25,6 +25,8 @@ func AuthMeHandler(w http.ResponseWriter, r *http.Request) {
 		"name":      user.Name,
 		"roles":     user.Roles,
 		"tenant_id": tid,
+		// True for members of the platform-admin IdP group (may act across tenants).
+		"platform_admin": user.PlatformAdmin,
 	}
 	writeJSON(w, http.StatusOK, resp)
 }
