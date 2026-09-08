@@ -514,8 +514,22 @@ func TestJWKSProvider_Discovery(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetKey: %v", err)
 	}
-	if key.N.Cmp(kp.publicKey.N) != 0 {
+	rsaKey, ok := key.(*rsa.PublicKey)
+	if !ok {
+		t.Fatalf("expected *rsa.PublicKey, got %T", key)
+	}
+	if rsaKey.N.Cmp(kp.publicKey.N) != 0 {
 		t.Error("public key modulus mismatch")
+	}
+	disc, err := provider.Discover(context.Background())
+	if err != nil {
+		t.Fatalf("Discover: %v", err)
+	}
+	if disc.Issuer != srv.URL || disc.JWKSURI != srv.URL+"/jwks" {
+		t.Errorf("discovery document not retained: %+v", disc)
+	}
+	if provider.ExpectedIssuer() != srv.URL {
+		t.Errorf("ExpectedIssuer = %q, want %q", provider.ExpectedIssuer(), srv.URL)
 	}
 }
 
