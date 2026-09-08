@@ -32,6 +32,10 @@ func (LogNotifier) Notify(_ context.Context, targets []string, subject, body str
 	return nil
 }
 
+// escalationLease is how long a replica holds an alert step while it
+// notifies; the final next_esc_at replaces it once notification returns.
+const escalationLease = 2 * time.Minute
+
 // Engine manages the escalation lifecycle for active alerts.
 type Engine struct {
 	store    store.Store
@@ -164,7 +168,24 @@ func (e *Engine) processAlert(ctx context.Context, alert *store.Alert, now time.
 	}
 
 	tier := chain.Tiers[alert.CurrentTier]
+
+	// Take a short lease on the alert with a compare-and-set on next_esc_at:
+	// the replica that moves next_esc_at forward is the only one that
+	// notifies this step; the others see a future next_esc_at and skip. If
+	// this replica dies mid-step the lease expires and the step is retried.
+	expected := alert.NextEscAt
 	alert.State = store.AlertStateEscalating
+	alert.NextEscAt = now.Add(escalationLease)
+	alert.UpdatedAt = now
+	won, err := e.store.AdvanceAlert(ctx, alert.TenantID, alert, expected)
+	if err != nil {
+		slog.Error("escalation: lease failed", "alert", alert.ID, "error", err)
+		return
+	}
+	if !won {
+		slog.Debug("escalation: step taken by another replica", "alert", alert.ID)
+		return
+	}
 
 	// Build template data for Go template-based formatting.
 	data := apprise.AlertData{

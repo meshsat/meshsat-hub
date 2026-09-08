@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"log/slog"
 	"strings"
+	"time"
 
 	"github.com/meshsat/meshsat-hub/internal/bus"
 	"github.com/meshsat/meshsat-hub/internal/escalation"
@@ -21,6 +22,7 @@ var sosKeywords = []string{"SOS", "MAYDAY", "EMERGENCY"}
 
 // moDecodedMsg is the subset of the MO decoded message needed for SOS detection.
 type moDecodedMsg struct {
+	ID   string `json:"id"`
 	IMEI string `json:"imei"`
 	Text string `json:"text"`
 	SOS  *bool  `json:"sos,omitempty"`
@@ -75,6 +77,25 @@ func (d *Detector) handleMODecoded(topic string, payload []byte) {
 	keyword, source := detectSOS(msg)
 	if source == "" {
 		return // not an SOS message
+	}
+
+	// One SOS event and one alert per message across all replicas.
+	msgID := msg.ID
+	if msgID == "" {
+		msgID = hubmqtt.FallbackMessageID(topic, payload)
+	}
+	if d.dataStore != nil {
+		claimCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		won, err := d.dataStore.ClaimOnce(claimCtx, "sos:"+d.tenantID+":"+msgID)
+		cancel()
+		if err != nil {
+			slog.Error("sos: claim failed, not triggering", "imei", msg.IMEI, "message", msgID, "error", err)
+			return
+		}
+		if !won {
+			slog.Debug("sos: already handled by another replica", "imei", msg.IMEI, "message", msgID)
+			return
+		}
 	}
 
 	slog.Warn("sos: SOS detected",
