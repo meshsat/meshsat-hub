@@ -91,7 +91,18 @@ export const useAuthStore = defineStore('auth', () => {
   }
 
   // Silent token refresh — call when a 401 is received
-  async function refreshToken() {
+  // One refresh in flight at a time: a page load with a stale token fires a
+  // dozen API calls that all get 401 and would each rotate the refresh token
+  // (single-use), the second one failing and logging the user out.
+  let refreshInFlight = null
+  function refreshToken() {
+    if (!refreshInFlight) {
+      refreshInFlight = doRefresh().finally(() => { refreshInFlight = null })
+    }
+    return refreshInFlight
+  }
+
+  async function doRefresh() {
     const rt = localStorage.getItem('auth_refresh_token')
     if (!rt) return false
 
