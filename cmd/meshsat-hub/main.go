@@ -1349,7 +1349,10 @@ func main() {
 	// Enforce mode disabled for backward compatibility; enable via HUB_TENANT_ENFORCE=true.
 	// A suspended or deleted tenant is refused every request. Cached for a
 	// few seconds so this is not a database round trip per call.
-	tenantStatus := tenancy.NewStatusCache(dataStore, 15*time.Second)
+	tenantStatus := tenancy.NewStatusCache(dataStore, 15*time.Second).WithBus(msgBus)
+	if err := tenantStatus.Subscribe(); err != nil {
+		slog.Warn("tenant status invalidation not subscribed; a change applies elsewhere within the cache TTL", "error", err)
+	}
 	hubauth.SetTenantStatusLookup(tenantStatus.Status)
 	// Destroying a closed tenant's data is single-owner work and its audit
 	// line should be written once, so it runs on the lease holder.
@@ -1533,6 +1536,7 @@ func main() {
 	// Tenant self-service (members read, owners manage invites) and the
 	// platform-admin tenant directory (MESHSAT-916, MR 16).
 	tenantHandler := api.NewTenantHandler(dataStore)
+	tenantHandler.SetStatusInvalidator(tenantStatus.Forget)
 	offboarding := api.NewTenantOffboardingHandler(dataStore, auditSvc, tenantStatus.Forget)
 	r.Route("/api/tenant", func(r chi.Router) {
 		r.With(hubauth.RequireRole(hubauth.RoleViewer)).Get("/", tenantHandler.Get)
