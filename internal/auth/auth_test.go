@@ -625,23 +625,47 @@ func TestTenantMiddleware_FromJWTClaim(t *testing.T) {
 	}
 }
 
-func TestTenantMiddleware_FromHeader(t *testing.T) {
+func TestTenantMiddleware_HeaderOnlyForPlatformAdmins(t *testing.T) {
 	inner := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		tid := TenantIDFromContext(r.Context())
-		w.Header().Set("X-Resolved-Tenant", tid)
+		w.Header().Set("X-Resolved-Tenant", TenantIDFromContext(r.Context()))
 		w.WriteHeader(200)
 	})
 	mw := TenantMiddleware(false)
 
+	// No user: the header is ignored, default tenant.
 	req := httptest.NewRequest("GET", "/api/devices", nil)
 	req.Header.Set("X-Tenant-ID", "header-tenant")
-	// No user in context — simulates service-to-service call.
-
 	w := httptest.NewRecorder()
 	mw(inner).ServeHTTP(w, req)
+	if got := w.Header().Get("X-Resolved-Tenant"); got != "default" {
+		t.Errorf("anonymous header honoured: %q", got)
+	}
 
+	// Regular user: the header is ignored, own tenant wins.
+	req = httptest.NewRequest("GET", "/api/devices", nil)
+	req.Header.Set("X-Tenant-ID", "header-tenant")
+	req = req.WithContext(context.WithValue(req.Context(), UserContextKey, &User{ID: "u1", TenantID: "own"}))
+	w = httptest.NewRecorder()
+	mw(inner).ServeHTTP(w, req)
+	if got := w.Header().Get("X-Resolved-Tenant"); got != "own" {
+		t.Errorf("member header honoured: %q", got)
+	}
+
+	// Platform admin: header selects the tenant.
+	req = httptest.NewRequest("GET", "/api/devices", nil)
+	req.Header.Set("X-Tenant-ID", "header-tenant")
+	req = req.WithContext(context.WithValue(req.Context(), UserContextKey, &User{ID: "admin", TenantID: "own", PlatformAdmin: true}))
+	w = httptest.NewRecorder()
+	mw(inner).ServeHTTP(w, req)
 	if got := w.Header().Get("X-Resolved-Tenant"); got != "header-tenant" {
-		t.Errorf("expected header-tenant, got %q", got)
+		t.Errorf("admin header ignored: %q", got)
+	}
+
+	// RequirePlatformAdmin gate.
+	rr := httptest.NewRecorder()
+	RequirePlatformAdmin()(inner).ServeHTTP(rr, httptest.NewRequest("GET", "/api/admin/tenants", nil).WithContext(context.WithValue(context.Background(), UserContextKey, &User{ID: "u1", Roles: []string{"owner"}})))
+	if rr.Code != 403 {
+		t.Errorf("owner passed platform-admin gate: %d", rr.Code)
 	}
 }
 
