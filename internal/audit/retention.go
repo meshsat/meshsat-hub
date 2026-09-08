@@ -2,11 +2,7 @@ package audit
 
 import (
 	"context"
-	"encoding/json"
-	"fmt"
 	"log/slog"
-	"os"
-	"path/filepath"
 	"time"
 
 	"github.com/meshsat/meshsat-hub/internal/metrics"
@@ -15,29 +11,49 @@ import (
 
 // RetentionConfig holds retention policy settings.
 type RetentionConfig struct {
-	RetentionDays int    // Days to keep entries (0 = disabled)
-	ArchivePath   string // Path to write JSONL archives before purge (empty = no archive)
+	RetentionDays int       // Days to keep entries (0 = disabled)
+	ArchivePath   string    // Directory for JSONL archives before purge (empty = no file archive)
+	S3            *S3Config // Object store archive; takes precedence over ArchivePath when set
 }
 
 // RetentionStore defines the store methods needed by the retention service.
 type RetentionStore interface {
+	ListTenants(ctx context.Context) ([]store.Tenant, error)
 	ListAuditEntriesBefore(ctx context.Context, tenantID string, before time.Time, limit int) ([]store.AuditEntry, error)
 	DeleteAuditEntriesBefore(ctx context.Context, tenantID string, before time.Time) (int64, error)
 }
 
-// RunRetention starts a daily background goroutine that purges old audit entries.
-// It blocks until ctx is cancelled.
+// sinkFor builds the archive sink from the configuration (nil = purge only).
+func sinkFor(cfg RetentionConfig) (Sink, error) {
+	if cfg.S3 != nil {
+		return NewS3Sink(*cfg.S3)
+	}
+	if cfg.ArchivePath != "" {
+		return FileSink{Dir: cfg.ArchivePath}, nil
+	}
+	return nil, nil
+}
+
+// RunRetention starts a daily background goroutine that archives and purges
+// old audit entries of every tenant. It blocks until ctx is cancelled.
 func RunRetention(ctx context.Context, s RetentionStore, cfg RetentionConfig) {
 	if cfg.RetentionDays <= 0 {
 		slog.Info("audit: retention disabled")
 		return
 	}
-
-	slog.Info("audit: retention enabled", "days", cfg.RetentionDays, "archive_path", cfg.ArchivePath)
+	sink, err := sinkFor(cfg)
+	if err != nil {
+		slog.Error("audit: retention disabled, archive sink misconfigured", "error", err)
+		return
+	}
+	name := "none"
+	if sink != nil {
+		name = sink.Name()
+	}
+	slog.Info("audit: retention enabled", "days", cfg.RetentionDays, "archive", name)
 
 	// Run once at startup, then daily.
-	purge(ctx, s, cfg)
-
+	purgeAll(ctx, s, cfg, sink)
 	ticker := time.NewTicker(24 * time.Hour)
 	defer ticker.Stop()
 	for {
@@ -45,61 +61,51 @@ func RunRetention(ctx context.Context, s RetentionStore, cfg RetentionConfig) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			purge(ctx, s, cfg)
+			purgeAll(ctx, s, cfg, sink)
 		}
 	}
 }
 
-func purge(ctx context.Context, s RetentionStore, cfg RetentionConfig) {
+// purgeAll runs the archive+purge for every tenant; the default tenant is
+// always included even when the tenants table is empty.
+func purgeAll(ctx context.Context, s RetentionStore, cfg RetentionConfig, sink Sink) {
 	cutoff := time.Now().UTC().AddDate(0, 0, -cfg.RetentionDays)
-	tenantID := store.DefaultTenantID
-
-	// Archive before purge if path is configured.
-	if cfg.ArchivePath != "" {
-		if err := archiveEntries(ctx, s, tenantID, cutoff, cfg.ArchivePath); err != nil {
-			slog.Error("audit: archive failed, skipping purge", "error", err)
-			return
+	tenants := []string{store.DefaultTenantID}
+	if list, err := s.ListTenants(ctx); err != nil {
+		slog.Warn("audit: list tenants failed, purging the default tenant only", "error", err)
+	} else {
+		for _, t := range list {
+			if t.ID != store.DefaultTenantID {
+				tenants = append(tenants, t.ID)
+			}
 		}
 	}
+	for _, tenantID := range tenants {
+		purgeTenant(ctx, s, tenantID, cutoff, sink)
+	}
+}
 
+func purgeTenant(ctx context.Context, s RetentionStore, tenantID string, cutoff time.Time, sink Sink) {
+	if sink != nil {
+		entries, err := s.ListAuditEntriesBefore(ctx, tenantID, cutoff, 0)
+		if err != nil {
+			slog.Error("audit: list entries for archive failed, skipping purge", "tenant", tenantID, "error", err)
+			return
+		}
+		if len(entries) > 0 {
+			if err := sink.Write(ctx, tenantID, cutoff, entries); err != nil {
+				slog.Error("audit: archive failed, skipping purge", "tenant", tenantID, "sink", sink.Name(), "error", err)
+				return
+			}
+		}
+	}
 	deleted, err := s.DeleteAuditEntriesBefore(ctx, tenantID, cutoff)
 	if err != nil {
-		slog.Error("audit: purge failed", "error", err)
+		slog.Error("audit: purge failed", "tenant", tenantID, "error", err)
 		return
 	}
 	if deleted > 0 {
 		metrics.AuditEntriesPurged.Add(float64(deleted))
-		slog.Info("audit: purged entries", "count", deleted, "cutoff", cutoff.Format(time.DateOnly))
+		slog.Info("audit: purged entries", "tenant", tenantID, "count", deleted, "cutoff", cutoff.Format(time.DateOnly))
 	}
-}
-
-func archiveEntries(ctx context.Context, s RetentionStore, tenantID string, before time.Time, dir string) error {
-	entries, err := s.ListAuditEntriesBefore(ctx, tenantID, before, 0)
-	if err != nil {
-		return fmt.Errorf("list entries: %w", err)
-	}
-	if len(entries) == 0 {
-		return nil
-	}
-
-	if err := os.MkdirAll(dir, 0o750); err != nil {
-		return fmt.Errorf("create archive dir: %w", err)
-	}
-
-	filename := filepath.Join(dir, fmt.Sprintf("audit-%s.jsonl", before.Format("2006-01-02")))
-	f, err := os.OpenFile(filename, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o640)
-	if err != nil {
-		return fmt.Errorf("open archive file: %w", err)
-	}
-	defer func() { _ = f.Close() }()
-
-	enc := json.NewEncoder(f)
-	for _, e := range entries {
-		if err := enc.Encode(e); err != nil {
-			return fmt.Errorf("write entry: %w", err)
-		}
-	}
-
-	slog.Info("audit: archived entries", "count", len(entries), "file", filename)
-	return nil
 }
