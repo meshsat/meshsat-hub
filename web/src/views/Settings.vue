@@ -99,6 +99,16 @@ async function rotateServicePasswords() {
   }
 }
 
+// /readyz?verbose=1 reports each probe as {status, latency_ms, detail}; older builds used a bare string.
+function probeOK(p) {
+  const st = typeof p === 'string' ? p : p?.status
+  return st === 'ok' || st === 'healthy'
+}
+function probeDetail(p) {
+  if (!p || typeof p === 'string') return ''
+  return p.detail?.error || (p.latency_ms != null ? `${p.latency_ms} ms` : '')
+}
+
 function statusDot(ok) {
   return ok ? 'bg-ms-success' : 'bg-ms-error'
 }
@@ -140,11 +150,17 @@ function statusText(ok) {
         </div>
         <div v-if="readyz?.checks" class="border-t border-gray-700 pt-3">
           <div class="flex flex-wrap gap-4">
-            <div v-for="(status, name) in readyz.checks" :key="name" class="flex items-center gap-2">
-              <span class="w-2 h-2 rounded-full" :class="statusDot(status === 'ok')"></span>
+            <div v-for="(status, name) in readyz.checks" :key="name" class="flex items-center gap-2" :title="probeDetail(status)">
+              <span class="w-2 h-2 rounded-full" :class="statusDot(probeOK(status))"></span>
+              <span class="text-sm text-gray-300">{{ name }}</span>
+              <span class="text-[10px] text-gray-500 uppercase">critical</span>
+            </div>
+            <div v-for="(status, name) in (readyz.info || {})" :key="'i-' + name" class="flex items-center gap-2" :title="probeDetail(status)">
+              <span class="w-2 h-2 rounded-full" :class="probeOK(status) ? 'bg-ms-success' : 'bg-ms-warning'"></span>
               <span class="text-sm text-gray-300">{{ name }}</span>
             </div>
           </div>
+          <p class="text-[11px] text-gray-500 mt-2">Only the database is critical for readiness; the other probes are informational.</p>
         </div>
       </div>
 
@@ -168,7 +184,7 @@ function statusText(ok) {
         </div>
       </div>
 
-      <TenantPanel />
+      <div class="mb-6"><TenantPanel /></div>
 
       <!-- Service Security -->
       <div class="bg-tactical-surface rounded-lg border border-tactical-border p-5 mb-6">
@@ -187,10 +203,16 @@ function statusText(ok) {
             <div>
               <span class="text-gray-400 text-xs">NATS Leafnode Auth</span>
               <div class="flex items-center gap-2 mt-1">
-                <span class="w-2 h-2 rounded-full" :class="statusDot(securityStatus.nats_leaf_auth)"></span>
-                <span class="text-sm" :class="statusText(securityStatus.nats_leaf_auth)">
-                  {{ securityStatus.nats_leaf_auth ? 'Token' : 'None' }}
-                </span>
+                <template v-if="securityStatus.nats_leaf_applicable === false">
+                  <span class="w-2 h-2 rounded-full bg-gray-600"></span>
+                  <span class="text-sm text-gray-400">n/a (single site)</span>
+                </template>
+                <template v-else>
+                  <span class="w-2 h-2 rounded-full" :class="statusDot(securityStatus.nats_leaf_auth)"></span>
+                  <span class="text-sm" :class="statusText(securityStatus.nats_leaf_auth)">
+                    {{ securityStatus.nats_leaf_auth ? 'Token' : 'None' }}
+                  </span>
+                </template>
               </div>
             </div>
             <div>
@@ -215,7 +237,10 @@ function statusText(ok) {
           <div v-if="securityStatus.auto_generated" class="text-xs text-gray-500 mt-2">
             Passwords auto-generated on first boot
           </div>
-          <div class="flex items-center gap-3 pt-2 border-t border-gray-700">
+          <div v-if="securityStatus.platform_managed" class="text-xs text-gray-500 pt-2 border-t border-gray-700">
+            Service credentials are managed by the platform (OpenBao via ExternalSecrets); rotate them there and the cluster rolls the change.
+          </div>
+          <div v-else class="flex items-center gap-3 pt-2 border-t border-gray-700">
             <button @click="rotateServicePasswords" :disabled="rotateLoading"
               class="text-xs px-3 py-1.5 rounded bg-amber-700 hover:bg-amber-600 text-white transition-colors disabled:opacity-50">
               {{ rotateLoading ? 'Rotating...' : 'Rotate Service Passwords' }}

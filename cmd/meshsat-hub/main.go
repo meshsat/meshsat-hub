@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	hubmqtt "github.com/meshsat/meshsat-hub/internal/mqtt"
 	"github.com/meshsat/meshsat-hub/internal/tenancy"
@@ -1670,10 +1671,17 @@ func main() {
 		proxy := tak.NewMartiProxy(cfg.TAKHost, 8443, true, cfg.TAKAPIInsecureTLS)
 		missions, err := proxy.ListMissions()
 		if err != nil {
+			if errors.Is(err, tak.ErrMartiUnavailable) {
+				// OpenTAKServer answers the Marti mission API with its web UI: the
+				// feature is not available on this TAK server, which is a state,
+				// not a gateway failure.
+				api.WriteJSON(w, http.StatusOK, map[string]any{"missions": []any{}, "available": false, "reason": "the TAK server does not expose the Marti mission API"})
+				return
+			}
 			api.WriteJSON(w, http.StatusBadGateway, map[string]string{"error": err.Error()})
 			return
 		}
-		api.WriteJSON(w, http.StatusOK, missions)
+		api.WriteJSON(w, http.StatusOK, map[string]any{"missions": missions, "available": true})
 	})
 	r.Get("/api/tak/fleet-status", func(w http.ResponseWriter, r *http.Request) {
 		fedIn, fedOut, fedPeers := int64(0), int64(0), 0
@@ -1942,6 +1950,11 @@ func main() {
 	} else {
 		fileServer := http.FileServer(http.FS(distFS))
 		r.Handle("/*", http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+			// Unknown API paths must not fall through to the SPA shell.
+			if strings.HasPrefix(req.URL.Path, "/api/") {
+				api.WriteJSON(w, http.StatusNotFound, map[string]string{"error": "not found"})
+				return
+			}
 			// Try to serve the file; if not found, serve index.html (SPA routing)
 			f, err := distFS.Open(req.URL.Path[1:]) // strip leading /
 			if err != nil {
