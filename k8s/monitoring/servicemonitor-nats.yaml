@@ -1,0 +1,21 @@
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: meshsat-hub-nats
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/name: meshsat-hub-nats
+    release: monitoring
+    environment: production
+    managed-by: argocd
+spec:
+  jobLabel: app.kubernetes.io/name
+  namespaceSelector:
+    matchNames:
+      - meshsat-hub
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: nats
+  endpoints:
+    - port: metrics
+      interval: 30s

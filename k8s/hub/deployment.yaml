@@ -1,0 +1,88 @@
+# The Hub. replicas 0 until phase 2 exit (application MRs merged, digest pinned,
+# rehearsal done); the cutover session sets 1. Stays x1 + Recreate until the
+# single-writer work (claims + leader singletons) is proven on the cluster,
+# then x2 + PDB (plan phase 7).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: hub
+  namespace: meshsat-hub
+  labels:
+    app.kubernetes.io/name: hub
+spec:
+  replicas: 0
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: hub
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: hub
+    spec:
+      serviceAccountName: meshsat-hub
+      # Leader election (Lease) and the bridge CA Secret writer need the API.
+      automountServiceAccountToken: true
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        fsGroup: 65532
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: node-role.kubernetes.io/worker
+                    operator: Exists
+                  - key: kubernetes.io/hostname
+                    operator: NotIn
+                    values: ["notrf01dmz06"]
+      terminationGracePeriodSeconds: 30
+      containers:
+        - name: hub
+          image: ghcr.io/meshsat/meshsat-hub
+          ports:
+            - name: http
+              containerPort: 6070
+            - name: reticulum
+              containerPort: 4242
+          env:
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+          envFrom:
+            - configMapRef:
+                name: hub-config
+            - secretRef:
+                name: hub-secrets
+          lifecycle:
+            preStop:
+              exec:
+                command: ["sleep", "5"]
+          startupProbe:
+            httpGet: {path: /startupz, port: http}
+            periodSeconds: 5
+            failureThreshold: 60
+          readinessProbe:
+            httpGet: {path: /readyz, port: http}
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          livenessProbe:
+            httpGet: {path: /healthz, port: http}
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
+          resources:
+            requests: {memory: 256Mi, cpu: 200m}
+            limits: {memory: 1Gi}
+          volumeMounts:
+            - name: audit
+              mountPath: /data/audit
+      volumes:
+        - name: audit
+          persistentVolumeClaim:
+            claimName: hub-audit-archive

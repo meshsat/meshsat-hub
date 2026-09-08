@@ -1,0 +1,9 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+# ServiceMonitors live in the `monitoring` namespace (per-object; no namespace
+# transformer here) beside the estate's Probe CRs. `release: monitoring` is the
+# kube-prometheus-stack discovery label.
+resources:
+  - metrics-token-externalsecret.yaml
+  - servicemonitor-hub.yaml
+  - servicemonitor-nats.yaml

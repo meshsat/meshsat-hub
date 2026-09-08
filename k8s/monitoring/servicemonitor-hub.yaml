@@ -1,0 +1,27 @@
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: meshsat-hub
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/name: meshsat-hub
+    release: monitoring
+    environment: production
+    managed-by: argocd
+spec:
+  jobLabel: app.kubernetes.io/name
+  namespaceSelector:
+    matchNames:
+      - meshsat-hub
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: hub
+  endpoints:
+    - port: http
+      path: /metrics
+      interval: 30s
+      authorization:
+        type: Bearer
+        credentials:
+          name: meshsat-hub-metrics-token
+          key: token

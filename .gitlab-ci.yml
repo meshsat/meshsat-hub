@@ -191,6 +191,28 @@ package:
     - if: $CI_COMMIT_BRANCH == "main"
 
 # -----------------------------------------------------------------------------
+# PACKAGE:STUNNEL — the Reticulum-leg stunnel image for the k8s tree
+# (k8s/stunnel/Dockerfile). Tag = alpine base; pinned in k8s/kustomization.yaml.
+# -----------------------------------------------------------------------------
+package:stunnel:
+  stage: package
+  tags: [multiarch]
+  image: docker:28
+  needs: []
+  before_script:
+    - echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GHCR_USER" --password-stdin
+  script:
+    - docker build -t ghcr.io/meshsat/meshsat-hub-stunnel:3.21 -f k8s/stunnel/Dockerfile k8s/stunnel
+    - docker push ghcr.io/meshsat/meshsat-hub-stunnel:3.21
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "schedule"
+      when: never
+    - if: $CI_COMMIT_BRANCH == "main"
+      changes:
+        - k8s/stunnel/Dockerfile
+        - .gitlab-ci.yml
+
+# -----------------------------------------------------------------------------
 # TRIVY — fixable CRITICAL/HIGH CVEs in the pushed image block the pipeline
 # (MESHSAT-930). The scanner image is the job image and pulls the artifact
 # straight from GHCR with the registry credentials; no docker daemon needed.

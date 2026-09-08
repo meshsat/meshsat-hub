@@ -1,0 +1,50 @@
+# NATS server config: nats-mtls.conf from the compose deployment minus the leafnode
+# block (single site now). Bridges connect over wss://mqtt-hub.meshsat.net:443
+# -> edge -> edge-relay :9443 -> this websocket listener (TLS termination + bridge
+# client certificate verification against the Hub bridge CA). The Hub connects
+# over plain MQTT :1883 in-cluster. $NATS_MQTT_PASSWORD comes from the pod env.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: nats-config
+  namespace: meshsat-hub
+  labels:
+    app.kubernetes.io/name: nats
+data:
+  nats.conf: |
+    listen: 0.0.0.0:4222
+    http_port: 8222
+    server_name: meshsat-nats
+    pid_file: /var/run/nats/nats.pid
+
+    jetstream {
+      store_dir: /data/jetstream
+      max_mem: 256MB
+      max_file: 1GB
+    }
+
+    # Shared password for all MQTT clients (per-bridge users are post-cutover
+    # work, MESHSAT-864 MR 21). Identity comes from the client certificate CN
+    # and the MQTT client id; no_auth_user is deliberately unset.
+    authorization {
+      users = [
+        { user: meshsat, password: "$NATS_MQTT_PASSWORD" }
+      ]
+    }
+
+    mqtt {
+      listen: 0.0.0.0:1883
+      ack_wait: "30s"
+      max_ack_pending: 100
+    }
+
+    websocket {
+      port: 9443
+      tls {
+        cert_file: /etc/nats/tls/tls.crt
+        key_file: /etc/nats/tls/tls.key
+        ca_file: /etc/nats/bridge-ca/ca.crt
+        verify: true
+        timeout: 5
+      }
+    }
