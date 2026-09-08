@@ -33,7 +33,7 @@ func (b *recordingBus) Disconnect()                                             
 
 type staticResolver struct{ thing string }
 
-func (r staticResolver) Resolve(string) (string, bool) { return r.thing, false }
+func (r staticResolver) Resolve(string, string) (string, bool) { return r.thing, false }
 
 type memCosts struct {
 	mu      sync.Mutex

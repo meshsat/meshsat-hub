@@ -8,8 +8,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	hubmqtt "github.com/meshsat/meshsat-hub/internal/mqtt"
 	"github.com/meshsat/meshsat-hub/internal/integrations"
+	hubmqtt "github.com/meshsat/meshsat-hub/internal/mqtt"
 	"github.com/meshsat/meshsat-hub/internal/tenancy"
 	"io/fs"
 	"log/slog"
@@ -336,20 +336,23 @@ func main() {
 		"api_url": cfg.GlobalstarAPIURL, "api_key": cfg.GlobalstarAPIKey, "webhook_secret": cfg.GlobalstarWebhookSecret})
 
 	cloudloopClient := cloudloop.NewClient(cfg.CloudloopAPIURL, cfg.CloudloopAPIKey)
+	// One client per tenant account; the platform client serves the default tenant.
+	cloudloopPool := cloudloop.NewClientPool(cloudloopClient, providerAccounts)
 
 	// Device resolver: learns IMEI-to-thingID mappings from MO messages and Cloudloop API.
-	thingResolver := cloudloop.NewThingResolver(cloudloopClient)
+	thingResolver := cloudloop.NewThingResolver(cloudloopPool)
 	if spec := os.Getenv("HUB_CLOUDLOOP_DEVICE_MAP"); spec != "" {
 		slog.Info("resolver: seeded device mappings from HUB_CLOUDLOOP_DEVICE_MAP",
 			"count", thingResolver.SeedFromSpec(spec))
 	}
-	if cfg.CloudloopAPIKey != "" {
-		go thingResolver.StartPeriodicRefresh(ctx, 5*time.Minute)
-	}
+	// Tenants add Cloudloop accounts at runtime, so the refresh always runs
+	// (it is a no-op while no tenant has an account).
+	go thingResolver.StartPeriodicRefresh(ctx, 5*time.Minute)
 
 	// Start MT sender (subscribes to meshsat/+/mt/send).
 	mtSender := cloudloop.NewSender(cloudloopClient, msgBus)
 	mtSender.SetTenants(tenants)
+	mtSender.SetClientPool(cloudloopPool)
 	mtSender.SetRateLimiter(limiter)
 	mtSender.SetAudit(auditSvc)
 	mtSender.SetDeviceResolver(thingResolver)
@@ -362,8 +365,8 @@ func main() {
 	}
 
 	// Credit balance poller (polls Cloudloop API, publishes to meshsat/hub/credits).
-	if cfg.CloudloopAPIKey != "" && msgBus.IsConnected() {
-		creditPoller := cloudloop.NewCreditPoller(cloudloopClient, msgBus, 1*time.Hour)
+	if msgBus.IsConnected() { // tenants add accounts at runtime; the poller skips tenants without one
+		creditPoller := cloudloop.NewTenantCreditPoller(cloudloopPool, msgBus, 1*time.Hour)
 		leaderSingletons.Add("cloudloop-credit-poller", creditPoller.Start)
 	}
 
@@ -376,7 +379,10 @@ func main() {
 
 	// Constellation router — multi-backend satellite send.
 	constellationRouter := constellation.NewRouter(constellation.StrategyAvailable)
-	constellationRouter.Register(constellation.NewIridiumBackend(cloudloopClient))
+	iridiumConst := constellation.NewIridiumBackend(cloudloopClient)
+	iridiumConst.SetClientPool(cloudloopPool)
+	iridiumConst.SetTenants(tenants)
+	constellationRouter.Register(iridiumConst)
 	if globalstarClient != nil {
 		constellationRouter.Register(constellation.NewGlobalstarBackend(globalstarClient))
 	}
@@ -964,6 +970,8 @@ func main() {
 	var retIridiumIface *reticulum.IridiumInterface
 	if cloudloopClient != nil {
 		iridiumBackend := constellation.NewIridiumBackend(cloudloopClient)
+		iridiumBackend.SetClientPool(cloudloopPool)
+		iridiumBackend.SetTenants(tenants)
 		retIridiumIface = reticulum.NewIridiumInterface(reticulum.NewBackendAdapter(
 			func(ctx2 context.Context, deviceID string, payload []byte) error {
 				_, err2 := iridiumBackend.Send(ctx2, deviceID, payload)
@@ -1130,6 +1138,7 @@ func main() {
 	// Cloudloop LingoMO webhook handler.
 	clHandler := cloudloop.NewWebhookHandler(msgBus)
 	clHandler.SetTenants(tenants)
+	clHandler.SetAccounts(providerAccounts)
 	clHandler.SetAudit(auditSvc)
 	clHandler.SetDedup(dedupTracker)
 	clHandler.SetReassembler(reassembler)
@@ -1734,7 +1743,12 @@ func main() {
 		_ = json.NewEncoder(w).Encode(map[string]interface{}{"backends": backends})
 	})
 	r.Get("/api/credits", func(w http.ResponseWriter, r *http.Request) {
-		balance, err := cloudloopClient.GetCreditBalance(r.Context())
+		client := cloudloopPool.ForTenant(r.Context(), hubauth.TenantIDFromContext(r.Context()))
+		if client == nil {
+			http.Error(w, `{"error":"no Cloudloop account configured for this tenant"}`, http.StatusNotFound)
+			return
+		}
+		balance, err := client.GetCreditBalance(r.Context())
 		if err != nil {
 			http.Error(w, fmt.Sprintf(`{"error":"%s"}`, err.Error()), http.StatusBadGateway)
 			return
