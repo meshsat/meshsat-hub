@@ -142,7 +142,7 @@ function formatBytes(n) {
 
           <!-- Node problems -->
           <div v-if="node.problems?.length" class="mb-3">
-            <div v-for="p in node.problems" :key="p" class="text-xs text-yellow-300 flex items-start gap-1">
+            <div v-for="p in node.problems" :key="p" class="text-xs text-ms-warning flex items-start gap-1">
               <span class="text-yellow-500">&#9888;</span> {{ p }}
             </div>
           </div>

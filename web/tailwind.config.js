@@ -5,6 +5,13 @@
 // default; `html:not(.dark)` switches to the light set (theme store toggle).
 const v = (name) => `rgb(var(--ms-${name}) / <alpha-value>)`
 
+// Meaning colours (badges, chips, toasts) written dark-first: each shade is a
+// theme-aware variable from src/theme-scales.css (scripts/gen-theme-scales.mjs)
+// so the light theme flips text/fill shades and keeps them AA.
+const SCALE_NAMES = ['green', 'emerald', 'yellow', 'amber', 'red', 'sky', 'blue', 'purple', 'cyan', 'orange', 'pink', 'indigo', 'violet', 'rose', 'lime']
+const SCALE_SHADES = [200, 300, 400, 600, 700, 800, 900]
+const scales = Object.fromEntries(SCALE_NAMES.map((n) => [n, Object.fromEntries(SCALE_SHADES.map((s) => [s, `rgb(var(--tw-${n}-${s}) / <alpha-value>)`]))]))
+
 export default {
   darkMode: 'class',
   content: ['./index.html', './src/**/*.{vue,js}'],
@@ -67,17 +74,7 @@ export default {
           800: v('well'),
           900: v('bg'),
         },
-        // Meaning colours used as text (status, transport, subsystem): the
-        // dark values are Tailwind's 400 shades, the light values the 700
-        // shades so they stay AA on white.
-        green: { 400: v('green') },
-        yellow: { 400: v('yellow') },
-        sky: { 400: v('sky') },
-        blue: { 400: v('blue') },
-        purple: { 400: v('purple') },
-        cyan: { 400: v('cyan') },
-        orange: { 400: v('orange') },
-        pink: { 400: v('pink') },
+        ...scales,
         // Transport badge colors (consistent across Bridge, Hub, Android)
         transport: {
           mesh: v('cyan'),

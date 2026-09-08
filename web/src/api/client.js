@@ -314,6 +314,15 @@ export const credentials = {
   }
 }
 
+// Tenant (MR 16 API): the panel hides itself while the Hub returns 404.
+export const tenant = {
+  get: () => fetchJSON('/tenant'),
+  update: (data) => fetchJSON('/tenant', { method: 'PUT', body: JSON.stringify(data) }),
+  invites: () => fetchJSON('/tenant/invites'),
+  invite: (data) => fetchJSON('/tenant/invites', { method: 'POST', body: JSON.stringify(data) }),
+  revokeInvite: (id) => fetchJSON(`/tenant/invites/${id}`, { method: 'DELETE' }),
+}
+
 export const settings = {
   getMqttUrl: () => fetchJSON('/settings/mqtt-url'),
   setMqttUrl: (url) => fetchJSON('/settings/mqtt-url', { method: 'PUT', body: JSON.stringify({ mqtt_url: url }) }),

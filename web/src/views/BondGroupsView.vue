@@ -128,7 +128,7 @@ async function deleteGroup() {
         <p class="text-sm text-gray-500 mt-1">Configure HeMB multi-bearer bonding groups per bridge.</p>
       </div>
       <button v-if="selectedBridge" @click="openCreate"
-        class="px-4 py-2 bg-tactical-iridium text-white text-sm font-medium rounded-lg hover:bg-tactical-iridium/90 transition-colors">
+        class="px-4 py-2 bg-brand-primary text-ms-on-primary text-sm font-medium rounded-lg hover:bg-brand-accent transition-colors">
         New Bond Group
       </button>
     </div>
@@ -233,7 +233,7 @@ async function deleteGroup() {
               Cancel
             </button>
             <button @click="saveGroup"
-              class="px-4 py-2 bg-tactical-iridium text-white text-sm font-medium rounded-lg hover:bg-tactical-iridium/90 transition-colors">
+              class="px-4 py-2 bg-brand-primary text-ms-on-primary text-sm font-medium rounded-lg hover:bg-brand-accent transition-colors">
               {{ editingGroup ? 'Save' : 'Create' }}
             </button>
           </div>

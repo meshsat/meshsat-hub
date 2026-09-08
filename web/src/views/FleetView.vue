@@ -1,5 +1,6 @@
 <script setup>
 import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { useRoute } from 'vue-router'
 import { bridges } from '../api/client'
 import { timeAgo, formatUptime, formatUTC } from '../utils/time'
 import EmptyState from '../components/EmptyState.vue'
@@ -51,7 +52,11 @@ const provisionLoading = ref(false)
 // Clipboard feedback
 const copied = ref('')
 
+const route = useRoute()
+
 onMounted(async () => {
+  // Dashboard first-run link: open the add-bridge form straight away.
+  if (route.query.add === '1') showAddForm.value = true
   await loadBridges()
   pollTimer = setInterval(loadBridges, 30000)
 })

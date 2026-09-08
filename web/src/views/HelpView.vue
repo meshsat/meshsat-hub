@@ -10,10 +10,12 @@
       <div class="bg-tactical-surface rounded-lg border border-tactical-border p-4">
         <h2 class="text-sm font-display font-semibold text-gray-200 uppercase tracking-wider mb-2">Getting Started</h2>
         <div class="space-y-2 text-[12px] text-gray-400 leading-relaxed">
-          <p>MeshSat Hub is the cloud-side management platform for MeshSat field devices. It receives satellite messages (Iridium SBD, Globalstar), manages device fleets, and provides routing, alerting, and situational awareness.</p>
-          <p><strong class="text-gray-300">1.</strong> Register a device in <strong class="text-gray-300">Devices</strong> — enter the IMEI and select the modem type (RockBLOCK or Globalstar).</p>
-          <p><strong class="text-gray-300">2.</strong> Configure your webhook — point your Ground Control (Rock7) account's HTTP callback to <code class="text-gray-300 bg-gray-800 px-1 rounded">https://your-hub/api/webhook/rockblock</code>.</p>
-          <p><strong class="text-gray-300">3.</strong> Set up routing rules in <strong class="text-gray-300">Routing</strong> to forward incoming messages to notifications, webhooks, MQTT, TAK, or APRS.</p>
+          <p>MeshSat Hub is the cloud side of MeshSat: it receives what your bridges and satellite devices send (Iridium SBD, Globalstar, mesh, Reticulum), keeps your fleet in one place, and turns messages into routing, alerts and situational awareness.</p>
+          <p><strong class="text-gray-300">1.</strong> Sign in with your MeshSat ID. During the beta, access is approved by hand; the login page has a "Request beta access" link and you get an email when your account is enabled.</p>
+          <p><strong class="text-gray-300">2.</strong> Connect a bridge in <strong class="text-gray-300">Fleet</strong> — add it, issue its credentials and certificate, and paste them into the bridge's Hub Connection settings. Or register a standalone satellite device in <strong class="text-gray-300">Devices</strong> (IMEI + modem type).</p>
+          <p><strong class="text-gray-300">3.</strong> For RockBLOCK devices, point your Ground Control (Rock7) HTTP callback to <code class="text-gray-300 bg-gray-800 px-1 rounded">https://hub.meshsat.net/api/webhook/rockblock</code>.</p>
+          <p><strong class="text-gray-300">4.</strong> Set up routing rules in <strong class="text-gray-300">Routing</strong> to forward incoming messages to notifications, webhooks, MQTT, TAK, or APRS.</p>
+          <p>Invite teammates from <strong class="text-gray-300">Settings › Tenant</strong>; they sign in with their own MeshSat ID and land in your organisation with the role you chose.</p>
         </div>
       </div>
 
@@ -22,7 +24,7 @@
         <div class="space-y-2 text-[12px] text-gray-400">
           <div class="font-display text-[10px] text-gray-500 uppercase tracking-wider mt-1">Operations</div>
           <div><strong class="text-gray-300">Dashboard</strong> — KPI overview: hub health, device count, message throughput, credit balance, constellation status, safety alerts, and recent messages.</div>
-          <div><strong class="text-gray-300">Map</strong> — Leaflet map showing device positions from GPS reports and Iridium geolocation.</div>
+          <div><strong class="text-gray-300">Map</strong> — Device and bridge positions from GPS reports, SOS events, TAK markers and Iridium geolocation.</div>
           <div><strong class="text-gray-300">Devices</strong> — Register, view, and manage satellite devices. Each device has a detail page with keys, config versions, and position history.</div>
           <div><strong class="text-gray-300">Messages</strong> — View all MO (Mobile Originated) and MT (Mobile Terminated) messages. Send MT messages to devices via Iridium or SMS via Twilio.</div>
 
@@ -115,6 +117,10 @@
     </div>
 
     <!-- Version -->
-    <p class="text-[10px] text-ms-muted mt-6 text-center">MeshSat Hub v1.1</p>
+    <p class="text-[10px] text-ms-muted mt-6 text-center">
+      MeshSat Hub ·
+      <a href="https://meshsat.net/docs/" target="_blank" rel="noopener" class="underline hover:text-ms-text">Documentation</a> ·
+      <a href="mailto:beta-access-hub@meshsat.net" class="underline hover:text-ms-text">Support</a>
+    </p>
   </div>
 </template>

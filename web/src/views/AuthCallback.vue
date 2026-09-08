@@ -10,6 +10,7 @@ const route = useRoute()
 
 const state = ref('working') // working | pending | error
 const message = ref('')
+const communityUrl = ref('')
 
 // Error codes are a fixed vocabulary set by the Hub callback; nothing from
 // the identity provider is echoed into the page.
@@ -28,6 +29,8 @@ const messages = {
 onMounted(async () => {
   const err = typeof route.query.error === 'string' ? route.query.error : ''
   if (err) {
+    const cfg = await authStore.fetchAuthConfig()
+    communityUrl.value = cfg.community_url || ''
     state.value = err === 'pending_approval' ? 'pending' : 'error'
     message.value = messages[err] || 'Sign-in failed. Please try again.'
     return
@@ -56,10 +59,15 @@ onMounted(async () => {
         <template v-else-if="state === 'pending'">
           <p class="text-ms-warning font-medium">Awaiting approval</p>
           <p class="text-gray-400 text-sm">{{ message }}</p>
-          <p class="text-gray-500 text-xs">
+          <p class="text-ms-muted text-xs">
             Questions? Write to
-            <a href="mailto:beta-access-hub@meshsat.net" class="text-gray-300 underline">beta-access-hub@meshsat.net</a>
-            or ask in the MeshSat Matrix room.
+            <a href="mailto:beta-access-hub@meshsat.net" class="text-ms-text underline">beta-access-hub@meshsat.net</a>
+            <template v-if="communityUrl">
+              or join the
+              <a :href="communityUrl" target="_blank" rel="noopener" class="text-ms-text underline" data-testid="community-link">MeshSat Matrix room</a>
+              and we will help you get set up.
+            </template>
+            <template v-else>or ask in the MeshSat Matrix room.</template>
           </p>
           <router-link :to="{ name: 'login' }" class="inline-block text-sm text-gray-300 hover:text-white underline">Back to sign-in</router-link>
         </template>

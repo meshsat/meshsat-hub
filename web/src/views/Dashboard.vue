@@ -516,7 +516,18 @@ function directionColor(d) {
 
           <!-- Empty state only if NO bridges AND no devices -->
           <EmptyState v-if="deviceList.length === 0 && bridgeList.length === 0" icon="device" title="No devices registered"
-            message="Register your first device or connect a bridge to start tracking." />
+            message="Connect a MeshSat bridge or register a satellite device to start tracking.">
+            <div class="flex flex-wrap justify-center gap-2" data-testid="first-run">
+              <router-link :to="{ name: 'fleet', query: { add: '1' } }"
+                class="px-3 py-1.5 bg-brand-primary hover:bg-brand-accent text-ms-on-primary text-sm font-medium rounded-lg transition-colors">
+                Add your first bridge
+              </router-link>
+              <router-link :to="{ name: 'devices' }"
+                class="px-3 py-1.5 border border-ms-border-light text-ms-text hover:bg-ms-well text-sm font-medium rounded-lg transition-colors">
+                Register a device
+              </router-link>
+            </div>
+          </EmptyState>
         </div>
       </div>
 
