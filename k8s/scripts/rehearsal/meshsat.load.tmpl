@@ -1,0 +1,51 @@
+-- pgloader command file (MESHSAT-944). Rendered by load-postgres.sh:
+--   __MYSQL__  mysql://root:<pw>@127.0.0.1:<port>/meshsat_hub  (temp container on the runner)
+--   __PG__     postgresql://meshsat:<pw>@127.0.0.1:<port>/meshsat_hub (kubectl port-forward)
+LOAD DATABASE
+     FROM __MYSQL__
+     INTO __PG__
+
+ WITH data only, truncate, disable triggers, batch rows = 5000, workers = 4, concurrency = 1,
+      prefetch rows = 10000
+
+  SET PostgreSQL PARAMETERS
+      maintenance_work_mem to '128MB',
+      work_mem to '32MB'
+
+  SET MySQL PARAMETERS
+      net_read_timeout = '600',
+      net_write_timeout = '600'
+
+ CAST type tinyint when (= precision 1) to boolean drop typemod using tinyint-to-boolean,
+      type tinyint to smallint drop typemod,
+      type datetime to timestamptz drop default drop not null using zero-dates-to-null,
+      type timestamp to timestamptz drop default drop not null using zero-dates-to-null,
+      type date to date drop default drop not null using zero-dates-to-null,
+      type json to text,
+      type longtext to text,
+      type mediumtext to text,
+      type blob to bytea,
+      type longblob to bytea,
+      type "bigint unsigned" to bigint drop typemod,
+      type "int unsigned" to bigint drop typemod
+
+ EXCLUDING TABLE NAMES MATCHING 'schema_migrations'
+
+ ALTER SCHEMA 'meshsat_hub' RENAME TO 'public'
+
+ -- data-only loads leave identity sequences at 1: set each to max(col)+1
+ AFTER LOAD DO
+ $$ DO $body$
+    DECLARE r record;
+    BEGIN
+      FOR r IN
+        SELECT s.relname AS seq, t.relname AS tbl, a.attname AS col
+        FROM pg_class s
+        JOIN pg_depend d ON d.objid = s.oid AND d.deptype = 'a'
+        JOIN pg_class t ON d.refobjid = t.oid
+        JOIN pg_attribute a ON a.attrelid = t.oid AND a.attnum = d.refobjsubid
+        WHERE s.relkind = 'S'
+      LOOP
+        EXECUTE format('SELECT setval(%L, COALESCE((SELECT MAX(%I) FROM %I), 0) + 1, false)', r.seq, r.col, r.tbl);
+      END LOOP;
+    END $body$; $$;

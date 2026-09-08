@@ -1,0 +1,38 @@
+# Throwaway CNPG cluster for the rehearsal (MESHSAT-944). kubectl-applied, not in git's
+# kustomize tree; delete it after the drill. Same credentials Secrets as the main cluster.
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: meshsat-hub-drill
+  namespace: meshsat-hub-db
+  labels:
+    app.kubernetes.io/name: meshsat-hub-drill
+    app.kubernetes.io/part-of: meshsat-hub
+spec:
+  instances: 1
+  storage:
+    size: 5Gi
+    storageClass: local-hostpath-delete
+  affinity:
+    nodeSelector:
+      node-role.kubernetes.io/control-plane: ""
+    tolerations:
+      - key: node-role.kubernetes.io/control-plane
+        operator: Exists
+        effect: NoSchedule
+  inheritedMetadata:
+    annotations:
+      backup.velero.io/backup-volumes-excludes: pgdata
+  bootstrap:
+    initdb:
+      database: meshsat_hub
+      owner: meshsat
+      secret:
+        name: meshsat-hub-db-credentials
+  managed:
+    roles:
+      - name: meshsat
+        ensure: present
+        login: true
+        passwordSecret:
+          name: db-role-meshsat
