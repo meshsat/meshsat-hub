@@ -171,20 +171,25 @@ p_details = [
 ]
 p_marker = [prompt("meshsat-enroll-verified-marker", "attributes.email_verified", "verified", FieldTypes.HIDDEN, 10, required=False, initial="true")]
 
-validation, _ = ExpressionPolicy.objects.get_or_create(
-    name="meshsat-enrollment-details-valid",
-    defaults={"expression": (
-        'data = request.context.get("prompt_data", {})\n'
-        'mx = (data.get("attributes.matrix_id") or "").strip()\n'
-        'if not regex_match(mx, r"^@[^:\\s]+:[^\\s]+$"):\n'
-        '    ak_message("Enter your Matrix ID as @user:server")\n'
-        '    return False\n'
-        'if data.get("attributes.joined_matrix") is not True:\n'
-        '    ak_message("Please join the MeshSat Matrix room first; that is where beta support happens")\n'
-        '    return False\n'
-        'return True\n'
-    )},
+VALIDATION_EXPR = (
+    'data = request.context.get("prompt_data", {}) or {}\n'
+    'nested = data.get("attributes") if isinstance(data.get("attributes"), dict) else {}\n'
+    'mx = (data.get("attributes.matrix_id") or nested.get("matrix_id") or "").strip()\n'
+    'joined = data.get("attributes.joined_matrix", nested.get("joined_matrix"))\n'
+    'if not regex_match(mx, r"^@[^:\\s]+:[^\\s]+$"):\n'
+    '    ak_message("Enter your Matrix ID as @user:server")\n'
+    '    return False\n'
+    'if joined is not True and str(joined).lower() not in ("true", "on", "1"):\n'
+    '    ak_message("Please join the MeshSat Matrix room first; that is where beta support happens")\n'
+    '    return False\n'
+    'return True\n'
 )
+validation, _ = ExpressionPolicy.objects.get_or_create(
+    name="meshsat-enrollment-details-valid", defaults={"expression": VALIDATION_EXPR},
+)
+if validation.expression != VALIDATION_EXPR:
+    validation.expression = VALIDATION_EXPR
+    validation.save()
 
 
 def prompt_stage(name, prompts, policies=()):
