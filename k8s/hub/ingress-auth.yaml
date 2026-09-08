@@ -1,0 +1,32 @@
+# auth.meshsat.net -> authentik (omoikane). AUTHENTIK_COOKIE_DOMAIN=omoikane.coach
+# is load-bearing for the cv iframe there and a browser rejects that cookie on
+# auth.meshsat.net, so ingress-nginx rewrites the cookie domain on this host
+# (plain annotation; snippets are disabled cluster-wide). The Host header is
+# passed through unchanged, which is how authentik picks the meshsat.net Brand.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: auth
+  namespace: meshsat-hub
+  labels:
+    app.kubernetes.io/name: authentik-upstream
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-cookie-domain: "omoikane.coach meshsat.net"
+    nginx.ingress.kubernetes.io/proxy-body-size: "16m"
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts:
+        - auth.meshsat.net
+      secretName: meshsat-net-tls
+  rules:
+    - host: auth.meshsat.net
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: authentik-upstream
+                port:
+                  number: 9000

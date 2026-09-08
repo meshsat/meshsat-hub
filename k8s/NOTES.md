@@ -1,0 +1,53 @@
+# k8s/NOTES.md — bootstrap state and manual steps (MESHSAT-930)
+
+Things Argo CD cannot do by itself, in the order they happen. Keep this current.
+
+## Done before the tree existed (phase 0, 2026-09-08)
+
+- NL/GR/NO infra: cert-manager `pushsecret_wildcard_meshsat_net` → `k8s/shared/wildcard-meshsat-net-tls`;
+  ingress-nginx `proxy-real-ip-cidr` includes TX + relay node IPs; mirror-exempt entries; NO
+  `argocd-apps/meshsat-hub/application.yaml` + repo credentials (`gitlab-meshsat-hub-creds`).
+- OpenBao seeds under `ci-no/apps/meshsat-hub/`: `hub` (live compose secrets + `HUB_JWT_SIGNING_KEY`,
+  `HUB_METRICS_TOKEN`, placeholder `HUB_OIDC_CLIENT_ID/SECRET` = `pending-authentik-bootstrap`),
+  `nats` (`NATS_MQTT_PASSWORD`, `bridge_ca_crt`), `redis`, `cnpg` (`meshsat_password`,
+  `barman_access_key/secret_key`), `registry` (`ghcr_user`, `ghcr_auth`).
+- SeaweedFS bucket `cnpg-meshsat-hub` + identity `cnpg-meshsat-hub`.
+- Cloudflare `auth.meshsat.net` (A x3 VPS + AAAA).
+- GitLab project 35: deploy key `k8s-pin-bump` (write) + file variable `K8S_PIN_SSH_KEY`;
+  `DMZ_DEPLOY_ENABLED=true`.
+
+## Manual, hand-applied cluster state (drift by design, mirror omoikane's)
+
+- **CoreDNS hosts block** for `meshsat.net`: `hub.meshsat.net auth.meshsat.net → 10.255.11.65`
+  (ingress VIP), added the same way as the `omoikane.coach` block. Needed for the in-cluster
+  OIDC hairpin (Hub → `auth.meshsat.net` discovery/token). Not in git; re-apply after any
+  CoreDNS ConfigMap reset. Status: **TODO at phase 1 apply.**
+- `hub` Deployment `replicas: 0` in git until phase 2 exit; the cutover session bumps it to 1.
+
+## First sync checklist (phase 1)
+
+1. Argo app `meshsat-hub` Synced; every ExternalSecret `Ready` (`kubectl -n meshsat-hub get es`).
+   `hub-secrets` needs all `hub` keys present (placeholders above).
+2. CNPG `meshsat-hub-main` 3/3 on dmz03/04/05: `kubectl -n meshsat-hub-db get cluster`.
+3. First `ScheduledBackup` landed: `kubectl -n meshsat-hub-db get backups.postgresql.cnpg.io`.
+4. **Restore drill**: apply a throwaway `Cluster meshsat-hub-drill` with
+   `bootstrap.recovery.source` = `meshsat-hub-main` via `externalClusters` +
+   `barmanObjectStore` (same bucket, `serverName: meshsat-hub-main`), compare
+   `select count(*)` per table with live, then delete it.
+5. `kubectl get pv -o json | jq '.items[].spec.nodeAffinity'` shows no Hub PV on dmz06.
+6. From a VPS: `openssl s_client -connect 10.255.4.11:9443 -servername mqtt-hub.meshsat.net`
+   asks for a client certificate; `:4243` likewise.
+7. `package:stunnel` has pushed `ghcr.io/meshsat/meshsat-hub-stunnel:3.21`; replace the tag pin
+   in `kustomization.yaml` with the digest after the first pull.
+8. TAK: OpenTAKServer stays on the DMZ hosts. Verify `192.168.192.10:8088/8880` is reachable
+   from a Hub pod during rehearsal; if not, route it (edge/xfrm) or set `HUB_TAK_ENABLED=false`
+   at cutover and file the follow-up.
+
+## Certificates
+
+- `meshsat-net-tls` renews end to end (Let's Encrypt → NL cert-manager → OpenBao → ES).
+  NATS reloads via the config-reloader sidecar; **stunnel needs
+  `kubectl -n meshsat-hub rollout restart deploy/stunnel`** after a renewal (add a cron or
+  Reloader annotation later).
+- Bridge CA: Secret `meshsat-bridge-ca`, seeded once by ESO, kept current by the Hub
+  (`HUB_BRIDGE_CA_SECRET_NAME`; readiness info probe `bridge_ca_export`).

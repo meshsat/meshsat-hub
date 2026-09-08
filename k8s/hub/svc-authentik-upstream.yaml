@@ -1,0 +1,16 @@
+# auth.meshsat.net is served by the shared authentik in namespace omoikane
+# (owner decision 2026-09-08: one authentik, a meshsat.net Brand). This
+# ExternalName keeps the Hub tree self-contained; the omoikane repo's NOTES
+# record the second consumer.
+apiVersion: v1
+kind: Service
+metadata:
+  name: authentik-upstream
+  namespace: meshsat-hub
+  labels:
+    app.kubernetes.io/name: authentik-upstream
+spec:
+  type: ExternalName
+  externalName: authentik.omoikane.svc.cluster.local
+  ports:
+    - {name: http, port: 9000}
