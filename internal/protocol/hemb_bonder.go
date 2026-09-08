@@ -7,6 +7,7 @@ import (
 	"context"
 	"crypto/rand"
 	"fmt"
+	"github.com/meshsat/meshsat-hub/internal/wire"
 	"io"
 	"log/slog"
 	"math"
@@ -180,7 +181,7 @@ func marshalPassthrough(b *HeMBHubBearer, payload []byte) []byte {
 		K:                1,
 		N:                1,
 		BearerIndex:      b.Index,
-		TotalPayloadSize: uint16(len(payload)),
+		TotalPayloadSize: wire.ClampU16(len(payload)), // callers are MTU-bound; the field saturates instead of wrapping
 	})
 	frame := make([]byte, 0, HeMBExtendedHeaderLen+1+len(payload))
 	frame = append(frame, hdr[:]...)
@@ -198,8 +199,8 @@ func marshalSymbolFrame(b *HeMBHubBearer, streamID uint8, sym HeMBCodedSymbol, t
 	hdr := MarshalHeMBExtended(HeMBExtendedHeader{
 		StreamID:     streamID,
 		Flags:        HeMBFlagData,
-		Sequence:     uint16(sym.SymbolIndex),
-		K:            uint8(sym.K),
+		Sequence:     wire.ClampU16(sym.SymbolIndex),
+		K:            wire.ClampU8(sym.K),
 		N:            uint8(n),
 		BearerIndex:  b.Index,
 		GenerationID: sym.GenID,

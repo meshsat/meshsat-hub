@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"github.com/meshsat/meshsat-hub/internal/fsutil"
 	"io"
 	"log/slog"
 	"net/http"
@@ -18,7 +19,7 @@ import (
 const (
 	IMTTopicPurple     = "IMT_TOPIC_PURPLE"
 	IMTTopicPink       = "IMT_TOPIC_PINK"
-	IMTTopicRed        = "IMT_TOPIC_RED"
+	IMTTopicRed        = "IMT_TOPIC_RED" // #nosec G101 -- IMT topic name, not a credential
 	IMTTopicOrange     = "IMT_TOPIC_ORANGE"
 	IMTTopicYellow     = "IMT_TOPIC_YELLOW"
 	IMTTopicRaw        = "IMT_TOPIC_RAW"
@@ -52,6 +53,11 @@ type MTResponse struct {
 // apiURL is the base URL (default: https://api.cloudloop.com).
 // apiKey is the authentication token (UUID format).
 func NewClient(apiURL, apiKey string) *Client {
+	if v, err := fsutil.ValidateBaseURL(apiURL); err != nil {
+		slog.Error("cloudloop: invalid API URL, requests will fail", "error", err)
+	} else {
+		apiURL = v
+	}
 	return &Client{
 		apiURL: apiURL,
 		apiKey: apiKey,
@@ -189,7 +195,7 @@ func (c *Client) doPost(ctx context.Context, apiURL, label string) (*MTResponse,
 
 // doRequest executes an HTTP request and parses the Cloudloop JSON response.
 func (c *Client) doRequest(req *http.Request, label string) (*MTResponse, error) {
-	resp, err := c.httpClient.Do(req)
+	resp, err := c.httpClient.Do(req) // #nosec G704 -- operator-configured API base URL validated in NewClient
 	if err != nil {
 		return nil, fmt.Errorf("cloudloop: %s: %w", label, err)
 	}

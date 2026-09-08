@@ -322,7 +322,7 @@ func (m *Monitor) queryPeer(ctx context.Context, hubURL string) (*NodeStatus, er
 	client := &http.Client{
 		Timeout: 5 * time.Second,
 		Transport: &http.Transport{
-			TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, //nolint:gosec // internal cluster peers use self-signed certs
+			TLSClientConfig: &tls.Config{InsecureSkipVerify: true, MinVersion: tls.VersionTLS12}, // #nosec G402 -- DMZ peer hubs use self-signed certs on a private network; package retired with Galera (MESHSAT-864 MR 23)
 		},
 	}
 

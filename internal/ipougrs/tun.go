@@ -32,6 +32,9 @@ func OpenTUN(name string, mtu int) (*TUNDevice, error) {
 	if err != nil {
 		return nil, fmt.Errorf("ipougrs: open /dev/net/tun: %w", err)
 	}
+	if fd < 0 {
+		return nil, fmt.Errorf("ipougrs: open /dev/net/tun: invalid descriptor %d", fd)
+	}
 
 	var req ifreq
 	copy(req.name[:], name)

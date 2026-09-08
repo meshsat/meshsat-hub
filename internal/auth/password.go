@@ -75,7 +75,11 @@ func VerifyPassword(password, encoded string) (bool, error) {
 		return false, fmt.Errorf("decode hash: %w", err)
 	}
 
-	computed := argon2.IDKey([]byte(password), salt, iterations, memory, parallel, uint32(len(expectedHash)))
+	hashLen := len(expectedHash)
+	if hashLen <= 0 || hashLen > 1024 {
+		return false, fmt.Errorf("invalid hash length %d", hashLen)
+	}
+	computed := argon2.IDKey([]byte(password), salt, iterations, memory, parallel, uint32(hashLen))
 
 	return subtle.ConstantTimeCompare(computed, expectedHash) == 1, nil
 }

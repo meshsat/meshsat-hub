@@ -79,14 +79,14 @@ func MarshalHeMBExtended(h HeMBExtendedHeader) [HeMBExtendedHeaderLen]byte {
 	b[1] = HeMBMagicByte1
 	b[2] = (h.Version&0x03)<<6 | (h.StreamID&0x0F)<<2 | (h.Flags & 0x03)
 	b[3] = h.StreamID
-	b[4] = byte(h.Sequence)
+	b[4] = byte(h.Sequence & 0xFF)
 	b[5] = byte(h.Sequence >> 8)
 	b[6] = h.K
 	b[7] = h.N
 	b[8] = h.BearerIndex
-	b[9] = byte(h.GenerationID)
+	b[9] = byte(h.GenerationID & 0xFF)
 	b[10] = byte(h.GenerationID >> 8)
-	b[11] = byte(h.TotalPayloadSize)
+	b[11] = byte(h.TotalPayloadSize & 0xFF)
 	b[12] = byte(h.TotalPayloadSize >> 8)
 	b[13] = h.TTL
 	b[14] = h.FlagsExtended

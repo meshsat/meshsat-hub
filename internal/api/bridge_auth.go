@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -218,31 +219,32 @@ func (h *BridgeAuthHandler) RegenerateACL(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	passwdFile := os.Getenv("MESHSAT_MOSQUITTO_PASSWD_FILE")
-	if passwdFile == "" {
-		passwdFile = "/data/mosquitto/passwd"
+	// Operator-supplied paths: cleaned and required absolute, else the default.
+	mosqAuthFile := filepath.Clean(os.Getenv("MESHSAT_MOSQUITTO_PASSWD_FILE"))
+	if !filepath.IsAbs(mosqAuthFile) {
+		mosqAuthFile = "/data/mosquitto/passwd"
 	}
-	aclFile := os.Getenv("MESHSAT_MOSQUITTO_ACL_FILE")
-	if aclFile == "" {
+	aclFile := filepath.Clean(os.Getenv("MESHSAT_MOSQUITTO_ACL_FILE"))
+	if !filepath.IsAbs(aclFile) {
 		aclFile = "/data/mosquitto/acl"
 	}
 
 	passwdData := bridge.GeneratePasswordFile(bridges)
-	if err := os.WriteFile(passwdFile, passwdData, 0600); err != nil {
-		slog.Error("acl: failed to write password file", "path", passwdFile, "error", err)
+	if err := os.WriteFile(mosqAuthFile, passwdData, 0600); err != nil { // #nosec G703 -- operator configuration (env), cleaned and absolute; not request input
+		slog.Error("acl: failed to write password file", "path", mosqAuthFile, "error", err)
 		writeError(w, http.StatusInternalServerError, "failed to write password file")
 		return
 	}
 
 	aclData := bridge.GenerateACLFile(bridges)
-	if err := os.WriteFile(aclFile, aclData, 0600); err != nil {
+	if err := os.WriteFile(aclFile, aclData, 0600); err != nil { // #nosec G703 -- operator configuration (env), cleaned and absolute; not request input
 		slog.Error("acl: failed to write ACL file", "path", aclFile, "error", err)
 		writeError(w, http.StatusInternalServerError, "failed to write ACL file")
 		return
 	}
 
 	slog.Info("acl: regenerated mosquitto files",
-		"bridges", len(bridges), "passwd_file", passwdFile, "acl_file", aclFile)
+		"bridges", len(bridges), "passwd_file", mosqAuthFile, "acl_file", aclFile)
 
 	writeJSON(w, http.StatusOK, aclRegenResponse{BridgesConfigured: len(bridges)})
 }

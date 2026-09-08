@@ -6,6 +6,7 @@ package codec
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/meshsat/meshsat-hub/internal/wire"
 	"log/slog"
 	"sync"
 
@@ -256,7 +257,7 @@ func (BridgeGPSDeltaDecoder) Decode(payload []byte) (*DecodedPayload, error) {
 	}
 	dlat := int16(payload[1]) | int16(payload[2])<<8
 	dlon := int16(payload[3]) | int16(payload[4])<<8
-	dalt := int8(payload[5])
+	dalt := wire.I8(payload[5])
 	hdg := uint16(payload[6]) | uint16(payload[7])<<8
 	spd := uint16(payload[8]) | uint16(payload[9])<<8
 	bat := payload[10]

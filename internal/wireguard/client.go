@@ -7,9 +7,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/meshsat/meshsat-hub/internal/fsutil"
 	"io"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 )
@@ -45,7 +47,7 @@ type PeerConfig struct {
 // NewClient creates a new wg-easy API client.
 func NewClient(baseURL, password string) *Client {
 	return &Client{
-		baseURL:    strings.TrimRight(baseURL, "/"),
+		baseURL:    validatedBaseURL(baseURL),
 		password:   password,
 		httpClient: &http.Client{Timeout: 10 * time.Second},
 	}
@@ -148,13 +150,13 @@ func (c *Client) GetPeerConfig(ctx context.Context, peerID string) (string, erro
 
 // DeletePeer removes a WireGuard peer.
 func (c *Client) DeletePeer(ctx context.Context, peerID string) error {
-	req, err := http.NewRequestWithContext(ctx, "DELETE", fmt.Sprintf("%s/api/wireguard/client/%s", c.baseURL, peerID), nil)
+	req, err := http.NewRequestWithContext(ctx, "DELETE", fmt.Sprintf("%s/api/wireguard/client/%s", c.baseURL, url.PathEscape(peerID)), nil) // #nosec G704 -- operator-configured wg-easy URL validated in NewClient
 	if err != nil {
 		return err
 	}
 	c.addSession(req)
 
-	resp, err := c.httpClient.Do(req)
+	resp, err := c.httpClient.Do(req) // #nosec G704 -- see NewClient
 	if err != nil {
 		return fmt.Errorf("wg-easy delete: %w", err)
 	}
@@ -177,13 +179,13 @@ func (c *Client) DisablePeer(ctx context.Context, peerID string) error {
 }
 
 func (c *Client) get(ctx context.Context, path string) ([]byte, error) {
-	req, err := http.NewRequestWithContext(ctx, "GET", c.baseURL+path, nil)
+	req, err := http.NewRequestWithContext(ctx, "GET", c.baseURL+path, nil) // #nosec G704 -- see NewClient
 	if err != nil {
 		return nil, err
 	}
 	c.addSession(req)
 
-	resp, err := c.httpClient.Do(req)
+	resp, err := c.httpClient.Do(req) // #nosec G704 -- see NewClient
 	if err != nil {
 		return nil, fmt.Errorf("wg-easy GET %s: %w", path, err)
 	}
@@ -222,4 +224,15 @@ func (c *Client) addSession(req *http.Request) {
 	if c.sessionID != "" {
 		req.AddCookie(&http.Cookie{Name: "connect.sid", Value: c.sessionID})
 	}
+}
+
+// validatedBaseURL normalises the operator-configured wg-easy URL; an invalid
+// value is logged at startup and kept so the first request fails visibly.
+func validatedBaseURL(raw string) string {
+	v, err := fsutil.ValidateBaseURL(raw)
+	if err != nil {
+		slog.Error("wireguard: invalid wg-easy URL, requests will fail", "error", err)
+		return strings.TrimRight(raw, "/")
+	}
+	return v
 }
