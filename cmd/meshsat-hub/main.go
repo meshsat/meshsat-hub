@@ -1390,6 +1390,22 @@ func main() {
 		})
 	}
 
+	// Tenant self-service (members read, owners manage invites) and the
+	// platform-admin tenant directory (MESHSAT-916, MR 16).
+	tenantHandler := api.NewTenantHandler(dataStore)
+	r.Route("/api/tenant", func(r chi.Router) {
+		r.With(hubauth.RequireRole(hubauth.RoleViewer)).Get("/", tenantHandler.Get)
+		r.With(hubauth.RequireRole(hubauth.RoleOwner)).Put("/", tenantHandler.Update)
+		r.With(hubauth.RequireRole(hubauth.RoleOwner)).Get("/invites", tenantHandler.ListInvites)
+		r.With(hubauth.RequireRole(hubauth.RoleOwner)).Post("/invites", tenantHandler.CreateInvite)
+		r.With(hubauth.RequireRole(hubauth.RoleOwner)).Delete("/invites/{id}", tenantHandler.DeleteInvite)
+	})
+	r.Route("/api/admin/tenants", func(r chi.Router) {
+		r.Use(hubauth.RequirePlatformAdmin())
+		r.Get("/", tenantHandler.AdminList)
+		r.Put("/{id}", tenantHandler.AdminUpdate)
+	})
+
 	// API key management (owner-only)
 	apiKeyHandler := api.NewAPIKeyHandler(dataStore)
 	r.Route("/api/auth/keys", func(r chi.Router) {
