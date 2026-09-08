@@ -108,7 +108,7 @@ async function deleteUser() {
 
 function roleBadge(role) {
   if (role === 'owner') return 'bg-purple-900/50 text-purple-300'
-  if (role === 'operator') return 'bg-teal-900/50 text-teal-300'
+  if (role === 'operator') return 'bg-brand-primary/15 text-brand-primary'
   return 'bg-gray-700 text-gray-300'
 }
 </script>
@@ -121,7 +121,7 @@ function roleBadge(role) {
 
     <div class="flex justify-end mb-4">
       <button @click="showForm = !showForm"
-        class="bg-teal-600 hover:bg-teal-500 text-white px-3 py-1 rounded text-sm transition-colors">
+        class="bg-brand-accent hover:bg-brand-primary text-ms-on-primary px-3 py-1 rounded text-sm transition-colors">
         {{ showForm ? 'Cancel' : '+ Invite User' }}
       </button>
     </div>
@@ -132,22 +132,22 @@ function roleBadge(role) {
         <div>
           <label class="text-xs text-gray-400">Email</label>
           <input v-model="form.email" type="email" placeholder="user@example.com"
-            class="bg-gray-800 border border-gray-700 px-3 py-2 rounded-lg text-gray-200 w-full placeholder-gray-500 focus:outline-none focus:border-teal-500" />
+            class="bg-gray-800 border border-gray-700 px-3 py-2 rounded-lg text-gray-200 w-full placeholder-gray-500 focus:outline-none focus:border-brand-primary" />
         </div>
         <div>
           <label class="text-xs text-gray-400">Name</label>
           <input v-model="form.name" placeholder="Full name"
-            class="bg-gray-800 border border-gray-700 px-3 py-2 rounded-lg text-gray-200 w-full placeholder-gray-500 focus:outline-none focus:border-teal-500" />
+            class="bg-gray-800 border border-gray-700 px-3 py-2 rounded-lg text-gray-200 w-full placeholder-gray-500 focus:outline-none focus:border-brand-primary" />
         </div>
         <div>
           <label class="text-xs text-gray-400">Password (min 12 characters)</label>
           <input v-model="form.password" type="password" placeholder="Strong password"
-            class="bg-gray-800 border border-gray-700 px-3 py-2 rounded-lg text-gray-200 w-full placeholder-gray-500 focus:outline-none focus:border-teal-500" />
+            class="bg-gray-800 border border-gray-700 px-3 py-2 rounded-lg text-gray-200 w-full placeholder-gray-500 focus:outline-none focus:border-brand-primary" />
         </div>
         <div>
           <label class="text-xs text-gray-400">Role</label>
           <select v-model="form.role"
-            class="bg-gray-800 border border-gray-700 px-3 py-2 rounded-lg text-gray-200 w-full focus:outline-none focus:border-teal-500">
+            class="bg-gray-800 border border-gray-700 px-3 py-2 rounded-lg text-gray-200 w-full focus:outline-none focus:border-brand-primary">
             <option value="viewer">Viewer</option>
             <option value="operator">Operator</option>
             <option value="owner">Owner</option>
@@ -156,7 +156,7 @@ function roleBadge(role) {
       </div>
       <div class="flex justify-end">
         <button @click="createUser"
-          class="bg-teal-600 hover:bg-teal-500 text-white px-4 py-2 rounded text-sm transition-colors">Create User</button>
+          class="bg-brand-accent hover:bg-brand-primary text-ms-on-primary px-4 py-2 rounded text-sm transition-colors">Create User</button>
       </div>
     </div>
 
@@ -188,7 +188,7 @@ function roleBadge(role) {
             </td>
             <td class="px-3 py-2">
               <button @click="toggleUser(u)"
-                :class="u.enabled ? 'text-green-400' : 'text-red-400'"
+                :class="u.enabled ? 'text-ms-success' : 'text-ms-error'"
                 class="text-xs font-medium hover:underline">
                 {{ u.enabled ? 'Active' : 'Disabled' }}
               </button>
@@ -218,7 +218,7 @@ function roleBadge(role) {
         <p class="text-gray-400 text-sm mb-4">
           Delete user <span class="text-gray-200 font-medium">{{ userToDelete?.email }}</span>? This action cannot be undone.
         </p>
-        <p v-if="userToDelete && isLastOwner(userToDelete)" class="text-amber-400 text-sm mb-4 bg-amber-900/20 border border-amber-700 rounded p-3">
+        <p v-if="userToDelete && isLastOwner(userToDelete)" class="text-ms-warning text-sm mb-4 bg-amber-900/20 border border-amber-700 rounded p-3">
           Warning: This is the last owner. Deleting them will lock out admin access.
         </p>
         <div class="flex justify-end gap-3">

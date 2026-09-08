@@ -65,7 +65,7 @@ function formatDate(d) {
 
 function roleBadgeClass(role) {
   if (role === 'owner') return 'bg-purple-900/50 text-purple-300'
-  if (role === 'operator') return 'bg-teal-900/50 text-teal-300'
+  if (role === 'operator') return 'bg-brand-primary/15 text-brand-primary'
   return 'bg-gray-700 text-gray-300'
 }
 </script>
@@ -82,7 +82,7 @@ function roleBadgeClass(role) {
     <div v-if="createdKey" class="bg-green-900/30 border border-green-700 rounded-lg p-4 mb-4">
       <div class="text-green-300 font-semibold mb-2">API Key Created</div>
       <div class="text-sm text-gray-300 mb-2">Copy this key now — it won't be shown again:</div>
-      <code class="block bg-gray-900 text-green-400 px-3 py-2 rounded font-mono text-sm break-all select-all">
+      <code class="block bg-gray-900 text-ms-success px-3 py-2 rounded font-mono text-sm break-all select-all">
         {{ createdKey.key }}
       </code>
       <button @click="createdKey = null" class="mt-3 text-sm text-gray-400 hover:text-gray-200">Dismiss</button>
@@ -93,24 +93,24 @@ function roleBadgeClass(role) {
       <h2 class="text-sm font-display font-semibold text-gray-200 uppercase tracking-wider mb-3">Create New Key</h2>
       <div class="flex flex-wrap gap-2">
         <input v-model="newLabel" placeholder="Label (e.g. CI pipeline)"
-          class="bg-gray-800 border border-gray-700 px-3 py-2 rounded-lg text-gray-200 placeholder-gray-500 focus:outline-none focus:border-teal-500 flex-1 min-w-[160px]" />
+          class="bg-gray-800 border border-gray-700 px-3 py-2 rounded-lg text-gray-200 placeholder-gray-500 focus:outline-none focus:border-brand-primary flex-1 min-w-[160px]" />
         <select v-model="newRole"
-          class="bg-gray-800 border border-gray-700 px-3 py-2 rounded-lg text-gray-200 focus:outline-none focus:border-teal-500">
+          class="bg-gray-800 border border-gray-700 px-3 py-2 rounded-lg text-gray-200 focus:outline-none focus:border-brand-primary">
           <option value="viewer">Viewer</option>
           <option value="operator">Operator</option>
           <option value="owner">Owner</option>
         </select>
         <input v-model="newDevice" placeholder="Device IMEI (optional)"
-          class="bg-gray-800 border border-gray-700 px-3 py-2 rounded-lg text-gray-200 placeholder-gray-500 focus:outline-none focus:border-teal-500 min-w-[160px]" />
+          class="bg-gray-800 border border-gray-700 px-3 py-2 rounded-lg text-gray-200 placeholder-gray-500 focus:outline-none focus:border-brand-primary min-w-[160px]" />
         <select v-model="newExpires"
-          class="bg-gray-800 border border-gray-700 px-3 py-2 rounded-lg text-gray-200 focus:outline-none focus:border-teal-500">
+          class="bg-gray-800 border border-gray-700 px-3 py-2 rounded-lg text-gray-200 focus:outline-none focus:border-brand-primary">
           <option value="">No expiry</option>
           <option value="720h">30 days</option>
           <option value="2160h">90 days</option>
           <option value="8760h">1 year</option>
         </select>
         <button @click="createKey"
-          class="bg-teal-600 hover:bg-teal-500 text-white px-4 py-2 rounded-lg font-medium transition-colors">
+          class="bg-brand-accent hover:bg-brand-primary text-ms-on-primary px-4 py-2 rounded-lg font-medium transition-colors">
           Create
         </button>
       </div>

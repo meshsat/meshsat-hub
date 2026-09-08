@@ -69,11 +69,11 @@ function timeSince(ts) {
 }
 
 function onlineStatus(ts) {
-  if (!ts || ts === '0001-01-01T00:00:00Z') return { label: 'offline', color: 'text-red-400', dot: 'bg-red-400' }
+  if (!ts || ts === '0001-01-01T00:00:00Z') return { label: 'offline', color: 'text-ms-error', dot: 'bg-ms-error' }
   const age = Date.now() - new Date(ts).getTime()
-  if (age < 3600000) return { label: 'online', color: 'text-emerald-400', dot: 'bg-emerald-400' }
-  if (age < 86400000) return { label: 'idle', color: 'text-amber-400', dot: 'bg-amber-400' }
-  return { label: 'offline', color: 'text-red-400', dot: 'bg-red-400' }
+  if (age < 3600000) return { label: 'online', color: 'text-ms-success', dot: 'bg-ms-success' }
+  if (age < 86400000) return { label: 'idle', color: 'text-ms-warning', dot: 'bg-ms-warning' }
+  return { label: 'offline', color: 'text-ms-error', dot: 'bg-ms-error' }
 }
 
 function budgetPercent(sent, cap) {
@@ -84,7 +84,7 @@ function budgetPercent(sent, cap) {
 function budgetBarColor(pct) {
   if (pct >= 90) return 'bg-red-500'
   if (pct >= 70) return 'bg-amber-500'
-  return 'bg-teal-500'
+  return 'bg-brand-primary'
 }
 
 const tabs = [
@@ -98,7 +98,7 @@ const tabs = [
 <template>
   <div class="p-4 lg:p-6 max-w-6xl mx-auto">
     <div v-if="loading" class="text-center text-gray-500 py-16">Loading device...</div>
-    <div v-else-if="error" class="text-center text-red-400 py-16">{{ error }}</div>
+    <div v-else-if="error" class="text-center text-ms-error py-16">{{ error }}</div>
 
     <template v-else-if="device">
       <!-- Header -->
@@ -135,7 +135,7 @@ const tabs = [
         </div>
         <div class="bg-tactical-surface rounded-lg border border-tactical-border p-3">
           <div class="text-gray-500 text-[10px] uppercase">DMS</div>
-          <div class="text-sm" :class="dmsConfig?.enabled ? 'text-emerald-400' : 'text-gray-500'">
+          <div class="text-sm" :class="dmsConfig?.enabled ? 'text-ms-success' : 'text-gray-500'">
             {{ dmsConfig?.enabled ? 'active' : 'off' }}
           </div>
         </div>
@@ -175,7 +175,7 @@ const tabs = [
         <h2 class="text-sm font-display font-semibold text-gray-200 uppercase tracking-wider mb-2">WireGuard VPN</h2>
         <div class="flex items-center gap-4 text-sm">
           <span class="text-gray-400">Address:</span>
-          <span class="font-mono text-teal-400">{{ wgConfig.vpn_address || wgConfig.address || 'assigned' }}</span>
+          <span class="font-mono text-brand-primary">{{ wgConfig.vpn_address || wgConfig.address || 'assigned' }}</span>
         </div>
       </div>
 
@@ -185,7 +185,7 @@ const tabs = [
           <button v-for="tab in tabs" :key="tab.id"
             @click="activeTab = tab.id"
             class="px-4 py-2.5 text-sm font-medium transition-colors"
-            :class="activeTab === tab.id ? 'text-teal-400 border-b-2 border-teal-400' : 'text-gray-500 hover:text-gray-300'">
+            :class="activeTab === tab.id ? 'text-brand-primary border-b-2 border-brand-primary' : 'text-gray-500 hover:text-gray-300'">
             {{ tab.label }}
           </button>
         </div>
@@ -195,7 +195,7 @@ const tabs = [
           <div v-if="msgList.length === 0" class="p-8 text-center text-gray-500 text-sm">No messages</div>
           <div v-else class="divide-y divide-tactical-border/50 max-h-96 overflow-y-auto">
             <div v-for="m in msgList" :key="m.id" class="px-4 py-2.5 flex items-center gap-3 text-sm">
-              <span class="font-semibold text-xs w-6" :class="m.direction === 'mo' ? 'text-emerald-400' : 'text-sky-400'">
+              <span class="font-semibold text-xs w-6" :class="m.direction === 'mo' ? 'text-ms-success' : 'text-sky-400'">
                 {{ m.direction?.toUpperCase() }}
               </span>
               <span class="text-xs text-gray-500 w-16">{{ m.channel }}</span>
@@ -238,7 +238,7 @@ const tabs = [
               <div>
                 <span class="text-gray-300">v{{ k.version }}</span>
                 <span class="text-gray-500 text-xs ml-2">{{ k.mode }}</span>
-                <span v-if="k.key_hash" class="font-mono text-[10px] text-gray-600 ml-2">{{ k.key_hash?.substring(0, 12) }}...</span>
+                <span v-if="k.key_hash" class="font-mono text-[10px] text-ms-muted ml-2">{{ k.key_hash?.substring(0, 12) }}...</span>
               </div>
               <span class="text-gray-500 text-xs">{{ formatUTC(k.created_at) }}</span>
             </div>

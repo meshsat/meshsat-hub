@@ -92,13 +92,13 @@ function formatTime(ts) {
 }
 
 function dirClass(dir) {
-  return dir === 'mo' ? 'text-emerald-400' : 'text-sky-400'
+  return dir === 'mo' ? 'text-ms-success' : 'text-sky-400'
 }
 
 function statusClass(status) {
-  if (status === 'received' || status === 'delivered') return 'text-green-400'
-  if (status === 'failed') return 'text-red-400'
-  return 'text-yellow-400'
+  if (status === 'received' || status === 'delivered') return 'text-ms-success'
+  if (status === 'failed') return 'text-ms-error'
+  return 'text-ms-warning'
 }
 </script>
 
@@ -118,25 +118,25 @@ function statusClass(status) {
       <h2 class="text-sm font-semibold text-gray-300 mb-3">Send Message to Device (MT via Iridium)</h2>
       <div class="flex gap-2">
         <select v-model="sendImei"
-          class="bg-gray-800 border border-gray-700 px-3 py-2 rounded-lg text-gray-200 focus:outline-none focus:border-teal-500">
+          class="bg-gray-800 border border-gray-700 px-3 py-2 rounded-lg text-gray-200 focus:outline-none focus:border-brand-primary">
           <option v-for="d in deviceList" :key="d.imei" :value="d.imei">{{ d.imei }} {{ d.label ? `(${d.label})` : '' }}</option>
           <option v-if="deviceList.length === 0" value="">No devices registered</option>
         </select>
         <input v-model="sendText" placeholder="Type message to send via satellite..."
           @keyup.enter="sendMessage" :disabled="sending"
-          class="bg-gray-800 border border-gray-700 px-3 py-2 rounded-lg text-gray-200 placeholder-gray-500 focus:outline-none focus:border-teal-500 flex-1" />
+          class="bg-gray-800 border border-gray-700 px-3 py-2 rounded-lg text-gray-200 placeholder-gray-500 focus:outline-none focus:border-brand-primary flex-1" />
         <button @click="sendMessage" :disabled="sending || !sendText || !sendImei"
-          class="bg-teal-600 hover:bg-teal-500 disabled:bg-gray-600 text-white px-4 py-2 rounded-lg font-medium transition-colors whitespace-nowrap">
+          class="bg-brand-accent hover:bg-brand-primary disabled:bg-gray-600 text-ms-on-primary px-4 py-2 rounded-lg font-medium transition-colors whitespace-nowrap">
           {{ sending ? 'Sending...' : 'Send MT' }}
         </button>
       </div>
       <div class="flex gap-4 mt-2">
         <label class="flex items-center gap-1.5 text-xs text-gray-400 cursor-pointer">
-          <input type="checkbox" v-model="sendCompress" class="accent-teal-500" />
+          <input type="checkbox" v-model="sendCompress" class="accent-brand-primary" />
           SMAZ2 Compress
         </label>
         <label class="flex items-center gap-1.5 text-xs text-gray-400 cursor-pointer">
-          <input type="checkbox" v-model="sendEncrypt" class="accent-teal-500" />
+          <input type="checkbox" v-model="sendEncrypt" class="accent-brand-primary" />
           AES-256-GCM Encrypt
         </label>
         <span class="text-xs text-gray-500">Message queued for next satellite pass (30-90s typical).</span>
@@ -148,10 +148,10 @@ function statusClass(status) {
       <h2 class="text-sm font-semibold text-gray-300 mb-3">Send SMS (via Twilio)</h2>
       <div class="flex gap-2">
         <input v-model="smsTo" placeholder="+31612345678"
-          class="bg-gray-800 border border-gray-700 px-3 py-2 rounded-lg text-gray-200 placeholder-gray-500 focus:outline-none focus:border-green-400 w-48" />
+          class="bg-gray-800 border border-gray-700 px-3 py-2 rounded-lg text-gray-200 placeholder-gray-500 focus:outline-none focus:border-ms-success w-48" />
         <input v-model="smsText" placeholder="Type SMS message..."
           @keyup.enter="sendSMS" :disabled="smsSending"
-          class="bg-gray-800 border border-gray-700 px-3 py-2 rounded-lg text-gray-200 placeholder-gray-500 focus:outline-none focus:border-green-400 flex-1" />
+          class="bg-gray-800 border border-gray-700 px-3 py-2 rounded-lg text-gray-200 placeholder-gray-500 focus:outline-none focus:border-ms-success flex-1" />
         <button @click="sendSMS" :disabled="smsSending || !smsText || !smsTo"
           class="bg-green-600 hover:bg-green-500 disabled:bg-gray-600 text-white px-4 py-2 rounded-lg font-medium transition-colors whitespace-nowrap">
           {{ smsSending ? 'Sending...' : 'Send SMS' }}
@@ -172,9 +172,9 @@ function statusClass(status) {
 
     <div class="flex gap-2 mb-4">
       <input v-model="filter" placeholder="Filter by device IMEI" @keyup.enter="loadMessages"
-        class="bg-gray-800 border border-gray-700 px-3 py-2 rounded-lg text-gray-200 placeholder-gray-500 focus:outline-none focus:border-teal-500 flex-1" />
+        class="bg-gray-800 border border-gray-700 px-3 py-2 rounded-lg text-gray-200 placeholder-gray-500 focus:outline-none focus:border-brand-primary flex-1" />
       <button @click="loadMessages"
-        class="bg-teal-600 hover:bg-teal-500 text-white px-4 py-2 rounded-lg font-medium transition-colors">
+        class="bg-brand-accent hover:bg-brand-primary text-ms-on-primary px-4 py-2 rounded-lg font-medium transition-colors">
         Refresh
       </button>
     </div>

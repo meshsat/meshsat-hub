@@ -122,7 +122,7 @@ function parseHours(params) {
       <h1 class="text-2xl font-display font-bold">Alert Rules</h1>
       <button @click="showForm ? (showForm = false, resetForm()) : (showForm = true)"
         class="text-sm px-4 py-2 rounded font-medium"
-        :class="showForm ? 'text-gray-400 hover:text-gray-300' : 'bg-teal-600 hover:bg-teal-500 text-white'">
+        :class="showForm ? 'text-gray-400 hover:text-gray-300' : 'bg-brand-accent hover:bg-brand-primary text-ms-on-primary'">
         {{ showForm ? 'Cancel' : '+ New Rule' }}
       </button>
     </div>
@@ -161,7 +161,7 @@ function parseHours(params) {
       </div>
       <div class="flex gap-2">
         <button @click="saveRule" :disabled="!form.name.trim() || !form.chain_id"
-          class="bg-teal-600 hover:bg-teal-500 disabled:bg-gray-600 text-white text-sm px-4 py-2 rounded">
+          class="bg-brand-accent hover:bg-brand-primary disabled:bg-gray-600 text-ms-on-primary text-sm px-4 py-2 rounded">
           {{ editingId ? 'Update' : 'Create' }}
         </button>
         <button @click="showForm = false; resetForm()" class="text-gray-400 hover:text-gray-300 text-sm px-3 py-2">Cancel</button>
@@ -204,8 +204,8 @@ function parseHours(params) {
                 </button>
               </td>
               <td class="px-4 py-2 text-right space-x-2">
-                <button @click="startEdit(r)" class="text-xs text-teal-400 hover:text-teal-300">Edit</button>
-                <button @click="deleteRule(r.id)" class="text-xs text-red-400 hover:text-red-300">Delete</button>
+                <button @click="startEdit(r)" class="text-xs text-brand-primary hover:text-brand-primary">Edit</button>
+                <button @click="deleteRule(r.id)" class="text-xs text-ms-error hover:text-red-300">Delete</button>
               </td>
             </tr>
           </tbody>

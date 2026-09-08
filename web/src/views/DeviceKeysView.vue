@@ -223,7 +223,7 @@ onMounted(async () => {
           </select>
         </div>
         <button @click="generateKey" :disabled="!selectedImei"
-          class="px-4 py-2 rounded text-sm font-medium bg-teal-700 text-white hover:bg-teal-600 disabled:opacity-50 disabled:cursor-not-allowed">
+          class="px-4 py-2 rounded text-sm font-medium bg-brand-accent text-ms-on-primary hover:bg-brand-accent disabled:opacity-50 disabled:cursor-not-allowed">
           Generate Key
         </button>
         <button @click="showImport = !showImport"
@@ -252,7 +252,7 @@ onMounted(async () => {
             </select>
           </div>
           <button @click="importKey" :disabled="!importHex.trim() || !selectedImei"
-            class="px-4 py-2 rounded text-sm font-medium bg-teal-600 text-white hover:bg-teal-500 disabled:opacity-50">
+            class="px-4 py-2 rounded text-sm font-medium bg-brand-accent text-ms-on-primary hover:bg-brand-primary disabled:opacity-50">
             Import
           </button>
         </div>
@@ -281,7 +281,7 @@ onMounted(async () => {
         </div>
       </div>
       <button @click="rotateAndDistribute" :disabled="!selectedImei"
-        class="px-4 py-2 rounded text-sm font-medium bg-teal-600 text-white hover:bg-teal-500 disabled:opacity-50">
+        class="px-4 py-2 rounded text-sm font-medium bg-brand-accent text-ms-on-primary hover:bg-brand-primary disabled:opacity-50">
         Rotate & Distribute
       </button>
       <div v-if="rotateResult" class="mt-3 bg-emerald-900/50 border border-emerald-700 rounded p-3 text-sm">
@@ -290,8 +290,8 @@ onMounted(async () => {
         <div v-if="rotateResult.distributed?.length" class="mt-2 space-y-1">
           <div v-for="d in rotateResult.distributed" :key="d.bridge_id" class="text-xs">
             <span class="font-mono text-gray-300">{{ d.bridge_id }}</span>
-            <span :class="d.status === 'ok' ? 'text-emerald-400' : 'text-red-400'" class="ml-2">{{ d.status }}</span>
-            <span v-if="d.error" class="text-red-400 ml-1">{{ d.error }}</span>
+            <span :class="d.status === 'ok' ? 'text-ms-success' : 'text-ms-error'" class="ml-2">{{ d.status }}</span>
+            <span v-if="d.error" class="text-ms-error ml-1">{{ d.error }}</span>
           </div>
         </div>
       </div>
@@ -317,7 +317,7 @@ onMounted(async () => {
           <tr v-for="(k, i) in keys" :key="k.id" class="border-b border-tactical-border/50 hover:bg-white/[0.02]">
             <td class="px-4 py-2 font-mono text-xs">
               {{ k.key_hash?.slice(0, 16) }}...
-              <span v-if="i === 0" class="ml-1 text-[10px] px-1.5 py-0.5 rounded bg-teal-900/50 text-teal-300">active</span>
+              <span v-if="i === 0" class="ml-1 text-[10px] px-1.5 py-0.5 rounded bg-brand-primary/15 text-brand-primary">active</span>
             </td>
             <td class="px-4 py-2">
               <span class="text-xs px-1.5 py-0.5 rounded"
@@ -327,7 +327,7 @@ onMounted(async () => {
             </td>
             <td class="px-4 py-2 text-gray-400">{{ new Date(k.created_at).toLocaleString() }}</td>
             <td class="px-4 py-2 text-right">
-              <button @click="deleteKey(k.id)" class="text-xs text-red-400 hover:text-red-300">Revoke</button>
+              <button @click="deleteKey(k.id)" class="text-xs text-ms-error hover:text-red-300">Revoke</button>
             </td>
           </tr>
         </tbody>
@@ -363,7 +363,7 @@ onMounted(async () => {
           </div>
         </div>
         <button @click="rotateChannelKey"
-          class="px-4 py-2 rounded text-sm font-medium bg-teal-600 text-white hover:bg-teal-500">
+          class="px-4 py-2 rounded text-sm font-medium bg-brand-accent text-ms-on-primary hover:bg-brand-primary">
           Rotate Channel Key
         </button>
         <div v-if="chResult" class="bg-emerald-900/50 border border-emerald-700 rounded p-3 text-sm">
@@ -372,7 +372,7 @@ onMounted(async () => {
           <div class="text-xs text-gray-400">
             Type: {{ chResult.channel_type }} &middot; Address: {{ chResult.address }} &middot;
             Version: {{ chResult.version }} &middot; Distributed: {{ chResult.distributed || 0 }}
-            <span v-if="chResult.failed_bridges?.length" class="text-red-400"> &middot; Failed: {{ chResult.failed_bridges.join(', ') }}</span>
+            <span v-if="chResult.failed_bridges?.length" class="text-ms-error"> &middot; Failed: {{ chResult.failed_bridges.join(', ') }}</span>
           </div>
         </div>
       </div>

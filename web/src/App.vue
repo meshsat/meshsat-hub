@@ -3,6 +3,7 @@ import { ref, computed, watch } from 'vue'
 import { RouterLink, RouterView, useRouter } from 'vue-router'
 import { useAuthStore } from './stores/auth'
 import { useThemeStore } from './stores/theme'
+import BrandLockup from './components/BrandLockup.vue'
 import ToastContainer from './components/ToastContainer.vue'
 import StatusBar from './components/StatusBar.vue'
 
@@ -103,21 +104,21 @@ const navGroups = [
   <div class="min-h-screen bg-tactical-bg text-gray-100 relative">
     <!-- Fullscreen background logo (matches Bridge) -->
     <div class="fixed inset-0 z-0 flex items-center justify-center pointer-events-none">
-      <img src="/logo-bg.png" alt="" class="w-[150vmin] h-[150vmin] object-contain opacity-[0.04]" />
+      <img :src="theme.dark ? '/meshsat-mark-dark.png' : '/meshsat-mark-light.png'" alt="" class="w-[120vmin] max-w-none object-contain opacity-[0.04]" />
     </div>
 
     <template v-if="auth.isAuthenticated">
       <header class="sticky top-0 z-50 bg-tactical-surface/95 backdrop-blur border-b border-tactical-border">
         <div class="flex items-center h-12 px-3 lg:px-5 gap-3">
           <!-- Brand -->
-          <span class="font-display font-semibold text-sm text-gray-200 tracking-wide shrink-0">MeshSat Hub</span>
+          <router-link :to="{ name: 'dashboard' }" class="shrink-0" aria-label="MeshSat Hub home"><BrandLockup /></router-link>
           <!-- Nav dropdowns (center, flex-1) -->
           <nav class="hidden md:flex flex-1 items-center mx-2 lg:mx-6 gap-1">
             <template v-for="group in navGroups" :key="group.label">
               <div class="relative" @mouseenter="showDropdown(group.label)" @mouseleave="hideDropdown">
                 <button class="px-3 py-1.5 rounded text-xs font-medium whitespace-nowrap transition-colors flex items-center gap-1"
                   :class="isGroupActive(group)
-                    ? 'bg-tactical-iridium/10 text-tactical-iridium'
+                    ? 'bg-ms-primary/15 text-ms-text'
                     : openDropdown === group.label
                       ? 'text-gray-300 bg-white/5'
                       : 'text-gray-500 hover:text-gray-300 hover:bg-white/5'">
@@ -129,7 +130,7 @@ const navGroups = [
                   @mouseenter="cancelHide" @mouseleave="hideDropdown">
                   <RouterLink v-for="item in group.items" :key="item.to" :to="item.to"
                     class="block px-4 py-2 text-xs font-medium transition-colors text-gray-400 hover:text-gray-200 hover:bg-white/5"
-                    active-class="!text-tactical-iridium !bg-tactical-iridium/10"
+                    active-class="!text-ms-text !bg-ms-primary/15"
                     @click="openDropdown = null">
                     {{ item.label }}
                   </RouterLink>
@@ -140,7 +141,7 @@ const navGroups = [
             <div v-if="auth.isOwner" class="relative" @mouseenter="showDropdown('Admin')" @mouseleave="hideDropdown">
               <button class="px-3 py-1.5 rounded text-xs font-medium whitespace-nowrap transition-colors flex items-center gap-1"
                 :class="['/users', '/api-keys', '/audit', '/credentials'].includes(router.currentRoute.value.path)
-                  ? 'bg-tactical-iridium/10 text-tactical-iridium'
+                  ? 'bg-ms-primary/15 text-ms-text'
                   : openDropdown === 'Admin'
                     ? 'text-gray-300 bg-white/5'
                     : 'text-gray-500 hover:text-gray-300 hover:bg-white/5'">
@@ -151,19 +152,19 @@ const navGroups = [
                 class="absolute top-full left-0 mt-1 py-1 bg-tactical-surface border border-tactical-border rounded-lg shadow-xl z-50 min-w-[160px]"
                 @mouseenter="cancelHide" @mouseleave="hideDropdown">
                 <RouterLink to="/users" class="block px-4 py-2 text-xs font-medium transition-colors text-gray-400 hover:text-gray-200 hover:bg-white/5"
-                  active-class="!text-tactical-iridium !bg-tactical-iridium/10" @click="openDropdown = null">Users</RouterLink>
+                  active-class="!text-ms-text !bg-ms-primary/15" @click="openDropdown = null">Users</RouterLink>
                 <RouterLink to="/api-keys" class="block px-4 py-2 text-xs font-medium transition-colors text-gray-400 hover:text-gray-200 hover:bg-white/5"
-                  active-class="!text-tactical-iridium !bg-tactical-iridium/10" @click="openDropdown = null">API Keys</RouterLink>
+                  active-class="!text-ms-text !bg-ms-primary/15" @click="openDropdown = null">API Keys</RouterLink>
                 <RouterLink to="/audit" class="block px-4 py-2 text-xs font-medium transition-colors text-gray-400 hover:text-gray-200 hover:bg-white/5"
-                  active-class="!text-tactical-iridium !bg-tactical-iridium/10" @click="openDropdown = null">Audit</RouterLink>
+                  active-class="!text-ms-text !bg-ms-primary/15" @click="openDropdown = null">Audit</RouterLink>
                 <RouterLink to="/credentials" class="block px-4 py-2 text-xs font-medium transition-colors text-gray-400 hover:text-gray-200 hover:bg-white/5"
-                  active-class="!text-tactical-iridium !bg-tactical-iridium/10" @click="openDropdown = null">Credentials</RouterLink>
+                  active-class="!text-ms-text !bg-ms-primary/15" @click="openDropdown = null">Credentials</RouterLink>
               </div>
             </div>
             <!-- Help: standalone link (matches Bridge) -->
             <RouterLink to="/help"
               class="px-3 py-1.5 rounded text-xs font-medium whitespace-nowrap transition-colors text-gray-500 hover:text-gray-300 hover:bg-white/5"
-              active-class="!bg-tactical-iridium/10 !text-tactical-iridium">Help</RouterLink>
+              active-class="!bg-ms-primary/15 !text-ms-text">Help</RouterLink>
           </nav>
           <!-- Right: status bar + controls -->
           <div class="hidden md:flex items-center gap-3 shrink-0">
@@ -173,7 +174,7 @@ const navGroups = [
             <div class="relative">
               <input v-if="searchOpen" v-model="searchQuery" @keydown.enter="handleSearch" @keydown.escape="searchOpen = false"
                 placeholder="Search devices..." autofocus
-                class="bg-gray-800 border border-gray-700 rounded px-2 py-1 text-xs w-40 focus:outline-none focus:border-teal-500 text-gray-200">
+                class="bg-gray-800 border border-gray-700 rounded px-2 py-1 text-xs w-40 focus:outline-none focus:border-brand-primary text-gray-200">
               <button v-else @click="searchOpen = true" class="text-gray-400 hover:text-gray-200 px-1" title="Search (/)">
                 <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
               </button>
@@ -197,13 +198,13 @@ const navGroups = [
                   <div v-if="auth.user?.email" class="text-xs text-gray-400 font-mono">{{ auth.user.email }}</div>
                   <div class="flex items-center gap-2 mt-1">
                     <span class="text-xs px-1.5 py-0.5 rounded font-medium"
-                      :class="auth.role === 'owner' ? 'bg-purple-900/50 text-purple-300' : auth.role === 'operator' ? 'bg-teal-900/50 text-teal-300' : 'bg-gray-700 text-gray-300'">
+                      :class="auth.role === 'owner' ? 'bg-purple-900/50 text-purple-300' : auth.role === 'operator' ? 'bg-brand-primary/15 text-brand-primary' : 'bg-gray-700 text-gray-300'">
                       {{ auth.role }}
                     </span>
                     <span v-if="auth.user?.tenant_id" class="text-xs text-gray-500 font-mono">{{ auth.user.tenant_id }}</span>
                   </div>
                 </div>
-                <button @click="logout" class="w-full text-left px-4 py-2 text-sm text-gray-400 hover:text-red-400 hover:bg-gray-800/50">
+                <button @click="logout" class="w-full text-left px-4 py-2 text-sm text-gray-400 hover:text-ms-error hover:bg-gray-800/50">
                   Logout
                 </button>
               </div>
@@ -221,7 +222,7 @@ const navGroups = [
           <nav class="absolute left-0 top-0 bottom-0 w-72 bg-tactical-surface border-r border-tactical-border overflow-y-auto tactical-scroll flex flex-col">
             <!-- Mobile header -->
             <div class="px-4 py-3 border-b border-tactical-border flex items-center justify-between">
-              <span class="text-lg font-display font-bold text-gray-200 tracking-wide">MeshSat Hub</span>
+              <BrandLockup />
               <button @click="navOpen = false" class="text-gray-400 hover:text-gray-200 text-xl">&times;</button>
             </div>
 
@@ -230,7 +231,7 @@ const navGroups = [
               <div class="relative">
                 <input v-model="mobileSearchQuery" @keydown.enter="handleMobileSearch"
                   placeholder="Search devices..."
-                  class="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-200 focus:outline-none focus:border-teal-500">
+                  class="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-200 focus:outline-none focus:border-brand-primary">
                 <svg class="w-4 h-4 text-gray-500 absolute right-3 top-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
                 </svg>
@@ -243,19 +244,19 @@ const navGroups = [
                 <div class="text-xs text-gray-500 uppercase tracking-wider px-3 pt-3 pb-1 font-display">{{ group.label }}</div>
                 <RouterLink v-for="item in group.items" :key="item.to" :to="item.to"
                   class="block px-3 py-2 rounded text-sm transition-colors text-gray-400 hover:text-gray-200 hover:bg-white/5"
-                  active-class="!bg-tactical-iridium/10 !text-tactical-iridium">
+                  active-class="!bg-ms-primary/15 !text-ms-text">
                   {{ item.label }}
                 </RouterLink>
               </template>
               <template v-if="auth.isOwner">
                 <div class="text-xs text-gray-500 uppercase tracking-wider px-3 pt-3 pb-1 font-display">Admin</div>
-                <RouterLink to="/users" class="block px-3 py-2 rounded text-sm transition-colors text-gray-400 hover:text-gray-200 hover:bg-white/5" active-class="!bg-tactical-iridium/10 !text-tactical-iridium">Users</RouterLink>
-                <RouterLink to="/api-keys" class="block px-3 py-2 rounded text-sm transition-colors text-gray-400 hover:text-gray-200 hover:bg-white/5" active-class="!bg-tactical-iridium/10 !text-tactical-iridium">API Keys</RouterLink>
-                <RouterLink to="/audit" class="block px-3 py-2 rounded text-sm transition-colors text-gray-400 hover:text-gray-200 hover:bg-white/5" active-class="!bg-tactical-iridium/10 !text-tactical-iridium">Audit</RouterLink>
-                <RouterLink to="/credentials" class="block px-3 py-2 rounded text-sm transition-colors text-gray-400 hover:text-gray-200 hover:bg-white/5" active-class="!bg-tactical-iridium/10 !text-tactical-iridium">Credentials</RouterLink>
+                <RouterLink to="/users" class="block px-3 py-2 rounded text-sm transition-colors text-gray-400 hover:text-gray-200 hover:bg-white/5" active-class="!bg-ms-primary/15 !text-ms-text">Users</RouterLink>
+                <RouterLink to="/api-keys" class="block px-3 py-2 rounded text-sm transition-colors text-gray-400 hover:text-gray-200 hover:bg-white/5" active-class="!bg-ms-primary/15 !text-ms-text">API Keys</RouterLink>
+                <RouterLink to="/audit" class="block px-3 py-2 rounded text-sm transition-colors text-gray-400 hover:text-gray-200 hover:bg-white/5" active-class="!bg-ms-primary/15 !text-ms-text">Audit</RouterLink>
+                <RouterLink to="/credentials" class="block px-3 py-2 rounded text-sm transition-colors text-gray-400 hover:text-gray-200 hover:bg-white/5" active-class="!bg-ms-primary/15 !text-ms-text">Credentials</RouterLink>
               </template>
               <div class="border-t border-tactical-border mt-2 pt-2">
-                <RouterLink to="/help" class="block px-3 py-2 rounded text-sm transition-colors text-gray-400 hover:text-gray-200 hover:bg-white/5" active-class="!bg-tactical-iridium/10 !text-tactical-iridium">Help</RouterLink>
+                <RouterLink to="/help" class="block px-3 py-2 rounded text-sm transition-colors text-gray-400 hover:text-gray-200 hover:bg-white/5" active-class="!bg-ms-primary/15 !text-ms-text">Help</RouterLink>
               </div>
             </div>
 
@@ -276,12 +277,12 @@ const navGroups = [
                 <div class="min-w-0">
                   <div class="text-sm truncate">{{ auth.user?.name || auth.user?.id || 'User' }}</div>
                   <span class="text-xs px-1.5 py-0.5 rounded font-medium"
-                    :class="auth.role === 'owner' ? 'bg-purple-900/50 text-purple-300' : auth.role === 'operator' ? 'bg-teal-900/50 text-teal-300' : 'bg-gray-700 text-gray-300'">
+                    :class="auth.role === 'owner' ? 'bg-purple-900/50 text-purple-300' : auth.role === 'operator' ? 'bg-brand-primary/15 text-brand-primary' : 'bg-gray-700 text-gray-300'">
                     {{ auth.role }}
                   </span>
                 </div>
               </div>
-              <button @click="logout()" class="w-full text-left text-sm text-gray-400 hover:text-red-400 py-1">Logout</button>
+              <button @click="logout()" class="w-full text-left text-sm text-gray-400 hover:text-ms-error py-1">Logout</button>
             </div>
           </nav>
         </div>

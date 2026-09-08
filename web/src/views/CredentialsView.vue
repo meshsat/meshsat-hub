@@ -115,7 +115,7 @@ function expiryLabel(c) {
       <div v-for="c in expiring" :key="c.id" class="text-xs text-amber-200 flex gap-2">
         <span class="font-mono">{{ c.name }}</span>
         <span class="px-1.5 rounded" :class="expiryClass(c)">{{ expiryLabel(c) }}</span>
-        <span class="text-amber-400">{{ c.cert_subject }}</span>
+        <span class="text-ms-warning">{{ c.cert_subject }}</span>
       </div>
     </div>
 
@@ -151,7 +151,7 @@ function expiryLabel(c) {
             {{ uploading ? 'Uploading...' : 'Upload' }}
           </button>
         </div>
-        <p v-if="uploadResult" class="text-sm text-emerald-400 mt-3">{{ uploadResult }}</p>
+        <p v-if="uploadResult" class="text-sm text-ms-success mt-3">{{ uploadResult }}</p>
       </div>
     </div>
 

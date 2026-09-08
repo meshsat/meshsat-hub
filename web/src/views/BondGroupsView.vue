@@ -137,7 +137,7 @@ async function deleteGroup() {
     <div class="mb-4">
       <label class="block text-xs font-medium text-gray-400 mb-1">Bridge</label>
       <select v-model="selectedBridge"
-        class="bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-200 focus:outline-none focus:border-teal-500 w-full max-w-xs">
+        class="bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-200 focus:outline-none focus:border-brand-primary w-full max-w-xs">
         <option value="" disabled>Select a bridge...</option>
         <option v-for="b in bridgeList" :key="b.bridge_id" :value="b.bridge_id">
           {{ b.label || b.bridge_id }}
@@ -148,8 +148,8 @@ async function deleteGroup() {
     <!-- HeMB stats banner -->
     <div v-if="stats" class="bg-tactical-surface border border-tactical-border rounded-lg p-3 mb-4 flex gap-6 text-xs">
       <div><span class="text-gray-500">Active Streams</span> <span class="text-gray-200 font-mono ml-1">{{ stats.active_streams }}</span></div>
-      <div><span class="text-gray-500">Decoded</span> <span class="text-emerald-400 font-mono ml-1">{{ stats.generations_decoded }}</span></div>
-      <div><span class="text-gray-500">Pending</span> <span class="text-amber-400 font-mono ml-1">{{ stats.generations_pending }}</span></div>
+      <div><span class="text-gray-500">Decoded</span> <span class="text-ms-success font-mono ml-1">{{ stats.generations_decoded }}</span></div>
+      <div><span class="text-gray-500">Pending</span> <span class="text-ms-warning font-mono ml-1">{{ stats.generations_pending }}</span></div>
     </div>
 
     <div v-if="loading" class="text-center py-12 text-gray-500">Loading...</div>
@@ -186,7 +186,7 @@ async function deleteGroup() {
             <button @click="openEdit(g)" class="text-gray-500 hover:text-gray-300 p-1" title="Edit">
               <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/></svg>
             </button>
-            <button @click="confirmDelete(g)" class="text-gray-500 hover:text-red-400 p-1" title="Delete">
+            <button @click="confirmDelete(g)" class="text-gray-500 hover:text-ms-error p-1" title="Delete">
               <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
             </button>
           </div>
@@ -207,14 +207,14 @@ async function deleteGroup() {
             <div>
               <label class="block text-xs font-medium text-gray-400 mb-1">Label</label>
               <input v-model="form.label" type="text" autofocus
-                class="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-200 focus:outline-none focus:border-teal-500"
+                class="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-200 focus:outline-none focus:border-brand-primary"
                 placeholder="e.g. Primary SBD+Mesh bond" @keydown.enter="saveGroup">
             </div>
 
             <div>
               <label class="block text-xs font-medium text-gray-400 mb-1">Member Interfaces</label>
               <input v-model="form.members" type="text"
-                class="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-200 focus:outline-none focus:border-teal-500"
+                class="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-200 focus:outline-none focus:border-brand-primary"
                 placeholder="e.g. mesh_0, iridium_0, sms_0">
               <p class="text-xs text-gray-500 mt-1">Comma-separated interface IDs</p>
             </div>
@@ -222,7 +222,7 @@ async function deleteGroup() {
             <div>
               <label class="block text-xs font-medium text-gray-400 mb-1">Cost Budget ($)</label>
               <input v-model.number="form.cost_budget" type="number" min="0" step="0.01"
-                class="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-200 focus:outline-none focus:border-teal-500"
+                class="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-200 focus:outline-none focus:border-brand-primary"
                 placeholder="0.00">
             </div>
           </div>
