@@ -256,15 +256,32 @@ st_write.create_users_as_inactive = True
 st_write.create_users_group = groups["meshsat-pending"]
 st_write.save()
 
-st_email, _ = EmailStage.objects.get_or_create(
-    name="meshsat-enrollment-email",
-    defaults={"use_global_settings": True, "activate_user_on_success": False,
-              "subject": "Verify your email for MeshSat Hub", "template": "email/account_confirmation.html"},
-)
-st_email.use_global_settings = True
-st_email.activate_user_on_success = False
-st_email.subject = "Verify your email for MeshSat Hub"
-st_email.save()
+# MeshSat mail must leave as MeshSat. The global settings on this authentik
+# belong to omoikane, so a stage using them sends beta invitations from
+# omoikane.coach and the recipient sees the wrong brand on the envelope
+# (MESHSAT-970). These stages carry their own sender and relay.
+MAIL = {
+    "use_global_settings": False,
+    "host": "smtp.nuclearlighters.net",
+    "port": 25,
+    "use_tls": False,
+    "use_ssl": False,
+    "from_address": "MeshSat <noreply@meshsat.net>",
+    "timeout": 30,
+}
+
+
+def mail_stage(name, subject, template, **extra):
+    """An EmailStage that sends as MeshSat rather than the shared default."""
+    st, _ = EmailStage.objects.get_or_create(name=name, defaults={**MAIL, **extra, "subject": subject, "template": template})
+    for k, v in {**MAIL, **extra, "subject": subject, "template": template}.items():
+        setattr(st, k, v)
+    st.save()
+    return st
+
+
+st_email = mail_stage("meshsat-enrollment-email", "Verify your email for MeshSat Hub",
+                      "email/account_confirmation.html", activate_user_on_success=False)
 
 st_write_marker, _ = UserWriteStage.objects.get_or_create(
     name="meshsat-enrollment-write-verified",
@@ -343,6 +360,61 @@ for order, st in bindings:
         b.save()
 note(f"flow meshsat-authentication {'created' if n_created else 'ok'}")
 
+# ---------------------------------------------------------------- recovery flow
+# Everyone signs in through authentik and authentik holds the password, so a
+# forgotten one is its problem to solve. Nothing existed: the brand set
+# authentication, invalidation and user settings but never flow_recovery, so
+# "Forgot password?" did not render and a locked-out beta tester needed an
+# administrator. Needs working mail, which is why it comes after MESHSAT-970.
+p_recovery = [
+    prompt("meshsat-recovery-password", "password", "New password", FieldTypes.PASSWORD, 10, placeholder="12+ characters"),
+    prompt("meshsat-recovery-password-repeat", "password_repeat", "New password (repeat)", FieldTypes.PASSWORD, 20),
+]
+st_recovery_prompt = prompt_stage("meshsat-recovery-password-prompt", p_recovery)
+
+# pretend_user_exists keeps this from telling a stranger which addresses are
+# registered: an unknown one gets the same "check your mail" as a known one.
+st_recovery_ident, _ = IdentificationStage.objects.get_or_create(
+    name="meshsat-recovery-identification",
+    defaults={"user_fields": ["email", "username"], "case_insensitive_matching": True, "pretend_user_exists": True},
+)
+st_recovery_ident.user_fields = ["email", "username"]
+st_recovery_ident.case_insensitive_matching = True
+st_recovery_ident.pretend_user_exists = True
+st_recovery_ident.save()
+
+st_recovery_email = mail_stage("meshsat-recovery-email", "Reset your MeshSat Hub password",
+                               "email/password_reset.html", activate_user_on_success=True)
+
+st_recovery_write, _ = UserWriteStage.objects.get_or_create(
+    name="meshsat-recovery-write",
+    defaults={"user_creation_mode": UserCreationMode.NEVER_CREATE},
+)
+st_recovery_write.user_creation_mode = UserCreationMode.NEVER_CREATE
+st_recovery_write.save()
+
+recovery, r_created = Flow.objects.get_or_create(
+    slug="meshsat-recovery",
+    defaults={"name": "MeshSat Hub password reset", "title": "Reset your MeshSat Hub password",
+              "designation": FlowDesignation.RECOVERY},
+)
+recovery.title = "Reset your MeshSat Hub password"
+recovery.designation = FlowDesignation.RECOVERY
+recovery.save()
+for order, st in ((10, st_recovery_ident), (20, st_recovery_email), (30, st_recovery_prompt), (40, st_recovery_write)):
+    b, _ = FlowStageBinding.objects.get_or_create(target=recovery, stage=st, defaults={"order": order})
+    if b.order != order:
+        b.order = order
+        b.save()
+FlowStageBinding.objects.filter(target=recovery).exclude(
+    stage__in=[st_recovery_ident, st_recovery_email, st_recovery_prompt, st_recovery_write]).delete()
+
+# The sign-in page only shows "Forgot password?" when its identification stage
+# knows where to send it.
+ident.recovery_flow = recovery
+ident.save()
+note(f"flow meshsat-recovery {'created' if r_created else 'ok'}")
+
 # ---------------------------------------------------------------- brand
 brand, b_created = Brand.objects.get_or_create(
     domain="meshsat.net",
@@ -359,6 +431,7 @@ brand.flow_authentication = authn
 if invalidation:
     brand.flow_invalidation = Flow.objects.filter(slug="default-invalidation-flow").first() or invalidation
 brand.flow_user_settings = Flow.objects.filter(slug="default-user-settings-flow").first()
+brand.flow_recovery = recovery
 brand.save()
 note(f"brand meshsat.net {'created' if b_created else 'ok'}")
 
