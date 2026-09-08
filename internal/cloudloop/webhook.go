@@ -92,6 +92,7 @@ type WebhookHandler struct {
 	allowedIPs      []string
 	token           string                // platform webhook token (default tenant); required when allowedIPs is "*" and no accounts
 	accounts        *integrations.Service // per-tenant webhook tokens (MESHSAT-977)
+	oob             OOBClassifier         // management frames (MESHSAT-964)
 	store           interface {
 		InsertMessage(ctx context.Context, tenantID string, m *store.Message) error
 		SetBridgeOnline(ctx context.Context, tenantID string, bridgeID string, online bool) error
@@ -180,6 +181,16 @@ func (h *WebhookHandler) SetHeMBReassembler(r interface{ AddRawFrame([]byte) ([]
 
 // SetAllowedIPs sets the IP allowlist for webhook requests.
 // If empty, all IPs are allowed.
+
+// OOBClassifier is the out-of-band management service: it takes "MS:" frames
+// out of the message flow before anything else sees them (MESHSAT-964 C).
+type OOBClassifier interface {
+	HandleInbound(ctx context.Context, bearer, origin, text string) bool
+}
+
+// SetOOB attaches the out-of-band classifier.
+func (h *WebhookHandler) SetOOB(c OOBClassifier) { h.oob = c }
+
 // SetToken sets the shared webhook token. With a wildcard allowlist the token
 // is the only thing that authenticates Cloudloop, so ServeHTTP refuses every
 // request until one is configured (MESHSAT-971).
@@ -486,6 +497,12 @@ func (h *WebhookHandler) processLingoMO(ctx context.Context, mo *LingoMO, remote
 		if isPrintable(rawBytes) {
 			text = string(rawBytes)
 		}
+	}
+
+	// An OOB management frame is a reply to a command the Hub sent; it never
+	// enters the message pipeline.
+	if h.oob != nil && text != "" && h.oob.HandleInbound(ctx, bearerOf(source), imei, text) {
+		return "oob_frame"
 	}
 
 	// Publish decoded message to mo/decoded.

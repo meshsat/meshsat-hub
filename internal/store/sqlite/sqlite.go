@@ -162,6 +162,9 @@ var alterMigrations = []string{
 
 // postAlterMigrations create indexes and new tables. Safe to re-run.
 var postAlterMigrations = []string{
+	// MESHSAT-964: OOB management pairings per bridge
+	`CREATE TABLE IF NOT EXISTS bridge_oob_peers (tenant_id TEXT NOT NULL, bridge_id TEXT NOT NULL, peer_id INTEGER NOT NULL, key_enc BLOB NOT NULL, local_role INTEGER NOT NULL DEFAULT 0, phone TEXT NOT NULL DEFAULT '', sat_imei TEXT NOT NULL DEFAULT '', tx_counter INTEGER NOT NULL DEFAULT 0, rx_high INTEGER NOT NULL DEFAULT 0, rx_window INTEGER NOT NULL DEFAULT 0, enabled INTEGER NOT NULL DEFAULT 1, created_at TEXT NOT NULL DEFAULT (datetime('now')), updated_at TEXT NOT NULL DEFAULT (datetime('now')), PRIMARY KEY (tenant_id, bridge_id))`,
+	`CREATE INDEX IF NOT EXISTS idx_bridge_oob_peers_peer ON bridge_oob_peers (peer_id)`,
 	// MESHSAT-916: OIDC subject -> local user
 	`CREATE TABLE IF NOT EXISTS oidc_identities (issuer TEXT NOT NULL, subject TEXT NOT NULL, user_id TEXT NOT NULL, tenant_id TEXT NOT NULL, email TEXT NOT NULL DEFAULT '', platform_admin INTEGER NOT NULL DEFAULT 0, last_login_at TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL DEFAULT (datetime('now')), PRIMARY KEY (issuer, subject))`,
 	// MESHSAT-916: tenants + invites; the default tenant is seeded so

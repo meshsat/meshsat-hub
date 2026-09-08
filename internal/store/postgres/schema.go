@@ -421,4 +421,23 @@ ALTER TABLE routes ADD COLUMN IF NOT EXISTS senders TEXT NOT NULL DEFAULT '';
 ALTER TABLE bridges ADD COLUMN IF NOT EXISTS last_report_bearer TEXT NOT NULL DEFAULT '';
 ALTER TABLE bridges ADD COLUMN IF NOT EXISTS last_report_at TIMESTAMPTZ NULL;
 `},
+	{Version: 6, Name: "bridge_oob_peers", SQL: `
+CREATE TABLE IF NOT EXISTS bridge_oob_peers (
+	tenant_id VARCHAR(64) NOT NULL,
+	bridge_id VARCHAR(64) NOT NULL,
+	peer_id INTEGER NOT NULL,
+	key_enc BYTEA NOT NULL,
+	local_role SMALLINT NOT NULL DEFAULT 0,
+	phone VARCHAR(32) NOT NULL DEFAULT '',
+	sat_imei VARCHAR(32) NOT NULL DEFAULT '',
+	tx_counter BIGINT NOT NULL DEFAULT 0,
+	rx_high BIGINT NOT NULL DEFAULT 0,
+	rx_window BIGINT NOT NULL DEFAULT 0,
+	enabled BOOLEAN NOT NULL DEFAULT TRUE,
+	created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+	updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+	PRIMARY KEY (tenant_id, bridge_id)
+);
+CREATE INDEX IF NOT EXISTS idx_bridge_oob_peers_peer ON bridge_oob_peers (peer_id);
+`},
 }
