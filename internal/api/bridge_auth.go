@@ -13,7 +13,6 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/meshsat/meshsat-hub/internal/auth"
 	"github.com/meshsat/meshsat-hub/internal/bridge"
-	"github.com/meshsat/meshsat-hub/internal/fsutil"
 	"github.com/meshsat/meshsat-hub/internal/store"
 	"golang.org/x/crypto/bcrypt"
 )
@@ -220,12 +219,13 @@ func (h *BridgeAuthHandler) RegenerateACL(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	mosqAuthFile := fsutil.AbsOnly(filepath.Clean(os.Getenv("MESHSAT_MOSQUITTO_PASSWD_FILE")))
-	if mosqAuthFile == "" {
+	// Operator-supplied paths: cleaned and required absolute, else the default.
+	mosqAuthFile := filepath.Clean(os.Getenv("MESHSAT_MOSQUITTO_PASSWD_FILE"))
+	if !filepath.IsAbs(mosqAuthFile) {
 		mosqAuthFile = "/data/mosquitto/passwd"
 	}
-	aclFile := fsutil.AbsOnly(filepath.Clean(os.Getenv("MESHSAT_MOSQUITTO_ACL_FILE")))
-	if aclFile == "" {
+	aclFile := filepath.Clean(os.Getenv("MESHSAT_MOSQUITTO_ACL_FILE"))
+	if !filepath.IsAbs(aclFile) {
 		aclFile = "/data/mosquitto/acl"
 	}
 
