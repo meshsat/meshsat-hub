@@ -95,7 +95,7 @@ onMounted(load)
         <label for="tenant-name" class="block text-xs text-ms-muted2 mb-1">Name</label>
         <div class="flex gap-2">
           <input id="tenant-name" v-model="name" type="text" maxlength="80"
-            class="flex-1 px-3 py-1.5 bg-ms-well border border-ms-border rounded text-sm text-ms-text focus:outline-none focus:border-brand-primary" />
+            class="flex-1 min-w-0 px-3 py-1.5 bg-ms-well border border-ms-border rounded text-sm text-ms-text focus:outline-none focus:border-brand-primary" />
           <button @click="saveName" :disabled="saving || !name.trim() || name.trim() === info?.name"
             class="px-3 py-1.5 bg-brand-primary hover:bg-brand-accent disabled:opacity-50 text-ms-on-primary text-sm font-medium rounded transition-colors">
             Save
@@ -110,7 +110,7 @@ onMounted(load)
 
       <div>
         <label for="invite-email" class="block text-xs text-ms-muted2 mb-1">Invite by email</label>
-        <div class="flex gap-2">
+        <div class="flex flex-wrap gap-2">
           <input id="invite-email" v-model="inviteEmail" type="email" placeholder="person@example.org" autocomplete="off"
             class="flex-1 min-w-0 px-3 py-1.5 bg-ms-well border border-ms-border rounded text-sm text-ms-text placeholder-ms-muted focus:outline-none focus:border-brand-primary" />
           <select v-model="inviteRole" aria-label="Role"
@@ -127,8 +127,8 @@ onMounted(load)
         <p class="text-[11px] text-ms-muted mt-1">The invite is matched to the verified email of their MeshSat ID on first sign-in.</p>
 
         <ul v-if="invites.length" class="mt-3 divide-y divide-ms-border text-sm">
-          <li v-for="inv in invites" :key="inv.id" class="py-1.5 flex items-center gap-3">
-            <span class="flex-1 truncate text-ms-text">{{ inv.email }}</span>
+          <li v-for="inv in invites" :key="inv.id" class="py-1.5 flex flex-wrap items-center gap-x-3 gap-y-1">
+            <span class="basis-full sm:basis-auto sm:flex-1 truncate text-ms-text">{{ inv.email }}</span>
             <span class="text-xs text-ms-muted capitalize">{{ inv.role }}</span>
             <span class="text-xs text-ms-muted">{{ inv.accepted_at ? 'accepted' : 'expires ' + fmt(inv.expires_at) }}</span>
             <button v-if="!inv.accepted_at" @click="revoke(inv)" class="text-xs text-ms-muted hover:text-ms-error">Revoke</button>
