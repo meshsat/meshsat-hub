@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	hubmqtt "github.com/meshsat/meshsat-hub/internal/mqtt"
+	"github.com/meshsat/meshsat-hub/internal/store"
 	"io"
 	"log/slog"
 	"net/http"
@@ -55,7 +57,8 @@ func (c *Client) GetCreditBalance(ctx context.Context) (*CreditBalance, error) {
 // CreditPoller periodically polls the Cloudloop API for credit balance
 // and publishes to the MQTT hub/credits topic.
 type CreditPoller struct {
-	client   *Client
+	client   *Client     // single-account mode
+	pool     *ClientPool // per-tenant mode (MESHSAT-977)
 	bus      bus.MessageBus
 	interval time.Duration
 }
@@ -70,6 +73,14 @@ func NewCreditPoller(client *Client, msgBus bus.MessageBus, interval time.Durati
 		bus:      msgBus,
 		interval: interval,
 	}
+}
+
+// NewTenantCreditPoller polls every tenant's Cloudloop account and publishes
+// each balance on hubmqtt.TopicHubCreditsFor(tenant).
+func NewTenantCreditPoller(pool *ClientPool, msgBus bus.MessageBus, interval time.Duration) *CreditPoller {
+	p := NewCreditPoller(nil, msgBus, interval)
+	p.pool = pool
+	return p
 }
 
 // Start begins periodic credit balance polling. Blocks until ctx is cancelled.
@@ -94,19 +105,34 @@ func (p *CreditPoller) Start(ctx context.Context) {
 }
 
 func (p *CreditPoller) poll(ctx context.Context) {
+	if p.pool == nil {
+		p.pollOne(ctx, store.DefaultTenantID, p.client)
+		return
+	}
+	for _, tenantID := range p.pool.Tenants(ctx) {
+		if client := p.pool.ForTenant(ctx, tenantID); client != nil {
+			p.pollOne(ctx, tenantID, client)
+		}
+	}
+}
+
+func (p *CreditPoller) pollOne(ctx context.Context, tenantID string, client *Client) {
+	if client == nil {
+		return
+	}
 	pollCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 
-	balance, err := p.client.GetCreditBalance(pollCtx)
+	balance, err := client.GetCreditBalance(pollCtx)
 	if err != nil {
-		slog.Warn("credit poll failed", "error", err)
+		slog.Warn("credit poll failed", "tenant", tenantID, "error", err)
 		return
 	}
 
-	slog.Info("credit balance polled", "balance", balance.Balance)
+	slog.Info("credit balance polled", "tenant", tenantID, "balance", balance.Balance)
 
 	// Publish to MQTT (retained — always available for new subscribers)
-	if err := p.bus.PublishJSON("meshsat/hub/credits", 0, true, balance); err != nil {
-		slog.Warn("credit publish failed", "error", err)
+	if err := p.bus.PublishJSON(hubmqtt.TopicHubCreditsFor(tenantID), 0, true, balance); err != nil {
+		slog.Warn("credit publish failed", "tenant", tenantID, "error", err)
 	}
 }
