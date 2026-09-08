@@ -249,8 +249,11 @@ func (h *LoginHandler) Refresh(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Issue new access token
-	accessToken, err := h.sessions.IssueAccessToken(user.ID, user.Email, user.Name, user.Role, rt.TenantID)
+	// Issue new access token. The platform-admin flag lives on the linked OIDC
+	// identity; a refresh (which is also how the SPA completes an OIDC login)
+	// must carry it or every browser session of a platform admin loses it.
+	platformAdmin, _ := h.store.IsPlatformAdmin(r.Context(), rt.TenantID, user.ID)
+	accessToken, err := h.sessions.IssueAccessTokenFor(user.ID, user.Email, user.Name, user.Role, rt.TenantID, platformAdmin)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal error"})
 		return
