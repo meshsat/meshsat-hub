@@ -479,20 +479,51 @@ transport.mode = TransportMode.WEBHOOK
 transport.webhook_url = WEBHOOK_URL
 transport.webhook_mapping_body = mapping
 transport.save()
-email_transport = NotificationTransport.objects.filter(mode=TransportMode.EMAIL).first()
+# Deliberately NOT the shared email transport. A NotificationTransport in
+# email mode has no sender of its own and falls back to the instance-wide
+# AUTHENTIK_EMAIL__FROM, which belongs to omoikane, so MeshSat alerts went out
+# as omoikane@nuclearlighters.net -- another brand's address on our mail, and
+# the infrastructure domain in front of a reader who should never see it. The
+# n8n transport reaches Matrix and YouTrack, which is where these are actually
+# read, and it carries no sender at all.
+if email_transport := NotificationTransport.objects.filter(mode=TransportMode.EMAIL).first():
+    note(f"leaving the shared email transport ({email_transport.name}) off this rule; it has no sender of its own")
 
 matcher, _ = EventMatcherPolicy.objects.get_or_create(
     name="meshsat-user-created",
     defaults={"action": EventAction.MODEL_CREATED, "model": "authentik_core.user"},
 )
+
+# A user object is created for plenty of reasons that are not somebody asking
+# for beta access: service accounts, anything the API makes. Matching only the
+# model and the action mailed the operator about all of them. A signup is an
+# account that landed inactive in the pending group, so say that.
+SIGNUP_ONLY_EXPR = (
+    'event = request.context.get("event")\n'
+    'ctx = getattr(event, "context", None) or {}\n'
+    'pk = (ctx.get("model") or {}).get("pk")\n'
+    'if not pk:\n'
+    '    return False\n'
+    'u = ak_user_by(pk=pk)\n'
+    'if u is None or u.type == "service_account":\n'
+    '    return False\n'
+    'return u.ak_groups.filter(name="meshsat-pending").exists()\n'
+)
+signup_only, _ = ExpressionPolicy.objects.get_or_create(
+    name="meshsat-is-a-signup", defaults={"expression": SIGNUP_ONLY_EXPR},
+)
+if signup_only.expression != SIGNUP_ONLY_EXPR:
+    signup_only.expression = SIGNUP_ONLY_EXPR
+    signup_only.save()
 rule, r_created = NotificationRule.objects.get_or_create(
     name="meshsat-new-signup",
     defaults={"severity": NotificationSeverity.NOTICE, "destination_group": groups["meshsat-platform-admin"]},
 )
 rule.destination_group = groups["meshsat-platform-admin"]
 rule.save()
-rule.transports.set([t for t in (transport, email_transport) if t])
+rule.transports.set([transport])
 PolicyBinding.objects.get_or_create(policy=matcher, target=rule, defaults={"order": 0, "enabled": True})
+PolicyBinding.objects.get_or_create(policy=signup_only, target=rule, defaults={"order": 10, "enabled": True})
 note(f"notification rule meshsat-new-signup {'created' if r_created else 'ok'}")
 
 print("---MESHSAT_BOOTSTRAP_LOG---")
