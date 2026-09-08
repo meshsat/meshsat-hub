@@ -63,6 +63,7 @@ func (h *TenantOffboardingHandler) Export(w http.ResponseWriter, r *http.Request
 		"tables":     len(data),
 		"rows":       rows,
 		"note":       "One JSON file per table. Every row here carries this tenant's id; nothing from another tenant is included.",
+		"redacted":   "Secret material is held back and marked in place: passwords and token hashes, API key hashes, encrypted provider credentials, and device encryption keys. Read those through their own APIs, which authenticate and audit the access.",
 		"row_counts": map[string]int{},
 	}
 	for t, v := range data {

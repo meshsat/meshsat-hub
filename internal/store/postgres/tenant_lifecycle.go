@@ -121,7 +121,7 @@ func (d *DB) ExportTenant(ctx context.Context, id string) (map[string][]map[stri
 		if err != nil {
 			return nil, fmt.Errorf("export %s: %w", t, err)
 		}
-		recs, err := scanAll(rows)
+		recs, err := scanAll(t, rows)
 		if err != nil {
 			return nil, fmt.Errorf("export %s: %w", t, err)
 		}
@@ -132,7 +132,7 @@ func (d *DB) ExportTenant(ctx context.Context, id string) (map[string][]map[stri
 	if err != nil {
 		return nil, err
 	}
-	recs, err := scanAll(rows)
+	recs, err := scanAll("tenants", rows)
 	if err != nil {
 		return nil, err
 	}
@@ -141,7 +141,7 @@ func (d *DB) ExportTenant(ctx context.Context, id string) (map[string][]map[stri
 }
 
 // scanAll turns a result set into plain maps, closing the rows.
-func scanAll(rows *sql.Rows) ([]map[string]any, error) {
+func scanAll(table string, rows *sql.Rows) ([]map[string]any, error) {
 	defer func() { _ = rows.Close() }()
 	cols, err := rows.Columns()
 	if err != nil {
@@ -159,13 +159,7 @@ func scanAll(rows *sql.Rows) ([]map[string]any, error) {
 		}
 		rec := make(map[string]any, len(cols))
 		for i, c := range cols {
-			// Bytes would marshal as base64 and read as noise in an export a
-			// person is meant to be able to open.
-			if b, ok := vals[i].([]byte); ok {
-				rec[c] = string(b)
-			} else {
-				rec[c] = vals[i]
-			}
+			rec[c] = store.ExportValue(table, c, vals[i])
 		}
 		out = append(out, rec)
 	}
