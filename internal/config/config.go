@@ -197,10 +197,24 @@ type Config struct {
 	AuditArchiveS3Region    string `yaml:"audit_archive_s3_region"`
 	AuditArchiveS3AccessKey string `yaml:"-"`
 	AuditArchiveS3SecretKey string `yaml:"-"`
-	HealthProbeTimeout      string `yaml:"health_probe_timeout"`   // Health probe timeout duration (default "3s")
-	ShutdownDrainSeconds    int    `yaml:"shutdown_drain_seconds"` // Seconds /readyz reports draining before the listener closes (default 0)
-	OTelEndpoint            string `yaml:"otel_endpoint"`          // OTLP HTTP endpoint (empty=disabled)
-	OTelServiceName         string `yaml:"otel_service_name"`      // OTel service name (default "meshsat-hub")
+	// Self-hosted vector basemap (MESHSAT-967): one PMTiles archive in an
+	// S3-compatible bucket, streamed by the Hub at /basemap/basemap.pmtiles.
+	// Endpoint, bucket, region and keys fall back to the audit archive values,
+	// which point at the same store; an empty key disables the route.
+	BasemapS3Endpoint string `yaml:"basemap_s3_endpoint"`
+	BasemapS3Bucket   string `yaml:"basemap_s3_bucket"`
+	BasemapS3Region   string `yaml:"basemap_s3_region"`
+	BasemapS3Key      string `yaml:"basemap_s3_key"`
+	// Key prefix of the glyph ranges and sprite sheets the map style needs
+	// (default "basemap/assets"), served at /basemap/assets/.
+	BasemapS3AssetPrefix string `yaml:"basemap_s3_asset_prefix"`
+	BasemapS3AccessKey   string `yaml:"-"`
+	BasemapS3SecretKey   string `yaml:"-"`
+	BasemapCacheMaxAge   string `yaml:"basemap_cache_max_age"`  // Cache-Control max-age of the archive (default "24h")
+	HealthProbeTimeout   string `yaml:"health_probe_timeout"`   // Health probe timeout duration (default "3s")
+	ShutdownDrainSeconds int    `yaml:"shutdown_drain_seconds"` // Seconds /readyz reports draining before the listener closes (default 0)
+	OTelEndpoint         string `yaml:"otel_endpoint"`          // OTLP HTTP endpoint (empty=disabled)
+	OTelServiceName      string `yaml:"otel_service_name"`      // OTel service name (default "meshsat-hub")
 }
 
 // Defaults returns a Config with sensible default values.
@@ -692,6 +706,14 @@ func Load() (Config, error) {
 		"HUB_AUDIT_ARCHIVE_S3_REGION":     &cfg.AuditArchiveS3Region,
 		"HUB_AUDIT_ARCHIVE_S3_ACCESS_KEY": &cfg.AuditArchiveS3AccessKey,
 		"HUB_AUDIT_ARCHIVE_S3_SECRET_KEY": &cfg.AuditArchiveS3SecretKey,
+		"HUB_BASEMAP_S3_ENDPOINT":         &cfg.BasemapS3Endpoint,
+		"HUB_BASEMAP_S3_BUCKET":           &cfg.BasemapS3Bucket,
+		"HUB_BASEMAP_S3_REGION":           &cfg.BasemapS3Region,
+		"HUB_BASEMAP_S3_KEY":              &cfg.BasemapS3Key,
+		"HUB_BASEMAP_S3_ASSET_PREFIX":     &cfg.BasemapS3AssetPrefix,
+		"HUB_BASEMAP_S3_ACCESS_KEY":       &cfg.BasemapS3AccessKey,
+		"HUB_BASEMAP_S3_SECRET_KEY":       &cfg.BasemapS3SecretKey,
+		"HUB_BASEMAP_CACHE_MAX_AGE":       &cfg.BasemapCacheMaxAge,
 	} {
 		if v := os.Getenv(env); v != "" {
 			*dst = v

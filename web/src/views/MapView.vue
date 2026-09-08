@@ -1,14 +1,22 @@
 <script setup>
-import { ref, onMounted, onUnmounted } from 'vue'
-import L from 'leaflet'
+import { ref, onMounted, onUnmounted, watch } from 'vue'
+import { createMap, setMapTheme, addSvgIcon, maplibregl } from '../map/basemap'
+import { useThemeStore } from '../stores/theme'
 import { positions, bridges } from '../api/client'
 
 const mapContainer = ref(null)
+const basemapMissing = ref(false)
+const theme = useThemeStore()
+
 let map = null
-let markers = {}
-let markerColors = {}
-let markerCategories = {} // key → 'bridge' | 'satellite' | 'ground'
+let mapReady = false
 let refreshInterval = null
+let popup = null
+
+// Feature state, kept outside Vue: the map owns the rendering.
+let features = []
+let trackFeature = null
+let markerColors = {}
 
 // CoT type filter — all visible by default
 const filterBridge = ref(true)
@@ -16,8 +24,7 @@ const filterSatellite = ref(true)
 const filterGround = ref(true)
 
 const trackRange = ref('24h')
-let activeTrackImei = null
-let trackLayer = null
+let activeTrackKey = null
 
 const rangeOptions = [
   { label: '24h', value: '24h' },
@@ -49,66 +56,47 @@ function getColor(type, source) {
 //   Sat modem → diamond (sensor/equipment)
 //   Mesh/ground → circle (friendly ground unit)
 //   Emergency → circle with X
-function svgSquare(color, label, stale) {
-  const op = stale ? 0.45 : 1.0
-  const lbl = shortLabel(label)
-  const lblSvg = lbl ? `<text x="16" y="39" text-anchor="middle" fill="#fff" font-size="9" font-family="sans-serif" style="text-shadow:0 0 3px #000">${lbl}</text>` : ''
-  return `<svg width="32" height="42" viewBox="0 0 32 42" opacity="${op}">` +
-    `<rect x="3" y="3" width="26" height="26" fill="${color}" stroke="#fff" stroke-width="2" rx="2"/>` +
-    lblSvg + `</svg>`
+function svgSquare(color, op) {
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32" opacity="${op}">` +
+    `<rect x="3" y="3" width="26" height="26" fill="${color}" stroke="#fff" stroke-width="2" rx="2"/></svg>`
 }
 
-function svgDiamond(color, label, stale) {
-  const op = stale ? 0.45 : 1.0
-  const lbl = shortLabel(label)
-  const lblSvg = lbl ? `<text x="16" y="39" text-anchor="middle" fill="#fff" font-size="9" font-family="sans-serif" style="text-shadow:0 0 3px #000">${lbl}</text>` : ''
-  return `<svg width="32" height="42" viewBox="0 0 32 42" opacity="${op}">` +
-    `<polygon points="16,2 30,16 16,30 2,16" fill="${color}" stroke="#fff" stroke-width="2"/>` +
-    lblSvg + `</svg>`
+function svgDiamond(color, op) {
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32" opacity="${op}">` +
+    `<polygon points="16,2 30,16 16,30 2,16" fill="${color}" stroke="#fff" stroke-width="2"/></svg>`
 }
 
-function svgCircle(color, label, stale) {
-  const op = stale ? 0.45 : 1.0
-  const lbl = shortLabel(label)
-  const lblSvg = lbl ? `<text x="16" y="39" text-anchor="middle" fill="#fff" font-size="9" font-family="sans-serif" style="text-shadow:0 0 3px #000">${lbl}</text>` : ''
-  return `<svg width="32" height="42" viewBox="0 0 32 42" opacity="${op}">` +
-    `<circle cx="16" cy="16" r="14" fill="${color}" stroke="#fff" stroke-width="2"/>` +
-    lblSvg + `</svg>`
+function svgCircle(color, op) {
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32" opacity="${op}">` +
+    `<circle cx="16" cy="16" r="14" fill="${color}" stroke="#fff" stroke-width="2"/></svg>`
 }
 
-function svgSOS(label) {
-  const lbl = shortLabel(label)
-  const lblSvg = lbl ? `<text x="16" y="39" text-anchor="middle" fill="#fff" font-size="9" font-family="sans-serif" style="text-shadow:0 0 3px #000">${lbl}</text>` : ''
-  return `<svg width="32" height="42" viewBox="0 0 32 42">` +
+function svgSOS() {
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32">` +
     `<circle cx="16" cy="16" r="14" fill="${sosColor}" stroke="#fff" stroke-width="2"/>` +
     `<line x1="8" y1="8" x2="24" y2="24" stroke="#fff" stroke-width="3"/>` +
-    `<line x1="24" y1="8" x2="8" y2="24" stroke="#fff" stroke-width="3"/>` +
-    lblSvg + `</svg>`
+    `<line x1="24" y1="8" x2="8" y2="24" stroke="#fff" stroke-width="3"/></svg>`
 }
 
-function shortLabel(label) {
-  if (!label) return ''
-  return label.length > 8 ? label.slice(-6) : label
-}
+// iconFor names one registered map image per shape, colour and staleness, and
+// registers it the first time it is asked for.
+function iconFor(type, source, stale) {
+  const emergency = source === 'sos' || source === 'emergency'
+  const color = type === 'bridge' ? bridgeColor : getColor(type, source)
+  let shape = 'circle'
+  if (emergency) shape = 'sos'
+  else if (type === 'bridge') shape = 'square'
+  else if (type === 'iridium_sbd' || type === 'iridium_imt') shape = 'diamond'
 
-function makeTakIcon(type, source, label, stale) {
-  let svg
-  if (source === 'sos' || source === 'emergency') {
-    svg = svgSOS(label)
-  } else if (type === 'bridge') {
-    svg = svgSquare(bridgeColor, label, stale)
-  } else if (type === 'iridium_sbd' || type === 'iridium_imt') {
-    svg = svgDiamond(getColor(type, source), label, stale)
-  } else {
-    svg = svgCircle(getColor(type, source), label, stale)
+  const id = `${shape}-${color.replace('#', '')}-${stale ? 'stale' : 'live'}`
+  if (map && !map.hasImage(id)) {
+    const op = stale ? 0.45 : 1
+    const svg = shape === 'sos' ? svgSOS()
+      : shape === 'square' ? svgSquare(color, op)
+        : shape === 'diamond' ? svgDiamond(color, op) : svgCircle(color, op)
+    addSvgIcon(map, id, svg, [32, 32])
   }
-  return L.divIcon({
-    html: svg,
-    className: '',
-    iconSize: [32, 42],
-    iconAnchor: [16, 30],
-    popupAnchor: [0, -30],
-  })
+  return { icon: id, color }
 }
 
 function isStale(lastSeen) {
@@ -122,125 +110,153 @@ function rangeToISO(range) {
   return new Date(now.getTime() - (ms[range] || ms['24h'])).toISOString()
 }
 
+function markerCategory(type) {
+  if (type === 'bridge') return 'bridge'
+  if (type === 'iridium_sbd' || type === 'iridium_imt') return 'satellite'
+  return 'ground'
+}
+
+function visibleCategories() {
+  const out = []
+  if (filterBridge.value) out.push('bridge')
+  if (filterSatellite.value) out.push('satellite')
+  if (filterGround.value) out.push('ground')
+  return out
+}
+
+function applyFilters() {
+  if (!mapReady) return
+  map.setFilter('device-markers', ['in', ['get', 'category'], ['literal', visibleCategories()]])
+}
+
+function setData() {
+  if (!mapReady) return
+  map.getSource('devices')?.setData({ type: 'FeatureCollection', features })
+  map.getSource('track')?.setData(
+    trackFeature ? { type: 'FeatureCollection', features: [trackFeature] } : { type: 'FeatureCollection', features: [] },
+  )
+}
+
 function clearTrack() {
-  if (trackLayer && map) {
-    map.removeLayer(trackLayer)
-    trackLayer = null
-  }
+  trackFeature = null
+  setData()
 }
 
 async function loadTrack(key) {
   clearTrack()
   // Bridges don't have position history
   if (key.startsWith('bridge:')) {
-    activeTrackImei = key
+    activeTrackKey = key
     return
   }
   const from = rangeToISO(trackRange.value)
   const to = new Date().toISOString()
   try {
-    const pts = await positions.historyRange(key, from, to)
-    if (!pts || pts.length === 0) {
-      activeTrackImei = key
-      return
+    // The endpoint answers {positions: [...]}; older callers assumed a bare
+    // array and threw, which is why tracks never drew (MESHSAT-967).
+    const res = await positions.historyRange(key, from, to)
+    const pts = Array.isArray(res) ? res : (res?.positions || [])
+    activeTrackKey = key
+    if (pts.length === 0) return
+    const coords = pts.filter((p) => p.lat !== 0 || p.lon !== 0).map((p) => [p.lon, p.lat])
+    if (coords.length < 2) return
+    trackFeature = {
+      type: 'Feature',
+      properties: { color: markerColors[key] || defaultColor },
+      geometry: { type: 'LineString', coordinates: coords },
     }
-    const latlngs = pts
-      .filter(p => p.lat !== 0 || p.lon !== 0)
-      .map(p => [p.lat, p.lon])
-    if (latlngs.length < 2) {
-      activeTrackImei = key
-      return
-    }
-    trackLayer = L.polyline(latlngs, {
-      color: markerColors[key] || defaultColor,
-      weight: 2,
-      opacity: 0.6,
-    }).addTo(map)
-    activeTrackImei = key
+    setData()
   } catch (e) {
     console.error('Failed to load track:', e)
   }
 }
 
 function onMarkerClick(key) {
-  if (activeTrackImei === key) {
+  if (activeTrackKey === key) {
     clearTrack()
-    activeTrackImei = null
+    activeTrackKey = null
   } else {
     loadTrack(key)
   }
 }
 
 function onRangeChange() {
-  if (activeTrackImei) {
-    loadTrack(activeTrackImei)
-  }
+  if (activeTrackKey) loadTrack(activeTrackKey)
 }
 
-onMounted(async () => {
-  map = L.map(mapContainer.value).setView([52.37, 4.90], 4)
-
-  // OpenStreetMap standard tiles (CARTO's basemaps now watermark "API KEY
-  // REQUIRED" without a key). Dark theme is applied with a CSS filter on the
-  // tile pane (style.css .ms-tiles); a vector basemap is MESHSAT-967.
-  L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
-    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
-    maxZoom: 19,
-    className: 'ms-tiles',
-  }).addTo(map)
-
-  await refreshPositions()
-  refreshInterval = setInterval(refreshPositions, 30000)
-})
-
-onUnmounted(() => {
-  if (refreshInterval) clearInterval(refreshInterval)
-  if (map) map.remove()
-})
-
-function markerCategory(type, source) {
-  if (type === 'bridge') return 'bridge'
-  if (type === 'iridium_sbd' || type === 'iridium_imt') return 'satellite'
-  return 'ground'
+function escapeHtml(v) {
+  return String(v ?? '').replace(/[&<>"']/g, (c) => (
+    { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]
+  ))
 }
 
-function isFilteredOut(category) {
-  if (category === 'bridge') return !filterBridge.value
-  if (category === 'satellite') return !filterSatellite.value
-  return !filterGround.value
+function addLayers() {
+  map.addSource('devices', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } })
+  map.addSource('track', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } })
+  map.addLayer({
+    id: 'device-track',
+    type: 'line',
+    source: 'track',
+    paint: { 'line-color': ['get', 'color'], 'line-width': 2, 'line-opacity': 0.6 },
+  })
+  map.addLayer({
+    id: 'device-markers',
+    type: 'symbol',
+    source: 'devices',
+    layout: {
+      'icon-image': ['get', 'icon'],
+      'icon-size': 0.5,
+      'icon-allow-overlap': true,
+      'text-field': ['get', 'shortLabel'],
+      'text-font': ['Noto Sans Regular'],
+      'text-size': 11,
+      'text-offset': [0, 1.3],
+      'text-anchor': 'top',
+      'text-allow-overlap': false,
+      'text-optional': true,
+    },
+    paint: {
+      'text-color': theme.dark ? '#F2EDE6' : '#1A1714',
+      'text-halo-color': theme.dark ? '#14120F' : '#F7F5F2',
+      'text-halo-width': 1.5,
+    },
+  })
+  map.on('click', 'device-markers', (e) => {
+    const f = e.features?.[0]
+    if (!f) return
+    popup?.remove()
+    popup = new maplibregl.Popup({ closeButton: true, maxWidth: '280px' })
+      .setLngLat(f.geometry.coordinates)
+      .setHTML(f.properties.popup)
+      .addTo(map)
+    onMarkerClick(f.properties.key)
+  })
+  map.on('mouseenter', 'device-markers', () => { map.getCanvas().style.cursor = 'pointer' })
+  map.on('mouseleave', 'device-markers', () => { map.getCanvas().style.cursor = '' })
+  applyFilters()
+  setData()
 }
 
-function applyFilters() {
-  for (const [key, marker] of Object.entries(markers)) {
-    const cat = markerCategories[key]
-    if (isFilteredOut(cat)) {
-      marker.getElement()?.style && (marker.getElement().style.display = 'none')
-    } else {
-      marker.getElement()?.style && (marker.getElement().style.display = '')
-    }
-  }
+function shortLabel(label) {
+  if (!label) return ''
+  return label.length > 10 ? label.slice(-8) : label
 }
 
-function upsertMarker(key, lat, lon, type, source, label, lastSeen) {
+function makeFeature(key, lon, lat, type, source, label, lastSeen, popupHtml) {
   const stale = isStale(lastSeen)
-  const icon = makeTakIcon(type, source, label, stale)
-  const color = type === 'bridge' ? bridgeColor : getColor(type, source)
+  const { icon, color } = iconFor(type, source, stale)
   markerColors[key] = color
-  const cat = markerCategory(type, source)
-  markerCategories[key] = cat
-
-  if (markers[key]) {
-    markers[key].setLatLng([lat, lon])
-    markers[key].setIcon(icon)
-  } else {
-    markers[key] = L.marker([lat, lon], { icon }).addTo(map)
-    markers[key].on('click', () => onMarkerClick(key))
+  return {
+    type: 'Feature',
+    properties: {
+      key,
+      icon,
+      category: markerCategory(type),
+      shortLabel: shortLabel(label),
+      popup: popupHtml,
+    },
+    geometry: { type: 'Point', coordinates: [lon, lat] },
   }
-  // Apply filter visibility after adding/updating
-  if (isFilteredOut(cat) && markers[key].getElement()) {
-    markers[key].getElement().style.display = 'none'
-  }
-  return { stale }
 }
 
 async function refreshPositions() {
@@ -249,22 +265,21 @@ async function refreshPositions() {
       positions.allLatest(),
       bridges.list().catch(() => []),
     ])
+    const next = []
 
     // Device positions
     for (const pos of deviceData) {
       if (pos.lat === 0 && pos.lon === 0) continue
-      const key = pos.imei
       const label = pos.label || pos.imei
-      const { stale } = upsertMarker(key, pos.lat, pos.lon, pos.type || '', pos.source, label, pos.last_seen)
-
+      const stale = isStale(pos.last_seen)
       const staleTag = stale ? '<br/><span style="color:#f59e0b">&#9679; Stale</span>' : ''
-      const typeTag = pos.type ? `Type: ${pos.type}<br/>` : ''
-      const popup = `<b>${label}</b><br/>
-        IMEI: ${pos.imei}<br/>
+      const typeTag = pos.type ? `Type: ${escapeHtml(pos.type)}<br/>` : ''
+      const popupHtml = `<b>${escapeHtml(label)}</b><br/>
+        IMEI: ${escapeHtml(pos.imei)}<br/>
         ${typeTag}${pos.lat.toFixed(6)}, ${pos.lon.toFixed(6)}<br/>
-        Source: ${pos.source}<br/>
-        Last seen: ${pos.last_seen}${staleTag}`
-      markers[key].bindPopup(popup)
+        Source: ${escapeHtml(pos.source)}<br/>
+        Last seen: ${escapeHtml(pos.last_seen)}${staleTag}`
+      next.push(makeFeature(pos.imei, pos.lon, pos.lat, pos.type || '', pos.source, label, pos.last_seen, popupHtml))
     }
 
     // Bridge fleet positions (square markers)
@@ -274,29 +289,60 @@ async function refreshPositions() {
       if (b.location_lat === 0 && b.location_lon === 0) continue
       const key = `bridge:${b.bridge_id}`
       const label = b.label || b.bridge_id
-      upsertMarker(key, b.location_lat, b.location_lon, 'bridge', '', label, null)
-
       const status = b.online
         ? '<span style="color:#34d399">&#9679; Online</span>'
         : '<span style="color:#f87171">&#9679; Offline</span>'
-      const popup = `<b>&#9632; ${label}</b><br/>
-        Bridge: ${b.bridge_id}<br/>
+      const popupHtml = `<b>&#9632; ${escapeHtml(label)}</b><br/>
+        Bridge: ${escapeHtml(b.bridge_id)}<br/>
         ${status}<br/>
         ${b.location_lat.toFixed(6)}, ${b.location_lon.toFixed(6)}` +
-        (b.version ? `<br/>Version: ${b.version}` : '')
-      markers[key].bindPopup(popup)
+        (b.version ? `<br/>Version: ${escapeHtml(b.version)}` : '')
+      next.push(makeFeature(key, b.location_lon, b.location_lat, 'bridge', '', label, null, popupHtml))
     }
+
+    features = next
+    setData()
   } catch (e) {
     console.error('Failed to load positions:', e)
   }
 }
+
+onMounted(async () => {
+  map = createMap({
+    container: mapContainer.value,
+    center: [4.9, 52.37],
+    zoom: 3,
+    dark: theme.dark,
+    onBasemapError: () => { basemapMissing.value = true },
+  })
+  map.on('load', () => {
+    mapReady = true
+    addLayers()
+    refreshPositions()
+  })
+  refreshInterval = setInterval(refreshPositions, 30000)
+})
+
+watch(() => theme.dark, async (dark) => {
+  if (!map) return
+  mapReady = false
+  await setMapTheme(map, dark)
+  mapReady = true
+  addLayers()
+})
+
+onUnmounted(() => {
+  if (refreshInterval) clearInterval(refreshInterval)
+  popup?.remove()
+  if (map) map.remove()
+})
 </script>
 
 <template>
   <div class="p-4 lg:p-6">
-    <div class="flex items-center justify-between mb-4">
+    <div class="flex flex-wrap items-center justify-between gap-3 mb-4">
       <h1 class="text-2xl font-display font-bold">Position Map</h1>
-      <div class="flex items-center gap-4">
+      <div class="flex flex-wrap items-center gap-4">
         <!-- TAK CoT filter + legend -->
         <div class="hidden md:flex items-center gap-3 text-xs">
           <button @click="filterBridge = !filterBridge; applyFilters()"
@@ -319,8 +365,9 @@ async function refreshPositions() {
           </button>
         </div>
         <div class="flex items-center gap-2">
-          <label class="text-sm text-gray-400">Track range:</label>
+          <label for="track-range" class="text-sm text-gray-400">Track range:</label>
           <select
+            id="track-range"
             v-model="trackRange"
             @change="onRangeChange"
             class="bg-gray-800 text-gray-200 text-sm rounded px-2 py-1 border border-gray-600 focus:outline-none focus:border-cyan-500"
@@ -330,6 +377,10 @@ async function refreshPositions() {
         </div>
       </div>
     </div>
-    <div ref="mapContainer" class="w-full rounded-lg overflow-hidden" style="height: calc(100vh - 140px);"></div>
+    <div v-if="basemapMissing"
+      class="mb-3 rounded border border-amber-700/50 bg-amber-900/20 text-amber-200 text-xs px-3 py-2">
+      The self-hosted basemap is unavailable, so positions are drawn on an empty backdrop. Tracks, markers and filters still work.
+    </div>
+    <div ref="mapContainer" class="w-full rounded-lg overflow-hidden bg-ms-bg2" style="height: calc(100vh - 140px);"></div>
   </div>
 </template>

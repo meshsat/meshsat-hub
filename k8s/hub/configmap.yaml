@@ -39,6 +39,12 @@ data:
   HUB_AUDIT_ARCHIVE_S3_ENDPOINT: "https://nl-s3.nuclearlighters.net"
   HUB_AUDIT_ARCHIVE_S3_BUCKET: "cnpg-meshsat-hub"
   HUB_AUDIT_ARCHIVE_S3_PREFIX: "hub-audit"
+  # Self-hosted vector basemap (MESHSAT-967): the archive and its glyph and
+  # sprite assets live beside the audit archive in the same bucket, and the Hub
+  # streams them at /basemap/. Endpoint, bucket and credentials fall back to the
+  # audit archive values. Rebuild with k8s/scripts/basemap/build-basemap.sh.
+  HUB_BASEMAP_S3_KEY: "basemap/protomaps-world-z8-20260907.pmtiles"
+  HUB_BASEMAP_S3_ASSET_PREFIX: "basemap/assets"
   # --- carried over from the compose .env ---
   HUB_RATELIMIT_BURST: "10"
   HUB_RATELIMIT_DAILY_CAP: "100"
