@@ -10,9 +10,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	hubmqtt "github.com/meshsat/meshsat-hub/internal/mqtt"
 	"github.com/meshsat/meshsat-hub/internal/tenancy"
 	"log/slog"
-	"strings"
 	"time"
 
 	"github.com/meshsat/meshsat-hub/internal/bus"
@@ -128,8 +128,10 @@ func (s *Subscriber) Start() error {
 	}
 
 	for _, sub := range subs {
-		if err := s.mqtt.Subscribe(sub.topic, 1, sub.handler); err != nil {
-			return fmt.Errorf("bridge subscriber: %w", err)
+		for _, filter := range hubmqtt.DualFilters(sub.topic) {
+			if err := s.mqtt.Subscribe(filter, 1, sub.handler); err != nil {
+				return fmt.Errorf("bridge subscriber: %w", err)
+			}
 		}
 	}
 
@@ -209,7 +211,7 @@ func (s *Subscriber) handleBridgeBirth(topic string, payload []byte) {
 
 	b := &store.Bridge{
 		BridgeID:      birth.BridgeID,
-		TenantID:      s.resolveTenantID(birth.TenantID, bridgeID),
+		TenantID:      s.resolveTenantID(birth.TenantID, bridgeID, topic),
 		Label:         birth.BridgeID,
 		Hostname:      birth.Hostname,
 		Version:       birth.Version,
@@ -234,7 +236,7 @@ func (s *Subscriber) handleBridgeBirth(topic string, payload []byte) {
 	}
 
 	ctx := context.Background()
-	tenantID := s.resolveTenantID(birth.TenantID, bridgeID)
+	tenantID := s.resolveTenantID(birth.TenantID, bridgeID, topic)
 
 	// Detect stale retained birth messages: if the timestamp is older than
 	// staleThreshold, this is a retained replay from the broker (not a fresh
@@ -326,7 +328,7 @@ func (s *Subscriber) handleBridgeDeath(topic string, payload []byte) {
 	}
 
 	ctx := context.Background()
-	tenantID := s.tenants.ForBridge(context.Background(), bridgeID)
+	tenantID := s.tenants.ForBridgeTopic(context.Background(), bridgeID, bridgeTopicTenant(topic))
 
 	// Remove Reticulum route if the bridge had one.
 	if s.retRouter != nil {
@@ -369,7 +371,7 @@ func (s *Subscriber) handleBridgeHealth(topic string, payload []byte) {
 	}
 
 	ctx := context.Background()
-	tenantID := s.tenants.ForBridge(context.Background(), bridgeID)
+	tenantID := s.tenants.ForBridgeTopic(context.Background(), bridgeID, bridgeTopicTenant(topic))
 
 	if err := s.store.SetBridgeHealth(ctx, tenantID, bridgeID, string(payload)); err != nil {
 		slog.Debug("bridge: failed to set health", "error", err, "bridge", bridgeID)
@@ -421,7 +423,7 @@ func (s *Subscriber) handleDeviceBirth(topic string, payload []byte) {
 	}
 
 	ctx := context.Background()
-	tenantID := s.tenants.ForBridge(context.Background(), bridgeID)
+	tenantID := s.tenants.ForBridgeTopic(context.Background(), bridgeID, bridgeTopicTenant(topic))
 
 	// Auto-provision device if it has an IMEI and doesn't exist yet.
 	if birth.IMEI != "" {
@@ -555,34 +557,41 @@ func (s *Subscriber) handleHeMBSymbol(topic string, payload []byte) {
 	)
 }
 
-// resolveTenantID returns the tenant ID from the birth message if set, else the
-// tenant that already owns the bridge, else the default tenant.
-func (s *Subscriber) resolveTenantID(birthTenantID, bridgeID string) string {
+// resolveTenantID returns the tenant for a bridge message: the tenant named in
+// the birth payload, else the tenant that owns the bridge, else the tenant in
+// the topic namespace (when it exists), else the default tenant.
+func (s *Subscriber) resolveTenantID(birthTenantID, bridgeID, topic string) string {
 	if birthTenantID != "" {
 		return birthTenantID
 	}
-	return s.tenants.ForBridge(context.Background(), bridgeID)
+	return s.tenants.ForBridgeTopic(context.Background(), bridgeID, bridgeTopicTenant(topic))
 }
 
-// extractBridgeIDFromTopic extracts bridge_id from "meshsat/bridge/{id}/...".
+// bridgeTopicTenant returns the tenant segment of a tenant-prefixed bridge
+// topic, "" for the legacy shape.
+func bridgeTopicTenant(topic string) string {
+	tenant, _, _, ok := hubmqtt.ParseBridgeTopic(topic)
+	if !ok || tenant == hubmqtt.DefaultTenant {
+		return ""
+	}
+	return tenant
+}
+
+// extractBridgeIDFromTopic extracts bridge_id from either topic shape:
+// meshsat/bridge/{id}/... or meshsat/{tenant}/bridge/{id}/...
 func extractBridgeIDFromTopic(topic string) string {
-	// meshsat/bridge/{bridge_id}/birth
-	// meshsat/bridge/{bridge_id}/death
-	// meshsat/bridge/{bridge_id}/health
-	// meshsat/bridge/{bridge_id}/device/{device_id}/birth
-	parts := strings.Split(topic, "/")
-	if len(parts) < 4 || parts[0] != "meshsat" || parts[1] != "bridge" {
+	_, id, _, ok := hubmqtt.ParseBridgeTopic(topic)
+	if !ok {
 		return ""
 	}
-	return parts[2]
+	return id
 }
 
-// extractDeviceIDFromTopic extracts device_id from "meshsat/bridge/{bridge_id}/device/{device_id}/...".
+// extractDeviceIDFromTopic extracts device_id from .../bridge/{bridge_id}/device/{device_id}/...
 func extractDeviceIDFromTopic(topic string) string {
-	// meshsat/bridge/{bridge_id}/device/{device_id}/birth|death
-	parts := strings.Split(topic, "/")
-	if len(parts) < 6 || parts[3] != "device" {
+	_, _, rest, ok := hubmqtt.ParseBridgeTopic(topic)
+	if !ok || len(rest) < 3 || rest[0] != "device" {
 		return ""
 	}
-	return parts[4]
+	return rest[1]
 }

@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/meshsat/meshsat-hub/internal/tenancy"
 	"log/slog"
 	"net/http"
 	"strconv"
@@ -80,6 +81,7 @@ type reticulumReceiver interface {
 }
 
 type Handler struct {
+	tenants         *tenancy.Resolver // device → tenant for topic namespaces; nil = default tenant
 	mqtt            bus.MessageBus
 	secret          string
 	audit           *audit.Service
@@ -284,7 +286,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		IridiumLongitude: iridiumLon,
 		IridiumCEP:       iridiumCEP,
 	}
-	h.publish(hubmqtt.TopicMORaw(imei), 1, false, rawMsg)
+	h.publish(hubmqtt.TopicMORawFor(h.tenantOf(imei), imei), 1, false, rawMsg)
 
 	// Fragment reassembly: if payload is a fragment, collect and reassemble.
 	if h.reassembler != nil && fragment.IsFragment(rawBytes) {
@@ -387,7 +389,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		IridiumLongitude: iridiumLon,
 		IridiumCEP:       iridiumCEP,
 	}
-	h.publish(hubmqtt.TopicMODecoded(imei), 1, false, decoded)
+	h.publish(hubmqtt.TopicMODecodedFor(h.tenantOf(imei), imei), 1, false, decoded)
 
 	// Persist MO message to database.
 	if h.store != nil {
@@ -427,7 +429,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			Source:    "iridium_cep",
 			Timestamp: ts,
 		}
-		h.publish(hubmqtt.TopicPosition(imei), 1, true, pos)
+		h.publish(hubmqtt.TopicPositionFor(h.tenantOf(imei), imei), 1, true, pos)
 	}
 
 	// Dead man's switch: device sent an MO message, reset its timer.
@@ -479,7 +481,7 @@ func (h *Handler) handleBridgeSatUplink(ctx context.Context, imei string, rawByt
 			Source:    "satellite_uplink",
 			Timestamp: ts.Format(time.RFC3339),
 		}
-		h.publish(hubmqtt.TopicPosition(bridgeID), 1, true, pos)
+		h.publish(hubmqtt.TopicPositionFor(h.tenantOf(bridgeID), bridgeID), 1, true, pos)
 		// Mark bridge as online via satellite.
 		if h.store != nil {
 			tid := auth.TenantIDFromContext(ctx)
@@ -503,7 +505,7 @@ func (h *Handler) handleBridgeSatUplink(ctx context.Context, imei string, rawByt
 			"source":    "satellite_uplink",
 			"timestamp": ts.Format(time.RFC3339),
 		}
-		h.publish(hubmqtt.TopicSOS(bridgeID), 1, false, sos)
+		h.publish(hubmqtt.TopicSOSFor(h.tenantOf(bridgeID), bridgeID), 1, false, sos)
 
 	case bridge.SatMsgHealthSummary:
 		bridgeID, uptimeSec, cpuPct, memPct, diskPct, ifaces, ts, err := bridge.DecodeSatHealth(payload)
@@ -581,4 +583,15 @@ func isPrintable(b []byte) bool {
 // Hub replica produce the same ID and the store collapses them.
 func sbdMessageID(imei string, momsn int) string {
 	return fmt.Sprintf("mo-%s-%d", imei, momsn)
+}
+
+// SetTenants makes published topics follow the owning tenant's namespace
+// (MESHSAT-864 MR 20). Without it every topic uses the default namespace.
+func (h *Handler) SetTenants(r *tenancy.Resolver) { h.tenants = r }
+
+func (h *Handler) tenantOf(id string) string {
+	if h.tenants == nil {
+		return hubmqtt.DefaultTenant
+	}
+	return h.tenants.ForDevice(context.Background(), id)
 }

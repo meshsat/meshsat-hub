@@ -65,8 +65,10 @@ func (e *Engine) RegisterHandler(destType string, handler DestinationHandler) {
 // Start subscribes to inbound MQTT topics and begins route evaluation.
 func (e *Engine) Start() error {
 	// Subscribe to mo/decoded (main message flow) for routing.
-	if err := e.mqtt.Subscribe("meshsat/+/mo/decoded", 1, e.handleMODecoded); err != nil {
-		return err
+	for _, f := range hubmqtt.DualFilters("meshsat/+/mo/decoded") {
+		if err := e.mqtt.Subscribe(f, 1, e.handleMODecoded); err != nil {
+			return err
+		}
 	}
 	slog.Info("routing: engine started")
 	return nil
@@ -99,7 +101,7 @@ func (e *Engine) handleMODecoded(topic string, payload []byte) {
 		sourceType = "*"
 	}
 
-	tenantID := e.tenants.ForDevice(context.Background(), deviceID)
+	tenantID := e.tenants.ForDeviceTopic(context.Background(), deviceID, hubmqtt.ExtractTenantID(topic))
 	routes := e.getRoutes(tenantID)
 	handlerCtx := tenancy.WithTenant(context.Background(), tenantID)
 

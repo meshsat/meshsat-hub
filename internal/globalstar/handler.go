@@ -1,11 +1,13 @@
 package globalstar
 
 import (
+	"context"
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"github.com/meshsat/meshsat-hub/internal/tenancy"
 	"github.com/rs/xid"
 	"log/slog"
 	"net/http"
@@ -68,6 +70,7 @@ type reticulumReceiver interface {
 
 // Handler handles Globalstar MO webhook POST requests.
 type Handler struct {
+	tenants     *tenancy.Resolver // device → tenant for topic namespaces; nil = default tenant
 	mqtt        bus.MessageBus
 	secret      string
 	audit       *audit.Service
@@ -225,7 +228,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		Latitude:   payload.Latitude,
 		Longitude:  payload.Longitude,
 	}
-	h.publish(hubmqtt.TopicMORaw(deviceID), 1, false, rawMsg)
+	h.publish(hubmqtt.TopicMORawFor(h.tenantOf(deviceID), deviceID), 1, false, rawMsg)
 
 	// Fragment reassembly: Globalstar uses the same 2-byte Iridium fragment header format.
 	// [fragment_index:4bit | total_fragments:4bit] [message_id:8bit]
@@ -325,7 +328,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		Latitude:    payload.Latitude,
 		Longitude:   payload.Longitude,
 	}
-	h.publish(hubmqtt.TopicMODecoded(deviceID), 1, false, decoded)
+	h.publish(hubmqtt.TopicMODecodedFor(h.tenantOf(deviceID), deviceID), 1, false, decoded)
 
 	// Publish position if lat/lon are present and non-zero.
 	if payload.Latitude != 0 || payload.Longitude != 0 {
@@ -335,7 +338,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			Source:    "globalstar",
 			Timestamp: receivedAt,
 		}
-		h.publish(hubmqtt.TopicPosition(deviceID), 1, true, pos)
+		h.publish(hubmqtt.TopicPositionFor(h.tenantOf(deviceID), deviceID), 1, true, pos)
 	}
 
 	// Dead man's switch: device sent an MO message, reset its timer.
@@ -400,4 +403,15 @@ func isPrintable(b []byte) bool {
 		}
 	}
 	return len(b) > 0
+}
+
+// SetTenants makes published topics follow the owning tenant's namespace
+// (MESHSAT-864 MR 20). Without it every topic uses the default namespace.
+func (h *Handler) SetTenants(r *tenancy.Resolver) { h.tenants = r }
+
+func (h *Handler) tenantOf(id string) string {
+	if h.tenants == nil {
+		return hubmqtt.DefaultTenant
+	}
+	return h.tenants.ForDevice(context.Background(), id)
 }
