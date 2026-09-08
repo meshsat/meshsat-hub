@@ -1,0 +1,13 @@
+# One of the two keeps the Reticulum leg up through drains and evictions.
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: stunnel
+  namespace: meshsat-hub
+  labels:
+    app.kubernetes.io/name: stunnel
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: stunnel
