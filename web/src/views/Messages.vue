@@ -116,15 +116,15 @@ function statusClass(status) {
     <!-- Send MT Message -->
     <div v-if="auth.isOwner || auth.role === 'operator'" class="bg-tactical-surface border border-tactical-border rounded-lg p-4 mb-4">
       <h2 class="text-sm font-semibold text-gray-300 mb-3">Send Message to Device (MT via Iridium)</h2>
-      <div class="flex gap-2">
+      <div class="flex flex-wrap gap-2">
         <select v-model="sendImei"
-          class="bg-gray-800 border border-gray-700 px-3 py-2 rounded-lg text-gray-200 focus:outline-none focus:border-brand-primary">
+          class="w-full sm:w-auto bg-gray-800 border border-gray-700 px-3 py-2 rounded-lg text-gray-200 focus:outline-none focus:border-brand-primary">
           <option v-for="d in deviceList" :key="d.imei" :value="d.imei">{{ d.imei }} {{ d.label ? `(${d.label})` : '' }}</option>
           <option v-if="deviceList.length === 0" value="">No devices registered</option>
         </select>
         <input v-model="sendText" placeholder="Type message to send via satellite..."
           @keyup.enter="sendMessage" :disabled="sending"
-          class="bg-gray-800 border border-gray-700 px-3 py-2 rounded-lg text-gray-200 placeholder-gray-500 focus:outline-none focus:border-brand-primary flex-1" />
+          class="bg-gray-800 border border-gray-700 px-3 py-2 rounded-lg text-gray-200 placeholder-gray-500 focus:outline-none focus:border-brand-primary flex-1 min-w-0" />
         <button @click="sendMessage" :disabled="sending || !sendText || !sendImei"
           class="bg-brand-accent hover:bg-brand-primary disabled:bg-gray-600 text-ms-on-primary px-4 py-2 rounded-lg font-medium transition-colors whitespace-nowrap">
           {{ sending ? 'Sending...' : 'Send MT' }}
@@ -146,14 +146,14 @@ function statusClass(status) {
     <!-- Send SMS -->
     <div v-if="auth.isOwner || auth.role === 'operator'" class="bg-tactical-surface border border-tactical-border rounded-lg p-4 mb-4">
       <h2 class="text-sm font-semibold text-gray-300 mb-3">Send SMS (via Twilio)</h2>
-      <div class="flex gap-2">
+      <div class="flex flex-wrap gap-2">
         <input v-model="smsTo" placeholder="+31612345678"
-          class="bg-gray-800 border border-gray-700 px-3 py-2 rounded-lg text-gray-200 placeholder-gray-500 focus:outline-none focus:border-ms-success w-48" />
+          class="bg-gray-800 border border-gray-700 px-3 py-2 rounded-lg text-gray-200 placeholder-gray-500 focus:outline-none focus:border-ms-success w-full sm:w-48" />
         <input v-model="smsText" placeholder="Type SMS message..."
           @keyup.enter="sendSMS" :disabled="smsSending"
-          class="bg-gray-800 border border-gray-700 px-3 py-2 rounded-lg text-gray-200 placeholder-gray-500 focus:outline-none focus:border-ms-success flex-1" />
+          class="bg-gray-800 border border-gray-700 px-3 py-2 rounded-lg text-gray-200 placeholder-gray-500 focus:outline-none focus:border-ms-success flex-1 min-w-0" />
         <button @click="sendSMS" :disabled="smsSending || !smsText || !smsTo"
-          class="bg-green-600 hover:bg-green-500 disabled:bg-gray-600 text-white px-4 py-2 rounded-lg font-medium transition-colors whitespace-nowrap">
+          class="bg-brand-primary hover:bg-brand-accent disabled:bg-gray-600 text-ms-on-primary px-4 py-2 rounded-lg font-medium transition-colors whitespace-nowrap">
           {{ smsSending ? 'Sending...' : 'Send SMS' }}
         </button>
       </div>
@@ -172,7 +172,7 @@ function statusClass(status) {
 
     <div class="flex gap-2 mb-4">
       <input v-model="filter" placeholder="Filter by device IMEI" @keyup.enter="loadMessages"
-        class="bg-gray-800 border border-gray-700 px-3 py-2 rounded-lg text-gray-200 placeholder-gray-500 focus:outline-none focus:border-brand-primary flex-1" />
+        class="bg-gray-800 border border-gray-700 px-3 py-2 rounded-lg text-gray-200 placeholder-gray-500 focus:outline-none focus:border-brand-primary flex-1 min-w-0" />
       <button @click="loadMessages"
         class="bg-brand-accent hover:bg-brand-primary text-ms-on-primary px-4 py-2 rounded-lg font-medium transition-colors">
         Refresh
