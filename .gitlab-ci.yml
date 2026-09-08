@@ -97,6 +97,23 @@ test:
   script:
     - go test -v -count=1 ./...
 
+# Postgres store tests against a real server (MESHSAT-903). The unit job above
+# skips them when HUB_TEST_POSTGRES_DSN is unset; this job provides it through a
+# GitLab service container, so no Go test dependency is needed.
+test:postgres:
+  stage: test
+  image: golang:1.25-alpine
+  tags: [multiarch]
+  services:
+    - name: postgres:16-alpine
+      alias: pg
+  variables:
+    POSTGRES_HOST_AUTH_METHOD: trust
+    POSTGRES_DB: meshsat_test
+    HUB_TEST_POSTGRES_DSN: "postgres://postgres@pg:5432/meshsat_test?sslmode=disable"
+  script:
+    - go test -v -count=1 ./internal/store/...
+
 # -----------------------------------------------------------------------------
 # BUILD — compile Go binary
 # -----------------------------------------------------------------------------
