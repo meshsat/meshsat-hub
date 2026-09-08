@@ -1,0 +1,46 @@
+# How the deep basemap is built and served. The archive is data, not a build
+# artefact of this repo: it is extracted from the Protomaps daily planet build
+# straight onto the volume, once, and kept. Changing PLANET_URL or BBOX and
+# deleting the archive rebuilds it.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: basemap-config
+  namespace: meshsat-hub
+  labels:
+    app.kubernetes.io/name: basemap
+data:
+  ARCHIVE: europe-z15.pmtiles
+  # Europe including Greece and excluding most of Russia. 37 GB at zoom 15,
+  # which is the zoom where street names live.
+  BBOX: "-11,34,32,61"
+  MAXZOOM: "15"
+  # Daily planet builds are kept for about a week. If the volume is empty and
+  # this build has expired, the extract fails, the pod stays unready, and the
+  # map falls back to the world archive. Update the date and it rebuilds.
+  PLANET_URL: https://build.protomaps.com/20260907.pmtiles
+  PMTILES_URL: https://github.com/protomaps/go-pmtiles/releases/download/v1.31.2/go-pmtiles_1.31.2_Linux_x86_64.tar.gz
+  PMTILES_SHA256: 3ed7dbf4ec2e6dfe5e25b6f70d1ffc932729f93c86db353bf514dd71010a312f
+  nginx.conf: |
+    worker_processes 1;
+    error_log /dev/stderr warn;
+    pid /tmp/nginx.pid;
+    events { worker_connections 256; }
+    http {
+      access_log off;
+      sendfile on;
+      # The map reads the archive with HTTP range requests, which nginx serves
+      # from a static file without any help.
+      server {
+        listen 8080;
+        server_name _;
+        location = /healthz { return 200 "ok\n"; }
+        location = /basemap/local.pmtiles {
+          alias /data/europe-z15.pmtiles;
+          types { } default_type application/octet-stream;
+          add_header Accept-Ranges bytes;
+          add_header Cache-Control "public, max-age=86400";
+        }
+        location / { return 404; }
+      }
+    }

@@ -62,6 +62,10 @@ has its own `kustomization.yaml`. A service dir contains, as applicable: `deploy
   control-plane node, PDB `minAvailable 2` because a Raft group must never be drained below
   quorum; KeyDB x2 on the control-plane tier, PDB `minAvailable 1`; stunnel x2 on the workers,
   PDB `minAvailable 1`.
+- **Large read-only data does not belong in the object store.** The deep basemap is 37 GB and
+  lives on control-plane disks with a capped claim, because the object store's volume servers sit
+  on the two fullest workers and filling them has caused an outage. Same reasoning as the
+  placement rule above: put bulk where the space is, and cap it.
 - **Failure domains**: losing any one machine leaves the Hub serving, the database with a
   primary and a synchronous replica, and the broker and cache with quorum. In-cluster failover
   has a floor of roughly 45 to 60 seconds, because a dead node is not marked NotReady before

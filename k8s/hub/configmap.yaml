@@ -49,7 +49,10 @@ data:
   # Adding a country is one line in k8s/scripts/basemap/fleet-regions.geojson
   # and a rebuild; see build-basemap.sh for the sizes.
   HUB_BASEMAP_S3_KEY: "basemap/protomaps-world-z11-20260907.pmtiles"
-  HUB_BASEMAP_S3_LOCAL_KEY: "basemap/protomaps-fleet-z15-20260907.pmtiles"
+  # The deep archive is served by the basemap StatefulSet from its own disks,
+  # not from the object store, so the Hub's local key stays empty. See
+  # k8s/basemap/ and NOTES.md.
+  HUB_BASEMAP_S3_LOCAL_KEY: ""
   HUB_BASEMAP_S3_ASSET_PREFIX: "basemap/assets"
   # --- carried over from the compose .env ---
   HUB_RATELIMIT_BURST: "10"

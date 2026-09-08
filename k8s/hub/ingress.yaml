@@ -22,6 +22,15 @@ spec:
     - host: hub.meshsat.net
       http:
         paths:
+          # The deep basemap comes off its own disks, not from the Hub. Exact
+          # match so it wins over the catch-all, and only this one file.
+          - path: /basemap/local.pmtiles
+            pathType: Exact
+            backend:
+              service:
+                name: basemap
+                port:
+                  name: http
           - path: /metrics
             pathType: Exact
             backend:
