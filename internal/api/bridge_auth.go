@@ -7,7 +7,6 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
-	"path/filepath"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -21,8 +20,22 @@ const mqttPublicURLKey = "mqtt_public_url"
 
 // BridgeAuthHandler provides REST endpoints for bridge MQTT authentication.
 type BridgeAuthHandler struct {
-	store store.Store
-	ca    *bridge.CertAuthority
+	store    store.Store
+	ca       *bridge.CertAuthority
+	natsAuth bridge.Resyncer // nil outside Kubernetes
+}
+
+// SetNATSAuth registers the NATS auth syncer to kick after credential changes.
+func (h *BridgeAuthHandler) SetNATSAuth(r *bridge.NATSAuthSyncer) {
+	if r != nil {
+		h.natsAuth = r
+	}
+}
+
+func (h *BridgeAuthHandler) resyncNATS() {
+	if h.natsAuth != nil {
+		h.natsAuth.Trigger()
+	}
 }
 
 // NewBridgeAuthHandler creates a new bridge authentication API handler.
@@ -101,6 +114,7 @@ func (h *BridgeAuthHandler) GenerateCredentials(w http.ResponseWriter, r *http.R
 		return
 	}
 
+	h.resyncNATS()
 	writeJSON(w, http.StatusOK, credentialResponse{
 		BridgeID: id,
 		Username: username,
@@ -203,9 +217,10 @@ func (h *BridgeAuthHandler) SetMQTTURL(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"mqtt_url": req.MQTTURL})
 }
 
-// RegenerateACL regenerates Mosquitto password and ACL files from bridge credentials.
-// @Summary Regenerate Mosquitto ACL files
-// @Description Reads all bridges with credentials and generates Mosquitto password and ACL files.
+// RegenerateACL re-renders the NATS users/permissions file from the bridge
+// credentials (kept under its historical route and name for the Fleet page).
+// @Summary Re-render NATS bridge users and permissions
+// @Description Counts the bridges with credentials and asks the NATS auth syncer to re-render the meshsat-nats-auth Secret. Outside Kubernetes the count is reported and nothing is written.
 // @Tags bridges
 // @Produce json
 // @Success 200 {object} aclRegenResponse
@@ -214,37 +229,11 @@ func (h *BridgeAuthHandler) SetMQTTURL(w http.ResponseWriter, r *http.Request) {
 func (h *BridgeAuthHandler) RegenerateACL(w http.ResponseWriter, r *http.Request) {
 	bridges, err := h.store.ListBridgesWithCredentials(r.Context())
 	if err != nil {
-		slog.Error("failed to list bridges for ACL regeneration", "error", err)
+		slog.Error("failed to list bridges for NATS auth regeneration", "error", err)
 		writeError(w, http.StatusInternalServerError, "failed to list bridges")
 		return
 	}
-
-	// Operator-supplied paths: cleaned and required absolute, else the default.
-	mosqAuthFile := filepath.Clean(os.Getenv("MESHSAT_MOSQUITTO_PASSWD_FILE"))
-	if !filepath.IsAbs(mosqAuthFile) {
-		mosqAuthFile = "/data/mosquitto/passwd"
-	}
-	aclFile := filepath.Clean(os.Getenv("MESHSAT_MOSQUITTO_ACL_FILE"))
-	if !filepath.IsAbs(aclFile) {
-		aclFile = "/data/mosquitto/acl"
-	}
-
-	passwdData := bridge.GeneratePasswordFile(bridges)
-	if err := os.WriteFile(mosqAuthFile, passwdData, 0600); err != nil { // #nosec G703 -- operator configuration (env), cleaned and absolute; not request input
-		slog.Error("acl: failed to write password file", "path", mosqAuthFile, "error", err)
-		writeError(w, http.StatusInternalServerError, "failed to write password file")
-		return
-	}
-
-	aclData := bridge.GenerateACLFile(bridges)
-	if err := os.WriteFile(aclFile, aclData, 0600); err != nil { // #nosec G703 -- operator configuration (env), cleaned and absolute; not request input
-		slog.Error("acl: failed to write ACL file", "path", aclFile, "error", err)
-		writeError(w, http.StatusInternalServerError, "failed to write ACL file")
-		return
-	}
-
-	slog.Info("acl: regenerated mosquitto files",
-		"bridges", len(bridges), "passwd_file", mosqAuthFile, "acl_file", aclFile)
-
+	h.resyncNATS()
+	slog.Info("nats-auth: re-render requested", "bridges", len(bridges), "syncer", h.natsAuth != nil)
 	writeJSON(w, http.StatusOK, aclRegenResponse{BridgesConfigured: len(bridges)})
 }
