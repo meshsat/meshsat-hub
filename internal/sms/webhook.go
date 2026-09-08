@@ -451,63 +451,17 @@ func (h *WebhookHandler) processPlaintextSMS(r *http.Request, w http.ResponseWri
 	_, _ = w.Write([]byte("<?xml version=\"1.0\" encoding=\"UTF-8\"?><Response/>"))
 }
 
-// handleBridgeUplink checks if the raw bytes are a bridge uplink message
-// (magic 0x4D53) and processes it. Returns true if handled. [MESHSAT-446]
+// handleBridgeUplink hands a bridge uplink frame (magic 0x4D53, base64 over
+// SMS) to the shared sink. Returns true if the bytes were a frame.
 func (h *WebhookHandler) handleBridgeUplink(ctx context.Context, from string, rawBytes []byte) bool {
 	if !bridge.IsBridgeSatUplink(rawBytes) {
 		return false
 	}
-
-	msgType, payload, err := bridge.DecodeSatUplink(rawBytes)
-	if err != nil {
-		slog.Warn("sms: bridge uplink decode failed", "error", err, "from", from)
-		return false
-	}
-
-	switch msgType {
-	case bridge.SatMsgPosition:
-		bridgeID, lat, lon, alt, _, ts, err := bridge.DecodeSatPosition(payload)
-		if err != nil {
-			slog.Warn("sms: bridge position decode failed", "error", err, "from", from)
-			return true
-		}
-		slog.Info("sms: bridge uplink position",
-			"bridge_id", bridgeID, "lat", lat, "lon", lon, "alt", alt, "from", from)
-		h.publish(hubmqtt.TopicPositionFor(h.tenantOf(ctx, from), from), 1, true, map[string]any{
-			"lat": lat, "lon": lon, "alt": alt,
-			"source": "sms_uplink", "timestamp": ts.Format(time.RFC3339),
-		})
-
-	case bridge.SatMsgSOS:
-		bridgeID, deviceID, lat, lon, message, ts, err := bridge.DecodeSatSOS(payload)
-		if err != nil {
-			slog.Warn("sms: bridge SOS decode failed", "error", err, "from", from)
-			return true
-		}
-		slog.Warn("sms: BRIDGE SOS via SMS",
-			"bridge_id", bridgeID, "device_id", deviceID,
-			"lat", lat, "lon", lon, "message", message, "from", from)
-		h.publish(hubmqtt.TopicSOSFor(h.tenantOf(ctx, bridgeID), bridgeID), 1, false, map[string]any{
-			"bridge_id": bridgeID, "device_id": deviceID,
-			"lat": lat, "lon": lon, "message": message,
-			"source": "sms", "timestamp": ts.Format(time.RFC3339),
-		})
-
-	case bridge.SatMsgHealthSummary:
-		slog.Info("sms: bridge health uplink via SMS", "from", from, "bytes", len(payload))
-
-	default:
-		slog.Info("sms: unknown bridge uplink type via SMS",
-			"from", from, "type", msgType, "bytes", len(payload))
-	}
-
-	// Mark bridge as online.
+	var st bridge.UplinkStore
 	if h.store != nil {
-		tid := h.tenantOf(ctx, from)
-		_ = h.store.SetBridgeOnline(ctx, tid, from, true)
+		st = h.store
 	}
-
-	return true
+	return bridge.NewUplinkSink(st, h.publish, h.audit, "sms_webhook").Handle(ctx, h.tenantOf(ctx, from), "sms", from, rawBytes)
 }
 
 // smsMessageID is the stable ID of an inbound SMS: Twilio's MessageSid is
