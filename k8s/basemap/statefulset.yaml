@@ -74,9 +74,24 @@ spec:
                 mkdir -p /data/bin
                 tar xzf /tmp/pmtiles.tgz -C /data/bin pmtiles
               fi
-              echo "basemap: extracting $BBOX to zoom $MAXZOOM from $PLANET_URL"
-              /data/bin/pmtiles extract "$PLANET_URL" "/data/$ARCHIVE.partial" \
-                --maxzoom="$MAXZOOM" --bbox="$BBOX"
+              rm -f "/data/$ARCHIVE.partial"
+              # A peer that already serves the archive is the right source. The
+              # planet build is a free public service and it rate limits the
+              # second pull of 40 GB to half a megabyte a second, which is a
+              # day per replica; across the cluster the same copy takes
+              # minutes. Only a pod that is serving is a Service endpoint, and
+              # a pod running this script is not, so this never fetches from
+              # itself. No endpoint means the whole set is cold, and then the
+              # planet is the only source there is.
+              if wget -q -T 30 -O "/data/$ARCHIVE.partial" "$PEER_URL" &&
+                 /data/bin/pmtiles show "/data/$ARCHIVE.partial" >/dev/null 2>&1; then
+                echo "basemap: copied from a peer"
+              else
+                rm -f "/data/$ARCHIVE.partial"
+                echo "basemap: no peer to copy from, extracting $BBOX to zoom $MAXZOOM from $PLANET_URL"
+                /data/bin/pmtiles extract "$PLANET_URL" "/data/$ARCHIVE.partial" \
+                  --maxzoom="$MAXZOOM" --bbox="$BBOX"
+              fi
               mv "/data/$ARCHIVE.partial" "/data/$ARCHIVE"
               echo "basemap: built $(du -h "/data/$ARCHIVE" | cut -f1)"
           env:
