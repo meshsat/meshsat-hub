@@ -251,11 +251,12 @@ func main() {
 
 	// Audit service (tamper-evident hash chain).
 	auditSvc := audit.New(dataStore)
-	// Audit log retention (background goroutine).
-	go audit.RunRetention(ctx, dataStore, audit.RetentionConfig{
+	// Audit log retention runs on the leader only (registered below once the
+	// elector exists).
+	auditRetentionCfg := audit.RetentionConfig{
 		RetentionDays: cfg.AuditRetentionDays,
 		ArchivePath:   cfg.AuditArchivePath,
-	})
+	}
 
 	// --- Dedup (tri-mode) ---
 	var dedupTracker dedup.Dedup
@@ -308,6 +309,14 @@ func main() {
 	default: // "standalone"
 		leaderElector = leader.NewNoop()
 	}
+	// Services that must run on exactly one replica (MESHSAT-910): started
+	// on leadership acquisition, stopped on loss. Per-replica services (MQTT
+	// subscribers, routing, in-memory caches, MPTCP monitor, HeMB reaper)
+	// stay outside this set.
+	leaderSingletons := leader.NewSingletons()
+	if kl, ok := leaderElector.(*leader.KubeLease); ok {
+		checker.AddInfoProbe("leader_election", func(_ context.Context) error { return kl.LastError() })
+	}
 
 	// Cloudloop API client for MT sends.
 	cloudloopClient := cloudloop.NewClient(cfg.CloudloopAPIURL, cfg.CloudloopAPIKey)
@@ -338,7 +347,7 @@ func main() {
 	// Credit balance poller (polls Cloudloop API, publishes to meshsat/hub/credits).
 	if cfg.CloudloopAPIKey != "" && msgBus.IsConnected() {
 		creditPoller := cloudloop.NewCreditPoller(cloudloopClient, msgBus, 1*time.Hour)
-		go creditPoller.Start(ctx)
+		leaderSingletons.Add("cloudloop-credit-poller", creditPoller.Start)
 	}
 
 	// Globalstar API client (optional — second satellite constellation).
@@ -383,17 +392,24 @@ func main() {
 	// OTS REST API poller — inbound CoT relay (OTS → Hub → MQTT → bridges).
 	// The TCP connection above is Hub→OTS only. OTS plain TCP does not relay
 	// events back. This poller provides the reverse path via the REST API.
-	var otsPoller *tak.OTSPoller
 	if cfg.TAKAPIBaseURL != "" && cfg.TAKAPIUsername != "" {
-		otsPoller = tak.NewOTSPoller(cfg.TAKAPIBaseURL, cfg.TAKAPIUsername, cfg.TAKAPIPassword, cfg.TAKAPIPollSec, msgBus, dataStore, store.DefaultTenantID)
-		otsPoller.Start()
+		leaderSingletons.Add("tak-ots-poller", func(sctx context.Context) {
+			p := tak.NewOTSPoller(cfg.TAKAPIBaseURL, cfg.TAKAPIUsername, cfg.TAKAPIPassword, cfg.TAKAPIPollSec, msgBus, dataStore, store.DefaultTenantID)
+			p.Start()
+			<-sctx.Done()
+			p.Stop()
+		})
 	}
 
 	var takFederation *tak.Federation
 	var aprsisClient *aprsis.Client
 
-	go leaderElector.Run(ctx, func() {
-		// onAcquired: start singleton services (Federation + APRS-IS only)
+	// The elector itself is started at the end of startup (see
+	// leader.RunWith below), after every singleton has been registered.
+	onLeaderAcquired := func() {
+		// onAcquired: Federation + APRS-IS (connection-holding services that
+		// need explicit teardown); the rest of the singleton set is started by
+		// RunWith.
 		slog.Info("leader acquired — starting Federation and APRS-IS")
 
 		// TAK Federation v2 (optional — bidirectional CoT relay with remote TAK servers).
@@ -431,7 +447,8 @@ func main() {
 				}
 			}
 		}
-	}, func() {
+	}
+	onLeaderLost := func() {
 		// onLost: stop singleton services
 		slog.Info("leader lost — stopping TAK, Federation, and APRS-IS")
 		if aprsisClient != nil {
@@ -446,7 +463,7 @@ func main() {
 			takClient.Disconnect()
 			takClient = nil
 		}
-	})
+	}
 
 	// Outbound webhook dispatcher (fires on MO, SOS, position, telemetry, MT status).
 	webhookDispatcher := webhook.NewDispatcher(msgBus)
@@ -520,9 +537,13 @@ func main() {
 
 	// Bridge reaper: marks bridges offline when last_seen exceeds timeout.
 	if cfg.BridgeOfflineTimeout > 0 {
-		reaper := bridge.NewReaper(dataStore, time.Duration(cfg.BridgeOfflineTimeout)*time.Second)
-		reaper.Start()
-		defer reaper.Stop()
+		timeout := time.Duration(cfg.BridgeOfflineTimeout) * time.Second
+		leaderSingletons.Add("bridge-reaper", func(sctx context.Context) {
+			r := bridge.NewReaper(dataStore, timeout)
+			r.Start()
+			<-sctx.Done()
+			r.Stop()
+		})
 	}
 
 	// Bridge certificate authority for MQTT TLS client certs.
@@ -634,15 +655,18 @@ func main() {
 		escNotifier = escalation.NewMultiNotifier(notifiers...)
 	}
 	escEngine := escalation.New(dataStore, escNotifier)
-	go escEngine.Start(ctx)
+	leaderSingletons.Add("escalation-loop", escEngine.Start)
 
 	// Alert rules evaluator (configurable alerting engine, MESHSAT-313).
 	alertEval := alerting.New(dataStore, &escalationAdapter{engine: escEngine}, 60*time.Second)
-	go alertEval.Start(ctx)
+	leaderSingletons.Add("alert-evaluator", alertEval.Start)
 
 	// Dead man's switch monitor (triggers escalation on missed device check-ins).
 	deadmanMonitor := deadman.NewMonitor(dataStore, escEngine)
-	go deadmanMonitor.Start(ctx)
+	leaderSingletons.Add("deadman-monitor", deadmanMonitor.Start)
+	leaderSingletons.Add("audit-retention", func(sctx context.Context) {
+		audit.RunRetention(sctx, dataStore, auditRetentionCfg)
+	})
 
 	// Wire dead man's switch to position subscriber so device positions reset the timer.
 	if posSub != nil {
@@ -1819,16 +1843,16 @@ func main() {
 
 	// Store maintenance for the single-writer claims (MESHSAT-910): drop
 	// dispatch claims older than a day and fail scheduled sends whose owner
-	// died. Idempotent, so safe on every replica until the leader gate lands.
-	go func() {
+	// died. Leader-only.
+	leaderSingletons.Add("claims-maintenance", func(sctx context.Context) {
 		t := time.NewTicker(10 * time.Minute)
 		defer t.Stop()
 		for {
 			select {
-			case <-ctx.Done():
+			case <-sctx.Done():
 				return
 			case <-t.C:
-				mctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+				mctx, cancel := context.WithTimeout(sctx, 30*time.Second)
 				if n, err := dataStore.PurgeClaims(mctx, time.Now().Add(-24*time.Hour)); err != nil {
 					slog.Warn("maintenance: purge claims", "error", err)
 				} else if n > 0 {
@@ -1842,7 +1866,11 @@ func main() {
 				cancel()
 			}
 		}
-	}()
+	})
+
+	// Every leader-only service is registered: run the election. With the
+	// Noop elector (standalone) this starts them immediately.
+	go leader.RunWith(ctx, leaderElector, leaderSingletons, onLeaderAcquired, onLeaderLost)
 
 	srv := &http.Server{
 		Addr:              fmt.Sprintf(":%d", cfg.Port),
@@ -1883,9 +1911,6 @@ func main() {
 	close(touchCh) // drain remaining API key last_used updates
 	if aprsisClient != nil {
 		aprsisClient.Disconnect()
-	}
-	if otsPoller != nil {
-		otsPoller.Stop()
 	}
 	if takClient != nil {
 		takClient.Disconnect()
