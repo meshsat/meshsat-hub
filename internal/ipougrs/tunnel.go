@@ -39,7 +39,7 @@ func NewTunnel(cfg Config) *Tunnel {
 
 // NextPacketID returns the next wrapping packet ID.
 func (t *Tunnel) NextPacketID() uint8 {
-	return uint8(t.packetSeq.Add(1))
+	return uint8(t.packetSeq.Add(1) & 0xFF)
 }
 
 // FragmentForSend splits an IP packet into SBD frames for transmission.

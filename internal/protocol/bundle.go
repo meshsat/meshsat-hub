@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"encoding/binary"
 	"fmt"
+	"math"
 	"sync"
 	"time"
 
@@ -94,7 +95,11 @@ func FragmentBundle(payload []byte, mtu int) (bundleID [16]byte, fragments [][]b
 
 	// If payload fits in a single fragment, still wrap it
 	maxPayloadPerFrag := mtu - BundleHeaderLen
-	totalSize := uint32(len(payload))
+	payloadLen := len(payload)
+	if payloadLen < 0 || payloadLen > math.MaxUint32 {
+		return bundleID, nil, fmt.Errorf("payload %d bytes exceeds the 32-bit total_size field", payloadLen)
+	}
+	totalSize := uint32(payloadLen)
 
 	fragCount := (len(payload) + maxPayloadPerFrag - 1) / maxPayloadPerFrag
 	if fragCount == 0 {
@@ -210,7 +215,7 @@ func (rb *BundleReassemblyBuffer) Reassemble(data []byte) ([]byte, error) {
 	state.fragments[hdr.FragIndex] = payloadCopy
 
 	// Check if complete
-	if uint16(len(state.fragments)) < state.fragTotal {
+	if len(state.fragments) < int(state.fragTotal) {
 		return nil, nil // not yet complete
 	}
 
@@ -225,7 +230,7 @@ func (rb *BundleReassemblyBuffer) Reassemble(data []byte) ([]byte, error) {
 		result = append(result, frag...)
 	}
 
-	if uint32(len(result)) != state.totalSize {
+	if len(result) != int(state.totalSize) {
 		delete(rb.bundles, hdr.BundleID)
 		return nil, fmt.Errorf("reassembled size %d != expected total_size %d", len(result), state.totalSize)
 	}

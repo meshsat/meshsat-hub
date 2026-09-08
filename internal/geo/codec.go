@@ -3,6 +3,7 @@ package geo
 import (
 	"encoding/binary"
 	"errors"
+	"github.com/meshsat/meshsat-hub/internal/wire"
 	"math"
 	"time"
 )
@@ -74,14 +75,14 @@ func DecodeGPS(data []byte) (*GPSPosition, error) {
 	if pos+4 > len(data) {
 		return nil, ErrTooShort
 	}
-	latRaw := int32(binary.BigEndian.Uint32(data[pos : pos+4]))
+	latRaw := wire.I32BE(data[pos : pos+4])
 	pos += 4
 
 	// Longitude (4 bytes, required)
 	if pos+4 > len(data) {
 		return nil, ErrTooShort
 	}
-	lonRaw := int32(binary.BigEndian.Uint32(data[pos : pos+4]))
+	lonRaw := wire.I32BE(data[pos : pos+4])
 	pos += 4
 
 	p := &GPSPosition{
@@ -93,7 +94,7 @@ func DecodeGPS(data []byte) (*GPSPosition, error) {
 		if pos+2 > len(data) {
 			return nil, ErrTooShort
 		}
-		altRaw := int16(binary.BigEndian.Uint16(data[pos : pos+2]))
+		altRaw := wire.I16BE(data[pos : pos+2])
 		pos += 2
 		p.Alt = float64(altRaw)
 		p.HasAlt = true
@@ -168,9 +169,9 @@ func DecodeBridgeGPSFull(data []byte) (*GPSPosition, error) {
 		return nil, ErrNotGPSFrame
 	}
 
-	lat := int32(binary.LittleEndian.Uint32(data[1:5]))
-	lon := int32(binary.LittleEndian.Uint32(data[5:9]))
-	alt := int16(binary.LittleEndian.Uint16(data[9:11]))
+	lat := wire.I32LE(data[1:5])
+	lon := wire.I32LE(data[5:9])
+	alt := wire.I16LE(data[9:11])
 	hdg := binary.LittleEndian.Uint16(data[11:13])
 	spd := binary.LittleEndian.Uint16(data[13:15])
 
@@ -199,9 +200,9 @@ func DecodeBridgeGPSDelta(data []byte, prev *GPSPosition) (*GPSPosition, error) 
 		return nil, errors.New("geo: delta frame requires previous position")
 	}
 
-	dlat := int16(binary.LittleEndian.Uint16(data[1:3]))
-	dlon := int16(binary.LittleEndian.Uint16(data[3:5]))
-	dalt := int8(data[5])
+	dlat := wire.I16LE(data[1:3])
+	dlon := wire.I16LE(data[3:5])
+	dalt := wire.I8(data[5])
 	hdg := binary.LittleEndian.Uint16(data[6:8])
 	spd := binary.LittleEndian.Uint16(data[8:10])
 
@@ -247,12 +248,12 @@ func EncodeGPS(p *GPSPosition) []byte {
 	// Lat/Lon as int32 × 1e7
 	latRaw := int32(math.Round(p.Lat * 1e7))
 	lonRaw := int32(math.Round(p.Lon * 1e7))
-	buf = binary.BigEndian.AppendUint32(buf, uint32(latRaw))
-	buf = binary.BigEndian.AppendUint32(buf, uint32(lonRaw))
+	buf = binary.BigEndian.AppendUint32(buf, wire.U32(latRaw))
+	buf = binary.BigEndian.AppendUint32(buf, wire.U32(lonRaw))
 
 	if flags&flagHasAlt != 0 {
 		altRaw := int16(math.Round(p.Alt))
-		buf = binary.BigEndian.AppendUint16(buf, uint16(altRaw))
+		buf = binary.BigEndian.AppendUint16(buf, wire.U16(altRaw))
 	}
 	if flags&flagHasSpeed != 0 {
 		speedRaw := uint16(math.Round(p.Speed * 100))
@@ -263,11 +264,18 @@ func EncodeGPS(p *GPSPosition) []byte {
 		buf = binary.BigEndian.AppendUint16(buf, headingRaw)
 	}
 	if flags&flagHasSats != 0 {
-		buf = append(buf, byte(p.Sats))
+		buf = append(buf, wire.ClampU8(p.Sats))
 	}
 
 	if !p.Timestamp.IsZero() {
-		buf = binary.BigEndian.AppendUint32(buf, uint32(p.Timestamp.Unix()))
+		ts := p.Timestamp.Unix()
+		if ts < 0 {
+			ts = 0
+		}
+		if ts > math.MaxUint32 {
+			ts = math.MaxUint32 // wire field is 32-bit seconds; saturate rather than wrap
+		}
+		buf = binary.BigEndian.AppendUint32(buf, uint32(ts))
 	}
 
 	return buf

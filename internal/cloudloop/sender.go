@@ -93,7 +93,7 @@ func NewSender(client *Client, mqtt bus.MessageBus) *Sender {
 
 // nextMsgID returns the next wrapping message ID (0-255).
 func (s *Sender) nextMsgID() uint8 {
-	return uint8(s.msgIDSeq.Add(1))
+	return uint8(s.msgIDSeq.Add(1) & 0xFF)
 }
 
 // SetAudit attaches an audit service for logging message_sent events.

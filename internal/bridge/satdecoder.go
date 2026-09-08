@@ -11,6 +11,7 @@ package bridge
 import (
 	"encoding/binary"
 	"errors"
+	"github.com/meshsat/meshsat-hub/internal/wire"
 	"math"
 	"time"
 )
@@ -92,7 +93,7 @@ func DecodeSatPosition(payload []byte) (bridgeID string, lat, lon float64, alt f
 	off += 4
 	lon = float64(math.Float32frombits(binary.BigEndian.Uint32(payload[off:])))
 	off += 4
-	alt = float32(int16(binary.BigEndian.Uint16(payload[off:])))
+	alt = float32(wire.I16BE(payload[off:]))
 	off += 2
 	source = payload[off]
 	off++

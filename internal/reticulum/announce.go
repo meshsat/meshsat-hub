@@ -66,11 +66,11 @@ func NewAnnounce(id *Identity, appName string, appData []byte) (*Announce, error
 		return nil, fmt.Errorf("generate random: %w", err)
 	}
 	ts := time.Now().Unix()
-	a.Random[5] = byte(ts >> 32)
-	a.Random[6] = byte(ts >> 24)
-	a.Random[7] = byte(ts >> 16)
-	a.Random[8] = byte(ts >> 8)
-	a.Random[9] = byte(ts)
+	a.Random[5] = byte((ts >> 32) & 0xFF)
+	a.Random[6] = byte((ts >> 24) & 0xFF)
+	a.Random[7] = byte((ts >> 16) & 0xFF)
+	a.Random[8] = byte((ts >> 8) & 0xFF)
+	a.Random[9] = byte(ts & 0xFF)
 
 	body := a.signableBody()
 	a.Signature = id.Sign(body)

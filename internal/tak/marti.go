@@ -33,7 +33,9 @@ type MartiMissionsResponse struct {
 }
 
 // NewMartiProxy creates a proxy to the TAK Server Marti API.
-func NewMartiProxy(takHost string, takPort int, takSSL bool) *MartiProxy {
+// insecureTLS skips server certificate verification; OpenTAKServer ships a
+// self-signed certificate, so it defaults to true via HUB_TAK_API_INSECURE_TLS.
+func NewMartiProxy(takHost string, takPort int, takSSL bool, insecureTLS bool) *MartiProxy {
 	scheme := "http"
 	if takSSL {
 		scheme = "https"
@@ -48,7 +50,7 @@ func NewMartiProxy(takHost string, takPort int, takSSL bool) *MartiProxy {
 			Timeout: 30 * time.Second,
 			Transport: &http.Transport{
 				TLSClientConfig: &tls.Config{
-					InsecureSkipVerify: true, //nolint:gosec // TAK Server self-signed
+					InsecureSkipVerify: insecureTLS, // #nosec G402 -- operator setting for the self-signed OTS certificate
 					MinVersion:         tls.VersionTLS12,
 				},
 			},

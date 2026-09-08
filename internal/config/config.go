@@ -61,6 +61,10 @@ type Config struct {
 	TAKAPIUsername string `yaml:"tak_api_username"` // OTS login username
 	TAKAPIPassword string `yaml:"tak_api_password"` // OTS login password
 	TAKAPIPollSec  int    `yaml:"tak_api_poll_sec"` // poll interval seconds (default 10)
+	// TAKAPIInsecureTLS skips certificate verification for the Marti API
+	// (OpenTAKServer's self-signed certificate). Default true; set
+	// HUB_TAK_API_INSECURE_TLS=false once the server has a trusted certificate.
+	TAKAPIInsecureTLS bool `yaml:"tak_api_insecure_tls"`
 
 	// TAK Federation v2
 	TAKFederationEnabled bool     `yaml:"tak_federation_enabled"`
@@ -356,6 +360,9 @@ func Load() (Config, error) {
 	}
 
 	// OTS API overrides
+	if v := os.Getenv("HUB_TAK_API_INSECURE_TLS"); v != "" {
+		cfg.TAKAPIInsecureTLS = strings.EqualFold(v, "true") || v == "1"
+	}
 	if v := os.Getenv("HUB_TAK_API_BASE_URL"); v != "" {
 		cfg.TAKAPIBaseURL = v
 	}

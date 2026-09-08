@@ -70,7 +70,15 @@ func Export(provider StateProvider, dataDir string) ([]byte, error) {
 
 	// Add data directory files
 	if dataDir != "" {
-		err := filepath.Walk(dataDir, func(path string, info os.FileInfo, err error) error {
+		// Files are opened through an os.Root scoped to dataDir so a symlink
+		// planted between Walk seeing the entry and Open following it cannot
+		// escape the data directory.
+		root, err := os.OpenRoot(dataDir)
+		if err != nil {
+			return nil, fmt.Errorf("open data dir: %w", err)
+		}
+		defer func() { _ = root.Close() }()
+		err = filepath.Walk(dataDir, func(path string, info os.FileInfo, err error) error {
 			if err != nil || info.IsDir() {
 				return err
 			}
@@ -84,7 +92,7 @@ func Export(provider StateProvider, dataDir string) ([]byte, error) {
 			if err != nil {
 				return err
 			}
-			f, err := os.Open(path)
+			f, err := root.Open(filepath.ToSlash(relPath))
 			if err != nil {
 				return err
 			}

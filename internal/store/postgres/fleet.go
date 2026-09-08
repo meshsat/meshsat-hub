@@ -385,6 +385,7 @@ func (d *DB) DeleteAlertRule(ctx context.Context, tenantID string, id string) er
 
 // --- Credential management (MESHSAT-356) ---
 
+// #nosec G101 -- column list of the credentials table, not a secret
 const credentialColumns = `id, tenant_id, provider, name, cred_type, encrypted_data, cert_not_after,
 	cert_subject, cert_issuer, cert_fingerprint, target_scope, target_bridge_id, status, version,
 	distributed_at, created_at, updated_at`
