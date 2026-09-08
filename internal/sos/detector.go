@@ -7,6 +7,7 @@ package sos
 import (
 	"context"
 	"encoding/json"
+	"github.com/meshsat/meshsat-hub/internal/tenancy"
 	"log/slog"
 	"strings"
 	"time"
@@ -40,7 +41,7 @@ type SOSEvent struct {
 type Detector struct {
 	bus       bus.MessageBus
 	engine    *escalation.Engine
-	tenantID  string
+	tenants   *tenancy.Resolver
 	chainID   string // default escalation chain for SOS alerts
 	dataStore store.Store
 }
@@ -48,11 +49,14 @@ type Detector struct {
 // NewDetector creates an SOS detector.
 // chainID is the default escalation chain ID to use for SOS alerts.
 // If empty, the detector will use the first available chain.
-func NewDetector(b bus.MessageBus, engine *escalation.Engine, dataStore store.Store, tenantID, chainID string) *Detector {
+func NewDetector(b bus.MessageBus, engine *escalation.Engine, dataStore store.Store, tenants *tenancy.Resolver, chainID string) *Detector {
+	if tenants == nil {
+		tenants = tenancy.NewResolver(dataStore, store.DefaultTenantID, 30*time.Second)
+	}
 	return &Detector{
 		bus:       b,
 		engine:    engine,
-		tenantID:  tenantID,
+		tenants:   tenants,
 		chainID:   chainID,
 		dataStore: dataStore,
 	}
@@ -78,6 +82,7 @@ func (d *Detector) handleMODecoded(topic string, payload []byte) {
 	if source == "" {
 		return // not an SOS message
 	}
+	tenantID := d.tenants.ForDevice(context.Background(), msg.IMEI)
 
 	// One SOS event and one alert per message across all replicas.
 	msgID := msg.ID
@@ -86,7 +91,7 @@ func (d *Detector) handleMODecoded(topic string, payload []byte) {
 	}
 	if d.dataStore != nil {
 		claimCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		won, err := d.dataStore.ClaimOnce(claimCtx, "sos:"+d.tenantID+":"+msgID)
+		won, err := d.dataStore.ClaimOnce(claimCtx, "sos:"+tenantID+":"+msgID)
 		cancel()
 		if err != nil {
 			slog.Error("sos: claim failed, not triggering", "imei", msg.IMEI, "message", msgID, "error", err)
@@ -116,7 +121,7 @@ func (d *Detector) handleMODecoded(topic string, payload []byte) {
 	if d.engine == nil {
 		return
 	}
-	chainID := d.resolveChainID()
+	chainID := d.resolveChainID(tenantID)
 	if chainID == "" {
 		slog.Warn("sos: no escalation chain configured, alert logged only", "imei", msg.IMEI)
 		return
@@ -128,7 +133,7 @@ func (d *Detector) handleMODecoded(topic string, payload []byte) {
 		Type:       "sos",
 		Detail:     msg.Text,
 	}
-	if err := d.engine.Trigger(context.Background(), d.tenantID, alert); err != nil {
+	if err := d.engine.Trigger(context.Background(), tenantID, alert); err != nil {
 		slog.Error("sos: failed to trigger escalation", "error", err, "imei", msg.IMEI)
 	}
 }
@@ -154,7 +159,7 @@ func detectSOS(msg moDecodedMsg) (keyword, source string) {
 
 // resolveChainID returns the escalation chain ID to use. If a specific chain
 // is configured, use it. Otherwise, try the first available chain.
-func (d *Detector) resolveChainID() string {
+func (d *Detector) resolveChainID(tenantID string) string {
 	if d.chainID != "" {
 		return d.chainID
 	}
@@ -164,7 +169,7 @@ func (d *Detector) resolveChainID() string {
 	}
 
 	// Fall back to the first available escalation chain.
-	chains, err := d.dataStore.ListEscalationChains(context.Background(), d.tenantID)
+	chains, err := d.dataStore.ListEscalationChains(context.Background(), tenantID)
 	if err != nil || len(chains) == 0 {
 		return ""
 	}

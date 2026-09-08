@@ -9,6 +9,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"encoding/pem"
+	"github.com/meshsat/meshsat-hub/internal/tenancy"
 	"testing"
 	"time"
 
@@ -239,7 +240,7 @@ func TestExtractDeviceIDFromTopic(t *testing.T) {
 func TestHandleBridgeBirth(t *testing.T) {
 	ms := newMockStore()
 	mb := newMockBus()
-	sub := NewSubscriber(mb, ms, "default")
+	sub := NewSubscriber(mb, ms, nil)
 	if err := sub.Start(); err != nil {
 		t.Fatal(err)
 	}
@@ -309,7 +310,7 @@ func TestHandleBridgeBirth(t *testing.T) {
 func TestHandleBridgeDeath(t *testing.T) {
 	ms := newMockStore()
 	mb := newMockBus()
-	sub := NewSubscriber(mb, ms, "default")
+	sub := NewSubscriber(mb, ms, nil)
 	if err := sub.Start(); err != nil {
 		t.Fatal(err)
 	}
@@ -331,7 +332,7 @@ func TestHandleBridgeDeath(t *testing.T) {
 func TestHandleBridgeHealth(t *testing.T) {
 	ms := newMockStore()
 	mb := newMockBus()
-	sub := NewSubscriber(mb, ms, "default")
+	sub := NewSubscriber(mb, ms, nil)
 	if err := sub.Start(); err != nil {
 		t.Fatal(err)
 	}
@@ -360,7 +361,7 @@ func TestHandleBridgeHealth(t *testing.T) {
 func TestHandleBridgeHealth_SetsOnline(t *testing.T) {
 	ms := newMockStore()
 	mb := newMockBus()
-	sub := NewSubscriber(mb, ms, "default")
+	sub := NewSubscriber(mb, ms, nil)
 	if err := sub.Start(); err != nil {
 		t.Fatal(err)
 	}
@@ -389,7 +390,7 @@ func TestHandleBridgeHealth_SetsOnline(t *testing.T) {
 func TestHandleDeviceBirth_AutoProvision(t *testing.T) {
 	ms := newMockStore()
 	mb := newMockBus()
-	sub := NewSubscriber(mb, ms, "default")
+	sub := NewSubscriber(mb, ms, nil)
 	if err := sub.Start(); err != nil {
 		t.Fatal(err)
 	}
@@ -432,7 +433,7 @@ func TestHandleDeviceBirth_ExistingDevice(t *testing.T) {
 	ms.devices["300258060902280"] = &store.Device{IMEI: "300258060902280", Label: "Existing"}
 
 	mb := newMockBus()
-	sub := NewSubscriber(mb, ms, "default")
+	sub := NewSubscriber(mb, ms, nil)
 	if err := sub.Start(); err != nil {
 		t.Fatal(err)
 	}
@@ -462,7 +463,7 @@ func TestHandleDeviceBirth_ExistingDevice(t *testing.T) {
 func TestHandleDeviceBirth_NoIMEI(t *testing.T) {
 	ms := newMockStore()
 	mb := newMockBus()
-	sub := NewSubscriber(mb, ms, "default")
+	sub := NewSubscriber(mb, ms, nil)
 	if err := sub.Start(); err != nil {
 		t.Fatal(err)
 	}
@@ -487,7 +488,7 @@ func TestHandleDeviceBirth_NoIMEI(t *testing.T) {
 func TestHandleDeviceDeath(t *testing.T) {
 	ms := newMockStore()
 	mb := newMockBus()
-	sub := NewSubscriber(mb, ms, "default")
+	sub := NewSubscriber(mb, ms, nil)
 	if err := sub.Start(); err != nil {
 		t.Fatal(err)
 	}
@@ -507,7 +508,7 @@ func TestHandleDeviceDeath(t *testing.T) {
 func TestProtocolVersionValidation(t *testing.T) {
 	ms := newMockStore()
 	mb := newMockBus()
-	sub := NewSubscriber(mb, ms, "default")
+	sub := NewSubscriber(mb, ms, nil)
 	if err := sub.Start(); err != nil {
 		t.Fatal(err)
 	}
@@ -542,7 +543,7 @@ func TestProtocolVersionValidation(t *testing.T) {
 
 func TestStart_SubscribesAllTopics(t *testing.T) {
 	mb := newMockBus()
-	sub := NewSubscriber(mb, newMockStore(), "default")
+	sub := NewSubscriber(mb, newMockStore(), nil)
 	if err := sub.Start(); err != nil {
 		t.Fatal(err)
 	}
@@ -563,12 +564,13 @@ func TestStart_SubscribesAllTopics(t *testing.T) {
 }
 
 func TestResolveTenantID(t *testing.T) {
-	sub := &Subscriber{tenantID: "default"}
+	sub := &Subscriber{tenants: tenancy.NewResolver(newMockStore(), "default", 0)}
 
-	if got := sub.resolveTenantID("custom"); got != "custom" {
+	if got := sub.resolveTenantID("custom", "b1"); got != "custom" {
 		t.Errorf("resolveTenantID(%q) = %q, want %q", "custom", got, "custom")
 	}
-	if got := sub.resolveTenantID(""); got != "default" {
+	// Unknown bridge, no tenant in the birth: the default tenant.
+	if got := sub.resolveTenantID("", "b1"); got != "default" {
 		t.Errorf("resolveTenantID(%q) = %q, want %q", "", got, "default")
 	}
 }
@@ -576,7 +578,7 @@ func TestResolveTenantID(t *testing.T) {
 func TestHandleBridgeBirth_StaleBirthNotMarkedOnline(t *testing.T) {
 	ms := newMockStore()
 	mb := newMockBus()
-	sub := NewSubscriber(mb, ms, "default")
+	sub := NewSubscriber(mb, ms, nil)
 	sub.SetStaleThreshold(5 * time.Minute)
 	if err := sub.Start(); err != nil {
 		t.Fatal(err)
@@ -615,7 +617,7 @@ func TestHandleBridgeBirth_StaleBirthNotMarkedOnline(t *testing.T) {
 func TestHandleBridgeBirth_FreshBirthMarkedOnline(t *testing.T) {
 	ms := newMockStore()
 	mb := newMockBus()
-	sub := NewSubscriber(mb, ms, "default")
+	sub := NewSubscriber(mb, ms, nil)
 	sub.SetStaleThreshold(5 * time.Minute)
 	if err := sub.Start(); err != nil {
 		t.Fatal(err)
@@ -648,7 +650,7 @@ func TestBridgeBirth_InjectsReticulumRoute(t *testing.T) {
 	ms := newMockStore()
 	mb := newMockBus()
 	rr := newMockRetRouter()
-	sub := NewSubscriber(mb, ms, "default")
+	sub := NewSubscriber(mb, ms, nil)
 	sub.SetReticulumRouter(rr)
 	if err := sub.Start(); err != nil {
 		t.Fatal(err)
@@ -681,7 +683,7 @@ func TestBridgeBirth_StaleBirthDoesNotInjectRoute(t *testing.T) {
 	ms := newMockStore()
 	mb := newMockBus()
 	rr := newMockRetRouter()
-	sub := NewSubscriber(mb, ms, "default")
+	sub := NewSubscriber(mb, ms, nil)
 	sub.SetReticulumRouter(rr)
 	sub.SetStaleThreshold(5 * time.Minute)
 	if err := sub.Start(); err != nil {
@@ -712,7 +714,7 @@ func TestBridgeBirth_NoReticulumInfoDoesNotInjectRoute(t *testing.T) {
 	ms := newMockStore()
 	mb := newMockBus()
 	rr := newMockRetRouter()
-	sub := NewSubscriber(mb, ms, "default")
+	sub := NewSubscriber(mb, ms, nil)
 	sub.SetReticulumRouter(rr)
 	if err := sub.Start(); err != nil {
 		t.Fatal(err)
@@ -740,7 +742,7 @@ func TestBridgeDeath_RemovesReticulumRoute(t *testing.T) {
 	ms := newMockStore()
 	mb := newMockBus()
 	rr := newMockRetRouter()
-	sub := NewSubscriber(mb, ms, "default")
+	sub := NewSubscriber(mb, ms, nil)
 	sub.SetReticulumRouter(rr)
 	if err := sub.Start(); err != nil {
 		t.Fatal(err)
@@ -770,7 +772,7 @@ func TestBridgeHealth_RefreshesReticulumRoute(t *testing.T) {
 	ms := newMockStore()
 	mb := newMockBus()
 	rr := newMockRetRouter()
-	sub := NewSubscriber(mb, ms, "default")
+	sub := NewSubscriber(mb, ms, nil)
 	sub.SetReticulumRouter(rr)
 	if err := sub.Start(); err != nil {
 		t.Fatal(err)
@@ -854,7 +856,7 @@ func TestHandleBridgeBirth_SignedBirthVerified(t *testing.T) {
 
 	ms := newMockStore()
 	mb := newMockBus()
-	sub := NewSubscriber(mb, ms, "default")
+	sub := NewSubscriber(mb, ms, nil)
 	sub.SetCertAuthority(ca)
 	sub.SetBirthSignatureMode(BirthSignatureModeWarn)
 	if err := sub.Start(); err != nil {
@@ -878,7 +880,7 @@ func TestHandleBridgeBirth_UnsignedBirthWarnMode(t *testing.T) {
 
 	ms := newMockStore()
 	mb := newMockBus()
-	sub := NewSubscriber(mb, ms, "default")
+	sub := NewSubscriber(mb, ms, nil)
 	sub.SetCertAuthority(ca)
 	sub.SetBirthSignatureMode(BirthSignatureModeWarn)
 	if err := sub.Start(); err != nil {
@@ -915,7 +917,7 @@ func TestHandleBridgeBirth_UnsignedBirthEnforceMode(t *testing.T) {
 
 	ms := newMockStore()
 	mb := newMockBus()
-	sub := NewSubscriber(mb, ms, "default")
+	sub := NewSubscriber(mb, ms, nil)
 	sub.SetCertAuthority(ca)
 	sub.SetBirthSignatureMode(BirthSignatureModeEnforce)
 	if err := sub.Start(); err != nil {
@@ -948,7 +950,7 @@ func TestHandleBridgeBirth_InvalidSignatureRejected(t *testing.T) {
 
 	ms := newMockStore()
 	mb := newMockBus()
-	sub := NewSubscriber(mb, ms, "default")
+	sub := NewSubscriber(mb, ms, nil)
 	sub.SetCertAuthority(ca)
 	sub.SetBirthSignatureMode(BirthSignatureModeWarn)
 	if err := sub.Start(); err != nil {
@@ -974,7 +976,7 @@ func TestHandleBridgeBirth_NoCARevertsToUnsigned(t *testing.T) {
 	// Without a CA configured, all births should be accepted (no verification).
 	ms := newMockStore()
 	mb := newMockBus()
-	sub := NewSubscriber(mb, ms, "default")
+	sub := NewSubscriber(mb, ms, nil)
 	// No SetCertAuthority called.
 	if err := sub.Start(); err != nil {
 		t.Fatal(err)
@@ -1001,4 +1003,12 @@ func TestHandleBridgeBirth_NoCARevertsToUnsigned(t *testing.T) {
 	if b.BirthVerified {
 		t.Error("bridge should NOT be verified when no CA is configured")
 	}
+}
+
+func (m *mockStore) LookupDeviceTenant(_ context.Context, _ string) (string, error) {
+	return "", store.ErrNotFound
+}
+
+func (m *mockStore) LookupBridgeTenant(_ context.Context, _ string) (string, error) {
+	return "", store.ErrNotFound
 }
