@@ -2,11 +2,28 @@ package tenancy
 
 import (
 	"context"
+	"encoding/json"
+	"log/slog"
 	"sync"
 	"time"
 
+	"github.com/meshsat/meshsat-hub/internal/bus"
 	"github.com/meshsat/meshsat-hub/internal/store"
 )
+
+// StatusTopic carries "this tenant's status changed" between replicas. The
+// cache exists so the middleware is not a query per request, and the
+// consequence is that a replica which did not handle the change keeps serving
+// the old answer until its entry expires. For a closure that is untidy; for a
+// suspension, which is what you reach for when a tenant is doing something you
+// want stopped, waiting out a TTL is the wrong behaviour. So the replica that
+// makes the change says so, and the others drop their entry and re-read.
+const StatusTopic = "meshsat/hub/tenant/status"
+
+type statusEvent struct {
+	TenantID string `json:"tenant_id"`
+	Status   string `json:"status"`
+}
 
 // StatusCache answers "is this tenant allowed to do anything" for the auth
 // middleware, which asks on every request. A short TTL keeps that from being a
@@ -18,6 +35,29 @@ type StatusCache struct {
 
 	mu   sync.Mutex
 	seen map[string]statusEntry
+	bus  bus.MessageBus
+}
+
+// WithBus makes changes propagate to the other replicas.
+func (c *StatusCache) WithBus(b bus.MessageBus) *StatusCache {
+	c.bus = b
+	return c
+}
+
+// Subscribe listens for changes made by another replica. Safe to call with no
+// bus; then the TTL is the only thing keeping entries fresh.
+func (c *StatusCache) Subscribe() error {
+	if c == nil || c.bus == nil {
+		return nil
+	}
+	return c.bus.Subscribe(StatusTopic, 1, func(_ string, payload []byte) {
+		var ev statusEvent
+		if err := json.Unmarshal(payload, &ev); err != nil || ev.TenantID == "" {
+			return
+		}
+		c.forgetLocal(ev.TenantID)
+		slog.Info("tenant status changed elsewhere", "tenant", ev.TenantID, "status", ev.Status)
+	})
 }
 
 type statusEntry struct {
@@ -61,12 +101,25 @@ func (c *StatusCache) Status(ctx context.Context, tenantID string) (string, erro
 	return st, nil
 }
 
-// Forget drops a cached status so a suspension or restoration applies now
-// rather than at the end of the TTL.
+// Forget drops a cached status here and tells the other replicas to do the
+// same, so a suspension or a closure applies to the next request anywhere
+// rather than at the end of a TTL somewhere else.
 func (c *StatusCache) Forget(tenantID string) {
 	if c == nil {
 		return
 	}
+	c.forgetLocal(tenantID)
+	if c.bus == nil {
+		return
+	}
+	if err := c.bus.PublishJSON(StatusTopic, 1, false, statusEvent{TenantID: tenantID}); err != nil {
+		// The TTL still bounds how long a stale answer can survive, so this is
+		// a delay, not a hole.
+		slog.Warn("tenant status change not announced to the other replicas", "tenant", tenantID, "error", err)
+	}
+}
+
+func (c *StatusCache) forgetLocal(tenantID string) {
 	c.mu.Lock()
 	delete(c.seen, tenantID)
 	c.mu.Unlock()

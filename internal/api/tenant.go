@@ -21,12 +21,18 @@ const inviteTTL = 14 * 24 * time.Hour
 // platform-admin view of all tenants (/api/admin/tenants).
 type TenantHandler struct {
 	store store.Store
+	// forget drops the cached lifecycle status across the replicas, so a
+	// suspension applies to the next request rather than at the end of a TTL.
+	forget func(tenantID string)
 }
 
 // NewTenantHandler creates the tenant handler.
 func NewTenantHandler(s store.Store) *TenantHandler {
 	return &TenantHandler{store: s}
 }
+
+// SetStatusInvalidator wires the cross-replica cache drop.
+func (h *TenantHandler) SetStatusInvalidator(f func(tenantID string)) { h.forget = f }
 
 type tenantResponse struct {
 	ID          string `json:"id"`
@@ -292,6 +298,9 @@ func (h *TenantHandler) AdminUpdate(w http.ResponseWriter, r *http.Request) {
 	if err := h.store.UpdateTenant(r.Context(), t); err != nil {
 		writeError(w, http.StatusInternalServerError, "update failed")
 		return
+	}
+	if h.forget != nil {
+		h.forget(t.ID)
 	}
 	admin := hubauth.FromContext(r.Context())
 	slog.Info("tenant: updated by platform admin", "tenant", t.ID, "by", admin.ID, "status", t.Status, "plan", t.Plan)
