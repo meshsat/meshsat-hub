@@ -24,6 +24,27 @@ func TestMatchSource(t *testing.T) {
 	}
 }
 
+func TestMatchSenders(t *testing.T) {
+	cases := []struct {
+		senders, origin string
+		want            bool
+	}{
+		{"", "+31653618463", true},
+		{"*", "anything", true},
+		{"+31653618463", "+31653618463", true},
+		{"+31653618463", "+31653207829", false},
+		{"+31653618463, +31653207829", "+31653207829", true},
+		{" 300234065000001 ,+31653618463", "300234065000001", true},
+		{"+31653618463", "", false},
+		{"abc", "ABC", true},
+	}
+	for _, c := range cases {
+		if got := matchSenders(c.senders, c.origin); got != c.want {
+			t.Errorf("matchSenders(%q, %q) = %v, want %v", c.senders, c.origin, got, c.want)
+		}
+	}
+}
+
 func TestMatchFilter(t *testing.T) {
 	tests := []struct {
 		filter, deviceID, text string

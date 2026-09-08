@@ -15,6 +15,7 @@ const formName = ref('')
 const formSource = ref('*')
 const formDest = ref('mqtt')
 const formFilter = ref('')
+const formSenders = ref('')
 const formEnabled = ref(true)
 
 // Test state
@@ -54,6 +55,7 @@ function openCreateForm() {
   formSource.value = '*'
   formDest.value = 'mqtt'
   formFilter.value = ''
+  formSenders.value = ''
   formEnabled.value = true
   showForm.value = true
 }
@@ -64,6 +66,7 @@ function openEditForm(route) {
   formSource.value = route.source_type
   formDest.value = route.destination_type
   formFilter.value = route.filter || ''
+  formSenders.value = route.senders || ''
   formEnabled.value = route.enabled
   showForm.value = true
 }
@@ -84,6 +87,7 @@ async function submitForm() {
     source_type: formSource.value,
     destination_type: formDest.value,
     filter: formFilter.value.trim(),
+    senders: formSenders.value.trim(),
     enabled: formEnabled.value,
   }
   try {
@@ -108,6 +112,7 @@ async function toggleEnabled(route) {
       source_type: route.source_type,
       destination_type: route.destination_type,
       filter: route.filter || '',
+      senders: route.senders || '',
       enabled: !route.enabled,
     })
     await loadRoutes()
@@ -295,6 +300,8 @@ function destBadgeClass(type) {
         </select>
         <input v-model="formFilter" placeholder="Filter (IMEI or keyword)"
           class="bg-gray-800 border border-gray-700 px-3 py-2 rounded-lg text-gray-200 placeholder-gray-500 focus:outline-none focus:border-brand-primary flex-1 min-w-[140px]" />
+        <input v-model="formSenders" placeholder="Senders (IMEI or number, comma-separated; empty = any)" title="Only messages from these origins fire the route"
+          class="bg-gray-800 border border-gray-700 px-3 py-2 rounded-lg text-gray-200 placeholder-gray-500 focus:outline-none focus:border-brand-primary flex-1 min-w-[200px]" />
         <label class="flex items-center gap-2 text-sm text-gray-300 px-2">
           <input type="checkbox" v-model="formEnabled" class="rounded" />
           Enabled
@@ -321,6 +328,7 @@ function destBadgeClass(type) {
             <th class="px-3 py-2">Source</th>
             <th class="px-3 py-2">Destination</th>
             <th class="px-3 py-2">Filter</th>
+            <th class="px-3 py-2">Senders</th>
             <th class="px-3 py-2">Enabled</th>
             <th v-if="canModify" class="px-3 py-2"></th>
           </tr>
@@ -339,6 +347,7 @@ function destBadgeClass(type) {
               </span>
             </td>
             <td class="px-3 py-2 text-gray-400 font-mono text-xs">{{ r.filter || '—' }}</td>
+            <td class="px-3 py-2 text-gray-400 font-mono text-xs">{{ r.senders || 'any' }}</td>
             <td class="px-3 py-2">
               <button v-if="canModify" @click="toggleEnabled(r)"
                 :class="r.enabled ? 'bg-green-900/50 text-green-300' : 'bg-gray-700 text-gray-500'"
