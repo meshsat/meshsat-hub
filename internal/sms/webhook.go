@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"github.com/meshsat/meshsat-hub/internal/integrations"
 	"github.com/meshsat/meshsat-hub/internal/tenancy"
 	"github.com/rs/xid"
 	"log/slog"
@@ -62,7 +63,8 @@ type reticulumReceiver interface {
 type WebhookHandler struct {
 	tenants         *tenancy.Resolver // device → tenant for topic namespaces; nil = default tenant
 	mqtt            bus.MessageBus
-	secret          string // webhook validation secret
+	secret          string                // platform webhook validation secret (default tenant)
+	accounts        *integrations.Service // per-tenant webhook tokens/secrets (MESHSAT-977)
 	store           store.Store
 	keyStore        *hubcrypto.KeyStore
 	dedup           dedup.Dedup
@@ -84,6 +86,10 @@ type hembReassemblerIface interface {
 func NewWebhookHandler(mqtt bus.MessageBus, secret string) *WebhookHandler {
 	return &WebhookHandler{mqtt: mqtt, secret: secret}
 }
+
+// SetAccounts enables per-tenant webhook tokens: ?token= selects the tenant
+// (and its optional signing secret); the sender must belong to that tenant.
+func (h *WebhookHandler) SetAccounts(a *integrations.Service) { h.accounts = a }
 
 // SetStore enables message persistence for inbound SMS.
 func (h *WebhookHandler) SetStore(s store.Store) { h.store = s }
@@ -146,8 +152,32 @@ func (h *WebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// A tenant's webhook token selects the tenant and its signing secret.
+	tokenTenant := ""
+	secret := h.secret
+	if tok := r.URL.Query().Get("token"); tok != "" && h.accounts != nil {
+		tenant, acct, err := h.accounts.LookupByToken(r.Context(), integrations.ProviderTwilio, "webhook_token", tok)
+		if err != nil {
+			slog.Error("sms: webhook token lookup failed", "error", err)
+		}
+		if tenant == "" {
+			slog.Warn("sms: unknown webhook token", "remote", r.RemoteAddr)
+			http.Error(w, `{"error":"unauthorized"}`, http.StatusUnauthorized)
+			return
+		}
+		tokenTenant = tenant
+		if !acct.Platform {
+			secret = acct.Get("webhook_secret")
+		}
+	}
+	ctx := r.Context()
+	if tokenTenant != "" {
+		ctx = tenancy.WithTenant(ctx, tokenTenant)
+		r = r.WithContext(ctx)
+	}
+
 	// Verify signature if secret is configured.
-	if h.secret != "" {
+	if secret != "" {
 		sig := r.Header.Get("X-Twilio-Signature")
 		if sig == "" {
 			sig = r.Header.Get("X-Signature")
@@ -157,7 +187,7 @@ func (h *WebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, `{"error":"unauthorized"}`, http.StatusUnauthorized)
 			return
 		}
-		mac := hmac.New(sha256.New, []byte(h.secret))
+		mac := hmac.New(sha256.New, []byte(secret))
 		mac.Write([]byte(r.FormValue("From") + r.FormValue("Body")))
 		expected := hex.EncodeToString(mac.Sum(nil))
 		if !hmac.Equal([]byte(sig), []byte(expected)) {
@@ -174,6 +204,11 @@ func (h *WebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	if from == "" || body == "" {
 		http.Error(w, `{"error":"missing From or Body"}`, http.StatusBadRequest)
+		return
+	}
+	if tokenTenant != "" && h.tenants != nil && h.tenants.ForDeviceTopic(ctx, from, tokenTenant) != tokenTenant {
+		slog.Warn("sms: webhook token tenant does not own the sender", "from", from, "token_tenant", tokenTenant)
+		http.Error(w, `{"error":"forbidden"}`, http.StatusForbidden)
 		return
 	}
 
@@ -243,7 +278,7 @@ func (h *WebhookHandler) processBinaryPipeline(r *http.Request, w http.ResponseW
 	rawB64 := base64.StdEncoding.EncodeToString(rawBytes)
 
 	// Publish raw payload to mo/raw.
-	h.publish(hubmqtt.TopicMORawFor(h.tenantOf(from), from), 1, false, RawSMS{
+	h.publish(hubmqtt.TopicMORawFor(h.tenantOf(r.Context(), from), from), 1, false, RawSMS{
 		From:      from,
 		Raw:       rawB64,
 		Channel:   "sms",
@@ -324,12 +359,12 @@ func (h *WebhookHandler) processBinaryPipeline(r *http.Request, w http.ResponseW
 		Encrypted:   encrypted,
 		Timestamp:   time.Now().UTC().Format(time.RFC3339),
 	}
-	h.publish(hubmqtt.TopicMODecodedFor(h.tenantOf(from), from), 1, false, msg)
+	h.publish(hubmqtt.TopicMODecodedFor(h.tenantOf(r.Context(), from), from), 1, false, msg)
 	h.publish("meshsat/hub/sms/inbound", 1, false, msg)
 
 	// Persist to database.
 	if h.store != nil {
-		tid := h.tenantOf(from)
+		tid := h.tenantOf(r.Context(), from)
 		status := "received"
 		if encrypted {
 			status = "decrypted"
@@ -358,7 +393,7 @@ func (h *WebhookHandler) processBinaryPipeline(r *http.Request, w http.ResponseW
 
 	// Audit log.
 	if h.audit != nil {
-		tid := h.tenantOf(from)
+		tid := h.tenantOf(r.Context(), from)
 		detail := fmt.Sprintf("from=%s bytes=%d compressed=%v encrypted=%v", from, len(rawBytes), compressed, encrypted)
 		_ = h.audit.Log(r.Context(), tid, "message_received", "webhook_sms", detail, r.RemoteAddr)
 	}
@@ -389,7 +424,7 @@ func (h *WebhookHandler) processPlaintextSMS(r *http.Request, w http.ResponseWri
 
 	// Persist inbound SMS.
 	if h.store != nil {
-		tid := h.tenantOf(from)
+		tid := h.tenantOf(r.Context(), from)
 		dbMsg := &store.Message{
 			ID:         msgID,
 			DeviceIMEI: from,
@@ -438,7 +473,7 @@ func (h *WebhookHandler) handleBridgeUplink(ctx context.Context, from string, ra
 		}
 		slog.Info("sms: bridge uplink position",
 			"bridge_id", bridgeID, "lat", lat, "lon", lon, "alt", alt, "from", from)
-		h.publish(hubmqtt.TopicPositionFor(h.tenantOf(from), from), 1, true, map[string]any{
+		h.publish(hubmqtt.TopicPositionFor(h.tenantOf(ctx, from), from), 1, true, map[string]any{
 			"lat": lat, "lon": lon, "alt": alt,
 			"source": "sms_uplink", "timestamp": ts.Format(time.RFC3339),
 		})
@@ -452,7 +487,7 @@ func (h *WebhookHandler) handleBridgeUplink(ctx context.Context, from string, ra
 		slog.Warn("sms: BRIDGE SOS via SMS",
 			"bridge_id", bridgeID, "device_id", deviceID,
 			"lat", lat, "lon", lon, "message", message, "from", from)
-		h.publish(hubmqtt.TopicSOSFor(h.tenantOf(bridgeID), bridgeID), 1, false, map[string]any{
+		h.publish(hubmqtt.TopicSOSFor(h.tenantOf(ctx, bridgeID), bridgeID), 1, false, map[string]any{
 			"bridge_id": bridgeID, "device_id": deviceID,
 			"lat": lat, "lon": lon, "message": message,
 			"source": "sms", "timestamp": ts.Format(time.RFC3339),
@@ -468,7 +503,7 @@ func (h *WebhookHandler) handleBridgeUplink(ctx context.Context, from string, ra
 
 	// Mark bridge as online.
 	if h.store != nil {
-		tid := h.tenantOf(from)
+		tid := h.tenantOf(ctx, from)
 		_ = h.store.SetBridgeOnline(ctx, tid, from, true)
 	}
 
@@ -488,9 +523,14 @@ func smsMessageID(messageSID string) string {
 // (MESHSAT-864 MR 20). Without it every topic uses the default namespace.
 func (h *WebhookHandler) SetTenants(r *tenancy.Resolver) { h.tenants = r }
 
-func (h *WebhookHandler) tenantOf(id string) string {
+// tenantOf returns the tenant a message belongs to: the tenant the webhook
+// token authenticated (carried in ctx), else the sender's owner.
+func (h *WebhookHandler) tenantOf(ctx context.Context, id string) string {
+	if t := tenancy.FromContext(ctx); t != "" {
+		return t
+	}
 	if h.tenants == nil {
 		return hubmqtt.DefaultTenant
 	}
-	return h.tenants.ForDevice(context.Background(), id)
+	return h.tenants.ForDevice(ctx, id)
 }

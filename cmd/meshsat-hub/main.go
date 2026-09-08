@@ -683,10 +683,21 @@ func main() {
 		checker.AddInfoProbe("ntfy", ntfyClient.Healthz)
 		slog.Info("ntfy: notification backend enabled", "url", cfg.NtfyURL)
 	}
+	// Twilio: the platform account (env) serves the default tenant; every other
+	// tenant brings its own on the Integrations page (MESHSAT-977).
+	var smsPlatform *sms.Client
 	if cfg.SMSEnabled && cfg.SMSAccountSID != "" {
-		smsNotifier := sms.NewNotifier(sms.NewClient(cfg.SMSAccountSID, cfg.SMSAuthToken, cfg.SMSFromNumber))
-		notifiers = append(notifiers, smsNotifier)
-		slog.Info("sms: escalation notifier enabled", "from", cfg.SMSFromNumber)
+		if cfg.SMSAPIKeySID != "" {
+			smsPlatform = sms.NewClientWithAPIKey(cfg.SMSAccountSID, cfg.SMSAPIKeySID, cfg.SMSAuthToken, cfg.SMSFromNumber)
+			slog.Info("sms: using API key auth", "key_sid", cfg.SMSAPIKeySID)
+		} else {
+			smsPlatform = sms.NewClient(cfg.SMSAccountSID, cfg.SMSAuthToken, cfg.SMSFromNumber)
+		}
+	}
+	smsPool := sms.NewClientPool(smsPlatform, providerAccounts)
+	if cfg.SMSEnabled {
+		notifiers = append(notifiers, sms.NewNotifierPool(smsPool))
+		slog.Info("sms: escalation notifier enabled", "platform_from", cfg.SMSFromNumber)
 	}
 	var emailKeyRing *hubemail.KeyRing
 	if cfg.EmailEnabled && cfg.EmailSMTPHost != "" {
@@ -1109,6 +1120,7 @@ func main() {
 	// RockBLOCK webhook handler.
 	rbHandler := rockblock.NewHandler(msgBus, cfg.RockBLOCKSecret)
 	rbHandler.SetTenants(tenants)
+	rbHandler.SetAccounts(providerAccounts)
 	rbHandler.SetAudit(auditSvc)
 	rbHandler.SetDedup(dedupTracker)
 	rbHandler.SetReassembler(reassembler)
@@ -1124,10 +1136,12 @@ func main() {
 		rock7Client = rock7.NewClient(cfg.Rock7Username, cfg.Rock7Password)
 		slog.Info("rock7: MT sender enabled", "username", cfg.Rock7Username)
 	}
+	rock7Pool := rock7.NewClientPool(rock7Client, providerAccounts)
 
 	// Globalstar MO webhook handler.
 	gsHandler := globalstar.NewHandler(msgBus, cfg.GlobalstarWebhookSecret)
 	gsHandler.SetTenants(tenants)
+	gsHandler.SetAccounts(providerAccounts)
 	gsHandler.SetAudit(auditSvc)
 	gsHandler.SetDedup(dedupTracker)
 	gsHandler.SetReassembler(reassembler)
@@ -1352,18 +1366,10 @@ func main() {
 	r.Get("/api/bridges/{id}/provision/{nonce}", provisionClaimHandler.ClaimProvision)
 
 	// SMS gateway (optional — inbound webhook + outbound subscriber + send API)
-	var smsClientForSend *sms.Client
-	if cfg.SMSEnabled && cfg.SMSAccountSID != "" {
-		var smsClient *sms.Client
-		if cfg.SMSAPIKeySID != "" {
-			smsClient = sms.NewClientWithAPIKey(cfg.SMSAccountSID, cfg.SMSAPIKeySID, cfg.SMSAuthToken, cfg.SMSFromNumber)
-			slog.Info("sms: using API key auth", "key_sid", cfg.SMSAPIKeySID)
-		} else {
-			smsClient = sms.NewClient(cfg.SMSAccountSID, cfg.SMSAuthToken, cfg.SMSFromNumber)
-		}
-		smsClientForSend = smsClient
+	if cfg.SMSEnabled {
 		smsWebhook := sms.NewWebhookHandler(msgBus, cfg.SMSWebhookSecret)
 		smsWebhook.SetTenants(tenants)
+		smsWebhook.SetAccounts(providerAccounts)
 		smsWebhook.SetStore(dataStore)
 		smsWebhook.SetKeyStore(keyStore)
 		// [MESHSAT-446] Wire full pipeline (parity with Rock7/Cloudloop)
@@ -1376,7 +1382,8 @@ func main() {
 		// SMS Reticulum interface deferred to MESHSAT-404
 		r.Post("/api/webhook/sms", smsWebhook.ServeHTTP)
 		if msgBus.IsConnected() {
-			smsSub := sms.NewSubscriber(smsClient, msgBus)
+			smsSub := sms.NewSubscriber(smsPlatform, msgBus)
+			smsSub.SetClientPool(smsPool)
 			if err := smsSub.Start(); err != nil {
 				slog.Error("sms: failed to start outbound subscriber", "error", err)
 			} else {
@@ -1655,7 +1662,9 @@ func main() {
 	// MT message send (Rock7 / Iridium)
 	sendHandler := api.NewSendHandler(rock7Client, dataStore)
 	sendHandler.SetKeyStore(keyStore)
-	sendHandler.SetSMSClient(smsClientForSend)
+	sendHandler.SetSMSClient(smsPlatform)
+	sendHandler.SetSMSPool(smsPool)
+	sendHandler.SetRock7Pool(rock7Pool)
 	sendHandler.SetIMTSender(mtSender)
 	r.Post("/api/devices/{imei}/send", sendHandler.SendMessage)
 	// Explicit provider routes fail loudly on protocol mismatch [MESHSAT-750].
@@ -1896,8 +1905,8 @@ func main() {
 	routeEngine := routing.NewEngine(dataStore, msgBus, tenants)
 	// Register SMS destination handler if SMS is enabled.
 	// Use the same API-key-authenticated client as the send endpoint. [MESHSAT-448]
-	if smsClientForSend != nil {
-		routeEngine.RegisterHandler("sms", routing.NewSMSHandler(smsClientForSend))
+	if cfg.SMSEnabled {
+		routeEngine.RegisterHandler("sms", routing.NewSMSHandlerPool(smsPool))
 	}
 	// Register Email destination handler if email is enabled.
 	if emailKeyRing != nil {
@@ -2010,7 +2019,7 @@ func main() {
 	}
 
 	// Scheduled message delivery (MESHSAT-314).
-	msgScheduler := scheduler.New(dataStore, &scheduledSenderAdapter{rock7: rock7Client}, 30*time.Second)
+	msgScheduler := scheduler.New(dataStore, &scheduledSenderAdapter{rock7: rock7Client, pool: rock7Pool, tenants: tenants}, 30*time.Second)
 	go msgScheduler.Run(ctx)
 
 	// Store maintenance for the single-writer claims (MESHSAT-910): drop
@@ -2119,18 +2128,28 @@ func initLogger(cfg config.Config) {
 
 // scheduledSenderAdapter adapts the Rock7 MT client to scheduler.MessageSender.
 type scheduledSenderAdapter struct {
-	rock7 *rock7.Client
+	rock7   *rock7.Client
+	pool    *rock7.ClientPool // per-tenant accounts (MESHSAT-977)
+	tenants *tenancy.Resolver
 }
 
 func (a *scheduledSenderAdapter) SendScheduled(ctx context.Context, msg *store.Message) error {
-	if a.rock7 == nil {
-		return fmt.Errorf("MT send not configured")
+	client := a.rock7
+	if a.pool != nil {
+		tenantID := store.DefaultTenantID
+		if a.tenants != nil {
+			tenantID = a.tenants.ForDevice(ctx, msg.DeviceIMEI)
+		}
+		client = a.pool.ForTenant(ctx, tenantID)
+	}
+	if client == nil {
+		return fmt.Errorf("no Rock7 account configured for the message's tenant")
 	}
 	dataHex := msg.RawHex
 	if dataHex == "" {
 		dataHex = hex.EncodeToString([]byte(msg.Text))
 	}
-	_, err := a.rock7.SendMT(ctx, msg.DeviceIMEI, dataHex)
+	_, err := client.SendMT(ctx, msg.DeviceIMEI, dataHex)
 	return err
 }
 
