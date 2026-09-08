@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net"
@@ -35,6 +36,7 @@ type reticulumReceiver interface {
 
 // WebhookMOMessage represents a decoded Cloudloop MO message published to MQTT.
 type WebhookMOMessage struct {
+	ID               string  `json:"id"`
 	IMEI             string  `json:"imei"`
 	MOMSN            int     `json:"momsn"`
 	Channel          string  `json:"channel"`
@@ -380,7 +382,9 @@ func (h *WebhookHandler) processLingoMO(ctx context.Context, mo *LingoMO, remote
 	}
 
 	// Publish decoded message to mo/decoded.
+	msgID := fmt.Sprintf("mo-%s-%d", imei, momsn) // same scheme as rockblock.sbdMessageID
 	decoded := WebhookMOMessage{
+		ID:               msgID,
 		IMEI:             imei,
 		MOMSN:            momsn,
 		Channel:          "iridium",
@@ -401,7 +405,7 @@ func (h *WebhookHandler) processLingoMO(ctx context.Context, mo *LingoMO, remote
 	if h.store != nil {
 		tid := auth.TenantIDFromContext(ctx)
 		msg := &store.Message{
-			ID:         fmt.Sprintf("mo-%d", time.Now().UnixNano()),
+			ID:         msgID,
 			DeviceIMEI: imei,
 			Direction:  "mo",
 			Channel:    "iridium",
@@ -413,7 +417,9 @@ func (h *WebhookHandler) processLingoMO(ctx context.Context, mo *LingoMO, remote
 			Lat:        lat,
 			Lon:        lon,
 		}
-		if err := h.store.InsertMessage(ctx, tid, msg); err != nil {
+		if err := h.store.InsertMessage(ctx, tid, msg); errors.Is(err, store.ErrDuplicate) {
+			slog.Debug("cloudloop: message already persisted", "id", msgID)
+		} else if err != nil {
 			slog.Warn("cloudloop: message persist failed", "error", err, "imei", imei)
 		} else {
 			slog.Info("cloudloop: message persisted", "imei", imei, "id", mo.ID)

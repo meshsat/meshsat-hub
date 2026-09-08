@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"github.com/rs/xid"
 	"log/slog"
 	"net/http"
 	"time"
@@ -30,6 +31,7 @@ import (
 
 // InboundSMS is published to MQTT when an SMS is received via webhook.
 type InboundSMS struct {
+	ID          string `json:"id"`
 	From        string `json:"from"`
 	To          string `json:"to"`
 	Body        string `json:"body"`
@@ -308,7 +310,9 @@ func (h *WebhookHandler) processBinaryPipeline(r *http.Request, w http.ResponseW
 	}
 
 	// Publish decoded message.
+	msgID := smsMessageID(messageSID)
 	msg := InboundSMS{
+		ID:          msgID,
 		From:        from,
 		To:          to,
 		Body:        text,
@@ -330,7 +334,7 @@ func (h *WebhookHandler) processBinaryPipeline(r *http.Request, w http.ResponseW
 			status = "decrypted"
 		}
 		dbMsg := &store.Message{
-			ID:         fmt.Sprintf("sms-in-%d", time.Now().UnixNano()),
+			ID:         msgID,
 			DeviceIMEI: from,
 			Direction:  "mo",
 			Channel:    "sms",
@@ -369,7 +373,9 @@ func (h *WebhookHandler) processBinaryPipeline(r *http.Request, w http.ResponseW
 func (h *WebhookHandler) processPlaintextSMS(r *http.Request, w http.ResponseWriter,
 	from, to, body, messageSID string) {
 
+	msgID := smsMessageID(messageSID)
 	msg := InboundSMS{
+		ID:         msgID,
 		From:       from,
 		To:         to,
 		Body:       body,
@@ -384,7 +390,7 @@ func (h *WebhookHandler) processPlaintextSMS(r *http.Request, w http.ResponseWri
 	if h.store != nil {
 		tid := auth.TenantIDFromContext(r.Context())
 		dbMsg := &store.Message{
-			ID:         fmt.Sprintf("sms-in-%d", time.Now().UnixNano()),
+			ID:         msgID,
 			DeviceIMEI: from,
 			Direction:  "mo",
 			Channel:    "sms",
@@ -466,4 +472,13 @@ func (h *WebhookHandler) handleBridgeUplink(ctx context.Context, from string, ra
 	}
 
 	return true
+}
+
+// smsMessageID is the stable ID of an inbound SMS: Twilio's MessageSid is
+// unique per message, so a delivery retry or a second replica collapses.
+func smsMessageID(messageSID string) string {
+	if messageSID == "" {
+		return "sms-in-" + xid.New().String()
+	}
+	return "sms-in-" + messageSID
 }
