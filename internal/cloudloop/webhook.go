@@ -3,6 +3,7 @@ package cloudloop
 import (
 	"context"
 	"crypto/sha256"
+	"crypto/subtle"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -15,7 +16,6 @@ import (
 	"time"
 
 	"github.com/meshsat/meshsat-hub/internal/audit"
-	"github.com/meshsat/meshsat-hub/internal/auth"
 	"github.com/meshsat/meshsat-hub/internal/bridge"
 	"github.com/meshsat/meshsat-hub/internal/bus"
 	"github.com/meshsat/meshsat-hub/internal/codec"
@@ -89,6 +89,7 @@ type WebhookHandler struct {
 	hembReassembler interface{ AddRawFrame([]byte) ([]byte, error) }
 	resolver        *ThingResolver
 	allowedIPs      []string
+	token           string // shared webhook token; required when allowedIPs is "*"
 	store           interface {
 		InsertMessage(ctx context.Context, tenantID string, m *store.Message) error
 		SetBridgeOnline(ctx context.Context, tenantID string, bridgeID string, online bool) error
@@ -152,6 +153,25 @@ func (h *WebhookHandler) SetHeMBReassembler(r interface{ AddRawFrame([]byte) ([]
 
 // SetAllowedIPs sets the IP allowlist for webhook requests.
 // If empty, all IPs are allowed.
+// SetToken sets the shared webhook token. With a wildcard allowlist the token
+// is the only thing that authenticates Cloudloop, so ServeHTTP refuses every
+// request until one is configured (MESHSAT-971).
+func (h *WebhookHandler) SetToken(t string) { h.token = t }
+
+// wildcardAllowlist reports whether the allowlist is the catch-all "*".
+func (h *WebhookHandler) wildcardAllowlist() bool {
+	return len(h.allowedIPs) == 1 && strings.TrimSpace(h.allowedIPs[0]) == "*"
+}
+
+// tokenOK compares the presented token (query or header) in constant time.
+func (h *WebhookHandler) tokenOK(r *http.Request) bool {
+	got := r.URL.Query().Get("token")
+	if got == "" {
+		got = r.Header.Get("X-Webhook-Token")
+	}
+	return got != "" && subtle.ConstantTimeCompare([]byte(got), []byte(h.token)) == 1
+}
+
 func (h *WebhookHandler) SetAllowedIPs(ips []string) {
 	h.allowedIPs = ips
 }
@@ -196,7 +216,19 @@ func (h *WebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, `{"error":"webhook IP allowlist not configured"}`, http.StatusForbidden)
 		return
 	}
-	if (len(h.allowedIPs) != 1 || h.allowedIPs[0] != "*") && !h.isAllowedIP(r) {
+	if h.wildcardAllowlist() {
+		// A wildcard allowlist is only acceptable together with a shared token.
+		if h.token == "" {
+			slog.Warn("cloudloop: allowlist is * but no webhook token configured, rejecting request")
+			http.Error(w, `{"error":"webhook token not configured"}`, http.StatusForbidden)
+			return
+		}
+		if !h.tokenOK(r) {
+			slog.Warn("cloudloop: webhook token missing or wrong", "remote", r.RemoteAddr)
+			http.Error(w, `{"error":"unauthorized"}`, http.StatusUnauthorized)
+			return
+		}
+	} else if !h.isAllowedIP(r) {
 		slog.Warn("cloudloop: request from disallowed IP", "remote", r.RemoteAddr)
 		http.Error(w, `{"error":"forbidden"}`, http.StatusForbidden)
 		return
@@ -405,7 +437,7 @@ func (h *WebhookHandler) processLingoMO(ctx context.Context, mo *LingoMO, remote
 
 	// Persist MO message to database.
 	if h.store != nil {
-		tid := auth.TenantIDFromContext(ctx)
+		tid := h.tenantOf(imei)
 		msg := &store.Message{
 			ID:         msgID,
 			DeviceIMEI: imei,
@@ -447,7 +479,7 @@ func (h *WebhookHandler) processLingoMO(ctx context.Context, mo *LingoMO, remote
 
 	// Audit: log message_received event.
 	if h.audit != nil {
-		tid := auth.TenantIDFromContext(ctx)
+		tid := h.tenantOf(imei)
 		detail := fmt.Sprintf("imei=%s id=%s source=%s bytes=%d", imei, mo.ID, source, len(rawBytes))
 		ip := remoteAddr
 		if idx := strings.LastIndex(ip, ":"); idx > 0 {
@@ -491,7 +523,7 @@ func (h *WebhookHandler) handleBridgeSatUplink(ctx context.Context, imei string,
 		}
 		h.publish(hubmqtt.TopicPositionFor(h.tenantOf(bridgeID), bridgeID), 1, true, pos)
 		if h.store != nil {
-			tid := auth.TenantIDFromContext(ctx)
+			tid := h.tenantOf(bridgeID)
 			_ = h.store.SetBridgeOnline(ctx, tid, bridgeID, true)
 		}
 
@@ -524,7 +556,7 @@ func (h *WebhookHandler) handleBridgeSatUplink(ctx context.Context, imei string,
 			"bridge_id", bridgeID, "uptime", uptimeSec, "cpu", cpuPct, "mem", memPct, "disk", diskPct,
 			"interfaces", len(ifaces), "timestamp", ts)
 		if h.store != nil {
-			tid := auth.TenantIDFromContext(ctx)
+			tid := h.tenantOf(bridgeID)
 			healthJSON, _ := json.Marshal(map[string]interface{}{
 				"uptime_sec": uptimeSec,
 				"cpu_pct":    cpuPct,
@@ -544,7 +576,7 @@ func (h *WebhookHandler) handleBridgeSatUplink(ctx context.Context, imei string,
 
 	// Audit: log bridge satellite uplink event.
 	if h.audit != nil {
-		tid := auth.TenantIDFromContext(ctx)
+		tid := h.tenantOf(imei)
 		detail := fmt.Sprintf("imei=%s type=0x%02x bytes=%d", imei, msgType, len(rawBytes))
 		_ = h.audit.Log(ctx, tid, "bridge_sat_uplink", "cloudloop_webhook", detail, "")
 	}
