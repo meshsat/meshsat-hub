@@ -75,6 +75,8 @@ var Specs = []Spec{
 			{Key: "account_sid", Label: "Account SID", Required: true},
 			{Key: "auth_token", Label: "Auth token", Secret: true, Required: true, Hint: "Also validates X-Twilio-Signature on the inbound webhook."},
 			{Key: "from_number", Label: "From number", Required: true, Hint: "E.164, e.g. +3197010000000"},
+			{Key: "webhook_token", Label: "Webhook token", Secret: true, Generate: true, Hint: "Append ?token=<value> to the inbound SMS webhook URL in the Twilio console. Generated when left empty."},
+			{Key: "webhook_secret", Label: "Webhook signing secret", Secret: true, Hint: "Optional: HMAC-SHA256 of From+Body presented as X-Signature by a custom relay."},
 		}},
 	{Provider: ProviderRock7, Label: "Rock7 (RockBLOCK MT API)", Description: "Rock7 Core account for direct RockBLOCK MT sends.",
 		Fields: []Field{

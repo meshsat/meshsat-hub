@@ -7,6 +7,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"github.com/meshsat/meshsat-hub/internal/integrations"
 	"github.com/meshsat/meshsat-hub/internal/tenancy"
 	"github.com/rs/xid"
 	"log/slog"
@@ -73,6 +74,7 @@ type Handler struct {
 	tenants     *tenancy.Resolver // device → tenant for topic namespaces; nil = default tenant
 	mqtt        bus.MessageBus
 	secret      string
+	accounts    *integrations.Service // per-tenant webhook secrets (MESHSAT-977)
 	audit       *audit.Service
 	dedup       dedup.Dedup
 	reassembler *fragment.Reassembler
@@ -151,13 +153,34 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// Limit request body to 1MB.
 	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
 
+	// A tenant's webhook secret in ?token= selects the tenant and the secret
+	// the body must be signed with (MESHSAT-977).
+	ctx := r.Context()
+	tokenTenant := ""
+	secret := h.secret
+	if tok := r.URL.Query().Get("token"); tok != "" && h.accounts != nil {
+		tenant, acct, err := h.accounts.LookupByToken(ctx, integrations.ProviderGlobalstar, "webhook_secret", tok)
+		if err != nil {
+			slog.Error("globalstar: webhook token lookup failed", "error", err)
+		}
+		if tenant == "" {
+			slog.Warn("globalstar: unknown webhook token", "remote", r.RemoteAddr)
+			http.Error(w, `{"error":"unauthorized"}`, http.StatusUnauthorized)
+			return
+		}
+		tokenTenant = tenant
+		secret = acct.Get("webhook_secret")
+		ctx = tenancy.WithTenant(ctx, tenant)
+		r = r.WithContext(ctx)
+	}
+
 	// Verify HMAC signature — reject unsigned requests when secret is not configured.
-	if h.secret == "" {
+	if secret == "" {
 		slog.Warn("globalstar: webhook secret not configured, rejecting unsigned request")
 		http.Error(w, `{"error":"webhook secret not configured"}`, http.StatusForbidden)
 		return
 	}
-	if !h.verifySignature(r) {
+	if !h.verifySignature(r, secret) {
 		slog.Warn("globalstar: signature verification failed")
 		http.Error(w, `{"error":"unauthorized"}`, http.StatusUnauthorized)
 		return
@@ -174,6 +197,11 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	if payload.DeviceID == "" {
 		http.Error(w, `{"error":"missing deviceId"}`, http.StatusBadRequest)
+		return
+	}
+	if tokenTenant != "" && h.tenants != nil && h.tenants.ForDeviceTopic(ctx, payload.DeviceID, tokenTenant) != tokenTenant {
+		slog.Warn("globalstar: webhook token tenant does not own the device", "device", payload.DeviceID, "token_tenant", tokenTenant)
+		http.Error(w, `{"error":"forbidden"}`, http.StatusForbidden)
 		return
 	}
 
@@ -228,7 +256,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		Latitude:   payload.Latitude,
 		Longitude:  payload.Longitude,
 	}
-	h.publish(hubmqtt.TopicMORawFor(h.tenantOf(deviceID), deviceID), 1, false, rawMsg)
+	h.publish(hubmqtt.TopicMORawFor(h.tenantOf(ctx, deviceID), deviceID), 1, false, rawMsg)
 
 	// Fragment reassembly: Globalstar uses the same 2-byte Iridium fragment header format.
 	// [fragment_index:4bit | total_fragments:4bit] [message_id:8bit]
@@ -328,7 +356,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		Latitude:    payload.Latitude,
 		Longitude:   payload.Longitude,
 	}
-	h.publish(hubmqtt.TopicMODecodedFor(h.tenantOf(deviceID), deviceID), 1, false, decoded)
+	h.publish(hubmqtt.TopicMODecodedFor(h.tenantOf(ctx, deviceID), deviceID), 1, false, decoded)
 
 	// Publish position if lat/lon are present and non-zero.
 	if payload.Latitude != 0 || payload.Longitude != 0 {
@@ -338,7 +366,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			Source:    "globalstar",
 			Timestamp: receivedAt,
 		}
-		h.publish(hubmqtt.TopicPositionFor(h.tenantOf(deviceID), deviceID), 1, true, pos)
+		h.publish(hubmqtt.TopicPositionFor(h.tenantOf(ctx, deviceID), deviceID), 1, true, pos)
 	}
 
 	// Dead man's switch: device sent an MO message, reset its timer.
@@ -362,7 +390,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 // verifySignature checks the HMAC-SHA256 signature from Globalstar webhook headers.
-func (h *Handler) verifySignature(r *http.Request) bool {
+func (h *Handler) verifySignature(r *http.Request, secret string) bool {
 	sig := r.Header.Get("X-Signature")
 	if sig == "" {
 		return false
@@ -374,7 +402,7 @@ func (h *Handler) verifySignature(r *http.Request) bool {
 		return false
 	}
 
-	mac := hmac.New(sha256.New, []byte(h.secret))
+	mac := hmac.New(sha256.New, []byte(secret))
 	mac.Write(bodyBytes)
 	expected := fmt.Sprintf("%x", mac.Sum(nil))
 
@@ -409,9 +437,17 @@ func isPrintable(b []byte) bool {
 // (MESHSAT-864 MR 20). Without it every topic uses the default namespace.
 func (h *Handler) SetTenants(r *tenancy.Resolver) { h.tenants = r }
 
-func (h *Handler) tenantOf(id string) string {
+// tenantOf returns the tenant a message belongs to: the tenant the webhook
+// token authenticated (carried in ctx), else the device's owner.
+func (h *Handler) tenantOf(ctx context.Context, id string) string {
+	if t := tenancy.FromContext(ctx); t != "" {
+		return t
+	}
 	if h.tenants == nil {
 		return hubmqtt.DefaultTenant
 	}
-	return h.tenants.ForDevice(context.Background(), id)
+	return h.tenants.ForDevice(ctx, id)
 }
+
+// SetAccounts enables per-tenant webhook secrets (?token= selects the tenant).
+func (h *Handler) SetAccounts(a *integrations.Service) { h.accounts = a }

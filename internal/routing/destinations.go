@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/meshsat/meshsat-hub/internal/tenancy"
 	"log/slog"
 	"strings"
 
@@ -46,6 +47,23 @@ func NewSMSHandler(client *sms.Client) DestinationHandler {
 				slog.Error("routing/sms: send failed", "to", to, "device", deviceID, "error", err)
 			}
 		}
+	}
+}
+
+// NewSMSHandlerPool is NewSMSHandler with the Twilio account of the route's
+// tenant (the engine puts it in ctx, tenancy.WithTenant).
+func NewSMSHandlerPool(pool *sms.ClientPool) DestinationHandler {
+	return func(ctx context.Context, route *store.Route, deviceID string, payload json.RawMessage) {
+		tenantID := tenancy.FromContext(ctx)
+		if tenantID == "" {
+			tenantID = store.DefaultTenantID
+		}
+		client := pool.ForTenant(ctx, tenantID)
+		if client == nil {
+			slog.Warn("routing/sms: no Twilio account for tenant", "tenant", tenantID, "route", route.ID)
+			return
+		}
+		NewSMSHandler(client)(ctx, route, deviceID, payload)
 	}
 }
 

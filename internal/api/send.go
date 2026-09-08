@@ -21,7 +21,9 @@ import (
 // SendHandler handles MT message and SMS send requests.
 type SendHandler struct {
 	rock7Client *rock7.Client
+	rock7Pool   *rock7.ClientPool // per-tenant accounts (MESHSAT-977)
 	smsClient   *sms.Client
+	smsPool     *sms.ClientPool
 	store       store.Store
 	keyStore    *hubcrypto.KeyStore
 	imtSender   *cloudloop.Sender
@@ -40,6 +42,26 @@ func (h *SendHandler) SetKeyStore(ks *hubcrypto.KeyStore) {
 // SetSMSClient enables SMS sending.
 func (h *SendHandler) SetSMSClient(c *sms.Client) {
 	h.smsClient = c
+}
+
+// SetRock7Pool makes Rock7 sends use the caller tenant's account.
+func (h *SendHandler) SetRock7Pool(p *rock7.ClientPool) { h.rock7Pool = p }
+
+// SetSMSPool makes SMS sends use the caller tenant's Twilio account.
+func (h *SendHandler) SetSMSPool(p *sms.ClientPool) { h.smsPool = p }
+
+func (h *SendHandler) rock7For(r *http.Request) *rock7.Client {
+	if h.rock7Pool != nil {
+		return h.rock7Pool.ForTenant(r.Context(), auth.TenantIDFromContext(r.Context()))
+	}
+	return h.rock7Client
+}
+
+func (h *SendHandler) smsFor(r *http.Request) *sms.Client {
+	if h.smsPool != nil {
+		return h.smsPool.ForTenant(r.Context(), auth.TenantIDFromContext(r.Context()))
+	}
+	return h.smsClient
 }
 
 // SetIMTSender enables MT sends to IMT (9704) devices via Cloudloop. [MESHSAT-750]
@@ -133,8 +155,9 @@ func (h *SendHandler) SendMessage(w http.ResponseWriter, r *http.Request) {
 
 // sendViaRock7 sends the MT via the Rock7 (SBD) API and writes the response.
 func (h *SendHandler) sendViaRock7(w http.ResponseWriter, r *http.Request, imei string, req *sendMessageRequest) {
-	if h.rock7Client == nil {
-		writeError(w, http.StatusServiceUnavailable, "MT send not configured (set HUB_ROCK7_USERNAME)")
+	rock7Client := h.rock7For(r)
+	if rock7Client == nil {
+		writeError(w, http.StatusServiceUnavailable, "no Rock7 account configured for this tenant (Integrations page)")
 		return
 	}
 
@@ -167,7 +190,7 @@ func (h *SendHandler) sendViaRock7(w http.ResponseWriter, r *http.Request, imei 
 	}
 
 	dataHex := hex.EncodeToString(payload)
-	result, err := h.rock7Client.SendMT(r.Context(), imei, dataHex)
+	result, err := rock7Client.SendMT(r.Context(), imei, dataHex)
 
 	// Persist the MT message.
 	tid := auth.TenantIDFromContext(r.Context())
@@ -253,8 +276,9 @@ func (h *SendHandler) SendSMS(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "to and text are required")
 		return
 	}
-	if h.smsClient == nil {
-		writeError(w, http.StatusServiceUnavailable, "SMS not configured (set HUB_SMS_ACCOUNT_SID)")
+	smsClient := h.smsFor(r)
+	if smsClient == nil {
+		writeError(w, http.StatusServiceUnavailable, "no Twilio account configured for this tenant (Integrations page)")
 		return
 	}
 
@@ -298,7 +322,7 @@ func (h *SendHandler) SendSMS(w http.ResponseWriter, r *http.Request) {
 		finalBody = "MSMS:" + hex.EncodeToString(payload) // compressed-only fallback
 	}
 
-	result, err := h.smsClient.Send(r.Context(), req.To, finalBody)
+	result, err := smsClient.Send(r.Context(), req.To, finalBody)
 
 	tid := auth.TenantIDFromContext(r.Context())
 	var status, errMsg, smsSID string
