@@ -276,6 +276,12 @@ func main() {
 		RetentionDays: cfg.AuditRetentionDays,
 		ArchivePath:   cfg.AuditArchivePath,
 	}
+	if cfg.AuditArchiveS3Endpoint != "" || cfg.AuditArchiveS3Bucket != "" {
+		auditRetentionCfg.S3 = &audit.S3Config{
+			Endpoint: cfg.AuditArchiveS3Endpoint, Bucket: cfg.AuditArchiveS3Bucket, Prefix: cfg.AuditArchiveS3Prefix,
+			Region: cfg.AuditArchiveS3Region, AccessKey: cfg.AuditArchiveS3AccessKey, SecretKey: cfg.AuditArchiveS3SecretKey,
+		}
+	}
 
 	// --- Dedup (tri-mode) ---
 	var dedupTracker dedup.Dedup
