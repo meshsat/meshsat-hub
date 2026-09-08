@@ -50,7 +50,12 @@ case "${1:-}" in
     csec="$(echo "$out" | sed -n 's/^HUB_OIDC_CLIENT_SECRET=//p')"
     if [ -z "$cid" ] || [ -z "$csec" ]; then echo "FATAL: no OIDC config in output"; echo "$out" | tail -25; exit 1; fi
     tmp="$(mktemp)"; chmod 600 "$tmp"
-    printf '{"HUB_OIDC_CLIENT_ID":"%s","HUB_OIDC_CLIENT_SECRET":"%s"}' "$cid" "$csec" > "$tmp"
+    atok="$(echo "$out" | sed -n 's/^HUB_AUTHENTIK_TOKEN=//p')"
+    if [ -n "$atok" ]; then
+      printf '{"HUB_OIDC_CLIENT_ID":"%s","HUB_OIDC_CLIENT_SECRET":"%s","HUB_AUTHENTIK_TOKEN":"%s"}' "$cid" "$csec" "$atok" > "$tmp"
+    else
+      printf '{"HUB_OIDC_CLIENT_ID":"%s","HUB_OIDC_CLIENT_SECRET":"%s"}' "$cid" "$csec" > "$tmp"
+    fi
     bao kv patch -mount=secret ci-no/apps/meshsat-hub/hub @"$tmp" >/dev/null
     shred -u "$tmp"
     echo "OIDC client stored in OpenBao ci-no/apps/meshsat-hub/hub (client id ${cid:0:6}...)"
