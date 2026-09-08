@@ -59,8 +59,14 @@ func (h *TenantIntegrationsHandler) view(ctx context.Context, tenantID string, s
 	}
 	if spec.Webhook != "" {
 		v.WebhookPath = spec.Webhook
-		if a != nil && spec.Provider == integrations.ProviderCloudloop && a.Get("webhook_token") != "" {
-			v.WebhookPath += "?token=" + integrations.Masked(spec, a)["webhook_token"]
+		// The tenant's own endpoint: the secret is the last path segment
+		// (MESHSAT-975), so this is the URL to paste into the provider's
+		// console. It is returned in full rather than masked because a masked
+		// one cannot be used, and it is the caller's own tenant's secret.
+		if a != nil {
+			if f := integrations.WebhookSecretField(spec.Provider); f != "" && a.Get(f) != "" {
+				v.WebhookPath += "/" + a.Get(f)
+			}
 		}
 	}
 	return v, nil

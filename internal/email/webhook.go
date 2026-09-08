@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"github.com/meshsat/meshsat-hub/internal/bus"
+	hubmqtt "github.com/meshsat/meshsat-hub/internal/mqtt"
+	"github.com/meshsat/meshsat-hub/internal/webhookroute"
 )
 
 // InboundEmail is published to MQTT when an email is received.
@@ -31,10 +33,26 @@ type WebhookHandler struct {
 	secret  string // shared secret (X-Webhook-Secret or ?secret=); empty = every request refused
 }
 
+// tenantOf is the tenant whose webhook path this mail arrived at, or the
+// platform tenant on the legacy shared path. Inbound mail used to be published
+// on one global topic for every tenant at once, so anything subscribed to the
+// hub namespace saw all of it (MESHSAT-975).
+func (h *WebhookHandler) tenantOf(r *http.Request) string {
+	if t := webhookroute.TenantID(r.Context()); t != "" {
+		return t
+	}
+	return hubmqtt.DefaultTenant
+}
+
 // SetSecret configures the shared secret the email service must present (MESHSAT-976).
 func (h *WebhookHandler) SetSecret(s string) { h.secret = s }
 
 func (h *WebhookHandler) secretOK(r *http.Request) bool {
+	// A request that came through a tenant's webhook path already proved it
+	// holds that tenant's secret; the middleware resolved it.
+	if webhookroute.TenantID(r.Context()) != "" {
+		return true
+	}
 	got := r.Header.Get("X-Webhook-Secret")
 	if got == "" {
 		got = r.URL.Query().Get("secret")
@@ -133,7 +151,8 @@ func (h *WebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if h.mqtt != nil {
-		if err := h.mqtt.PublishJSON("meshsat/hub/email/inbound", 1, false, msg); err != nil {
+		topic := hubmqtt.Namespace(h.tenantOf(r)) + "/hub/email/inbound"
+		if err := h.mqtt.PublishJSON(topic, 1, false, msg); err != nil {
 			slog.Error("email: mqtt publish failed", "error", err)
 		}
 	}

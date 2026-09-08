@@ -11,6 +11,7 @@ import (
 	hubcrypto "github.com/meshsat/meshsat-hub/internal/crypto"
 	hubmqtt "github.com/meshsat/meshsat-hub/internal/mqtt"
 	"github.com/meshsat/meshsat-hub/internal/store"
+	"github.com/meshsat/meshsat-hub/internal/tenancy"
 )
 
 // InboundMQTTPayload is the JSON payload Android publishes to meshsat/{deviceId}/sms/inbound.
@@ -27,7 +28,24 @@ type InboundSubscriber struct {
 	mqtt     bus.MessageBus
 	store    store.Store
 	keyStore *hubcrypto.KeyStore
-	tenantID string
+	tenantID string            // fallback when no resolver is wired
+	tenants  *tenancy.Resolver // device + topic -> owning tenant
+}
+
+// SetTenants makes each message land in the tenant that owns the device, rather
+// than all of them in the one this subscriber was constructed with. It
+// subscribes to both topic shapes, so without this every tenant's inbound SMS
+// was persisted into the default tenant (MESHSAT-975).
+func (s *InboundSubscriber) SetTenants(r *tenancy.Resolver) { s.tenants = r }
+
+// tenantFor resolves the owning tenant from the device and the topic it
+// arrived on, falling back to the configured tenant only when no resolver is
+// wired.
+func (s *InboundSubscriber) tenantFor(ctx context.Context, topic, deviceID string) string {
+	if s.tenants == nil {
+		return s.tenantID
+	}
+	return s.tenants.ForDeviceTopic(ctx, deviceID, hubmqtt.ExtractTenantID(topic))
 }
 
 // NewInboundSubscriber creates an inbound SMS MQTT subscriber.
@@ -105,7 +123,7 @@ func (s *InboundSubscriber) handleInbound(topic string, payload []byte) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	if err := s.store.InsertMessage(ctx, s.tenantID, m); err != nil {
+	if err := s.store.InsertMessage(ctx, s.tenantFor(ctx, topic, deviceID), m); err != nil {
 		slog.Warn("sms: failed to persist inbound MQTT SMS", "error", err, "device", deviceID)
 		return
 	}
