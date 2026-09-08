@@ -297,7 +297,6 @@ const navGroups = [
 </template>
 
 <style>
-@import 'leaflet/dist/leaflet.css';
 body { margin: 0; }
 
 /* Mobile nav slide */

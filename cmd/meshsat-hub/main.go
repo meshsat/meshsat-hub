@@ -58,6 +58,7 @@ import (
 	"github.com/meshsat/meshsat-hub/internal/mptcp"
 	hubmsvqsc "github.com/meshsat/meshsat-hub/internal/msvqsc"
 	"github.com/meshsat/meshsat-hub/internal/ntfy"
+	"github.com/meshsat/meshsat-hub/internal/objstore"
 	"github.com/meshsat/meshsat-hub/internal/observability"
 	"github.com/meshsat/meshsat-hub/internal/position"
 	"github.com/meshsat/meshsat-hub/internal/protocol"
@@ -1350,6 +1351,16 @@ func main() {
 	r.Get("/startupz", checker.StartupzHandler)
 	r.Handle("/metrics", api.MetricsTokenGuard(cfg.MetricsToken, metrics.Handler()))
 
+	// Self-hosted vector basemap (MESHSAT-967). Public OpenStreetMap-derived
+	// data streamed out of the object store with range requests, so the map in
+	// the browser asks no third-party tile host for anything.
+	if h := basemapHandler(cfg); h != nil {
+		r.Get("/basemap/basemap.pmtiles", h.ServeHTTP)
+		r.Head("/basemap/basemap.pmtiles", h.ServeHTTP)
+		r.Get("/basemap/assets/*", h.ServeAsset)
+		slog.Info("basemap: serving /basemap/", "object", h.Describe())
+	}
+
 	// pprof profiling endpoints (opt-in, behind auth).
 	if cfg.PprofEnabled {
 		slog.Warn("pprof endpoints enabled at /debug/pprof/ — ensure auth is configured")
@@ -2220,6 +2231,49 @@ func leaderInstanceID(base string) string {
 		return fmt.Sprintf("%s-%s-%d", base, host, os.Getpid())
 	}
 	return fmt.Sprintf("%s-%d", base, os.Getpid())
+}
+
+// basemapHandler builds the basemap route from configuration, falling back to
+// the audit archive's endpoint, bucket, region and keys because both live in
+// the same object store. An unset object key disables the route: the map then
+// renders its data layers on an empty background and says the basemap is
+// unavailable, rather than reaching for a third-party tile host.
+func basemapHandler(cfg config.Config) *api.BasemapHandler {
+	key := strings.TrimSpace(cfg.BasemapS3Key)
+	if key == "" {
+		return nil
+	}
+	pick := func(v, fallback string) string {
+		if v != "" {
+			return v
+		}
+		return fallback
+	}
+	client, err := objstore.New(objstore.Config{
+		Endpoint:  pick(cfg.BasemapS3Endpoint, cfg.AuditArchiveS3Endpoint),
+		Bucket:    pick(cfg.BasemapS3Bucket, cfg.AuditArchiveS3Bucket),
+		Region:    pick(cfg.BasemapS3Region, cfg.AuditArchiveS3Region),
+		AccessKey: pick(cfg.BasemapS3AccessKey, cfg.AuditArchiveS3AccessKey),
+		SecretKey: pick(cfg.BasemapS3SecretKey, cfg.AuditArchiveS3SecretKey),
+	})
+	if err != nil {
+		slog.Error("basemap: route disabled, object store not configured", "error", err)
+		return nil
+	}
+	maxAge := 24 * time.Hour
+	if cfg.BasemapCacheMaxAge != "" {
+		d, err := time.ParseDuration(cfg.BasemapCacheMaxAge)
+		if err != nil {
+			slog.Warn("basemap: bad cache max age, using 24h", "value", cfg.BasemapCacheMaxAge, "error", err)
+		} else {
+			maxAge = d
+		}
+	}
+	assets := strings.TrimSpace(cfg.BasemapS3AssetPrefix)
+	if assets == "" {
+		assets = "basemap/assets"
+	}
+	return api.NewBasemapHandler(client, key, assets, maxAge)
 }
 
 // bootstrapCredentialMasterKey loads or generates the master key for credential encryption.
