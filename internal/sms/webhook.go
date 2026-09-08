@@ -16,7 +16,6 @@ import (
 	"unicode/utf8"
 
 	"github.com/meshsat/meshsat-hub/internal/audit"
-	"github.com/meshsat/meshsat-hub/internal/auth"
 	"github.com/meshsat/meshsat-hub/internal/bridge"
 	"github.com/meshsat/meshsat-hub/internal/bus"
 	"github.com/meshsat/meshsat-hub/internal/compress"
@@ -330,7 +329,7 @@ func (h *WebhookHandler) processBinaryPipeline(r *http.Request, w http.ResponseW
 
 	// Persist to database.
 	if h.store != nil {
-		tid := auth.TenantIDFromContext(r.Context())
+		tid := h.tenantOf(from)
 		status := "received"
 		if encrypted {
 			status = "decrypted"
@@ -359,7 +358,7 @@ func (h *WebhookHandler) processBinaryPipeline(r *http.Request, w http.ResponseW
 
 	// Audit log.
 	if h.audit != nil {
-		tid := auth.TenantIDFromContext(r.Context())
+		tid := h.tenantOf(from)
 		detail := fmt.Sprintf("from=%s bytes=%d compressed=%v encrypted=%v", from, len(rawBytes), compressed, encrypted)
 		_ = h.audit.Log(r.Context(), tid, "message_received", "webhook_sms", detail, r.RemoteAddr)
 	}
@@ -390,7 +389,7 @@ func (h *WebhookHandler) processPlaintextSMS(r *http.Request, w http.ResponseWri
 
 	// Persist inbound SMS.
 	if h.store != nil {
-		tid := auth.TenantIDFromContext(r.Context())
+		tid := h.tenantOf(from)
 		dbMsg := &store.Message{
 			ID:         msgID,
 			DeviceIMEI: from,
@@ -469,7 +468,7 @@ func (h *WebhookHandler) handleBridgeUplink(ctx context.Context, from string, ra
 
 	// Mark bridge as online.
 	if h.store != nil {
-		tid := auth.TenantIDFromContext(context.Background())
+		tid := h.tenantOf(from)
 		_ = h.store.SetBridgeOnline(ctx, tid, from, true)
 	}
 

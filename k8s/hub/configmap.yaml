@@ -47,6 +47,7 @@ data:
   HUB_SMS_ENABLED: "true"
   HUB_CLOUDLOOP_DEVICE_MAP: "300258060902280:OVdRorbmlwqkNBpaVOXnJYPZvxaXpzjL:imt"
   HUB_CLOUDLOOP_MQTT_BROKER: "ssl://mqtt.cloudloop.com:8883"
+  # "*" is only honoured together with HUB_CLOUDLOOP_WEBHOOK_TOKEN (ExternalSecret, ?token= in the Cloudloop console URL); without it the webhook rejects every request (MESHSAT-971).
   HUB_CLOUDLOOP_WEBHOOK_ALLOWED_IPS: "*"
   HUB_APRSIS_ENABLED: "false"
   HUB_WG_ENABLED: "false"
