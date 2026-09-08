@@ -5,8 +5,8 @@ MeshSat Hub supports three deployment tiers. Pick the one that matches your envi
 | Tier | Mode | What you get | Use case |
 |------|------|-------------|----------|
 | **Tier 1** | Standalone | SQLite + Mosquitto + Caddy on a single host | Dev, lab, single VPS, edge |
-| **Tier 2** | Cluster | MariaDB Galera + NATS + Redis across 2+ hosts | Production HA, geo-distributed |
-| **Tier 3** | Kubernetes | Helm chart, StatefulSets, Lease-based leader election | Cloud-native, auto-scaling |
+| **Tier 2** | Cluster | Retired 2026-09-08 (was MariaDB Galera + NATS + Redis across 2 hosts) | — |
+| **Tier 3** | Kubernetes | kustomize tree `k8s/` (CNPG Postgres, NATS, Redis, stunnel, edge relay), Argo CD | **Production** (notrf01cl01k8s) |
 
 ---
 
@@ -82,345 +82,42 @@ docker compose -f docker-compose.prod.yml --profile notifications up -d
 
 ---
 
-## Tier 2: Cluster
+## Tier 2: Cluster (retired)
 
-Two or more hosts running MariaDB Galera (active-active replication), NATS (cross-site MQTT routing via leaf nodes), and Redis (shared rate limit + dedup state). Each host runs the full stack independently — if one host goes down, the other continues serving.
+The two-host MariaDB Galera + NATS + Redis compose deployment ran on `nllei01dmz01` and
+`grskg01dmz01` until 2026-09-08 and was retired with the move to Kubernetes (MESHSAT-864).
+Its compose file, Galera entrypoint, health gate and Ansible playbooks were removed from the
+repository in MR 23; the `cluster` mode still exists for a single Postgres + NATS + Redis
+compose deployment, but nothing in this repository deploys it.
 
-### Prerequisites
+## Tier 3: Kubernetes (production)
 
-- 2+ Linux hosts with Docker Engine 24+ and Compose v2
-- 2 vCPU, 2GB RAM, 20GB disk per host
-- Private network between hosts (WireGuard VPN recommended for cross-site)
-- TLS certificate for your domain (wildcard recommended: `*.example.com`)
-- 1+ edge/VPS node with public IP for HAProxy (optional but recommended for mTLS)
-
-### Architecture
-
-```
-                         Internet
-                            |
-                   +--------+--------+
-                   |                 |
-             VPS / Edge #1     VPS / Edge #2
-             HAProxy :443      HAProxy :443
-             (SNI passthrough) (SNI passthrough)
-                   |                 |
-           +-------+-------+ +------+-------+
-           |               | |              |
-      Node A (primary)     Node B (secondary)
-      +-----------+        +-----------+
-      | nginx     | :8451  | nginx     | :8451
-      | Hub       | :6070  | Hub       | :6070
-      | NATS      | :1883  | NATS      | :1883
-      |           | :9443  |           | :9443
-      | Redis     |        | Redis     |
-      +-----------+        +-----------+
-      | MariaDB   |<------>| MariaDB   |  Galera replication
-      | garbd     | (host) |           |  (host network)
-      +-----------+        +-----------+
-           |                      |
-           +--- NATS leaf --------+  (port 7422, bidirectional MQTT)
-
-  Leaf topology: one side is "hub" (listen only), other is "spoke" (connects).
-  garbd runs on ONE node only (3rd quorum voter to prevent split-brain).
-```
-
-### Step 1: Prepare both nodes
-
-On **each** node:
+The Hub runs on `notrf01cl01k8s` from the kustomize tree in `k8s/` (synced by the Argo CD
+Application `meshsat-hub`): CloudNativePG cluster `meshsat-hub-main` (3 instances, barman
+backups to S3), NATS StatefulSet (MQTT :1883 in-cluster, WebSocket+mTLS :9443 for bridges),
+Redis, the stunnel Deployment for the Reticulum leg, a hostNetwork edge-relay DaemonSet that
+the VPS HAProxy nodes reach, ExternalSecrets from OpenBao, and the Hub Deployment
+(`HUB_MODE=kubernetes`, `HUB_DB_DRIVER=postgres`, OIDC login against the shared authentik).
+Conventions in `k8s/CONVENTIONS.md`, bootstrap and hand-applied state in `k8s/NOTES.md`,
+operator tooling under `k8s/scripts/`.
 
 ```bash
-mkdir -p /srv/meshsat-hub && cd /srv/meshsat-hub
-
-# Get the files (or copy from your repo checkout)
-# You need: docker-compose.galera.yml, nats.conf (or nats-mtls.conf),
-#           nginx.conf, galera-entrypoint.sh, Dockerfile.garbd, .env
-
-cp .env.cluster.example .env
-nano .env
+kubectl kustomize k8s/ | kubeconform -strict -ignore-missing-schemas   # what CI checks
+kubectl --context notrf01 -n meshsat-hub get pods                       # hub, nats-0, redis-0, stunnel, meshsat-edge-relay
 ```
-
-Edit `.env` on each node — these values **differ per node**:
-
-| Variable | Node A | Node B |
-|----------|--------|--------|
-| `SITE_NAME` | `meshsat-hub-a` | `meshsat-hub-b` |
-| `WSREP_NODE_ADDRESS` | `10.0.0.1` | `10.0.0.2` |
-| `HUB_MQTT_CLIENT_ID` | `meshsat-hub-a` | `meshsat-hub-b` |
-
-These values are **the same** on both nodes:
-
-| Variable | Value |
-|----------|-------|
-| `WSREP_CLUSTER_ADDRESS` | `gcomm://10.0.0.1,10.0.0.2` |
-| `MARIADB_ROOT_PASSWORD` | (same strong password) |
-| `MARIADB_PASSWORD` | (same strong password) |
-| `HUB_AUTH_TOKEN` | (same token) |
-
-### Step 2: Provision TLS certificates
-
-You need a TLS certificate for your domain. Options:
-
-**Option A: Let's Encrypt wildcard (recommended)**
-```bash
-# Using certbot with DNS challenge
-certbot certonly --manual --preferred-challenges dns \
-  -d "*.example.com" -d "example.com"
-
-# Copy certs to each node
-scp /etc/letsencrypt/live/example.com/fullchain.pem node:/srv/certs/example.com.crt
-scp /etc/letsencrypt/live/example.com/privkey.pem node:/srv/certs/example.com.key
-```
-
-**Option B: Self-signed (lab only)**
-```bash
-openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
-  -keyout /srv/certs/example.com.key \
-  -out /srv/certs/example.com.crt \
-  -subj "/CN=*.example.com" \
-  -addext "subjectAltName=DNS:*.example.com,DNS:example.com"
-```
-
-Mount the certs in nginx and NATS (update `docker-compose.galera.yml`):
-```yaml
-nginx:
-  volumes:
-    - /srv/certs/example.com.crt:/etc/nginx/certs/tls.crt:ro
-    - /srv/certs/example.com.key:/etc/nginx/certs/tls.key:ro
-```
-
-For NATS mTLS, copy the server cert into the `nats-certs` volume after first start:
-```bash
-docker cp /srv/certs/example.com.crt meshsat-nats:/etc/nats/certs/server.crt
-docker cp /srv/certs/example.com.key meshsat-nats:/etc/nats/certs/server.key
-docker restart meshsat-nats
-```
-
-### Step 3: Bootstrap Galera cluster
-
-**On Node A only** (the first node to start):
-
-```bash
-cd /srv/meshsat-hub
-
-# Build the garbd image
-docker build -f deploy/galera/Dockerfile.garbd -t meshsat-garbd:latest deploy/galera/
-
-# Make the entrypoint executable
-chmod +x galera-entrypoint.sh
-
-# Set the bootstrap flag (one-time, consumed automatically)
-docker volume create meshsat-hub_mariadb-data 2>/dev/null || true
-docker run --rm -v meshsat-hub_mariadb-data:/var/lib/mysql alpine:3.21 \
-  touch /var/lib/mysql/force-bootstrap
-
-# Start MariaDB (entrypoint detects flag, bootstraps new cluster)
-docker compose -f docker-compose.galera.yml up -d mariadb
-sleep 30
-
-# Verify: cluster_size=1, ready=ON
-docker exec meshsat-mariadb mariadb -u root -p"$MARIADB_ROOT_PASSWORD" \
-  -e "SHOW STATUS LIKE 'wsrep_cluster_size'; SHOW STATUS LIKE 'wsrep_ready';"
-```
-
-**On Node B** (joins the existing cluster):
-
-```bash
-cd /srv/meshsat-hub
-chmod +x galera-entrypoint.sh
-
-# Start MariaDB (joins Node A via IST/SST)
-docker compose -f docker-compose.galera.yml up -d mariadb
-sleep 30
-
-# Verify: cluster_size=2
-docker exec meshsat-mariadb mariadb -u root -p"$MARIADB_ROOT_PASSWORD" \
-  -e "SHOW STATUS LIKE 'wsrep_cluster_size';"
-```
-
-**On Node A** (start garbd — 3rd quorum voter):
-
-```bash
-docker compose -f docker-compose.galera.yml up -d garbd
-sleep 10
-
-# Verify: cluster_size=3
-docker exec meshsat-mariadb mariadb -u root -p"$MARIADB_ROOT_PASSWORD" \
-  -e "SHOW STATUS LIKE 'wsrep_cluster_size';"
-```
-
-### Step 4: Configure NATS leaf nodes
-
-NATS leaf nodes provide cross-site MQTT routing. One node is the "hub" (listen only), the other is the "spoke" (connects to the hub).
-
-**Node A (hub)** — `nats.conf` has no `remotes`:
-```
-leafnodes {
-  port: 7422
-}
-```
-
-**Node B (spoke)** — `nats.conf` includes remotes pointing to Node A:
-```
-leafnodes {
-  port: 7422
-  remotes [
-    { url: "nats-leaf://10.0.0.1:7422" }
-  ]
-}
-```
-
-> **Important:** Only ONE side should have `remotes`. If both sides connect to each other, NATS detects a loop and rejects the connection.
-
-### Step 5: Start the application stack
-
-On **each** node:
-
-```bash
-cd /srv/meshsat-hub
-
-# Start Redis, NATS, Hub, nginx (never recreates MariaDB)
-docker compose -f docker-compose.galera.yml up -d --no-deps redis nats
-sleep 5
-docker compose -f docker-compose.galera.yml up -d --no-deps hub nginx
-
-# Verify
-curl -k https://localhost:8451/healthz
-curl -k https://localhost:8451/readyz
-# Should show: {"status":"ok","checks":{"mariadb":{"status":"ok"},"mqtt":{"status":"ok"},"redis":{"status":"ok"},...}}
-```
-
-### Step 6: Set up HAProxy (for public access + mTLS)
-
-If bridges need to connect from the internet via mTLS, deploy HAProxy on an edge/VPS node with a public IP.
-
-```bash
-# On the VPS/edge node
-apt install haproxy
-cp deploy/haproxy/haproxy.cfg.example /etc/haproxy/haproxy.cfg
-
-# Edit: replace example.com with your domain, replace IPs with your node IPs
-nano /etc/haproxy/haproxy.cfg
-
-# Test and start
-haproxy -c -f /etc/haproxy/haproxy.cfg
-systemctl restart haproxy
-```
-
-**DNS setup:**
-- `hub.example.com` A record → VPS public IP (Hub dashboard + API)
-- `mqtt.example.com` A record → VPS public IP (mTLS MQTT for bridges)
-
-### Step 7: Configure MQTT public URL
-
-Set the URL that bridges see during onboarding:
-
-```bash
-curl -X PUT -H "Authorization: Bearer $HUB_AUTH_TOKEN" \
-  -H "Content-Type: application/json" \
-  https://hub.example.com/api/settings/mqtt-url \
-  -d '{"mqtt_url":"wss://mqtt.example.com/mqtt"}'
-```
-
-### Firewall rules
-
-Open these ports between cluster nodes (private network only):
-
-| Port | Protocol | Purpose |
-|------|----------|---------|
-| 3306 | TCP | MariaDB client connections |
-| 4444 | TCP | Galera SST (State Snapshot Transfer) |
-| 4567 | TCP+UDP | Galera replication |
-| 4568 | TCP | Galera IST (Incremental State Transfer) |
-| 4570 | TCP | garbd (Galera arbitrator) |
-| 7422 | TCP | NATS leaf node routing |
-
-Example UFW rules (run on each node, replace `PEER_IP` with the other node's IP):
-
-```bash
-sudo ufw allow from PEER_IP to any port 3306,4444,4567,4568 proto tcp comment "Galera"
-sudo ufw allow from PEER_IP to any port 4570 proto tcp comment "garbd"
-sudo ufw allow from PEER_IP to any port 7422 proto tcp comment "NATS leaf"
-```
-
-### Galera safety rules
-
-These rules prevent split-brain. Violating them can cause data loss.
-
-1. **NEVER** modify `WSREP_CLUSTER_ADDRESS` in `.env` — not even for bootstrap. Use the flag-file method instead.
-2. **NEVER** run `docker compose up -d` without `--no-deps` — it recreates MariaDB.
-3. **NEVER** run `docker compose pull` — it evaluates all services including MariaDB.
-4. **Always** deploy Hub with: `docker compose up -d --no-deps --force-recreate hub`
-
-**To bootstrap after a full outage:**
-```bash
-# Find the node with highest seqno
-docker run --rm -v meshsat-hub_mariadb-data:/var/lib/mysql alpine:3.21 \
-  cat /var/lib/mysql/grastate.dat
-
-# On the most advanced node ONLY:
-docker run --rm -v meshsat-hub_mariadb-data:/var/lib/mysql alpine:3.21 \
-  touch /var/lib/mysql/force-bootstrap
-docker compose -f docker-compose.galera.yml up -d mariadb
-
-# Then start the other node (joins via IST/SST):
-# (on other node)
-docker compose -f docker-compose.galera.yml up -d mariadb
-
-# Then start garbd:
-docker compose -f docker-compose.galera.yml up -d garbd
-```
-
-### Migrating from Standalone to Cluster
-
-```bash
-./scripts/migrate-sqlite-to-mariadb.sh /data/hub.db "mariadb://user:pass@node:3306/meshsat_hub"
-```
-
----
-
-## Tier 3: Kubernetes (minimal)
-
-> Tier 3 is functional but less battle-tested than Tier 2. Use for cloud-native deployments.
-
-### Quick Start (Helm)
-
-```bash
-helm install meshsat-hub deploy/helm/meshsat-hub/ \
-  --namespace meshsat-hub --create-namespace \
-  --set secrets.authToken="$(openssl rand -hex 32)" \
-  --set secrets.databaseUrl="mariadb://..." \
-  --set secrets.redisUrl="redis://..." \
-  --set ingress.enabled=true \
-  --set ingress.host=hub.example.com
-```
-
-### Quick Start (Raw Manifests)
-
-```bash
-kubectl apply -f deploy/k8s/namespace.yaml
-kubectl apply -f deploy/k8s/secret.yaml       # edit first!
-kubectl apply -f deploy/k8s/configmap.yaml
-kubectl apply -f deploy/k8s/mariadb-statefulset.yaml
-kubectl apply -f deploy/k8s/redis-deployment.yaml
-kubectl apply -f deploy/k8s/nats-statefulset.yaml
-kubectl apply -f deploy/k8s/hub-deployment.yaml
-kubectl apply -f deploy/k8s/ingress.yaml       # edit host!
-```
-
-### Components
 
 | Resource | Kind | Replicas | Purpose |
 |----------|------|----------|---------|
-| Hub | Deployment | 2 | API + SPA, `HUB_MODE=kubernetes` |
-| MariaDB | StatefulSet | 1 | Persistent store |
-| Redis | Deployment | 1 | Dedup + rate limit |
-| NATS | StatefulSet | 3 | Clustered message bus |
-| Ingress | Ingress | -- | TLS termination |
+| hub | Deployment | 1 | API + SPA (`Recreate`; claims + Lease election make 2 safe once proven) |
+| meshsat-hub-main | CNPG Cluster | 3 | Postgres, synchronous replication, daily backup |
+| nats | StatefulSet | 1 | MQTT + WebSocket mTLS bus, JetStream |
+| redis | StatefulSet | 1 | Dedup + rate limit |
+| stunnel | Deployment | 1 | Reticulum TLS termination |
+| meshsat-edge-relay | DaemonSet | workers | TCP relay :9443/:4243 for the VPS edge |
+| hub.meshsat.net / auth.meshsat.net | Ingress | -- | ingress-nginx, wildcard cert from OpenBao |
 
-Leader election for singleton services (TAK, APRS-IS) uses the Kubernetes Lease API.
-
----
+Leader election for singleton services (OTS poller, reapers, retention) uses the Kubernetes
+Lease API; message dispatch is protected by database claims, not by the leader.
 
 ## Configuration Reference
 
@@ -503,7 +200,7 @@ curl -X POST -H "Authorization: Bearer $TOKEN" \
 
 ### NATS mTLS configuration
 
-Use `nats-mtls.conf` instead of `nats.conf` (set `NATS_CONFIG=./nats-mtls.conf` in `.env`). The key section:
+The production NATS config is `k8s/nats/configmap.yaml`; for a compose deployment start from `nats.conf` and add the section below. The key section:
 
 ```
 websocket {

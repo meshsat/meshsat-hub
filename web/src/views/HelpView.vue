@@ -99,7 +99,7 @@
         <div class="space-y-2 text-[12px] text-gray-400 leading-relaxed">
           <p><strong class="text-gray-300">Webhook not receiving messages</strong> — Check that the Ground Control callback URL is correct and that the shared secret matches. View the Audit log for <code class="text-gray-300 bg-gray-800 px-1 rounded">message_received</code> events.</p>
           <p><strong class="text-gray-300">MT send fails</strong> — Verify the device IMEI is registered and the Cloudloop API key is configured. Check credits balance on the Dashboard.</p>
-          <p><strong class="text-gray-300">Cluster unhealthy</strong> — Check the Cluster page for node status. If <code class="text-gray-300 bg-gray-800 px-1 rounded">cluster_size=1</code>, the Galera cluster is split. Use remediation actions to resync.</p>
+          <p><strong class="text-gray-300">Hub not ready</strong> — <code class="text-gray-300 bg-gray-800 px-1 rounded">/readyz?verbose=1</code> names the failing dependency; the database is the only critical one, the rest (MQTT, Redis, notifiers) report as informational.</p>
           <p><strong class="text-gray-300">Login fails</strong> — API Token login uses the <code class="text-gray-300 bg-gray-800 px-1 rounded">HUB_AUTH_TOKEN</code> env var. Email login requires OIDC to be configured.</p>
           <p><strong class="text-gray-300">Messages not routing</strong> — Check the Routing page for active routes. Use the Route Tester to verify which rules match. Ensure the destination handler is configured (e.g., Twilio for SMS, Apprise URL for notifications).</p>
         </div>

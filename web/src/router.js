@@ -18,7 +18,6 @@ const routes = [
   { path: '/notifications', name: 'notifications', component: () => import('./views/NotificationsView.vue'), meta: { requiresAuth: true } },
   { path: '/webhooks', name: 'webhooks', component: () => import('./views/WebhooksView.vue'), meta: { requiresAuth: true } },
   { path: '/ota', name: 'ota', component: () => import('./views/OtaView.vue'), meta: { requiresAuth: true } },
-  { path: '/cluster', name: 'cluster', component: () => import('./views/ClusterView.vue'), meta: { requiresAuth: true } },
   { path: '/network', name: 'network', component: () => import('./views/NetworkView.vue'), meta: { requiresAuth: true } },
   { path: '/routing', name: 'routing', component: () => import('./views/RoutingView.vue'), meta: { requiresAuth: true } },
   { path: '/tak', name: 'tak', component: () => import('./views/TakOperationsView.vue'), meta: { requiresAuth: true } },
