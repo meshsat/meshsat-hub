@@ -5,6 +5,8 @@ package leader
 import (
 	"context"
 	"log/slog"
+
+	"github.com/meshsat/meshsat-hub/internal/metrics"
 )
 
 // Leader manages leader election for singleton services.
@@ -25,8 +27,10 @@ func NewNoop() *Noop { return &Noop{} }
 
 func (n *Noop) Run(ctx context.Context, onAcquired func(), onLost func()) {
 	slog.Info("leader: standalone mode — always leader")
+	metrics.LeaderStatus.WithLabelValues("noop").Set(1)
 	onAcquired()
 	<-ctx.Done()
+	metrics.LeaderStatus.WithLabelValues("noop").Set(0)
 	onLost()
 }
 

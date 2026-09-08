@@ -54,7 +54,7 @@ clean:
 	rm -rf bin/
 
 docker:
-	docker build -t meshsat-hub:latest .
+	docker build --build-arg VERSION=$(VERSION) -t meshsat-hub:latest .
 
 run:
 	HUB_LOG_FORMAT=text HUB_LOG_LEVEL=debug go run ./cmd/meshsat-hub/
