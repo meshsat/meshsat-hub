@@ -1,6 +1,7 @@
 <script setup>
 import { ref, onMounted } from 'vue'
 import TenantPanel from '../components/TenantPanel.vue'
+import SignupsPanel from '../components/SignupsPanel.vue'
 import { health, constellations, mptcp as mptcpApi, tor, codecs, ipougrs, backup, reticulum, settings } from '../api/client'
 
 const loading = ref(true)
@@ -185,6 +186,7 @@ function statusText(ok) {
       </div>
 
       <div class="mb-6"><TenantPanel /></div>
+      <div class="mb-6"><SignupsPanel /></div>
 
       <!-- Service Security -->
       <div class="bg-tactical-surface rounded-lg border border-tactical-border p-5 mb-6">

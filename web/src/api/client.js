@@ -327,6 +327,15 @@ export const tenant = {
   revokeInvite: (id) => fetchJSON(`/tenant/invites/${id}`, { method: 'DELETE' }),
 }
 
+// Beta requests waiting for a decision (MESHSAT-978). Platform admins only;
+// the endpoints report themselves unavailable when the Hub has no identity
+// provider token, and the panel hides itself on that.
+export const signups = {
+  list: () => fetchJSON('/admin/signups'),
+  approve: (id, role) => fetchJSON(`/admin/signups/${id}/approve`, { method: 'POST', body: JSON.stringify({ role }) }),
+  reject: (id) => fetchJSON(`/admin/signups/${id}/reject`, { method: 'POST' }),
+}
+
 export const settings = {
   getMqttUrl: () => fetchJSON('/settings/mqtt-url'),
   setMqttUrl: (url) => fetchJSON('/settings/mqtt-url', { method: 'PUT', body: JSON.stringify({ mqtt_url: url }) }),
