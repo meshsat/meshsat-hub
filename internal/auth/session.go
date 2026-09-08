@@ -27,6 +27,9 @@ type SessionClaims struct {
 	Name     string `json:"name,omitempty"`
 	Role     string `json:"role"`
 	TenantID string `json:"tid,omitempty"`
+	// PlatformAdmin marks operators of the Hub itself (may select a tenant
+	// with X-Tenant-ID); set from the IdP admin group at OIDC login.
+	PlatformAdmin bool `json:"padm,omitempty"`
 }
 
 // SessionManager handles JWT access token signing/verification and refresh token generation.
@@ -51,6 +54,11 @@ func NewSessionManager(key []byte, issuer string) *SessionManager {
 
 // IssueAccessToken creates a signed JWT access token for the given user.
 func (sm *SessionManager) IssueAccessToken(userID, email, name, role, tenantID string) (string, error) {
+	return sm.IssueAccessTokenFor(userID, email, name, role, tenantID, false)
+}
+
+// IssueAccessTokenFor is IssueAccessToken with the platform-admin flag.
+func (sm *SessionManager) IssueAccessTokenFor(userID, email, name, role, tenantID string, platformAdmin bool) (string, error) {
 	now := time.Now()
 	claims := SessionClaims{
 		RegisteredClaims: jwt.RegisteredClaims{
@@ -59,11 +67,12 @@ func (sm *SessionManager) IssueAccessToken(userID, email, name, role, tenantID s
 			IssuedAt:  jwt.NewNumericDate(now),
 			ExpiresAt: jwt.NewNumericDate(now.Add(AccessTokenTTL)),
 		},
-		UserID:   userID,
-		Email:    email,
-		Name:     name,
-		Role:     role,
-		TenantID: tenantID,
+		UserID:        userID,
+		Email:         email,
+		Name:          name,
+		Role:          role,
+		TenantID:      tenantID,
+		PlatformAdmin: platformAdmin,
 	}
 
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
