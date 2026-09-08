@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/meshsat/meshsat-hub/internal/store"
 	"io"
 	"log/slog"
 	"net/http"
@@ -91,25 +92,32 @@ type GetThingsResponse struct {
 // ThingResolver implements DeviceResolver by caching IMEI-to-thingID mappings
 // learned from incoming LingoMO messages and optionally from the Cloudloop API.
 type ThingResolver struct {
-	mu     sync.RWMutex
-	cache  map[string]ThingInfo // IMEI -> ThingInfo
-	client *Client              // for API lookups (optional, nil = learn-only mode)
+	mu    sync.RWMutex
+	cache map[string]ThingInfo // tenant\x00IMEI -> ThingInfo (MESHSAT-977: per tenant account)
+	pool  *ClientPool          // for API lookups (optional, nil = learn-only mode)
 }
 
-// NewThingResolver creates a new resolver. If client is non-nil, RefreshFromAPI
-// can be called to pre-populate the cache from the Cloudloop Data API.
-func NewThingResolver(client *Client) *ThingResolver {
+func cacheKey(tenantID, imei string) string {
+	if tenantID == "" {
+		tenantID = store.DefaultTenantID
+	}
+	return tenantID + "\x00" + imei
+}
+
+// NewThingResolver creates a new resolver. If pool is non-nil, RefreshFromAPI
+// pre-populates the cache from every tenant's Cloudloop Data API.
+func NewThingResolver(pool *ClientPool) *ThingResolver {
 	return &ThingResolver{
-		cache:  make(map[string]ThingInfo),
-		client: client,
+		cache: make(map[string]ThingInfo),
+		pool:  pool,
 	}
 }
 
 // Resolve returns the Cloudloop thingID and whether the device uses IMT protocol.
 // If the device is unknown, thingID is the IMEI itself and isIMT is false.
-func (r *ThingResolver) Resolve(imei string) (thingID string, isIMT bool) {
+func (r *ThingResolver) Resolve(tenantID, imei string) (thingID string, isIMT bool) {
 	r.mu.RLock()
-	info, ok := r.cache[imei]
+	info, ok := r.cache[cacheKey(tenantID, imei)]
 	r.mu.RUnlock()
 
 	if ok {
@@ -119,19 +127,19 @@ func (r *ThingResolver) Resolve(imei string) (thingID string, isIMT bool) {
 }
 
 // Register manually adds or updates an IMEI-to-thingID mapping.
-func (r *ThingResolver) Register(imei, thingID string, isIMT bool) {
+func (r *ThingResolver) Register(tenantID, imei, thingID string, isIMT bool) {
 	r.mu.Lock()
-	r.cache[imei] = ThingInfo{ThingID: thingID, IsIMT: isIMT}
+	r.cache[cacheKey(tenantID, imei)] = ThingInfo{ThingID: thingID, IsIMT: isIMT}
 	r.mu.Unlock()
 
 	slog.Debug("resolver: registered device",
-		"imei", imei, "thing_id", thingID, "imt", isIMT)
+		"tenant", tenantID, "imei", imei, "thing_id", thingID, "imt", isIMT)
 }
 
 // LearnFromMO extracts thingId and hardware type from an incoming LingoMO
 // message and caches the IMEI-to-thingId mapping. This is the primary way
 // the resolver learns about devices -- every MO received teaches it.
-func (r *ThingResolver) LearnFromMO(mo *LingoMO) {
+func (r *ThingResolver) LearnFromMO(tenantID string, mo *LingoMO) {
 	if mo == nil {
 		return
 	}
@@ -145,14 +153,15 @@ func (r *ThingResolver) LearnFromMO(mo *LingoMO) {
 	// Determine if this is an IMT device from the hardware type or MO payload type.
 	isIMT := r.detectIMT(mo)
 
+	key := cacheKey(tenantID, imei)
 	r.mu.Lock()
-	prev, existed := r.cache[imei]
-	r.cache[imei] = ThingInfo{ThingID: thingID, IsIMT: isIMT}
+	prev, existed := r.cache[key]
+	r.cache[key] = ThingInfo{ThingID: thingID, IsIMT: isIMT}
 	r.mu.Unlock()
 
 	if !existed || prev.ThingID != thingID || prev.IsIMT != isIMT {
 		slog.Info("resolver: learned device from MO",
-			"imei", imei, "thing_id", thingID, "imt", isIMT,
+			"tenant", tenantID, "imei", imei, "thing_id", thingID, "imt", isIMT,
 			"source", mo.Source())
 	}
 }
@@ -236,13 +245,26 @@ func (c *Client) ListThings(ctx context.Context) ([]CloudloopThing, error) {
 // This does not remove existing cache entries learned from MO messages,
 // since the API may not include IMEI in the thing record.
 func (r *ThingResolver) RefreshFromAPI(ctx context.Context) error {
-	if r.client == nil {
-		return fmt.Errorf("resolver: no client configured for API refresh")
+	if r.pool == nil {
+		return fmt.Errorf("resolver: no client pool configured for API refresh")
 	}
+	var firstErr error
+	for _, tenantID := range r.pool.Tenants(ctx) {
+		client := r.pool.ForTenant(ctx, tenantID)
+		if client == nil {
+			continue
+		}
+		if err := r.refreshTenant(ctx, tenantID, client); err != nil && firstErr == nil {
+			firstErr = err
+		}
+	}
+	return firstErr
+}
 
-	things, err := r.client.ListThings(ctx)
+func (r *ThingResolver) refreshTenant(ctx context.Context, tenantID string, client *Client) error {
+	things, err := client.ListThings(ctx)
 	if err != nil {
-		return fmt.Errorf("resolver: API refresh: %w", err)
+		return fmt.Errorf("resolver: API refresh for %s: %w", tenantID, err)
 	}
 
 	added := 0
@@ -269,16 +291,17 @@ func (r *ThingResolver) RefreshFromAPI(ctx context.Context) error {
 			continue
 		}
 
+		key := cacheKey(tenantID, imei)
 		r.mu.Lock()
-		if _, exists := r.cache[imei]; !exists {
-			r.cache[imei] = ThingInfo{ThingID: t.ID, IsIMT: isIMT}
+		if _, exists := r.cache[key]; !exists {
+			r.cache[key] = ThingInfo{ThingID: t.ID, IsIMT: isIMT}
 			added++
 		}
 		r.mu.Unlock()
 	}
 
 	slog.Info("resolver: API refresh complete",
-		"things_total", len(things), "new_mappings", added, "cache_size", r.Count())
+		"tenant", tenantID, "things_total", len(things), "new_mappings", added, "cache_size", r.Count())
 	return nil
 }
 
@@ -300,7 +323,8 @@ func (r *ThingResolver) SeedFromSpec(spec string) int {
 			continue
 		}
 		isIMT := len(parts) >= 3 && strings.EqualFold(parts[2], "imt")
-		r.Register(parts[0], parts[1], isIMT)
+		// The seed describes the platform account: default tenant.
+		r.Register(store.DefaultTenantID, parts[0], parts[1], isIMT)
 		n++
 	}
 	return n

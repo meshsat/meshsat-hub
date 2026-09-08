@@ -89,6 +89,16 @@ func TopicHubCredits() string {
 	return "meshsat/hub/credits"
 }
 
+// TopicHubCreditsFor is the credit-balance topic of a tenant's Cloudloop
+// account: the legacy hub topic for the default tenant,
+// meshsat/{tenant}/hub/credits otherwise (MESHSAT-977).
+func TopicHubCreditsFor(tenantID string) string {
+	if tenantID == "" || tenantID == DefaultTenant {
+		return TopicHubCredits()
+	}
+	return Namespace(tenantID) + "/hub/credits"
+}
+
 // Tenant-prefixed namespace (MESHSAT-864 MR 20).
 //
 // Devices and bridges of the default tenant keep the historical topics

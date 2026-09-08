@@ -2,8 +2,11 @@ package constellation
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/meshsat/meshsat-hub/internal/cloudloop"
+	"github.com/meshsat/meshsat-hub/internal/store"
+	"github.com/meshsat/meshsat-hub/internal/tenancy"
 )
 
 // IridiumBackend wraps the Cloudloop client as a constellation Backend.
@@ -11,6 +14,21 @@ import (
 type IridiumBackend struct {
 	client   *cloudloop.Client
 	resolver cloudloop.DeviceResolver
+	pool     *cloudloop.ClientPool // per-tenant accounts (MESHSAT-977); nil = client only
+	tenants  *tenancy.Resolver
+}
+
+// SetClientPool makes sends use the device tenant's Cloudloop account.
+func (b *IridiumBackend) SetClientPool(p *cloudloop.ClientPool) { b.pool = p }
+
+// SetTenants attaches the device -> tenant resolver.
+func (b *IridiumBackend) SetTenants(r *tenancy.Resolver) { b.tenants = r }
+
+func (b *IridiumBackend) tenantOf(ctx context.Context, deviceID string) string {
+	if b.tenants == nil {
+		return store.DefaultTenantID
+	}
+	return b.tenants.ForDevice(ctx, deviceID)
 }
 
 // NewIridiumBackend creates an Iridium backend from an existing Cloudloop client.
@@ -26,18 +44,26 @@ func (b *IridiumBackend) SetDeviceResolver(r cloudloop.DeviceResolver) {
 func (b *IridiumBackend) Name() string { return "iridium" }
 
 func (b *IridiumBackend) Send(ctx context.Context, deviceID string, payload []byte) (*SendResult, error) {
+	tenant := b.tenantOf(ctx, deviceID)
+	client := b.client
+	if b.pool != nil {
+		client = b.pool.ForTenant(ctx, tenant)
+	}
+	if client == nil {
+		return nil, fmt.Errorf("no Cloudloop account configured for tenant %s", tenant)
+	}
 	thingID := deviceID
 	isIMT := false
 	if b.resolver != nil {
-		thingID, isIMT = b.resolver.Resolve(deviceID)
+		thingID, isIMT = b.resolver.Resolve(tenant, deviceID)
 	}
 
 	var resp *cloudloop.MTResponse
 	var err error
 	if isIMT {
-		resp, err = b.client.SendIMT(ctx, thingID, payload, "", "")
+		resp, err = client.SendIMT(ctx, thingID, payload, "", "")
 	} else {
-		resp, err = b.client.SendSBD(ctx, thingID, payload)
+		resp, err = client.SendSBD(ctx, thingID, payload)
 	}
 	if err != nil {
 		return nil, err
