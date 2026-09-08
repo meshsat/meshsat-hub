@@ -17,7 +17,6 @@ import (
 	"time"
 
 	"github.com/meshsat/meshsat-hub/internal/audit"
-	"github.com/meshsat/meshsat-hub/internal/auth"
 	"github.com/meshsat/meshsat-hub/internal/bridge"
 	"github.com/meshsat/meshsat-hub/internal/bus"
 	"github.com/meshsat/meshsat-hub/internal/codec"
@@ -393,7 +392,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	// Persist MO message to database.
 	if h.store != nil {
-		tid := auth.TenantIDFromContext(r.Context())
+		tid := h.tenantOf(imei)
 		msg := &store.Message{
 			ID:         msgID,
 			DeviceIMEI: imei,
@@ -439,7 +438,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	// Audit: log message_received event (use RemoteAddr directly — never trust X-Forwarded-For in webhook handlers).
 	if h.audit != nil {
-		tid := auth.TenantIDFromContext(r.Context())
+		tid := h.tenantOf(imei)
 		detail := fmt.Sprintf("imei=%s momsn=%d bytes=%d", imei, momsn, len(rawBytes))
 		ip := r.RemoteAddr
 		if err := h.audit.Log(r.Context(), tid, "message_received", "webhook", detail, ip); err != nil {
@@ -484,7 +483,7 @@ func (h *Handler) handleBridgeSatUplink(ctx context.Context, imei string, rawByt
 		h.publish(hubmqtt.TopicPositionFor(h.tenantOf(bridgeID), bridgeID), 1, true, pos)
 		// Mark bridge as online via satellite.
 		if h.store != nil {
-			tid := auth.TenantIDFromContext(ctx)
+			tid := h.tenantOf(bridgeID)
 			_ = h.store.SetBridgeOnline(ctx, tid, bridgeID, true)
 		}
 
@@ -517,7 +516,7 @@ func (h *Handler) handleBridgeSatUplink(ctx context.Context, imei string, rawByt
 			"bridge_id", bridgeID, "uptime", uptimeSec, "cpu", cpuPct, "mem", memPct, "disk", diskPct,
 			"interfaces", len(ifaces), "timestamp", ts)
 		if h.store != nil {
-			tid := auth.TenantIDFromContext(ctx)
+			tid := h.tenantOf(bridgeID)
 			healthJSON, _ := json.Marshal(map[string]interface{}{
 				"uptime_sec": uptimeSec,
 				"cpu_pct":    cpuPct,
@@ -537,7 +536,7 @@ func (h *Handler) handleBridgeSatUplink(ctx context.Context, imei string, rawByt
 
 	// Audit: log bridge satellite uplink event.
 	if h.audit != nil {
-		tid := auth.TenantIDFromContext(ctx)
+		tid := h.tenantOf(imei)
 		detail := fmt.Sprintf("imei=%s type=0x%02x bytes=%d", imei, msgType, len(rawBytes))
 		_ = h.audit.Log(ctx, tid, "bridge_sat_uplink", "webhook", detail, "")
 	}

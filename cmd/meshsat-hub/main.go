@@ -1127,6 +1127,10 @@ func main() {
 	if cfg.CloudloopWebhookAllowedIPs != "" {
 		clHandler.SetAllowedIPs(strings.Split(cfg.CloudloopWebhookAllowedIPs, ","))
 	}
+	clHandler.SetToken(cfg.CloudloopWebhookToken)
+	if strings.TrimSpace(cfg.CloudloopWebhookAllowedIPs) == "*" && cfg.CloudloopWebhookToken == "" {
+		slog.Error("cloudloop: HUB_CLOUDLOOP_WEBHOOK_ALLOWED_IPS is * without HUB_CLOUDLOOP_WEBHOOK_TOKEN; the webhook will reject every request (MESHSAT-971)")
+	}
 
 	// Wire Reticulum interfaces to webhook handlers for inbound packet detection.
 	if retIridiumIface != nil {
@@ -1371,6 +1375,10 @@ func main() {
 	// Email gateway routes (PGP key management + inbound webhook)
 	if emailKeyRing != nil {
 		emailWebhook := hubemail.NewWebhookHandler(msgBus, emailKeyRing)
+		emailWebhook.SetSecret(cfg.EmailWebhookSecret)
+		if cfg.EmailWebhookSecret == "" {
+			slog.Warn("email: HUB_EMAIL_WEBHOOK_SECRET unset; /api/webhook/email rejects every request (MESHSAT-976)")
+		}
 		r.Post("/api/webhook/email", emailWebhook.ServeHTTP)
 
 		emailAPIHandler := hubemail.NewAPIHandler(emailKeyRing)
