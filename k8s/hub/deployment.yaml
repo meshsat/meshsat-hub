@@ -99,3 +99,13 @@ spec:
           resources:
             requests: {memory: 256Mi, cpu: 200m}
             limits: {memory: 1Gi}
+          volumeMounts:
+            # HUB_CLOUDLOOP_MQTT_{CA,CERT,KEY} name files under this path.
+            - name: cloudloop-certs
+              mountPath: /certs/cloudloop
+              readOnly: true
+      volumes:
+        - name: cloudloop-certs
+          secret:
+            secretName: hub-cloudloop-certs
+            defaultMode: 0400
