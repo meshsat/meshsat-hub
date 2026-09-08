@@ -48,3 +48,7 @@ tor-keys/
 .DS_Store
 Thumbs.db
 meshsat-sim
+
+# python bytecode from local script checks
+__pycache__/
+*.pyc
