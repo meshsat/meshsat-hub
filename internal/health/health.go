@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/meshsat/meshsat-hub/internal/metrics"
@@ -18,16 +19,29 @@ type Probe func(ctx context.Context) error
 type DetailedProbe func(ctx context.Context) (map[string]any, error)
 
 // Checker tracks the health of dependencies.
+//
+// Probes come in two classes. Critical probes (AddProbe, AddDetailedProbe,
+// Set) decide the /readyz status: on Kubernetes a failing critical probe pulls
+// the pod out of the Service. Informational probes (AddInfoProbe) are
+// evaluated and exported as the meshsat_hub_dependency_up metric and shown by
+// /readyz?verbose=1, but never change the status: a NATS, ntfy or hawkBit blip
+// must not make the HTTP API unavailable.
 type Checker struct {
 	mu             sync.RWMutex
 	checks         map[string]bool
 	probes         map[string]Probe
 	detailedProbes map[string]DetailedProbe
+	infoProbes     map[string]Probe
 	probeTimeout   time.Duration
 
-	// Startup tracking: once all probes pass, startup is complete.
+	// Startup tracking: startup is complete once MarkStarted is called or all
+	// critical probes have passed at least once.
 	startupMu   sync.RWMutex
 	startupDone bool
+
+	// draining is set during graceful shutdown so /readyz returns 503 and the
+	// load balancer stops sending new requests before the listener closes.
+	draining atomic.Bool
 }
 
 // New creates a new health checker with the given probe timeout.
@@ -39,8 +53,37 @@ func New(probeTimeout time.Duration) *Checker {
 		checks:         make(map[string]bool),
 		probes:         make(map[string]Probe),
 		detailedProbes: make(map[string]DetailedProbe),
+		infoProbes:     make(map[string]Probe),
 		probeTimeout:   probeTimeout,
 	}
+}
+
+// AddInfoProbe registers an informational probe. It is evaluated on every
+// /readyz request (exported as meshsat_hub_dependency_up) and listed under
+// "info" when the request carries ?verbose=1, but it never affects readiness.
+func (c *Checker) AddInfoProbe(name string, probe Probe) {
+	c.mu.Lock()
+	c.infoProbes[name] = probe
+	c.mu.Unlock()
+}
+
+// MarkStarted declares startup complete (migrations applied, listener up).
+// After this /startupz answers 200 without evaluating probes.
+func (c *Checker) MarkStarted() {
+	c.startupMu.Lock()
+	c.startupDone = true
+	c.startupMu.Unlock()
+}
+
+// SetDraining makes /readyz answer 503 with status "draining" for the rest of
+// the process lifetime. Call it first thing on SIGTERM.
+func (c *Checker) SetDraining() {
+	c.draining.Store(true)
+}
+
+// Draining reports whether SetDraining has been called.
+func (c *Checker) Draining() bool {
+	return c.draining.Load()
 }
 
 // Set updates the health status of a named dependency.
@@ -73,9 +116,12 @@ type CheckResult struct {
 }
 
 // Response is the JSON structure returned by health endpoints.
+// Checks are the critical dependencies that decide Status; Info lists the
+// informational dependencies and is only populated for verbose requests.
 type Response struct {
 	Status string                  `json:"status"`
 	Checks map[string]*CheckResult `json:"checks,omitempty"`
+	Info   map[string]*CheckResult `json:"info,omitempty"`
 }
 
 // LivezHandler always returns 200 if the process is running.
@@ -89,15 +135,19 @@ func LivezHandler(w http.ResponseWriter, _ *http.Request) {
 	_ = json.NewEncoder(w).Encode(Response{Status: "ok"})
 }
 
-// ReadyzHandler returns 200 if all dependencies are healthy, 503 otherwise.
+// ReadyzHandler returns 200 if all critical dependencies are healthy, 503
+// otherwise (or while draining). Informational dependencies are included only
+// with ?verbose=1.
 // @Summary      Readiness probe
 // @Tags         health
 // @Produce      json
+// @Param        verbose  query  string  false  "Include informational dependencies (1)"
 // @Success      200  {object}  Response
 // @Failure      503  {object}  Response
 // @Router       /readyz [get]
-func (c *Checker) ReadyzHandler(w http.ResponseWriter, _ *http.Request) {
-	resp := c.evaluate()
+func (c *Checker) ReadyzHandler(w http.ResponseWriter, r *http.Request) {
+	verbose := r != nil && r.URL != nil && r.URL.Query().Get("verbose") == "1"
+	resp := c.evaluate(verbose)
 
 	w.Header().Set("Content-Type", "application/json")
 	if resp.Status != "ok" {
@@ -123,7 +173,7 @@ func (c *Checker) StartupzHandler(w http.ResponseWriter, _ *http.Request) {
 		_ = json.NewEncoder(w).Encode(Response{Status: "ok"})
 	} else {
 		// Evaluate now and check if we just became ready.
-		resp := c.evaluate()
+		resp := c.evaluate(false)
 		if resp.Status == "ok" {
 			c.startupMu.Lock()
 			c.startupDone = true
@@ -136,7 +186,7 @@ func (c *Checker) StartupzHandler(w http.ResponseWriter, _ *http.Request) {
 	}
 }
 
-func (c *Checker) evaluate() Response {
+func (c *Checker) evaluate(verbose bool) Response {
 	c.mu.RLock()
 	staticChecks := make(map[string]bool, len(c.checks))
 	for k, v := range c.checks {
@@ -150,11 +200,18 @@ func (c *Checker) evaluate() Response {
 	for k, v := range c.detailedProbes {
 		detailed[k] = v
 	}
+	info := make(map[string]Probe, len(c.infoProbes))
+	for k, v := range c.infoProbes {
+		info[k] = v
+	}
 	c.mu.RUnlock()
 
 	resp := Response{
 		Status: "ok",
 		Checks: make(map[string]*CheckResult, len(staticChecks)+len(probes)+len(detailed)),
+	}
+	if c.draining.Load() {
+		resp.Status = "draining"
 	}
 
 	// Evaluate static checks.
@@ -162,8 +219,9 @@ func (c *Checker) evaluate() Response {
 		cr := &CheckResult{Status: "ok"}
 		if !healthy {
 			cr.Status = "unhealthy"
-			resp.Status = "unhealthy"
+			setUnhealthy(&resp)
 		}
+		metrics.DependencyUp.WithLabelValues(name).Set(boolGauge(healthy))
 		resp.Checks[name] = cr
 	}
 
@@ -183,11 +241,12 @@ func (c *Checker) evaluate() Response {
 			}
 			if err != nil {
 				cr.Status = "unhealthy"
-				resp.Status = "unhealthy"
+				setUnhealthy(&resp)
 				if ctx.Err() != nil {
 					metrics.HealthProbeTimeouts.WithLabelValues(name).Inc()
 				}
 			}
+			metrics.DependencyUp.WithLabelValues(name).Set(boolGauge(err == nil))
 			resp.Checks[name] = cr
 		}
 	}
@@ -209,14 +268,57 @@ func (c *Checker) evaluate() Response {
 			}
 			if err != nil {
 				cr.Status = "unhealthy"
-				resp.Status = "unhealthy"
+				setUnhealthy(&resp)
 				if ctx.Err() != nil {
 					metrics.HealthProbeTimeouts.WithLabelValues(name).Inc()
 				}
 			}
+			metrics.DependencyUp.WithLabelValues(name).Set(boolGauge(err == nil))
 			resp.Checks[name] = cr
 		}
 	}
 
+	// Evaluate informational probes: metric always, response only if verbose,
+	// status never.
+	if len(info) > 0 {
+		ctx, cancel := context.WithTimeout(context.Background(), c.probeTimeout)
+		defer cancel()
+		if verbose {
+			resp.Info = make(map[string]*CheckResult, len(info))
+		}
+		for name, probe := range info {
+			start := time.Now()
+			err := probe(ctx)
+			elapsed := time.Since(start)
+			metrics.HealthProbeDuration.WithLabelValues(name).Observe(elapsed.Seconds())
+			metrics.DependencyUp.WithLabelValues(name).Set(boolGauge(err == nil))
+			if err != nil && ctx.Err() != nil {
+				metrics.HealthProbeTimeouts.WithLabelValues(name).Inc()
+			}
+			if verbose {
+				cr := &CheckResult{Status: "ok", LatencyMS: elapsed.Milliseconds()}
+				if err != nil {
+					cr.Status = "unhealthy"
+					cr.Detail = map[string]any{"error": err.Error()}
+				}
+				resp.Info[name] = cr
+			}
+		}
+	}
+
 	return resp
+}
+
+// setUnhealthy downgrades the response status without overriding "draining".
+func setUnhealthy(resp *Response) {
+	if resp.Status != "draining" {
+		resp.Status = "unhealthy"
+	}
+}
+
+func boolGauge(ok bool) float64 {
+	if ok {
+		return 1
+	}
+	return 0
 }

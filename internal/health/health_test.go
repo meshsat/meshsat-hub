@@ -226,3 +226,86 @@ func TestDetailedProbe(t *testing.T) {
 		t.Errorf("expected cluster_size 3, got %v", cr.Detail["cluster_size"])
 	}
 }
+
+func TestInfoProbeNeverAffectsReadiness(t *testing.T) {
+	c := New(3 * time.Second)
+	c.AddProbe("db", func(ctx context.Context) error { return nil })
+	c.AddInfoProbe("mqtt", func(ctx context.Context) error { return fmt.Errorf("mqtt not connected") })
+
+	req := httptest.NewRequest("GET", "/readyz", nil)
+	w := httptest.NewRecorder()
+	c.ReadyzHandler(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200 with a failing info probe, got %d", w.Code)
+	}
+	var resp Response
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+	if resp.Status != "ok" {
+		t.Errorf("expected ok, got %s", resp.Status)
+	}
+	if _, present := resp.Checks["mqtt"]; present {
+		t.Errorf("info probe must not appear under checks")
+	}
+	if resp.Info != nil {
+		t.Errorf("info must be omitted without ?verbose=1, got %v", resp.Info)
+	}
+
+	// Verbose lists it with the error, still 200.
+	req = httptest.NewRequest("GET", "/readyz?verbose=1", nil)
+	w = httptest.NewRecorder()
+	c.ReadyzHandler(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("verbose: expected 200, got %d", w.Code)
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+	cr := resp.Info["mqtt"]
+	if cr == nil || cr.Status != "unhealthy" || cr.Detail["error"] != "mqtt not connected" {
+		t.Errorf("verbose info entry wrong: %+v", cr)
+	}
+	if resp.Checks["db"] == nil || resp.Checks["db"].Status != "ok" {
+		t.Errorf("critical db check missing or wrong: %+v", resp.Checks["db"])
+	}
+}
+
+func TestDrainingReturns503(t *testing.T) {
+	c := New(3 * time.Second)
+	c.AddProbe("db", func(ctx context.Context) error { return nil })
+	c.SetDraining()
+	if !c.Draining() {
+		t.Fatal("Draining() should be true")
+	}
+
+	req := httptest.NewRequest("GET", "/readyz", nil)
+	w := httptest.NewRecorder()
+	c.ReadyzHandler(w, req)
+	if w.Code != http.StatusServiceUnavailable {
+		t.Fatalf("expected 503 while draining, got %d", w.Code)
+	}
+	var resp Response
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+	if resp.Status != "draining" {
+		t.Errorf("expected status draining, got %s", resp.Status)
+	}
+	if resp.Checks["db"] == nil || resp.Checks["db"].Status != "ok" {
+		t.Errorf("checks should still be reported while draining: %+v", resp.Checks["db"])
+	}
+}
+
+func TestMarkStartedSkipsProbes(t *testing.T) {
+	c := New(3 * time.Second)
+	c.Set("db", false)
+	c.MarkStarted()
+
+	req := httptest.NewRequest("GET", "/startupz", nil)
+	w := httptest.NewRecorder()
+	c.StartupzHandler(w, req)
+	if w.Code != http.StatusOK {
+		t.Errorf("expected 200 after MarkStarted regardless of probes, got %d", w.Code)
+	}
+}
