@@ -412,3 +412,11 @@ func (m *mockStore) LinkOIDCIdentity(context.Context, *store.OIDCIdentity) error
 func (m *mockStore) GetOIDCIdentity(context.Context, string, string) (*store.OIDCIdentity, error) {
 	return nil, nil
 }
+
+func (m *mockStore) LookupDeviceTenant(_ context.Context, _ string) (string, error) {
+	return "", store.ErrNotFound
+}
+
+func (m *mockStore) LookupBridgeTenant(_ context.Context, _ string) (string, error) {
+	return "", store.ErrNotFound
+}

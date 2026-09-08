@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/meshsat/meshsat-hub/internal/tenancy"
 	"log/slog"
 	"strings"
 	"time"
@@ -42,7 +43,7 @@ type HeMBReassembler interface {
 type Subscriber struct {
 	mqtt               bus.MessageBus
 	store              store.Store
-	tenantID           string
+	tenants            *tenancy.Resolver
 	staleThreshold     time.Duration // birth messages older than this are treated as retained replays
 	retRouter          ReticulumRouter
 	caCertPool         *x509.CertPool // bridge CA for birth signature verification
@@ -51,14 +52,14 @@ type Subscriber struct {
 }
 
 // NewSubscriber creates a new bridge MQTT subscriber.
-func NewSubscriber(mqtt bus.MessageBus, store store.Store, defaultTenantID string) *Subscriber {
-	if defaultTenantID == "" {
-		defaultTenantID = "default"
+func NewSubscriber(mqtt bus.MessageBus, st store.Store, tenants *tenancy.Resolver) *Subscriber {
+	if tenants == nil {
+		tenants = tenancy.NewResolver(st, store.DefaultTenantID, 30*time.Second)
 	}
 	return &Subscriber{
 		mqtt:           mqtt,
-		store:          store,
-		tenantID:       defaultTenantID,
+		store:          st,
+		tenants:        tenants,
 		staleThreshold: 5 * time.Minute,
 	}
 }
@@ -133,7 +134,7 @@ func (s *Subscriber) Start() error {
 	}
 
 	slog.Info("bridge: subscriber started",
-		"tenant_id", s.tenantID,
+		"tenant", s.tenants.Default(),
 		"topics", len(subs),
 		"hemb", s.hembReassembler != nil,
 	)
@@ -208,7 +209,7 @@ func (s *Subscriber) handleBridgeBirth(topic string, payload []byte) {
 
 	b := &store.Bridge{
 		BridgeID:      birth.BridgeID,
-		TenantID:      s.resolveTenantID(birth.TenantID),
+		TenantID:      s.resolveTenantID(birth.TenantID, bridgeID),
 		Label:         birth.BridgeID,
 		Hostname:      birth.Hostname,
 		Version:       birth.Version,
@@ -233,7 +234,7 @@ func (s *Subscriber) handleBridgeBirth(topic string, payload []byte) {
 	}
 
 	ctx := context.Background()
-	tenantID := s.resolveTenantID(birth.TenantID)
+	tenantID := s.resolveTenantID(birth.TenantID, bridgeID)
 
 	// Detect stale retained birth messages: if the timestamp is older than
 	// staleThreshold, this is a retained replay from the broker (not a fresh
@@ -325,7 +326,7 @@ func (s *Subscriber) handleBridgeDeath(topic string, payload []byte) {
 	}
 
 	ctx := context.Background()
-	tenantID := s.tenantID
+	tenantID := s.tenants.ForBridge(context.Background(), bridgeID)
 
 	// Remove Reticulum route if the bridge had one.
 	if s.retRouter != nil {
@@ -368,7 +369,7 @@ func (s *Subscriber) handleBridgeHealth(topic string, payload []byte) {
 	}
 
 	ctx := context.Background()
-	tenantID := s.tenantID
+	tenantID := s.tenants.ForBridge(context.Background(), bridgeID)
 
 	if err := s.store.SetBridgeHealth(ctx, tenantID, bridgeID, string(payload)); err != nil {
 		slog.Debug("bridge: failed to set health", "error", err, "bridge", bridgeID)
@@ -420,7 +421,7 @@ func (s *Subscriber) handleDeviceBirth(topic string, payload []byte) {
 	}
 
 	ctx := context.Background()
-	tenantID := s.tenantID
+	tenantID := s.tenants.ForBridge(context.Background(), bridgeID)
 
 	// Auto-provision device if it has an IMEI and doesn't exist yet.
 	if birth.IMEI != "" {
@@ -554,12 +555,13 @@ func (s *Subscriber) handleHeMBSymbol(topic string, payload []byte) {
 	)
 }
 
-// resolveTenantID returns the tenant ID from the birth cert if set, otherwise the default.
-func (s *Subscriber) resolveTenantID(birthTenantID string) string {
+// resolveTenantID returns the tenant ID from the birth message if set, else the
+// tenant that already owns the bridge, else the default tenant.
+func (s *Subscriber) resolveTenantID(birthTenantID, bridgeID string) string {
 	if birthTenantID != "" {
 		return birthTenantID
 	}
-	return s.tenantID
+	return s.tenants.ForBridge(context.Background(), bridgeID)
 }
 
 // extractBridgeIDFromTopic extracts bridge_id from "meshsat/bridge/{id}/...".
