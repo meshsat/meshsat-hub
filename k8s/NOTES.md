@@ -137,3 +137,24 @@ stay R1. Of the retained messages only the bond-group config (`/api/bridges/{id}
 does not regenerate itself: mptcp status re-publishes every 30 s, reticulum route hints every
 60 s, credits hourly, and bridge birth messages arrive on reconnect. Restore bond groups by
 re-saving them through the API, never by hand-publishing to MQTT.
+
+## KeyDB (MESHSAT-711, 2026-09-08)
+
+The dedup and rate-limit store is `keydb`, a two-pod StatefulSet in multi-master
+(`--active-replica yes --multi-master yes`, each pod replicating from the other through the
+headless `keydb-hs`), on the control-plane tier. Both accept writes, so losing one machine costs
+nothing and there is no failover to wait for.
+
+**The client Service is still called `redis`.** That is deliberate: `HUB_REDIS_URL` and every
+other reference kept working, so replacing the store needed no Hub change at all. The workload
+is `keydb`, the Service is `redis`, and that mismatch is the one exception to the naming rule.
+
+The old `redis` StatefulSet and its claim were deleted by hand after the rollout, because this
+Argo application does not prune. Its volume is Retain, so `pvc-221b3d89...` on dmz01 still holds
+the bytes and is the way back.
+
+Two things to know: dedup is no longer linearizable, because two masters behind one Service can
+both accept the same key inside the replication window. Replication is sub-millisecond on this
+LAN, the consumer already fails open, and `dispatch_claims` in Postgres is what actually
+guarantees single delivery. And KeyDB upstream is quiet since the acquisition; the mitigation is
+that this exact image digest has been in production in the omoikane namespace since August.
