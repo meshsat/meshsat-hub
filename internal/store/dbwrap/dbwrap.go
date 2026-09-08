@@ -29,13 +29,6 @@ var (
 		Help: "Total slow database queries.",
 	}, []string{"store"})
 
-	// Deprecated alias kept for one release: incremented only for reason
-	// wsrep_1047. Dashboards should move to meshsat_hub_db_transient_retries_total.
-	dbWSREPRetries = promauto.NewCounter(prometheus.CounterOpts{
-		Name: "meshsat_hub_db_wsrep_retries_total",
-		Help: "Total WSREP 1047 retry attempts (Galera view transition). Deprecated: use meshsat_hub_db_transient_retries_total.",
-	})
-
 	dbTransientRetries = promauto.NewCounterVec(prometheus.CounterOpts{
 		Name: "meshsat_hub_db_transient_retries_total",
 		Help: "Total retries of transient database errors by store and reason.",

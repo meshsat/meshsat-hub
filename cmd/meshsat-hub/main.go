@@ -32,7 +32,6 @@ import (
 	"github.com/meshsat/meshsat-hub/internal/bus"
 	"github.com/meshsat/meshsat-hub/internal/bus/paho"
 	"github.com/meshsat/meshsat-hub/internal/cloudloop"
-	"github.com/meshsat/meshsat-hub/internal/cluster"
 	"github.com/meshsat/meshsat-hub/internal/codec"
 	"github.com/meshsat/meshsat-hub/internal/config"
 	"github.com/meshsat/meshsat-hub/internal/constellation"
@@ -68,7 +67,6 @@ import (
 	"github.com/meshsat/meshsat-hub/internal/sos"
 	"github.com/meshsat/meshsat-hub/internal/store"
 	"github.com/meshsat/meshsat-hub/internal/store/dbwrap"
-	"github.com/meshsat/meshsat-hub/internal/store/mariadb"
 	"github.com/meshsat/meshsat-hub/internal/store/postgres"
 	"github.com/meshsat/meshsat-hub/internal/store/sqlite"
 	"github.com/meshsat/meshsat-hub/internal/tak"
@@ -197,32 +195,9 @@ func main() {
 	// --- Store: driver from HUB_DB_DRIVER or sniffed from the DSN ---
 	dbwrap.SetDefaultMaxAttempts(cfg.DBRetryMaxAttempts)
 	var dataStore store.Store
-	var clusterMonitor *cluster.Monitor
 	slowQ := time.Duration(cfg.DBSlowQueryMS) * time.Millisecond
 	dbDriver := cfg.ResolvedDBDriver()
 	switch dbDriver {
-	case "mariadb":
-		dbStore, err := mariadb.New(cfg.DatabaseURL, slowQ)
-		if err != nil {
-			slog.Error("mariadb connection failed", "error", err)
-			os.Exit(1)
-		}
-		if err := dbStore.Migrate(ctx); err != nil {
-			slog.Error("mariadb migration failed", "error", err)
-			os.Exit(1)
-		}
-		dataStore = dbStore
-		// Galera cluster health monitor (MariaDB only).
-		var peers []string
-		if cfg.ClusterPeers != "" {
-			for _, p := range strings.Split(cfg.ClusterPeers, ",") {
-				p = strings.TrimSpace(p)
-				if p != "" {
-					peers = append(peers, p)
-				}
-			}
-		}
-		clusterMonitor = cluster.NewMonitor(dbStore.RawDB(), cfg.MQTTClientID, "", peers)
 	case "postgres":
 		pgStore, err := postgres.New(cfg.DatabaseURL, slowQ)
 		if err != nil {
@@ -1676,17 +1651,6 @@ func main() {
 	r.Get("/api/mptcp/endpoints", mptcpHandler.ListEndpoints)
 	r.Post("/api/mptcp/endpoints", mptcpHandler.AddEndpointHandler)
 	r.Delete("/api/mptcp/endpoints/{id}", mptcpHandler.RemoveEndpointHandler)
-
-	// Cluster health management (available in any mode — standalone returns basic info)
-	if clusterMonitor == nil {
-		clusterMonitor = cluster.NewMonitor(nil, cfg.MQTTClientID, "", nil)
-	}
-	clusterHandler := cluster.NewAPIHandler(clusterMonitor)
-	r.Get("/api/cluster/node", clusterHandler.GetNodeStatus)
-	r.Get("/api/cluster/status", clusterHandler.GetClusterStatus)
-	r.Get("/api/cluster/actions", clusterHandler.GetActions)
-	r.Post("/api/cluster/actions/{id}", clusterHandler.ExecuteAction)
-	r.Put("/api/cluster/peers", clusterHandler.SetPeers)
 
 	// Integration channel status API
 	integrationHandler := api.NewIntegrationHandler(cfg)
