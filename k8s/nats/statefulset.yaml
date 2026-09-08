@@ -66,6 +66,7 @@ spec:
             - {name: config, mountPath: /etc/nats}
             - {name: tls, mountPath: /etc/nats/tls, readOnly: true}
             - {name: bridge-ca, mountPath: /etc/nats/bridge-ca, readOnly: true}
+            - {name: auth, mountPath: /etc/nats/auth, readOnly: true}
             - {name: pid, mountPath: /var/run/nats}
             - {name: data, mountPath: /data}
         - name: reloader
@@ -81,6 +82,8 @@ spec:
             - /etc/nats/tls/tls.key
             - -config
             - /etc/nats/bridge-ca/ca.crt
+            - -config
+            - /etc/nats/auth/users.conf
           resources:
             requests: {memory: 16Mi, cpu: 10m}
             limits: {memory: 64Mi}
@@ -88,6 +91,7 @@ spec:
             - {name: config, mountPath: /etc/nats}
             - {name: tls, mountPath: /etc/nats/tls, readOnly: true}
             - {name: bridge-ca, mountPath: /etc/nats/bridge-ca, readOnly: true}
+            - {name: auth, mountPath: /etc/nats/auth, readOnly: true}
             - {name: pid, mountPath: /var/run/nats}
         - name: exporter
           image: docker.io/natsio/prometheus-nats-exporter
@@ -105,6 +109,8 @@ spec:
           secret: {secretName: meshsat-net-tls}
         - name: bridge-ca
           secret: {secretName: meshsat-bridge-ca}
+        - name: auth
+          secret: {secretName: meshsat-nats-auth}
         - name: pid
           emptyDir: {}
   volumeClaimTemplates:
