@@ -158,3 +158,32 @@ both accept the same key inside the replication window. Replication is sub-milli
 LAN, the consumer already fails open, and `dispatch_claims` in Postgres is what actually
 guarantees single delivery. And KeyDB upstream is quiet since the acquisition; the mitigation is
 that this exact image digest has been in production in the omoikane namespace since August.
+
+## The deep basemap (MESHSAT-967, 2026-09-08)
+
+The map reads two archives. The **world** one lives in the object store and the Hub streams it
+at `/basemap/basemap.pmtiles`; it stops at zoom 11, which is as deep as a global archive can be
+and still fit there. The **deep** one is Europe to zoom 15, which is the zoom where street names
+exist, and it is 37 GB.
+
+That 37 GB is why it is not in the object store: the SeaweedFS volume servers sit on dmz01 and
+dmz06 with about 35 GB free between what each can spare, and filling those has taken the S3
+write path down before. The control-plane machines have 121 to 129 GB free each, so the archive
+sits on their own disks: StatefulSet `basemap`, two replicas, one per machine, 60 Gi claims so
+it cannot creep, `Retain` on delete. nginx serves the file and the ingress sends
+`/basemap/local.pmtiles` straight there, so the Hub is not in the path and stays stateless.
+
+**It builds itself.** The init container extracts the archive from the Protomaps daily planet
+build straight onto the volume when the volume does not have it: a new machine, a restored
+volume, or a deliberate rebuild after `rm`. The extractor is pinned by version and verified by
+checksum, and cached at `/data/bin/pmtiles`, so a restart costs nothing. The first build pulls
+about 37 GB and takes tens of minutes; the two replicas do it one at a time.
+
+Two things that will eventually bite:
+
+- Planet builds are kept for roughly a week. If a volume is empty and `PLANET_URL` points at an
+  expired build, the extract fails, the pod stays unready, and the map quietly falls back to the
+  world archive. Update the date in `basemap-config` and it rebuilds.
+- Coverage is a bounding box in the same ConfigMap. Widening it means more gigabytes: measured
+  against the 2026-09-07 build, Germany alone is 6.8 GB at zoom 15, the Netherlands and Greece
+  together 2.6 GB, all of Europe 37 GB, and the entire planet 128 GB.
