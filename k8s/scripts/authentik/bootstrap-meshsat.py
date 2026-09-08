@@ -28,7 +28,7 @@ from authentik.policies.event_matcher.models import EventMatcherPolicy
 from authentik.policies.expression.models import ExpressionPolicy
 from authentik.policies.models import PolicyBinding
 from authentik.providers.oauth2.models import (
-    ClientType, OAuth2Provider, RedirectURI, RedirectURIMatchingMode, ScopeMapping,
+    ClientType, GrantType, OAuth2Provider, RedirectURI, RedirectURIMatchingMode, ScopeMapping,
 )
 from authentik.stages.email.models import EmailStage
 from authentik.stages.identification.models import IdentificationStage
@@ -111,6 +111,8 @@ provider, p_created = OAuth2Provider.objects.get_or_create(
 )
 provider.redirect_uris = redirects
 provider.client_type = ClientType.CONFIDENTIAL
+# authentik 2026.x rejects /authorize with invalid_request unless the grant is listed here.
+provider.grant_types = [GrantType.AUTHORIZATION_CODE, GrantType.REFRESH_TOKEN]
 if provider.authorization_flow_id != auth_flow.pk:
     provider.authorization_flow = auth_flow
 if invalidation and provider.invalidation_flow_id != invalidation.pk:
