@@ -230,14 +230,14 @@ func (h *BridgeAuthHandler) RegenerateACL(w http.ResponseWriter, r *http.Request
 	}
 
 	passwdData := bridge.GeneratePasswordFile(bridges)
-	if err := os.WriteFile(mosqAuthFile, passwdData, 0600); err != nil {
+	if err := os.WriteFile(mosqAuthFile, passwdData, 0600); err != nil { // #nosec G703 -- operator configuration (env), cleaned and absolute; not request input
 		slog.Error("acl: failed to write password file", "path", mosqAuthFile, "error", err)
 		writeError(w, http.StatusInternalServerError, "failed to write password file")
 		return
 	}
 
 	aclData := bridge.GenerateACLFile(bridges)
-	if err := os.WriteFile(aclFile, aclData, 0600); err != nil {
+	if err := os.WriteFile(aclFile, aclData, 0600); err != nil { // #nosec G703 -- operator configuration (env), cleaned and absolute; not request input
 		slog.Error("acl: failed to write ACL file", "path", aclFile, "error", err)
 		writeError(w, http.StatusInternalServerError, "failed to write ACL file")
 		return

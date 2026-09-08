@@ -554,11 +554,11 @@ func main() {
 	caCertPath := filepath.Clean(os.Getenv("MESHSAT_BRIDGE_CA_CERT"))
 	caKeyPath := filepath.Clean(os.Getenv("MESHSAT_BRIDGE_CA_KEY"))
 	if filepath.IsAbs(caCertPath) && filepath.IsAbs(caKeyPath) {
-		certPEM, err := os.ReadFile(caCertPath)
+		certPEM, err := os.ReadFile(caCertPath) // #nosec G703 -- operator configuration (env), cleaned and absolute; not request input
 		if err != nil {
 			slog.Error("bridge-ca: failed to read CA cert", "path", caCertPath, "error", err)
 		} else {
-			keyPEM, err := os.ReadFile(caKeyPath)
+			keyPEM, err := os.ReadFile(caKeyPath) // #nosec G703 -- operator configuration (env), cleaned and absolute; not request input
 			if err != nil {
 				slog.Error("bridge-ca: failed to read CA key", "path", caKeyPath, "error", err)
 			} else {
