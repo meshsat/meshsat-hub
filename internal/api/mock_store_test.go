@@ -355,6 +355,9 @@ func (m *mockStore) ListCredentials(context.Context, string) ([]store.Credential
 }
 func (m *mockStore) UpdateCredential(context.Context, string, *store.Credential) error { return nil }
 func (m *mockStore) DeleteCredential(context.Context, string, string) error            { return nil }
+func (m *mockStore) ListHubCredentialsByProvider(context.Context, string) ([]store.Credential, error) {
+	return nil, nil
+}
 func (m *mockStore) ListExpiringCredentials(context.Context, time.Time) ([]store.Credential, error) {
 	return nil, nil
 }

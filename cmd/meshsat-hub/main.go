@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	hubmqtt "github.com/meshsat/meshsat-hub/internal/mqtt"
+	"github.com/meshsat/meshsat-hub/internal/integrations"
 	"github.com/meshsat/meshsat-hub/internal/tenancy"
 	"io/fs"
 	"log/slog"
@@ -320,6 +321,20 @@ func main() {
 	}
 
 	// Cloudloop API client for MT sends.
+	// Per-tenant provider accounts (MESHSAT-977): encrypted rows in the
+	// credentials table; the environment-configured values are the platform
+	// account and serve the default tenant only.
+	credMasterKey := bootstrapCredentialMasterKey(dataStore)
+	providerAccounts := integrations.New(dataStore, credMasterKey)
+	providerAccounts.SetPlatform(integrations.ProviderCloudloop, map[string]string{
+		"api_url": cfg.CloudloopAPIURL, "api_key": cfg.CloudloopAPIKey, "account_id": cfg.CloudloopAccountID, "webhook_token": cfg.CloudloopWebhookToken})
+	providerAccounts.SetPlatform(integrations.ProviderTwilio, map[string]string{
+		"account_sid": cfg.SMSAccountSID, "auth_token": cfg.SMSAuthToken, "from_number": cfg.SMSFromNumber})
+	providerAccounts.SetPlatform(integrations.ProviderRock7, map[string]string{"username": cfg.Rock7Username, "password": cfg.Rock7Password})
+	providerAccounts.SetPlatform(integrations.ProviderRockBLOCK, map[string]string{"webhook_secret": cfg.RockBLOCKSecret})
+	providerAccounts.SetPlatform(integrations.ProviderGlobalstar, map[string]string{
+		"api_url": cfg.GlobalstarAPIURL, "api_key": cfg.GlobalstarAPIKey, "webhook_secret": cfg.GlobalstarWebhookSecret})
+
 	cloudloopClient := cloudloop.NewClient(cfg.CloudloopAPIURL, cfg.CloudloopAPIKey)
 
 	// Device resolver: learns IMEI-to-thingID mappings from MO messages and Cloudloop API.
@@ -1443,6 +1458,12 @@ func main() {
 		r.With(hubauth.RequireRole(hubauth.RoleOwner)).Get("/invites", tenantHandler.ListInvites)
 		r.With(hubauth.RequireRole(hubauth.RoleOwner)).Post("/invites", tenantHandler.CreateInvite)
 		r.With(hubauth.RequireRole(hubauth.RoleOwner)).Delete("/invites/{id}", tenantHandler.DeleteInvite)
+		// Provider accounts (MESHSAT-977): owners manage, members see the masked state.
+		intH := api.NewTenantIntegrationsHandler(providerAccounts, auditSvc)
+		r.With(hubauth.RequireRole(hubauth.RoleViewer)).Get("/integrations", intH.List)
+		r.With(hubauth.RequireRole(hubauth.RoleOwner)).Put("/integrations/{provider}", intH.Put)
+		r.With(hubauth.RequireRole(hubauth.RoleOwner)).Delete("/integrations/{provider}", intH.Delete)
+		r.With(hubauth.RequireRole(hubauth.RoleOwner)).Post("/integrations/{provider}/test", intH.Test)
 	})
 	r.Route("/api/admin/tenants", func(r chi.Router) {
 		r.Use(hubauth.RequirePlatformAdmin())
@@ -1471,8 +1492,7 @@ func main() {
 	})
 
 	// Credential management (MESHSAT-356)
-	credMasterKey := bootstrapCredentialMasterKey(dataStore)
-	credHandler := api.NewCredentialHandler(dataStore, credMasterKey)
+	credHandler := api.NewCredentialHandler(dataStore, credMasterKey) // key bootstrapped with providerAccounts above
 	if bridgeCommander != nil {
 		credHandler.SetCommander(bridgeCommander)
 	}

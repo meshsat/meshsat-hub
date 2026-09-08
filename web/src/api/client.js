@@ -317,6 +317,10 @@ export const credentials = {
 // Tenant (MR 16 API): the panel hides itself while the Hub returns 404.
 export const tenant = {
   get: () => fetchJSON('/tenant'),
+  integrations: () => fetchJSON('/tenant/integrations'),
+  setIntegration: (provider, values) => fetchJSON(`/tenant/integrations/${provider}`, { method: 'PUT', body: JSON.stringify({ values }) }),
+  deleteIntegration: (provider) => fetchJSON(`/tenant/integrations/${provider}`, { method: 'DELETE' }),
+  testIntegration: (provider) => fetchJSON(`/tenant/integrations/${provider}/test`, { method: 'POST' }),
   update: (data) => fetchJSON('/tenant', { method: 'PUT', body: JSON.stringify(data) }),
   invites: () => fetchJSON('/tenant/invites'),
   invite: (data) => fetchJSON('/tenant/invites', { method: 'POST', body: JSON.stringify(data) }),
