@@ -14,6 +14,7 @@ import (
 	"github.com/meshsat/meshsat-hub/internal/store"
 	"github.com/meshsat/meshsat-hub/internal/store/sqlite"
 	"github.com/meshsat/meshsat-hub/internal/tenancy"
+	"github.com/meshsat/meshsat-hub/internal/webhookroute"
 )
 
 // Per-tenant webhook tokens (MESHSAT-977): the token selects the tenant, an
@@ -98,5 +99,25 @@ func TestWebhookHandler_TenantTokens(t *testing.T) {
 	}
 	if count(store.DefaultTenantID, imeiDef) != 1 {
 		t.Errorf("platform rows: %d", count(store.DefaultTenantID, imeiDef))
+	}
+}
+
+// A request authenticated by the secret in its path must not then be judged by
+// the IP allowlist branch. Restructuring the allowlist check for MESHSAT-975
+// sent path-authenticated requests down the else branch, and a real webhook to
+// a real tenant's URL came back 403 on the cluster while every unit test still
+// passed. This is that case.
+func TestWebhookHandler_PathTenantIsNotRefusedByAllowlist(t *testing.T) {
+	for _, allowlist := range [][]string{{"*"}, {"203.0.113.7"}} {
+		h := &WebhookHandler{allowedIPs: allowlist}
+		ctx := webhookroute.NewContext(context.Background(), &webhookroute.Resolved{TenantID: "tenant-a"})
+		req := httptest.NewRequest(http.MethodPost, "/api/webhook/cloudloop/s3cr3t",
+			bytes.NewReader([]byte(`{"id":"x","identity":{},"message":""}`))).WithContext(ctx)
+		req.RemoteAddr = "203.0.113.7:1234"
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		if rec.Code == http.StatusForbidden {
+			t.Errorf("allowlist %v: path-authenticated request refused with 403", allowlist)
+		}
 	}
 }

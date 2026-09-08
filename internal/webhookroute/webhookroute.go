@@ -45,6 +45,16 @@ type Resolved struct {
 	Account *integrations.Account
 }
 
+// NewContext puts an already-resolved tenant on a context. The middleware uses
+// it, and handler tests use it to exercise the path-authenticated branch
+// without standing up a router.
+func NewContext(ctx context.Context, r *Resolved) context.Context {
+	if r == nil {
+		return ctx
+	}
+	return tenancy.WithTenant(context.WithValue(ctx, ctxKey{}, r), r.TenantID)
+}
+
 // FromContext returns the tenant resolved for this request.
 func FromContext(ctx context.Context) (*Resolved, bool) {
 	v, ok := ctx.Value(ctxKey{}).(*Resolved)
@@ -90,8 +100,7 @@ func Middleware(svc *integrations.Service, provider, fieldKey string) func(http.
 				http.NotFound(w, r)
 				return
 			}
-			ctx := context.WithValue(r.Context(), ctxKey{}, &Resolved{TenantID: tenantID, Account: account})
-			ctx = tenancy.WithTenant(ctx, tenantID)
+			ctx := NewContext(r.Context(), &Resolved{TenantID: tenantID, Account: account})
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
 	}
