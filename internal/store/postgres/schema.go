@@ -378,4 +378,29 @@ CREATE TABLE IF NOT EXISTS deadman_configs (
 	PRIMARY KEY (device_imei, tenant_id)
 );
 `},
+	{Version: 3, Name: "tenants_and_invites", SQL: `
+CREATE TABLE IF NOT EXISTS tenants (
+	id VARCHAR(64) PRIMARY KEY,
+	slug VARCHAR(64) NOT NULL UNIQUE,
+	name VARCHAR(255) NOT NULL DEFAULT '',
+	owner_user_id VARCHAR(64) NOT NULL DEFAULT '',
+	plan VARCHAR(32) NOT NULL DEFAULT 'beta',
+	status VARCHAR(32) NOT NULL DEFAULT 'active',
+	created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+	updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+INSERT INTO tenants (id, slug, name) VALUES ('default', 'default', 'Default') ON CONFLICT (id) DO NOTHING;
+CREATE TABLE IF NOT EXISTS tenant_invites (
+	id VARCHAR(64) PRIMARY KEY,
+	tenant_id VARCHAR(64) NOT NULL,
+	email_lower VARCHAR(255) NOT NULL,
+	role VARCHAR(16) NOT NULL DEFAULT 'viewer',
+	token_hash VARCHAR(64) NOT NULL DEFAULT '',
+	expires_at TIMESTAMPTZ NOT NULL,
+	accepted_at TIMESTAMPTZ NULL,
+	created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_tenant_invites_email ON tenant_invites (email_lower, accepted_at);
+CREATE INDEX IF NOT EXISTS idx_tenant_invites_tenant ON tenant_invites (tenant_id);
+`},
 }
