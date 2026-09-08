@@ -1,6 +1,7 @@
 <script setup>
 import { ref, onMounted } from 'vue'
 import { integrations } from '../api/client'
+import ProviderAccounts from '../components/ProviderAccounts.vue'
 
 const loading = ref(true)
 const error = ref('')
@@ -58,6 +59,10 @@ function typeBadge(type) {
       <h1 class="text-2xl font-display font-bold">Integrations</h1>
       <p class="text-gray-400 text-sm mt-1">Inbound message channels and webhook endpoints</p>
     </div>
+
+    <ProviderAccounts />
+
+    <h2 class="text-lg font-display font-semibold mb-3">Platform channels</h2>
 
     <div v-if="error" class="bg-red-900/50 border border-red-700 text-red-200 px-4 py-3 rounded mb-4">{{ error }}</div>
 
