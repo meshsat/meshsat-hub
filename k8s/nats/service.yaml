@@ -1,5 +1,5 @@
-# In-cluster endpoints (Hub -> nats:1883, exporter scrape) and the websocket
-# Service the edge relay targets.
+# `nats` stays a ClusterIP so the Hub's tcp://nats:1883 only reaches Ready
+# servers (a server without a JetStream meta leader rejects MQTT sessions).
 apiVersion: v1
 kind: Service
 metadata:
@@ -15,6 +15,26 @@ spec:
     - {name: mqtt, port: 1883, targetPort: mqtt}
     - {name: monitor, port: 8222, targetPort: monitor}
     - {name: metrics, port: 7777, targetPort: metrics}
+---
+# Governing Service of the StatefulSet: nats-N.nats-headless resolves for the
+# cluster routes, including pods that are not Ready yet (the cluster cannot
+# form otherwise). Clients never use this name.
+apiVersion: v1
+kind: Service
+metadata:
+  name: nats-headless
+  namespace: meshsat-hub
+  labels:
+    app.kubernetes.io/name: nats
+spec:
+  clusterIP: None
+  publishNotReadyAddresses: true
+  selector:
+    app.kubernetes.io/name: nats
+  ports:
+    - {name: client, port: 4222, targetPort: client}
+    - {name: cluster, port: 6222, targetPort: cluster}
+    - {name: monitor, port: 8222, targetPort: monitor}
 ---
 apiVersion: v1
 kind: Service
