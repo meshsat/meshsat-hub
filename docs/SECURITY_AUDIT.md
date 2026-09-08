@@ -35,7 +35,7 @@ _Scope: All Go code + production header audit on NL/GR DMZ hosts_
 - `Permissions-Policy: camera=(), microphone=(), geolocation=()`
 - `Strict-Transport-Security: max-age=31536000; includeSubDomains` (only when behind TLS)
 
-**CSP notes:** `style-src 'unsafe-inline'` required for Tailwind CSS runtime styles. `img-src` includes OpenStreetMap tile CDN for Leaflet map.
+**CSP notes:** `style-src 'unsafe-inline'` is required for the runtime styles Tailwind and MapLibre set. `worker-src blob:` is required for MapLibre's tile workers. Since MESHSAT-967 the map is a self-hosted vector basemap streamed from the Hub's own object store at `/basemap/`, so no tile host appears in `img-src` or `connect-src` and the areas an operator looks at, which are roughly where their devices are, never reach a third party.
 
 ## 2. MQTT Reconnect Bug (MESHSAT-154) — Fixed
 

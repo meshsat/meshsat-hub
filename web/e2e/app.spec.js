@@ -173,9 +173,22 @@ test.describe('Authenticated navigation', () => {
     await expect(page.locator('h1:has-text("Messages")')).toBeVisible()
   })
 
-  test('map page shows Leaflet map', async ({ page }) => {
+  test('map page shows the MapLibre canvas', async ({ page }) => {
     await page.goto('/#/map')
-    await expect(page.locator('.leaflet-container')).toBeVisible({ timeout: 10000 })
+    await expect(page.locator('canvas.maplibregl-canvas')).toBeVisible({ timeout: 15000 })
+    // The basemap is self-hosted: nothing on the page may reach a tile host.
+    const external = []
+    page.on('request', (r) => {
+      const u = r.url()
+      if (!u.startsWith('data:') && !u.startsWith('blob:') && !u.includes(new URL(page.url()).host)) external.push(u)
+    })
+    await page.waitForTimeout(3000)
+    expect(external).toEqual([])
+  })
+
+  test('geofence page shows the MapLibre canvas', async ({ page }) => {
+    await page.goto('/#/geofences')
+    await expect(page.locator('canvas.maplibregl-canvas')).toBeVisible({ timeout: 15000 })
   })
 
   test('device config page loads', async ({ page }) => {

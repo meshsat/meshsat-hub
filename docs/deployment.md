@@ -162,6 +162,40 @@ Lease API; message dispatch is protected by database claims, not by the leader.
 
 ---
 
+## Map basemap (self-hosted)
+
+The Hub's map and geofence pages render a vector basemap that the Hub serves
+itself, so an operator's browser never asks a third-party tile host for tiles
+and the areas they look at, which are roughly where their devices are, stay
+inside the deployment.
+
+One PMTiles archive and its glyph and sprite assets live in an S3-compatible
+bucket; the Hub streams them at `/basemap/basemap.pmtiles` and
+`/basemap/assets/`, forwarding HTTP range requests, so a session transfers the
+few tiles it displays rather than the whole archive. The routes serve public
+OpenStreetMap-derived data and need no authentication.
+
+| Variable | Description |
+|----------|-------------|
+| `HUB_BASEMAP_S3_KEY` | Object key of the PMTiles archive. Empty disables the map backdrop. |
+| `HUB_BASEMAP_S3_ASSET_PREFIX` | Key prefix of the glyphs and sprites (default `basemap/assets`) |
+| `HUB_BASEMAP_S3_ENDPOINT` / `_BUCKET` / `_REGION` | Object store; default to the audit archive's values |
+| `HUB_BASEMAP_S3_ACCESS_KEY` / `_SECRET_KEY` | Credentials; default to the audit archive's |
+| `HUB_BASEMAP_CACHE_MAX_AGE` | `Cache-Control` max-age of the archive (default `24h`) |
+
+Build and publish an archive with `k8s/scripts/basemap/build-basemap.sh`, which
+extracts a world basemap from the Protomaps daily planet build over range
+requests (a world at zoom 0-8 is about 530 MB, zoom 0-7 about 180 MB), uploads
+it with the font and sprite assets, and prints the two config values to set.
+Without the key the map still draws devices, tracks and geofences on an empty
+backdrop and says so.
+
+Attribution: map data (c) OpenStreetMap contributors (ODbL), basemap tiles by
+Protomaps, label fonts Noto Sans under the SIL Open Font License. The
+attribution control on the map carries the first two.
+
+---
+
 ## mTLS Bridge Authentication
 
 Bridges connect to the Hub via MQTT-over-WebSocket with mutual TLS (mTLS). The Hub acts as a Certificate Authority, issuing ECDSA P-256 client certificates to each bridge.
