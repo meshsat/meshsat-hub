@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/meshsat/meshsat-hub/internal/oob"
 	"log/slog"
 	"strings"
 	"sync"
@@ -119,12 +120,86 @@ func KeyRotateCommand(channelType, address, keyHex string, version int) protocol
 	}
 }
 
+// OOBSender is the out-of-band leg (internal/oob.Service): sealed frames
+// over SMS, IMT or SBD for bridges that are MQTT-offline (MESHSAT-964 C).
+type OOBSender interface {
+	Send(ctx context.Context, tenantID, bridgeID, bearer, cmdName string, args oob.ArgSpec, noReply bool) (*oob.Reply, error)
+	ChooseBearer(p *store.OOBPeer, via string, isIMT func(imei string) bool) (string, error)
+	Peer(ctx context.Context, tenantID, bridgeID string) (*store.OOBPeer, error)
+}
+
 // Commander sends commands to field bridges via MQTT and correlates responses.
 type Commander struct {
 	mqtt    bus.MessageBus
 	store   store.Store
 	mu      sync.Mutex
 	pending map[string]chan *protocol.CommandResponse // request_id -> response channel
+	oob     OOBSender
+	isIMT   func(imei string) bool
+}
+
+// SetOOB attaches the out-of-band leg; isIMT tells IMT modems from SBD ones.
+func (c *Commander) SetOOB(o OOBSender, isIMT func(imei string) bool) {
+	c.oob = o
+	c.isIMT = isIMT
+}
+
+// Via values accepted by SendCommandVia.
+const (
+	ViaAuto = ""
+	ViaMQTT = "mqtt"
+)
+
+// SendCommandVia sends a command over the requested leg: "mqtt" (or auto
+// while the bridge is online) uses MQTT; "sms", "imt", "sbd" (or auto while
+// the bridge is offline and paired) use the out-of-band leg, where only the
+// mgmt_* commands, ping, reboot and restart exist. The reply is mapped onto
+// CommandResponse: status "ok" for rc 0, else the result code name; Result
+// carries the bearer, rc and body.
+func (c *Commander) SendCommandVia(ctx context.Context, tenantID, bridgeID string, cmd protocol.Command, via string, online bool) (*protocol.CommandResponse, error) {
+	via = strings.ToLower(strings.TrimSpace(via))
+	if via == ViaMQTT || (via == ViaAuto && online) || c.oob == nil {
+		if via != ViaAuto && via != ViaMQTT {
+			return nil, fmt.Errorf("commander: out-of-band leg not configured")
+		}
+		if !online && via == ViaAuto {
+			return nil, fmt.Errorf("commander: bridge is offline and has no out-of-band pairing")
+		}
+		return c.SendCommand(ctx, bridgeID, cmd)
+	}
+	peer, err := c.oob.Peer(ctx, tenantID, bridgeID)
+	if err != nil {
+		return nil, err
+	}
+	if peer == nil {
+		if via == ViaAuto {
+			return nil, fmt.Errorf("commander: bridge is offline and not paired for out-of-band commands")
+		}
+		return nil, oob.ErrNotPaired
+	}
+	bearer, err := c.oob.ChooseBearer(peer, via, c.isIMT)
+	if err != nil {
+		return nil, err
+	}
+	var args oob.ArgSpec
+	if len(cmd.Payload) > 0 {
+		if err := json.Unmarshal(cmd.Payload, &args); err != nil {
+			return nil, fmt.Errorf("commander: payload for %s: %w", cmd.Cmd, err)
+		}
+	}
+	if cmd.RequestID == "" {
+		cmd.RequestID = uuid.NewString()
+	}
+	reply, err := c.oob.Send(ctx, tenantID, bridgeID, bearer, cmd.Cmd, args, false)
+	if err != nil {
+		return nil, err
+	}
+	status := "ok"
+	if reply.RC != oob.RCOK {
+		status = reply.RC.String()
+	}
+	result, _ := json.Marshal(map[string]any{"bearer": reply.Bearer, "rc": int(reply.RC), "result": reply.Result, "body": reply.Body, "counter": reply.Counter, "seq": reply.Seq, "total": reply.Total})
+	return &protocol.CommandResponse{Protocol: protocol.ProtocolVersion, RequestID: cmd.RequestID, Cmd: cmd.Cmd, Status: status, Result: result, Timestamp: reply.Received}, nil
 }
 
 // NewCommander creates a new Commander for sending commands to bridges.

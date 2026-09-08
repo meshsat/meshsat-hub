@@ -85,6 +85,7 @@ type Handler struct {
 	mqtt            bus.MessageBus
 	secret          string                // platform webhook secret (default tenant)
 	accounts        *integrations.Service // per-tenant webhook secrets (MESHSAT-977)
+	oob             OOBClassifier         // management frames (MESHSAT-964)
 	audit           *audit.Service
 	dedup           dedup.Dedup
 	reassembler     *fragment.Reassembler
@@ -156,6 +157,15 @@ func (h *Handler) uplinkSink() *bridge.UplinkSink {
 	}
 	return bridge.NewUplinkSink(st, h.publish, h.audit, "rockblock_webhook")
 }
+
+// OOBClassifier is the out-of-band management service: it takes "MS:" frames
+// out of the message flow before anything else sees them (MESHSAT-964 C).
+type OOBClassifier interface {
+	HandleInbound(ctx context.Context, bearer, origin, text string) bool
+}
+
+// SetOOB attaches the out-of-band classifier.
+func (h *Handler) SetOOB(c OOBClassifier) { h.oob = c }
 
 // SetReticulumIface attaches a Reticulum interface for forwarding raw packets.
 func (h *Handler) SetReticulumIface(iface reticulumReceiver) {
@@ -285,6 +295,15 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
 		_ = json.NewEncoder(w).Encode(map[string]string{"status": "hemb_symbol"})
+		return
+	}
+
+	// An OOB management frame (text "MS:...") is a reply to a command the Hub
+	// sent over this bearer; it never enters the message pipeline.
+	if h.oob != nil && isPrintableASCII(rawBytes) && h.oob.HandleInbound(ctx, "sbd", imei, string(rawBytes)) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_ = json.NewEncoder(w).Encode(map[string]string{"status": "oob_frame"})
 		return
 	}
 
@@ -557,3 +576,16 @@ func (h *Handler) tenantOf(ctx context.Context, id string) string {
 
 // SetAccounts enables per-tenant webhook secrets (?token= selects the tenant).
 func (h *Handler) SetAccounts(a *integrations.Service) { h.accounts = a }
+
+// isPrintableASCII reports whether b is printable text (an OOB frame is).
+func isPrintableASCII(b []byte) bool {
+	if len(b) == 0 {
+		return false
+	}
+	for _, c := range b {
+		if c < 0x20 || c > 0x7E {
+			return false
+		}
+	}
+	return true
+}
