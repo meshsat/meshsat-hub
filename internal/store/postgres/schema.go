@@ -417,4 +417,8 @@ CREATE TABLE IF NOT EXISTS oidc_identities (
 	{Version: 4, Name: "route_senders", SQL: `
 ALTER TABLE routes ADD COLUMN IF NOT EXISTS senders TEXT NOT NULL DEFAULT '';
 `},
+	{Version: 5, Name: "bridge_last_report", SQL: `
+ALTER TABLE bridges ADD COLUMN IF NOT EXISTS last_report_bearer TEXT NOT NULL DEFAULT '';
+ALTER TABLE bridges ADD COLUMN IF NOT EXISTS last_report_at TIMESTAMPTZ NULL;
+`},
 }
