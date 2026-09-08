@@ -1201,6 +1201,10 @@ func main() {
 	}
 
 	// Cloudloop MQTT subscriber (receives LingoMO messages from Cloudloop's MQTT broker).
+	// Leader-only: Cloudloop's broker is AWS IoT, which keeps one session per client id, so
+	// two replicas connecting with the same id evict each other in a loop and MO messages are
+	// missed while it flaps (MESHSAT-711). A fresh subscriber is built on every acquisition
+	// because Stop closes the subscriber's stop channel and Start does not reopen it.
 	if cfg.CloudloopAccountID != "" && cfg.CloudloopMQTTBroker != "" {
 		clMQTTCfg := cloudloop.MQTTSubscriberConfig{
 			BrokerURL:  cfg.CloudloopMQTTBroker,
@@ -1209,16 +1213,15 @@ func main() {
 			KeyFile:    cfg.CloudloopMQTTKey,
 			AccountID:  cfg.CloudloopAccountID,
 		}
-		clMQTTSub := cloudloop.NewMQTTSubscriber(clMQTTCfg, clHandler.ProcessLingoMO)
-		if err := clMQTTSub.Start(context.Background()); err != nil {
-			slog.Error("cloudloop mqtt: failed to start subscriber", "error", err)
-		} else {
-			slog.Info("cloudloop mqtt: subscriber started",
-				"broker", cfg.CloudloopMQTTBroker,
-				"account", cfg.CloudloopAccountID,
-			)
-			defer clMQTTSub.Stop()
-		}
+		leaderSingletons.Add("cloudloop-mqtt", func(sctx context.Context) {
+			sub := cloudloop.NewMQTTSubscriber(clMQTTCfg, clHandler.ProcessLingoMO)
+			if err := sub.Start(sctx); err != nil {
+				slog.Error("cloudloop mqtt: failed to start subscriber", "error", err)
+				return
+			}
+			<-sctx.Done()
+			sub.Stop()
+		})
 	}
 
 	r := chi.NewRouter()
