@@ -7,6 +7,43 @@ export const useAuthStore = defineStore('auth', () => {
   const user = ref(JSON.parse(localStorage.getItem('auth_user') || 'null'))
 
   const isAuthenticated = computed(() => !!token.value)
+  const isPlatformAdmin = computed(() => !!user.value?.platform_admin)
+
+  // Login methods offered by this Hub: { modes: ['oidc','local',...], oidc_login_url }.
+  const authConfig = ref(null)
+  async function fetchAuthConfig() {
+    if (authConfig.value) return authConfig.value
+    try {
+      const res = await fetch('/api/auth/config')
+      if (res.ok) authConfig.value = await res.json()
+    } catch {
+      // Older Hubs have no /api/auth/config; the login page falls back to the local form.
+    }
+    if (!authConfig.value) authConfig.value = { modes: ['local'] }
+    return authConfig.value
+  }
+
+  // Start the browser OIDC login: the Hub redirects to the identity provider.
+  function startOIDCLogin(next) {
+    const base = authConfig.value?.oidc_login_url || '/api/auth/oidc/login'
+    const q = next && next.startsWith('/') ? `?next=${encodeURIComponent(next)}` : ''
+    window.location.assign(base + q)
+  }
+
+  // Complete the OIDC login after the callback: the Hub set the HttpOnly
+  // meshsat_refresh cookie, and POST /api/auth/refresh turns it into an
+  // access token. Nothing sensitive ever appears in the URL.
+  async function completeOIDC() {
+    const res = await fetch('/api/auth/refresh', { method: 'POST', credentials: 'same-origin' })
+    if (!res.ok) return false
+    const data = await res.json()
+    if (!data.access_token) return false
+    token.value = data.access_token
+    localStorage.setItem('auth_token', data.access_token)
+    if (data.refresh_token) localStorage.setItem('auth_refresh_token', data.refresh_token)
+    await fetchUser()
+    return true
+  }
   const role = computed(() => {
     if (!user.value?.roles?.length) return 'viewer'
     const roles = user.value.roles
@@ -78,5 +115,5 @@ export const useAuthStore = defineStore('auth', () => {
     fetchUser()
   }
 
-  return { token, user, isAuthenticated, role, isOwner, login, logout, fetchUser, refreshToken }
+  return { token, user, isAuthenticated, isPlatformAdmin, role, isOwner, authConfig, fetchAuthConfig, startOIDCLogin, completeOIDC, login, logout, fetchUser, refreshToken }
 })
