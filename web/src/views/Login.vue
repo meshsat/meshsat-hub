@@ -13,6 +13,7 @@ const modes = ref(null) // from /api/auth/config; null until loaded
 const showOther = ref(false) // local/token forms behind a disclosure when OIDC is offered
 const hasOIDC = computed(() => modes.value?.includes('oidc'))
 const hasLocal = computed(() => !modes.value || modes.value.includes('local'))
+const signupUrl = computed(() => authStore.authConfig?.signup_url || '')
 const redirectTarget = computed(() => {
   const r = route.query.redirect
   return typeof r === 'string' && r.startsWith('/') && !r.startsWith('//') ? r : ''
@@ -129,9 +130,9 @@ async function loginWithToken() {
         >
           Sign in with MeshSat ID
         </button>
-        <p class="text-xs text-gray-500 text-center">
+        <p v-if="signupUrl" class="text-xs text-ms-muted text-center">
           No account yet?
-          <a href="/api/auth/oidc/login" class="text-gray-300 hover:text-white underline">Request beta access</a>
+          <a :href="signupUrl" class="text-ms-text hover:text-ms-primary underline" data-testid="signup-link">Request beta access</a>
         </p>
         <p v-if="error && !showOther" class="text-ms-error text-sm">{{ error }}</p>
         <button

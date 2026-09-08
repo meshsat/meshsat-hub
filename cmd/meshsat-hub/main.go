@@ -1237,6 +1237,8 @@ func main() {
 			BootstrapOwnerEmail: cfg.OIDCBootstrapOwnerEmail,
 			StateKey:            jwtSecret,
 			TenantEnforce:       cfg.TenantEnforce,
+			SignupURL:           cfg.OIDCSignupURL,
+			CommunityURL:        cfg.CommunityURL,
 		}, modes)
 		authCfg.Resolver = oidcHandler
 	}
@@ -1354,9 +1356,9 @@ func main() {
 		r.Get("/api/auth/oidc/login", oidcHandler.Login)
 		r.Get("/api/auth/oidc/callback", oidcHandler.Callback)
 	case authMode == "local":
-		r.Get("/api/auth/config", api.AuthConfigHandler([]string{"local"}))
+		r.Get("/api/auth/config", api.AuthConfigHandler([]string{"local"}, cfg.CommunityURL))
 	default:
-		r.Get("/api/auth/config", api.AuthConfigHandler([]string{authMode}))
+		r.Get("/api/auth/config", api.AuthConfigHandler([]string{authMode}, cfg.CommunityURL))
 	}
 
 	// Session endpoints (login/refresh/logout — exempt from auth middleware).

@@ -5,10 +5,10 @@ const toast = useToastStore()
 
 function typeClasses(type) {
   switch (type) {
-    case 'success': return 'bg-emerald-900/90 border-emerald-700 text-emerald-200'
-    case 'error': return 'bg-red-900/90 border-red-700 text-red-200'
-    case 'warning': return 'bg-amber-900/90 border-amber-700 text-amber-200'
-    default: return 'bg-gray-800/90 border-gray-600 text-gray-200'
+    case 'success': return 'bg-ms-card/95 border-ms-success text-ms-text'
+    case 'error': return 'bg-ms-card/95 border-ms-error text-ms-text'
+    case 'warning': return 'bg-ms-card/95 border-ms-warning text-ms-text'
+    default: return 'bg-ms-card/95 border-ms-border-light text-ms-text'
   }
 }
 </script>

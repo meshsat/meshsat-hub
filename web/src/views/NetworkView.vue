@@ -120,13 +120,13 @@ function formatBytes(bytes) {
     <div class="mb-8">
       <h2 class="text-lg font-semibold mb-3 uppercase tracking-wider">Satellite Constellations</h2>
       <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-        <div v-for="c in allConstellations" :key="c.key" class="bg-tactical-surface rounded-lg p-4" :class="{ 'opacity-60': !c.active }">
+        <div v-for="c in allConstellations" :key="c.key" class="bg-tactical-surface rounded-lg p-4" :class="{ 'opacity-80': !c.active }">
           <div class="flex items-center justify-between mb-2">
             <div class="flex items-center gap-2">
               <div class="w-2 h-2 rounded-full" :class="c.active ? 'bg-ms-success' : 'bg-gray-600'"></div>
               <span class="font-medium">{{ c.name }}</span>
             </div>
-            <span class="text-xs px-2 py-0.5 rounded-full" :class="c.active ? 'bg-green-900/50 text-ms-success' : 'bg-gray-800 text-gray-500'">
+            <span class="text-xs px-2 py-0.5 rounded-full" :class="c.active ? 'bg-green-900/50 text-ms-success' : 'bg-gray-800 text-gray-200'">
               {{ c.active ? 'Active' : 'Not configured' }}
             </span>
           </div>
