@@ -3,6 +3,7 @@ package middleware
 import (
 	"log/slog"
 	"net/http"
+	"strings"
 	"time"
 
 	hubauth "github.com/meshsat/meshsat-hub/internal/auth"
@@ -38,6 +39,11 @@ func Logging(next http.Handler) http.Handler {
 			next.ServeHTTP(w, r)
 			return
 		}
+
+		// Inbound provider webhooks carry the tenant's secret in the last path
+		// segment (MESHSAT-975), so the raw path must never be logged: these
+		// lines go to stdout, the cluster's log store and anyone reading it.
+		p = redactWebhookSecret(p)
 
 		start := time.Now()
 		sr := &statusRecorder{ResponseWriter: w, code: http.StatusOK}
@@ -77,4 +83,23 @@ func Logging(next http.Handler) http.Handler {
 			slog.Debug("http request", attrs...)
 		}
 	})
+}
+
+// webhookPrefix is the only route family whose path carries a secret.
+const webhookPrefix = "/api/webhook/"
+
+// redactWebhookSecret replaces the per-tenant secret in an inbound webhook path
+// with a placeholder, leaving the provider visible so the logs stay useful:
+// /api/webhook/cloudloop/9f3c… becomes /api/webhook/cloudloop/{secret}.
+// Paths with no secret segment are returned unchanged.
+func redactWebhookSecret(p string) string {
+	if !strings.HasPrefix(p, webhookPrefix) {
+		return p
+	}
+	rest := strings.TrimPrefix(p, webhookPrefix)
+	i := strings.IndexByte(rest, '/')
+	if i < 0 || i == len(rest)-1 {
+		return p // /api/webhook/cloudloop, or a trailing slash: no secret present
+	}
+	return webhookPrefix + rest[:i] + "/{secret}"
 }

@@ -109,8 +109,15 @@ func TestTenantIntegrations_PutListMaskDelete(t *testing.T) {
 	if put.Reveal["webhook_token"] == "" || len(put.Reveal["webhook_token"]) < 20 {
 		t.Errorf("generated webhook token not revealed: %v", put.Reveal)
 	}
-	if !strings.HasPrefix(put.Account.WebhookPath, "/api/webhook/cloudloop?token=••••") {
-		t.Errorf("webhook path = %q", put.Account.WebhookPath)
+	// The tenant's own endpoint, with its secret as the last path segment
+	// (MESHSAT-975). It is returned in full: a masked URL cannot be pasted
+	// into a provider console, which is the only reason this field exists.
+	wantPrefix := "/api/webhook/cloudloop/"
+	if !strings.HasPrefix(put.Account.WebhookPath, wantPrefix) {
+		t.Errorf("webhook path = %q, want prefix %q", put.Account.WebhookPath, wantPrefix)
+	}
+	if secret := strings.TrimPrefix(put.Account.WebhookPath, wantPrefix); len(secret) < 16 || strings.Contains(secret, "•") {
+		t.Errorf("webhook path carries no usable secret: %q", put.Account.WebhookPath)
 	}
 	if strings.Contains(rr.Body.String(), "secret-key-123456") {
 		t.Errorf("secret echoed in the response")

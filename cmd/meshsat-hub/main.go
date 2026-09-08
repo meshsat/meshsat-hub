@@ -13,6 +13,7 @@ import (
 	"github.com/meshsat/meshsat-hub/internal/oob"
 	"github.com/meshsat/meshsat-hub/internal/oob/bearers"
 	"github.com/meshsat/meshsat-hub/internal/tenancy"
+	"github.com/meshsat/meshsat-hub/internal/webhookroute"
 	"io/fs"
 	"log/slog"
 	"net/http"
@@ -1394,9 +1395,25 @@ func main() {
 		}
 	}
 	// Webhook endpoints — rate limited to 60 requests/minute per source IP.
-	r.Post("/api/webhook/rockblock", hubmw.WebhookRateLimit(http.HandlerFunc(rbHandler.ServeHTTP), 60).ServeHTTP)
-	r.Post("/api/webhook/globalstar", hubmw.WebhookRateLimit(http.HandlerFunc(gsHandler.ServeHTTP), 60).ServeHTTP)
-	r.Post("/api/webhook/cloudloop", hubmw.WebhookRateLimit(http.HandlerFunc(clHandler.ServeHTTP), 60).ServeHTTP)
+	//
+	// Each tenant configures its provider console with its own path, whose last
+	// segment is that tenant's secret (MESHSAT-975). The middleware turns that
+	// secret into exactly one tenant before the handler runs, so a handler
+	// never has to work out whose message this is and can never guess wrong.
+	// An unknown secret is a 404.
+	//
+	// The unsuffixed paths below are the platform tenant's, kept for one
+	// release while the consoles are re-pointed. They no longer resolve a
+	// tenant from the payload.
+	webhookRoute := func(provider, fieldKey, path string, h http.HandlerFunc) {
+		resolve := webhookroute.Middleware(providerAccounts, provider, fieldKey)
+		r.Post(path+"/{"+webhookroute.URLParam+"}",
+			hubmw.WebhookRateLimit(resolve(h), 60).ServeHTTP)
+		r.Post(path, hubmw.WebhookRateLimit(h, 60).ServeHTTP)
+	}
+	webhookRoute(integrations.ProviderRockBLOCK, "webhook_secret", "/api/webhook/rockblock", rbHandler.ServeHTTP)
+	webhookRoute(integrations.ProviderGlobalstar, "webhook_secret", "/api/webhook/globalstar", gsHandler.ServeHTTP)
+	webhookRoute(integrations.ProviderCloudloop, "webhook_token", "/api/webhook/cloudloop", clHandler.ServeHTTP)
 
 	// QR provision claim — unauthenticated (nonce IS the auth, single-use, 30min TTL).
 	provisionClaimHandler := api.NewBridgeProvisionHandler(dataStore, bridgeCA, directoryTrustAnchor)
@@ -1419,7 +1436,7 @@ func main() {
 		smsWebhook.SetAudit(auditSvc)
 		smsWebhook.SetHeMBReassembler(hembReassemblyBuf)
 		// SMS Reticulum interface deferred to MESHSAT-404
-		r.Post("/api/webhook/sms", smsWebhook.ServeHTTP)
+		webhookRoute(integrations.ProviderTwilio, "webhook_token", "/api/webhook/sms", smsWebhook.ServeHTTP)
 		if msgBus.IsConnected() {
 			smsSub := sms.NewSubscriber(smsPlatform, msgBus)
 			smsSub.SetClientPool(smsPool)
@@ -1434,6 +1451,7 @@ func main() {
 	// SMS inbound relay — Android publishes SMS to MQTT, Hub persists them.
 	if msgBus.IsConnected() {
 		smsInSub := sms.NewInboundSubscriber(msgBus, dataStore, store.DefaultTenantID)
+		smsInSub.SetTenants(tenants)
 		smsInSub.SetKeyStore(keyStore)
 		if err := smsInSub.Start(); err != nil {
 			slog.Error("sms: failed to start inbound MQTT subscriber", "error", err)
@@ -1449,7 +1467,7 @@ func main() {
 		if cfg.EmailWebhookSecret == "" {
 			slog.Warn("email: HUB_EMAIL_WEBHOOK_SECRET unset; /api/webhook/email rejects every request (MESHSAT-976)")
 		}
-		r.Post("/api/webhook/email", emailWebhook.ServeHTTP)
+		webhookRoute(integrations.ProviderEmail, "webhook_secret", "/api/webhook/email", emailWebhook.ServeHTTP)
 
 		emailAPIHandler := hubemail.NewAPIHandler(emailKeyRing)
 		r.Get("/api/email/keys/public", emailAPIHandler.GetPublicKey)
