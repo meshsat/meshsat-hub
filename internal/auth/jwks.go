@@ -4,6 +4,7 @@ package auth
 import (
 	"context"
 	"crypto"
+	"crypto/ecdh"
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rsa"
@@ -288,14 +289,17 @@ func (p *JWKSProvider) fetchJWKS(ctx context.Context, jwksURI string) (map[strin
 // parseECPublicKey builds an *ecdsa.PublicKey from a JWK curve name and
 // base64url-encoded coordinates.
 func parseECPublicKey(crv, xB64, yB64 string) (*ecdsa.PublicKey, error) {
-	var curve elliptic.Curve
+	var (
+		curve     elliptic.Curve
+		ecdhCurve ecdh.Curve
+	)
 	switch crv {
 	case "P-256":
-		curve = elliptic.P256()
+		curve, ecdhCurve = elliptic.P256(), ecdh.P256()
 	case "P-384":
-		curve = elliptic.P384()
+		curve, ecdhCurve = elliptic.P384(), ecdh.P384()
 	case "P-521":
-		curve = elliptic.P521()
+		curve, ecdhCurve = elliptic.P521(), ecdh.P521()
 	default:
 		return nil, fmt.Errorf("unsupported curve %q", crv)
 	}
@@ -307,10 +311,20 @@ func parseECPublicKey(crv, xB64, yB64 string) (*ecdsa.PublicKey, error) {
 	if err != nil {
 		return nil, fmt.Errorf("decode y: %w", err)
 	}
+	size := (curve.Params().BitSize + 7) / 8
+	if len(xBytes) > size || len(yBytes) > size {
+		return nil, fmt.Errorf("coordinate longer than the %s field", crv)
+	}
 	x := new(big.Int).SetBytes(xBytes)
 	y := new(big.Int).SetBytes(yBytes)
-	if !curve.IsOnCurve(x, y) {
-		return nil, fmt.Errorf("point is not on curve %s", crv)
+	// On-curve check through crypto/ecdh (the supported replacement for the
+	// deprecated elliptic.IsOnCurve): NewPublicKey rejects off-curve points.
+	point := make([]byte, 1+2*size)
+	point[0] = 4 // uncompressed
+	x.FillBytes(point[1 : 1+size])
+	y.FillBytes(point[1+size:])
+	if _, err := ecdhCurve.NewPublicKey(point); err != nil {
+		return nil, fmt.Errorf("point is not on curve %s: %w", crv, err)
 	}
 	return &ecdsa.PublicKey{Curve: curve, X: x, Y: y}, nil
 }

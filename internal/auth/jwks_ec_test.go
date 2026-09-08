@@ -44,7 +44,7 @@ func startMockOIDCServerEC(t *testing.T, kid, issuerSuffix string) (*httptest.Se
 	mux.HandleFunc("/jwks", func(w http.ResponseWriter, _ *http.Request) {
 		_ = json.NewEncoder(w).Encode(map[string]any{"keys": []map[string]string{{
 			"kty": "EC", "use": "sig", "kid": kid, "alg": "ES256", "crv": "P-256",
-			"x": pad(priv.PublicKey.X.Bytes()), "y": pad(priv.PublicKey.Y.Bytes()),
+			"x": pad(priv.X.Bytes()), "y": pad(priv.Y.Bytes()),
 		}}})
 	})
 	srv = httptest.NewServer(mux)
@@ -75,7 +75,7 @@ func TestJWKSProvider_ECKeyAndDiscoveryEndpoints(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected *ecdsa.PublicKey, got %T", key)
 	}
-	if ecKey.X.Cmp(priv.PublicKey.X) != 0 || ecKey.Y.Cmp(priv.PublicKey.Y) != 0 {
+	if ecKey.X.Cmp(priv.X) != 0 || ecKey.Y.Cmp(priv.Y) != 0 {
 		t.Error("EC public key mismatch")
 	}
 	disc, err := provider.Discover(context.Background())
