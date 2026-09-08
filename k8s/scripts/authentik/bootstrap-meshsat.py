@@ -17,7 +17,7 @@
 import secrets
 
 from authentik.brands.models import Brand
-from authentik.core.models import Application, Group
+from authentik.core.models import Application, Group, User
 from authentik.crypto.models import CertificateKeyPair
 from authentik.events.models import (
     EventAction, NotificationRule, NotificationSeverity, NotificationTransport,
@@ -40,6 +40,9 @@ from authentik.stages.user_write.models import UserCreationMode, UserWriteStage
 HUB_URL = "https://hub.meshsat.net"
 REDIRECT = f"{HUB_URL}/api/auth/oidc/callback"
 MATRIX_ROOM = "https://matrix.to/#/#meshsat:matrix.nuclearlighters.net"
+# authentik accounts that receive signup notifications and get the
+# meshsat-platform-admin claim (Hub platform_admin). Operator accounts only.
+PLATFORM_ADMIN_USERNAMES = ("adm-kyriakosp",)
 try:
     MESHSAT_CSS  # noqa: F821  (prepended by run-bootstrap.sh)
 except NameError:
@@ -71,6 +74,21 @@ for name, role in (
         g.save()
     groups[name] = g
     note(f"group {name} {'created' if created else 'ok'}")
+
+# The signup NotificationRule delivers to the members of meshsat-platform-admin;
+# authentik sends nothing for a rule whose destination group is empty (that
+# is how the first test signup on 2026-09-08 produced no webhook call). The
+# operators of the shared authentik are the MeshSat platform admins.
+for username in PLATFORM_ADMIN_USERNAMES:
+    u = User.objects.filter(username=username, is_active=True).first()
+    if u is None:
+        note(f"platform admin {username} MISSING in authentik")
+        continue
+    if not groups["meshsat-platform-admin"].users.filter(pk=u.pk).exists():
+        groups["meshsat-platform-admin"].users.add(u)
+        note(f"platform admin {username} added to meshsat-platform-admin")
+    else:
+        note(f"platform admin {username} ok")
 
 # ---------------------------------------------------------------- scope mapping
 GROUPS_EXPR = 'return {"groups": [g.name for g in request.user.groups.all() if g.name.startswith("meshsat-")]}'
