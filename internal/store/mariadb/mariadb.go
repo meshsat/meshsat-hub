@@ -829,8 +829,14 @@ func (d *DB) InsertAuditEntry(ctx context.Context, tenantID string, a *store.Aud
 }
 
 func (d *DB) ListAuditEntries(ctx context.Context, tenantID string, limit int) ([]store.AuditEntry, error) {
-	rows, err := d.db.QueryContext(ctx,
-		"SELECT id, action, actor, detail, ip, prev_hash, hash, created_at FROM audit_log WHERE tenant_id=? ORDER BY created_at DESC LIMIT ?", tenantID, limit)
+	// limit <= 0 means every entry (audit chain verification); see the postgres store.
+	q := "SELECT id, action, actor, detail, ip, prev_hash, hash, created_at FROM audit_log WHERE tenant_id=? ORDER BY created_at DESC"
+	args := []any{tenantID}
+	if limit > 0 {
+		q += " LIMIT ?"
+		args = append(args, limit)
+	}
+	rows, err := d.db.QueryContext(ctx, q, args...)
 	if err != nil {
 		return nil, err
 	}
