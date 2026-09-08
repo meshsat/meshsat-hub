@@ -30,13 +30,17 @@ data:
     frontend mqtt_in
         bind :9443
         default_backend nats_ws
+    # Health: the NATS monitor endpoint on :8222 (same Service), not a TCP poke at
+    # the TLS listener, which logged a handshake error per check (3 relays x 3s).
     backend nats_ws
-        server nats nats-ws.meshsat-hub.svc.cluster.local:9443 resolvers kubedns init-addr none check inter 3s
+        option httpchk GET /healthz
+        server nats nats-ws.meshsat-hub.svc.cluster.local:9443 resolvers kubedns init-addr none check port 8222 inter 10s
     frontend reticulum_in
         bind :4243
         default_backend stunnel
+    # stunnel has no health endpoint; a TCP connect every 30s keeps its log quiet enough.
     backend stunnel
-        server stunnel stunnel.meshsat-hub.svc.cluster.local:4243 resolvers kubedns init-addr none check inter 3s
+        server stunnel stunnel.meshsat-hub.svc.cluster.local:4243 resolvers kubedns init-addr none check inter 30s
 ---
 apiVersion: apps/v1
 kind: DaemonSet
