@@ -9,13 +9,13 @@ import (
 	"fmt"
 	"github.com/meshsat/meshsat-hub/internal/integrations"
 	"github.com/meshsat/meshsat-hub/internal/tenancy"
+	"github.com/meshsat/meshsat-hub/internal/webhookroute"
 	"github.com/rs/xid"
 	"log/slog"
 	"net/http"
 	"time"
 
 	"github.com/meshsat/meshsat-hub/internal/audit"
-	"github.com/meshsat/meshsat-hub/internal/auth"
 	"github.com/meshsat/meshsat-hub/internal/bus"
 	"github.com/meshsat/meshsat-hub/internal/codec"
 	"github.com/meshsat/meshsat-hub/internal/compress"
@@ -156,9 +156,15 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// A tenant's webhook secret in ?token= selects the tenant and the secret
 	// the body must be signed with (MESHSAT-977).
 	ctx := r.Context()
-	tokenTenant := ""
 	secret := h.secret
-	if tok := r.URL.Query().Get("token"); tok != "" && h.accounts != nil {
+	// The tenant comes from the secret in the request path (MESHSAT-975),
+	// resolved before this handler runs; its account also carries the secret
+	// the body must be signed with.
+	tokenTenant := webhookroute.TenantID(ctx)
+	if res, ok := webhookroute.FromContext(ctx); ok && res.Account != nil {
+		secret = res.Account.Get("webhook_secret")
+	}
+	if tok := r.URL.Query().Get("token"); tokenTenant == "" && tok != "" && h.accounts != nil {
 		tenant, acct, err := h.accounts.LookupByToken(ctx, integrations.ProviderGlobalstar, "webhook_secret", tok)
 		if err != nil {
 			slog.Error("globalstar: webhook token lookup failed", "error", err)
@@ -376,7 +382,11 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	// Audit: log message_received event (use RemoteAddr directly — never trust X-Forwarded-For in webhook handlers).
 	if h.audit != nil {
-		tid := auth.TenantIDFromContext(r.Context())
+		// Not auth.TenantIDFromContext: this route is auth-exempt, so that
+		// helper always answered "default" and every Globalstar audit row was
+		// written into the platform tenant whoever the device belonged to
+		// (MESHSAT-975).
+		tid := h.tenantOf(r.Context(), payload.DeviceID)
 		detail := fmt.Sprintf("device=%s message=%s bytes=%d channel=globalstar", payload.DeviceID, payload.MessageID, len(rawBytes))
 		ip := r.RemoteAddr
 		if err := h.audit.Log(r.Context(), tid, "message_received", "webhook", detail, ip); err != nil {
@@ -440,13 +450,14 @@ func (h *Handler) SetTenants(r *tenancy.Resolver) { h.tenants = r }
 // tenantOf returns the tenant a message belongs to: the tenant the webhook
 // token authenticated (carried in ctx), else the device's owner.
 func (h *Handler) tenantOf(ctx context.Context, id string) string {
-	if t := tenancy.FromContext(ctx); t != "" {
-		return t
+	authTenant := tenancy.FromContext(ctx)
+	if authTenant == "" {
+		authTenant = hubmqtt.DefaultTenant
 	}
 	if h.tenants == nil {
-		return hubmqtt.DefaultTenant
+		return authTenant
 	}
-	return h.tenants.ForDevice(ctx, id)
+	return h.tenants.ForDeviceTopic(ctx, id, authTenant)
 }
 
 // SetAccounts enables per-tenant webhook secrets (?token= selects the tenant).

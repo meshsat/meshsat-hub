@@ -9,6 +9,7 @@ import (
 
 	"github.com/meshsat/meshsat-hub/internal/audit"
 	hubmqtt "github.com/meshsat/meshsat-hub/internal/mqtt"
+	"github.com/meshsat/meshsat-hub/internal/tenancy"
 )
 
 // UplinkStore is the slice of the store the uplink sink needs.
@@ -35,6 +36,28 @@ type UplinkSink struct {
 	audit   *audit.Service
 	actor   string // audit actor, e.g. "sms_webhook"
 	now     func() time.Time
+	tenants *tenancy.Resolver // bridge id -> owning tenant; nil disables the check
+}
+
+// SetTenants lets the sink check that a bridge belongs to the tenant whose
+// modem or phone carried the frame. The bridge id comes out of the uplink
+// payload, which is attacker-controlled, so without this a device in one
+// tenant can drive bridge rows and SOS topics for a bridge id owned by another
+// (MESHSAT-975).
+func (u *UplinkSink) SetTenants(r *tenancy.Resolver) *UplinkSink { u.tenants = r; return u }
+
+// ownsBridge reports whether tenantID may write to bridgeID. An unregistered
+// bridge id belongs to whoever presented it; a registered one belongs to its
+// owner and nobody else.
+func (u *UplinkSink) ownsBridge(ctx context.Context, tenantID, bridgeID string) bool {
+	if u.tenants == nil || bridgeID == "" {
+		return true
+	}
+	if owner := u.tenants.ForBridgeTopic(ctx, bridgeID, tenantID); owner != tenantID {
+		slog.Warn("uplink: bridge belongs to another tenant, refusing", "bridge_id", bridgeID, "tenant", tenantID, "owner", owner)
+		return false
+	}
+	return true
 }
 
 // NewUplinkSink creates a sink; store and audit may be nil.
@@ -134,6 +157,9 @@ func (u *UplinkSink) Handle(ctx context.Context, tenantID, bearer, origin string
 				"bearer":     bearer,
 				"timestamp":  ts.UTC().Format(time.RFC3339),
 			})
+			if !u.ownsBridge(ctx, tenantID, bridgeID) {
+				return true
+			}
 			if err := u.store.SetBridgeHealth(ctx, tenantID, bridgeID, string(healthJSON)); err != nil {
 				slog.Warn("uplink: set health failed", "error", err, "bridge_id", bridgeID)
 			}
@@ -168,6 +194,9 @@ func (u *UplinkSink) report(ctx context.Context, tenantID, bridgeID, bearer stri
 	now := u.now()
 	if ts.IsZero() || ts.After(now.Add(5*time.Minute)) || ts.Before(now.Add(-30*24*time.Hour)) {
 		ts = now
+	}
+	if !u.ownsBridge(ctx, tenantID, bridgeID) {
+		return
 	}
 	if err := u.store.TouchBridgeLastSeen(ctx, tenantID, bridgeID); err != nil {
 		slog.Debug("uplink: touch last_seen failed", "error", err, "bridge_id", bridgeID)

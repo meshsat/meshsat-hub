@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"github.com/meshsat/meshsat-hub/internal/integrations"
 	"github.com/meshsat/meshsat-hub/internal/tenancy"
+	"github.com/meshsat/meshsat-hub/internal/webhookroute"
 	"log/slog"
 	"net"
 	"net/http"
@@ -154,7 +155,7 @@ func (h *WebhookHandler) uplinkSink() *bridge.UplinkSink {
 	if h.store != nil {
 		st = h.store
 	}
-	return bridge.NewUplinkSink(st, h.publish, h.audit, "cloudloop_webhook")
+	return bridge.NewUplinkSink(st, h.publish, h.audit, "cloudloop_webhook").SetTenants(h.tenants)
 }
 
 // bearerOf maps a LingoMO source to the bearer name used in fleet state.
@@ -270,8 +271,12 @@ func (h *WebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, `{"error":"webhook IP allowlist not configured"}`, http.StatusForbidden)
 		return
 	}
-	tokenTenant := ""
-	if h.wildcardAllowlist() {
+	// The tenant comes from the secret in the request path (MESHSAT-975),
+	// resolved before this handler runs and independent of how the IP
+	// allowlist is configured. Previously the token was only consulted under a
+	// wildcard allowlist, so a concrete allowlist silently ignored it.
+	tokenTenant := webhookroute.TenantID(r.Context())
+	if tokenTenant == "" && h.wildcardAllowlist() {
 		// A wildcard allowlist is only acceptable together with a token: the
 		// platform token (default tenant) or a tenant's own webhook token.
 		if h.token == "" && h.accounts == nil {
@@ -661,14 +666,18 @@ func isPrintable(b []byte) bool {
 // (MESHSAT-864 MR 20). Without it every topic uses the default namespace.
 func (h *WebhookHandler) SetTenants(r *tenancy.Resolver) { h.tenants = r }
 
-// tenantOf returns the tenant a message belongs to: the tenant the webhook
-// token authenticated (carried in ctx), else the device's owner.
+// tenantOf is the tenant every row and topic for this message uses. On a
+// tenant's own webhook path it is that tenant, already checked to own the
+// device. On the shared platform account it is the device's registered owner,
+// and the platform itself for a device nobody has registered. What it must
+// never be is a default chosen because a lookup missed (MESHSAT-975).
 func (h *WebhookHandler) tenantOf(ctx context.Context, id string) string {
-	if t := tenancy.FromContext(ctx); t != "" {
-		return t
+	auth := tenancy.FromContext(ctx)
+	if auth == "" {
+		auth = hubmqtt.DefaultTenant
 	}
 	if h.tenants == nil {
-		return hubmqtt.DefaultTenant
+		return auth
 	}
-	return h.tenants.ForDevice(ctx, id)
+	return h.tenants.ForDeviceTopic(ctx, id, auth)
 }
