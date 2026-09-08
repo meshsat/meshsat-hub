@@ -254,6 +254,17 @@ type Store interface {
 	GetTenantBySlug(ctx context.Context, slug string) (*Tenant, error)
 	ListTenants(ctx context.Context) ([]Tenant, error)
 	UpdateTenant(ctx context.Context, t *Tenant) error
+	// SoftDeleteTenant blocks a tenant and starts the grace period. Reversible
+	// with UpdateTenant until PurgeTenant runs.
+	SoftDeleteTenant(ctx context.Context, id string, at time.Time) error
+	// ListTenantsDeletedBefore returns tenants whose grace period has expired.
+	ListTenantsDeletedBefore(ctx context.Context, cutoff time.Time) ([]Tenant, error)
+	// PurgeTenant destroys every row the tenant owns, across every
+	// tenant-scoped table, and the tenant itself. There is no undo.
+	PurgeTenant(ctx context.Context, id string) error
+	// ExportTenant returns every row the tenant owns, keyed by table, for the
+	// portability half of the same promise.
+	ExportTenant(ctx context.Context, id string) (map[string][]map[string]any, error)
 
 	// Tenant invites: an owner invites an email address into a tenant with a
 	// role; the invite is claimed at the invitee's first login.
@@ -535,10 +546,26 @@ type Tenant struct {
 	Name        string    `json:"name"`
 	OwnerUserID string    `json:"owner_user_id,omitempty"`
 	Plan        string    `json:"plan"`   // beta, ...
-	Status      string    `json:"status"` // active, suspended
+	Status      string    `json:"status"` // active, suspended, deleted
 	CreatedAt   time.Time `json:"created_at"`
 	UpdatedAt   time.Time `json:"updated_at"`
+	// DeletedAt is when the owner asked to leave. The tenant is blocked from
+	// that moment and its data is destroyed after PurgeGrace, so an accidental
+	// or disputed deletion is recoverable until then (MESHSAT-975 follow-on).
+	DeletedAt *time.Time `json:"deleted_at,omitempty"`
 }
+
+// Tenant lifecycle states.
+const (
+	TenantActive    = "active"
+	TenantSuspended = "suspended"
+	TenantDeleted   = "deleted"
+)
+
+// PurgeGrace is how long a deleted tenant's data survives before the purge job
+// destroys it. Long enough to undo a mistake, short enough to be a real
+// erasure promise.
+const PurgeGrace = 30 * 24 * time.Hour
 
 // TenantInvite lets an owner bring another account into their tenant.
 type TenantInvite struct {

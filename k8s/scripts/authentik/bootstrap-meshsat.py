@@ -415,6 +415,30 @@ ident.recovery_flow = recovery
 ident.save()
 note(f"flow meshsat-recovery {'created' if r_created else 'ok'}")
 
+# ---------------------------------------------------------------- Hub service account
+# The Hub approves beta requests itself (MESHSAT-978), which needs an API
+# identity of its own. The token is printed once so run-bootstrap.sh can store
+# it; it is not regenerated on a re-run, so re-running this is safe.
+from authentik.core.models import Token, TokenIntents, UserTypes  # noqa: E402
+
+approver, a_created = User.objects.get_or_create(
+    username="meshsat-hub-approver",
+    defaults={"name": "MeshSat Hub approver", "type": UserTypes.SERVICE_ACCOUNT, "is_active": True},
+)
+approver.type = UserTypes.SERVICE_ACCOUNT
+approver.is_active = True
+approver.save()
+admins = Group.objects.filter(name="authentik Admins").first()
+if admins:
+    approver.ak_groups.add(admins)
+approver_token = Token.objects.filter(identifier="meshsat-hub-approver-token").first()
+if approver_token is None:
+    approver_token = Token.objects.create(
+        identifier="meshsat-hub-approver-token", user=approver, intent=TokenIntents.INTENT_API,
+        description="MeshSat Hub: approve beta requests", expiring=False,
+    )
+note(f"service account meshsat-hub-approver {'created' if a_created else 'ok'}")
+
 # ---------------------------------------------------------------- brand
 brand, b_created = Brand.objects.get_or_create(
     domain="meshsat.net",
@@ -477,6 +501,7 @@ for line in log:
 print("---MESHSAT_OIDC_CONFIG---")
 print(f"HUB_OIDC_CLIENT_ID={provider.client_id}")
 print(f"HUB_OIDC_CLIENT_SECRET={provider.client_secret}")
+print("HUB_AUTHENTIK_TOKEN=" + approver_token.key)
 print(f"ISSUER=https://auth.meshsat.net/application/o/{app.slug}/")
 print(f"ENROLLMENT=https://auth.meshsat.net/if/flow/{enroll.slug}/")
 print("---END---")
