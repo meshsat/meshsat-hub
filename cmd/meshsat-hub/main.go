@@ -241,6 +241,14 @@ func main() {
 		dataStore = sqlStore
 	}
 	slog.Info("store ready", "driver", dbDriver, "mode", cfg.Mode)
+	// --migrate-only / HUB_MIGRATE_ONLY=true: apply the schema and exit 0.
+	// Used by the k8s migration rehearsal and cutover to create the Postgres
+	// schema before pgloader copies the data (k8s/scripts/rehearsal/).
+	if migrateOnly() {
+		slog.Info("migrate-only: schema applied, exiting", "driver", dbDriver)
+		_ = dataStore.Close()
+		os.Exit(0)
+	}
 	// Readiness: the database is the one critical dependency. Stores that
 	// know whether they accept writes (Galera, Postgres primary) say so.
 	if prober, ok := dataStore.(store.ReadinessProber); ok {
@@ -2107,3 +2115,14 @@ SwaggerUIBundle({url:"/api/docs/swagger.json",dom_id:"#swagger-ui",presets:[Swag
 </script>
 </body>
 </html>`
+
+// migrateOnly reports whether the process was asked to stop after migrations.
+func migrateOnly() bool {
+	for _, a := range os.Args[1:] {
+		if a == "--migrate-only" || a == "-migrate-only" {
+			return true
+		}
+	}
+	v := strings.ToLower(os.Getenv("HUB_MIGRATE_ONLY"))
+	return v == "true" || v == "1"
+}
