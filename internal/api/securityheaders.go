@@ -19,11 +19,17 @@ func SecurityHeaders(next http.Handler) http.Handler {
 		h.Set("Content-Security-Policy",
 			"default-src 'self'; "+
 				"script-src 'self'; "+
-				"style-src 'self' 'unsafe-inline'; "+ // Tailwind injects inline styles
-				"img-src 'self' data: blob: https://tile.openstreetmap.org https://*.tile.openstreetmap.org; "+ // Leaflet OSM tiles (apex host since !47) + QR blob URLs
-				"connect-src 'self'; "+
+				"style-src 'self' 'unsafe-inline'; "+ // Tailwind and MapLibre set inline styles
+				"img-src 'self' data: blob:; "+ // map glyphs and sprites, QR blob URLs; no third-party tile host since MESHSAT-967
+				"connect-src 'self'; "+ // the vector basemap is same-origin at /basemap/
 				"font-src 'self'; "+
+				"worker-src 'self' blob:; "+ // MapLibre runs its tile workers from a blob URL
+				"child-src 'self' blob:; "+ // worker-src fallback for older engines
+				"media-src 'self'; "+
+				"manifest-src 'self'; "+
 				"object-src 'none'; "+
+				"base-uri 'self'; "+
+				"form-action 'self'; "+
 				"frame-ancestors 'none'")
 
 		// HSTS — set when TLS is detected, or always when HUB_FORCE_HSTS is not "false".
