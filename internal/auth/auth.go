@@ -236,7 +236,6 @@ func isExempt(path string) bool {
 		path == "/api/auth/config" ||
 		path == "/api/auth/oidc/login" ||
 		path == "/api/auth/oidc/callback" ||
-		path == "/api/cluster/node" ||
 		!strings.HasPrefix(path, "/api/")
 }
 

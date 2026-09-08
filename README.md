@@ -110,8 +110,7 @@ Templates provided:
 - `.env.standalone.example` -- standalone configuration
 - `.env.cluster.example` -- cluster configuration (no hardcoded IPs)
 - `deploy/haproxy/haproxy.cfg.example` -- HAProxy SNI passthrough for mTLS
-- `nats-mtls.conf` -- NATS with mTLS WebSocket
-- `deploy/galera/Dockerfile.garbd` -- Galera arbitrator image
+- `k8s/nats/configmap.yaml` -- NATS with mTLS WebSocket (the production config)
 
 ## Architecture
 
@@ -227,9 +226,8 @@ meshsat-hub/
 |   +-- SECURITY_AUDIT.md       SAST/SCA/OWASP findings
 +-- docker-compose.yml          Development
 +-- docker-compose.prod.yml     Tier 1 standalone production
-+-- docker-compose.cluster.yml  Tier 2 single-host cluster
 +-- nats.conf                   NATS base config (MQTT adapter + JetStream)
-+-- nats-mtls.conf              NATS config with mTLS WebSocket
++-- k8s/                        Production kustomize tree for notrf01cl01k8s (Argo CD)
 +-- Dockerfile                  Multi-stage Alpine build (CGO_ENABLED=0)
 +-- Makefile                    Build, test, lint, security, fmt
 +-- .gitlab-ci.yml              7-stage CI/CD pipeline

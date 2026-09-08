@@ -16,7 +16,6 @@ require (
 
 require (
 	github.com/ProtonMail/go-crypto v1.4.1
-	github.com/go-sql-driver/mysql v1.9.3
 	github.com/jackc/pgx/v5 v5.11.0
 	github.com/klauspost/reedsolomon v1.13.3
 	github.com/prometheus/client_golang v1.23.2
@@ -36,7 +35,6 @@ require (
 )
 
 require (
-	filippo.io/edwards25519 v1.1.0 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/davecgh/go-spew v1.1.1 // indirect
