@@ -164,6 +164,9 @@ type Config struct {
 	// empty disables the writer. Key defaults to ca.crt.
 	BridgeCASecretName string `yaml:"bridge_ca_secret_name"`
 	BridgeCASecretKey  string `yaml:"bridge_ca_secret_key"`
+	// NATSAuthSecretName is the pre-created Secret that receives the rendered NATS
+	// users/permissions file (internal/bridge/natsauth.go); empty disables it.
+	NATSAuthSecretName string `yaml:"nats_auth_secret_name"`
 
 	// WireGuard (wg-easy)
 	WGEnabled  bool   `yaml:"wg_enabled"`
@@ -597,6 +600,9 @@ func Load() (Config, error) {
 	// Bridge CA cert export path override
 	if v := os.Getenv("HUB_BRIDGE_CA_SECRET_NAME"); v != "" {
 		cfg.BridgeCASecretName = v
+	}
+	if v := os.Getenv("HUB_NATS_AUTH_SECRET_NAME"); v != "" {
+		cfg.NATSAuthSecretName = v
 	}
 	if v := os.Getenv("HUB_BRIDGE_CA_SECRET_KEY"); v != "" {
 		cfg.BridgeCASecretKey = v

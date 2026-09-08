@@ -23,16 +23,12 @@ data:
       max_file: 1GB
     }
 
-    # Shared password for all MQTT clients (per-bridge users are post-cutover
-    # work, MESHSAT-864 MR 21). Identity comes from the client certificate CN
-    # and the MQTT client id; no_auth_user is deliberately unset.
-    authorization {
-      users = [
-        # Unquoted on purpose: nats-server resolves $VAR from its environment only
-        # outside quotes; the quoted form was the literal password (rehearsal 2026-09-08).
-        { user: meshsat, password: $NATS_MQTT_PASSWORD }
-      ]
-    }
+    # Users and permissions live in the Secret meshsat-nats-auth (users.conf),
+    # rendered by the Hub: the shared `meshsat` user for the Hub itself (password
+    # from the pod environment) and one user per bridge with its bcrypt hash and
+    # permissions confined to its subtree (MESHSAT-864 MR 21). The reloader
+    # SIGHUPs nats-server when the file changes. no_auth_user is deliberately unset.
+    include "auth/users.conf"
 
     mqtt {
       listen: 0.0.0.0:1883

@@ -1,6 +1,7 @@
 package api
 
 import (
+	"github.com/meshsat/meshsat-hub/internal/bridge"
 	"log/slog"
 	"net/http"
 
@@ -13,8 +14,16 @@ import (
 
 // BridgeHandler provides REST endpoints for bridge management.
 type BridgeHandler struct {
-	store store.Store
-	bus   bus.MessageBus
+	store    store.Store
+	bus      bus.MessageBus
+	natsAuth bridge.Resyncer // nil outside Kubernetes
+}
+
+// SetNATSAuth registers the NATS auth syncer to kick after a bridge is deleted.
+func (h *BridgeHandler) SetNATSAuth(r *bridge.NATSAuthSyncer) {
+	if r != nil {
+		h.natsAuth = r
+	}
 }
 
 // NewBridgeHandler creates a new bridge API handler.
@@ -173,6 +182,9 @@ func (h *BridgeHandler) DeleteBridge(w http.ResponseWriter, r *http.Request) {
 	if err := h.store.DeleteBridge(r.Context(), tid, id); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
+	}
+	if h.natsAuth != nil {
+		h.natsAuth.Trigger()
 	}
 
 	// Clear retained MQTT messages so the bridge doesn't resurrect on subscriber reconnect.

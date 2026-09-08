@@ -50,6 +50,14 @@ type BridgeProvisionHandler struct {
 	store       store.Store
 	ca          *bridge.CertAuthority
 	trustAnchor *directory.TrustAnchor
+	natsAuth    bridge.Resyncer // nil outside Kubernetes
+}
+
+// SetNATSAuth registers the NATS auth syncer to kick after provisioning.
+func (h *BridgeProvisionHandler) SetNATSAuth(r *bridge.NATSAuthSyncer) {
+	if r != nil {
+		h.natsAuth = r
+	}
 }
 
 // NewBridgeProvisionHandler returns a handler that stashes credentials for
@@ -113,9 +121,12 @@ func (h *BridgeProvisionHandler) generateAndStash(r *http.Request, id, tid strin
 		retTCP = "reticulum.meshsat.net:443"
 	}
 
-	// NATS MQTT auth: bridges use shared username "meshsat" with the NATS password.
-	// Per-bridge identity comes from MQTT client ID + mTLS certificate CN.
-	natsMQTTPassword := os.Getenv("NATS_MQTT_PASSWORD")
+	// NATS MQTT auth: every bridge gets its own NATS user (its bridge ID) whose
+	// bcrypt hash and permissions the Hub renders into the NATS users file
+	// (MESHSAT-864 MR 21). Identity is confirmed by the mTLS certificate CN.
+	if h.natsAuth != nil {
+		h.natsAuth.Trigger()
+	}
 
 	var dirSignPub []byte
 	if h.trustAnchor != nil {
@@ -129,8 +140,8 @@ func (h *BridgeProvisionHandler) generateAndStash(r *http.Request, id, tid strin
 			BridgeID:            id,
 			MQTTURL:             mqttURL,
 			MQTTTopicPrefix:     hubmqtt.Namespace(tid),
-			Username:            "meshsat",
-			Password:            natsMQTTPassword,
+			Username:            username,
+			Password:            password,
 			CertPEM:             string(certPEM),
 			KeyPEM:              string(keyPEM),
 			CaPEM:               string(h.ca.CACertPEM()),
