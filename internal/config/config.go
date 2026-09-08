@@ -13,7 +13,9 @@ import (
 type Config struct {
 	// Tri-mode: "standalone" (default), "cluster", "kubernetes"
 	Mode        string `yaml:"mode"`
-	DatabaseURL string `yaml:"database_url"` // MariaDB DSN (cluster/k8s only)
+	DatabaseURL string `yaml:"database_url"` // MariaDB or Postgres DSN (cluster/k8s)
+	DBDriver    string `yaml:"db_driver"`    // "sqlite", "mariadb" or "postgres"; empty = sniffed from DatabaseURL
+	SQLitePath  string `yaml:"sqlite_path"`  // SQLite database file (default /data/hub.db)
 	RedisURL    string `yaml:"redis_url"`    // Redis URL (cluster/k8s only)
 	NATSUrl     string `yaml:"nats_url"`     // External NATS URL (cluster/k8s only)
 
@@ -180,6 +182,7 @@ func Defaults() Config {
 		ReticulumTCPAddr:      ":4242",
 		BridgeOfflineTimeout:  300, // 5 minutes
 		DBSlowQueryMS:         100,
+		SQLitePath:            "/data/hub.db",
 		DBRetryMaxAttempts:    8,
 		AuditRetentionDays:    90,
 		HealthProbeTimeout:    "3s",
@@ -208,6 +211,12 @@ func Load() (Config, error) {
 	}
 	if v := os.Getenv("HUB_DATABASE_URL"); v != "" {
 		cfg.DatabaseURL = v
+	}
+	if v := os.Getenv("HUB_DB_DRIVER"); v != "" {
+		cfg.DBDriver = strings.ToLower(v)
+	}
+	if v := os.Getenv("HUB_SQLITE_PATH"); v != "" {
+		cfg.SQLitePath = v
 	}
 	if v := os.Getenv("HUB_REDIS_URL"); v != "" {
 		cfg.RedisURL = v
@@ -583,4 +592,26 @@ func envOr(key, fallback string) string {
 		return v
 	}
 	return fallback
+}
+
+// ResolvedDBDriver returns the store backend: DBDriver when set, else a guess
+// from the DSN (postgres:// or postgresql:// -> postgres, a mysql DSN with
+// @tcp( -> mariadb), else the mode default (mariadb in cluster/kubernetes
+// mode for compatibility with existing deployments, sqlite otherwise).
+func (c Config) ResolvedDBDriver() string {
+	switch c.DBDriver {
+	case "sqlite", "mariadb", "postgres":
+		return c.DBDriver
+	}
+	dsn := strings.ToLower(c.DatabaseURL)
+	switch {
+	case strings.HasPrefix(dsn, "postgres://"), strings.HasPrefix(dsn, "postgresql://"):
+		return "postgres"
+	case strings.Contains(dsn, "@tcp("), strings.HasPrefix(dsn, "mysql://"):
+		return "mariadb"
+	}
+	if c.Mode == "cluster" || c.Mode == "kubernetes" {
+		return "mariadb"
+	}
+	return "sqlite"
 }

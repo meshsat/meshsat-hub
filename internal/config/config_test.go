@@ -79,3 +79,40 @@ func TestLoad_YAMLFile(t *testing.T) {
 		t.Errorf("expected log level warn, got %s", cfg.LogLevel)
 	}
 }
+
+func TestResolvedDBDriver(t *testing.T) {
+	cases := []struct {
+		name string
+		cfg  Config
+		want string
+	}{
+		{"explicit postgres", Config{DBDriver: "postgres", DatabaseURL: "user:pw@tcp(h:3306)/db"}, "postgres"},
+		{"explicit sqlite", Config{DBDriver: "sqlite", Mode: "kubernetes"}, "sqlite"},
+		{"sniff postgres url", Config{DatabaseURL: "postgres://u:p@h:5432/db?sslmode=require"}, "postgres"},
+		{"sniff postgresql url", Config{DatabaseURL: "postgresql://u:p@h/db"}, "postgres"},
+		{"sniff mysql dsn", Config{Mode: "cluster", DatabaseURL: "meshsat:pw@tcp(127.0.0.1:3306)/meshsat_hub?parseTime=true"}, "mariadb"},
+		{"cluster default", Config{Mode: "cluster"}, "mariadb"},
+		{"kubernetes default", Config{Mode: "kubernetes"}, "mariadb"},
+		{"standalone default", Config{Mode: "standalone"}, "sqlite"},
+		{"empty", Config{}, "sqlite"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := tc.cfg.ResolvedDBDriver(); got != tc.want {
+				t.Errorf("got %q want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestSQLitePathEnv(t *testing.T) {
+	t.Setenv("HUB_SQLITE_PATH", "/tmp/x.db")
+	t.Setenv("HUB_DB_DRIVER", "Postgres")
+	cfg, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.SQLitePath != "/tmp/x.db" || cfg.DBDriver != "postgres" {
+		t.Errorf("env not applied: %+v", cfg)
+	}
+}
