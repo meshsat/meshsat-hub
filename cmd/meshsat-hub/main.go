@@ -1361,7 +1361,11 @@ func main() {
 		r.Get("/basemap/basemap.pmtiles", h.ServeHTTP)
 		r.Head("/basemap/basemap.pmtiles", h.ServeHTTP)
 		r.Get("/basemap/assets/*", h.ServeAsset)
-		slog.Info("basemap: serving /basemap/", "object", h.Describe())
+		if h.HasLocal() {
+			r.Get("/basemap/local.pmtiles", h.ServeLocal)
+			r.Head("/basemap/local.pmtiles", h.ServeLocal)
+		}
+		slog.Info("basemap: serving /basemap/", "object", h.Describe(), "local", h.HasLocal())
 	}
 
 	// pprof profiling endpoints (opt-in, behind auth).
@@ -2276,7 +2280,7 @@ func basemapHandler(cfg config.Config) *api.BasemapHandler {
 	if assets == "" {
 		assets = "basemap/assets"
 	}
-	return api.NewBasemapHandler(client, key, assets, maxAge)
+	return api.NewBasemapHandler(client, key, cfg.BasemapS3LocalKey, assets, maxAge)
 }
 
 // bootstrapCredentialMasterKey loads or generates the master key for credential encryption.

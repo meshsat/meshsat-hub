@@ -1,6 +1,6 @@
 <script setup>
 import { ref, onMounted, onUnmounted, watch } from 'vue'
-import { createMap, setMapTheme, addSvgIcon, maplibregl } from '../map/basemap'
+import { createMap, setMapTheme, addSvgIcon, probeLocalArchive, maplibregl } from '../map/basemap'
 import { useThemeStore } from '../stores/theme'
 import { positions, bridges } from '../api/client'
 
@@ -308,6 +308,8 @@ async function refreshPositions() {
 }
 
 onMounted(async () => {
+  // Resolve the deeper regional archive first: the style is built once.
+  await probeLocalArchive()
   map = createMap({
     container: mapContainer.value,
     center: [4.9, 52.37],

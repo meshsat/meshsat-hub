@@ -6,11 +6,29 @@
 # to the Hub's object store, and prints the two config values to set. The Hub
 # streams the result at /basemap/, so no browser ever contacts a tile host.
 #
-#   build-basemap.sh [YYYYMMDD] [maxzoom]
+#   build-basemap.sh [YYYYMMDD] [maxzoom] [bbox] [name]
 #
-# Defaults: yesterday's planet build, maxzoom 8 (~530 MB world; z7 is ~180 MB
-# and z6 ~45 MB. Above z8 the archive grows fast; check the object store has the
-# room before going higher).
+# Two archives make the map: a shallow world one for context and a deeper one
+# for the area the fleet operates in. That split is not an optimisation, it is
+# forced: in this schema street geometry appears at zoom 13 and street NAMES at
+# zoom 15, and a world archive that deep does not fit anywhere.
+#
+#   measured against the 2026-09-07 planet build
+#   world z0-8    0.5 GB   coastlines, borders, city dots. No streets.
+#   world z0-10   3.6 GB
+#   world z0-11   7.9 GB   major roads and their names
+#   Europe z0-13  9.3 GB   residential street geometry, no street names
+#   NL z0-15      2.0 GB   everything, including street names
+#
+# So: world at 11, and one deeper archive per operating area at 15.
+#
+#   build-basemap.sh 20260907 11                              # the world
+#   build-basemap.sh 20260907 15 3.2,50.7,7.3,53.6 nl         # the Netherlands
+#   build-basemap.sh 20260907 15 19.3,34.8,28.3,41.8 gr       # Greece
+#
+# Point HUB_BASEMAP_S3_KEY at the world archive and HUB_BASEMAP_S3_LOCAL_KEY at
+# the deep one. The map draws the deep layers on top from zoom 11; outside their
+# coverage there are simply no tiles and the world layers stay visible.
 #
 # Needs: curl, aws CLI, and the go-pmtiles binary on PATH (or PMTILES=/path).
 # Credentials: AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY of the bucket, e.g.
@@ -19,21 +37,23 @@
 set -euo pipefail
 
 BUILD="${1:-$(date -u -d yesterday +%Y%m%d)}"
-MAXZOOM="${2:-8}"
+MAXZOOM="${2:-11}"
+BBOX="${3:--180,-85.05,180,85.05}"
+NAME="${4:-world}"
 ENDPOINT="${S3_ENDPOINT:-https://nl-s3.nuclearlighters.net}"
 BUCKET="${S3_BUCKET:-cnpg-meshsat-hub}"
 PREFIX="${S3_PREFIX:-basemap}"
 PMTILES="${PMTILES:-pmtiles}"
 WORK="${WORK:-$(mktemp -d)}"
 PLANET="https://build.protomaps.com/${BUILD}.pmtiles"
-ARCHIVE="protomaps-world-z${MAXZOOM}-${BUILD}.pmtiles"
+ARCHIVE="protomaps-${NAME}-z${MAXZOOM}-${BUILD}.pmtiles"
 
 command -v "$PMTILES" >/dev/null || { echo "go-pmtiles not found; see https://github.com/protomaps/go-pmtiles/releases" >&2; exit 1; }
 : "${AWS_ACCESS_KEY_ID:?set AWS_ACCESS_KEY_ID}" "${AWS_SECRET_ACCESS_KEY:?set AWS_SECRET_ACCESS_KEY}"
 curl -sfI "$PLANET" >/dev/null || { echo "no planet build at $PLANET (builds are kept about a week)" >&2; exit 1; }
 
-echo "extracting world z0-${MAXZOOM} from ${BUILD}"
-"$PMTILES" extract "$PLANET" "$WORK/$ARCHIVE" --maxzoom="$MAXZOOM" --bbox=-180,-85.05,180,85.05
+echo "extracting ${NAME} z0-${MAXZOOM} from ${BUILD}"
+"$PMTILES" extract "$PLANET" "$WORK/$ARCHIVE" --maxzoom="$MAXZOOM" --bbox="$BBOX"
 
 echo "fetching the glyph and sprite assets"
 git clone --depth 1 -q https://github.com/protomaps/basemaps-assets.git "$WORK/assets"
@@ -47,7 +67,8 @@ cat <<MSG
 
 done. Set in k8s/hub/configmap.yaml and let Argo roll the Hub:
 
-  HUB_BASEMAP_S3_KEY: "$PREFIX/$ARCHIVE"
+  HUB_BASEMAP_S3_KEY: "$PREFIX/$ARCHIVE"        # if this was the world archive
+  HUB_BASEMAP_S3_LOCAL_KEY: "$PREFIX/$ARCHIVE"  # if this was a regional one
   HUB_BASEMAP_S3_ASSET_PREFIX: "$PREFIX/assets"
 
 Then delete the previous archive object once the new pin is live.
