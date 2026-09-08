@@ -516,6 +516,13 @@ function certExpiryStatus(b) {
               <span class="text-gray-500">Last seen</span>
               <div class="text-gray-300">{{ timeAgo(b.last_seen) }}</div>
             </div>
+            <div v-if="b.last_report_at" :title="'Latest report from the bridge over any bearer'">
+              <span class="text-gray-500">Last report</span>
+              <div class="text-gray-300">
+                <span class="font-mono text-[10px] px-1 py-0.5 rounded border border-gray-600/40 bg-gray-700/30 text-gray-300 uppercase">{{ b.last_report_bearer || '?' }}</span>
+                {{ timeAgo(b.last_report_at) }}
+              </div>
+            </div>
             <div>
               <span class="text-gray-500">Hostname</span>
               <div class="text-gray-300 font-mono truncate">{{ b.hostname || '—' }}</div>
