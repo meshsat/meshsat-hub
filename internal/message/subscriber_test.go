@@ -9,12 +9,14 @@ import (
 )
 
 type captureStore struct {
+	tenants []string
 	store.Store
 	inserted []*store.Message
 	dupIDs   map[string]bool
 }
 
-func (c *captureStore) InsertMessage(_ context.Context, _ string, m *store.Message) error {
+func (c *captureStore) InsertMessage(_ context.Context, tenantID string, m *store.Message) error {
+	c.tenants = append(c.tenants, tenantID)
 	if c.dupIDs[m.ID] {
 		return store.ErrDuplicate
 	}
@@ -63,4 +65,25 @@ func (c *captureStore) LookupDeviceTenant(_ context.Context, _ string) (string, 
 
 func (c *captureStore) LookupBridgeTenant(_ context.Context, _ string) (string, error) {
 	return "", store.ErrNotFound
+}
+
+func (c *captureStore) GetTenant(_ context.Context, id string) (*store.Tenant, error) {
+	if id == "t_x" {
+		return &store.Tenant{ID: id}, nil
+	}
+	return nil, store.ErrNotFound
+}
+
+// A message on the tenant-prefixed topic of an existing tenant is persisted
+// for that tenant; the legacy shape and an unknown tenant land in default.
+func TestSubscriber_TenantPrefixedTopic(t *testing.T) {
+	cs := &captureStore{}
+	s := NewSubscriber(nil, cs, nil)
+	s.handleMODecoded("meshsat/t_x/300234063904190/mo/decoded", []byte(`{"id":"a","imei":"300234063904190","text":"x"}`))
+	s.handleMODecoded("meshsat/300234063904190/mo/decoded", []byte(`{"id":"b","imei":"300234063904190","text":"y"}`))
+	s.handleMODecoded("meshsat/t_ghost/300234063904190/mo/decoded", []byte(`{"id":"c","imei":"300234063904190","text":"z"}`))
+	want := []string{"t_x", "default", "default"}
+	if len(cs.tenants) != 3 || cs.tenants[0] != want[0] || cs.tenants[1] != want[1] || cs.tenants[2] != want[2] {
+		t.Fatalf("tenants: %v want %v", cs.tenants, want)
+	}
 }

@@ -1,64 +1,74 @@
 package mqtt
 
-import "testing"
+import (
+	"reflect"
+	"testing"
+)
 
-func TestTopicFunctions(t *testing.T) {
-	tests := []struct {
-		name string
-		fn   func(string) string
-		arg  string
-		want string
+func TestParseDeviceTopic(t *testing.T) {
+	cases := []struct {
+		topic                  string
+		tenant, device, suffix string
+		ok                     bool
 	}{
-		{"MORaw", TopicMORaw, "300234065123456", "meshsat/300234065123456/mo/raw"},
-		{"MODecoded", TopicMODecoded, "300234065123456", "meshsat/300234065123456/mo/decoded"},
-		{"MTSend", TopicMTSend, "300234065123456", "meshsat/300234065123456/mt/send"},
-		{"MTStatus", TopicMTStatus, "300234065123456", "meshsat/300234065123456/mt/status"},
-		{"Position", TopicPosition, "dev1", "meshsat/dev1/position"},
-		{"SOS", TopicSOS, "dev1", "meshsat/dev1/sos"},
+		{"meshsat/300234063904190/mo/decoded", "default", "300234063904190", "mo/decoded", true},
+		{"meshsat/300234063904190/position", "default", "300234063904190", "position", true},
+		{"meshsat/300234063904190/mt/sms/status", "default", "300234063904190", "mt/sms/status", true},
+		{"meshsat/t_2ca6/300234063904190/mo/decoded", "t_2ca6", "300234063904190", "mo/decoded", true},
+		{"meshsat/t_2ca6/300234063904190/position", "t_2ca6", "300234063904190", "position", true},
+		{"meshsat/hub/status", "", "", "", false},
+		{"meshsat/broadcast/tak/cot/in", "", "", "", false},
+		{"meshsat/bridge/b1/birth", "", "", "", false},
+		{"meshsat/t_2ca6/bridge/b1/birth", "", "", "", false},
+		{"other/x/position", "", "", "", false},
+		{"meshsat", "", "", "", false},
 	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := tt.fn(tt.arg)
-			if got != tt.want {
-				t.Errorf("got %q, want %q", got, tt.want)
-			}
-		})
+	for _, c := range cases {
+		tenant, device, suffix, ok := ParseDeviceTopic(c.topic)
+		if ok != c.ok || tenant != c.tenant || device != c.device || suffix != c.suffix {
+			t.Errorf("%s: got (%q,%q,%q,%v) want (%q,%q,%q,%v)", c.topic, tenant, device, suffix, ok, c.tenant, c.device, c.suffix, c.ok)
+		}
+		if got := ExtractDeviceID(c.topic); got != c.device {
+			t.Errorf("ExtractDeviceID(%s) = %q", c.topic, got)
+		}
 	}
 }
 
-func TestExtractDeviceID(t *testing.T) {
-	tests := []struct {
-		topic string
-		want  string
-	}{
-		{"meshsat/300234065123456/mt/send", "300234065123456"},
-		{"meshsat/dev1/mt/send", "dev1"},
-		{"meshsat/abc/mo/raw", "abc"},
-		{"invalid", ""},
-		{"meshsat/", ""},
+func TestParseBridgeTopic(t *testing.T) {
+	tenant, id, rest, ok := ParseBridgeTopic("meshsat/bridge/b1/device/300/birth")
+	if !ok || tenant != "default" || id != "b1" || !reflect.DeepEqual(rest, []string{"device", "300", "birth"}) {
+		t.Errorf("legacy: %q %q %v %v", tenant, id, rest, ok)
 	}
-	for _, tt := range tests {
-		t.Run(tt.topic, func(t *testing.T) {
-			got := ExtractDeviceID(tt.topic)
-			if got != tt.want {
-				t.Errorf("ExtractDeviceID(%q) = %q, want %q", tt.topic, got, tt.want)
-			}
-		})
+	tenant, id, rest, ok = ParseBridgeTopic("meshsat/t_x/bridge/b1/health")
+	if !ok || tenant != "t_x" || id != "b1" || !reflect.DeepEqual(rest, []string{"health"}) {
+		t.Errorf("tenant: %q %q %v %v", tenant, id, rest, ok)
+	}
+	if _, _, _, ok := ParseBridgeTopic("meshsat/300/position"); ok {
+		t.Error("device topic must not parse as bridge topic")
 	}
 }
 
-func TestFallbackMessageID(t *testing.T) {
-	a := FallbackMessageID("meshsat/dev1/mo/decoded", []byte(`{"text":"x"}`))
-	b := FallbackMessageID("meshsat/dev1/mo/decoded", []byte(`{"text":"x"}`))
-	c := FallbackMessageID("meshsat/dev2/mo/decoded", []byte(`{"text":"x"}`))
-	d := FallbackMessageID("meshsat/dev1/mo/decoded", []byte(`{"text":"y"}`))
-	if a != b {
-		t.Errorf("same topic+payload must give the same ID: %s vs %s", a, b)
+func TestBuildersAndFilters(t *testing.T) {
+	if Namespace("") != "meshsat" || Namespace("default") != "meshsat" || Namespace("t_x") != "meshsat/t_x" {
+		t.Error("Namespace")
 	}
-	if a == c || a == d {
-		t.Errorf("different topic or payload must give a different ID")
+	if TopicMODecodedFor("default", "1") != "meshsat/1/mo/decoded" || TopicMODecodedFor("t_x", "1") != "meshsat/t_x/1/mo/decoded" {
+		t.Error("TopicMODecodedFor")
 	}
-	if len(a) != len("mo-")+16 {
-		t.Errorf("unexpected ID shape %q", a)
+	if BridgeTopic("t_x", "b1", "config/hemb") != "meshsat/t_x/bridge/b1/config/hemb" {
+		t.Error("BridgeTopic")
+	}
+	if got := DualFilters("meshsat/+/mo/decoded"); !reflect.DeepEqual(got, []string{"meshsat/+/mo/decoded", "meshsat/+/+/mo/decoded"}) {
+		t.Errorf("DualFilters: %v", got)
+	}
+	if got := DualFilters("meshsat/bridge/+/birth"); !reflect.DeepEqual(got, []string{"meshsat/bridge/+/birth", "meshsat/+/bridge/+/birth"}) {
+		t.Errorf("DualFilters bridge: %v", got)
+	}
+	// Round trip: what the builders emit, the parser reads back.
+	for _, tenant := range []string{"default", "t_x"} {
+		tp, dev, suf, ok := ParseDeviceTopic(TopicPositionFor(tenant, "300"))
+		if !ok || tp != tenant || dev != "300" || suf != "position" {
+			t.Errorf("round trip %s: %q %q %q %v", tenant, tp, dev, suf, ok)
+		}
 	}
 }

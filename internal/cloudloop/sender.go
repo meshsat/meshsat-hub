@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/meshsat/meshsat-hub/internal/tenancy"
 	"log/slog"
 	"sync/atomic"
 	"time"
@@ -69,6 +70,7 @@ type CostEntry struct {
 
 // Sender listens on MQTT for MT send requests and forwards them via Cloudloop.
 type Sender struct {
+	tenants      *tenancy.Resolver // nil = default namespace
 	client       *Client
 	mqtt         bus.MessageBus
 	limiter      interface{ Allow(string, bool) bool }
@@ -134,7 +136,12 @@ func (s *Sender) resolveDevice(imei string) (thingID string, isIMT bool) {
 
 // Start subscribes to MT send topics and begins processing.
 func (s *Sender) Start() error {
-	return s.mqtt.Subscribe(hubmqtt.TopicMTSendWildcard(), 1, s.handleMTSend)
+	for _, f := range hubmqtt.DualFilters(hubmqtt.TopicMTSendWildcard()) {
+		if err := s.mqtt.Subscribe(f, 1, s.handleMTSend); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (s *Sender) handleMTSend(topic string, payload []byte) {
@@ -292,7 +299,7 @@ func (s *Sender) publishStatus(deviceID, mtID, status, errMsg string) {
 		Timestamp: time.Now().UTC().Format(time.RFC3339),
 	}
 
-	if err := s.mqtt.PublishJSON(hubmqtt.TopicMTStatus(deviceID), 1, false, msg); err != nil {
+	if err := s.mqtt.PublishJSON(hubmqtt.TopicMTStatusFor(s.tenantOf(deviceID), deviceID), 1, false, msg); err != nil {
 		slog.Error("cloudloop: publish mt/status failed", "error", err, "device", deviceID)
 	}
 }
@@ -356,4 +363,14 @@ func (s *Sender) SendDirect(imei string, req MTSendRequest) (*SendDirectResult, 
 		return nil, err
 	}
 	return res, nil
+}
+
+// SetTenants makes mt/status publish on the owning tenant's namespace (MR 20).
+func (s *Sender) SetTenants(r *tenancy.Resolver) { s.tenants = r }
+
+func (s *Sender) tenantOf(id string) string {
+	if s.tenants == nil {
+		return hubmqtt.DefaultTenant
+	}
+	return s.tenants.ForDevice(context.Background(), id)
 }
