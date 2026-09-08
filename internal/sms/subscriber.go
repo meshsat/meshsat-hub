@@ -3,6 +3,7 @@ package sms
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"log/slog"
 
 	"github.com/meshsat/meshsat-hub/internal/bus"
@@ -26,8 +27,12 @@ type OutboundStatus struct {
 // Subscriber listens on meshsat/+/mt/sms and sends outbound SMS via the client.
 type Subscriber struct {
 	client *Client
+	pool   *ClientPool // per-tenant accounts (MESHSAT-977)
 	mqtt   bus.MessageBus
 }
+
+// SetClientPool makes sends use the topic tenant's Twilio account.
+func (s *Subscriber) SetClientPool(p *ClientPool) { s.pool = p }
 
 // NewSubscriber creates an outbound SMS subscriber.
 func NewSubscriber(client *Client, mqtt bus.MessageBus) *Subscriber {
@@ -60,7 +65,16 @@ func (s *Subscriber) handle(topic string, payload []byte) {
 
 	slog.Info("sms: sending outbound", "device", deviceID, "to", req.To)
 
-	result, err := s.client.Send(context.Background(), req.To, req.Body)
+	tenantID := hubmqtt.ExtractTenantID(topic)
+	client := s.client
+	if s.pool != nil {
+		client = s.pool.ForTenant(context.Background(), tenantID)
+	}
+	var result *SendResult
+	err := fmt.Errorf("no Twilio account configured for tenant %s", tenantID)
+	if client != nil {
+		result, err = client.Send(context.Background(), req.To, req.Body)
+	}
 
 	status := OutboundStatus{To: req.To}
 	if err != nil {
