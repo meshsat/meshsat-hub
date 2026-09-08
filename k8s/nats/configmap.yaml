@@ -28,7 +28,9 @@ data:
     # and the MQTT client id; no_auth_user is deliberately unset.
     authorization {
       users = [
-        { user: meshsat, password: "$NATS_MQTT_PASSWORD" }
+        # Unquoted on purpose: nats-server resolves $VAR from its environment only
+        # outside quotes; the quoted form was the literal password (rehearsal 2026-09-08).
+        { user: meshsat, password: $NATS_MQTT_PASSWORD }
       ]
     }
 
