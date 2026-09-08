@@ -179,7 +179,7 @@ func main() {
 	if err := msgBus.Connect(); err != nil {
 		slog.Warn("bus connection failed (will retry in background)", "error", err)
 	}
-	checker.AddProbe("mqtt", func(_ context.Context) error {
+	checker.AddInfoProbe("mqtt", func(_ context.Context) error {
 		if !msgBus.IsConnected() {
 			return fmt.Errorf("mqtt not connected")
 		}
@@ -249,7 +249,7 @@ func main() {
 		}
 		redisClient := redis.NewClient(redisOpts)
 		dedupTracker = dedup.NewRedisDedup(redisClient, 1*time.Hour, "dedup:")
-		checker.AddProbe("redis", func(ctx context.Context) error {
+		checker.AddInfoProbe("redis", func(ctx context.Context) error {
 			return redisClient.Ping(ctx).Err()
 		})
 	default:
@@ -576,7 +576,7 @@ func main() {
 	if cfg.AppriseEnabled && cfg.AppriseURL != "" {
 		appriseClient := apprise.New(cfg.AppriseURL)
 		notifiers = append(notifiers, appriseClient)
-		checker.AddProbe("apprise", appriseClient.Healthz)
+		checker.AddInfoProbe("apprise", appriseClient.Healthz)
 		slog.Info("apprise: notification backend enabled", "url", cfg.AppriseURL)
 	}
 	if cfg.NtfyEnabled && cfg.NtfyURL != "" {
@@ -585,7 +585,7 @@ func main() {
 			ntfyClient.SetToken(cfg.NtfyToken)
 		}
 		notifiers = append(notifiers, ntfyClient)
-		checker.AddProbe("ntfy", ntfyClient.Healthz)
+		checker.AddInfoProbe("ntfy", ntfyClient.Healthz)
 		slog.Info("ntfy: notification backend enabled", "url", cfg.NtfyURL)
 	}
 	if cfg.SMSEnabled && cfg.SMSAccountSID != "" {
@@ -697,7 +697,7 @@ func main() {
 	if err != nil {
 		slog.Error("reticulum: failed to initialize identity", "error", err)
 	}
-	checker.AddProbe("reticulum_identity", func(_ context.Context) error {
+	checker.AddInfoProbe("reticulum_identity", func(_ context.Context) error {
 		if hubIdentity == nil || !hubIdentity.IsLoaded() {
 			return fmt.Errorf("reticulum identity not loaded")
 		}
@@ -1670,7 +1670,7 @@ func main() {
 			r.Get("/api/ota/rollouts/{id}", hbHandler.GetRollout)
 			r.Post("/api/ota/rollouts/{id}/start", hbHandler.StartRollout)
 			r.Post("/api/ota/rollouts/{id}/pause", hbHandler.PauseRollout)
-			checker.AddProbe("hawkbit", func(ctx context.Context) error {
+			checker.AddInfoProbe("hawkbit", func(ctx context.Context) error {
 				if !hbClient.IsReachable(ctx) {
 					return fmt.Errorf("hawkbit not reachable")
 				}
@@ -1814,9 +1814,19 @@ func main() {
 			os.Exit(1)
 		}
 	}()
+	// Migrations ran and the listener is up: startup is complete. The startup
+	// probe no longer depends on any dependency probe from here on.
+	checker.MarkStarted()
 
 	<-ctx.Done()
 	slog.Info("shutting down")
+
+	// Fail readiness first so the load balancer stops routing new requests,
+	// then give in-flight requests a moment before closing the listener.
+	checker.SetDraining()
+	if cfg.ShutdownDrainSeconds > 0 {
+		time.Sleep(time.Duration(cfg.ShutdownDrainSeconds) * time.Second)
+	}
 
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()

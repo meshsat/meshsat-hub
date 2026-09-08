@@ -77,6 +77,13 @@ var (
 		Help: "Total audit log entries purged by retention policy.",
 	})
 
+	// DependencyUp is 1 when the named dependency probe passed on the last
+	// /readyz evaluation, 0 otherwise. Covers critical and informational probes.
+	DependencyUp = promauto.NewGaugeVec(prometheus.GaugeOpts{
+		Name: "meshsat_hub_dependency_up",
+		Help: "1 when the dependency's last health probe passed, 0 otherwise.",
+	}, []string{"dependency"})
+
 	// HealthProbeTimeouts counts health probe timeout events.
 	HealthProbeTimeouts = promauto.NewCounterVec(prometheus.CounterOpts{
 		Name: "meshsat_hub_health_probe_timeouts_total",

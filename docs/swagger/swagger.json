@@ -1,7 +1,7 @@
 {
     "swagger": "2.0",
     "info": {
-        "description": "Multi-tenant SaaS platform for satellite device management. Ingests MO messages from Iridium, manages devices, SOS escalation, dead man's switch, and E2E encryption.",
+        "description": "Multi-tenant SaaS platform for satellite device management. Ingests MO messages from Iridium/Globalstar, manages devices, SOS escalation, dead man's switch, and E2E encryption.",
         "title": "MeshSat Hub API",
         "contact": {},
         "license": {
@@ -13,6 +13,217 @@
     "host": "localhost:6070",
     "basePath": "/",
     "paths": {
+        "/api/alert-rules": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "alerting"
+                ],
+                "summary": "List alert rules",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/github_com_meshsat_meshsat-hub_internal_store.AlertRule"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            },
+            "post": {
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "alerting"
+                ],
+                "summary": "Create alert rule",
+                "parameters": [
+                    {
+                        "description": "Alert rule configuration",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/github_com_meshsat_meshsat-hub_internal_store.AlertRule"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_meshsat_meshsat-hub_internal_store.AlertRule"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/alert-rules/{id}": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "alerting"
+                ],
+                "summary": "Get alert rule",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Rule ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_meshsat_meshsat-hub_internal_store.AlertRule"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            },
+            "put": {
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "alerting"
+                ],
+                "summary": "Update alert rule",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Rule ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Updated alert rule",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/github_com_meshsat_meshsat-hub_internal_store.AlertRule"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_meshsat_meshsat-hub_internal_store.AlertRule"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "tags": [
+                    "alerting"
+                ],
+                "summary": "Delete alert rule",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Rule ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/alerts": {
             "get": {
                 "produces": [
@@ -357,6 +568,53 @@
                 }
             }
         },
+        "/api/auth/keys/{id}/rotate": {
+            "post": {
+                "description": "Generates a new secret for an existing API key. Returns the new plaintext key exactly once.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "auth"
+                ],
+                "summary": "Rotate API key",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Key ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.rotateKeyResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/auth/login": {
             "post": {
                 "consumes": [
@@ -616,6 +874,864 @@
                 }
             }
         },
+        "/api/bridges": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "bridges"
+                ],
+                "summary": "List bridges",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/github_com_meshsat_meshsat-hub_internal_store.Bridge"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            },
+            "post": {
+                "description": "Creates a bridge record for manual provisioning. The bridge will appear as offline until it connects via MQTT.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "bridges"
+                ],
+                "summary": "Pre-register a bridge",
+                "parameters": [
+                    {
+                        "description": "Bridge to create",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.bridgeCreateRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_meshsat_meshsat-hub_internal_store.Bridge"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/bridges/acl/regenerate": {
+            "post": {
+                "description": "Reads all bridges with credentials and generates Mosquitto password and ACL files.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "bridges"
+                ],
+                "summary": "Regenerate Mosquitto ACL files",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.aclRegenResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/bridges/{bridgeID}/bond-groups": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "bond-groups"
+                ],
+                "summary": "List bond groups for a bridge",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Bridge ID",
+                        "name": "bridgeID",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/github_com_meshsat_meshsat-hub_internal_store.BondGroup"
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            },
+            "post": {
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "bond-groups"
+                ],
+                "summary": "Create bond group",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Bridge ID",
+                        "name": "bridgeID",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Bond group data",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.createBondGroupRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_meshsat_meshsat-hub_internal_store.BondGroup"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/bridges/{bridgeID}/bond-groups/{groupID}": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "bond-groups"
+                ],
+                "summary": "Get bond group",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Bridge ID",
+                        "name": "bridgeID",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Bond group ID",
+                        "name": "groupID",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_meshsat_meshsat-hub_internal_store.BondGroup"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            },
+            "put": {
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "bond-groups"
+                ],
+                "summary": "Update bond group",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Bridge ID",
+                        "name": "bridgeID",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Bond group ID",
+                        "name": "groupID",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Fields to update",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.updateBondGroupRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_meshsat_meshsat-hub_internal_store.BondGroup"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "tags": [
+                    "bond-groups"
+                ],
+                "summary": "Delete bond group",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Bridge ID",
+                        "name": "bridgeID",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Bond group ID",
+                        "name": "groupID",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/bridges/{id}": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "bridges"
+                ],
+                "summary": "Get bridge by ID",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Bridge ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_meshsat_meshsat-hub_internal_store.Bridge"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            },
+            "put": {
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "bridges"
+                ],
+                "summary": "Update bridge",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Bridge ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Fields to update",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/github_com_meshsat_meshsat-hub_internal_store.BridgeUpdate"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_meshsat_meshsat-hub_internal_store.Bridge"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "tags": [
+                    "bridges"
+                ],
+                "summary": "Delete bridge",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Bridge ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/bridges/{id}/certificate": {
+            "post": {
+                "description": "Generates an ECDSA P-256 client certificate. Returns the private key once — it is never stored server-side.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "bridges"
+                ],
+                "summary": "Issue TLS client certificate for a bridge",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Bridge ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.certificateResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/bridges/{id}/command": {
+            "post": {
+                "description": "Sends a command to a field bridge via MQTT and waits for the response. Supported commands: ping, flush_burst, send_text, send_mt, config_update, reboot.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "bridges"
+                ],
+                "summary": "Send command to bridge",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Bridge ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Command to send",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.commandRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.commandResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "409": {
+                        "description": "Bridge is offline",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "504": {
+                        "description": "Timeout waiting for bridge response",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/bridges/{id}/credentials": {
+            "post": {
+                "description": "Generates a random password and stores the bcrypt hash. Returns the plaintext password once — it is never stored.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "bridges"
+                ],
+                "summary": "Generate MQTT credentials for a bridge",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Bridge ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.credentialResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/bridges/{id}/credentials/rotate": {
+            "post": {
+                "description": "Generates a new MQTT password for the bridge. Returns the new plaintext password exactly once.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "bridges"
+                ],
+                "summary": "Rotate bridge MQTT credentials",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Bridge ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.rotateBridgeCredentialsResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/bridges/{id}/provision": {
+            "post": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "bridges"
+                ],
+                "summary": "One-step bridge provisioning",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Bridge ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.ProvisionBundle"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/bridges/{id}/provision/qr": {
+            "post": {
+                "produces": [
+                    "image/png"
+                ],
+                "tags": [
+                    "bridges"
+                ],
+                "summary": "Generate provisioning QR code",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Bridge ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "integer",
+                        "description": "QR code size in pixels (default 512)",
+                        "name": "size",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "file"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/bridges/{id}/provision/{nonce}": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "bridges"
+                ],
+                "summary": "Claim provisioning bundle (no auth, nonce-authenticated)",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Bridge ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Single-use provisioning nonce",
+                        "name": "nonce",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.ProvisionBundle"
+                        }
+                    },
+                    "404": {
+                        "description": "Invalid or expired nonce",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/cluster/actions": {
             "get": {
                 "produces": [
@@ -786,6 +1902,402 @@
                 }
             }
         },
+        "/api/costs": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "costs"
+                ],
+                "summary": "List cost entries",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Filter by device IMEI",
+                        "name": "device",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Start time (RFC3339)",
+                        "name": "from",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "End time (RFC3339)",
+                        "name": "to",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "default": 100,
+                        "description": "Max results",
+                        "name": "limit",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/github_com_meshsat_meshsat-hub_internal_store.CostEntry"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/costs/summary": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "costs"
+                ],
+                "summary": "Aggregate costs",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "default": "device",
+                        "description": "Group by: device or month",
+                        "name": "group_by",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Start time (RFC3339)",
+                        "name": "from",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "End time (RFC3339)",
+                        "name": "to",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/github_com_meshsat_meshsat-hub_internal_store.CostAggregate"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/credentials": {
+            "get": {
+                "description": "Returns all credentials for the tenant. Encrypted data is stripped from the response.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "credentials"
+                ],
+                "summary": "List credentials",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            },
+            "post": {
+                "description": "Accepts a ZIP or PEM file containing certificates and/or keys. Parses x509 metadata, encrypts with the master key, and stores the credential.",
+                "consumes": [
+                    "multipart/form-data"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "credentials"
+                ],
+                "summary": "Upload credential file",
+                "parameters": [
+                    {
+                        "type": "file",
+                        "description": "PEM or ZIP file containing certificates/keys",
+                        "name": "file",
+                        "in": "formData",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Credential provider name",
+                        "name": "provider",
+                        "in": "formData",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Credential display name (defaults to provider)",
+                        "name": "name",
+                        "in": "formData"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Target scope: hub, bridge, or all (default hub)",
+                        "name": "target_scope",
+                        "in": "formData"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Target bridge ID (required when target_scope=bridge)",
+                        "name": "target_bridge_id",
+                        "in": "formData"
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/credentials/expiring": {
+            "get": {
+                "description": "Returns credentials with certificates expiring within the specified number of days (default 30).",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "credentials"
+                ],
+                "summary": "List expiring credentials",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "default": 30,
+                        "description": "Days until expiry threshold",
+                        "name": "days",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/credentials/{id}": {
+            "get": {
+                "description": "Returns a single credential. Encrypted data is stripped from the response.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "credentials"
+                ],
+                "summary": "Get credential by ID",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Credential ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_meshsat_meshsat-hub_internal_store.Credential"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "description": "Permanently removes a credential from the store.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "credentials"
+                ],
+                "summary": "Delete credential",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Credential ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/credentials/{id}/distribute": {
+            "post": {
+                "description": "Pushes a credential to the target bridge(s) via MQTT command. Only works for credentials with target_scope 'bridge' or 'all'.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "credentials"
+                ],
+                "summary": "Distribute credential to bridges",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Credential ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "503": {
+                        "description": "Service Unavailable",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/deadman": {
             "get": {
                 "produces": [
@@ -929,6 +2441,383 @@
                 }
             }
         },
+        "/api/device-groups": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "device-groups"
+                ],
+                "summary": "List device groups",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/github_com_meshsat_meshsat-hub_internal_store.DeviceGroup"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            },
+            "post": {
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "device-groups"
+                ],
+                "summary": "Create device group",
+                "parameters": [
+                    {
+                        "description": "Group data (name required)",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "type": "object"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_meshsat_meshsat-hub_internal_store.DeviceGroup"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/device-groups/{id}": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "device-groups"
+                ],
+                "summary": "Get device group",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Group ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_meshsat_meshsat-hub_internal_store.DeviceGroup"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            },
+            "put": {
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "device-groups"
+                ],
+                "summary": "Update device group",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Group ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Fields to update (name, description, color)",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "type": "object"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_meshsat_meshsat-hub_internal_store.DeviceGroup"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "tags": [
+                    "device-groups"
+                ],
+                "summary": "Delete device group",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Group ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/device-groups/{id}/devices": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "device-groups"
+                ],
+                "summary": "List devices in group",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Group ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/github_com_meshsat_meshsat-hub_internal_store.Device"
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/device-groups/{id}/members": {
+            "post": {
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "device-groups"
+                ],
+                "summary": "Add device to group",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Group ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Device IMEI",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "type": "object"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/device-groups/{id}/members/{imei}": {
+            "delete": {
+                "tags": [
+                    "device-groups"
+                ],
+                "summary": "Remove device from group",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Group ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Device IMEI",
+                        "name": "imei",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/devices": {
             "get": {
                 "produces": [
@@ -987,6 +2876,133 @@
                         "description": "Created",
                         "schema": {
                             "$ref": "#/definitions/internal_api.deviceCreateResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/devices/cloudloop/{imei}/send": {
+            "post": {
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "devices"
+                ],
+                "summary": "Send MT message via Cloudloop (explicit provider route)",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Device IMEI",
+                        "name": "imei",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Message to send",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.sendMessageRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "503": {
+                        "description": "Service Unavailable",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/devices/rock7/{imei}/send": {
+            "post": {
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "devices"
+                ],
+                "summary": "Send MT message via Rock7 (explicit provider route)",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Device IMEI",
+                        "name": "imei",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Message to send",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.sendMessageRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
                         }
                     },
                     "400": {
@@ -1396,6 +3412,183 @@
                 }
             }
         },
+        "/api/devices/{imei}/keys/distribute": {
+            "post": {
+                "description": "Retrieves the latest key for a device and pushes a key_rotate command to the specified bridges via MQTT.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "devices"
+                ],
+                "summary": "Distribute existing device key to bridges",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Device IMEI",
+                        "name": "imei",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Distribution parameters",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.distributeKeyRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.rotateDistributeResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/devices/{imei}/keys/import": {
+            "post": {
+                "description": "Imports an existing AES-256 key (hex-encoded) for a device or global key ID (e.g. \"sms\").",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "devices"
+                ],
+                "summary": "Import device encryption key",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Device IMEI or key ID (e.g. sms)",
+                        "name": "imei",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Key to import",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.importDeviceKeyRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.createDeviceKeyResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/devices/{imei}/keys/rotate": {
+            "post": {
+                "description": "Generates a new AES-256-GCM key for a device, persists it, and pushes a key_rotate command to the specified bridges via MQTT.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "devices"
+                ],
+                "summary": "Rotate device key and distribute to bridges",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Device IMEI",
+                        "name": "imei",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Rotation parameters",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.rotateDistributeRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.rotateDistributeResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/devices/{imei}/keys/{id}": {
             "delete": {
                 "tags": [
@@ -1531,6 +3724,65 @@
                     },
                     "500": {
                         "description": "Internal Server Error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/devices/{imei}/send": {
+            "post": {
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "devices"
+                ],
+                "summary": "Send MT message to device",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Device IMEI",
+                        "name": "imei",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Message to send",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.sendMessageRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "502": {
+                        "description": "Bad Gateway",
                         "schema": {
                             "type": "object",
                             "additionalProperties": {
@@ -1893,6 +4145,112 @@
                 }
             }
         },
+        "/api/geofences": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "geofences"
+                ],
+                "summary": "List geofences",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/github_com_meshsat_meshsat-hub_internal_geo.Fence"
+                            }
+                        }
+                    }
+                }
+            },
+            "post": {
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "geofences"
+                ],
+                "summary": "Create geofence",
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_meshsat_meshsat-hub_internal_geo.Fence"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/geofences/{id}": {
+            "delete": {
+                "tags": [
+                    "geofences"
+                ],
+                "summary": "Delete geofence",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Fence ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    }
+                }
+            }
+        },
+        "/api/hemb/stats": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "hemb"
+                ],
+                "summary": "Get HeMB reassembly statistics",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_meshsat_meshsat-hub_internal_protocol.HeMBReassemblyStats"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/integrations": {
+            "get": {
+                "description": "Returns the enabled/connected status of all inbound message channels (Rock7, Cloudloop, Twilio SMS, Email, Globalstar).",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "integrations"
+                ],
+                "summary": "List integration channel status",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/internal_api.IntegrationStatus"
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/ipougrs/status": {
             "get": {
                 "security": [
@@ -1913,6 +4271,280 @@
                         "description": "OK",
                         "schema": {
                             "$ref": "#/definitions/internal_ipougrs.StatusResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/keys/channel/rotate": {
+            "post": {
+                "description": "Generates a new AES-256 key, stores in Hub keystore, pushes to bridges via MQTT",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "keys"
+                ],
+                "summary": "Rotate channel encryption key",
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.channelKeyRotateResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/message-templates": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "message-templates"
+                ],
+                "summary": "List message templates",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/github_com_meshsat_meshsat-hub_internal_store.MessageTemplate"
+                            }
+                        }
+                    }
+                }
+            },
+            "post": {
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "message-templates"
+                ],
+                "summary": "Create message template",
+                "parameters": [
+                    {
+                        "description": "Template parameters",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.createTemplateRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_meshsat_meshsat-hub_internal_store.MessageTemplate"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/message-templates/{id}": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "message-templates"
+                ],
+                "summary": "Get message template",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Template ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_meshsat_meshsat-hub_internal_store.MessageTemplate"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            },
+            "put": {
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "message-templates"
+                ],
+                "summary": "Update message template",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Template ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Template parameters",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.updateTemplateRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_meshsat_meshsat-hub_internal_store.MessageTemplate"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "tags": [
+                    "message-templates"
+                ],
+                "summary": "Delete message template",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Template ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/message-templates/{id}/render": {
+            "post": {
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "message-templates"
+                ],
+                "summary": "Render message template",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Template ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Variable values",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.renderTemplateRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.renderTemplateResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
                         }
                     }
                 }
@@ -2946,6 +5578,95 @@
                 }
             }
         },
+        "/api/reticulum/identity": {
+            "get": {
+                "description": "Returns the Hub's Reticulum destination hash and public key. Private key is never exposed.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "reticulum"
+                ],
+                "summary": "Get Hub Reticulum identity",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.reticulumIdentityResponse"
+                        }
+                    },
+                    "503": {
+                        "description": "Service Unavailable",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/reticulum/relay": {
+            "get": {
+                "description": "Returns packet forwarding stats and registered transport interfaces with availability.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "reticulum"
+                ],
+                "summary": "Get Reticulum relay status",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.relayStatusResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/reticulum/routes": {
+            "get": {
+                "description": "Returns all non-expired entries in the Reticulum routing table with interface, cost, and hop count.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "reticulum"
+                ],
+                "summary": "List Reticulum routes",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.routeTableResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/reticulum/topology": {
+            "get": {
+                "description": "Returns Hub identity, all known routes, interfaces, relay stats, and path discovery stats.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "reticulum"
+                ],
+                "summary": "Get Reticulum network topology",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.topologyResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/api/routes": {
             "get": {
                 "produces": [
@@ -3175,6 +5896,206 @@
                 }
             }
         },
+        "/api/settings/mqtt-url": {
+            "get": {
+                "description": "Returns the MQTT URL shown to bridges during onboarding.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "settings"
+                ],
+                "summary": "Get MQTT public URL",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            },
+            "put": {
+                "description": "Saves the MQTT URL shown to bridges during onboarding.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "settings"
+                ],
+                "summary": "Set MQTT public URL",
+                "parameters": [
+                    {
+                        "description": "MQTT URL",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "type": "object"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/settings/security": {
+            "get": {
+                "description": "Shows which internal services have authentication configured.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "settings"
+                ],
+                "summary": "Get service security status",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.SecurityStatus"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/settings/security/rotate": {
+            "post": {
+                "description": "Generates new NATS MQTT, leafnode, and Redis passwords. Requires service restart to take effect.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "settings"
+                ],
+                "summary": "Rotate service passwords",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/sms/send": {
+            "post": {
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "sms"
+                ],
+                "summary": "Send SMS message",
+                "parameters": [
+                    {
+                        "description": "SMS parameters",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.sendSMSRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "502": {
+                        "description": "Bad Gateway",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/tak/federation/peers": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "tak"
+                ],
+                "summary": "TAK federation peers",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
         "/api/tor/onion": {
             "get": {
                 "description": "Returns the Hub's Tor hidden service .onion addresses for HTTP and MQTT",
@@ -3388,6 +6309,436 @@
                 }
             }
         },
+        "/api/v1/directory/contacts": {
+            "get": {
+                "description": "Returns every contact in the caller's tenant. Newest\nclients also honour ?kind=\u003cbearer\u003e to narrow to\ncontacts that have at least one address of the given\nkind.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "directory"
+                ],
+                "summary": "List directory contacts",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Optional bearer kind filter (SMS, MESHTASTIC, APRS, IRIDIUM_SBD, IRIDIUM_IMT, CELLULAR, TAK, RETICULUM, ZIGBEE, BLE, WEBHOOK, EMAIL, MQTT)",
+                        "name": "kind",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/github_com_meshsat_meshsat-hub_internal_directory.Contact"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            },
+            "post": {
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "directory"
+                ],
+                "summary": "Create directory contact",
+                "parameters": [
+                    {
+                        "description": "Contact (tenant_id will be overridden by the caller's tenant)",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/github_com_meshsat_meshsat-hub_internal_directory.Contact"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_meshsat_meshsat-hub_internal_directory.Contact"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/directory/contacts/{id}": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "directory"
+                ],
+                "summary": "Get directory contact",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Contact UUID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_meshsat_meshsat-hub_internal_directory.Contact"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            },
+            "put": {
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "directory"
+                ],
+                "summary": "Update directory contact",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Contact UUID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Contact",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/github_com_meshsat_meshsat-hub_internal_directory.Contact"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_meshsat_meshsat-hub_internal_directory.Contact"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "directory"
+                ],
+                "summary": "Delete directory contact",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Contact UUID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/directory/export/vcard": {
+            "get": {
+                "description": "Streams every contact in the caller's tenant as a\nconcatenated vCard 4.0 document. X-MESHSAT-*\nextensions carry the bearer-kind metadata not covered\nby standard TEL/EMAIL.",
+                "produces": [
+                    "text/vcard"
+                ],
+                "tags": [
+                    "directory"
+                ],
+                "summary": "Export tenant contacts as vCard 4.0",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "Max contacts (default 10000)",
+                        "name": "limit",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "vCard 4.0 text",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/directory/import/csv": {
+            "post": {
+                "description": "Uploads a CSV file with header row:\n`display_name,sms,meshtastic,aprs,email,team,role`.\nUnknown columns ignored; missing columns treated as\nempty. One contact per data row.",
+                "consumes": [
+                    "text/csv"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "directory"
+                ],
+                "summary": "Import contacts from CSV",
+                "parameters": [
+                    {
+                        "description": "CSV with header row",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "integer"
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/directory/import/vcard": {
+            "post": {
+                "description": "Uploads a .vcf file (Content-Type: text/vcard) and\ncreates directory_contacts + directory_addresses rows\nfor each record. X-MESHSAT-* extensions cover the\nbearer kinds that standard vCard does not\n(MESHTASTIC, APRS, IRIDIUM_SBD/IMT, CELLULAR, TAK,\nRETICULUM, ZIGBEE, BLE, WEBHOOK, MQTT) plus team /\nrole / SIDC / trust-level metadata. Response reports\nparsed / imported / errors counts.",
+                "consumes": [
+                    "text/vcard"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "directory"
+                ],
+                "summary": "Import contacts from vCard 4.0",
+                "parameters": [
+                    {
+                        "description": "vCard 4.0 text (one or more BEGIN/END records)",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "integer"
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/directory/snapshot": {
+            "get": {
+                "description": "Full tenant directory payload with an ECDSA-P256-SHA256\nsignature over its canonical JSON. Bridges consume via\nthe directory_push MQTT command (MESHSAT-540) or by\npolling this endpoint on reconnect. since is advisory —\nv1 always returns the full snapshot; a future delta\nendpoint (MESHSAT-540) ships incremental changes.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "directory"
+                ],
+                "summary": "Get signed directory snapshot",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "Hint: only return data if stored version \u003e since",
+                        "name": "since",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_meshsat_meshsat-hub_internal_directory.Snapshot"
+                        }
+                    },
+                    "304": {
+                        "description": "Not modified — stored version \u003c= since"
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/webhook/cloudloop": {
+            "post": {
+                "description": "Cloudloop posts LingoMO JSON messages here (SBD, IMT, or cellular)",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "webhook"
+                ],
+                "summary": "Receive Cloudloop LingoMO message",
+                "responses": {
+                    "200": {
+                        "description": "OK"
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/webhook/email": {
             "post": {
                 "description": "Email service (Mailgun/SendGrid) posts inbound emails here",
@@ -3407,6 +6758,44 @@
                     },
                     "400": {
                         "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/webhook/globalstar": {
+            "post": {
+                "description": "Globalstar gateway posts MO messages here via webhook callback",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "webhook"
+                ],
+                "summary": "Receive Globalstar MO message",
+                "responses": {
+                    "200": {
+                        "description": "OK"
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
                         "schema": {
                             "type": "object",
                             "additionalProperties": {
@@ -3759,6 +7148,24 @@
                 }
             }
         },
+        "/api/ws": {
+            "get": {
+                "description": "Real-time stream of messages, positions, and alerts. Pass token via ?token= query param or Authorization header.",
+                "tags": [
+                    "websocket"
+                ],
+                "summary": "WebSocket event stream",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Auth token (JWT or API key)",
+                        "name": "token",
+                        "in": "query"
+                    }
+                ],
+                "responses": {}
+            }
+        },
         "/healthz": {
             "get": {
                 "produces": [
@@ -3787,6 +7194,39 @@
                     "health"
                 ],
                 "summary": "Readiness probe",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Include informational dependencies (1)",
+                        "name": "verbose",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/internal_health.Response"
+                        }
+                    },
+                    "503": {
+                        "description": "Service Unavailable",
+                        "schema": {
+                            "$ref": "#/definitions/internal_health.Response"
+                        }
+                    }
+                }
+            }
+        },
+        "/startupz": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "health"
+                ],
+                "summary": "Startup probe",
                 "responses": {
                     "200": {
                         "description": "OK",
@@ -3859,6 +7299,533 @@
                 }
             }
         },
+        "github_com_meshsat_meshsat-hub_internal_directory.Address": {
+            "type": "object",
+            "properties": {
+                "bearer_hint": {
+                    "type": "integer"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "kind": {
+                    "$ref": "#/definitions/github_com_meshsat_meshsat-hub_internal_directory.AddressKind"
+                },
+                "label": {
+                    "type": "string"
+                },
+                "max_cost_cents": {
+                    "type": "integer"
+                },
+                "primary_rank": {
+                    "description": "0 = primary, 1+ = secondary",
+                    "type": "integer"
+                },
+                "subvalue": {
+                    "type": "string"
+                },
+                "value": {
+                    "type": "string"
+                },
+                "verified": {
+                    "type": "boolean"
+                }
+            }
+        },
+        "github_com_meshsat_meshsat-hub_internal_directory.AddressKind": {
+            "type": "string",
+            "enum": [
+                "SMS",
+                "MESHTASTIC",
+                "APRS",
+                "IRIDIUM_SBD",
+                "IRIDIUM_IMT",
+                "CELLULAR",
+                "TAK",
+                "RETICULUM",
+                "ZIGBEE",
+                "BLE",
+                "WEBHOOK",
+                "EMAIL",
+                "MQTT"
+            ],
+            "x-enum-comments": {
+                "KindMQTT": "[MESHSAT-538] mirrors bridge-side v45"
+            },
+            "x-enum-descriptions": [
+                "",
+                "",
+                "",
+                "",
+                "",
+                "",
+                "",
+                "",
+                "",
+                "",
+                "",
+                "",
+                "[MESHSAT-538] mirrors bridge-side v45"
+            ],
+            "x-enum-varnames": [
+                "KindSMS",
+                "KindMeshtastic",
+                "KindAPRS",
+                "KindIridiumSBD",
+                "KindIridiumIMT",
+                "KindCellular",
+                "KindTAK",
+                "KindReticulum",
+                "KindZigbee",
+                "KindBLE",
+                "KindWebhook",
+                "KindEmail",
+                "KindMQTT"
+            ]
+        },
+        "github_com_meshsat_meshsat-hub_internal_directory.Contact": {
+            "type": "object",
+            "properties": {
+                "addresses": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/github_com_meshsat_meshsat-hub_internal_directory.Address"
+                    }
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "display_name": {
+                    "type": "string"
+                },
+                "family_name": {
+                    "type": "string"
+                },
+                "given_name": {
+                    "type": "string"
+                },
+                "group_ids": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "hub_etag": {
+                    "type": "string"
+                },
+                "hub_version": {
+                    "type": "integer"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "keys": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/github_com_meshsat_meshsat-hub_internal_directory.ContactKey"
+                    }
+                },
+                "metadata": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "string"
+                    }
+                },
+                "notes": {
+                    "type": "string"
+                },
+                "org": {
+                    "type": "string"
+                },
+                "origin": {
+                    "$ref": "#/definitions/github_com_meshsat_meshsat-hub_internal_directory.Origin"
+                },
+                "policy_id": {
+                    "type": "string"
+                },
+                "role": {
+                    "type": "string"
+                },
+                "sidc": {
+                    "type": "string"
+                },
+                "team": {
+                    "type": "string"
+                },
+                "tenant_id": {
+                    "type": "string"
+                },
+                "trust_level": {
+                    "$ref": "#/definitions/github_com_meshsat_meshsat-hub_internal_directory.TrustLevel"
+                },
+                "trust_verified_at": {
+                    "type": "string"
+                },
+                "updated_at": {
+                    "type": "string"
+                }
+            }
+        },
+        "github_com_meshsat_meshsat-hub_internal_directory.ContactKey": {
+            "type": "object",
+            "properties": {
+                "algorithm": {
+                    "description": "free-text; e.g. Ed25519, X25519",
+                    "type": "string"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "fingerprint": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "kind": {
+                    "description": "AES256_GCM_SHARED / X25519_LT_PUB / …",
+                    "type": "string"
+                },
+                "public": {
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                },
+                "status": {
+                    "description": "active / retired / revoked",
+                    "type": "string"
+                },
+                "trust_anchor": {
+                    "description": "hub / qr / manual / in_person / local",
+                    "type": "string"
+                },
+                "version": {
+                    "type": "integer"
+                }
+            }
+        },
+        "github_com_meshsat_meshsat-hub_internal_directory.DispatchPolicy": {
+            "type": "object",
+            "properties": {
+                "created_at": {
+                    "type": "string"
+                },
+                "fallback": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/github_com_meshsat_meshsat-hub_internal_directory.AddressKind"
+                    }
+                },
+                "id": {
+                    "type": "string"
+                },
+                "max_retries": {
+                    "type": "integer"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "preferred": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/github_com_meshsat_meshsat-hub_internal_directory.AddressKind"
+                    }
+                },
+                "require_encryption": {
+                    "type": "boolean"
+                },
+                "retry_delay": {
+                    "$ref": "#/definitions/time.Duration"
+                },
+                "scope_id": {
+                    "type": "string"
+                },
+                "scope_type": {
+                    "description": "contact / group / precedence / default",
+                    "type": "string"
+                },
+                "strategy": {
+                    "$ref": "#/definitions/github_com_meshsat_meshsat-hub_internal_directory.Strategy"
+                },
+                "updated_at": {
+                    "type": "string"
+                }
+            }
+        },
+        "github_com_meshsat_meshsat-hub_internal_directory.Group": {
+            "type": "object",
+            "properties": {
+                "created_at": {
+                    "type": "string"
+                },
+                "hub_etag": {
+                    "type": "string"
+                },
+                "hub_version": {
+                    "type": "integer"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "kind": {
+                    "description": "TEAM / ROLE / LIST / MLS_GROUP (bridge-side shape)",
+                    "type": "string"
+                },
+                "member_ids": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "mls_group_id": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "policy_id": {
+                    "type": "string"
+                },
+                "sidc": {
+                    "type": "string"
+                },
+                "tenant_id": {
+                    "type": "string"
+                },
+                "updated_at": {
+                    "type": "string"
+                }
+            }
+        },
+        "github_com_meshsat_meshsat-hub_internal_directory.Origin": {
+            "type": "string",
+            "enum": [
+                "local",
+                "hub",
+                "imported",
+                "qr"
+            ],
+            "x-enum-varnames": [
+                "OriginLocal",
+                "OriginHub",
+                "OriginImported",
+                "OriginQR"
+            ]
+        },
+        "github_com_meshsat_meshsat-hub_internal_directory.Snapshot": {
+            "type": "object",
+            "properties": {
+                "contacts": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/github_com_meshsat_meshsat-hub_internal_directory.Contact"
+                    }
+                },
+                "etag": {
+                    "type": "string"
+                },
+                "groups": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/github_com_meshsat_meshsat-hub_internal_directory.Group"
+                    }
+                },
+                "policies": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/github_com_meshsat_meshsat-hub_internal_directory.DispatchPolicy"
+                    }
+                },
+                "signature": {
+                    "description": "ECDSA-P256-SHA256 over canonical(payload)",
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                },
+                "signed_at": {
+                    "type": "string"
+                },
+                "tenant_id": {
+                    "type": "string"
+                },
+                "version": {
+                    "type": "integer"
+                }
+            }
+        },
+        "github_com_meshsat_meshsat-hub_internal_directory.Strategy": {
+            "type": "string",
+            "enum": [
+                "PRIMARY_ONLY",
+                "ANY_REACHABLE",
+                "ORDERED_FALLBACK",
+                "HEMB_BONDED",
+                "ALL_BEARERS"
+            ],
+            "x-enum-varnames": [
+                "StrategyPrimaryOnly",
+                "StrategyAnyReachable",
+                "StrategyOrderedFallback",
+                "StrategyHeMBBonded",
+                "StrategyAllBearers"
+            ]
+        },
+        "github_com_meshsat_meshsat-hub_internal_directory.TrustLevel": {
+            "type": "integer",
+            "enum": [
+                0,
+                1,
+                2,
+                3
+            ],
+            "x-enum-varnames": [
+                "TrustUnknown",
+                "TrustAuto",
+                "TrustQR",
+                "TrustInPerson"
+            ]
+        },
+        "github_com_meshsat_meshsat-hub_internal_geo.Fence": {
+            "type": "object",
+            "properties": {
+                "chain_id": {
+                    "description": "escalation chain to trigger",
+                    "type": "string"
+                },
+                "enabled": {
+                    "type": "boolean"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "polygon": {
+                    "description": "ordered vertices (closed polygon)",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/github_com_meshsat_meshsat-hub_internal_geo.Point"
+                    }
+                },
+                "tenant_id": {
+                    "type": "string"
+                },
+                "trigger": {
+                    "description": "\"enter\", \"exit\", \"both\"",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/github_com_meshsat_meshsat-hub_internal_geo.TriggerMode"
+                        }
+                    ]
+                }
+            }
+        },
+        "github_com_meshsat_meshsat-hub_internal_geo.Point": {
+            "type": "object",
+            "properties": {
+                "lat": {
+                    "type": "number",
+                    "format": "float64"
+                },
+                "lon": {
+                    "type": "number",
+                    "format": "float64"
+                }
+            }
+        },
+        "github_com_meshsat_meshsat-hub_internal_geo.TriggerMode": {
+            "type": "string",
+            "enum": [
+                "enter",
+                "exit",
+                "both"
+            ],
+            "x-enum-varnames": [
+                "TriggerEnter",
+                "TriggerExit",
+                "TriggerBoth"
+            ]
+        },
+        "github_com_meshsat_meshsat-hub_internal_protocol.HeMBReassemblyStats": {
+            "type": "object",
+            "properties": {
+                "active_streams": {
+                    "type": "integer"
+                },
+                "generations_decoded": {
+                    "type": "integer"
+                },
+                "generations_pending": {
+                    "type": "integer"
+                }
+            }
+        },
+        "github_com_meshsat_meshsat-hub_internal_reticulum.PathHandlerStatsSnapshot": {
+            "type": "object",
+            "properties": {
+                "deduplicated": {
+                    "type": "integer"
+                },
+                "no_route": {
+                    "type": "integer"
+                },
+                "requests_received": {
+                    "type": "integer"
+                },
+                "responses_sent": {
+                    "type": "integer"
+                }
+            }
+        },
+        "github_com_meshsat_meshsat-hub_internal_reticulum.RelayStatsSnapshot": {
+            "type": "object",
+            "properties": {
+                "dropped": {
+                    "type": "integer"
+                },
+                "forwarded": {
+                    "type": "integer"
+                },
+                "no_route": {
+                    "type": "integer"
+                },
+                "rate_limited": {
+                    "type": "integer"
+                }
+            }
+        },
+        "github_com_meshsat_meshsat-hub_internal_reticulum.RouteInfo": {
+            "type": "object",
+            "properties": {
+                "app_data": {
+                    "type": "string"
+                },
+                "cost": {
+                    "type": "number"
+                },
+                "dest_hash": {
+                    "type": "string"
+                },
+                "expires_at": {
+                    "type": "string"
+                },
+                "hops": {
+                    "type": "integer"
+                },
+                "interface": {
+                    "type": "string"
+                },
+                "last_seen": {
+                    "type": "string"
+                },
+                "signing_pub_hex": {
+                    "type": "string"
+                }
+            }
+        },
         "github_com_meshsat_meshsat-hub_internal_store.APIKey": {
             "type": "object",
             "properties": {
@@ -3889,6 +7856,10 @@
                 "role": {
                     "description": "\"viewer\", \"operator\", \"owner\"",
                     "type": "string"
+                },
+                "rotation_days": {
+                    "description": "auto-rotation period (0=disabled)",
+                    "type": "integer"
                 }
             }
         },
@@ -3933,8 +7904,53 @@
                     "description": "triggered, escalating, acknowledged, exhausted",
                     "type": "string"
                 },
+                "tenant_id": {
+                    "type": "string"
+                },
                 "type": {
                     "description": "\"sos\", \"deadman\", \"geofence\", \"custom\"",
+                    "type": "string"
+                },
+                "updated_at": {
+                    "type": "string"
+                }
+            }
+        },
+        "github_com_meshsat_meshsat-hub_internal_store.AlertRule": {
+            "type": "object",
+            "properties": {
+                "chain_id": {
+                    "description": "escalation chain to trigger",
+                    "type": "string"
+                },
+                "condition_params": {
+                    "description": "JSON: {\"threshold_hours\":6} or {\"threshold_pct\":20}",
+                    "type": "string"
+                },
+                "condition_type": {
+                    "description": "device_not_seen, battery_low, geofence_breach, message_rate_drop",
+                    "type": "string"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "device_filter": {
+                    "description": "\"*\" for all, or specific IMEI, or group ID",
+                    "type": "string"
+                },
+                "enabled": {
+                    "type": "boolean"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "last_evaluated": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "tenant_id": {
                     "type": "string"
                 },
                 "updated_at": {
@@ -3973,6 +7989,229 @@
                 }
             }
         },
+        "github_com_meshsat_meshsat-hub_internal_store.BondGroup": {
+            "type": "object",
+            "properties": {
+                "bridge_id": {
+                    "type": "string"
+                },
+                "cost_budget": {
+                    "type": "number"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "label": {
+                    "type": "string"
+                },
+                "members": {
+                    "description": "JSON array of interface IDs",
+                    "type": "string"
+                },
+                "tenant_id": {
+                    "type": "string"
+                }
+            }
+        },
+        "github_com_meshsat_meshsat-hub_internal_store.Bridge": {
+            "type": "object",
+            "properties": {
+                "birth_verified": {
+                    "description": "true if last birth had valid ECDSA signature",
+                    "type": "boolean"
+                },
+                "bridge_id": {
+                    "type": "string"
+                },
+                "capabilities": {
+                    "description": "JSON array",
+                    "type": "string"
+                },
+                "cert_expiry": {
+                    "type": "string"
+                },
+                "cert_pem": {
+                    "type": "string"
+                },
+                "cot_callsign": {
+                    "type": "string"
+                },
+                "cot_type": {
+                    "type": "string"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "hostname": {
+                    "type": "string"
+                },
+                "label": {
+                    "type": "string"
+                },
+                "last_birth": {
+                    "description": "JSON",
+                    "type": "string"
+                },
+                "last_health": {
+                    "description": "JSON",
+                    "type": "string"
+                },
+                "last_seen": {
+                    "type": "string"
+                },
+                "location_alt": {
+                    "type": "number"
+                },
+                "location_lat": {
+                    "type": "number"
+                },
+                "location_lon": {
+                    "type": "number"
+                },
+                "mode": {
+                    "type": "string"
+                },
+                "mqtt_username": {
+                    "type": "string"
+                },
+                "online": {
+                    "type": "boolean"
+                },
+                "reticulum_hash": {
+                    "type": "string"
+                },
+                "reticulum_pubkey": {
+                    "type": "string"
+                },
+                "tenant_id": {
+                    "type": "string"
+                },
+                "updated_at": {
+                    "type": "string"
+                },
+                "version": {
+                    "type": "string"
+                }
+            }
+        },
+        "github_com_meshsat_meshsat-hub_internal_store.BridgeUpdate": {
+            "type": "object",
+            "properties": {
+                "cot_callsign": {
+                    "type": "string"
+                },
+                "label": {
+                    "type": "string"
+                }
+            }
+        },
+        "github_com_meshsat_meshsat-hub_internal_store.CostAggregate": {
+            "type": "object",
+            "properties": {
+                "count": {
+                    "type": "integer"
+                },
+                "group_key": {
+                    "description": "device IMEI or month string",
+                    "type": "string"
+                },
+                "total_usd": {
+                    "type": "number"
+                }
+            }
+        },
+        "github_com_meshsat_meshsat-hub_internal_store.CostEntry": {
+            "type": "object",
+            "properties": {
+                "cost_usd": {
+                    "type": "number"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "detail": {
+                    "type": "string"
+                },
+                "device_imei": {
+                    "type": "string"
+                },
+                "direction": {
+                    "description": "mo or mt",
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "interface_type": {
+                    "description": "iridium_sbd, iridium_imt, globalstar",
+                    "type": "string"
+                },
+                "message_id": {
+                    "type": "string"
+                }
+            }
+        },
+        "github_com_meshsat_meshsat-hub_internal_store.Credential": {
+            "type": "object",
+            "properties": {
+                "cert_fingerprint": {
+                    "type": "string"
+                },
+                "cert_issuer": {
+                    "type": "string"
+                },
+                "cert_not_after": {
+                    "type": "string"
+                },
+                "cert_subject": {
+                    "type": "string"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "cred_type": {
+                    "description": "mtls_bundle, api_key, webhook_secret, username_password",
+                    "type": "string"
+                },
+                "distributed_at": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "name": {
+                    "description": "human-readable label",
+                    "type": "string"
+                },
+                "provider": {
+                    "description": "cloudloop_mqtt, rockblock, globalstar, etc.",
+                    "type": "string"
+                },
+                "status": {
+                    "description": "active, expiring, expired, revoked",
+                    "type": "string"
+                },
+                "target_bridge_id": {
+                    "type": "string"
+                },
+                "target_scope": {
+                    "description": "hub, bridge, all",
+                    "type": "string"
+                },
+                "tenant_id": {
+                    "type": "string"
+                },
+                "updated_at": {
+                    "type": "string"
+                },
+                "version": {
+                    "type": "integer"
+                }
+            }
+        },
         "github_com_meshsat_meshsat-hub_internal_store.Device": {
             "type": "object",
             "properties": {
@@ -3992,7 +8231,7 @@
                     "type": "string"
                 },
                 "type": {
-                    "description": "\"rockblock\", etc.",
+                    "description": "\"rockblock\", \"globalstar\", etc.",
                     "type": "string"
                 },
                 "updated_at": {
@@ -4026,6 +8265,32 @@
                 },
                 "version": {
                     "type": "integer"
+                }
+            }
+        },
+        "github_com_meshsat_meshsat-hub_internal_store.DeviceGroup": {
+            "type": "object",
+            "properties": {
+                "color": {
+                    "type": "string"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "description": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "member_count": {
+                    "type": "integer"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "updated_at": {
+                    "type": "string"
                 }
             }
         },
@@ -4128,7 +8393,7 @@
             "type": "object",
             "properties": {
                 "channel": {
-                    "description": "\"iridium\"",
+                    "description": "\"iridium\", \"globalstar\"",
                     "type": "string"
                 },
                 "compressed": {
@@ -4162,12 +8427,41 @@
                 "raw_hex": {
                     "type": "string"
                 },
+                "scheduled_at": {
+                    "type": "string"
+                },
                 "status": {
-                    "description": "\"received\", \"queued\", \"sent\", \"delivered\", \"failed\"",
+                    "description": "\"received\", \"queued\", \"sent\", \"delivered\", \"failed\", \"scheduled\"",
                     "type": "string"
                 },
                 "text": {
                     "type": "string"
+                }
+            }
+        },
+        "github_com_meshsat_meshsat-hub_internal_store.MessageTemplate": {
+            "type": "object",
+            "properties": {
+                "body": {
+                    "type": "string"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "updated_at": {
+                    "type": "string"
+                },
+                "variables": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
                 }
             }
         },
@@ -4240,7 +8534,7 @@
                     "type": "integer"
                 },
                 "source": {
-                    "description": "\"gps\", \"iridium_cep\"",
+                    "description": "\"gps\", \"iridium_cep\", \"globalstar\"",
                     "type": "string"
                 },
                 "speed": {
@@ -4278,11 +8572,255 @@
                 }
             }
         },
+        "internal_api.IntegrationStatus": {
+            "type": "object",
+            "properties": {
+                "config": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "string"
+                    }
+                },
+                "connected": {
+                    "type": "boolean"
+                },
+                "description": {
+                    "type": "string"
+                },
+                "enabled": {
+                    "type": "boolean"
+                },
+                "last_message": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "setup": {
+                    "type": "string"
+                },
+                "type": {
+                    "type": "string"
+                },
+                "webhook_url": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_api.ProvisionBundle": {
+            "type": "object",
+            "properties": {
+                "bid": {
+                    "description": "bridge identifier",
+                    "type": "string"
+                },
+                "ca": {
+                    "description": "CA certificate",
+                    "type": "string"
+                },
+                "cert": {
+                    "description": "client TLS certificate",
+                    "type": "string"
+                },
+                "cert_exp": {
+                    "description": "certificate expiry (RFC3339)",
+                    "type": "string"
+                },
+                "dir_sign_pub": {
+                    "description": "Hub's ECDSA-P256 directory-signing pubkey (PKIX DER) — bridge pins on first provision [MESHSAT-539]",
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                },
+                "key": {
+                    "description": "client TLS private key (one-time)",
+                    "type": "string"
+                },
+                "mqtt": {
+                    "description": "wss://mqtt-hub.meshsat.net/mqtt",
+                    "type": "string"
+                },
+                "pass": {
+                    "description": "MQTT password (shared NATS auth password)",
+                    "type": "string"
+                },
+                "ret_tcp": {
+                    "description": "Reticulum TCP peer",
+                    "type": "string"
+                },
+                "user": {
+                    "description": "MQTT username (always \"meshsat\" for NATS auth)",
+                    "type": "string"
+                },
+                "v": {
+                    "description": "\"1\"",
+                    "type": "string"
+                }
+            }
+        },
+        "internal_api.SecurityStatus": {
+            "type": "object",
+            "properties": {
+                "auto_generated": {
+                    "description": "passwords were auto-generated",
+                    "type": "boolean"
+                },
+                "nats_leaf_auth": {
+                    "description": "NATS leafnode has token",
+                    "type": "boolean"
+                },
+                "nats_mqtt_auth": {
+                    "description": "NATS MQTT has password configured",
+                    "type": "boolean"
+                },
+                "redis_auth": {
+                    "description": "Redis has password",
+                    "type": "boolean"
+                },
+                "secrets_file": {
+                    "description": "path to secrets file (admin info)",
+                    "type": "string"
+                },
+                "stunnel_mtls": {
+                    "description": "stunnel has client cert verification",
+                    "type": "boolean"
+                }
+            }
+        },
         "internal_api.ackRequest": {
             "type": "object",
             "properties": {
                 "acked_by": {
                     "type": "string"
+                }
+            }
+        },
+        "internal_api.aclRegenResponse": {
+            "type": "object",
+            "properties": {
+                "bridges_configured": {
+                    "type": "integer"
+                }
+            }
+        },
+        "internal_api.bridgeCreateRequest": {
+            "type": "object",
+            "properties": {
+                "bridge_id": {
+                    "type": "string"
+                },
+                "label": {
+                    "type": "string"
+                },
+                "location": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_api.certificateResponse": {
+            "type": "object",
+            "properties": {
+                "bridge_id": {
+                    "type": "string"
+                },
+                "ca_pem": {
+                    "type": "string"
+                },
+                "cert_pem": {
+                    "type": "string"
+                },
+                "expires": {
+                    "type": "string"
+                },
+                "key_pem": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_api.channelKeyRotateResponse": {
+            "type": "object",
+            "properties": {
+                "address": {
+                    "type": "string"
+                },
+                "channel_type": {
+                    "type": "string"
+                },
+                "distributed": {
+                    "description": "number of bridges notified",
+                    "type": "integer"
+                },
+                "failed_bridges": {
+                    "description": "bridges that failed to receive",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "key_hex": {
+                    "description": "plaintext — shown once",
+                    "type": "string"
+                },
+                "version": {
+                    "type": "integer"
+                }
+            }
+        },
+        "internal_api.commandRequest": {
+            "type": "object",
+            "properties": {
+                "cmd": {
+                    "type": "string"
+                },
+                "payload": {
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                },
+                "target_device": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_api.commandResponse": {
+            "type": "object",
+            "properties": {
+                "error": {
+                    "type": "string"
+                },
+                "latency_ms": {
+                    "type": "integer"
+                },
+                "request_id": {
+                    "type": "string"
+                },
+                "result": {
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                },
+                "status": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_api.createBondGroupRequest": {
+            "type": "object",
+            "properties": {
+                "cost_budget": {
+                    "type": "number"
+                },
+                "label": {
+                    "type": "string"
+                },
+                "members": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
                 }
             }
         },
@@ -4369,6 +8907,17 @@
                 }
             }
         },
+        "internal_api.createTemplateRequest": {
+            "type": "object",
+            "properties": {
+                "body": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                }
+            }
+        },
         "internal_api.createUserRequest": {
             "type": "object",
             "properties": {
@@ -4383,6 +8932,23 @@
                 },
                 "role": {
                     "description": "\"viewer\", \"operator\", \"owner\"",
+                    "type": "string"
+                }
+            }
+        },
+        "internal_api.credentialResponse": {
+            "type": "object",
+            "properties": {
+                "bridge_id": {
+                    "type": "string"
+                },
+                "mqtt_url": {
+                    "type": "string"
+                },
+                "password": {
+                    "type": "string"
+                },
+                "username": {
                     "type": "string"
                 }
             }
@@ -4425,7 +8991,7 @@
                     "type": "string"
                 },
                 "type": {
-                    "description": "\"rockblock\", etc.",
+                    "description": "\"rockblock\", \"globalstar\", etc.",
                     "type": "string"
                 },
                 "updated_at": {
@@ -4433,6 +8999,46 @@
                 },
                 "wireguard": {
                     "$ref": "#/definitions/github_com_meshsat_meshsat-hub_internal_store.DeviceWireguard"
+                }
+            }
+        },
+        "internal_api.distributeKeyRequest": {
+            "type": "object",
+            "properties": {
+                "bridge_ids": {
+                    "description": "target bridges",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                }
+            }
+        },
+        "internal_api.distributeResultEntry": {
+            "type": "object",
+            "properties": {
+                "bridge_id": {
+                    "type": "string"
+                },
+                "error": {
+                    "type": "string"
+                },
+                "status": {
+                    "description": "\"ok\" or \"error\"",
+                    "type": "string"
+                }
+            }
+        },
+        "internal_api.importDeviceKeyRequest": {
+            "type": "object",
+            "properties": {
+                "key_hex": {
+                    "description": "hex-encoded AES-256 key (64 hex chars = 32 bytes)",
+                    "type": "string"
+                },
+                "mode": {
+                    "description": "\"decrypt\" or \"passthrough\"",
+                    "type": "string"
                 }
             }
         },
@@ -4485,11 +9091,262 @@
                 }
             }
         },
+        "internal_api.relayInterfaceInfo": {
+            "type": "object",
+            "properties": {
+                "available": {
+                    "type": "boolean"
+                },
+                "cost": {
+                    "type": "number"
+                },
+                "mtu": {
+                    "type": "integer"
+                },
+                "name": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_api.relayStatusResponse": {
+            "type": "object",
+            "properties": {
+                "interfaces": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/internal_api.relayInterfaceInfo"
+                    }
+                },
+                "stats": {
+                    "$ref": "#/definitions/github_com_meshsat_meshsat-hub_internal_reticulum.RelayStatsSnapshot"
+                }
+            }
+        },
+        "internal_api.renderTemplateRequest": {
+            "type": "object",
+            "properties": {
+                "variables": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "string"
+                    }
+                }
+            }
+        },
+        "internal_api.renderTemplateResponse": {
+            "type": "object",
+            "properties": {
+                "text": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_api.reticulumIdentityResponse": {
+            "type": "object",
+            "properties": {
+                "app_name": {
+                    "type": "string"
+                },
+                "dest_hash": {
+                    "type": "string"
+                },
+                "public_key_hex": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_api.rotateBridgeCredentialsResponse": {
+            "type": "object",
+            "properties": {
+                "bridge_id": {
+                    "type": "string"
+                },
+                "mqtt_url": {
+                    "type": "string"
+                },
+                "password": {
+                    "type": "string"
+                },
+                "username": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_api.rotateDistributeRequest": {
+            "type": "object",
+            "properties": {
+                "address": {
+                    "description": "e.g. \"+31653618463\", \"!abcd1234\"",
+                    "type": "string"
+                },
+                "bridge_ids": {
+                    "description": "target bridges to push key to",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "channel_type": {
+                    "description": "e.g. \"sms\", \"mesh\", \"iridium\"",
+                    "type": "string"
+                }
+            }
+        },
+        "internal_api.rotateDistributeResponse": {
+            "type": "object",
+            "properties": {
+                "distributed": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/internal_api.distributeResultEntry"
+                    }
+                },
+                "key_hash": {
+                    "type": "string"
+                },
+                "version": {
+                    "type": "integer"
+                }
+            }
+        },
+        "internal_api.rotateKeyResponse": {
+            "type": "object",
+            "properties": {
+                "expires_at": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "key": {
+                    "description": "plaintext — shown once",
+                    "type": "string"
+                },
+                "key_prefix": {
+                    "type": "string"
+                },
+                "label": {
+                    "type": "string"
+                },
+                "role": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_api.routeTableResponse": {
+            "type": "object",
+            "properties": {
+                "count": {
+                    "type": "integer"
+                },
+                "routes": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/github_com_meshsat_meshsat-hub_internal_reticulum.RouteInfo"
+                    }
+                }
+            }
+        },
+        "internal_api.sendMessageRequest": {
+            "type": "object",
+            "properties": {
+                "compress": {
+                    "description": "SMAZ2 compress before sending (default: true)",
+                    "type": "boolean"
+                },
+                "encrypt": {
+                    "description": "AES-256-GCM encrypt with device key (default: true if key exists)",
+                    "type": "boolean"
+                },
+                "imt_topic": {
+                    "description": "IMT only: PURPLE/PINK/RED/ORANGE/YELLOW/RAW",
+                    "type": "string"
+                },
+                "priority": {
+                    "description": "\u003e=9 bypasses per-device rate limiting (SOS)",
+                    "type": "integer"
+                },
+                "ring_style": {
+                    "description": "IMT only: NORMAL/URGENT/EXTENDED",
+                    "type": "string"
+                },
+                "scheduled_at": {
+                    "description": "RFC3339 timestamp for future delivery (empty = send now)",
+                    "type": "string"
+                },
+                "text": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_api.sendSMSRequest": {
+            "type": "object",
+            "properties": {
+                "compress": {
+                    "description": "SMAZ2 compress (default false for SMS — human-readable)",
+                    "type": "boolean"
+                },
+                "encrypt": {
+                    "description": "AES-256-GCM encrypt (base64-encoded in SMS body)",
+                    "type": "boolean"
+                },
+                "text": {
+                    "type": "string"
+                },
+                "to": {
+                    "description": "E.164 phone number",
+                    "type": "string"
+                }
+            }
+        },
         "internal_api.snoozeRequest": {
             "type": "object",
             "properties": {
                 "duration_min": {
                     "type": "integer"
+                }
+            }
+        },
+        "internal_api.topologyHub": {
+            "type": "object",
+            "properties": {
+                "app_name": {
+                    "type": "string"
+                },
+                "dest_hash": {
+                    "type": "string"
+                },
+                "role": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_api.topologyResponse": {
+            "type": "object",
+            "properties": {
+                "hints_published": {
+                    "type": "integer"
+                },
+                "hub": {
+                    "$ref": "#/definitions/internal_api.topologyHub"
+                },
+                "interfaces": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/internal_api.relayInterfaceInfo"
+                    }
+                },
+                "path_stats": {
+                    "$ref": "#/definitions/github_com_meshsat_meshsat-hub_internal_reticulum.PathHandlerStatsSnapshot"
+                },
+                "relay_stats": {
+                    "$ref": "#/definitions/github_com_meshsat_meshsat-hub_internal_reticulum.RelayStatsSnapshot"
+                },
+                "routes": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/github_com_meshsat_meshsat-hub_internal_reticulum.RouteInfo"
+                    }
                 }
             }
         },
@@ -4506,6 +9363,34 @@
                     "type": "string"
                 },
                 "type": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_api.updateBondGroupRequest": {
+            "type": "object",
+            "properties": {
+                "cost_budget": {
+                    "type": "number"
+                },
+                "label": {
+                    "type": "string"
+                },
+                "members": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                }
+            }
+        },
+        "internal_api.updateTemplateRequest": {
+            "type": "object",
+            "properties": {
+                "body": {
+                    "type": "string"
+                },
+                "name": {
                     "type": "string"
                 }
             }
@@ -4798,13 +9683,34 @@
                 }
             }
         },
+        "internal_health.CheckResult": {
+            "type": "object",
+            "properties": {
+                "detail": {
+                    "type": "object",
+                    "additionalProperties": {}
+                },
+                "latency_ms": {
+                    "type": "integer"
+                },
+                "status": {
+                    "type": "string"
+                }
+            }
+        },
         "internal_health.Response": {
             "type": "object",
             "properties": {
                 "checks": {
                     "type": "object",
                     "additionalProperties": {
-                        "type": "string"
+                        "$ref": "#/definitions/internal_health.CheckResult"
+                    }
+                },
+                "info": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "$ref": "#/definitions/internal_health.CheckResult"
                     }
                 },
                 "status": {
@@ -5186,8 +10092,7 @@
                 1000,
                 1000000,
                 1000000000,
-                60000000000,
-                3600000000000
+                60000000000
             ],
             "x-enum-varnames": [
                 "minDuration",
@@ -5202,8 +10107,7 @@
                 "Microsecond",
                 "Millisecond",
                 "Second",
-                "Minute",
-                "Hour"
+                "Minute"
             ]
         }
     },
