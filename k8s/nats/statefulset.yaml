@@ -1,7 +1,7 @@
 # NATS x3 (MQTT broker + JetStream cluster, MESHSAT-711 phase 7) with the config
 # reloader (SIGHUP when the TLS certificate or the bridge CA rotates) and the
-# Prometheus exporter. One pod per worker (required podAntiAffinity); volumes
-# must never land on dmz06 (LocalPV binds permanently on first schedule):
+# Prometheus exporter. Spread over the two eligible workers (preferred
+# podAntiAffinity, so two pods share a node); volumes must never land on dmz06 (LocalPV binds permanently on first schedule):
 # required nodeAffinity, not preferred. Pods start in parallel so the cluster
 # can form (a pod is not Ready until JetStream has a meta leader).
 apiVersion: apps/v1
@@ -36,12 +36,17 @@ spec:
                   - key: kubernetes.io/hostname
                     operator: NotIn
                     values: ["notrf01dmz06"]
+        # Only dmz01 and dmz02 are eligible (dmz06 excluded, dmz03-05 tainted
+        # control-plane), so three pods spread over two nodes: preferred, not
+        # required, or the third pod would never schedule.
         podAntiAffinity:
-          requiredDuringSchedulingIgnoredDuringExecution:
-            - topologyKey: kubernetes.io/hostname
-              labelSelector:
-                matchLabels:
-                  app.kubernetes.io/name: nats
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                topologyKey: kubernetes.io/hostname
+                labelSelector:
+                  matchLabels:
+                    app.kubernetes.io/name: nats
       containers:
         - name: nats
           image: docker.io/library/nats

@@ -93,8 +93,10 @@ user allow-all): nats-server 2.11.8 panics on an authorization reload when a use
 
 ## NATS JetStream x3 (MESHSAT-711 phase 7, 2026-09-08)
 
-`nats` is a three-pod StatefulSet (`podManagementPolicy: Parallel`, one pod per worker, never
-dmz06) forming JetStream cluster `meshsat` over routes on :6222; `server_name` is the pod name
+`nats` is a three-pod StatefulSet (`podManagementPolicy: Parallel`, spread over dmz01/dmz02 with
+preferred anti-affinity since only two workers are eligible, never dmz06) forming JetStream
+cluster `meshsat` over routes on :6222; losing the node that holds two pods loses quorum until it
+returns (today a single node holds everything); `server_name` is the pod name
 (downward API). The `nats` Service is headless (the StatefulSet's governing Service, so
 `nats-N.nats` resolves; `Replace=true` because clusterIP is immutable) and the Hub's
 `tcp://nats:1883` now resolves to the pod addresses, between which the Paho client fails over.
