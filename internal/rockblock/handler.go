@@ -246,9 +246,12 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// fallback for a portal limitation, so with no secret configured this
 	// refuses rather than accepting. [MESHSAT-975, was MESHSAT-446]
 	if tokenTenant == "" {
-		if h.secret == "" {
-			slog.Warn("rockblock: no webhook secret configured, refusing unsigned request", "remote", r.RemoteAddr)
-			http.Error(w, `{"error":"webhook secret not configured"}`, http.StatusForbidden)
+		// A delivery signed by Ground Control authenticates itself and needs
+		// no secret of ours. Only a request with no signature at all falls
+		// back to the shared secret, and with neither this refuses.
+		if r.FormValue("JWT") == "" && h.secret == "" {
+			slog.Warn("rockblock: request is neither signed nor accompanied by a secret, refusing", "remote", r.RemoteAddr)
+			http.Error(w, `{"error":"unauthorized"}`, http.StatusForbidden)
 			return
 		}
 		if !h.verifySignature(r) {
@@ -542,11 +545,14 @@ func (h *Handler) handleBridgeSatUplink(ctx context.Context, imei string, rawByt
 // verifySignature checks the HMAC-SHA256 signature if present,
 // or falls back to checking the JWT query parameter.
 func (h *Handler) verifySignature(r *http.Request) bool {
-	// Check for HMAC in form data.
-	sig := r.FormValue("JWT")
-	if sig != "" {
-		// Ground Control JWT verification — constant-time shared-secret check.
-		return hmac.Equal([]byte(sig), []byte(h.secret))
+	// Ground Control signs the delivery and publishes the key. That is the
+	// real check, it needs no shared secret, and it is tried first.
+	if r.FormValue("JWT") != "" {
+		if err := verifyGroundControlJWT(r); err != nil {
+			slog.Warn("rockblock: Ground Control signature rejected", "error", err)
+			return false
+		}
+		return true
 	}
 
 	// Check X-Hub-Signature header (HMAC-SHA256).
