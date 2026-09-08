@@ -86,3 +86,7 @@ SIGHUPs nats-server, and the Argo Application ignores `/data` on this Secret
 (`argocd-apps/meshsat-hub/application.yaml`). Probe: `nats_auth_export` in `/readyz?verbose=1`.
 Provisioning bundles now carry the per-bridge user and one-time password; bridges provisioned
 before still connect as the shared user until they re-provision.
+**Every user in users.conf must carry a `permissions` block** (the renderer gives the shared
+user allow-all): nats-server 2.11.8 panics on an authorization reload when a user has none
+(`generatePubPerms(nil)` in `mqttCheckPubRetainedPerms`, MESHSAT-973). Re-check when the
+`docker.io/library/nats` pin is bumped.
