@@ -65,9 +65,9 @@ function deviceStatus(d) {
 }
 
 function statusColor(status) {
-  if (status === 'online') return 'text-emerald-400'
-  if (status === 'idle') return 'text-amber-400'
-  if (status === 'offline') return 'text-red-400'
+  if (status === 'online') return 'text-ms-success'
+  if (status === 'idle') return 'text-ms-warning'
+  if (status === 'offline') return 'text-ms-error'
   return 'text-gray-500'
 }
 
@@ -87,17 +87,17 @@ function formatLastSeen(d) {
     <!-- Add device form -->
     <div class="flex flex-wrap gap-2 mb-4">
       <input v-model="newIMEI" placeholder="IMEI"
-        class="bg-gray-800 border border-gray-700 px-3 py-2 rounded-lg text-gray-200 placeholder-gray-500 focus:outline-none focus:border-teal-500 flex-1 min-w-[180px]" />
+        class="bg-gray-800 border border-gray-700 px-3 py-2 rounded-lg text-gray-200 placeholder-gray-500 focus:outline-none focus:border-brand-primary flex-1 min-w-[180px]" />
       <input v-model="newLabel" placeholder="Label (optional)"
-        class="bg-gray-800 border border-gray-700 px-3 py-2 rounded-lg text-gray-200 placeholder-gray-500 focus:outline-none focus:border-teal-500 flex-1 min-w-[140px]" />
+        class="bg-gray-800 border border-gray-700 px-3 py-2 rounded-lg text-gray-200 placeholder-gray-500 focus:outline-none focus:border-brand-primary flex-1 min-w-[140px]" />
       <select v-model="newType"
-        class="bg-gray-800 border border-gray-700 px-3 py-2 rounded-lg text-gray-200 focus:outline-none focus:border-teal-500">
+        class="bg-gray-800 border border-gray-700 px-3 py-2 rounded-lg text-gray-200 focus:outline-none focus:border-brand-primary">
         <option value="rockblock">RockBLOCK</option>
         <option value="android">Android</option>
         <option value="other">Other</option>
       </select>
       <button @click="addDevice"
-        class="bg-teal-600 hover:bg-teal-500 text-white px-4 py-2 rounded-lg font-medium transition-colors">
+        class="bg-brand-accent hover:bg-brand-primary text-ms-on-primary px-4 py-2 rounded-lg font-medium transition-colors">
         Add
       </button>
     </div>
@@ -124,7 +124,7 @@ function formatLastSeen(d) {
               </span>
             </td>
             <td class="px-3 py-2 font-mono text-xs">
-              <router-link :to="`/devices/${d.imei}`" class="text-teal-400 hover:text-teal-300 hover:underline">{{ d.imei }}</router-link>
+              <router-link :to="`/devices/${d.imei}`" class="text-brand-primary hover:text-brand-primary hover:underline">{{ d.imei }}</router-link>
             </td>
             <td class="px-3 py-2">{{ d.label }}</td>
             <td class="px-3 py-2 text-gray-400">{{ d.type }}</td>

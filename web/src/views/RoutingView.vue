@@ -181,7 +181,7 @@ function destBadgeClass(type) {
   if (type === 'email') return 'bg-yellow-900/50 text-yellow-300'
   if (type === 'webhook') return 'bg-purple-900/50 text-purple-300'
   if (type === 'notification') return 'bg-pink-900/50 text-pink-300'
-  if (type === 'mqtt') return 'bg-teal-900/50 text-teal-300'
+  if (type === 'mqtt') return 'bg-brand-primary/15 text-brand-primary'
   return 'bg-gray-700 text-gray-300'
 }
 </script>
@@ -196,7 +196,7 @@ function destBadgeClass(type) {
           {{ showTest ? 'Hide Test' : 'Test Route' }}
         </button>
         <button v-if="canModify && !showForm" @click="openCreateForm"
-          class="bg-teal-600 hover:bg-teal-500 text-white px-4 py-2 rounded-lg font-medium transition-colors text-sm">
+          class="bg-brand-accent hover:bg-brand-primary text-ms-on-primary px-4 py-2 rounded-lg font-medium transition-colors text-sm">
           Create Route
         </button>
       </div>
@@ -215,7 +215,7 @@ function destBadgeClass(type) {
             class="text-xs px-2.5 py-1 rounded font-medium whitespace-nowrap">
             {{ group.source === '*' ? 'All Sources' : group.source }}
           </span>
-          <svg class="w-6 h-4 text-gray-600 flex-shrink-0" viewBox="0 0 24 16">
+          <svg class="w-6 h-4 text-ms-muted flex-shrink-0" viewBox="0 0 24 16">
             <path d="M2 8h16M14 3l5 5-5 5" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
           </svg>
           <div class="flex flex-wrap gap-1.5">
@@ -235,23 +235,23 @@ function destBadgeClass(type) {
         <div>
           <label class="text-xs text-gray-400">Source Channel</label>
           <select v-model="testChannel"
-            class="bg-gray-800 border border-gray-700 px-3 py-2 rounded-lg text-gray-200 w-full focus:outline-none focus:border-teal-500">
+            class="bg-gray-800 border border-gray-700 px-3 py-2 rounded-lg text-gray-200 w-full focus:outline-none focus:border-brand-primary">
             <option v-for="s in sourceTypes.filter(s => s !== '*')" :key="s" :value="s">{{ s }}</option>
           </select>
         </div>
         <div>
           <label class="text-xs text-gray-400">Device IMEI (optional)</label>
           <input v-model="testDeviceID" placeholder="300234065123456"
-            class="bg-gray-800 border border-gray-700 px-3 py-2 rounded-lg text-gray-200 w-full placeholder-gray-500 focus:outline-none focus:border-teal-500" />
+            class="bg-gray-800 border border-gray-700 px-3 py-2 rounded-lg text-gray-200 w-full placeholder-gray-500 focus:outline-none focus:border-brand-primary" />
         </div>
         <div>
           <label class="text-xs text-gray-400">Message Text</label>
           <input v-model="testText" placeholder="Sample message text"
-            class="bg-gray-800 border border-gray-700 px-3 py-2 rounded-lg text-gray-200 w-full placeholder-gray-500 focus:outline-none focus:border-teal-500" />
+            class="bg-gray-800 border border-gray-700 px-3 py-2 rounded-lg text-gray-200 w-full placeholder-gray-500 focus:outline-none focus:border-brand-primary" />
         </div>
       </div>
       <button @click="runTest" :disabled="testLoading"
-        class="bg-teal-600 hover:bg-teal-500 disabled:bg-gray-600 text-white px-4 py-2 rounded text-sm font-medium transition-colors">
+        class="bg-brand-accent hover:bg-brand-primary disabled:bg-gray-600 text-ms-on-primary px-4 py-2 rounded text-sm font-medium transition-colors">
         {{ testLoading ? 'Testing...' : 'Run Test' }}
       </button>
 
@@ -264,7 +264,7 @@ function destBadgeClass(type) {
             :class="r.matched ? 'bg-green-900/20 border-green-800' : 'bg-gray-900/50 border-tactical-border'"
             class="flex items-center justify-between border rounded px-3 py-2 text-sm">
             <div class="flex items-center gap-2">
-              <span :class="r.matched ? 'text-green-400' : 'text-gray-600'" class="text-xs font-mono">
+              <span :class="r.matched ? 'text-ms-success' : 'text-ms-muted'" class="text-xs font-mono">
                 {{ r.matched ? 'MATCH' : 'SKIP' }}
               </span>
               <span class="text-gray-300">{{ r.route_name }}</span>
@@ -284,17 +284,17 @@ function destBadgeClass(type) {
       </h2>
       <div class="flex flex-wrap gap-2">
         <input v-model="formName" placeholder="Route name"
-          class="bg-gray-800 border border-gray-700 px-3 py-2 rounded-lg text-gray-200 placeholder-gray-500 focus:outline-none focus:border-teal-500 flex-1 min-w-[160px]" />
+          class="bg-gray-800 border border-gray-700 px-3 py-2 rounded-lg text-gray-200 placeholder-gray-500 focus:outline-none focus:border-brand-primary flex-1 min-w-[160px]" />
         <select v-model="formSource"
-          class="bg-gray-800 border border-gray-700 px-3 py-2 rounded-lg text-gray-200 focus:outline-none focus:border-teal-500">
+          class="bg-gray-800 border border-gray-700 px-3 py-2 rounded-lg text-gray-200 focus:outline-none focus:border-brand-primary">
           <option v-for="s in sourceTypes" :key="s" :value="s">Source: {{ s === '*' ? 'All' : s }}</option>
         </select>
         <select v-model="formDest"
-          class="bg-gray-800 border border-gray-700 px-3 py-2 rounded-lg text-gray-200 focus:outline-none focus:border-teal-500">
+          class="bg-gray-800 border border-gray-700 px-3 py-2 rounded-lg text-gray-200 focus:outline-none focus:border-brand-primary">
           <option v-for="d in destTypes" :key="d" :value="d">Dest: {{ d }}</option>
         </select>
         <input v-model="formFilter" placeholder="Filter (IMEI or keyword)"
-          class="bg-gray-800 border border-gray-700 px-3 py-2 rounded-lg text-gray-200 placeholder-gray-500 focus:outline-none focus:border-teal-500 flex-1 min-w-[140px]" />
+          class="bg-gray-800 border border-gray-700 px-3 py-2 rounded-lg text-gray-200 placeholder-gray-500 focus:outline-none focus:border-brand-primary flex-1 min-w-[140px]" />
         <label class="flex items-center gap-2 text-sm text-gray-300 px-2">
           <input type="checkbox" v-model="formEnabled" class="rounded" />
           Enabled
@@ -302,7 +302,7 @@ function destBadgeClass(type) {
       </div>
       <div class="flex gap-2 mt-3">
         <button @click="submitForm"
-          class="bg-teal-600 hover:bg-teal-500 text-white px-4 py-2 rounded-lg font-medium transition-colors text-sm">
+          class="bg-brand-accent hover:bg-brand-primary text-ms-on-primary px-4 py-2 rounded-lg font-medium transition-colors text-sm">
           {{ editingId ? 'Update' : 'Create' }}
         </button>
         <button @click="cancelForm"

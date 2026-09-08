@@ -297,19 +297,19 @@ async function refreshPositions() {
         <div class="hidden md:flex items-center gap-3 text-xs">
           <button @click="filterBridge = !filterBridge; applyFilters()"
             class="flex items-center gap-1 px-1.5 py-0.5 rounded transition-colors"
-            :class="filterBridge ? 'text-cyan-400 bg-cyan-900/20' : 'text-gray-600 line-through'">
+            :class="filterBridge ? 'text-cyan-400 bg-cyan-900/20' : 'text-ms-muted line-through'">
             <svg width="12" height="12"><rect x="1" y="1" width="10" height="10" rx="1" :fill="filterBridge ? '#22D3EE' : '#4B5563'" stroke="#fff" stroke-width="1"/></svg>
             Bridge
           </button>
           <button @click="filterSatellite = !filterSatellite; applyFilters()"
             class="flex items-center gap-1 px-1.5 py-0.5 rounded transition-colors"
-            :class="filterSatellite ? 'text-purple-400 bg-purple-900/20' : 'text-gray-600 line-through'">
+            :class="filterSatellite ? 'text-purple-400 bg-purple-900/20' : 'text-ms-muted line-through'">
             <svg width="12" height="12"><polygon points="6,1 11,6 6,11 1,6" :fill="filterSatellite ? '#A855F7' : '#4B5563'" stroke="#fff" stroke-width="1"/></svg>
             Satellite
           </button>
           <button @click="filterGround = !filterGround; applyFilters()"
             class="flex items-center gap-1 px-1.5 py-0.5 rounded transition-colors"
-            :class="filterGround ? 'text-cyan-400 bg-cyan-900/20' : 'text-gray-600 line-through'">
+            :class="filterGround ? 'text-cyan-400 bg-cyan-900/20' : 'text-ms-muted line-through'">
             <svg width="12" height="12"><circle cx="6" cy="6" r="5" :fill="filterGround ? '#06B6D4' : '#4B5563'" stroke="#fff" stroke-width="1"/></svg>
             Ground
           </button>

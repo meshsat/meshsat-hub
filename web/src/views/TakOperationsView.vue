@@ -77,8 +77,8 @@ function cotTypeName(t) {
       <div class="bg-tactical-surface rounded-lg border border-tactical-border p-3">
         <div class="text-gray-500 text-[10px] uppercase">CoT Gateway</div>
         <div class="flex items-center gap-1.5 mt-1">
-          <span class="w-2 h-2 rounded-full" :class="fleetStatus?.tak_enabled ? 'bg-emerald-400' : 'bg-red-400'"></span>
-          <span class="text-sm" :class="fleetStatus?.tak_enabled ? 'text-emerald-400' : 'text-red-400'">
+          <span class="w-2 h-2 rounded-full" :class="fleetStatus?.tak_enabled ? 'bg-ms-success' : 'bg-ms-error'"></span>
+          <span class="text-sm" :class="fleetStatus?.tak_enabled ? 'text-ms-success' : 'text-ms-error'">
             {{ fleetStatus?.tak_enabled ? 'active' : 'disabled' }}
           </span>
         </div>
@@ -102,7 +102,7 @@ function cotTypeName(t) {
       <div class="flex border-b border-tactical-border">
         <button v-for="tab in tabs" :key="tab.id" @click="activeTab = tab.id"
           class="px-4 py-2.5 text-sm font-medium transition-colors"
-          :class="activeTab === tab.id ? 'text-teal-400 border-b-2 border-teal-400' : 'text-gray-500 hover:text-gray-300'">
+          :class="activeTab === tab.id ? 'text-brand-primary border-b-2 border-brand-primary' : 'text-gray-500 hover:text-gray-300'">
           {{ tab.label }}
         </button>
       </div>
@@ -115,10 +115,10 @@ function cotTypeName(t) {
           <div v-if="takInt?.config" class="grid grid-cols-2 md:grid-cols-3 gap-x-6 gap-y-1.5">
             <div v-for="(v, k) in takInt.config" :key="k" class="flex items-center justify-between text-xs">
               <span class="text-gray-500">{{ k.replace(/_/g, ' ') }}</span>
-              <span class="font-mono" :class="v === 'configured' ? 'text-emerald-400' : v === 'not set' ? 'text-amber-400' : 'text-gray-300'">{{ v }}</span>
+              <span class="font-mono" :class="v === 'configured' ? 'text-ms-success' : v === 'not set' ? 'text-ms-warning' : 'text-gray-300'">{{ v }}</span>
             </div>
           </div>
-          <p v-else class="text-xs text-gray-500">TAK not configured. Set <code class="text-teal-400">HUB_TAK_ENABLED=true</code>.</p>
+          <p v-else class="text-xs text-gray-500">TAK not configured. Set <code class="text-brand-primary">HUB_TAK_ENABLED=true</code>.</p>
         </div>
 
         <!-- Federation Throughput -->
@@ -126,7 +126,7 @@ function cotTypeName(t) {
           <h3 class="text-sm font-display font-semibold text-gray-200 uppercase tracking-wider mb-3">Federation Throughput</h3>
           <div class="grid grid-cols-3 gap-3">
             <div class="text-center">
-              <div class="text-lg font-display font-bold text-teal-400">{{ fleetStatus?.federation_in ?? 0 }}</div>
+              <div class="text-lg font-display font-bold text-brand-primary">{{ fleetStatus?.federation_in ?? 0 }}</div>
               <div class="text-[10px] text-gray-500 uppercase">CoT In</div>
             </div>
             <div class="text-center">
@@ -145,11 +145,11 @@ function cotTypeName(t) {
           <h3 class="text-sm font-display font-semibold text-gray-200 uppercase tracking-wider mb-3">CoT Type Legend</h3>
           <div class="grid grid-cols-2 sm:grid-cols-3 gap-1.5 text-xs">
             <span class="text-sky-400">&#9670; PLI — Friendly Ground (a-f-G)</span>
-            <span class="text-teal-400">&#9679; Chat — GeoChat (b-t-f)</span>
-            <span class="text-red-400">&#10006; SOS — Emergency (b-a)</span>
-            <span class="text-amber-400">&#9679; Waypoint (b-m-p)</span>
+            <span class="text-brand-primary">&#9679; Chat — GeoChat (b-t-f)</span>
+            <span class="text-ms-error">&#10006; SOS — Emergency (b-a)</span>
+            <span class="text-ms-warning">&#9679; Waypoint (b-m-p)</span>
             <span class="text-purple-400">&#9679; Sensor (t-x-d-d)</span>
-            <span class="text-red-400">&#9670; Hostile (a-h-G)</span>
+            <span class="text-ms-error">&#9670; Hostile (a-h-G)</span>
           </div>
         </div>
       </div>
@@ -200,13 +200,13 @@ function cotTypeName(t) {
               <td class="px-4 py-2 text-gray-200">{{ b.hostname || b.id }}</td>
               <td class="px-4 py-2">
                 <span v-if="b.cot_callsign" class="px-1.5 py-0.5 rounded text-xs bg-sky-900/50 text-sky-300 border border-sky-700/50 font-mono">{{ b.cot_callsign }}</span>
-                <span v-else class="text-gray-600 text-xs">—</span>
+                <span v-else class="text-ms-muted text-xs">—</span>
               </td>
               <td class="px-4 py-2 text-gray-400 text-xs">{{ cotTypeName(b.cot_type) }}</td>
               <td class="px-4 py-2">
                 <span class="flex items-center gap-1.5">
-                  <span class="w-2 h-2 rounded-full" :class="b.online ? 'bg-emerald-400' : 'bg-gray-600'"></span>
-                  <span class="text-xs" :class="b.online ? 'text-emerald-400' : 'text-gray-500'">{{ b.online ? 'Online' : 'Offline' }}</span>
+                  <span class="w-2 h-2 rounded-full" :class="b.online ? 'bg-ms-success' : 'bg-gray-600'"></span>
+                  <span class="text-xs" :class="b.online ? 'text-ms-success' : 'text-gray-500'">{{ b.online ? 'Online' : 'Offline' }}</span>
                 </span>
               </td>
             </tr>
@@ -217,7 +217,7 @@ function cotTypeName(t) {
       <!-- FEDERATION -->
       <div v-if="activeTab === 'federation'" class="p-4">
         <div v-if="!fleetStatus?.federation_enabled" class="text-center text-gray-500 py-8 text-sm">
-          Federation v2 disabled. Set <code class="text-teal-400">HUB_TAK_FEDERATION_ENABLED=true</code> and configure peers.
+          Federation v2 disabled. Set <code class="text-brand-primary">HUB_TAK_FEDERATION_ENABLED=true</code> and configure peers.
         </div>
         <div v-else class="space-y-4">
           <!-- Summary -->
@@ -228,7 +228,7 @@ function cotTypeName(t) {
             </div>
             <div class="bg-gray-800/30 rounded-lg border border-tactical-border/50 p-3 text-center">
               <div class="text-gray-500 text-[10px] uppercase">Messages In</div>
-              <div class="text-xl font-display font-bold text-teal-400 mt-1">{{ fedPeers.total_in }}</div>
+              <div class="text-xl font-display font-bold text-brand-primary mt-1">{{ fedPeers.total_in }}</div>
             </div>
             <div class="bg-gray-800/30 rounded-lg border border-tactical-border/50 p-3 text-center">
               <div class="text-gray-500 text-[10px] uppercase">Messages Out</div>
@@ -243,7 +243,7 @@ function cotTypeName(t) {
             <div v-for="p in fedPeers.peers" :key="p.address"
               class="bg-gray-800/30 rounded-lg border border-tactical-border/50 p-3 flex items-center justify-between">
               <div class="flex items-center gap-2">
-                <span class="w-2 h-2 rounded-full" :class="p.connected ? 'bg-emerald-400' : 'bg-red-400'"></span>
+                <span class="w-2 h-2 rounded-full" :class="p.connected ? 'bg-ms-success' : 'bg-ms-error'"></span>
                 <span class="font-mono text-sm text-gray-300">{{ p.address }}</span>
               </div>
               <div class="flex items-center gap-4 text-xs text-gray-500">
@@ -259,7 +259,7 @@ function cotTypeName(t) {
             <div class="grid grid-cols-2 gap-x-6 gap-y-1.5">
               <div v-for="(v, k) in fedInt.config" :key="k" class="flex items-center justify-between text-xs">
                 <span class="text-gray-500">{{ k.replace(/_/g, ' ') }}</span>
-                <span class="font-mono" :class="v === 'configured' ? 'text-emerald-400' : (v === 'not set' || (typeof v === 'string' && v.startsWith('missing'))) ? 'text-amber-400' : 'text-gray-300'">{{ v }}</span>
+                <span class="font-mono" :class="v === 'configured' ? 'text-ms-success' : (v === 'not set' || (typeof v === 'string' && v.startsWith('missing'))) ? 'text-ms-warning' : 'text-gray-300'">{{ v }}</span>
               </div>
             </div>
           </div>
@@ -270,17 +270,17 @@ function cotTypeName(t) {
       <div v-if="activeTab === 'chat'" class="p-4">
         <div class="space-y-2 max-h-80 overflow-y-auto mb-3">
           <div v-for="(m, i) in chatMessages" :key="i" class="flex gap-2">
-            <span class="text-xs text-teal-400 font-mono whitespace-nowrap">{{ m.callsign || '?' }}</span>
+            <span class="text-xs text-brand-primary font-mono whitespace-nowrap">{{ m.callsign || '?' }}</span>
             <span class="text-xs text-gray-300">{{ m.text }}</span>
           </div>
           <p v-if="!chatMessages.length" class="text-center text-gray-500 py-8 text-sm">
-            No fleet chat messages. GeoChat events (<code class="text-teal-400">b-t-f</code>) from TAK clients will appear here.
+            No fleet chat messages. GeoChat events (<code class="text-brand-primary">b-t-f</code>) from TAK clients will appear here.
           </p>
         </div>
         <div class="flex gap-2 border-t border-tactical-border/50 pt-3">
           <input v-model="chatInput" placeholder="Type a message..."
-            class="flex-1 px-3 py-2 rounded bg-tactical-bg border border-tactical-border text-sm text-gray-200 placeholder-gray-600 focus:outline-none focus:border-teal-500">
-          <button class="px-4 py-2 rounded text-xs font-medium bg-teal-600 text-white hover:bg-teal-500 transition-colors">Send</button>
+            class="flex-1 px-3 py-2 rounded bg-tactical-bg border border-tactical-border text-sm text-gray-200 placeholder-gray-600 focus:outline-none focus:border-brand-primary">
+          <button class="px-4 py-2 rounded text-xs font-medium bg-brand-accent text-ms-on-primary hover:bg-brand-primary transition-colors">Send</button>
         </div>
       </div>
     </div>

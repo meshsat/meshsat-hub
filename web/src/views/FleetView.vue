@@ -301,9 +301,9 @@ function parseHealth(b) {
 }
 
 function interfaceStatusDot(status) {
-  if (status === 'online') return 'bg-emerald-400'
-  if (status === 'error') return 'bg-red-400'
-  if (status === 'binding') return 'bg-amber-400'
+  if (status === 'online') return 'bg-ms-success'
+  if (status === 'error') return 'bg-ms-error'
+  if (status === 'binding') return 'bg-ms-warning'
   return 'bg-gray-500'
 }
 
@@ -361,8 +361,8 @@ function certExpiryStatus(b) {
   const exp = new Date(b.cert_expiry)
   const now = new Date()
   const days = Math.floor((exp - now) / 86400000)
-  if (days < 0) return { label: 'Expired', color: 'text-red-400' }
-  if (days < 14) return { label: `${days}d left`, color: 'text-amber-400' }
+  if (days < 0) return { label: 'Expired', color: 'text-ms-error' }
+  if (days < 14) return { label: `${days}d left`, color: 'text-ms-warning' }
   return { label: `${days}d left`, color: 'text-gray-400' }
 }
 </script>
@@ -382,9 +382,9 @@ function certExpiryStatus(b) {
           class="text-xs px-3 py-1.5 rounded border border-gray-600 text-gray-400 hover:text-gray-200 hover:border-gray-500 transition-colors disabled:opacity-50">
           {{ aclLoading ? 'Regenerating...' : 'Regenerate ACL' }}
         </button>
-        <span v-if="aclResult" class="text-xs text-emerald-400">{{ aclResult.bridges_configured }} bridges configured</span>
+        <span v-if="aclResult" class="text-xs text-ms-success">{{ aclResult.bridges_configured }} bridges configured</span>
         <button @click="showAddForm = !showAddForm"
-          class="bg-teal-600 hover:bg-teal-500 text-white px-3 py-1.5 rounded text-sm font-medium transition-colors">
+          class="bg-brand-accent hover:bg-brand-primary text-ms-on-primary px-3 py-1.5 rounded text-sm font-medium transition-colors">
           {{ showAddForm ? 'Cancel' : '+ Add Bridge' }}
         </button>
       </div>
@@ -393,7 +393,7 @@ function certExpiryStatus(b) {
     <!-- Error -->
     <div v-if="error" class="bg-red-900/50 border border-red-700 text-red-200 px-4 py-3 rounded mb-4 flex items-center justify-between">
       <span>{{ error }}</span>
-      <button @click="error = ''" class="text-red-400 hover:text-red-200 text-xs ml-4">dismiss</button>
+      <button @click="error = ''" class="text-ms-error hover:text-red-200 text-xs ml-4">dismiss</button>
     </div>
 
     <!-- Add bridge form -->
@@ -405,50 +405,50 @@ function certExpiryStatus(b) {
         <div>
           <label class="text-xs text-gray-400 mb-1 block">Bridge ID</label>
           <input v-model="addForm.bridge_id" placeholder="e.g. mule01, bananapi01"
-            class="bg-gray-800 border border-gray-700 px-3 py-2 rounded-lg text-gray-200 w-full placeholder-gray-500 focus:outline-none focus:border-teal-500 text-sm font-mono"
+            class="bg-gray-800 border border-gray-700 px-3 py-2 rounded-lg text-gray-200 w-full placeholder-gray-500 focus:outline-none focus:border-brand-primary text-sm font-mono"
             @keydown.enter="addBridge" />
         </div>
         <div>
           <label class="text-xs text-gray-400 mb-1 block">Label (optional)</label>
           <input v-model="addForm.label" placeholder="Human-readable name"
-            class="bg-gray-800 border border-gray-700 px-3 py-2 rounded-lg text-gray-200 w-full placeholder-gray-500 focus:outline-none focus:border-teal-500 text-sm"
+            class="bg-gray-800 border border-gray-700 px-3 py-2 rounded-lg text-gray-200 w-full placeholder-gray-500 focus:outline-none focus:border-brand-primary text-sm"
             @keydown.enter="addBridge" />
         </div>
       </div>
       <div class="flex justify-end">
         <button @click="addBridge"
-          class="bg-teal-600 hover:bg-teal-500 text-white px-4 py-2 rounded text-sm transition-colors">
+          class="bg-brand-accent hover:bg-brand-primary text-ms-on-primary px-4 py-2 rounded text-sm transition-colors">
           Create Bridge
         </button>
       </div>
     </div>
 
     <!-- Onboarding banner -->
-    <div v-if="onboardingBridgeId && onboardingStep > 0" class="bg-teal-900/30 border border-teal-700/50 rounded-lg p-4 mb-4">
+    <div v-if="onboardingBridgeId && onboardingStep > 0" class="bg-brand-primary/10 border border-brand-accent/50 rounded-lg p-4 mb-4">
       <div class="flex items-center justify-between mb-2">
-        <h3 class="text-sm font-display font-semibold text-teal-300">Onboarding: {{ onboardingBridgeId }}</h3>
+        <h3 class="text-sm font-display font-semibold text-brand-primary">Onboarding: {{ onboardingBridgeId }}</h3>
         <button @click="dismissOnboarding" class="text-xs text-gray-400 hover:text-gray-200">dismiss</button>
       </div>
       <div class="flex items-center gap-4 text-xs">
-        <div class="flex items-center gap-1.5" :class="onboardingStep >= 1 ? 'text-teal-400' : 'text-gray-500'">
+        <div class="flex items-center gap-1.5" :class="onboardingStep >= 1 ? 'text-brand-primary' : 'text-gray-500'">
           <span class="w-5 h-5 rounded-full border flex items-center justify-center text-[10px] font-bold"
-            :class="onboardingStep > 1 ? 'bg-teal-600 border-teal-600' : onboardingStep === 1 ? 'border-teal-500 text-teal-400' : 'border-gray-600'">
+            :class="onboardingStep > 1 ? 'bg-brand-accent border-brand-accent' : onboardingStep === 1 ? 'border-brand-primary text-brand-primary' : 'border-gray-600'">
             {{ onboardingStep > 1 ? '\u2713' : '1' }}
           </span>
           MQTT Credentials
         </div>
         <div class="w-8 border-t border-gray-600" />
-        <div class="flex items-center gap-1.5" :class="onboardingStep >= 2 ? 'text-teal-400' : 'text-gray-500'">
+        <div class="flex items-center gap-1.5" :class="onboardingStep >= 2 ? 'text-brand-primary' : 'text-gray-500'">
           <span class="w-5 h-5 rounded-full border flex items-center justify-center text-[10px] font-bold"
-            :class="onboardingStep > 2 ? 'bg-teal-600 border-teal-600' : onboardingStep === 2 ? 'border-teal-500 text-teal-400' : 'border-gray-600'">
+            :class="onboardingStep > 2 ? 'bg-brand-accent border-brand-accent' : onboardingStep === 2 ? 'border-brand-primary text-brand-primary' : 'border-gray-600'">
             {{ onboardingStep > 2 ? '\u2713' : '2' }}
           </span>
           TLS Certificate
         </div>
         <div class="w-8 border-t border-gray-600" />
-        <div class="flex items-center gap-1.5" :class="onboardingStep >= 3 ? 'text-teal-400' : 'text-gray-500'">
+        <div class="flex items-center gap-1.5" :class="onboardingStep >= 3 ? 'text-brand-primary' : 'text-gray-500'">
           <span class="w-5 h-5 rounded-full border flex items-center justify-center text-[10px] font-bold"
-            :class="onboardingStep >= 3 ? 'bg-teal-600 border-teal-600' : 'border-gray-600'">
+            :class="onboardingStep >= 3 ? 'bg-brand-accent border-brand-accent' : 'border-gray-600'">
             {{ onboardingStep >= 3 ? '\u2713' : '3' }}
           </span>
           Configure Bridge
@@ -461,7 +461,7 @@ function certExpiryStatus(b) {
         Now click <strong>Issue TLS Certificate</strong> to generate the mutual TLS client certificate.
       </div>
       <div v-else-if="onboardingStep === 3" class="mt-3 text-xs text-gray-300">
-        Copy the credentials to your bridge's <code class="bg-gray-800 px-1 py-0.5 rounded font-mono text-teal-400">/cubeos/config/secrets.env</code> and restart the bridge service. It will appear as online once it connects via MQTT.
+        Copy the credentials to your bridge's <code class="bg-gray-800 px-1 py-0.5 rounded font-mono text-brand-primary">/cubeos/config/secrets.env</code> and restart the bridge service. It will appear as online once it connects via MQTT.
       </div>
     </div>
 
@@ -486,8 +486,8 @@ function certExpiryStatus(b) {
             <div class="flex items-center gap-2 min-w-0">
               <h3 class="font-display font-semibold text-gray-200 truncate">{{ b.label || b.bridge_id }}</h3>
               <span class="flex items-center gap-1.5 text-xs font-medium shrink-0"
-                :class="b.online ? 'text-emerald-400' : 'text-red-400'">
-                <span class="w-2 h-2 rounded-full" :class="b.online ? 'bg-emerald-400 animate-pulse-dot' : 'bg-red-400'" />
+                :class="b.online ? 'text-ms-success' : 'text-ms-error'">
+                <span class="w-2 h-2 rounded-full" :class="b.online ? 'bg-ms-success animate-pulse-dot' : 'bg-ms-error'" />
                 {{ b.online ? 'Online' : 'Offline' }}
               </span>
             </div>
@@ -546,7 +546,7 @@ function certExpiryStatus(b) {
                 Edit
               </button>
               <button @click.stop="confirmDelete(b)"
-                class="text-xs px-3 py-1.5 rounded border border-red-800 text-red-400 hover:text-red-300 hover:border-red-700 hover:bg-red-900/30 transition-colors">
+                class="text-xs px-3 py-1.5 rounded border border-red-800 text-ms-error hover:text-red-300 hover:border-red-700 hover:bg-red-900/30 transition-colors">
                 Delete Bridge
               </button>
             </div>
@@ -557,7 +557,7 @@ function certExpiryStatus(b) {
               <div class="flex flex-wrap items-center gap-3 mb-2">
                 <div class="text-xs">
                   <span class="text-gray-500">MQTT:</span>
-                  <span :class="hasCredentials(b) ? 'text-emerald-400' : 'text-gray-500'" class="ml-1">
+                  <span :class="hasCredentials(b) ? 'text-ms-success' : 'text-gray-500'" class="ml-1">
                     {{ hasCredentials(b) ? 'Configured' : 'Not set' }}
                   </span>
                 </div>
@@ -579,7 +579,7 @@ function certExpiryStatus(b) {
                   {{ certificateLoading ? 'Issuing...' : hasCertificate(b) ? 'Reissue TLS Certificate' : 'Issue TLS Certificate' }}
                 </button>
                 <button @click.stop="provisionWithQR(b.bridge_id)" :disabled="provisionLoading"
-                  class="text-xs px-3 py-1.5 rounded bg-teal-700 hover:bg-teal-600 text-white transition-colors disabled:opacity-50"
+                  class="text-xs px-3 py-1.5 rounded bg-brand-accent hover:bg-brand-accent text-ms-on-primary transition-colors disabled:opacity-50"
                   title="Generate a QR code with MQTT credentials + TLS certificate for one-step provisioning">
                   {{ provisionLoading ? 'Generating...' : 'Provision QR' }}
                 </button>
@@ -597,19 +597,19 @@ function certExpiryStatus(b) {
                     <span class="text-gray-400 w-16 shrink-0">URL:</span>
                     <code class="text-gray-200 bg-gray-800 px-2 py-1 rounded flex-1 truncate">{{ credentialResult.mqtt_url }}</code>
                     <button @click.stop="copyToClipboard(credentialResult.mqtt_url, 'url')"
-                      class="text-teal-400 hover:text-teal-300 shrink-0 text-xs">{{ copied === 'url' ? 'Copied!' : 'Copy' }}</button>
+                      class="text-brand-primary hover:text-brand-primary shrink-0 text-xs">{{ copied === 'url' ? 'Copied!' : 'Copy' }}</button>
                   </div>
                   <div class="flex items-center gap-2">
                     <span class="text-gray-400 w-16 shrink-0">User:</span>
                     <code class="text-gray-200 bg-gray-800 px-2 py-1 rounded flex-1 truncate">{{ credentialResult.username }}</code>
                     <button @click.stop="copyToClipboard(credentialResult.username, 'user')"
-                      class="text-teal-400 hover:text-teal-300 shrink-0 text-xs">{{ copied === 'user' ? 'Copied!' : 'Copy' }}</button>
+                      class="text-brand-primary hover:text-brand-primary shrink-0 text-xs">{{ copied === 'user' ? 'Copied!' : 'Copy' }}</button>
                   </div>
                   <div class="flex items-center gap-2">
                     <span class="text-gray-400 w-16 shrink-0">Pass:</span>
                     <code class="text-gray-200 bg-gray-800 px-2 py-1 rounded flex-1 truncate">{{ credentialResult.password }}</code>
                     <button @click.stop="copyToClipboard(credentialResult.password, 'pass')"
-                      class="text-teal-400 hover:text-teal-300 shrink-0 text-xs">{{ copied === 'pass' ? 'Copied!' : 'Copy' }}</button>
+                      class="text-brand-primary hover:text-brand-primary shrink-0 text-xs">{{ copied === 'pass' ? 'Copied!' : 'Copy' }}</button>
                   </div>
                 </div>
               </div>
@@ -638,7 +638,7 @@ function certExpiryStatus(b) {
                     Download CA (.crt)
                   </button>
                   <button @click.stop="copyToClipboard(certificateResult.cert_pem + '\n' + certificateResult.key_pem, 'cert')"
-                    class="text-xs text-teal-400 hover:text-teal-300">{{ copied === 'cert' ? 'Copied!' : 'Copy All' }}</button>
+                    class="text-xs text-brand-primary hover:text-brand-primary">{{ copied === 'cert' ? 'Copied!' : 'Copy All' }}</button>
                 </div>
               </div>
             </div>
@@ -661,10 +661,10 @@ function certExpiryStatus(b) {
                 </button>
               </div>
               <div v-if="commandResult[b.bridge_id]" class="mt-2 text-xs">
-                <div v-if="commandResult[b.bridge_id].error" class="text-red-400">
+                <div v-if="commandResult[b.bridge_id].error" class="text-ms-error">
                   Error: {{ commandResult[b.bridge_id].error }}
                 </div>
-                <div v-else class="text-emerald-400">
+                <div v-else class="text-ms-success">
                   {{ commandResult[b.bridge_id].status }} ({{ commandResult[b.bridge_id].latency_ms }}ms)
                 </div>
               </div>
@@ -681,7 +681,7 @@ function certExpiryStatus(b) {
                   </div>
                   <div class="w-full bg-gray-700 rounded-full h-1.5">
                     <div class="h-1.5 rounded-full transition-all"
-                      :class="parseHealth(b).cpu_pct > 80 ? 'bg-red-400' : parseHealth(b).cpu_pct > 50 ? 'bg-amber-400' : 'bg-teal-400'"
+                      :class="parseHealth(b).cpu_pct > 80 ? 'bg-ms-error' : parseHealth(b).cpu_pct > 50 ? 'bg-ms-warning' : 'bg-brand-primary'"
                       :style="{ width: Math.min(parseHealth(b).cpu_pct || 0, 100) + '%' }" />
                   </div>
                 </div>
@@ -692,7 +692,7 @@ function certExpiryStatus(b) {
                   </div>
                   <div class="w-full bg-gray-700 rounded-full h-1.5">
                     <div class="h-1.5 rounded-full transition-all"
-                      :class="parseHealth(b).mem_pct > 80 ? 'bg-red-400' : parseHealth(b).mem_pct > 50 ? 'bg-amber-400' : 'bg-teal-400'"
+                      :class="parseHealth(b).mem_pct > 80 ? 'bg-ms-error' : parseHealth(b).mem_pct > 50 ? 'bg-ms-warning' : 'bg-brand-primary'"
                       :style="{ width: Math.min(parseHealth(b).mem_pct || 0, 100) + '%' }" />
                   </div>
                 </div>
@@ -703,7 +703,7 @@ function certExpiryStatus(b) {
                   </div>
                   <div class="w-full bg-gray-700 rounded-full h-1.5">
                     <div class="h-1.5 rounded-full transition-all"
-                      :class="parseHealth(b).disk_pct > 80 ? 'bg-red-400' : parseHealth(b).disk_pct > 50 ? 'bg-amber-400' : 'bg-teal-400'"
+                      :class="parseHealth(b).disk_pct > 80 ? 'bg-ms-error' : parseHealth(b).disk_pct > 50 ? 'bg-ms-warning' : 'bg-brand-primary'"
                       :style="{ width: Math.min(parseHealth(b).disk_pct || 0, 100) + '%' }" />
                   </div>
                 </div>
@@ -741,7 +741,7 @@ function certExpiryStatus(b) {
                         <td class="py-1.5 pr-3">
                           <span class="flex items-center gap-1">
                             <span class="w-1.5 h-1.5 rounded-full" :class="interfaceStatusDot(iface.status)" />
-                            <span :class="iface.status === 'online' ? 'text-emerald-400' : iface.status === 'error' ? 'text-red-400' : 'text-gray-400'">
+                            <span :class="iface.status === 'online' ? 'text-ms-success' : iface.status === 'error' ? 'text-ms-error' : 'text-gray-400'">
                               {{ iface.status }}
                             </span>
                           </span>
@@ -749,7 +749,7 @@ function certExpiryStatus(b) {
                         <td class="py-1.5 pr-3 text-gray-300">{{ signalDisplay(iface) }}</td>
                         <td class="py-1.5 pr-3">
                           <span v-if="iface.health_score > 0"
-                            :class="iface.health_score >= 80 ? 'text-emerald-400' : iface.health_score >= 50 ? 'text-amber-400' : 'text-red-400'">
+                            :class="iface.health_score >= 80 ? 'text-ms-success' : iface.health_score >= 50 ? 'text-ms-warning' : 'text-ms-error'">
                             {{ iface.health_score }}%
                           </span>
                           <span v-else class="text-gray-500">—</span>
@@ -794,7 +794,7 @@ function certExpiryStatus(b) {
                   </div>
                   <div>
                     <span class="text-gray-500">Decoded/Failed</span>
-                    <div class="font-mono"><span class="text-emerald-400">{{ parseHealth(b).hemb.generations_decoded }}</span>/<span class="text-red-400">{{ parseHealth(b).hemb.generations_failed }}</span></div>
+                    <div class="font-mono"><span class="text-ms-success">{{ parseHealth(b).hemb.generations_decoded }}</span>/<span class="text-ms-error">{{ parseHealth(b).hemb.generations_failed }}</span></div>
                   </div>
                 </div>
               </template>
@@ -854,19 +854,19 @@ function certExpiryStatus(b) {
           <div>
             <label class="text-xs text-gray-400 mb-1 block">Label</label>
             <input v-model="editForm.label"
-              class="bg-gray-800 border border-gray-700 px-3 py-2 rounded-lg text-gray-200 w-full placeholder-gray-500 focus:outline-none focus:border-teal-500 text-sm"
+              class="bg-gray-800 border border-gray-700 px-3 py-2 rounded-lg text-gray-200 w-full placeholder-gray-500 focus:outline-none focus:border-brand-primary text-sm"
               @keydown.enter="saveEdit" />
           </div>
           <div>
             <label class="text-xs text-gray-400 mb-1 block">CoT Callsign</label>
             <input v-model="editForm.cot_callsign" placeholder="e.g. MESHSAT-01"
-              class="bg-gray-800 border border-gray-700 px-3 py-2 rounded-lg text-gray-200 w-full placeholder-gray-500 focus:outline-none focus:border-teal-500 text-sm font-mono"
+              class="bg-gray-800 border border-gray-700 px-3 py-2 rounded-lg text-gray-200 w-full placeholder-gray-500 focus:outline-none focus:border-brand-primary text-sm font-mono"
               @keydown.enter="saveEdit" />
           </div>
         </div>
         <div class="flex justify-end gap-3">
           <button @click="showEditModal = false" class="px-4 py-2 text-sm text-gray-400 hover:text-gray-200">Cancel</button>
-          <button @click="saveEdit" class="px-4 py-2 text-sm bg-teal-600 hover:bg-teal-500 text-white rounded transition-colors">Save</button>
+          <button @click="saveEdit" class="px-4 py-2 text-sm bg-brand-accent hover:bg-brand-primary text-ms-on-primary rounded transition-colors">Save</button>
         </div>
       </div>
     </div>
@@ -882,7 +882,7 @@ function certExpiryStatus(b) {
         <p class="text-xs text-gray-500 mb-4">
           This will delete the bridge record, disassociate all linked devices, and revoke MQTT credentials. This action cannot be undone.
         </p>
-        <div v-if="bridgeToDelete?.online" class="text-amber-400 text-xs mb-4 bg-amber-900/20 border border-amber-700 rounded p-3">
+        <div v-if="bridgeToDelete?.online" class="text-ms-warning text-xs mb-4 bg-amber-900/20 border border-amber-700 rounded p-3">
           Warning: This bridge is currently online. Deleting it will disconnect the active MQTT session.
         </div>
         <div class="flex justify-end gap-3">
@@ -896,10 +896,10 @@ function certExpiryStatus(b) {
     <div v-if="showProvisionQR" class="fixed inset-0 z-50 flex items-center justify-center" @click.self="dismissProvisionQR">
       <div class="fixed inset-0 bg-black/60"></div>
       <div class="relative bg-tactical-card border border-tactical-border rounded-xl p-6 max-w-lg w-full mx-4 shadow-2xl">
-        <h3 class="text-lg font-display font-semibold text-teal-300 mb-1">Provision QR Code</h3>
+        <h3 class="text-lg font-display font-semibold text-brand-primary mb-1">Provision QR Code</h3>
         <p class="text-xs text-gray-400 mb-4">
           Scan with the MeshSat Android app to auto-configure Hub connection.
-          <span class="text-amber-400">Single-use</span> — credentials are regenerated each time.
+          <span class="text-ms-warning">Single-use</span> — credentials are regenerated each time.
         </p>
         <div class="flex justify-center bg-white rounded-lg p-4 mb-4">
           <img v-if="provisionQRUrl" :src="provisionQRUrl" :alt="'Provision QR for ' + provisionQRBridgeId"

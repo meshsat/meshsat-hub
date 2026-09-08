@@ -187,7 +187,7 @@ function budgetPercent(sent, cap) {
 function budgetBarColor(pct) {
   if (pct >= 90) return 'bg-red-500'
   if (pct >= 70) return 'bg-amber-500'
-  return 'bg-teal-500'
+  return 'bg-brand-primary'
 }
 
 function channelBadge(ch) {
@@ -206,7 +206,7 @@ function directionLabel(d) {
 }
 
 function directionColor(d) {
-  return d === 'mo' ? 'text-emerald-400' : 'text-sky-400'
+  return d === 'mo' ? 'text-ms-success' : 'text-sky-400'
 }
 </script>
 
@@ -217,7 +217,7 @@ function directionColor(d) {
       <h1 class="text-2xl font-display font-bold">Operations Dashboard</h1>
       <div class="flex items-center gap-3 text-xs text-gray-500">
         <span v-if="lastRefresh">Updated {{ timeSince(lastRefresh) }}</span>
-        <button @click="loadAll" class="text-teal-400 hover:text-teal-300">Refresh</button>
+        <button @click="loadAll" class="text-brand-primary hover:text-brand-primary">Refresh</button>
         <button @click="dash.customizing = !dash.customizing"
           class="text-gray-500 hover:text-gray-300 transition-colors" title="Customize layout">
           <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4"/></svg>
@@ -231,7 +231,7 @@ function directionColor(d) {
         <h3 class="text-sm font-display font-semibold text-gray-200">Customize Dashboard</h3>
         <div class="flex gap-2">
           <button @click="dash.reset()" class="text-xs text-gray-500 hover:text-gray-300">Reset</button>
-          <button @click="dash.customizing = false" class="text-xs text-teal-400 hover:text-teal-300">Done</button>
+          <button @click="dash.customizing = false" class="text-xs text-brand-primary hover:text-brand-primary">Done</button>
         </div>
       </div>
       <div class="space-y-1">
@@ -239,7 +239,7 @@ function directionColor(d) {
           class="flex items-center gap-3 px-3 py-2 rounded bg-gray-700/30 text-sm">
           <label class="flex items-center gap-2 flex-1 cursor-pointer">
             <input type="checkbox" :checked="w.visible" @change="dash.toggle(w.id)"
-              class="rounded border-gray-600 bg-gray-700 text-teal-500 focus:ring-teal-500 focus:ring-offset-0">
+              class="rounded border-gray-600 bg-gray-700 text-brand-primary focus:ring-brand-primary focus:ring-offset-0">
             <span :class="w.visible ? 'text-gray-200' : 'text-gray-500'">{{ w.label }}</span>
           </label>
           <div class="flex gap-1">
@@ -257,7 +257,7 @@ function directionColor(d) {
     <template v-else>
       <!-- SOS Banner -->
       <div v-if="hasSOS" class="bg-red-900/60 border border-red-600 rounded-lg p-4 mb-6 flex items-center gap-3">
-        <span class="text-red-400 text-2xl font-bold">SOS</span>
+        <span class="text-ms-error text-2xl font-bold">SOS</span>
         <div>
           <p class="text-red-200 font-semibold">Active SOS Alert</p>
           <p class="text-red-300 text-sm">{{ activeAlerts.filter(a => a.type === 'sos').length }} device(s) in distress — immediate action required</p>
@@ -269,7 +269,7 @@ function directionColor(d) {
         <!-- Hub Status -->
         <div class="bg-tactical-surface rounded-lg p-4 border border-tactical-border">
           <div class="text-gray-400 text-xs uppercase tracking-wider mb-1">Hub</div>
-          <div class="text-xl font-bold" :class="hubHealth?.status === 'ok' ? 'text-emerald-400' : 'text-red-400'">
+          <div class="text-xl font-bold" :class="hubHealth?.status === 'ok' ? 'text-ms-success' : 'text-ms-error'">
             {{ hubHealth?.status === 'ok' ? 'OK' : (hubHealth?.status?.toUpperCase() || '?') }}
           </div>
         </div>
@@ -278,7 +278,7 @@ function directionColor(d) {
         <div class="bg-tactical-surface rounded-lg p-4 border border-tactical-border">
           <div class="text-gray-400 text-xs uppercase tracking-wider mb-1">Bridges</div>
           <div class="flex items-baseline gap-1">
-            <span class="text-xl font-bold" :class="onlineBridges > 0 ? 'text-emerald-400' : 'text-gray-600'">{{ onlineBridges }}</span>
+            <span class="text-xl font-bold" :class="onlineBridges > 0 ? 'text-ms-success' : 'text-ms-muted'">{{ onlineBridges }}</span>
             <span class="text-gray-500 text-xs">/</span>
             <span class="text-sm text-gray-400">{{ bridgeList.length }}</span>
           </div>
@@ -289,7 +289,7 @@ function directionColor(d) {
         <div class="bg-tactical-surface rounded-lg p-4 border border-tactical-border cursor-pointer" @click="$router.push('/tak')">
           <div class="text-blue-400 text-xs uppercase tracking-wider mb-1">TAK Server</div>
           <div class="flex items-baseline gap-1">
-            <span class="text-xl font-bold" :class="dash.takEnabled ? 'text-emerald-400' : 'text-gray-600'">{{ dash.takEnabled ? 'ON' : 'OFF' }}</span>
+            <span class="text-xl font-bold" :class="dash.takEnabled ? 'text-ms-success' : 'text-ms-muted'">{{ dash.takEnabled ? 'ON' : 'OFF' }}</span>
           </div>
           <div class="text-gray-500 text-[10px] mt-0.5">{{ dash.takMissions }} missions</div>
         </div>
@@ -298,7 +298,7 @@ function directionColor(d) {
         <div class="bg-tactical-surface rounded-lg p-4 border border-tactical-border cursor-pointer" @click="$router.push('/tak')">
           <div class="text-purple-400 text-xs uppercase tracking-wider mb-1">Federation</div>
           <div class="flex items-baseline gap-1">
-            <span class="text-xl font-bold" :class="dash.takFedPeers > 0 ? 'text-purple-400' : 'text-gray-600'">{{ dash.takFedPeers }}</span>
+            <span class="text-xl font-bold" :class="dash.takFedPeers > 0 ? 'text-purple-400' : 'text-ms-muted'">{{ dash.takFedPeers }}</span>
             <span class="text-gray-500 text-xs">peers</span>
           </div>
           <div class="text-gray-500 text-[10px] mt-0.5">{{ dash.takFedIn + dash.takFedOut }} CoT relayed</div>
@@ -308,11 +308,11 @@ function directionColor(d) {
         <div class="bg-tactical-surface rounded-lg p-4 border border-tactical-border">
           <div class="text-gray-400 text-xs uppercase tracking-wider mb-1">Devices</div>
           <div class="flex items-baseline gap-1">
-            <span class="text-xl font-bold text-emerald-400">{{ onlineDevices }}</span>
+            <span class="text-xl font-bold text-ms-success">{{ onlineDevices }}</span>
             <span class="text-gray-500 text-xs">/</span>
-            <span class="text-sm text-amber-400">{{ idleDevices }}</span>
+            <span class="text-sm text-ms-warning">{{ idleDevices }}</span>
             <span class="text-gray-500 text-xs">/</span>
-            <span class="text-sm text-red-400">{{ offlineDevices }}</span>
+            <span class="text-sm text-ms-error">{{ offlineDevices }}</span>
           </div>
           <div class="text-gray-500 text-[10px] mt-0.5">on / idle / off</div>
         </div>
@@ -322,7 +322,7 @@ function directionColor(d) {
           <div class="text-gray-400 text-xs uppercase tracking-wider mb-1">Messages</div>
           <div class="flex items-center justify-between">
             <div class="flex items-baseline gap-2">
-              <span class="text-xl font-bold text-emerald-400">{{ moCount }}</span>
+              <span class="text-xl font-bold text-ms-success">{{ moCount }}</span>
               <span class="text-gray-500 text-xs">MO</span>
               <span class="text-lg text-sky-400">{{ mtCount }}</span>
               <span class="text-gray-500 text-xs">MT</span>
@@ -334,7 +334,7 @@ function directionColor(d) {
         <!-- Credits -->
         <div class="bg-tactical-surface rounded-lg p-4 border border-tactical-border">
           <div class="text-gray-400 text-xs uppercase tracking-wider mb-1">Credits</div>
-          <div class="text-xl font-bold" :class="creditBalance !== null && creditBalance < 100 ? 'text-amber-400' : 'text-teal-400'">
+          <div class="text-xl font-bold" :class="creditBalance !== null && creditBalance < 100 ? 'text-ms-warning' : 'text-brand-primary'">
             {{ creditBalance !== null ? creditBalance.toLocaleString() : '---' }}
           </div>
         </div>
@@ -342,7 +342,7 @@ function directionColor(d) {
         <!-- Active Alerts -->
         <div class="bg-tactical-surface rounded-lg p-4 border border-tactical-border" :class="activeAlerts.length > 0 ? 'border-red-700' : ''">
           <div class="text-gray-400 text-xs uppercase tracking-wider mb-1">Alerts</div>
-          <div class="text-xl font-bold" :class="activeAlerts.length > 0 ? 'text-red-400' : 'text-emerald-400'">
+          <div class="text-xl font-bold" :class="activeAlerts.length > 0 ? 'text-ms-error' : 'text-ms-success'">
             {{ activeAlerts.length }}
           </div>
         </div>
@@ -350,7 +350,7 @@ function directionColor(d) {
         <!-- Mesh Nodes -->
         <div class="bg-tactical-surface rounded-lg p-4 border border-tactical-border">
           <div class="text-gray-400 text-xs uppercase tracking-wider mb-1">Mesh Nodes</div>
-          <div class="text-xl font-bold text-teal-400">{{ retRoutes.count }}</div>
+          <div class="text-xl font-bold text-brand-primary">{{ retRoutes.count }}</div>
         </div>
       </div>
 
@@ -363,7 +363,7 @@ function directionColor(d) {
           <div v-else class="space-y-2">
             <div v-for="b in backendList" :key="b" class="flex items-center justify-between">
               <div class="flex items-center gap-2">
-                <span class="w-2 h-2 rounded-full bg-emerald-400"></span>
+                <span class="w-2 h-2 rounded-full bg-ms-success"></span>
                 <span class="text-sm capitalize">{{ b }}</span>
               </div>
               <span class="text-xs text-gray-500">active</span>
@@ -377,19 +377,19 @@ function directionColor(d) {
           <div class="space-y-2 text-sm">
             <div class="flex items-center justify-between">
               <span class="text-gray-400">Active Alerts</span>
-              <span :class="activeAlerts.length > 0 ? 'text-red-400 font-semibold' : 'text-emerald-400'">
+              <span :class="activeAlerts.length > 0 ? 'text-ms-error font-semibold' : 'text-ms-success'">
                 {{ activeAlerts.length }}
               </span>
             </div>
             <div class="flex items-center justify-between">
               <span class="text-gray-400">DMS Overdue</span>
-              <span :class="overdueDevices > 0 ? 'text-amber-400 font-semibold' : 'text-emerald-400'">
+              <span :class="overdueDevices > 0 ? 'text-ms-warning font-semibold' : 'text-ms-success'">
                 {{ overdueDevices }}
               </span>
             </div>
             <div class="flex items-center justify-between">
               <span class="text-gray-400">Throttled</span>
-              <span :class="throttledDevices > 0 ? 'text-amber-400' : 'text-gray-500'">
+              <span :class="throttledDevices > 0 ? 'text-ms-warning' : 'text-gray-500'">
                 {{ throttledDevices }}
               </span>
             </div>
@@ -406,7 +406,7 @@ function directionColor(d) {
           <div v-if="retIdentity" class="space-y-2 text-sm">
             <div>
               <span class="text-gray-400 text-xs">Hub DestHash</span>
-              <p class="font-mono text-xs text-teal-400 truncate">{{ retIdentity.dest_hash }}</p>
+              <p class="font-mono text-xs text-brand-primary truncate">{{ retIdentity.dest_hash }}</p>
             </div>
             <div class="flex items-center justify-between">
               <span class="text-gray-400">Known Routes</span>
@@ -429,9 +429,9 @@ function directionColor(d) {
         </div>
         <div class="flex items-center gap-6 text-sm">
           <div class="flex items-center gap-1.5">
-            <span class="w-2 h-2 rounded-full bg-emerald-400 inline-block"></span>
+            <span class="w-2 h-2 rounded-full bg-ms-success inline-block"></span>
             <span class="text-gray-400">MO</span>
-            <span class="text-emerald-400 font-semibold">{{ activityMO }}</span>
+            <span class="text-ms-success font-semibold">{{ activityMO }}</span>
           </div>
           <div class="flex items-center gap-1.5">
             <span class="w-2 h-2 rounded-full bg-sky-400 inline-block"></span>
@@ -442,7 +442,7 @@ function directionColor(d) {
             <span class="text-gray-500">Total</span>
             <span class="text-gray-300 font-semibold">{{ activityTotal }}</span>
           </div>
-          <span class="text-gray-600 text-xs ml-auto">Last 12 hours</span>
+          <span class="text-ms-muted text-xs ml-auto">Last 12 hours</span>
         </div>
       </div>
 
@@ -484,7 +484,7 @@ function directionColor(d) {
           <div v-if="bridgeList.length > 0" class="divide-y divide-tactical-border/50">
             <div v-for="b in bridgeList" :key="b.bridge_id" class="px-4 py-2.5">
               <div class="flex items-center gap-3 text-sm">
-                <span class="w-2 h-2 rounded-full shrink-0" :class="b.online ? 'bg-emerald-400' : 'bg-red-400'"></span>
+                <span class="w-2 h-2 rounded-full shrink-0" :class="b.online ? 'bg-ms-success' : 'bg-ms-error'"></span>
                 <span class="font-mono text-xs text-cyan-400 shrink-0">{{ b.bridge_id }}</span>
                 <span class="text-gray-400 text-[10px] uppercase px-1.5 py-0.5 bg-gray-800 rounded">bridge</span>
                 <span class="text-gray-300 truncate flex-1">{{ b.cot_callsign || b.hostname }}</span>
@@ -493,7 +493,7 @@ function directionColor(d) {
               <div v-if="parsedBirthInterfaces(b)" class="flex flex-wrap gap-1.5 mt-1.5 ml-5">
                 <span v-for="iface in parsedBirthInterfaces(b)" :key="iface.name"
                   class="text-[10px] px-1.5 py-0.5 rounded font-mono"
-                  :class="iface.status === 'online' ? 'bg-emerald-900/30 text-emerald-400 border border-emerald-800/50' : 'bg-gray-800 text-gray-500 border border-gray-700'">
+                  :class="iface.status === 'online' ? 'bg-emerald-900/30 text-ms-success border border-emerald-800/50' : 'bg-gray-800 text-gray-500 border border-gray-700'">
                   {{ iface.name }}
                 </span>
               </div>
@@ -504,9 +504,9 @@ function directionColor(d) {
           <div v-if="deviceList.length > 0" class="divide-y divide-tactical-border/50 max-h-80 overflow-y-auto">
             <div v-for="dev in deviceList" :key="dev.imei" class="px-4 py-2.5 flex items-center gap-3 text-sm">
               <span class="w-2 h-2 rounded-full shrink-0" :class="{
-                'bg-emerald-400': dev.last_seen && (Date.now() - new Date(dev.last_seen).getTime()) < 3600000,
-                'bg-amber-400': dev.last_seen && (Date.now() - new Date(dev.last_seen).getTime()) >= 3600000 && (Date.now() - new Date(dev.last_seen).getTime()) < 86400000,
-                'bg-red-400': !dev.last_seen || dev.last_seen === '0001-01-01T00:00:00Z' || (Date.now() - new Date(dev.last_seen).getTime()) >= 86400000,
+                'bg-ms-success': dev.last_seen && (Date.now() - new Date(dev.last_seen).getTime()) < 3600000,
+                'bg-ms-warning': dev.last_seen && (Date.now() - new Date(dev.last_seen).getTime()) >= 3600000 && (Date.now() - new Date(dev.last_seen).getTime()) < 86400000,
+                'bg-ms-error': !dev.last_seen || dev.last_seen === '0001-01-01T00:00:00Z' || (Date.now() - new Date(dev.last_seen).getTime()) >= 86400000,
               }"></span>
               <span class="font-mono text-xs text-gray-400 w-28 shrink-0 truncate">{{ dev.imei }}</span>
               <span class="text-gray-300 truncate flex-1">{{ dev.label || dev.type }}</span>
@@ -529,7 +529,7 @@ function directionColor(d) {
                :class="b.throttled ? 'border-red-700' : ''">
             <div class="flex items-center justify-between mb-2">
               <span class="font-mono text-xs text-gray-300">{{ b.device_id }}</span>
-              <span v-if="b.throttled" class="text-red-400 text-[10px] font-bold uppercase px-1.5 py-0.5 bg-red-900/50 rounded">Throttled</span>
+              <span v-if="b.throttled" class="text-ms-error text-[10px] font-bold uppercase px-1.5 py-0.5 bg-red-900/50 rounded">Throttled</span>
             </div>
             <div v-if="b.daily_cap > 0" class="mb-2">
               <div class="flex justify-between text-[10px] text-gray-500 mb-1">
@@ -553,14 +553,14 @@ function directionColor(d) {
                      :style="{ width: budgetPercent(b.monthly_sent, b.monthly_cap) + '%' }"></div>
               </div>
             </div>
-            <div v-if="b.daily_cap <= 0 && b.monthly_cap <= 0" class="text-[10px] text-gray-600">
+            <div v-if="b.daily_cap <= 0 && b.monthly_cap <= 0" class="text-[10px] text-ms-muted">
               No limits
             </div>
           </div>
         </div>
       </div>
 
-      <p class="text-gray-600 text-[10px] mt-4">Auto-refreshes every 30 seconds.</p>
+      <p class="text-ms-muted text-[10px] mt-4">Auto-refreshes every 30 seconds.</p>
     </template>
   </div>
 </template>

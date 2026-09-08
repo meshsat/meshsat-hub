@@ -137,7 +137,7 @@ function cancelDrawing() {
     <div class="flex items-center justify-between mb-4">
       <h1 class="text-2xl font-display font-bold">Geofences</h1>
       <button v-if="!showForm" @click="startDrawing"
-        class="bg-teal-600 hover:bg-teal-500 text-white text-sm px-4 py-2 rounded">
+        class="bg-brand-accent hover:bg-brand-primary text-ms-on-primary text-sm px-4 py-2 rounded">
         + Draw Fence
       </button>
     </div>
@@ -146,7 +146,7 @@ function cancelDrawing() {
 
     <!-- Drawing form -->
     <div v-if="showForm" class="bg-tactical-surface rounded-lg border border-amber-700 p-4 mb-4">
-      <h2 class="text-sm font-semibold text-amber-400 uppercase tracking-wider mb-2">Drawing mode — click map to add vertices</h2>
+      <h2 class="text-sm font-semibold text-ms-warning uppercase tracking-wider mb-2">Drawing mode — click map to add vertices</h2>
       <div class="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-3">
         <input v-model="formName" placeholder="Fence name" class="bg-gray-800 border border-gray-700 rounded px-3 py-2 text-sm">
         <select v-model="formTrigger" class="bg-gray-800 border border-gray-700 rounded px-3 py-2 text-sm">
@@ -161,7 +161,7 @@ function cancelDrawing() {
         <button @click="clearDrawing" class="text-xs text-gray-400 hover:text-gray-200">Clear</button>
         <div class="flex-1"></div>
         <button @click="cancelDrawing" class="text-gray-400 hover:text-gray-300 text-sm px-3 py-1">Cancel</button>
-        <button @click="saveFence" class="bg-teal-600 hover:bg-teal-500 text-white text-sm px-4 py-1 rounded">Save</button>
+        <button @click="saveFence" class="bg-brand-accent hover:bg-brand-primary text-ms-on-primary text-sm px-4 py-1 rounded">Save</button>
       </div>
     </div>
 
@@ -178,9 +178,9 @@ function cancelDrawing() {
           <div>
             <span class="text-gray-300 text-sm font-medium">{{ f.name }}</span>
             <span class="text-gray-500 text-xs ml-2">{{ f.trigger }}</span>
-            <span class="text-gray-600 text-xs ml-2 font-mono">{{ f.polygon?.length }} pts</span>
+            <span class="text-ms-muted text-xs ml-2 font-mono">{{ f.polygon?.length }} pts</span>
           </div>
-          <button @click="removeFence(f.id)" class="text-red-400 hover:text-red-300 text-xs">Delete</button>
+          <button @click="removeFence(f.id)" class="text-ms-error hover:text-red-300 text-xs">Delete</button>
         </div>
       </div>
     </div>

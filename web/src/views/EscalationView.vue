@@ -83,9 +83,9 @@ async function ackAlert(id) {
 }
 
 function statusColor(status) {
-  if (status === 'active' || status === 'firing') return 'text-red-400'
-  if (status === 'acknowledged') return 'text-yellow-400'
-  if (status === 'resolved') return 'text-green-400'
+  if (status === 'active' || status === 'firing') return 'text-ms-error'
+  if (status === 'acknowledged') return 'text-ms-warning'
+  if (status === 'resolved') return 'text-ms-success'
   return 'text-gray-400'
 }
 
@@ -139,7 +139,7 @@ function statusBg(status) {
       <div class="flex items-center justify-between mb-3">
         <h2 class="text-lg font-semibold uppercase tracking-wider">Escalation Chains</h2>
         <button @click="showForm = !showForm"
-          class="bg-teal-600 hover:bg-teal-500 text-white px-3 py-1 rounded text-sm transition-colors">
+          class="bg-brand-accent hover:bg-brand-primary text-ms-on-primary px-3 py-1 rounded text-sm transition-colors">
           {{ showForm ? 'Cancel' : '+ New Chain' }}
         </button>
       </div>
@@ -147,32 +147,32 @@ function statusBg(status) {
       <!-- New chain form -->
       <div v-if="showForm" class="bg-tactical-surface rounded-lg p-4 mb-4">
         <input v-model="newChain.name" placeholder="Chain name"
-          class="bg-gray-800 border border-gray-700 px-3 py-2 rounded-lg text-gray-200 placeholder-gray-500 focus:outline-none focus:border-teal-500 w-full mb-3" />
+          class="bg-gray-800 border border-gray-700 px-3 py-2 rounded-lg text-gray-200 placeholder-gray-500 focus:outline-none focus:border-brand-primary w-full mb-3" />
 
         <div v-for="(tier, i) in newChain.tiers" :key="i" class="flex flex-wrap gap-2 mb-2 items-end">
           <div class="flex-1 min-w-[120px]">
             <label class="text-xs text-gray-400">Delay (sec)</label>
             <input v-model="tier.delay_sec" type="number" min="0"
-              class="bg-gray-800 border border-gray-700 px-3 py-2 rounded-lg text-gray-200 w-full focus:outline-none focus:border-teal-500" />
+              class="bg-gray-800 border border-gray-700 px-3 py-2 rounded-lg text-gray-200 w-full focus:outline-none focus:border-brand-primary" />
           </div>
           <div class="flex-1 min-w-[200px]">
             <label class="text-xs text-gray-400">Recipients (comma-sep)</label>
             <input v-model="tier.recipients" placeholder="email@example.com"
-              class="bg-gray-800 border border-gray-700 px-3 py-2 rounded-lg text-gray-200 w-full placeholder-gray-500 focus:outline-none focus:border-teal-500" />
+              class="bg-gray-800 border border-gray-700 px-3 py-2 rounded-lg text-gray-200 w-full placeholder-gray-500 focus:outline-none focus:border-brand-primary" />
           </div>
           <div class="flex-1 min-w-[120px]">
             <label class="text-xs text-gray-400">Actions</label>
             <input v-model="tier.actions" placeholder="notify"
-              class="bg-gray-800 border border-gray-700 px-3 py-2 rounded-lg text-gray-200 w-full placeholder-gray-500 focus:outline-none focus:border-teal-500" />
+              class="bg-gray-800 border border-gray-700 px-3 py-2 rounded-lg text-gray-200 w-full placeholder-gray-500 focus:outline-none focus:border-brand-primary" />
           </div>
           <button v-if="newChain.tiers.length > 1" @click="removeTier(i)"
             class="bg-red-900 hover:bg-red-800 text-red-200 px-2 py-2 rounded text-xs">Remove</button>
         </div>
 
         <div class="flex gap-2 mt-3">
-          <button @click="addTier" class="text-teal-400 hover:text-teal-300 text-sm">+ Add Tier</button>
+          <button @click="addTier" class="text-brand-primary hover:text-brand-primary text-sm">+ Add Tier</button>
           <button @click="createChain"
-            class="bg-teal-600 hover:bg-teal-500 text-white px-4 py-2 rounded text-sm ml-auto transition-colors">
+            class="bg-brand-accent hover:bg-brand-primary text-ms-on-primary px-4 py-2 rounded text-sm ml-auto transition-colors">
             Create Chain
           </button>
         </div>

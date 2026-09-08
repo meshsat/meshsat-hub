@@ -22,14 +22,14 @@ async function poll() {
     const r = await health.readyz()
     if (r.status === 'ok') {
       clusterStatus.value = 'OK'
-      clusterColor.value = 'text-emerald-400'
+      clusterColor.value = 'text-ms-success'
     } else {
       clusterStatus.value = 'DEGRADED'
-      clusterColor.value = 'text-amber-400'
+      clusterColor.value = 'text-ms-warning'
     }
   } catch {
     clusterStatus.value = 'DOWN'
-    clusterColor.value = 'text-red-400'
+    clusterColor.value = 'text-ms-error'
   }
 
   try {
@@ -72,7 +72,7 @@ onUnmounted(() => {
 <template>
   <div class="flex items-center gap-1.5 text-[9px]">
     <!-- Cluster health -->
-    <span class="inline-flex items-center gap-1 font-medium" :class="clusterColor === 'text-emerald-400' ? 'text-emerald-400/70' : clusterColor">
+    <span class="inline-flex items-center gap-1 font-medium" :class="clusterColor">
       <span class="w-1.5 h-1.5 rounded-full" :class="clusterColor.replace('text-', 'bg-')"></span>
       HUB
     </span>
@@ -82,7 +82,7 @@ onUnmounted(() => {
     <!-- Device count -->
     <span class="inline-flex items-center gap-1 text-gray-300 font-medium">
       <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 3v2m6-2v2M9 19v2m6-2v2M5 9H3m2 6H3m18-6h-2m2 6h-2M7 19h10a2 2 0 002-2V7a2 2 0 00-2-2H7a2 2 0 00-2 2v10a2 2 0 002 2z"/></svg>
-      <span class="font-mono" :class="deviceCount.online > 0 ? 'text-emerald-400' : ''">{{ deviceCount.online }}</span>/<span class="font-mono">{{ deviceCount.total }}</span>
+      <span class="font-mono" :class="deviceCount.online > 0 ? 'text-ms-success' : ''">{{ deviceCount.online }}</span>/<span class="font-mono">{{ deviceCount.total }}</span>
     </span>
 
     <span class="hidden md:block w-px h-4 bg-gray-700/50" />
@@ -90,7 +90,7 @@ onUnmounted(() => {
     <!-- Messages today -->
     <span class="inline-flex items-center gap-1 text-gray-300 font-medium">
       <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/></svg>
-      <span class="font-mono text-emerald-400">{{ msgToday.mo }}</span><span class="text-gray-500">/</span><span class="font-mono text-sky-400">{{ msgToday.mt }}</span>
+      <span class="font-mono text-ms-success">{{ msgToday.mo }}</span><span class="text-gray-500">/</span><span class="font-mono text-sky-400">{{ msgToday.mt }}</span>
     </span>
 
     <!-- Credits -->

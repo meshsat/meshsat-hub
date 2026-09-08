@@ -71,7 +71,7 @@ function typeBadge(type) {
         <div class="flex items-center justify-between mb-3">
           <div class="flex items-center gap-2.5">
             <span class="w-2.5 h-2.5 rounded-full shrink-0"
-              :class="item.enabled ? 'bg-emerald-400' : 'bg-gray-600'"></span>
+              :class="item.enabled ? 'bg-ms-success' : 'bg-gray-600'"></span>
             <h2 class="text-sm font-display font-semibold text-gray-200">{{ item.name }}</h2>
           </div>
           <div class="flex items-center gap-2">
@@ -105,7 +105,7 @@ function typeBadge(type) {
         <div v-if="item.webhook_url" class="mb-3">
           <div class="text-[10px] text-gray-500 uppercase tracking-wider mb-1">Endpoint</div>
           <div class="flex items-center gap-2">
-            <code class="text-xs font-mono text-teal-400 bg-gray-800/50 px-2 py-1 rounded flex-1 truncate">
+            <code class="text-xs font-mono text-brand-primary bg-gray-800/50 px-2 py-1 rounded flex-1 truncate">
               {{ item.webhook_url }}
             </code>
             <button @click="copyURL(item.webhook_url)"
@@ -116,7 +116,7 @@ function typeBadge(type) {
               {{ copied === item.webhook_url ? 'Copied' : 'Copy URL' }}
             </button>
           </div>
-          <div class="text-[10px] text-gray-600 font-mono mt-1 truncate">{{ fullURL(item.webhook_url) }}</div>
+          <div class="text-[10px] text-ms-muted font-mono mt-1 truncate">{{ fullURL(item.webhook_url) }}</div>
         </div>
 
         <!-- Configuration -->
@@ -128,9 +128,9 @@ function typeBadge(type) {
               <span class="text-gray-400">{{ key.replace(/_/g, ' ') }}</span>
               <span class="font-mono text-gray-300 truncate max-w-[60%] text-right"
                 :class="{
-                  'text-emerald-400': val === 'configured',
-                  'text-amber-400': val === 'not set',
-                  'text-red-400': val.startsWith && val.startsWith('missing'),
+                  'text-ms-success': val === 'configured',
+                  'text-ms-warning': val === 'not set',
+                  'text-ms-error': val.startsWith && val.startsWith('missing'),
                 }">
                 {{ val }}
               </span>

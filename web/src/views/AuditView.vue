@@ -35,7 +35,7 @@ async function verifyChain() {
 }
 
 function actionColor(action) {
-  if (action === 'message_received') return 'text-emerald-400'
+  if (action === 'message_received') return 'text-ms-success'
   if (action === 'message_sent') return 'text-sky-400'
   return 'text-gray-300'
 }
@@ -47,11 +47,11 @@ function actionColor(action) {
       <h1 class="text-2xl font-display font-bold">Audit Log</h1>
       <div class="flex gap-2">
         <button @click="verifyChain" :disabled="verifying"
-          class="bg-teal-600 hover:bg-teal-500 disabled:bg-gray-600 text-white text-sm px-4 py-2 rounded">
+          class="bg-brand-accent hover:bg-brand-primary disabled:bg-gray-600 text-ms-on-primary text-sm px-4 py-2 rounded">
           {{ verifying ? 'Verifying...' : 'Verify Chain' }}
         </button>
         <button @click="loadEntries" :disabled="loading"
-          class="text-sm text-teal-400 hover:text-teal-300 px-3 py-2">
+          class="text-sm text-brand-primary hover:text-brand-primary px-3 py-2">
           Refresh
         </button>
       </div>

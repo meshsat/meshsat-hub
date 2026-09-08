@@ -82,7 +82,7 @@ async function deletePref(imei) {
 
     <div class="flex justify-end mb-4">
       <button @click="editing ? (editing = false) : newPref()"
-        class="bg-teal-600 hover:bg-teal-500 text-white px-3 py-1 rounded text-sm transition-colors">
+        class="bg-brand-accent hover:bg-brand-primary text-ms-on-primary px-3 py-1 rounded text-sm transition-colors">
         {{ editing ? 'Cancel' : '+ Add Preference' }}
       </button>
     </div>
@@ -93,7 +93,7 @@ async function deletePref(imei) {
         <div>
           <label class="text-xs text-gray-400">Device</label>
           <select v-model="form.imei"
-            class="bg-gray-800 border border-gray-700 px-3 py-2 rounded-lg text-gray-200 w-full focus:outline-none focus:border-teal-500">
+            class="bg-gray-800 border border-gray-700 px-3 py-2 rounded-lg text-gray-200 w-full focus:outline-none focus:border-brand-primary">
             <option value="">Select device...</option>
             <option v-for="d in deviceList" :key="d.imei" :value="d.imei">{{ d.label || d.imei }}</option>
           </select>
@@ -101,20 +101,20 @@ async function deletePref(imei) {
         <div>
           <label class="text-xs text-gray-400">Events (comma-sep)</label>
           <input v-model="form.events" placeholder="sos,deadman,geofence"
-            class="bg-gray-800 border border-gray-700 px-3 py-2 rounded-lg text-gray-200 w-full placeholder-gray-500 focus:outline-none focus:border-teal-500" />
+            class="bg-gray-800 border border-gray-700 px-3 py-2 rounded-lg text-gray-200 w-full placeholder-gray-500 focus:outline-none focus:border-brand-primary" />
         </div>
       </div>
       <div class="mb-3">
         <label class="text-xs text-gray-400">Apprise URLs (one per line)</label>
         <textarea v-model="form.urls" rows="3" placeholder="mailto://user:pass@gmail.com&#10;slack://token/channel"
-          class="bg-gray-800 border border-gray-700 px-3 py-2 rounded-lg text-gray-200 w-full placeholder-gray-500 focus:outline-none focus:border-teal-500 font-mono text-sm"></textarea>
+          class="bg-gray-800 border border-gray-700 px-3 py-2 rounded-lg text-gray-200 w-full placeholder-gray-500 focus:outline-none focus:border-brand-primary font-mono text-sm"></textarea>
       </div>
       <div class="flex items-center justify-between">
         <label class="flex items-center gap-2 text-sm text-gray-400">
           <input type="checkbox" v-model="form.enabled" class="rounded" /> Enabled
         </label>
         <button @click="savePref"
-          class="bg-teal-600 hover:bg-teal-500 text-white px-4 py-2 rounded text-sm transition-colors">Save</button>
+          class="bg-brand-accent hover:bg-brand-primary text-ms-on-primary px-4 py-2 rounded text-sm transition-colors">Save</button>
       </div>
     </div>
 
@@ -139,7 +139,7 @@ async function deletePref(imei) {
                 class="inline-block bg-gray-700 text-gray-300 text-xs px-1.5 py-0.5 rounded mr-1">{{ e }}</span>
             </td>
             <td class="px-3 py-2">
-              <span v-if="p.enabled" class="text-green-400 text-xs">Active</span>
+              <span v-if="p.enabled" class="text-ms-success text-xs">Active</span>
               <span v-else class="text-gray-500 text-xs">Disabled</span>
             </td>
             <td class="px-3 py-2 text-right flex gap-1 justify-end">

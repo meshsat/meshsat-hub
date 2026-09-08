@@ -99,9 +99,9 @@ async function createRollout() {
 }
 
 function statusColor(s) {
-  if (s === 'in_sync' || s === 'finished') return 'text-green-400'
-  if (s === 'pending' || s === 'running') return 'text-yellow-400'
-  if (s === 'error') return 'text-red-400'
+  if (s === 'in_sync' || s === 'finished') return 'text-ms-success'
+  if (s === 'pending' || s === 'running') return 'text-ms-warning'
+  if (s === 'error') return 'text-ms-error'
   return 'text-gray-400'
 }
 </script>
@@ -118,11 +118,11 @@ function statusColor(s) {
         <h2 class="text-lg font-semibold uppercase tracking-wider">Targets</h2>
         <div class="flex gap-2">
           <button @click="showRolloutForm = !showRolloutForm"
-            class="bg-teal-600 hover:bg-teal-500 text-white px-3 py-1 rounded text-sm transition-colors">
+            class="bg-brand-accent hover:bg-brand-primary text-ms-on-primary px-3 py-1 rounded text-sm transition-colors">
             {{ showRolloutForm ? 'Cancel' : '+ Rollout' }}
           </button>
           <button @click="showTargetForm = !showTargetForm"
-            class="bg-teal-600 hover:bg-teal-500 text-white px-3 py-1 rounded text-sm transition-colors">
+            class="bg-brand-accent hover:bg-brand-primary text-ms-on-primary px-3 py-1 rounded text-sm transition-colors">
             {{ showTargetForm ? 'Cancel' : '+ Target' }}
           </button>
         </div>
@@ -132,11 +132,11 @@ function statusColor(s) {
       <div v-if="showTargetForm" class="bg-tactical-surface rounded-lg p-4 mb-4">
         <div class="flex flex-wrap gap-2 mb-3">
           <input v-model="newTarget.controllerId" placeholder="Controller ID (IMEI)"
-            class="bg-gray-800 border border-gray-700 px-3 py-2 rounded-lg text-gray-200 placeholder-gray-500 flex-1 min-w-[200px] focus:outline-none focus:border-teal-500" />
+            class="bg-gray-800 border border-gray-700 px-3 py-2 rounded-lg text-gray-200 placeholder-gray-500 flex-1 min-w-[200px] focus:outline-none focus:border-brand-primary" />
           <input v-model="newTarget.name" placeholder="Name (optional)"
-            class="bg-gray-800 border border-gray-700 px-3 py-2 rounded-lg text-gray-200 placeholder-gray-500 flex-1 min-w-[200px] focus:outline-none focus:border-teal-500" />
+            class="bg-gray-800 border border-gray-700 px-3 py-2 rounded-lg text-gray-200 placeholder-gray-500 flex-1 min-w-[200px] focus:outline-none focus:border-brand-primary" />
           <button @click="createTarget"
-            class="bg-teal-600 hover:bg-teal-500 text-white px-4 py-2 rounded transition-colors">Add</button>
+            class="bg-brand-accent hover:bg-brand-primary text-ms-on-primary px-4 py-2 rounded transition-colors">Add</button>
         </div>
       </div>
 
@@ -146,27 +146,27 @@ function statusColor(s) {
           <div>
             <label class="text-xs text-gray-400">Rollout Name</label>
             <input v-model="newRollout.name" placeholder="v0.3.0 rollout"
-              class="bg-gray-800 border border-gray-700 px-3 py-2 rounded-lg text-gray-200 w-full placeholder-gray-500 focus:outline-none focus:border-teal-500" />
+              class="bg-gray-800 border border-gray-700 px-3 py-2 rounded-lg text-gray-200 w-full placeholder-gray-500 focus:outline-none focus:border-brand-primary" />
           </div>
           <div>
             <label class="text-xs text-gray-400">Distribution Set ID</label>
             <input v-model="newRollout.distributionSetId" type="number" min="1"
-              class="bg-gray-800 border border-gray-700 px-3 py-2 rounded-lg text-gray-200 w-full focus:outline-none focus:border-teal-500" />
+              class="bg-gray-800 border border-gray-700 px-3 py-2 rounded-lg text-gray-200 w-full focus:outline-none focus:border-brand-primary" />
           </div>
           <div>
             <label class="text-xs text-gray-400">Target Filter</label>
             <input v-model="newRollout.targetFilterQuery" placeholder="name==*"
-              class="bg-gray-800 border border-gray-700 px-3 py-2 rounded-lg text-gray-200 w-full placeholder-gray-500 focus:outline-none focus:border-teal-500" />
+              class="bg-gray-800 border border-gray-700 px-3 py-2 rounded-lg text-gray-200 w-full placeholder-gray-500 focus:outline-none focus:border-brand-primary" />
           </div>
           <div>
             <label class="text-xs text-gray-400">Groups</label>
             <input v-model="newRollout.amountGroups" type="number" min="1"
-              class="bg-gray-800 border border-gray-700 px-3 py-2 rounded-lg text-gray-200 w-full focus:outline-none focus:border-teal-500" />
+              class="bg-gray-800 border border-gray-700 px-3 py-2 rounded-lg text-gray-200 w-full focus:outline-none focus:border-brand-primary" />
           </div>
         </div>
         <div class="flex justify-end">
           <button @click="createRollout"
-            class="bg-teal-600 hover:bg-teal-500 text-white px-4 py-2 rounded text-sm transition-colors">Create Rollout</button>
+            class="bg-brand-accent hover:bg-brand-primary text-ms-on-primary px-4 py-2 rounded text-sm transition-colors">Create Rollout</button>
         </div>
       </div>
 
