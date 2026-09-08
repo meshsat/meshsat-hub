@@ -1,7 +1,11 @@
-# NATS x1 (MQTT broker + JetStream) with the config reloader (SIGHUP when the
-# TLS certificate or the bridge CA rotates) and the Prometheus exporter.
-# Volume must never land on dmz06 (LocalPV binds permanently on first schedule):
-# required nodeAffinity, not preferred.
+# NATS x3 (MQTT broker + JetStream cluster, MESHSAT-711) with the config
+# reloader (SIGHUP when the TLS certificate or the bridge CA rotates) and the
+# Prometheus exporter. One member per control-plane node, beside the database:
+# the workers are 49, 90 and 92 percent committed by other namespaces while
+# these three sit near zero, and a local volume binds permanently on first
+# schedule, so anti-affinity here has to be required rather than preferred or a
+# single machine could hold two of the three and take the Raft group below
+# quorum when it dies. Pods start in parallel so the cluster can form.
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
@@ -10,8 +14,15 @@ metadata:
   labels:
     app.kubernetes.io/name: nats
 spec:
-  serviceName: nats
-  replicas: 1
+  # serviceName is immutable, and this change also moves the pods to a different
+  # tier, so the old volume cannot follow them. The cutover is scale to zero,
+  # delete the StatefulSet, drop the claim, recreate (see NOTES.md). Adopting
+  # the old pod with --cascade=orphan would strand it Pending on a volume it
+  # cannot reach, and would briefly put two independent brokers behind one
+  # Service.
+  serviceName: nats-headless
+  replicas: 3
+  podManagementPolicy: Parallel
   selector:
     matchLabels:
       app.kubernetes.io/name: nats
@@ -23,21 +34,27 @@ spec:
       serviceAccountName: meshsat-hub
       automountServiceAccountToken: false
       shareProcessNamespace: true
+      priorityClassName: meshsat-hub-critical
+      nodeSelector:
+        node-role.kubernetes.io/control-plane: ""
+      tolerations:
+        - {key: node-role.kubernetes.io/control-plane, operator: Exists, effect: NoSchedule}
       affinity:
-        nodeAffinity:
+        podAntiAffinity:
           requiredDuringSchedulingIgnoredDuringExecution:
-            nodeSelectorTerms:
-              - matchExpressions:
-                  - key: node-role.kubernetes.io/worker
-                    operator: Exists
-                  - key: kubernetes.io/hostname
-                    operator: NotIn
-                    values: ["notrf01dmz06"]
+            - topologyKey: kubernetes.io/hostname
+              labelSelector:
+                matchLabels:
+                  app.kubernetes.io/name: nats
       containers:
         - name: nats
           image: docker.io/library/nats
           args: ["-c", "/etc/nats/nats.conf"]
           env:
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
             - name: NATS_MQTT_PASSWORD
               valueFrom:
                 secretKeyRef:
@@ -52,11 +69,22 @@ spec:
               containerPort: 9443
             - name: monitor
               containerPort: 8222
+            - name: cluster
+              containerPort: 6222
           readinessProbe:
-            httpGet: {path: /healthz, port: monitor}
+            # js-server-only: JetStream is up AND this server is current with
+            # the meta leader, without the per-stream sweep, so a member that
+            # cannot see the group is not endpointed. js-enabled-only would only
+            # say that JetStream is switched on, which is not the same claim.
+            httpGet: {path: "/healthz?js-server-only=true", port: monitor}
             periodSeconds: 10
+            failureThreshold: 3
           livenessProbe:
-            httpGet: {path: /healthz, port: monitor}
+            # Deliberately the weakest check. A liveness probe that depends on
+            # cluster state would fail on all three members during a quorum
+            # blip, kubelet would restart all three, and the group could never
+            # re-form.
+            httpGet: {path: "/healthz?js-enabled-only=true", port: monitor}
             initialDelaySeconds: 15
             periodSeconds: 30
           resources:
@@ -113,6 +141,9 @@ spec:
           secret: {secretName: meshsat-nats-auth}
         - name: pid
           emptyDir: {}
+  persistentVolumeClaimRetentionPolicy:
+    whenDeleted: Retain
+    whenScaled: Retain
   volumeClaimTemplates:
     - metadata:
         name: data

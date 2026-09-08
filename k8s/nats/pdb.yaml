@@ -1,0 +1,14 @@
+# Two of three, not one: a three-member Raft group must never be drained below
+# quorum, so this is the one budget where minAvailable 1 would be actively wrong.
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: nats
+  namespace: meshsat-hub
+  labels:
+    app.kubernetes.io/name: nats
+spec:
+  minAvailable: 2
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: nats

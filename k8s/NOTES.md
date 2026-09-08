@@ -90,3 +90,50 @@ before still connect as the shared user until they re-provision.
 user allow-all): nats-server 2.11.8 panics on an authorization reload when a user has none
 (`generatePubPerms(nil)` in `mqttCheckPubRetainedPerms`, MESHSAT-973). Re-check when the
 `docker.io/library/nats` pin is bumped.
+
+## NATS JetStream x3 (MESHSAT-711, 2026-09-08)
+
+`nats` is a three-pod StatefulSet forming JetStream cluster `meshsat`, **one member per
+control-plane node** beside CNPG (`nodeSelector` + control-plane toleration, **required**
+hostname anti-affinity, `podManagementPolicy: Parallel`). It is not on the workers: they are 49,
+90 and 92 percent committed by other namespaces, and a local volume binds permanently on first
+schedule, so `preferred` anti-affinity would let one machine hold two members and take the Raft
+group below quorum when it dies.
+
+Services: `nats-headless` (clusterIP None, `publishNotReadyAddresses`) is the governing Service
+so `nats-N.nats-headless` resolves for the routes before the pods are Ready; `nats` and `nats-ws`
+stay ClusterIP, so the Hub's `tcp://...@nats:1883` and the edge relay's `nats-ws:9443` are
+unchanged. `server_name` is the pod name via the downward API.
+
+**Probes differ on purpose.** Readiness is `/healthz?js-server-only=true`: JetStream up *and*
+this server current with the meta leader, so a member that cannot see the group is not
+endpointed. Liveness is the weaker `/healthz?js-enabled-only=true`: a liveness probe that
+depended on cluster state would fail on all three members during a quorum blip, kubelet would
+restart all three, and the group could never re-form. Bare `/healthz` additionally sweeps every
+stream and consumer, which is too strict for either.
+
+Consequence to know: losing two of three empties the `nats` Service entirely rather than serving
+from a member with no quorum. That is deliberate, and it means a two-node loss is a full MQTT
+outage, not a degraded one.
+
+PDB is `minAvailable: 2`, the one budget in this tree where 1 would be wrong.
+
+**Cutover, one time (done 2026-09-08).** `serviceName` is immutable *and* the pods moved tier,
+so the old 2Gi volume pinned to dmz01 could not follow them. `--cascade=orphan` is the wrong
+tool here: the adopted pod would be recreated and stay Pending on a volume it cannot reach, and
+in the meantime the old standalone broker and the new members would both be endpoints of the
+same Service, which is two brokers serving the same clients. The sequence used instead, with
+Argo automation paused:
+
+    kubectl -n meshsat-hub scale sts nats --replicas=0
+    kubectl -n meshsat-hub delete sts nats
+    kubectl -n meshsat-hub delete pvc data-nats-0        # PV is Retain, bytes stay on dmz01
+    argocd app sync meshsat-hub                          # three fresh pods form the cluster
+
+**Streams.** `mqtt.stream_replicas: 3` only governs streams at creation, so the five `$MQTT_*`
+streams are recreated at R3 by the adapter on the first client connect. Check with
+`/jsz?streams=1` that each has three replicas; a stream created before quorum would silently
+stay R1. Of the retained messages only the bond-group config (`/api/bridges/{id}/bond-groups`)
+does not regenerate itself: mptcp status re-publishes every 30 s, reticulum route hints every
+60 s, credits hourly, and bridge birth messages arrive on reconnect. Restore bond groups by
+re-saving them through the API, never by hand-publishing to MQTT.
