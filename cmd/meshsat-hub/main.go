@@ -1180,14 +1180,17 @@ func main() {
 		}
 	}
 	var jwtSecret []byte
-	if authMode == "local" {
+	if authMode == "local" || authMode == "oidc" {
 		if len(cfg.JWTSigningKey) < 32 {
-			slog.Error("auth: HUB_JWT_SIGNING_KEY must be at least 32 characters for local auth mode")
+			slog.Error("auth: HUB_JWT_SIGNING_KEY must be at least 32 characters for local and oidc auth modes")
 			os.Exit(1)
 		}
 		jwtSecret = []byte(cfg.JWTSigningKey)
 	}
-	r.Use(hubauth.Middleware(hubauth.Config{
+	// Local email/password login: always in local mode; in oidc mode only as
+	// the HUB_LOCAL_LOGIN_ENABLED=true break-glass (authentik outage).
+	localLogin := authMode == "local" || (authMode == "oidc" && cfg.LocalLoginEnabled != nil && *cfg.LocalLoginEnabled)
+	authCfg := hubauth.Config{
 		Mode:              authMode,
 		Token:             cfg.AuthToken,
 		OIDCIssuerURL:     cfg.OIDCIssuerURL,
@@ -1195,7 +1198,46 @@ func main() {
 		JWTSecret:         jwtSecret,
 		OIDCCertPin:       cfg.OIDCCertPin,
 		OIDCCertPinBackup: cfg.OIDCCertPinBackup,
-	}))
+	}
+	var (
+		oidcClient   *hubauth.OIDCClient
+		oidcHandler  *api.OIDCHandler
+		loginHandler *api.LoginHandler
+		sessionMgr   *hubauth.SessionManager
+	)
+	if authMode == "oidc" {
+		authCfg.Provider = hubauth.NewJWKSProvider(cfg.OIDCIssuerURL, hubauth.OIDCHTTPClient(authCfg))
+		sessionMgr = hubauth.NewSessionManager(jwtSecret, "meshsat-hub")
+		loginHandler = api.NewLoginHandler(dataStore, sessionMgr, auditSvc)
+		if cfg.OIDCClientID != "" && cfg.OIDCClientSecret != "" && cfg.OIDCRedirectURI != "" {
+			oidcClient = &hubauth.OIDCClient{
+				Provider:     authCfg.Provider,
+				ClientID:     cfg.OIDCClientID,
+				ClientSecret: cfg.OIDCClientSecret,
+				RedirectURI:  cfg.OIDCRedirectURI,
+				Scopes:       cfg.OIDCScopes,
+				HTTPClient:   hubauth.OIDCHTTPClient(authCfg),
+			}
+		} else {
+			slog.Warn("auth: oidc mode without HUB_OIDC_CLIENT_ID/SECRET/REDIRECT_URI — browser login disabled, bearer tokens only")
+		}
+		modes := []string{}
+		if oidcClient != nil {
+			modes = append(modes, "oidc")
+		}
+		if localLogin {
+			modes = append(modes, "local")
+		}
+		oidcHandler = api.NewOIDCHandler(dataStore, loginHandler, oidcClient, api.OIDCConfig{
+			GroupsClaim:         cfg.OIDCGroupsClaim,
+			AdminGroup:          cfg.OIDCAdminGroup,
+			BootstrapOwnerEmail: cfg.OIDCBootstrapOwnerEmail,
+			StateKey:            jwtSecret,
+			TenantEnforce:       cfg.TenantEnforce,
+		}, modes)
+		authCfg.Resolver = oidcHandler
+	}
+	r.Use(hubauth.Middleware(authCfg))
 	// Tenant isolation middleware — resolves tenant from JWT claim / X-Tenant-ID header / default.
 	// Enforce mode disabled for backward compatibility; enable via HUB_TENANT_ENFORCE=true.
 	r.Use(hubauth.TenantMiddleware(cfg.TenantEnforce))
@@ -1205,7 +1247,7 @@ func main() {
 	r.Get("/healthz", health.LivezHandler)
 	r.Get("/readyz", checker.ReadyzHandler)
 	r.Get("/startupz", checker.StartupzHandler)
-	r.Handle("/metrics", metrics.Handler())
+	r.Handle("/metrics", api.MetricsTokenGuard(cfg.MetricsToken, metrics.Handler()))
 
 	// pprof profiling endpoints (opt-in, behind auth).
 	if cfg.PprofEnabled {
@@ -1296,11 +1338,32 @@ func main() {
 	// Auth info
 	r.Get("/api/auth/me", api.AuthMeHandler)
 
-	// Local auth endpoints (login/refresh/logout — exempt from auth middleware)
-	if authMode == "local" {
-		sessionMgr := hubauth.NewSessionManager(jwtSecret, "meshsat-hub")
-		loginHandler := api.NewLoginHandler(dataStore, sessionMgr, auditSvc)
-		r.Post("/api/auth/login", loginHandler.Login)
+	// Login method discovery for the SPA (auth-exempt).
+	switch {
+	case oidcHandler != nil:
+		r.Get("/api/auth/config", oidcHandler.Config)
+		r.Get("/api/auth/oidc/login", oidcHandler.Login)
+		r.Get("/api/auth/oidc/callback", oidcHandler.Callback)
+	case authMode == "local":
+		r.Get("/api/auth/config", api.AuthConfigHandler([]string{"local"}))
+	default:
+		r.Get("/api/auth/config", api.AuthConfigHandler([]string{authMode}))
+	}
+
+	// Session endpoints (login/refresh/logout — exempt from auth middleware).
+	// Local mode: all three. OIDC mode: refresh/logout always (the OIDC
+	// callback issues the same session), password login only as break-glass.
+	if authMode == "local" || authMode == "oidc" {
+		if loginHandler == nil {
+			sessionMgr = hubauth.NewSessionManager(jwtSecret, "meshsat-hub")
+			loginHandler = api.NewLoginHandler(dataStore, sessionMgr, auditSvc)
+		}
+		if localLogin {
+			r.Post("/api/auth/login", loginHandler.Login)
+			if authMode == "oidc" {
+				slog.Warn("auth: HUB_LOCAL_LOGIN_ENABLED=true — password login is open alongside OIDC (break-glass)")
+			}
+		}
 		r.Post("/api/auth/refresh", loginHandler.Refresh)
 		r.Post("/api/auth/logout", loginHandler.Logout)
 

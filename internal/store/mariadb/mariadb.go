@@ -431,6 +431,18 @@ var migrations = []string{
 		INDEX idx_alert_rules_tenant (tenant_id)
 	) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
 
+	// MESHSAT-916: OIDC subject -> local user
+	`CREATE TABLE IF NOT EXISTS oidc_identities (
+		issuer VARCHAR(255) NOT NULL,
+		subject VARCHAR(255) NOT NULL,
+		user_id VARCHAR(64) NOT NULL,
+		tenant_id VARCHAR(64) NOT NULL,
+		email VARCHAR(255) NOT NULL DEFAULT '',
+		platform_admin TINYINT(1) NOT NULL DEFAULT 0,
+		last_login_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+		created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+		PRIMARY KEY (issuer, subject)
+	) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
 	// MESHSAT-916: tenants + invites; the default tenant is seeded.
 	`CREATE TABLE IF NOT EXISTS tenants (
 		id VARCHAR(64) PRIMARY KEY,

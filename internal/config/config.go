@@ -38,6 +38,15 @@ type Config struct {
 	JWTSigningKey           string `yaml:"jwt_signing_key"` // HMAC-SHA256 key for local auth JWT (min 32 chars)
 	OIDCIssuerURL           string `yaml:"oidc_issuer_url"`
 	OIDCAudience            string `yaml:"oidc_audience"`
+	OIDCClientID            string `yaml:"oidc_client_id"`             // authorization-code flow client id (mode=oidc)
+	OIDCClientSecret        string `yaml:"oidc_client_secret"`         // confidential client secret
+	OIDCRedirectURI         string `yaml:"oidc_redirect_uri"`          // e.g. https://hub.meshsat.net/api/auth/oidc/callback
+	OIDCScopes              string `yaml:"oidc_scopes"`                // default "openid profile email"
+	OIDCGroupsClaim         string `yaml:"oidc_groups_claim"`          // claim carrying group names (default "groups")
+	OIDCAdminGroup          string `yaml:"oidc_admin_group"`           // group granting platform admin (default meshsat-platform-admin)
+	OIDCBootstrapOwnerEmail string `yaml:"oidc_bootstrap_owner_email"` // this account attaches to the default tenant instead of creating one
+	LocalLoginEnabled       *bool  `yaml:"local_login_enabled"`        // email/password login; default true in local mode, false in oidc mode
+	MetricsToken            string `yaml:"metrics_token"`              // when set, /metrics requires this bearer token
 
 	// TAK/CoT integration
 	TAKEnabled        bool   `yaml:"tak_enabled"`
@@ -182,6 +191,9 @@ func Defaults() Config {
 		ReticulumTCPAddr:      ":4242",
 		BridgeOfflineTimeout:  300, // 5 minutes
 		DBSlowQueryMS:         100,
+		OIDCScopes:            "openid profile email",
+		OIDCGroupsClaim:       "groups",
+		OIDCAdminGroup:        "meshsat-platform-admin",
 		SQLitePath:            "/data/hub.db",
 		DBRetryMaxAttempts:    8,
 		AuditRetentionDays:    90,
@@ -270,6 +282,34 @@ func Load() (Config, error) {
 	}
 	if v := os.Getenv("HUB_OIDC_ISSUER_URL"); v != "" {
 		cfg.OIDCIssuerURL = v
+	}
+	if v := os.Getenv("HUB_OIDC_CLIENT_ID"); v != "" {
+		cfg.OIDCClientID = v
+	}
+	if v := os.Getenv("HUB_OIDC_CLIENT_SECRET"); v != "" {
+		cfg.OIDCClientSecret = v
+	}
+	if v := os.Getenv("HUB_OIDC_REDIRECT_URI"); v != "" {
+		cfg.OIDCRedirectURI = v
+	}
+	if v := os.Getenv("HUB_OIDC_SCOPES"); v != "" {
+		cfg.OIDCScopes = v
+	}
+	if v := os.Getenv("HUB_OIDC_GROUPS_CLAIM"); v != "" {
+		cfg.OIDCGroupsClaim = v
+	}
+	if v := os.Getenv("HUB_OIDC_ADMIN_GROUP"); v != "" {
+		cfg.OIDCAdminGroup = v
+	}
+	if v := os.Getenv("HUB_OIDC_BOOTSTRAP_OWNER_EMAIL"); v != "" {
+		cfg.OIDCBootstrapOwnerEmail = strings.ToLower(strings.TrimSpace(v))
+	}
+	if v := os.Getenv("HUB_LOCAL_LOGIN_ENABLED"); v != "" {
+		b := strings.EqualFold(v, "true") || v == "1"
+		cfg.LocalLoginEnabled = &b
+	}
+	if v := os.Getenv("HUB_METRICS_TOKEN"); v != "" {
+		cfg.MetricsToken = v
 	}
 	if v := os.Getenv("HUB_OIDC_AUDIENCE"); v != "" {
 		cfg.OIDCAudience = v

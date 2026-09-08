@@ -235,6 +235,10 @@ type Store interface {
 	ListInvites(ctx context.Context, tenantID string) ([]TenantInvite, error)
 	DeleteInvite(ctx context.Context, tenantID string, id string) error
 
+	// OIDC identities (MESHSAT-916): maps an IdP subject to a local user.
+	LinkOIDCIdentity(ctx context.Context, id *OIDCIdentity) error
+	GetOIDCIdentity(ctx context.Context, issuer, subject string) (*OIDCIdentity, error)
+
 	// Credential management (MESHSAT-356)
 	CreateCredential(ctx context.Context, tenantID string, c *Credential) error
 	GetCredential(ctx context.Context, tenantID string, id string) (*Credential, error)
@@ -444,6 +448,19 @@ type Alert struct {
 	NextEscAt   time.Time `json:"next_esc_at"` // when to escalate to next tier
 	CreatedAt   time.Time `json:"created_at"`
 	UpdatedAt   time.Time `json:"updated_at"`
+}
+
+// OIDCIdentity links an IdP (issuer, subject) pair to a local user. It is
+// upserted on every OIDC login so PlatformAdmin follows group membership.
+type OIDCIdentity struct {
+	Issuer        string    `json:"issuer"`
+	Subject       string    `json:"subject"`
+	UserID        string    `json:"user_id"`
+	TenantID      string    `json:"tenant_id"`
+	Email         string    `json:"email"`
+	PlatformAdmin bool      `json:"platform_admin"`
+	LastLoginAt   time.Time `json:"last_login_at"`
+	CreatedAt     time.Time `json:"created_at"`
 }
 
 // Tenant is an isolation boundary: an organisation or an individual account.
