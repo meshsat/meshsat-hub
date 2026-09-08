@@ -392,3 +392,19 @@ func (m *mockStore) ListDeadmanConfigs(context.Context) ([]store.DeadmanConfig, 
 	return nil, nil
 }
 func (m *mockStore) DeleteDeadmanConfig(context.Context, string, string) error { return nil }
+
+// --- Tenants (MESHSAT-916) ---
+func (m *mockStore) CreateTenant(context.Context, *store.Tenant) error               { return nil }
+func (m *mockStore) GetTenant(context.Context, string) (*store.Tenant, error)        { return nil, nil }
+func (m *mockStore) GetTenantBySlug(context.Context, string) (*store.Tenant, error)  { return nil, nil }
+func (m *mockStore) ListTenants(context.Context) ([]store.Tenant, error)             { return nil, nil }
+func (m *mockStore) UpdateTenant(context.Context, *store.Tenant) error               { return nil }
+func (m *mockStore) CreateInvite(context.Context, string, *store.TenantInvite) error { return nil }
+func (m *mockStore) GetPendingInviteByEmail(context.Context, string) (*store.TenantInvite, error) {
+	return nil, nil
+}
+func (m *mockStore) AcceptInvite(context.Context, string) error { return nil }
+func (m *mockStore) ListInvites(context.Context, string) ([]store.TenantInvite, error) {
+	return nil, nil
+}
+func (m *mockStore) DeleteInvite(context.Context, string, string) error { return nil }

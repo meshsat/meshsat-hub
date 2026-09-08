@@ -431,6 +431,31 @@ var migrations = []string{
 		INDEX idx_alert_rules_tenant (tenant_id)
 	) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
 
+	// MESHSAT-916: tenants + invites; the default tenant is seeded.
+	`CREATE TABLE IF NOT EXISTS tenants (
+		id VARCHAR(64) PRIMARY KEY,
+		slug VARCHAR(64) NOT NULL UNIQUE,
+		name VARCHAR(255) NOT NULL DEFAULT '',
+		owner_user_id VARCHAR(64) NOT NULL DEFAULT '',
+		plan VARCHAR(32) NOT NULL DEFAULT 'beta',
+		status VARCHAR(32) NOT NULL DEFAULT 'active',
+		created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+		updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+	) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
+	"INSERT IGNORE INTO tenants (id, slug, name) VALUES ('default', 'default', 'Default')",
+	`CREATE TABLE IF NOT EXISTS tenant_invites (
+		id VARCHAR(64) PRIMARY KEY,
+		tenant_id VARCHAR(64) NOT NULL,
+		email_lower VARCHAR(255) NOT NULL,
+		role VARCHAR(16) NOT NULL DEFAULT 'viewer',
+		token_hash VARCHAR(64) NOT NULL DEFAULT '',
+		expires_at DATETIME NOT NULL,
+		accepted_at DATETIME NULL,
+		created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+		INDEX idx_tenant_invites_email (email_lower, accepted_at),
+		INDEX idx_tenant_invites_tenant (tenant_id)
+	) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
+
 	// MESHSAT-910: single-writer claims + persisted dead man's switch
 	`CREATE TABLE IF NOT EXISTS dispatch_claims (
 		` + "`key`" + ` VARCHAR(255) PRIMARY KEY,

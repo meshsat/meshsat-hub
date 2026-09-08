@@ -162,6 +162,12 @@ var alterMigrations = []string{
 
 // postAlterMigrations create indexes and new tables. Safe to re-run.
 var postAlterMigrations = []string{
+	// MESHSAT-916: tenants + invites; the default tenant is seeded so
+	// pre-tenancy rows keep a home.
+	`CREATE TABLE IF NOT EXISTS tenants (id TEXT PRIMARY KEY, slug TEXT NOT NULL UNIQUE, name TEXT NOT NULL DEFAULT '', owner_user_id TEXT NOT NULL DEFAULT '', plan TEXT NOT NULL DEFAULT 'beta', status TEXT NOT NULL DEFAULT 'active', created_at TEXT NOT NULL DEFAULT (datetime('now')), updated_at TEXT NOT NULL DEFAULT (datetime('now')))`,
+	`INSERT OR IGNORE INTO tenants (id, slug, name) VALUES ('default', 'default', 'Default')`,
+	`CREATE TABLE IF NOT EXISTS tenant_invites (id TEXT PRIMARY KEY, tenant_id TEXT NOT NULL, email_lower TEXT NOT NULL, role TEXT NOT NULL DEFAULT 'viewer', token_hash TEXT NOT NULL DEFAULT '', expires_at TEXT NOT NULL, accepted_at TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL DEFAULT (datetime('now')))`,
+	`CREATE INDEX IF NOT EXISTS idx_tenant_invites_email ON tenant_invites (email_lower, accepted_at)`,
 	// MESHSAT-910: single-writer claims + persisted dead man's switch
 	`CREATE TABLE IF NOT EXISTS dispatch_claims (key TEXT PRIMARY KEY, claimed_at TEXT NOT NULL DEFAULT (datetime('now')))`,
 	`CREATE TABLE IF NOT EXISTS deadman_configs (device_imei TEXT NOT NULL, tenant_id TEXT NOT NULL DEFAULT 'default', chain_id TEXT NOT NULL DEFAULT '', interval_sec INTEGER NOT NULL DEFAULT 3600, grace_sec INTEGER NOT NULL DEFAULT 600, enabled INTEGER NOT NULL DEFAULT 1, snoozed_until TEXT NOT NULL DEFAULT '', alerted INTEGER NOT NULL DEFAULT 0, updated_at TEXT NOT NULL DEFAULT (datetime('now')), PRIMARY KEY (device_imei, tenant_id))`,
