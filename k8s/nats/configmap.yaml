@@ -2,7 +2,7 @@
 # minus the leafnode block (single site now). Bridges connect over wss://mqtt-hub.meshsat.net:443
 # -> edge -> edge-relay :9443 -> this websocket listener (TLS termination + bridge
 # client certificate verification against the Hub bridge CA). The Hub connects
-# over plain MQTT :1883 in-cluster. $NATS_MQTT_PASSWORD comes from the pod env.
+# over plain MQTT :1883 in-cluster. $NATS_MQTT_PASSWORD and $POD_NAME come from the pod env.
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -14,13 +14,30 @@ data:
   nats.conf: |
     listen: 0.0.0.0:4222
     http_port: 8222
-    server_name: meshsat-nats
+    # One name per pod (downward API): a JetStream cluster needs distinct servers.
+    server_name: $POD_NAME
     pid_file: /var/run/nats/nats.pid
 
     jetstream {
       store_dir: /data/jetstream
       max_mem: 256MB
       max_file: 1GB
+    }
+
+    # Three-node JetStream cluster (MESHSAT-711 phase 7). Routes resolve through
+    # the headless `nats` Service; a pod keeps retrying its peers while they
+    # start. Clients are not told the pod addresses: the Hub uses the Service,
+    # bridges come in through the edge relay.
+    cluster {
+      name: meshsat
+      listen: 0.0.0.0:6222
+      no_advertise: true
+      connect_retries: 120
+      routes: [
+        nats-route://nats-0.nats.meshsat-hub.svc.cluster.local:6222
+        nats-route://nats-1.nats.meshsat-hub.svc.cluster.local:6222
+        nats-route://nats-2.nats.meshsat-hub.svc.cluster.local:6222
+      ]
     }
 
     # Users and permissions live in the Secret meshsat-nats-auth (users.conf),
@@ -34,6 +51,9 @@ data:
       listen: 0.0.0.0:1883
       ack_wait: "30s"
       max_ack_pending: 100
+      # Session, retained and QoS streams replicated on all three servers so a
+      # bridge session survives the loss of the server it was created on.
+      stream_replicas: 3
     }
 
     websocket {
