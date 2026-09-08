@@ -12,7 +12,10 @@ metadata:
   labels:
     app.kubernetes.io/name: nats
 spec:
-  serviceName: nats
+  # serviceName is immutable: the switch from `nats` was a one-time
+  # `kubectl delete sts nats --cascade=orphan` followed by an Argo sync that
+  # recreated the StatefulSet and adopted nats-0 (see NOTES.md).
+  serviceName: nats-headless
   replicas: 3
   podManagementPolicy: Parallel
   selector:

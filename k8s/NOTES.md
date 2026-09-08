@@ -97,11 +97,14 @@ user allow-all): nats-server 2.11.8 panics on an authorization reload when a use
 preferred anti-affinity since only two workers are eligible, never dmz06) forming JetStream
 cluster `meshsat` over routes on :6222; losing the node that holds two pods loses quorum until it
 returns (today a single node holds everything); `server_name` is the pod name
-(downward API). The `nats` Service is headless (the StatefulSet's governing Service, so
-`nats-N.nats` resolves; `Replace=true` because clusterIP is immutable) and the Hub's
-`tcp://nats:1883` now resolves to the pod addresses, between which the Paho client fails over.
-`nats-ws` (edge relay target) stays a ClusterIP. Readiness is `/healthz?js-enabled-only=true`:
-a server without a JetStream meta leader is not endpointed. `mqtt.stream_replicas: 3` makes new
+(downward API). `nats-headless` (clusterIP None, `publishNotReadyAddresses`) is the governing
+Service so `nats-N.nats-headless` resolves for the routes before the pods are Ready; `nats`
+(ClusterIP, Ready endpoints only) stays the Hub's broker address and `nats-ws` the edge relay
+target. Readiness is `/healthz?js-enabled-only=true`: a server without a JetStream meta leader
+is not endpointed. **One-time hand step at rollout** (serviceName is immutable): with Argo
+automation paused, `kubectl -n meshsat-hub delete sts nats --cascade=orphan`, then sync; the
+new StatefulSet adopts nats-0 and rolls it onto the new template, nats-1/nats-2 start in
+parallel. `mqtt.stream_replicas: 3` makes new
 MQTT session/retained/QoS streams R3; streams created on the single node stay R1 until edited
 (`nats stream edit --replicas 3` from a `natsio/nats-box` pod, or delete them while no bridge is
 connected: NATS recreates them). Rolling the StatefulSet restarts the broker: the Hub and the
