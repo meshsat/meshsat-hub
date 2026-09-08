@@ -1,3 +1,0 @@
-[mysqld]
-wsrep_node_address=192.168.192.10
-wsrep_node_name=meshsat-hub-nl

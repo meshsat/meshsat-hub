@@ -1,5 +1,9 @@
 # MeshSat Hub — Operational Runbook
 
+> **2026-09-08:** the Hub moved to notrf01cl01k8s (CNPG Postgres, Argo CD; see `k8s/NOTES.md`
+> and `docs/deployment.md`). The Galera/compose procedures below are kept as history for the
+> incident post-mortems; none of the commands apply to the running system any more.
+
 ## Quick Reference
 
 | Action | Command |
@@ -40,7 +44,7 @@ NL (nllei01dmz01)                   GR (grskg01dmz01)
 ```bash
 # This is what the pipeline runs. NEVER use docker compose pull or docker compose up -d
 # as it will recreate MariaDB and break the cluster.
-ansible-playbook -i deploy/ansible/inventory.yml deploy/ansible/playbooks/deploy-hub.yml
+# retired: merge to main; CI bumps the image pin and Argo CD rolls the k8s Deployment
 ```
 
 **Manual equivalent (per host):**
@@ -91,7 +95,7 @@ docker start meshsat-garbd
 
 ```bash
 # Use the Ansible recovery playbook — finds the most advanced node automatically
-ansible-playbook -i deploy/ansible/inventory.yml deploy/ansible/playbooks/recover.yml --ask-vault-pass
+# retired with the Galera cluster (2026-09-08)
 ```
 
 **Manual recovery:**

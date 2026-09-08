@@ -90,7 +90,6 @@ const navGroups = [
     { to: '/webhooks', label: 'Webhooks' },
   ]},
   { label: 'Infrastructure', items: [
-    { to: '/cluster', label: 'Cluster' },
     { to: '/network', label: 'Network' },
     { to: '/topology', label: 'Topology' },
     { to: '/ota', label: 'OTA' },
