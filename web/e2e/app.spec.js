@@ -26,30 +26,91 @@ test.describe('Public endpoints', () => {
   })
 })
 
+// Login methods depend on the Hub's auth mode (GET /api/auth/config):
+// local → email/password form first; oidc → "Sign in with MeshSat ID" first
+// with the local/token forms behind a disclosure.
+async function authModes(request) {
+  const res = await request.get('/api/auth/config')
+  if (!res.ok()) return ['local']
+  return (await res.json()).modes || ['local']
+}
+
+// Opens the login page and reveals the local/token form when OIDC is offered.
+async function openLocalForm(page, modes) {
+  await page.goto('/#/login')
+  if (modes.includes('oidc')) {
+    await page.getByRole('button', { name: 'Other sign-in options' }).click()
+  }
+}
+
 test.describe('Login page', () => {
-  test('shows email login form by default', async ({ page }) => {
-    await page.goto('/#/login')
-    await expect(page.locator('input[type="email"]')).toBeVisible()
-    await expect(page.locator('input[type="password"]')).toBeVisible()
-    await expect(page.getByRole('button', { name: 'Sign In' })).toBeVisible()
+  test('auth config lists the login methods', async ({ request }) => {
+    const res = await request.get('/api/auth/config')
+    expect(res.ok()).toBeTruthy()
+    const body = await res.json()
+    expect(Array.isArray(body.modes)).toBeTruthy()
   })
 
-  test('can toggle to API token mode', async ({ page }) => {
+  test('shows the primary login method', async ({ page, request }) => {
+    const modes = await authModes(request)
     await page.goto('/#/login')
-    await page.getByRole('button', { name: 'API Token' }).click()
-    await expect(page.locator('input[type="email"]')).not.toBeVisible()
+    if (modes.includes('oidc')) {
+      await expect(page.getByRole('button', { name: 'Sign in with MeshSat ID' })).toBeVisible()
+      await expect(page.getByTestId('local-panel')).not.toBeVisible()
+    } else {
+      await expect(page.locator('input[type="email"]')).toBeVisible()
+      await expect(page.locator('input[type="password"]')).toBeVisible()
+      await expect(page.getByRole('button', { name: 'Sign In' })).toBeVisible()
+    }
+  })
+
+  test('OIDC login redirects to the identity provider', async ({ page, request }) => {
+    const modes = await authModes(request)
+    test.skip(!modes.includes('oidc'), 'Hub is not in oidc mode')
+    // Do not follow the redirect chain: the IdP is external. Check the Hub's 302.
+    const res = await request.get('/api/auth/oidc/login', { maxRedirects: 0 })
+    expect(res.status()).toBe(302)
+    expect(res.headers()['location']).toContain('code_challenge_method=S256')
+    expect(res.headers()['set-cookie']).toContain('meshsat_oidc=')
+  })
+
+  test('callback with an error code shows the pending state, no session', async ({ page }) => {
+    await page.goto('/#/auth/callback?error=pending_approval')
+    await expect(page.getByTestId('auth-callback')).toContainText('Awaiting approval')
+    await expect(page.getByRole('link', { name: 'Back to sign-in' })).toBeVisible()
+    expect(await page.evaluate(() => localStorage.getItem('auth_token'))).toBeNull()
+  })
+
+  test('callback without a refresh cookie fails closed', async ({ page }) => {
+    await page.goto('/#/auth/callback')
+    await expect(page.getByTestId('auth-callback')).toContainText('Sign-in failed')
+    expect(await page.evaluate(() => localStorage.getItem('auth_token'))).toBeNull()
+  })
+
+  test('can toggle to API token mode', async ({ page, request }) => {
+    const modes = await authModes(request)
+    await openLocalForm(page, modes)
+    if (modes.includes('local')) {
+      await page.getByRole('button', { name: 'API Token' }).click()
+      await expect(page.locator('input[type="email"]')).not.toBeVisible()
+    }
     await expect(page.locator('#token')).toBeVisible()
   })
 
-  test('shows error on empty email submit', async ({ page }) => {
-    await page.goto('/#/login')
+  test('shows error on empty email submit', async ({ page, request }) => {
+    const modes = await authModes(request)
+    test.skip(!modes.includes('local'), 'Hub has no local login')
+    await openLocalForm(page, modes)
     await page.getByRole('button', { name: 'Sign In' }).click()
     await expect(page.locator('text=Email and password are required')).toBeVisible()
   })
 
-  test('successful login with API token', async ({ page }) => {
-    await page.goto('/#/login')
-    await page.getByRole('button', { name: 'API Token' }).click()
+  test('successful login with API token', async ({ page, request }) => {
+    const modes = await authModes(request)
+    await openLocalForm(page, modes)
+    if (modes.includes('local')) {
+      await page.getByRole('button', { name: 'API Token' }).click()
+    }
     await page.fill('#token', AUTH_TOKEN)
     await page.getByRole('button', { name: 'Sign In' }).click()
     await expect(page.locator('h1:has-text("Dashboard")')).toBeVisible({ timeout: 10000 })
