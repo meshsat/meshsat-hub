@@ -251,6 +251,9 @@ type Store interface {
 	// OIDC identities (MESHSAT-916): maps an IdP subject to a local user.
 	LinkOIDCIdentity(ctx context.Context, id *OIDCIdentity) error
 	GetOIDCIdentity(ctx context.Context, issuer, subject string) (*OIDCIdentity, error)
+	// IsPlatformAdmin reports whether any linked OIDC identity of the user carries
+	// the platform-admin flag (used when a session is refreshed without the IdP).
+	IsPlatformAdmin(ctx context.Context, tenantID, userID string) (bool, error)
 
 	// Credential management (MESHSAT-356)
 	CreateCredential(ctx context.Context, tenantID string, c *Credential) error
