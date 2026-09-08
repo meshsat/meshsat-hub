@@ -1987,6 +1987,25 @@ func (d *DB) ListCredentials(ctx context.Context, tenantID string) ([]store.Cred
 	return creds, nil
 }
 
+func (d *DB) ListHubCredentialsByProvider(ctx context.Context, provider string) ([]store.Credential, error) {
+	rows, err := d.db.QueryContext(ctx,
+		"SELECT id, tenant_id, provider, name, cred_type, encrypted_data, cert_not_after, cert_subject, cert_issuer, cert_fingerprint, target_scope, target_bridge_id, status, version, distributed_at, created_at, updated_at FROM credentials WHERE provider=? AND target_scope='hub' ORDER BY tenant_id",
+		provider)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+	var creds []store.Credential
+	for rows.Next() {
+		c, err := d.scanCredentialRow(rows)
+		if err != nil {
+			return nil, err
+		}
+		creds = append(creds, *c)
+	}
+	return creds, nil
+}
+
 func (d *DB) UpdateCredential(ctx context.Context, tenantID string, c *store.Credential) error {
 	c.UpdatedAt = time.Now().UTC()
 	var notAfter interface{}
