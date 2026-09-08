@@ -46,3 +46,19 @@ func TestExtractDeviceID(t *testing.T) {
 		})
 	}
 }
+
+func TestFallbackMessageID(t *testing.T) {
+	a := FallbackMessageID("meshsat/dev1/mo/decoded", []byte(`{"text":"x"}`))
+	b := FallbackMessageID("meshsat/dev1/mo/decoded", []byte(`{"text":"x"}`))
+	c := FallbackMessageID("meshsat/dev2/mo/decoded", []byte(`{"text":"x"}`))
+	d := FallbackMessageID("meshsat/dev1/mo/decoded", []byte(`{"text":"y"}`))
+	if a != b {
+		t.Errorf("same topic+payload must give the same ID: %s vs %s", a, b)
+	}
+	if a == c || a == d {
+		t.Errorf("different topic or payload must give a different ID")
+	}
+	if len(a) != len("mo-")+16 {
+		t.Errorf("unexpected ID shape %q", a)
+	}
+}

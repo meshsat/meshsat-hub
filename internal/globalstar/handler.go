@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"github.com/rs/xid"
 	"log/slog"
 	"net/http"
 	"time"
@@ -35,6 +36,7 @@ type MOPayload struct {
 
 // MOMessage represents a decoded Globalstar Mobile Originated message.
 type MOMessage struct {
+	ID          string  `json:"id"`
 	DeviceID    string  `json:"device_id"`
 	MessageID   string  `json:"message_id"`
 	Channel     string  `json:"channel"`
@@ -305,7 +307,12 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Publish decoded message to mo/decoded.
+	msgID := "mo-gs-" + payload.DeviceID + "-" + payload.MessageID
+	if payload.MessageID == "" {
+		msgID = "mo-gs-" + payload.DeviceID + "-" + xid.New().String()
+	}
 	decoded := MOMessage{
+		ID:          msgID,
 		DeviceID:    payload.DeviceID,
 		MessageID:   payload.MessageID,
 		Channel:     "globalstar",
