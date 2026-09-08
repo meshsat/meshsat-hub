@@ -4,7 +4,7 @@ package message
 import (
 	"context"
 	"encoding/json"
-	"fmt"
+	"errors"
 	"log/slog"
 	"time"
 
@@ -15,6 +15,7 @@ import (
 
 // moDecodedPayload matches the JSON published to meshsat/+/mo/decoded.
 type moDecodedPayload struct {
+	ID          string  `json:"id"`
 	IMEI        string  `json:"imei"`
 	DeviceGUID  string  `json:"device_guid"`
 	MOMSN       int     `json:"momsn"`
@@ -66,8 +67,16 @@ func (s *Subscriber) handleMODecoded(topic string, payload []byte) {
 		imei = deviceID
 	}
 
+	// Stable ID: the publisher's id when present, else a hash of the MQTT
+	// message. Every replica derives the same value, so the store collapses
+	// duplicates instead of creating one row per replica.
+	id := msg.ID
+	if id == "" {
+		id = hubmqtt.FallbackMessageID(topic, payload)
+	}
+
 	m := &store.Message{
-		ID:         fmt.Sprintf("mo-%d", time.Now().UnixNano()),
+		ID:         id,
 		DeviceIMEI: imei,
 		Direction:  "mo",
 		Channel:    msg.Channel,
@@ -84,6 +93,10 @@ func (s *Subscriber) handleMODecoded(topic string, payload []byte) {
 	defer cancel()
 
 	if err := s.store.InsertMessage(ctx, s.tenantID, m); err != nil {
+		if errors.Is(err, store.ErrDuplicate) {
+			slog.Debug("message: already persisted", "id", id, "device", imei)
+			return
+		}
 		slog.Warn("message: persist failed", "error", err, "device", imei)
 		return
 	}

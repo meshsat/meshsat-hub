@@ -438,12 +438,18 @@ func (d *DB) InsertMessage(ctx context.Context, tenantID string, m *store.Messag
 	if !m.ScheduledAt.IsZero() {
 		scheduledAt = m.ScheduledAt.UTC().Format(time.DateTime)
 	}
-	_, err := d.db.ExecContext(ctx,
-		`INSERT INTO messages (id, device_imei, direction, channel, momsn, text, raw_hex, compressed, status, error, lat, lon, tenant_id, scheduled_at)
+	res, err := d.db.ExecContext(ctx,
+		`INSERT OR IGNORE INTO messages (id, device_imei, direction, channel, momsn, text, raw_hex, compressed, status, error, lat, lon, tenant_id, scheduled_at)
 		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		m.ID, m.DeviceIMEI, m.Direction, m.Channel, m.MOMSN, m.Text, m.RawHex,
 		boolToInt(m.Compressed), m.Status, m.Error, m.Lat, m.Lon, tenantID, scheduledAt)
-	return err
+	if err != nil {
+		return err
+	}
+	if n, err := res.RowsAffected(); err == nil && n == 0 {
+		return store.ErrDuplicate
+	}
+	return nil
 }
 
 func (d *DB) ListMessages(ctx context.Context, tenantID string, deviceIMEI string, limit int) ([]store.Message, error) {

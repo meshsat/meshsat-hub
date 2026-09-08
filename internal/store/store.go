@@ -5,8 +5,15 @@ package store
 
 import (
 	"context"
+	"errors"
 	"time"
 )
+
+// ErrDuplicate is returned by InsertMessage when a row with the same ID
+// already exists. With stable message IDs (mo-{imei}-{momsn}, sms-in-{sid},
+// ...) a second replica or a webhook retry inserting the same message is a
+// no-op, not a second row.
+var ErrDuplicate = errors.New("store: duplicate")
 
 // DefaultTenantID is used when no tenant context is available (single-tenant mode).
 const DefaultTenantID = "default"
