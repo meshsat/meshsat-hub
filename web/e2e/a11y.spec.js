@@ -39,5 +39,17 @@ for (const theme of ['dark', 'light']) {
       await page.screenshot({ path: `test-results/dashboard-${theme}.png`, fullPage: true })
       expect(await contrastViolations(page)).toEqual([])
     })
+
+    test('fleet', async ({ page }) => {
+      await page.addInitScript((token) => {
+        localStorage.setItem('auth_token', token)
+        localStorage.setItem('auth_user', JSON.stringify({ id: 'token-user', name: 'API Token', roles: ['admin'], tenant_id: 'default' }))
+      }, AUTH_TOKEN)
+      await page.goto('/#/fleet?add=1')
+      await expect(page.getByRole('button', { name: 'Cancel' })).toBeVisible({ timeout: 10000 })
+      await page.waitForTimeout(500)
+      await page.screenshot({ path: `test-results/fleet-${theme}.png`, fullPage: true })
+      expect(await contrastViolations(page)).toEqual([])
+    })
   })
 }

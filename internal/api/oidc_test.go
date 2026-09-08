@@ -120,7 +120,7 @@ func newOIDCEnv(t *testing.T, tenantEnforce bool) *oidcEnv {
 	login := NewLoginHandler(s, sm, nil)
 	provider := hubauth.NewJWKSProvider(idp.srv.URL, nil)
 	client := &hubauth.OIDCClient{Provider: provider, ClientID: idp.clientID, ClientSecret: idp.secret, RedirectURI: "https://hub.example/api/auth/oidc/callback"}
-	cfg := OIDCConfig{AdminGroup: "meshsat-platform-admin", StateKey: key, TenantEnforce: tenantEnforce, BootstrapOwnerEmail: "owner@example.com"}
+	cfg := OIDCConfig{AdminGroup: "meshsat-platform-admin", StateKey: key, TenantEnforce: tenantEnforce, BootstrapOwnerEmail: "owner@example.com", SignupURL: "https://auth.example/if/flow/meshsat-enrollment/", CommunityURL: "https://matrix.to/#/#meshsat:example.org"}
 	h := NewOIDCHandler(s, login, client, cfg, []string{"oidc"})
 	return &oidcEnv{idp: idp, store: s, handler: h, sm: sm, cfg: cfg}
 }
@@ -444,6 +444,16 @@ func TestAuthConfig(t *testing.T) {
 	_ = json.Unmarshal(rr.Body.Bytes(), &resp)
 	if resp.OIDCLoginURL != "/api/auth/oidc/login" || len(resp.Modes) != 1 || resp.Modes[0] != "oidc" {
 		t.Fatalf("%+v", resp)
+	}
+	if resp.SignupURL == "" || resp.CommunityURL == "" {
+		t.Fatalf("public links missing: %+v", resp)
+	}
+	rr = httptest.NewRecorder()
+	AuthConfigHandler([]string{"local"}, "https://matrix.to/#/#meshsat:example.org").ServeHTTP(rr, httptest.NewRequest("GET", "/api/auth/config", nil))
+	var local authConfigResponse
+	_ = json.Unmarshal(rr.Body.Bytes(), &local)
+	if local.SignupURL != "" || local.CommunityURL == "" || local.Modes[0] != "local" {
+		t.Fatalf("local config: %+v", local)
 	}
 }
 
