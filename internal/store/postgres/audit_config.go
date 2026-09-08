@@ -36,8 +36,15 @@ func (d *DB) InsertAuditEntry(ctx context.Context, tenantID string, a *store.Aud
 }
 
 func (d *DB) ListAuditEntries(ctx context.Context, tenantID string, limit int) ([]store.AuditEntry, error) {
-	rows, err := d.db.QueryContext(ctx,
-		"SELECT "+auditColumns+" FROM audit_log WHERE tenant_id=$1 ORDER BY created_at DESC LIMIT $2", tenantID, limit)
+	// limit <= 0 means every entry: the audit chain verifier asks for the whole
+	// chain this way (a literal LIMIT 0 verified nothing and reported "valid").
+	q := "SELECT " + auditColumns + " FROM audit_log WHERE tenant_id=$1 ORDER BY created_at DESC"
+	args := []any{tenantID}
+	if limit > 0 {
+		q += " LIMIT $2"
+		args = append(args, limit)
+	}
+	rows, err := d.db.QueryContext(ctx, q, args...)
 	if err != nil {
 		return nil, err
 	}

@@ -17,7 +17,7 @@
 import secrets
 
 from authentik.brands.models import Brand
-from authentik.core.models import Application, Group
+from authentik.core.models import Application, Group, User
 from authentik.crypto.models import CertificateKeyPair
 from authentik.events.models import (
     EventAction, NotificationRule, NotificationSeverity, NotificationTransport,
@@ -28,7 +28,7 @@ from authentik.policies.event_matcher.models import EventMatcherPolicy
 from authentik.policies.expression.models import ExpressionPolicy
 from authentik.policies.models import PolicyBinding
 from authentik.providers.oauth2.models import (
-    ClientType, OAuth2Provider, RedirectURI, RedirectURIMatchingMode, ScopeMapping,
+    ClientType, GrantType, OAuth2Provider, RedirectURI, RedirectURIMatchingMode, ScopeMapping,
 )
 from authentik.stages.email.models import EmailStage
 from authentik.stages.identification.models import IdentificationStage
@@ -40,6 +40,9 @@ from authentik.stages.user_write.models import UserCreationMode, UserWriteStage
 HUB_URL = "https://hub.meshsat.net"
 REDIRECT = f"{HUB_URL}/api/auth/oidc/callback"
 MATRIX_ROOM = "https://matrix.to/#/#meshsat:matrix.nuclearlighters.net"
+# authentik accounts that receive signup notifications and get the
+# meshsat-platform-admin claim (Hub platform_admin). Operator accounts only.
+PLATFORM_ADMIN_USERNAMES = ("adm-kyriakosp",)
 try:
     MESHSAT_CSS  # noqa: F821  (prepended by run-bootstrap.sh)
 except NameError:
@@ -72,16 +75,54 @@ for name, role in (
     groups[name] = g
     note(f"group {name} {'created' if created else 'ok'}")
 
+# The signup NotificationRule delivers to the members of meshsat-platform-admin;
+# authentik sends nothing for a rule whose destination group is empty (that
+# is how the first test signup on 2026-09-08 produced no webhook call). The
+# operators of the shared authentik are the MeshSat platform admins.
+for username in PLATFORM_ADMIN_USERNAMES:
+    u = User.objects.filter(username=username, is_active=True).first()
+    if u is None:
+        note(f"platform admin {username} MISSING in authentik")
+        continue
+    if not groups["meshsat-platform-admin"].users.filter(pk=u.pk).exists():
+        groups["meshsat-platform-admin"].users.add(u)
+        note(f"platform admin {username} added to meshsat-platform-admin")
+    else:
+        note(f"platform admin {username} ok")
+    # Operator accounts never pass the enrollment flow, so they carry no
+    # email_verified marker; the Hub refuses unverified emails at JIT.
+    if u.attributes.get("email_verified") not in (True, "true"):
+        u.attributes["email_verified"] = "true"
+        u.save()
+        note(f"platform admin {username} marked email_verified")
+
 # ---------------------------------------------------------------- scope mapping
+GROUPS_EXPR = 'return {"groups": [g.name for g in request.user.groups.all() if g.name.startswith("meshsat-")]}'
 scope, created = ScopeMapping.objects.get_or_create(
     scope_name="meshsat",
-    defaults={
-        "name": "MeshSat groups",
-        "description": "MeshSat Hub roles",
-        "expression": 'return {"groups": [g.name for g in request.user.ak_groups.all() if g.name.startswith("meshsat-")]}',
-    },
+    defaults={"name": "MeshSat groups", "description": "MeshSat Hub roles", "expression": GROUPS_EXPR},
 )
+if scope.expression != GROUPS_EXPR:
+    scope.expression = GROUPS_EXPR
+    scope.save()
 note(f"scope mapping meshsat {'created' if created else 'ok'}")
+
+# authentik's default 'email' mapping returns email_verified: False for everyone; the Hub
+# refuses unverified emails at JIT (provision error). This mapping reports the marker the
+# enrollment flow writes after the email stage (attributes.email_verified).
+EMAIL_EXPR = (
+    'return {"email": request.user.email, '
+    '"email_verified": request.user.attributes.get("email_verified") in (True, "true")}'
+)
+email_scope, e_created = ScopeMapping.objects.get_or_create(
+    name="MeshSat email",
+    defaults={"scope_name": "email", "description": "email + verified flag from the enrollment marker", "expression": EMAIL_EXPR},
+)
+if email_scope.expression != EMAIL_EXPR or email_scope.scope_name != "email":
+    email_scope.expression = EMAIL_EXPR
+    email_scope.scope_name = "email"
+    email_scope.save()
+note(f"scope mapping MeshSat email {'created' if e_created else 'ok'}")
 
 # ---------------------------------------------------------------- provider + application
 cert = CertificateKeyPair.objects.filter(name__icontains="authentik Self-signed").first() or CertificateKeyPair.objects.first()
@@ -111,6 +152,8 @@ provider, p_created = OAuth2Provider.objects.get_or_create(
 )
 provider.redirect_uris = redirects
 provider.client_type = ClientType.CONFIDENTIAL
+# authentik 2026.x rejects /authorize with invalid_request unless the grant is listed here.
+provider.grant_types = [GrantType.AUTHORIZATION_CODE, GrantType.REFRESH_TOKEN]
 if provider.authorization_flow_id != auth_flow.pk:
     provider.authorization_flow = auth_flow
 if invalidation and provider.invalidation_flow_id != invalidation.pk:
@@ -119,7 +162,7 @@ if cert and not provider.signing_key_id:
     provider.signing_key = cert
 provider.include_claims_in_id_token = True
 provider.save()
-wanted = list(ScopeMapping.objects.filter(scope_name__in=["openid", "profile", "email"])) + [scope]
+wanted = list(ScopeMapping.objects.filter(scope_name__in=["openid", "profile"], managed__isnull=False)) + [email_scope, scope]
 assert len(wanted) == 4, f"default scope mappings missing: {[s.scope_name for s in wanted]}"
 provider.property_mappings.set(wanted)
 note(f"provider MeshSat Hub {'created' if p_created else 'ok'}")
