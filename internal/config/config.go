@@ -159,6 +159,11 @@ type Config struct {
 	// Bridge lifecycle
 	BridgeOfflineTimeout   int    `yaml:"bridge_offline_timeout"`     // seconds without health before marking offline (default 300)
 	BridgeCACertExportPath string `yaml:"bridge_ca_cert_export_path"` // path to export bridge CA cert for NATS mTLS (empty=disabled)
+	// BridgeCASecretName is a pre-created Kubernetes Secret (in POD_NAMESPACE)
+	// the Hub keeps equal to its bridge CA certificate for NATS/stunnel mTLS;
+	// empty disables the writer. Key defaults to ca.crt.
+	BridgeCASecretName string `yaml:"bridge_ca_secret_name"`
+	BridgeCASecretKey  string `yaml:"bridge_ca_secret_key"`
 
 	// WireGuard (wg-easy)
 	WGEnabled  bool   `yaml:"wg_enabled"`
@@ -590,6 +595,12 @@ func Load() (Config, error) {
 	}
 
 	// Bridge CA cert export path override
+	if v := os.Getenv("HUB_BRIDGE_CA_SECRET_NAME"); v != "" {
+		cfg.BridgeCASecretName = v
+	}
+	if v := os.Getenv("HUB_BRIDGE_CA_SECRET_KEY"); v != "" {
+		cfg.BridgeCASecretKey = v
+	}
 	if v := os.Getenv("HUB_BRIDGE_CA_CERT_EXPORT_PATH"); v != "" {
 		cfg.BridgeCACertExportPath = v
 	}
