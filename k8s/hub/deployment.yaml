@@ -12,11 +12,14 @@ metadata:
     app.kubernetes.io/name: hub
 spec:
   replicas: 2
+  # Only two workers are eligible (dmz01, dmz02; dmz06 excluded, dmz03-05 are
+  # tainted control-plane), so with the required anti-affinity a surge pod has
+  # nowhere to go: roll by replacing one pod at a time instead.
   strategy:
     type: RollingUpdate
     rollingUpdate:
-      maxSurge: 1
-      maxUnavailable: 0
+      maxSurge: 0
+      maxUnavailable: 1
   selector:
     matchLabels:
       app.kubernetes.io/name: hub
