@@ -188,7 +188,7 @@ const navGroups = [
             <!-- User menu -->
             <div class="relative">
               <button @click="userMenuOpen = !userMenuOpen"
-                class="w-8 h-8 rounded-full bg-tactical-iridium/30 text-tactical-iridium text-sm font-bold flex items-center justify-center hover:bg-tactical-iridium/40 transition-colors">
+                class="w-8 h-8 rounded-full bg-tactical-iridium/30 text-tactical-iridium text-sm font-bold flex items-center justify-center hover:bg-brand-accent transition-colors">
                 {{ userInitial() }}
               </button>
               <div v-if="userMenuOpen" @click="userMenuOpen = false"

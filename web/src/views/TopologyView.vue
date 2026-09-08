@@ -75,13 +75,14 @@ function costColor(cost) {
 
 function ifaceColor(iface) {
   const colors = {
-    mqtt: 'bg-green-700',
-    tor: 'bg-purple-700',
-    wireguard: 'bg-blue-700',
-    iridium: 'bg-orange-700',
-    globalstar: 'bg-yellow-700',
+    // Tinted badge pattern (theme-safe via the colour scales in style.css)
+    mqtt: 'bg-green-900/50 text-green-300 border border-green-700/50',
+    tor: 'bg-purple-900/50 text-purple-300 border border-purple-700/50',
+    wireguard: 'bg-blue-900/50 text-blue-300 border border-blue-700/50',
+    iridium: 'bg-orange-900/50 text-orange-300 border border-orange-700/50',
+    globalstar: 'bg-yellow-900/50 text-yellow-300 border border-yellow-700/50',
   }
-  return colors[iface] || 'bg-gray-700'
+  return colors[iface] || 'bg-gray-800 text-gray-300 border border-gray-700'
 }
 
 function ifaceBorderColor(iface) {

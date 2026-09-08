@@ -41,6 +41,10 @@ type OIDCConfig struct {
 	// TenantEnforce mirrors HUB_TENANT_ENFORCE; when false, users with no
 	// tenant land in the default tenant instead of a fresh one.
 	TenantEnforce bool
+	// SignupURL and CommunityURL are public links shown by the SPA (login
+	// page "Request beta access", pending-approval state). Both optional.
+	SignupURL    string
+	CommunityURL string
 }
 
 // OIDCHandler implements GET /api/auth/oidc/login, GET /api/auth/oidc/callback
@@ -72,6 +76,8 @@ func NewOIDCHandler(s store.Store, login *LoginHandler, client *hubauth.OIDCClie
 type authConfigResponse struct {
 	Modes        []string `json:"modes"`
 	OIDCLoginURL string   `json:"oidc_login_url,omitempty"`
+	SignupURL    string   `json:"signup_url,omitempty"`
+	CommunityURL string   `json:"community_url,omitempty"`
 }
 
 // Config tells the SPA which login methods exist.
@@ -81,17 +87,18 @@ type authConfigResponse struct {
 // @Success      200  {object}  authConfigResponse
 // @Router       /api/auth/config [get]
 func (h *OIDCHandler) Config(w http.ResponseWriter, r *http.Request) {
-	resp := authConfigResponse{Modes: h.modes}
+	resp := authConfigResponse{Modes: h.modes, CommunityURL: h.cfg.CommunityURL}
 	if h.client != nil {
 		resp.OIDCLoginURL = "/api/auth/oidc/login"
+		resp.SignupURL = h.cfg.SignupURL
 	}
 	writeJSON(w, http.StatusOK, resp)
 }
 
 // AuthConfigHandler serves GET /api/auth/config for Hubs without OIDC.
-func AuthConfigHandler(modes []string) http.HandlerFunc {
+func AuthConfigHandler(modes []string, communityURL string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		writeJSON(w, http.StatusOK, authConfigResponse{Modes: modes})
+		writeJSON(w, http.StatusOK, authConfigResponse{Modes: modes, CommunityURL: communityURL})
 	}
 }
 

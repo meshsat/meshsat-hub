@@ -45,6 +45,8 @@ type Config struct {
 	OIDCGroupsClaim         string `yaml:"oidc_groups_claim"`          // claim carrying group names (default "groups")
 	OIDCAdminGroup          string `yaml:"oidc_admin_group"`           // group granting platform admin (default meshsat-platform-admin)
 	OIDCBootstrapOwnerEmail string `yaml:"oidc_bootstrap_owner_email"` // this account attaches to the default tenant instead of creating one
+	OIDCSignupURL           string `yaml:"oidc_signup_url"`            // "Request beta access" link on the login page (authentik enrollment flow)
+	CommunityURL            string `yaml:"community_url"`              // MeshSat community room (Matrix) shown while an account awaits approval
 	LocalLoginEnabled       *bool  `yaml:"local_login_enabled"`        // email/password login; default true in local mode, false in oidc mode
 	MetricsToken            string `yaml:"metrics_token"`              // when set, /metrics requires this bearer token
 
@@ -307,6 +309,12 @@ func Load() (Config, error) {
 	}
 	if v := os.Getenv("HUB_OIDC_BOOTSTRAP_OWNER_EMAIL"); v != "" {
 		cfg.OIDCBootstrapOwnerEmail = strings.ToLower(strings.TrimSpace(v))
+	}
+	if v := os.Getenv("HUB_OIDC_SIGNUP_URL"); v != "" {
+		cfg.OIDCSignupURL = v
+	}
+	if v := os.Getenv("HUB_COMMUNITY_URL"); v != "" {
+		cfg.CommunityURL = v
 	}
 	if v := os.Getenv("HUB_LOCAL_LOGIN_ENABLED"); v != "" {
 		b := strings.EqualFold(v, "true") || v == "1"

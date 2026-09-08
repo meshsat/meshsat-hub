@@ -30,7 +30,7 @@
   --ms-well: 26 23 20;           /* #1A1714 inputs, hover wells */
   --ms-text2: 222 216 207;       /* #DED8CF body text */
   --ms-muted2: 196 184 168;      /* #C4B8A8 secondary text */
-  /* meaning colours as text: Tailwind 400 shades on dark */
+  /* subsystem/transport colours as text: Tailwind 400 shades on dark */
   --ms-green: 74 222 128;
   --ms-yellow: 250 204 21;
   --ms-sky: 56 189 248;
@@ -62,7 +62,7 @@ html:not(.dark) {
   --ms-well: 239 235 229;        /* #EFEBE5 */
   --ms-text2: 42 38 34;          /* #2A2622 */
   --ms-muted2: 74 67 59;         /* #4A433B */
-  /* meaning colours as text: Tailwind 700 shades, AA on white */
+  /* subsystem/transport colours as text: Tailwind 700 shades, AA on white */
   --ms-green: 21 128 61;
   --ms-yellow: 161 98 7;
   --ms-sky: 3 105 161;

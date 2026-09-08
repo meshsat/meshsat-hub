@@ -22,13 +22,13 @@ const icons = {
 
 <template>
   <div class="flex flex-col items-center justify-center py-12 px-4 text-center">
-    <div class="w-16 h-16 mb-4 rounded-full bg-gray-800/50 flex items-center justify-center">
-      <svg class="w-8 h-8 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <div class="w-16 h-16 mb-4 rounded-full bg-ms-well/70 flex items-center justify-center">
+      <svg class="w-8 h-8 text-ms-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" :d="icons[icon] || icons.inbox" />
       </svg>
     </div>
-    <h3 class="text-gray-400 font-medium mb-1">{{ title }}</h3>
-    <p v-if="message" class="text-gray-500 text-sm max-w-xs">{{ message }}</p>
+    <h3 class="text-ms-muted2 font-medium mb-1">{{ title }}</h3>
+    <p v-if="message" class="text-ms-muted text-sm max-w-xs">{{ message }}</p>
     <div v-if="$slots.default" class="mt-4">
       <slot />
     </div>

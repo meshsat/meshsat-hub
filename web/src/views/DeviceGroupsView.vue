@@ -143,7 +143,7 @@ const addImei = ref('')
         <p class="text-sm text-gray-500 mt-1">Organize fleet devices into groups for easier management.</p>
       </div>
       <button @click="openCreate"
-        class="px-4 py-2 bg-tactical-iridium text-white text-sm font-medium rounded-lg hover:bg-tactical-iridium/90 transition-colors">
+        class="px-4 py-2 bg-brand-primary text-ms-on-primary text-sm font-medium rounded-lg hover:bg-brand-accent transition-colors">
         New Group
       </button>
     </div>
@@ -203,7 +203,7 @@ const addImei = ref('')
             </select>
             <button @click="addImei && addDevice(g.id, addImei); addImei = ''"
               :disabled="!addImei"
-              class="px-3 py-1.5 bg-tactical-iridium/20 text-tactical-iridium text-sm rounded hover:bg-tactical-iridium/30 disabled:opacity-50 disabled:cursor-not-allowed transition-colors">
+              class="px-3 py-1.5 bg-tactical-iridium/20 text-tactical-iridium text-sm rounded hover:bg-brand-accent disabled:opacity-50 disabled:cursor-not-allowed transition-colors">
               Add
             </button>
           </div>
@@ -253,7 +253,7 @@ const addImei = ref('')
               Cancel
             </button>
             <button @click="saveGroup"
-              class="px-4 py-2 bg-tactical-iridium text-white text-sm font-medium rounded-lg hover:bg-tactical-iridium/90 transition-colors">
+              class="px-4 py-2 bg-brand-primary text-ms-on-primary text-sm font-medium rounded-lg hover:bg-brand-accent transition-colors">
               {{ editingGroup ? 'Save' : 'Create' }}
             </button>
           </div>
