@@ -22,7 +22,15 @@ import { layersWithCustomTheme, namedTheme } from 'protomaps-themes-base'
 import 'maplibre-gl/dist/maplibre-gl.css'
 
 const ARCHIVE = '/basemap/basemap.pmtiles'
+const LOCAL_ARCHIVE = '/basemap/local.pmtiles'
 const ASSETS = '/basemap/assets'
+// Street geometry lives at zoom 13 in this schema and street names at 15, so a
+// world archive that stayed small enough to host could never show either. The
+// world archive carries the globe to zoom 11, and a second, deeper archive
+// carries the area the fleet operates in the rest of the way. Its layers draw
+// on top from this zoom up; outside its coverage it simply has no tiles and the
+// world layers below stay visible.
+const LOCAL_FROM_ZOOM = 11
 export const ATTRIBUTION =
   '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a>, ' +
   '<a href="https://protomaps.com" target="_blank" rel="noopener">Protomaps</a>'
@@ -63,19 +71,53 @@ function mapTheme(dark) {
   }
 }
 
+// hasLocalArchive is resolved once at startup: the route only exists when a
+// deeper archive is configured, so a deployment without one still gets a map.
+let localArchive = null
+export async function probeLocalArchive() {
+  if (localArchive !== null) return localArchive
+  try {
+    const r = await fetch(LOCAL_ARCHIVE, { method: 'HEAD' })
+    localArchive = r.ok
+  } catch {
+    localArchive = false
+  }
+  return localArchive
+}
+
 export function basemapStyle(dark) {
+  const theme = mapTheme(dark)
+  const sources = {
+    protomaps: {
+      type: 'vector',
+      url: `pmtiles://${window.location.origin}${ARCHIVE}`,
+      attribution: ATTRIBUTION,
+    },
+  }
+  const layers = layersWithCustomTheme('protomaps', theme, 'en')
+  if (localArchive) {
+    sources.protomaps_local = {
+      type: 'vector',
+      url: `pmtiles://${window.location.origin}${LOCAL_ARCHIVE}`,
+    }
+    // The same theme against the deeper source, drawn on top from the zoom
+    // where the world archive runs out. Ids must not collide with the world
+    // set, and the background layer belongs to neither source.
+    for (const layer of layersWithCustomTheme('protomaps_local', theme, 'en')) {
+      if (!layer.source) continue
+      layers.push({
+        ...layer,
+        id: `${layer.id}__local`,
+        minzoom: Math.max(layer.minzoom ?? 0, LOCAL_FROM_ZOOM),
+      })
+    }
+  }
   return {
     version: 8,
     glyphs: `${window.location.origin}${ASSETS}/fonts/{fontstack}/{range}.pbf`,
     sprite: `${window.location.origin}${ASSETS}/sprites/v4/${dark ? 'dark' : 'light'}`,
-    sources: {
-      protomaps: {
-        type: 'vector',
-        url: `pmtiles://${window.location.origin}${ARCHIVE}`,
-        attribution: ATTRIBUTION,
-      },
-    },
-    layers: layersWithCustomTheme('protomaps', mapTheme(dark), 'en'),
+    sources,
+    layers,
   }
 }
 
@@ -91,9 +133,9 @@ export function createMap({ container, center = [4.9, 52.37], zoom = 3, dark = t
     center,
     zoom,
     attributionControl: { compact: true },
-    // The archive stops at zoom 8; MapLibre keeps drawing its vector geometry
-    // above that, so panning to a device still shows crisp coastlines.
-    maxZoom: 17,
+    // The world archive reaches zoom 11 and the deeper regional one 15;
+    // MapLibre overzooms beyond whichever applies, so the geometry stays crisp.
+    maxZoom: 18,
   })
   map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'top-right')
   map.addControl(new maplibregl.ScaleControl({ maxWidth: 120, unit: 'metric' }))

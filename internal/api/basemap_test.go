@@ -18,7 +18,7 @@ func basemapFixture(t *testing.T, store http.HandlerFunc) (*BasemapHandler, func
 	if err != nil {
 		t.Fatal(err)
 	}
-	return NewBasemapHandler(client, "basemap/world.pmtiles", "basemap/assets", time.Hour), srv.Close
+	return NewBasemapHandler(client, "basemap/world.pmtiles", "basemap/local.pmtiles", "basemap/assets", time.Hour), srv.Close
 }
 
 func TestBasemapForwardsRangeAndCaches(t *testing.T) {
@@ -168,5 +168,39 @@ func TestBasemapAssetPathValidation(t *testing.T) {
 		if rec.Code != http.StatusNotFound || gotPath != "" {
 			t.Errorf("%q: status %d, upstream %q", bad, rec.Code, gotPath)
 		}
+	}
+}
+
+func TestBasemapLocalArchive(t *testing.T) {
+	var gotPath string
+	h, done := basemapFixture(t, func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("deep"))
+	})
+	defer done()
+
+	if !h.HasLocal() {
+		t.Fatal("fixture should have a local archive")
+	}
+	rec := httptest.NewRecorder()
+	h.ServeLocal(rec, httptest.NewRequest(http.MethodGet, "/basemap/local.pmtiles", nil))
+	if rec.Code != http.StatusOK || gotPath != "/b/basemap/local.pmtiles" {
+		t.Fatalf("status %d upstream %q", rec.Code, gotPath)
+	}
+
+	// Without one configured the route answers 404 rather than serving the world.
+	client, err := objstore.New(objstore.Config{Endpoint: "https://s3.example", Bucket: "b", AccessKey: "a", SecretKey: "s"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	worldOnly := NewBasemapHandler(client, "basemap/world.pmtiles", "", "basemap/assets", time.Hour)
+	if worldOnly.HasLocal() {
+		t.Fatal("empty local key must not count as configured")
+	}
+	rec = httptest.NewRecorder()
+	worldOnly.ServeLocal(rec, httptest.NewRequest(http.MethodGet, "/basemap/local.pmtiles", nil))
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("world-only: status %d", rec.Code)
 	}
 }

@@ -175,18 +175,28 @@ bucket; the Hub streams them at `/basemap/basemap.pmtiles` and
 few tiles it displays rather than the whole archive. The routes serve public
 OpenStreetMap-derived data and need no authentication.
 
+The map uses **two** archives, and that split is forced rather than chosen: in this basemap
+schema street geometry appears at zoom 13 and street names at zoom 15, and a world archive that
+deep does not fit in any object store we have. So the world archive covers the globe shallowly
+and a second one covers the area the fleet operates in all the way down. The deeper layers draw
+on top from zoom 11; outside their coverage they simply have no tiles and the world shows
+through. Sizes measured against the 2026-09-07 planet build: world zoom 0-8 is 0.5 GB and shows
+no streets at all, 0-11 is 7.9 GB and shows major roads with their names, the Netherlands at
+0-15 is 2.0 GB and shows everything.
+
 | Variable | Description |
 |----------|-------------|
-| `HUB_BASEMAP_S3_KEY` | Object key of the PMTiles archive. Empty disables the map backdrop. |
+| `HUB_BASEMAP_S3_KEY` | Object key of the world PMTiles archive. Empty disables the map backdrop. |
+| `HUB_BASEMAP_S3_LOCAL_KEY` | Object key of the deeper regional archive. Empty means world only. |
 | `HUB_BASEMAP_S3_ASSET_PREFIX` | Key prefix of the glyphs and sprites (default `basemap/assets`) |
 | `HUB_BASEMAP_S3_ENDPOINT` / `_BUCKET` / `_REGION` | Object store; default to the audit archive's values |
 | `HUB_BASEMAP_S3_ACCESS_KEY` / `_SECRET_KEY` | Credentials; default to the audit archive's |
 | `HUB_BASEMAP_CACHE_MAX_AGE` | `Cache-Control` max-age of the archive (default `24h`) |
 
-Build and publish an archive with `k8s/scripts/basemap/build-basemap.sh`, which
-extracts a world basemap from the Protomaps daily planet build over range
-requests (a world at zoom 0-8 is about 530 MB, zoom 0-7 about 180 MB), uploads
-it with the font and sprite assets, and prints the two config values to set.
+Build and publish either archive with `k8s/scripts/basemap/build-basemap.sh`, which extracts
+from the Protomaps daily planet build over range requests, uploads it with the font and sprite
+assets, and prints the config values to set. Adding another operating area is one command, for
+example `build-basemap.sh 20260907 15 19.3,34.8,28.3,41.8 gr` for Greece.
 Without the key the map still draws devices, tracks and geofences on an empty
 backdrop and says so.
 

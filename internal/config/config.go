@@ -205,6 +205,11 @@ type Config struct {
 	BasemapS3Bucket   string `yaml:"basemap_s3_bucket"`
 	BasemapS3Region   string `yaml:"basemap_s3_region"`
 	BasemapS3Key      string `yaml:"basemap_s3_key"`
+	// A second, deeper archive covering the area the fleet operates in. The
+	// world archive is necessarily shallow: street geometry needs zoom 13 and
+	// street names zoom 15, which is only affordable regionally (MESHSAT-967).
+	// Empty means the map is world-only.
+	BasemapS3LocalKey string `yaml:"basemap_s3_local_key"`
 	// Key prefix of the glyph ranges and sprite sheets the map style needs
 	// (default "basemap/assets"), served at /basemap/assets/.
 	BasemapS3AssetPrefix string `yaml:"basemap_s3_asset_prefix"`
@@ -710,6 +715,7 @@ func Load() (Config, error) {
 		"HUB_BASEMAP_S3_BUCKET":           &cfg.BasemapS3Bucket,
 		"HUB_BASEMAP_S3_REGION":           &cfg.BasemapS3Region,
 		"HUB_BASEMAP_S3_KEY":              &cfg.BasemapS3Key,
+		"HUB_BASEMAP_S3_LOCAL_KEY":        &cfg.BasemapS3LocalKey,
 		"HUB_BASEMAP_S3_ASSET_PREFIX":     &cfg.BasemapS3AssetPrefix,
 		"HUB_BASEMAP_S3_ACCESS_KEY":       &cfg.BasemapS3AccessKey,
 		"HUB_BASEMAP_S3_SECRET_KEY":       &cfg.BasemapS3SecretKey,
