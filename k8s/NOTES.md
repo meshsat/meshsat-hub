@@ -43,6 +43,17 @@ Things Argo CD cannot do by itself, in the order they happen. Keep this current.
    from a Hub pod during rehearsal; if not, route it (edge/xfrm) or set `HUB_TAK_ENABLED=false`
    at cutover and file the follow-up.
 
+## Phase 3: authentik (k8s/scripts/authentik/)
+
+- `run-bootstrap.sh bootstrap` after the Ingress `auth.meshsat.net` serves (needs the tree
+  synced and the VPS `meshsat_auth` backend). Then `approve`/`reject` per request.
+- n8n workflow `NL - MeshSat Hub Signup Notifier` (id NeiBiyL7igB05ICM, webhook
+  `/webhook/meshsat-signup`) is live; Matrix room `#meshsat`, YouTrack project MESHSAT.
+- NO CoreDNS also carries `hosts` for `gitlab.nuclearlighters.net` and
+  `n8n.nuclearlighters.net` → 192.168.181.43 in the `nuclearlighters.net` zone (2026-09-08):
+  the NL forward zone publishes two A records and 192.168.2.43 is unreachable from NO, which
+  made the Argo repo-server time out on every clone (omoikane's too, 58 times in 6h).
+
 ## Certificates
 
 - `meshsat-net-tls` renews end to end (Let's Encrypt → NL cert-manager → OpenBao → ES).
