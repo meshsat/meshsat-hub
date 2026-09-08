@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
-	"strings"
 	"sync"
 
 	"github.com/meshsat/meshsat-hub/internal/bus"
@@ -60,7 +59,7 @@ func (s *Subscriber) Start() error {
 	}
 
 	for _, sub := range subs {
-		if err := s.mqtt.Subscribe(sub.topic, 1, sub.handler); err != nil {
+		if err := s.subscribeBoth(sub.topic, sub.handler); err != nil {
 			return fmt.Errorf("tak subscriber: %w", err)
 		}
 	}
@@ -329,22 +328,32 @@ func (s *Subscriber) handleDeviceBirthCoT(topic string, payload []byte) {
 // when the stale time on the last birth/health event expires. This is simpler and
 // avoids the need to send a CoT event with a past stale time.
 
-// extractBridgeIDFromCoTTopic extracts bridge_id from "meshsat/bridge/{id}/...".
-func extractBridgeIDFromCoTTopic(topic string) string {
-	parts := strings.Split(topic, "/")
-	if len(parts) < 4 || parts[0] != "meshsat" || parts[1] != "bridge" {
-		return ""
+// subscribeBoth subscribes to the legacy and the tenant-prefixed shape of a filter.
+func (s *Subscriber) subscribeBoth(filter string, handler func(string, []byte)) error {
+	for _, f := range hubmqtt.DualFilters(filter) {
+		if err := s.mqtt.Subscribe(f, 1, handler); err != nil {
+			return err
+		}
 	}
-	return parts[2]
+	return nil
 }
 
-// extractDeviceIDFromCoTTopic extracts device_id from "meshsat/bridge/{bridge_id}/device/{device_id}/...".
-func extractDeviceIDFromCoTTopic(topic string) string {
-	parts := strings.Split(topic, "/")
-	if len(parts) < 6 || parts[3] != "device" {
+// extractBridgeIDFromCoTTopic extracts bridge_id from either bridge topic shape.
+func extractBridgeIDFromCoTTopic(topic string) string {
+	_, id, _, ok := hubmqtt.ParseBridgeTopic(topic)
+	if !ok {
 		return ""
 	}
-	return parts[4]
+	return id
+}
+
+// extractDeviceIDFromCoTTopic extracts device_id from .../bridge/{bridge_id}/device/{device_id}/...
+func extractDeviceIDFromCoTTopic(topic string) string {
+	_, _, rest, ok := hubmqtt.ParseBridgeTopic(topic)
+	if !ok || len(rest) < 3 || rest[0] != "device" {
+		return ""
+	}
+	return rest[1]
 }
 
 // handleInboundCoT processes CoT events received from the TAK server and publishes to MQTT.

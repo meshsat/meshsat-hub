@@ -351,6 +351,7 @@ func main() {
 
 	// Start MT sender (subscribes to meshsat/+/mt/send).
 	mtSender := cloudloop.NewSender(cloudloopClient, msgBus)
+	mtSender.SetTenants(tenants)
 	mtSender.SetRateLimiter(limiter)
 	mtSender.SetAudit(auditSvc)
 	mtSender.SetDeviceResolver(thingResolver)
@@ -1086,6 +1087,7 @@ func main() {
 
 	// RockBLOCK webhook handler.
 	rbHandler := rockblock.NewHandler(msgBus, cfg.RockBLOCKSecret)
+	rbHandler.SetTenants(tenants)
 	rbHandler.SetAudit(auditSvc)
 	rbHandler.SetDedup(dedupTracker)
 	rbHandler.SetReassembler(reassembler)
@@ -1104,6 +1106,7 @@ func main() {
 
 	// Globalstar MO webhook handler.
 	gsHandler := globalstar.NewHandler(msgBus, cfg.GlobalstarWebhookSecret)
+	gsHandler.SetTenants(tenants)
 	gsHandler.SetAudit(auditSvc)
 	gsHandler.SetDedup(dedupTracker)
 	gsHandler.SetReassembler(reassembler)
@@ -1113,6 +1116,7 @@ func main() {
 
 	// Cloudloop LingoMO webhook handler.
 	clHandler := cloudloop.NewWebhookHandler(msgBus)
+	clHandler.SetTenants(tenants)
 	clHandler.SetAudit(auditSvc)
 	clHandler.SetDedup(dedupTracker)
 	clHandler.SetReassembler(reassembler)
@@ -1332,6 +1336,7 @@ func main() {
 		}
 		smsClientForSend = smsClient
 		smsWebhook := sms.NewWebhookHandler(msgBus, cfg.SMSWebhookSecret)
+		smsWebhook.SetTenants(tenants)
 		smsWebhook.SetStore(dataStore)
 		smsWebhook.SetKeyStore(keyStore)
 		// [MESHSAT-446] Wire full pipeline (parity with Rock7/Cloudloop)

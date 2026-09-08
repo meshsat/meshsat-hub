@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/meshsat/meshsat-hub/internal/tenancy"
 	"log/slog"
 	"net"
 	"net/http"
@@ -76,6 +77,7 @@ type WebhookPositionMessage struct {
 
 // WebhookHandler handles Cloudloop LingoMO webhook POST requests.
 type WebhookHandler struct {
+	tenants         *tenancy.Resolver // device → tenant for topic namespaces; nil = default tenant
 	mqtt            bus.MessageBus
 	audit           *audit.Service
 	dedup           dedup.Dedup
@@ -308,7 +310,7 @@ func (h *WebhookHandler) processLingoMO(ctx context.Context, mo *LingoMO, remote
 		IridiumCEP:       cep,
 		Source:           source,
 	}
-	h.publish(hubmqtt.TopicMORaw(imei), 1, false, rawMsg)
+	h.publish(hubmqtt.TopicMORawFor(h.tenantOf(imei), imei), 1, false, rawMsg)
 
 	// Fragment reassembly.
 	if h.reassembler != nil && fragment.IsFragment(rawBytes) {
@@ -399,7 +401,7 @@ func (h *WebhookHandler) processLingoMO(ctx context.Context, mo *LingoMO, remote
 		IridiumCEP:       cep,
 		Source:           source,
 	}
-	h.publish(hubmqtt.TopicMODecoded(imei), 1, false, decoded)
+	h.publish(hubmqtt.TopicMODecodedFor(h.tenantOf(imei), imei), 1, false, decoded)
 
 	// Persist MO message to database.
 	if h.store != nil {
@@ -435,7 +437,7 @@ func (h *WebhookHandler) processLingoMO(ctx context.Context, mo *LingoMO, remote
 			Source:    source,
 			Timestamp: transmitTime,
 		}
-		h.publish(hubmqtt.TopicPosition(imei), 1, true, pos)
+		h.publish(hubmqtt.TopicPositionFor(h.tenantOf(imei), imei), 1, true, pos)
 	}
 
 	// Dead man's switch: device sent an MO message, reset its timer.
@@ -487,7 +489,7 @@ func (h *WebhookHandler) handleBridgeSatUplink(ctx context.Context, imei string,
 			Source:    "satellite_uplink",
 			Timestamp: ts.Format(time.RFC3339),
 		}
-		h.publish(hubmqtt.TopicPosition(bridgeID), 1, true, pos)
+		h.publish(hubmqtt.TopicPositionFor(h.tenantOf(bridgeID), bridgeID), 1, true, pos)
 		if h.store != nil {
 			tid := auth.TenantIDFromContext(ctx)
 			_ = h.store.SetBridgeOnline(ctx, tid, bridgeID, true)
@@ -510,7 +512,7 @@ func (h *WebhookHandler) handleBridgeSatUplink(ctx context.Context, imei string,
 			"source":    "satellite_uplink",
 			"timestamp": ts.Format(time.RFC3339),
 		}
-		h.publish(hubmqtt.TopicSOS(bridgeID), 1, false, sos)
+		h.publish(hubmqtt.TopicSOSFor(h.tenantOf(bridgeID), bridgeID), 1, false, sos)
 
 	case bridge.SatMsgHealthSummary:
 		bridgeID, uptimeSec, cpuPct, memPct, diskPct, ifaces, ts, err := bridge.DecodeSatHealth(payload)
@@ -613,4 +615,15 @@ func isPrintable(b []byte) bool {
 		}
 	}
 	return len(b) > 0
+}
+
+// SetTenants makes published topics follow the owning tenant's namespace
+// (MESHSAT-864 MR 20). Without it every topic uses the default namespace.
+func (h *WebhookHandler) SetTenants(r *tenancy.Resolver) { h.tenants = r }
+
+func (h *WebhookHandler) tenantOf(id string) string {
+	if h.tenants == nil {
+		return hubmqtt.DefaultTenant
+	}
+	return h.tenants.ForDevice(context.Background(), id)
 }

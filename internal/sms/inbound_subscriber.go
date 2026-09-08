@@ -46,7 +46,12 @@ func (s *InboundSubscriber) SetKeyStore(ks *hubcrypto.KeyStore) {
 
 // Start subscribes to the MQTT topic for inbound SMS from Android devices.
 func (s *InboundSubscriber) Start() error {
-	return s.mqtt.Subscribe("meshsat/+/sms/inbound", 1, s.handleInbound)
+	for _, f := range hubmqtt.DualFilters("meshsat/+/sms/inbound") {
+		if err := s.mqtt.Subscribe(f, 1, s.handleInbound); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (s *InboundSubscriber) handleInbound(topic string, payload []byte) {

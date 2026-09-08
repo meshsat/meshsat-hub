@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"github.com/meshsat/meshsat-hub/internal/tenancy"
 	"github.com/rs/xid"
 	"log/slog"
 	"net/http"
@@ -60,6 +61,7 @@ type reticulumReceiver interface {
 // [MESHSAT-446] Now matches Rock7/Cloudloop pipeline: dedup, fragment
 // reassembly, SMAZ2/MSVQ-SC compression, Reticulum relay, bridge uplink.
 type WebhookHandler struct {
+	tenants         *tenancy.Resolver // device → tenant for topic namespaces; nil = default tenant
 	mqtt            bus.MessageBus
 	secret          string // webhook validation secret
 	store           store.Store
@@ -242,7 +244,7 @@ func (h *WebhookHandler) processBinaryPipeline(r *http.Request, w http.ResponseW
 	rawB64 := base64.StdEncoding.EncodeToString(rawBytes)
 
 	// Publish raw payload to mo/raw.
-	h.publish(hubmqtt.TopicMORaw(from), 1, false, RawSMS{
+	h.publish(hubmqtt.TopicMORawFor(h.tenantOf(from), from), 1, false, RawSMS{
 		From:      from,
 		Raw:       rawB64,
 		Channel:   "sms",
@@ -323,7 +325,7 @@ func (h *WebhookHandler) processBinaryPipeline(r *http.Request, w http.ResponseW
 		Encrypted:   encrypted,
 		Timestamp:   time.Now().UTC().Format(time.RFC3339),
 	}
-	h.publish(hubmqtt.TopicMODecoded(from), 1, false, msg)
+	h.publish(hubmqtt.TopicMODecodedFor(h.tenantOf(from), from), 1, false, msg)
 	h.publish("meshsat/hub/sms/inbound", 1, false, msg)
 
 	// Persist to database.
@@ -437,7 +439,7 @@ func (h *WebhookHandler) handleBridgeUplink(ctx context.Context, from string, ra
 		}
 		slog.Info("sms: bridge uplink position",
 			"bridge_id", bridgeID, "lat", lat, "lon", lon, "alt", alt, "from", from)
-		h.publish(hubmqtt.TopicPosition(from), 1, true, map[string]any{
+		h.publish(hubmqtt.TopicPositionFor(h.tenantOf(from), from), 1, true, map[string]any{
 			"lat": lat, "lon": lon, "alt": alt,
 			"source": "sms_uplink", "timestamp": ts.Format(time.RFC3339),
 		})
@@ -451,7 +453,7 @@ func (h *WebhookHandler) handleBridgeUplink(ctx context.Context, from string, ra
 		slog.Warn("sms: BRIDGE SOS via SMS",
 			"bridge_id", bridgeID, "device_id", deviceID,
 			"lat", lat, "lon", lon, "message", message, "from", from)
-		h.publish(hubmqtt.TopicSOS(bridgeID), 1, false, map[string]any{
+		h.publish(hubmqtt.TopicSOSFor(h.tenantOf(bridgeID), bridgeID), 1, false, map[string]any{
 			"bridge_id": bridgeID, "device_id": deviceID,
 			"lat": lat, "lon": lon, "message": message,
 			"source": "sms", "timestamp": ts.Format(time.RFC3339),
@@ -481,4 +483,15 @@ func smsMessageID(messageSID string) string {
 		return "sms-in-" + xid.New().String()
 	}
 	return "sms-in-" + messageSID
+}
+
+// SetTenants makes published topics follow the owning tenant's namespace
+// (MESHSAT-864 MR 20). Without it every topic uses the default namespace.
+func (h *WebhookHandler) SetTenants(r *tenancy.Resolver) { h.tenants = r }
+
+func (h *WebhookHandler) tenantOf(id string) string {
+	if h.tenants == nil {
+		return hubmqtt.DefaultTenant
+	}
+	return h.tenants.ForDevice(context.Background(), id)
 }
