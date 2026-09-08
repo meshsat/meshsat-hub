@@ -32,6 +32,11 @@ func NewNATS(messageBus bus.MessageBus, instanceID string) *NATSLeader {
 // with a queue group — only one instance in the group processes each heartbeat.
 func (l *NATSLeader) Run(ctx context.Context, onAcquired func(), onLost func()) {
 	slog.Info("leader: NATS election starting", "topic", l.topic, "group", l.group)
+	// NATS MQTT does not implement shared/queue subscriptions, so every instance
+	// receives every heartbeat and every instance becomes leader. This elector
+	// is NOT exclusive; singleton services may run on every node (MESHSAT-711).
+	// It is retired with the cluster mode at the k8s cutover.
+	slog.Warn("leader: NATS elector is not exclusive; singleton services may run on every node")
 
 	// Subscribe to heartbeat with queue group — only one instance gets each message
 	err := l.bus.QueueSubscribe(l.topic, 1, l.group, func(topic string, payload []byte) {
