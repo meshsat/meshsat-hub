@@ -124,7 +124,7 @@ function expiryLabel(c) {
       <h2 class="text-lg font-semibold mb-4">Upload Certificate</h2>
       <div class="border-2 border-dashed border-gray-600 rounded-lg p-6 text-center">
         <input type="file" ref="fileInput" accept=".zip,.pem,.crt,.key,.cer" @change="onFileSelected" class="hidden">
-        <button @click="$refs.fileInput.click()" class="px-4 py-2 rounded bg-blue-600 text-white hover:bg-blue-500">
+        <button @click="$refs.fileInput.click()" class="px-4 py-2 rounded bg-brand-primary text-ms-on-primary hover:bg-brand-accent">
           Select ZIP or PEM File
         </button>
         <p v-if="uploadFileName" class="text-sm text-gray-400 mt-2">{{ uploadFileName }}</p>
@@ -181,7 +181,7 @@ function expiryLabel(c) {
             <td class="px-4 py-3 text-xs text-gray-400">{{ c.target_scope }}</td>
             <td class="px-4 py-3 text-right space-x-1">
               <button v-if="c.target_scope !== 'hub'" @click="distribute(c.id)"
-                class="px-2 py-1 rounded bg-blue-700 text-xs text-white hover:bg-blue-600">Distribute</button>
+                class="px-2 py-1 rounded bg-brand-primary text-xs text-ms-on-primary hover:bg-brand-accent">Distribute</button>
               <button @click="deleteCred(c.id)"
                 class="px-2 py-1 rounded bg-red-900 text-xs text-red-300 hover:bg-red-800">Delete</button>
             </td>
