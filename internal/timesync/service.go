@@ -11,6 +11,7 @@ package timesync
 import (
 	"context"
 	"encoding/json"
+	"github.com/meshsat/meshsat-hub/internal/wire"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -150,7 +151,7 @@ func (ts *TimeService) ApplyCorrection(source string, stratum int, offsetNs, unc
 
 	prevOffset := ts.offsetNanos.Load()
 	ts.offsetNanos.Store(offsetNs)
-	ts.currentStrat.Store(int32(stratum))
+	ts.currentStrat.Store(int32(wire.ClampU8(stratum)))
 
 	ts.mu.Lock()
 	prevSource := ts.source
@@ -231,7 +232,7 @@ func (ts *TimeService) LoadPersistedState() {
 
 	// Only restore if it's reasonably fresh (< 1 hour) -- clocks drift.
 	ts.offsetNanos.Store(offsetNs)
-	ts.currentStrat.Store(int32(stratum))
+	ts.currentStrat.Store(int32(wire.ClampU8(stratum)))
 	ts.mu.Lock()
 	ts.source = source + " (restored)"
 	ts.uncertaintyNs = uncertaintyNs

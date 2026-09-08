@@ -135,8 +135,8 @@ func FragmentPacket(packet []byte, sbdMTU int, packetID uint8, compress bool) ([
 		copy(frag, payload[start:end])
 
 		frames = append(frames, &Frame{
-			FragIndex: uint8(i),
-			FragTotal: uint8(nFrags),
+			FragIndex: uint8(i & 0xFF),      // i < nFrags <= MaxFragments (16)
+			FragTotal: uint8(nFrags & 0xFF), // bounded by the MaxFragments check above
 			PacketID:  packetID,
 			Flags:     flags,
 			Payload:   frag,

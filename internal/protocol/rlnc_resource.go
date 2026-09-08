@@ -4,6 +4,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"github.com/meshsat/meshsat-hub/internal/wire"
 )
 
 // RLNCVersion is the wire format version for RLNC coded packets.
@@ -221,7 +222,7 @@ func EncodeGeneration(genID uint16, resourceHash [32]byte, segments [][]byte, re
 			ResourceHash: resourceHash,
 			Version:      RLNCVersion,
 			GenerationID: genID,
-			K:            byte(k),
+			K:            wire.ClampU8(k), // k <= RLNC generation limit (fits a byte by construction)
 			Coefficients: coefficients,
 			Payload:      payload,
 		}

@@ -3,6 +3,7 @@ package reticulum
 import (
 	"context"
 	"encoding/hex"
+	"github.com/meshsat/meshsat-hub/internal/wire"
 	"log/slog"
 	"sync"
 	"sync/atomic"
@@ -109,7 +110,7 @@ func (ph *PathHandler) HandlePacket(ctx context.Context, sourceIface InterfaceTy
 	resp := &PathResponse{
 		DestHash:      req.DestHash,
 		Tag:           req.Tag,
-		Hops:          byte(route.Hops),
+		Hops:          wire.ClampU8(route.Hops),
 		InterfaceType: string(route.Interface),
 		AnnounceData:  route.AppData,
 	}

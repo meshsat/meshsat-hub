@@ -3,6 +3,8 @@ package timesync
 import (
 	"context"
 	"encoding/binary"
+	"github.com/meshsat/meshsat-hub/internal/wire"
+	"math"
 	"sync"
 	"time"
 
@@ -116,7 +118,7 @@ func (mc *MeshTimeConsensus) sendRequest() {
 	pkt[0] = PacketTimeSyncReq
 	copy(pkt[1:17], localHash[:])
 	binary.LittleEndian.PutUint64(pkt[17:25], uint64(nowNanos))
-	pkt[25] = byte(stratum)
+	pkt[25] = wire.ClampU8(stratum)
 
 	// Track pending request for RTT calculation.
 	mc.pendingMu.Lock()
@@ -137,7 +139,10 @@ func (mc *MeshTimeConsensus) HandleTimeSyncRequest(data []byte, sourceIface stri
 
 	var senderHash [DestHashLen]byte
 	copy(senderHash[:], data[1:17])
-	requestTimestamp := int64(binary.LittleEndian.Uint64(data[17:25]))
+	requestRaw := binary.LittleEndian.Uint64(data[17:25])
+	if requestRaw > math.MaxInt64 {
+		return // not a nanosecond timestamp
+	}
 	// senderStratum := int(data[25])
 
 	// Build response: our timestamp + echo of their request timestamp.
@@ -149,8 +154,8 @@ func (mc *MeshTimeConsensus) HandleTimeSyncRequest(data []byte, sourceIface stri
 	resp[0] = PacketTimeSyncResp
 	copy(resp[1:17], localHash[:])
 	binary.LittleEndian.PutUint64(resp[17:25], uint64(now.UnixNano()))
-	resp[25] = byte(stratum)
-	binary.LittleEndian.PutUint64(resp[26:34], uint64(requestTimestamp))
+	resp[25] = wire.ClampU8(stratum)
+	binary.LittleEndian.PutUint64(resp[26:34], requestRaw)
 
 	mc.sendFn(resp)
 }
@@ -167,9 +172,14 @@ func (mc *MeshTimeConsensus) HandleTimeSyncResponse(data []byte) {
 
 	var responderHash [DestHashLen]byte
 	copy(responderHash[:], data[1:17])
-	remoteTimestamp := int64(binary.LittleEndian.Uint64(data[17:25]))
+	remoteRaw := binary.LittleEndian.Uint64(data[17:25])
+	echoRaw := binary.LittleEndian.Uint64(data[26:34])
+	if remoteRaw > math.MaxInt64 || echoRaw > math.MaxInt64 {
+		return // not nanosecond timestamps
+	}
+	remoteTimestamp := int64(remoteRaw)
 	remoteStratum := int(data[25])
-	echoTimestamp := int64(binary.LittleEndian.Uint64(data[26:34]))
+	echoTimestamp := int64(echoRaw)
 
 	// Look up the pending request to get the local send time.
 	mc.pendingMu.Lock()
@@ -327,7 +337,7 @@ func BuildTimeSyncResponse(rawRequest []byte, ts *TimeService) []byte {
 	resp[0] = PacketTimeSyncResp
 	// Hub hash: leave as zeros (hub identity injected later if needed).
 	binary.LittleEndian.PutUint64(resp[17:25], uint64(now.UnixNano()))
-	resp[25] = byte(stratum)
+	resp[25] = wire.ClampU8(stratum)
 	binary.LittleEndian.PutUint64(resp[26:34], requestTimestamp)
 
 	return resp

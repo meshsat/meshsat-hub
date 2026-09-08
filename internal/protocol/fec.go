@@ -3,6 +3,7 @@ package protocol
 import (
 	"encoding/binary"
 	"fmt"
+	"math"
 	"sync/atomic"
 
 	"github.com/klauspost/reedsolomon"
@@ -87,6 +88,9 @@ func FECEncode(data []byte, dataShards, parityShards int, opts ...FECEncodeOpts)
 
 	// Prepend 4-byte original length so we can strip padding on decode.
 	origLen := len(data)
+	if origLen > math.MaxUint32 {
+		return nil, fmt.Errorf("fec: payload %d bytes exceeds the 32-bit length prefix", origLen)
+	}
 	prefixed := make([]byte, fecOrigLenTrailer+origLen)
 	binary.LittleEndian.PutUint32(prefixed[:4], uint32(origLen))
 	copy(prefixed[4:], data)
@@ -135,6 +139,9 @@ func FECEncode(data []byte, dataShards, parityShards int, opts ...FECEncodeOpts)
 	}
 
 	totalShards := len(shards)
+	if shardSize < 0 || shardSize > math.MaxUint16 {
+		return nil, fmt.Errorf("fec: shard size %d exceeds the 16-bit header field", shardSize)
+	}
 	out := make([]byte, fecHeaderLenV2+totalShards*shardSize)
 	out[0] = FECVersion2
 	out[1] = byte(dataShards)
