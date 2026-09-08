@@ -3,6 +3,8 @@ package sms
 import (
 	"context"
 	"fmt"
+	"github.com/meshsat/meshsat-hub/internal/store"
+	"github.com/meshsat/meshsat-hub/internal/tenancy"
 	"log/slog"
 	"strings"
 )
@@ -11,6 +13,13 @@ import (
 // Targets that start with "+" are treated as E.164 phone numbers; others are skipped.
 type Notifier struct {
 	client *Client
+	pool   *ClientPool
+}
+
+// NewNotifierPool creates a notifier that picks the Twilio account of the
+// tenant carried in the context (tenancy.WithTenant), default otherwise.
+func NewNotifierPool(pool *ClientPool) *Notifier {
+	return &Notifier{pool: pool}
 }
 
 // NewNotifier creates an SMS escalation notifier.
@@ -25,11 +34,23 @@ func (n *Notifier) Notify(ctx context.Context, targets []string, subject, body s
 	var lastErr error
 	sent := 0
 
+	client := n.client
+	if n.pool != nil {
+		tenantID := tenancy.FromContext(ctx)
+		if tenantID == "" {
+			tenantID = store.DefaultTenantID
+		}
+		client = n.pool.ForTenant(ctx, tenantID)
+	}
+	if client == nil {
+		return fmt.Errorf("sms: no Twilio account configured for this tenant")
+	}
+
 	for _, target := range targets {
 		if !isPhoneNumber(target) {
 			continue
 		}
-		if _, err := n.client.Send(ctx, target, text); err != nil {
+		if _, err := client.Send(ctx, target, text); err != nil {
 			slog.Error("sms: escalation notify failed", "to", target, "error", err)
 			lastErr = err
 		} else {
