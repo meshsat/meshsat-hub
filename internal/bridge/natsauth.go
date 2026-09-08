@@ -95,7 +95,10 @@ func RenderNATSUsers(bridges []*store.Bridge, namespace func(tenantID string) st
 	w.WriteString("# Rendered by meshsat-hub (internal/bridge/natsauth.go); do not edit by hand.\n")
 	fmt.Fprintf(&w, "# %d bridge user(s). The shared user's password comes from the pod environment.\n", len(users))
 	w.WriteString("authorization {\n  users = [\n")
-	w.WriteString("    { user: " + SharedNATSUser + ", password: $NATS_MQTT_PASSWORD }\n")
+	// Explicit permissions for the shared user: nats-server 2.11.8 dereferences
+	// a nil permission set in mqttCheckPubRetainedPerms when authorization is
+	// reloaded (SIGSEGV, MESHSAT-973), so no user may be left without one.
+	w.WriteString("    { user: " + SharedNATSUser + ", password: $NATS_MQTT_PASSWORD, permissions: { publish: { allow: [\">\"] }, subscribe: { allow: [\">\"] } } }\n")
 	for _, u := range users {
 		pub, sub := NATSPermissions(u.ns, u.id)
 		fmt.Fprintf(&w, "    { user: \"%s\", password: \"%s\", permissions: { publish: { allow: [%s] }, subscribe: { allow: [%s] } } }\n",
