@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/meshsat/meshsat-hub/internal/integrations"
 	"github.com/meshsat/meshsat-hub/internal/tenancy"
 	"log/slog"
 	"net"
@@ -89,7 +90,8 @@ type WebhookHandler struct {
 	hembReassembler interface{ AddRawFrame([]byte) ([]byte, error) }
 	resolver        *ThingResolver
 	allowedIPs      []string
-	token           string // shared webhook token; required when allowedIPs is "*"
+	token           string                // platform webhook token (default tenant); required when allowedIPs is "*" and no accounts
+	accounts        *integrations.Service // per-tenant webhook tokens (MESHSAT-977)
 	store           interface {
 		InsertMessage(ctx context.Context, tenantID string, m *store.Message) error
 		SetBridgeOnline(ctx context.Context, tenantID string, bridgeID string, online bool) error
@@ -158,6 +160,22 @@ func (h *WebhookHandler) SetHeMBReassembler(r interface{ AddRawFrame([]byte) ([]
 // request until one is configured (MESHSAT-971).
 func (h *WebhookHandler) SetToken(t string) { h.token = t }
 
+// SetAccounts enables per-tenant webhook tokens: the token in the request
+// selects the tenant, and the device must belong to it.
+func (h *WebhookHandler) SetAccounts(a *integrations.Service) { h.accounts = a }
+
+// presentedToken returns the token from the query or header ("" if none).
+func presentedToken(r *http.Request) string {
+	if t := r.URL.Query().Get("token"); t != "" {
+		return t
+	}
+	return r.Header.Get("X-Webhook-Token")
+}
+
+// statusWrongTenant is returned by processLingoMO when the authenticated
+// tenant does not own the device; ServeHTTP turns it into 403.
+const statusWrongTenant = "device belongs to another tenant"
+
 // wildcardAllowlist reports whether the allowlist is the catch-all "*".
 func (h *WebhookHandler) wildcardAllowlist() bool {
 	return len(h.allowedIPs) == 1 && strings.TrimSpace(h.allowedIPs[0]) == "*"
@@ -216,14 +234,27 @@ func (h *WebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, `{"error":"webhook IP allowlist not configured"}`, http.StatusForbidden)
 		return
 	}
+	tokenTenant := ""
 	if h.wildcardAllowlist() {
-		// A wildcard allowlist is only acceptable together with a shared token.
-		if h.token == "" {
+		// A wildcard allowlist is only acceptable together with a token: the
+		// platform token (default tenant) or a tenant's own webhook token.
+		if h.token == "" && h.accounts == nil {
 			slog.Warn("cloudloop: allowlist is * but no webhook token configured, rejecting request")
 			http.Error(w, `{"error":"webhook token not configured"}`, http.StatusForbidden)
 			return
 		}
-		if !h.tokenOK(r) {
+		tok := presentedToken(r)
+		if tok != "" && h.accounts != nil {
+			tenant, _, err := h.accounts.LookupByToken(r.Context(), integrations.ProviderCloudloop, "webhook_token", tok)
+			if err != nil {
+				slog.Error("cloudloop: webhook token lookup failed", "error", err)
+			}
+			tokenTenant = tenant
+		}
+		if tokenTenant == "" && h.token != "" && h.tokenOK(r) {
+			tokenTenant = store.DefaultTenantID
+		}
+		if tokenTenant == "" {
 			slog.Warn("cloudloop: webhook token missing or wrong", "remote", r.RemoteAddr)
 			http.Error(w, `{"error":"unauthorized"}`, http.StatusUnauthorized)
 			return
@@ -244,7 +275,15 @@ func (h *WebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	status := h.processLingoMO(r.Context(), &mo, r.RemoteAddr)
+	ctx := r.Context()
+	if tokenTenant != "" {
+		ctx = tenancy.WithTenant(ctx, tokenTenant)
+	}
+	status := h.processLingoMO(ctx, &mo, r.RemoteAddr)
+	if status == statusWrongTenant {
+		http.Error(w, `{"error":"forbidden"}`, http.StatusForbidden)
+		return
+	}
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
@@ -269,10 +308,19 @@ func (h *WebhookHandler) processLingoMO(ctx context.Context, mo *LingoMO, remote
 			"account_id", mo.Identity.AccountID)
 		return "error_no_imei"
 	}
+	// A webhook token authenticates one tenant: the device must be that
+	// tenant's (or unregistered, in which case it joins it). A device owned by
+	// another tenant is refused so one tenant cannot inject into another.
+	if want := tenancy.FromContext(ctx); want != "" && h.tenants != nil {
+		if owner := h.tenants.ForDeviceTopic(ctx, imei, want); owner != want {
+			slog.Warn("cloudloop: webhook token tenant does not own the device", "imei", imei, "token_tenant", want, "owner", owner)
+			return statusWrongTenant
+		}
+	}
 
 	// Teach the resolver about this device's thingId and modem type.
 	if h.resolver != nil {
-		h.resolver.LearnFromMO(mo)
+		h.resolver.LearnFromMO(h.tenantOf(ctx, imei), mo)
 	}
 
 	momsn := mo.MOMSN()
@@ -342,7 +390,7 @@ func (h *WebhookHandler) processLingoMO(ctx context.Context, mo *LingoMO, remote
 		IridiumCEP:       cep,
 		Source:           source,
 	}
-	h.publish(hubmqtt.TopicMORawFor(h.tenantOf(imei), imei), 1, false, rawMsg)
+	h.publish(hubmqtt.TopicMORawFor(h.tenantOf(ctx, imei), imei), 1, false, rawMsg)
 
 	// Fragment reassembly.
 	if h.reassembler != nil && fragment.IsFragment(rawBytes) {
@@ -433,11 +481,11 @@ func (h *WebhookHandler) processLingoMO(ctx context.Context, mo *LingoMO, remote
 		IridiumCEP:       cep,
 		Source:           source,
 	}
-	h.publish(hubmqtt.TopicMODecodedFor(h.tenantOf(imei), imei), 1, false, decoded)
+	h.publish(hubmqtt.TopicMODecodedFor(h.tenantOf(ctx, imei), imei), 1, false, decoded)
 
 	// Persist MO message to database.
 	if h.store != nil {
-		tid := h.tenantOf(imei)
+		tid := h.tenantOf(ctx, imei)
 		msg := &store.Message{
 			ID:         msgID,
 			DeviceIMEI: imei,
@@ -469,7 +517,7 @@ func (h *WebhookHandler) processLingoMO(ctx context.Context, mo *LingoMO, remote
 			Source:    source,
 			Timestamp: transmitTime,
 		}
-		h.publish(hubmqtt.TopicPositionFor(h.tenantOf(imei), imei), 1, true, pos)
+		h.publish(hubmqtt.TopicPositionFor(h.tenantOf(ctx, imei), imei), 1, true, pos)
 	}
 
 	// Dead man's switch: device sent an MO message, reset its timer.
@@ -479,7 +527,7 @@ func (h *WebhookHandler) processLingoMO(ctx context.Context, mo *LingoMO, remote
 
 	// Audit: log message_received event.
 	if h.audit != nil {
-		tid := h.tenantOf(imei)
+		tid := h.tenantOf(ctx, imei)
 		detail := fmt.Sprintf("imei=%s id=%s source=%s bytes=%d", imei, mo.ID, source, len(rawBytes))
 		ip := remoteAddr
 		if idx := strings.LastIndex(ip, ":"); idx > 0 {
@@ -521,9 +569,9 @@ func (h *WebhookHandler) handleBridgeSatUplink(ctx context.Context, imei string,
 			Source:    "satellite_uplink",
 			Timestamp: ts.Format(time.RFC3339),
 		}
-		h.publish(hubmqtt.TopicPositionFor(h.tenantOf(bridgeID), bridgeID), 1, true, pos)
+		h.publish(hubmqtt.TopicPositionFor(h.tenantOf(ctx, bridgeID), bridgeID), 1, true, pos)
 		if h.store != nil {
-			tid := h.tenantOf(bridgeID)
+			tid := h.tenantOf(ctx, bridgeID)
 			_ = h.store.SetBridgeOnline(ctx, tid, bridgeID, true)
 		}
 
@@ -544,7 +592,7 @@ func (h *WebhookHandler) handleBridgeSatUplink(ctx context.Context, imei string,
 			"source":    "satellite_uplink",
 			"timestamp": ts.Format(time.RFC3339),
 		}
-		h.publish(hubmqtt.TopicSOSFor(h.tenantOf(bridgeID), bridgeID), 1, false, sos)
+		h.publish(hubmqtt.TopicSOSFor(h.tenantOf(ctx, bridgeID), bridgeID), 1, false, sos)
 
 	case bridge.SatMsgHealthSummary:
 		bridgeID, uptimeSec, cpuPct, memPct, diskPct, ifaces, ts, err := bridge.DecodeSatHealth(payload)
@@ -556,7 +604,7 @@ func (h *WebhookHandler) handleBridgeSatUplink(ctx context.Context, imei string,
 			"bridge_id", bridgeID, "uptime", uptimeSec, "cpu", cpuPct, "mem", memPct, "disk", diskPct,
 			"interfaces", len(ifaces), "timestamp", ts)
 		if h.store != nil {
-			tid := h.tenantOf(bridgeID)
+			tid := h.tenantOf(ctx, bridgeID)
 			healthJSON, _ := json.Marshal(map[string]interface{}{
 				"uptime_sec": uptimeSec,
 				"cpu_pct":    cpuPct,
@@ -576,7 +624,7 @@ func (h *WebhookHandler) handleBridgeSatUplink(ctx context.Context, imei string,
 
 	// Audit: log bridge satellite uplink event.
 	if h.audit != nil {
-		tid := h.tenantOf(imei)
+		tid := h.tenantOf(ctx, imei)
 		detail := fmt.Sprintf("imei=%s type=0x%02x bytes=%d", imei, msgType, len(rawBytes))
 		_ = h.audit.Log(ctx, tid, "bridge_sat_uplink", "cloudloop_webhook", detail, "")
 	}
@@ -653,9 +701,14 @@ func isPrintable(b []byte) bool {
 // (MESHSAT-864 MR 20). Without it every topic uses the default namespace.
 func (h *WebhookHandler) SetTenants(r *tenancy.Resolver) { h.tenants = r }
 
-func (h *WebhookHandler) tenantOf(id string) string {
+// tenantOf returns the tenant a message belongs to: the tenant the webhook
+// token authenticated (carried in ctx), else the device's owner.
+func (h *WebhookHandler) tenantOf(ctx context.Context, id string) string {
+	if t := tenancy.FromContext(ctx); t != "" {
+		return t
+	}
 	if h.tenants == nil {
 		return hubmqtt.DefaultTenant
 	}
-	return h.tenants.ForDevice(context.Background(), id)
+	return h.tenants.ForDevice(ctx, id)
 }

@@ -6,12 +6,14 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+
+	"github.com/meshsat/meshsat-hub/internal/store"
 )
 
 func TestThingResolver_ResolveUnknown(t *testing.T) {
 	r := NewThingResolver(nil)
 
-	thingID, isIMT := r.Resolve("300234065000001")
+	thingID, isIMT := r.Resolve(store.DefaultTenantID, "300234065000001")
 	if thingID != "300234065000001" {
 		t.Errorf("expected IMEI as thingID for unknown device, got %s", thingID)
 	}
@@ -23,8 +25,8 @@ func TestThingResolver_ResolveUnknown(t *testing.T) {
 func TestThingResolver_Register(t *testing.T) {
 	r := NewThingResolver(nil)
 
-	r.Register("300234065000001", "AbCdEfGh12345678901234567890AB", false)
-	thingID, isIMT := r.Resolve("300234065000001")
+	r.Register(store.DefaultTenantID, "300234065000001", "AbCdEfGh12345678901234567890AB", false)
+	thingID, isIMT := r.Resolve(store.DefaultTenantID, "300234065000001")
 	if thingID != "AbCdEfGh12345678901234567890AB" {
 		t.Errorf("expected registered thingID, got %s", thingID)
 	}
@@ -32,8 +34,8 @@ func TestThingResolver_Register(t *testing.T) {
 		t.Error("expected isIMT=false for SBD device")
 	}
 
-	r.Register("300258060902280", "XyZ9704ThingId00000000000000AB", true)
-	thingID, isIMT = r.Resolve("300258060902280")
+	r.Register(store.DefaultTenantID, "300258060902280", "XyZ9704ThingId00000000000000AB", true)
+	thingID, isIMT = r.Resolve(store.DefaultTenantID, "300258060902280")
 	if thingID != "XyZ9704ThingId00000000000000AB" {
 		t.Errorf("expected registered thingID, got %s", thingID)
 	}
@@ -48,8 +50,8 @@ func TestThingResolver_Count(t *testing.T) {
 		t.Errorf("expected 0, got %d", r.Count())
 	}
 
-	r.Register("300234065000001", "thing1", false)
-	r.Register("300234065000002", "thing2", true)
+	r.Register(store.DefaultTenantID, "300234065000001", "thing1", false)
+	r.Register(store.DefaultTenantID, "300234065000002", "thing2", true)
 	if r.Count() != 2 {
 		t.Errorf("expected 2, got %d", r.Count())
 	}
@@ -73,9 +75,9 @@ func TestThingResolver_LearnFromMO_SBD(t *testing.T) {
 		},
 	}
 
-	r.LearnFromMO(mo)
+	r.LearnFromMO(store.DefaultTenantID, mo)
 
-	thingID, isIMT := r.Resolve("300234065000001")
+	thingID, isIMT := r.Resolve(store.DefaultTenantID, "300234065000001")
 	if thingID != "SbdThingId123456789012345678AB" {
 		t.Errorf("expected learned thingID, got %s", thingID)
 	}
@@ -102,9 +104,9 @@ func TestThingResolver_LearnFromMO_IMT(t *testing.T) {
 		},
 	}
 
-	r.LearnFromMO(mo)
+	r.LearnFromMO(store.DefaultTenantID, mo)
 
-	thingID, isIMT := r.Resolve("300258060902280")
+	thingID, isIMT := r.Resolve(store.DefaultTenantID, "300258060902280")
 	if thingID != "ImtThingId123456789012345678AB" {
 		t.Errorf("expected learned thingID, got %s", thingID)
 	}
@@ -131,9 +133,9 @@ func TestThingResolver_LearnFromMO_IMTByHardwareType(t *testing.T) {
 		},
 	}
 
-	r.LearnFromMO(mo)
+	r.LearnFromMO(store.DefaultTenantID, mo)
 
-	_, isIMT := r.Resolve("300258060000001")
+	_, isIMT := r.Resolve(store.DefaultTenantID, "300258060000001")
 	if !isIMT {
 		t.Error("expected isIMT=true when hardware type contains CERTUS")
 	}
@@ -157,9 +159,9 @@ func TestThingResolver_LearnFromMO_IMTBySubscriberType(t *testing.T) {
 		},
 	}
 
-	r.LearnFromMO(mo)
+	r.LearnFromMO(store.DefaultTenantID, mo)
 
-	_, isIMT := r.Resolve("300258060000002")
+	_, isIMT := r.Resolve(store.DefaultTenantID, "300258060000002")
 	if !isIMT {
 		t.Error("expected isIMT=true when subscriber type contains P6")
 	}
@@ -169,10 +171,10 @@ func TestThingResolver_LearnFromMO_NilSafe(t *testing.T) {
 	r := NewThingResolver(nil)
 
 	// nil MO should not panic.
-	r.LearnFromMO(nil)
+	r.LearnFromMO(store.DefaultTenantID, nil)
 
 	// MO with no IMEI should not cache.
-	r.LearnFromMO(&LingoMO{
+	r.LearnFromMO(store.DefaultTenantID, &LingoMO{
 		ID:       "mo-005",
 		Identity: LingoIdentity{ThingID: "thing123"},
 	})
@@ -181,7 +183,7 @@ func TestThingResolver_LearnFromMO_NilSafe(t *testing.T) {
 	}
 
 	// MO with no thingID should not cache.
-	r.LearnFromMO(&LingoMO{
+	r.LearnFromMO(store.DefaultTenantID, &LingoMO{
 		ID: "mo-006",
 		Identity: LingoIdentity{
 			Hardware: &LingoHardware{IMEI: "300234065000001"},
@@ -203,9 +205,9 @@ func TestThingResolver_LearnFromMO_OverwritesPrevious(t *testing.T) {
 			Hardware: &LingoHardware{IMEI: "300234065000001", Type: "HARDWARE_TYPE_IRIDIUM_SBD"},
 		},
 	}
-	r.LearnFromMO(mo1)
+	r.LearnFromMO(store.DefaultTenantID, mo1)
 
-	thingID, _ := r.Resolve("300234065000001")
+	thingID, _ := r.Resolve(store.DefaultTenantID, "300234065000001")
 	if thingID != "OldThingId1234567890123456789A" {
 		t.Errorf("expected old thingID, got %s", thingID)
 	}
@@ -218,9 +220,9 @@ func TestThingResolver_LearnFromMO_OverwritesPrevious(t *testing.T) {
 			Hardware: &LingoHardware{IMEI: "300234065000001", Type: "HARDWARE_TYPE_IRIDIUM_SBD"},
 		},
 	}
-	r.LearnFromMO(mo2)
+	r.LearnFromMO(store.DefaultTenantID, mo2)
 
-	thingID, _ = r.Resolve("300234065000001")
+	thingID, _ = r.Resolve(store.DefaultTenantID, "300234065000001")
 	if thingID != "NewThingId1234567890123456789B" {
 		t.Errorf("expected new thingID after re-learn, got %s", thingID)
 	}
@@ -313,7 +315,7 @@ func TestThingResolver_RefreshFromAPI(t *testing.T) {
 	defer server.Close()
 
 	client := NewClient(server.URL, "test-key")
-	r := NewThingResolver(client)
+	r := NewThingResolver(NewClientPool(client, nil))
 
 	if err := r.RefreshFromAPI(context.Background()); err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -324,7 +326,7 @@ func TestThingResolver_RefreshFromAPI(t *testing.T) {
 	}
 
 	// SBD device.
-	thingID, isIMT := r.Resolve("300234065000001")
+	thingID, isIMT := r.Resolve(store.DefaultTenantID, "300234065000001")
 	if thingID != "ThingSBD00000000000000000000AB" {
 		t.Errorf("expected SBD thingID, got %s", thingID)
 	}
@@ -333,7 +335,7 @@ func TestThingResolver_RefreshFromAPI(t *testing.T) {
 	}
 
 	// IMT/Certus device.
-	thingID, isIMT = r.Resolve("300258060902280")
+	thingID, isIMT = r.Resolve(store.DefaultTenantID, "300258060902280")
 	if thingID != "ThingIMT00000000000000000000CD" {
 		t.Errorf("expected IMT thingID, got %s", thingID)
 	}
@@ -366,17 +368,17 @@ func TestThingResolver_RefreshFromAPI_SkipsExisting(t *testing.T) {
 	defer server.Close()
 
 	client := NewClient(server.URL, "test-key")
-	r := NewThingResolver(client)
+	r := NewThingResolver(NewClientPool(client, nil))
 
 	// Pre-register via MO (simulating a learned mapping).
-	r.Register("300234065000001", "MOLearnedThingId0000000000001A", true)
+	r.Register(store.DefaultTenantID, "300234065000001", "MOLearnedThingId0000000000001A", true)
 
 	if err := r.RefreshFromAPI(context.Background()); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
 	// Should NOT overwrite the MO-learned mapping.
-	thingID, isIMT := r.Resolve("300234065000001")
+	thingID, isIMT := r.Resolve(store.DefaultTenantID, "300234065000001")
 	if thingID != "MOLearnedThingId0000000000001A" {
 		t.Errorf("expected MO-learned thingID to be preserved, got %s", thingID)
 	}
