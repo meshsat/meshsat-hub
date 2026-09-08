@@ -64,7 +64,12 @@ func NewDetector(b bus.MessageBus, engine *escalation.Engine, dataStore store.St
 
 // Start subscribes to meshsat/+/mo/decoded and begins SOS detection.
 func (d *Detector) Start() error {
-	return d.bus.Subscribe("meshsat/+/mo/decoded", 1, d.handleMODecoded)
+	for _, f := range hubmqtt.DualFilters("meshsat/+/mo/decoded") {
+		if err := d.bus.Subscribe(f, 1, d.handleMODecoded); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (d *Detector) handleMODecoded(topic string, payload []byte) {
@@ -82,7 +87,7 @@ func (d *Detector) handleMODecoded(topic string, payload []byte) {
 	if source == "" {
 		return // not an SOS message
 	}
-	tenantID := d.tenants.ForDevice(context.Background(), msg.IMEI)
+	tenantID := d.tenants.ForDeviceTopic(context.Background(), msg.IMEI, hubmqtt.ExtractTenantID(topic))
 
 	// One SOS event and one alert per message across all replicas.
 	msgID := msg.ID
@@ -113,7 +118,7 @@ func (d *Detector) handleMODecoded(topic string, payload []byte) {
 		Keyword: keyword,
 		Source:  source,
 	}
-	if err := d.bus.PublishJSON(hubmqtt.TopicSOS(msg.IMEI), 1, false, event); err != nil {
+	if err := d.bus.PublishJSON(hubmqtt.TopicSOSFor(tenantID, msg.IMEI), 1, false, event); err != nil {
 		slog.Error("sos: failed to publish SOS event", "error", err, "imei", msg.IMEI)
 	}
 

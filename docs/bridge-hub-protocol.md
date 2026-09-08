@@ -51,6 +51,20 @@ This document specifies the wire-level protocol for MeshSat field nodes (bridges
 | `meshsat/{device_id}/sos` | 1 | Bridge | Emergency event |
 | `meshsat/{device_id}/mo/decoded` | 0 | Bridge | Decoded messages |
 
+### Tenant Namespaces (Hub 2026-09, MESHSAT-864)
+
+The tables above show the **default tenant** shape. Every other tenant owns the
+root `meshsat/{tenant_id}`, so its bridges publish and subscribe under
+`meshsat/{tenant_id}/bridge/{bridge_id}/...` and
+`meshsat/{tenant_id}/{device_id}/...`. A bridge learns its root from the
+provisioning bundle field `mqtt_topic_prefix` (`"meshsat"` for the default
+tenant, `"meshsat/{tenant_id}"` otherwise) and must build every topic as
+`{mqtt_topic_prefix}/...`. The Hub subscribes to both shapes and answers on
+the shape of the bridge's tenant. A registered bridge or device cannot change
+tenant by publishing under another prefix: the Hub trusts its own records, and
+an unregistered device published under an unknown tenant lands in the default
+tenant.
+
 ### Hub Subscription Wildcards
 
 ```
@@ -61,6 +75,7 @@ meshsat/bridge/+/cmd/response
 meshsat/bridge/+/device/+/birth
 meshsat/bridge/+/device/+/death
 ```
+plus the tenant-prefixed twin of each (`meshsat/+/bridge/+/birth`, `meshsat/+/+/position`, ...).
 
 ## Message Formats
 
