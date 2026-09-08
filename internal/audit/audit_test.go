@@ -4,6 +4,7 @@ import (
 	"context"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/meshsat/meshsat-hub/internal/store"
 	"github.com/meshsat/meshsat-hub/internal/store/sqlite"
@@ -99,6 +100,40 @@ func TestVerifyChain_EmptyLog(t *testing.T) {
 	}
 	if verified != 0 {
 		t.Errorf("expected 0 verified, got %d", verified)
+	}
+}
+
+func TestVerifyChain_PurgedHead(t *testing.T) {
+	// Retention deletes the oldest entries; the surviving segment must still
+	// verify (production: 39 entries whose head linked to a purged predecessor).
+	svc := testAuditService(t)
+	ctx := context.Background()
+	tid := "purged-tenant"
+	for i := 0; i < 5; i++ {
+		if err := svc.Log(ctx, tid, "test_action", "user-1", "detail", ""); err != nil {
+			t.Fatalf("log %d: %v", i, err)
+		}
+		if i == 0 {
+			time.Sleep(1100 * time.Millisecond) // stores compare whole seconds; the head must sit in an earlier second
+		}
+	}
+	all, err := svc.store.ListAuditEntries(ctx, tid, 0)
+	if err != nil || len(all) != 5 {
+		t.Fatalf("list: %v %d", err, len(all))
+	}
+	oldest := all[len(all)-1]
+	if n, err := svc.store.DeleteAuditEntriesBefore(ctx, tid, oldest.CreatedAt.Add(time.Second)); err != nil || n != 1 {
+		t.Fatalf("purge: %v %d", err, n)
+	}
+	verified, broken, err := svc.VerifyChain(ctx, tid)
+	if err != nil {
+		t.Fatalf("verify: %v", err)
+	}
+	if broken != nil {
+		t.Fatalf("purged head must not break the chain (broken at %s)", broken.ID)
+	}
+	if verified != 4 {
+		t.Errorf("expected 4 verified, got %d", verified)
 	}
 }
 
