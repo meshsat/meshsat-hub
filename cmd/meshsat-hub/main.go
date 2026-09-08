@@ -594,6 +594,21 @@ func main() {
 		}
 	}
 
+	// On Kubernetes the CA certificate lives in a Secret mounted by NATS and
+	// stunnel; the Hub keeps it current (get/update on a pre-created Secret)
+	// and reports the state as the informational probe bridge_ca_export.
+	if bridgeCA != nil && cfg.BridgeCASecretName != "" {
+		caWriter, err := bridge.NewCASecretWriter(cfg.BridgeCASecretName, cfg.BridgeCASecretKey)
+		if err != nil {
+			slog.Error("bridge-ca: secret writer unavailable", "error", err)
+			checker.AddInfoProbe("bridge_ca_export", func(_ context.Context) error { return err })
+		} else {
+			checker.AddInfoProbe("bridge_ca_export", func(_ context.Context) error { return caWriter.LastError() })
+			ca := bridgeCA
+			go caWriter.Run(ctx, 10*time.Minute, func() []byte { return ca.CACertPEM() })
+		}
+	}
+
 	// Directory-signing trust anchor (MESHSAT-539): bridges pin this pubkey
 	// on first provision and use it to verify directory snapshots offline.
 	directoryTrustAnchor, err := directory.LoadOrCreateTrustAnchor(ctx, dataStore)
