@@ -68,9 +68,9 @@ const routesByInterface = computed(() => {
 })
 
 function costColor(cost) {
-  if (cost === 0) return 'text-green-400'
-  if (cost <= 0.02) return 'text-yellow-400'
-  return 'text-red-400'
+  if (cost === 0) return 'text-ms-success'
+  if (cost <= 0.02) return 'text-ms-warning'
+  return 'text-ms-error'
 }
 
 function ifaceColor(iface) {
@@ -110,7 +110,7 @@ function timeSince(iso) {
   <div class="p-6 max-w-7xl mx-auto">
     <div class="flex items-center justify-between mb-6">
       <h1 class="text-2xl font-display font-bold">Reticulum Topology</h1>
-      <button @click="loadData" class="text-sm text-teal-400 hover:text-teal-300">Refresh</button>
+      <button @click="loadData" class="text-sm text-brand-primary hover:text-brand-primary">Refresh</button>
     </div>
 
     <div v-if="error" class="bg-red-900/50 border border-red-700 text-red-200 rounded p-3 mb-4">{{ error }}</div>
@@ -119,16 +119,16 @@ function timeSince(iso) {
 
     <template v-else>
       <!-- Hub Identity Card -->
-      <div class="bg-tactical-surface rounded-lg border border-teal-700 p-4 mb-6">
+      <div class="bg-tactical-surface rounded-lg border border-brand-accent p-4 mb-6">
         <div class="flex items-center gap-3 mb-3">
-          <div class="w-3 h-3 rounded-full bg-teal-400 animate-pulse"></div>
+          <div class="w-3 h-3 rounded-full bg-brand-primary animate-pulse"></div>
           <h2 class="text-lg font-semibold uppercase tracking-wider">Hub Node</h2>
           <span class="text-xs text-gray-500 capitalize">{{ hub.role.replace(/_/g, ' ') || 'Transport Node' }}</span>
         </div>
         <div v-if="hub.dest_hash" class="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
           <div>
             <span class="text-gray-400 text-xs">Destination Hash</span>
-            <p class="font-mono text-teal-400 break-all">{{ hub.dest_hash }}</p>
+            <p class="font-mono text-brand-primary break-all">{{ hub.dest_hash }}</p>
           </div>
           <div>
             <span class="text-gray-400 text-xs">App Name</span>
@@ -145,7 +145,7 @@ function timeSince(iso) {
           <p class="text-gray-400 text-xs">Known Nodes</p>
         </div>
         <div class="bg-tactical-surface rounded-lg border border-tactical-border p-4 text-center">
-          <p class="text-2xl font-display font-bold text-green-400">{{ freeRoutes.length }}</p>
+          <p class="text-2xl font-display font-bold text-ms-success">{{ freeRoutes.length }}</p>
           <p class="text-gray-400 text-xs">Free Paths</p>
         </div>
         <div class="bg-tactical-surface rounded-lg border border-tactical-border p-4 text-center">
@@ -153,15 +153,15 @@ function timeSince(iso) {
           <p class="text-gray-400 text-xs">Paid Paths</p>
         </div>
         <div class="bg-tactical-surface rounded-lg border border-tactical-border p-4 text-center">
-          <p class="text-2xl font-display font-bold text-teal-400">{{ interfaces.length }}</p>
+          <p class="text-2xl font-display font-bold text-brand-primary">{{ interfaces.length }}</p>
           <p class="text-gray-400 text-xs">Interfaces</p>
         </div>
         <div class="bg-tactical-surface rounded-lg border border-tactical-border p-4 text-center">
-          <p class="text-2xl font-display font-bold text-emerald-400">{{ relayStats.forwarded || 0 }}</p>
+          <p class="text-2xl font-display font-bold text-ms-success">{{ relayStats.forwarded || 0 }}</p>
           <p class="text-gray-400 text-xs">Forwarded</p>
         </div>
         <div class="bg-tactical-surface rounded-lg border border-tactical-border p-4 text-center">
-          <p class="text-2xl font-display font-bold" :class="(relayStats.dropped || 0) > 0 ? 'text-red-400' : 'text-gray-500'">
+          <p class="text-2xl font-display font-bold" :class="(relayStats.dropped || 0) > 0 ? 'text-ms-error' : 'text-gray-500'">
             {{ relayStats.dropped || 0 }}
           </p>
           <p class="text-gray-400 text-xs">Dropped</p>
@@ -190,7 +190,7 @@ function timeSince(iso) {
                   {{ iface.name }}
                 </span>
               </div>
-              <span class="w-2 h-2 rounded-full" :class="iface.available ? 'bg-emerald-400' : 'bg-red-400'"></span>
+              <span class="w-2 h-2 rounded-full" :class="iface.available ? 'bg-ms-success' : 'bg-ms-error'"></span>
             </div>
             <div class="grid grid-cols-3 gap-2 text-xs text-gray-400">
               <div>
@@ -217,7 +217,7 @@ function timeSince(iso) {
           <div class="flex items-center justify-center gap-8 flex-wrap">
             <!-- Hub node (center) -->
             <div class="flex flex-col items-center">
-              <div class="w-16 h-16 rounded-full bg-teal-900 border-2 border-teal-400 flex items-center justify-center text-teal-400 font-bold text-xs">
+              <div class="w-16 h-16 rounded-full bg-brand-primary/20 border-2 border-brand-primary flex items-center justify-center text-brand-primary font-bold text-xs">
                 HUB
               </div>
               <span class="text-xs text-gray-500 mt-1">Transport Node</span>
@@ -303,15 +303,15 @@ function timeSince(iso) {
           <div class="grid grid-cols-2 gap-4 text-sm">
             <div class="flex items-center justify-between">
               <span class="text-gray-400">Forwarded</span>
-              <span class="text-emerald-400 font-medium">{{ relayStats.forwarded || 0 }}</span>
+              <span class="text-ms-success font-medium">{{ relayStats.forwarded || 0 }}</span>
             </div>
             <div class="flex items-center justify-between">
               <span class="text-gray-400">Dropped</span>
-              <span class="text-red-400 font-medium">{{ relayStats.dropped || 0 }}</span>
+              <span class="text-ms-error font-medium">{{ relayStats.dropped || 0 }}</span>
             </div>
             <div class="flex items-center justify-between">
               <span class="text-gray-400">No Route</span>
-              <span class="text-amber-400 font-medium">{{ relayStats.no_route || 0 }}</span>
+              <span class="text-ms-warning font-medium">{{ relayStats.no_route || 0 }}</span>
             </div>
             <div class="flex items-center justify-between">
               <span class="text-gray-400">Rate Limited</span>
@@ -330,7 +330,7 @@ function timeSince(iso) {
             </div>
             <div class="flex items-center justify-between">
               <span class="text-gray-400">Responses</span>
-              <span class="text-emerald-400 font-medium">{{ pathStats.responses_sent || 0 }}</span>
+              <span class="text-ms-success font-medium">{{ pathStats.responses_sent || 0 }}</span>
             </div>
             <div class="flex items-center justify-between">
               <span class="text-gray-400">Deduplicated</span>

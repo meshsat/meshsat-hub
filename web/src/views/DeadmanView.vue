@@ -101,7 +101,7 @@ function chainName(id) {
 
     <div class="flex justify-end mb-4">
       <button @click="newConfig()"
-        class="bg-teal-600 hover:bg-teal-500 text-white px-3 py-1 rounded text-sm transition-colors">
+        class="bg-brand-accent hover:bg-brand-primary text-ms-on-primary px-3 py-1 rounded text-sm transition-colors">
         {{ editing ? 'Cancel' : '+ Configure Device' }}
       </button>
     </div>
@@ -112,7 +112,7 @@ function chainName(id) {
         <div>
           <label class="text-xs text-gray-400">Device</label>
           <select v-model="form.imei"
-            class="bg-gray-800 border border-gray-700 px-3 py-2 rounded-lg text-gray-200 w-full focus:outline-none focus:border-teal-500">
+            class="bg-gray-800 border border-gray-700 px-3 py-2 rounded-lg text-gray-200 w-full focus:outline-none focus:border-brand-primary">
             <option value="">Select device...</option>
             <option v-for="d in deviceList" :key="d.imei" :value="d.imei">{{ d.label || d.imei }}</option>
           </select>
@@ -120,7 +120,7 @@ function chainName(id) {
         <div>
           <label class="text-xs text-gray-400">Escalation Chain</label>
           <select v-model="form.chain_id"
-            class="bg-gray-800 border border-gray-700 px-3 py-2 rounded-lg text-gray-200 w-full focus:outline-none focus:border-teal-500">
+            class="bg-gray-800 border border-gray-700 px-3 py-2 rounded-lg text-gray-200 w-full focus:outline-none focus:border-brand-primary">
             <option value="">None</option>
             <option v-for="c in chainList" :key="c.id" :value="c.id">{{ c.name }}</option>
           </select>
@@ -128,12 +128,12 @@ function chainName(id) {
         <div>
           <label class="text-xs text-gray-400">Check-in interval (min)</label>
           <input v-model="form.interval_min" type="number" min="1"
-            class="bg-gray-800 border border-gray-700 px-3 py-2 rounded-lg text-gray-200 w-full focus:outline-none focus:border-teal-500" />
+            class="bg-gray-800 border border-gray-700 px-3 py-2 rounded-lg text-gray-200 w-full focus:outline-none focus:border-brand-primary" />
         </div>
         <div>
           <label class="text-xs text-gray-400">Grace period (min)</label>
           <input v-model="form.grace_min" type="number" min="0"
-            class="bg-gray-800 border border-gray-700 px-3 py-2 rounded-lg text-gray-200 w-full focus:outline-none focus:border-teal-500" />
+            class="bg-gray-800 border border-gray-700 px-3 py-2 rounded-lg text-gray-200 w-full focus:outline-none focus:border-brand-primary" />
         </div>
       </div>
       <div class="flex items-center justify-between">
@@ -141,7 +141,7 @@ function chainName(id) {
           <input type="checkbox" v-model="form.enabled" class="rounded" /> Enabled
         </label>
         <button @click="saveConfig"
-          class="bg-teal-600 hover:bg-teal-500 text-white px-4 py-2 rounded text-sm transition-colors">Save</button>
+          class="bg-brand-accent hover:bg-brand-primary text-ms-on-primary px-4 py-2 rounded text-sm transition-colors">Save</button>
       </div>
     </div>
 
@@ -165,8 +165,8 @@ function chainName(id) {
             <td class="px-3 py-2 text-gray-400">{{ Math.round((c.grace || 0) / 60000000000) }}m</td>
             <td class="px-3 py-2 text-gray-400">{{ chainName(c.chain_id) }}</td>
             <td class="px-3 py-2">
-              <span v-if="c.snoozed_until" class="text-yellow-400 text-xs">Snoozed</span>
-              <span v-else-if="c.enabled" class="text-green-400 text-xs">Active</span>
+              <span v-if="c.snoozed_until" class="text-ms-warning text-xs">Snoozed</span>
+              <span v-else-if="c.enabled" class="text-ms-success text-xs">Active</span>
               <span v-else class="text-gray-500 text-xs">Disabled</span>
             </td>
             <td class="px-3 py-2 text-right flex gap-1 justify-end">

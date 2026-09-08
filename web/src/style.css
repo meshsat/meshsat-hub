@@ -2,10 +2,88 @@
 @tailwind components;
 @tailwind utilities;
 
-/* Tactical grid background pattern (matches Bridge) */
+/*
+ * MeshSat brand tokens as "r g b" triplets (Tailwind adds the alpha).
+ * Source: meshsat-website/site/assets/css/main.css (derived from the brand
+ * guide: Space Black #040406, Signal Orange #F96118, Off White #F7F7F4).
+ * Dark is the default; the theme store removes `.dark` for light.
+ * on-primary: white on #F25C05 is ~3.1:1, so dark-theme primary buttons carry
+ * near-black text; light-theme primary #C4470A takes white text (AA).
+ */
+:root {
+  --ms-bg: 20 18 15;             /* #14120F */
+  --ms-bg2: 26 23 20;            /* #1A1714 */
+  --ms-card: 33 29 25;           /* #211D19 */
+  --ms-text: 242 237 230;        /* #F2EDE6 */
+  --ms-muted: 167 155 139;       /* #A79B8B */
+  --ms-primary: 242 92 5;        /* #F25C05 */
+  --ms-primary-hover: 255 122 46; /* #FF7A2E */
+  --ms-on-primary: 20 18 15;     /* #14120F */
+  --ms-accent: 200 184 154;      /* #C8B89A */
+  --ms-border: 46 40 34;         /* #2E2822 */
+  --ms-border-light: 66 58 49;   /* #423A31 */
+  --ms-success: 79 180 119;      /* #4FB477 */
+  --ms-warning: 224 160 48;      /* #E0A030 */
+  --ms-error: 240 101 90;        /* #F0655A */
+  --ms-grid: 247 247 244;        /* Off White, dot grid */
+  /* neutral tiers (see tailwind.config.js gray mapping) */
+  --ms-well: 26 23 20;           /* #1A1714 inputs, hover wells */
+  --ms-text2: 222 216 207;       /* #DED8CF body text */
+  --ms-muted2: 196 184 168;      /* #C4B8A8 secondary text */
+  /* meaning colours as text: Tailwind 400 shades on dark */
+  --ms-green: 74 222 128;
+  --ms-yellow: 250 204 21;
+  --ms-sky: 56 189 248;
+  --ms-blue: 96 165 250;
+  --ms-purple: 192 132 252;
+  --ms-cyan: 34 211 238;
+  --ms-orange: 251 146 60;
+  --ms-pink: 244 114 182;
+  --ms-indigo: 129 140 248;
+  color-scheme: dark;
+}
+
+html:not(.dark) {
+  --ms-bg: 247 245 242;          /* #F7F5F2 */
+  --ms-bg2: 255 255 255;
+  --ms-card: 255 255 255;
+  --ms-text: 26 23 20;           /* #1A1714 */
+  --ms-muted: 92 84 74;          /* #5C544A */
+  --ms-primary: 196 71 10;       /* #C4470A (AA on white) */
+  --ms-primary-hover: 160 58 7;  /* #A03A07 */
+  --ms-on-primary: 255 255 255;
+  --ms-accent: 122 107 80;       /* #7A6B50 */
+  --ms-border: 227 221 212;      /* #E3DDD4 */
+  --ms-border-light: 210 201 188; /* #D2C9BC */
+  --ms-success: 47 125 79;       /* #2F7D4F */
+  --ms-warning: 138 90 11;       /* #8A5A0B */
+  --ms-error: 163 42 34;         /* #A32A22 */
+  --ms-grid: 4 4 6;              /* Space Black, dot grid */
+  --ms-well: 239 235 229;        /* #EFEBE5 */
+  --ms-text2: 42 38 34;          /* #2A2622 */
+  --ms-muted2: 74 67 59;         /* #4A433B */
+  /* meaning colours as text: Tailwind 700 shades, AA on white */
+  --ms-green: 21 128 61;
+  --ms-yellow: 161 98 7;
+  --ms-sky: 3 105 161;
+  --ms-blue: 29 78 216;
+  --ms-purple: 126 34 206;
+  --ms-cyan: 14 116 144;
+  --ms-orange: 194 65 12;
+  --ms-pink: 190 24 93;
+  --ms-indigo: 67 56 202;
+  color-scheme: light;
+}
+
+html {
+  background-color: rgb(var(--ms-bg));
+  color: rgb(var(--ms-text));
+}
+
+/* Dot grid background (Off White at 3% on dark, Space Black at 3% on light) */
 body {
   background-image:
-    radial-gradient(circle, rgba(255, 255, 255, 0.03) 1px, transparent 1px);
+    radial-gradient(circle, rgb(var(--ms-grid) / 0.03) 1px, transparent 1px);
   background-size: 24px 24px;
 }
 
@@ -17,11 +95,11 @@ body {
   background: transparent;
 }
 .tactical-scroll::-webkit-scrollbar-thumb {
-  background: #374151;
+  background: rgb(var(--ms-border-light));
   border-radius: 2px;
 }
 .tactical-scroll::-webkit-scrollbar-thumb:hover {
-  background: #4B5563;
+  background: rgb(var(--ms-muted));
 }
 
 /* Hide scrollbar utility */

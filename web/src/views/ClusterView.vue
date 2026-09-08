@@ -61,9 +61,9 @@ async function executeAction(actionId) {
 }
 
 function nodeStatusColor(node) {
-  if (node.healthy) return 'text-green-400'
-  if (node.connected) return 'text-yellow-400'
-  return 'text-red-400'
+  if (node.healthy) return 'text-ms-success'
+  if (node.connected) return 'text-ms-warning'
+  return 'text-ms-error'
 }
 
 function nodeStatusBg(node) {
@@ -87,20 +87,20 @@ function formatBytes(n) {
     <div v-if="error" class="bg-red-900/50 border border-red-700 text-red-200 px-4 py-3 rounded mb-4">{{ error }}</div>
     <div v-if="actionResult" class="bg-green-900/50 border border-green-700 text-green-200 px-4 py-3 rounded mb-4">
       {{ actionResult }}
-      <button @click="actionResult = ''" class="ml-2 text-green-400 hover:text-green-300">&times;</button>
+      <button @click="actionResult = ''" class="ml-2 text-ms-success hover:text-green-300">&times;</button>
     </div>
 
     <!-- Cluster overview cards -->
     <div v-if="clusterStatus" class="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
       <div class="bg-tactical-surface rounded-lg border border-tactical-border p-4">
         <div class="text-gray-400 text-sm mb-1">Cluster Health</div>
-        <div class="text-2xl font-display font-bold" :class="clusterStatus.healthy ? 'text-green-400' : 'text-red-400'">
+        <div class="text-2xl font-display font-bold" :class="clusterStatus.healthy ? 'text-ms-success' : 'text-ms-error'">
           {{ clusterStatus.healthy ? 'Healthy' : 'Degraded' }}
         </div>
       </div>
       <div class="bg-tactical-surface rounded-lg border border-tactical-border p-4">
         <div class="text-gray-400 text-sm mb-1">Nodes</div>
-        <div class="text-2xl font-display font-bold text-teal-400">{{ clusterStatus.node_count }}</div>
+        <div class="text-2xl font-display font-bold text-brand-primary">{{ clusterStatus.node_count }}</div>
         <div class="text-xs text-gray-500">Quorum: {{ clusterStatus.quorum_size }}</div>
       </div>
       <div class="bg-tactical-surface rounded-lg border border-tactical-border p-4">
@@ -114,7 +114,7 @@ function formatBytes(n) {
       <h3 class="text-sm font-semibold text-red-300 uppercase tracking-wider mb-2">Cluster Problems</h3>
       <ul class="text-sm text-red-200 space-y-1">
         <li v-for="p in clusterStatus.problems" :key="p" class="flex items-start gap-2">
-          <span class="text-red-400 mt-0.5">&#9679;</span>
+          <span class="text-ms-error mt-0.5">&#9679;</span>
           {{ p }}
         </li>
       </ul>
@@ -136,7 +136,7 @@ function formatBytes(n) {
               <span :class="nodeStatusColor(node)" class="text-sm font-medium">
                 {{ node.healthy ? 'Healthy' : node.connected ? 'Warning' : 'Down' }}
               </span>
-              <span v-if="node.hub_url === 'local'" class="text-xs bg-teal-900/50 text-teal-300 px-1.5 py-0.5 rounded">local</span>
+              <span v-if="node.hub_url === 'local'" class="text-xs bg-brand-primary/15 text-brand-primary px-1.5 py-0.5 rounded">local</span>
             </div>
           </div>
 
@@ -151,13 +151,13 @@ function formatBytes(n) {
           <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
             <div>
               <div class="text-gray-500">State</div>
-              <div class="font-medium" :class="node.state_comment === 'Synced' ? 'text-green-400' : 'text-yellow-400'">
+              <div class="font-medium" :class="node.state_comment === 'Synced' ? 'text-ms-success' : 'text-ms-warning'">
                 {{ node.state_comment || '—' }}
               </div>
             </div>
             <div>
               <div class="text-gray-500">Partition</div>
-              <div class="font-medium" :class="node.cluster_status === 'Primary' ? 'text-green-400' : 'text-red-400'">
+              <div class="font-medium" :class="node.cluster_status === 'Primary' ? 'text-ms-success' : 'text-ms-error'">
                 {{ node.cluster_status || '—' }}
               </div>
             </div>
@@ -167,7 +167,7 @@ function formatBytes(n) {
             </div>
             <div>
               <div class="text-gray-500">Ready</div>
-              <div class="font-medium" :class="node.ready ? 'text-green-400' : 'text-red-400'">{{ node.ready ? 'Yes' : 'No' }}</div>
+              <div class="font-medium" :class="node.ready ? 'text-ms-success' : 'text-ms-error'">{{ node.ready ? 'Yes' : 'No' }}</div>
             </div>
           </div>
 
@@ -175,15 +175,15 @@ function formatBytes(n) {
           <div v-if="node.healthy" class="grid grid-cols-3 sm:grid-cols-6 gap-3 mt-3 text-xs">
             <div>
               <div class="text-gray-500">Recv Q</div>
-              <div :class="node.recv_queue > 5 ? 'text-yellow-400' : 'text-gray-300'">{{ node.recv_queue }}</div>
+              <div :class="node.recv_queue > 5 ? 'text-ms-warning' : 'text-gray-300'">{{ node.recv_queue }}</div>
             </div>
             <div>
               <div class="text-gray-500">Send Q</div>
-              <div :class="node.send_queue > 5 ? 'text-yellow-400' : 'text-gray-300'">{{ node.send_queue }}</div>
+              <div :class="node.send_queue > 5 ? 'text-ms-warning' : 'text-gray-300'">{{ node.send_queue }}</div>
             </div>
             <div>
               <div class="text-gray-500">Flow Ctrl</div>
-              <div :class="node.flow_control_paused > 0.1 ? 'text-yellow-400' : 'text-gray-300'">{{ (node.flow_control_paused * 100).toFixed(1) }}%</div>
+              <div :class="node.flow_control_paused > 0.1 ? 'text-ms-warning' : 'text-gray-300'">{{ (node.flow_control_paused * 100).toFixed(1) }}%</div>
             </div>
             <div>
               <div class="text-gray-500">Committed</div>
@@ -216,7 +216,7 @@ function formatBytes(n) {
               : 'border-gray-700 hover:bg-white/5 text-gray-200'">
             <div class="font-medium text-sm flex items-center gap-2">
               {{ action.name }}
-              <span v-if="action.dangerous" class="text-xs text-red-400">&#9888;</span>
+              <span v-if="action.dangerous" class="text-xs text-ms-error">&#9888;</span>
             </div>
             <div class="text-xs text-gray-400 mt-1">{{ action.description }}</div>
           </button>

@@ -34,10 +34,15 @@ export const useAuthStore = defineStore('auth', () => {
   // meshsat_refresh cookie, and POST /api/auth/refresh turns it into an
   // access token. Nothing sensitive ever appears in the URL.
   async function completeOIDC() {
-    const res = await fetch('/api/auth/refresh', { method: 'POST', credentials: 'same-origin' })
-    if (!res.ok) return false
-    const data = await res.json()
-    if (!data.access_token) return false
+    let data
+    try {
+      const res = await fetch('/api/auth/refresh', { method: 'POST', credentials: 'same-origin' })
+      if (!res.ok || !(res.headers.get('content-type') || '').includes('application/json')) return false
+      data = await res.json()
+    } catch {
+      return false
+    }
+    if (!data?.access_token) return false
     token.value = data.access_token
     localStorage.setItem('auth_token', data.access_token)
     if (data.refresh_token) localStorage.setItem('auth_refresh_token', data.refresh_token)

@@ -50,7 +50,7 @@ function totalMessages() {
 }
 
 function directionClass(dir) {
-  return dir === 'mo' ? 'bg-teal-900/50 text-teal-300' : 'bg-amber-900/50 text-amber-300'
+  return dir === 'mo' ? 'bg-brand-primary/15 text-brand-primary' : 'bg-amber-900/50 text-amber-300'
 }
 
 function formatDate(d) {
@@ -110,7 +110,7 @@ function formatDate(d) {
       <div class="flex items-center gap-2">
         <button @click="showSummary = !showSummary"
           class="text-xs px-3 py-2 rounded"
-          :class="showSummary ? 'bg-teal-700 text-white' : 'bg-gray-700 text-gray-400'">
+          :class="showSummary ? 'bg-brand-accent text-ms-on-primary' : 'bg-gray-700 text-gray-400'">
           {{ showSummary ? 'Summary' : 'Details' }}
         </button>
       </div>

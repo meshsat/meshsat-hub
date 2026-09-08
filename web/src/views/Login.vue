@@ -2,6 +2,7 @@
 import { ref, computed, onMounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
+import BrandLockup from '../components/BrandLockup.vue'
 
 const authStore = useAuthStore()
 const router = useRouter()
@@ -117,14 +118,14 @@ async function loginWithToken() {
 <template>
   <div class="min-h-screen bg-tactical-bg flex items-center justify-center px-4">
     <div class="w-full max-w-sm">
-      <h1 class="text-2xl font-display font-bold text-gray-200 text-center mb-8 tracking-wide">MeshSat Hub</h1>
+      <h1 class="flex justify-center mb-8"><BrandLockup size="lg" /></h1>
 
       <!-- Single sign-on (MeshSat ID) when the Hub offers it -->
       <div v-if="hasOIDC" class="bg-tactical-surface rounded-lg p-6 space-y-4 mb-4" data-testid="sso-panel">
         <button
           type="button"
           @click="signInWithMeshSatID"
-          class="w-full py-2.5 bg-brand-primary hover:bg-brand-accent text-white rounded-lg font-medium transition-colors"
+          class="w-full py-2.5 bg-brand-primary hover:bg-brand-accent text-ms-on-primary rounded-lg font-medium transition-colors"
         >
           Sign in with MeshSat ID
         </button>
@@ -132,7 +133,7 @@ async function loginWithToken() {
           No account yet?
           <a href="/api/auth/oidc/login" class="text-gray-300 hover:text-white underline">Request beta access</a>
         </p>
-        <p v-if="error && !showOther" class="text-red-400 text-sm">{{ error }}</p>
+        <p v-if="error && !showOther" class="text-ms-error text-sm">{{ error }}</p>
         <button
           type="button"
           @click="showOther = !showOther; error = ''"
@@ -148,12 +149,12 @@ async function loginWithToken() {
         <div v-if="hasLocal" class="flex rounded-lg overflow-hidden border border-gray-700">
           <button type="button" @click="mode = 'email'; error = ''"
             class="flex-1 py-2 text-sm font-medium transition-colors"
-            :class="mode === 'email' ? 'bg-brand-primary text-white' : 'bg-gray-800 text-gray-400 hover:text-gray-200'">
+            :class="mode === 'email' ? 'bg-brand-primary text-ms-on-primary' : 'bg-gray-800 text-gray-400 hover:text-gray-200'">
             Email
           </button>
           <button type="button" @click="mode = 'token'; error = ''"
             class="flex-1 py-2 text-sm font-medium transition-colors"
-            :class="mode === 'token' ? 'bg-brand-primary text-white' : 'bg-gray-800 text-gray-400 hover:text-gray-200'">
+            :class="mode === 'token' ? 'bg-brand-primary text-ms-on-primary' : 'bg-gray-800 text-gray-400 hover:text-gray-200'">
             API Token
           </button>
         </div>
@@ -168,7 +169,7 @@ async function loginWithToken() {
               type="email"
               placeholder="you@example.com"
               autocomplete="email"
-              class="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded text-gray-100 placeholder-gray-500 focus:outline-none focus:border-teal-500"
+              class="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded text-gray-100 placeholder-gray-500 focus:outline-none focus:border-brand-primary"
             />
           </div>
           <div>
@@ -179,7 +180,7 @@ async function loginWithToken() {
               type="password"
               placeholder="Enter your password"
               autocomplete="current-password"
-              class="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded text-gray-100 placeholder-gray-500 focus:outline-none focus:border-teal-500"
+              class="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded text-gray-100 placeholder-gray-500 focus:outline-none focus:border-brand-primary"
             />
           </div>
         </template>
@@ -193,16 +194,16 @@ async function loginWithToken() {
             type="password"
             placeholder="Enter your API token"
             autocomplete="off"
-            class="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded text-gray-100 placeholder-gray-500 focus:outline-none focus:border-teal-500"
+            class="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded text-gray-100 placeholder-gray-500 focus:outline-none focus:border-brand-primary"
           />
         </div>
 
-        <p v-if="error" class="text-red-400 text-sm">{{ error }}</p>
+        <p v-if="error" class="text-ms-error text-sm">{{ error }}</p>
 
         <button
           type="submit"
           :disabled="loading"
-          class="w-full py-2 bg-brand-primary hover:bg-brand-accent disabled:opacity-50 text-white rounded-lg font-medium transition-colors"
+          class="w-full py-2 bg-brand-primary hover:bg-brand-accent disabled:opacity-50 text-ms-on-primary rounded-lg font-medium transition-colors"
         >
           {{ loading ? 'Signing in...' : 'Sign In' }}
         </button>

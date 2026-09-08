@@ -57,9 +57,12 @@ test.describe('Login page', () => {
     if (modes.includes('oidc')) {
       await expect(page.getByRole('button', { name: 'Sign in with MeshSat ID' })).toBeVisible()
       await expect(page.getByTestId('local-panel')).not.toBeVisible()
-    } else {
+    } else if (modes.includes('local')) {
       await expect(page.locator('input[type="email"]')).toBeVisible()
       await expect(page.locator('input[type="password"]')).toBeVisible()
+      await expect(page.getByRole('button', { name: 'Sign In' })).toBeVisible()
+    } else {
+      await expect(page.locator('#token')).toBeVisible()
       await expect(page.getByRole('button', { name: 'Sign In' })).toBeVisible()
     }
   })

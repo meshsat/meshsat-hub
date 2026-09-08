@@ -60,9 +60,9 @@ async function deleteWebhook(id) {
 }
 
 function statusCodeColor(code) {
-  if (code >= 200 && code < 300) return 'text-green-400'
-  if (code >= 400) return 'text-red-400'
-  return 'text-yellow-400'
+  if (code >= 200 && code < 300) return 'text-ms-success'
+  if (code >= 400) return 'text-ms-error'
+  return 'text-ms-warning'
 }
 </script>
 
@@ -77,7 +77,7 @@ function statusCodeColor(code) {
       <div class="flex items-center justify-between mb-3">
         <h2 class="text-lg font-semibold uppercase tracking-wider">Webhooks</h2>
         <button @click="showForm = !showForm"
-          class="bg-teal-600 hover:bg-teal-500 text-white px-3 py-1 rounded text-sm transition-colors">
+          class="bg-brand-accent hover:bg-brand-primary text-ms-on-primary px-3 py-1 rounded text-sm transition-colors">
           {{ showForm ? 'Cancel' : '+ New Webhook' }}
         </button>
       </div>
@@ -87,12 +87,12 @@ function statusCodeColor(code) {
           <div>
             <label class="text-xs text-gray-400">URL</label>
             <input v-model="form.url" placeholder="https://example.com/hook"
-              class="bg-gray-800 border border-gray-700 px-3 py-2 rounded-lg text-gray-200 w-full placeholder-gray-500 focus:outline-none focus:border-teal-500" />
+              class="bg-gray-800 border border-gray-700 px-3 py-2 rounded-lg text-gray-200 w-full placeholder-gray-500 focus:outline-none focus:border-brand-primary" />
           </div>
           <div>
             <label class="text-xs text-gray-400">Events (comma-sep)</label>
             <input v-model="form.events" placeholder="mo,sos,position"
-              class="bg-gray-800 border border-gray-700 px-3 py-2 rounded-lg text-gray-200 w-full placeholder-gray-500 focus:outline-none focus:border-teal-500" />
+              class="bg-gray-800 border border-gray-700 px-3 py-2 rounded-lg text-gray-200 w-full placeholder-gray-500 focus:outline-none focus:border-brand-primary" />
           </div>
         </div>
         <div class="flex items-center justify-between">
@@ -100,7 +100,7 @@ function statusCodeColor(code) {
             <input type="checkbox" v-model="form.active" class="rounded" /> Active
           </label>
           <button @click="createWebhook"
-            class="bg-teal-600 hover:bg-teal-500 text-white px-4 py-2 rounded text-sm transition-colors">Create</button>
+            class="bg-brand-accent hover:bg-brand-primary text-ms-on-primary px-4 py-2 rounded text-sm transition-colors">Create</button>
         </div>
       </div>
 
@@ -122,7 +122,7 @@ function statusCodeColor(code) {
                   class="inline-block bg-gray-700 text-gray-300 text-xs px-1.5 py-0.5 rounded mr-1">{{ e }}</span>
               </td>
               <td class="px-3 py-2">
-                <span v-if="h.active" class="text-green-400 text-xs">Active</span>
+                <span v-if="h.active" class="text-ms-success text-xs">Active</span>
                 <span v-else class="text-gray-500 text-xs">Disabled</span>
               </td>
               <td class="px-3 py-2 text-right">
@@ -162,7 +162,7 @@ function statusCodeColor(code) {
                 <span :class="statusCodeColor(l.status_code)" class="font-mono text-xs">{{ l.status_code }}</span>
               </td>
               <td class="px-3 py-2 text-gray-400 text-xs">{{ l.latency_ms }}ms</td>
-              <td class="px-3 py-2 text-red-400 text-xs">{{ l.error || '—' }}</td>
+              <td class="px-3 py-2 text-ms-error text-xs">{{ l.error || '—' }}</td>
             </tr>
             <tr v-if="logs.length === 0 && !loading">
               <td colspan="5" class="px-3 py-0">
