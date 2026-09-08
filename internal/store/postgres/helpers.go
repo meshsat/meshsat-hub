@@ -77,9 +77,3 @@ func jsonInto(raw []byte, v any) error {
 	}
 	return json.Unmarshal(raw, v)
 }
-
-// keepReferenced holds the helpers until the domain files that consume them
-// land (the port is split across three merge requests); staticcheck's
-// unused check would otherwise fail the skeleton on its own. Removed by the
-// last domain port.
-var _ = []any{zeroTime, sentinelTime, fromSentinel, utc, utcPtr, nullTimePtr, jsonBytes, jsonInto}
