@@ -380,6 +380,9 @@ func (s *Subscriber) handleBridgeHealth(topic string, payload []byte) {
 	if err := s.store.TouchBridgeLastSeen(ctx, tenantID, bridgeID); err != nil {
 		slog.Debug("bridge: failed to touch last_seen", "error", err, "bridge", bridgeID)
 	}
+	if err := s.store.SetBridgeLastReport(ctx, tenantID, bridgeID, "mqtt", time.Now().UTC()); err != nil {
+		slog.Debug("bridge: failed to set last report", "error", err, "bridge", bridgeID)
+	}
 
 	// A bridge sending health is unambiguously alive. Re-set online=true in
 	// case the reaper marked it offline (e.g. after Hub/NATS restart where

@@ -368,6 +368,9 @@ var postAlterMigrations = []string{
 // lateAlterMigrations alter tables created in postAlterMigrations.
 // Duplicate column errors are ignored for idempotency.
 var lateAlterMigrations = []string{
+	// MESHSAT-964: last report bearer/time on bridges
+	`ALTER TABLE bridges ADD COLUMN last_report_bearer TEXT NOT NULL DEFAULT ''`,
+	`ALTER TABLE bridges ADD COLUMN last_report_at TEXT`,
 	// MESHSAT-964: optional sender list per route
 	`ALTER TABLE routes ADD COLUMN senders TEXT NOT NULL DEFAULT ''`,
 	// MESHSAT-291: bridge MQTT authentication
