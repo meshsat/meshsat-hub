@@ -32,6 +32,7 @@ import (
 	"github.com/meshsat/meshsat-hub/internal/aprsis"
 	"github.com/meshsat/meshsat-hub/internal/audit"
 	hubauth "github.com/meshsat/meshsat-hub/internal/auth"
+	"github.com/meshsat/meshsat-hub/internal/authentik"
 	"github.com/meshsat/meshsat-hub/internal/backup"
 	"github.com/meshsat/meshsat-hub/internal/bridge"
 	"github.com/meshsat/meshsat-hub/internal/bus"
@@ -1548,6 +1549,19 @@ func main() {
 		r.With(hubauth.RequireRole(hubauth.RoleOwner)).Put("/integrations/{provider}", intH.Put)
 		r.With(hubauth.RequireRole(hubauth.RoleOwner)).Delete("/integrations/{provider}", intH.Delete)
 		r.With(hubauth.RequireRole(hubauth.RoleOwner)).Post("/integrations/{provider}/test", intH.Test)
+	})
+	// Approving a beta request without leaving the Hub (MESHSAT-978). Without
+	// an authentik token the endpoints say so and the script stays the way.
+	akClient := authentik.New(cfg.AuthentikURL, cfg.AuthentikToken)
+	if akClient == nil {
+		slog.Info("signups: HUB_AUTHENTIK_TOKEN unset; approve with k8s/scripts/authentik/run-bootstrap.sh")
+	}
+	signupHandler := api.NewSignupHandler(akClient, auditSvc, cfg.SignupWebhookURL)
+	r.Route("/api/admin/signups", func(r chi.Router) {
+		r.Use(hubauth.RequirePlatformAdmin())
+		r.Get("/", signupHandler.List)
+		r.Post("/{id}/approve", signupHandler.Approve)
+		r.Post("/{id}/reject", signupHandler.Reject)
 	})
 	r.Route("/api/admin/tenants", func(r chi.Router) {
 		r.Use(hubauth.RequirePlatformAdmin())
