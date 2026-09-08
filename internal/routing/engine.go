@@ -117,6 +117,12 @@ func (e *Engine) handleMODecoded(topic string, payload []byte) {
 		if !matchSource(route.SourceType, sourceType) {
 			continue
 		}
+		// Sender condition (MESHSAT-964): only messages from the listed
+		// origins fire the route, so kit A reaches kit B without an echo and
+		// a stranger's SMS is not relayed.
+		if !matchSenders(route.Senders, deviceID) {
+			continue
+		}
 		// For sms/email destinations, the filter IS the recipient address —
 		// not a message match condition. Skip matchFilter for these. [MESHSAT-448]
 		if !isRecipientDestination(route.DestinationType) {
@@ -194,6 +200,22 @@ func matchSource(routeSource, msgSource string) bool {
 		return true
 	}
 	return strings.EqualFold(routeSource, msgSource)
+}
+
+// matchSenders reports whether the message origin (device IMEI or phone
+// number) is in the route's comma-separated sender list. An empty list or a
+// "*" entry accepts every sender; comparison is exact after trimming.
+func matchSenders(senders, origin string) bool {
+	if strings.TrimSpace(senders) == "" {
+		return true
+	}
+	for _, s := range strings.Split(senders, ",") {
+		s = strings.TrimSpace(s)
+		if s == "*" || (s != "" && strings.EqualFold(s, origin)) {
+			return true
+		}
+	}
+	return false
 }
 
 // matchFilter returns true if the message matches the route's filter.

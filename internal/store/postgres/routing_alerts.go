@@ -23,18 +23,18 @@ func (d *DB) CreateRoute(ctx context.Context, tenantID string, r *store.Route) e
 	r.CreatedAt = now
 	r.UpdatedAt = now
 	_, err := d.db.ExecContext(ctx,
-		`INSERT INTO routes (id, name, source_type, destination_type, filter, enabled, created_at, updated_at, tenant_id)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
-		r.ID, r.Name, r.SourceType, r.DestinationType, r.Filter, r.Enabled, r.CreatedAt, r.UpdatedAt, tenantID)
+		`INSERT INTO routes (id, name, source_type, destination_type, filter, senders, enabled, created_at, updated_at, tenant_id)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+		r.ID, r.Name, r.SourceType, r.DestinationType, r.Filter, r.Senders, r.Enabled, r.CreatedAt, r.UpdatedAt, tenantID)
 	return err
 }
 
 func (d *DB) GetRoute(ctx context.Context, tenantID string, id string) (*store.Route, error) {
 	var r store.Route
 	err := d.db.QueryRowContext(ctx,
-		"SELECT id, name, source_type, destination_type, filter, enabled, created_at, updated_at FROM routes WHERE id = $1 AND tenant_id = $2",
+		"SELECT id, name, source_type, destination_type, filter, senders, enabled, created_at, updated_at FROM routes WHERE id = $1 AND tenant_id = $2",
 		id, tenantID,
-	).Scan(&r.ID, &r.Name, &r.SourceType, &r.DestinationType, &r.Filter, &r.Enabled, &r.CreatedAt, &r.UpdatedAt)
+	).Scan(&r.ID, &r.Name, &r.SourceType, &r.DestinationType, &r.Filter, &r.Senders, &r.Enabled, &r.CreatedAt, &r.UpdatedAt)
 	if err != nil {
 		return nil, err
 	}
@@ -45,7 +45,7 @@ func (d *DB) GetRoute(ctx context.Context, tenantID string, id string) (*store.R
 
 func (d *DB) ListRoutes(ctx context.Context, tenantID string) ([]store.Route, error) {
 	rows, err := d.db.QueryContext(ctx,
-		"SELECT id, name, source_type, destination_type, filter, enabled, created_at, updated_at FROM routes WHERE tenant_id = $1 ORDER BY name",
+		"SELECT id, name, source_type, destination_type, filter, senders, enabled, created_at, updated_at FROM routes WHERE tenant_id = $1 ORDER BY name",
 		tenantID)
 	if err != nil {
 		return nil, err
@@ -54,7 +54,7 @@ func (d *DB) ListRoutes(ctx context.Context, tenantID string) ([]store.Route, er
 	var routes []store.Route
 	for rows.Next() {
 		var r store.Route
-		if err := rows.Scan(&r.ID, &r.Name, &r.SourceType, &r.DestinationType, &r.Filter, &r.Enabled, &r.CreatedAt, &r.UpdatedAt); err != nil {
+		if err := rows.Scan(&r.ID, &r.Name, &r.SourceType, &r.DestinationType, &r.Filter, &r.Senders, &r.Enabled, &r.CreatedAt, &r.UpdatedAt); err != nil {
 			return nil, err
 		}
 		r.CreatedAt = utc(r.CreatedAt)
@@ -67,8 +67,8 @@ func (d *DB) ListRoutes(ctx context.Context, tenantID string) ([]store.Route, er
 func (d *DB) UpdateRoute(ctx context.Context, tenantID string, r *store.Route) error {
 	r.UpdatedAt = time.Now().UTC()
 	_, err := d.db.ExecContext(ctx,
-		"UPDATE routes SET name = $1, source_type = $2, destination_type = $3, filter = $4, enabled = $5, updated_at = $6 WHERE id = $7 AND tenant_id = $8",
-		r.Name, r.SourceType, r.DestinationType, r.Filter, r.Enabled, r.UpdatedAt, r.ID, tenantID)
+		"UPDATE routes SET name = $1, source_type = $2, destination_type = $3, filter = $4, senders = $5, enabled = $6, updated_at = $7 WHERE id = $8 AND tenant_id = $9",
+		r.Name, r.SourceType, r.DestinationType, r.Filter, r.Senders, r.Enabled, r.UpdatedAt, r.ID, tenantID)
 	return err
 }
 

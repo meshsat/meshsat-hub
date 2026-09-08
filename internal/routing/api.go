@@ -67,6 +67,7 @@ type createRouteRequest struct {
 	SourceType      string `json:"source_type"`
 	DestinationType string `json:"destination_type"`
 	Filter          string `json:"filter,omitempty"`
+	Senders         string `json:"senders,omitempty"` // comma-separated origins; empty = any (MESHSAT-964)
 	Enabled         *bool  `json:"enabled,omitempty"`
 }
 
@@ -104,6 +105,7 @@ func (h *APIHandler) CreateRoute(w http.ResponseWriter, r *http.Request) {
 		SourceType:      req.SourceType,
 		DestinationType: req.DestinationType,
 		Filter:          req.Filter,
+		Senders:         req.Senders,
 		Enabled:         enabled,
 	}
 
@@ -155,6 +157,7 @@ func (h *APIHandler) UpdateRoute(w http.ResponseWriter, r *http.Request) {
 		existing.DestinationType = req.DestinationType
 	}
 	existing.Filter = req.Filter
+	existing.Senders = req.Senders
 	if req.Enabled != nil {
 		existing.Enabled = *req.Enabled
 	}
