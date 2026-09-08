@@ -48,6 +48,42 @@ swagger:
     - echo "swagger.json generated successfully ($(wc -l < docs/swagger/swagger.json) lines)"
 
 # -----------------------------------------------------------------------------
+# OWASP ZAP baseline scan of the public Hub URLs (MESHSAT-979, successor of the
+# compose-era owasp job): weekly schedule (OWASP_RUN=1) or manual on main.
+# Passive baseline only; findings are triaged into docs/SECURITY_AUDIT.md.
+# -----------------------------------------------------------------------------
+owasp:baseline:
+  stage: security
+  image:
+    name: ghcr.io/zaproxy/zaproxy:stable
+    entrypoint: [""]
+  tags: [multiarch]
+  needs: []
+  allow_failure: true
+  variables:
+    GIT_STRATEGY: none
+    ZAP_TARGETS: "https://hub.meshsat.net https://auth.meshsat.net"
+  script:
+    - mkdir -p /zap/wrk "$CI_PROJECT_DIR/zap"
+    - cd /zap/wrk
+    - |
+      for t in $ZAP_TARGETS; do
+        n=$(echo "$t" | sed 's|https://||')
+        echo "== ZAP baseline: $t"
+        zap-baseline.py -t "$t" -r "zap-$n.html" -J "zap-$n.json" -I -m 5 || true
+      done
+    - cp /zap/wrk/zap-* "$CI_PROJECT_DIR/zap/" || true
+    - ls -la "$CI_PROJECT_DIR/zap/"
+  artifacts:
+    paths: [zap/]
+    expire_in: 90 days
+    when: always
+  rules:
+    - if: $OWASP_RUN == "1"
+    - if: $CI_COMMIT_BRANCH == "main"
+      when: manual
+
+# -----------------------------------------------------------------------------
 # KUBECONFORM — the k8s/ kustomize tree must render and validate (MESHSAT-930).
 # Schemas: upstream for core kinds, the datreeio CRD catalog for CNPG, ESO,
 # monitoring and Argo kinds. Runs only when the tree exists and changed.
