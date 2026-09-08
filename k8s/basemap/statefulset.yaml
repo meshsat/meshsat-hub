@@ -109,9 +109,19 @@ spec:
           volumeMounts:
             - {name: data, mountPath: /data, readOnly: true}
             - {name: config, mountPath: /etc/nginx/nginx.conf, subPath: nginx.conf, readOnly: true}
+            # The image owns these paths as its own uid, and we run as the
+            # estate's nonroot one, so nginx cannot create its temp dirs or
+            # write its pid. Both are scratch: an emptyDir picks up fsGroup and
+            # is writable, and nothing here is worth persisting.
+            - {name: cache, mountPath: /var/cache/nginx}
+            - {name: run, mountPath: /tmp}
       volumes:
         - name: config
           configMap: {name: basemap-config}
+        - name: cache
+          emptyDir: {sizeLimit: 64Mi}
+        - name: run
+          emptyDir: {sizeLimit: 16Mi}
   persistentVolumeClaimRetentionPolicy:
     whenDeleted: Retain
     whenScaled: Retain

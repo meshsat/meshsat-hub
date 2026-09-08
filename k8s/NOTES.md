@@ -169,6 +169,13 @@ killed build has already pulled several GB for nothing. The fix is `GOMEMLIMIT`
 at 3000MiB under a 4Gi limit, so the collector runs instead of the OOM killer.
 If you ever widen the bbox or raise the zoom, raise both together.
 
+**nginx needs two scratch mounts.** The unprivileged image owns
+`/var/cache/nginx` as its own uid; we run as 65532, so nginx died with
+`mkdir() "/var/cache/nginx/client_temp" failed (13: Permission denied)` while
+the archive underneath it was perfectly fine. emptyDirs at `/var/cache/nginx`
+and `/tmp` pick up the fsGroup and cost nothing. Watch for this in any pod that
+pairs this image with a nonroot uid.
+
 The map reads two archives. The **world** one lives in the object store and the Hub streams it
 at `/basemap/basemap.pmtiles`; it stops at zoom 11, which is as deep as a global archive can be
 and still fit there. The **deep** one is Europe to zoom 15, which is the zoom where street names
