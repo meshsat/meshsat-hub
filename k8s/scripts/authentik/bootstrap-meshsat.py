@@ -28,7 +28,7 @@ from authentik.policies.event_matcher.models import EventMatcherPolicy
 from authentik.policies.expression.models import ExpressionPolicy
 from authentik.policies.models import PolicyBinding
 from authentik.providers.oauth2.models import (
-    ClientTypes, OAuth2Provider, RedirectURI, RedirectURIMatchingMode, ScopeMapping,
+    ClientType, OAuth2Provider, RedirectURI, RedirectURIMatchingMode, ScopeMapping,
 )
 from authentik.stages.email.models import EmailStage
 from authentik.stages.identification.models import IdentificationStage
@@ -98,7 +98,7 @@ redirects = [RedirectURI(matching_mode=RedirectURIMatchingMode.STRICT, url=REDIR
 provider, p_created = OAuth2Provider.objects.get_or_create(
     name="MeshSat Hub",
     defaults={
-        "client_type": ClientTypes.CONFIDENTIAL,
+        "client_type": ClientType.CONFIDENTIAL,
         "client_id": secrets.token_urlsafe(32)[:40],
         "client_secret": secrets.token_urlsafe(48),
         "signing_key": cert,
@@ -110,7 +110,7 @@ provider, p_created = OAuth2Provider.objects.get_or_create(
     },
 )
 provider.redirect_uris = redirects
-provider.client_type = ClientTypes.CONFIDENTIAL
+provider.client_type = ClientType.CONFIDENTIAL
 if provider.authorization_flow_id != auth_flow.pk:
     provider.authorization_flow = auth_flow
 if invalidation and provider.invalidation_flow_id != invalidation.pk:
