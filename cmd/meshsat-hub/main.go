@@ -66,6 +66,7 @@ import (
 	"github.com/meshsat/meshsat-hub/internal/store"
 	"github.com/meshsat/meshsat-hub/internal/store/dbwrap"
 	"github.com/meshsat/meshsat-hub/internal/store/mariadb"
+	"github.com/meshsat/meshsat-hub/internal/store/postgres"
 	"github.com/meshsat/meshsat-hub/internal/store/sqlite"
 	"github.com/meshsat/meshsat-hub/internal/tak"
 	"github.com/meshsat/meshsat-hub/internal/timesync"
@@ -186,13 +187,14 @@ func main() {
 		return nil
 	})
 
-	// --- Store (tri-mode) ---
+	// --- Store: driver from HUB_DB_DRIVER or sniffed from the DSN ---
 	dbwrap.SetDefaultMaxAttempts(cfg.DBRetryMaxAttempts)
 	var dataStore store.Store
 	var clusterMonitor *cluster.Monitor
-	switch cfg.Mode {
-	case "cluster", "kubernetes":
-		slowQ := time.Duration(cfg.DBSlowQueryMS) * time.Millisecond
+	slowQ := time.Duration(cfg.DBSlowQueryMS) * time.Millisecond
+	dbDriver := cfg.ResolvedDBDriver()
+	switch dbDriver {
+	case "mariadb":
 		dbStore, err := mariadb.New(cfg.DatabaseURL, slowQ)
 		if err != nil {
 			slog.Error("mariadb connection failed", "error", err)
@@ -203,8 +205,7 @@ func main() {
 			os.Exit(1)
 		}
 		dataStore = dbStore
-		checker.AddProbe("mariadb", dbStore.GaleraReady)
-		// Cluster health monitor
+		// Galera cluster health monitor (MariaDB only).
 		var peers []string
 		if cfg.ClusterPeers != "" {
 			for _, p := range strings.Split(cfg.ClusterPeers, ",") {
@@ -215,11 +216,21 @@ func main() {
 			}
 		}
 		clusterMonitor = cluster.NewMonitor(dbStore.RawDB(), cfg.MQTTClientID, "", peers)
-	default: // "standalone"
-		slowQ := time.Duration(cfg.DBSlowQueryMS) * time.Millisecond
-		sqlStore, err := sqlite.New("/data/hub.db", slowQ)
+	case "postgres":
+		pgStore, err := postgres.New(cfg.DatabaseURL, slowQ)
 		if err != nil {
-			slog.Error("sqlite open failed", "error", err)
+			slog.Error("postgres connection failed", "error", err)
+			os.Exit(1)
+		}
+		if err := pgStore.Migrate(ctx); err != nil {
+			slog.Error("postgres migration failed", "error", err)
+			os.Exit(1)
+		}
+		dataStore = pgStore
+	default: // "sqlite"
+		sqlStore, err := sqlite.New(cfg.SQLitePath, slowQ)
+		if err != nil {
+			slog.Error("sqlite open failed", "error", err, "path", cfg.SQLitePath)
 			os.Exit(1)
 		}
 		if err := sqlStore.Migrate(ctx); err != nil {
@@ -227,6 +238,14 @@ func main() {
 			os.Exit(1)
 		}
 		dataStore = sqlStore
+	}
+	slog.Info("store ready", "driver", dbDriver, "mode", cfg.Mode)
+	// Readiness: the database is the one critical dependency. Stores that
+	// know whether they accept writes (Galera, Postgres primary) say so.
+	if prober, ok := dataStore.(store.ReadinessProber); ok {
+		checker.AddProbe("db", prober.Ready)
+	} else {
+		checker.AddProbe("db", dataStore.Ping)
 	}
 	defer func() { _ = dataStore.Close() }()
 
@@ -1339,8 +1358,8 @@ func main() {
 	// (which doesn't expose BeginTx). Only wired in standalone mode
 	// today; cluster/MariaDB support lands in a follow-up once a
 	// MariaDB-compatible SQLStore is added.
-	if cfg.Mode == "" || cfg.Mode == "standalone" {
-		directoryRawDB, err := sql.Open("sqlite", "file:/data/hub.db?_journal_mode=WAL&_busy_timeout=5000&_foreign_keys=ON&_synchronous=NORMAL")
+	if dbDriver == "sqlite" {
+		directoryRawDB, err := sql.Open("sqlite", "file:"+cfg.SQLitePath+"?_journal_mode=WAL&_busy_timeout=5000&_foreign_keys=ON&_synchronous=NORMAL")
 		if err != nil {
 			slog.Error("directory: open raw sqlite failed", "error", err)
 		} else {

@@ -15,6 +15,13 @@ import (
 // no-op, not a second row.
 var ErrDuplicate = errors.New("store: duplicate")
 
+// ReadinessProber is implemented by stores that can say whether they accept
+// writes right now (Galera wsrep_ready, Postgres not in recovery). Stores
+// without it are probed with Ping.
+type ReadinessProber interface {
+	Ready(ctx context.Context) error
+}
+
 // DefaultTenantID is used when no tenant context is available (single-tenant mode).
 const DefaultTenantID = "default"
 
