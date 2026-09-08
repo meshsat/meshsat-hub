@@ -6,6 +6,7 @@ import EmptyState from '../components/EmptyState.vue'
 const contacts = ref([])
 const publicKey = ref('')
 const loading = ref(true)
+const unavailable = ref(false) // the email gateway is not wired on this Hub (API answers 404)
 const error = ref('')
 const success = ref('')
 
@@ -30,6 +31,7 @@ async function loadData() {
     email.publicKey(),
   ])
   contacts.value = results[0].status === 'fulfilled' && Array.isArray(results[0].value) ? results[0].value : []
+  unavailable.value = results[0].status === 'rejected' && /not found|404/i.test(String(results[0].reason?.message || ''))
   publicKey.value = results[1].status === 'fulfilled' ? (results[1].value?.key || results[1].value || '') : ''
   loading.value = false
 }
@@ -80,10 +82,10 @@ async function sendTest() {
     <div class="flex items-center justify-between mb-6">
       <h1 class="text-2xl font-display font-bold">Email Gateway</h1>
       <div class="flex gap-2">
-        <button @click="showTest = !showTest" class="text-sm text-brand-primary hover:text-brand-primary px-3 py-2">
+        <button v-if="!unavailable" @click="showTest = !showTest" class="text-sm text-brand-primary hover:text-brand-primary px-3 py-2">
           Test Send
         </button>
-        <button @click="showForm = !showForm"
+        <button v-if="!unavailable" @click="showForm = !showForm"
           class="bg-brand-accent hover:bg-brand-primary text-ms-on-primary text-sm px-4 py-2 rounded">
           + Add Contact
         </button>
@@ -138,7 +140,8 @@ async function sendTest() {
         <div class="px-4 py-3 border-b border-tactical-border">
           <h2 class="text-sm font-display font-semibold text-gray-200 uppercase tracking-wider">Contacts ({{ contacts.length }})</h2>
         </div>
-        <EmptyState v-if="contacts.length === 0" icon="users" title="No email contacts" message="Add PGP-enabled contacts to send encrypted email through the gateway." />
+        <EmptyState v-if="unavailable" icon="users" title="Email gateway not enabled on this Hub" message="The platform runs without the SMTP/PGP gateway (HUB_EMAIL_ENABLED). Contacts and test sends become available once it is configured." />
+        <EmptyState v-else-if="contacts.length === 0" icon="users" title="No email contacts" message="Add PGP-enabled contacts to send encrypted email through the gateway." />
         <div v-else class="divide-y divide-tactical-border/50">
           <div v-for="c in contacts" :key="c.email" class="px-4 py-3 flex items-center justify-between">
             <div>
