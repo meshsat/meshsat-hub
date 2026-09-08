@@ -72,6 +72,17 @@ func TenantIDFromContext(ctx context.Context) string {
 //  3. Falls back to "default" (single-tenant compatibility)
 //
 // If enforce is true, requests without a resolvable tenant get a 403 response.
+// TenantStatusLookup reports a tenant's lifecycle status. Supplying one to
+// TenantMiddleware makes suspension and deletion take effect: without it the
+// status column is a label nothing reads, which is what it was until
+// offboarding needed it to mean something.
+type TenantStatusLookup func(ctx context.Context, tenantID string) (status string, err error)
+
+var tenantStatus TenantStatusLookup
+
+// SetTenantStatusLookup wires the status check. Called once at startup.
+func SetTenantStatusLookup(f TenantStatusLookup) { tenantStatus = f }
+
 func TenantMiddleware(enforce bool) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -108,10 +119,34 @@ func TenantMiddleware(enforce bool) func(http.Handler) http.Handler {
 				tenantID = "default"
 			}
 
+			// A suspended or deleted tenant is refused everything. Deletion is
+			// reversible for a grace period, so this is what makes "blocked
+			// immediately, destroyed later" true rather than aspirational.
+			if tenantStatus != nil {
+				switch st, err := tenantStatus(r.Context(), tenantID); {
+				case err != nil:
+					// Fail open on a lookup error: a database blip must not
+					// lock every tenant out of a running system.
+					slog.Warn("tenant status lookup failed", "tenant", tenantID, "error", err)
+				case st == "suspended":
+					writeTenantBlocked(w, "tenant suspended")
+					return
+				case st == "deleted":
+					writeTenantBlocked(w, "tenant deleted")
+					return
+				}
+			}
+
 			ctx := context.WithValue(r.Context(), TenantContextKey, tenantID)
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
 	}
+}
+
+func writeTenantBlocked(w http.ResponseWriter, msg string) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusForbidden)
+	_, _ = fmt.Fprintf(w, `{"error":%q}`, msg)
 }
 
 // Config holds authentication configuration.

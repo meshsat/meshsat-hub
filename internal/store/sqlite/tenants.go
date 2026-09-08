@@ -13,15 +13,19 @@ import (
 
 // --- Tenants (MESHSAT-916) ---
 
-const tenantCols = "id, slug, name, owner_user_id, plan, status, created_at, updated_at"
+const tenantCols = "id, slug, name, owner_user_id, plan, status, created_at, updated_at, deleted_at"
 
 func scanTenant(sc interface{ Scan(...any) error }) (store.Tenant, error) {
 	var t store.Tenant
-	var created, updated string
-	if err := sc.Scan(&t.ID, &t.Slug, &t.Name, &t.OwnerUserID, &t.Plan, &t.Status, &created, &updated); err != nil {
+	var created, updated, deleted string
+	if err := sc.Scan(&t.ID, &t.Slug, &t.Name, &t.OwnerUserID, &t.Plan, &t.Status, &created, &updated, &deleted); err != nil {
 		return t, err
 	}
 	t.CreatedAt, t.UpdatedAt = parseTime(created), parseTime(updated)
+	if deleted != "" {
+		d := parseTime(deleted)
+		t.DeletedAt = &d
+	}
 	return t, nil
 }
 

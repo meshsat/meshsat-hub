@@ -19,6 +19,9 @@ import (
 // DB implements store.Store with SQLite.
 type DB struct {
 	db dbwrap.SQLDB
+	// rawDB is the same connection, unwrapped, for the one operation that
+	// needs a transaction: purging a tenant must be all or nothing.
+	rawDB *sql.DB
 }
 
 // New opens a SQLite database at the given path.
@@ -30,7 +33,7 @@ func New(path string, slowQueryThreshold time.Duration) (*DB, error) {
 		return nil, fmt.Errorf("sqlite open: %w", err)
 	}
 	conn.SetMaxOpenConns(1) // SQLite write serialization
-	return &DB{db: dbwrap.NewObservedDB(conn, "sqlite", slowQueryThreshold)}, nil
+	return &DB{db: dbwrap.NewObservedDB(conn, "sqlite", slowQueryThreshold), rawDB: conn}, nil
 }
 
 func (d *DB) Close() error { return d.db.Close() }
@@ -169,7 +172,7 @@ var postAlterMigrations = []string{
 	`CREATE TABLE IF NOT EXISTS oidc_identities (issuer TEXT NOT NULL, subject TEXT NOT NULL, user_id TEXT NOT NULL, tenant_id TEXT NOT NULL, email TEXT NOT NULL DEFAULT '', platform_admin INTEGER NOT NULL DEFAULT 0, last_login_at TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL DEFAULT (datetime('now')), PRIMARY KEY (issuer, subject))`,
 	// MESHSAT-916: tenants + invites; the default tenant is seeded so
 	// pre-tenancy rows keep a home.
-	`CREATE TABLE IF NOT EXISTS tenants (id TEXT PRIMARY KEY, slug TEXT NOT NULL UNIQUE, name TEXT NOT NULL DEFAULT '', owner_user_id TEXT NOT NULL DEFAULT '', plan TEXT NOT NULL DEFAULT 'beta', status TEXT NOT NULL DEFAULT 'active', created_at TEXT NOT NULL DEFAULT (datetime('now')), updated_at TEXT NOT NULL DEFAULT (datetime('now')))`,
+	`CREATE TABLE IF NOT EXISTS tenants (id TEXT PRIMARY KEY, slug TEXT NOT NULL UNIQUE, name TEXT NOT NULL DEFAULT '', owner_user_id TEXT NOT NULL DEFAULT '', plan TEXT NOT NULL DEFAULT 'beta', status TEXT NOT NULL DEFAULT 'active', created_at TEXT NOT NULL DEFAULT (datetime('now')), updated_at TEXT NOT NULL DEFAULT (datetime('now')), deleted_at TEXT NOT NULL DEFAULT '')`,
 	`INSERT OR IGNORE INTO tenants (id, slug, name) VALUES ('default', 'default', 'Default')`,
 	`CREATE TABLE IF NOT EXISTS tenant_invites (id TEXT PRIMARY KEY, tenant_id TEXT NOT NULL, email_lower TEXT NOT NULL, role TEXT NOT NULL DEFAULT 'viewer', token_hash TEXT NOT NULL DEFAULT '', expires_at TEXT NOT NULL, accepted_at TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL DEFAULT (datetime('now')))`,
 	`CREATE INDEX IF NOT EXISTS idx_tenant_invites_email ON tenant_invites (email_lower, accepted_at)`,
@@ -371,6 +374,9 @@ var postAlterMigrations = []string{
 // lateAlterMigrations alter tables created in postAlterMigrations.
 // Duplicate column errors are ignored for idempotency.
 var lateAlterMigrations = []string{
+	// Offboarding: an existing database gets the soft-delete column here;
+	// tenants is created in postAlterMigrations, so this has to be late.
+	`ALTER TABLE tenants ADD COLUMN deleted_at TEXT NOT NULL DEFAULT ''`,
 	// MESHSAT-964: last report bearer/time on bridges
 	`ALTER TABLE bridges ADD COLUMN last_report_bearer TEXT NOT NULL DEFAULT ''`,
 	`ALTER TABLE bridges ADD COLUMN last_report_at TEXT`,
