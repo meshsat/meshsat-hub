@@ -276,7 +276,17 @@ func (h *WebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// allowlist is configured. Previously the token was only consulted under a
 	// wildcard allowlist, so a concrete allowlist silently ignored it.
 	tokenTenant := webhookroute.TenantID(r.Context())
-	if tokenTenant == "" && h.wildcardAllowlist() {
+	if tokenTenant != "" {
+		// Already authenticated by the secret in the path. A concrete IP
+		// allowlist still applies as the second control; a wildcard one has
+		// nothing left to say, because the secret is what the wildcard was
+		// waiting for.
+		if !h.wildcardAllowlist() && !h.isAllowedIP(r) {
+			slog.Warn("cloudloop: request from disallowed IP", "remote", r.RemoteAddr)
+			http.Error(w, `{"error":"forbidden"}`, http.StatusForbidden)
+			return
+		}
+	} else if h.wildcardAllowlist() {
 		// A wildcard allowlist is only acceptable together with a token: the
 		// platform token (default tenant) or a tenant's own webhook token.
 		if h.token == "" && h.accounts == nil {
