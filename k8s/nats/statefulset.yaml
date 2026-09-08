@@ -1,7 +1,9 @@
-# NATS x1 (MQTT broker + JetStream) with the config reloader (SIGHUP when the
-# TLS certificate or the bridge CA rotates) and the Prometheus exporter.
-# Volume must never land on dmz06 (LocalPV binds permanently on first schedule):
-# required nodeAffinity, not preferred.
+# NATS x3 (MQTT broker + JetStream cluster, MESHSAT-711 phase 7) with the config
+# reloader (SIGHUP when the TLS certificate or the bridge CA rotates) and the
+# Prometheus exporter. One pod per worker (required podAntiAffinity); volumes
+# must never land on dmz06 (LocalPV binds permanently on first schedule):
+# required nodeAffinity, not preferred. Pods start in parallel so the cluster
+# can form (a pod is not Ready until JetStream has a meta leader).
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
@@ -11,7 +13,8 @@ metadata:
     app.kubernetes.io/name: nats
 spec:
   serviceName: nats
-  replicas: 1
+  replicas: 3
+  podManagementPolicy: Parallel
   selector:
     matchLabels:
       app.kubernetes.io/name: nats
@@ -33,11 +36,21 @@ spec:
                   - key: kubernetes.io/hostname
                     operator: NotIn
                     values: ["notrf01dmz06"]
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - topologyKey: kubernetes.io/hostname
+              labelSelector:
+                matchLabels:
+                  app.kubernetes.io/name: nats
       containers:
         - name: nats
           image: docker.io/library/nats
           args: ["-c", "/etc/nats/nats.conf"]
           env:
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
             - name: NATS_MQTT_PASSWORD
               valueFrom:
                 secretKeyRef:
@@ -52,8 +65,12 @@ spec:
               containerPort: 9443
             - name: monitor
               containerPort: 8222
+            - name: cluster
+              containerPort: 6222
           readinessProbe:
-            httpGet: {path: /healthz, port: monitor}
+            # js-enabled-only: Ready once this server's JetStream is up and the
+            # meta group has a leader, so a route-only server is never endpointed.
+            httpGet: {path: "/healthz?js-enabled-only=true", port: monitor}
             periodSeconds: 10
           livenessProbe:
             httpGet: {path: /healthz, port: monitor}

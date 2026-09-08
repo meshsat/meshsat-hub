@@ -90,3 +90,17 @@ before still connect as the shared user until they re-provision.
 user allow-all): nats-server 2.11.8 panics on an authorization reload when a user has none
 (`generatePubPerms(nil)` in `mqttCheckPubRetainedPerms`, MESHSAT-973). Re-check when the
 `docker.io/library/nats` pin is bumped.
+
+## NATS JetStream x3 (MESHSAT-711 phase 7, 2026-09-08)
+
+`nats` is a three-pod StatefulSet (`podManagementPolicy: Parallel`, one pod per worker, never
+dmz06) forming JetStream cluster `meshsat` over routes on :6222; `server_name` is the pod name
+(downward API). The `nats` Service is headless (the StatefulSet's governing Service, so
+`nats-N.nats` resolves; `Replace=true` because clusterIP is immutable) and the Hub's
+`tcp://nats:1883` now resolves to the pod addresses, between which the Paho client fails over.
+`nats-ws` (edge relay target) stays a ClusterIP. Readiness is `/healthz?js-enabled-only=true`:
+a server without a JetStream meta leader is not endpointed. `mqtt.stream_replicas: 3` makes new
+MQTT session/retained/QoS streams R3; streams created on the single node stay R1 until edited
+(`nats stream edit --replicas 3` from a `natsio/nats-box` pod, or delete them while no bridge is
+connected: NATS recreates them). Rolling the StatefulSet restarts the broker: the Hub and the
+bridges reconnect, in-flight QoS 1 publishes are retried by the clients.
