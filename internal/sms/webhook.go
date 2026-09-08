@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"github.com/meshsat/meshsat-hub/internal/integrations"
 	"github.com/meshsat/meshsat-hub/internal/tenancy"
+	"github.com/meshsat/meshsat-hub/internal/webhookroute"
 	"github.com/rs/xid"
 	"log/slog"
 	"net/http"
@@ -162,10 +163,19 @@ func (h *WebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// A tenant's webhook token selects the tenant and its signing secret.
-	tokenTenant := ""
+	// The tenant comes from the secret in the request path (MESHSAT-975): the
+	// tenant's Twilio console posts to the tenant's own URL, so who this
+	// message belongs to is settled by which URL it arrived at. That matters
+	// more here than anywhere else, because an inbound SMS identifies its
+	// sender by phone number and a phone number is not a device — the owner
+	// lookup this handler used to rely on could never match, so every tenant's
+	// inbound SMS was persisted into the platform tenant.
+	tokenTenant := webhookroute.TenantID(r.Context())
 	secret := h.secret
-	if tok := r.URL.Query().Get("token"); tok != "" && h.accounts != nil {
+	if res, ok := webhookroute.FromContext(r.Context()); ok && res.Account != nil && !res.Account.Platform {
+		secret = res.Account.Get("webhook_secret")
+	}
+	if tok := r.URL.Query().Get("token"); tokenTenant == "" && tok != "" && h.accounts != nil {
 		tenant, acct, err := h.accounts.LookupByToken(r.Context(), integrations.ProviderTwilio, "webhook_token", tok)
 		if err != nil {
 			slog.Error("sms: webhook token lookup failed", "error", err)
@@ -216,11 +226,10 @@ func (h *WebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, `{"error":"missing From or Body"}`, http.StatusBadRequest)
 		return
 	}
-	if tokenTenant != "" && h.tenants != nil && h.tenants.ForDeviceTopic(ctx, from, tokenTenant) != tokenTenant {
-		slog.Warn("sms: webhook token tenant does not own the sender", "from", from, "token_tenant", tokenTenant)
-		http.Error(w, `{"error":"forbidden"}`, http.StatusForbidden)
-		return
-	}
+	// No ownership check on the sender: a phone number is not a registered
+	// device, so any check against one is unfalsifiable and gives false
+	// assurance. The URL the message arrived at is the assertion of tenancy
+	// here, and the Twilio signature above is what makes it trustworthy.
 
 	slog.Info("sms: inbound received", "from", from, "to", to, "sid", messageSID, "len", len(body))
 
@@ -479,7 +488,7 @@ func (h *WebhookHandler) handleBridgeUplink(ctx context.Context, from string, ra
 	if h.store != nil {
 		st = h.store
 	}
-	return bridge.NewUplinkSink(st, h.publish, h.audit, "sms_webhook").Handle(ctx, h.tenantOf(ctx, from), "sms", from, rawBytes)
+	return bridge.NewUplinkSink(st, h.publish, h.audit, "sms_webhook").SetTenants(h.tenants).Handle(ctx, h.tenantOf(ctx, from), "sms", from, rawBytes)
 }
 
 // smsMessageID is the stable ID of an inbound SMS: Twilio's MessageSid is
@@ -498,11 +507,15 @@ func (h *WebhookHandler) SetTenants(r *tenancy.Resolver) { h.tenants = r }
 // tenantOf returns the tenant a message belongs to: the tenant the webhook
 // token authenticated (carried in ctx), else the sender's owner.
 func (h *WebhookHandler) tenantOf(ctx context.Context, id string) string {
-	if t := tenancy.FromContext(ctx); t != "" {
-		return t
+	authTenant := tenancy.FromContext(ctx)
+	if authTenant == "" {
+		authTenant = hubmqtt.DefaultTenant
 	}
 	if h.tenants == nil {
-		return hubmqtt.DefaultTenant
+		return authTenant
 	}
-	return h.tenants.ForDevice(ctx, id)
+	// A registered device wins if the identifier happens to be one; a phone
+	// number never is, and then this returns the tenant whose webhook URL the
+	// message arrived at rather than the platform default.
+	return h.tenants.ForDeviceTopic(ctx, id, authTenant)
 }

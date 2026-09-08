@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"github.com/meshsat/meshsat-hub/internal/integrations"
 	"github.com/meshsat/meshsat-hub/internal/tenancy"
+	"github.com/meshsat/meshsat-hub/internal/webhookroute"
 	"log/slog"
 	"net/http"
 	"strconv"
@@ -155,7 +156,7 @@ func (h *Handler) uplinkSink() *bridge.UplinkSink {
 	if h.store != nil {
 		st = h.store
 	}
-	return bridge.NewUplinkSink(st, h.publish, h.audit, "rockblock_webhook")
+	return bridge.NewUplinkSink(st, h.publish, h.audit, "rockblock_webhook").SetTenants(h.tenants)
 }
 
 // OOBClassifier is the out-of-band management service: it takes "MS:" frames
@@ -212,29 +213,44 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// A tenant's webhook secret in ?token= selects the tenant (Rock7's portal
-	// cannot sign, so the URL token is the credential; MESHSAT-977).
+	// The tenant comes from the secret in the request path, resolved before
+	// this handler runs (MESHSAT-975). Everything below uses it and nothing
+	// derives a tenant from the payload.
 	ctx := r.Context()
-	tokenTenant := ""
-	if tok := r.URL.Query().Get("token"); tok != "" && h.accounts != nil {
-		tenant, _, err := h.accounts.LookupByToken(ctx, integrations.ProviderRockBLOCK, "webhook_secret", tok)
-		if err != nil {
-			slog.Error("rockblock: webhook token lookup failed", "error", err)
+	tokenTenant := webhookroute.TenantID(ctx)
+
+	// Deprecated: the same secret in ?token=. Kept for one release while the
+	// Rock7 portal is re-pointed at the tenant path; it presents the same
+	// credential, so it is an alias, not a second way in.
+	if tokenTenant == "" && h.accounts != nil {
+		if tok := r.URL.Query().Get("token"); tok != "" {
+			tenant, _, err := h.accounts.LookupByToken(ctx, integrations.ProviderRockBLOCK, "webhook_secret", tok)
+			if err != nil {
+				slog.Error("rockblock: webhook token lookup failed", "error", err)
+			}
+			if tenant == "" {
+				slog.Warn("rockblock: unknown webhook token", "remote", r.RemoteAddr)
+				http.Error(w, `{"error":"unauthorized"}`, http.StatusUnauthorized)
+				return
+			}
+			slog.Warn("rockblock: ?token= is deprecated, move the secret into the webhook path")
+			tokenTenant = tenant
+			ctx = tenancy.WithTenant(ctx, tenant)
+			r = r.WithContext(ctx)
 		}
-		if tenant == "" {
-			slog.Warn("rockblock: unknown webhook token", "remote", r.RemoteAddr)
-			http.Error(w, `{"error":"unauthorized"}`, http.StatusUnauthorized)
-			return
-		}
-		tokenTenant = tenant
-		ctx = tenancy.WithTenant(ctx, tenant)
-		r = r.WithContext(ctx)
 	}
 
-	// Platform path: verify the shared secret if configured. Rock7's portal
-	// does NOT support webhook signing (no shared secret field), so when
-	// HUB_ROCKBLOCK_SECRET is empty we accept unsigned requests. [MESHSAT-446]
-	if tokenTenant == "" && h.secret != "" {
+	// Legacy platform path: fail closed. Rock7's portal cannot sign, which is
+	// why the per-tenant path exists — the platform account has one too. An
+	// unauthenticated write reachable from the internet is not an acceptable
+	// fallback for a portal limitation, so with no secret configured this
+	// refuses rather than accepting. [MESHSAT-975, was MESHSAT-446]
+	if tokenTenant == "" {
+		if h.secret == "" {
+			slog.Warn("rockblock: no webhook secret configured, refusing unsigned request", "remote", r.RemoteAddr)
+			http.Error(w, `{"error":"webhook secret not configured"}`, http.StatusForbidden)
+			return
+		}
 		if !h.verifySignature(r) {
 			slog.Warn("rockblock: signature verification failed")
 			http.Error(w, `{"error":"unauthorized"}`, http.StatusUnauthorized)
@@ -247,8 +263,13 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, `{"error":"missing imei"}`, http.StatusBadRequest)
 		return
 	}
+	// A tenant that presented its own secret may only speak for its own
+	// devices. The platform account is different in kind: it is the shared
+	// relationship for every tenant that has not brought their own provider
+	// credentials, so there the owning tenant is read from the device and a
+	// device nobody has registered belongs to the platform.
 	if tokenTenant != "" && h.tenants != nil && h.tenants.ForDeviceTopic(ctx, imei, tokenTenant) != tokenTenant {
-		slog.Warn("rockblock: webhook token tenant does not own the device", "imei", imei, "token_tenant", tokenTenant)
+		slog.Warn("rockblock: webhook secret's tenant does not own the device", "imei", imei, "tenant", tokenTenant)
 		http.Error(w, `{"error":"forbidden"}`, http.StatusForbidden)
 		return
 	}
@@ -562,16 +583,27 @@ func sbdMessageID(imei string, momsn int) string {
 // (MESHSAT-864 MR 20). Without it every topic uses the default namespace.
 func (h *Handler) SetTenants(r *tenancy.Resolver) { h.tenants = r }
 
-// tenantOf returns the tenant a message belongs to: the tenant the webhook
-// token authenticated (carried in ctx), else the device's owner.
-func (h *Handler) tenantOf(ctx context.Context, id string) string {
+// authTenant is the tenant this request authenticated as: the one behind the
+// secret in the path, or the platform tenant when the platform account was
+// used. It never depends on the payload.
+func (h *Handler) authTenant(ctx context.Context) string {
 	if t := tenancy.FromContext(ctx); t != "" {
 		return t
 	}
+	return hubmqtt.DefaultTenant
+}
+
+// tenantOf is the tenant every row and topic for this message uses. On a
+// tenant's own webhook it is that tenant, already checked to own the device.
+// On the shared platform account it is the device's registered owner, and the
+// platform itself for a device nobody has registered. What it is never allowed
+// to be is a silent default chosen because a lookup missed — that is the
+// cross-tenant write this route shape exists to prevent (MESHSAT-975).
+func (h *Handler) tenantOf(ctx context.Context, id string) string {
 	if h.tenants == nil {
-		return hubmqtt.DefaultTenant
+		return h.authTenant(ctx)
 	}
-	return h.tenants.ForDevice(ctx, id)
+	return h.tenants.ForDeviceTopic(ctx, id, h.authTenant(ctx))
 }
 
 // SetAccounts enables per-tenant webhook secrets (?token= selects the tenant).
