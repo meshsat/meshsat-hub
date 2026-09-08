@@ -79,7 +79,13 @@ func (s *Service) VerifyChain(ctx context.Context, tenantID string) (verified in
 		entries[i], entries[j] = entries[j], entries[i]
 	}
 
+	// Anchor at the oldest retained entry: retention purges the head of the
+	// chain, so the first surviving entry legitimately links to a hash that
+	// is no longer stored. Its own hash still covers that link.
 	prevHash := ""
+	if len(entries) > 0 {
+		prevHash = entries[0].PrevHash
+	}
 	for i, e := range entries {
 		// Verify prev_hash links to the previous entry.
 		if e.PrevHash != prevHash {
