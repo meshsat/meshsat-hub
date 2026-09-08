@@ -1,0 +1,16 @@
+# The three workers are 49, 90 and 92 percent committed by other namespaces
+# (omoikane, monitoring, seaweedfs). Without a priority the Hub's data path
+# competes on equal terms with tens of gigabytes of other pods when a node dies,
+# and a replacement replica can sit Pending exactly when it is needed
+# (MESHSAT-711). preemptionPolicy Never buys queue priority only: it never
+# evicts another team's workload. If a failure drill shows a Pending Hub pod,
+# that is the signal to discuss capacity, or to escalate this to
+# PreemptLowerPriority deliberately rather than by surprise.
+apiVersion: scheduling.k8s.io/v1
+kind: PriorityClass
+metadata:
+  name: meshsat-hub-critical
+value: 900000
+preemptionPolicy: Never
+globalDefault: false
+description: "MeshSat Hub data path: hub, nats, keydb, stunnel, edge relay."
