@@ -199,7 +199,7 @@ func (s *Sender) handleMTSend(topic string, payload []byte) {
 			"device", deviceID, "total_bytes", len(data), "fragments", len(frags),
 		)
 		for i, frag := range frags {
-			if err := s.sendPayload(thingID, isIMT, req.IMTTopic, req.RingStyle, frag, i, len(frags)); err != nil {
+			if err := s.sendPayload(deviceID, thingID, isIMT, req.IMTTopic, req.RingStyle, frag, i, len(frags)); err != nil {
 				slog.Error("cloudloop: fragment send failed, aborting remaining",
 					"device", deviceID, "frag", i+1, "total", len(frags), "error", err,
 				)
@@ -214,7 +214,7 @@ func (s *Sender) handleMTSend(topic string, payload []byte) {
 	}
 
 	// Single message — send directly.
-	if err := s.sendPayload(thingID, isIMT, req.IMTTopic, req.RingStyle, data, 0, 1); err != nil {
+	if err := s.sendPayload(deviceID, thingID, isIMT, req.IMTTopic, req.RingStyle, data, 0, 1); err != nil {
 		s.publishStatus(deviceID, "", "failed", err.Error())
 		return
 	}
@@ -222,7 +222,7 @@ func (s *Sender) handleMTSend(topic string, payload []byte) {
 
 // sendPayload sends a single payload with exponential backoff retry.
 // Uses the official Cloudloop Data API: SendSBD for 9603, SendIMT for 9704.
-func (s *Sender) sendPayload(thingID string, isIMT bool, imtTopic, ringStyle string, data []byte, fragIdx, fragTotal int) error {
+func (s *Sender) sendPayload(imei, thingID string, isIMT bool, imtTopic, ringStyle string, data []byte, fragIdx, fragTotal int) error {
 	protocol := "SBD"
 	if isIMT {
 		protocol = "IMT"
@@ -269,21 +269,24 @@ func (s *Sender) sendPayload(thingID string, isIMT bool, imtTopic, ringStyle str
 			if isIMT {
 				ifaceType = "iridium_imt"
 			}
+			// Cost rows and mt/status belong to the device (IMEI), not the
+			// Cloudloop thing ID the API was called with; the Costs page and
+			// the meshsat/{device}/mt/status topic are keyed by IMEI.
 			entry := &CostEntry{
 				ID:            uuid.NewString(),
-				DeviceIMEI:    thingID,
+				DeviceIMEI:    imei,
 				InterfaceType: ifaceType,
 				Direction:     "mt",
 				CostUSD:       s.costPerMsg,
 				MessageID:     resp.ID,
 				Detail:        fmt.Sprintf("frag=%d/%d bytes=%d", fragIdx+1, fragTotal, len(data)),
 			}
-			if err := s.costRecorder.InsertCostEntry(context.Background(), "", entry); err != nil {
+			if err := s.costRecorder.InsertCostEntry(context.Background(), s.tenantOf(imei), entry); err != nil {
 				slog.Warn("cost: failed to record cost entry", "error", err)
 			}
 		}
 		if fragTotal == 1 {
-			s.publishStatus(thingID, resp.ID, resp.Status, "")
+			s.publishStatus(imei, resp.ID, resp.Status, "")
 		}
 		return nil
 	}
@@ -349,7 +352,7 @@ func (s *Sender) SendDirect(imei string, req MTSendRequest) (*SendDirectResult, 
 	if frags != nil {
 		res.Fragments = len(frags)
 		for i, frag := range frags {
-			if err := s.sendPayload(thingID, isIMT, req.IMTTopic, req.RingStyle, frag, i, len(frags)); err != nil {
+			if err := s.sendPayload(imei, thingID, isIMT, req.IMTTopic, req.RingStyle, frag, i, len(frags)); err != nil {
 				s.publishStatus(imei, "", "failed", fmt.Sprintf("fragment %d/%d failed: %s", i+1, len(frags), err))
 				return nil, fmt.Errorf("fragment %d/%d: %w", i+1, len(frags), err)
 			}
@@ -358,7 +361,7 @@ func (s *Sender) SendDirect(imei string, req MTSendRequest) (*SendDirectResult, 
 		return res, nil
 	}
 
-	if err := s.sendPayload(thingID, isIMT, req.IMTTopic, req.RingStyle, data, 0, 1); err != nil {
+	if err := s.sendPayload(imei, thingID, isIMT, req.IMTTopic, req.RingStyle, data, 0, 1); err != nil {
 		s.publishStatus(imei, "", "failed", err.Error())
 		return nil, err
 	}
