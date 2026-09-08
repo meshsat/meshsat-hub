@@ -4,5 +4,6 @@ resources:
   - configmap.yaml
   - externalsecret.yaml
   - bridge-ca-externalsecret.yaml
+  - auth-secret.yaml
   - statefulset.yaml
   - service.yaml

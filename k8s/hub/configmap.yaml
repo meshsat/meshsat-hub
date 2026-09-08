@@ -33,6 +33,7 @@ data:
   # --- bridges ---
   MESHSAT_MQTT_PUBLIC_URL: "wss://mqtt-hub.meshsat.net:443"
   HUB_BRIDGE_CA_SECRET_NAME: "meshsat-bridge-ca"
+  HUB_NATS_AUTH_SECRET_NAME: "meshsat-nats-auth"  # rendered NATS users/permissions (internal/bridge/natsauth.go)
   HUB_RETICULUM_TCP_ENABLED: "true"
   HUB_RETICULUM_TCP_ADDR: ":4242"
   HUB_AUDIT_ARCHIVE_PATH: "/data/audit"

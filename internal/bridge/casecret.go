@@ -34,6 +34,7 @@ type CASecretWriter struct {
 	namespace string
 	name      string
 	key       string
+	label     string // log/error prefix: "bridge-ca" or "nats-auth"
 
 	mu      sync.Mutex
 	lastErr error
@@ -46,6 +47,19 @@ var ErrCASecretNotFound = errors.New("bridge-ca: target secret not found (it mus
 // NewCASecretWriter builds a writer from the in-cluster service account.
 // namespace defaults to POD_NAMESPACE, key to "ca.crt".
 func NewCASecretWriter(name, key string) (*CASecretWriter, error) {
+	return newInClusterWriter(name, key, "bridge-ca")
+}
+
+// NewNATSAuthSecretWriter builds the writer for the rendered NATS users file
+// (MESHSAT-864 MR 21); key defaults to "users.conf".
+func NewNATSAuthSecretWriter(name, key string) (*CASecretWriter, error) {
+	if key == "" {
+		key = "users.conf"
+	}
+	return newInClusterWriter(name, key, "nats-auth")
+}
+
+func newInClusterWriter(name, key, label string) (*CASecretWriter, error) {
 	cfg, err := rest.InClusterConfig()
 	if err != nil {
 		return nil, fmt.Errorf("bridge-ca: in-cluster config: %w", err)
@@ -58,7 +72,9 @@ func NewCASecretWriter(name, key string) (*CASecretWriter, error) {
 	if ns == "" {
 		ns = "default"
 	}
-	return NewCASecretWriterWithClient(hc, cfg.Host, ns, name, key), nil
+	w := NewCASecretWriterWithClient(hc, cfg.Host, ns, name, key)
+	w.label = label
+	return w, nil
 }
 
 // NewCASecretWriterWithClient is the constructor used by tests: client must
@@ -70,8 +86,8 @@ func NewCASecretWriterWithClient(client *http.Client, base, namespace, name, key
 	if client == nil {
 		client = &http.Client{Timeout: 15 * time.Second}
 	}
-	w := &CASecretWriter{client: client, base: strings.TrimRight(base, "/"), namespace: namespace, name: name, key: key}
-	w.lastErr = errors.New("bridge-ca: secret not synced yet")
+	w := &CASecretWriter{client: client, base: strings.TrimRight(base, "/"), namespace: namespace, name: name, key: key, label: "bridge-ca"}
+	w.lastErr = errors.New(w.label + ": secret not synced yet")
 	return w
 }
 
@@ -97,7 +113,7 @@ type secretDoc struct {
 
 func (w *CASecretWriter) sync(ctx context.Context, certPEM []byte) error {
 	if len(certPEM) == 0 {
-		return errors.New("bridge-ca: empty certificate")
+		return errors.New(w.label + ": empty payload")
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, w.secretURL(), nil)
 	if err != nil {
@@ -106,23 +122,23 @@ func (w *CASecretWriter) sync(ctx context.Context, certPEM []byte) error {
 	req.Header.Set("Accept", "application/json")
 	resp, err := w.client.Do(req) // #nosec G704 -- in-cluster API server address from the service account config
 	if err != nil {
-		return fmt.Errorf("bridge-ca: get secret: %w", err)
+		return fmt.Errorf(w.label+": get secret: %w", err)
 	}
 	body, err := io.ReadAll(io.LimitReader(resp.Body, 4<<20))
 	_ = resp.Body.Close()
 	if err != nil {
-		return fmt.Errorf("bridge-ca: read secret: %w", err)
+		return fmt.Errorf(w.label+": read secret: %w", err)
 	}
 	switch resp.StatusCode {
 	case http.StatusOK:
 	case http.StatusNotFound:
 		return fmt.Errorf("%w: %s/%s", ErrCASecretNotFound, w.namespace, w.name)
 	default:
-		return fmt.Errorf("bridge-ca: get secret: status %d", resp.StatusCode)
+		return fmt.Errorf(w.label+": get secret: status %d", resp.StatusCode)
 	}
 	var cur secretDoc
 	if err := json.Unmarshal(body, &cur); err != nil {
-		return fmt.Errorf("bridge-ca: parse secret: %w", err)
+		return fmt.Errorf(w.label+": parse secret: %w", err)
 	}
 	if existing, err := base64.StdEncoding.DecodeString(cur.Data[w.key]); err == nil && bytes.Equal(existing, certPEM) {
 		return nil
@@ -136,14 +152,14 @@ func (w *CASecretWriter) sync(ctx context.Context, certPEM []byte) error {
 	preq.Header.Set("Accept", "application/json")
 	presp, err := w.client.Do(preq) // #nosec G704 -- see above
 	if err != nil {
-		return fmt.Errorf("bridge-ca: patch secret: %w", err)
+		return fmt.Errorf(w.label+": patch secret: %w", err)
 	}
 	_, _ = io.Copy(io.Discard, io.LimitReader(presp.Body, 1<<20))
 	_ = presp.Body.Close()
 	if presp.StatusCode != http.StatusOK {
-		return fmt.Errorf("bridge-ca: patch secret: status %d", presp.StatusCode)
+		return fmt.Errorf(w.label+": patch secret: status %d", presp.StatusCode)
 	}
-	slog.Info("bridge-ca: CA certificate written to secret", "namespace", w.namespace, "secret", w.name, "key", w.key)
+	slog.Info(w.label+": payload written to secret", "namespace", w.namespace, "secret", w.name, "key", w.key)
 	return nil
 }
 

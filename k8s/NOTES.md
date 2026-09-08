@@ -74,3 +74,15 @@ Things Argo CD cannot do by itself, in the order they happen. Keep this current.
   Reloader annotation later).
 - Bridge CA: Secret `meshsat-bridge-ca`, seeded once by ESO, kept current by the Hub
   (`HUB_BRIDGE_CA_SECRET_NAME`; readiness info probe `bridge_ca_export`).
+
+## NATS bridge users (MR 21, 2026-09-08)
+
+`meshsat-nats-auth` (Secret, key `users.conf`) holds the `authorization` block that
+`nats.conf` includes. Git ships only the bootstrap content (shared `meshsat` user, password
+resolved from the pod env); the Hub re-renders it on start, every 5 minutes and after every
+credential change (`internal/bridge/natsauth.go`: one NATS user per bridge with its bcrypt
+hash and permissions confined to its subtree and its tenant's device topics), the reloader
+SIGHUPs nats-server, and the Argo Application ignores `/data` on this Secret
+(`argocd-apps/meshsat-hub/application.yaml`). Probe: `nats_auth_export` in `/readyz?verbose=1`.
+Provisioning bundles now carry the per-bridge user and one-time password; bridges provisioned
+before still connect as the shared user until they re-provision.
