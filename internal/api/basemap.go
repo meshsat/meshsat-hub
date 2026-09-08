@@ -28,22 +28,49 @@ var rangeHeader = regexp.MustCompile(`^bytes=[0-9]*-[0-9]*(,[0-9]*-[0-9]*)*$`)
 type BasemapHandler struct {
 	store      *objstore.Client
 	archiveKey string
+	localKey   string // deeper archive for the operating area, may be empty
 	assets     string // key prefix of the glyph and sprite assets
 	maxAge     int
 }
 
 // NewBasemapHandler returns a handler for one archive object and the asset
 // prefix beside it. assetPrefix may be empty, which disables /basemap/assets/.
-func NewBasemapHandler(store *objstore.Client, archiveKey, assetPrefix string, maxAge time.Duration) *BasemapHandler {
+func NewBasemapHandler(store *objstore.Client, archiveKey, localKey, assetPrefix string, maxAge time.Duration) *BasemapHandler {
 	if maxAge <= 0 {
 		maxAge = 24 * time.Hour
 	}
 	return &BasemapHandler{
 		store:      store,
 		archiveKey: archiveKey,
+		localKey:   strings.TrimSpace(localKey),
 		assets:     strings.Trim(assetPrefix, "/"),
 		maxAge:     int(maxAge.Seconds()),
 	}
+}
+
+// HasLocal reports whether a deeper regional archive is configured.
+func (h *BasemapHandler) HasLocal() bool { return h.localKey != "" }
+
+// ServeLocal streams the deeper archive covering the operating area. The world
+// archive has to stop at a low zoom to stay small, and street geometry needs
+// zoom 13 while street names need zoom 15, so the detail people actually
+// navigate by can only be afforded region by region (MESHSAT-967).
+//
+//	@Summary		Local vector basemap archive
+//	@Description	Streams the deeper PMTiles archive for the area the fleet operates in, forwarding HTTP range requests. Public map data, no authentication.
+//	@Tags			map
+//	@Produce		octet-stream
+//	@Param			Range	header		string	false	"Byte range, e.g. bytes=0-16383"
+//	@Success		200		{file}		binary	"Whole archive"
+//	@Success		206		{file}		binary	"Requested byte range"
+//	@Failure		404		{object}	map[string]string	"No local archive configured"
+//	@Router			/basemap/local.pmtiles [get]
+func (h *BasemapHandler) ServeLocal(w http.ResponseWriter, r *http.Request) {
+	if h.localKey == "" {
+		writeError(w, http.StatusNotFound, "no local basemap configured")
+		return
+	}
+	h.stream(w, r, h.localKey, "application/octet-stream")
 }
 
 // Describe returns the object this handler serves, for startup logging.
