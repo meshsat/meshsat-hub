@@ -126,7 +126,7 @@ def cutover(text):
 
 WHITELIST_FILE = "/etc/haproxy/meshsat-whitelist.lst"
 
-REGISTRATION_BLOCK = """    # --- Gated registration (MESHSAT-978, 2026-09-08) ---
+REGISTRATION_BLOCK = """    # --- Gated registration (MESHSAT-978) + provider callbacks (MESHSAT-964), 2026-09-08 ---
     # Approved MeshSat beta testers are admitted by address: the file is fed by
     # k8s/scripts/edge/whitelist-ip.sh at approval time (runtime `add acl` plus
     # the file for reloads). It applies to the MeshSat hosts ONLY; the ASA-WAN
@@ -139,8 +139,20 @@ REGISTRATION_BLOCK = """    # --- Gated registration (MESHSAT-978, 2026-09-08) -
     acl meshsat_signup_ip src -f %s
     acl meshsat_enroll_host hdr(host) -i auth.meshsat.net
     acl meshsat_enroll_path path_beg /if/flow/meshsat-enrollment/ /api/v3/flows/executor/meshsat-enrollment/ /static/ /media/ /api/v3/root/config/ /favicon
+    # Provider callbacks must reach the Hub from the open internet: Twilio,
+    # Cloudloop, RockBLOCK, Globalstar and the mail gateway all post here from
+    # their own clouds, whose addresses cannot be allowlisted. Each endpoint
+    # authenticates its caller itself (Twilio request signature, RockBLOCK and
+    # Globalstar HMAC, Cloudloop and email shared token) and the Hub rejects an
+    # unsigned POST with 401, so this exposes no data. Without it the gate
+    # silently swallows every inbound satellite message and SMS reply: a kit's
+    # out-of-band reply reached Twilio on 2026-09-08 and died here as a 403
+    # (MESHSAT-964). POST only, and the per-IP budgets above still apply.
+    acl meshsat_hook_host hdr(host) -i hub.meshsat.net
+    acl meshsat_hook_path path_beg /api/webhook/
     http-request set-var(txn.meshsat_admit) str(yes) if meshsat_gated_host meshsat_signup_ip
     http-request set-var(txn.meshsat_admit) str(yes) if meshsat_enroll_host meshsat_enroll_path
+    http-request set-var(txn.meshsat_admit) str(yes) if meshsat_hook_host meshsat_hook_path METH_POST
 """ % WHITELIST_FILE
 
 TIER5A_DENY = "    http-request deny deny_status 403 if tier5a_host !whitelisted_ip !omoikane_infra_src\n"
