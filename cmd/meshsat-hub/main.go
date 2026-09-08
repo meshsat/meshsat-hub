@@ -32,6 +32,7 @@ import (
 	"github.com/meshsat/meshsat-hub/internal/aprsis"
 	"github.com/meshsat/meshsat-hub/internal/audit"
 	hubauth "github.com/meshsat/meshsat-hub/internal/auth"
+	"github.com/meshsat/meshsat-hub/internal/authentik"
 	"github.com/meshsat/meshsat-hub/internal/backup"
 	"github.com/meshsat/meshsat-hub/internal/bridge"
 	"github.com/meshsat/meshsat-hub/internal/bus"
@@ -1346,6 +1347,13 @@ func main() {
 	r.Use(hubauth.Middleware(authCfg))
 	// Tenant isolation middleware — resolves tenant from JWT claim / X-Tenant-ID header / default.
 	// Enforce mode disabled for backward compatibility; enable via HUB_TENANT_ENFORCE=true.
+	// A suspended or deleted tenant is refused every request. Cached for a
+	// few seconds so this is not a database round trip per call.
+	tenantStatus := tenancy.NewStatusCache(dataStore, 15*time.Second)
+	hubauth.SetTenantStatusLookup(tenantStatus.Status)
+	// Destroying a closed tenant's data is single-owner work and its audit
+	// line should be written once, so it runs on the lease holder.
+	leaderSingletons.Add("tenant-purge", tenancy.NewPurgeJob(dataStore, auditSvc, 0).Run)
 	r.Use(hubauth.TenantMiddleware(cfg.TenantEnforce))
 	r.Use(metrics.ChiMiddleware)
 	r.Use(hubmw.Logging) // Structured HTTP request logging (runs last to see auth context).
@@ -1525,9 +1533,13 @@ func main() {
 	// Tenant self-service (members read, owners manage invites) and the
 	// platform-admin tenant directory (MESHSAT-916, MR 16).
 	tenantHandler := api.NewTenantHandler(dataStore)
+	offboarding := api.NewTenantOffboardingHandler(dataStore, auditSvc, tenantStatus.Forget)
 	r.Route("/api/tenant", func(r chi.Router) {
 		r.With(hubauth.RequireRole(hubauth.RoleViewer)).Get("/", tenantHandler.Get)
 		r.With(hubauth.RequireRole(hubauth.RoleOwner)).Put("/", tenantHandler.Update)
+		// Take your data with you, or have it destroyed. Owner only.
+		r.With(hubauth.RequireRole(hubauth.RoleOwner)).Get("/export", offboarding.Export)
+		r.With(hubauth.RequireRole(hubauth.RoleOwner)).Delete("/", offboarding.Delete)
 		r.With(hubauth.RequireRole(hubauth.RoleOwner)).Get("/invites", tenantHandler.ListInvites)
 		r.With(hubauth.RequireRole(hubauth.RoleOwner)).Post("/invites", tenantHandler.CreateInvite)
 		r.With(hubauth.RequireRole(hubauth.RoleOwner)).Delete("/invites/{id}", tenantHandler.DeleteInvite)
@@ -1538,10 +1550,24 @@ func main() {
 		r.With(hubauth.RequireRole(hubauth.RoleOwner)).Delete("/integrations/{provider}", intH.Delete)
 		r.With(hubauth.RequireRole(hubauth.RoleOwner)).Post("/integrations/{provider}/test", intH.Test)
 	})
+	// Approving a beta request without leaving the Hub (MESHSAT-978). Without
+	// an authentik token the endpoints say so and the script stays the way.
+	akClient := authentik.New(cfg.AuthentikURL, cfg.AuthentikToken)
+	if akClient == nil {
+		slog.Info("signups: HUB_AUTHENTIK_TOKEN unset; approve with k8s/scripts/authentik/run-bootstrap.sh")
+	}
+	signupHandler := api.NewSignupHandler(akClient, auditSvc, cfg.SignupWebhookURL)
+	r.Route("/api/admin/signups", func(r chi.Router) {
+		r.Use(hubauth.RequirePlatformAdmin())
+		r.Get("/", signupHandler.List)
+		r.Post("/{id}/approve", signupHandler.Approve)
+		r.Post("/{id}/reject", signupHandler.Reject)
+	})
 	r.Route("/api/admin/tenants", func(r chi.Router) {
 		r.Use(hubauth.RequirePlatformAdmin())
 		r.Get("/", tenantHandler.AdminList)
 		r.Put("/{id}", tenantHandler.AdminUpdate)
+		r.Delete("/{id}", offboarding.AdminDelete)
 	})
 
 	// API key management (owner-only)

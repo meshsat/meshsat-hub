@@ -47,9 +47,15 @@ type Config struct {
 	OIDCAdminGroup          string `yaml:"oidc_admin_group"`           // group granting platform admin (default meshsat-platform-admin)
 	OIDCBootstrapOwnerEmail string `yaml:"oidc_bootstrap_owner_email"` // this account attaches to the default tenant instead of creating one
 	OIDCSignupURL           string `yaml:"oidc_signup_url"`            // "Request beta access" link on the login page (authentik enrollment flow)
-	CommunityURL            string `yaml:"community_url"`              // MeshSat community room (Matrix) shown while an account awaits approval
-	LocalLoginEnabled       *bool  `yaml:"local_login_enabled"`        // email/password login; default true in local mode, false in oidc mode
-	MetricsToken            string `yaml:"metrics_token"`              // when set, /metrics requires this bearer token
+	// Approving a beta request from inside the Hub (MESHSAT-978). Without a
+	// token the endpoints report themselves unconfigured and the manual
+	// script stays the way to do it.
+	AuthentikURL      string `yaml:"authentik_url"`
+	AuthentikToken    string `yaml:"authentik_token"`
+	SignupWebhookURL  string `yaml:"signup_webhook_url"`
+	CommunityURL      string `yaml:"community_url"`       // MeshSat community room (Matrix) shown while an account awaits approval
+	LocalLoginEnabled *bool  `yaml:"local_login_enabled"` // email/password login; default true in local mode, false in oidc mode
+	MetricsToken      string `yaml:"metrics_token"`       // when set, /metrics requires this bearer token
 
 	// TAK/CoT integration
 	TAKEnabled        bool   `yaml:"tak_enabled"`
@@ -357,6 +363,15 @@ func Load() (Config, error) {
 	}
 	if v := os.Getenv("HUB_OIDC_SIGNUP_URL"); v != "" {
 		cfg.OIDCSignupURL = v
+	}
+	if v := os.Getenv("HUB_AUTHENTIK_URL"); v != "" {
+		cfg.AuthentikURL = v
+	}
+	if v := os.Getenv("HUB_AUTHENTIK_TOKEN"); v != "" {
+		cfg.AuthentikToken = v
+	}
+	if v := os.Getenv("HUB_SIGNUP_WEBHOOK_URL"); v != "" {
+		cfg.SignupWebhookURL = v
 	}
 	if v := os.Getenv("HUB_COMMUNITY_URL"); v != "" {
 		cfg.CommunityURL = v

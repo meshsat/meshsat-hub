@@ -440,4 +440,8 @@ CREATE TABLE IF NOT EXISTS bridge_oob_peers (
 );
 CREATE INDEX IF NOT EXISTS idx_bridge_oob_peers_peer ON bridge_oob_peers (peer_id);
 `},
+	{Version: 7, Name: "tenant_soft_delete", SQL: `
+		ALTER TABLE tenants ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ;
+		CREATE INDEX IF NOT EXISTS idx_tenants_deleted_at ON tenants (deleted_at) WHERE deleted_at IS NOT NULL;
+	`},
 }
