@@ -37,7 +37,15 @@ func TestOIDCState_RoundTrip_And_Tamper(t *testing.T) {
 	if _, err := DecodeState(enc, []byte("another-key-another-key-another!")); err == nil {
 		t.Fatal("wrong key accepted")
 	}
-	if _, err := DecodeState(enc[:len(enc)-1]+"A", key); err == nil {
+	// Flip a character in the middle of the MAC. The last character of a
+	// RawURLEncoding MAC carries only two payload bits, so replacing it can
+	// decode to the same bytes one time in four and the check would flake.
+	i := len(enc) - 10
+	flip := "A"
+	if enc[i] == 'A' {
+		flip = "B"
+	}
+	if _, err := DecodeState(enc[:i]+flip+enc[i+1:], key); err == nil {
 		t.Fatal("tampered mac accepted")
 	}
 	old := &OIDCState{State: "s", Nonce: "n", Verifier: "v", Expires: time.Now().Add(-time.Second).Unix()}
