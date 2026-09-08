@@ -10,6 +10,7 @@ import (
 
 // mockStore implements store.Store for unit tests with configurable return values.
 type mockStore struct {
+	platformAdmin bool // returned by IsPlatformAdmin
 	// Devices
 	devices     []store.Device
 	device      *store.Device
@@ -411,6 +412,9 @@ func (m *mockStore) DeleteInvite(context.Context, string, string) error         
 func (m *mockStore) LinkOIDCIdentity(context.Context, *store.OIDCIdentity) error { return nil }
 func (m *mockStore) GetOIDCIdentity(context.Context, string, string) (*store.OIDCIdentity, error) {
 	return nil, nil
+}
+func (m *mockStore) IsPlatformAdmin(context.Context, string, string) (bool, error) {
+	return m.platformAdmin, nil
 }
 
 func (m *mockStore) LookupDeviceTenant(_ context.Context, _ string) (string, error) {

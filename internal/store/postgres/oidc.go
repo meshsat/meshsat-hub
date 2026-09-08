@@ -21,6 +21,12 @@ func (d *DB) LinkOIDCIdentity(ctx context.Context, id *store.OIDCIdentity) error
 	return err
 }
 
+func (d *DB) IsPlatformAdmin(ctx context.Context, tenantID, userID string) (bool, error) {
+	var admin bool
+	err := d.db.QueryRowContext(ctx, "SELECT COALESCE(bool_or(platform_admin), FALSE) FROM oidc_identities WHERE tenant_id = $1 AND user_id = $2", tenantID, userID).Scan(&admin)
+	return admin, err
+}
+
 func (d *DB) GetOIDCIdentity(ctx context.Context, issuer, subject string) (*store.OIDCIdentity, error) {
 	var id store.OIDCIdentity
 	err := d.db.QueryRowContext(ctx, "SELECT issuer, subject, user_id, tenant_id, email, platform_admin, last_login_at, created_at FROM oidc_identities WHERE issuer = $1 AND subject = $2", issuer, subject).
