@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/meshsat/meshsat-hub/internal/integrations"
+	"github.com/meshsat/meshsat-hub/internal/invoiceninja"
 	hubmqtt "github.com/meshsat/meshsat-hub/internal/mqtt"
 	"github.com/meshsat/meshsat-hub/internal/oob"
 	"github.com/meshsat/meshsat-hub/internal/oob/bearers"
@@ -1482,8 +1483,32 @@ func main() {
 		kofiHandler := kofi.NewHandler(dataStore, cfg.KofiVerificationToken)
 		kofiHandler.SetAudit(auditSvc)
 		kofiHandler.SetInvalidator(tenantStatus.Forget)
+		// The owner's account address: how a payment with no claim code is
+		// matched, and where the receipt is sent. Tenant.OwnerUserID is a user
+		// id, so it has to be looked up.
+		kofiHandler.SetUserLookup(dataStore)
 		if len(cfg.KofiTierMap) > 0 {
 			kofiHandler.SetTierMapping(cfg.KofiTierMap)
+		}
+		// Receipts (MESHSAT-998). The webhook records that money arrived; a
+		// lease-held drainer issues the document, so a billing system that is
+		// down delays a receipt instead of making Ko-fi replay the payment.
+		kofiHandler.SetReceipts(dataStore)
+		if cfg.InvoiceNinjaURL != "" && cfg.InvoiceNinjaToken != "" {
+			inClient := invoiceninja.New(cfg.InvoiceNinjaURL, cfg.InvoiceNinjaToken, cfg.InvoiceNinjaTimeout)
+			inClient.TaxName = cfg.InvoiceNinjaTaxName
+			inClient.TaxRate = cfg.InvoiceNinjaTaxRate
+			inClient.Currency = cfg.InvoiceNinjaCurrency
+			inClient.CountryID = cfg.InvoiceNinjaCountryID
+			leaderSingletons.Add("receipt-issuer",
+				kofi.NewReceiptJob(dataStore, inClient, auditSvc).Run)
+			slog.Info("kofi: customer receipts enabled", "tax", cfg.InvoiceNinjaTaxName,
+				"rate", cfg.InvoiceNinjaTaxRate, "currency", cfg.InvoiceNinjaCurrency)
+		} else {
+			// Payments are still recorded, so nothing is lost -- the documents
+			// are issued whenever this is configured.
+			slog.Warn("kofi: payments will be recorded but no receipts issued; " +
+				"set HUB_INVOICENINJA_URL and HUB_INVOICENINJA_TOKEN")
 		}
 		want := cfg.KofiWebhookSecret
 		r.Post("/api/webhook/kofi/{secret}", hubmw.WebhookRateLimit(http.HandlerFunc(

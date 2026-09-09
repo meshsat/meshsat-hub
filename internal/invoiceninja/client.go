@@ -1,0 +1,428 @@
+// Package invoiceninja issues a customer receipt through a self-hosted
+// Invoice Ninja company (MESHSAT-998).
+//
+// The Hub is not a bookkeeping system and this package does not try to make it
+// one. Invoice Ninja holds the document, the number series and the VAT
+// arithmetic; this is the thin client that hands it a paid subscription and
+// gets back an invoice number.
+//
+// Four things about the target company shape this code, all of them settled by
+// issuing a receipt by hand first:
+//
+//   - The company has inclusive_taxes on, so the amount sent is the GROSS the
+//     customer paid and the VAT is derived out of it, never added to it.
+//   - The company default tax rate is a web-UI prefill only, so an invoice
+//     created through the API must carry tax_name1 and tax_rate1 itself, and a
+//     due_date, or it silently gets neither.
+//   - Numbers are assigned on mark_sent, not on save, so a draft that is never
+//     sent leaves no gap in the series.
+//   - Recording the payment is what emails the receipt, because the company
+//     has client_manual_payment_notification on. One customer email per
+//     payment, carrying the PDF.
+//
+// Every step is resumable. A receipt is money that was already taken, so the
+// caller retries until it succeeds, and a retry must never produce a second
+// invoice or a second payment -- hence ExistingInvoiceID, and hence the
+// balance check before paying.
+package invoiceninja
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"net/http"
+	"net/url"
+	"strings"
+	"time"
+)
+
+// maxResponse caps what is read from the billing system. It is our own host,
+// but an unbounded read from anything is how a stuck upstream becomes an OOM.
+const maxResponse = 4 << 20
+
+// Client talks to one Invoice Ninja company. The token selects the company:
+// each company has its own, so pointing this at the wrong token would issue
+// consumer receipts out of the wrong brand and number series.
+type Client struct {
+	baseURL string
+	token   string
+	hc      *http.Client
+
+	// TaxName and TaxRate go on every line, because the company default is a
+	// UI prefill the API does not apply.
+	TaxName string
+	TaxRate float64
+	// CountryID is the numeric country a new customer record is created with
+	// (528 = the Netherlands).
+	CountryID string
+	// Currency is the only currency this company invoices in. A payment in
+	// anything else is refused rather than converted.
+	Currency string
+}
+
+// New returns a client for the company the token belongs to.
+func New(baseURL, token string, timeout time.Duration) *Client {
+	if timeout <= 0 {
+		timeout = 30 * time.Second
+	}
+	return &Client{
+		baseURL:   strings.TrimRight(baseURL, "/"),
+		token:     token,
+		hc:        &http.Client{Timeout: timeout},
+		TaxName:   "BTW 21",
+		TaxRate:   21,
+		CountryID: "528",
+		Currency:  "EUR",
+	}
+}
+
+// SetHTTPClient replaces the transport, for tests.
+func (c *Client) SetHTTPClient(h *http.Client) { c.hc = h }
+
+// Request is one paid subscription that owes the customer a document.
+type Request struct {
+	// CustomerRef is a stable id for the customer in the calling system. It
+	// goes on the Invoice Ninja client record as its id_number, so a person
+	// reconciling the two can see which tenant a document belongs to.
+	CustomerRef string
+	// Name is what the customer is called on the document.
+	Name string
+	// Email is where the receipt goes, and the key a customer record is
+	// looked up by.
+	Email string
+	// AmountCents is the GROSS amount paid, in minor units. The company
+	// derives the VAT out of it.
+	AmountCents int64
+	Currency    string
+	// ProductKey and Description are the invoice line.
+	ProductKey  string
+	Description string
+	// PaidAt dates both the invoice and the payment.
+	PaidAt time.Time
+	// Reference is the payment provider's transaction id, recorded on the
+	// payment so a bank line can be traced to a document.
+	Reference string
+
+	// ExistingInvoiceID resumes a receipt whose invoice was created by an
+	// earlier attempt that then failed. Without it a retry would create a
+	// second invoice and burn a number from the series.
+	ExistingInvoiceID string
+	// OnInvoiceCreated is called with the new invoice id the moment it
+	// exists, before anything else is attempted. The caller persists it so a
+	// crash in the next step cannot orphan the invoice. A non-nil error from
+	// it aborts before the invoice is sent or paid.
+	OnInvoiceCreated func(invoiceID string) error
+}
+
+// Result is the document that was issued.
+type Result struct {
+	InvoiceID     string
+	InvoiceNumber string
+}
+
+// Error is a non-2xx answer from the billing system.
+type Error struct {
+	Status int
+	Op     string
+	Body   string
+}
+
+func (e *Error) Error() string {
+	return fmt.Sprintf("invoiceninja: %s: HTTP %d: %s", e.Op, e.Status, e.Body)
+}
+
+// Retryable reports whether trying the same call again could succeed. A 4xx
+// other than 429 means the request itself is wrong, and repeating it just
+// produces the same answer at the same rate.
+func (e *Error) Retryable() bool {
+	return e.Status >= 500 || e.Status == http.StatusTooManyRequests || e.Status == http.StatusRequestTimeout
+}
+
+// ErrNotConfigured is returned when the client has no URL or token.
+var ErrNotConfigured = errors.New("invoiceninja: base URL or token is not configured")
+
+// ErrWrongCurrency is returned for a payment in a currency this company does
+// not invoice in. Never converted: a made-up exchange rate on a tax document
+// is worse than no document.
+var ErrWrongCurrency = errors.New("invoiceninja: payment currency does not match the company currency")
+
+// IssueReceipt creates, numbers, pays and mails one receipt, and returns the
+// invoice number. Safe to call again after any failure.
+func (c *Client) IssueReceipt(ctx context.Context, req Request) (*Result, error) {
+	if c.baseURL == "" || c.token == "" {
+		return nil, ErrNotConfigured
+	}
+	if req.Currency != "" && !strings.EqualFold(req.Currency, c.Currency) {
+		return nil, fmt.Errorf("%w: got %s, company invoices in %s", ErrWrongCurrency, req.Currency, c.Currency)
+	}
+	if req.Email == "" {
+		return nil, errors.New("invoiceninja: no email address to send the receipt to")
+	}
+	if req.AmountCents <= 0 {
+		return nil, fmt.Errorf("invoiceninja: refusing to invoice %s", amount(req.AmountCents))
+	}
+
+	inv, err := c.resumeOrCreate(ctx, req)
+	if err != nil {
+		return nil, err
+	}
+
+	// A number is assigned on send, so an invoice still in draft has none.
+	if inv.StatusID == statusDraft {
+		sent, err := c.markSent(ctx, inv.ID)
+		if err != nil {
+			return nil, err
+		}
+		inv = sent
+	}
+
+	// Paying is the only step that is not naturally idempotent, so it is
+	// gated on the invoice still being owed. A second payment against a
+	// settled invoice would create a credit balance out of nothing.
+	if inv.Balance > 0 {
+		if err := c.recordPayment(ctx, inv.ClientID, inv.ID, req); err != nil {
+			return nil, err
+		}
+	}
+	return &Result{InvoiceID: inv.ID, InvoiceNumber: inv.Number}, nil
+}
+
+// Invoice Ninja invoice status ids.
+const (
+	statusDraft = 1
+	statusSent  = 2
+)
+
+type invoice struct {
+	ID       string  `json:"id"`
+	Number   string  `json:"number"`
+	ClientID string  `json:"client_id"`
+	StatusID int     `json:"status_id"`
+	Balance  float64 `json:"balance"`
+}
+
+// UnmarshalJSON tolerates status_id and balance arriving as strings, which the
+// v5 API does for some fields depending on the endpoint.
+func (i *invoice) UnmarshalJSON(b []byte) error {
+	type raw struct {
+		ID       string      `json:"id"`
+		Number   string      `json:"number"`
+		ClientID string      `json:"client_id"`
+		StatusID json.Number `json:"status_id"`
+		Balance  json.Number `json:"balance"`
+	}
+	var r raw
+	if err := json.Unmarshal(b, &r); err != nil {
+		return err
+	}
+	i.ID, i.Number, i.ClientID = r.ID, r.Number, r.ClientID
+	if n, err := r.StatusID.Int64(); err == nil {
+		i.StatusID = int(n)
+	}
+	if f, err := r.Balance.Float64(); err == nil {
+		i.Balance = f
+	}
+	return nil
+}
+
+// resumeOrCreate returns the invoice for this receipt: the one an earlier
+// attempt created, or a new one.
+func (c *Client) resumeOrCreate(ctx context.Context, req Request) (*invoice, error) {
+	if req.ExistingInvoiceID != "" {
+		var out struct {
+			Data invoice `json:"data"`
+		}
+		err := c.do(ctx, http.MethodGet, "/invoices/"+url.PathEscape(req.ExistingInvoiceID), nil, &out, "get invoice")
+		if err == nil {
+			return &out.Data, nil
+		}
+		// A 404 means the invoice was deleted behind our back. Fall through
+		// and create a new one rather than never issuing the receipt.
+		var apiErr *Error
+		if !errors.As(err, &apiErr) || apiErr.Status != http.StatusNotFound {
+			return nil, err
+		}
+	}
+
+	clientID, err := c.ensureCustomer(ctx, req)
+	if err != nil {
+		return nil, err
+	}
+	date := req.PaidAt.UTC().Format("2006-01-02")
+	body := map[string]any{
+		"client_id": clientID,
+		"date":      date,
+		// Due on issue: it is already paid. Without this the invoice gets no
+		// due date at all, because payment terms are a UI prefill.
+		"due_date": date,
+		"line_items": []map[string]any{{
+			"product_key": req.ProductKey,
+			"notes":       req.Description,
+			// GROSS. The company has inclusive_taxes on and derives the VAT
+			// out of this figure; adding tax on top would overcharge.
+			"cost":      amount(req.AmountCents),
+			"quantity":  1,
+			"tax_name1": c.TaxName,
+			"tax_rate1": c.TaxRate,
+		}},
+	}
+	var out struct {
+		Data invoice `json:"data"`
+	}
+	if err := c.do(ctx, http.MethodPost, "/invoices", body, &out, "create invoice"); err != nil {
+		return nil, err
+	}
+	if out.Data.ID == "" {
+		return nil, errors.New("invoiceninja: invoice created without an id")
+	}
+	if req.OnInvoiceCreated != nil {
+		if err := req.OnInvoiceCreated(out.Data.ID); err != nil {
+			return nil, fmt.Errorf("invoiceninja: recording the new invoice failed, stopping before it is sent: %w", err)
+		}
+	}
+	return &out.Data, nil
+}
+
+// ensureCustomer finds the customer by email or creates one.
+//
+// Email is the key because it is what the receipt is sent to and what a person
+// searches by. If the customer's address changes, this creates a second record
+// rather than merging: the id_number on both says they are the same tenant,
+// and merging customer records automatically is not a decision code should
+// make on its own.
+func (c *Client) ensureCustomer(ctx context.Context, req Request) (string, error) {
+	var found struct {
+		Data []struct {
+			ID string `json:"id"`
+		} `json:"data"`
+	}
+	q := "/clients?per_page=2&email=" + url.QueryEscape(req.Email)
+	if err := c.do(ctx, http.MethodGet, q, nil, &found, "find customer"); err != nil {
+		return "", err
+	}
+	if len(found.Data) > 0 && found.Data[0].ID != "" {
+		return found.Data[0].ID, nil
+	}
+
+	name := req.Name
+	if name == "" {
+		name = req.Email
+	}
+	body := map[string]any{
+		"name":       name,
+		"id_number":  req.CustomerRef,
+		"country_id": c.CountryID,
+		"contacts": []map[string]any{{
+			"email":      req.Email,
+			"send_email": true,
+		}},
+	}
+	var out struct {
+		Data struct {
+			ID string `json:"id"`
+		} `json:"data"`
+	}
+	if err := c.do(ctx, http.MethodPost, "/clients", body, &out, "create customer"); err != nil {
+		return "", err
+	}
+	if out.Data.ID == "" {
+		return "", errors.New("invoiceninja: customer created without an id")
+	}
+	return out.Data.ID, nil
+}
+
+// markSent assigns the invoice number. No email goes out here: the customer's
+// one email is the receipt that follows the payment.
+func (c *Client) markSent(ctx context.Context, invoiceID string) (*invoice, error) {
+	var out struct {
+		Data []invoice `json:"data"`
+	}
+	body := map[string]any{"action": "mark_sent", "ids": []string{invoiceID}}
+	if err := c.do(ctx, http.MethodPost, "/invoices/bulk", body, &out, "mark sent"); err != nil {
+		return nil, err
+	}
+	if len(out.Data) == 0 {
+		return nil, errors.New("invoiceninja: mark_sent returned no invoice")
+	}
+	if out.Data[0].Number == "" {
+		return nil, errors.New("invoiceninja: invoice was sent but has no number")
+	}
+	return &out.Data[0], nil
+}
+
+// recordPayment settles the invoice, which is what mails the receipt.
+func (c *Client) recordPayment(ctx context.Context, clientID, invoiceID string, req Request) error {
+	body := map[string]any{
+		"client_id":             clientID,
+		"amount":                amount(req.AmountCents),
+		"date":                  req.PaidAt.UTC().Format("2006-01-02"),
+		"transaction_reference": req.Reference,
+		"invoices": []map[string]any{{
+			"invoice_id": invoiceID,
+			"amount":     amount(req.AmountCents),
+		}},
+		// Explicit rather than relying on the company default, so a settings
+		// change in the UI cannot silently stop customers being sent receipts.
+		"email_receipt": "true",
+	}
+	return c.do(ctx, http.MethodPost, "/payments", body, nil, "record payment")
+}
+
+func (c *Client) do(ctx context.Context, method, path string, body, out any, op string) error {
+	var rdr io.Reader
+	if body != nil {
+		b, err := json.Marshal(body)
+		if err != nil {
+			return fmt.Errorf("invoiceninja: %s: %w", op, err)
+		}
+		rdr = bytes.NewReader(b)
+	}
+	req, err := http.NewRequestWithContext(ctx, method, c.baseURL+"/api/v1"+path, rdr)
+	if err != nil {
+		return fmt.Errorf("invoiceninja: %s: %w", op, err)
+	}
+	// The token is a company-scoped API key. It goes in a header and never
+	// into a log line, a URL or an error message.
+	req.Header.Set("X-API-TOKEN", c.token)
+	req.Header.Set("X-Requested-With", "XMLHttpRequest")
+	req.Header.Set("Accept", "application/json")
+	if body != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
+
+	resp, err := c.hc.Do(req)
+	if err != nil {
+		return fmt.Errorf("invoiceninja: %s: %w", op, err)
+	}
+	defer func() {
+		_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, maxResponse))
+		_ = resp.Body.Close()
+	}()
+
+	raw, err := io.ReadAll(io.LimitReader(resp.Body, maxResponse))
+	if err != nil {
+		return fmt.Errorf("invoiceninja: %s: reading response: %w", op, err)
+	}
+	if resp.StatusCode < 200 || resp.StatusCode > 299 {
+		return &Error{Status: resp.StatusCode, Op: op, Body: snippet(raw)}
+	}
+	if out == nil {
+		return nil
+	}
+	if err := json.Unmarshal(raw, out); err != nil {
+		return fmt.Errorf("invoiceninja: %s: decoding response: %w", op, err)
+	}
+	return nil
+}
+
+// snippet keeps an error message short enough to log.
+func snippet(b []byte) string {
+	s := strings.TrimSpace(string(b))
+	if len(s) > 300 {
+		s = s[:300] + "..."
+	}
+	return s
+}
