@@ -74,6 +74,38 @@ type Config struct {
 	// (OpenTAKServer's self-signed certificate). Default true; set
 	// HUB_TAK_API_INSECURE_TLS=false once the server has a trusted certificate.
 	TAKAPIInsecureTLS bool `yaml:"tak_api_insecure_tls"`
+	// TAKAPIMaxDevices bounds how many ATAK markers the poller will
+	// auto-register as devices. These rows are excluded from the subscription
+	// count (store.ArtefactDeviceTypes), so nobody is billed for them; the
+	// ceiling exists so a busy or misbehaving TAK server cannot fill the
+	// devices table. 0 means no ceiling.
+	TAKAPIMaxDevices int `yaml:"tak_api_max_devices"`
+
+	// PlanDeviceLimits overrides a subscription tier's combined device and
+	// bridge ceiling, so a tier can be re-priced without a deploy:
+	// HUB_PLAN_FREE_DEVICES, HUB_PLAN_CREW_DEVICES, HUB_PLAN_FLEET_DEVICES,
+	// HUB_PLAN_CUSTOM_DEVICES. -1 means no ceiling. A tier absent here keeps
+	// the built-in default (internal/plans).
+	PlanDeviceLimits map[string]int `yaml:"plan_device_limits"`
+
+	// Ko-fi subscription webhook (MESHSAT-989).
+	//
+	// KofiWebhookSecret is the last path segment of /api/webhook/kofi/<secret>,
+	// so the endpoint is not discoverable and never appears in a log (the
+	// logging middleware redacts the last segment of every webhook path).
+	// KofiVerificationToken is the token Ko-fi puts in the payload; it is what
+	// actually authenticates the caller. Empty means the endpoint refuses
+	// everything, which is the right state for a payment endpoint nobody
+	// configured.
+	KofiWebhookSecret     string `yaml:"kofi_webhook_secret"`
+	KofiVerificationToken string `yaml:"kofi_verification_token"`
+	// KofiTierMap maps a Ko-fi tier name to a plan, for when the names on the
+	// Ko-fi page do not match the plan names: "Crew Membership: crew".
+	KofiTierMap map[string]string `yaml:"kofi_tier_map"`
+
+	// UpgradeURL is where a tenant goes to pay for a larger tier. Shown beside
+	// the tier table in the app; empty hides the link rather than guessing.
+	UpgradeURL string `yaml:"upgrade_url"`
 
 	// TAK Federation v2
 	TAKFederationEnabled bool     `yaml:"tak_federation_enabled"`
@@ -257,6 +289,8 @@ func Defaults() Config {
 		HealthProbeTimeout:    "3s",
 		ShutdownDrainSeconds:  0,
 		OTelServiceName:       "meshsat-hub",
+		TAKAPIMaxDevices:      5000,
+		UpgradeURL:            "https://ko-fi.com/X2S326G23T",
 	}
 }
 
@@ -443,6 +477,50 @@ func Load() (Config, error) {
 	if v := os.Getenv("HUB_TAK_API_POLL_SEC"); v != "" {
 		if n, err := strconv.Atoi(v); err == nil {
 			cfg.TAKAPIPollSec = n
+		}
+	}
+	for _, plan := range []string{"free", "crew", "fleet", "custom"} {
+		v := os.Getenv("HUB_PLAN_" + strings.ToUpper(plan) + "_DEVICES")
+		if v == "" {
+			continue
+		}
+		n, err := strconv.Atoi(v)
+		if err != nil || n < -1 {
+			continue
+		}
+		if cfg.PlanDeviceLimits == nil {
+			cfg.PlanDeviceLimits = map[string]int{}
+		}
+		cfg.PlanDeviceLimits[plan] = n
+	}
+	if v := os.Getenv("HUB_KOFI_WEBHOOK_SECRET"); v != "" {
+		cfg.KofiWebhookSecret = v
+	}
+	if v := os.Getenv("HUB_KOFI_VERIFICATION_TOKEN"); v != "" {
+		cfg.KofiVerificationToken = v
+	}
+	// HUB_KOFI_TIER_MAP="Crew Membership=crew,Fleet Membership=fleet"
+	if v := os.Getenv("HUB_KOFI_TIER_MAP"); v != "" {
+		m := map[string]string{}
+		for _, pair := range strings.Split(v, ",") {
+			k, val, ok := strings.Cut(pair, "=")
+			if !ok {
+				continue
+			}
+			if k = strings.TrimSpace(k); k != "" {
+				m[k] = strings.TrimSpace(val)
+			}
+		}
+		if len(m) > 0 {
+			cfg.KofiTierMap = m
+		}
+	}
+	if v := os.Getenv("HUB_UPGRADE_URL"); v != "" {
+		cfg.UpgradeURL = v
+	}
+	if v := os.Getenv("HUB_TAK_API_MAX_DEVICES"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n >= 0 {
+			cfg.TAKAPIMaxDevices = n
 		}
 	}
 

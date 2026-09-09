@@ -1,6 +1,6 @@
 <script setup>
 import { ref, onMounted, computed } from 'vue'
-import { devices, messages } from '../api/client'
+import { devices, messages, tenant } from '../api/client'
 import { formatUTC } from '../utils/time'
 import EmptyState from '../components/EmptyState.vue'
 
@@ -12,8 +12,22 @@ const newType = ref('rockblock')
 const error = ref('')
 const loading = ref(false)
 
+// Plan usage (MESHSAT-989). Devices and bridges share one ceiling. An older
+// Hub has no such endpoint, and then the page says nothing about plans.
+const usage = ref(null)
+const atCap = computed(() => usage.value && usage.value.limit !== -1 && usage.value.remaining === 0)
+
+async function loadUsage() {
+  try {
+    usage.value = await tenant.usage()
+  } catch {
+    usage.value = null
+  }
+}
+
 onMounted(async () => {
   await loadDevices()
+  loadUsage()
 })
 
 async function loadDevices() {
@@ -38,6 +52,7 @@ async function addDevice() {
   error.value = ''
   try {
     await devices.create({ imei: newIMEI.value.trim(), label: newLabel.value.trim() || newIMEI.value.trim(), type: newType.value })
+    loadUsage()
     newIMEI.value = ''
     newLabel.value = ''
     await loadDevices()
@@ -78,7 +93,26 @@ function formatLastSeen(d) {
 
 <template>
   <div>
-    <h1 class="text-2xl font-display font-bold mb-4">Devices</h1>
+    <div class="flex flex-wrap items-baseline gap-x-3 mb-4">
+      <h1 class="text-2xl font-display font-bold">Devices</h1>
+      <p v-if="usage" class="text-sm text-gray-400">
+        <template v-if="usage.limit === -1">{{ usage.used }} registered</template>
+        <template v-else>{{ usage.used }} / {{ usage.limit }} on the {{ usage.plan }} plan</template>
+        <span v-if="usage.bridges"> ({{ usage.devices }} device<span v-if="usage.devices !== 1">s</span>,
+          {{ usage.bridges }} bridge<span v-if="usage.bridges !== 1">s</span>)</span>
+      </p>
+      <a v-if="atCap && usage.upgrade_url" :href="usage.upgrade_url" target="_blank" rel="noopener noreferrer"
+        class="ml-auto text-xs px-3 py-1.5 rounded border border-ms-border text-ms-text2 hover:text-ms-text hover:border-ms-border-light transition-colors">
+        Upgrade
+      </a>
+    </div>
+
+    <!-- At the ceiling: say so before somebody fills in a form for a 402. The
+         devices they already have are untouched, and that is worth saying. -->
+    <div v-if="atCap" class="bg-amber-900/50 border border-amber-700/50 text-amber-200 px-4 py-3 rounded mb-4 text-sm">
+      The {{ usage.plan }} plan covers {{ usage.limit }} devices and bridges together, and you have {{ usage.used }}.
+      Everything already registered keeps working and keeps reporting. Remove one, or move up a plan, to add another.
+    </div>
 
     <div v-if="error" class="bg-red-900/50 border border-red-700 text-red-200 px-4 py-3 rounded mb-4">
       {{ error }}
@@ -96,8 +130,8 @@ function formatLastSeen(d) {
         <option value="android">Android</option>
         <option value="other">Other</option>
       </select>
-      <button @click="addDevice"
-        class="bg-brand-accent hover:bg-brand-primary text-ms-on-primary px-4 py-2 rounded-lg font-medium transition-colors">
+      <button @click="addDevice" :disabled="atCap"
+        class="bg-brand-accent hover:bg-brand-primary disabled:opacity-50 disabled:cursor-not-allowed text-ms-on-primary px-4 py-2 rounded-lg font-medium transition-colors">
         Add
       </button>
     </div>

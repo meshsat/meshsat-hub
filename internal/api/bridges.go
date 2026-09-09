@@ -9,6 +9,7 @@ import (
 	"github.com/meshsat/meshsat-hub/internal/auth"
 	"github.com/meshsat/meshsat-hub/internal/bus"
 	"github.com/meshsat/meshsat-hub/internal/protocol"
+	"github.com/meshsat/meshsat-hub/internal/quota"
 	"github.com/meshsat/meshsat-hub/internal/store"
 )
 
@@ -17,6 +18,12 @@ type BridgeHandler struct {
 	store    store.Store
 	bus      bus.MessageBus
 	natsAuth bridge.Resyncer // nil outside Kubernetes
+	quota    *quota.Checker  // nil = no subscription ceiling
+}
+
+// SetQuota enables the subscription device ceiling on manual registration.
+func (h *BridgeHandler) SetQuota(q *quota.Checker) {
+	h.quota = q
 }
 
 // SetNATSAuth registers the NATS auth syncer to kick after a bridge is deleted.
@@ -47,6 +54,7 @@ type bridgeCreateRequest struct {
 // @Param body body bridgeCreateRequest true "Bridge to create"
 // @Success 201 {object} store.Bridge
 // @Failure 400 {object} map[string]string
+// @Failure 402 {object} map[string]string "device ceiling of the tenant's plan reached"
 // @Failure 409 {object} map[string]string
 // @Failure 500 {object} map[string]string
 // @Router /api/bridges [post]
@@ -66,6 +74,14 @@ func (h *BridgeHandler) CreateBridge(w http.ResponseWriter, r *http.Request) {
 	// Check if bridge already exists.
 	if existing, _ := h.store.GetBridge(r.Context(), tid, req.BridgeID); existing != nil {
 		writeError(w, http.StatusConflict, "bridge already exists")
+		return
+	}
+
+	// The plan's ceiling applies to adding a bridge, and to nothing else. It is
+	// checked after the duplicate test on purpose: re-adding a bridge a tenant
+	// already owns is not a new registration and must not be refused for money.
+	if ok, why := h.quota.AllowAnother(r.Context(), tid); !ok {
+		writeError(w, http.StatusPaymentRequired, why)
 		return
 	}
 

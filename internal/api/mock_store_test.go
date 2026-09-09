@@ -43,6 +43,7 @@ type mockStore struct {
 	apiKey      *store.APIKey
 	apiKeyErr   error
 	createKeyFn func(ctx context.Context, tid string, k *store.APIKey) error
+	bridgeCount int // for the device quota check
 }
 
 func (m *mockStore) Migrate(context.Context) error { return nil }
@@ -451,3 +452,8 @@ func (m *mockStore) PurgeTenant(context.Context, string) error { return nil }
 func (m *mockStore) ExportTenant(context.Context, string) (map[string][]map[string]any, error) {
 	return nil, nil
 }
+
+func (m *mockStore) CountBillableDevices(context.Context, string) (int, error) {
+	return len(m.devices), nil
+}
+func (m *mockStore) CountBridges(context.Context, string) (int, error) { return m.bridgeCount, nil }

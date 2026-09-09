@@ -13,18 +13,22 @@ import (
 
 // --- Tenants (MESHSAT-916) ---
 
-const tenantCols = "id, slug, name, owner_user_id, plan, status, created_at, updated_at, deleted_at"
+const tenantCols = "id, slug, name, owner_user_id, plan, status, created_at, updated_at, deleted_at, plan_expires_at, kofi_claim_code"
 
 func scanTenant(sc interface{ Scan(...any) error }) (store.Tenant, error) {
 	var t store.Tenant
-	var created, updated, deleted string
-	if err := sc.Scan(&t.ID, &t.Slug, &t.Name, &t.OwnerUserID, &t.Plan, &t.Status, &created, &updated, &deleted); err != nil {
+	var created, updated, deleted, expires string
+	if err := sc.Scan(&t.ID, &t.Slug, &t.Name, &t.OwnerUserID, &t.Plan, &t.Status, &created, &updated, &deleted, &expires, &t.KofiClaimCode); err != nil {
 		return t, err
 	}
 	t.CreatedAt, t.UpdatedAt = parseTime(created), parseTime(updated)
 	if deleted != "" {
 		d := parseTime(deleted)
 		t.DeletedAt = &d
+	}
+	if expires != "" {
+		e := parseTime(expires)
+		t.PlanExpiresAt = &e
 	}
 	return t, nil
 }
@@ -47,8 +51,8 @@ func (d *DB) CreateTenant(ctx context.Context, t *store.Tenant) error {
 	}
 	now := time.Now().UTC()
 	t.CreatedAt, t.UpdatedAt = now, now
-	_, err := d.db.ExecContext(ctx, `INSERT INTO tenants (id, slug, name, owner_user_id, plan, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-		t.ID, t.Slug, t.Name, t.OwnerUserID, t.Plan, t.Status, fmtTime(now), fmtTime(now))
+	_, err := d.db.ExecContext(ctx, `INSERT INTO tenants (id, slug, name, owner_user_id, plan, status, created_at, updated_at, plan_expires_at, kofi_claim_code) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		t.ID, t.Slug, t.Name, t.OwnerUserID, t.Plan, t.Status, fmtTime(now), fmtTime(now), fmtTimePtr(t.PlanExpiresAt), t.KofiClaimCode)
 	return err
 }
 
@@ -87,9 +91,18 @@ func (d *DB) ListTenants(ctx context.Context) ([]store.Tenant, error) {
 
 func (d *DB) UpdateTenant(ctx context.Context, t *store.Tenant) error {
 	t.UpdatedAt = time.Now().UTC()
-	_, err := d.db.ExecContext(ctx, `UPDATE tenants SET slug=?, name=?, owner_user_id=?, plan=?, status=?, updated_at=? WHERE id=?`,
-		t.Slug, t.Name, t.OwnerUserID, t.Plan, t.Status, fmtTime(t.UpdatedAt), t.ID)
+	_, err := d.db.ExecContext(ctx, `UPDATE tenants SET slug=?, name=?, owner_user_id=?, plan=?, status=?, updated_at=?, plan_expires_at=?, kofi_claim_code=? WHERE id=?`,
+		t.Slug, t.Name, t.OwnerUserID, t.Plan, t.Status, fmtTime(t.UpdatedAt), fmtTimePtr(t.PlanExpiresAt), t.KofiClaimCode, t.ID)
 	return err
+}
+
+// fmtTimePtr renders an optional timestamp; nil becomes the empty string this
+// schema uses for "not set", matching deleted_at.
+func fmtTimePtr(t *time.Time) string {
+	if t == nil {
+		return ""
+	}
+	return fmtTime(t.UTC())
 }
 
 // --- Tenant invites ---

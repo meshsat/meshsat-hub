@@ -49,6 +49,7 @@ type Subscriber struct {
 	caCertPool         *x509.CertPool // bridge CA for birth signature verification
 	birthSignatureMode string         // "warn" (default) or "enforce"
 	hembReassembler    HeMBReassembler
+	quota              QuotaChecker // nil = no subscription ceiling
 }
 
 // NewSubscriber creates a new bridge MQTT subscriber.
@@ -62,6 +63,34 @@ func NewSubscriber(mqtt bus.MessageBus, st store.Store, tenants *tenancy.Resolve
 		tenants:        tenants,
 		staleThreshold: 5 * time.Minute,
 	}
+}
+
+// QuotaChecker is the one question this package asks internal/quota, declared
+// here rather than imported so that internal/bridge -- which is on an ingest
+// path -- carries no dependency on the billing code at all. The invariant test
+// in internal/quota asserts exactly that: nothing that receives field traffic
+// may reach the subscription ceiling.
+type QuotaChecker interface {
+	AllowAnother(ctx context.Context, tenantID string) (bool, string)
+}
+
+// SetQuota attaches the subscription device ceiling. It gates auto-provisioning
+// a device the Hub has never seen, and nothing else: the message that carried
+// the birth is still processed, the bridge stays online, and every device
+// already registered keeps reporting. See internal/quota.
+func (s *Subscriber) SetQuota(q QuotaChecker) {
+	if q != nil {
+		s.quota = q
+	}
+}
+
+// allowAnother is the nil-safe form: with no quota configured, every
+// registration is allowed.
+func (s *Subscriber) allowAnother(ctx context.Context, tenantID string) (bool, string) {
+	if s.quota == nil {
+		return true, ""
+	}
+	return s.quota.AllowAnother(ctx, tenantID)
 }
 
 // SetStaleThreshold configures how old a birth timestamp can be before it is
@@ -432,24 +461,34 @@ func (s *Subscriber) handleDeviceBirth(topic string, payload []byte) {
 	if birth.IMEI != "" {
 		existing, err := s.store.GetDevice(ctx, tenantID, birth.IMEI)
 		if err != nil || existing == nil {
-			label := birth.Label
-			if label == "" {
-				label = birth.DeviceID
-			}
-			dev := &store.Device{
-				IMEI:  birth.IMEI,
-				Label: label,
-				Type:  birth.Type,
-			}
-			if err := s.store.CreateDevice(ctx, tenantID, dev); err != nil {
-				slog.Debug("bridge: failed to auto-provision device",
-					"error", err, "bridge", bridgeID, "imei", birth.IMEI)
+			// A birth for an unregistered device is a registration, so the
+			// plan's ceiling applies -- but only to the row. We do not return:
+			// the birth is still logged, the bridge is still online, and any
+			// traffic this device sends still flows, because a subscription
+			// limit must never be a reason a field kit goes unheard.
+			if ok, why := s.allowAnother(ctx, tenantID); !ok {
+				slog.Warn("bridge: device not auto-provisioned, tenant is at its plan's device limit",
+					"bridge", bridgeID, "imei", birth.IMEI, "tenant", tenantID, "reason", why)
 			} else {
-				slog.Info("bridge: auto-provisioned device",
-					"bridge", bridgeID,
-					"imei", birth.IMEI,
-					"type", birth.Type,
-				)
+				label := birth.Label
+				if label == "" {
+					label = birth.DeviceID
+				}
+				dev := &store.Device{
+					IMEI:  birth.IMEI,
+					Label: label,
+					Type:  birth.Type,
+				}
+				if err := s.store.CreateDevice(ctx, tenantID, dev); err != nil {
+					slog.Debug("bridge: failed to auto-provision device",
+						"error", err, "bridge", bridgeID, "imei", birth.IMEI)
+				} else {
+					slog.Info("bridge: auto-provisioned device",
+						"bridge", bridgeID,
+						"imei", birth.IMEI,
+						"type", birth.Type,
+					)
+				}
 			}
 		}
 
