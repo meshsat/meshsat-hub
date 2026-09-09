@@ -6,6 +6,11 @@
 #   ./run-bootstrap.sh bootstrap                  # idempotent; writes HUB_OIDC_CLIENT_ID/SECRET to OpenBao
 #   ./run-bootstrap.sh approve <email> <role>     # owner|operator|viewer
 #   ./run-bootstrap.sh reject  <email>
+#   ./run-bootstrap.sh pause                      # stop accepting access requests
+#   ./run-bootstrap.sh resume
+#
+# `bootstrap` optionally reads TURNSTILE_SITE_KEY and TURNSTILE_SECRET from the
+# environment; without them the CAPTCHA stage is skipped rather than half-built.
 #
 # Needs: kubectl context notrf01; for `bootstrap` also bao (BAO_ADDR + token).
 set -euo pipefail
@@ -44,7 +49,10 @@ PY
 
 case "${1:-}" in
   bootstrap)
-    out="$( { prelude "MESHSAT_CSS=@$HERE/meshsat-login.css" "WEBHOOK_URL=$WEBHOOK_URL"; cat "$HERE/bootstrap-meshsat.py"; } | ak )"
+    out="$( { prelude "MESHSAT_CSS=@$HERE/meshsat-login.css" "WEBHOOK_URL=$WEBHOOK_URL" \
+                      "DISPOSABLE_DOMAINS=@$HERE/disposable-domains.txt" \
+                      "TURNSTILE_SITE_KEY=${TURNSTILE_SITE_KEY:-}" "TURNSTILE_SECRET=${TURNSTILE_SECRET:-}"; \
+              cat "$HERE/bootstrap-meshsat.py"; } | ak )"
     echo "$out" | sed -n '/---MESHSAT_BOOTSTRAP_LOG---/,/---MESHSAT_OIDC_CONFIG---/p' | grep -v '^---'
     cid="$(echo "$out" | sed -n 's/^HUB_OIDC_CLIENT_ID=//p')"
     csec="$(echo "$out" | sed -n 's/^HUB_OIDC_CLIENT_SECRET=//p')"
@@ -61,6 +69,29 @@ case "${1:-}" in
     echo "OIDC client stored in OpenBao ci-no/apps/meshsat-hub/hub (client id ${cid:0:6}...)"
     echo "$out" | sed -n 's/^ISSUER=/issuer:     /p; s/^ENROLLMENT=/enrollment: /p'
     ;;
+  pause|resume)
+    # Enrollment on or off: one boolean on the pause policy's binding. The
+    # policy itself is created by `bootstrap`; this only flips whether the flow
+    # consults it.
+    want="$([ "$1" = pause ] && echo True || echo False)"
+    { prelude "WANT=$want"; cat <<'PY'; } | ak
+from authentik.flows.models import Flow
+from authentik.policies.models import PolicyBinding
+from authentik.policies.expression.models import ExpressionPolicy
+want = WANT == "True"
+flow = Flow.objects.filter(slug="meshsat-enrollment").first()
+pol = ExpressionPolicy.objects.filter(name="meshsat-enrollment-paused").first()
+b = PolicyBinding.objects.filter(policy=pol, target=flow).first() if (flow and pol) else None
+if not b:
+    print("no pause binding yet; run `run-bootstrap.sh bootstrap` first")
+elif b.enabled == want:
+    print("signups are already " + ("PAUSED" if want else "OPEN"))
+else:
+    b.enabled = want
+    b.save()
+    print("signups are now " + ("PAUSED" if want else "OPEN"))
+PY
+    ;;
   approve|reject)
     action="$1"; shift
     [ -n "${1:-}" ] || { echo "usage: $0 $action <email> [role]"; exit 2; }
@@ -68,5 +99,5 @@ case "${1:-}" in
     { prelude "ARGS=json:$args"; cat "$HERE/approve-meshsat-user.py"; } | ak
     ;;
   *)
-    echo "usage: $0 bootstrap | approve <email> <owner|operator|viewer> | reject <email>"; exit 2;;
+    echo "usage: $0 bootstrap | pause | resume | approve <email> <owner|operator|viewer> | reject <email>"; exit 2;;
 esac
