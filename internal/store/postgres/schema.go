@@ -470,5 +470,6 @@ CREATE INDEX IF NOT EXISTS idx_bridge_oob_peers_peer ON bridge_oob_peers (peer_i
 	{Version: 9, Name: "tenant_kofi_payer", SQL: `
 		ALTER TABLE tenants ADD COLUMN IF NOT EXISTS kofi_payer_email VARCHAR(254) NOT NULL DEFAULT '';
 		CREATE INDEX IF NOT EXISTS idx_tenants_kofi_payer ON tenants (kofi_payer_email) WHERE kofi_payer_email <> '';
+		ALTER TABLE tenants ADD COLUMN IF NOT EXISTS kofi_last_message_id VARCHAR(64) NOT NULL DEFAULT '';
 	`},
 }

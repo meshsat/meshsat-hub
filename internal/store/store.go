@@ -579,6 +579,11 @@ type Tenant struct {
 	// once and never again, so the payer has to be remembered or a paying
 	// subscriber lapses at day 32 while their card is still being charged.
 	KofiPayerEmail string `json:"kofi_payer_email,omitempty"`
+	// KofiLastMessageID is the id of the last Ko-fi delivery applied to this
+	// tenant. Ko-fi retries the same message_id until it gets a 200, so a
+	// response lost on the way back would otherwise buy a second month for
+	// free. Compared before a payment is applied.
+	KofiLastMessageID string `json:"-"`
 	// DeletedAt is when the owner asked to leave. The tenant is blocked from
 	// that moment and its data is destroyed after PurgeGrace, so an accidental
 	// or disputed deletion is recoverable until then (MESHSAT-975 follow-on).

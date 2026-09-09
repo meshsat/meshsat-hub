@@ -383,3 +383,46 @@ func TestClaimCodeOutranksRememberedPayer(t *testing.T) {
 		t.Errorf("the wrong tenant was upgraded: t-a is %q", a.Plan)
 	}
 }
+
+// Ko-fi retries a delivery until it gets a 200. If our response is lost after
+// we have already applied the payment, the retry must not buy a second month.
+func TestDuplicateDelivery_DoesNotExtendTwice(t *testing.T) {
+	st := newStore()
+	h := NewHandler(st, token)
+	p := Payload{
+		VerificationToken: token, IsSubscriptionPayment: true, TierName: "Crew",
+		Email: "jo.example@example.com", Message: "AB2K9XYZ",
+		MessageID: "71aca96f-fae6-4e38-94aa-17adc1cb6c69", KofiTransactionID: "txn-dup",
+	}
+	if rr := post(t, h, p); rr.Code != http.StatusOK {
+		t.Fatalf("first delivery: %d", rr.Code)
+	}
+	first, _ := st.GetTenant(context.Background(), "t-a")
+	if first.PlanExpiresAt == nil {
+		t.Fatal("first delivery set no expiry")
+	}
+	firstExpiry := *first.PlanExpiresAt
+	updatesAfterFirst := st.updates
+
+	// Ko-fi retries the same message_id.
+	if rr := post(t, h, p); rr.Code != http.StatusOK {
+		t.Fatalf("retry must still be 200 or Ko-fi keeps retrying: %d", rr.Code)
+	}
+	again, _ := st.GetTenant(context.Background(), "t-a")
+	if !again.PlanExpiresAt.Equal(firstExpiry) {
+		t.Errorf("a retried delivery extended the expiry again: %v -> %v", firstExpiry, again.PlanExpiresAt)
+	}
+	if st.updates != updatesAfterFirst {
+		t.Errorf("a retried delivery wrote to the store again (%d writes)", st.updates-updatesAfterFirst)
+	}
+
+	// A genuine next month's payment, different message_id, does extend.
+	p.MessageID, p.KofiTransactionID, p.Message = "a-new-delivery-id", "txn-month-2", ""
+	if rr := post(t, h, p); rr.Code != http.StatusOK {
+		t.Fatalf("month 2: %d", rr.Code)
+	}
+	month2, _ := st.GetTenant(context.Background(), "t-a")
+	if !month2.PlanExpiresAt.After(firstExpiry) {
+		t.Errorf("the next month's payment did not extend: %v", month2.PlanExpiresAt)
+	}
+}
