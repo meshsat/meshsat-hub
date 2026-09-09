@@ -103,6 +103,12 @@ type Config struct {
 	// Ko-fi page do not match the plan names: "Crew Membership: crew".
 	KofiTierMap map[string]string `yaml:"kofi_tier_map"`
 
+	// OIDCRecoveryURL is the identity provider's password reset flow, linked
+	// from the login page. It has existed and been bound to the MeshSat brand
+	// since MESHSAT-978, but nothing in the Hub pointed at it, so a user who
+	// forgot their password had no route to recovery from the login screen.
+	OIDCRecoveryURL string `yaml:"oidc_recovery_url"`
+
 	// AuthRateLimitPerMin bounds the unauthenticated auth endpoints per client
 	// IP per minute: /api/auth/config, the OIDC login and callback pair, and
 	// refresh. The callback performs an outbound token exchange against
@@ -506,6 +512,9 @@ func Load() (Config, error) {
 			cfg.PlanDeviceLimits = map[string]int{}
 		}
 		cfg.PlanDeviceLimits[plan] = n
+	}
+	if v := os.Getenv("HUB_OIDC_RECOVERY_URL"); v != "" {
+		cfg.OIDCRecoveryURL = v
 	}
 	if v := os.Getenv("HUB_AUTH_RATE_LIMIT_PER_MIN"); v != "" {
 		if n, err := strconv.Atoi(v); err == nil && n > 0 {
