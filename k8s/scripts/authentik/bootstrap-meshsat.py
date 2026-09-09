@@ -208,22 +208,32 @@ p_details = [
     prompt("meshsat-enroll-callsign", "attributes.callsign", "Amateur radio callsign (optional)", FieldTypes.TEXT, 30, required=False),
     prompt("meshsat-enroll-hardware", "attributes.hardware", "Hardware you have or plan to use", FieldTypes.TEXT, 40, placeholder="MeshSat field kit, Pi bridge, Android, RockBLOCK, Meshtastic nodes"),
     prompt("meshsat-enroll-intended-use", "attributes.intended_use", "What do you want to do with MeshSat Hub?", FieldTypes.TEXT_AREA, 50),
-    prompt("meshsat-enroll-matrix", "attributes.matrix_id", "Your Matrix ID", FieldTypes.TEXT, 60, placeholder="@you:example.org",
-           sub_text=f"Beta support happens in the MeshSat room: {MATRIX_ROOM}"),
-    prompt("meshsat-enroll-joined-matrix", "attributes.joined_matrix", "I have joined the MeshSat Matrix room", FieldTypes.CHECKBOX, 70),
+    prompt("meshsat-enroll-matrix", "attributes.matrix_id", "Matrix ID (optional)", FieldTypes.TEXT, 60, required=False,
+           placeholder="@you:example.org",
+           sub_text=f"Support happens in the MeshSat room: {MATRIX_ROOM}. Give us your ID and we can reach you there."),
+    prompt("meshsat-enroll-terms", "attributes.accepted_terms", "I agree to the Terms of Service and the Privacy Policy",
+           FieldTypes.CHECKBOX, 70,
+           sub_text="https://meshsat.net/terms/ and https://meshsat.net/privacy/"),
 ]
 p_marker = [prompt("meshsat-enroll-verified-marker", "attributes.email_verified", "verified", FieldTypes.HIDDEN, 10, required=False, initial="true")]
 
+# Matrix stopped being a gate at public launch (MESHSAT-995). Requiring someone
+# to join a chat room before they may ask for an account is friction we cannot
+# enforce anyway -- nobody checked the box against the room's member list. It is
+# now an optional contact detail, validated for shape only when it is given.
+#
+# Agreeing to the terms is the gate that replaced it, and unlike the room this
+# one is checkable: the acceptance and its timestamp go onto the user.
 VALIDATION_EXPR = (
     'data = request.context.get("prompt_data", {}) or {}\n'
     'nested = data.get("attributes") if isinstance(data.get("attributes"), dict) else {}\n'
     'mx = (data.get("attributes.matrix_id") or nested.get("matrix_id") or "").strip()\n'
-    'joined = data.get("attributes.joined_matrix", nested.get("joined_matrix"))\n'
-    'if not regex_match(mx, r"^@[^:\\s]+:[^\\s]+$"):\n'
-    '    ak_message("Enter your Matrix ID as @user:server")\n'
+    'if mx and not regex_match(mx, r"^@[^:\\s]+:[^\\s]+$"):\n'
+    '    ak_message("A Matrix ID looks like @you:example.org. Leave it empty if you would rather not.")\n'
     '    return False\n'
-    'if joined is not True and str(joined).lower() not in ("true", "on", "1"):\n'
-    '    ak_message("Please join the MeshSat Matrix room first; that is where beta support happens")\n'
+    'agreed = data.get("attributes.accepted_terms", nested.get("accepted_terms"))\n'
+    'if agreed is not True and str(agreed).lower() not in ("true", "on", "1"):\n'
+    '    ak_message("Please agree to the Terms of Service and the Privacy Policy to continue.")\n'
     '    return False\n'
     'return True\n'
 )
@@ -235,6 +245,47 @@ if validation.expression != VALIDATION_EXPR:
     validation.save()
 
 
+# Junk-address filter on the first stage (MESHSAT-995). Enrollment is public
+# now, so the operator reviewing requests is the scarce resource: this exists to
+# keep the queue readable, not to keep anyone out. It is deliberately not a
+# security control -- every account still verifies its email and is approved by
+# a person before it exists -- so it errs towards letting a real address through.
+#
+# The domain list comes in from run-bootstrap.sh (disposable-domains.txt) and is
+# checked exact and one label up, so mail.mailinator.com is caught by
+# mailinator.com without listing every subdomain.
+EMAIL_EXPR_TMPL = (
+    'BLOCKED = {domains}\n'
+    'data = request.context.get("prompt_data", {{}}) or {{}}\n'
+    'email = (data.get("email") or "").strip().lower()\n'
+    'if "@" not in email:\n'
+    '    return True\n'
+    'domain = email.rsplit("@", 1)[1]\n'
+    'parts = domain.split(".")\n'
+    'candidates = [domain] + [".".join(parts[i:]) for i in range(1, max(1, len(parts) - 1))]\n'
+    'if any(c in BLOCKED for c in candidates):\n'
+    '    ak_message("That looks like a disposable address. Use one you can still read in a month, because that is where account and billing mail goes.")\n'
+    '    return False\n'
+    'if "." not in domain or domain.endswith("."):\n'
+    '    ak_message("That email domain does not look right.")\n'
+    '    return False\n'
+    'return True\n'
+)
+_domains = sorted({
+    line.strip().lower()
+    for line in (DISPOSABLE_DOMAINS or "").splitlines()
+    if line.strip() and not line.strip().startswith("#")
+})
+EMAIL_EXPR = EMAIL_EXPR_TMPL.format(domains=repr(frozenset(_domains)))
+email_policy, _ = ExpressionPolicy.objects.get_or_create(
+    name="meshsat-enrollment-email-allowed", defaults={"expression": EMAIL_EXPR},
+)
+if email_policy.expression != EMAIL_EXPR:
+    email_policy.expression = EMAIL_EXPR
+    email_policy.save()
+note(f"disposable-email policy ok ({len(_domains)} domains)")
+
+
 def prompt_stage(name, prompts, policies=()):
     st, _ = PromptStage.objects.get_or_create(name=name)
     st.fields.set(prompts)
@@ -242,7 +293,7 @@ def prompt_stage(name, prompts, policies=()):
     return st
 
 
-st_account = prompt_stage("meshsat-enrollment-account", p_account)
+st_account = prompt_stage("meshsat-enrollment-account", p_account, [email_policy])
 st_details = prompt_stage("meshsat-enrollment-details", p_details, [validation])
 st_marker = prompt_stage("meshsat-enrollment-verified-marker", p_marker)
 
@@ -312,12 +363,69 @@ FlowStageBinding.objects.filter(target=enroll).exclude(stage__in=[st_account, st
 # that fifty requests came from one host. Bound to the user_write binding, the
 # policy runs right before the user row is written; ingress-nginx sets
 # X-Forwarded-For from the VPS/relay hop (proxy-real-ip-cidr, phase 0).
+#
+# It also stamps when the terms were agreed to. A checkbox with no date is not
+# a record of anything: what makes consent auditable is knowing which version
+# of the documents was live at that moment.
 SIGNUP_IP_EXPR = (
+    'from datetime import datetime, timezone\n'
     'meta = request.http_request.META\n'
     'ip = (meta.get("HTTP_X_FORWARDED_FOR") or "").split(",")[0].strip() or meta.get("REMOTE_ADDR", "")\n'
-    'request.context.setdefault("prompt_data", {})["attributes.signup_ip"] = ip\n'
+    'pd = request.context.setdefault("prompt_data", {})\n'
+    'pd["attributes.signup_ip"] = ip\n'
+    'pd["attributes.terms_accepted_at"] = datetime.now(timezone.utc).isoformat(timespec="seconds")\n'
     'return True\n'
 )
+# ---------------------------------------------------------------- captcha
+# Bound ahead of the first prompt when Turnstile keys are supplied, skipped
+# entirely when they are not, so this script stays runnable without them.
+# Keys come from https://dash.cloudflare.com/?to=/:account/turnstile (the
+# "Managed" widget for auth.meshsat.net); pass them to run-bootstrap.sh as
+# TURNSTILE_SITE_KEY and TURNSTILE_SECRET.
+if TURNSTILE_SITE_KEY and TURNSTILE_SECRET:
+    from authentik.stages.captcha.models import CaptchaStage
+    st_captcha, _ = CaptchaStage.objects.get_or_create(name="meshsat-enrollment-captcha")
+    st_captcha.public_key = TURNSTILE_SITE_KEY
+    st_captcha.private_key = TURNSTILE_SECRET
+    st_captcha.js_url = "https://challenges.cloudflare.com/turnstile/v0/api.js"
+    st_captcha.api_url = "https://challenges.cloudflare.com/turnstile/v0/siteverify"
+    st_captcha.save()
+    b, _ = FlowStageBinding.objects.get_or_create(target=enroll, stage=st_captcha, defaults={"order": 5})
+    if b.order != 5:
+        b.order = 5
+        b.save()
+    note("captcha stage bound at order 5")
+else:
+    note("captcha skipped: no TURNSTILE_SITE_KEY/TURNSTILE_SECRET supplied")
+
+# ---------------------------------------------------------------- signups pause switch
+# An off switch for enrollment, because "we are being flooded" is not a moment
+# to be editing flows. The policy always refuses; what changes is whether its
+# binding is enabled, which is one boolean:
+#
+#   ./run-bootstrap.sh pause     # enrollment answers with the message below
+#   ./run-bootstrap.sh resume
+#
+# The launch plan called this HUB_SIGNUPS_PAUSED, a Hub environment variable.
+# The Hub is not in the signup path at all -- authentik is -- so an env var
+# there would have paused nothing. It lives where the flow lives.
+#
+# Created disabled, and a re-run never touches `enabled` again: re-running the
+# bootstrap while signups are paused must not quietly reopen them.
+PAUSE_EXPR = (
+    'ak_message("MeshSat Hub is not accepting new access requests at the moment. '
+    'Write to hello@meshsat.net and we will tell you when it opens again.")\n'
+    'return False\n'
+)
+pause_policy, _ = ExpressionPolicy.objects.get_or_create(name="meshsat-enrollment-paused", defaults={"expression": PAUSE_EXPR})
+if pause_policy.expression != PAUSE_EXPR:
+    pause_policy.expression = PAUSE_EXPR
+    pause_policy.save()
+pause_binding, pause_created = PolicyBinding.objects.get_or_create(
+    policy=pause_policy, target=enroll, defaults={"order": 0, "enabled": False},
+)
+note(f"pause switch {'created (open)' if pause_created else ('ARMED - signups are paused' if pause_binding.enabled else 'ok (open)')}")
+
 signup_ip_policy, _ = ExpressionPolicy.objects.get_or_create(name="meshsat-enrollment-signup-ip", defaults={"expression": SIGNUP_IP_EXPR})
 if signup_ip_policy.expression != SIGNUP_IP_EXPR:
     signup_ip_policy.expression = SIGNUP_IP_EXPR
