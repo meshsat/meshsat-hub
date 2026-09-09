@@ -3,6 +3,7 @@ import { ref, computed, onMounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
 import BrandLockup from '../components/BrandLockup.vue'
+import HeroBackdrop from '../components/HeroBackdrop.vue'
 
 const authStore = useAuthStore()
 const router = useRouter()
@@ -121,12 +122,19 @@ async function loginWithToken() {
 </script>
 
 <template>
-  <div class="min-h-screen bg-tactical-bg flex items-center justify-center px-4">
-    <div class="w-full max-w-sm">
-      <h1 class="flex justify-center mb-8"><BrandLockup size="lg" /></h1>
+  <!-- The lockup used to sit on the bare page above the panels. It cannot stay
+       there now that the ground is a photograph: the orange half of the
+       wordmark would need a scrim around .79 to hold 3:1 against a bright
+       frame, which is heavy enough to bury the photographs it is protecting
+       text from. Inside the card it needs nothing, the card is opaque, and the
+       result matches the enrolment page, where the mark is on the card too. -->
+  <div class="relative min-h-screen bg-tactical-bg flex items-center justify-center px-4">
+    <HeroBackdrop />
+    <div class="relative w-full max-w-sm bg-tactical-surface border border-tactical-border rounded-lg shadow-2xl p-6">
+      <h1 class="flex justify-center mb-6"><BrandLockup size="lg" /></h1>
 
       <!-- Single sign-on (MeshSat ID) when the Hub offers it -->
-      <div v-if="hasOIDC" class="bg-tactical-surface rounded-lg p-6 space-y-4 mb-4" data-testid="sso-panel">
+      <div v-if="hasOIDC" class="space-y-4" data-testid="sso-panel">
         <button
           type="button"
           @click="signInWithMeshSatID"
@@ -152,7 +160,13 @@ async function loginWithToken() {
         </button>
       </div>
 
-      <form v-if="!hasOIDC || showOther" @submit.prevent="handleLogin" class="bg-tactical-surface rounded-lg p-6 space-y-4" data-testid="local-panel">
+      <form
+        v-if="!hasOIDC || showOther"
+        @submit.prevent="handleLogin"
+        class="space-y-4"
+        :class="hasOIDC ? 'mt-4 pt-4 border-t border-tactical-border' : ''"
+        data-testid="local-panel"
+      >
         <!-- Mode toggle -->
         <div v-if="hasLocal" class="flex rounded-lg overflow-hidden border border-gray-700">
           <button type="button" @click="mode = 'email'; error = ''"
