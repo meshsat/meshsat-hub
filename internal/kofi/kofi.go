@@ -178,8 +178,19 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Ko-fi retries a delivery until it gets a 200, so a response lost on the
+	// way back would apply the same payment twice and buy a second month for
+	// nothing. The delivery id is what it retries with, so that is the key.
+	if p.MessageID != "" && t.KofiLastMessageID == p.MessageID {
+		slog.Info("kofi: duplicate delivery ignored", "tenant", t.ID,
+			"message_id", p.MessageID, "txn", p.KofiTransactionID)
+		writeOK(w, "already applied")
+		return
+	}
+
 	plan := h.planFor(p.TierName)
 	prev, prevExpiry := t.Plan, t.PlanExpiresAt
+	t.KofiLastMessageID = p.MessageID
 
 	// Remember who paid. Ko-fi carries the supporter's message only on the join
 	// payment, so the claim code that matched this one will not be in next
