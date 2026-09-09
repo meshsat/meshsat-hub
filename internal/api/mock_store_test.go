@@ -457,3 +457,19 @@ func (m *mockStore) CountBillableDevices(context.Context, string) (int, error) {
 	return len(m.devices), nil
 }
 func (m *mockStore) CountBridges(context.Context, string) (int, error) { return m.bridgeCount, nil }
+
+// Receipts (MESHSAT-998). No API handler reads the outbox: it is written by
+// the Ko-fi webhook and drained by a lease-held job, so these are stubs.
+func (m *mockStore) CreateReceipt(context.Context, *store.Receipt) (bool, error) { return true, nil }
+func (m *mockStore) GetReceiptByKey(context.Context, string) (*store.Receipt, error) {
+	return nil, store.ErrNotFound
+}
+func (m *mockStore) ListDueReceipts(context.Context, time.Time, int) ([]store.Receipt, error) {
+	return nil, nil
+}
+func (m *mockStore) SetReceiptInvoice(context.Context, string, string) error { return nil }
+func (m *mockStore) MarkReceiptIssued(context.Context, string, string, string, time.Time) error {
+	return nil
+}
+func (m *mockStore) MarkReceiptAttempt(context.Context, string, string, time.Time) error { return nil }
+func (m *mockStore) BlockReceipt(context.Context, string, string) error                  { return nil }
