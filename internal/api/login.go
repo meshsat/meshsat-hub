@@ -12,6 +12,7 @@ import (
 
 	"github.com/meshsat/meshsat-hub/internal/audit"
 	hubauth "github.com/meshsat/meshsat-hub/internal/auth"
+	hubmw "github.com/meshsat/meshsat-hub/internal/middleware"
 	"github.com/meshsat/meshsat-hub/internal/store"
 )
 
@@ -85,10 +86,11 @@ func (h *LoginHandler) Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	clientIP := r.RemoteAddr
-	if fwd := r.Header.Get("X-Forwarded-For"); fwd != "" {
-		clientIP = strings.Split(fwd, ",")[0]
-	}
+	// Trusted-proxy aware. This used to take the first X-Forwarded-For value
+	// with no check on who set it, so an attacker got a fresh five-attempt
+	// budget per header value and the map below grew without bound off keys
+	// they chose.
+	clientIP := hubmw.ClientIP(r)
 
 	// Per-IP rate limiting
 	if !h.allowIP(clientIP) {
@@ -324,6 +326,18 @@ func (h *LoginHandler) allowIP(ip string) bool {
 	defer h.mu.Unlock()
 
 	now := time.Now()
+	// Drop expired windows on the way past. The map used to grow for the life
+	// of the process, one entry per distinct key ever seen -- which, while the
+	// key came from an unvalidated header, an attacker chose. Sweeping here
+	// rather than on a ticker keeps it to the code path that fills it.
+	if len(h.ipAttempts) > loginAttemptSweepAt {
+		for k, a := range h.ipAttempts {
+			if now.After(a.windowEnd) {
+				delete(h.ipAttempts, k)
+			}
+		}
+	}
+
 	a, ok := h.ipAttempts[ip]
 	if !ok || now.After(a.windowEnd) {
 		h.ipAttempts[ip] = &loginAttempt{count: 0, windowEnd: now.Add(h.windowDur)}
@@ -331,6 +345,11 @@ func (h *LoginHandler) allowIP(ip string) bool {
 	}
 	return a.count < h.maxPerIP
 }
+
+// loginAttemptSweepAt is the size at which allowIP clears expired windows.
+// Large enough that a normal instance never sweeps, small enough that the map
+// cannot become a memory-exhaustion vector.
+const loginAttemptSweepAt = 1024
 
 func (h *LoginHandler) recordIPAttempt(ip string) {
 	h.mu.Lock()

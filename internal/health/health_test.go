@@ -252,8 +252,23 @@ func TestInfoProbeNeverAffectsReadiness(t *testing.T) {
 		t.Errorf("info must be omitted without ?verbose=1, got %v", resp.Info)
 	}
 
-	// Verbose lists it with the error, still 200.
+	// Verbose lists it with the error, still 200 -- but only for a caller
+	// presenting the operator token. The detail is each dependency's raw error
+	// string, which names internal hosts and ports, so an anonymous caller is
+	// downgraded to the plain response rather than shown it.
 	req = httptest.NewRequest("GET", "/readyz?verbose=1", nil)
+	w = httptest.NewRecorder()
+	c.ReadyzHandler(w, req)
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+	if resp.Info != nil {
+		t.Errorf("verbose detail served to an anonymous caller: %v", resp.Info)
+	}
+
+	c.SetDiagnosticsToken("op-token")
+	req = httptest.NewRequest("GET", "/readyz?verbose=1", nil)
+	req.Header.Set("Authorization", "Bearer op-token")
 	w = httptest.NewRecorder()
 	c.ReadyzHandler(w, req)
 	if w.Code != http.StatusOK {
