@@ -24,6 +24,10 @@ data:
   HUB_OIDC_SCOPES: "openid profile email meshsat"  # meshsat = groups claim (bootstrap-meshsat.py ScopeMapping)
   HUB_OIDC_GROUPS_CLAIM: "groups"
   HUB_OIDC_ADMIN_GROUP: "meshsat-platform-admin"
+  # The password reset flow. It has existed since MESHSAT-978 and been bound to
+  # the MeshSat brand, but nothing in the Hub linked to it -- a user who forgot
+  # their password had no route to recovery from the login screen.
+  HUB_OIDC_RECOVERY_URL: "https://auth.meshsat.net/if/flow/meshsat-recovery/"
   HUB_OIDC_SIGNUP_URL: "https://auth.meshsat.net/if/flow/meshsat-enrollment/"
   # Approving beta requests from the Hub (MESHSAT-978): the identity
   # provider it acts on, and the workflow that admits the approved
