@@ -18,8 +18,7 @@
 :root, :host {
   --ak-global--background-image: none;
   --ak-flow-background-image-color: #040406;
-  --ms-scrim: linear-gradient(135deg, rgba(4,4,6,0.92) 0%, rgba(4,4,6,0.85) 40%, rgba(4,4,6,0.70) 100%),
-              linear-gradient(to top, rgba(4,4,6,0.72) 0, rgba(4,4,6,0) 260px);
+  --ms-scrim: linear-gradient(135deg, rgba(4,4,6,0.86) 0%, rgba(4,4,6,0.76) 45%, rgba(4,4,6,0.68) 100%);
   --pf-global--FontFamily--sans-serif: 'IBM Plex Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   --pf-global--FontFamily--heading--sans-serif: 'IBM Plex Mono', ui-monospace, SFMono-Regular, monospace;
   --pf-global--Color--100: #F2EDE6;
@@ -78,13 +77,37 @@
 .pf-c-background-image, .pf-c-login {
   background: #040406 !important;
   isolation: isolate;   /* a local stacking context, so z-index below is exact */
+  min-height: 100vh;    /* the photograph reaches the bottom on a short form too */
 }
 
+/* absolute, not fixed. A fixed layer here paints only the top ~75% of the
+ * viewport and `.pf-c-login`'s own #040406 shows below it as a hard black edge:
+ * authentik's flow lives inside a scrolling drawer (.ak-v2-c-drawer__content,
+ * overflow:auto) in a shadow root, and the promoted fixed layer gets clipped to
+ * part of that scroller. Measured, not guessed: at 1280x600 the cut was at
+ * y=450 with #040406 below it, and swapping to absolute graded the photograph
+ * continuously to the last row.
+ *
+ * `.pf-c-login` is position:relative and is the full scrollable content box
+ * (taller than the viewport when the form is), so inset:0 covers everything and
+ * the backdrop does not slide away when the form scrolls. It is also what
+ * meshsat.net does: .hero-slide is absolute inside an absolute .hero-slideshow. */
 .pf-c-login::before,
 .pf-c-login::after {
   content: "";
-  position: fixed;
+  position: absolute;
   inset: 0;
+  /* .pf-c-login is display:grid, which makes these two grid items, and the
+   * containing block of an absolutely-positioned grid item is its GRID AREA,
+   * not the container's padding box. ::before happened to land on a full-width
+   * area and ::after was auto-placed into the card's track, so it came out
+   * 560x450 and painted nothing anyone could see: two of the four photographs
+   * simply never appeared. Spanning every track fixes the width; the height
+   * needs saying outright because -1 stops at the end of the explicit grid and
+   * this one has implicit rows. Measured both ways before and after. */
+  grid-area: 1 / 1 / -1 / -1;
+  width: 100%;
+  height: 100%;
   z-index: 0;
   background-repeat: no-repeat;
   background-size: cover;
@@ -98,14 +121,25 @@
  * gradient, so it reads as one constant scrim rather than something that
  * breathes with the crossfade.
  *
- * The diagonal ramp is meshsat.net's (.92 -> .85 -> .70 at 135deg). The
- * fall-off at the foot is not: on the site the light corner has nothing in it,
- * here the footer runs the full width, and "Powered by authentik" is #A79B8B.
- * Over a white photo pixel a .70 scrim leaves that at 3.1:1, which fails. The
- * fall-off brings the bottom 260px to an effective .88 or darker even at the
- * light end of the diagonal, and #A79B8B on that is 5.8:1 against the
- * brightest pixel a photograph can contain. The language switcher sits in the
- * .92 corner already and is near-white besides. */
+ * It keeps meshsat.net's diagonal gesture but is lighter than the site's own
+ * .92 -> .85 -> .70. The site needs that weight because large display type sits
+ * directly on its hero; here the only things on the photograph are the language
+ * switcher and one footer line, and everything you actually read is on an
+ * opaque card. A scrim tuned for the site buries photographs that are already
+ * dark: maritime and sar came out as near-black rectangles.
+ *
+ * .86 -> .76 -> .68 is set by the contrast floor rather than by taste. Against
+ * the brightest pixel a photograph can contain, the lightest point of this ramp
+ * leaves #D9CFC2 at 4.93:1 and #F2EDE6 at 6.1:1, so both clear AA anywhere on
+ * the page on any slide.
+ *
+ * There was a second gradient here, darkening the bottom 260px so the footer's
+ * muted #A79B8B would clear AA over a bright photo. It worked and it looked
+ * wrong: on a 900px window it was a third of the height, on a 600px one nearly
+ * half, and it read as a black bar under a photograph that was supposed to be
+ * full bleed. The band was compensating for a text colour, so the text colour
+ * moved instead -- see the footer rule below. The photograph now runs to the
+ * bottom edge of the viewport, which is what full screen means. */
 .pf-c-login::before { animation-name: ms-hero-a-fade, ms-hero-a-frame; }
 .pf-c-login::after  { animation-name: ms-hero-b-fade, ms-hero-b-frame; }
 
@@ -130,23 +164,24 @@
 }
 
 /* The frame tracks only ever change while their layer is invisible. */
-/* Three background layers per keyframe: the two scrim gradients, then the
- * photograph. The position list has to name all three or it cycles and the
- * photo silently takes the first gradient's position. field-comms and sar are
- * framed at "center 85%", the same as on meshsat.net. */
+/* Two background layers per keyframe: the scrim, then the photograph. The
+ * position list has to name both or it cycles and the photo silently takes the
+ * scrim's position -- which is exactly what happens if you change how many
+ * gradients --ms-scrim holds and forget this. field-comms and sar are framed at
+ * "center 85%", the same as on meshsat.net. */
 @keyframes ms-hero-a-frame {
   0%   { background-image: var(--ms-scrim), url("https://meshsat.net/images/hero/field-comms.webp");
-         background-position: center, center, center 85% }
+         background-position: center, center 85% }
   34%  { background-image: var(--ms-scrim), url("https://meshsat.net/images/hero/maritime.webp");
-         background-position: center, center, center }
+         background-position: center, center }
   84%  { background-image: var(--ms-scrim), url("https://meshsat.net/images/hero/field-comms.webp");
-         background-position: center, center, center 85% }
+         background-position: center, center 85% }
 }
 @keyframes ms-hero-b-frame {
   0%   { background-image: var(--ms-scrim), url("https://meshsat.net/images/hero/satcom.webp");
-         background-position: center, center, center }
+         background-position: center, center }
   58%  { background-image: var(--ms-scrim), url("https://meshsat.net/images/hero/sar.webp");
-         background-position: center, center, center 85% }
+         background-position: center, center 85% }
 }
 
 /* Reduced motion: one frame, no rotation. A fullscreen photograph changing
@@ -157,7 +192,7 @@
     animation: none;
     opacity: 1;
     background-image: var(--ms-scrim), url("https://meshsat.net/images/hero/field-comms.webp");
-    background-position: center, center, center 85%;
+    background-position: center, center 85%;
   }
   .pf-c-login::after { display: none }
 }
@@ -201,8 +236,19 @@ ak-message-container { background: transparent; }
 .pf-c-button.pf-m-link, a { color: #FF7A2E; }
 .pf-c-button.pf-m-link:hover, a:hover { color: #F25C05; }
 
-/* Footer links (help/back) */
-.pf-c-login__footer, .pf-c-login__main-footer-links, .pf-c-list { color: #A79B8B; }
+/* Footer links (help/back). Two different surfaces, so two different inks.
+ *
+ * .pf-c-login__main-footer-links and .pf-c-list are inside the card, on the
+ * opaque #1A1714, where the muted tone is right and reads at 7.0:1.
+ *
+ * .pf-c-login__footer is outside it, on the photograph. #A79B8B there is 3.1:1
+ * against a white pixel under the .70 end of the scrim, so it needed either a
+ * darker photo or a lighter ink; the darker photo is what the black band was.
+ * #D9CFC2 clears 4.5:1 at the very lightest point the scrim can reach, over the
+ * brightest pixel a photograph can contain, which means it passes anywhere on
+ * the page on any slide with no help from a gradient. */
+.pf-c-login__main-footer-links, .pf-c-list { color: #A79B8B; }
+.pf-c-login__footer, .pf-c-login__footer a, ak-brand-links { color: #D9CFC2; }
 
 /* Narrow screens: PatternFly overlays the language switcher on the card; keep the card below it. */
 @media (max-width: 767px) { .pf-c-login__main { margin-top: 3.25rem; } .pf-c-login__header { padding-bottom: 0; } }
