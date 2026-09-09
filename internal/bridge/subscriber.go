@@ -560,14 +560,25 @@ func (s *Subscriber) handleHeMBSymbol(topic string, payload []byte) {
 	)
 }
 
-// resolveTenantID returns the tenant for a bridge message: the tenant named in
-// the birth payload, else the tenant that owns the bridge, else the tenant in
-// the topic namespace (when it exists), else the default tenant.
+// resolveTenantID returns the tenant for a bridge message.
+//
+// A tenant named in the birth payload is a claim, not an answer. It used to be
+// returned verbatim, so a bridge could put any tenant id in its own birth and
+// land there — and because the upsert reassigns tenant_id on conflict, it could
+// walk an already-registered bridge from one tenant into another. Anything
+// built on top of tenancy, a device quota included, is worth nothing while the
+// subject of the check gets to choose it.
+//
+// The registered owner decides. An unregistered bridge may still be placed by
+// the topic it published on, which the resolver checks against real tenants;
+// that is how a bridge first joins. Only the claim is refused.
 func (s *Subscriber) resolveTenantID(birthTenantID, bridgeID, topic string) string {
-	if birthTenantID != "" {
-		return birthTenantID
+	resolved := s.tenants.ForBridgeTopic(context.Background(), bridgeID, bridgeTopicTenant(topic))
+	if birthTenantID != "" && birthTenantID != resolved {
+		slog.Warn("bridge: birth claimed a tenant it does not belong to, using the owner",
+			"bridge", bridgeID, "claimed", birthTenantID, "owner", resolved)
 	}
-	return s.tenants.ForBridgeTopic(context.Background(), bridgeID, bridgeTopicTenant(topic))
+	return resolved
 }
 
 // bridgeTopicTenant returns the tenant segment of a tenant-prefixed bridge
