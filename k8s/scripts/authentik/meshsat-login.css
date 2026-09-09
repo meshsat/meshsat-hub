@@ -18,6 +18,8 @@
 :root, :host {
   --ak-global--background-image: none;
   --ak-flow-background-image-color: #040406;
+  --ms-scrim: linear-gradient(135deg, rgba(4,4,6,0.92) 0%, rgba(4,4,6,0.85) 40%, rgba(4,4,6,0.70) 100%),
+              linear-gradient(to top, rgba(4,4,6,0.72) 0, rgba(4,4,6,0) 260px);
   --pf-global--FontFamily--sans-serif: 'IBM Plex Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   --pf-global--FontFamily--heading--sans-serif: 'IBM Plex Mono', ui-monospace, SFMono-Regular, monospace;
   --pf-global--Color--100: #F2EDE6;
@@ -52,8 +54,125 @@
   --pf-c-form-control--focus--BorderBottomColor: #F25C05;
 }
 
-/* Solid Space Black ground with the brand dot grid; no photo, no orb. */
-.pf-c-background-image, .pf-c-login { background: #040406 radial-gradient(circle, rgba(247,247,244,0.03) 1px, transparent 1px) 0 0 / 24px 24px !important; }
+/* ---------------------------------------------------------------------------
+ * The ground: meshsat.net's hero photography, same four frames, same pace.
+ *
+ * Someone who clicks "Request access" on meshsat.net should land in the same
+ * room. So this is the marketing hero's slideshow, matched to it exactly:
+ * field-comms, satcom, maritime, sar, 6 s each, 1.5 s crossfade, 24 s round
+ * trip (site/layouts/index.html + the setInterval in site/assets/js/main.js).
+ * The dot grid that used to be here is gone: a grid over a photograph is noise.
+ *
+ * Why the odd two-layer shape. authentik renders this flow inside a shadow
+ * root and, with --ak-global--background-image: none, there is no
+ * .pf-c-background-image element at all -- div.pf-c-login is the only
+ * full-viewport hook on the page. That leaves ::before and ::after, two layers
+ * for four photographs, so each layer carries two and swaps its own
+ * background-image on a step-end track while it is sitting at zero opacity.
+ * The visible result is a plain crossfade; only the bookkeeping is folded.
+ *
+ * The images are loaded from meshsat.net, not copied here: anyone arriving from
+ * the site already has them in cache (immutable, max-age 1y), and there is one
+ * place to change a photograph.
+ * ------------------------------------------------------------------------- */
+.pf-c-background-image, .pf-c-login {
+  background: #040406 !important;
+  isolation: isolate;   /* a local stacking context, so z-index below is exact */
+}
+
+.pf-c-login::before,
+.pf-c-login::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  background-repeat: no-repeat;
+  background-size: cover;
+  will-change: opacity;
+  animation-duration: 24s;
+  animation-iteration-count: infinite;
+}
+
+/* The scrim rides on each photo layer rather than sitting above them, because
+ * there is no third layer to put it on. Both layers carry the identical
+ * gradient, so it reads as one constant scrim rather than something that
+ * breathes with the crossfade.
+ *
+ * The diagonal ramp is meshsat.net's (.92 -> .85 -> .70 at 135deg). The
+ * fall-off at the foot is not: on the site the light corner has nothing in it,
+ * here the footer runs the full width, and "Powered by authentik" is #A79B8B.
+ * Over a white photo pixel a .70 scrim leaves that at 3.1:1, which fails. The
+ * fall-off brings the bottom 260px to an effective .88 or darker even at the
+ * light end of the diagonal, and #A79B8B on that is 5.8:1 against the
+ * brightest pixel a photograph can contain. The language switcher sits in the
+ * .92 corner already and is near-white besides. */
+.pf-c-login::before { animation-name: ms-hero-a-fade, ms-hero-a-frame; }
+.pf-c-login::after  { animation-name: ms-hero-b-fade, ms-hero-b-frame; }
+
+.pf-c-login::before,
+.pf-c-login::after {
+  animation-timing-function: ease-in-out, step-end;
+}
+
+@keyframes ms-hero-a-fade {
+  0%, 18.75% { opacity: 1 }
+  25%, 43.75% { opacity: 0 }
+  50%, 68.75% { opacity: 1 }
+  75%, 93.75% { opacity: 0 }
+  100% { opacity: 1 }
+}
+@keyframes ms-hero-b-fade {
+  0%, 18.75% { opacity: 0 }
+  25%, 43.75% { opacity: 1 }
+  50%, 68.75% { opacity: 0 }
+  75%, 93.75% { opacity: 1 }
+  100% { opacity: 0 }
+}
+
+/* The frame tracks only ever change while their layer is invisible. */
+/* Three background layers per keyframe: the two scrim gradients, then the
+ * photograph. The position list has to name all three or it cycles and the
+ * photo silently takes the first gradient's position. field-comms and sar are
+ * framed at "center 85%", the same as on meshsat.net. */
+@keyframes ms-hero-a-frame {
+  0%   { background-image: var(--ms-scrim), url("https://meshsat.net/images/hero/field-comms.webp");
+         background-position: center, center, center 85% }
+  34%  { background-image: var(--ms-scrim), url("https://meshsat.net/images/hero/maritime.webp");
+         background-position: center, center, center }
+  84%  { background-image: var(--ms-scrim), url("https://meshsat.net/images/hero/field-comms.webp");
+         background-position: center, center, center 85% }
+}
+@keyframes ms-hero-b-frame {
+  0%   { background-image: var(--ms-scrim), url("https://meshsat.net/images/hero/satcom.webp");
+         background-position: center, center, center }
+  58%  { background-image: var(--ms-scrim), url("https://meshsat.net/images/hero/sar.webp");
+         background-position: center, center, center 85% }
+}
+
+/* Reduced motion: one frame, no rotation. A fullscreen photograph changing
+ * every six seconds behind a form someone is typing into is a stronger claim on
+ * attention than a marketing hero, so this stops rather than merely cutting. */
+@media (prefers-reduced-motion: reduce) {
+  .pf-c-login::before {
+    animation: none;
+    opacity: 1;
+    background-image: var(--ms-scrim), url("https://meshsat.net/images/hero/field-comms.webp");
+    background-position: center, center, center 85%;
+  }
+  .pf-c-login::after { display: none }
+}
+
+/* forced-colors keeps background-image but drops the gradient that made it
+ * readable, which would leave text on a bright photograph. The photo is
+ * decorative; drop it and let the system colours work. */
+@media (forced-colors: active) {
+  .pf-c-login::before, .pf-c-login::after { display: none !important }
+}
+
+/* The card, header and footer sit above the photography. ak-locale-select is
+ * left alone: it is already position:absolute with z-index 100. */
+.pf-c-login__main, .pf-c-login__header, .pf-c-login__footer { position: relative; z-index: 1 }
+
 #omoikane-orb, .omoikane-orb, canvas.omoikane-orb, #omk-sky { display: none !important; }
 
 /* The card container itself and the "Need an account?" band were still white
