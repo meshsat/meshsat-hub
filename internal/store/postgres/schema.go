@@ -459,4 +459,17 @@ CREATE INDEX IF NOT EXISTS idx_bridge_oob_peers_peer ON bridge_oob_peers (peer_i
 		CREATE INDEX IF NOT EXISTS idx_tenants_plan_expires ON tenants (plan_expires_at) WHERE plan_expires_at IS NOT NULL;
 		CREATE UNIQUE INDEX IF NOT EXISTS idx_tenants_kofi_claim ON tenants (kofi_claim_code) WHERE kofi_claim_code <> '';
 	`},
+	// MESHSAT-989: remember who paid.
+	//
+	// Ko-fi sends the supporter's message only when they join. Every renewal
+	// after that arrives with message null, so the claim code that matched the
+	// first payment is not there on the second. Without somewhere to remember
+	// the payer, a subscriber whose Ko-fi address differs from their account
+	// address -- the exact case claim codes exist for -- would match once, then
+	// silently lapse a month later while still paying.
+	{Version: 9, Name: "tenant_kofi_payer", SQL: `
+		ALTER TABLE tenants ADD COLUMN IF NOT EXISTS kofi_payer_email VARCHAR(254) NOT NULL DEFAULT '';
+		CREATE INDEX IF NOT EXISTS idx_tenants_kofi_payer ON tenants (kofi_payer_email) WHERE kofi_payer_email <> '';
+		ALTER TABLE tenants ADD COLUMN IF NOT EXISTS kofi_last_message_id VARCHAR(64) NOT NULL DEFAULT '';
+	`},
 }
