@@ -17,6 +17,7 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 
 	hubauth "github.com/meshsat/meshsat-hub/internal/auth"
+	"github.com/meshsat/meshsat-hub/internal/plans"
 	"github.com/meshsat/meshsat-hub/internal/store"
 	"github.com/meshsat/meshsat-hub/internal/store/sqlite"
 )
@@ -219,6 +220,13 @@ func TestOIDC_NewUser_CreatesTenantAndOwner(t *testing.T) {
 	}
 	if tenant.Slug != "alice" || tenant.OwnerUserID != ident.UserID {
 		t.Fatalf("tenant %+v", tenant)
+	}
+	// A tenant that provisions itself lands on the free tier (MESHSAT-989).
+	// It used to land on "beta", which now means an unlimited fleet: everyone
+	// who signed themselves up would have been grandfathered into a plan they
+	// never asked for and nobody was ever going to notice.
+	if tenant.Plan != plans.Free {
+		t.Errorf("a self-provisioned tenant is on %q, want %q", tenant.Plan, plans.Free)
 	}
 	u, err := e.store.GetUserByID(context.Background(), ident.TenantID, ident.UserID)
 	if err != nil || u.Role != hubauth.RoleOwner {
