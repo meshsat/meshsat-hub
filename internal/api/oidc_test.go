@@ -467,10 +467,16 @@ func TestAuthConfig(t *testing.T) {
 
 func TestMetricsTokenGuard(t *testing.T) {
 	ok := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(200) })
+
+	// An unset token fails CLOSED. This assertion used to be the opposite --
+	// "no token should be open" -- which was survivable while an IP allowlist
+	// stood in front of the Hub. In public it means a secret that fails to sync
+	// serves the whole metric set to the internet, and /metrics is exempt from
+	// the auth chain precisely because this guard is its authentication.
 	rr := httptest.NewRecorder()
 	MetricsTokenGuard("", ok).ServeHTTP(rr, httptest.NewRequest("GET", "/metrics", nil))
-	if rr.Code != 200 {
-		t.Fatal("no token should be open")
+	if rr.Code != http.StatusServiceUnavailable {
+		t.Fatalf("unset token served metrics with %d, want 503", rr.Code)
 	}
 	g := MetricsTokenGuard("tok", ok)
 	rr = httptest.NewRecorder()

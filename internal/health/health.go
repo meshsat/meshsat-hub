@@ -2,8 +2,10 @@ package health
 
 import (
 	"context"
+	"crypto/subtle"
 	"encoding/json"
 	"net/http"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -42,6 +44,23 @@ type Checker struct {
 	// draining is set during graceful shutdown so /readyz returns 503 and the
 	// load balancer stops sending new requests before the listener closes.
 	draining atomic.Bool
+
+	// diagToken gates ?verbose=1. The verbose response carries the raw error
+	// string from every dependency probe -- Redis, NATS, ntfy, Apprise, hawkBit
+	// -- which routinely names internal hosts, ports and TLS detail. Behind an
+	// IP allowlist that was operator convenience; on a public endpoint it is
+	// the richest unauthenticated disclosure the service has. Empty means
+	// verbose is unavailable to everyone.
+	diagToken string
+
+	// cache holds the last non-verbose evaluation. /readyz and /startupz are
+	// unauthenticated and each call fans out to every probe including a live
+	// database query, so without this they are a request amplifier pointed at
+	// our own backing services.
+	cacheMu  sync.Mutex
+	cached   *Response
+	cachedAt time.Time
+	cacheFor time.Duration
 }
 
 // New creates a new health checker with the given probe timeout.
@@ -147,13 +166,56 @@ func LivezHandler(w http.ResponseWriter, _ *http.Request) {
 // @Router       /readyz [get]
 func (c *Checker) ReadyzHandler(w http.ResponseWriter, r *http.Request) {
 	verbose := r != nil && r.URL != nil && r.URL.Query().Get("verbose") == "1"
-	resp := c.evaluate(verbose)
+	if verbose && !c.diagAllowed(r) {
+		// Silently downgrade rather than refuse: a probe that starts failing
+		// because somebody added a query parameter is worse than a quiet one.
+		verbose = false
+	}
+
+	var resp Response
+	if verbose {
+		resp = c.evaluate(true)
+	} else {
+		resp = c.cachedEvaluate()
+	}
 
 	w.Header().Set("Content-Type", "application/json")
 	if resp.Status != "ok" {
 		w.WriteHeader(http.StatusServiceUnavailable)
 	}
 	_ = json.NewEncoder(w).Encode(resp)
+}
+
+// diagAllowed reports whether this request may see dependency error detail.
+func (c *Checker) diagAllowed(r *http.Request) bool {
+	if c.diagToken == "" || r == nil {
+		return false
+	}
+	got := strings.TrimSpace(strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer"))
+	return got != "" && subtle.ConstantTimeCompare([]byte(got), []byte(c.diagToken)) == 1
+}
+
+// SetDiagnosticsToken enables ?verbose=1 for callers presenting this bearer.
+// The operator token is reused; there is no second secret to rotate.
+func (c *Checker) SetDiagnosticsToken(token string) { c.diagToken = token }
+
+// SetCacheFor bounds how long a readiness result is reused. 0 disables caching.
+func (c *Checker) SetCacheFor(d time.Duration) { c.cacheFor = d }
+
+// cachedEvaluate returns a recent non-verbose evaluation, running the probes
+// only when the last result has aged out.
+func (c *Checker) cachedEvaluate() Response {
+	if c.cacheFor <= 0 {
+		return c.evaluate(false)
+	}
+	c.cacheMu.Lock()
+	defer c.cacheMu.Unlock()
+	if c.cached != nil && time.Since(c.cachedAt) < c.cacheFor {
+		return *c.cached
+	}
+	resp := c.evaluate(false)
+	c.cached, c.cachedAt = &resp, time.Now()
+	return resp
 }
 
 // StartupzHandler returns 200 once all probes have passed at least once, 503 before that.
@@ -172,8 +234,9 @@ func (c *Checker) StartupzHandler(w http.ResponseWriter, _ *http.Request) {
 	if done {
 		_ = json.NewEncoder(w).Encode(Response{Status: "ok"})
 	} else {
-		// Evaluate now and check if we just became ready.
-		resp := c.evaluate(false)
+		// Evaluate now and check if we just became ready. Cached for the same
+		// reason /readyz is: this path is unauthenticated and runs every probe.
+		resp := c.cachedEvaluate()
 		if resp.Status == "ok" {
 			c.startupMu.Lock()
 			c.startupDone = true

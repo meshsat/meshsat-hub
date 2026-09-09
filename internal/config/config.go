@@ -103,6 +103,19 @@ type Config struct {
 	// Ko-fi page do not match the plan names: "Crew Membership: crew".
 	KofiTierMap map[string]string `yaml:"kofi_tier_map"`
 
+	// AuthRateLimitPerMin bounds the unauthenticated auth endpoints per client
+	// IP per minute: /api/auth/config, the OIDC login and callback pair, and
+	// refresh. The callback performs an outbound token exchange against
+	// authentik on every call, so this is what stops an anonymous caller
+	// aiming our fan-out at our own identity provider.
+	AuthRateLimitPerMin int `yaml:"auth_rate_limit_per_min"`
+
+	// TrustedProxies are the CIDRs whose X-Forwarded-For we believe, used to
+	// resolve the real client IP for rate limiting. Empty means trust none and
+	// key on the direct peer -- safe, but it groups every client behind the
+	// ingress into one bucket.
+	TrustedProxies string `yaml:"trusted_proxies"`
+
 	// UpgradeURL is where a tenant goes to pay for a larger tier. Shown beside
 	// the tier table in the app; empty hides the link rather than guessing.
 	UpgradeURL string `yaml:"upgrade_url"`
@@ -290,6 +303,7 @@ func Defaults() Config {
 		ShutdownDrainSeconds:  0,
 		OTelServiceName:       "meshsat-hub",
 		TAKAPIMaxDevices:      5000,
+		AuthRateLimitPerMin:   30,
 		UpgradeURL:            "https://ko-fi.com/X2S326G23T",
 	}
 }
@@ -492,6 +506,14 @@ func Load() (Config, error) {
 			cfg.PlanDeviceLimits = map[string]int{}
 		}
 		cfg.PlanDeviceLimits[plan] = n
+	}
+	if v := os.Getenv("HUB_AUTH_RATE_LIMIT_PER_MIN"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			cfg.AuthRateLimitPerMin = n
+		}
+	}
+	if v := os.Getenv("HUB_TRUSTED_PROXIES"); v != "" {
+		cfg.TrustedProxies = v
 	}
 	if v := os.Getenv("HUB_KOFI_WEBHOOK_SECRET"); v != "" {
 		cfg.KofiWebhookSecret = v

@@ -291,6 +291,11 @@ func (h *BridgeProvisionHandler) ProvisionQR(w http.ResponseWriter, r *http.Requ
 // @Success 200 {object} ProvisionBundle
 // @Failure 404 {object} map[string]string "Invalid or expired nonce"
 // @Router /api/bridges/{id}/provision/{nonce} [get]
+// provisionClaimRefused is the single answer to every failed claim: unknown
+// bridge, wrong nonce, expired stash. One string, so the response cannot be
+// used to tell those cases apart.
+const provisionClaimRefused = "invalid or expired provisioning token"
+
 func (h *BridgeProvisionHandler) ClaimProvision(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	nonce := chi.URLParam(r, "nonce")
@@ -298,7 +303,11 @@ func (h *BridgeProvisionHandler) ClaimProvision(w http.ResponseWriter, r *http.R
 	stashKey := "provision_stash:" + id
 	stashJSON, err := h.store.GetSystemConfig(r.Context(), stashKey)
 	if err != nil || stashJSON == "" {
-		writeError(w, http.StatusNotFound, "no pending provision for this bridge")
+		// Uniform with the nonce-mismatch response below, deliberately. Two
+		// distinguishable 404s let an unauthenticated caller enumerate bridge
+		// IDs and learn which have a provisioning session in flight.
+		// internal/webhookroute answers the same way for the same reason.
+		writeError(w, http.StatusNotFound, provisionClaimRefused)
 		return
 	}
 
@@ -314,7 +323,7 @@ func (h *BridgeProvisionHandler) ClaimProvision(w http.ResponseWriter, r *http.R
 			"bridge_id", id,
 			"expected", stash.Nonce[:8]+"...",
 			"got", nonce[:min(8, len(nonce))]+"...")
-		writeError(w, http.StatusNotFound, "invalid or expired provisioning token")
+		writeError(w, http.StatusNotFound, provisionClaimRefused)
 		return
 	}
 

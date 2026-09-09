@@ -174,6 +174,14 @@ func main() {
 
 	probeTimeout, _ := time.ParseDuration(cfg.HealthProbeTimeout)
 	checker := health.New(probeTimeout)
+	// ?verbose=1 on /readyz returns each dependency's raw error string, which
+	// names internal hosts and ports. Reuse the operator token rather than
+	// minting a second secret; unset means nobody gets verbose.
+	checker.SetDiagnosticsToken(cfg.MetricsToken)
+	// Both probes are unauthenticated and fan out to every dependency, so a
+	// short cache keeps them from being a request amplifier once the Hub is
+	// public. Well inside the kubelet probe interval.
+	checker.SetCacheFor(2 * time.Second)
 
 	// --- Message bus (tri-mode) ---
 	var msgBus bus.MessageBus
@@ -1420,13 +1428,27 @@ func main() {
 	// WebSocket real-time event hub
 	wsHub := api.NewWSHub()
 	r.Get("/api/ws", wsHub.HandleWS)
-	// Bridge MQTT events to WebSocket for live dashboard updates
+	// Bridge MQTT events to WebSocket for live dashboard updates.
+	//
+	// Two things here are load-bearing. The filters go through DualFilters, or
+	// only the default tenant's traffic is ever seen -- meshsat/+/position does
+	// not match meshsat/{tenant}/{device}/position, so every other tenant's
+	// dashboard sat silent. And delivery is per tenant, resolved from the topic
+	// itself: the hub used to write every frame to every connected client
+	// regardless of tenant, which put one tenant's positions, messages and SOS
+	// events on every other tenant's socket.
 	if msgBus.IsConnected() {
-		for _, topic := range []string{"meshsat/+/mo/decoded", "meshsat/+/position", "meshsat/+/sos"} {
-			t := topic
-			_ = msgBus.Subscribe(t, 0, func(topic string, payload []byte) {
-				wsHub.Broadcast(payload)
-			})
+		for _, legacy := range []string{"meshsat/+/mo/decoded", "meshsat/+/position", "meshsat/+/sos"} {
+			for _, filter := range hubmqtt.DualFilters(legacy) {
+				_ = msgBus.Subscribe(filter, 0, func(topic string, payload []byte) {
+					tenantID, _, _, ok := hubmqtt.ParseDeviceTopic(topic)
+					if !ok {
+						slog.Debug("ws: unparseable device topic, not delivered", "topic", topic)
+						return
+					}
+					wsHub.BroadcastTenant(tenantID, payload)
+				})
+			}
 		}
 	}
 	// Webhook endpoints — rate limited to 60 requests/minute per source IP.
@@ -1541,7 +1563,11 @@ func main() {
 		r.Get("/api/email/keys", emailAPIHandler.ListContacts)
 		r.Post("/api/email/keys", emailAPIHandler.AddContact)
 		r.Delete("/api/email/keys/{email}", emailAPIHandler.DeleteContact)
-		r.Post("/api/email/test", emailAPIHandler.TestSend)
+		// Owner-only: TestSend takes a caller-supplied recipient, subject and
+		// body and sends them through the Hub's own SMTP identity. Without a
+		// role check any viewer of any tenant could relay mail under this
+		// domain's sending reputation.
+		r.With(hubauth.RequireRole(hubauth.RoleOwner)).Post("/api/email/test", emailAPIHandler.TestSend)
 		emailAPIHandler.SetClient(hubemail.NewClient(cfg.EmailSMTPHost, cfg.EmailFrom, cfg.EmailUsername, cfg.EmailPassword, emailKeyRing))
 	}
 
@@ -1549,11 +1575,21 @@ func main() {
 	r.Get("/api/auth/me", api.AuthMeHandler)
 
 	// Login method discovery for the SPA (auth-exempt).
+	//
+	// These are unauthenticated and, once the Hub is public, anyone's to call.
+	// The OIDC pair is the one that matters: /login mints a state cookie for
+	// free and /callback performs an outbound token exchange against authentik
+	// per request, so without a budget an anonymous caller can point our own
+	// fan-out at our identity provider. authRate is per client IP, resolved
+	// through the trusted-proxy chain.
+	authRate := func(h http.HandlerFunc) http.HandlerFunc {
+		return hubmw.WebhookRateLimit(h, cfg.AuthRateLimitPerMin).ServeHTTP
+	}
 	switch {
 	case oidcHandler != nil:
-		r.Get("/api/auth/config", oidcHandler.Config)
-		r.Get("/api/auth/oidc/login", oidcHandler.Login)
-		r.Get("/api/auth/oidc/callback", oidcHandler.Callback)
+		r.Get("/api/auth/config", authRate(oidcHandler.Config))
+		r.Get("/api/auth/oidc/login", authRate(oidcHandler.Login))
+		r.Get("/api/auth/oidc/callback", authRate(oidcHandler.Callback))
 	case authMode == "local":
 		r.Get("/api/auth/config", api.AuthConfigHandler([]string{"local"}, cfg.CommunityURL))
 	default:
@@ -1569,13 +1605,15 @@ func main() {
 			loginHandler = api.NewLoginHandler(dataStore, sessionMgr, auditSvc)
 		}
 		if localLogin {
-			r.Post("/api/auth/login", loginHandler.Login)
+			r.Post("/api/auth/login", authRate(loginHandler.Login))
 			if authMode == "oidc" {
 				slog.Warn("auth: HUB_LOCAL_LOGIN_ENABLED=true — password login is open alongside OIDC (break-glass)")
 			}
 		}
-		r.Post("/api/auth/refresh", loginHandler.Refresh)
-		r.Post("/api/auth/logout", loginHandler.Logout)
+		// Refresh does three database writes per call and is auth-exempt, so it
+		// is rate limited like the rest of the unauthenticated auth surface.
+		r.Post("/api/auth/refresh", authRate(loginHandler.Refresh))
+		r.Post("/api/auth/logout", authRate(loginHandler.Logout))
 
 		// User management (owner-only)
 		userHandler := api.NewUserHandler(dataStore)
@@ -1840,11 +1878,17 @@ func main() {
 	r.Get("/api/devices/{imei}/positions", positionHandler.ListPositions)
 	r.Get("/api/ratelimit", rateLimitHandler.GetAllUsage)
 	r.Get("/api/ratelimit/{deviceID}", rateLimitHandler.GetUsage)
-	r.Post("/api/ratelimit/{deviceID}/override", rateLimitHandler.PostOverride)
-	r.Delete("/api/ratelimit/{deviceID}/override", rateLimitHandler.DeleteOverride)
+	// Owner-only: an override exempts a device from the send budget entirely,
+	// and the send path costs real satellite airtime. Reading usage stays open
+	// to any member; disabling the limiter does not.
+	r.With(hubauth.RequireRole(hubauth.RoleOwner)).Post("/api/ratelimit/{deviceID}/override", rateLimitHandler.PostOverride)
+	r.With(hubauth.RequireRole(hubauth.RoleOwner)).Delete("/api/ratelimit/{deviceID}/override", rateLimitHandler.DeleteOverride)
 	r.Get("/api/webhooks", webhookAPIHandler.ListWebhooks)
-	r.Post("/api/webhooks", webhookAPIHandler.CreateWebhook)
-	r.Delete("/api/webhooks/{id}", webhookAPIHandler.DeleteWebhook)
+	// Owner-only: registering an outbound webhook makes the Hub fetch a
+	// caller-supplied URL from inside the cluster. The handler refuses private
+	// and link-local targets; the role check is the second half of that.
+	r.With(hubauth.RequireRole(hubauth.RoleOwner)).Post("/api/webhooks", webhookAPIHandler.CreateWebhook)
+	r.With(hubauth.RequireRole(hubauth.RoleOwner)).Delete("/api/webhooks/{id}", webhookAPIHandler.DeleteWebhook)
 	r.Get("/api/webhooks/logs", webhookAPIHandler.GetLogs)
 	// MPTCP concentrator API
 	mptcpHandler := mptcp.NewAPIHandler(mptcpMonitor)
