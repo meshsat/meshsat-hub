@@ -25,6 +25,7 @@ func TestFire_DeliversToMatchingWebhook(t *testing.T) {
 	defer srv.Close()
 
 	d := NewDispatcher(nil)
+	d.AllowLoopbackTargetsForTest() // httptest listens on 127.0.0.1
 	d.AddWebhook(WebhookConfig{
 		ID:      "test-1",
 		URL:     srv.URL,
@@ -64,6 +65,7 @@ func TestFire_SkipsNonMatchingEvents(t *testing.T) {
 	defer srv.Close()
 
 	d := NewDispatcher(nil)
+	d.AllowLoopbackTargetsForTest() // httptest listens on 127.0.0.1
 	d.AddWebhook(WebhookConfig{
 		ID:      "sos-only",
 		URL:     srv.URL,
@@ -89,6 +91,7 @@ func TestFire_SkipsDisabledWebhook(t *testing.T) {
 	defer srv.Close()
 
 	d := NewDispatcher(nil)
+	d.AllowLoopbackTargetsForTest() // httptest listens on 127.0.0.1
 	d.AddWebhook(WebhookConfig{
 		ID:      "disabled",
 		URL:     srv.URL,
@@ -116,6 +119,7 @@ func TestFire_HMACSigning(t *testing.T) {
 	defer srv.Close()
 
 	d := NewDispatcher(nil)
+	d.AllowLoopbackTargetsForTest() // httptest listens on 127.0.0.1
 	d.AddWebhook(WebhookConfig{
 		ID:      "signed",
 		URL:     srv.URL,
@@ -160,6 +164,7 @@ func TestFire_RetriesOnFailure(t *testing.T) {
 	defer srv.Close()
 
 	d := NewDispatcher(nil)
+	d.AllowLoopbackTargetsForTest() // httptest listens on 127.0.0.1
 	d.AddWebhook(WebhookConfig{
 		ID:         "retry-test",
 		URL:        srv.URL,
@@ -182,6 +187,7 @@ func TestFire_RetriesOnFailure(t *testing.T) {
 
 func TestAddRemoveWebhook(t *testing.T) {
 	d := NewDispatcher(nil)
+	d.AllowLoopbackTargetsForTest() // httptest listens on 127.0.0.1
 	d.AddWebhook(WebhookConfig{ID: "a", URL: "http://a.com", Enabled: true})
 	d.AddWebhook(WebhookConfig{ID: "b", URL: "http://b.com", Enabled: true})
 
@@ -200,6 +206,7 @@ func TestAddRemoveWebhook(t *testing.T) {
 
 func TestListWebhooks_RedactsSecret(t *testing.T) {
 	d := NewDispatcher(nil)
+	d.AllowLoopbackTargetsForTest() // httptest listens on 127.0.0.1
 	d.AddWebhook(WebhookConfig{ID: "secret", URL: "http://a.com", Secret: "my-secret", Enabled: true})
 
 	list := d.ListWebhooks()
@@ -210,6 +217,7 @@ func TestListWebhooks_RedactsSecret(t *testing.T) {
 
 func TestRecentLogs(t *testing.T) {
 	d := NewDispatcher(nil)
+	d.AllowLoopbackTargetsForTest() // httptest listens on 127.0.0.1
 	d.recordLog("wh-1", "mo", "device-1", 200, "", 0)
 	d.recordLog("wh-1", "sos", "device-2", 500, "server error", 1)
 

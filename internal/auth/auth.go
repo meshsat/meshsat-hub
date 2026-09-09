@@ -262,16 +262,76 @@ func MiddlewareWithProvider(provider *JWKSProvider, issuerURL, audience string) 
 	return jwtMiddleware(provider, issuerURL, audience)
 }
 
+// publicPrefixes are the non-API paths served without authentication: the SPA
+// and the assets a browser needs to render it before anyone has signed in.
+//
+// This list is deliberately explicit. It replaces `!strings.HasPrefix(path,
+// "/api/")`, which exempted every path that was not an API route -- and so
+// silently exempted /metrics, /startupz, /debug/pprof/* and the whole basemap
+// as well as the SPA. That was survivable behind an IP allowlist and is not
+// survivable in public: pprof heap dumps carry access tokens, refresh tokens
+// and message plaintext, and the comment at its route claimed it was behind
+// auth. Anything not named here now falls through to the auth chain.
+var publicPrefixes = []string{
+	"/assets/",  // SPA bundle
+	"/basemap/", // self-hosted map tiles, glyphs and sprites
+	"/favicon",  // favicon.ico and friends
+	"/meshsat-", // brand marks referenced by the login page
+	"/fonts/",   //
+}
+
+// publicExact are single non-API paths served without authentication.
+var publicExact = map[string]bool{
+	"/":                 true, // the SPA entry point
+	"/index.html":       true,
+	"/healthz":          true,
+	"/readyz":           true,
+	"/startupz":         true,
+	"/manifest.json":    true,
+	"/robots.txt":       true,
+	"/site.webmanifest": true,
+}
+
 func isExempt(path string) bool {
-	return path == "/healthz" || path == "/readyz" ||
-		strings.HasPrefix(path, "/api/webhook/") || // all inbound webhooks are auth-exempt
-		isProvisionClaim(path) || // QR provision claim — nonce IS the auth (MESHSAT-414)
-		path == "/api/auth/login" ||
-		path == "/api/auth/refresh" ||
-		path == "/api/auth/config" ||
-		path == "/api/auth/oidc/login" ||
-		path == "/api/auth/oidc/callback" ||
-		!strings.HasPrefix(path, "/api/")
+	switch {
+	case strings.HasPrefix(path, "/api/webhook/"): // all inbound webhooks are auth-exempt
+		return true
+	case isProvisionClaim(path): // QR provision claim — nonce IS the auth (MESHSAT-414)
+		return true
+	case path == "/api/auth/login",
+		path == "/api/auth/refresh",
+		path == "/api/auth/config",
+		path == "/api/auth/oidc/login",
+		path == "/api/auth/oidc/callback":
+		return true
+	case strings.HasPrefix(path, "/api/"):
+		return false
+	}
+	// Non-API paths: only what the SPA needs before sign-in. /metrics is
+	// absent on purpose -- it carries its own token guard and must not also be
+	// blanket-exempt, so a lost token does not leave it wide open.
+	if publicExact[path] {
+		return true
+	}
+	for _, p := range publicPrefixes {
+		if strings.HasPrefix(path, p) {
+			return true
+		}
+	}
+	// Nothing under these is ever the SPA, whatever it looks like. Without this
+	// the client-side-route heuristic below would exempt /debug/pprof/heap,
+	// whose last segment has no extension.
+	for _, p := range []string{"/debug/", "/api/"} {
+		if strings.HasPrefix(path, p) {
+			return false
+		}
+	}
+	// The SPA is a single page app served from a catch-all route, so any path
+	// that looks like a client-side route (no dot in the last segment) is the
+	// index document. A path with an extension is a real asset request and must
+	// have matched a prefix above.
+	last := path[strings.LastIndex(path, "/")+1:]
+	return !strings.Contains(last, ".")
 }
 
 // isProvisionClaim matches GET /api/bridges/{id}/provision/{nonce} —

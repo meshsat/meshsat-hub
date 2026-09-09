@@ -102,6 +102,19 @@ data:
   HUB_TAK_FEDERATION_ENABLED: "true"
   HUB_TAK_FEDERATION_PEERS: "192.168.15.10:9001"
 
+  # --- public exposure (MESHSAT-995) ---
+  # Whose X-Forwarded-For to believe when resolving the client IP for rate
+  # limiting. Every hop on our own side of the wire has to be listed or the
+  # "client" resolves to one of our own proxies: ingress-nginx (pod network),
+  # the edge relay DaemonSet (mesh), and the three VPS HAProxies. Anything not
+  # listed is treated as the client, so this list is what makes a per-IP limit
+  # mean a per-client limit rather than a per-ingress-pod one.
+  HUB_TRUSTED_PROXIES: "10.2.0.0/16,10.255.0.0/16,185.44.82.32/32,185.125.171.172/32,185.121.169.27/32"
+  # Per-client budget on the unauthenticated auth endpoints. The OIDC callback
+  # makes an outbound token exchange against authentik on every call, so this
+  # is what stops an anonymous caller pointing our fan-out at our own IdP.
+  HUB_AUTH_RATE_LIMIT_PER_MIN: "30"
+
   # --- subscription tiers (MESHSAT-989) ---
   # One combined ceiling on registered devices and bridges per tenant. It gates
   # REGISTRATION only: a tenant over its cap or on a lapsed plan keeps every
