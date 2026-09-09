@@ -102,6 +102,32 @@ type Config struct {
 	// Ko-fi page do not match the plan names: "Crew Membership: crew".
 	KofiTierMap map[string]string `yaml:"kofi_tier_map"`
 
+	// Invoice Ninja: the billing system that issues customer receipts
+	// (MESHSAT-998). Empty URL or token means no receipts are issued at all --
+	// payments still grant plans, and the outbox rows accumulate unsent, which
+	// is recoverable. Issuing them into the wrong company would not be.
+	//
+	// The token is COMPANY-SCOPED: each Invoice Ninja company has its own, and
+	// it is the token that decides which brand, VAT treatment and number
+	// series a receipt is issued under. Pointing this at the wrong one puts
+	// consumer receipts in a business's invoice sequence.
+	InvoiceNinjaURL   string `yaml:"invoiceninja_url"`
+	InvoiceNinjaToken string `yaml:"invoiceninja_token"`
+	// InvoiceNinjaTaxName and InvoiceNinjaTaxRate go on every invoice line,
+	// because the company default tax is a web-UI prefill the API does not
+	// apply. The company has inclusive taxes on, so this is derived OUT of the
+	// price the customer paid, never added to it.
+	InvoiceNinjaTaxName string  `yaml:"invoiceninja_tax_name"`
+	InvoiceNinjaTaxRate float64 `yaml:"invoiceninja_tax_rate"`
+	// InvoiceNinjaCurrency is the only currency that company invoices in. A
+	// payment in anything else is parked for a person rather than converted.
+	InvoiceNinjaCurrency string `yaml:"invoiceninja_currency"`
+	// InvoiceNinjaCountryID is the numeric country a new customer record is
+	// created with (528 = the Netherlands).
+	InvoiceNinjaCountryID string `yaml:"invoiceninja_country_id"`
+	// InvoiceNinjaTimeout bounds one call to the billing system.
+	InvoiceNinjaTimeout time.Duration `yaml:"invoiceninja_timeout"`
+
 	// OIDCRecoveryURL is the identity provider's password reset flow, linked
 	// from the login page. It has existed and been bound to the MeshSat brand
 	// since MESHSAT-978, but nothing in the Hub pointed at it, so a user who
@@ -310,6 +336,14 @@ func Defaults() Config {
 		TAKAPIMaxDevices:      5000,
 		AuthRateLimitPerMin:   30,
 		UpgradeURL:            "https://ko-fi.com/X2S326G23T",
+		// Receipts: Dutch 21% VAT, inclusive, EUR, NL. The rate lives here
+		// rather than in code so re-pricing or a rate change is a ConfigMap
+		// edit; the URL and token stay unset until an operator supplies them.
+		InvoiceNinjaTaxName:   "BTW 21",
+		InvoiceNinjaTaxRate:   21,
+		InvoiceNinjaCurrency:  "EUR",
+		InvoiceNinjaCountryID: "528",
+		InvoiceNinjaTimeout:   30 * time.Second,
 	}
 }
 
@@ -540,6 +574,31 @@ func Load() (Config, error) {
 		}
 		if len(m) > 0 {
 			cfg.KofiTierMap = m
+		}
+	}
+	if v := os.Getenv("HUB_INVOICENINJA_URL"); v != "" {
+		cfg.InvoiceNinjaURL = v
+	}
+	if v := os.Getenv("HUB_INVOICENINJA_TOKEN"); v != "" {
+		cfg.InvoiceNinjaToken = v
+	}
+	if v := os.Getenv("HUB_INVOICENINJA_TAX_NAME"); v != "" {
+		cfg.InvoiceNinjaTaxName = v
+	}
+	if v := os.Getenv("HUB_INVOICENINJA_TAX_RATE"); v != "" {
+		if f, err := strconv.ParseFloat(v, 64); err == nil && f >= 0 {
+			cfg.InvoiceNinjaTaxRate = f
+		}
+	}
+	if v := os.Getenv("HUB_INVOICENINJA_CURRENCY"); v != "" {
+		cfg.InvoiceNinjaCurrency = v
+	}
+	if v := os.Getenv("HUB_INVOICENINJA_COUNTRY_ID"); v != "" {
+		cfg.InvoiceNinjaCountryID = v
+	}
+	if v := os.Getenv("HUB_INVOICENINJA_TIMEOUT"); v != "" {
+		if d, err := time.ParseDuration(v); err == nil && d > 0 {
+			cfg.InvoiceNinjaTimeout = d
 		}
 	}
 	if v := os.Getenv("HUB_UPGRADE_URL"); v != "" {
