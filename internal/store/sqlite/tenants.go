@@ -8,6 +8,7 @@ import (
 
 	"github.com/rs/xid"
 
+	"github.com/meshsat/meshsat-hub/internal/plans"
 	"github.com/meshsat/meshsat-hub/internal/store"
 )
 
@@ -44,7 +45,11 @@ func (d *DB) CreateTenant(ctx context.Context, t *store.Tenant) error {
 		t.Slug = t.ID
 	}
 	if t.Plan == "" {
-		t.Plan = "beta"
+		// A new tenant starts on the free tier (MESHSAT-989). It used to start
+		// on "beta", which now means an unlimited fleet -- the plan rows that
+		// predate tiers keep that, deliberately, but a tenant created today
+		// must not be grandfathered into something it never signed up for.
+		t.Plan = plans.Free
 	}
 	if t.Status == "" {
 		t.Status = "active"
