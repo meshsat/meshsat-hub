@@ -6,6 +6,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/meshsat/meshsat-hub/internal/auth"
+	"github.com/meshsat/meshsat-hub/internal/quota"
 	"github.com/meshsat/meshsat-hub/internal/store"
 	"github.com/meshsat/meshsat-hub/internal/wireguard"
 )
@@ -14,11 +15,19 @@ import (
 type DeviceHandler struct {
 	store       store.Store
 	provisioner *wireguard.Provisioner // nil if WireGuard disabled
+	quota       *quota.Checker
 }
 
 // NewDeviceHandler creates a new device API handler.
 func NewDeviceHandler(s store.Store) *DeviceHandler {
 	return &DeviceHandler{store: s}
+}
+
+// SetQuota enables the subscription device ceiling on manual registration.
+// Leaving it unset means no ceiling, which is what a single-tenant deployment
+// of the Hub wants.
+func (h *DeviceHandler) SetQuota(q *quota.Checker) {
+	h.quota = q
 }
 
 // SetProvisioner enables WireGuard auto-provisioning on device create/delete.
@@ -80,6 +89,7 @@ type deviceCreateResponse struct {
 // @Param body body store.Device true "Device data (imei required)"
 // @Success 201 {object} deviceCreateResponse
 // @Failure 400 {object} map[string]string
+// @Failure 402 {object} map[string]string "device ceiling of the tenant's plan reached"
 // @Failure 409 {object} map[string]string
 // @Router /api/devices [post]
 func (h *DeviceHandler) CreateDevice(w http.ResponseWriter, r *http.Request) {
@@ -96,6 +106,12 @@ func (h *DeviceHandler) CreateDevice(w http.ResponseWriter, r *http.Request) {
 		dev.Type = "rockblock"
 	}
 	tid := auth.TenantIDFromContext(r.Context())
+	// The plan's ceiling applies to registering a device, and to nothing else.
+	// A tenant at its cap keeps hearing from everything it already has.
+	if ok, why := h.quota.AllowAnother(r.Context(), tid); !ok {
+		writeError(w, http.StatusPaymentRequired, why)
+		return
+	}
 	if err := h.store.CreateDevice(r.Context(), tid, &dev); err != nil {
 		writeError(w, http.StatusConflict, "device already exists or error: "+err.Error())
 		return

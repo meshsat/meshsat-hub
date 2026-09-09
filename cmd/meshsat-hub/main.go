@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"crypto/ed25519"
+	"crypto/subtle"
 	"database/sql"
 	"encoding/hex"
 	"encoding/json"
@@ -53,6 +54,7 @@ import (
 	"github.com/meshsat/meshsat-hub/internal/hawkbit"
 	"github.com/meshsat/meshsat-hub/internal/health"
 	"github.com/meshsat/meshsat-hub/internal/ipougrs"
+	"github.com/meshsat/meshsat-hub/internal/kofi"
 	"github.com/meshsat/meshsat-hub/internal/leader"
 	hubmessage "github.com/meshsat/meshsat-hub/internal/message"
 	"github.com/meshsat/meshsat-hub/internal/metrics"
@@ -62,8 +64,10 @@ import (
 	"github.com/meshsat/meshsat-hub/internal/ntfy"
 	"github.com/meshsat/meshsat-hub/internal/objstore"
 	"github.com/meshsat/meshsat-hub/internal/observability"
+	"github.com/meshsat/meshsat-hub/internal/plans"
 	"github.com/meshsat/meshsat-hub/internal/position"
 	"github.com/meshsat/meshsat-hub/internal/protocol"
+	"github.com/meshsat/meshsat-hub/internal/quota"
 	"github.com/meshsat/meshsat-hub/internal/ratelimit"
 	"github.com/meshsat/meshsat-hub/internal/reticulum"
 	"github.com/meshsat/meshsat-hub/internal/rock7"
@@ -425,6 +429,7 @@ func main() {
 	if cfg.TAKAPIBaseURL != "" && cfg.TAKAPIUsername != "" {
 		leaderSingletons.Add("tak-ots-poller", func(sctx context.Context) {
 			p := tak.NewOTSPoller(cfg.TAKAPIBaseURL, cfg.TAKAPIUsername, cfg.TAKAPIPassword, cfg.TAKAPIPollSec, msgBus, dataStore, store.DefaultTenantID)
+			p.SetMaxDevices(cfg.TAKAPIMaxDevices)
 			p.Start()
 			<-sctx.Done()
 			p.Stop()
@@ -1354,6 +1359,25 @@ func main() {
 		slog.Warn("tenant status invalidation not subscribed; a change applies elsewhere within the cache TTL", "error", err)
 	}
 	hubauth.SetTenantStatusLookup(tenantStatus.Status)
+
+	// Subscription tiers (MESHSAT-989). The ceiling is on REGISTERING devices
+	// and bridges and on nothing else: ingest, delivery, the dead man's switch
+	// and SOS are never gated by it, so a lapsed or over-cap tenant still gets
+	// its emergency traffic through. Limits are overridable from config so a
+	// tier can be re-priced without a deploy.
+	for plan, limit := range cfg.PlanDeviceLimits {
+		if plans.SetLimit(plan, limit) {
+			slog.Info("plan limit overridden from config", "plan", plan, "devices", limit)
+		} else {
+			slog.Warn("unknown plan in plan_device_limits, ignored", "plan", plan, "known", plans.Names())
+		}
+	}
+	// The plan comes from the same cached tenant read the status middleware
+	// already does, so a create costs two counts and no extra tenant query.
+	quotaChecker := quota.New(dataStore, tenantStatus.Plan)
+	if bridgeSub != nil {
+		bridgeSub.SetQuota(quotaChecker)
+	}
 	// Destroying a closed tenant's data is single-owner work and its audit
 	// line should be written once, so it runs on the lease holder.
 	leaderSingletons.Add("tenant-purge", tenancy.NewPurgeJob(dataStore, auditSvc, 0).Run)
@@ -1425,6 +1449,38 @@ func main() {
 	webhookRoute(integrations.ProviderRockBLOCK, "webhook_secret", "/api/webhook/rockblock", rbHandler.ServeHTTP)
 	webhookRoute(integrations.ProviderGlobalstar, "webhook_secret", "/api/webhook/globalstar", gsHandler.ServeHTTP)
 	webhookRoute(integrations.ProviderCloudloop, "webhook_token", "/api/webhook/cloudloop", clHandler.ServeHTTP)
+
+	// Ko-fi subscription webhook (MESHSAT-989). Platform-level rather than
+	// per-tenant: there is one Ko-fi account, and the payment says which
+	// tenant it is for through a claim code in its message. The path secret
+	// keeps the endpoint off scanners and out of logs; Ko-fi's
+	// verification_token in the body is what authenticates it.
+	if cfg.KofiWebhookSecret != "" && cfg.KofiVerificationToken != "" {
+		kofiHandler := kofi.NewHandler(dataStore, cfg.KofiVerificationToken)
+		kofiHandler.SetAudit(auditSvc)
+		kofiHandler.SetInvalidator(tenantStatus.Forget)
+		if len(cfg.KofiTierMap) > 0 {
+			kofiHandler.SetTierMapping(cfg.KofiTierMap)
+		}
+		want := cfg.KofiWebhookSecret
+		r.Post("/api/webhook/kofi/{secret}", hubmw.WebhookRateLimit(http.HandlerFunc(
+			func(w http.ResponseWriter, req *http.Request) {
+				// A wrong secret is a 404, not a 401: the endpoint should not
+				// confirm it exists to somebody guessing at it.
+				if subtle.ConstantTimeCompare([]byte(chi.URLParam(req, "secret")), []byte(want)) != 1 {
+					http.NotFound(w, req)
+					return
+				}
+				kofiHandler.ServeHTTP(w, req)
+			}), 60).ServeHTTP)
+		// Downgrading a lapsed plan is single-owner work and its audit line
+		// should be written once, so it runs on the lease holder.
+		leaderSingletons.Add("subscription-lapse",
+			kofi.NewLapseJob(dataStore, auditSvc, tenantStatus.Forget).Run)
+		slog.Info("kofi: subscription webhook enabled")
+	} else {
+		slog.Info("kofi: subscription webhook disabled; set HUB_KOFI_WEBHOOK_SECRET and HUB_KOFI_VERIFICATION_TOKEN to enable")
+	}
 
 	// QR provision claim — unauthenticated (nonce IS the auth, single-use, 30min TTL).
 	provisionClaimHandler := api.NewBridgeProvisionHandler(dataStore, bridgeCA, directoryTrustAnchor)
@@ -1537,9 +1593,12 @@ func main() {
 	// platform-admin tenant directory (MESHSAT-916, MR 16).
 	tenantHandler := api.NewTenantHandler(dataStore)
 	tenantHandler.SetStatusInvalidator(tenantStatus.Forget)
+	usageHandler := api.NewTenantUsageHandler(quotaChecker, dataStore)
+	api.SetUpgradeURL(cfg.UpgradeURL)
 	offboarding := api.NewTenantOffboardingHandler(dataStore, auditSvc, tenantStatus.Forget)
 	r.Route("/api/tenant", func(r chi.Router) {
 		r.With(hubauth.RequireRole(hubauth.RoleViewer)).Get("/", tenantHandler.Get)
+		r.With(hubauth.RequireRole(hubauth.RoleViewer)).Get("/usage", usageHandler.Usage)
 		r.With(hubauth.RequireRole(hubauth.RoleOwner)).Put("/", tenantHandler.Update)
 		// Take your data with you, or have it destroyed. Owner only.
 		r.With(hubauth.RequireRole(hubauth.RoleOwner)).Get("/export", offboarding.Export)
@@ -1572,6 +1631,7 @@ func main() {
 		r.Get("/", tenantHandler.AdminList)
 		r.Put("/{id}", tenantHandler.AdminUpdate)
 		r.Delete("/{id}", offboarding.AdminDelete)
+		r.Get("/{id}/usage", usageHandler.AdminUsage)
 	})
 
 	// API key management (owner-only)
@@ -1612,6 +1672,7 @@ func main() {
 	// Bridge registry API
 	bridgeHandler := api.NewBridgeHandler(dataStore, msgBus)
 	bridgeHandler.SetNATSAuth(natsAuth)
+	bridgeHandler.SetQuota(quotaChecker)
 	r.Get("/api/bridges", bridgeHandler.ListBridges)
 	r.Post("/api/bridges", bridgeHandler.CreateBridge)
 	r.Get("/api/bridges/{id}", bridgeHandler.GetBridge)
@@ -1715,6 +1776,7 @@ func main() {
 
 	// Device registry API
 	deviceHandler := api.NewDeviceHandler(dataStore)
+	deviceHandler.SetQuota(quotaChecker)
 	r.Get("/api/devices", deviceHandler.ListDevices)
 	r.Post("/api/devices", deviceHandler.CreateDevice)
 	r.Get("/api/devices/{imei}", deviceHandler.GetDevice)
