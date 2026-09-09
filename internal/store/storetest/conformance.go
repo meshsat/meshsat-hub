@@ -538,6 +538,23 @@ func testTenants(t *testing.T, db store.Store) {
 	if got, err := db.GetTenantBySlug(ctx, "alpine-sar"); err != nil || got.ID != tn.ID {
 		t.Errorf("by slug: %v %+v", err, got)
 	}
+	// Subscription columns round-trip (MESHSAT-989). kofi_payer_email is what
+	// matches a Ko-fi renewal, which carries no message and so no claim code;
+	// a store that dropped it on read would lapse a paying subscriber.
+	tn.KofiClaimCode, tn.KofiPayerEmail = "AB2K9XYZ", "jo.example@example.com"
+	expires := time.Now().UTC().Add(32 * 24 * time.Hour).Truncate(time.Second)
+	tn.PlanExpiresAt = &expires
+	if err := db.UpdateTenant(ctx, tn); err != nil {
+		t.Fatalf("update subscription fields: %v", err)
+	}
+	if got, err := db.GetTenant(ctx, tn.ID); err != nil {
+		t.Fatalf("reread: %v", err)
+	} else if got.KofiClaimCode != "AB2K9XYZ" || got.KofiPayerEmail != "jo.example@example.com" ||
+		got.PlanExpiresAt == nil || !got.PlanExpiresAt.Equal(expires) {
+		t.Errorf("subscription fields did not round-trip: claim=%q payer=%q expires=%v",
+			got.KofiClaimCode, got.KofiPayerEmail, got.PlanExpiresAt)
+	}
+
 	tn.Name, tn.OwnerUserID = "Alpine SAR e.V.", "usr-1"
 	if err := db.UpdateTenant(ctx, tn); err != nil {
 		t.Fatal(err)
