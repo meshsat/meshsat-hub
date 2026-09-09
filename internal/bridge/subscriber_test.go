@@ -30,6 +30,8 @@ type mockStore struct {
 	bridgeLastSeen    map[string]bool
 	deviceBridgeMap   map[string]string // imei -> bridge_id
 	createDeviceCalls int
+	bridgeOwner       map[string]string // bridge -> registered owner
+	knownTenants      map[string]bool   // tenants GetTenant will admit exist
 }
 
 func newMockStore() *mockStore {
@@ -40,6 +42,8 @@ func newMockStore() *mockStore {
 		bridgeHealth:    make(map[string]string),
 		bridgeLastSeen:  make(map[string]bool),
 		deviceBridgeMap: make(map[string]string),
+		bridgeOwner:     make(map[string]string),
+		knownTenants:    make(map[string]bool),
 	}
 }
 
@@ -570,8 +574,13 @@ func TestStart_SubscribesAllTopics(t *testing.T) {
 func TestResolveTenantID(t *testing.T) {
 	sub := &Subscriber{tenants: tenancy.NewResolver(newMockStore(), "default", 0)}
 
-	if got := sub.resolveTenantID("custom", "b1", "meshsat/bridge/b1/birth"); got != "custom" {
-		t.Errorf("resolveTenantID(%q) = %q, want %q", "custom", got, "custom")
+	// A tenant named in the birth payload is a claim, not an answer. It used to
+	// be returned verbatim, which let a bridge put any tenant id in its own
+	// birth and land there, and — because the upsert reassigned tenant_id —
+	// walk a registered bridge out of its tenant into another one. A quota is
+	// worth nothing while the subject of the check picks the tenant.
+	if got := sub.resolveTenantID("custom", "b1", "meshsat/bridge/b1/birth"); got != "default" {
+		t.Errorf("an unregistered bridge claiming %q resolved to %q, want the default tenant", "custom", got)
 	}
 	// Unknown bridge, no tenant in the birth: the default tenant.
 	if got := sub.resolveTenantID("", "b1", "meshsat/bridge/b1/birth"); got != "default" {
@@ -580,6 +589,20 @@ func TestResolveTenantID(t *testing.T) {
 	// Tenant-prefixed topic naming a tenant the store does not know: default.
 	if got := sub.resolveTenantID("", "b1", "meshsat/t_ghost/bridge/b1/birth"); got != "default" {
 		t.Errorf("unknown topic tenant: %q", got)
+	}
+
+	// The case that matters: a bridge already registered to one tenant cannot
+	// move itself into another by asserting it in a birth.
+	ms := newMockStore()
+	ms.bridgeOwner["b2"] = "tenant-a"
+	ms.knownTenants["tenant-a"], ms.knownTenants["tenant-b"] = true, true
+	owned := &Subscriber{tenants: tenancy.NewResolver(ms, "default", 0)}
+	if got := owned.resolveTenantID("tenant-b", "b2", "meshsat/tenant-b/bridge/b2/birth"); got != "tenant-a" {
+		t.Errorf("a bridge owned by tenant-a claimed tenant-b and got %q", got)
+	}
+	// And an honest birth from its own tenant still resolves normally.
+	if got := owned.resolveTenantID("tenant-a", "b2", "meshsat/tenant-a/bridge/b2/birth"); got != "tenant-a" {
+		t.Errorf("an honest birth resolved to %q, want tenant-a", got)
 	}
 }
 
@@ -1017,10 +1040,16 @@ func (m *mockStore) LookupDeviceTenant(_ context.Context, _ string) (string, err
 	return "", store.ErrNotFound
 }
 
-func (m *mockStore) LookupBridgeTenant(_ context.Context, _ string) (string, error) {
+func (m *mockStore) LookupBridgeTenant(_ context.Context, bridgeID string) (string, error) {
+	if t, ok := m.bridgeOwner[bridgeID]; ok {
+		return t, nil
+	}
 	return "", store.ErrNotFound
 }
 
-func (m *mockStore) GetTenant(_ context.Context, _ string) (*store.Tenant, error) {
+func (m *mockStore) GetTenant(_ context.Context, id string) (*store.Tenant, error) {
+	if m.knownTenants[id] {
+		return &store.Tenant{ID: id, Slug: id, Status: store.TenantActive}, nil
+	}
 	return nil, store.ErrNotFound
 }

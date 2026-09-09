@@ -85,6 +85,11 @@ func (d *DB) queryBridges(ctx context.Context, withSecret bool, where string, ar
 // CreateOrUpdateBridge upserts the birth-provided fields. On conflict it does
 // NOT touch mqtt_username, mqtt_password_hash, cert_pem, cert_expiry or
 // created_at: a bridge re-announcing itself must never lose its credentials.
+// CreateOrUpdateBridge registers a bridge or refreshes what it reports about
+// itself. It deliberately does NOT move an existing bridge between tenants:
+// this runs from an MQTT birth, and a bridge that could rewrite its own
+// tenant_id could walk itself into somebody else's fleet and out of its own
+// tenant's quota. Ownership changes through the API, where a human is asking.
 func (d *DB) CreateOrUpdateBridge(ctx context.Context, tenantID string, b *store.Bridge) error {
 	_, err := d.db.ExecContext(ctx,
 		`INSERT INTO bridges (bridge_id, tenant_id, label, hostname, version, mode,
@@ -93,7 +98,7 @@ func (d *DB) CreateOrUpdateBridge(ctx context.Context, tenantID string, b *store
 			online, last_birth, last_health, last_seen)
 		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, now())
 		 ON CONFLICT (bridge_id) DO UPDATE SET
-			tenant_id=EXCLUDED.tenant_id, label=EXCLUDED.label, hostname=EXCLUDED.hostname,
+			label=EXCLUDED.label, hostname=EXCLUDED.hostname,
 			version=EXCLUDED.version, mode=EXCLUDED.mode,
 			location_lat=EXCLUDED.location_lat, location_lon=EXCLUDED.location_lon,
 			location_alt=EXCLUDED.location_alt, capabilities=EXCLUDED.capabilities,
