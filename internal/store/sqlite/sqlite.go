@@ -380,6 +380,8 @@ var lateAlterMigrations = []string{
 	// MESHSAT-989: subscription tiers. Mirrors postgres migration 8.
 	`ALTER TABLE tenants ADD COLUMN plan_expires_at TEXT NOT NULL DEFAULT ''`,
 	`ALTER TABLE tenants ADD COLUMN kofi_claim_code TEXT NOT NULL DEFAULT ''`,
+	// Mirrors postgres migration 9: the payer Ko-fi remembers between renewals.
+	`ALTER TABLE tenants ADD COLUMN kofi_payer_email TEXT NOT NULL DEFAULT ''`,
 	// MESHSAT-964: last report bearer/time on bridges
 	`ALTER TABLE bridges ADD COLUMN last_report_bearer TEXT NOT NULL DEFAULT ''`,
 	`ALTER TABLE bridges ADD COLUMN last_report_at TEXT`,
