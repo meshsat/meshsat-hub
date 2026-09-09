@@ -188,8 +188,9 @@ onMounted(load)
             </button>
           </div>
           <p class="text-[11px] text-ms-muted mt-1">
-            Put this in the message when you pay, so the payment reaches this account.
-            People often pay from a different address than they signed up with.
+            Put this in the message when you <strong>start</strong> your membership, so the payment
+            reaches this account. Ko-fi only sends a message with the first payment; after that we
+            recognise you by the address you paid from, so renewals need nothing from you.
           </p>
         </div>
       </div>

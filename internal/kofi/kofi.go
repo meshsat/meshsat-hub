@@ -180,6 +180,17 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	plan := h.planFor(p.TierName)
 	prev, prevExpiry := t.Plan, t.PlanExpiresAt
+
+	// Remember who paid. Ko-fi carries the supporter's message only on the join
+	// payment, so the claim code that matched this one will not be in next
+	// month's. Binding the payer's address here is what makes the renewal
+	// match, and it is written in the same update as the plan.
+	if payer := strings.ToLower(strings.TrimSpace(p.Email)); payer != "" && !strings.EqualFold(t.KofiPayerEmail, payer) {
+		if t.KofiPayerEmail != "" {
+			slog.Info("kofi: payer address for this tenant changed", "tenant", t.ID, "matched_by", how)
+		}
+		t.KofiPayerEmail = payer
+	}
 	now := time.Now().UTC()
 	from := now
 	if t.PlanExpiresAt != nil && t.PlanExpiresAt.After(now) {
@@ -237,6 +248,10 @@ var claimCodeRe = regexp.MustCompile(`\b[A-Z0-9]{8}\b`)
 // ErrNoMatch is returned when a payment cannot be attributed.
 var ErrNoMatch = errors.New("kofi: no tenant matched")
 
+// ErrAmbiguous is returned when a payment could belong to more than one
+// tenant. Never guessed at.
+var ErrAmbiguous = errors.New("kofi: payment matches more than one tenant")
+
 // match finds the tenant a payment belongs to: the claim code in the Ko-fi
 // message first, then the payer's email against the tenant owner's.
 //
@@ -248,42 +263,66 @@ func (h *Handler) match(ctx context.Context, p Payload) (*store.Tenant, string, 
 	if err != nil {
 		return nil, "", err
 	}
+	live := func(t store.Tenant) bool { return t.DeletedAt == nil }
+	email := strings.ToLower(strings.TrimSpace(p.Email))
 
+	// 1. The claim code in the supporter's message. Only the join payment
+	//    carries one, so this is what binds a payer to a tenant the first time.
 	for _, code := range claimCodeRe.FindAllString(strings.ToUpper(p.Message), -1) {
 		for i := range tenants {
-			if tenants[i].KofiClaimCode != "" && tenants[i].KofiClaimCode == code {
-				if tenants[i].DeletedAt != nil {
-					continue
-				}
+			if live(tenants[i]) && tenants[i].KofiClaimCode != "" && tenants[i].KofiClaimCode == code {
 				t := tenants[i]
 				return &t, "claim code", nil
 			}
 		}
 	}
 
-	email := strings.ToLower(strings.TrimSpace(p.Email))
 	if email == "" {
 		return nil, "", ErrNoMatch
 	}
+
+	// 2. The address a previous payment for this tenant came from. This is the
+	//    one that carries renewals: Ko-fi sends message null every month after
+	//    the join, so without it a subscriber whose Ko-fi address differs from
+	//    their account address would match once and then lapse while paying.
+	if t, err := unique(tenants, func(t store.Tenant) bool {
+		return live(t) && t.KofiPayerEmail != "" && strings.EqualFold(t.KofiPayerEmail, email)
+	}); err == nil && t != nil {
+		return t, "remembered payer", nil
+	} else if err != nil {
+		return nil, "", err
+	}
+
+	// 3. The account owner's own address, for the straightforward case where
+	//    somebody pays from the address they signed up with.
+	t, err := unique(tenants, func(t store.Tenant) bool {
+		return live(t) && strings.EqualFold(strings.TrimSpace(t.OwnerUserID), email)
+	})
+	if err != nil || t == nil {
+		if err == nil {
+			err = ErrNoMatch
+		}
+		return nil, "", err
+	}
+	return t, "email", nil
+}
+
+// unique returns the single tenant matching pred. Two matches is not a tie to
+// break: attributing a payment to the wrong customer is worse than attributing
+// it to nobody, so it returns ErrAmbiguous and an operator decides.
+func unique(tenants []store.Tenant, pred func(store.Tenant) bool) (*store.Tenant, error) {
 	var found *store.Tenant
 	for i := range tenants {
-		if tenants[i].DeletedAt != nil {
+		if !pred(tenants[i]) {
 			continue
 		}
-		if strings.EqualFold(strings.TrimSpace(tenants[i].OwnerUserID), email) {
-			if found != nil {
-				// Two tenants with the same owner address: no way to choose,
-				// so choose neither and say so.
-				return nil, "", ErrNoMatch
-			}
-			t := tenants[i]
-			found = &t
+		if found != nil {
+			return nil, ErrAmbiguous
 		}
+		t := tenants[i]
+		found = &t
 	}
-	if found == nil {
-		return nil, "", ErrNoMatch
-	}
-	return found, "email", nil
+	return found, nil
 }
 
 // claimAlphabet omits the characters people mistype when copying a code off a

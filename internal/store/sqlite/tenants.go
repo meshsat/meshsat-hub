@@ -14,12 +14,12 @@ import (
 
 // --- Tenants (MESHSAT-916) ---
 
-const tenantCols = "id, slug, name, owner_user_id, plan, status, created_at, updated_at, deleted_at, plan_expires_at, kofi_claim_code"
+const tenantCols = "id, slug, name, owner_user_id, plan, status, created_at, updated_at, deleted_at, plan_expires_at, kofi_claim_code, kofi_payer_email"
 
 func scanTenant(sc interface{ Scan(...any) error }) (store.Tenant, error) {
 	var t store.Tenant
 	var created, updated, deleted, expires string
-	if err := sc.Scan(&t.ID, &t.Slug, &t.Name, &t.OwnerUserID, &t.Plan, &t.Status, &created, &updated, &deleted, &expires, &t.KofiClaimCode); err != nil {
+	if err := sc.Scan(&t.ID, &t.Slug, &t.Name, &t.OwnerUserID, &t.Plan, &t.Status, &created, &updated, &deleted, &expires, &t.KofiClaimCode, &t.KofiPayerEmail); err != nil {
 		return t, err
 	}
 	t.CreatedAt, t.UpdatedAt = parseTime(created), parseTime(updated)
@@ -56,8 +56,8 @@ func (d *DB) CreateTenant(ctx context.Context, t *store.Tenant) error {
 	}
 	now := time.Now().UTC()
 	t.CreatedAt, t.UpdatedAt = now, now
-	_, err := d.db.ExecContext(ctx, `INSERT INTO tenants (id, slug, name, owner_user_id, plan, status, created_at, updated_at, plan_expires_at, kofi_claim_code) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		t.ID, t.Slug, t.Name, t.OwnerUserID, t.Plan, t.Status, fmtTime(now), fmtTime(now), fmtTimePtr(t.PlanExpiresAt), t.KofiClaimCode)
+	_, err := d.db.ExecContext(ctx, `INSERT INTO tenants (id, slug, name, owner_user_id, plan, status, created_at, updated_at, plan_expires_at, kofi_claim_code, kofi_payer_email) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		t.ID, t.Slug, t.Name, t.OwnerUserID, t.Plan, t.Status, fmtTime(now), fmtTime(now), fmtTimePtr(t.PlanExpiresAt), t.KofiClaimCode, t.KofiPayerEmail)
 	return err
 }
 
@@ -96,8 +96,8 @@ func (d *DB) ListTenants(ctx context.Context) ([]store.Tenant, error) {
 
 func (d *DB) UpdateTenant(ctx context.Context, t *store.Tenant) error {
 	t.UpdatedAt = time.Now().UTC()
-	_, err := d.db.ExecContext(ctx, `UPDATE tenants SET slug=?, name=?, owner_user_id=?, plan=?, status=?, updated_at=?, plan_expires_at=?, kofi_claim_code=? WHERE id=?`,
-		t.Slug, t.Name, t.OwnerUserID, t.Plan, t.Status, fmtTime(t.UpdatedAt), fmtTimePtr(t.PlanExpiresAt), t.KofiClaimCode, t.ID)
+	_, err := d.db.ExecContext(ctx, `UPDATE tenants SET slug=?, name=?, owner_user_id=?, plan=?, status=?, updated_at=?, plan_expires_at=?, kofi_claim_code=?, kofi_payer_email=? WHERE id=?`,
+		t.Slug, t.Name, t.OwnerUserID, t.Plan, t.Status, fmtTime(t.UpdatedAt), fmtTimePtr(t.PlanExpiresAt), t.KofiClaimCode, t.KofiPayerEmail, t.ID)
 	return err
 }
 

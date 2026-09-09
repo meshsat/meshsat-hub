@@ -571,6 +571,14 @@ type Tenant struct {
 	// address than they signed up with often enough that email alone loses
 	// payments. Never logged with the payment payload.
 	KofiClaimCode string `json:"kofi_claim_code,omitempty"`
+	// KofiPayerEmail is the address the last matched payment came from, learned
+	// when a payment first matches this tenant.
+	//
+	// It exists because Ko-fi carries the supporter's message only on the join
+	// payment; every renewal has message null. The claim code therefore matches
+	// once and never again, so the payer has to be remembered or a paying
+	// subscriber lapses at day 32 while their card is still being charged.
+	KofiPayerEmail string `json:"kofi_payer_email,omitempty"`
 	// DeletedAt is when the owner asked to leave. The tenant is blocked from
 	// that moment and its data is destroyed after PurgeGrace, so an accidental
 	// or disputed deletion is recoverable until then (MESHSAT-975 follow-on).
