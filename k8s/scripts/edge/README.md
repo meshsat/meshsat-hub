@@ -35,10 +35,10 @@ column and an end-to-end request prove the wiring.
 
 **Retired 2026-09-09 (MESHSAT-995):** the `registration` phase and `whitelist-ip.sh`. They gated
 the two MeshSat hosts to an allowlist of approved beta addresses in
-`/etc/haproxy/meshsat-whitelist.lst`, fed at approval time. `launch` removed the block, so the
-list is read by nothing; the file is still on the three VPS and can be deleted whenever somebody
-is there. `launch` still recognises and undoes the gated deny line, which matters only if a VPS is
-restored from a pre-launch backup.
+`/etc/haproxy/meshsat-whitelist.lst`, fed at approval time. `launch` removed the block and
+`/etc/haproxy/meshsat-whitelist.lst` was deleted on all three VPS the same day, so nothing reads
+it and nothing writes it. `launch` still recognises and undoes the gated deny line, which matters
+only if a VPS is restored from a pre-launch backup.
 
 To shut the door again in a hurry you do not need any of that back: add the two hostnames to
 `tier5a_host` and reload, and only `whitelisted_ip` (the three ASA WANs) gets in.
