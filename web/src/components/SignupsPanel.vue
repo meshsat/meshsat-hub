@@ -1,9 +1,10 @@
 <script setup>
 // Beta requests waiting for a decision (MESHSAT-978). Platform admins only.
-// Approving here does what the approval script did: activates the account,
-// grants the role, and asks the edge to admit the address they signed up
-// from. The panel hides itself when the Hub has no identity provider token,
-// so it can ship ahead of that being configured.
+// Approving activates the account and grants the role. It used to also hand
+// the signup address to the edge allowlist; the edge opened at public launch
+// and there is no list any more (MESHSAT-995). The panel hides itself when the
+// Hub has no identity provider token, so it can ship ahead of that being
+// configured.
 import { ref, onMounted } from 'vue'
 import { signups as signupsApi } from '../api/client'
 import { useAuthStore } from '../stores/auth'
@@ -36,13 +37,7 @@ async function approve(s) {
   busy.value = s.pk
   try {
     const res = await signupsApi.approve(s.pk, roles.value[s.pk] || 'owner')
-    // The edge step can fail without the approval failing, and the operator
-    // needs to know which of those happened.
-    if (res.edge_allowlist === 'requested') {
-      toast.success(`${res.email} approved as ${res.role}; their address was sent to the edge`)
-    } else {
-      toast.info(`${res.email} approved as ${res.role} — edge: ${res.edge_allowlist}`)
-    }
+    toast.success(`${res.email} approved as ${res.role}. They can sign in now.`)
     await load()
   } catch (e) {
     toast.error(e.message || 'Approval failed')
@@ -75,7 +70,7 @@ onMounted(() => { if (auth.user?.platform_admin) load() })
       <button class="text-xs text-ms-muted hover:text-brand-primary" @click="load">Refresh</button>
     </div>
     <p class="text-xs text-ms-muted mb-3">
-      Approving activates the account, grants the role, and asks the edge to admit the address they signed up from.
+      Approving activates the account and grants the role. They can sign in straight away; their tenant is created on first sign-in.
     </p>
 
     <p v-if="loading" class="text-xs text-ms-muted">Loading…</p>
@@ -99,9 +94,6 @@ onMounted(() => { if (auth.user?.platform_admin) load() })
           <div v-if="s.signup_ip"><dt class="text-ms-muted2 inline">Signed up from: </dt><dd class="text-ms-text2 inline font-mono">{{ s.signup_ip }}</dd></div>
         </dl>
         <p v-if="s.intended_use" class="mt-2 text-xs text-ms-text2">{{ s.intended_use }}</p>
-        <p v-if="!s.signup_ip" class="mt-2 text-xs text-ms-warning">
-          No address recorded, so the edge cannot be opened automatically. Ask them for it and run whitelist-ip.sh.
-        </p>
         <div class="mt-3 flex flex-wrap items-center gap-2">
           <select v-model="roles[s.pk]"
                   class="text-xs bg-tactical-surface border border-tactical-border rounded px-2 py-1 text-ms-text">

@@ -30,6 +30,17 @@ column and an end-to-end request prove the wiring.
 |---|---|
 | `auth` (phase 3) | `backend meshsat_auth` → the three worker mesh IPs `:8443` with `sni str(auth.meshsat.net)`, health `GET /static/dist/assets/icons/icon.png` (not `/-/health/live/`, which 500s on ~50% of requests behind ingress, MESHSAT-968); `use_backend`, `nbsrv` silent-drop guard, `is_authenticated_site` and `tier5a_host` entries for `auth.meshsat.net` |
 | `cutover` (phase 5) | `auth` + `meshsat_hub` → `:8443` x3 (`sni hub.meshsat.net`, `/healthz`), `meshsat_mqtt` → `:9443` x3, `meshsat_reticulum` → `:4243` x3 (TCP passthrough; Tier 5b reject line untouched) |
+| `launch` (MESHSAT-995) | PUBLIC LAUNCH, applied to all three VPS 2026-09-09. Takes `hub.meshsat.net` and `auth.meshsat.net` out of `tier5a_host`, removes the Tier 5b NL+GR geo gate on `mqtt-hub`/`reticulum` whole (an ACL with no members makes the reject reference an undefined name and `haproxy -c` fails), and adds `/api/auth/` to `is_auth_path` and `is_rl_sensitive`. The three omoikane hosts stay behind Tier 5a. |
 | `rollback` | DMZ backends for hub/mqtt/reticulum restored (NL primary, GR backup); `meshsat_auth` stays |
+
+**Retired 2026-09-09 (MESHSAT-995):** the `registration` phase and `whitelist-ip.sh`. They gated
+the two MeshSat hosts to an allowlist of approved beta addresses in
+`/etc/haproxy/meshsat-whitelist.lst`, fed at approval time. `launch` removed the block, so the
+list is read by nothing; the file is still on the three VPS and can be deleted whenever somebody
+is there. `launch` still recognises and undoes the gated deny line, which matters only if a VPS is
+restored from a pre-launch backup.
+
+To shut the door again in a hurry you do not need any of that back: add the two hostnames to
+`tier5a_host` and reload, and only `whitelisted_ip` (the three ASA WANs) gets in.
 
 After the change: re-snapshot the three configs into `infrastructure/nllei01/production/edge/vps/<vps>/haproxy/haproxy.cfg` and update the hostname/backend table in `edge/CLAUDE.md` (phase 6).

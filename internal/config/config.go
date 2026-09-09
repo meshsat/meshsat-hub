@@ -52,7 +52,6 @@ type Config struct {
 	// script stays the way to do it.
 	AuthentikURL      string `yaml:"authentik_url"`
 	AuthentikToken    string `yaml:"authentik_token"`
-	SignupWebhookURL  string `yaml:"signup_webhook_url"`
 	CommunityURL      string `yaml:"community_url"`       // MeshSat community room (Matrix) shown while an account awaits approval
 	LocalLoginEnabled *bool  `yaml:"local_login_enabled"` // email/password login; default true in local mode, false in oidc mode
 	MetricsToken      string `yaml:"metrics_token"`       // when set, /metrics requires this bearer token
@@ -423,9 +422,6 @@ func Load() (Config, error) {
 	}
 	if v := os.Getenv("HUB_AUTHENTIK_TOKEN"); v != "" {
 		cfg.AuthentikToken = v
-	}
-	if v := os.Getenv("HUB_SIGNUP_WEBHOOK_URL"); v != "" {
-		cfg.SignupWebhookURL = v
 	}
 	if v := os.Getenv("HUB_COMMUNITY_URL"); v != "" {
 		cfg.CommunityURL = v

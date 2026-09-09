@@ -1658,7 +1658,7 @@ func main() {
 	if akClient == nil {
 		slog.Info("signups: HUB_AUTHENTIK_TOKEN unset; approve with k8s/scripts/authentik/run-bootstrap.sh")
 	}
-	signupHandler := api.NewSignupHandler(akClient, auditSvc, cfg.SignupWebhookURL)
+	signupHandler := api.NewSignupHandler(akClient, auditSvc)
 	r.Route("/api/admin/signups", func(r chi.Router) {
 		r.Use(hubauth.RequirePlatformAdmin())
 		r.Get("/", signupHandler.List)
