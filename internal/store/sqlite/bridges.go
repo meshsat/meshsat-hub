@@ -11,6 +11,11 @@ import (
 
 // --- Bridges ---
 
+// CreateOrUpdateBridge registers a bridge or refreshes what it reports about
+// itself. It deliberately does NOT move an existing bridge between tenants:
+// this runs from an MQTT birth, and a bridge that could rewrite its own
+// tenant_id could walk itself into somebody else's fleet and out of its own
+// tenant's quota. Ownership changes through the API, where a human is asking.
 func (d *DB) CreateOrUpdateBridge(ctx context.Context, tenantID string, b *store.Bridge) error {
 	_, err := d.db.ExecContext(ctx,
 		`INSERT INTO bridges (bridge_id, tenant_id, label, hostname, version, mode,
@@ -19,7 +24,7 @@ func (d *DB) CreateOrUpdateBridge(ctx context.Context, tenantID string, b *store
 			online, last_birth, last_health, last_seen)
 		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
 		 ON CONFLICT(bridge_id) DO UPDATE SET
-			tenant_id=excluded.tenant_id, label=excluded.label, hostname=excluded.hostname,
+			label=excluded.label, hostname=excluded.hostname,
 			version=excluded.version, mode=excluded.mode,
 			location_lat=excluded.location_lat, location_lon=excluded.location_lon,
 			location_alt=excluded.location_alt, capabilities=excluded.capabilities,
