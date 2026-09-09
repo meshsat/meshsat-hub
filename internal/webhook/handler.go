@@ -3,6 +3,7 @@ package webhook
 import (
 	"encoding/json"
 	"net/http"
+	"strconv"
 
 	"github.com/go-chi/chi/v5"
 )
@@ -45,6 +46,13 @@ func (h *APIHandler) CreateWebhook(w http.ResponseWriter, r *http.Request) {
 	}
 	if cfg.URL == "" {
 		http.Error(w, `{"error":"url is required"}`, http.StatusBadRequest)
+		return
+	}
+	// The Hub fetches this URL with its own network identity from inside the
+	// cluster, so a target on our side of the wire is a request-forgery
+	// primitive rather than a webhook. Refused here and again at delivery.
+	if err := ValidateTarget(cfg.URL); err != nil {
+		http.Error(w, `{"error":`+strconv.Quote(err.Error())+`}`, http.StatusBadRequest)
 		return
 	}
 	if cfg.ID == "" {

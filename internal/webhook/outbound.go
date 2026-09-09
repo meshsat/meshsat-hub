@@ -66,6 +66,28 @@ type Dispatcher struct {
 	mqtt     bus.MessageBus
 	logs     []DeliveryLog
 	logMu    sync.Mutex
+
+	// allowLoopback lifts the outbound target check so the dispatcher's own
+	// tests can deliver to an httptest server on 127.0.0.1.
+	//
+	// It is set by AllowLoopbackTargetsForTest and by nothing else: there is
+	// deliberately no config key, no env var and no API for it, because a
+	// request-forgery guard with a switch on the outside is not a guard. If you
+	// are reading this because you want to turn it on in production, the answer
+	// is no -- point the webhook at a public address.
+	allowLoopback bool
+}
+
+// AllowLoopbackTargetsForTest permits delivery to loopback and private
+// addresses. Tests only. See the field comment.
+func (d *Dispatcher) AllowLoopbackTargetsForTest() { d.allowLoopback = true }
+
+// checkTarget applies the outbound target policy unless a test has lifted it.
+func (d *Dispatcher) checkTarget(raw string) error {
+	if d.allowLoopback {
+		return nil
+	}
+	return ValidateTarget(raw)
 }
 
 // NewDispatcher creates a new webhook dispatcher.
@@ -187,6 +209,15 @@ func (d *Dispatcher) deliver(target WebhookConfig, body []byte, payloadID string
 	client := &http.Client{Timeout: timeout}
 
 	wait := 1 * time.Second
+	// Re-checked here and not only at registration: a hostname that resolved
+	// publicly when the webhook was created can resolve to a cluster address by
+	// the time it is delivered to, and only this check sees that.
+	if err := d.checkTarget(target.URL); err != nil {
+		slog.Warn("webhook: refusing to deliver to an unsafe target", "id", target.ID, "error", err)
+		d.recordLog(target.ID, payloadID, "", 0, err.Error(), 0)
+		return
+	}
+
 	for attempt := 0; attempt <= target.MaxRetries; attempt++ {
 		if attempt > 0 {
 			time.Sleep(wait)

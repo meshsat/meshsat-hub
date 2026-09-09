@@ -2,7 +2,6 @@ package middleware
 
 import (
 	"log/slog"
-	"net"
 	"net/http"
 	"sync"
 	"time"
@@ -38,10 +37,10 @@ func WebhookRateLimit(next http.Handler, rpm int) http.Handler {
 	}()
 
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		ip := r.RemoteAddr
-		if host, _, err := net.SplitHostPort(ip); err == nil {
-			ip = host
-		}
+		// The real client, not the ingress pod. Keying on RemoteAddr behind the
+		// proxy chain put every provider and every tenant in one bucket, so a
+		// single noisy provider could 429 everybody's satellite ingest.
+		ip := ClientIP(r)
 
 		mu.Lock()
 		now := time.Now()
