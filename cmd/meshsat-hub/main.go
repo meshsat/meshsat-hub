@@ -174,6 +174,14 @@ func main() {
 
 	probeTimeout, _ := time.ParseDuration(cfg.HealthProbeTimeout)
 	checker := health.New(probeTimeout)
+	// ?verbose=1 on /readyz returns each dependency's raw error string, which
+	// names internal hosts and ports. Reuse the operator token rather than
+	// minting a second secret; unset means nobody gets verbose.
+	checker.SetDiagnosticsToken(cfg.MetricsToken)
+	// Both probes are unauthenticated and fan out to every dependency, so a
+	// short cache keeps them from being a request amplifier once the Hub is
+	// public. Well inside the kubelet probe interval.
+	checker.SetCacheFor(2 * time.Second)
 
 	// --- Message bus (tri-mode) ---
 	var msgBus bus.MessageBus
@@ -1567,11 +1575,21 @@ func main() {
 	r.Get("/api/auth/me", api.AuthMeHandler)
 
 	// Login method discovery for the SPA (auth-exempt).
+	//
+	// These are unauthenticated and, once the Hub is public, anyone's to call.
+	// The OIDC pair is the one that matters: /login mints a state cookie for
+	// free and /callback performs an outbound token exchange against authentik
+	// per request, so without a budget an anonymous caller can point our own
+	// fan-out at our identity provider. authRate is per client IP, resolved
+	// through the trusted-proxy chain.
+	authRate := func(h http.HandlerFunc) http.HandlerFunc {
+		return hubmw.WebhookRateLimit(h, cfg.AuthRateLimitPerMin).ServeHTTP
+	}
 	switch {
 	case oidcHandler != nil:
-		r.Get("/api/auth/config", oidcHandler.Config)
-		r.Get("/api/auth/oidc/login", oidcHandler.Login)
-		r.Get("/api/auth/oidc/callback", oidcHandler.Callback)
+		r.Get("/api/auth/config", authRate(oidcHandler.Config))
+		r.Get("/api/auth/oidc/login", authRate(oidcHandler.Login))
+		r.Get("/api/auth/oidc/callback", authRate(oidcHandler.Callback))
 	case authMode == "local":
 		r.Get("/api/auth/config", api.AuthConfigHandler([]string{"local"}, cfg.CommunityURL))
 	default:
@@ -1587,13 +1605,15 @@ func main() {
 			loginHandler = api.NewLoginHandler(dataStore, sessionMgr, auditSvc)
 		}
 		if localLogin {
-			r.Post("/api/auth/login", loginHandler.Login)
+			r.Post("/api/auth/login", authRate(loginHandler.Login))
 			if authMode == "oidc" {
 				slog.Warn("auth: HUB_LOCAL_LOGIN_ENABLED=true — password login is open alongside OIDC (break-glass)")
 			}
 		}
-		r.Post("/api/auth/refresh", loginHandler.Refresh)
-		r.Post("/api/auth/logout", loginHandler.Logout)
+		// Refresh does three database writes per call and is auth-exempt, so it
+		// is rate limited like the rest of the unauthenticated auth surface.
+		r.Post("/api/auth/refresh", authRate(loginHandler.Refresh))
+		r.Post("/api/auth/logout", authRate(loginHandler.Logout))
 
 		// User management (owner-only)
 		userHandler := api.NewUserHandler(dataStore)
