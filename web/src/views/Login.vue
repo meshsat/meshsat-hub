@@ -14,6 +14,10 @@ const showOther = ref(false) // local/token forms behind a disclosure when OIDC 
 const hasOIDC = computed(() => modes.value?.includes('oidc'))
 const hasLocal = computed(() => !modes.value || modes.value.includes('local'))
 const signupUrl = computed(() => authStore.authConfig?.signup_url || '')
+// The identity provider has had a password reset flow since MESHSAT-978, bound
+// to the MeshSat brand. Nothing linked to it, so the only way to find it was to
+// already be on authentik's sign-in page.
+const recoveryUrl = computed(() => authStore.authConfig?.recovery_url || '')
 const redirectTarget = computed(() => {
   const r = route.query.redirect
   return typeof r === 'string' && r.startsWith('/') && !r.startsWith('//') ? r : ''
@@ -130,9 +134,12 @@ async function loginWithToken() {
         >
           Sign in with MeshSat ID
         </button>
+        <p v-if="recoveryUrl" class="text-xs text-ms-muted text-center">
+          <a :href="recoveryUrl" class="text-ms-text2 hover:text-ms-primary underline" data-testid="recovery-link">Forgot your password?</a>
+        </p>
         <p v-if="signupUrl" class="text-xs text-ms-muted text-center">
           No account yet?
-          <a :href="signupUrl" class="text-ms-text hover:text-ms-primary underline" data-testid="signup-link">Request beta access</a>
+          <a :href="signupUrl" class="text-ms-text hover:text-ms-primary underline" data-testid="signup-link">Create an account</a>
         </p>
         <p v-if="error && !showOther" class="text-ms-error text-sm">{{ error }}</p>
         <button
