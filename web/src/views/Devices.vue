@@ -3,6 +3,7 @@ import { ref, onMounted, computed } from 'vue'
 import { devices, messages, tenant } from '../api/client'
 import { formatUTC } from '../utils/time'
 import EmptyState from '../components/EmptyState.vue'
+import UpgradeButton from '../components/UpgradeButton.vue'
 
 const deviceList = ref([])
 const messageCounts = ref({})
@@ -101,10 +102,7 @@ function formatLastSeen(d) {
         <span v-if="usage.bridges"> ({{ usage.devices }} device<span v-if="usage.devices !== 1">s</span>,
           {{ usage.bridges }} bridge<span v-if="usage.bridges !== 1">s</span>)</span>
       </p>
-      <a v-if="atCap && usage.upgrade_url" :href="usage.upgrade_url" target="_blank" rel="noopener noreferrer"
-        class="ml-auto text-xs px-3 py-1.5 rounded border border-ms-border text-ms-text2 hover:text-ms-text hover:border-ms-border-light transition-colors">
-        Upgrade
-      </a>
+      <UpgradeButton v-if="atCap" :usage="usage" class="ml-auto" />
     </div>
 
     <!-- At the ceiling: say so before somebody fills in a form for a 402. The
@@ -112,6 +110,7 @@ function formatLastSeen(d) {
     <div v-if="atCap" class="bg-amber-900/50 border border-amber-700/50 text-amber-200 px-4 py-3 rounded mb-4 text-sm">
       The {{ usage.plan }} plan covers {{ usage.limit }} devices and bridges together, and you have {{ usage.used }}.
       Everything already registered keeps working and keeps reporting. Remove one, or move up a plan, to add another.
+      <UpgradeButton :usage="usage" variant="button" class="mt-2" />
     </div>
 
     <div v-if="error" class="bg-red-900/50 border border-red-700 text-red-200 px-4 py-3 rounded mb-4">

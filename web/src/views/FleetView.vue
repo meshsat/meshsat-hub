@@ -4,6 +4,7 @@ import { useRoute } from 'vue-router'
 import { bridges, tenant } from '../api/client'
 import { timeAgo, formatUptime, formatUTC } from '../utils/time'
 import EmptyState from '../components/EmptyState.vue'
+import UpgradeButton from '../components/UpgradeButton.vue'
 
 const loading = ref(true)
 const error = ref('')
@@ -409,10 +410,7 @@ function certExpiryStatus(b) {
           class="bg-brand-accent hover:bg-brand-primary disabled:opacity-50 disabled:cursor-not-allowed text-ms-on-primary px-3 py-1.5 rounded text-sm font-medium transition-colors">
           {{ showAddForm ? 'Cancel' : '+ Add Bridge' }}
         </button>
-        <a v-if="atCap && usage.upgrade_url" :href="usage.upgrade_url" target="_blank" rel="noopener noreferrer"
-          class="text-xs px-3 py-1.5 rounded border border-ms-border text-ms-text2 hover:text-ms-text hover:border-ms-border-light transition-colors">
-          Upgrade
-        </a>
+        <UpgradeButton v-if="atCap" :usage="usage" />
       </div>
     </div>
 

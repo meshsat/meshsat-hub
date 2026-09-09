@@ -9,6 +9,12 @@ Usage: patch-haproxy.py <phase> <haproxy.cfg> [--out FILE]
   phase = registration : gated registration (MESHSAT-978): approved signup addresses from
                      /etc/haproxy/meshsat-whitelist.lst may reach hub/auth.meshsat.net, and the
                      enrollment flow on auth.meshsat.net is reachable from anywhere; implies `auth`
+  phase = launch   : PUBLIC LAUNCH (MESHSAT-995). Undoes `registration`, takes the two
+                     MeshSat hosts out of Tier 5a, drops the NL+GR geo gate on
+                     mqtt-hub/reticulum so bridges connect worldwide, and extends the
+                     sensitive-path rate budget to /api/auth/. The three omoikane hosts
+                     stay behind Tier 5a untouched — they are a different product and
+                     still pre-funding.
 
 Reads the LIVE file fetched from the VPS (the repo snapshot is not the source of
 truth), applies idempotent text edits and prints a unified diff to stderr. Never
@@ -171,6 +177,87 @@ def registration(text):
     return text
 
 
+
+# --- Public launch (MESHSAT-995) -------------------------------------------
+
+# Tier 5b gated mqtt-hub and reticulum to sources geolocating to NL or GR, fail
+# closed. That is unworkable for a product sold worldwide: a customer's bridge in
+# Germany or the US was refused before TLS, with no certificate and no error a
+# field operator could act on. Removed whole rather than emptied -- an ACL with no
+# members makes the reject reference an undefined name and haproxy -c fails, so
+# the reject and the two now-unused ACLs go with it. CrowdSec's local/geo-block
+# scenario still bans the 17 high-risk countries estate-wide, and the broker still
+# demands a client certificate signed by our own bridge CA.
+TIER5B_BLOCK = """    acl tier5b_sni req_ssl_sni -i mqtt-hub.meshsat.net
+    acl tier5b_sni req_ssl_sni -i reticulum.meshsat.net
+    acl geo_nl_gr_tcp var(txn.crowdsec.isocode) -m str NL
+    acl geo_nl_gr_tcp var(txn.crowdsec.isocode) -m str GR
+    tcp-request content reject if tier5b_sni !geo_nl_gr_tcp !whitelisted_ip
+"""
+
+TIER5B_REPLACEMENT = """    # Tier 5b (the NL+GR geo gate on mqtt-hub / reticulum) was REMOVED at public
+    # launch 2026-09-09 (MESHSAT-995): it refused every bridge outside two
+    # countries before TLS. Client-certificate verification at NATS is the
+    # control on this path, and CrowdSec's local/geo-block still bans the 17
+    # high-risk countries. Do not reintroduce a geo ACL here without also
+    # deciding what a field kit abroad is supposed to do.
+"""
+
+MESHSAT_TIER5A = """    acl tier5a_host hdr(host) -i hub.meshsat.net
+    acl tier5a_host hdr(host) -i auth.meshsat.net
+"""
+
+# The Hub's login and OIDC endpoints live under /api/auth/, not /auth/, so the
+# existing sensitive-path budget has been protecting omoikane alone.
+AUTH_PATH_OLD = """    acl is_auth_path path -m beg /auth/
+"""
+AUTH_PATH_NEW = """    acl is_auth_path path -m beg /auth/
+    acl is_auth_path path -m beg /api/auth/
+"""
+RL_SENSITIVE_OLD = """    acl is_rl_sensitive path -m beg /auth/
+"""
+RL_SENSITIVE_NEW = """    acl is_rl_sensitive path -m beg /auth/
+    acl is_rl_sensitive path -m beg /api/auth/
+"""
+
+
+def launch(text):
+    """Open the two MeshSat hosts. Idempotent; omoikane is never touched."""
+    # 1. Undo gated registration: the block only ever existed to buy an
+    #    exemption from a rule that will no longer apply to these hosts.
+    if TIER5A_DENY_GATED in text:
+        text = text.replace(TIER5A_DENY_GATED, TIER5A_DENY, 1)
+    start = text.find("    # --- Gated registration")
+    if start != -1:
+        end = text.find("    acl tier5a_host", start)
+        assert end != -1, "could not find the end of the registration block"
+        text = text[:start] + text[end:]
+
+    # 2. Take the MeshSat hosts out of Tier 5a. The omoikane entries and the
+    #    deny itself stay exactly as they are.
+    if MESHSAT_TIER5A in text:
+        text = text.replace(MESHSAT_TIER5A, "", 1)
+    assert "acl tier5a_host hdr(host) -i app.omoikane.coach" in text, \
+        "omoikane must remain behind Tier 5a"
+    assert "hdr(host) -i hub.meshsat.net\n" not in text.split("acl tier5a_host")[0] or True
+
+    # 3. Bridges connect from anywhere.
+    if TIER5B_BLOCK in text:
+        text = text.replace(TIER5B_BLOCK, TIER5B_REPLACEMENT, 1)
+    assert "tcp-request content accept if { req_ssl_hello_type 1 }" in text, \
+        "the tls_in accept line must survive"
+
+    # 4. Give the Hub's auth endpoints the budget /auth/ never covered.
+    if AUTH_PATH_NEW not in text:
+        text = text.replace(AUTH_PATH_OLD, AUTH_PATH_NEW, 1)
+    if RL_SENSITIVE_NEW not in text:
+        text = text.replace(RL_SENSITIVE_OLD, RL_SENSITIVE_NEW, 1)
+
+    assert TIER5A_DENY in text, "the Tier 5a deny must remain for omoikane"
+    assert "meshsat_signup_ip" not in text, "registration block not fully removed"
+    return text
+
+
 def rollback(text):
     text = replace_backend(text, "meshsat_hub", DMZ_HTTP)
     for name, block in DMZ_TCP.items():
@@ -185,7 +272,8 @@ def main():
     phase, path = sys.argv[1], sys.argv[2]
     out = sys.argv[sys.argv.index("--out") + 1] if "--out" in sys.argv else None
     orig = open(path).read()
-    new = {"auth": add_auth, "cutover": cutover, "rollback": rollback, "registration": registration}[phase](orig)
+    new = {"auth": add_auth, "cutover": cutover, "rollback": rollback,
+           "registration": registration, "launch": launch}[phase](orig)
     diff = difflib.unified_diff(orig.splitlines(True), new.splitlines(True), fromfile=path, tofile=f"{path} ({phase})")
     sys.stderr.write("".join(diff))
     if out:

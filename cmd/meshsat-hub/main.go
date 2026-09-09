@@ -1353,6 +1353,7 @@ func main() {
 			StateKey:            jwtSecret,
 			TenantEnforce:       cfg.TenantEnforce,
 			SignupURL:           cfg.OIDCSignupURL,
+			RecoveryURL:         cfg.OIDCRecoveryURL,
 			CommunityURL:        cfg.CommunityURL,
 		}, modes)
 		authCfg.Resolver = oidcHandler

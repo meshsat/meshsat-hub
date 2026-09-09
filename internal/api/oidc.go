@@ -46,6 +46,7 @@ type OIDCConfig struct {
 	// page "Request beta access", pending-approval state). Both optional.
 	SignupURL    string
 	CommunityURL string
+	RecoveryURL  string
 }
 
 // OIDCHandler implements GET /api/auth/oidc/login, GET /api/auth/oidc/callback
@@ -79,6 +80,11 @@ type authConfigResponse struct {
 	OIDCLoginURL string   `json:"oidc_login_url,omitempty"`
 	SignupURL    string   `json:"signup_url,omitempty"`
 	CommunityURL string   `json:"community_url,omitempty"`
+	// RecoveryURL is the identity provider's password reset flow. It has
+	// existed and been bound to the brand since MESHSAT-978, but nothing in the
+	// Hub linked to it, so the only way to reach it was to already be on
+	// authentik's own sign-in page and notice the link there.
+	RecoveryURL string `json:"recovery_url,omitempty"`
 }
 
 // Config tells the SPA which login methods exist.
@@ -92,6 +98,7 @@ func (h *OIDCHandler) Config(w http.ResponseWriter, r *http.Request) {
 	if h.client != nil {
 		resp.OIDCLoginURL = "/api/auth/oidc/login"
 		resp.SignupURL = h.cfg.SignupURL
+		resp.RecoveryURL = h.cfg.RecoveryURL
 	}
 	writeJSON(w, http.StatusOK, resp)
 }
