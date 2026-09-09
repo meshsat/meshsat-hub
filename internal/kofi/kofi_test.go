@@ -274,3 +274,155 @@ func TestLapse_DowngradesOnlyExpiredPaidPlans(t *testing.T) {
 		t.Errorf("the platform tenant was lapsed: %q", d.Plan)
 	}
 }
+
+// A Ko-fi membership renewal carries no message, so it carries no claim code.
+// This is the whole subscription lifecycle: somebody joins with the code in
+// their message, then Ko-fi charges them every month with message null.
+//
+// Before the payer was remembered, the second payment matched nothing and the
+// tenant lapsed to free on day 32 while their card was still being charged.
+// This test is the reason kofi_payer_email exists.
+func TestRenewal_WithoutAMessageStillMatches(t *testing.T) {
+	st := newStore()
+	h := NewHandler(st, token)
+	ctx := context.Background()
+
+	// The supporter pays from a personal address, not the one on the account.
+	const payer = "jo.example@example.com"
+
+	// 1. Join: the message carries the claim code.
+	rr := post(t, h, Payload{
+		VerificationToken: token, IsSubscriptionPayment: true, IsFirstSubscriptionPmnt: true,
+		TierName: "Crew", Email: payer, Message: "joining! AB2K9XYZ",
+		KofiTransactionID: "join-1",
+	})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("join: %d %s", rr.Code, rr.Body.String())
+	}
+	got, _ := st.GetTenant(ctx, "t-a")
+	if got.Plan != plans.Crew {
+		t.Fatalf("join did not set the plan: %q", got.Plan)
+	}
+	if !strings.EqualFold(got.KofiPayerEmail, payer) {
+		t.Fatalf("the payer was not remembered: %q", got.KofiPayerEmail)
+	}
+	firstExpiry := got.PlanExpiresAt
+
+	// 2. Renewal a month later: exactly Ko-fi's documented shape, message null.
+	rr = post(t, h, Payload{
+		VerificationToken: token, IsSubscriptionPayment: true, IsFirstSubscriptionPmnt: false,
+		TierName: "Crew", Email: payer, Message: "",
+		KofiTransactionID: "renew-1",
+	})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("renewal: %d %s", rr.Code, rr.Body.String())
+	}
+	got, _ = st.GetTenant(ctx, "t-a")
+	if got.Plan != plans.Crew {
+		t.Errorf("the renewal dropped the plan to %q", got.Plan)
+	}
+	if got.PlanExpiresAt == nil || firstExpiry == nil || !got.PlanExpiresAt.After(*firstExpiry) {
+		t.Errorf("the renewal did not extend the expiry: %v -> %v", firstExpiry, got.PlanExpiresAt)
+	}
+
+	// 3. A renewal from an address nobody has ever paid with still matches
+	//    nothing, so remembering a payer has not opened a way in.
+	before, _ := st.GetTenant(ctx, "t-b")
+	post(t, h, Payload{
+		VerificationToken: token, IsSubscriptionPayment: true,
+		TierName: "Fleet", Email: "someone-else@example.org", Message: "",
+		KofiTransactionID: "renew-stranger",
+	})
+	after, _ := st.GetTenant(ctx, "t-b")
+	if after.Plan != before.Plan {
+		t.Errorf("a stranger's renewal changed a tenant: %q -> %q", before.Plan, after.Plan)
+	}
+}
+
+// Two tenants that have somehow ended up with the same payer address are not a
+// tie to break. Charging the wrong customer's plan is worse than charging none.
+func TestRenewal_AmbiguousPayerMatchesNothing(t *testing.T) {
+	st := newStore()
+	st.tenants[0].KofiPayerEmail = "shared@example.com"
+	st.tenants[1].KofiPayerEmail = "shared@example.com"
+	h := NewHandler(st, token)
+
+	rr := post(t, h, Payload{
+		VerificationToken: token, IsSubscriptionPayment: true,
+		TierName: "Crew", Email: "shared@example.com", Message: "",
+		KofiTransactionID: "ambiguous-1",
+	})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("code = %d, want 200", rr.Code)
+	}
+	if st.updates != 0 {
+		t.Errorf("an ambiguous payment changed %d tenants, want 0", st.updates)
+	}
+}
+
+// The claim code still wins over a remembered payer, so an operator can move a
+// subscription to the right tenant by asking the supporter to send one payment
+// with the code in the message.
+func TestClaimCodeOutranksRememberedPayer(t *testing.T) {
+	st := newStore()
+	st.tenants[0].KofiPayerEmail = "jo@example.com" // t-a remembers this payer
+	h := NewHandler(st, token)
+
+	// Same payer, but the message names t-b's code.
+	post(t, h, Payload{
+		VerificationToken: token, IsSubscriptionPayment: true,
+		TierName: "Fleet", Email: "jo@example.com", Message: "moving this to QQ44MMNN",
+		KofiTransactionID: "move-1",
+	})
+	a, _ := st.GetTenant(context.Background(), "t-a")
+	b, _ := st.GetTenant(context.Background(), "t-b")
+	if b.Plan != plans.Fleet {
+		t.Errorf("the claim code did not win: t-b is %q", b.Plan)
+	}
+	if a.Plan != plans.Free {
+		t.Errorf("the wrong tenant was upgraded: t-a is %q", a.Plan)
+	}
+}
+
+// Ko-fi retries a delivery until it gets a 200. If our response is lost after
+// we have already applied the payment, the retry must not buy a second month.
+func TestDuplicateDelivery_DoesNotExtendTwice(t *testing.T) {
+	st := newStore()
+	h := NewHandler(st, token)
+	p := Payload{
+		VerificationToken: token, IsSubscriptionPayment: true, TierName: "Crew",
+		Email: "jo.example@example.com", Message: "AB2K9XYZ",
+		MessageID: "71aca96f-fae6-4e38-94aa-17adc1cb6c69", KofiTransactionID: "txn-dup",
+	}
+	if rr := post(t, h, p); rr.Code != http.StatusOK {
+		t.Fatalf("first delivery: %d", rr.Code)
+	}
+	first, _ := st.GetTenant(context.Background(), "t-a")
+	if first.PlanExpiresAt == nil {
+		t.Fatal("first delivery set no expiry")
+	}
+	firstExpiry := *first.PlanExpiresAt
+	updatesAfterFirst := st.updates
+
+	// Ko-fi retries the same message_id.
+	if rr := post(t, h, p); rr.Code != http.StatusOK {
+		t.Fatalf("retry must still be 200 or Ko-fi keeps retrying: %d", rr.Code)
+	}
+	again, _ := st.GetTenant(context.Background(), "t-a")
+	if !again.PlanExpiresAt.Equal(firstExpiry) {
+		t.Errorf("a retried delivery extended the expiry again: %v -> %v", firstExpiry, again.PlanExpiresAt)
+	}
+	if st.updates != updatesAfterFirst {
+		t.Errorf("a retried delivery wrote to the store again (%d writes)", st.updates-updatesAfterFirst)
+	}
+
+	// A genuine next month's payment, different message_id, does extend.
+	p.MessageID, p.KofiTransactionID, p.Message = "a-new-delivery-id", "txn-month-2", ""
+	if rr := post(t, h, p); rr.Code != http.StatusOK {
+		t.Fatalf("month 2: %d", rr.Code)
+	}
+	month2, _ := st.GetTenant(context.Background(), "t-a")
+	if !month2.PlanExpiresAt.After(firstExpiry) {
+		t.Errorf("the next month's payment did not extend: %v", month2.PlanExpiresAt)
+	}
+}
