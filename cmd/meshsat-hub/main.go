@@ -1420,13 +1420,27 @@ func main() {
 	// WebSocket real-time event hub
 	wsHub := api.NewWSHub()
 	r.Get("/api/ws", wsHub.HandleWS)
-	// Bridge MQTT events to WebSocket for live dashboard updates
+	// Bridge MQTT events to WebSocket for live dashboard updates.
+	//
+	// Two things here are load-bearing. The filters go through DualFilters, or
+	// only the default tenant's traffic is ever seen -- meshsat/+/position does
+	// not match meshsat/{tenant}/{device}/position, so every other tenant's
+	// dashboard sat silent. And delivery is per tenant, resolved from the topic
+	// itself: the hub used to write every frame to every connected client
+	// regardless of tenant, which put one tenant's positions, messages and SOS
+	// events on every other tenant's socket.
 	if msgBus.IsConnected() {
-		for _, topic := range []string{"meshsat/+/mo/decoded", "meshsat/+/position", "meshsat/+/sos"} {
-			t := topic
-			_ = msgBus.Subscribe(t, 0, func(topic string, payload []byte) {
-				wsHub.Broadcast(payload)
-			})
+		for _, legacy := range []string{"meshsat/+/mo/decoded", "meshsat/+/position", "meshsat/+/sos"} {
+			for _, filter := range hubmqtt.DualFilters(legacy) {
+				_ = msgBus.Subscribe(filter, 0, func(topic string, payload []byte) {
+					tenantID, _, _, ok := hubmqtt.ParseDeviceTopic(topic)
+					if !ok {
+						slog.Debug("ws: unparseable device topic, not delivered", "topic", topic)
+						return
+					}
+					wsHub.BroadcastTenant(tenantID, payload)
+				})
+			}
 		}
 	}
 	// Webhook endpoints — rate limited to 60 requests/minute per source IP.
@@ -1541,7 +1555,11 @@ func main() {
 		r.Get("/api/email/keys", emailAPIHandler.ListContacts)
 		r.Post("/api/email/keys", emailAPIHandler.AddContact)
 		r.Delete("/api/email/keys/{email}", emailAPIHandler.DeleteContact)
-		r.Post("/api/email/test", emailAPIHandler.TestSend)
+		// Owner-only: TestSend takes a caller-supplied recipient, subject and
+		// body and sends them through the Hub's own SMTP identity. Without a
+		// role check any viewer of any tenant could relay mail under this
+		// domain's sending reputation.
+		r.With(hubauth.RequireRole(hubauth.RoleOwner)).Post("/api/email/test", emailAPIHandler.TestSend)
 		emailAPIHandler.SetClient(hubemail.NewClient(cfg.EmailSMTPHost, cfg.EmailFrom, cfg.EmailUsername, cfg.EmailPassword, emailKeyRing))
 	}
 
@@ -1840,11 +1858,17 @@ func main() {
 	r.Get("/api/devices/{imei}/positions", positionHandler.ListPositions)
 	r.Get("/api/ratelimit", rateLimitHandler.GetAllUsage)
 	r.Get("/api/ratelimit/{deviceID}", rateLimitHandler.GetUsage)
-	r.Post("/api/ratelimit/{deviceID}/override", rateLimitHandler.PostOverride)
-	r.Delete("/api/ratelimit/{deviceID}/override", rateLimitHandler.DeleteOverride)
+	// Owner-only: an override exempts a device from the send budget entirely,
+	// and the send path costs real satellite airtime. Reading usage stays open
+	// to any member; disabling the limiter does not.
+	r.With(hubauth.RequireRole(hubauth.RoleOwner)).Post("/api/ratelimit/{deviceID}/override", rateLimitHandler.PostOverride)
+	r.With(hubauth.RequireRole(hubauth.RoleOwner)).Delete("/api/ratelimit/{deviceID}/override", rateLimitHandler.DeleteOverride)
 	r.Get("/api/webhooks", webhookAPIHandler.ListWebhooks)
-	r.Post("/api/webhooks", webhookAPIHandler.CreateWebhook)
-	r.Delete("/api/webhooks/{id}", webhookAPIHandler.DeleteWebhook)
+	// Owner-only: registering an outbound webhook makes the Hub fetch a
+	// caller-supplied URL from inside the cluster. The handler refuses private
+	// and link-local targets; the role check is the second half of that.
+	r.With(hubauth.RequireRole(hubauth.RoleOwner)).Post("/api/webhooks", webhookAPIHandler.CreateWebhook)
+	r.With(hubauth.RequireRole(hubauth.RoleOwner)).Delete("/api/webhooks/{id}", webhookAPIHandler.DeleteWebhook)
 	r.Get("/api/webhooks/logs", webhookAPIHandler.GetLogs)
 	// MPTCP concentrator API
 	mptcpHandler := mptcp.NewAPIHandler(mptcpMonitor)
