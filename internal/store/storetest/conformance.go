@@ -530,7 +530,9 @@ func testTenants(t *testing.T, db store.Store) {
 	if err := db.CreateTenant(ctx, tn); err != nil {
 		t.Fatalf("create: %v", err)
 	}
-	if tn.ID == "" || tn.Plan != "beta" || tn.Status != "active" || tn.CreatedAt.IsZero() {
+	// A tenant created with no plan lands on the free tier, not on the
+	// unlimited pre-tier "beta" (MESHSAT-989).
+	if tn.ID == "" || tn.Plan != "free" || tn.Status != "active" || tn.CreatedAt.IsZero() {
 		t.Errorf("defaults not applied: %+v", tn)
 	}
 	if got, err := db.GetTenantBySlug(ctx, "alpine-sar"); err != nil || got.ID != tn.ID {

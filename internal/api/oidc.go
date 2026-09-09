@@ -13,6 +13,7 @@ import (
 	"time"
 
 	hubauth "github.com/meshsat/meshsat-hub/internal/auth"
+	"github.com/meshsat/meshsat-hub/internal/plans"
 	"github.com/meshsat/meshsat-hub/internal/store"
 )
 
@@ -422,7 +423,7 @@ func (h *OIDCHandler) createTenantFor(ctx context.Context, email, name string) (
 		displayName = email
 	}
 	now := time.Now().UTC()
-	t := &store.Tenant{ID: "t_" + id[:16], Slug: slug, Name: displayName, Plan: "beta", Status: "active", CreatedAt: now, UpdatedAt: now}
+	t := &store.Tenant{ID: "t_" + id[:16], Slug: slug, Name: displayName, Plan: plans.Free, Status: "active", CreatedAt: now, UpdatedAt: now}
 	if err := h.store.CreateTenant(ctx, t); err != nil {
 		return nil, err
 	}
