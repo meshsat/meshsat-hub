@@ -16,13 +16,21 @@ import (
 // SignupHandler turns beta approval from a script somebody has to remember to
 // run into something an operator does in the Hub (MESHSAT-978).
 //
-// Approval used to have a second half: the address the request came from was
-// handed to an n8n workflow, which added it to an allowlist on three VPS
-// HAProxy configs, because nothing reached the Hub without being on that list.
-// The edge opened at public launch (MESHSAT-995) and the list no longer exists,
-// so approval is now what it says it is: activate the account and grant a role.
-// The signup address is still recorded, because knowing where a request came
-// from is worth having, but it no longer admits anybody to anything.
+// Approval used to have a second half, which never worked. The address the
+// request came from was POSTed to an n8n workflow that this file's own comment
+// claimed "runs the allowlist script". It does not and never did: the workflow
+// on that path is a notifier that reads an authentik payload, and a body it
+// does not recognise takes its skip branch and answers 200. The Hub read that
+// 200 as success and told the operator the address had been sent to the edge,
+// so anyone approved through the UI rather than the CLI script was left unable
+// to reach a Hub that said they could. Checked against the live instance on
+// 2026-09-09: no workflow anywhere on it touches an allowlist or a VPS.
+//
+// The edge opened at public launch (MESHSAT-995) and there is no list to be
+// admitted to, so approval is now what it says it is: activate the account and
+// grant a role. The signup address is still recorded, because knowing where a
+// request came from is worth having, but it never admitted anybody to anything
+// and now it does not pretend to.
 type SignupHandler struct {
 	ak    *authentik.Client
 	audit *audit.Service
