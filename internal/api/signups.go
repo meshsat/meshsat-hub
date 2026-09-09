@@ -1,13 +1,9 @@
 package api
 
 import (
-	"bytes"
-	"context"
-	"encoding/json"
 	"log/slog"
 	"net/http"
 	"strconv"
-	"time"
 
 	"github.com/go-chi/chi/v5"
 
@@ -20,22 +16,21 @@ import (
 // SignupHandler turns beta approval from a script somebody has to remember to
 // run into something an operator does in the Hub (MESHSAT-978).
 //
-// The Hub does not admit anyone to the edge itself: that means SSH to three
-// VPS in three countries, which is not a capability a public web service
-// should have. Approval posts to the n8n workflow already wired for signups,
-// and n8n runs the allowlist script. If that hop fails the approval still
-// stands, and the address is in the response and the log, because an operator
-// who has approved someone needs to know the account is live either way.
+// Approval used to have a second half: the address the request came from was
+// handed to an n8n workflow, which added it to an allowlist on three VPS
+// HAProxy configs, because nothing reached the Hub without being on that list.
+// The edge opened at public launch (MESHSAT-995) and the list no longer exists,
+// so approval is now what it says it is: activate the account and grant a role.
+// The signup address is still recorded, because knowing where a request came
+// from is worth having, but it no longer admits anybody to anything.
 type SignupHandler struct {
-	ak         *authentik.Client
-	audit      *audit.Service
-	webhookURL string
-	http       *http.Client
+	ak    *authentik.Client
+	audit *audit.Service
 }
 
 // NewSignupHandler creates the handler. A nil client disables the endpoints.
-func NewSignupHandler(ak *authentik.Client, a *audit.Service, webhookURL string) *SignupHandler {
-	return &SignupHandler{ak: ak, audit: a, webhookURL: webhookURL, http: &http.Client{Timeout: 15 * time.Second}}
+func NewSignupHandler(ak *authentik.Client, a *audit.Service) *SignupHandler {
+	return &SignupHandler{ak: ak, audit: a}
 }
 
 func (h *SignupHandler) ready(w http.ResponseWriter) bool {
@@ -108,11 +103,10 @@ func (h *SignupHandler) Approve(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadGateway, "approval failed at the identity provider")
 		return
 	}
-	admitted := h.admitAtEdge(r.Context(), signupIP, email)
-	h.log(r, "signup_approved", email, "role="+req.Role+" ip="+signupIP+" edge="+admitted)
-	slog.Info("signup approved", "email", email, "role", req.Role, "signup_ip", signupIP, "edge", admitted)
+	h.log(r, "signup_approved", email, "role="+req.Role+" ip="+signupIP)
+	slog.Info("signup approved", "email", email, "role", req.Role, "signup_ip", signupIP)
 	writeJSON(w, http.StatusOK, map[string]any{
-		"email": email, "role": req.Role, "signup_ip": signupIP, "edge_allowlist": admitted,
+		"email": email, "role": req.Role, "signup_ip": signupIP,
 		"next": "their first sign-in creates their tenant",
 	})
 }
@@ -143,34 +137,6 @@ func (h *SignupHandler) Reject(w http.ResponseWriter, r *http.Request) {
 	}
 	h.log(r, "signup_rejected", email, "")
 	writeJSON(w, http.StatusOK, map[string]string{"email": email, "status": "rejected"})
-}
-
-// admitAtEdge asks n8n to add the address to the three VPS allowlists and
-// reports what happened, in words an operator can act on.
-func (h *SignupHandler) admitAtEdge(ctx context.Context, ip, email string) string {
-	switch {
-	case ip == "":
-		return "no address recorded at signup; add it by hand once they tell you"
-	case h.webhookURL == "":
-		return "not requested: no workflow configured; run k8s/scripts/edge/whitelist-ip.sh " + ip
-	}
-	body, _ := json.Marshal(map[string]string{"action": "whitelist", "ip": ip, "email": email})
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, h.webhookURL, bytes.NewReader(body))
-	if err != nil {
-		return "request could not be built; run k8s/scripts/edge/whitelist-ip.sh " + ip
-	}
-	req.Header.Set("Content-Type", "application/json")
-	resp, err := h.http.Do(req)
-	if err != nil {
-		slog.Warn("signups: edge allowlist request failed", "ip", ip, "error", err)
-		return "failed; run k8s/scripts/edge/whitelist-ip.sh " + ip
-	}
-	defer func() { _ = resp.Body.Close() }()
-	if resp.StatusCode >= 300 {
-		slog.Warn("signups: edge allowlist refused", "ip", ip, "status", resp.Status)
-		return "refused (" + resp.Status + "); run k8s/scripts/edge/whitelist-ip.sh " + ip
-	}
-	return "requested"
 }
 
 func (h *SignupHandler) log(r *http.Request, action, subject, detail string) {
