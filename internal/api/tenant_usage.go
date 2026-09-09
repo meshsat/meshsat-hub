@@ -1,6 +1,8 @@
 package api
 
 import (
+	"database/sql"
+	"errors"
 	"log/slog"
 	"net/http"
 
@@ -74,6 +76,7 @@ func (h *TenantUsageHandler) Usage(w http.ResponseWriter, r *http.Request) {
 //	@Produce      json
 //	@Param        id   path      string  true  "tenant id"
 //	@Success      200  {object}  usageResponse
+//	@Failure      404  {object}  map[string]string
 //	@Failure      500  {object}  map[string]string
 //	@Router       /api/admin/tenants/{id}/usage [get]
 func (h *TenantUsageHandler) AdminUsage(w http.ResponseWriter, r *http.Request) {
@@ -114,6 +117,15 @@ func (h *TenantUsageHandler) usage(w http.ResponseWriter, r *http.Request, tenan
 	}
 	u, err := h.quota.Usage(r.Context(), tenantID)
 	if err != nil {
+		// A tenant nobody has heard of is a 404, not a server error: the admin
+		// variant takes an id from the URL and mistyping it should say so.
+		// Both errors are checked because GetTenant surfaces the driver's
+		// sql.ErrNoRows in both dialects rather than store.ErrNotFound.
+		if errors.Is(err, sql.ErrNoRows) || errors.Is(err, store.ErrNotFound) {
+			writeError(w, http.StatusNotFound, "tenant not found")
+			return
+		}
+		slog.Error("tenant: usage lookup failed", "tenant", tenantID, "error", err)
 		writeError(w, http.StatusInternalServerError, "could not read usage")
 		return
 	}
