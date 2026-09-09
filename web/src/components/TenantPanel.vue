@@ -2,7 +2,7 @@
 // Tenant panel (Settings): name and invites for the signed-in tenant.
 // Owner-only. Talks to /api/tenant (MR 16); stays hidden while that API
 // is absent so the panel can ship ahead of it.
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { tenant as tenantApi } from '../api/client'
 import { useAuthStore } from '../stores/auth'
 import { useToastStore } from '../stores/toast'
@@ -19,6 +19,29 @@ const inviteEmail = ref('')
 const inviteRole = ref('operator')
 const inviting = ref(false)
 const error = ref('')
+const usage = ref(null)
+const copied = ref(false)
+
+// Devices and bridges share one ceiling, because that is the number somebody
+// can count against their own kit. -1 means the plan has no ceiling.
+const unlimited = computed(() => usage.value?.limit === -1)
+const usageBadge = computed(() => {
+  if (!usage.value || unlimited.value) return 'bg-sky-900/50 text-sky-300 border-sky-700/50'
+  if (usage.value.over_limit) return 'bg-amber-900/50 text-amber-300 border-amber-700/50'
+  if (usage.value.remaining === 0) return 'bg-amber-900/50 text-amber-300 border-amber-700/50'
+  return 'bg-emerald-900/50 text-emerald-300 border-emerald-700/50'
+})
+
+async function copyClaimCode() {
+  if (!usage.value?.claim_code) return
+  try {
+    await navigator.clipboard.writeText(usage.value.claim_code)
+    copied.value = true
+    setTimeout(() => { copied.value = false }, 2000)
+  } catch {
+    toast.error('Could not copy. Select the code and copy it by hand.')
+  }
+}
 
 async function load() {
   try {
@@ -28,6 +51,11 @@ async function load() {
   } catch {
     available.value = false
     return
+  }
+  try {
+    usage.value = await tenantApi.usage()
+  } catch {
+    usage.value = null
   }
   try {
     invites.value = (await tenantApi.invites()) || []
@@ -106,6 +134,64 @@ onMounted(load)
           <dt>Plan</dt><dd class="text-ms-text capitalize">{{ info?.plan }}</dd>
           <dt>Status</dt><dd class="text-ms-text capitalize">{{ info?.status }}</dd>
         </dl>
+      </div>
+
+      <!-- Plan and usage. The ceiling applies to registering new devices and
+           bridges; everything already registered keeps working whatever the
+           plan says, which is what the note below tells the reader. -->
+      <div v-if="usage" class="border-t border-ms-border pt-4">
+        <div class="flex flex-wrap items-center gap-2">
+          <h4 class="text-sm font-medium text-ms-text">Plan</h4>
+          <span class="px-2 py-0.5 rounded text-[11px] font-medium border capitalize"
+            :class="usageBadge">
+            {{ usage.plan }} &middot;
+            <template v-if="unlimited">{{ usage.used }} devices</template>
+            <template v-else>{{ usage.used }} / {{ usage.limit }} devices</template>
+          </span>
+          <a v-if="usage.upgrade_url" :href="usage.upgrade_url" target="_blank" rel="noopener noreferrer"
+            class="ml-auto px-3 py-1 bg-brand-primary hover:bg-brand-accent text-ms-on-primary text-xs font-medium rounded transition-colors">
+            Support &amp; upgrade
+          </a>
+        </div>
+
+        <div v-if="!unlimited" class="mt-2 h-1.5 w-full bg-ms-well rounded overflow-hidden"
+          role="progressbar" :aria-valuenow="usage.used" aria-valuemin="0" :aria-valuemax="usage.limit">
+          <div class="h-full transition-all"
+            :class="usage.remaining === 0 ? 'bg-ms-warning' : 'bg-brand-primary'"
+            :style="{ width: Math.min(100, (usage.used / Math.max(1, usage.limit)) * 100) + '%' }"></div>
+        </div>
+
+        <p class="text-[11px] text-ms-muted mt-2">
+          {{ usage.devices }} device<span v-if="usage.devices !== 1">s</span> and
+          {{ usage.bridges }} bridge<span v-if="usage.bridges !== 1">s</span> registered.
+          The limit applies to adding new ones. Everything already registered keeps reporting,
+          and an SOS is never affected by your plan.
+        </p>
+
+        <ul v-if="usage.tiers?.length" class="mt-3 text-xs divide-y divide-ms-border">
+          <li v-for="tier in usage.tiers" :key="tier.plan"
+            class="py-1.5 flex items-center gap-2"
+            :class="tier.current ? 'text-ms-text' : 'text-ms-muted'">
+            <span class="capitalize w-16">{{ tier.plan }}</span>
+            <span class="font-mono">{{ tier.devices === -1 ? 'custom' : tier.devices + ' devices' }}</span>
+            <span v-if="tier.current" class="ml-auto px-1.5 py-0.5 rounded text-[10px] border bg-emerald-900/50 text-emerald-300 border-emerald-700/50">current</span>
+          </li>
+        </ul>
+
+        <div v-if="usage.claim_code" class="mt-3">
+          <label class="block text-xs text-ms-muted2 mb-1">Your claim code</label>
+          <div class="flex flex-wrap items-center gap-2">
+            <code class="px-2 py-1 bg-ms-well border border-ms-border rounded font-mono text-sm text-ms-text tracking-widest">{{ usage.claim_code }}</code>
+            <button @click="copyClaimCode" type="button"
+              class="px-2 py-1 border border-ms-border rounded text-xs text-ms-text2 hover:text-ms-text hover:border-ms-border-light transition-colors">
+              {{ copied ? 'Copied' : 'Copy' }}
+            </button>
+          </div>
+          <p class="text-[11px] text-ms-muted mt-1">
+            Put this in the message when you pay, so the payment reaches this account.
+            People often pay from a different address than they signed up with.
+          </p>
+        </div>
       </div>
 
       <div>

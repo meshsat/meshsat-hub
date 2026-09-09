@@ -11,6 +11,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	hubauth "github.com/meshsat/meshsat-hub/internal/auth"
+	"github.com/meshsat/meshsat-hub/internal/plans"
 	"github.com/meshsat/meshsat-hub/internal/store"
 )
 
@@ -278,11 +279,15 @@ func (h *TenantHandler) AdminUpdate(w http.ResponseWriter, r *http.Request) {
 		t.Name = v
 	}
 	if v := strings.ToLower(strings.TrimSpace(req.Plan)); v != "" {
-		if len(v) > 32 {
-			writeError(w, http.StatusBadRequest, "invalid plan")
+		// A plan name now decides a device ceiling, so it has to be one of the
+		// tiers rather than any short string. plans.For falls back to the free
+		// limits for a name it does not know, and a typo here would otherwise
+		// cap a paying tenant at four devices.
+		if !plans.Known(v) {
+			writeError(w, http.StatusBadRequest, "plan must be one of: "+strings.Join(plans.Names(), ", "))
 			return
 		}
-		t.Plan = v
+		t.Plan = plans.Normalise(v)
 	}
 	if v := strings.ToLower(strings.TrimSpace(req.Status)); v != "" {
 		if v != "active" && v != "suspended" {

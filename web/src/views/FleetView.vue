@@ -1,7 +1,7 @@
 <script setup>
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRoute } from 'vue-router'
-import { bridges } from '../api/client'
+import { bridges, tenant } from '../api/client'
 import { timeAgo, formatUptime, formatUTC } from '../utils/time'
 import EmptyState from '../components/EmptyState.vue'
 
@@ -58,6 +58,7 @@ onMounted(async () => {
   // Dashboard first-run link: open the add-bridge form straight away.
   if (route.query.add === '1') showAddForm.value = true
   await loadBridges()
+  loadUsage()
   pollTimer = setInterval(loadBridges, 30000)
 })
 
@@ -78,6 +79,20 @@ async function loadBridges() {
 
 const onlineCount = computed(() => bridgeList.value.filter(b => b.online).length)
 const totalCount = computed(() => bridgeList.value.length)
+
+// Plan usage (MESHSAT-989). Devices and bridges share one ceiling, so the
+// number here counts both. A plan without a ceiling reports -1; an older Hub
+// has no endpoint at all, and then the page simply says nothing about plans.
+const usage = ref(null)
+const atCap = computed(() => usage.value && usage.value.limit !== -1 && usage.value.remaining === 0)
+
+async function loadUsage() {
+  try {
+    usage.value = await tenant.usage()
+  } catch {
+    usage.value = null
+  }
+}
 
 // --- Add Bridge ---
 async function addBridge() {
@@ -379,7 +394,8 @@ function certExpiryStatus(b) {
       <div>
         <h1 class="text-2xl font-display font-bold">Fleet</h1>
         <p v-if="!loading && bridgeList.length" class="text-sm text-gray-400 mt-0.5">
-          {{ totalCount }} bridge{{ totalCount !== 1 ? 's' : '' }}, {{ onlineCount }} online
+          {{ totalCount }} bridge{{ totalCount !== 1 ? 's' : '' }}, {{ onlineCount }} online<span
+            v-if="usage && usage.limit !== -1"> &middot; {{ usage.used }} / {{ usage.limit }} on the {{ usage.plan }} plan</span>
         </p>
       </div>
       <div class="flex items-center gap-2">
@@ -388,10 +404,15 @@ function certExpiryStatus(b) {
           {{ aclLoading ? 'Re-rendering...' : 'Re-render NATS users' }}
         </button>
         <span v-if="aclResult" class="text-xs text-ms-success">{{ aclResult.bridges_configured }} bridges configured</span>
-        <button @click="showAddForm = !showAddForm"
-          class="bg-brand-accent hover:bg-brand-primary text-ms-on-primary px-3 py-1.5 rounded text-sm font-medium transition-colors">
+        <button @click="showAddForm = !showAddForm" :disabled="atCap && !showAddForm"
+          :title="atCap && !showAddForm ? `The ${usage.plan} plan covers ${usage.limit} devices and bridges together. Your existing kit keeps working; upgrade to add more.` : ''"
+          class="bg-brand-accent hover:bg-brand-primary disabled:opacity-50 disabled:cursor-not-allowed text-ms-on-primary px-3 py-1.5 rounded text-sm font-medium transition-colors">
           {{ showAddForm ? 'Cancel' : '+ Add Bridge' }}
         </button>
+        <a v-if="atCap && usage.upgrade_url" :href="usage.upgrade_url" target="_blank" rel="noopener noreferrer"
+          class="text-xs px-3 py-1.5 rounded border border-ms-border text-ms-text2 hover:text-ms-text hover:border-ms-border-light transition-colors">
+          Upgrade
+        </a>
       </div>
     </div>
 

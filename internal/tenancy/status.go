@@ -29,6 +29,11 @@ type statusEvent struct {
 // middleware, which asks on every request. A short TTL keeps that from being a
 // database round trip per call while still making a suspension take effect in
 // seconds rather than at the next restart.
+//
+// It caches the parts of the tenant row that gate a request -- status and plan
+// -- from a single read, because both are wanted on the same paths and a plan
+// change already invalidates the entry through the same topic a status change
+// does.
 type StatusCache struct {
 	store store.Store
 	ttl   time.Duration
@@ -62,6 +67,7 @@ func (c *StatusCache) Subscribe() error {
 
 type statusEntry struct {
 	status string
+	plan   string
 	at     time.Time
 }
 
@@ -74,31 +80,46 @@ func NewStatusCache(s store.Store, ttl time.Duration) *StatusCache {
 // active: it is not this cache's job to invent an authorisation failure for a
 // tenant the rest of the system has not heard of.
 func (c *StatusCache) Status(ctx context.Context, tenantID string) (string, error) {
+	e, err := c.entry(ctx, tenantID)
+	return e.status, err
+}
+
+// Plan reports the tenant's subscription plan, from the same cached read the
+// status comes from. An unknown tenant, or a read that fails, reports the empty
+// string; the caller decides what that means. The quota checker treats it as
+// the free tier, which is the safe direction: a tenant we cannot identify does
+// not get an unlimited fleet.
+func (c *StatusCache) Plan(ctx context.Context, tenantID string) (string, error) {
+	e, err := c.entry(ctx, tenantID)
+	return e.plan, err
+}
+
+func (c *StatusCache) entry(ctx context.Context, tenantID string) (statusEntry, error) {
 	if c == nil || c.store == nil || tenantID == "" {
-		return store.TenantActive, nil
+		return statusEntry{status: store.TenantActive}, nil
 	}
 	if c.ttl > 0 {
 		c.mu.Lock()
 		e, ok := c.seen[tenantID]
 		c.mu.Unlock()
 		if ok && time.Since(e.at) < c.ttl {
-			return e.status, nil
+			return e, nil
 		}
 	}
 	t, err := c.store.GetTenant(ctx, tenantID)
 	if err != nil {
-		return store.TenantActive, err
+		return statusEntry{status: store.TenantActive}, err
 	}
-	st := t.Status
-	if st == "" {
-		st = store.TenantActive
+	e := statusEntry{status: t.Status, plan: t.Plan, at: time.Now()}
+	if e.status == "" {
+		e.status = store.TenantActive
 	}
 	if c.ttl > 0 {
 		c.mu.Lock()
-		c.seen[tenantID] = statusEntry{status: st, at: time.Now()}
+		c.seen[tenantID] = e
 		c.mu.Unlock()
 	}
-	return st, nil
+	return e, nil
 }
 
 // Forget drops a cached status here and tells the other replicas to do the

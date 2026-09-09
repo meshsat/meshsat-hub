@@ -94,6 +94,24 @@ data:
   HUB_TAK_API_BASE_URL: "http://192.168.192.10:8880"
   HUB_TAK_API_POLL_SEC: "10"
   HUB_TAK_API_INSECURE_TLS: "true"
+  # ATAK marker rows the poller registers itself. They are excluded from every
+  # tenant's subscription count (nobody bought them, MESHSAT-989); this bounds
+  # how many a busy or looping TAK server can create.
+  HUB_TAK_API_MAX_DEVICES: "5000"
   HUB_TAK_CALLSIGN_PREFIX: "MESHSAT-HUB"
   HUB_TAK_FEDERATION_ENABLED: "true"
   HUB_TAK_FEDERATION_PEERS: "192.168.15.10:9001"
+
+  # --- subscription tiers (MESHSAT-989) ---
+  # One combined ceiling on registered devices and bridges per tenant. It gates
+  # REGISTRATION only: a tenant over its cap or on a lapsed plan keeps every
+  # device it has, keeps ingesting, and keeps its SOS path. Re-price a tier by
+  # changing a number here; no code change and no image build.
+  HUB_PLAN_FREE_DEVICES: "4"
+  HUB_PLAN_CREW_DEVICES: "24"
+  HUB_PLAN_FLEET_DEVICES: "100"
+  HUB_PLAN_CUSTOM_DEVICES: "-1"
+  HUB_UPGRADE_URL: "https://ko-fi.com/X2S326G23T"
+  # Ko-fi tier name -> plan. Left unset the tier name is read as a plan name,
+  # so a Ko-fi tier literally called "Crew" or "Fleet" needs nothing here.
+  # HUB_KOFI_TIER_MAP: "Crew Membership=crew,Fleet Membership=fleet"
