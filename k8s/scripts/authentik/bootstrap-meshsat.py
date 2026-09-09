@@ -305,9 +305,11 @@ for order, st in ((10, st_account), (20, st_details), (30, st_write), (40, st_em
         b.save()
 FlowStageBinding.objects.filter(target=enroll).exclude(stage__in=[st_account, st_details, st_write, st_email, st_marker, st_write_marker]).delete()
 
-# Gated registration (MESHSAT-978): the address the signup came from is kept on
-# the user (attributes.signup_ip) so approval can admit it on the edge
-# (k8s/scripts/edge/whitelist-ip.sh). Bound to the user_write binding, the
+# The address the signup came from is kept on the user (attributes.signup_ip).
+# It was originally how approval knew which address to admit to the edge
+# allowlist; the edge opened at public launch and there is no list any more
+# (MESHSAT-995), so this is now a record rather than a key: it is what tells you
+# that fifty requests came from one host. Bound to the user_write binding, the
 # policy runs right before the user row is written; ingress-nginx sets
 # X-Forwarded-For from the VPS/relay hop (proxy-real-ip-cidr, phase 0).
 SIGNUP_IP_EXPR = (
