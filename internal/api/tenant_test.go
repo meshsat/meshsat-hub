@@ -177,9 +177,15 @@ func TestTenant_PlatformAdmin(t *testing.T) {
 	if rr.Code != 200 || !strings.Contains(rr.Body.String(), `"id":"t_acme"`) {
 		t.Fatalf("admin header: %d %s", rr.Code, rr.Body.String())
 	}
-	rr = do(r, "PUT", "/api/admin/tenants/t_acme", `{"status":"suspended","plan":"pro"}`)
-	if rr.Code != 200 || !strings.Contains(rr.Body.String(), `"status":"suspended"`) || !strings.Contains(rr.Body.String(), `"plan":"pro"`) {
+	rr = do(r, "PUT", "/api/admin/tenants/t_acme", `{"status":"suspended","plan":"crew"}`)
+	if rr.Code != 200 || !strings.Contains(rr.Body.String(), `"status":"suspended"`) || !strings.Contains(rr.Body.String(), `"plan":"crew"`) {
 		t.Fatalf("admin update: %d %s", rr.Code, rr.Body.String())
+	}
+	// A plan name now decides a device ceiling, so it has to be a real tier.
+	// This used to accept any string under 32 bytes, which would have silently
+	// dropped the tenant to the free limits (MESHSAT-989).
+	if rr = do(r, "PUT", "/api/admin/tenants/t_acme", `{"plan":"pro"}`); rr.Code != 400 {
+		t.Fatalf("unknown plan accepted: %d %s", rr.Code, rr.Body.String())
 	}
 	if rr = do(r, "PUT", "/api/admin/tenants/default", `{"status":"suspended"}`); rr.Code != 400 {
 		t.Fatalf("default suspended: %d", rr.Code)

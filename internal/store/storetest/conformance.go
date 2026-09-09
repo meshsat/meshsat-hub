@@ -41,6 +41,7 @@ func Run(t *testing.T, open Opener) {
 		{"TenantsAndInvites", testTenants},
 		{"OIDCIdentities", testOIDCIdentities},
 		{"TenantOffboarding", testTenantOffboarding},
+		{"TenantQuota", testTenantQuota},
 	}
 	for _, s := range suites {
 		t.Run(s.name, func(t *testing.T) {
