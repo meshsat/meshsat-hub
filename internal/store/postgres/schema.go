@@ -444,4 +444,19 @@ CREATE INDEX IF NOT EXISTS idx_bridge_oob_peers_peer ON bridge_oob_peers (peer_i
 		ALTER TABLE tenants ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ;
 		CREATE INDEX IF NOT EXISTS idx_tenants_deleted_at ON tenants (deleted_at) WHERE deleted_at IS NOT NULL;
 	`},
+	// MESHSAT-989: subscription tiers.
+	//
+	// plan_expires_at rather than a subscription state, because Ko-fi fires a
+	// webhook on payment and never on cancellation. A payment pushes the date
+	// out; a plan lapses by the date passing. There is nothing to miss.
+	//
+	// kofi_claim_code matches a payment to a tenant: a supporter puts it in
+	// the Ko-fi message, because people pay from a different address than they
+	// signed up with often enough that email alone loses payments.
+	{Version: 8, Name: "tenant_subscription", SQL: `
+		ALTER TABLE tenants ADD COLUMN IF NOT EXISTS plan_expires_at TIMESTAMPTZ;
+		ALTER TABLE tenants ADD COLUMN IF NOT EXISTS kofi_claim_code VARCHAR(16) NOT NULL DEFAULT '';
+		CREATE INDEX IF NOT EXISTS idx_tenants_plan_expires ON tenants (plan_expires_at) WHERE plan_expires_at IS NOT NULL;
+		CREATE UNIQUE INDEX IF NOT EXISTS idx_tenants_kofi_claim ON tenants (kofi_claim_code) WHERE kofi_claim_code <> '';
+	`},
 }

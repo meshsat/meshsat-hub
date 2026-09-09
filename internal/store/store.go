@@ -48,6 +48,12 @@ type Store interface {
 	// IMEI (ErrNotFound when none, ErrAmbiguousTenant when several).
 	LookupDeviceTenant(ctx context.Context, imei string) (string, error)
 	ListDevices(ctx context.Context, tenantID string) ([]Device, error)
+	// CountBillableDevices counts the devices a tenant provisioned, excluding
+	// artefact types created by integrations rather than bought by anyone
+	// (see ArtefactDeviceTypes). Live count rather than a stored counter: a
+	// bridge changing hands and a tenant purge both move rows without going
+	// through one place, so a counter would drift.
+	CountBillableDevices(ctx context.Context, tenantID string) (int, error)
 	UpdateDevice(ctx context.Context, tenantID string, d *Device) error
 	DeleteDevice(ctx context.Context, tenantID string, imei string) error
 	TouchDeviceLastSeen(ctx context.Context, tenantID string, imei string) error
@@ -156,6 +162,8 @@ type Store interface {
 	// ErrAmbiguousTenant as for LookupDeviceTenant).
 	LookupBridgeTenant(ctx context.Context, bridgeID string) (string, error)
 	ListBridges(ctx context.Context, tenantID string) ([]*Bridge, error)
+	// CountBridges counts a tenant's bridges, which share the device ceiling.
+	CountBridges(ctx context.Context, tenantID string) (int, error)
 	UpdateBridge(ctx context.Context, tenantID string, bridgeID string, updates BridgeUpdate) error
 	DeleteBridge(ctx context.Context, tenantID string, bridgeID string) error
 	SetBridgeOnline(ctx context.Context, tenantID string, bridgeID string, online bool) error
@@ -549,6 +557,20 @@ type Tenant struct {
 	Status      string    `json:"status"` // active, suspended, deleted
 	CreatedAt   time.Time `json:"created_at"`
 	UpdatedAt   time.Time `json:"updated_at"`
+	// PlanExpiresAt is when a paid tier lapses back to free. nil means the
+	// plan does not expire, which is what free, custom and beta are.
+	//
+	// An expiry rather than a subscription state on purpose: Ko-fi fires a
+	// webhook on payment and never on cancellation, so a payment pushes this
+	// date out and a lapse is simply the date passing. Lapsing refuses NEW
+	// registrations and nothing else -- every device already registered keeps
+	// reporting, and its SOS path is untouched.
+	PlanExpiresAt *time.Time `json:"plan_expires_at,omitempty"`
+	// KofiClaimCode is the short code a supporter puts in the Ko-fi message so
+	// a payment can be matched to this tenant. People pay from a different
+	// address than they signed up with often enough that email alone loses
+	// payments. Never logged with the payment payload.
+	KofiClaimCode string `json:"kofi_claim_code,omitempty"`
 	// DeletedAt is when the owner asked to leave. The tenant is blocked from
 	// that moment and its data is destroyed after PurgeGrace, so an accidental
 	// or disputed deletion is recoverable until then (MESHSAT-975 follow-on).
@@ -561,6 +583,19 @@ const (
 	TenantSuspended = "suspended"
 	TenantDeleted   = "deleted"
 )
+
+// ArtefactDeviceTypes are device rows an integration creates on its own,
+// which nobody bought and which must not count against a tenant's quota.
+//
+// "tak" is the OpenTAKServer poller mirroring ATAK markers: the rows carry
+// marker UIDs in the imei column, they appear and multiply with third-party
+// traffic, and 28 of the 31 devices in the platform tenant are these. Billing
+// somebody for a busy TAK feed would charge them for something they did not do.
+//
+// A deny-list rather than an allow-list on purpose: devices.type is free-form
+// with no enum, so an allow-list would silently stop counting the first time
+// somebody typed a new string.
+var ArtefactDeviceTypes = []string{"tak"}
 
 // PurgeGrace is how long a deleted tenant's data survives before the purge job
 // destroys it. Long enough to undo a mistake, short enough to be a real

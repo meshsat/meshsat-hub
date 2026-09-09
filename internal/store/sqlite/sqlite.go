@@ -377,6 +377,9 @@ var lateAlterMigrations = []string{
 	// Offboarding: an existing database gets the soft-delete column here;
 	// tenants is created in postAlterMigrations, so this has to be late.
 	`ALTER TABLE tenants ADD COLUMN deleted_at TEXT NOT NULL DEFAULT ''`,
+	// MESHSAT-989: subscription tiers. Mirrors postgres migration 8.
+	`ALTER TABLE tenants ADD COLUMN plan_expires_at TEXT NOT NULL DEFAULT ''`,
+	`ALTER TABLE tenants ADD COLUMN kofi_claim_code TEXT NOT NULL DEFAULT ''`,
 	// MESHSAT-964: last report bearer/time on bridges
 	`ALTER TABLE bridges ADD COLUMN last_report_bearer TEXT NOT NULL DEFAULT ''`,
 	`ALTER TABLE bridges ADD COLUMN last_report_at TEXT`,

@@ -36,6 +36,15 @@ type OTSPoller struct {
 	knownDevices map[string]bool           // uid → device registered
 	mu           sync.Mutex
 	stopCh       chan struct{}
+
+	// maxDevices bounds auto-registration. TAK marker rows are excluded from
+	// the subscription count (store.ArtefactDeviceTypes) so nobody is billed
+	// for them, but a busy or looping TAK server can mint UIDs faster than
+	// anyone notices; this is the stop. 0 disables the ceiling.
+	maxDevices  int
+	takCount    int
+	takCounted  bool
+	ceilingWarn time.Time
 }
 
 type otsMarkerState struct {
@@ -91,6 +100,13 @@ func NewOTSPoller(baseURL, username, password string, pollSec int, mqtt bus.Mess
 		knownMarkers: make(map[string]otsMarkerState),
 		knownDevices: make(map[string]bool),
 		stopCh:       make(chan struct{}),
+	}
+}
+
+// SetMaxDevices bounds how many TAK markers the poller will auto-register.
+func (p *OTSPoller) SetMaxDevices(n int) {
+	if n >= 0 {
+		p.maxDevices = n
 	}
 }
 
@@ -276,6 +292,18 @@ func (p *OTSPoller) ensureDeviceAndPosition(m otsMarker) {
 	if !p.knownDevices[m.UID] {
 		_, err := p.db.GetDevice(ctx, p.tenantID, m.UID)
 		if err != nil {
+			if !p.roomForAnotherMarker(ctx) {
+				// Refuse the row, and the position with it: storing positions
+				// for a marker we would not register just moves the runaway
+				// into the positions table.
+				if time.Since(p.ceilingWarn) > 5*time.Minute {
+					p.ceilingWarn = time.Now()
+					slog.Warn("tak: marker not auto-registered, TAK device ceiling reached",
+						"uid", m.UID, "ceiling", p.maxDevices, "tenant", p.tenantID,
+						"hint", "raise HUB_TAK_API_MAX_DEVICES or prune stale TAK devices")
+				}
+				return
+			}
 			// Device doesn't exist — create it.
 			label := m.Callsign
 			if label == "" {
@@ -288,7 +316,12 @@ func (p *OTSPoller) ensureDeviceAndPosition(m otsMarker) {
 				Notes: "Auto-registered from OpenTAKServer",
 			}
 			if createErr := p.db.CreateDevice(ctx, p.tenantID, d); createErr != nil {
-				slog.Debug("tak: auto-register device", "error", createErr, "uid", m.UID)
+				// Was Debug, which hid a failure repeating every poll interval
+				// forever. A marker that cannot be registered never appears on
+				// the map, and that is worth saying out loud.
+				slog.Warn("tak: auto-register device failed", "error", createErr, "uid", m.UID)
+			} else {
+				p.takCount++
 			}
 		}
 		p.knownDevices[m.UID] = true
@@ -307,6 +340,32 @@ func (p *OTSPoller) ensureDeviceAndPosition(m otsMarker) {
 	if err := p.db.InsertPosition(ctx, p.tenantID, pos); err != nil {
 		slog.Debug("tak: store position", "error", err, "uid", m.UID)
 	}
+}
+
+// roomForAnotherMarker reports whether the poller may register one more TAK
+// device. The baseline is read once per process; after that the poller is the
+// only thing creating these rows, so it can count its own.
+func (p *OTSPoller) roomForAnotherMarker(ctx context.Context) bool {
+	if p.maxDevices <= 0 {
+		return true
+	}
+	if !p.takCounted {
+		p.takCounted = true
+		devices, err := p.db.ListDevices(ctx, p.tenantID)
+		if err != nil {
+			// Unknown baseline: allow. A ceiling is a guard rail, not a reason
+			// to stop mirroring a live TAK picture because one query failed.
+			slog.Warn("tak: could not read the device baseline for the TAK ceiling", "error", err)
+			return true
+		}
+		for _, d := range devices {
+			if d.Type == "tak" {
+				p.takCount++
+			}
+		}
+		slog.Info("tak: device ceiling active", "registered", p.takCount, "ceiling", p.maxDevices)
+	}
+	return p.takCount < p.maxDevices
 }
 
 // isHubMarker returns true if the UID belongs to a marker the Hub itself sent
