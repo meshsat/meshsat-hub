@@ -79,6 +79,12 @@ func (d *Detector) handleMODecoded(topic string, payload []byte) {
 		return
 	}
 
+	// Satellite publishers carry the modem IMEI in the payload; an SMS
+	// carries none, so the device is the topic's id (the sender's phone
+	// number), exactly as the routing engine sees it (MESHSAT-1022).
+	if msg.IMEI == "" {
+		msg.IMEI = hubmqtt.ExtractDeviceID(topic)
+	}
 	if msg.IMEI == "" {
 		return
 	}
