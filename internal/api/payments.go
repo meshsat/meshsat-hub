@@ -14,6 +14,7 @@ import (
 	hubauth "github.com/meshsat/meshsat-hub/internal/auth"
 	"github.com/meshsat/meshsat-hub/internal/kofi"
 	"github.com/meshsat/meshsat-hub/internal/store"
+	"github.com/meshsat/meshsat-hub/internal/vat"
 )
 
 // PaymentsHandler surfaces payments that arrived and upgraded nobody.
@@ -157,4 +158,56 @@ func operatorEmail(r *http.Request) string {
 		return u.Email
 	}
 	return "unknown"
+}
+
+// vatThresholdResponse is the figure the flat Dutch rate depends on.
+type vatThresholdResponse struct {
+	Year int `json:"year"`
+	// CrossBorderCents is the gross of issued receipts to EU consumers OUTSIDE
+	// the Netherlands this calendar year. Domestic sales are excluded: the
+	// threshold is about supplies to other member states, and counting our own
+	// would raise a false alarm on the busiest possible month.
+	CrossBorderCents int64            `json:"cross_border_cents"`
+	ThresholdCents   int64            `json:"threshold_cents"`
+	PercentUsed      float64          `json:"percent_used"`
+	ByCountry        map[string]int64 `json:"by_country"`
+	// Note says in words what the number means, because the person reading it
+	// at 80% needs to know what to do, not just that a bar is filling.
+	Note string `json:"note"`
+}
+
+// VATThreshold reports progress toward the EU cross-border threshold.
+// @Summary      Progress toward the EU VAT threshold
+// @Tags         admin
+// @Produce      json
+// @Success      200  {object}  vatThresholdResponse
+// @Router       /api/admin/vat/threshold [get]
+func (h *PaymentsHandler) VATThreshold(w http.ResponseWriter, r *http.Request) {
+	if h.store == nil {
+		writeError(w, http.StatusServiceUnavailable, "no store")
+		return
+	}
+	year := time.Now().UTC().Year()
+	since := time.Date(year, time.January, 1, 0, 0, 0, 0, time.UTC)
+	byCountry, err := h.store.CrossBorderSalesSince(r.Context(), since)
+	if err != nil {
+		slog.Error("vat: reading cross-border sales failed", "error", err)
+		writeError(w, http.StatusInternalServerError, "could not read sales")
+		return
+	}
+	out := vatThresholdResponse{
+		Year: year, ThresholdCents: vat.Threshold, ByCountry: map[string]int64{},
+	}
+	for c, cents := range byCountry {
+		if !vat.CountsTowardThreshold(c) {
+			continue
+		}
+		out.ByCountry[c] = cents
+		out.CrossBorderCents += cents
+	}
+	out.PercentUsed = float64(out.CrossBorderCents) / float64(vat.Threshold) * 100
+	out.Note = "Cross-border B2C sales to other EU member states this calendar year. " +
+		"Dutch 21% may be charged on these while the total stays under the threshold. " +
+		"Above it, the customer's own country rate applies and OSS registration is required."
+	writeJSON(w, http.StatusOK, out)
 }

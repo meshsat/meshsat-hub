@@ -5,7 +5,7 @@
 #
 # Creates:
 #   groups meshsat-platform-admin/owner/operator/viewer/pending (attribute meshsat_role)
-#   ScopeMapping `meshsat` -> groups claim (names starting meshsat-)
+#   ScopeMapping `meshsat` -> groups claim (names starting meshsat-), plus country/signup_ip
 #   OAuth2Provider "MeshSat Hub" (confidential, RS256, sub=user_uuid, STRICT redirect)
 #   Application meshsat-hub
 #   enrollment flow meshsat-enrollment (prompts, inactive user in meshsat-pending,
@@ -97,10 +97,21 @@ for username in PLATFORM_ADMIN_USERNAMES:
         note(f"platform admin {username} marked email_verified")
 
 # ---------------------------------------------------------------- scope mapping
-GROUPS_EXPR = 'return {"groups": [g.name for g in request.user.groups.all() if g.name.startswith("meshsat-")]}'
+# Groups decide the Hub role. country and signup_ip ride along because the
+# buyer's country decides whether Dutch VAT applies to their receipt at all, and
+# the tenant is created at first sign-in from these claims and nothing else --
+# before this, every customer was invoiced as Dutch at 21% because nothing in
+# the chain had ever been told where they were (MESHSAT-1016). signup_ip is the
+# observed half of the evidence the VAT rules want; country is the declared
+# half, collected on the enrollment form.
+GROUPS_EXPR = (
+    'return {"groups": [g.name for g in request.user.groups.all() if g.name.startswith("meshsat-")], '
+    '"country": request.user.attributes.get("country", ""), '
+    '"signup_ip": request.user.attributes.get("signup_ip", "")}'
+)
 scope, created = ScopeMapping.objects.get_or_create(
     scope_name="meshsat",
-    defaults={"name": "MeshSat groups", "description": "MeshSat Hub roles", "expression": GROUPS_EXPR},
+    defaults={"name": "MeshSat groups", "description": "MeshSat Hub roles, and where the buyer is", "expression": GROUPS_EXPR},
 )
 if scope.expression != GROUPS_EXPR:
     scope.expression = GROUPS_EXPR
