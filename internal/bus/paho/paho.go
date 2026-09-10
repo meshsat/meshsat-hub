@@ -18,6 +18,7 @@ import (
 	pahomqtt "github.com/eclipse/paho.mqtt.golang"
 
 	"github.com/meshsat/meshsat-hub/internal/bus"
+	hubmqtt "github.com/meshsat/meshsat-hub/internal/mqtt"
 )
 
 // route holds every handler registered for one exact topic filter.
@@ -215,6 +216,12 @@ func (b *Bus) Connect() error {
 }
 
 func (b *Bus) Publish(topic string, qos byte, retained bool, payload []byte) error {
+	// A wildcard in a publish topic is refused by the broker, which drops the
+	// connection; paho then resends the same publish on every reconnect and
+	// the replica never recovers (MESHSAT-1022). Refuse it here instead.
+	if err := hubmqtt.CheckPublishTopic(topic); err != nil {
+		return fmt.Errorf("bus: publish: %w", err)
+	}
 	token := b.inner.Publish(topic, qos, retained, payload)
 	token.Wait()
 	if err := token.Error(); err != nil {

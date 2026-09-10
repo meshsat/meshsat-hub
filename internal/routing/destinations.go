@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"strings"
 
+	hubmqtt "github.com/meshsat/meshsat-hub/internal/mqtt"
 	"github.com/meshsat/meshsat-hub/internal/sms"
 	"github.com/meshsat/meshsat-hub/internal/store"
 	"github.com/meshsat/meshsat-hub/internal/webhook"
@@ -186,7 +187,7 @@ func NewNotificationHandler(notifier NotificationSender) DestinationHandler {
 // consumers (dashboards, external integrations) receive all routed messages.
 func NewMQTTHandler(mqtt MQTTPublisher) DestinationHandler {
 	return func(_ context.Context, _ *store.Route, deviceID string, payload json.RawMessage) {
-		topic := fmt.Sprintf("meshsat/routed/%s", deviceID)
+		topic := fmt.Sprintf("meshsat/routed/%s", hubmqtt.EncodeSegment(deviceID))
 		if err := mqtt.Publish(topic, 1, false, payload); err != nil {
 			slog.Error("routing/mqtt: publish failed", "topic", topic, "error", err)
 		}
@@ -199,7 +200,7 @@ func NewTAKHandler(mqtt MQTTPublisher) DestinationHandler {
 	return func(_ context.Context, _ *store.Route, deviceID string, payload json.RawMessage) {
 		// Publish to the TAK CoT topic — the TAK subscriber will pick it up
 		// and forward to the TAK server as a CoT event.
-		topic := fmt.Sprintf("meshsat/%s/tak/cot/out", deviceID)
+		topic := fmt.Sprintf("meshsat/%s/tak/cot/out", hubmqtt.EncodeSegment(deviceID))
 		if err := mqtt.Publish(topic, 1, false, payload); err != nil {
 			slog.Error("routing/tak: publish failed", "topic", topic, "error", err)
 		}
@@ -210,7 +211,7 @@ func NewTAKHandler(mqtt MQTTPublisher) DestinationHandler {
 // The handler publishes the message to an APRS MQTT topic for the APRS-IS subscriber to forward.
 func NewAPRSHandler(mqtt MQTTPublisher) DestinationHandler {
 	return func(_ context.Context, _ *store.Route, deviceID string, payload json.RawMessage) {
-		topic := fmt.Sprintf("meshsat/%s/aprs/out", deviceID)
+		topic := fmt.Sprintf("meshsat/%s/aprs/out", hubmqtt.EncodeSegment(deviceID))
 		if err := mqtt.Publish(topic, 1, false, payload); err != nil {
 			slog.Error("routing/aprs: publish failed", "topic", topic, "error", err)
 		}

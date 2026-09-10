@@ -3,12 +3,44 @@ package mqtt
 import (
 	"crypto/sha256"
 	"encoding/hex"
-)
-
-import (
+	"errors"
 	"fmt"
 	"strings"
 )
+
+// Device IDs in topic segments (MESHSAT-1022).
+//
+// A phone number is a device ID on the SMS paths and starts with "+", which
+// is an MQTT single-level wildcard. A publish whose topic carries a wildcard
+// is refused by the broker: NATS logs "wildcards not allowed in publish's
+// topic" and drops the connection, and the client then resends the same
+// publish on every reconnect, so one SMS from an E.164 number took a Hub
+// replica off the bus for good. Every builder therefore percent-encodes the
+// characters MQTT reserves ("+", "#", "/") plus "%" itself, and the parser
+// decodes them, so consumers keep seeing the ID they know ("+31653618463")
+// while the wire carries "%2B31653618463".
+var (
+	segmentEncoder = strings.NewReplacer("%", "%25", "+", "%2B", "#", "%23", "/", "%2F")
+	segmentDecoder = strings.NewReplacer("%2B", "+", "%23", "#", "%2F", "/", "%25", "%")
+)
+
+// EncodeSegment makes an identifier safe as one MQTT topic segment.
+func EncodeSegment(id string) string { return segmentEncoder.Replace(id) }
+
+// DecodeSegment reverses EncodeSegment.
+func DecodeSegment(seg string) string { return segmentDecoder.Replace(seg) }
+
+// ErrWildcardTopic is returned by a bus that is asked to publish to a topic
+// containing "+" or "#": the broker would refuse it and drop the connection.
+var ErrWildcardTopic = errors.New("mqtt: publish topic contains a wildcard")
+
+// CheckPublishTopic rejects a publish topic the broker would refuse.
+func CheckPublishTopic(topic string) error {
+	if strings.ContainsAny(topic, "+#") {
+		return fmt.Errorf("%w: %q", ErrWildcardTopic, topic)
+	}
+	return nil
+}
 
 // Topic patterns for the MeshSat Hub MQTT namespace.
 // Single-tenant (v0.1): meshsat/{device_id}/...
@@ -16,17 +48,17 @@ import (
 
 // TopicMORaw returns the topic for raw MO SBD payloads.
 func TopicMORaw(deviceID string) string {
-	return fmt.Sprintf("meshsat/%s/mo/raw", deviceID)
+	return fmt.Sprintf("meshsat/%s/mo/raw", EncodeSegment(deviceID))
 }
 
 // TopicMODecoded returns the topic for decoded MO messages.
 func TopicMODecoded(deviceID string) string {
-	return fmt.Sprintf("meshsat/%s/mo/decoded", deviceID)
+	return fmt.Sprintf("meshsat/%s/mo/decoded", EncodeSegment(deviceID))
 }
 
 // TopicMTSend returns the topic to publish MT message requests.
 func TopicMTSend(deviceID string) string {
-	return fmt.Sprintf("meshsat/%s/mt/send", deviceID)
+	return fmt.Sprintf("meshsat/%s/mt/send", EncodeSegment(deviceID))
 }
 
 // TopicMTSendWildcard returns the wildcard subscription for all MT send requests.
@@ -36,42 +68,42 @@ func TopicMTSendWildcard() string {
 
 // TopicMTStatus returns the topic for MT send results.
 func TopicMTStatus(deviceID string) string {
-	return fmt.Sprintf("meshsat/%s/mt/status", deviceID)
+	return fmt.Sprintf("meshsat/%s/mt/status", EncodeSegment(deviceID))
 }
 
 // TopicSignal returns the topic for signal quality updates.
 func TopicSignal(deviceID string) string {
-	return fmt.Sprintf("meshsat/%s/status/signal", deviceID)
+	return fmt.Sprintf("meshsat/%s/status/signal", EncodeSegment(deviceID))
 }
 
 // TopicHealth returns the topic for device health updates.
 func TopicHealth(deviceID string) string {
-	return fmt.Sprintf("meshsat/%s/status/health", deviceID)
+	return fmt.Sprintf("meshsat/%s/status/health", EncodeSegment(deviceID))
 }
 
 // TopicPosition returns the topic for GPS position updates.
 func TopicPosition(deviceID string) string {
-	return fmt.Sprintf("meshsat/%s/position", deviceID)
+	return fmt.Sprintf("meshsat/%s/position", EncodeSegment(deviceID))
 }
 
 // TopicTelemetry returns the topic for telemetry data.
 func TopicTelemetry(deviceID string) string {
-	return fmt.Sprintf("meshsat/%s/telemetry", deviceID)
+	return fmt.Sprintf("meshsat/%s/telemetry", EncodeSegment(deviceID))
 }
 
 // TopicSOS returns the topic for SOS events.
 func TopicSOS(deviceID string) string {
-	return fmt.Sprintf("meshsat/%s/sos", deviceID)
+	return fmt.Sprintf("meshsat/%s/sos", EncodeSegment(deviceID))
 }
 
 // TopicConfigCurrent returns the topic for current device config.
 func TopicConfigCurrent(deviceID string) string {
-	return fmt.Sprintf("meshsat/%s/config/current", deviceID)
+	return fmt.Sprintf("meshsat/%s/config/current", EncodeSegment(deviceID))
 }
 
 // TopicConfigUpdate returns the topic for config update commands.
 func TopicConfigUpdate(deviceID string) string {
-	return fmt.Sprintf("meshsat/%s/config/update", deviceID)
+	return fmt.Sprintf("meshsat/%s/config/update", EncodeSegment(deviceID))
 }
 
 // TopicHubStatus returns the hub health status topic.
@@ -133,12 +165,12 @@ func Namespace(tenantID string) string {
 
 // DeviceTopic builds {namespace}/{device}/{suffix} for the tenant.
 func DeviceTopic(tenantID, deviceID, suffix string) string {
-	return Namespace(tenantID) + "/" + deviceID + "/" + suffix
+	return Namespace(tenantID) + "/" + EncodeSegment(deviceID) + "/" + suffix
 }
 
 // BridgeTopic builds {namespace}/bridge/{bridgeID}/{suffix} for the tenant.
 func BridgeTopic(tenantID, bridgeID, suffix string) string {
-	return Namespace(tenantID) + "/bridge/" + bridgeID + "/" + suffix
+	return Namespace(tenantID) + "/bridge/" + EncodeSegment(bridgeID) + "/" + suffix
 }
 
 // Tenant-aware variants of the builders above.
@@ -185,10 +217,10 @@ func ParseDeviceTopic(topic string) (tenantID, deviceID, suffix string, ok bool)
 		return "", "", "", false
 	}
 	if deviceSuffixHeads[parts[2]] && !reservedSecond[parts[1]] {
-		return DefaultTenant, parts[1], strings.Join(parts[2:], "/"), true
+		return DefaultTenant, DecodeSegment(parts[1]), strings.Join(parts[2:], "/"), true
 	}
 	if len(parts) >= 4 && deviceSuffixHeads[parts[3]] && !reservedSecond[parts[1]] && !reservedSecond[parts[2]] && parts[2] != "" {
-		return parts[1], parts[2], strings.Join(parts[3:], "/"), true
+		return parts[1], DecodeSegment(parts[2]), strings.Join(parts[3:], "/"), true
 	}
 	return "", "", "", false
 }
@@ -201,10 +233,10 @@ func ParseBridgeTopic(topic string) (tenantID, bridgeID string, rest []string, o
 		return "", "", nil, false
 	}
 	if parts[1] == "bridge" {
-		return DefaultTenant, parts[2], parts[3:], parts[2] != ""
+		return DefaultTenant, DecodeSegment(parts[2]), parts[3:], parts[2] != ""
 	}
 	if len(parts) >= 5 && parts[2] == "bridge" && !reservedSecond[parts[1]] {
-		return parts[1], parts[3], parts[4:], parts[3] != ""
+		return parts[1], DecodeSegment(parts[3]), parts[4:], parts[3] != ""
 	}
 	return "", "", nil, false
 }
