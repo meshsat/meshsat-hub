@@ -103,6 +103,34 @@ type Config struct {
 	// Ko-fi page do not match the plan names: "Crew Membership: crew".
 	KofiTierMap map[string]string `yaml:"kofi_tier_map"`
 
+	// Stripe: the payment provider Ko-fi is being replaced by (MESHSAT-1023).
+	//
+	// Three separate secrets, and conflating any two of them is a real mistake:
+	//
+	//   StripeSecretKey     calls the API. Never appears in a URL.
+	//   StripeWebhookSecret verifies a delivery's signature. This is the only
+	//                       thing that authenticates a caller, and it must
+	//                       never go in the path either -- a URL travels
+	//                       through consoles, logs and support tickets.
+	//   StripePathSecret    forms the webhook URL. It identifies the endpoint
+	//                       and keeps it off scanners; it authenticates
+	//                       nothing.
+	//
+	// With the key or the signing secret empty the endpoint refuses everything,
+	// which is the right state for a payment endpoint nobody configured.
+	StripeSecretKey     string `yaml:"stripe_secret_key"`
+	StripeWebhookSecret string `yaml:"stripe_webhook_secret"`
+	StripePathSecret    string `yaml:"stripe_path_secret"`
+	// StripePrices maps a Stripe price id to a plan. A price that names
+	// anything but a sellable tier is refused at load: custom and beta are
+	// unlimited and operator-set.
+	StripePrices map[string]string `yaml:"stripe_prices"`
+	// StripeDonationPrice is a price with a customer-chosen amount. Empty means
+	// no donation path, which is a supported state.
+	StripeDonationPrice string `yaml:"stripe_donation_price"`
+	// StripeTimeout bounds a call to the API.
+	StripeTimeout time.Duration `yaml:"stripe_timeout"`
+
 	// Invoice Ninja: the billing system that issues customer receipts
 	// (MESHSAT-998). Empty URL or token means no receipts are issued at all --
 	// payments still grant plans, and the outbox rows accumulate unsent, which
@@ -353,6 +381,7 @@ func Defaults() Config {
 		TAKAPIMaxDevices:      5000,
 		AuthRateLimitPerMin:   30,
 		UpgradeURL:            "https://ko-fi.com/X2S326G23T",
+		StripeTimeout:         20 * time.Second,
 		MailFrom:              "billing@meshsat.net",
 		MailFromName:          "MeshSat Hub",
 		MailTimeout:           15 * time.Second,
@@ -595,6 +624,44 @@ func Load() (Config, error) {
 		}
 		if len(m) > 0 {
 			cfg.KofiTierMap = m
+		}
+	}
+	// Stripe (MESHSAT-1023). Every one of these is refused when it is the
+	// literal string "<no value>": the ExternalSecret renders that for a key
+	// missing from the backing store, and it is NOT empty, so every `!= ""`
+	// guard in this Hub would treat it as configured and come up believing it
+	// could take money.
+	if v := stripeSecret("HUB_STRIPE_SECRET_KEY"); v != "" {
+		cfg.StripeSecretKey = v
+	}
+	if v := stripeSecret("HUB_STRIPE_WEBHOOK_SECRET"); v != "" {
+		cfg.StripeWebhookSecret = v
+	}
+	if v := stripeSecret("HUB_STRIPE_PATH_SECRET"); v != "" {
+		cfg.StripePathSecret = v
+	}
+	if v := os.Getenv("HUB_STRIPE_DONATION_PRICE"); v != "" {
+		cfg.StripeDonationPrice = strings.TrimSpace(v)
+	}
+	if v := os.Getenv("HUB_STRIPE_TIMEOUT"); v != "" {
+		if d, err := time.ParseDuration(v); err == nil && d > 0 {
+			cfg.StripeTimeout = d
+		}
+	}
+	// "price_abc=crew,price_def=fleet"
+	if v := os.Getenv("HUB_STRIPE_PRICES"); v != "" {
+		m := map[string]string{}
+		for _, pair := range strings.Split(v, ",") {
+			k, val, ok := strings.Cut(pair, "=")
+			if !ok {
+				continue
+			}
+			if k = strings.TrimSpace(k); k != "" {
+				m[k] = strings.TrimSpace(val)
+			}
+		}
+		if len(m) > 0 {
+			cfg.StripePrices = m
 		}
 	}
 	if v := os.Getenv("HUB_INVOICENINJA_URL"); v != "" {
@@ -997,4 +1064,27 @@ func (c Config) ResolvedDBDriver() string {
 		return "postgres"
 	}
 	return "sqlite"
+}
+
+// stripeSecret reads a secret that arrives through the ExternalSecret, and
+// refuses the one value that looks configured and is not.
+//
+// k8s External Secrets renders a template reference to a key missing from the
+// backing store as the literal four-word string "<no value>". It is not empty,
+// so `!= ""` accepts it, and the Hub would boot announcing that billing was on
+// while holding a credential that cannot work. That has already cost this
+// codebase one silent misconfiguration (MESHSAT-998); refusing it here costs
+// one comparison.
+func stripeSecret(name string) string {
+	v := strings.TrimSpace(os.Getenv(name))
+	if v == "" {
+		return ""
+	}
+	if v == "<no value>" {
+		slog.Error("config: this key is missing from the secret store, so its "+
+			"ExternalSecret rendered the literal \"<no value>\"; treating it as unset "+
+			"rather than booting with a credential that cannot work", "var", name)
+		return ""
+	}
+	return v
 }
