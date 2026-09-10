@@ -406,3 +406,53 @@ func TestUnconfiguredClientDoesNothing(t *testing.T) {
 		t.Fatalf("err = %v, want ErrNotConfigured", err)
 	}
 }
+
+// Every path here is relative: do() prepends /api/v1. Passing an absolute one
+// produced /api/v1/api/v1/companies, and Invoice Ninja answers an unknown path
+// with its web app at HTTP 200 rather than a 404 -- so the status check passed
+// and the JSON decode failed on the first '<'. The guard fell back to a warning
+// and stopped guarding anything, which is how it reached production
+// (MESHSAT-1016).
+func TestEveryRequestPathIsRelativeToTheAPIPrefix(t *testing.T) {
+	var seen []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		seen = append(seen, r.URL.Path)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"data":[{"settings":{"inclusive_taxes":true}}]}`))
+	}))
+	defer srv.Close()
+
+	c := New(srv.URL, "tok", 5*time.Second)
+	on, err := c.VerifyInclusiveTaxes(context.Background())
+	if err != nil {
+		t.Fatalf("verify: %v", err)
+	}
+	if !on {
+		t.Error("inclusive taxes reported off when the company says on")
+	}
+	for _, p := range seen {
+		if strings.Contains(p, "/api/v1/api/v1") {
+			t.Errorf("path %q has the API prefix twice", p)
+		}
+		if !strings.HasPrefix(p, "/api/v1/") {
+			t.Errorf("path %q does not sit under the API prefix", p)
+		}
+	}
+}
+
+// And the flag being OFF has to come back as false rather than an error, since
+// that is the case the guard exists to shout about.
+func TestInclusiveTaxesOffIsReportedNotSwallowed(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"data":[{"settings":{"inclusive_taxes":false}}]}`))
+	}))
+	defer srv.Close()
+	on, err := New(srv.URL, "tok", 5*time.Second).VerifyInclusiveTaxes(context.Background())
+	if err != nil {
+		t.Fatalf("verify: %v", err)
+	}
+	if on {
+		t.Error("inclusive taxes reported on when the company says off")
+	}
+}
