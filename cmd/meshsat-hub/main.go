@@ -84,6 +84,7 @@ import (
 	"github.com/meshsat/meshsat-hub/internal/store/dbwrap"
 	"github.com/meshsat/meshsat-hub/internal/store/postgres"
 	"github.com/meshsat/meshsat-hub/internal/store/sqlite"
+	"github.com/meshsat/meshsat-hub/internal/stripe"
 	"github.com/meshsat/meshsat-hub/internal/tak"
 	"github.com/meshsat/meshsat-hub/internal/timesync"
 	hubtor "github.com/meshsat/meshsat-hub/internal/tor"
@@ -1551,6 +1552,56 @@ func main() {
 		slog.Info("kofi: subscription webhook disabled; set HUB_KOFI_WEBHOOK_SECRET and HUB_KOFI_VERIFICATION_TOKEN to enable")
 	}
 
+	// Stripe (MESHSAT-1023). Platform-level like the block above: there is one
+	// Stripe account and the payment carries the tenant in its own metadata, so
+	// the per-tenant webhookRoute helper does not apply.
+	//
+	// Three secrets, and they are not interchangeable. The path secret forms
+	// the URL and only keeps the endpoint off scanners; the SIGNING secret is
+	// what authenticates a delivery and must never appear in a path. The API
+	// key is neither.
+	var stripeClient *stripe.Client
+	if cfg.StripeSecretKey != "" {
+		stripeClient = stripe.NewClient(cfg.StripeSecretKey, cfg.StripeTimeout)
+		if !stripeClient.Live() {
+			slog.Warn("stripe: this is a TEST key; no real money will move")
+		}
+	}
+	if cfg.StripeWebhookSecret != "" && cfg.StripePathSecret != "" {
+		sh := stripe.NewHandler(dataStore, cfg.StripeWebhookSecret)
+		sh.SetAudit(auditSvc)
+		sh.SetInvalidator(tenantStatus.Forget)
+		sh.SetUserLookup(dataStore)
+		sh.SetMailer(mailer, cfg.PublicURL)
+		sh.SetReceipts(dataStore)
+		sh.SetRefunds(dataStore)
+		sh.SetPrices(cfg.StripePrices)
+
+		want := cfg.StripePathSecret
+		// A higher budget than the other webhooks get. This limiter is per-pod
+		// and keyed on the client address, and Stripe delivers from a small
+		// pool of them, so a per-IP cap here is effectively a global one --
+		// 60/min would throttle a renewal burst. Stripe retries with backoff,
+		// so a throttled event is delayed rather than lost, but the limit
+		// should not be the thing shaping how quickly a customer's plan
+		// updates. The signature is the authorisation; this is a resource
+		// guard.
+		r.Post("/api/webhook/stripe/{secret}", hubmw.WebhookRateLimit(http.HandlerFunc(
+			func(w http.ResponseWriter, req *http.Request) {
+				// A wrong secret is a 404, not a 401: the endpoint should not
+				// confirm it exists to somebody guessing at it.
+				if subtle.ConstantTimeCompare([]byte(chi.URLParam(req, "secret")), []byte(want)) != 1 {
+					http.NotFound(w, req)
+					return
+				}
+				sh.ServeHTTP(w, req)
+			}), 600).ServeHTTP)
+		slog.Info("stripe: payment webhook enabled", "prices", len(cfg.StripePrices),
+			"donations", cfg.StripeDonationPrice != "")
+	} else {
+		slog.Info("stripe: payment webhook disabled; set HUB_STRIPE_WEBHOOK_SECRET and HUB_STRIPE_PATH_SECRET to enable")
+	}
+
 	// Expiring a plan needs no Ko-fi credentials -- it reads a date this Hub
 	// already wrote. Registering it inside the block above meant that clearing
 	// or rotating either Ko-fi variable silently froze every paid plan forever,
@@ -1715,10 +1766,19 @@ func main() {
 	tenantHandler.SetStatusInvalidator(tenantStatus.Forget)
 	usageHandler := api.NewTenantUsageHandler(quotaChecker, dataStore)
 	api.SetUpgradeURL(cfg.UpgradeURL)
+	// Which surface the Settings page draws: a Subscribe button when checkout
+	// starts here, or the old external link while it does not.
+	billingHandler := api.NewBillingHandler(dataStore, stripeClient, cfg.PublicURL)
+	billingHandler.SetPrices(cfg.StripePrices)
+	billingHandler.SetDonationPrice(cfg.StripeDonationPrice)
+	api.SetStripeReady(stripeClient != nil && len(cfg.StripePrices) > 0)
 	offboarding := api.NewTenantOffboardingHandler(dataStore, auditSvc, tenantStatus.Forget)
 	r.Route("/api/tenant", func(r chi.Router) {
 		r.With(hubauth.RequireRole(hubauth.RoleViewer)).Get("/", tenantHandler.Get)
 		r.With(hubauth.RequireRole(hubauth.RoleViewer)).Get("/usage", usageHandler.Usage)
+		// Paying is an owner's decision, not an operator's.
+		r.With(hubauth.RequireRole(hubauth.RoleOwner)).Post("/billing/checkout", billingHandler.Checkout)
+		r.With(hubauth.RequireRole(hubauth.RoleOwner)).Post("/billing/portal", billingHandler.Portal)
 		r.With(hubauth.RequireRole(hubauth.RoleOwner)).Put("/", tenantHandler.Update)
 		// Take your data with you, or have it destroyed. Owner only.
 		r.With(hubauth.RequireRole(hubauth.RoleOwner)).Get("/export", offboarding.Export)
