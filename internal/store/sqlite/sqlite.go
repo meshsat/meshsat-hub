@@ -404,6 +404,31 @@ var postAlterMigrations = []string{
 	)`,
 	`CREATE INDEX IF NOT EXISTS idx_receipts_due ON receipts(status, next_attempt_at)`,
 	`CREATE INDEX IF NOT EXISTS idx_receipts_tenant ON receipts(tenant_id)`,
+	// Money given back owes the customer a credit note. Mirrors postgres
+	// migration 15; receipt_id is UNIQUE so a payment is refunded once.
+	`CREATE TABLE IF NOT EXISTS refunds (
+		id TEXT PRIMARY KEY,
+		tenant_id TEXT NOT NULL,
+		receipt_id TEXT NOT NULL UNIQUE,
+		amount_cents INTEGER NOT NULL DEFAULT 0,
+		currency TEXT NOT NULL DEFAULT '',
+		country TEXT NOT NULL DEFAULT '',
+		reason TEXT NOT NULL DEFAULT '',
+		requested_by TEXT NOT NULL DEFAULT '',
+		refunded_at TEXT NOT NULL DEFAULT '',
+		status TEXT NOT NULL DEFAULT 'pending',
+		attempts INTEGER NOT NULL DEFAULT 0,
+		last_error TEXT NOT NULL DEFAULT '',
+		next_attempt_at TEXT NOT NULL DEFAULT '',
+		credit_number TEXT NOT NULL DEFAULT '',
+		credit_ref TEXT NOT NULL DEFAULT '',
+		issued_at TEXT NOT NULL DEFAULT '',
+		leased_until TEXT NOT NULL DEFAULT '',
+		created_at TEXT NOT NULL DEFAULT (datetime('now')),
+		updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+	)`,
+	`CREATE INDEX IF NOT EXISTS idx_refunds_due ON refunds(status, next_attempt_at)`,
+	`CREATE INDEX IF NOT EXISTS idx_refunds_tenant ON refunds(tenant_id)`,
 }
 
 // lateAlterMigrations alter tables created in postAlterMigrations.

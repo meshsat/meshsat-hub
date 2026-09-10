@@ -472,8 +472,10 @@ func (c *Client) VerifyInclusiveTaxes(ctx context.Context) (bool, error) {
 	}
 	var out struct {
 		Data []struct {
+			ID       string `json:"id"`
 			Settings struct {
-				InclusiveTaxes bool `json:"inclusive_taxes"`
+				Name           string `json:"name"`
+				InclusiveTaxes bool   `json:"inclusive_taxes"`
 			} `json:"settings"`
 		} `json:"data"`
 	}
@@ -485,8 +487,42 @@ func (c *Client) VerifyInclusiveTaxes(ctx context.Context) (bool, error) {
 		return false, err
 	}
 	if len(out.Data) == 0 {
-		return false, fmt.Errorf("invoiceninja: the token sees no company")
+		return false, errors.New("invoiceninja: the token sees no company")
 	}
-	// The token is company-scoped, so the first company is the one it acts as.
-	return out.Data[0].Settings.InclusiveTaxes, nil
+
+	// This list is the ACCOUNT's companies, not the token's. Taking the first
+	// one read the other company on the instance, which has inclusive taxes off
+	// -- so this guard has been reporting on a company these receipts never
+	// touch. The token IS company-scoped, but only per-company endpoints
+	// enforce it: GET /companies/{id} answers 401 for any company but ours
+	// (MESHSAT-1019).
+	if len(out.Data) == 1 {
+		return out.Data[0].Settings.InclusiveTaxes, nil
+	}
+	for _, co := range out.Data {
+		if co.ID == "" {
+			continue
+		}
+		var one struct {
+			Data struct {
+				Settings struct {
+					InclusiveTaxes bool `json:"inclusive_taxes"`
+				} `json:"settings"`
+			} `json:"data"`
+		}
+		err := c.do(ctx, http.MethodGet, "/companies/"+url.PathEscape(co.ID), nil, &one, "identify company")
+		if err != nil {
+			var apiErr *Error
+			if errors.As(err, &apiErr) && (apiErr.Status == http.StatusUnauthorized ||
+				apiErr.Status == http.StatusForbidden || apiErr.Status == http.StatusNotFound) {
+				continue // somebody else's company
+			}
+			return false, err
+		}
+		return one.Data.Settings.InclusiveTaxes, nil
+	}
+	// Refusing rather than guessing. A wrong answer here is worse than none:
+	// a false all-clear lets every receipt add VAT on top of a price the
+	// customer already paid.
+	return false, errors.New("invoiceninja: could not tell which company this token acts as")
 }
