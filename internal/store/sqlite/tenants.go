@@ -14,12 +14,12 @@ import (
 
 // --- Tenants (MESHSAT-916) ---
 
-const tenantCols = "id, slug, name, owner_user_id, plan, status, created_at, updated_at, deleted_at, plan_expires_at, kofi_claim_code, kofi_payer_email, kofi_last_message_id"
+const tenantCols = "id, slug, name, owner_user_id, plan, status, created_at, updated_at, deleted_at, plan_expires_at, kofi_claim_code, kofi_payer_email, kofi_last_message_id, lapse_warned_at"
 
 func scanTenant(sc interface{ Scan(...any) error }) (store.Tenant, error) {
 	var t store.Tenant
-	var created, updated, deleted, expires string
-	if err := sc.Scan(&t.ID, &t.Slug, &t.Name, &t.OwnerUserID, &t.Plan, &t.Status, &created, &updated, &deleted, &expires, &t.KofiClaimCode, &t.KofiPayerEmail, &t.KofiLastMessageID); err != nil {
+	var created, updated, deleted, expires, warned string
+	if err := sc.Scan(&t.ID, &t.Slug, &t.Name, &t.OwnerUserID, &t.Plan, &t.Status, &created, &updated, &deleted, &expires, &t.KofiClaimCode, &t.KofiPayerEmail, &t.KofiLastMessageID, &warned); err != nil {
 		return t, err
 	}
 	t.CreatedAt, t.UpdatedAt = parseTime(created), parseTime(updated)
@@ -30,6 +30,10 @@ func scanTenant(sc interface{ Scan(...any) error }) (store.Tenant, error) {
 	if expires != "" {
 		e := parseTime(expires)
 		t.PlanExpiresAt = &e
+	}
+	if warned != "" {
+		w := parseTime(warned)
+		t.LapseWarnedAt = &w
 	}
 	return t, nil
 }
@@ -96,8 +100,8 @@ func (d *DB) ListTenants(ctx context.Context) ([]store.Tenant, error) {
 
 func (d *DB) UpdateTenant(ctx context.Context, t *store.Tenant) error {
 	t.UpdatedAt = time.Now().UTC()
-	_, err := d.db.ExecContext(ctx, `UPDATE tenants SET slug=?, name=?, owner_user_id=?, plan=?, status=?, updated_at=?, plan_expires_at=?, kofi_claim_code=?, kofi_payer_email=?, kofi_last_message_id=? WHERE id=?`,
-		t.Slug, t.Name, t.OwnerUserID, t.Plan, t.Status, fmtTime(t.UpdatedAt), fmtTimePtr(t.PlanExpiresAt), t.KofiClaimCode, t.KofiPayerEmail, t.KofiLastMessageID, t.ID)
+	_, err := d.db.ExecContext(ctx, `UPDATE tenants SET slug=?, name=?, owner_user_id=?, plan=?, status=?, updated_at=?, plan_expires_at=?, kofi_claim_code=?, kofi_payer_email=?, kofi_last_message_id=?, lapse_warned_at=? WHERE id=?`,
+		t.Slug, t.Name, t.OwnerUserID, t.Plan, t.Status, fmtTime(t.UpdatedAt), fmtTimePtr(t.PlanExpiresAt), t.KofiClaimCode, t.KofiPayerEmail, t.KofiLastMessageID, fmtTimePtr(t.LapseWarnedAt), t.ID)
 	return err
 }
 

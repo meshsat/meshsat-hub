@@ -29,6 +29,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/meshsat/meshsat-hub/internal/mail"
 	"github.com/meshsat/meshsat-hub/internal/plans"
 	"github.com/meshsat/meshsat-hub/internal/store"
 )
@@ -90,6 +91,10 @@ type Handler struct {
 	// tierFor maps a Ko-fi tier name to a plan. Configurable because the tier
 	// names live in somebody's Ko-fi page, not in this repository.
 	tierFor map[string]string
+	// mail tells the customer their plan changed. nil means no relay is
+	// configured and nothing is sent; the grant is unaffected either way.
+	mail   mail.Sender
+	hubURL string
 	// receipts is the outbox that owes the customer a document (MESHSAT-998).
 	// nil when no billing system is configured, in which case payments still
 	// grant plans and nothing is recorded.
@@ -111,6 +116,12 @@ func NewHandler(s TenantStore, verificationToken string) *Handler {
 }
 
 // SetAudit attaches the audit log.
+// SetMailer gives the handler a way to confirm a payment to the person who made
+// it, so they hear from us and not only from the payment processor.
+func (h *Handler) SetMailer(s mail.Sender, hubURL string) {
+	h.mail, h.hubURL = s, hubURL
+}
+
 func (h *Handler) SetAudit(a Auditor) { h.audit = a }
 
 // SetInvalidator wires the cross-replica cache drop.
@@ -258,6 +269,12 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if h.forget != nil {
 		h.forget(t.ID)
 	}
+	if h.mail != nil {
+		if to := h.receiptEmail(ctx, t, p); to != "" {
+			subject, body := mail.PlanChanged(h.ownerName(ctx, t), plan, plans.For(plan).Devices, expires, h.hubURL)
+			mail.SendOrLog(ctx, h.mail, to, subject, body, "plan changed")
+		}
+	}
 	slog.Info("kofi: subscription applied", "tenant", t.ID, "plan", plan, "was", prev,
 		"expires", expires.Format(time.RFC3339), "matched_by", how, "txn", p.KofiTransactionID)
 	if h.audit != nil {
@@ -373,6 +390,19 @@ func (h *Handler) match(ctx context.Context, p Payload) (*store.Tenant, string, 
 // One query per tenant per unmatched payment. That is fine at this size and
 // the alternative -- an index keyed on an address that can change -- is a
 // cache to keep correct for a code path that runs a few times a month.
+// ownerName is the display name of the tenant's owner, for greeting them by
+// name in mail. Empty is fine: the templates fall back to a plain "Hello,".
+func (h *Handler) ownerName(ctx context.Context, t *store.Tenant) string {
+	if h.users == nil || t == nil || t.OwnerUserID == "" {
+		return ""
+	}
+	u, err := h.users.GetUserByID(ctx, t.ID, t.OwnerUserID)
+	if err != nil || u == nil {
+		return ""
+	}
+	return u.Name
+}
+
 func (h *Handler) ownerEmail(ctx context.Context, t store.Tenant) string {
 	if h.users == nil || t.OwnerUserID == "" {
 		return ""
