@@ -2,11 +2,16 @@ package storetest
 
 import (
 	"context"
+	"fmt"
 	"sync"
 	"testing"
 
 	"github.com/meshsat/meshsat-hub/internal/store"
 )
+
+// candidateCode gives each racer a distinct value. It used to live beside the
+// claim-code suite, which went with the payment provider that needed one.
+func candidateCode(i int) string { return fmt.Sprintf("racer-%02d", i) }
 
 // testOIDCClaim pins who wins when two sign-ins provision one new subject at
 // the same time. LinkOIDCIdentity upserts, which is right for a returning user

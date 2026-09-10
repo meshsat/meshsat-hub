@@ -142,12 +142,12 @@ var (
 		Help: "Number of HeMB bond groups configured per bridge.",
 	}, []string{"bridge_id"})
 
-	// KofiUnmatchedPaymentsTotal counts subscription payments that matched no
+	// PaymentsUnattributedTotal counts subscription payments that matched no
 	// tenant. Money arrived and nobody was upgraded: somebody has to look at
 	// it, and until this existed the only trace was a log line (MESHSAT-1007).
-	KofiUnmatchedPaymentsTotal = promauto.NewCounter(prometheus.CounterOpts{
-		Name: "meshsat_hub_kofi_unmatched_payments_total",
-		Help: "Ko-fi subscription payments that could not be matched to a tenant.",
+	PaymentsUnattributedTotal = promauto.NewCounter(prometheus.CounterOpts{
+		Name: "meshsat_hub_payments_unattributed_total",
+		Help: "Payments that could not be attributed to a tenant and need a person.",
 	})
 
 	// DTN custody transfer metrics (MESHSAT-491)

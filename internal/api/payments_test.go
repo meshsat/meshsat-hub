@@ -12,7 +12,6 @@ import (
 
 	"github.com/meshsat/meshsat-hub/internal/audit"
 	hubauth "github.com/meshsat/meshsat-hub/internal/auth"
-	"github.com/meshsat/meshsat-hub/internal/kofi"
 	"github.com/meshsat/meshsat-hub/internal/store"
 	"github.com/meshsat/meshsat-hub/internal/store/sqlite"
 )
@@ -60,7 +59,7 @@ func TestUnmatchedPaymentsAreListedForAnOperator(t *testing.T) {
 	ctx := t.Context()
 
 	detail := `{"transaction_id":"txn-77","tier":"Crew","amount":"9.00","currency":"EUR","payer_email":"someone@example.com","message":"no code here","reason":"no claim code, payer address, or remembered payer matched a tenant"}`
-	if err := a.Log(ctx, store.DefaultTenantID, kofi.UnmatchedAction, "kofi_webhook", detail, ""); err != nil {
+	if err := a.Log(ctx, store.DefaultTenantID, unmatchedPaymentAction, "kofi_webhook", detail, ""); err != nil {
 		t.Fatal(err)
 	}
 	// Noise on the same tenant must not appear in the listing.

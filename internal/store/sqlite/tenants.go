@@ -105,44 +105,6 @@ func (d *DB) UpdateTenant(ctx context.Context, t *store.Tenant) error {
 	return err
 }
 
-// ApplyKofiDelivery claims the delivery and grants the plan in one transaction.
-// If the grant fails the claim rolls back with it, so Ko-fi's retry still works.
-func (d *DB) ApplyKofiDelivery(ctx context.Context, t *store.Tenant, deliveryKey string) (bool, error) {
-	if deliveryKey == "" {
-		return false, fmt.Errorf("sqlite: a Ko-fi delivery key is required")
-	}
-	tx, err := d.rawDB.BeginTx(ctx, nil)
-	if err != nil {
-		return false, err
-	}
-	defer func() { _ = tx.Rollback() }()
-
-	res, err := tx.ExecContext(ctx,
-		`INSERT OR IGNORE INTO kofi_deliveries (delivery_key, tenant_id, applied_at) VALUES (?, ?, ?)`,
-		deliveryKey, t.ID, fmtTime(time.Now().UTC()))
-	if err != nil {
-		return false, err
-	}
-	n, err := res.RowsAffected()
-	if err != nil {
-		return false, err
-	}
-	if n == 0 {
-		return false, nil // already applied
-	}
-
-	t.UpdatedAt = time.Now().UTC()
-	if _, err := tx.ExecContext(ctx,
-		`UPDATE tenants SET plan=?, plan_expires_at=?, kofi_payer_email=?, kofi_last_message_id=?, updated_at=? WHERE id=?`,
-		t.Plan, fmtTimePtr(t.PlanExpiresAt), t.KofiPayerEmail, t.KofiLastMessageID, fmtTime(t.UpdatedAt), t.ID); err != nil {
-		return false, err
-	}
-	if err := tx.Commit(); err != nil {
-		return false, err
-	}
-	return true, nil
-}
-
 // fmtTimePtr renders an optional timestamp; nil becomes the empty string this
 // schema uses for "not set", matching deleted_at.
 func fmtTimePtr(t *time.Time) string {
@@ -218,27 +180,6 @@ func (d *DB) ListInvites(ctx context.Context, tenantID string) ([]store.TenantIn
 func (d *DB) DeleteInvite(ctx context.Context, tenantID string, id string) error {
 	_, err := d.db.ExecContext(ctx, "DELETE FROM tenant_invites WHERE id=? AND tenant_id=?", id, tenantID)
 	return err
-}
-
-// EnsureClaimCode mints a Ko-fi claim code only if the tenant has none, and
-// returns whatever the tenant ends up carrying. See the Postgres twin: the
-// conditional UPDATE is what stops two concurrent first readers each being
-// shown a code while only one of them is stored.
-func (d *DB) EnsureClaimCode(ctx context.Context, tenantID, candidate string) (string, error) {
-	if tenantID == "" || candidate == "" {
-		return "", fmt.Errorf("sqlite: tenant id and a candidate claim code are required")
-	}
-	if _, err := d.db.ExecContext(ctx,
-		`UPDATE tenants SET kofi_claim_code = ?, updated_at = ? WHERE id = ? AND kofi_claim_code = ''`,
-		candidate, time.Now().UTC(), tenantID); err != nil {
-		return "", err
-	}
-	var code string
-	if err := d.db.QueryRowContext(ctx,
-		`SELECT kofi_claim_code FROM tenants WHERE id = ?`, tenantID).Scan(&code); err != nil {
-		return "", err
-	}
-	return code, nil
 }
 
 // TenantByStripeCustomer resolves the events that carry a customer id and no
