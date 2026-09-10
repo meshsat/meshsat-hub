@@ -1,58 +1,93 @@
-# The one hop only a real payment can prove
+# The first real payment
 
-Everything else about the paid path is verified against production with simulated
-deliveries: matching, idempotency, tier mapping, renewal stacking, the receipt, the
-plan-changed email, the lapse, the warning. Two things those cannot prove, because
-both live on Ko-fi's side:
+Test mode proves everything except that the credentials in production are the
+ones Stripe is actually using. This is the checklist for the one payment that
+does, and for giving it straight back.
 
-1. **The verification token in `HUB_KOFI_VERIFICATION_TOKEN` is the one Ko-fi
-   actually sends.** Ours is compared constant-time against the token in the
-   payload. If somebody pasted the wrong value, every genuine payment gets a 401
-   and the customer is charged and not upgraded.
-2. **A genuine Ko-fi body parses.** No test in the repository has ever fed the
-   handler a real payload — the fixtures marshal our own Go struct, so the JSON
-   tags are asserted against themselves.
+Nothing here is optional and none of it takes long. Do it before telling anybody
+the service takes money.
 
-One payment settles both. It costs EUR 9 and it is refundable.
+## Before
 
-## Before you start
+- [ ] **`Settings → Tax → Integrations → Dashboard transactions → Use automatic
+      tax` is OFF.** It has been found ON with no NL tax registration behind it,
+      which would put EUR 0 VAT on transactions raised by a VAT-registered
+      business. It is dashboard-only; `POST /v1/tax/settings` cannot reach it.
+      The Hub sends `automatic_tax[enabled]=false` on every request as belt and
+      braces, but fix the toggle.
+- [ ] **`Settings → Business → Customer emails → Successful payments` is OFF.**
+      Invoice Ninja issues the document. Turning this on gives every customer
+      two, and they will not agree.
+- [ ] **Stripe Tax is not enabled.** Invoice Ninja is the book.
+- [ ] `scratchpad/stripe-suite.py` has been run against TEST keys and passed.
+- [ ] Company 2 is clean: 0 clients, 0 invoices, 0 credits, 0 payments, and both
+      counters at 1. Check it, do not assume it — two runs of `mail-probe.py`
+      once burned `MSH2026-0001` and `MSH2026-0002` for real and nobody noticed
+      until the next baseline check.
 
-Have the Hub open at Settings, signed in as the tenant you want to upgrade. You
-need its **claim code** from the usage panel — eight characters, no I/O/0/1.
+## Switching to live
+
+1. Write the three live values to OpenBao:
+   `bao kv patch -mount=secret ci-no/apps/meshsat-hub/hub \`
+   `HUB_STRIPE_SECRET_KEY=sk_live_... HUB_STRIPE_WEBHOOK_SECRET=whsec_... \`
+   `HUB_STRIPE_PATH_SECRET=<something you generate>`
+
+   The path secret is **yours, not Stripe's**. It forms the webhook URL and only
+   keeps the endpoint off scanners. The signing secret authenticates a delivery
+   and must never appear in a path.
+
+2. Uncomment the three references in `k8s/hub/externalsecret.yaml` and the
+   prices in `k8s/hub/configmap.yaml`. Not before: a template reference to a
+   property that does not exist renders the literal string `<no value>`, which
+   is not empty. `internal/config` refuses that exact string, but the first line
+   of defence is writing the secret first.
+
+3. Point Stripe's live webhook endpoint at
+   `https://hub.meshsat.net/api/webhook/stripe/<path secret>` and subscribe it
+   to: `checkout.session.completed`, `customer.subscription.created`,
+   `customer.subscription.updated`, `customer.subscription.deleted`,
+   `invoice.paid`, `charge.refunded`.
+
+4. Merge, wait for the pin commit, and confirm the rollout. The startup line to
+   look for is `stripe: payment webhook enabled` **without** the
+   `this is a TEST key` warning beside it.
 
 ## The payment
 
-1. Go to <https://ko-fi.com/X2S326G23T> and take the **Crew** membership, EUR 9.
-2. In the message box, put the claim code **and nothing else that looks like one**.
-   The matcher reads the first code-shaped token in the message.
-3. Pay with the address you want on the receipt. If it differs from the tenant
-   owner's address, the claim code is what matches — that is the point of it.
+- [ ] Subscribe to Crew from the Hub's own Settings page. Not from a link, not
+      from the Stripe dashboard — the point is to prove the session the Hub
+      builds carries the tenant.
+- [ ] `tenants.plan` becomes `crew` and `plan_expires_at` is set.
+- [ ] A receipt row appears and reaches `issued`, with a real `MSH2026-000n`.
+- [ ] The customer receives that receipt, from `billing@meshsat.net`, in the
+      brand shell. Check the sender: credit-note mail once went out as the other
+      company on that instance, `dkim=pass d=ellizg.com`.
+- [ ] The PDF carries the VAT number, the legal entity, and 21% derived OUT of
+      the price (EUR 9.00 = 7.44 + 1.56), not added to it.
+- [ ] `GET /api/admin/vat/threshold` moved by the NET amount, not the gross.
 
-## What to check, in order
+## Giving it back
 
-Give it about a minute; the receipt is drained by a background job, not by the
-webhook.
-
-| # | Check | Where | Expected |
-|---|---|---|---|
-| 1 | The webhook was accepted | `kubectl --context notrf01 -n meshsat-hub logs deploy/hub \| grep kofi` | `kofi: plan granted`, with the tenant id. **A `verification token mismatch` line here is defect 1 above** — the token is wrong, fix it in OpenBao and ask Ko-fi to resend. |
-| 2 | The plan changed | Settings → usage panel | `crew`, 24 devices and bridges, and a paid-to date about 32 days out |
-| 3 | The customer was told | the paying address's inbox | "Your MeshSat Hub plan is now crew", from `MeshSat Hub <billing@meshsat.net>`, naming the exact moment it runs to |
-| 4 | The receipt was issued | same inbox, may be a minute later | An Invoice Ninja PDF, series `MSH2026-…`, EUR 9.00 gross with BTW 21 broken out as 7.44 + 1.56 |
-| 5 | Nothing was double-applied | `GET /api/admin/payments/unmatched` | empty — a payment that landed here means the claim code did not match |
-| 6 | The document is in the books | Invoice Ninja, company 2 | one invoice, marked paid, no gap in the number series |
-
-## If the receipt does not arrive
-
-It is queued, not lost. `GET /api/admin/receipts/blocked` lists anything parked for
-a person, with the reason. Fix the cause and `POST /api/admin/receipts/{id}/requeue`.
-A receipt is never dropped: money was taken, so the document is owed.
+- [ ] Refund the charge **in Stripe**, and touch nothing in the Hub.
+- [ ] A refund row appears on its own with `requested_by = stripe`. Nobody
+      calls `POST /api/admin/receipts/{id}/refund`. If that step is needed, the
+      webhook did not arrive and the whole point of the migration is unproven.
+- [ ] A credit note `MSHCN2026-000n` is issued and emailed with its PDF.
+- [ ] The invoice nets to zero and the credit is applied, not left sitting.
+- [ ] The plan comes back down.
 
 ## Afterwards
 
-Keep the payload. Copy the `data` field from the webhook delivery in Ko-fi's
-settings page into `internal/kofi/testdata/` as the golden fixture, so the parser
-is finally tested against something Ko-fi wrote rather than against itself.
+- [ ] Decide whether to purge the documents. If this was your own card, purging
+      and rewinding the counters keeps `MSH2026-0001` for the first real
+      customer. If it was somebody else's money, **keep them**: they are that
+      person's tax documents and the counters stay where they are.
+- [ ] Note the date here, and what the first number actually issued was.
 
-Cancel the membership on Ko-fi if you do not want it to renew — cancelling sends no
-webhook, which is by design: the plan simply runs to the date it is paid to.
+## What this proves that test mode cannot
+
+Only three things, and they are the three that matter: the live secret key
+works, the live signing secret matches what Stripe sends, and the webhook
+endpoint URL is correct. Everything else — the events, the ordering, the VAT
+gate, the documents, the emails — is already proven by `stripe-suite.py` in test
+mode, which is the whole reason for leaving Ko-fi.
