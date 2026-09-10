@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/meshsat/meshsat-hub/internal/billing"
 	"github.com/meshsat/meshsat-hub/internal/plans"
 )
 
@@ -125,8 +126,8 @@ func TestConcurrentDeliveriesOfOneRetryGrantOnce(t *testing.T) {
 	if exp == nil {
 		t.Fatal("no plan granted at all")
 	}
-	if d := time.Until(*exp); d > Period+time.Minute {
-		t.Fatalf("plan runs %v out, more than one Period -- a concurrent delivery stacked", d)
+	if d := time.Until(*exp); d > billing.Period+time.Minute {
+		t.Fatalf("plan runs %v out, more than one billing.Period -- a concurrent delivery stacked", d)
 	}
 }
 

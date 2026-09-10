@@ -14,12 +14,12 @@ import (
 
 // --- Tenants (MESHSAT-916) ---
 
-const tenantCols = "id, slug, name, owner_user_id, plan, status, created_at, updated_at, deleted_at, plan_expires_at, kofi_claim_code, kofi_payer_email, kofi_last_message_id, lapse_warned_at, billing_country, billing_country_evidence"
+const tenantCols = "id, slug, name, owner_user_id, plan, status, created_at, updated_at, deleted_at, plan_expires_at, kofi_claim_code, kofi_payer_email, kofi_last_message_id, lapse_warned_at, billing_country, billing_country_evidence, stripe_customer_id, stripe_subscription_id"
 
 func scanTenant(sc interface{ Scan(...any) error }) (store.Tenant, error) {
 	var t store.Tenant
 	var created, updated, deleted, expires, warned string
-	if err := sc.Scan(&t.ID, &t.Slug, &t.Name, &t.OwnerUserID, &t.Plan, &t.Status, &created, &updated, &deleted, &expires, &t.KofiClaimCode, &t.KofiPayerEmail, &t.KofiLastMessageID, &warned, &t.BillingCountry, &t.BillingCountryEvidence); err != nil {
+	if err := sc.Scan(&t.ID, &t.Slug, &t.Name, &t.OwnerUserID, &t.Plan, &t.Status, &created, &updated, &deleted, &expires, &t.KofiClaimCode, &t.KofiPayerEmail, &t.KofiLastMessageID, &warned, &t.BillingCountry, &t.BillingCountryEvidence, &t.StripeCustomerID, &t.StripeSubscriptionID); err != nil {
 		return t, err
 	}
 	t.CreatedAt, t.UpdatedAt = parseTime(created), parseTime(updated)
@@ -60,8 +60,8 @@ func (d *DB) CreateTenant(ctx context.Context, t *store.Tenant) error {
 	}
 	now := time.Now().UTC()
 	t.CreatedAt, t.UpdatedAt = now, now
-	_, err := d.db.ExecContext(ctx, `INSERT INTO tenants (id, slug, name, owner_user_id, plan, status, created_at, updated_at, plan_expires_at, kofi_claim_code, kofi_payer_email, kofi_last_message_id, billing_country, billing_country_evidence) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		t.ID, t.Slug, t.Name, t.OwnerUserID, t.Plan, t.Status, fmtTime(now), fmtTime(now), fmtTimePtr(t.PlanExpiresAt), t.KofiClaimCode, t.KofiPayerEmail, t.KofiLastMessageID, t.BillingCountry, t.BillingCountryEvidence)
+	_, err := d.db.ExecContext(ctx, `INSERT INTO tenants (id, slug, name, owner_user_id, plan, status, created_at, updated_at, plan_expires_at, kofi_claim_code, kofi_payer_email, kofi_last_message_id, billing_country, billing_country_evidence, stripe_customer_id, stripe_subscription_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		t.ID, t.Slug, t.Name, t.OwnerUserID, t.Plan, t.Status, fmtTime(now), fmtTime(now), fmtTimePtr(t.PlanExpiresAt), t.KofiClaimCode, t.KofiPayerEmail, t.KofiLastMessageID, t.BillingCountry, t.BillingCountryEvidence, t.StripeCustomerID, t.StripeSubscriptionID)
 	return err
 }
 
@@ -100,8 +100,8 @@ func (d *DB) ListTenants(ctx context.Context) ([]store.Tenant, error) {
 
 func (d *DB) UpdateTenant(ctx context.Context, t *store.Tenant) error {
 	t.UpdatedAt = time.Now().UTC()
-	_, err := d.db.ExecContext(ctx, `UPDATE tenants SET slug=?, name=?, owner_user_id=?, plan=?, status=?, updated_at=?, plan_expires_at=?, kofi_claim_code=?, kofi_payer_email=?, kofi_last_message_id=?, lapse_warned_at=?, billing_country=?, billing_country_evidence=? WHERE id=?`,
-		t.Slug, t.Name, t.OwnerUserID, t.Plan, t.Status, fmtTime(t.UpdatedAt), fmtTimePtr(t.PlanExpiresAt), t.KofiClaimCode, t.KofiPayerEmail, t.KofiLastMessageID, fmtTimePtr(t.LapseWarnedAt), t.BillingCountry, t.BillingCountryEvidence, t.ID)
+	_, err := d.db.ExecContext(ctx, `UPDATE tenants SET slug=?, name=?, owner_user_id=?, plan=?, status=?, updated_at=?, plan_expires_at=?, kofi_claim_code=?, kofi_payer_email=?, kofi_last_message_id=?, lapse_warned_at=?, billing_country=?, billing_country_evidence=?, stripe_customer_id=?, stripe_subscription_id=? WHERE id=?`,
+		t.Slug, t.Name, t.OwnerUserID, t.Plan, t.Status, fmtTime(t.UpdatedAt), fmtTimePtr(t.PlanExpiresAt), t.KofiClaimCode, t.KofiPayerEmail, t.KofiLastMessageID, fmtTimePtr(t.LapseWarnedAt), t.BillingCountry, t.BillingCountryEvidence, t.StripeCustomerID, t.StripeSubscriptionID, t.ID)
 	return err
 }
 
@@ -239,4 +239,37 @@ func (d *DB) EnsureClaimCode(ctx context.Context, tenantID, candidate string) (s
 		return "", err
 	}
 	return code, nil
+}
+
+// TenantByStripeCustomer resolves the events that carry a customer id and no
+// metadata of their own. See the Postgres twin.
+func (d *DB) TenantByStripeCustomer(ctx context.Context, customerID string) (*store.Tenant, error) {
+	if strings.TrimSpace(customerID) == "" {
+		return nil, store.ErrNotFound
+	}
+	t, err := scanTenant(d.db.QueryRowContext(ctx,
+		"SELECT "+tenantCols+" FROM tenants WHERE stripe_customer_id=?", customerID))
+	if err != nil {
+		return nil, err
+	}
+	return &t, nil
+}
+
+// ApplyStripeEvent records an event id and reports whether this call recorded
+// it. See the Postgres twin for why this is a compare-and-set.
+func (d *DB) ApplyStripeEvent(ctx context.Context, eventID, tenantID string) (bool, error) {
+	if strings.TrimSpace(eventID) == "" {
+		return false, fmt.Errorf("sqlite: a Stripe event id is required")
+	}
+	res, err := d.db.ExecContext(ctx,
+		`INSERT OR IGNORE INTO stripe_events (event_id, tenant_id, applied_at) VALUES (?, ?, ?)`,
+		eventID, tenantID, fmtTime(time.Now().UTC()))
+	if err != nil {
+		return false, err
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return false, err
+	}
+	return n == 1, nil
 }

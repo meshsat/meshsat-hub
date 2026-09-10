@@ -28,6 +28,9 @@ import (
 type PaymentsHandler struct {
 	audit *audit.Service
 	store store.Store
+	// taxRate is the inclusive rate stored figures carry, so the threshold can
+	// report supplies rather than the money that changed hands.
+	taxRate float64
 }
 
 // NewPaymentsHandler returns a handler over the audit log's payment records
@@ -35,6 +38,11 @@ type PaymentsHandler struct {
 func NewPaymentsHandler(a *audit.Service, s store.Store) *PaymentsHandler {
 	return &PaymentsHandler{audit: a, store: s}
 }
+
+// SetTaxRate tells the threshold meter what rate to strip out of the stored
+// gross. Without it the meter reports the money that changed hands rather than
+// the supplies made, which is 21% too high.
+func (h *PaymentsHandler) SetTaxRate(pct float64) { h.taxRate = pct }
 
 type unmatchedPaymentResponse struct {
 	RecordedAt string          `json:"recorded_at"`
@@ -211,11 +219,15 @@ func (h *PaymentsHandler) VATThreshold(w http.ResponseWriter, r *http.Request) {
 	out := vatThresholdResponse{
 		Year: year, ThresholdCents: vat.Threshold, ByCountry: map[string]int64{},
 	}
+	// Everything stored is the GROSS the customer paid. The threshold is
+	// measured on supplies excluding VAT, so strip it before totalling -- the
+	// meter used to report the gross and therefore read 21% high.
+	exVAT := func(cents int64) int64 { return vat.NetOfInclusive(cents, h.taxRate) }
 	for c, cents := range byCountry {
 		if !vat.CountsTowardThreshold(c) {
 			continue
 		}
-		net := cents - refunded[c]
+		net := exVAT(cents) - exVAT(refunded[c])
 		if net < 0 {
 			// A refund of a sale from an earlier year, or a figure a person
 			// should look at. Never let it pull the total below what was
@@ -227,11 +239,12 @@ func (h *PaymentsHandler) VATThreshold(w http.ResponseWriter, r *http.Request) {
 	}
 	for c, cents := range refunded {
 		if vat.CountsTowardThreshold(c) {
-			out.RefundedCents += cents
+			out.RefundedCents += exVAT(cents)
 		}
 	}
 	out.PercentUsed = float64(out.CrossBorderCents) / float64(vat.Threshold) * 100
-	out.Note = "Cross-border B2C sales to other EU member states this calendar year, net of refunds. " +
+	out.Note = "Cross-border B2C sales to other EU member states this calendar year, " +
+		"excluding VAT and net of refunds. " +
 		"Dutch 21% may be charged on these while the total stays under the threshold. " +
 		"Above it, the customer's own country rate applies and OSS registration is required."
 	writeJSON(w, http.StatusOK, out)

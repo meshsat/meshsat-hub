@@ -36,8 +36,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/meshsat/meshsat-hub/internal/billing"
 	"github.com/meshsat/meshsat-hub/internal/invoiceninja"
-	"github.com/meshsat/meshsat-hub/internal/kofi"
 	"github.com/meshsat/meshsat-hub/internal/mail"
 	"github.com/meshsat/meshsat-hub/internal/store"
 )
@@ -331,7 +331,7 @@ func (j *Job) reversePlan(ctx context.Context, r *store.Refund, receipt *store.R
 		// with an end date.
 		return time.Time{}
 	}
-	shortened := t.PlanExpiresAt.Add(-kofi.Period)
+	shortened := t.PlanExpiresAt.Add(-billing.Period)
 	t.PlanExpiresAt = &shortened
 	if err := j.store.UpdateTenant(ctx, t); err != nil {
 		slog.Error("refunds: could not shorten the plan after a refund",
@@ -447,14 +447,14 @@ func productKey(plan string) string {
 	switch plan {
 	case "":
 		return "MeshSat Hub subscription"
-	case kofi.DonationPlan:
+	case billing.DonationPlan:
 		return "MeshSat Hub support"
 	}
 	return "MeshSat Hub " + strings.ToUpper(plan[:1]) + plan[1:]
 }
 
 func description(plan, tierName string) string {
-	if plan == kofi.DonationPlan {
+	if plan == billing.DonationPlan {
 		return "Support for MeshSat Hub"
 	}
 	name := tierName
