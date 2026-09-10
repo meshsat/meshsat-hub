@@ -40,6 +40,8 @@ type ReceiptStore interface {
 	MarkReceiptIssued(ctx context.Context, id, invoiceNumber, invoiceRef string, at time.Time) error
 	MarkReceiptAttempt(ctx context.Context, id, errMsg string, nextAttempt time.Time) error
 	BlockReceipt(ctx context.Context, id, reason string) error
+	ClaimReceipt(ctx context.Context, id string, until time.Time) (bool, error)
+	ReleaseReceipt(ctx context.Context, id string) error
 }
 
 // Issuer is the billing system. Satisfied by *invoiceninja.Client.
@@ -182,9 +184,35 @@ func (j *ReceiptJob) Once(ctx context.Context) {
 		if ctx.Err() != nil {
 			return
 		}
-		j.issue(ctx, &due[i])
+		r := &due[i]
+		// Claim the row before the billing system is touched at all. The lease
+		// is what stops two drainers drawing two invoice numbers for one
+		// payment, and it does not depend on the leader handover timing being
+		// generous enough -- a drainer that dies mid-issue just lets the lease
+		// expire (MESHSAT-998).
+		won, err := j.store.ClaimReceipt(ctx, r.ID, now.Add(receiptLease))
+		if err != nil {
+			slog.Error("kofi: could not claim a receipt; leaving it for the next pass",
+				"receipt", r.ID, "error", err)
+			continue
+		}
+		if !won {
+			slog.Info("kofi: another drainer holds this receipt", "receipt", r.ID)
+			continue
+		}
+		j.issue(ctx, r)
+		if err := j.store.ReleaseReceipt(ctx, r.ID); err != nil {
+			slog.Warn("kofi: could not release a receipt lease; it expires on its own",
+				"receipt", r.ID, "error", err)
+		}
 	}
 }
+
+// receiptLease bounds how long one drainer may hold a receipt row. Long enough
+// to cover a billing call that runs to its 30 s timeout with room to spare,
+// short enough that a drainer killed mid-issue does not strand the customer's
+// document for long.
+const receiptLease = 5 * time.Minute
 
 // maxBackoff caps the retry interval. There is no attempt limit: a receipt is
 // a document somebody is owed for money already taken, so it is never

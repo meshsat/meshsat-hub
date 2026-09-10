@@ -91,7 +91,7 @@ func (d *DB) ListDueReceipts(ctx context.Context, now time.Time, limit int) ([]s
 		limit = 50
 	}
 	rows, err := d.db.QueryContext(ctx, "SELECT "+receiptCols+` FROM receipts
-		WHERE status=$1 AND next_attempt_at<=$2 ORDER BY created_at, id LIMIT $3`,
+		WHERE status=$1 AND next_attempt_at<=$2 AND leased_until<$2 ORDER BY created_at, id LIMIT $3`,
 		store.ReceiptPending, now.UTC(), limit)
 	if err != nil {
 		return nil, err
@@ -176,4 +176,30 @@ func (d *DB) RequeueReceipt(ctx context.Context, id string, at time.Time) error 
 		return store.ErrNotFound
 	}
 	return nil
+}
+
+// ClaimReceipt leases a receipt row to one drainer. The conditional UPDATE is
+// the whole mechanism: the database decides the winner, so two drainers cannot
+// both believe they may draw an invoice number for the same payment.
+func (d *DB) ClaimReceipt(ctx context.Context, id string, until time.Time) (bool, error) {
+	now := time.Now().UTC()
+	res, err := d.db.ExecContext(ctx,
+		`UPDATE receipts SET leased_until = $1, updated_at = $2 WHERE id = $3 AND leased_until < $2`,
+		until.UTC(), now, id)
+	if err != nil {
+		return false, err
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return false, err
+	}
+	return n == 1, nil
+}
+
+// ReleaseReceipt drops the lease so a receipt due again shortly is not held for
+// the rest of it.
+func (d *DB) ReleaseReceipt(ctx context.Context, id string) error {
+	_, err := d.db.ExecContext(ctx,
+		`UPDATE receipts SET leased_until = $1 WHERE id = $2`, time.Unix(0, 0).UTC(), id)
+	return err
 }
