@@ -7,6 +7,8 @@ import (
 	"time"
 
 	pahomqtt "github.com/eclipse/paho.mqtt.golang"
+
+	hubmqtt "github.com/meshsat/meshsat-hub/internal/mqtt"
 )
 
 // --- test doubles -----------------------------------------------------------
@@ -243,5 +245,20 @@ func TestRedactURL(t *testing.T) {
 		if got := redactURL(in); got != want {
 			t.Errorf("redactURL(%q) = %q, want %q", in, got, want)
 		}
+	}
+}
+
+// TestPublishRefusesWildcardTopic: the broker would drop the connection and
+// paho would resend the same publish on every reconnect (MESHSAT-1022), so
+// the bus refuses the topic before it reaches the client.
+func TestPublishRefusesWildcardTopic(t *testing.T) {
+	fc := &fakeClient{}
+	b := &Bus{inner: fc}
+	err := b.Publish("meshsat/+31653618463/mo/decoded", 1, false, []byte("{}"))
+	if !errors.Is(err, hubmqtt.ErrWildcardTopic) {
+		t.Fatalf("err = %v, want ErrWildcardTopic", err)
+	}
+	if err := b.Publish("meshsat/%2B31653618463/mo/decoded", 1, false, []byte("{}")); err != nil {
+		t.Fatalf("encoded topic refused: %v", err)
 	}
 }
