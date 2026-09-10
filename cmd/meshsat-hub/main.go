@@ -1711,6 +1711,21 @@ func main() {
 		r.Post("/{id}/approve", signupHandler.Approve)
 		r.Post("/{id}/reject", signupHandler.Reject)
 	})
+	// Payments that upgraded nobody. Matching is deliberately not a guess, so
+	// some payments land here; without a surface they were a log line and
+	// nothing else (MESHSAT-1007).
+	paymentsHandler := api.NewPaymentsHandler(auditSvc, dataStore)
+	r.Route("/api/admin/payments", func(r chi.Router) {
+		r.Use(hubauth.RequirePlatformAdmin())
+		r.Get("/unmatched", paymentsHandler.ListUnmatched)
+	})
+	// Blocked receipts were a one-way door: money taken for a document that
+	// could not be issued, with nothing anywhere to list it or retry it.
+	r.Route("/api/admin/receipts", func(r chi.Router) {
+		r.Use(hubauth.RequirePlatformAdmin())
+		r.Get("/blocked", paymentsHandler.ListBlockedReceipts)
+		r.Post("/{id}/requeue", paymentsHandler.RequeueReceipt)
+	})
 	r.Route("/api/admin/tenants", func(r chi.Router) {
 		r.Use(hubauth.RequirePlatformAdmin())
 		r.Get("/", tenantHandler.AdminList)

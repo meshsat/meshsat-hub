@@ -19,6 +19,19 @@ const pending = ref([])
 const roles = ref({})
 const busy = ref('')
 
+// The policy stamps an RFC3339 instant. Show it the way the Hub's own mail
+// does -- an exact moment in a stated zone -- rather than a bare date, so an
+// operator in another timezone is not doing arithmetic to read a consent
+// record.
+function acceptedOn(v) {
+  const d = new Date(v)
+  if (isNaN(d)) return v
+  return d.toLocaleString(undefined, {
+    weekday: 'short', day: '2-digit', month: 'short', year: 'numeric',
+    hour: '2-digit', minute: '2-digit', timeZoneName: 'short',
+  })
+}
+
 async function load() {
   loading.value = true
   try {
@@ -92,6 +105,8 @@ onMounted(() => { if (auth.user?.platform_admin) load() })
           <div v-if="s.callsign"><dt class="text-ms-muted2 inline">Callsign: </dt><dd class="text-ms-text2 inline">{{ s.callsign }}</dd></div>
           <div v-if="s.matrix_id"><dt class="text-ms-muted2 inline">Matrix: </dt><dd class="text-ms-text2 inline font-mono">{{ s.matrix_id }}</dd></div>
           <div v-if="s.signup_ip"><dt class="text-ms-muted2 inline">Signed up from: </dt><dd class="text-ms-text2 inline font-mono">{{ s.signup_ip }}</dd></div>
+          <div v-if="s.hardware"><dt class="text-ms-muted2 inline">Hardware: </dt><dd class="text-ms-text2 inline">{{ s.hardware }}</dd></div>
+          <div v-if="s.terms_accepted_at"><dt class="text-ms-muted2 inline">Accepted terms: </dt><dd class="text-ms-text2 inline">{{ acceptedOn(s.terms_accepted_at) }}</dd></div>
         </dl>
         <p v-if="s.intended_use" class="mt-2 text-xs text-ms-text2">{{ s.intended_use }}</p>
         <div class="mt-3 flex flex-wrap items-center gap-2">

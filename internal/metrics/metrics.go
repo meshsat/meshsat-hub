@@ -142,6 +142,14 @@ var (
 		Help: "Number of HeMB bond groups configured per bridge.",
 	}, []string{"bridge_id"})
 
+	// KofiUnmatchedPaymentsTotal counts subscription payments that matched no
+	// tenant. Money arrived and nobody was upgraded: somebody has to look at
+	// it, and until this existed the only trace was a log line (MESHSAT-1007).
+	KofiUnmatchedPaymentsTotal = promauto.NewCounter(prometheus.CounterOpts{
+		Name: "meshsat_hub_kofi_unmatched_payments_total",
+		Help: "Ko-fi subscription payments that could not be matched to a tenant.",
+	})
+
 	// DTN custody transfer metrics (MESHSAT-491)
 
 	// CustodyAcceptedTotal counts custody offers accepted by the Hub.
