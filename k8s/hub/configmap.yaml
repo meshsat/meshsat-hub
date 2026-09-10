@@ -144,6 +144,25 @@ data:
   # so a Ko-fi tier literally called "Crew" or "Fleet" needs nothing here.
   # HUB_KOFI_TIER_MAP: "Crew Membership=crew,Fleet Membership=fleet"
 
+  # --- Stripe (MESHSAT-1023), replacing Ko-fi ---
+  #
+  # Commented out until the prices exist in Stripe. The three secrets
+  # (HUB_STRIPE_SECRET_KEY, HUB_STRIPE_WEBHOOK_SECRET, HUB_STRIPE_PATH_SECRET)
+  # live in the ExternalSecret and are commented out there for a different and
+  # sharper reason -- see that file.
+  #
+  # A price that names anything but crew or fleet is REFUSED at load: custom and
+  # beta are unlimited and operator-set, and a typo here must cost a log line
+  # rather than an uncapped plan.
+  #
+  # Before switching this on, turn OFF the Stripe dashboard's
+  # Settings > Tax > Integrations > "Use automatic tax". It is on with no NL
+  # registration behind it, which would put EUR 0 VAT on transactions raised
+  # from a VAT-registered business. Ko-fi traffic never touched it; this does.
+  # HUB_STRIPE_PRICES: "price_XXXXcrew=crew,price_XXXXfleet=fleet"
+  # HUB_STRIPE_DONATION_PRICE: "price_XXXXdonation"
+  # HUB_STRIPE_TIMEOUT: "20s"
+
   # --- customer receipts (MESHSAT-998) ---
   # A Ko-fi payment is recorded in the receipts outbox either way; these decide
   # whether a document is actually issued for it. HUB_INVOICENINJA_TOKEN is a
