@@ -103,3 +103,39 @@ func CountsTowardThreshold(country string) bool {
 // supplies of electronically supplied services below which a supplier may
 // charge its home rate. Measured excluding VAT.
 const Threshold = 10_000_00
+
+// NetOfInclusive strips the VAT out of a gross amount charged at ratePercent.
+//
+// Every figure the Hub stores is the GROSS the customer paid, because the
+// company derives VAT out of the price rather than adding it on. The EUR 10 000
+// threshold, though, is measured on the TAXABLE amount — supplies excluding VAT
+// — so counting the gross overstates the distance travelled by the rate itself:
+// a EUR 9.00 sale is EUR 7.44 of supply and EUR 1.56 of somebody else's money.
+//
+// Left uncorrected this reports 21% more than was supplied. That errs towards
+// alarming early rather than late, which is why it survived unnoticed, but the
+// threshold is the basis for charging a flat Dutch rate at all and a meter that
+// is knowingly wrong is not a meter.
+//
+// Rounds half away from zero, matching the billing system's own line rounding,
+// and returns the gross unchanged for a rate that makes no sense rather than
+// inventing a number.
+func NetOfInclusive(grossCents int64, ratePercent float64) int64 {
+	if ratePercent <= 0 || ratePercent >= 100 {
+		return grossCents
+	}
+	// Integer arithmetic on hundredths of a percent, so a rate like 21 or 9 is
+	// exact and no float rounding creeps into a tax figure.
+	basis := int64(ratePercent*100 + 0.5) // 21% -> 2100
+	num := grossCents * 10000
+	den := 10000 + basis
+	neg := num < 0
+	if neg {
+		num = -num
+	}
+	out := (num + den/2) / den
+	if neg {
+		return -out
+	}
+	return out
+}

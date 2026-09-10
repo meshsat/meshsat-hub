@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/meshsat/meshsat-hub/internal/billing"
 	"github.com/meshsat/meshsat-hub/internal/plans"
 	"github.com/meshsat/meshsat-hub/internal/store"
 )
@@ -256,7 +257,7 @@ func TestPayment_RenewalStacks(t *testing.T) {
 		TierName: "Crew", Message: "AB2K9XYZ", KofiTransactionID: "txn-5",
 	})
 	got, _ := st.GetTenant(context.Background(), "t-a")
-	want := future.Add(Period)
+	want := future.Add(billing.Period)
 	if got.PlanExpiresAt == nil || got.PlanExpiresAt.Sub(want).Abs() > time.Minute {
 		t.Errorf("expiry = %v, want %v (the remaining time should carry over)", got.PlanExpiresAt, want)
 	}
@@ -300,44 +301,6 @@ func TestNewClaimCode(t *testing.T) {
 	}
 	if len(seen) < 190 {
 		t.Errorf("only %d distinct codes in 200 draws", len(seen))
-	}
-}
-
-// A lapse drops the tier and nothing else. This is the commercial half of the
-// SOS invariant: see TestSOSSurvivesTheQuota in internal/quota for the other.
-func TestLapse_DowngradesOnlyExpiredPaidPlans(t *testing.T) {
-	st := newStore()
-	past := time.Now().UTC().Add(-time.Hour)
-	future := time.Now().UTC().Add(time.Hour)
-	st.tenants[0].Plan, st.tenants[0].PlanExpiresAt = plans.Crew, &past
-	st.tenants[1].Plan, st.tenants[1].PlanExpiresAt = plans.Fleet, &future
-	st.tenants = append(st.tenants,
-		store.Tenant{ID: "t-custom", Plan: plans.Custom, PlanExpiresAt: &past},
-		store.Tenant{ID: store.DefaultTenantID, Plan: plans.Beta, PlanExpiresAt: &past},
-	)
-
-	forgotten := map[string]bool{}
-	j := NewLapseJob(st, nil, func(id string) { forgotten[id] = true })
-	j.Once(context.Background())
-
-	a, _ := st.GetTenant(context.Background(), "t-a")
-	if a.Plan != plans.Free || a.PlanExpiresAt != nil {
-		t.Errorf("expired crew = %q/%v, want free/nil", a.Plan, a.PlanExpiresAt)
-	}
-	if !forgotten["t-a"] {
-		t.Error("the lapse was not announced to the other replicas")
-	}
-	b, _ := st.GetTenant(context.Background(), "t-b")
-	if b.Plan != plans.Fleet {
-		t.Errorf("an unexpired plan was lapsed: %q", b.Plan)
-	}
-	c, _ := st.GetTenant(context.Background(), "t-custom")
-	if c.Plan != plans.Free {
-		t.Errorf("expired custom = %q, want free", c.Plan)
-	}
-	d, _ := st.GetTenant(context.Background(), store.DefaultTenantID)
-	if d.Plan != plans.Beta {
-		t.Errorf("the platform tenant was lapsed: %q", d.Plan)
 	}
 }
 
