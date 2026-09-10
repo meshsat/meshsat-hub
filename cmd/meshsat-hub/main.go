@@ -71,6 +71,7 @@ import (
 	"github.com/meshsat/meshsat-hub/internal/protocol"
 	"github.com/meshsat/meshsat-hub/internal/quota"
 	"github.com/meshsat/meshsat-hub/internal/ratelimit"
+	"github.com/meshsat/meshsat-hub/internal/refunds"
 	"github.com/meshsat/meshsat-hub/internal/reticulum"
 	"github.com/meshsat/meshsat-hub/internal/rock7"
 	"github.com/meshsat/meshsat-hub/internal/rockblock"
@@ -1490,6 +1491,11 @@ func main() {
 	} else {
 		slog.Warn("mail: no relay configured; approvals, plan changes and lapse warnings will not be sent; set HUB_SMTP_RELAY")
 	}
+	// The billing client is shared: receipts issue documents through it and
+	// refunds reverse them through it. Declared out here so the refund job can
+	// run even when Ko-fi's own credentials are absent -- a refund reverses a
+	// payment this Hub already recorded and needs nothing from Ko-fi.
+	var inClient *invoiceninja.Client
 	if cfg.KofiWebhookSecret != "" && cfg.KofiVerificationToken != "" {
 		kofiHandler := kofi.NewHandler(dataStore, cfg.KofiVerificationToken)
 		kofiHandler.SetAudit(auditSvc)
@@ -1507,7 +1513,7 @@ func main() {
 		// down delays a receipt instead of making Ko-fi replay the payment.
 		kofiHandler.SetReceipts(dataStore)
 		if cfg.InvoiceNinjaURL != "" && cfg.InvoiceNinjaToken != "" {
-			inClient := invoiceninja.New(cfg.InvoiceNinjaURL, cfg.InvoiceNinjaToken, cfg.InvoiceNinjaTimeout)
+			inClient = invoiceninja.New(cfg.InvoiceNinjaURL, cfg.InvoiceNinjaToken, cfg.InvoiceNinjaTimeout)
 			inClient.TaxName = cfg.InvoiceNinjaTaxName
 			inClient.TaxRate = cfg.InvoiceNinjaTaxRate
 			inClient.Currency = cfg.InvoiceNinjaCurrency
@@ -1525,16 +1531,36 @@ func main() {
 			go func() {
 				ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 				defer cancel()
-				switch on, err := inClient.VerifyInclusiveTaxes(ctx); {
-				case err != nil:
-					slog.Warn("invoiceninja: could not verify inclusive taxes; receipts assume it is on",
-						"error", err)
-				case !on:
+				st, err := inClient.InspectCompany(ctx)
+				if err != nil {
+					slog.Warn("invoiceninja: could not inspect the target company; "+
+						"receipts assume inclusive taxes and a per-company sender", "error", err)
+					return
+				}
+				if !st.InclusiveTaxes {
 					slog.Error("invoiceninja: THE TARGET COMPANY HAS INCLUSIVE TAXES OFF. " +
 						"Every receipt will add VAT on top of the price the customer already paid " +
 						"instead of deriving it out. Turn it back on before the next payment.")
-				default:
-					slog.Info("invoiceninja: inclusive taxes confirmed on the target company")
+				}
+				// The per-company sender is reached only through the switch's
+				// default arm in NinjaMailerJob, so this setting has to be the
+				// empty string. 'default' is an explicit case that returns the
+				// instance-wide mailer -- and it is the class default for a new
+				// company, so one click in the web UI silently sends every
+				// receipt out under whichever business owns the instance-wide
+				// address. That is already how credit notes behave, which is
+				// why the Hub sends those itself (MESHSAT-1019).
+				if !st.SenderIsPerCompany() {
+					slog.Error("invoiceninja: THE TARGET COMPANY IS NOT USING ITS OWN SENDER. "+
+						"email_sending_method must be the empty string for the per-company "+
+						"address to apply; receipts will go out under the instance-wide "+
+						"identity of another business instead.",
+						"email_sending_method", st.EmailSendingMethod, "company", st.Name)
+				}
+				if st.InclusiveTaxes && st.SenderIsPerCompany() {
+					slog.Info("invoiceninja: target company verified",
+						"company", st.Name, "inclusive_taxes", true,
+						"reply_to", st.ReplyToEmail)
 				}
 			}()
 		} else {
@@ -1568,6 +1594,31 @@ func main() {
 	lapseJob := kofi.NewLapseJob(dataStore, auditSvc, tenantStatus.Forget)
 	lapseJob.SetMailer(mailer, dataStore, cfg.PublicURL, cfg.UpgradeURL)
 	leaderSingletons.Add("subscription-lapse", lapseJob.Run)
+
+	// Refunds and credit notes (MESHSAT-1019). Registered outside the Ko-fi
+	// block for the same reason the lapse job is: a refund reverses a payment
+	// this Hub already recorded, so it must keep working when Ko-fi's own
+	// credentials are cleared or rotated.
+	//
+	// The customer's copy comes from here rather than from the billing system.
+	// Invoice Ninja 5.13.31 sends credit-note mail through a path with no
+	// per-company sender, so a MeshSat customer would receive their credit note
+	// under the other company's identity on that instance -- proven, not
+	// assumed. The Hub fetches the PDF and sends it from its own address.
+	if inClient != nil {
+		refundJob := refunds.New(dataStore, inClient, auditSvc)
+		refundJob.SetInvalidator(tenantStatus.Forget)
+		if m, ok := mailer.(refunds.Mailer); ok && m != nil {
+			refundJob.SetMailer(m, cfg.PublicURL)
+		}
+		leaderSingletons.Add("refund-issuer", refundJob.Run)
+		slog.Info("refunds: credit notes enabled")
+	} else {
+		// Refunds are still recorded, so nothing is lost -- the documents are
+		// issued whenever the billing system is configured.
+		slog.Warn("refunds: refunds will be recorded but no credit notes issued; " +
+			"set HUB_INVOICENINJA_URL and HUB_INVOICENINJA_TOKEN")
+	}
 
 	// QR provision claim — unauthenticated (nonce IS the auth, single-use, 30min TTL).
 	provisionClaimHandler := api.NewBridgeProvisionHandler(dataStore, bridgeCA, directoryTrustAnchor)
@@ -1736,6 +1787,7 @@ func main() {
 	// some payments land here; without a surface they were a log line and
 	// nothing else (MESHSAT-1007).
 	paymentsHandler := api.NewPaymentsHandler(auditSvc, dataStore)
+	refundsHandler := api.NewRefundsHandler(auditSvc, dataStore)
 	r.Route("/api/admin/payments", func(r chi.Router) {
 		r.Use(hubauth.RequirePlatformAdmin())
 		r.Get("/unmatched", paymentsHandler.ListUnmatched)
@@ -1746,6 +1798,16 @@ func main() {
 		r.Use(hubauth.RequirePlatformAdmin())
 		r.Get("/blocked", paymentsHandler.ListBlockedReceipts)
 		r.Post("/{id}/requeue", paymentsHandler.RequeueReceipt)
+		// Money given back owes the customer a credit note. The money itself
+		// moves by hand in the payment processor, so this records that it did
+		// (MESHSAT-1019).
+		r.Post("/{id}/refund", refundsHandler.RecordRefund)
+	})
+	r.Route("/api/admin/refunds", func(r chi.Router) {
+		r.Use(hubauth.RequirePlatformAdmin())
+		r.Get("/", refundsHandler.ListRefunds)
+		r.Post("/{id}/requeue", refundsHandler.RequeueRefund)
+		r.Delete("/{id}", refundsHandler.DeleteRefund)
 	})
 	// The measurement the flat Dutch rate depends on (MESHSAT-1016).
 	r.With(hubauth.RequirePlatformAdmin()).Get("/api/admin/vat/threshold", paymentsHandler.VATThreshold)
