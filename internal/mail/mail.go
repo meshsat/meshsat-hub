@@ -6,17 +6,23 @@
 // for meshsat.net and is the only hop that reaches the internet, so nothing here
 // needs TLS, authentication or a queue of its own.
 //
-// Deliberately not a general mailer. There is no HTML, no template engine and
-// no retry: these messages are short, plain text, and a failure is logged
+// Deliberately not a general mailer. There is no template engine and no retry:
+// these messages are short, there are six of them, and a failure is logged
 // rather than retried, because none of them is worth wedging the caller. A
 // receipt is not sent from here -- Invoice Ninja sends it, from its own outbox.
 //
-// The one exception is the credit note, which travels as a PDF attached to the
-// plain-text notice that explains it (SendWith). Invoice Ninja can email a
-// credit note itself, but in 5.13.31 that path goes through a mailer with no
-// per-company sender, so a MeshSat customer would receive it under the other
-// company's identity. Sending it from here is the fix, and it keeps the
-// document and the words about it in one message rather than two.
+// Every message is built twice, as text and as HTML, and goes out as
+// multipart/alternative. The HTML is the billing system's own shell (html.go),
+// because a customer receives a Hub notice and an Invoice Ninja receipt about
+// the same payment minutes apart and two visual identities for one company is
+// a reason to distrust both. The text part is not a stub: it carries every
+// fact the HTML does.
+//
+// The credit note additionally travels as a PDF (SendMessageWith). Invoice
+// Ninja can email a credit note itself, but in 5.13.31 that path goes through a
+// mailer with no per-company sender, so a MeshSat customer would receive it
+// under the other company's identity. Sending it from here is the fix, and it
+// keeps the document and the words about it in one message rather than two.
 package mail
 
 import (
@@ -33,9 +39,19 @@ import (
 	"time"
 )
 
+// Message is one message to a customer, in both the shapes a mail client may
+// want it. Text is mandatory; HTML is optional and, when present, the message
+// goes out as multipart/alternative so a plain-text reader still gets a
+// readable version rather than a wall of markup.
+type Message struct {
+	Subject string
+	Text    string
+	HTML    string
+}
+
 // Sender delivers a message. Split out so callers can be tested without a relay.
 type Sender interface {
-	Send(ctx context.Context, to, subject, body string) error
+	SendMessage(ctx context.Context, to string, m Message) error
 }
 
 // Attachment is a file that travels with a message.
@@ -53,7 +69,7 @@ type Attachment struct {
 // not forced to grow a method, and so a test double can implement one without
 // the other.
 type AttachmentSender interface {
-	SendWith(ctx context.Context, to, subject, body string, att Attachment) error
+	SendMessageWith(ctx context.Context, to string, m Message, att Attachment) error
 }
 
 // ErrNotConfigured means no relay address was supplied, so nothing is sent.
@@ -97,14 +113,14 @@ func heloFor(from string) string {
 	return "meshsat.net"
 }
 
-// Send delivers one message. The context bounds the whole conversation.
-func (s *SMTP) Send(ctx context.Context, to, subject, body string) error {
-	return s.deliver(ctx, to, subject, func() string { return s.message(to, subject, body) })
+// SendMessage delivers one message. The context bounds the whole conversation.
+func (s *SMTP) SendMessage(ctx context.Context, to string, m Message) error {
+	return s.deliver(ctx, to, m.Subject, func() string { return s.render(to, m, nil) })
 }
 
-// SendWith delivers one message with a file attached.
-func (s *SMTP) SendWith(ctx context.Context, to, subject, body string, att Attachment) error {
-	return s.deliver(ctx, to, subject, func() string { return s.messageWith(to, subject, body, att) })
+// SendMessageWith delivers one message with a file attached.
+func (s *SMTP) SendMessageWith(ctx context.Context, to string, m Message, att Attachment) error {
+	return s.deliver(ctx, to, m.Subject, func() string { return s.render(to, m, &att) })
 }
 
 func (s *SMTP) deliver(ctx context.Context, to, subject string, render func() string) error {
@@ -205,32 +221,126 @@ func (s *SMTP) headers(to, subject string) *strings.Builder {
 	return &b
 }
 
-// writeBody writes the plain-text body with dot-stuffing: a line that is just
-// "." would end DATA early.
+// writeBody writes a plain-text part, normalising line endings to CRLF.
+//
+// It deliberately does NOT dot-stuff. net/smtp's DATA writer is a
+// textproto.DotWriter, which stuffs on the way out; doing it here as well put
+// two layers on the wire, of which a receiver strips one, so a body line of "."
+// arrived as "..". Every part of the message goes through the same writer, so
+// the QP and base64 parts are covered by the same reasoning.
 func writeBody(b *strings.Builder, body string) {
 	for _, line := range strings.Split(strings.ReplaceAll(body, "\r\n", "\n"), "\n") {
-		if strings.HasPrefix(line, ".") {
-			line = "." + line
-		}
 		b.WriteString(line)
 		b.WriteString("\r\n")
 	}
 }
 
-// messageWith renders a multipart/mixed message: the text the person reads and
-// one file. Used for the credit note, which has to travel with the words that
-// explain it.
-func (s *SMTP) messageWith(to, subject, body string, att Attachment) string {
-	boundary := "meshsat-" + strings.TrimSuffix(s.messageID(), "@"+domainOf(s.From))
-	b := s.headers(to, subject)
-	fmt.Fprintf(b, "Content-Type: multipart/mixed; boundary=%q\r\n", boundary)
-	b.WriteString("Auto-Submitted: auto-generated\r\n")
-	b.WriteString("\r\n")
+// textCTE is the encoding header the plain part needs, if any.
+//
+// A customer's name is whatever their identity provider holds, and half of
+// Europe's are not ASCII. text/plain with no Content-Transfer-Encoding means
+// 7bit, so an unencoded "Jos\u00e9" is 8-bit octets in a part that claims to have
+// none -- undefined at any hop that is not 8BITMIME, and this Hub does not
+// choose its relay's capabilities. Encode when there is something to encode,
+// and leave the ordinary all-ASCII message readable in a raw spool file.
+func textCTE(text string) string {
+	if isASCII(text) {
+		return ""
+	}
+	return "Content-Transfer-Encoding: quoted-printable\r\n"
+}
 
+func writeTextBody(b *strings.Builder, text string) {
+	if isASCII(text) {
+		writeBody(b, text)
+		return
+	}
+	writeQuotedPrintable(b, text)
+}
+
+func isASCII(s string) bool {
+	for i := 0; i < len(s); i++ {
+		if s[i] >= 0x80 {
+			return false
+		}
+	}
+	return true
+}
+
+// render builds the whole MIME message.
+//
+// Four shapes, and the nesting matters. multipart/alternative says "the same
+// content twice, pick one"; multipart/mixed says "these parts are all part of
+// the message". A credit note is both -- two renderings of the words plus a
+// document -- so the alternative goes INSIDE the mixed, which is the only
+// arrangement that shows a reader the HTML and the PDF rather than making them
+// choose between them.
+func (s *SMTP) render(to string, m Message, att *Attachment) string {
+	b := s.headers(to, m.Subject)
+
+	switch {
+	case m.HTML == "" && att == nil:
+		b.WriteString("Content-Type: text/plain; charset=utf-8\r\n")
+		b.WriteString(textCTE(m.Text))
+		b.WriteString(autoSubmitted)
+		b.WriteString("\r\n")
+		writeTextBody(b, m.Text)
+
+	case m.HTML != "" && att == nil:
+		alt := s.boundary("alt")
+		fmt.Fprintf(b, "Content-Type: multipart/alternative; boundary=%q\r\n", alt)
+		b.WriteString(autoSubmitted)
+		b.WriteString("\r\n")
+		writeAlternative(b, alt, m)
+		fmt.Fprintf(b, "--%s--\r\n", alt)
+
+	default:
+		mix := s.boundary("mix")
+		fmt.Fprintf(b, "Content-Type: multipart/mixed; boundary=%q\r\n", mix)
+		b.WriteString(autoSubmitted)
+		b.WriteString("\r\n")
+		fmt.Fprintf(b, "--%s\r\n", mix)
+		if m.HTML == "" {
+			b.WriteString("Content-Type: text/plain; charset=utf-8\r\n")
+			b.WriteString(textCTE(m.Text))
+			b.WriteString("\r\n")
+			writeTextBody(b, m.Text)
+		} else {
+			alt := s.boundary("alt")
+			fmt.Fprintf(b, "Content-Type: multipart/alternative; boundary=%q\r\n\r\n", alt)
+			writeAlternative(b, alt, m)
+			fmt.Fprintf(b, "--%s--\r\n", alt)
+		}
+		writeAttachment(b, mix, *att)
+		fmt.Fprintf(b, "--%s--\r\n", mix)
+	}
+	return b.String()
+}
+
+const autoSubmitted = "Auto-Submitted: auto-generated\r\n"
+
+// boundary returns a delimiter that cannot occur in the content it separates.
+func (s *SMTP) boundary(kind string) string {
+	return "meshsat-" + kind + "-" + strings.TrimSuffix(s.messageID(), "@"+domainOf(s.From))
+}
+
+// writeAlternative writes the plain part then the HTML part. Order is not
+// cosmetic: RFC 2046 says the LAST alternative is the richest, and clients
+// pick accordingly.
+func writeAlternative(b *strings.Builder, boundary string, m Message) {
 	fmt.Fprintf(b, "--%s\r\n", boundary)
-	b.WriteString("Content-Type: text/plain; charset=utf-8\r\n\r\n")
-	writeBody(b, body)
+	b.WriteString("Content-Type: text/plain; charset=utf-8\r\n")
+	b.WriteString(textCTE(m.Text))
+	b.WriteString("\r\n")
+	writeTextBody(b, m.Text)
+	fmt.Fprintf(b, "\r\n--%s\r\n", boundary)
+	b.WriteString("Content-Type: text/html; charset=utf-8\r\n")
+	b.WriteString("Content-Transfer-Encoding: quoted-printable\r\n\r\n")
+	writeQuotedPrintable(b, m.HTML)
+	b.WriteString("\r\n")
+}
 
+func writeAttachment(b *strings.Builder, boundary string, att Attachment) {
 	ct := att.ContentType
 	if ct == "" {
 		ct = "application/octet-stream"
@@ -251,8 +361,55 @@ func (s *SMTP) messageWith(to, subject, body string, att Attachment) string {
 		b.WriteString(enc)
 		b.WriteString("\r\n")
 	}
-	fmt.Fprintf(b, "--%s--\r\n", boundary)
-	return b.String()
+}
+
+// writeQuotedPrintable encodes the HTML part.
+//
+// The shell carries a 32 KB base64 logo on one line, and SMTP has a 998-octet
+// line limit that a raw 8-bit send would blow straight through -- the message
+// would be mangled or refused. quoted-printable also keeps the markup roughly
+// readable in a raw dump, which matters when the next person is reading a spool
+// file to work out whether something was signed.
+func writeQuotedPrintable(b *strings.Builder, s string) {
+	for _, line := range strings.Split(strings.ReplaceAll(s, "\r\n", "\n"), "\n") {
+		writeQPLine(b, line)
+	}
+}
+
+// writeQPLine encodes one source line, inserting soft breaks so no output line
+// runs past 76 characters.
+func writeQPLine(b *strings.Builder, line string) {
+	col := 0
+	emit := func(tok string) {
+		// Never split an escape across the break, and leave room for the "="
+		// that marks the break itself.
+		if col+len(tok) > 75 {
+			b.WriteString("=\r\n")
+			col = 0
+		}
+		b.WriteString(tok)
+		col += len(tok)
+	}
+	for i := 0; i < len(line); i++ {
+		c := line[i]
+		switch {
+		case c == ' ' || c == '\t':
+			// Whitespace at the end of a line must be encoded. A receiver is
+			// entitled to strip trailing whitespace before a line break, and
+			// would do it silently, so the encoding is what preserves it.
+			if i == len(line)-1 {
+				emit(fmt.Sprintf("=%02X", c))
+			} else {
+				emit(string(c))
+			}
+		case c >= 33 && c <= 126 && c != '=':
+			emit(string(c))
+		default:
+			// Everything else, which covers UTF-8 byte by byte.
+			emit(fmt.Sprintf("=%02X", c))
+		}
+	}
+	b.WriteString("\r\n")
 }
 
 // safeFilename keeps a filename inside a header. Nothing user-supplied reaches
@@ -282,26 +439,17 @@ func domainOf(addr string) string {
 	return "meshsat.net"
 }
 
-func (s *SMTP) message(to, subject, body string) string {
-	b := s.headers(to, subject)
-	b.WriteString("Content-Type: text/plain; charset=utf-8\r\n")
-	b.WriteString("Auto-Submitted: auto-generated\r\n")
-	b.WriteString("\r\n")
-	writeBody(b, body)
-	return b.String()
-}
-
 // SendOrLog sends and swallows the error into a log line. Every caller in the
 // Hub uses this: none of these messages is worth failing an approval, a payment
 // or a lapse over, and all of them are recoverable by a person.
-func SendOrLog(ctx context.Context, s Sender, to, subject, body, what string) {
+func SendOrLog(ctx context.Context, s Sender, to string, m Message, what string) {
 	if s == nil {
 		slog.Debug("mail: no relay configured, not sending", "what", what, "to", to)
 		return
 	}
-	if err := s.Send(ctx, to, subject, body); err != nil {
+	if err := s.SendMessage(ctx, to, m); err != nil {
 		slog.Error("mail: could not send", "what", what, "to", to, "error", err)
 		return
 	}
-	slog.Info("mail: sent", "what", what, "to", to)
+	slog.Info("mail: sent", "what", what, "to", to, "html", m.HTML != "")
 }
