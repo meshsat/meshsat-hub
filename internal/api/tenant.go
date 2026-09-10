@@ -83,6 +83,13 @@ type adminUpdateTenantRequest struct {
 	Name   string `json:"name,omitempty"`
 	Plan   string `json:"plan,omitempty"`
 	Status string `json:"status,omitempty"`
+	// PlanExpiresAt sets or clears when the plan lapses back to free. A
+	// pointer, so the three cases stay distinguishable: absent leaves it
+	// alone, "" clears it, and a date sets it. Nothing anywhere could write
+	// this field before, so an operator-set plan on a tenant that still
+	// carried a Ko-fi expiry lapsed back to free on its own, and fixing it
+	// meant going into the database by hand (MESHSAT-989).
+	PlanExpiresAt *string `json:"plan_expires_at,omitempty"`
 }
 
 // Get returns the signed-in user's tenant.
@@ -299,6 +306,22 @@ func (h *TenantHandler) AdminUpdate(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		t.Status = v
+	}
+	if req.PlanExpiresAt != nil {
+		switch v := strings.TrimSpace(*req.PlanExpiresAt); v {
+		case "":
+			// An operator-set plan is meant to be permanent: no expiry, so the
+			// lapse job never looks at it again.
+			t.PlanExpiresAt = nil
+		default:
+			when, err := time.Parse(time.RFC3339, v)
+			if err != nil {
+				writeError(w, http.StatusBadRequest, "plan_expires_at must be RFC3339, or \"\" to clear it")
+				return
+			}
+			when = when.UTC()
+			t.PlanExpiresAt = &when
+		}
 	}
 	if err := h.store.UpdateTenant(r.Context(), t); err != nil {
 		writeError(w, http.StatusInternalServerError, "update failed")
