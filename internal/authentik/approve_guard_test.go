@@ -51,7 +51,7 @@ func newFake(t *testing.T, user map[string]any) (*Client, *fakeAK) {
 
 func pendingUser() map[string]any {
 	return map[string]any{
-		"pk": 7, "username": "alice", "email": "alice@example.com",
+		"pk": 7, "username": "alice", "email": "alice@example.com", "name": "Alice Example",
 		"is_active": false, "groups": []string{"g-pending"},
 		"attributes": map[string]any{"email_verified": true, "signup_ip": "203.0.113.9"},
 	}
@@ -59,12 +59,12 @@ func pendingUser() map[string]any {
 
 func TestApprove_HappyPathActivatesAndMovesGroup(t *testing.T) {
 	c, f := newFake(t, pendingUser())
-	ip, email, err := c.Approve(context.Background(), 7, "owner")
+	ip, email, name, err := c.Approve(context.Background(), 7, "owner")
 	if err != nil {
 		t.Fatalf("approve: %v", err)
 	}
-	if ip != "203.0.113.9" || email != "alice@example.com" {
-		t.Fatalf("returned %q / %q", ip, email)
+	if ip != "203.0.113.9" || email != "alice@example.com" || name != "Alice Example" {
+		t.Fatalf("returned %q / %q / %q", ip, email, name)
 	}
 	if len(f.patches) != 1 {
 		t.Fatalf("want 1 patch, got %d", len(f.patches))
@@ -94,7 +94,7 @@ func TestApprove_RefusesAnAccountThatIsNotAPendingSignup(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			c, f := newFake(t, tc.user)
-			if _, _, err := c.Approve(context.Background(), 7, "owner"); !errors.Is(err, ErrNotPending) {
+			if _, _, _, err := c.Approve(context.Background(), 7, "owner"); !errors.Is(err, ErrNotPending) {
 				t.Fatalf("err = %v, want ErrNotPending", err)
 			}
 			if len(f.patches) != 0 {
@@ -108,7 +108,7 @@ func TestApprove_RefusesUnverifiedEmail(t *testing.T) {
 	u := pendingUser()
 	u["attributes"] = map[string]any{"email_verified": false}
 	c, f := newFake(t, u)
-	if _, _, err := c.Approve(context.Background(), 7, "owner"); !errors.Is(err, ErrEmailNotVerified) {
+	if _, _, _, err := c.Approve(context.Background(), 7, "owner"); !errors.Is(err, ErrEmailNotVerified) {
 		t.Fatalf("err = %v, want ErrEmailNotVerified", err)
 	}
 	if len(f.patches) != 0 {

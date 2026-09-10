@@ -510,4 +510,10 @@ CREATE TABLE IF NOT EXISTS kofi_deliveries (
 );
 CREATE INDEX IF NOT EXISTS idx_kofi_deliveries_tenant ON kofi_deliveries (tenant_id, applied_at);
 `},
+	// v12 remembers that a lapse warning was sent, so the hourly job does not
+	// mail hourly. It counts for the expiry it was sent for, so a renewal that
+	// pushes the date out re-arms the warning.
+	{Version: 12, Name: "tenant_lapse_warned_at", SQL: `
+ALTER TABLE tenants ADD COLUMN IF NOT EXISTS lapse_warned_at TIMESTAMPTZ;
+`},
 }
