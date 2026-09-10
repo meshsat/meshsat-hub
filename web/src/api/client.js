@@ -326,6 +326,9 @@ export const tenant = {
   invites: () => fetchJSON('/tenant/invites'),
   invite: (data) => fetchJSON('/tenant/invites', { method: 'POST', body: JSON.stringify(data) }),
   revokeInvite: (id) => fetchJSON(`/tenant/invites/${id}`, { method: 'DELETE' }),
+  // Billing (MESHSAT-1023). Both return { url } to send the customer to.
+  checkout: (plan) => fetchJSON('/tenant/billing/checkout', { method: 'POST', body: JSON.stringify({ plan }) }),
+  billingPortal: () => fetchJSON('/tenant/billing/portal', { method: 'POST' }),
 }
 
 // Beta requests waiting for a decision (MESHSAT-978). Platform admins only;

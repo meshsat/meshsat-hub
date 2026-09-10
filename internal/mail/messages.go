@@ -57,8 +57,8 @@ The MeshSat team`, greeting(name), hubURL)
 	}
 }
 
-// PlanChanged confirms a payment was applied. Sent on a Ko-fi grant, so the
-// customer has something from us and not only from the payment processor.
+// PlanChanged confirms a payment was applied, so the customer has something
+// from us and not only from the payment processor.
 func PlanChanged(name, plan string, devices int, expires time.Time, hubURL string) Message {
 	limit := fmt.Sprintf("%d devices and bridges together", devices)
 	cell := fmt.Sprintf("%d together", devices)
@@ -75,8 +75,9 @@ Thank you. Your payment has been applied and your plan is now %s, which covers
 
 It runs to %s.
 
-Ko-fi tells us about payments, not cancellations, so your plan simply runs to
-the moment it is paid to. Renewals stack, so paying early is never punished.
+It renews on its own until you cancel it, and you can cancel or change your
+card yourself from the Settings page at any time. If you cancel, your plan ends
+straight away and nothing you have registered is deleted or stops reporting.
 
 Your usage is on the Settings page:
 
@@ -93,8 +94,9 @@ The MeshSat team`, greeting(name), plan, limit, when, hubURL)
 			{"Devices and bridges", esc(cell)},
 			{"Runs to", esc(when)},
 		}) +
-		para("Ko-fi tells us about payments, not cancellations, so your plan simply runs to the "+
-			"moment it is paid to. Renewals stack, so paying early is never punished.") +
+		para("It renews on its own until you cancel it, and you can cancel or change your card "+
+			"yourself from the Settings page at any time. If you cancel, your plan ends straight "+
+			"away and nothing you have registered is deleted or stops reporting.") +
 		para("Your usage is on the Settings page: "+link(hubURL)) +
 		note("Your receipt, with the VAT included in the price, is sent separately.") +
 		lastPara("The MeshSat team")
@@ -116,10 +118,8 @@ func LapseWarning(name, plan string, expires time.Time, upgradeURL, claimCode st
 	if claimCode != "" {
 		code = fmt.Sprintf(`
 
-Put your claim code %s in the Ko-fi message so the payment reaches your
-account.`, claimCode)
-		codeHTML = note("Put your claim code " + strong(esc(claimCode)) +
-			" in the Ko-fi message so the payment reaches your account.")
+Quote %s if you need to contact us about this.`, claimCode)
+		codeHTML = note("Quote " + strong(esc(claimCode)) + " if you need to contact us about this.")
 	}
 
 	text := fmt.Sprintf(`%s

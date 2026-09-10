@@ -117,3 +117,58 @@ func TestSQLitePathEnv(t *testing.T) {
 		t.Errorf("env not applied: %+v", cfg)
 	}
 }
+
+// The ExternalSecret renders a key missing from the backing store as the
+// literal string "<no value>". It is not empty, so every `!= ""` guard in the
+// Hub would accept it and boot believing billing was configured while holding a
+// credential that cannot work. This has cost this codebase a silent
+// misconfiguration once already (MESHSAT-998).
+func TestAMissingSecretRendersAsNoValueAndIsRefused(t *testing.T) {
+	for _, name := range []string{
+		"HUB_STRIPE_SECRET_KEY", "HUB_STRIPE_WEBHOOK_SECRET", "HUB_STRIPE_PATH_SECRET",
+	} {
+		t.Setenv(name, "<no value>")
+	}
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if cfg.StripeSecretKey != "" || cfg.StripeWebhookSecret != "" || cfg.StripePathSecret != "" {
+		t.Fatalf("an unrendered secret was accepted as configured: key=%q whsec=%q path=%q",
+			cfg.StripeSecretKey, cfg.StripeWebhookSecret, cfg.StripePathSecret)
+	}
+}
+
+// And a real value still arrives, so the guard is not just refusing everything.
+func TestARealStripeSecretIsAccepted(t *testing.T) {
+	t.Setenv("HUB_STRIPE_SECRET_KEY", "sk_test_abc")
+	t.Setenv("HUB_STRIPE_WEBHOOK_SECRET", "whsec_abc")
+	t.Setenv("HUB_STRIPE_PATH_SECRET", "pathsecret")
+	t.Setenv("HUB_STRIPE_PRICES", "price_a=crew, price_b=fleet")
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if cfg.StripeSecretKey != "sk_test_abc" || cfg.StripeWebhookSecret != "whsec_abc" {
+		t.Errorf("secrets not read: %+v", cfg.StripeSecretKey)
+	}
+	if cfg.StripePrices["price_a"] != "crew" || cfg.StripePrices["price_b"] != "fleet" {
+		t.Errorf("prices not parsed: %v", cfg.StripePrices)
+	}
+}
+
+// The three secrets are separate on purpose. The signing secret authenticates a
+// delivery and must never end up in a URL, which travels through consoles, logs
+// and support tickets.
+func TestThePathSecretIsNotTheSigningSecret(t *testing.T) {
+	t.Setenv("HUB_STRIPE_WEBHOOK_SECRET", "whsec_theRealOne")
+	t.Setenv("HUB_STRIPE_PATH_SECRET", "someOtherThing")
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if cfg.StripePathSecret == cfg.StripeWebhookSecret {
+		t.Fatal("the path secret and the signing secret are the same value; " +
+			"the signing secret would then be in every request URL")
+	}
+}

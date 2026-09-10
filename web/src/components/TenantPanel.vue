@@ -20,7 +20,6 @@ const inviteRole = ref('operator')
 const inviting = ref(false)
 const error = ref('')
 const usage = ref(null)
-const copied = ref(false)
 
 // Devices and bridges share one ceiling, because that is the number somebody
 // can count against their own kit. -1 means the plan has no ceiling.
@@ -32,14 +31,39 @@ const usageBadge = computed(() => {
   return 'bg-emerald-900/50 text-emerald-300 border-emerald-700/50'
 })
 
-async function copyClaimCode() {
-  if (!usage.value?.claim_code) return
+// Checkout starts here rather than at an external link, so the session carries
+// this tenant and the payment can never arrive unattributed.
+const billingInHub = computed(() => usage.value?.billing?.provider === 'stripe')
+const checkoutBusy = ref(false)
+
+// Only the tiers that can actually be bought. custom and beta are operator-set
+// and unlimited, and the server refuses to sell them; offering them here would
+// produce a button that always fails.
+const buyable = computed(() =>
+  (usage.value?.tiers || []).filter((t) => t.plan === 'crew' || t.plan === 'fleet'))
+
+async function subscribe(plan) {
+  if (checkoutBusy.value) return
+  checkoutBusy.value = true
   try {
-    await navigator.clipboard.writeText(usage.value.claim_code)
-    copied.value = true
-    setTimeout(() => { copied.value = false }, 2000)
-  } catch {
-    toast.error('Could not copy. Select the code and copy it by hand.')
+    const { url } = await tenantApi.checkout(plan)
+    // Same tab: a popup blocker eating a payment page looks like a broken button.
+    window.location.href = url
+  } catch (e) {
+    toast.error(e?.message || 'Could not start checkout. Please try again.')
+    checkoutBusy.value = false
+  }
+}
+
+async function manageBilling() {
+  if (checkoutBusy.value) return
+  checkoutBusy.value = true
+  try {
+    const { url } = await tenantApi.billingPortal()
+    window.location.href = url
+  } catch (e) {
+    toast.error(e?.message || 'Could not open the billing portal.')
+    checkoutBusy.value = false
   }
 }
 
@@ -148,7 +172,7 @@ onMounted(load)
             <template v-if="unlimited">{{ usage.used }} devices</template>
             <template v-else>{{ usage.used }} / {{ usage.limit }} devices</template>
           </span>
-          <a v-if="usage.upgrade_url" :href="usage.upgrade_url" target="_blank" rel="noopener noreferrer"
+          <a v-if="!billingInHub && usage.upgrade_url" :href="usage.upgrade_url" target="_blank" rel="noopener noreferrer"
             class="ml-auto px-3 py-1 bg-brand-primary hover:bg-brand-accent text-ms-on-primary text-xs font-medium rounded transition-colors">
             Support &amp; upgrade
           </a>
@@ -178,19 +202,21 @@ onMounted(load)
           </li>
         </ul>
 
-        <div v-if="usage.claim_code" class="mt-3">
-          <label class="block text-xs text-ms-muted2 mb-1">Your claim code</label>
-          <div class="flex flex-wrap items-center gap-2">
-            <code class="px-2 py-1 bg-ms-well border border-ms-border rounded font-mono text-sm text-ms-text tracking-widest">{{ usage.claim_code }}</code>
-            <button @click="copyClaimCode" type="button"
-              class="px-2 py-1 border border-ms-border rounded text-xs text-ms-text2 hover:text-ms-text hover:border-ms-border-light transition-colors">
-              {{ copied ? 'Copied' : 'Copy' }}
-            </button>
-          </div>
-          <p class="text-[11px] text-ms-muted mt-1">
-            Put this in the message when you <strong>start</strong> your membership, so the payment
-            reaches this account. Ko-fi only sends a message with the first payment; after that we
-            recognise you by the address you paid from, so renewals need nothing from you.
+        <div v-if="billingInHub" class="mt-3 flex flex-wrap items-center gap-2">
+          <button v-for="tier in buyable" :key="tier.plan" type="button"
+            :disabled="checkoutBusy || tier.current"
+            @click="subscribe(tier.plan)"
+            class="px-3 py-1.5 bg-brand-primary hover:bg-brand-accent text-ms-on-primary text-xs font-medium rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed capitalize">
+            {{ tier.current ? tier.plan + ' — current' : 'Subscribe to ' + tier.plan }}
+          </button>
+          <button v-if="usage.billing?.manageable" type="button" :disabled="checkoutBusy"
+            @click="manageBilling"
+            class="px-3 py-1.5 border border-ms-border rounded text-xs text-ms-text2 hover:text-ms-text hover:border-ms-border-light transition-colors disabled:opacity-50">
+            Manage billing
+          </button>
+          <p class="w-full text-[11px] text-ms-muted mt-1">
+            Payment is handled by Stripe. Cancel or change your card whenever you like — your
+            devices keep reporting either way, and an SOS is never affected by billing.
           </p>
         </div>
       </div>
