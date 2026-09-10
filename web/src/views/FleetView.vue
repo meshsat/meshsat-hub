@@ -111,6 +111,11 @@ async function addBridge() {
     addForm.value = { bridge_id: '', label: '' }
     showAddForm.value = false
     await loadBridges()
+    // Refresh the ceiling too: a bridge counts against the same allowance as a
+    // device, so the one that just filled it has to disable the Add button.
+    // Without this the counter and atCap stayed stale until a page reload and
+    // the next attempt came back as a server 402. Devices.vue already did this.
+    await loadUsage()
     // Start onboarding flow
     onboardingBridgeId.value = newId
     onboardingStep.value = 1
