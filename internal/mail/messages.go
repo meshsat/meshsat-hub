@@ -76,8 +76,9 @@ Thank you. Your payment has been applied and your plan is now %s, which covers
 It runs to %s.
 
 It renews on its own until you cancel it, and you can cancel or change your
-card yourself from the Settings page at any time. If you cancel, your plan ends
-straight away and nothing you have registered is deleted or stops reporting.
+card yourself from the Settings page at any time. Cancelling stops the next
+renewal: you keep the plan until %s, which you have already paid for. Nothing
+you have registered is ever deleted or stops reporting.
 
 Your usage is on the Settings page:
 
@@ -85,7 +86,7 @@ Your usage is on the Settings page:
 
 Your receipt, with the VAT included in the price, is sent separately.
 
-The MeshSat team`, greeting(name), plan, limit, when, hubURL)
+The MeshSat team`, greeting(name), plan, limit, when, when, hubURL)
 
 	html := para(esc(greeting(name))) +
 		para("Thank you. Your payment has been applied.") +
@@ -95,8 +96,9 @@ The MeshSat team`, greeting(name), plan, limit, when, hubURL)
 			{"Runs to", esc(when)},
 		}) +
 		para("It renews on its own until you cancel it, and you can cancel or change your card "+
-			"yourself from the Settings page at any time. If you cancel, your plan ends straight "+
-			"away and nothing you have registered is deleted or stops reporting.") +
+			"yourself from the Settings page at any time. Cancelling stops the next renewal: you "+
+			"keep the plan until "+esc(when)+", which you have already paid for. Nothing you have "+
+			"registered is ever deleted or stops reporting.") +
 		para("Your usage is on the Settings page: "+link(hubURL)) +
 		note("Your receipt, with the VAT included in the price, is sent separately.") +
 		lastPara("The MeshSat team")

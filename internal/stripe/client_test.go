@@ -269,6 +269,9 @@ func TestASignedInDonationCarriesTheTenantToo(t *testing.T) {
 	}
 	if form.Get("metadata["+MetadataKind+"]") != KindDonation {
 		t.Errorf("marker lost: %v", form)
+	}
+}
+
 // The hosted page's logo and title come from the ACCOUNT, and the account's own
 // key cannot change them ("you may only use it on connected accounts"), so that
 // half is a dashboard job. It is done: acct_1UEGj54j5c6KcLiz is MeshSat Hub's
