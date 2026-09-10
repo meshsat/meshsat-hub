@@ -456,3 +456,81 @@ func TestInclusiveTaxesOffIsReportedNotSwallowed(t *testing.T) {
 		t.Error("inclusive taxes reported on when the company says off")
 	}
 }
+
+// TestVerifyInclusiveTaxesPicksTheTokensOwnCompany pins a live defect
+// (MESHSAT-1019).
+//
+// GET /companies lists the ACCOUNT's companies, not the token's. This instance
+// has two, and the first is the other business with inclusive taxes OFF -- so
+// the guard shipped in MESHSAT-1016 has been reporting on a company these
+// receipts never touch. Only per-company endpoints enforce the token's scope.
+func TestVerifyInclusiveTaxesPicksTheTokensOwnCompany(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/api/v1/companies":
+			// data[0] is the other business, exactly as on the real instance.
+			_, _ = w.Write([]byte(`{"data":[
+				{"id":"other","settings":{"name":"Other Co","inclusive_taxes":false}},
+				{"id":"ours","settings":{"name":"MeshSat Hub","inclusive_taxes":true}}]}`))
+		case "/api/v1/companies/other":
+			w.WriteHeader(http.StatusUnauthorized)
+			_, _ = w.Write([]byte(`{"message":"unauthorized"}`))
+		case "/api/v1/companies/ours":
+			_, _ = w.Write([]byte(`{"data":{"id":"ours","settings":{"inclusive_taxes":true}}}`))
+		default:
+			t.Fatalf("unexpected path %s", r.URL.Path)
+		}
+	}))
+	defer srv.Close()
+
+	on, err := New(srv.URL, "token", 5*time.Second).VerifyInclusiveTaxes(context.Background())
+	if err != nil {
+		t.Fatalf("VerifyInclusiveTaxes: %v", err)
+	}
+	if !on {
+		t.Fatal("the guard read the other company on the instance, not the one this token issues into")
+	}
+}
+
+// TestVerifyInclusiveTaxesRefusesToGuess. A false all-clear lets every receipt
+// add VAT on top of a price the customer already paid.
+func TestVerifyInclusiveTaxesRefusesToGuess(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if r.URL.Path == "/api/v1/companies" {
+			_, _ = w.Write([]byte(`{"data":[
+				{"id":"a","settings":{"inclusive_taxes":false}},
+				{"id":"b","settings":{"inclusive_taxes":false}}]}`))
+			return
+		}
+		w.WriteHeader(http.StatusUnauthorized)
+		_, _ = w.Write([]byte(`{"message":"unauthorized"}`))
+	}))
+	defer srv.Close()
+
+	if _, err := New(srv.URL, "token", 5*time.Second).VerifyInclusiveTaxes(context.Background()); err == nil {
+		t.Fatal("the guard guessed a company instead of saying it could not tell")
+	}
+}
+
+// A single-company instance needs no probe at all.
+func TestVerifyInclusiveTaxesOnASingleCompanyInstance(t *testing.T) {
+	probes := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if r.URL.Path != "/api/v1/companies" {
+			probes++
+		}
+		_, _ = w.Write([]byte(`{"data":[{"id":"only","settings":{"inclusive_taxes":true}}]}`))
+	}))
+	defer srv.Close()
+
+	on, err := New(srv.URL, "token", 5*time.Second).VerifyInclusiveTaxes(context.Background())
+	if err != nil || !on {
+		t.Fatalf("on=%v err=%v", on, err)
+	}
+	if probes != 0 {
+		t.Fatalf("a single-company instance was probed %d times", probes)
+	}
+}
