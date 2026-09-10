@@ -672,3 +672,29 @@ func TestANonASCIINameIsEncodedInBothParts(t *testing.T) {
 		t.Error("the all-ASCII body is no longer legible in the raw message")
 	}
 }
+
+// The customer portal cancels at_period_end, so the mail must not promise the
+// plan "ends straight away" — the customer keeps what they paid for. A wrong
+// sentence here is a wrong statement about somebody's money, and nothing in a
+// build would ever catch it.
+func TestPlanChangedDescribesCancellationTheWayThePortalActuallyBehaves(t *testing.T) {
+	when := time.Date(2026, 10, 12, 21, 59, 59, 0, time.UTC)
+	m := PlanChanged("Alice", "crew", 24, when, "https://hub.meshsat.net")
+	// Collapse whitespace first: the text part hard-wraps, so a phrase can
+	// straddle a newline and a naive Contains misses it.
+	flat := func(s string) string { return strings.Join(strings.Fields(s), " ") }
+	for _, part := range []struct{ name, body string }{{"text", flat(m.Text)}, {"html", flat(m.HTML)}} {
+		if strings.Contains(part.body, "ends straight away") {
+			t.Errorf("%s part still says the plan ends immediately on cancel; the portal "+
+				"cancels at period end", part.name)
+		}
+		if !strings.Contains(part.body, flat(moment(when))) {
+			t.Errorf("%s part does not say when the paid period actually runs to", part.name)
+		}
+		for _, want := range []string{"stops the next renewal", "already paid for"} {
+			if !strings.Contains(part.body, want) {
+				t.Errorf("%s part is missing %q", part.name, want)
+			}
+		}
+	}
+}
