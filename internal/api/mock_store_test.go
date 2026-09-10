@@ -439,12 +439,6 @@ func (m *mockStore) GetTenantBySlug(context.Context, string) (*store.Tenant, err
 func (m *mockStore) ListTenants(context.Context) ([]store.Tenant, error)            { return nil, nil }
 func (m *mockStore) UpdateTenant(context.Context, *store.Tenant) error              { return nil }
 
-// ApplyKofiDelivery: no API handler grants a plan, so this mock only needs to
-// satisfy the interface. The real behaviour is exercised in internal/kofi.
-func (m *mockStore) ApplyKofiDelivery(context.Context, *store.Tenant, string) (bool, error) {
-	return true, nil
-}
-
 func (m *mockStore) TenantByStripeCustomer(context.Context, string) (*store.Tenant, error) {
 	return nil, store.ErrNotFound
 }
@@ -453,12 +447,6 @@ func (m *mockStore) TenantByStripeCustomer(context.Context, string) (*store.Tena
 // mock always reports that this call was the one that recorded the event.
 func (m *mockStore) ApplyStripeEvent(context.Context, string, string) (bool, error) {
 	return true, nil
-}
-
-// EnsureClaimCode: the conditional write is the point of the real thing, so
-// the mock just echoes the candidate back the way an empty column would.
-func (m *mockStore) EnsureClaimCode(_ context.Context, _, candidate string) (string, error) {
-	return candidate, nil
 }
 
 func (m *mockStore) CreateInvite(context.Context, string, *store.TenantInvite) error { return nil }

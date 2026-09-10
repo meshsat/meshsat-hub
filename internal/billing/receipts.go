@@ -123,7 +123,7 @@ func (j *ReceiptJob) Once(ctx context.Context) {
 	now := j.now().UTC()
 	due, err := j.store.ListDueReceipts(ctx, now, j.batch)
 	if err != nil {
-		slog.Error("kofi: listing receipts to issue failed", "error", err)
+		slog.Error("billing: listing receipts to issue failed", "error", err)
 		return
 	}
 	for i := range due {
@@ -138,17 +138,17 @@ func (j *ReceiptJob) Once(ctx context.Context) {
 		// expire (MESHSAT-998).
 		won, err := j.store.ClaimReceipt(ctx, r.ID, now.Add(receiptLease))
 		if err != nil {
-			slog.Error("kofi: could not claim a receipt; leaving it for the next pass",
+			slog.Error("billing: could not claim a receipt; leaving it for the next pass",
 				"receipt", r.ID, "error", err)
 			continue
 		}
 		if !won {
-			slog.Info("kofi: another drainer holds this receipt", "receipt", r.ID)
+			slog.Info("billing: another drainer holds this receipt", "receipt", r.ID)
 			continue
 		}
 		j.issue(ctx, r)
 		if err := j.store.ReleaseReceipt(ctx, r.ID); err != nil {
-			slog.Warn("kofi: could not release a receipt lease; it expires on its own",
+			slog.Warn("billing: could not release a receipt lease; it expires on its own",
 				"receipt", r.ID, "error", err)
 		}
 	}
@@ -218,9 +218,9 @@ func (j *ReceiptJob) issue(ctx context.Context, r *store.Receipt) {
 		}
 		next := j.now().UTC().Add(backoff(r.Attempts))
 		if err2 := j.store.MarkReceiptAttempt(ctx, r.ID, err.Error(), next); err2 != nil {
-			slog.Error("kofi: could not record a failed receipt attempt", "receipt", r.ID, "error", err2)
+			slog.Error("billing: could not record a failed receipt attempt", "receipt", r.ID, "error", err2)
 		}
-		slog.Warn("kofi: issuing a receipt failed, will retry", "receipt", r.ID, "tenant", r.TenantID,
+		slog.Warn("billing: issuing a receipt failed, will retry", "receipt", r.ID, "tenant", r.TenantID,
 			"attempts", r.Attempts+1, "retry_at", next.Format(time.RFC3339), "error", err)
 		return
 	}
@@ -229,11 +229,11 @@ func (j *ReceiptJob) issue(ctx context.Context, r *store.Receipt) {
 		// The document exists and the customer has it; only our record of that
 		// is missing. Re-issuing would be caught by the balance check, so the
 		// worst case of a retry is a wasted call, not a second invoice.
-		slog.Error("kofi: receipt issued but recording it failed",
+		slog.Error("billing: receipt issued but recording it failed",
 			"receipt", r.ID, "invoice", res.InvoiceNumber, "error", err)
 		return
 	}
-	slog.Info("kofi: receipt issued", "receipt", r.ID, "tenant", r.TenantID, "invoice", res.InvoiceNumber)
+	slog.Info("billing: receipt issued", "receipt", r.ID, "tenant", r.TenantID, "invoice", res.InvoiceNumber)
 	if j.audit != nil {
 		_ = j.audit.Log(ctx, r.TenantID, "receipt_issued", "receipt_job",
 			fmt.Sprintf("invoice %s for %s %s", res.InvoiceNumber, money(r.AmountCents), r.Currency), "")
@@ -242,11 +242,11 @@ func (j *ReceiptJob) issue(ctx context.Context, r *store.Receipt) {
 
 func (j *ReceiptJob) block(ctx context.Context, r *store.Receipt, reason string) {
 	if err := j.store.BlockReceipt(ctx, r.ID, reason); err != nil {
-		slog.Error("kofi: could not park a receipt", "receipt", r.ID, "error", err)
+		slog.Error("billing: could not park a receipt", "receipt", r.ID, "error", err)
 		return
 	}
 	// Loud: money arrived and no document went out. Nothing else will notice.
-	slog.Error("kofi: a paid subscription has no receipt and needs an operator",
+	slog.Error("billing: a paid subscription has no receipt and needs an operator",
 		"receipt", r.ID, "tenant", r.TenantID, "amount_cents", r.AmountCents,
 		"currency", r.Currency, "reason", reason)
 }
