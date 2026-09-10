@@ -7,6 +7,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"github.com/meshsat/meshsat-hub/internal/integrations"
 	"github.com/meshsat/meshsat-hub/internal/tenancy"
@@ -410,7 +411,13 @@ func (h *WebhookHandler) processBinaryPipeline(r *http.Request, w http.ResponseW
 		ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 		defer cancel()
 		if err := h.store.InsertMessage(ctx, tid, dbMsg); err != nil {
-			slog.Warn("sms: persist failed", "error", err)
+			if errors.Is(err, store.ErrDuplicate) {
+				// The message subscriber persists the same id from mo/decoded;
+				// whichever insert lands second is the expected no-op.
+				slog.Debug("sms: already persisted", "id", msgID)
+			} else {
+				slog.Warn("sms: persist failed", "error", err, "id", msgID)
+			}
 		}
 	}
 
@@ -481,7 +488,13 @@ func (h *WebhookHandler) processPlaintextSMS(r *http.Request, w http.ResponseWri
 		ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 		defer cancel()
 		if err := h.store.InsertMessage(ctx, tid, dbMsg); err != nil {
-			slog.Warn("sms: persist failed", "error", err)
+			if errors.Is(err, store.ErrDuplicate) {
+				// The message subscriber persists the same id from mo/decoded;
+				// whichever insert lands second is the expected no-op.
+				slog.Debug("sms: already persisted", "id", msgID)
+			} else {
+				slog.Warn("sms: persist failed", "error", err, "id", msgID)
+			}
 		}
 	}
 

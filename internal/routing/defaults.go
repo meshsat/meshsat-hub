@@ -9,13 +9,16 @@ import (
 
 // DefaultRoutes returns the set of default fanout routes for a new tenant.
 // These ensure satellite messages reach all enabled channels without configuration.
+// Source "satellite" (iridium, iridium_imt, globalstar): an SMS or email that
+// enters the routing engine is not fanned out to TAK, APRS, webhooks and
+// notifications by default (MESHSAT-1022).
 func DefaultRoutes() []store.Route {
 	return []store.Route{
-		{Name: "Satellite → TAK", SourceType: "*", DestinationType: "tak", Enabled: true},
-		{Name: "Satellite → APRS", SourceType: "*", DestinationType: "aprs", Enabled: true},
-		{Name: "Satellite → Webhooks", SourceType: "*", DestinationType: "webhook", Enabled: true},
-		{Name: "Satellite → Notifications", SourceType: "*", DestinationType: "notification", Enabled: true},
-		{Name: "Satellite → MQTT Fanout", SourceType: "*", DestinationType: "mqtt", Enabled: true},
+		{Name: "Satellite → TAK", SourceType: "satellite", DestinationType: "tak", Enabled: true},
+		{Name: "Satellite → APRS", SourceType: "satellite", DestinationType: "aprs", Enabled: true},
+		{Name: "Satellite → Webhooks", SourceType: "satellite", DestinationType: "webhook", Enabled: true},
+		{Name: "Satellite → Notifications", SourceType: "satellite", DestinationType: "notification", Enabled: true},
+		{Name: "Satellite → MQTT Fanout", SourceType: "satellite", DestinationType: "mqtt", Enabled: true},
 	}
 }
 
