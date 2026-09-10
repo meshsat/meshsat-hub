@@ -274,6 +274,16 @@ type Store interface {
 	// retry that arrives after a later payment cannot re-apply. And if the
 	// grant fails the claim rolls back with it, so Ko-fi's retry still works.
 	ApplyKofiDelivery(ctx context.Context, t *Tenant, deliveryKey string) (bool, error)
+
+	// EnsureClaimCode gives a tenant a Ko-fi claim code if it has none and
+	// returns the code it actually carries afterwards. The write is
+	// conditional on the column still being empty, so two concurrent first
+	// readers of the usage endpoint both come away with the same code.
+	// A plain read-then-write let the later write win while the earlier
+	// caller was shown a code that was no longer in the database -- and a
+	// payment quoting that code could never be matched to anyone
+	// (MESHSAT-1005).
+	EnsureClaimCode(ctx context.Context, tenantID, candidate string) (string, error)
 	// SoftDeleteTenant blocks a tenant and starts the grace period. Reversible
 	// with UpdateTenant until PurgeTenant runs.
 	SoftDeleteTenant(ctx context.Context, id string, at time.Time) error
@@ -296,6 +306,16 @@ type Store interface {
 
 	// OIDC identities (MESHSAT-916): maps an IdP subject to a local user.
 	LinkOIDCIdentity(ctx context.Context, id *OIDCIdentity) error
+	// ClaimOIDCIdentity links an identity only if that subject is not linked
+	// yet, and returns the identity that holds the subject afterwards --
+	// another caller's when this one lost, together with claimed=false.
+	//
+	// LinkOIDCIdentity upserts, which is right for a returning user and wrong
+	// for a brand new one: two callbacks for one new subject both provision a
+	// tenant, and the second upsert repoints the subject at its own, leaving
+	// the first fully populated, owned, counted by billing and unreachable by
+	// anybody. The loser needs to know it lost (MESHSAT-1006).
+	ClaimOIDCIdentity(ctx context.Context, id *OIDCIdentity) (*OIDCIdentity, bool, error)
 	GetOIDCIdentity(ctx context.Context, issuer, subject string) (*OIDCIdentity, error)
 	// IsPlatformAdmin reports whether any linked OIDC identity of the user carries
 	// the platform-admin flag (used when a session is refreshed without the IdP).
@@ -335,6 +355,16 @@ type Store interface {
 	// BlockReceipt parks a receipt that needs a person (an unexpected
 	// currency, no address to send it to) rather than retrying forever.
 	BlockReceipt(ctx context.Context, id, reason string) error
+	// ListReceiptsByStatus returns receipts in one state, newest first. The
+	// blocked ones are the reason this exists: they were terminal and
+	// invisible, so money taken for a document nobody could issue simply
+	// stopped being mentioned anywhere (MESHSAT-1007).
+	ListReceiptsByStatus(ctx context.Context, status string, limit int) ([]Receipt, error)
+	// RequeueReceipt puts a blocked receipt back in the drainer's queue after
+	// a person has fixed whatever parked it. Blocked was a one-way door: no
+	// API, no UI and no CLI could reopen it, so the only way to issue the
+	// document was to edit the row by hand.
+	RequeueReceipt(ctx context.Context, id string, at time.Time) error
 }
 
 // OOBPeer is the Hub's out-of-band management pairing with one bridge
