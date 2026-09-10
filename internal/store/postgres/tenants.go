@@ -102,6 +102,44 @@ func (d *DB) UpdateTenant(ctx context.Context, t *store.Tenant) error {
 	return err
 }
 
+// ApplyKofiDelivery claims the delivery and grants the plan in one transaction.
+// If the grant fails the claim rolls back with it, so Ko-fi's retry still works.
+func (d *DB) ApplyKofiDelivery(ctx context.Context, t *store.Tenant, deliveryKey string) (bool, error) {
+	if deliveryKey == "" {
+		return false, fmt.Errorf("postgres: a Ko-fi delivery key is required")
+	}
+	tx, err := d.rawDB.BeginTx(ctx, nil)
+	if err != nil {
+		return false, err
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	res, err := tx.ExecContext(ctx,
+		`INSERT INTO kofi_deliveries (delivery_key, tenant_id, applied_at) VALUES ($1, $2, $3) ON CONFLICT (delivery_key) DO NOTHING`,
+		deliveryKey, t.ID, time.Now().UTC())
+	if err != nil {
+		return false, err
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return false, err
+	}
+	if n == 0 {
+		return false, nil // already applied
+	}
+
+	t.UpdatedAt = time.Now().UTC()
+	if _, err := tx.ExecContext(ctx,
+		`UPDATE tenants SET plan = $1, plan_expires_at = $2, kofi_payer_email = $3, kofi_last_message_id = $4, updated_at = $5 WHERE id = $6`,
+		t.Plan, t.PlanExpiresAt, t.KofiPayerEmail, t.KofiLastMessageID, t.UpdatedAt, t.ID); err != nil {
+		return false, err
+	}
+	if err := tx.Commit(); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
 // --- Tenant invites ---
 
 const inviteCols = "id, tenant_id, email_lower, role, token_hash, expires_at, accepted_at, created_at"
