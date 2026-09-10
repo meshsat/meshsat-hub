@@ -369,6 +369,35 @@ var postAlterMigrations = []string{
 	// MESHSAT-429: HeMB bond group management
 	`CREATE TABLE IF NOT EXISTS bond_groups (id TEXT NOT NULL, tenant_id TEXT NOT NULL DEFAULT 'default', bridge_id TEXT NOT NULL, label TEXT NOT NULL DEFAULT '', members TEXT NOT NULL DEFAULT '[]', cost_budget REAL NOT NULL DEFAULT 0, created_at TEXT NOT NULL DEFAULT (datetime('now')), PRIMARY KEY (tenant_id, bridge_id, id))`,
 	`CREATE INDEX IF NOT EXISTS idx_bond_groups_bridge ON bond_groups(tenant_id, bridge_id)`,
+	// MESHSAT-998: receipt outbox. delivery_key is UNIQUE because that
+	// constraint IS the idempotency check -- a replayed webhook has to fail
+	// the insert rather than be caught by a read that another replica can
+	// interleave with. tenant_id is present so the catalogue-driven export
+	// and purge pick this table up like any other.
+	`CREATE TABLE IF NOT EXISTS receipts (
+		id TEXT PRIMARY KEY,
+		tenant_id TEXT NOT NULL,
+		delivery_key TEXT NOT NULL UNIQUE,
+		transaction_id TEXT NOT NULL DEFAULT '',
+		email TEXT NOT NULL DEFAULT '',
+		name TEXT NOT NULL DEFAULT '',
+		amount_cents INTEGER NOT NULL DEFAULT 0,
+		currency TEXT NOT NULL DEFAULT '',
+		plan TEXT NOT NULL DEFAULT '',
+		tier_name TEXT NOT NULL DEFAULT '',
+		paid_at TEXT NOT NULL DEFAULT '',
+		status TEXT NOT NULL DEFAULT 'pending',
+		attempts INTEGER NOT NULL DEFAULT 0,
+		last_error TEXT NOT NULL DEFAULT '',
+		next_attempt_at TEXT NOT NULL DEFAULT '',
+		invoice_number TEXT NOT NULL DEFAULT '',
+		invoice_ref TEXT NOT NULL DEFAULT '',
+		issued_at TEXT NOT NULL DEFAULT '',
+		created_at TEXT NOT NULL DEFAULT (datetime('now')),
+		updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+	)`,
+	`CREATE INDEX IF NOT EXISTS idx_receipts_due ON receipts(status, next_attempt_at)`,
+	`CREATE INDEX IF NOT EXISTS idx_receipts_tenant ON receipts(tenant_id)`,
 }
 
 // lateAlterMigrations alter tables created in postAlterMigrations.
