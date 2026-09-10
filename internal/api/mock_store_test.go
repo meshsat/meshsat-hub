@@ -13,9 +13,10 @@ type mockStore struct {
 	platformAdmin bool // returned by IsPlatformAdmin
 
 	// Receipts outbox
-	receipts   []store.Receipt
-	requeued   []string
-	requeueErr error
+	crossBorder map[string]int64
+	receipts    []store.Receipt
+	requeued    []string
+	requeueErr  error
 	// Devices
 	devices     []store.Device
 	device      *store.Device
@@ -500,6 +501,10 @@ func (m *mockStore) BlockReceipt(context.Context, string, string) error         
 
 func (m *mockStore) ClaimReceipt(context.Context, string, time.Time) (bool, error) { return true, nil }
 func (m *mockStore) ReleaseReceipt(context.Context, string) error                  { return nil }
+
+func (m *mockStore) CrossBorderSalesSince(context.Context, time.Time) (map[string]int64, error) {
+	return m.crossBorder, nil
+}
 
 func (m *mockStore) ListReceiptsByStatus(context.Context, string, int) ([]store.Receipt, error) {
 	return m.receipts, nil

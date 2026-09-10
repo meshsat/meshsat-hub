@@ -422,6 +422,11 @@ var lateAlterMigrations = []string{
 	// Per-row lease on the receipts outbox: see the Postgres twin. A gapless
 	// invoice series cannot survive two drainers on one row.
 	`ALTER TABLE receipts ADD COLUMN leased_until TEXT NOT NULL DEFAULT ''`,
+	// The buyer's country decides whether Dutch VAT applies at all: see the
+	// Postgres twin and internal/vat.
+	`ALTER TABLE tenants ADD COLUMN billing_country TEXT NOT NULL DEFAULT ''`,
+	`ALTER TABLE tenants ADD COLUMN billing_country_evidence TEXT NOT NULL DEFAULT ''`,
+	`ALTER TABLE receipts ADD COLUMN country TEXT NOT NULL DEFAULT ''`,
 	// MESHSAT-964: last report bearer/time on bridges
 	`ALTER TABLE bridges ADD COLUMN last_report_bearer TEXT NOT NULL DEFAULT ''`,
 	`ALTER TABLE bridges ADD COLUMN last_report_at TEXT`,

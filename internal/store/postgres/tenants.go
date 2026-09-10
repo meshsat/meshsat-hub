@@ -15,12 +15,12 @@ import (
 
 // --- Tenants (MESHSAT-916) ---
 
-const tenantCols = "id, slug, name, owner_user_id, plan, status, created_at, updated_at, deleted_at, plan_expires_at, kofi_claim_code, kofi_payer_email, kofi_last_message_id, lapse_warned_at"
+const tenantCols = "id, slug, name, owner_user_id, plan, status, created_at, updated_at, deleted_at, plan_expires_at, kofi_claim_code, kofi_payer_email, kofi_last_message_id, lapse_warned_at, billing_country, billing_country_evidence"
 
 func scanTenant(sc interface{ Scan(...any) error }) (store.Tenant, error) {
 	var t store.Tenant
 	var del, expires, warned sql.NullTime
-	if err := sc.Scan(&t.ID, &t.Slug, &t.Name, &t.OwnerUserID, &t.Plan, &t.Status, &t.CreatedAt, &t.UpdatedAt, &del, &expires, &t.KofiClaimCode, &t.KofiPayerEmail, &t.KofiLastMessageID, &warned); err != nil {
+	if err := sc.Scan(&t.ID, &t.Slug, &t.Name, &t.OwnerUserID, &t.Plan, &t.Status, &t.CreatedAt, &t.UpdatedAt, &del, &expires, &t.KofiClaimCode, &t.KofiPayerEmail, &t.KofiLastMessageID, &warned, &t.BillingCountry, &t.BillingCountryEvidence); err != nil {
 		return t, err
 	}
 	t.CreatedAt, t.UpdatedAt = utc(t.CreatedAt), utc(t.UpdatedAt)
@@ -61,8 +61,8 @@ func (d *DB) CreateTenant(ctx context.Context, t *store.Tenant) error {
 	}
 	now := time.Now().UTC()
 	t.CreatedAt, t.UpdatedAt = now, now
-	_, err := d.db.ExecContext(ctx, `INSERT INTO tenants (id, slug, name, owner_user_id, plan, status, created_at, updated_at, plan_expires_at, kofi_claim_code, kofi_payer_email, kofi_last_message_id) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
-		t.ID, t.Slug, t.Name, t.OwnerUserID, t.Plan, t.Status, now, now, t.PlanExpiresAt, t.KofiClaimCode, t.KofiPayerEmail, t.KofiLastMessageID)
+	_, err := d.db.ExecContext(ctx, `INSERT INTO tenants (id, slug, name, owner_user_id, plan, status, created_at, updated_at, plan_expires_at, kofi_claim_code, kofi_payer_email, kofi_last_message_id, billing_country, billing_country_evidence) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`,
+		t.ID, t.Slug, t.Name, t.OwnerUserID, t.Plan, t.Status, now, now, t.PlanExpiresAt, t.KofiClaimCode, t.KofiPayerEmail, t.KofiLastMessageID, t.BillingCountry, t.BillingCountryEvidence)
 	return err
 }
 
@@ -101,8 +101,8 @@ func (d *DB) ListTenants(ctx context.Context) ([]store.Tenant, error) {
 
 func (d *DB) UpdateTenant(ctx context.Context, t *store.Tenant) error {
 	t.UpdatedAt = time.Now().UTC()
-	_, err := d.db.ExecContext(ctx, `UPDATE tenants SET slug = $1, name = $2, owner_user_id = $3, plan = $4, status = $5, updated_at = $6, plan_expires_at = $7, kofi_claim_code = $8, kofi_payer_email = $9, kofi_last_message_id = $10, lapse_warned_at = $11 WHERE id = $12`,
-		t.Slug, t.Name, t.OwnerUserID, t.Plan, t.Status, t.UpdatedAt, t.PlanExpiresAt, t.KofiClaimCode, t.KofiPayerEmail, t.KofiLastMessageID, t.LapseWarnedAt, t.ID)
+	_, err := d.db.ExecContext(ctx, `UPDATE tenants SET slug = $1, name = $2, owner_user_id = $3, plan = $4, status = $5, updated_at = $6, plan_expires_at = $7, kofi_claim_code = $8, kofi_payer_email = $9, kofi_last_message_id = $10, lapse_warned_at = $11, billing_country = $12, billing_country_evidence = $13 WHERE id = $14`,
+		t.Slug, t.Name, t.OwnerUserID, t.Plan, t.Status, t.UpdatedAt, t.PlanExpiresAt, t.KofiClaimCode, t.KofiPayerEmail, t.KofiLastMessageID, t.LapseWarnedAt, t.BillingCountry, t.BillingCountryEvidence, t.ID)
 	return err
 }
 

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"strconv"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -301,7 +302,7 @@ func TestDrainerIssuesTheReceipt(t *testing.T) {
 	rc := &memReceipts{}
 	iss := &fakeIssuer{}
 	_, _ = rc.CreateReceipt(context.Background(), &store.Receipt{
-		TenantID: "t-a", DeliveryKey: "msg-1", Email: "alice@example.com", Name: "Alpha",
+		TenantID: "t-a", Country: "NL", DeliveryKey: "msg-1", Email: "alice@example.com", Name: "Alpha",
 		AmountCents: 900, Currency: "EUR", Plan: "crew", TierName: "Crew Membership",
 		PaidAt: time.Now().UTC(),
 	})
@@ -335,7 +336,7 @@ func TestRetryableFailureKeepsTheReceiptPending(t *testing.T) {
 	rc := &memReceipts{}
 	iss := &fakeIssuer{err: &invoiceninja.Error{Status: 502, Op: "create invoice", Body: "bad gateway"}}
 	_, _ = rc.CreateReceipt(context.Background(), &store.Receipt{
-		TenantID: "t-a", DeliveryKey: "msg-1", Email: "alice@example.com",
+		TenantID: "t-a", Country: "NL", DeliveryKey: "msg-1", Email: "alice@example.com",
 		AmountCents: 900, Currency: "EUR", PaidAt: time.Now().UTC(),
 	})
 	now := time.Now().UTC()
@@ -366,7 +367,7 @@ func TestNonRetryableFailureIsParked(t *testing.T) {
 	rc := &memReceipts{}
 	iss := &fakeIssuer{err: &invoiceninja.Error{Status: 422, Op: "create invoice", Body: "validation"}}
 	_, _ = rc.CreateReceipt(context.Background(), &store.Receipt{
-		TenantID: "t-a", DeliveryKey: "msg-1", Email: "alice@example.com",
+		TenantID: "t-a", Country: "NL", DeliveryKey: "msg-1", Email: "alice@example.com",
 		AmountCents: 900, Currency: "EUR", PaidAt: time.Now().UTC(),
 	})
 	j := NewReceiptJob(rc, iss, nil)
@@ -384,7 +385,7 @@ func TestWrongCurrencyIsParkedNotConverted(t *testing.T) {
 	rc := &memReceipts{}
 	iss := &fakeIssuer{err: invoiceninja.ErrWrongCurrency}
 	_, _ = rc.CreateReceipt(context.Background(), &store.Receipt{
-		TenantID: "t-a", DeliveryKey: "msg-1", Email: "alice@example.com",
+		TenantID: "t-a", Country: "NL", DeliveryKey: "msg-1", Email: "alice@example.com",
 		AmountCents: 900, Currency: "USD", PaidAt: time.Now().UTC(),
 	})
 	j := NewReceiptJob(rc, iss, nil)
@@ -398,7 +399,7 @@ func TestNoAddressIsParked(t *testing.T) {
 	rc := &memReceipts{}
 	iss := &fakeIssuer{}
 	_, _ = rc.CreateReceipt(context.Background(), &store.Receipt{
-		TenantID: "t-a", DeliveryKey: "msg-1", AmountCents: 900, Currency: "EUR",
+		TenantID: "t-a", Country: "NL", DeliveryKey: "msg-1", AmountCents: 900, Currency: "EUR",
 		PaidAt: time.Now().UTC(),
 	})
 	j := NewReceiptJob(rc, iss, nil)
@@ -418,7 +419,7 @@ func TestInvoiceIDIsPersistedBeforeTheRetry(t *testing.T) {
 	rc := &memReceipts{}
 	iss := &fakeIssuer{createdInvoice: "inv-99", failOnce: &invoiceninja.Error{Status: 503, Op: "record payment"}}
 	_, _ = rc.CreateReceipt(context.Background(), &store.Receipt{
-		TenantID: "t-a", DeliveryKey: "msg-1", Email: "alice@example.com",
+		TenantID: "t-a", Country: "NL", DeliveryKey: "msg-1", Email: "alice@example.com",
 		AmountCents: 900, Currency: "EUR", PaidAt: time.Now().UTC(),
 	})
 	now := time.Now().UTC()
@@ -466,7 +467,11 @@ func TestReceiptStoreFailureStillAcknowledgesThePayment(t *testing.T) {
 	}
 }
 
-func TestUnparseableAmountRecordsNothing(t *testing.T) {
+// An amount we cannot read is parked, not dropped. It used to return early with
+// only a log line: the plan was granted, no receipt row existed, so the outbox
+// had nothing to retry and the blocked list showed nothing. Money taken, no
+// document, and no way to find out (MESHSAT-1016).
+func TestUnparseableAmountIsParkedForAPerson(t *testing.T) {
 	st, rc := newStore(), &memReceipts{}
 	h := handlerWithReceipts(st, rc)
 	p := paidPayload("msg-1", "txn-1")
@@ -474,8 +479,20 @@ func TestUnparseableAmountRecordsNothing(t *testing.T) {
 	if rr := post(t, h, p); rr.Code != http.StatusOK {
 		t.Fatalf("code = %d", rr.Code)
 	}
-	if len(rc.rows) != 0 {
-		t.Fatalf("an unreadable amount produced a receipt row: %+v", rc.rows[0])
+	if len(rc.rows) != 1 {
+		t.Fatalf("an unreadable amount left %d receipt rows, want 1 parked", len(rc.rows))
+	}
+	row := rc.rows[0]
+	if row.Status != store.ReceiptBlocked {
+		t.Errorf("status = %q, want %q", row.Status, store.ReceiptBlocked)
+	}
+	for _, want := range []string{"nine euros", "could not be read"} {
+		if !strings.Contains(row.LastError, want) {
+			t.Errorf("the parked reason %q does not mention %q", row.LastError, want)
+		}
+	}
+	if row.TransactionID != "txn-1" {
+		t.Errorf("the parked row does not carry the transaction reference an operator needs: %q", row.TransactionID)
 	}
 	// The plan is still granted: somebody paid.
 	got, _ := st.GetTenant(context.Background(), "t-a")
@@ -504,7 +521,7 @@ func TestDrainerSkipsAReceiptAnotherDrainerHolds(t *testing.T) {
 	rc := &memReceipts{held: map[string]bool{}}
 	now := time.Now().UTC()
 	r := &store.Receipt{
-		ID: "rcp-held", TenantID: "default", DeliveryKey: "k-held", Email: "a@b.c",
+		ID: "rcp-held", TenantID: "default", DeliveryKey: "k-held", Email: "a@b.c", Country: "NL",
 		AmountCents: 900, Currency: "EUR", Plan: "crew", Status: store.ReceiptPending,
 		PaidAt: now, NextAttemptAt: now.Add(-time.Minute),
 	}
@@ -534,4 +551,73 @@ type countingIssuer struct{ calls int }
 func (c *countingIssuer) IssueReceipt(_ context.Context, _ invoiceninja.Request) (*invoiceninja.Result, error) {
 	c.calls++
 	return &invoiceninja.Result{InvoiceID: "inv-1", InvoiceNumber: "MSH2026-0001"}, nil
+}
+
+// Where the buyer is decides whether Dutch VAT applies at all, and the question
+// has to be asked BEFORE the billing system is touched: a sent invoice has
+// taken a number out of a gapless series, so a document at the wrong rate
+// cannot simply be deleted afterwards. Every buyer used to be invoiced as Dutch
+// at 21% because the country was never asked for (MESHSAT-1016).
+func TestAReceiptIsParkedUnlessTheCountryAllowsDutchVAT(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		country string
+		issued  bool
+		reason  string
+	}{
+		{"the seller's own country", "NL", true, ""},
+		{"an EU consumer under the threshold", "DE", true, ""},
+		{"a buyer outside the EU", "US", false, "outside the EU"},
+		{"a buyer we cannot place", "", false, "no country on file"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			rc, iss := &memReceipts{}, &countingIssuer{}
+			now := time.Now().UTC()
+			if _, err := rc.CreateReceipt(context.Background(), &store.Receipt{
+				ID: "rcp-" + tc.country, TenantID: "t-a", Country: tc.country,
+				DeliveryKey: "k-" + tc.country, Email: "buyer@example.com", Name: "Buyer",
+				AmountCents: 900, Currency: "EUR", Plan: "crew", TierName: "Crew",
+				PaidAt: now, NextAttemptAt: now.Add(-time.Minute),
+			}); err != nil {
+				t.Fatal(err)
+			}
+			NewReceiptJob(rc, iss, nil).Once(context.Background())
+
+			row := rc.rows[0]
+			if tc.issued {
+				if iss.calls != 1 {
+					t.Fatalf("a %s buyer produced %d billing calls, want 1", tc.country, iss.calls)
+				}
+				return
+			}
+			if iss.calls != 0 {
+				t.Errorf("the billing system was called %d times for a %q buyer; a wrong-rate invoice "+
+					"takes a number out of a gapless series and cannot be undone", iss.calls, tc.country)
+			}
+			if row.Status != store.ReceiptBlocked {
+				t.Errorf("status = %q, want %q", row.Status, store.ReceiptBlocked)
+			}
+			if !strings.Contains(row.LastError, tc.reason) {
+				t.Errorf("parked reason %q does not mention %q", row.LastError, tc.reason)
+			}
+		})
+	}
+}
+
+// A donation is not a subscription and not the free plan. Recording it as
+// plans.Free described a EUR 5 tip as "MeshSat Hub Free, subscription, one
+// month" on the customer's document.
+func TestADonationIsNotDescribedAsASubscription(t *testing.T) {
+	if got := productKey(DonationPlan); got != "MeshSat Hub support" {
+		t.Errorf("product key = %q", got)
+	}
+	got := description(DonationPlan, "Crew")
+	for _, wrong := range []string{"subscription", "one month", "Crew", "Free"} {
+		if strings.Contains(got, wrong) {
+			t.Errorf("a donation line says %q: %q", wrong, got)
+		}
+	}
+	if got == "" {
+		t.Error("a donation line is empty")
+	}
 }
