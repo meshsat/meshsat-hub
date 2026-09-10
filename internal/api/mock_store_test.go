@@ -10,6 +10,7 @@ import (
 
 // mockStore implements store.Store for unit tests with configurable return values.
 type mockStore struct {
+	tenant        *store.Tenant
 	platformAdmin bool // returned by IsPlatformAdmin
 
 	// Receipts outbox
@@ -433,8 +434,13 @@ func (m *mockStore) ListDeadmanConfigs(context.Context) ([]store.DeadmanConfig, 
 func (m *mockStore) DeleteDeadmanConfig(context.Context, string, string) error { return nil }
 
 // --- Tenants (MESHSAT-916) ---
-func (m *mockStore) CreateTenant(context.Context, *store.Tenant) error              { return nil }
-func (m *mockStore) GetTenant(context.Context, string) (*store.Tenant, error)       { return nil, nil }
+func (m *mockStore) CreateTenant(context.Context, *store.Tenant) error { return nil }
+func (m *mockStore) GetTenant(_ context.Context, id string) (*store.Tenant, error) {
+	if m.tenant != nil {
+		return m.tenant, nil
+	}
+	return nil, nil
+}
 func (m *mockStore) GetTenantBySlug(context.Context, string) (*store.Tenant, error) { return nil, nil }
 func (m *mockStore) ListTenants(context.Context) ([]store.Tenant, error)            { return nil, nil }
 func (m *mockStore) UpdateTenant(context.Context, *store.Tenant) error              { return nil }
