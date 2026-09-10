@@ -477,7 +477,11 @@ func (c *Client) VerifyInclusiveTaxes(ctx context.Context) (bool, error) {
 			} `json:"settings"`
 		} `json:"data"`
 	}
-	if err := c.do(ctx, http.MethodGet, "/api/v1/companies", nil, &out, "verify inclusive taxes"); err != nil {
+	// "/companies", not "/api/v1/companies": do() prepends the prefix. With it
+	// doubled the URL is an unknown path, and Invoice Ninja answers those with
+	// its web app at 200 rather than a 404 -- so the status check passed and it
+	// failed on the first '<' instead, which is exactly what production logged.
+	if err := c.do(ctx, http.MethodGet, "/companies", nil, &out, "verify inclusive taxes"); err != nil {
 		return false, err
 	}
 	if len(out.Data) == 0 {
