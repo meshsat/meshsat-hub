@@ -298,7 +298,7 @@ func (j *Job) closeWithoutDocument(ctx context.Context, r *store.Refund, receipt
 				money(r.AmountCents), r.Currency, receipt.ID), "")
 	}
 	if j.mail != nil && receipt.Email != "" {
-		msg := mail.RefundedNoDocument(receipt.Name, money(r.AmountCents)+" "+r.Currency, planEnds, j.hubURL)
+		msg := mail.RefundedNoDocument(receipt.Name, j.customerMoney(r), planEnds, j.hubURL)
 		mail.SendOrLog(ctx, j.mail, receipt.Email, msg, "refund, no document")
 	}
 }
@@ -359,7 +359,7 @@ func (j *Job) notify(ctx context.Context, r *store.Refund, receipt *store.Receip
 	if j.mail == nil || receipt.Email == "" {
 		return
 	}
-	msg := mail.Refunded(receipt.Name, money(r.AmountCents)+" "+r.Currency,
+	msg := mail.Refunded(receipt.Name, j.customerMoney(r),
 		res.CreditNumber, res.InvoiceNumber, planEnds, j.hubURL)
 	pdf, err := j.issuer.CreditPDF(ctx, res.CreditID)
 	if err != nil {
@@ -417,7 +417,22 @@ func backoff(attempts int) time.Duration {
 	return d
 }
 
-// money renders minor units for a log line, an audit line or a customer notice.
+// customerMoney renders an amount for the customer, the way their credit note
+// and invoice render it: "EUR 9,00" for a Dutch buyer, "9,00 EUR" for a German
+// one. The two documents arrive minutes apart and are about the same money, so
+// writing it two ways is the same mismatch as sending them in two different
+// designs (MESHSAT-1019).
+//
+// The country is the one FROZEN ON THE REFUND, which came from the receipt --
+// not the tenant's current one. A customer who moves must not change how an
+// already-issued document reads.
+func (j *Job) customerMoney(r *store.Refund) string {
+	return invoiceninja.FormatMoney(r.AmountCents, r.Currency, r.Country)
+}
+
+// money renders minor units for a log line, an audit line or an API error,
+// where a currency symbol and somebody else's decimal comma help nobody. The
+// customer's copy uses customerMoney instead.
 func money(cents int64) string {
 	sign := ""
 	if cents < 0 {
