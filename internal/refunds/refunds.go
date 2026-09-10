@@ -219,18 +219,24 @@ func (j *Job) issue(ctx context.Context, r *store.Refund) {
 		return
 	}
 
-	// The plan comes back before the customer is told, so the message states
-	// what is true rather than what is about to be.
-	planEnds := j.reversePlan(ctx, r, receipt)
-
+	// Recording the refund comes FIRST, and the order is the whole guard.
+	//
+	// Taking the paid period back is the one step here that is not idempotent:
+	// subtracting a month from a date subtracts a month every time it runs. This
+	// record is what stops the drainer running the pass again, so it has to be
+	// written before anything unrepeatable happens. Reversing the plan first and
+	// recording second means one failed write costs the customer a second month.
 	if err := j.store.MarkRefundIssued(ctx, r.ID, res.CreditNumber, res.CreditID, j.now().UTC()); err != nil {
 		// The credit note exists; only our record of it is missing. A retry
 		// resumes on the same document rather than creating another, so the
-		// worst case is a wasted pass.
+		// worst case is a wasted pass -- and the plan has not moved yet.
 		slog.Error("refunds: credit note issued but recording it failed",
 			"refund", r.ID, "credit", res.CreditNumber, "error", err)
 		return
 	}
+	// Now the period, and then the customer, so the message states what is true
+	// rather than what is about to be.
+	planEnds := j.reversePlan(ctx, r, receipt)
 	slog.Info("refunds: credit note issued", "refund", r.ID, "tenant", r.TenantID,
 		"credit", res.CreditNumber, "invoice", res.InvoiceNumber,
 		"amount_cents", r.AmountCents, "currency", r.Currency)
@@ -254,11 +260,14 @@ func (j *Job) closeWithoutDocument(ctx context.Context, r *store.Refund, receipt
 			return
 		}
 	}
-	planEnds := j.reversePlan(ctx, r, receipt)
+	// Recorded before the period is taken back, for the reason in issue(): the
+	// reversal is the one step that is not idempotent, and this record is what
+	// stops the pass running again.
 	if err := j.store.MarkRefundIssued(ctx, r.ID, "", "", j.now().UTC()); err != nil {
 		j.retry(ctx, r, fmt.Errorf("recording the refund: %w", err))
 		return
 	}
+	planEnds := j.reversePlan(ctx, r, receipt)
 	slog.Info("refunds: refund closed with no credit note; the payment had no invoice",
 		"refund", r.ID, "tenant", r.TenantID, "receipt", receipt.ID)
 	if j.audit != nil {
