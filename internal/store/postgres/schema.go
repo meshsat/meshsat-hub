@@ -498,4 +498,22 @@ CREATE TABLE IF NOT EXISTS receipts (
 CREATE INDEX IF NOT EXISTS idx_receipts_due ON receipts (next_attempt_at) WHERE status = 'pending';
 CREATE INDEX IF NOT EXISTS idx_receipts_tenant ON receipts (tenant_id);
 	`},
+	// v11 gives the plan grant the durable idempotency the receipts outbox
+	// already had. Ko-fi retries until it gets a 200 and does not always send a
+	// message_id; the old guard compared that empty id to an empty column,
+	// matched nothing, and bought another 32 days on every retry.
+	{Version: 11, Name: "kofi_deliveries", SQL: `
+CREATE TABLE IF NOT EXISTS kofi_deliveries (
+    delivery_key VARCHAR(128) PRIMARY KEY,
+    tenant_id    VARCHAR(64)  NOT NULL,
+    applied_at   TIMESTAMPTZ  NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_kofi_deliveries_tenant ON kofi_deliveries (tenant_id, applied_at);
+`},
+	// v12 remembers that a lapse warning was sent, so the hourly job does not
+	// mail hourly. It counts for the expiry it was sent for, so a renewal that
+	// pushes the date out re-arms the warning.
+	{Version: 12, Name: "tenant_lapse_warned_at", SQL: `
+ALTER TABLE tenants ADD COLUMN IF NOT EXISTS lapse_warned_at TIMESTAMPTZ;
+`},
 }
