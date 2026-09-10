@@ -194,10 +194,19 @@ func isRecipientDestination(destType string) bool {
 	return destType == "sms" || destType == "email" || destType == "satellite"
 }
 
+// satelliteChannels are the message channels the "satellite" source covers.
+var satelliteChannels = map[string]bool{"iridium": true, "iridium_imt": true, "globalstar": true}
+
 // matchSource returns true if the route's source matches the message source.
+// "*" matches every channel; "satellite" matches the satellite channels only,
+// so the seeded "Satellite -> ..." fan-out routes stop firing on SMS and
+// email traffic (MESHSAT-1022); anything else is an exact channel name.
 func matchSource(routeSource, msgSource string) bool {
 	if routeSource == "*" {
 		return true
+	}
+	if strings.EqualFold(routeSource, "satellite") {
+		return satelliteChannels[strings.ToLower(msgSource)]
 	}
 	return strings.EqualFold(routeSource, msgSource)
 }

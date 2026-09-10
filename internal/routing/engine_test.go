@@ -16,6 +16,13 @@ func TestMatchSource(t *testing.T) {
 		{"iridium", "globalstar", false},
 		{"globalstar", "iridium", false},
 		{"sms", "sms", true},
+		{"satellite", "iridium", true},
+		{"satellite", "iridium_imt", true},
+		{"satellite", "globalstar", true},
+		{"Satellite", "Iridium", true},
+		{"satellite", "sms", false},
+		{"satellite", "email", false},
+		{"satellite", "", false},
 	}
 	for _, tt := range tests {
 		if got := matchSource(tt.routeSource, tt.msgSource); got != tt.want {
@@ -71,8 +78,14 @@ func TestDefaultRoutes(t *testing.T) {
 		t.Fatalf("expected 5 default routes, got %d", len(routes))
 	}
 	for _, r := range routes {
-		if r.SourceType != "*" {
-			t.Errorf("default route %q: source = %q, want *", r.Name, r.SourceType)
+		if r.SourceType != "satellite" {
+			t.Errorf("default route %q: source = %q, want satellite", r.Name, r.SourceType)
+		}
+		if matchSource(r.SourceType, "sms") {
+			t.Errorf("default route %q must not fire on an SMS", r.Name)
+		}
+		if !matchSource(r.SourceType, "iridium") {
+			t.Errorf("default route %q must fire on an Iridium message", r.Name)
 		}
 		if !r.Enabled {
 			t.Errorf("default route %q: expected enabled", r.Name)
