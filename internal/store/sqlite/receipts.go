@@ -89,8 +89,8 @@ func (d *DB) ListDueReceipts(ctx context.Context, now time.Time, limit int) ([]s
 		limit = 50
 	}
 	rows, err := d.db.QueryContext(ctx, "SELECT "+receiptCols+` FROM receipts
-		WHERE status=? AND next_attempt_at<=? ORDER BY created_at, id LIMIT ?`,
-		store.ReceiptPending, fmtTime(now.UTC()), limit)
+		WHERE status=? AND next_attempt_at<=? AND leased_until<? ORDER BY created_at, id LIMIT ?`,
+		store.ReceiptPending, fmtTime(now.UTC()), fmtTime(now.UTC()), limit)
 	if err != nil {
 		return nil, err
 	}
@@ -177,4 +177,27 @@ func (d *DB) RequeueReceipt(ctx context.Context, id string, at time.Time) error 
 		return store.ErrNotFound
 	}
 	return nil
+}
+
+// ClaimReceipt leases a receipt row to one drainer. See the Postgres twin.
+func (d *DB) ClaimReceipt(ctx context.Context, id string, until time.Time) (bool, error) {
+	now := fmtTime(time.Now().UTC())
+	res, err := d.db.ExecContext(ctx,
+		`UPDATE receipts SET leased_until = ?, updated_at = ? WHERE id = ? AND leased_until < ?`,
+		fmtTime(until.UTC()), now, id, now)
+	if err != nil {
+		return false, err
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return false, err
+	}
+	return n == 1, nil
+}
+
+// ReleaseReceipt drops the lease so a receipt due again shortly is not held for
+// the rest of it.
+func (d *DB) ReleaseReceipt(ctx context.Context, id string) error {
+	_, err := d.db.ExecContext(ctx, `UPDATE receipts SET leased_until = '' WHERE id = ?`, id)
+	return err
 }

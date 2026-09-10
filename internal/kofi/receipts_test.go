@@ -16,10 +16,13 @@ import (
 // memReceipts is the outbox in memory, with the one property that matters
 // preserved: the delivery key is unique and a second insert reports false.
 type memReceipts struct {
-	mu   sync.Mutex
-	rows []*store.Receipt
-	n    int
-	fail bool
+	mu     sync.Mutex
+	rows   []*store.Receipt
+	n      int
+	fail   bool
+	leases map[string]time.Time
+	// heldBy lets a test pretend another drainer already holds a row.
+	held map[string]bool
 }
 
 func (m *memReceipts) CreateReceipt(_ context.Context, r *store.Receipt) (bool, error) {
@@ -112,6 +115,31 @@ func (m *memReceipts) MarkReceiptAttempt(_ context.Context, id, msg string, next
 		e.Attempts++
 		e.LastError, e.NextAttemptAt = msg, next
 	}
+	return nil
+}
+
+// ClaimReceipt models the conditional UPDATE: one winner, and a lease that
+// expires on its own.
+func (m *memReceipts) ClaimReceipt(_ context.Context, id string, until time.Time) (bool, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.held[id] {
+		return false, nil
+	}
+	if m.leases == nil {
+		m.leases = map[string]time.Time{}
+	}
+	if t, ok := m.leases[id]; ok && t.After(time.Now()) {
+		return false, nil
+	}
+	m.leases[id] = until
+	return true, nil
+}
+
+func (m *memReceipts) ReleaseReceipt(_ context.Context, id string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	delete(m.leases, id)
 	return nil
 }
 
@@ -467,4 +495,43 @@ func TestDeliveryKeyPrefersTheMessageID(t *testing.T) {
 	if len(k) < 10 || k[:7] != "digest:" {
 		t.Errorf("key = %q, want a digest fallback", k)
 	}
+}
+
+// The drainer must not touch the billing system for a row another drainer
+// holds. The store's lease is the guard; this pins that the job actually asks
+// for it, and asks BEFORE issuing rather than after (MESHSAT-998).
+func TestDrainerSkipsAReceiptAnotherDrainerHolds(t *testing.T) {
+	rc := &memReceipts{held: map[string]bool{}}
+	now := time.Now().UTC()
+	r := &store.Receipt{
+		ID: "rcp-held", TenantID: "default", DeliveryKey: "k-held", Email: "a@b.c",
+		AmountCents: 900, Currency: "EUR", Plan: "crew", Status: store.ReceiptPending,
+		PaidAt: now, NextAttemptAt: now.Add(-time.Minute),
+	}
+	if _, err := rc.CreateReceipt(context.Background(), r); err != nil {
+		t.Fatal(err)
+	}
+	rc.held["rcp-held"] = true // somebody else has it
+
+	iss := &countingIssuer{}
+	j := NewReceiptJob(rc, iss, nil)
+	j.Once(context.Background())
+
+	if iss.calls != 0 {
+		t.Errorf("the billing system was called %d times for a receipt another drainer holds", iss.calls)
+	}
+
+	// Once released, the same pass picks it up.
+	rc.held["rcp-held"] = false
+	j.Once(context.Background())
+	if iss.calls != 1 {
+		t.Errorf("billing calls after release = %d, want 1", iss.calls)
+	}
+}
+
+type countingIssuer struct{ calls int }
+
+func (c *countingIssuer) IssueReceipt(_ context.Context, _ invoiceninja.Request) (*invoiceninja.Result, error) {
+	c.calls++
+	return &invoiceninja.Result{InvoiceID: "inv-1", InvoiceNumber: "MSH2026-0001"}, nil
 }

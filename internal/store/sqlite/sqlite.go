@@ -419,6 +419,9 @@ var lateAlterMigrations = []string{
 	`ALTER TABLE tenants ADD COLUMN kofi_payer_email TEXT NOT NULL DEFAULT ''`,
 	`ALTER TABLE tenants ADD COLUMN kofi_last_message_id TEXT NOT NULL DEFAULT ''`,
 	`ALTER TABLE tenants ADD COLUMN lapse_warned_at TEXT NOT NULL DEFAULT ''`,
+	// Per-row lease on the receipts outbox: see the Postgres twin. A gapless
+	// invoice series cannot survive two drainers on one row.
+	`ALTER TABLE receipts ADD COLUMN leased_until TEXT NOT NULL DEFAULT ''`,
 	// MESHSAT-964: last report bearer/time on bridges
 	`ALTER TABLE bridges ADD COLUMN last_report_bearer TEXT NOT NULL DEFAULT ''`,
 	`ALTER TABLE bridges ADD COLUMN last_report_at TEXT`,
