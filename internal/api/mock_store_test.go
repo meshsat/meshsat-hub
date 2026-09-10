@@ -17,6 +17,19 @@ type mockStore struct {
 	receipts    []store.Receipt
 	requeued    []string
 	requeueErr  error
+
+	// Refunds (MESHSAT-1019). The handler reads a receipt and writes a refund,
+	// so unlike the receipt outbox these are not all stubs.
+	receipt        *store.Receipt
+	receiptErr     error
+	refunds        []store.Refund
+	createdRefund  *store.Refund
+	refundExists   bool
+	createRefErr   error
+	refundRequeued []string
+	refundReqErr   error
+	refundDeleted  []string
+	refundDelErr   error
 	// Devices
 	devices     []store.Device
 	device      *store.Device
@@ -513,4 +526,69 @@ func (m *mockStore) ListReceiptsByStatus(context.Context, string, int) ([]store.
 func (m *mockStore) RequeueReceipt(_ context.Context, id string, _ time.Time) error {
 	m.requeued = append(m.requeued, id)
 	return m.requeueErr
+}
+
+// Refunds (MESHSAT-1019).
+func (m *mockStore) GetReceipt(context.Context, string) (*store.Receipt, error) {
+	if m.receiptErr != nil {
+		return nil, m.receiptErr
+	}
+	if m.receipt == nil {
+		return nil, store.ErrNotFound
+	}
+	return m.receipt, nil
+}
+
+func (m *mockStore) CreateRefund(_ context.Context, r *store.Refund) (bool, error) {
+	if m.createRefErr != nil {
+		return false, m.createRefErr
+	}
+	if m.refundExists {
+		return false, nil
+	}
+	if r.ID == "" {
+		r.ID = "refund-1"
+	}
+	m.createdRefund = r
+	return true, nil
+}
+
+func (m *mockStore) GetRefund(context.Context, string) (*store.Refund, error) {
+	return nil, store.ErrNotFound
+}
+
+func (m *mockStore) GetRefundByReceipt(context.Context, string) (*store.Refund, error) {
+	return nil, store.ErrNotFound
+}
+
+func (m *mockStore) ListDueRefunds(context.Context, time.Time, int) ([]store.Refund, error) {
+	return nil, nil
+}
+
+func (m *mockStore) ListRefundsByStatus(context.Context, string, int) ([]store.Refund, error) {
+	return m.refunds, nil
+}
+
+func (m *mockStore) SetRefundCredit(context.Context, string, string) error { return nil }
+func (m *mockStore) MarkRefundIssued(context.Context, string, string, string, time.Time) error {
+	return nil
+}
+func (m *mockStore) MarkRefundAttempt(context.Context, string, string, time.Time) error { return nil }
+func (m *mockStore) BlockRefund(context.Context, string, string) error                  { return nil }
+
+func (m *mockStore) RequeueRefund(_ context.Context, id string, _ time.Time) error {
+	m.refundRequeued = append(m.refundRequeued, id)
+	return m.refundReqErr
+}
+
+func (m *mockStore) DeleteRefund(_ context.Context, id string) error {
+	m.refundDeleted = append(m.refundDeleted, id)
+	return m.refundDelErr
+}
+
+func (m *mockStore) ClaimRefund(context.Context, string, time.Time) (bool, error) { return true, nil }
+func (m *mockStore) ReleaseRefund(context.Context, string) error                  { return nil }
+
+func (m *mockStore) RefundsByCountrySince(context.Context, time.Time) (map[string]int64, error) {
+	return nil, nil
 }

@@ -538,4 +538,37 @@ ALTER TABLE tenants  ADD COLUMN IF NOT EXISTS billing_country VARCHAR(2) NOT NUL
 ALTER TABLE tenants  ADD COLUMN IF NOT EXISTS billing_country_evidence VARCHAR(255) NOT NULL DEFAULT '';
 ALTER TABLE receipts ADD COLUMN IF NOT EXISTS country VARCHAR(2) NOT NULL DEFAULT '';
 `},
+	// The terms promise EU consumers 14 days to withdraw and get their money
+	// back, and a Ko-fi payment is refundable in the payment processor. Nothing
+	// produced a document when that happened: the processor's refund emails are
+	// off by deliberate setting and the billing system had no credit-note flow,
+	// so the sale stayed in the books at full value with its VAT declared.
+	//
+	// receipt_id is UNIQUE. A payment is refunded once; a second row against
+	// the same payment would credit money nobody paid twice (MESHSAT-1019).
+	{Version: 15, Name: "refunds", SQL: `
+CREATE TABLE IF NOT EXISTS refunds (
+	id VARCHAR(64) PRIMARY KEY,
+	tenant_id VARCHAR(64) NOT NULL,
+	receipt_id VARCHAR(64) NOT NULL UNIQUE,
+	amount_cents BIGINT NOT NULL DEFAULT 0,
+	currency VARCHAR(8) NOT NULL DEFAULT '',
+	country VARCHAR(2) NOT NULL DEFAULT '',
+	reason TEXT NOT NULL DEFAULT '',
+	requested_by VARCHAR(254) NOT NULL DEFAULT '',
+	refunded_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+	status VARCHAR(16) NOT NULL DEFAULT 'pending',
+	attempts INTEGER NOT NULL DEFAULT 0,
+	last_error TEXT NOT NULL DEFAULT '',
+	next_attempt_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+	credit_number VARCHAR(64) NOT NULL DEFAULT '',
+	credit_ref VARCHAR(64) NOT NULL DEFAULT '',
+	issued_at TIMESTAMPTZ NULL,
+	leased_until TIMESTAMPTZ NOT NULL DEFAULT '1970-01-01 00:00:00+00',
+	created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+	updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_refunds_due ON refunds (next_attempt_at) WHERE status = 'pending';
+CREATE INDEX IF NOT EXISTS idx_refunds_tenant ON refunds (tenant_id);
+`},
 }

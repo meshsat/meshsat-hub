@@ -456,3 +456,127 @@ func TestInclusiveTaxesOffIsReportedNotSwallowed(t *testing.T) {
 		t.Error("inclusive taxes reported on when the company says off")
 	}
 }
+
+// TestVerifyInclusiveTaxesPicksTheTokensOwnCompany pins a live defect
+// (MESHSAT-1019).
+//
+// GET /companies lists the ACCOUNT's companies, not the token's. This instance
+// has two, and the first is the other business with inclusive taxes OFF -- so
+// the guard shipped in MESHSAT-1016 has been reporting on a company these
+// receipts never touch. Only per-company endpoints enforce the token's scope.
+func TestVerifyInclusiveTaxesPicksTheTokensOwnCompany(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/api/v1/companies":
+			// data[0] is the other business, exactly as on the real instance.
+			_, _ = w.Write([]byte(`{"data":[
+				{"id":"other","settings":{"name":"Other Co","inclusive_taxes":false}},
+				{"id":"ours","settings":{"name":"MeshSat Hub","inclusive_taxes":true}}]}`))
+		case "/api/v1/companies/other":
+			w.WriteHeader(http.StatusUnauthorized)
+			_, _ = w.Write([]byte(`{"message":"unauthorized"}`))
+		case "/api/v1/companies/ours":
+			_, _ = w.Write([]byte(`{"data":{"id":"ours","settings":{"inclusive_taxes":true}}}`))
+		default:
+			t.Fatalf("unexpected path %s", r.URL.Path)
+		}
+	}))
+	defer srv.Close()
+
+	on, err := New(srv.URL, "token", 5*time.Second).VerifyInclusiveTaxes(context.Background())
+	if err != nil {
+		t.Fatalf("VerifyInclusiveTaxes: %v", err)
+	}
+	if !on {
+		t.Fatal("the guard read the other company on the instance, not the one this token issues into")
+	}
+}
+
+// TestVerifyInclusiveTaxesRefusesToGuess. A false all-clear lets every receipt
+// add VAT on top of a price the customer already paid.
+func TestVerifyInclusiveTaxesRefusesToGuess(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if r.URL.Path == "/api/v1/companies" {
+			_, _ = w.Write([]byte(`{"data":[
+				{"id":"a","settings":{"inclusive_taxes":false}},
+				{"id":"b","settings":{"inclusive_taxes":false}}]}`))
+			return
+		}
+		w.WriteHeader(http.StatusUnauthorized)
+		_, _ = w.Write([]byte(`{"message":"unauthorized"}`))
+	}))
+	defer srv.Close()
+
+	if _, err := New(srv.URL, "token", 5*time.Second).VerifyInclusiveTaxes(context.Background()); err == nil {
+		t.Fatal("the guard guessed a company instead of saying it could not tell")
+	}
+}
+
+// A single-company instance needs no probe at all.
+func TestVerifyInclusiveTaxesOnASingleCompanyInstance(t *testing.T) {
+	probes := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if r.URL.Path != "/api/v1/companies" {
+			probes++
+		}
+		_, _ = w.Write([]byte(`{"data":[{"id":"only","settings":{"inclusive_taxes":true}}]}`))
+	}))
+	defer srv.Close()
+
+	on, err := New(srv.URL, "token", 5*time.Second).VerifyInclusiveTaxes(context.Background())
+	if err != nil || !on {
+		t.Fatalf("on=%v err=%v", on, err)
+	}
+	if probes != 0 {
+		t.Fatalf("a single-company instance was probed %d times", probes)
+	}
+}
+
+// TestSenderIsPerCompanyOnlyForTheEmptyString pins a setting whose correct
+// value is counter-intuitive and one click away from being wrong.
+//
+// NinjaMailerJob reaches setSelfHostMultiMailer() -- the only thing that
+// applies a per-company sender on a self-hosted instance -- through the
+// switch's `default` arm. 'default' is an explicit case that returns the
+// instance-wide mailer early, and it is the class default for a new company.
+// So the empty string is the only value that works, and the failure mode is a
+// correctly signed email from the wrong business.
+func TestSenderIsPerCompanyOnlyForTheEmptyString(t *testing.T) {
+	for _, tc := range []struct {
+		method string
+		ok     bool
+	}{
+		{"", true},
+		{"default", false}, // explicit case: returns the instance-wide mailer
+		{"smtp", false},    // needs company smtp credentials, bails to 'default'
+		{"gmail", false},
+		{"office365", false},
+	} {
+		st := &CompanyState{EmailSendingMethod: tc.method}
+		if st.SenderIsPerCompany() != tc.ok {
+			t.Fatalf("SenderIsPerCompany(%q) = %v, want %v", tc.method, !tc.ok, tc.ok)
+		}
+	}
+}
+
+func TestInspectCompanyReadsTheSenderSetting(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"data":[{"id":"only","settings":{
+			"name":"MeshSat Hub","inclusive_taxes":true,
+			"email_sending_method":"","reply_to_email":"billing@meshsat.net"}}]}`))
+	}))
+	defer srv.Close()
+
+	st, err := New(srv.URL, "token", 5*time.Second).InspectCompany(context.Background())
+	if err != nil {
+		t.Fatalf("InspectCompany: %v", err)
+	}
+	if st.Name != "MeshSat Hub" || !st.InclusiveTaxes || !st.SenderIsPerCompany() ||
+		st.ReplyToEmail != "billing@meshsat.net" {
+		t.Fatalf("state = %+v", st)
+	}
+}

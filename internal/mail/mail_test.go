@@ -213,3 +213,169 @@ func TestEveryStatedTimeIsAnExactMomentInAStatedZone(t *testing.T) {
 		}
 	}
 }
+
+// --- HELO and attachments (MESHSAT-1019) ---------------------------------
+
+// TestEHLOIsFullyQualified pins the fix for a live defect.
+//
+// Go's net/smtp announces itself as "localhost" unless told otherwise, and the
+// relay this Hub submits to enforces reject_non_fqdn_helo_hostname. Hub
+// replicas reach it from a different tunnel address per worker node, one of
+// which happened to be allowlisted -- so plan-change, lapse and approval mail
+// was delivered from one pod and rejected with a 504 from the others, with
+// nothing but a line in the relay's log to say so.
+func TestEHLOIsFullyQualified(t *testing.T) {
+	s := New("relay:2525", "billing@meshsat.net", "MeshSat Hub", 0)
+	if s.HELO != "meshsat.net" {
+		t.Fatalf("HELO = %q, want the sender's domain", s.HELO)
+	}
+	if !strings.Contains(s.HELO, ".") {
+		t.Fatal("the HELO name is not fully qualified; a strict relay refuses the whole conversation")
+	}
+	for _, from := range []string{"nodomain", "", "weird@localhost"} {
+		if got := heloFor(from); !strings.Contains(got, ".") {
+			t.Fatalf("heloFor(%q) = %q, which is not fully qualified", from, got)
+		}
+	}
+}
+
+func TestEHLOIsSentBeforeMailFrom(t *testing.T) {
+	got := runFakeRelay(t, func(s *SMTP) error {
+		return s.Send(context.Background(), "buyer@example.com", "Subject", "Body")
+	})
+	ehlo, mailFrom := -1, -1
+	for i, line := range got {
+		if strings.HasPrefix(line, "EHLO ") || strings.HasPrefix(line, "HELO ") {
+			if ehlo < 0 {
+				ehlo = i
+			}
+			if strings.Contains(line, "localhost") {
+				t.Fatalf("the client announced itself as localhost: %q", line)
+			}
+		}
+		if strings.HasPrefix(line, "MAIL FROM") && mailFrom < 0 {
+			mailFrom = i
+		}
+	}
+	if ehlo < 0 {
+		t.Fatalf("no EHLO was sent: %v", got)
+	}
+	if mailFrom < 0 || ehlo > mailFrom {
+		t.Fatalf("EHLO did not precede MAIL FROM: %v", got)
+	}
+}
+
+func TestSendWithAttachesTheDocument(t *testing.T) {
+	s := New("relay:2525", "billing@meshsat.net", "MeshSat Hub", 0)
+	msg := s.messageWith("buyer@example.com", "Your MeshSat Hub refund", "Hello Buyer,\n\nBody.",
+		Attachment{Filename: "MSHCN2026-0001.pdf", ContentType: "application/pdf",
+			Content: []byte("%PDF-1.4 pretend document")})
+
+	if !strings.Contains(msg, "Content-Type: multipart/mixed; boundary=") {
+		t.Fatalf("not a multipart message:\n%s", msg)
+	}
+	if !strings.Contains(msg, `filename="MSHCN2026-0001.pdf"`) {
+		t.Fatal("the attachment has no filename")
+	}
+	if !strings.Contains(msg, "Content-Transfer-Encoding: base64") {
+		t.Fatal("the document is not base64 encoded")
+	}
+	if !strings.Contains(msg, "JVBERi0xLjQ") { // "%PDF-1.4" in base64
+		t.Fatalf("the document itself is missing:\n%s", msg)
+	}
+	if !strings.Contains(msg, "Hello Buyer,") {
+		t.Fatal("the words that explain the document are missing")
+	}
+	// A Message-ID is what keeps these out of spam folders; the multipart path
+	// must not lose the headers the plain path gets right.
+	if !strings.Contains(msg, "Message-ID: <") || !strings.Contains(msg, "MIME-Version: 1.0") {
+		t.Fatalf("the multipart path dropped headers the plain path sets:\n%s", msg)
+	}
+	// The boundary must actually close.
+	b := msg[strings.Index(msg, `boundary="`)+len(`boundary="`):]
+	b = b[:strings.IndexByte(b, '"')]
+	if strings.Count(msg, "--"+b) < 3 {
+		t.Fatalf("the multipart boundary does not open both parts and close: %q", b)
+	}
+}
+
+func TestAttachmentFilenameCannotInjectAHeader(t *testing.T) {
+	s := New("relay:2525", "billing@meshsat.net", "MeshSat Hub", 0)
+	msg := s.messageWith("buyer@example.com", "Subject", "Body",
+		Attachment{Filename: "a\"\r\nBcc: attacker@example.com\r\nX: b.pdf", Content: []byte("x")})
+	// The dangerous part is a NEW header line, not the word appearing inside
+	// the quoted filename. Nothing may break out of the one line it belongs on.
+	for _, line := range strings.Split(msg, "\r\n") {
+		if strings.HasPrefix(line, "Bcc:") || strings.HasPrefix(line, "X:") {
+			t.Fatalf("a filename injected a header line %q in:\n%s", line, msg)
+		}
+	}
+	if strings.Count(msg, "Content-Disposition:") != 1 {
+		t.Fatalf("the filename split the disposition header:\n%s", msg)
+	}
+}
+
+// runFakeRelay accepts one SMTP conversation and returns the client's lines.
+func runFakeRelay(t *testing.T, send func(*SMTP) error) []string {
+	t.Helper()
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	defer func() { _ = ln.Close() }()
+
+	lines := make(chan []string, 1)
+	go func() {
+		conn, err := ln.Accept()
+		if err != nil {
+			lines <- nil
+			return
+		}
+		defer func() { _ = conn.Close() }()
+		var got []string
+		br := bufio.NewReader(conn)
+		_, _ = conn.Write([]byte("220 relay ready\r\n"))
+		inData := false
+		for {
+			line, err := br.ReadString('\n')
+			if err != nil {
+				break
+			}
+			line = strings.TrimRight(line, "\r\n")
+			if inData {
+				if line == "." {
+					inData = false
+					_, _ = conn.Write([]byte("250 queued\r\n"))
+				}
+				continue
+			}
+			got = append(got, line)
+			switch {
+			case strings.HasPrefix(line, "EHLO"), strings.HasPrefix(line, "HELO"):
+				_, _ = conn.Write([]byte("250-relay\r\n250 HELP\r\n"))
+			case strings.HasPrefix(line, "DATA"):
+				inData = true
+				_, _ = conn.Write([]byte("354 go ahead\r\n"))
+			case strings.HasPrefix(line, "QUIT"):
+				_, _ = conn.Write([]byte("221 bye\r\n"))
+				lines <- got
+				return
+			default:
+				_, _ = conn.Write([]byte("250 ok\r\n"))
+			}
+		}
+		lines <- got
+	}()
+
+	s := New(ln.Addr().String(), "billing@meshsat.net", "MeshSat Hub", 5*time.Second)
+	if err := send(s); err != nil {
+		t.Fatalf("send: %v", err)
+	}
+	select {
+	case got := <-lines:
+		return got
+	case <-time.After(5 * time.Second):
+		t.Fatal("the fake relay never finished the conversation")
+		return nil
+	}
+}
