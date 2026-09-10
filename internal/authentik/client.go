@@ -13,6 +13,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -181,16 +182,61 @@ func (c *Client) user(ctx context.Context, pk int) (*akUser, error) {
 	return &u, nil
 }
 
+// ErrNotPending means the account is not a MeshSat signup awaiting a decision:
+// it is already active, or it was never in the pending group. Both Approve and
+// Reject refuse it.
+//
+// This matters more than it looks. The Hub's authentik identity is an admin on
+// an authentik instance shared with another product, so without this check a
+// platform admin could hand any account in it -- including one that has nothing
+// to do with MeshSat -- an active session and the owner role, just by putting
+// its primary key in the URL. The pk arrives from the client; it is not a
+// capability. Approve must re-derive what the account actually is.
+var ErrNotPending = errors.New("authentik: not a pending MeshSat signup")
+
+// ErrEmailNotVerified means the address was never confirmed. Approving one would
+// hand an account to whoever typed the address, not to whoever owns it.
+var ErrEmailNotVerified = errors.New("authentik: email not verified")
+
+// pending fetches the account and refuses anything that is not a MeshSat signup
+// still awaiting a decision. Shared by Approve and Reject so the two cannot
+// drift apart: they had different guards, and the weaker one was on Approve.
+func (c *Client) pending(ctx context.Context, pk int) (*akUser, error) {
+	u, err := c.user(ctx, pk)
+	if err != nil {
+		return nil, err
+	}
+	pendingPK, err := c.groupPK(ctx, PendingGroup)
+	if err != nil {
+		return nil, err
+	}
+	inPending := false
+	for _, g := range u.Groups {
+		if g == pendingPK {
+			inPending = true
+		}
+	}
+	if u.IsActive || !inPending {
+		return nil, ErrNotPending
+	}
+	return u, nil
+}
+
 // Approve activates the account and moves it from pending into the role group.
-// It returns the address the person signed up from, which is what the edge
-// allowlist needs. The Hub creates their tenant on first login.
+// It returns the address the person signed up from and the address to write to.
+// The Hub creates their tenant on first login.
 func (c *Client) Approve(ctx context.Context, pk int, role string) (signupIP string, email string, err error) {
 	if !ValidRole(role) {
 		return "", "", fmt.Errorf("authentik: not a role: %q", role)
 	}
-	u, err := c.user(ctx, pk)
+	u, err := c.pending(ctx, pk)
 	if err != nil {
 		return "", "", err
+	}
+	// An unconfirmed address is not evidence of anything. The enrollment flow
+	// stamps attributes.email_verified only after the link is followed.
+	if !attrBool(u.Attributes, "email_verified") {
+		return "", "", ErrEmailNotVerified
 	}
 	pendingPK, err := c.groupPK(ctx, PendingGroup)
 	if err != nil {
@@ -220,22 +266,9 @@ func (c *Client) Approve(ctx context.Context, pk int, role string) (signupIP str
 // Reject deletes the account. It refuses an account that is already active or
 // no longer pending, so this cannot be turned into a way to delete a real user.
 func (c *Client) Reject(ctx context.Context, pk int) (email string, err error) {
-	u, err := c.user(ctx, pk)
+	u, err := c.pending(ctx, pk)
 	if err != nil {
 		return "", err
-	}
-	pendingPK, err := c.groupPK(ctx, PendingGroup)
-	if err != nil {
-		return "", err
-	}
-	stillPending := false
-	for _, g := range u.Groups {
-		if g == pendingPK {
-			stillPending = true
-		}
-	}
-	if u.IsActive || !stillPending {
-		return "", fmt.Errorf("authentik: refusing to delete %s: active or no longer pending", u.Email)
 	}
 	if err := c.do(ctx, http.MethodDelete, fmt.Sprintf("/api/v3/core/users/%d/", pk), nil, nil); err != nil {
 		return "", err

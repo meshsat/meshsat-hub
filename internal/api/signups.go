@@ -1,6 +1,7 @@
 package api
 
 import (
+	"errors"
 	"log/slog"
 	"net/http"
 	"strconv"
@@ -107,8 +108,20 @@ func (h *SignupHandler) Approve(w http.ResponseWriter, r *http.Request) {
 	}
 	signupIP, email, err := h.ak.Approve(r.Context(), pk, req.Role)
 	if err != nil {
-		slog.Error("signups: approve failed", "pk", pk, "error", err)
-		writeError(w, http.StatusBadGateway, "approval failed at the identity provider")
+		// A refusal is not an upstream fault: it means the pk does not name a
+		// MeshSat signup waiting for a decision. Say so as a 409, so an operator
+		// can tell "I picked the wrong row" apart from "authentik is down".
+		switch {
+		case errors.Is(err, authentik.ErrNotPending):
+			slog.Warn("signups: approve refused, not a pending signup", "pk", pk)
+			writeError(w, http.StatusConflict, "that account is not a signup awaiting a decision")
+		case errors.Is(err, authentik.ErrEmailNotVerified):
+			slog.Warn("signups: approve refused, email not verified", "pk", pk)
+			writeError(w, http.StatusConflict, "that address has not been verified yet")
+		default:
+			slog.Error("signups: approve failed", "pk", pk, "error", err)
+			writeError(w, http.StatusBadGateway, "approval failed at the identity provider")
+		}
 		return
 	}
 	h.log(r, "signup_approved", email, "role="+req.Role+" ip="+signupIP)
@@ -139,8 +152,17 @@ func (h *SignupHandler) Reject(w http.ResponseWriter, r *http.Request) {
 	}
 	email, err := h.ak.Reject(r.Context(), pk)
 	if err != nil {
-		slog.Warn("signups: reject refused", "pk", pk, "error", err)
-		writeError(w, http.StatusConflict, err.Error())
+		// Never echo err.Error() here: it carries the target account's address
+		// and, for transport failures, the identity provider's URLs and status
+		// lines. The operator gets the detail in the log, the client gets a
+		// fixed string and an honest status.
+		if errors.Is(err, authentik.ErrNotPending) {
+			slog.Warn("signups: reject refused, not a pending signup", "pk", pk)
+			writeError(w, http.StatusConflict, "that account is not a signup awaiting a decision")
+			return
+		}
+		slog.Error("signups: reject failed", "pk", pk, "error", err)
+		writeError(w, http.StatusBadGateway, "rejection failed at the identity provider")
 		return
 	}
 	h.log(r, "signup_rejected", email, "")
