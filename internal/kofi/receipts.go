@@ -218,7 +218,11 @@ func (j *ReceiptJob) issue(ctx context.Context, r *store.Receipt) {
 	}
 	res, err := j.issuer.IssueReceipt(ctx, req)
 	if err != nil {
-		if errors.Is(err, invoiceninja.ErrWrongCurrency) {
+		// Parked, not retried: repeating either of these produces the same
+		// answer. A wrong currency must never be converted at an invented rate,
+		// and a zero or negative amount is a payload a person has to look at --
+		// it used to sit in the queue retrying every hour, forever, silently.
+		if errors.Is(err, invoiceninja.ErrWrongCurrency) || errors.Is(err, invoiceninja.ErrBadAmount) {
 			j.block(ctx, r, err.Error())
 			return
 		}
