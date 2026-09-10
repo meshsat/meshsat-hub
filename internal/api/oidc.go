@@ -361,6 +361,35 @@ func (h *OIDCHandler) resolveUser(ctx context.Context, issuer, sub, email string
 	if err != nil {
 		return nil, "", err
 	}
+	// Claim the subject before this tenant is anybody's. Two callbacks for one
+	// new subject arrive together often enough -- a double submit, a browser
+	// retrying -- and both get this far: the slug loop hands the second one
+	// "alice-2" rather than colliding, and the upsert at the end of Callback
+	// would then repoint the subject at it, leaving the first tenant fully
+	// populated, owned, counted by billing and reachable by nobody. The loser
+	// discards what it just built and adopts the winner (MESHSAT-1006).
+	winner, claimed, err := h.store.ClaimOIDCIdentity(ctx, &store.OIDCIdentity{
+		Issuer: issuer, Subject: sub, UserID: u.ID, TenantID: tenant.ID, Email: email,
+	})
+	if err != nil {
+		return nil, "", err
+	}
+	if !claimed {
+		// Nothing of value is lost: this tenant is seconds old, holds one user
+		// -- the same person -- and no devices. Soft delete keeps it visible to
+		// an operator for the grace period rather than vanishing silently.
+		if err := h.store.SoftDeleteTenant(ctx, tenant.ID, time.Now().UTC()); err != nil {
+			slog.Warn("oidc: could not discard the tenant that lost a provisioning race",
+				"tenant", tenant.ID, "kept", winner.TenantID, "error", err)
+		}
+		slog.Info("oidc: two callbacks provisioned the same new account; kept the first",
+			"kept", winner.TenantID, "discarded", tenant.ID, "email", email)
+		wu, err := h.store.GetUserByID(ctx, winner.TenantID, winner.UserID)
+		if err != nil {
+			return nil, "", err
+		}
+		return wu, winner.TenantID, nil
+	}
 	tenant.OwnerUserID = u.ID
 	if err := h.store.UpdateTenant(ctx, tenant); err != nil {
 		return nil, "", err
