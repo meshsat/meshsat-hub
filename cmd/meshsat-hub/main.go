@@ -56,7 +56,6 @@ import (
 	"github.com/meshsat/meshsat-hub/internal/hawkbit"
 	"github.com/meshsat/meshsat-hub/internal/health"
 	"github.com/meshsat/meshsat-hub/internal/ipougrs"
-	"github.com/meshsat/meshsat-hub/internal/kofi"
 	"github.com/meshsat/meshsat-hub/internal/leader"
 	"github.com/meshsat/meshsat-hub/internal/mail"
 	hubmessage "github.com/meshsat/meshsat-hub/internal/message"
@@ -1478,11 +1477,6 @@ func main() {
 	webhookRoute(integrations.ProviderGlobalstar, "webhook_secret", "/api/webhook/globalstar", gsHandler.ServeHTTP)
 	webhookRoute(integrations.ProviderCloudloop, "webhook_token", "/api/webhook/cloudloop", clHandler.ServeHTTP)
 
-	// Ko-fi subscription webhook (MESHSAT-989). Platform-level rather than
-	// per-tenant: there is one Ko-fi account, and the payment says which
-	// tenant it is for through a claim code in its message. The path secret
-	// keeps the endpoint off scanners and out of logs; Ko-fi's
-	// verification_token in the body is what authenticates it.
 	// Transactional email. One relay, no credentials: it authorises by IP and
 	// signs with DKIM for meshsat.net. Receipts are NOT sent from here --
 	// Invoice Ninja issues those from its own outbox.
@@ -1519,40 +1513,7 @@ func main() {
 		slog.Warn("billing: payments will be recorded but no receipts issued; " +
 			"set HUB_INVOICENINJA_URL and HUB_INVOICENINJA_TOKEN")
 	}
-	if cfg.KofiWebhookSecret != "" && cfg.KofiVerificationToken != "" {
-		kofiHandler := kofi.NewHandler(dataStore, cfg.KofiVerificationToken)
-		kofiHandler.SetAudit(auditSvc)
-		kofiHandler.SetInvalidator(tenantStatus.Forget)
-		// The owner's account address: how a payment with no claim code is
-		// matched, and where the receipt is sent. Tenant.OwnerUserID is a user
-		// id, so it has to be looked up.
-		kofiHandler.SetUserLookup(dataStore)
-		kofiHandler.SetMailer(mailer, cfg.PublicURL)
-		if len(cfg.KofiTierMap) > 0 {
-			kofiHandler.SetTierMapping(cfg.KofiTierMap)
-		}
-		// Receipts (MESHSAT-998). The webhook records that money arrived; the
-		// drainer registered above issues the document, so a billing system
-		// that is down delays a receipt instead of making the provider replay
-		// the payment.
-		kofiHandler.SetReceipts(dataStore)
-		want := cfg.KofiWebhookSecret
-		r.Post("/api/webhook/kofi/{secret}", hubmw.WebhookRateLimit(http.HandlerFunc(
-			func(w http.ResponseWriter, req *http.Request) {
-				// A wrong secret is a 404, not a 401: the endpoint should not
-				// confirm it exists to somebody guessing at it.
-				if subtle.ConstantTimeCompare([]byte(chi.URLParam(req, "secret")), []byte(want)) != 1 {
-					http.NotFound(w, req)
-					return
-				}
-				kofiHandler.ServeHTTP(w, req)
-			}), 60).ServeHTTP)
-		slog.Info("kofi: subscription webhook enabled")
-	} else {
-		slog.Info("kofi: subscription webhook disabled; set HUB_KOFI_WEBHOOK_SECRET and HUB_KOFI_VERIFICATION_TOKEN to enable")
-	}
-
-	// Stripe (MESHSAT-1023). Platform-level like the block above: there is one
+	// Stripe (MESHSAT-1023). Platform-level: there is one
 	// Stripe account and the payment carries the tenant in its own metadata, so
 	// the per-tenant webhookRoute helper does not apply.
 	//
@@ -1602,9 +1563,9 @@ func main() {
 		slog.Info("stripe: payment webhook disabled; set HUB_STRIPE_WEBHOOK_SECRET and HUB_STRIPE_PATH_SECRET to enable")
 	}
 
-	// Expiring a plan needs no Ko-fi credentials -- it reads a date this Hub
+	// Expiring a plan needs no provider credentials -- it reads a date this Hub
 	// already wrote. Registering it inside the block above meant that clearing
-	// or rotating either Ko-fi variable silently froze every paid plan forever,
+	// or rotating a provider credential silently froze every paid plan forever,
 	// with the log line above claiming only that the *webhook* was off.
 	// Downgrading is single-owner work whose audit line should be written once,
 	// so it runs on the lease holder.
@@ -1612,9 +1573,9 @@ func main() {
 	lapseJob.SetMailer(mailer, dataStore, cfg.PublicURL, cfg.UpgradeURL)
 	leaderSingletons.Add("subscription-lapse", lapseJob.Run)
 
-	// Refunds and credit notes (MESHSAT-1019). Registered outside the Ko-fi
+	// Refunds and credit notes (MESHSAT-1019). Registered outside the provider
 	// block for the same reason the lapse job is: a refund reverses a payment
-	// this Hub already recorded, so it must keep working when Ko-fi's own
+	// this Hub already recorded, so it must keep working when the provider's own
 	// credentials are cleared or rotated.
 	//
 	// The customer's copy comes from here rather than from the billing system.

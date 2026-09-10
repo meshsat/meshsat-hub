@@ -262,35 +262,14 @@ type Store interface {
 	GetTenantBySlug(ctx context.Context, slug string) (*Tenant, error)
 	ListTenants(ctx context.Context) ([]Tenant, error)
 	UpdateTenant(ctx context.Context, t *Tenant) error
-	// ApplyKofiDelivery claims deliveryKey and, only if the claim is new,
-	// writes the plan grant onto the tenant. It reports whether it applied;
-	// false means this exact delivery was already applied and the caller must
-	// not grant anything for it.
-	//
-	// The claim and the grant are one transaction, which buys three things a
-	// read-then-write guard cannot. The webhook is not leader-gated, so two
-	// replicas can serve the same retry: only one insert survives the unique
-	// key. Every key ever applied is remembered, not just the last one, so a
-	// retry that arrives after a later payment cannot re-apply. And if the
-	// grant fails the claim rolls back with it, so Ko-fi's retry still works.
-	ApplyKofiDelivery(ctx context.Context, t *Tenant, deliveryKey string) (bool, error)
-
-	// EnsureClaimCode gives a tenant a Ko-fi claim code if it has none and
-	// returns the code it actually carries afterwards. The write is
-	// conditional on the column still being empty, so two concurrent first
-	// readers of the usage endpoint both come away with the same code.
-	// A plain read-then-write let the later write win while the earlier
-	// caller was shown a code that was no longer in the database -- and a
-	// payment quoting that code could never be matched to anyone
-	// (MESHSAT-1005).
-	EnsureClaimCode(ctx context.Context, tenantID, candidate string) (string, error)
 
 	// TenantByStripeCustomer resolves the payment events that carry a customer
 	// id and no metadata of their own (MESHSAT-1023).
 	TenantByStripeCustomer(ctx context.Context, customerID string) (*Tenant, error)
 	// ApplyStripeEvent records an event id and reports whether this call was
 	// the one that recorded it. A compare-and-set for the same reason
-	// ApplyKofiDelivery is one: the provider redelivers until it gets a 2xx,
+	// the old provider's delivery guard was: the provider redelivers until it
+	// gets a 2xx,
 	// and a read-then-write lets two replicas both find a retry missing.
 	ApplyStripeEvent(ctx context.Context, eventID, tenantID string) (bool, error)
 	// SoftDeleteTenant blocks a tenant and starts the grace period. Reversible
@@ -703,11 +682,14 @@ type Tenant struct {
 	// registrations and nothing else -- every device already registered keeps
 	// reporting, and its SOS path is untouched.
 	PlanExpiresAt *time.Time `json:"plan_expires_at,omitempty"`
-	// KofiClaimCode is the short code a supporter puts in the Ko-fi message so
+	// KofiClaimCode is dead weight kept only so the column round-trips.
+	// Nothing writes it: a payment is bound to a tenant by the metadata on its
+	// Checkout session now (MESHSAT-1023). It used to be the short code a
+	// supporter put in a message so
 	// a payment can be matched to this tenant. People pay from a different
 	// address than they signed up with often enough that email alone loses
 	// payments. Never logged with the payment payload.
-	KofiClaimCode string `json:"kofi_claim_code,omitempty"`
+	KofiClaimCode string `json:"-"`
 	// KofiPayerEmail is the address the last matched payment came from, learned
 	// when a payment first matches this tenant.
 	//
@@ -715,7 +697,7 @@ type Tenant struct {
 	// payment; every renewal has message null. The claim code therefore matches
 	// once and never again, so the payer has to be remembered or a paying
 	// subscriber lapses at day 32 while their card is still being charged.
-	KofiPayerEmail string `json:"kofi_payer_email,omitempty"`
+	KofiPayerEmail string `json:"-"`
 	// KofiLastMessageID is the id of the last Ko-fi delivery applied to this
 	// tenant. Ko-fi retries the same message_id until it gets a 200, so a
 	// response lost on the way back would otherwise buy a second month for

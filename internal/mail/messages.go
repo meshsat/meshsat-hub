@@ -111,17 +111,8 @@ The MeshSat team`, greeting(name), plan, limit, when, hubURL)
 // LapseWarning goes out before a paid plan ends, while the customer can still
 // do something about it. Nothing sent one before: a lapsed customer found out
 // when a device registration was refused.
-func LapseWarning(name, plan string, expires time.Time, upgradeURL, claimCode string) Message {
+func LapseWarning(name, plan string, expires time.Time, upgradeURL string) Message {
 	when := moment(expires)
-	code := ""
-	codeHTML := ""
-	if claimCode != "" {
-		code = fmt.Sprintf(`
-
-Quote %s if you need to contact us about this.`, claimCode)
-		codeHTML = note("Quote " + strong(esc(claimCode)) + " if you need to contact us about this.")
-	}
-
 	text := fmt.Sprintf(`%s
 
 Your %s plan ends on %s.
@@ -133,9 +124,9 @@ be able to register another one until you move back up.
 
 To keep the plan, renew here:
 
-  %s%s
+  %s
 
-The MeshSat team`, greeting(name), plan, when, upgradeURL, code)
+The MeshSat team`, greeting(name), plan, when, upgradeURL)
 
 	html := para(esc(greeting(name))) +
 		para("Your "+esc(plan)+" plan is ending.") +
@@ -149,7 +140,6 @@ The MeshSat team`, greeting(name), plan, when, upgradeURL, code)
 			"register another one until you move back up.") +
 		button(upgradeURL, "Renew your plan") +
 		urlUnder(upgradeURL) +
-		codeHTML +
 		lastPara("The MeshSat team")
 
 	return Message{
