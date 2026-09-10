@@ -262,11 +262,13 @@ func TestAdminCanSetAndClearThePlanExpiry(t *testing.T) {
 	}
 }
 
-// The usage endpoint mints the claim code a customer is told to quote in their
-// Ko-fi message, and nothing tested that path: not that it appears, not that it
-// is stable, and not that reading usage twice does not produce two codes
-// (MESHSAT-1005).
-func TestUsageMintsAClaimCodeOnceAndKeepsIt(t *testing.T) {
+// The usage endpoint tells the Settings page which billing surface to draw.
+//
+// It used to mint a claim code here, because the old provider had no way to
+// carry a tenant id through checkout and the customer had to quote one in a
+// message box. A Checkout session carries metadata, so there is nothing to
+// copy and nothing to forget (MESHSAT-1023).
+func TestUsageReportsWhichBillingSurfaceToDraw(t *testing.T) {
 	s := newTenantStore(t)
 	q := quota.New(s, func(ctx context.Context, id string) (string, error) {
 		tn, err := s.GetTenant(ctx, id)
@@ -300,24 +302,38 @@ func TestUsageMintsAClaimCodeOnceAndKeepsIt(t *testing.T) {
 		return out
 	}
 
-	first := read()
-	code, _ := first["claim_code"].(string)
-	if len(code) != 8 {
-		t.Fatalf("claim_code = %q, want 8 characters", code)
-	}
-	if strings.ContainsAny(code, "IO01") {
-		t.Errorf("claim code %q contains a character the alphabet excludes; it is read off a screen and typed into Ko-fi", code)
+	// The claim code is gone from the wire shape entirely: leaving it would
+	// have the UI keep telling customers to quote something that no longer
+	// matches anything.
+	if _, ok := read()["claim_code"]; ok {
+		t.Error("the response still carries a claim code")
 	}
 
-	// Stable across reads, and stored.
-	if again, _ := read()["claim_code"].(string); again != code {
-		t.Errorf("a second read minted a different code: %q then %q", code, again)
+	SetStripeReady(true)
+	defer SetStripeReady(false)
+	b, _ := read()["billing"].(map[string]any)
+	if b == nil {
+		t.Fatal("no billing state in the usage response")
 	}
+	if b["provider"] != "stripe" {
+		t.Errorf("provider = %v, want stripe", b["provider"])
+	}
+	// Nothing has been paid for this tenant yet, so there is nothing to manage
+	// and the portal button must not be offered.
+	if b["manageable"] != false {
+		t.Errorf("manageable = %v for a tenant with no Stripe customer", b["manageable"])
+	}
+
 	tn, err := s.GetTenant(t.Context(), "t_acme")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if tn.KofiClaimCode != code {
-		t.Errorf("the customer was shown %q but the database holds %q", code, tn.KofiClaimCode)
+	tn.StripeCustomerID = "cus_1"
+	if err := s.UpdateTenant(t.Context(), tn); err != nil {
+		t.Fatal(err)
+	}
+	b, _ = read()["billing"].(map[string]any)
+	if b["manageable"] != true {
+		t.Errorf("manageable = %v once there is a Stripe customer", b["manageable"])
 	}
 }
