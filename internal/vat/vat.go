@@ -1,0 +1,105 @@
+// Package vat decides how one payment is treated for VAT, from the buyer's
+// country and nothing else.
+//
+// It is a rule, not a rate. The rate lives in configuration because re-pricing
+// is an edit; this package answers the prior question of whether Dutch VAT
+// applies at all, which configuration cannot answer.
+//
+// The rule, and why:
+//
+//   - The Netherlands is the seller's own country. Domestic supply, Dutch VAT.
+//
+//   - Another EU member state, consumer: the place of supply for an
+//     electronically supplied service is where the customer is, so strictly the
+//     customer's own rate applies. Article 59c lets a supplier established in
+//     one member state charge its HOME rate while its cross-border B2C supplies
+//     stay under EUR 10,000 a year across the whole EU. That threshold is the
+//     entire legal basis for charging Dutch 21% to a German consumer, and it is
+//     measured, not assumed -- see Threshold and internal/api's VAT endpoint.
+//     If it is ever crossed, this function must start returning the customer's
+//     rate and the business must register for OSS.
+//
+//   - Outside the EU: the place of supply is outside the EU, so no EU VAT
+//     applies at all -- threshold or no threshold. Charging Dutch 21% to a
+//     customer in the United States is simply wrong, and it is what this code
+//     did for every buyer before this package existed. Park it for a person.
+//
+//   - No country on file: guessing is how somebody gets the wrong document.
+//     Park it.
+//
+// What this package deliberately cannot see: territories inside a member state
+// that are outside the EU VAT area -- the Canaries, Ceuta and Melilla, the
+// French overseas departments, Aland, Busingen and Heligoland, Livigno, Mount
+// Athos, Campione d'Italia. A country code cannot distinguish them. A customer
+// in one of those is treated as an ordinary EU customer, which over-charges
+// rather than under-charges, and is a known limit rather than an oversight.
+package vat
+
+import "strings"
+
+// Decision is what to do about VAT for one payment.
+type Decision struct {
+	// Charge reports whether the receipt may be issued with the configured
+	// Dutch rate. False means it must be parked for a person to look at.
+	Charge bool
+	// Reason is written onto a parked receipt and read by whoever opens the
+	// blocked list, so it says what is wrong and what would settle it.
+	Reason string
+	// Basis records why VAT is charged the way it is. It goes in the log and
+	// on the record, so the reasoning survives the person who made it.
+	Basis string
+}
+
+// euVATArea is the EU-27 as ISO 3166-1 alpha-2. "EL" is accepted alongside "GR"
+// because it is the VAT prefix Greece uses and it turns up in payment data.
+var euVATArea = map[string]bool{
+	"AT": true, "BE": true, "BG": true, "HR": true, "CY": true, "CZ": true,
+	"DK": true, "EE": true, "FI": true, "FR": true, "DE": true, "GR": true,
+	"EL": true, "HU": true, "IE": true, "IT": true, "LV": true, "LT": true,
+	"LU": true, "MT": true, "NL": true, "PL": true, "PT": true, "RO": true,
+	"SK": true, "SI": true, "ES": true, "SE": true,
+}
+
+// Home is the seller's own country.
+const Home = "NL"
+
+// For decides the VAT treatment for a buyer in the given country, which is an
+// ISO 3166-1 alpha-2 code or empty when it is not known.
+func For(country string) Decision {
+	c := strings.ToUpper(strings.TrimSpace(country))
+	switch {
+	case c == "":
+		return Decision{
+			Reason: "no country on file for this buyer, so the VAT treatment cannot be decided. " +
+				"Set the tenant's billing country and requeue.",
+		}
+	case c == Home:
+		return Decision{Charge: true, Basis: "domestic supply, Dutch VAT"}
+	case euVATArea[c]:
+		return Decision{Charge: true, Basis: "EU consumer, Dutch VAT under the Article 59c EUR 10 000 threshold"}
+	default:
+		return Decision{
+			Reason: "buyer is outside the EU (" + c + "), so EU VAT does not apply and this receipt " +
+				"cannot be issued at the Dutch rate. Issue it by hand, or decide the treatment first.",
+		}
+	}
+}
+
+// InEU reports whether a country is in the EU VAT area.
+func InEU(country string) bool {
+	return euVATArea[strings.ToUpper(strings.TrimSpace(country))]
+}
+
+// CountsTowardThreshold reports whether a supply to this country counts toward
+// the EUR 10 000 cross-border threshold. Domestic Dutch sales do NOT: the
+// threshold is about supplies to OTHER member states, and counting our own
+// would raise a false alarm on the busiest possible month.
+func CountsTowardThreshold(country string) bool {
+	c := strings.ToUpper(strings.TrimSpace(country))
+	return c != Home && euVATArea[c]
+}
+
+// Threshold is the EU-wide annual limit, in euro cents, on cross-border B2C
+// supplies of electronically supplied services below which a supplier may
+// charge its home rate. Measured excluding VAT.
+const Threshold = 10_000_00

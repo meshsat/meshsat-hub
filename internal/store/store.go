@@ -370,6 +370,16 @@ type Store interface {
 	// ReleaseReceipt drops a lease early, so a receipt that failed and is due
 	// again in a minute is not held for the rest of its lease.
 	ReleaseReceipt(ctx context.Context, id string) error
+	// CrossBorderSalesSince totals the GROSS of issued receipts to EU consumers
+	// in other member states since a given instant, in minor units, grouped by
+	// country.
+	//
+	// This is the figure the whole flat-Dutch-21% position rests on: it is only
+	// correct while cross-border B2C supplies stay under the Article 59c
+	// EUR 10 000 a year. Domestic Dutch sales are excluded by the caller, not
+	// here -- this returns what it is asked for and internal/vat decides what
+	// counts (MESHSAT-1016).
+	CrossBorderSalesSince(ctx context.Context, since time.Time) (map[string]int64, error)
 	// ListReceiptsByStatus returns receipts in one state, newest first. The
 	// blocked ones are the reason this exists: they were terminal and
 	// invisible, so money taken for a document nobody could issue simply
@@ -669,6 +679,18 @@ type Tenant struct {
 	// end. It stops an hourly job from mailing hourly: a warning counts for the
 	// expiry it was sent for, so a renewal that pushes the date out re-arms it.
 	LapseWarnedAt *time.Time `json:"-"`
+
+	// BillingCountry is where the buyer is, ISO 3166-1 alpha-2, empty when
+	// unknown. It decides whether Dutch VAT applies at all -- see internal/vat.
+	// Before it existed every customer was written into the billing system as
+	// Dutch and charged 21%, which is wrong for anybody outside the EU
+	// (MESHSAT-1016).
+	BillingCountry string `json:"billing_country,omitempty"`
+	// BillingCountryEvidence records what the country was derived from. The
+	// rules want evidence of a consumer's location rather than an assertion,
+	// and "declared NL, seen from 1.2.3.4" is that evidence in the one place
+	// somebody will look for it.
+	BillingCountryEvidence string `json:"-"`
 	// DeletedAt is when the owner asked to leave. The tenant is blocked from
 	// that moment and its data is destroyed after PurgeGrace, so an accidental
 	// or disputed deletion is recoverable until then (MESHSAT-975 follow-on).
@@ -911,6 +933,12 @@ type Receipt struct {
 	// TransactionID is the provider's transaction reference, for a human
 	// reconciling a bank line against a document.
 	TransactionID string `json:"transaction_id,omitempty"`
+	// Country is where the buyer was, ISO 3166-1 alpha-2, copied from the
+	// tenant when the payment was recorded and frozen there. It decides the VAT
+	// treatment (internal/vat), and it is frozen rather than re-read because a
+	// customer who moves next year must not change the VAT on a document that
+	// was already issued.
+	Country string `json:"country,omitempty"`
 	// Email and Name are who the document goes to and what the customer is
 	// called on it.
 	Email string `json:"email"`

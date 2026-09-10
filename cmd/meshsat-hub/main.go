@@ -1516,6 +1516,27 @@ func main() {
 				kofi.NewReceiptJob(dataStore, inClient, auditSvc).Run)
 			slog.Info("kofi: customer receipts enabled", "tax", cfg.InvoiceNinjaTaxName,
 				"rate", cfg.InvoiceNinjaTaxRate, "currency", cfg.InvoiceNinjaCurrency)
+			// The whole receipt path sends the GROSS and lets the billing
+			// system derive the VAT out of it. If somebody turns inclusive
+			// taxes off in the web UI, every receipt silently becomes 9.00 plus
+			// 1.89 -- a wrong document with a real number out of a gapless
+			// series. Ask once at startup, off the request path, and say so
+			// loudly rather than discovering it from a customer (MESHSAT-1016).
+			go func() {
+				ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+				defer cancel()
+				switch on, err := inClient.VerifyInclusiveTaxes(ctx); {
+				case err != nil:
+					slog.Warn("invoiceninja: could not verify inclusive taxes; receipts assume it is on",
+						"error", err)
+				case !on:
+					slog.Error("invoiceninja: THE TARGET COMPANY HAS INCLUSIVE TAXES OFF. " +
+						"Every receipt will add VAT on top of the price the customer already paid " +
+						"instead of deriving it out. Turn it back on before the next payment.")
+				default:
+					slog.Info("invoiceninja: inclusive taxes confirmed on the target company")
+				}
+			}()
 		} else {
 			// Payments are still recorded, so nothing is lost -- the documents
 			// are issued whenever this is configured.
@@ -1726,6 +1747,8 @@ func main() {
 		r.Get("/blocked", paymentsHandler.ListBlockedReceipts)
 		r.Post("/{id}/requeue", paymentsHandler.RequeueReceipt)
 	})
+	// The measurement the flat Dutch rate depends on (MESHSAT-1016).
+	r.With(hubauth.RequirePlatformAdmin()).Get("/api/admin/vat/threshold", paymentsHandler.VATThreshold)
 	r.Route("/api/admin/tenants", func(r chi.Router) {
 		r.Use(hubauth.RequirePlatformAdmin())
 		r.Get("/", tenantHandler.AdminList)
