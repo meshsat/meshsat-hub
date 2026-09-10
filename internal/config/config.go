@@ -151,6 +151,22 @@ type Config struct {
 	// the tier table in the app; empty hides the link rather than guessing.
 	UpgradeURL string `yaml:"upgrade_url"`
 
+	// Transactional email. The Hub sends a handful of messages a customer must
+	// receive because something happened to their account: approved, plan
+	// changed, plan about to lapse, plan lapsed. Receipts are NOT sent from
+	// here -- Invoice Ninja issues those from its own outbox.
+	//
+	// SMTPRelay is host:port of an IP-authorised relay that signs outbound mail
+	// with DKIM; no credentials, which is how Invoice Ninja submits from the
+	// same estate. Empty means the Hub sends nothing and says so at boot.
+	SMTPRelay    string        `yaml:"smtp_relay"`
+	MailFrom     string        `yaml:"mail_from"`
+	MailFromName string        `yaml:"mail_from_name"`
+	MailTimeout  time.Duration `yaml:"mail_timeout"`
+	// PublicURL is where a customer signs in. It appears in the mail above, so
+	// it has to be the address they can actually reach, not an internal one.
+	PublicURL string `yaml:"public_url"`
+
 	// TAK Federation v2
 	TAKFederationEnabled bool     `yaml:"tak_federation_enabled"`
 	TAKFederationPort    int      `yaml:"tak_federation_port"`  // default 9001
@@ -336,6 +352,10 @@ func Defaults() Config {
 		TAKAPIMaxDevices:      5000,
 		AuthRateLimitPerMin:   30,
 		UpgradeURL:            "https://ko-fi.com/X2S326G23T",
+		MailFrom:              "billing@meshsat.net",
+		MailFromName:          "MeshSat Hub",
+		MailTimeout:           15 * time.Second,
+		PublicURL:             "https://hub.meshsat.net",
 		// Receipts: Dutch 21% VAT, inclusive, EUR, NL. The rate lives here
 		// rather than in code so re-pricing or a rate change is a ConfigMap
 		// edit; the URL and token stay unset until an operator supplies them.
@@ -600,6 +620,23 @@ func Load() (Config, error) {
 		if d, err := time.ParseDuration(v); err == nil && d > 0 {
 			cfg.InvoiceNinjaTimeout = d
 		}
+	}
+	if v := os.Getenv("HUB_SMTP_RELAY"); v != "" {
+		cfg.SMTPRelay = v
+	}
+	if v := os.Getenv("HUB_MAIL_FROM"); v != "" {
+		cfg.MailFrom = v
+	}
+	if v := os.Getenv("HUB_MAIL_FROM_NAME"); v != "" {
+		cfg.MailFromName = v
+	}
+	if v := os.Getenv("HUB_MAIL_TIMEOUT"); v != "" {
+		if d, err := time.ParseDuration(v); err == nil && d > 0 {
+			cfg.MailTimeout = d
+		}
+	}
+	if v := os.Getenv("HUB_PUBLIC_URL"); v != "" {
+		cfg.PublicURL = v
 	}
 	if v := os.Getenv("HUB_UPGRADE_URL"); v != "" {
 		cfg.UpgradeURL = v

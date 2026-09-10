@@ -225,26 +225,26 @@ func (c *Client) pending(ctx context.Context, pk int) (*akUser, error) {
 // Approve activates the account and moves it from pending into the role group.
 // It returns the address the person signed up from and the address to write to.
 // The Hub creates their tenant on first login.
-func (c *Client) Approve(ctx context.Context, pk int, role string) (signupIP string, email string, err error) {
+func (c *Client) Approve(ctx context.Context, pk int, role string) (signupIP, email, name string, err error) {
 	if !ValidRole(role) {
-		return "", "", fmt.Errorf("authentik: not a role: %q", role)
+		return "", "", "", fmt.Errorf("authentik: not a role: %q", role)
 	}
 	u, err := c.pending(ctx, pk)
 	if err != nil {
-		return "", "", err
+		return "", "", "", err
 	}
 	// An unconfirmed address is not evidence of anything. The enrollment flow
 	// stamps attributes.email_verified only after the link is followed.
 	if !attrBool(u.Attributes, "email_verified") {
-		return "", "", ErrEmailNotVerified
+		return "", "", "", ErrEmailNotVerified
 	}
 	pendingPK, err := c.groupPK(ctx, PendingGroup)
 	if err != nil {
-		return "", "", err
+		return "", "", "", err
 	}
 	rolePK, err := c.groupPK(ctx, GroupPrefix+role)
 	if err != nil {
-		return "", "", err
+		return "", "", "", err
 	}
 	groups := []string{rolePK}
 	for _, g := range u.Groups {
@@ -258,9 +258,9 @@ func (c *Client) Approve(ctx context.Context, pk int, role string) (signupIP str
 	u.Attributes["meshsat_approved"] = true
 	patch := map[string]any{"is_active": true, "groups": groups, "attributes": u.Attributes}
 	if err := c.do(ctx, http.MethodPatch, fmt.Sprintf("/api/v3/core/users/%d/", pk), patch, nil); err != nil {
-		return "", "", err
+		return "", "", "", err
 	}
-	return attrStr(u.Attributes, "signup_ip"), u.Email, nil
+	return attrStr(u.Attributes, "signup_ip"), u.Email, u.Name, nil
 }
 
 // Reject deletes the account. It refuses an account that is already active or

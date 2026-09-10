@@ -57,6 +57,7 @@ import (
 	"github.com/meshsat/meshsat-hub/internal/ipougrs"
 	"github.com/meshsat/meshsat-hub/internal/kofi"
 	"github.com/meshsat/meshsat-hub/internal/leader"
+	"github.com/meshsat/meshsat-hub/internal/mail"
 	hubmessage "github.com/meshsat/meshsat-hub/internal/message"
 	"github.com/meshsat/meshsat-hub/internal/metrics"
 	hubmw "github.com/meshsat/meshsat-hub/internal/middleware"
@@ -1479,6 +1480,16 @@ func main() {
 	// tenant it is for through a claim code in its message. The path secret
 	// keeps the endpoint off scanners and out of logs; Ko-fi's
 	// verification_token in the body is what authenticates it.
+	// Transactional email. One relay, no credentials: it authorises by IP and
+	// signs with DKIM for meshsat.net. Receipts are NOT sent from here --
+	// Invoice Ninja issues those from its own outbox.
+	var mailer mail.Sender
+	if m := mail.New(cfg.SMTPRelay, cfg.MailFrom, cfg.MailFromName, cfg.MailTimeout); m != nil {
+		mailer = m
+		slog.Info("mail: transactional email enabled", "relay", cfg.SMTPRelay, "from", cfg.MailFrom)
+	} else {
+		slog.Warn("mail: no relay configured; approvals, plan changes and lapse warnings will not be sent; set HUB_SMTP_RELAY")
+	}
 	if cfg.KofiWebhookSecret != "" && cfg.KofiVerificationToken != "" {
 		kofiHandler := kofi.NewHandler(dataStore, cfg.KofiVerificationToken)
 		kofiHandler.SetAudit(auditSvc)
@@ -1487,6 +1498,7 @@ func main() {
 		// matched, and where the receipt is sent. Tenant.OwnerUserID is a user
 		// id, so it has to be looked up.
 		kofiHandler.SetUserLookup(dataStore)
+		kofiHandler.SetMailer(mailer, cfg.PublicURL)
 		if len(cfg.KofiTierMap) > 0 {
 			kofiHandler.SetTierMapping(cfg.KofiTierMap)
 		}
@@ -1532,8 +1544,9 @@ func main() {
 	// with the log line above claiming only that the *webhook* was off.
 	// Downgrading is single-owner work whose audit line should be written once,
 	// so it runs on the lease holder.
-	leaderSingletons.Add("subscription-lapse",
-		kofi.NewLapseJob(dataStore, auditSvc, tenantStatus.Forget).Run)
+	lapseJob := kofi.NewLapseJob(dataStore, auditSvc, tenantStatus.Forget)
+	lapseJob.SetMailer(mailer, dataStore, cfg.PublicURL, cfg.UpgradeURL)
+	leaderSingletons.Add("subscription-lapse", lapseJob.Run)
 
 	// QR provision claim — unauthenticated (nonce IS the auth, single-use, 30min TTL).
 	provisionClaimHandler := api.NewBridgeProvisionHandler(dataStore, bridgeCA, directoryTrustAnchor)
@@ -1689,6 +1702,9 @@ func main() {
 		slog.Info("signups: HUB_AUTHENTIK_TOKEN unset; approve with k8s/scripts/authentik/run-bootstrap.sh")
 	}
 	signupHandler := api.NewSignupHandler(akClient, auditSvc)
+	// Tell a person their request was approved. Only the CLI path used to send
+	// anything, and it sent from the shared identity provider's default address.
+	signupHandler.SetMailer(mailer, cfg.PublicURL)
 	r.Route("/api/admin/signups", func(r chi.Router) {
 		r.Use(hubauth.RequirePlatformAdmin())
 		r.Get("/", signupHandler.List)
