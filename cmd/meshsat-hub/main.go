@@ -1531,16 +1531,36 @@ func main() {
 			go func() {
 				ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 				defer cancel()
-				switch on, err := inClient.VerifyInclusiveTaxes(ctx); {
-				case err != nil:
-					slog.Warn("invoiceninja: could not verify inclusive taxes; receipts assume it is on",
-						"error", err)
-				case !on:
+				st, err := inClient.InspectCompany(ctx)
+				if err != nil {
+					slog.Warn("invoiceninja: could not inspect the target company; "+
+						"receipts assume inclusive taxes and a per-company sender", "error", err)
+					return
+				}
+				if !st.InclusiveTaxes {
 					slog.Error("invoiceninja: THE TARGET COMPANY HAS INCLUSIVE TAXES OFF. " +
 						"Every receipt will add VAT on top of the price the customer already paid " +
 						"instead of deriving it out. Turn it back on before the next payment.")
-				default:
-					slog.Info("invoiceninja: inclusive taxes confirmed on the target company")
+				}
+				// The per-company sender is reached only through the switch's
+				// default arm in NinjaMailerJob, so this setting has to be the
+				// empty string. 'default' is an explicit case that returns the
+				// instance-wide mailer -- and it is the class default for a new
+				// company, so one click in the web UI silently sends every
+				// receipt out under whichever business owns the instance-wide
+				// address. That is already how credit notes behave, which is
+				// why the Hub sends those itself (MESHSAT-1019).
+				if !st.SenderIsPerCompany() {
+					slog.Error("invoiceninja: THE TARGET COMPANY IS NOT USING ITS OWN SENDER. "+
+						"email_sending_method must be the empty string for the per-company "+
+						"address to apply; receipts will go out under the instance-wide "+
+						"identity of another business instead.",
+						"email_sending_method", st.EmailSendingMethod, "company", st.Name)
+				}
+				if st.InclusiveTaxes && st.SenderIsPerCompany() {
+					slog.Info("invoiceninja: target company verified",
+						"company", st.Name, "inclusive_taxes", true,
+						"reply_to", st.ReplyToEmail)
 				}
 			}()
 		} else {
