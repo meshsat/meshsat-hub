@@ -80,6 +80,20 @@ func APIKeyMiddleware(validate APIKeyValidator) func(http.Handler) http.Handler 
 				return
 			}
 
+			// The tenant must go ON the User, not only into the context.
+			// Every later middleware resolves the tenant from User.TenantID
+			// and never reads the context value set here, so a User without
+			// it means TenantMiddleware refuses the request outright when
+			// enforcement is on -- which made every API key in a multi-tenant
+			// deployment answer 403 -- and silently resolves it to "default"
+			// when enforcement is off, putting one tenant's key on another
+			// tenant's rows (MESHSAT-1003). Copy rather than mutate: the
+			// validator owns whatever it returned and may cache it.
+			if tenantID != "" {
+				u := *user
+				u.TenantID = tenantID
+				user = &u
+			}
 			ctx := context.WithValue(r.Context(), UserContextKey, user)
 			if tenantID != "" {
 				ctx = context.WithValue(ctx, TenantContextKey, tenantID)

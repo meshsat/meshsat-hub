@@ -3,6 +3,7 @@ package auth
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"net/http/httptest"
 	"testing"
 	"time"
@@ -166,5 +167,62 @@ func TestAPIKeyMiddleware_ExemptPaths(t *testing.T) {
 		if w.Code != 200 {
 			t.Errorf("%s: expected 200, got %d", path, w.Code)
 		}
+	}
+}
+
+// The API key middleware and the tenant middleware run as a chain in
+// production, and nothing tested them that way: each passed alone while the
+// pair answered 403 to every API key request on the live system. The key's
+// tenant has to survive from one to the other (MESHSAT-1003).
+func TestAPIKeyThenTenantMiddleware_KeepsTheKeysTenant(t *testing.T) {
+	validator := func(_ context.Context, _ string) (*User, string, error) {
+		// Exactly what the production validator returns: the tenant comes
+		// back beside the User, never on it.
+		return &User{ID: "apikey:k1", Roles: []string{"owner"}}, "tenant-x", nil
+	}
+
+	for _, enforce := range []bool{true, false} {
+		var seen string
+		handler := APIKeyMiddleware(validator)(
+			TenantMiddleware(enforce)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				seen = TenantIDFromContext(r.Context())
+				w.WriteHeader(200)
+			})))
+
+		req := httptest.NewRequest("GET", "/api/devices", nil)
+		req.Header.Set("Authorization", "Bearer meshsat_abcdef1234567890")
+		w := httptest.NewRecorder()
+		handler.ServeHTTP(w, req)
+
+		if w.Code != 200 {
+			t.Fatalf("enforce=%v: got %d (%s), want 200", enforce, w.Code, w.Body.String())
+		}
+		if seen != "tenant-x" {
+			t.Errorf("enforce=%v: handler saw tenant %q, want tenant-x", enforce, seen)
+		}
+	}
+}
+
+// An API key must never be able to reach across tenants with a header, the way
+// a platform admin can.
+func TestAPIKeyCannotClaimAnotherTenantByHeader(t *testing.T) {
+	validator := func(_ context.Context, _ string) (*User, string, error) {
+		return &User{ID: "apikey:k1", Roles: []string{"owner"}}, "tenant-x", nil
+	}
+	var seen string
+	handler := APIKeyMiddleware(validator)(
+		TenantMiddleware(true)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			seen = TenantIDFromContext(r.Context())
+			w.WriteHeader(200)
+		})))
+
+	req := httptest.NewRequest("GET", "/api/devices", nil)
+	req.Header.Set("Authorization", "Bearer meshsat_abcdef1234567890")
+	req.Header.Set("X-Tenant-ID", "tenant-victim")
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+
+	if seen != "tenant-x" {
+		t.Errorf("handler saw tenant %q, want tenant-x -- an API key followed a header", seen)
 	}
 }
