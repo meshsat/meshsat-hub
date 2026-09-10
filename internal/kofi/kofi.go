@@ -209,7 +209,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		if err != nil || t == nil {
 			t = &store.Tenant{ID: store.DefaultTenantID, Name: donorName(p)}
 		}
-		h.recordReceipt(ctx, t, p, plans.Free)
+		h.recordReceipt(ctx, t, p, DonationPlan)
 		writeOK(w, "thanks")
 		return
 	}

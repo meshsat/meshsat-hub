@@ -358,14 +358,27 @@ func money(cents int64) string {
 	return fmt.Sprintf("%s%d.%02d", sign, cents/100, cents%100)
 }
 
+// DonationPlan marks a receipt for a one-off donation rather than a plan. It is
+// not a plan and never grants one: it exists so the document does not describe
+// a EUR 5 tip as "MeshSat Hub Free, subscription, one month", which is what it
+// said the first time donations were invoiced at all.
+const DonationPlan = "donation"
+
 func productKey(plan string) string {
-	if plan == "" {
+	switch plan {
+	case "":
 		return "MeshSat Hub subscription"
+	case DonationPlan:
+		return "MeshSat Hub support"
 	}
 	return "MeshSat Hub " + strings.ToUpper(plan[:1]) + plan[1:]
 }
 
 func description(plan, tierName string) string {
+	if plan == DonationPlan {
+		// No tier, no period: a donation buys nothing and lasts no time.
+		return "Support for MeshSat Hub"
+	}
 	name := tierName
 	if name == "" {
 		name = plan
