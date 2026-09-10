@@ -12,6 +12,8 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	hubauth "github.com/meshsat/meshsat-hub/internal/auth"
+	"github.com/meshsat/meshsat-hub/internal/plans"
+	"github.com/meshsat/meshsat-hub/internal/quota"
 	"github.com/meshsat/meshsat-hub/internal/store"
 	"github.com/meshsat/meshsat-hub/internal/store/sqlite"
 )
@@ -257,5 +259,65 @@ func TestAdminCanSetAndClearThePlanExpiry(t *testing.T) {
 	// Anything else is a 400, not a silent no-op.
 	if rr := do(r, "PUT", "/api/admin/tenants/t_acme", `{"plan_expires_at":"next tuesday"}`); rr.Code != 400 {
 		t.Errorf("garbage date: %d %s", rr.Code, rr.Body.String())
+	}
+}
+
+// The usage endpoint mints the claim code a customer is told to quote in their
+// Ko-fi message, and nothing tested that path: not that it appears, not that it
+// is stable, and not that reading usage twice does not produce two codes
+// (MESHSAT-1005).
+func TestUsageMintsAClaimCodeOnceAndKeepsIt(t *testing.T) {
+	s := newTenantStore(t)
+	q := quota.New(s, func(ctx context.Context, id string) (string, error) {
+		tn, err := s.GetTenant(ctx, id)
+		if err != nil || tn == nil {
+			return plans.Free, err
+		}
+		return tn.Plan, nil
+	})
+	h := NewTenantUsageHandler(q, s)
+	r := chi.NewRouter()
+	r.Use(func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+			ctx := context.WithValue(req.Context(), hubauth.UserContextKey,
+				&hubauth.User{ID: "u1", TenantID: "t_acme", Roles: []string{"owner"}})
+			ctx = context.WithValue(ctx, hubauth.TenantContextKey, "t_acme")
+			next.ServeHTTP(w, req.WithContext(ctx))
+		})
+	})
+	r.Get("/api/tenant/usage", h.Usage)
+
+	read := func() map[string]any {
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, httptest.NewRequest("GET", "/api/tenant/usage", nil))
+		if w.Code != 200 {
+			t.Fatalf("usage: %d %s", w.Code, w.Body.String())
+		}
+		var out map[string]any
+		if err := json.Unmarshal(w.Body.Bytes(), &out); err != nil {
+			t.Fatalf("decode: %v", err)
+		}
+		return out
+	}
+
+	first := read()
+	code, _ := first["claim_code"].(string)
+	if len(code) != 8 {
+		t.Fatalf("claim_code = %q, want 8 characters", code)
+	}
+	if strings.ContainsAny(code, "IO01") {
+		t.Errorf("claim code %q contains a character the alphabet excludes; it is read off a screen and typed into Ko-fi", code)
+	}
+
+	// Stable across reads, and stored.
+	if again, _ := read()["claim_code"].(string); again != code {
+		t.Errorf("a second read minted a different code: %q then %q", code, again)
+	}
+	tn, err := s.GetTenant(t.Context(), "t_acme")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if tn.KofiClaimCode != code {
+		t.Errorf("the customer was shown %q but the database holds %q", code, tn.KofiClaimCode)
 	}
 }
