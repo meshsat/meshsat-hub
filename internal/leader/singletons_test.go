@@ -82,3 +82,17 @@ func waitFor(t *testing.T, cond func() bool) {
 	}
 	t.Fatal("condition not met in time")
 }
+
+// A departing leader must outwait the longest call one of its singletons can
+// be inside, or the handover overlaps with work in flight. The receipt issuer
+// is the one that matters: it talks to the billing system with a 30 s timeout,
+// and two owners drawing invoice numbers from one gapless series at the same
+// time is not something a retry can undo (MESHSAT-998).
+func TestStopWaitOutlivesTheLongestOutboundCall(t *testing.T) {
+	const billingTimeout = 30 * time.Second
+	if DefaultStopWait <= billingTimeout {
+		t.Fatalf("DefaultStopWait is %s, which does not outlive a %s billing call; "+
+			"raise it or a leader handover mid-invoice runs two owners at once",
+			DefaultStopWait, billingTimeout)
+	}
+}
