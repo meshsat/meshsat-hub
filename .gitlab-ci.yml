@@ -324,10 +324,31 @@ bump_k8s_pin:
       [ -n "${K8S_PIN_SSH_KEY:-}" ] || { echo "FATAL - K8S_PIN_SSH_KEY file variable not set on this project"; exit 1; }
       install -m 600 "$K8S_PIN_SSH_KEY" /tmp/pin_key
       export GIT_SSH_COMMAND="ssh -i /tmp/pin_key -o StrictHostKeyChecking=accept-new"
-      git clone --depth 10 --branch main "$PIN_REMOTE" /tmp/pin-repo
+      git clone --depth 200 --branch main "$PIN_REMOTE" /tmp/pin-repo
       cd /tmp/pin-repo
       git config user.name "k8s-pin-bump"
       git config user.email "k8s-pin-bump@nuclearlighters.net"
+      # Never pin a build older than the one already pinned.
+      #
+      # resource_group serialises these jobs; it does NOT order them by commit
+      # ancestry. Two merges landing close together, with the OLDER commit`s
+      # pipeline finishing second, had this job quietly roll production back to
+      # a build missing the newer merge (MESHSAT-1023: a fix for a 403 on the
+      # checkout endpoint was merged, pinned, and then un-pinned by a slower
+      # pipeline for an earlier commit). Nothing announced it; the deployment
+      # simply went backwards.
+      #
+      # Each pin commit records the commit it pinned in a Source: trailer, so
+      # that is what this reads back.
+      pinned=$(git log -100 --pretty=%b -- k8s/kustomization.yaml \
+               | sed -n "s|^Source: .*@\([0-9a-f]\{40\}\).*|\1|p" | head -1)
+      if [ -n "$pinned" ] && [ "$pinned" != "$CI_COMMIT_SHA" ] \
+         && git cat-file -e "${pinned}^{commit}" 2>/dev/null \
+         && git merge-base --is-ancestor "$CI_COMMIT_SHA" "$pinned"; then
+        echo "refusing to pin $CI_COMMIT_SHORT_SHA: it is an ANCESTOR of the already-pinned $pinned,"
+        echo "so writing it would deploy a build missing whatever landed since. Nothing to do."
+        exit 0
+      fi
       digest=$(docker buildx imagetools inspect "$MESHSAT_HUB_IMAGE:$CI_COMMIT_SHORT_SHA" --format "{{json .Manifest}}" \
                | python3 -c "import json,sys; print(json.load(sys.stdin)[\"digest\"])")
       rc=0
