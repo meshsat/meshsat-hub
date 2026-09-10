@@ -128,8 +128,8 @@ func (h *SignupHandler) Approve(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if h.mail != nil && email != "" {
-		subject, body := mail.Approved(name, h.hubURL)
-		mail.SendOrLog(r.Context(), h.mail, email, subject, body, "signup approved")
+		msg := mail.Approved(name, h.hubURL)
+		mail.SendOrLog(r.Context(), h.mail, email, msg, "signup approved")
 	}
 	h.log(r, "signup_approved", email, "role="+req.Role+" ip="+signupIP)
 	slog.Info("signup approved", "email", email, "role", req.Role, "signup_ip", signupIP)

@@ -132,18 +132,22 @@ type fakeMailer struct {
 	sent     []string
 	attached []mail.Attachment
 	bodies   []string
+	htmls    []string
 }
 
-func (f *fakeMailer) Send(_ context.Context, to, subject, body string) error {
-	f.sent = append(f.sent, to+" | "+subject)
-	f.bodies = append(f.bodies, body)
+func (f *fakeMailer) SendMessage(_ context.Context, to string, m mail.Message) error {
+	f.record(to, m)
 	return nil
 }
-func (f *fakeMailer) SendWith(_ context.Context, to, subject, body string, a mail.Attachment) error {
-	f.sent = append(f.sent, to+" | "+subject)
-	f.bodies = append(f.bodies, body)
+func (f *fakeMailer) SendMessageWith(_ context.Context, to string, m mail.Message, a mail.Attachment) error {
+	f.record(to, m)
 	f.attached = append(f.attached, a)
 	return nil
+}
+func (f *fakeMailer) record(to string, m mail.Message) {
+	f.sent = append(f.sent, to+" | "+m.Subject)
+	f.bodies = append(f.bodies, m.Text)
+	f.htmls = append(f.htmls, m.HTML)
 }
 
 func newJob(s *fakeStore, i Issuer) *Job {
