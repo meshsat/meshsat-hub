@@ -289,8 +289,8 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	if h.mail != nil {
 		if to := h.receiptEmail(ctx, t, p); to != "" {
-			subject, body := mail.PlanChanged(h.ownerName(ctx, t), plan, plans.For(plan).Devices, expires, h.hubURL)
-			mail.SendOrLog(ctx, h.mail, to, subject, body, "plan changed")
+			msg := mail.PlanChanged(h.ownerName(ctx, t), plan, plans.For(plan).Devices, expires, h.hubURL)
+			mail.SendOrLog(ctx, h.mail, to, msg, "plan changed")
 		}
 	}
 	slog.Info("kofi: subscription applied", "tenant", t.ID, "plan", plan, "was", prev,

@@ -298,8 +298,8 @@ func (j *Job) closeWithoutDocument(ctx context.Context, r *store.Refund, receipt
 				money(r.AmountCents), r.Currency, receipt.ID), "")
 	}
 	if j.mail != nil && receipt.Email != "" {
-		subject, body := mail.RefundedNoDocument(receipt.Name, money(r.AmountCents)+" "+r.Currency, planEnds, j.hubURL)
-		mail.SendOrLog(ctx, j.mail, receipt.Email, subject, body, "refund, no document")
+		msg := mail.RefundedNoDocument(receipt.Name, money(r.AmountCents)+" "+r.Currency, planEnds, j.hubURL)
+		mail.SendOrLog(ctx, j.mail, receipt.Email, msg, "refund, no document")
 	}
 }
 
@@ -359,7 +359,7 @@ func (j *Job) notify(ctx context.Context, r *store.Refund, receipt *store.Receip
 	if j.mail == nil || receipt.Email == "" {
 		return
 	}
-	subject, body := mail.Refunded(receipt.Name, money(r.AmountCents)+" "+r.Currency,
+	msg := mail.Refunded(receipt.Name, money(r.AmountCents)+" "+r.Currency,
 		res.CreditNumber, res.InvoiceNumber, planEnds, j.hubURL)
 	pdf, err := j.issuer.CreditPDF(ctx, res.CreditID)
 	if err != nil {
@@ -368,7 +368,7 @@ func (j *Job) notify(ctx context.Context, r *store.Refund, receipt *store.Receip
 		// covers it, and a person can send the PDF.
 		slog.Error("refunds: could not fetch the credit note PDF; sending the notice without it",
 			"refund", r.ID, "credit", res.CreditNumber, "error", err)
-		mail.SendOrLog(ctx, j.mail, receipt.Email, subject, body, "refund notice")
+		mail.SendOrLog(ctx, j.mail, receipt.Email, msg, "refund notice")
 		return
 	}
 	att := mail.Attachment{
@@ -376,7 +376,7 @@ func (j *Job) notify(ctx context.Context, r *store.Refund, receipt *store.Receip
 		ContentType: "application/pdf",
 		Content:     pdf,
 	}
-	if err := j.mail.SendWith(ctx, receipt.Email, subject, body, att); err != nil {
+	if err := j.mail.SendMessageWith(ctx, receipt.Email, msg, att); err != nil {
 		slog.Error("refunds: could not send the credit note", "refund", r.ID,
 			"to", receipt.Email, "error", err)
 		return
