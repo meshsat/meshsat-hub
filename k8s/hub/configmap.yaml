@@ -159,9 +159,20 @@ data:
   # Settings > Tax > Integrations > "Use automatic tax". It is on with no NL
   # registration behind it, which would put EUR 0 VAT on transactions raised
   # from a VAT-registered business. Ko-fi traffic never touched it; this does.
-  # HUB_STRIPE_PRICES: "price_XXXXcrew=crew,price_XXXXfleet=fleet"
-  # HUB_STRIPE_DONATION_PRICE: "price_XXXXdonation"
-  # HUB_STRIPE_TIMEOUT: "20s"
+  # Live prices, created 2026-09-10 on acct_1TKOcE6vVKg6ivl2 (Standard connected
+  # account, charges enabled). Both are tax_behavior=inclusive: the customer pays
+  # EUR 9.00 and Invoice Ninja derives the 21% out of it (7.44 + 1.56), which is
+  # the same basis every receipt already uses.
+  #
+  # There are ZERO Stripe Tax registrations on this account, so Stripe would
+  # compute no tax on anything -- which is exactly why every request this Hub
+  # makes sends automatic_tax[enabled]=false rather than trusting a setting.
+  HUB_STRIPE_PRICES: "price_1UEFXG6vVKg6ivl2VEbRwjUq=crew,price_1UEFXG6vVKg6ivl2y8lfEhMz=fleet"
+  HUB_STRIPE_TIMEOUT: "20s"
+  # No donation price yet: a customer-chosen amount needs a price with
+  # custom_unit_amount, and nobody has decided the floor. Unset means no
+  # donation path, which is a supported state.
+  # HUB_STRIPE_DONATION_PRICE: "price_..."
 
   # --- customer receipts (MESHSAT-998) ---
   # A Ko-fi payment is recorded in the receipts outbox either way; these decide
