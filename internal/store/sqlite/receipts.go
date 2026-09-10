@@ -137,3 +137,44 @@ func (d *DB) BlockReceipt(ctx context.Context, id, reason string) error {
 		store.ReceiptBlocked, reason, fmtTime(now), id)
 	return err
 }
+
+// ListReceiptsByStatus returns receipts in one state, newest first. Blocked
+// receipts had no listing anywhere: a payment parked for a person to look at
+// was invisible to that person.
+func (d *DB) ListReceiptsByStatus(ctx context.Context, status string, limit int) ([]store.Receipt, error) {
+	if limit <= 0 || limit > 500 {
+		limit = 100
+	}
+	rows, err := d.db.QueryContext(ctx, "SELECT "+receiptCols+` FROM receipts
+		WHERE status=? ORDER BY created_at DESC, id DESC LIMIT ?`, status, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+	var out []store.Receipt
+	for rows.Next() {
+		r, err := scanReceipt(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, r)
+	}
+	return out, rows.Err()
+}
+
+// RequeueReceipt reopens a blocked receipt. Only a blocked one: an issued
+// receipt must never go back to pending, or the drainer would create a second
+// invoice for a payment that already has a document and a number.
+func (d *DB) RequeueReceipt(ctx context.Context, id string, at time.Time) error {
+	res, err := d.db.ExecContext(ctx,
+		`UPDATE receipts SET status=?, next_attempt_at=?, last_error='', updated_at=?
+		 WHERE id=? AND status=?`,
+		store.ReceiptPending, fmtTime(at.UTC()), fmtTime(time.Now().UTC()), id, store.ReceiptBlocked)
+	if err != nil {
+		return err
+	}
+	if n, err := res.RowsAffected(); err == nil && n == 0 {
+		return store.ErrNotFound
+	}
+	return nil
+}

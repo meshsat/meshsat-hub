@@ -219,3 +219,24 @@ func (d *DB) DeleteInvite(ctx context.Context, tenantID string, id string) error
 	_, err := d.db.ExecContext(ctx, "DELETE FROM tenant_invites WHERE id=? AND tenant_id=?", id, tenantID)
 	return err
 }
+
+// EnsureClaimCode mints a Ko-fi claim code only if the tenant has none, and
+// returns whatever the tenant ends up carrying. See the Postgres twin: the
+// conditional UPDATE is what stops two concurrent first readers each being
+// shown a code while only one of them is stored.
+func (d *DB) EnsureClaimCode(ctx context.Context, tenantID, candidate string) (string, error) {
+	if tenantID == "" || candidate == "" {
+		return "", fmt.Errorf("sqlite: tenant id and a candidate claim code are required")
+	}
+	if _, err := d.db.ExecContext(ctx,
+		`UPDATE tenants SET kofi_claim_code = ?, updated_at = ? WHERE id = ? AND kofi_claim_code = ''`,
+		candidate, time.Now().UTC(), tenantID); err != nil {
+		return "", err
+	}
+	var code string
+	if err := d.db.QueryRowContext(ctx,
+		`SELECT kofi_claim_code FROM tenants WHERE id = ?`, tenantID).Scan(&code); err != nil {
+		return "", err
+	}
+	return code, nil
+}

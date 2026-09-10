@@ -27,9 +27,20 @@ type Singletons struct {
 	wg     *sync.WaitGroup
 }
 
+// DefaultStopWait bounds how long a departing leader waits for its singletons
+// to return before it gives up on them and lets the next leader start.
+//
+// It has to exceed the longest outbound call a singleton can be inside, or a
+// handover mid-call leaves the old owner still working while the new one
+// begins. The receipt issuer talks to the billing system with a 30 s timeout
+// (config.InvoiceNinjaTimeout), so 10 s guaranteed an overlap on exactly the
+// job where an overlap costs money -- a second invoice takes a second number
+// out of a gapless series (MESHSAT-998, MESHSAT-989).
+const DefaultStopWait = 45 * time.Second
+
 // NewSingletons groups services for one elector.
 func NewSingletons(services ...Singleton) *Singletons {
-	return &Singletons{services: services, stopWait: 10 * time.Second}
+	return &Singletons{services: services, stopWait: DefaultStopWait}
 }
 
 // Add appends a service; call before Start.

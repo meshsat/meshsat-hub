@@ -58,7 +58,13 @@ spec:
       tolerations:
         - {key: node.kubernetes.io/not-ready, operator: Exists, effect: NoExecute, tolerationSeconds: 60}
         - {key: node.kubernetes.io/unreachable, operator: Exists, effect: NoExecute, tolerationSeconds: 60}
-      terminationGracePeriodSeconds: 30
+      # Must outlast the departing leader's wait for its singletons, or the
+      # kubelet SIGKILLs mid-work and the wait was decorative: preStop sleeps 5,
+      # leader.DefaultStopWait is 45, and the receipt issuer can be 30 s inside
+      # a billing call. 90 leaves room for the HTTP drain on top. A pod still
+      # goes away as soon as it is done -- this is a ceiling, not a delay
+      # (MESHSAT-989).
+      terminationGracePeriodSeconds: 90
       containers:
         - name: hub
           image: ghcr.io/meshsat/meshsat-hub
