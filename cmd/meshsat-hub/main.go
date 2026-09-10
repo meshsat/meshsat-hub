@@ -36,6 +36,7 @@ import (
 	hubauth "github.com/meshsat/meshsat-hub/internal/auth"
 	"github.com/meshsat/meshsat-hub/internal/authentik"
 	"github.com/meshsat/meshsat-hub/internal/backup"
+	"github.com/meshsat/meshsat-hub/internal/billing"
 	"github.com/meshsat/meshsat-hub/internal/bridge"
 	"github.com/meshsat/meshsat-hub/internal/bus"
 	"github.com/meshsat/meshsat-hub/internal/bus/paho"
@@ -1492,10 +1493,31 @@ func main() {
 		slog.Warn("mail: no relay configured; approvals, plan changes and lapse warnings will not be sent; set HUB_SMTP_RELAY")
 	}
 	// The billing client is shared: receipts issue documents through it and
-	// refunds reverse them through it. Declared out here so the refund job can
-	// run even when Ko-fi's own credentials are absent -- a refund reverses a
-	// payment this Hub already recorded and needs nothing from Ko-fi.
+	// refunds reverse them through it. Both jobs live OUT here, not inside the
+	// payment provider's credential guard, because both work off rows this Hub
+	// has already written. Registering the receipt drainer inside it meant that
+	// clearing or rotating a provider credential silently stopped issuing
+	// documents for money already taken, while the log said only that the
+	// webhook was off -- the same shape of bug the lapse job already carries a
+	// comment about (MESHSAT-1023).
 	var inClient *invoiceninja.Client
+	if cfg.InvoiceNinjaURL != "" && cfg.InvoiceNinjaToken != "" {
+		inClient = invoiceninja.New(cfg.InvoiceNinjaURL, cfg.InvoiceNinjaToken, cfg.InvoiceNinjaTimeout)
+		inClient.TaxName = cfg.InvoiceNinjaTaxName
+		inClient.TaxRate = cfg.InvoiceNinjaTaxRate
+		inClient.Currency = cfg.InvoiceNinjaCurrency
+		inClient.CountryID = cfg.InvoiceNinjaCountryID
+		leaderSingletons.Add("receipt-issuer",
+			billing.NewReceiptJob(dataStore, inClient, auditSvc).Run)
+		slog.Info("billing: customer receipts enabled", "tax", cfg.InvoiceNinjaTaxName,
+			"rate", cfg.InvoiceNinjaTaxRate, "currency", cfg.InvoiceNinjaCurrency)
+		verifyBillingCompany(inClient)
+	} else {
+		// Payments are still recorded, so nothing is lost -- the documents are
+		// issued whenever this is configured.
+		slog.Warn("billing: payments will be recorded but no receipts issued; " +
+			"set HUB_INVOICENINJA_URL and HUB_INVOICENINJA_TOKEN")
+	}
 	if cfg.KofiWebhookSecret != "" && cfg.KofiVerificationToken != "" {
 		kofiHandler := kofi.NewHandler(dataStore, cfg.KofiVerificationToken)
 		kofiHandler.SetAudit(auditSvc)
@@ -1508,77 +1530,11 @@ func main() {
 		if len(cfg.KofiTierMap) > 0 {
 			kofiHandler.SetTierMapping(cfg.KofiTierMap)
 		}
-		// Receipts (MESHSAT-998). The webhook records that money arrived; a
-		// lease-held drainer issues the document, so a billing system that is
-		// down delays a receipt instead of making Ko-fi replay the payment.
+		// Receipts (MESHSAT-998). The webhook records that money arrived; the
+		// drainer registered above issues the document, so a billing system
+		// that is down delays a receipt instead of making the provider replay
+		// the payment.
 		kofiHandler.SetReceipts(dataStore)
-		if cfg.InvoiceNinjaURL != "" && cfg.InvoiceNinjaToken != "" {
-			inClient = invoiceninja.New(cfg.InvoiceNinjaURL, cfg.InvoiceNinjaToken, cfg.InvoiceNinjaTimeout)
-			inClient.TaxName = cfg.InvoiceNinjaTaxName
-			inClient.TaxRate = cfg.InvoiceNinjaTaxRate
-			inClient.Currency = cfg.InvoiceNinjaCurrency
-			inClient.CountryID = cfg.InvoiceNinjaCountryID
-			leaderSingletons.Add("receipt-issuer",
-				kofi.NewReceiptJob(dataStore, inClient, auditSvc).Run)
-			slog.Info("kofi: customer receipts enabled", "tax", cfg.InvoiceNinjaTaxName,
-				"rate", cfg.InvoiceNinjaTaxRate, "currency", cfg.InvoiceNinjaCurrency)
-			// The whole receipt path sends the GROSS and lets the billing
-			// system derive the VAT out of it. If somebody turns inclusive
-			// taxes off in the web UI, every receipt silently becomes 9.00 plus
-			// 1.89 -- a wrong document with a real number out of a gapless
-			// series. Ask once at startup, off the request path, and say so
-			// loudly rather than discovering it from a customer (MESHSAT-1016).
-			go func() {
-				ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-				defer cancel()
-				st, err := inClient.InspectCompany(ctx)
-				if err != nil {
-					slog.Warn("invoiceninja: could not inspect the target company; "+
-						"receipts assume inclusive taxes and a per-company sender", "error", err)
-					return
-				}
-				if !st.InclusiveTaxes {
-					slog.Error("invoiceninja: THE TARGET COMPANY HAS INCLUSIVE TAXES OFF. " +
-						"Every receipt will add VAT on top of the price the customer already paid " +
-						"instead of deriving it out. Turn it back on before the next payment.")
-				}
-				// The per-company sender is reached only through the switch's
-				// default arm in NinjaMailerJob, so this setting has to be the
-				// empty string. 'default' is an explicit case that returns the
-				// instance-wide mailer -- and it is the class default for a new
-				// company, so one click in the web UI silently sends every
-				// receipt out under whichever business owns the instance-wide
-				// address. That is already how credit notes behave, which is
-				// why the Hub sends those itself (MESHSAT-1019).
-				if !st.SenderIsPerCompany() {
-					slog.Error("invoiceninja: THE TARGET COMPANY IS NOT USING ITS OWN SENDER. "+
-						"email_sending_method must be the empty string for the per-company "+
-						"address to apply; receipts will go out under the instance-wide "+
-						"identity of another business instead.",
-						"email_sending_method", st.EmailSendingMethod, "company", st.Name)
-				}
-				// The Hub writes amounts into its own emails the way this
-				// company writes them on the document, so a customer holding
-				// both reads one figure written one way. The rule has a branch
-				// the Hub does not implement, and it is one checkbox away.
-				if !st.MoneyMatchesTheDocument() {
-					slog.Error("invoiceninja: THE TARGET COMPANY NOW SHOWS THE CURRENCY CODE. "+
-						"Its documents will read \"9,00 EUR\" while the Hub's emails still "+
-						"read \"EUR 9,00\" for the same payment.",
-						"show_currency_code", st.ShowCurrencyCode, "company", st.Name)
-				}
-				if st.InclusiveTaxes && st.SenderIsPerCompany() && st.MoneyMatchesTheDocument() {
-					slog.Info("invoiceninja: target company verified",
-						"company", st.Name, "inclusive_taxes", true,
-						"reply_to", st.ReplyToEmail)
-				}
-			}()
-		} else {
-			// Payments are still recorded, so nothing is lost -- the documents
-			// are issued whenever this is configured.
-			slog.Warn("kofi: payments will be recorded but no receipts issued; " +
-				"set HUB_INVOICENINJA_URL and HUB_INVOICENINJA_TOKEN")
-		}
 		want := cfg.KofiWebhookSecret
 		r.Post("/api/webhook/kofi/{secret}", hubmw.WebhookRateLimit(http.HandlerFunc(
 			func(w http.ResponseWriter, req *http.Request) {
@@ -1601,7 +1557,7 @@ func main() {
 	// with the log line above claiming only that the *webhook* was off.
 	// Downgrading is single-owner work whose audit line should be written once,
 	// so it runs on the lease holder.
-	lapseJob := kofi.NewLapseJob(dataStore, auditSvc, tenantStatus.Forget)
+	lapseJob := billing.NewLapseJob(dataStore, auditSvc, tenantStatus.Forget)
 	lapseJob.SetMailer(mailer, dataStore, cfg.PublicURL, cfg.UpgradeURL)
 	leaderSingletons.Add("subscription-lapse", lapseJob.Run)
 
@@ -1797,6 +1753,7 @@ func main() {
 	// some payments land here; without a surface they were a log line and
 	// nothing else (MESHSAT-1007).
 	paymentsHandler := api.NewPaymentsHandler(auditSvc, dataStore)
+	paymentsHandler.SetTaxRate(cfg.InvoiceNinjaTaxRate)
 	refundsHandler := api.NewRefundsHandler(auditSvc, dataStore)
 	r.Route("/api/admin/payments", func(r chi.Router) {
 		r.Use(hubauth.RequirePlatformAdmin())
@@ -2644,4 +2601,59 @@ func migrateOnly() bool {
 	}
 	v := strings.ToLower(os.Getenv("HUB_MIGRATE_ONLY"))
 	return v == "true" || v == "1"
+}
+
+// verifyBillingCompany asks the billing system, once at startup and off every
+// request path, whether the three settings the receipt path silently depends on
+// are still what they were. Each of them is one click away in a web UI and none
+// of them fails loudly on its own.
+func verifyBillingCompany(c *invoiceninja.Client) {
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		st, err := c.InspectCompany(ctx)
+		if err != nil {
+			slog.Warn("invoiceninja: could not inspect the target company; "+
+				"receipts assume inclusive taxes and a per-company sender", "error", err)
+			return
+		}
+		// The whole receipt path sends the GROSS and lets the billing system
+		// derive the VAT out of it. With inclusive taxes off, every receipt
+		// silently becomes 9.00 plus 1.89 -- a wrong document with a real
+		// number out of a gapless series (MESHSAT-1016).
+		if !st.InclusiveTaxes {
+			slog.Error("invoiceninja: THE TARGET COMPANY HAS INCLUSIVE TAXES OFF. " +
+				"Every receipt will add VAT on top of the price the customer already paid " +
+				"instead of deriving it out. Turn it back on before the next payment.")
+		}
+		// The per-company sender is reached only through the switch's default
+		// arm in NinjaMailerJob, so this setting has to be the empty string.
+		// 'default' is an explicit case that returns the instance-wide mailer,
+		// and it is the class default for a new company -- so one click sends
+		// every receipt out under whichever business owns the instance-wide
+		// address. That is already how credit notes behave, which is why the
+		// Hub sends those itself (MESHSAT-1019).
+		if !st.SenderIsPerCompany() {
+			slog.Error("invoiceninja: THE TARGET COMPANY IS NOT USING ITS OWN SENDER. "+
+				"email_sending_method must be the empty string for the per-company "+
+				"address to apply; receipts will go out under the instance-wide "+
+				"identity of another business instead.",
+				"email_sending_method", st.EmailSendingMethod, "company", st.Name)
+		}
+		// The Hub writes amounts into its own emails the way this company
+		// writes them on the document, so a customer holding both reads one
+		// figure written one way. The rule has a branch the Hub does not
+		// implement, and it is one checkbox away.
+		if !st.MoneyMatchesTheDocument() {
+			slog.Error("invoiceninja: THE TARGET COMPANY NOW SHOWS THE CURRENCY CODE. "+
+				"Its documents will read \"9,00 EUR\" while the Hub's emails still "+
+				"read \"EUR 9,00\" for the same payment.",
+				"show_currency_code", st.ShowCurrencyCode, "company", st.Name)
+		}
+		if st.InclusiveTaxes && st.SenderIsPerCompany() && st.MoneyMatchesTheDocument() {
+			slog.Info("invoiceninja: target company verified",
+				"company", st.Name, "inclusive_taxes", true,
+				"reply_to", st.ReplyToEmail)
+		}
+	}()
 }

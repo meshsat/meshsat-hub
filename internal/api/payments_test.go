@@ -21,6 +21,9 @@ func paymentsRouter(t *testing.T, s store.Store, ms *mockStore) (http.Handler, *
 	t.Helper()
 	a := audit.New(s)
 	h := NewPaymentsHandler(a, ms)
+	// The rate production runs at. Without it the meter reports the gross,
+	// which is the defect this pins.
+	h.SetTaxRate(21)
 	r := chi.NewRouter()
 	r.Use(func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
@@ -167,8 +170,14 @@ func TestTheVATThresholdCountsOnlyCrossBorderEUSales(t *testing.T) {
 	if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
 		t.Fatalf("decode: %v (%s)", err, w.Body.String())
 	}
-	if want := int64(150000); got.CrossBorderCents != want {
-		t.Errorf("cross-border total = %d, want %d (DE + IE only)", got.CrossBorderCents, want)
+	// DE 1200.00 + IE 300.00 gross, EXCLUDING VAT at 21%: 99173 + 24793.
+	// The threshold is measured on supplies, not on the money that changed
+	// hands, and this used to total the gross and read 21% high.
+	if want := int64(99174 + 24793); got.CrossBorderCents != want {
+		t.Errorf("cross-border total = %d, want %d (DE + IE, ex-VAT)", got.CrossBorderCents, want)
+	}
+	if got.CrossBorderCents >= 150000 {
+		t.Error("the total still carries the VAT the customer paid")
 	}
 	if _, ok := got.ByCountry["NL"]; ok {
 		t.Error("domestic Dutch sales are counted toward the cross-border threshold")
@@ -181,8 +190,8 @@ func TestTheVATThresholdCountsOnlyCrossBorderEUSales(t *testing.T) {
 	if got.ThresholdCents != 1000000 {
 		t.Errorf("threshold = %d cents, want 10 000 euro", got.ThresholdCents)
 	}
-	if got.PercentUsed < 14.9 || got.PercentUsed > 15.1 {
-		t.Errorf("percent used = %v, want ~15", got.PercentUsed)
+	if got.PercentUsed < 12.3 || got.PercentUsed > 12.5 {
+		t.Errorf("percent used = %v, want ~12.4 (ex-VAT)", got.PercentUsed)
 	}
 	if got.Note == "" {
 		t.Error("the figure arrives with no explanation of what to do at the limit")

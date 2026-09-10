@@ -49,6 +49,7 @@ func Run(t *testing.T, open Opener) {
 		{"ReceiptLease", testReceiptLease},
 		{"BuyerCountry", testBuyerCountry},
 		{"Refunds", testRefunds},
+		{"Stripe", testStripe},
 	}
 	for _, s := range suites {
 		t.Run(s.name, func(t *testing.T) {

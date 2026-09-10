@@ -380,6 +380,15 @@ var postAlterMigrations = []string{
     applied_at   TEXT NOT NULL
 )`,
 	`CREATE INDEX IF NOT EXISTS idx_kofi_deliveries_tenant ON kofi_deliveries (tenant_id, applied_at)`,
+	// The Stripe twin of kofi_deliveries: one row per event id, so a redelivery
+	// is recognised. tenant_id is here because the tenant export and purge find
+	// their tables by that column and never name one in code.
+	`CREATE TABLE IF NOT EXISTS stripe_events (
+		event_id TEXT PRIMARY KEY,
+		tenant_id TEXT NOT NULL,
+		applied_at TEXT NOT NULL
+	)`,
+	`CREATE INDEX IF NOT EXISTS idx_stripe_events_tenant ON stripe_events (tenant_id, applied_at)`,
 	`CREATE TABLE IF NOT EXISTS receipts (
 		id TEXT PRIMARY KEY,
 		tenant_id TEXT NOT NULL,
@@ -444,6 +453,9 @@ var lateAlterMigrations = []string{
 	`ALTER TABLE tenants ADD COLUMN kofi_payer_email TEXT NOT NULL DEFAULT ''`,
 	`ALTER TABLE tenants ADD COLUMN kofi_last_message_id TEXT NOT NULL DEFAULT ''`,
 	`ALTER TABLE tenants ADD COLUMN lapse_warned_at TEXT NOT NULL DEFAULT ''`,
+	// Mirrors postgres migration 16: Stripe replaces Ko-fi (MESHSAT-1023).
+	`ALTER TABLE tenants ADD COLUMN stripe_customer_id TEXT NOT NULL DEFAULT ''`,
+	`ALTER TABLE tenants ADD COLUMN stripe_subscription_id TEXT NOT NULL DEFAULT ''`,
 	// Per-row lease on the receipts outbox: see the Postgres twin. A gapless
 	// invoice series cannot survive two drainers on one row.
 	`ALTER TABLE receipts ADD COLUMN leased_until TEXT NOT NULL DEFAULT ''`,

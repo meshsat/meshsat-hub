@@ -284,6 +284,15 @@ type Store interface {
 	// payment quoting that code could never be matched to anyone
 	// (MESHSAT-1005).
 	EnsureClaimCode(ctx context.Context, tenantID, candidate string) (string, error)
+
+	// TenantByStripeCustomer resolves the payment events that carry a customer
+	// id and no metadata of their own (MESHSAT-1023).
+	TenantByStripeCustomer(ctx context.Context, customerID string) (*Tenant, error)
+	// ApplyStripeEvent records an event id and reports whether this call was
+	// the one that recorded it. A compare-and-set for the same reason
+	// ApplyKofiDelivery is one: the provider redelivers until it gets a 2xx,
+	// and a read-then-write lets two replicas both find a retry missing.
+	ApplyStripeEvent(ctx context.Context, eventID, tenantID string) (bool, error)
 	// SoftDeleteTenant blocks a tenant and starts the grace period. Reversible
 	// with UpdateTenant until PurgeTenant runs.
 	SoftDeleteTenant(ctx context.Context, id string, at time.Time) error
@@ -716,6 +725,16 @@ type Tenant struct {
 	// end. It stops an hourly job from mailing hourly: a warning counts for the
 	// expiry it was sent for, so a renewal that pushes the date out re-arms it.
 	LapseWarnedAt *time.Time `json:"-"`
+
+	// StripeCustomerID and StripeSubscriptionID bind a tenant to the payment
+	// provider (MESHSAT-1023). The customer id is written once, at checkout,
+	// from metadata this Hub put on the session -- which is why there is no
+	// claim code any more: the payment is bound to a tenant by construction
+	// rather than by somebody typing a code into a message box. The
+	// subscription id is cleared when the subscription ends, so an empty one
+	// means no live subscription rather than an unknown one.
+	StripeCustomerID     string `json:"stripe_customer_id,omitempty"`
+	StripeSubscriptionID string `json:"stripe_subscription_id,omitempty"`
 
 	// BillingCountry is where the buyer is, ISO 3166-1 alpha-2, empty when
 	// unknown. It decides whether Dutch VAT applies at all -- see internal/vat.

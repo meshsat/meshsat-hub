@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/meshsat/meshsat-hub/internal/billing"
 	"github.com/meshsat/meshsat-hub/internal/invoiceninja"
-	"github.com/meshsat/meshsat-hub/internal/kofi"
 	"github.com/meshsat/meshsat-hub/internal/mail"
 	"github.com/meshsat/meshsat-hub/internal/store"
 )
@@ -228,7 +228,7 @@ func TestFullRefundTakesBackThePaidPeriod(t *testing.T) {
 	if s.updatedTenant == nil {
 		t.Fatal("a full refund left the plan paid for a month nobody paid for")
 	}
-	want := expires.Add(-kofi.Period)
+	want := expires.Add(-billing.Period)
 	if !s.updatedTenant.PlanExpiresAt.Equal(want) {
 		t.Fatalf("expiry = %v, want %v (exactly the period the payment bought)",
 			s.updatedTenant.PlanExpiresAt, want)
@@ -472,7 +472,7 @@ func TestARetryDoesNotShortenThePlanTwice(t *testing.T) {
 	if s.updatedTenant == nil {
 		t.Fatal("the successful pass never took the paid period back")
 	}
-	want := expires.Add(-kofi.Period)
+	want := expires.Add(-billing.Period)
 	if !s.updatedTenant.PlanExpiresAt.Equal(want) {
 		t.Fatalf("expiry = %v, want %v: exactly one period, however many passes it took",
 			s.updatedTenant.PlanExpiresAt, want)

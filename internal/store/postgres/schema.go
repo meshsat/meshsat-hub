@@ -571,4 +571,25 @@ CREATE TABLE IF NOT EXISTS refunds (
 CREATE INDEX IF NOT EXISTS idx_refunds_due ON refunds (next_attempt_at) WHERE status = 'pending';
 CREATE INDEX IF NOT EXISTS idx_refunds_tenant ON refunds (tenant_id);
 `},
+	// v16: Stripe replaces Ko-fi as the payment provider (MESHSAT-1023).
+	//
+	// stripe_events carries tenant_id even though the primary key is the event
+	// id, and that column is load-bearing: the tenant export and purge discover
+	// the tables they must cover by looking for a tenant_id column, and never
+	// name one in code. A table without it silently stops being erased.
+	//
+	// The kofi_* columns are deliberately left in place. Migrations are
+	// append-only here, nobody has paid through Ko-fi, and dropping them buys
+	// nothing but a way to lose data.
+	{Version: 16, Name: "stripe", SQL: `
+ALTER TABLE tenants ADD COLUMN IF NOT EXISTS stripe_customer_id VARCHAR(64) NOT NULL DEFAULT '';
+ALTER TABLE tenants ADD COLUMN IF NOT EXISTS stripe_subscription_id VARCHAR(64) NOT NULL DEFAULT '';
+CREATE UNIQUE INDEX IF NOT EXISTS idx_tenants_stripe_customer ON tenants (stripe_customer_id) WHERE stripe_customer_id <> '';
+CREATE TABLE IF NOT EXISTS stripe_events (
+	event_id VARCHAR(128) PRIMARY KEY,
+	tenant_id VARCHAR(64) NOT NULL,
+	applied_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_stripe_events_tenant ON stripe_events (tenant_id, applied_at);
+`},
 }
