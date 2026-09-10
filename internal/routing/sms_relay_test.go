@@ -6,6 +6,7 @@ import (
 	"sync"
 	"testing"
 
+	hubmqtt "github.com/meshsat/meshsat-hub/internal/mqtt"
 	"github.com/meshsat/meshsat-hub/internal/sms"
 	"github.com/meshsat/meshsat-hub/internal/store"
 	"github.com/meshsat/meshsat-hub/internal/store/sqlite"
@@ -60,7 +61,9 @@ func TestPlainTextSMSRelaysKitToKit(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		e.handleMODecoded("meshsat/"+from+"/mo/decoded", payload)
+		// The wire form carries the number percent-encoded ("+" is an MQTT
+		// wildcard); the parser hands the engine the number itself.
+		e.handleMODecoded(hubmqtt.TopicMODecodedFor(store.DefaultTenantID, from), payload)
 	}
 	publish(kitA, "sms-in-SM1", "hello from A")
 	publish(kitB, "sms-in-SM2", "hello from B") // not in senders: must not fire
