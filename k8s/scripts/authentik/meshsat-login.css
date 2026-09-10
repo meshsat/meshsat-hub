@@ -16,6 +16,14 @@
 @font-face{font-family:'IBM Plex Mono';font-style:normal;font-weight:600;font-display:swap;src:url('https://meshsat.net/fonts/ibm-plex-mono-latin-600-normal.woff2') format('woff2')}
 
 :root, :host {
+  /* This page is dark whatever the visitor's OS says, so say so. Without it a
+   * light-mode visitor gets the browser's light UA widgets on a dark card --
+   * white scrollbars, white autofill, and, since the CAPTCHA arrived, a white
+   * Turnstile slab that was the brightest thing on the page. The used
+   * color-scheme propagates into embedded browsing contexts, so the widget
+   * resolves prefers-color-scheme: dark and renders on the card instead of
+   * punching a hole in it. */
+  color-scheme: dark;
   --ak-global--background-image: none;
   --ak-flow-background-image-color: #040406;
   --ms-scrim: linear-gradient(135deg, rgba(4,4,6,0.86) 0%, rgba(4,4,6,0.76) 45%, rgba(4,4,6,0.68) 100%);
@@ -219,7 +227,64 @@ ak-message-container { background: transparent; }
 /* Card */
 .pf-c-login__main { border: 1px solid #2E2822; border-radius: 12px; box-shadow: 0 24px 64px rgba(0,0,0,0.45); }
 .pf-c-login__main-header, .pf-c-login__main-body, .pf-c-login__main-footer { background: #1A1714; color: #F2EDE6; }
-.pf-c-title, h1, h2, h3 { font-family: 'IBM Plex Mono', ui-monospace, monospace; letter-spacing: 0.02em; color: #F2EDE6; }
+/* Flow titles.
+ *
+ * These were Plex Mono at 28px/400 with +0.02em, and three things went wrong at
+ * once on "Create your MeshSat Hub account". Mono gives every character the same
+ * width, so 31 characters overran the 446px column and wrapped one word from the
+ * end, leaving "account" alone on a line. The positive tracking pushed an
+ * already wide face wider. And 400 weight left the H1 lighter than the field
+ * labels beneath it, so the hierarchy read backwards.
+ *
+ * Plex Sans 600 at 24px with -0.01em fits the same sentence on one line in the
+ * same column, and out-weighs the labels it is meant to sit above. Mono keeps
+ * the places it is genuinely data -- the wordmark, and the placeholders someone
+ * types into -- instead of narrating prose. balance is insurance: a translation
+ * or a narrow screen breaks into two even lines rather than another orphan. */
+.pf-c-title, h1, h2, h3 {
+  font-family: 'IBM Plex Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  color: #F2EDE6;
+}
+.pf-c-login__main-header .pf-c-title,
+.pf-c-login__main-header h1,
+.pf-c-login__main-header h2 {
+  font-size: 1.5rem;
+  line-height: 1.25;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  text-wrap: balance;
+  margin: 1.25rem 0 0;
+}
+
+/* One axis. The lockup was centred over a left-aligned form, so the card read as
+ * two compositions stacked and the logo looked like it was floating. The form
+ * column is the one that cannot move, so the lockup comes to it -- and "left"
+ * is not enough on its own: the header's inset was 12px against the body's 48px,
+ * so simply un-centring the logo put it 36px to the left of everything else and
+ * traded one misalignment for another. The two insets have to be the same
+ * number, and the body's is the one that owns the column. */
+.pf-c-login__main-header { text-align: left; }
+/* Two different elements carry .pf-c-login__main-header: the lockup's, in the
+ * light DOM with a 12px inset, and the title's, inside ak-flow-card's shadow
+ * root with 48px. Only the lockup's needs moving, and it has to be matched on
+ * both classes -- a single-class rule loses to PatternFly's own, and a
+ * descendant selector never matches at all because the two classes are on the
+ * same element.
+ *
+ * In rem, not px: the card's own insets are 3rem and 2rem, and authentik scales
+ * the root font-size on small screens, so a literal 48px tracks it on one
+ * breakpoint and drifts on the other. */
+.pf-c-login__main-header.pf-c-brand { display: flex; justify-content: flex-start; padding-left: 3rem; padding-right: 3rem; }
+.pf-c-brand img, img.branding-logo, .pf-c-login__main-header img { margin-left: 0; margin-right: auto; }
+
+/* The only saturated thing in this card should be the button. A required marker
+ * is not an error, and the danger colour put a second, redder orange next to
+ * Signal Orange on every label. The asterisk is a pseudo-element authentik
+ * generates from the data attribute, not a .pf-c-form__label-required span, so
+ * neither the class nor the PatternFly variable reaches it. !important because
+ * authentik's own rule for this pseudo-element is injected after the brand CSS
+ * inside the shadow root, so specificity alone cannot win it. */
+.pf-c-form__label-text[data-required-label]::after { color: #A79B8B !important; }
 .pf-c-login__main-header-desc, .pf-c-form__label-text, .pf-c-form__helper-text { color: #A79B8B; }
 .pf-c-brand { max-height: 56px; overflow: visible; }
 /* The lockup SVG is 1200x244: scale it into the header instead of clipping it. */
@@ -251,4 +316,11 @@ ak-message-container { background: transparent; }
 .pf-c-login__footer, .pf-c-login__footer a, ak-brand-links { color: #D9CFC2; }
 
 /* Narrow screens: PatternFly overlays the language switcher on the card; keep the card below it. */
-@media (max-width: 767px) { .pf-c-login__main { margin-top: 3.25rem; } .pf-c-login__header { padding-bottom: 0; } }
+@media (max-width: 767px) {
+  .pf-c-login__main { margin-top: 3.25rem; }
+  .pf-c-login__header { padding-bottom: 0; }
+  /* Keep the lockup on the form column here too: the card's inset narrows on
+   * small screens, and a lockup still holding 48px would sit in past the
+   * fields. */
+  .pf-c-login__main-header.pf-c-brand { padding-left: 2rem; padding-right: 2rem; }
+}
