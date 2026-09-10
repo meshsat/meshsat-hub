@@ -86,6 +86,19 @@ type Handler struct {
 	// tierFor maps a Ko-fi tier name to a plan. Configurable because the tier
 	// names live in somebody's Ko-fi page, not in this repository.
 	tierFor map[string]string
+	// receipts is the outbox that owes the customer a document (MESHSAT-998).
+	// nil when no billing system is configured, in which case payments still
+	// grant plans and nothing is recorded.
+	receipts ReceiptStore
+	// users resolves a tenant owner to an account, which is both how a payment
+	// is matched by address and where the receipt is sent.
+	users UserLookup
+}
+
+// UserLookup is the slice of the store needed to turn a tenant's owner into an
+// account. Tenant.OwnerUserID holds a user id, never an address.
+type UserLookup interface {
+	GetUserByID(ctx context.Context, tenantID, id string) (*store.LocalUser, error)
 }
 
 // NewHandler creates the Ko-fi webhook handler.
@@ -98,6 +111,14 @@ func (h *Handler) SetAudit(a Auditor) { h.audit = a }
 
 // SetInvalidator wires the cross-replica cache drop.
 func (h *Handler) SetInvalidator(f func(tenantID string)) { h.forget = f }
+
+// SetReceipts wires the receipt outbox. Without it a payment still grants a
+// plan and no document is ever produced, which is the state this replaced.
+func (h *Handler) SetReceipts(r ReceiptStore) { h.receipts = r }
+
+// SetUserLookup wires the tenant-owner lookup used to match a payment by
+// address and to address the receipt.
+func (h *Handler) SetUserLookup(u UserLookup) { h.users = u }
 
 // SetTierMapping maps Ko-fi tier names (lowercased) to plan names. A tier name
 // that is not mapped falls back to matching the plan name itself, so a Ko-fi
@@ -189,6 +210,13 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	plan := h.planFor(p.TierName)
+
+	// Record that money arrived before granting anything. The receipt is for
+	// the payment, not for the grant: if the grant below fails, the customer
+	// has still paid and is still owed a document. The insert is guarded by a
+	// unique delivery key, so a replayed delivery adds nothing.
+	h.recordReceipt(ctx, t, p, plan)
+
 	prev, prevExpiry := t.Plan, t.PlanExpiresAt
 	t.KofiLastMessageID = p.MessageID
 
@@ -306,8 +334,14 @@ func (h *Handler) match(ctx context.Context, p Payload) (*store.Tenant, string, 
 
 	// 3. The account owner's own address, for the straightforward case where
 	//    somebody pays from the address they signed up with.
+	//
+	//    This used to compare the payer's address to Tenant.OwnerUserID, which
+	//    holds a user id (internal/api/oidc.go assigns it from the created
+	//    user), never an address. The comparison could not be true for any
+	//    account, so a first-time payer who omitted the claim code was
+	//    silently left unmatched. The owner has to be looked up.
 	t, err := unique(tenants, func(t store.Tenant) bool {
-		return live(t) && strings.EqualFold(strings.TrimSpace(t.OwnerUserID), email)
+		return live(t) && h.ownerEmail(ctx, t) == email
 	})
 	if err != nil || t == nil {
 		if err == nil {
@@ -316,6 +350,23 @@ func (h *Handler) match(ctx context.Context, p Payload) (*store.Tenant, string, 
 		return nil, "", err
 	}
 	return t, "email", nil
+}
+
+// ownerEmail is the tenant owner's account address, lowercased, or "" when
+// there is no owner, no lookup wired, or the account has gone.
+//
+// One query per tenant per unmatched payment. That is fine at this size and
+// the alternative -- an index keyed on an address that can change -- is a
+// cache to keep correct for a code path that runs a few times a month.
+func (h *Handler) ownerEmail(ctx context.Context, t store.Tenant) string {
+	if h.users == nil || t.OwnerUserID == "" {
+		return ""
+	}
+	u, err := h.users.GetUserByID(ctx, t.ID, t.OwnerUserID)
+	if err != nil || u == nil {
+		return ""
+	}
+	return strings.ToLower(strings.TrimSpace(u.Email))
 }
 
 // unique returns the single tenant matching pred. Two matches is not a tie to

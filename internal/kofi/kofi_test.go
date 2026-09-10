@@ -16,8 +16,16 @@ import (
 
 type memTenants struct {
 	tenants  []store.Tenant
+	users    map[string]store.LocalUser
 	updates  int
 	failNext bool
+}
+
+func (m *memTenants) GetUserByID(_ context.Context, tenantID, id string) (*store.LocalUser, error) {
+	if u, ok := m.users[tenantID+"/"+id]; ok {
+		return &u, nil
+	}
+	return nil, store.ErrNotFound
 }
 
 func (m *memTenants) GetTenant(_ context.Context, id string) (*store.Tenant, error) {
@@ -64,18 +72,35 @@ func post(t *testing.T, h *Handler, p Payload) *httptest.ResponseRecorder {
 	return rr
 }
 
+// newStore builds two tenants shaped the way the real store shapes them:
+// OwnerUserID holds a USER ID, not an address. It used to hold an address in
+// this fixture, which is why the "matched by the owner's email" path passed
+// here for months while it could never match in production.
 func newStore() *memTenants {
-	return &memTenants{tenants: []store.Tenant{
-		{ID: "t-a", Slug: "a", Name: "Alpha", Plan: plans.Free, Status: store.TenantActive,
-			OwnerUserID: "alice@example.com", KofiClaimCode: "AB2K9XYZ"},
-		{ID: "t-b", Slug: "b", Name: "Bravo", Plan: plans.Free, Status: store.TenantActive,
-			OwnerUserID: "bob@example.com", KofiClaimCode: "QQ44MMNN"},
-	}}
+	return &memTenants{
+		tenants: []store.Tenant{
+			{ID: "t-a", Slug: "a", Name: "Alpha", Plan: plans.Free, Status: store.TenantActive,
+				OwnerUserID: "usr-alice", KofiClaimCode: "AB2K9XYZ"},
+			{ID: "t-b", Slug: "b", Name: "Bravo", Plan: plans.Free, Status: store.TenantActive,
+				OwnerUserID: "usr-bob", KofiClaimCode: "QQ44MMNN"},
+		},
+		users: map[string]store.LocalUser{
+			"t-a/usr-alice": {ID: "usr-alice", Email: "alice@example.com", Name: "Alice"},
+			"t-b/usr-bob":   {ID: "usr-bob", Email: "bob@example.com", Name: "Bob"},
+		},
+	}
+}
+
+// newHandler wires the handler the way main.go does.
+func newHandler(st *memTenants) *Handler {
+	h := NewHandler(st, token)
+	h.SetUserLookup(st)
+	return h
 }
 
 func TestPayment_MatchesOnClaimCode(t *testing.T) {
 	st := newStore()
-	h := NewHandler(st, token)
+	h := newHandler(st)
 	rr := post(t, h, Payload{
 		VerificationToken: token, IsSubscriptionPayment: true,
 		TierName: "Crew", Email: "someone-else@example.com",
@@ -100,7 +125,7 @@ func TestPayment_MatchesOnClaimCode(t *testing.T) {
 
 func TestPayment_FallsBackToEmail(t *testing.T) {
 	st := newStore()
-	h := NewHandler(st, token)
+	h := newHandler(st)
 	rr := post(t, h, Payload{
 		VerificationToken: token, IsSubscriptionPayment: true,
 		TierName: "fleet", Email: "Bob@Example.com", Message: "thanks!",
@@ -119,7 +144,7 @@ func TestPayment_FallsBackToEmail(t *testing.T) {
 // paid is how one tenant ends up funding another's fleet.
 func TestPayment_UnmatchedChangesNothing(t *testing.T) {
 	st := newStore()
-	h := NewHandler(st, token)
+	h := newHandler(st)
 	rr := post(t, h, Payload{
 		VerificationToken: token, IsSubscriptionPayment: true,
 		TierName: "Crew", Email: "stranger@example.com", Message: "no code here",
@@ -136,7 +161,7 @@ func TestPayment_UnmatchedChangesNothing(t *testing.T) {
 // A one-off donation is support, not a subscription, and must not grant a tier.
 func TestPayment_OneOffDoesNotGrantATier(t *testing.T) {
 	st := newStore()
-	h := NewHandler(st, token)
+	h := newHandler(st)
 	rr := post(t, h, Payload{
 		VerificationToken: token, IsSubscriptionPayment: false,
 		TierName: "Crew", Message: "AB2K9XYZ", KofiTransactionID: "txn-4",
@@ -151,7 +176,7 @@ func TestPayment_OneOffDoesNotGrantATier(t *testing.T) {
 
 func TestPayment_WrongTokenIsRefused(t *testing.T) {
 	st := newStore()
-	h := NewHandler(st, token)
+	h := newHandler(st)
 	rr := post(t, h, Payload{
 		VerificationToken: "not-the-token", IsSubscriptionPayment: true,
 		TierName: "Crew", Message: "AB2K9XYZ",
@@ -183,7 +208,7 @@ func TestPayment_RenewalStacks(t *testing.T) {
 	future := time.Now().UTC().Add(10 * 24 * time.Hour)
 	st.tenants[0].Plan = plans.Crew
 	st.tenants[0].PlanExpiresAt = &future
-	h := NewHandler(st, token)
+	h := newHandler(st)
 
 	post(t, h, Payload{
 		VerificationToken: token, IsSubscriptionPayment: true,
@@ -284,7 +309,7 @@ func TestLapse_DowngradesOnlyExpiredPaidPlans(t *testing.T) {
 // This test is the reason kofi_payer_email exists.
 func TestRenewal_WithoutAMessageStillMatches(t *testing.T) {
 	st := newStore()
-	h := NewHandler(st, token)
+	h := newHandler(st)
 	ctx := context.Background()
 
 	// The supporter pays from a personal address, not the one on the account.
@@ -345,7 +370,7 @@ func TestRenewal_AmbiguousPayerMatchesNothing(t *testing.T) {
 	st := newStore()
 	st.tenants[0].KofiPayerEmail = "shared@example.com"
 	st.tenants[1].KofiPayerEmail = "shared@example.com"
-	h := NewHandler(st, token)
+	h := newHandler(st)
 
 	rr := post(t, h, Payload{
 		VerificationToken: token, IsSubscriptionPayment: true,
@@ -366,7 +391,7 @@ func TestRenewal_AmbiguousPayerMatchesNothing(t *testing.T) {
 func TestClaimCodeOutranksRememberedPayer(t *testing.T) {
 	st := newStore()
 	st.tenants[0].KofiPayerEmail = "jo@example.com" // t-a remembers this payer
-	h := NewHandler(st, token)
+	h := newHandler(st)
 
 	// Same payer, but the message names t-b's code.
 	post(t, h, Payload{
@@ -388,7 +413,7 @@ func TestClaimCodeOutranksRememberedPayer(t *testing.T) {
 // we have already applied the payment, the retry must not buy a second month.
 func TestDuplicateDelivery_DoesNotExtendTwice(t *testing.T) {
 	st := newStore()
-	h := NewHandler(st, token)
+	h := newHandler(st)
 	p := Payload{
 		VerificationToken: token, IsSubscriptionPayment: true, TierName: "Crew",
 		Email: "jo.example@example.com", Message: "AB2K9XYZ",

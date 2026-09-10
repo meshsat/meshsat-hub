@@ -472,4 +472,30 @@ CREATE INDEX IF NOT EXISTS idx_bridge_oob_peers_peer ON bridge_oob_peers (peer_i
 		CREATE INDEX IF NOT EXISTS idx_tenants_kofi_payer ON tenants (kofi_payer_email) WHERE kofi_payer_email <> '';
 		ALTER TABLE tenants ADD COLUMN IF NOT EXISTS kofi_last_message_id VARCHAR(64) NOT NULL DEFAULT '';
 	`},
+	{Version: 10, Name: "receipts", SQL: `
+CREATE TABLE IF NOT EXISTS receipts (
+	id VARCHAR(64) PRIMARY KEY,
+	tenant_id VARCHAR(64) NOT NULL,
+	delivery_key VARCHAR(255) NOT NULL UNIQUE,
+	transaction_id VARCHAR(255) NOT NULL DEFAULT '',
+	email VARCHAR(254) NOT NULL DEFAULT '',
+	name VARCHAR(255) NOT NULL DEFAULT '',
+	amount_cents BIGINT NOT NULL DEFAULT 0,
+	currency VARCHAR(8) NOT NULL DEFAULT '',
+	plan VARCHAR(32) NOT NULL DEFAULT '',
+	tier_name VARCHAR(255) NOT NULL DEFAULT '',
+	paid_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+	status VARCHAR(16) NOT NULL DEFAULT 'pending',
+	attempts INTEGER NOT NULL DEFAULT 0,
+	last_error TEXT NOT NULL DEFAULT '',
+	next_attempt_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+	invoice_number VARCHAR(64) NOT NULL DEFAULT '',
+	invoice_ref VARCHAR(64) NOT NULL DEFAULT '',
+	issued_at TIMESTAMPTZ NULL,
+	created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+	updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_receipts_due ON receipts (next_attempt_at) WHERE status = 'pending';
+CREATE INDEX IF NOT EXISTS idx_receipts_tenant ON receipts (tenant_id);
+	`},
 }
