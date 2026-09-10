@@ -11,6 +11,14 @@
 #
 # `bootstrap` optionally reads TURNSTILE_SITE_KEY and TURNSTILE_SECRET from the
 # environment; without them the CAPTCHA stage is skipped rather than half-built.
+# The live pair is in OpenBao, so a re-run keeps the CAPTCHA rather than leaving
+# it on whatever it had:
+#
+#   eval "$(bao kv get -mount=secret -format=json ci-no/apps/meshsat-hub/turnstile \
+#           | python3 -c 'import json,sys; d=json.load(sys.stdin)["data"]["data"]; \
+#             print("export TURNSTILE_SITE_KEY=%s TURNSTILE_SECRET=%s" % (d["TURNSTILE_SITE_KEY"], d["TURNSTILE_SECRET"]))')"
+#
+# The Cloudflare widget is "meshsat-hub-enrollment", scoped to auth.meshsat.net.
 #
 # Needs: kubectl context notrf01; for `bootstrap` also bao (BAO_ADDR + token).
 set -euo pipefail
