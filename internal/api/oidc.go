@@ -374,6 +374,15 @@ func (h *OIDCHandler) resolveUser(ctx context.Context, issuer, sub, email string
 	if err != nil {
 		return nil, "", err
 	}
+	if winner != nil && winner.TenantID == tenant.ID {
+		// The subject already points at the tenant this request just built, so
+		// this request is the winner however the claim was reported. Without
+		// this, a driver that cannot report rows affected would have us
+		// discard our own tenant and then adopt an identity pointing straight
+		// at it -- a signed-in user inside a deleted tenant, refused
+		// everything by the tenant middleware.
+		claimed = true
+	}
 	if !claimed {
 		// Nothing of value is lost: this tenant is seconds old, holds one user
 		// -- the same person -- and no devices. Soft delete keeps it visible to
