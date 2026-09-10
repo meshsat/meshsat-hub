@@ -492,3 +492,64 @@ func TestDuplicateDelivery_DoesNotExtendTwice(t *testing.T) {
 		t.Errorf("the next month's payment did not extend: %v", month2.PlanExpiresAt)
 	}
 }
+
+// An unmatched payment must leave a durable record, not only a log line: money
+// arrived and nobody was upgraded, and somebody has to be able to find it
+// afterwards (MESHSAT-1007).
+func TestAnUnmatchedPaymentIsRecordedForAnOperator(t *testing.T) {
+	st := newStore()
+	h := newHandler(st)
+	au := &captureAuditor{}
+	h.SetAudit(au)
+
+	rr := post(t, h, Payload{
+		VerificationToken: token, IsSubscriptionPayment: true,
+		TierName: "Crew", Email: "stranger@example.com", Message: "thanks!",
+		Amount: "9.00", Currency: "EUR", KofiTransactionID: "txn-99",
+	})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("code = %d, want 200 (Ko-fi must not be told to retry)", rr.Code)
+	}
+
+	var detail string
+	for _, e := range au.entries {
+		if e.action == UnmatchedAction {
+			detail = e.detail
+		}
+	}
+	if detail == "" {
+		t.Fatalf("no %s entry; the payment exists only in the log: %+v", UnmatchedAction, au.entries)
+	}
+	var got map[string]any
+	if err := json.Unmarshal([]byte(detail), &got); err != nil {
+		t.Fatalf("the record is not machine-readable: %v (%s)", err, detail)
+	}
+	for k, want := range map[string]string{
+		"transaction_id": "txn-99",
+		"payer_email":    "stranger@example.com",
+		"amount":         "9.00",
+		"currency":       "EUR",
+		"tier":           "Crew",
+	} {
+		if got[k] != want {
+			t.Errorf("record[%q] = %v, want %q", k, got[k], want)
+		}
+	}
+	if got["reason"] == nil || got["reason"] == "" {
+		t.Error("the record does not say why it could not be matched")
+	}
+	// And it still must not have changed anybody's plan.
+	if st.updates != 0 {
+		t.Errorf("%d tenants changed on an unmatched payment, want 0", st.updates)
+	}
+}
+
+// captureAuditor keeps what was logged so a test can assert on it.
+type captureAuditor struct {
+	entries []struct{ tenant, action, actor, detail string }
+}
+
+func (c *captureAuditor) Log(_ context.Context, tenant, action, actor, detail, _ string) error {
+	c.entries = append(c.entries, struct{ tenant, action, actor, detail string }{tenant, action, actor, detail})
+	return nil
+}

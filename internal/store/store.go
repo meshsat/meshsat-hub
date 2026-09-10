@@ -355,6 +355,16 @@ type Store interface {
 	// BlockReceipt parks a receipt that needs a person (an unexpected
 	// currency, no address to send it to) rather than retrying forever.
 	BlockReceipt(ctx context.Context, id, reason string) error
+	// ListReceiptsByStatus returns receipts in one state, newest first. The
+	// blocked ones are the reason this exists: they were terminal and
+	// invisible, so money taken for a document nobody could issue simply
+	// stopped being mentioned anywhere (MESHSAT-1007).
+	ListReceiptsByStatus(ctx context.Context, status string, limit int) ([]Receipt, error)
+	// RequeueReceipt puts a blocked receipt back in the drainer's queue after
+	// a person has fixed whatever parked it. Blocked was a one-way door: no
+	// API, no UI and no CLI could reopen it, so the only way to issue the
+	// document was to edit the row by hand.
+	RequeueReceipt(ctx context.Context, id string, at time.Time) error
 }
 
 // OOBPeer is the Hub's out-of-band management pairing with one bridge

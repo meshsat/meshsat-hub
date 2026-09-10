@@ -30,6 +30,7 @@ import (
 	"time"
 
 	"github.com/meshsat/meshsat-hub/internal/mail"
+	"github.com/meshsat/meshsat-hub/internal/metrics"
 	"github.com/meshsat/meshsat-hub/internal/plans"
 	"github.com/meshsat/meshsat-hub/internal/store"
 )
@@ -207,9 +208,15 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		// Loud and left alone. Guessing which customer a payment belongs to is
 		// how one tenant ends up paying for another's fleet, so an unmatched
 		// payment is an operator's job, not a heuristic's.
+		//
+		// But it has to be findable. Until this was recorded the only trace of
+		// a payment nobody was upgraded for was a log line, which nothing
+		// alerts on and nobody reads at the moment it matters (MESHSAT-1007).
 		slog.Warn("kofi: subscription payment matched no tenant, left for an operator",
 			"txn", p.KofiTransactionID, "tier", p.TierName, "has_message", p.Message != "",
 			"error", err)
+		metrics.KofiUnmatchedPaymentsTotal.Inc()
+		h.recordUnmatched(ctx, p, err)
 		writeOK(w, "received")
 		return
 	}
@@ -448,4 +455,56 @@ func NewClaimCode() (string, error) {
 		out[i] = claimAlphabet[int(v)%len(claimAlphabet)]
 	}
 	return string(out), nil
+}
+
+// UnmatchedAction is the audit action a payment nobody could be found for is
+// recorded under, and what the admin listing filters on.
+const UnmatchedAction = "kofi_payment_unmatched"
+
+// unmatchedPayment is what an operator needs to attribute a payment by hand:
+// who paid, how much, for which tier, and what they wrote in the message that
+// should have carried a claim code.
+type unmatchedPayment struct {
+	TransactionID string `json:"transaction_id"`
+	Tier          string `json:"tier,omitempty"`
+	Amount        string `json:"amount,omitempty"`
+	Currency      string `json:"currency,omitempty"`
+	PayerEmail    string `json:"payer_email,omitempty"`
+	Message       string `json:"message,omitempty"`
+	Reason        string `json:"reason,omitempty"`
+}
+
+// recordUnmatched writes the payment to the audit log of the platform tenant,
+// which is the one surface a platform admin already has and already trusts --
+// it is hash-chained, retained and exported like every other entry.
+func (h *Handler) recordUnmatched(ctx context.Context, p Payload, matchErr error) {
+	if h.audit == nil {
+		return
+	}
+	reason := "no claim code, payer address, or remembered payer matched a tenant"
+	if matchErr != nil {
+		reason = matchErr.Error()
+	}
+	// The message can be anything a stranger typed; keep it bounded.
+	msg := p.Message
+	if len(msg) > 500 {
+		msg = msg[:500]
+	}
+	detail, err := json.Marshal(unmatchedPayment{
+		TransactionID: p.KofiTransactionID,
+		Tier:          p.TierName,
+		Amount:        p.Amount,
+		Currency:      p.Currency,
+		PayerEmail:    p.Email,
+		Message:       msg,
+		Reason:        reason,
+	})
+	if err != nil {
+		slog.Warn("kofi: could not record an unmatched payment", "txn", p.KofiTransactionID, "error", err)
+		return
+	}
+	if err := h.audit.Log(ctx, store.DefaultTenantID, UnmatchedAction, "kofi_webhook", string(detail), ""); err != nil {
+		slog.Error("kofi: an unmatched payment was not recorded; it exists only in the log now",
+			"txn", p.KofiTransactionID, "error", err)
+	}
 }

@@ -11,6 +11,11 @@ import (
 // mockStore implements store.Store for unit tests with configurable return values.
 type mockStore struct {
 	platformAdmin bool // returned by IsPlatformAdmin
+
+	// Receipts outbox
+	receipts   []store.Receipt
+	requeued   []string
+	requeueErr error
 	// Devices
 	devices     []store.Device
 	device      *store.Device
@@ -492,3 +497,12 @@ func (m *mockStore) MarkReceiptIssued(context.Context, string, string, string, t
 }
 func (m *mockStore) MarkReceiptAttempt(context.Context, string, string, time.Time) error { return nil }
 func (m *mockStore) BlockReceipt(context.Context, string, string) error                  { return nil }
+
+func (m *mockStore) ListReceiptsByStatus(context.Context, string, int) ([]store.Receipt, error) {
+	return m.receipts, nil
+}
+
+func (m *mockStore) RequeueReceipt(_ context.Context, id string, _ time.Time) error {
+	m.requeued = append(m.requeued, id)
+	return m.requeueErr
+}
