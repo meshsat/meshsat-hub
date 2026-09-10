@@ -1557,7 +1557,17 @@ func main() {
 						"identity of another business instead.",
 						"email_sending_method", st.EmailSendingMethod, "company", st.Name)
 				}
-				if st.InclusiveTaxes && st.SenderIsPerCompany() {
+				// The Hub writes amounts into its own emails the way this
+				// company writes them on the document, so a customer holding
+				// both reads one figure written one way. The rule has a branch
+				// the Hub does not implement, and it is one checkbox away.
+				if !st.MoneyMatchesTheDocument() {
+					slog.Error("invoiceninja: THE TARGET COMPANY NOW SHOWS THE CURRENCY CODE. "+
+						"Its documents will read \"9,00 EUR\" while the Hub's emails still "+
+						"read \"EUR 9,00\" for the same payment.",
+						"show_currency_code", st.ShowCurrencyCode, "company", st.Name)
+				}
+				if st.InclusiveTaxes && st.SenderIsPerCompany() && st.MoneyMatchesTheDocument() {
 					slog.Info("invoiceninja: target company verified",
 						"company", st.Name, "inclusive_taxes", true,
 						"reply_to", st.ReplyToEmail)
