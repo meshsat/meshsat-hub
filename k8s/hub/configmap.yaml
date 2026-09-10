@@ -163,12 +163,12 @@ data:
   # There are ZERO Stripe Tax registrations on this account, so Stripe would
   # compute no tax on anything -- which is exactly why every request this Hub
   # makes sends automatic_tax[enabled]=false rather than trusting a setting.
-  HUB_STRIPE_PRICES: "price_1UEFXG6vVKg6ivl2VEbRwjUq=crew,price_1UEFXG6vVKg6ivl2y8lfEhMz=fleet"
+  HUB_STRIPE_PRICES: "price_1UEHEb4j5c6KcLizgcFWjeHp=crew,price_1UEHEb4j5c6KcLizBT2sirDL=fleet"
   HUB_STRIPE_TIMEOUT: "20s"
   # No donation price yet: a customer-chosen amount needs a price with
   # custom_unit_amount, and nobody has decided the floor. Unset means no
   # donation path, which is a supported state.
-  # HUB_STRIPE_DONATION_PRICE: "price_..."
+  HUB_STRIPE_DONATION_PRICE: "price_1UEHGT4j5c6KcLiz56KCKVPz"
 
   # --- customer receipts (MESHSAT-998) ---
   # A Ko-fi payment is recorded in the receipts outbox either way; these decide
