@@ -160,6 +160,21 @@ func testRefunds(t *testing.T, s store.Store) {
 		t.Fatalf("RefundsByCountrySince = %v, want NL=900", by)
 	}
 
+	// An issued receipt is never parked. Two drainers touch that row -- the
+	// receipt issuer and the refund issuer -- and flipping an issued receipt to
+	// blocked would leave a customer holding an invoice nothing reconciles.
+	if err := s.MarkReceiptIssued(ctx, receipt.ID, "MSH2026-0001", "inv-1", now); err != nil {
+		t.Fatalf("MarkReceiptIssued: %v", err)
+	}
+	if err := s.BlockReceipt(ctx, receipt.ID, "should not stick"); err != nil {
+		t.Fatalf("BlockReceipt: %v", err)
+	}
+	if again, err := s.GetReceipt(ctx, receipt.ID); err != nil {
+		t.Fatalf("GetReceipt: %v", err)
+	} else if again.Status != store.ReceiptIssued {
+		t.Fatalf("an issued receipt was parked (status=%q); its invoice exists and has a number", again.Status)
+	}
+
 	// A blocked refund can be requeued, and a pending one with no document can
 	// be withdrawn so a wrong figure can be corrected.
 	r2 := &store.Refund{
