@@ -456,48 +456,80 @@ func (c *Client) countryIDFor(alpha2 string) string {
 	return c.CountryID
 }
 
-// VerifyInclusiveTaxes asks the billing system whether the company this token
-// points at really has inclusive taxes on.
+// CompanyState is what the billing system says about the company this token
+// acts as. Both fields are assumptions this code would otherwise make silently,
+// and both have been wrong in production at least once.
+type CompanyState struct {
+	Name string
+	// InclusiveTaxes decides whether the amount sent is the gross the customer
+	// paid or a net the company adds VAT to. The whole receipt path assumes
+	// gross.
+	InclusiveTaxes bool
+	// EmailSendingMethod decides whether outbound mail carries this company's
+	// own sender or the instance-wide one. See SenderIsPerCompany.
+	EmailSendingMethod string
+	ReplyToEmail       string
+}
+
+// SenderIsPerCompany reports whether this company's mail will actually go out
+// under its own identity.
 //
-// The whole receipt path assumes it: the amount sent is the GROSS the customer
-// paid and the VAT is derived out of it. If somebody turns the flag off in the
-// web UI, every receipt silently becomes 9.00 net plus 1.89 = 10.89 -- a wrong
-// document, issued with a real number out of a gapless series, with no error
-// anywhere. Nothing checked it before (MESHSAT-1016).
+// On a self-hosted instance the per-company sender comes from
+// NinjaMailerJob::setSelfHostMultiMailer(), which reads env vars prefixed with
+// the company id. It is only reached through the switch's `default` arm, so the
+// setting has to be the EMPTY STRING. 'default' is an explicit case that
+// returns early with the instance-wide mailer, and it is the class default for
+// a new company -- so a company is born on the wrong branch, and one click in
+// the web UI puts it back there.
 //
-// A nil error with false means the company answered and the flag is off.
+// The consequence is not subtle and it is not loud: every receipt for this
+// company would go out under whichever business owns the instance-wide
+// MAIL_FROM_ADDRESS, correctly DKIM-signed for that domain, with this company's
+// branding still inside the message. That is exactly how credit notes behave
+// today, and credit notes are the path the Hub had to take over (MESHSAT-1019).
+func (s *CompanyState) SenderIsPerCompany() bool { return s.EmailSendingMethod == "" }
+
+// VerifyInclusiveTaxes reports whether the acting company derives VAT out of
+// the amount sent rather than adding it on top.
 func (c *Client) VerifyInclusiveTaxes(ctx context.Context) (bool, error) {
+	st, err := c.InspectCompany(ctx)
+	if err != nil {
+		return false, err
+	}
+	return st.InclusiveTaxes, nil
+}
+
+// InspectCompany asks the billing system about the company this token acts as.
+//
+// A nil error means the company answered; read the fields for what it said.
+func (c *Client) InspectCompany(ctx context.Context) (*CompanyState, error) {
 	if c == nil || c.baseURL == "" || c.token == "" {
-		return false, ErrNotConfigured
+		return nil, ErrNotConfigured
 	}
 	var out struct {
 		Data []struct {
-			ID       string `json:"id"`
-			Settings struct {
-				Name           string `json:"name"`
-				InclusiveTaxes bool   `json:"inclusive_taxes"`
-			} `json:"settings"`
+			ID       string          `json:"id"`
+			Settings companySettings `json:"settings"`
 		} `json:"data"`
 	}
 	// "/companies", not "/api/v1/companies": do() prepends the prefix. With it
 	// doubled the URL is an unknown path, and Invoice Ninja answers those with
 	// its web app at 200 rather than a 404 -- so the status check passed and it
 	// failed on the first '<' instead, which is exactly what production logged.
-	if err := c.do(ctx, http.MethodGet, "/companies", nil, &out, "verify inclusive taxes"); err != nil {
-		return false, err
+	if err := c.do(ctx, http.MethodGet, "/companies", nil, &out, "inspect company"); err != nil {
+		return nil, err
 	}
 	if len(out.Data) == 0 {
-		return false, errors.New("invoiceninja: the token sees no company")
+		return nil, errors.New("invoiceninja: the token sees no company")
 	}
 
 	// This list is the ACCOUNT's companies, not the token's. Taking the first
 	// one read the other company on the instance, which has inclusive taxes off
-	// -- so this guard has been reporting on a company these receipts never
-	// touch. The token IS company-scoped, but only per-company endpoints
-	// enforce it: GET /companies/{id} answers 401 for any company but ours
-	// (MESHSAT-1019).
+	// -- so this guard reported on a company these receipts never touch. The
+	// token IS company-scoped, but only per-company endpoints enforce it:
+	// GET /companies/{id} answers 401 for any company but ours (MESHSAT-1019).
 	if len(out.Data) == 1 {
-		return out.Data[0].Settings.InclusiveTaxes, nil
+		return out.Data[0].Settings.state(), nil
 	}
 	for _, co := range out.Data {
 		if co.ID == "" {
@@ -505,9 +537,7 @@ func (c *Client) VerifyInclusiveTaxes(ctx context.Context) (bool, error) {
 		}
 		var one struct {
 			Data struct {
-				Settings struct {
-					InclusiveTaxes bool `json:"inclusive_taxes"`
-				} `json:"settings"`
+				Settings companySettings `json:"settings"`
 			} `json:"data"`
 		}
 		err := c.do(ctx, http.MethodGet, "/companies/"+url.PathEscape(co.ID), nil, &one, "identify company")
@@ -517,12 +547,28 @@ func (c *Client) VerifyInclusiveTaxes(ctx context.Context) (bool, error) {
 				apiErr.Status == http.StatusForbidden || apiErr.Status == http.StatusNotFound) {
 				continue // somebody else's company
 			}
-			return false, err
+			return nil, err
 		}
-		return one.Data.Settings.InclusiveTaxes, nil
+		return one.Data.Settings.state(), nil
 	}
 	// Refusing rather than guessing. A wrong answer here is worse than none:
 	// a false all-clear lets every receipt add VAT on top of a price the
 	// customer already paid.
-	return false, errors.New("invoiceninja: could not tell which company this token acts as")
+	return nil, errors.New("invoiceninja: could not tell which company this token acts as")
+}
+
+type companySettings struct {
+	Name               string `json:"name"`
+	InclusiveTaxes     bool   `json:"inclusive_taxes"`
+	EmailSendingMethod string `json:"email_sending_method"`
+	ReplyToEmail       string `json:"reply_to_email"`
+}
+
+func (s companySettings) state() *CompanyState {
+	return &CompanyState{
+		Name:               s.Name,
+		InclusiveTaxes:     s.InclusiveTaxes,
+		EmailSendingMethod: s.EmailSendingMethod,
+		ReplyToEmail:       s.ReplyToEmail,
+	}
 }

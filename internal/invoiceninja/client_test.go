@@ -534,3 +534,49 @@ func TestVerifyInclusiveTaxesOnASingleCompanyInstance(t *testing.T) {
 		t.Fatalf("a single-company instance was probed %d times", probes)
 	}
 }
+
+// TestSenderIsPerCompanyOnlyForTheEmptyString pins a setting whose correct
+// value is counter-intuitive and one click away from being wrong.
+//
+// NinjaMailerJob reaches setSelfHostMultiMailer() -- the only thing that
+// applies a per-company sender on a self-hosted instance -- through the
+// switch's `default` arm. 'default' is an explicit case that returns the
+// instance-wide mailer early, and it is the class default for a new company.
+// So the empty string is the only value that works, and the failure mode is a
+// correctly signed email from the wrong business.
+func TestSenderIsPerCompanyOnlyForTheEmptyString(t *testing.T) {
+	for _, tc := range []struct {
+		method string
+		ok     bool
+	}{
+		{"", true},
+		{"default", false}, // explicit case: returns the instance-wide mailer
+		{"smtp", false},    // needs company smtp credentials, bails to 'default'
+		{"gmail", false},
+		{"office365", false},
+	} {
+		st := &CompanyState{EmailSendingMethod: tc.method}
+		if st.SenderIsPerCompany() != tc.ok {
+			t.Fatalf("SenderIsPerCompany(%q) = %v, want %v", tc.method, !tc.ok, tc.ok)
+		}
+	}
+}
+
+func TestInspectCompanyReadsTheSenderSetting(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"data":[{"id":"only","settings":{
+			"name":"MeshSat Hub","inclusive_taxes":true,
+			"email_sending_method":"","reply_to_email":"billing@meshsat.net"}}]}`))
+	}))
+	defer srv.Close()
+
+	st, err := New(srv.URL, "token", 5*time.Second).InspectCompany(context.Background())
+	if err != nil {
+		t.Fatalf("InspectCompany: %v", err)
+	}
+	if st.Name != "MeshSat Hub" || !st.InclusiveTaxes || !st.SenderIsPerCompany() ||
+		st.ReplyToEmail != "billing@meshsat.net" {
+		t.Fatalf("state = %+v", st)
+	}
+}
