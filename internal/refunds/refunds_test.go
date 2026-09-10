@@ -34,6 +34,7 @@ type fakeStore struct {
 	blockedRcpts  []string
 	updatedTenant *store.Tenant
 	claimAll      bool
+	issueErr      error
 }
 
 func (f *fakeStore) ListDueRefunds(context.Context, time.Time, int) ([]store.Refund, error) {
@@ -50,6 +51,9 @@ func (f *fakeStore) SetRefundCredit(_ context.Context, id, ref string) error {
 	return nil
 }
 func (f *fakeStore) MarkRefundIssued(_ context.Context, id, number, ref string, _ time.Time) error {
+	if f.issueErr != nil {
+		return f.issueErr
+	}
 	f.issued = append(f.issued, id)
 	f.creditNumbers = append(f.creditNumbers, number)
 	f.creditRefs = append(f.creditRefs, ref)
@@ -419,5 +423,65 @@ func TestBackoffGrowsAndStops(t *testing.T) {
 	}
 	if backoff(99) != maxBackoff {
 		t.Fatalf("backoff(99) = %v, want the cap", backoff(99))
+	}
+}
+
+// TestARetryDoesNotShortenThePlanTwice pins the ordering that makes the plan
+// reversal safe, and it is not a hypothetical.
+//
+// Taking the paid period back is the one step here that is NOT idempotent:
+// subtracting a month from a date subtracts a month every time it runs. So it
+// must happen only AFTER the refund is recorded as issued, because that record
+// is what stops the drainer running the whole thing again. Reversing first and
+// recording second means one failed write costs the customer a second month.
+func TestARetryDoesNotShortenThePlanTwice(t *testing.T) {
+	expires := time.Date(2026, 10, 12, 0, 0, 0, 0, time.UTC)
+	tenant := &store.Tenant{ID: "t1", Plan: "crew", PlanExpiresAt: &expires}
+	s := &fakeStore{
+		due: []store.Refund{pendingRefund(900)}, receipt: paidReceipt(), tenant: tenant,
+		issueErr: errors.New("database went away"),
+	}
+	iss := &fakeIssuer{result: &invoiceninja.CreditResult{
+		CreditID: "credit-1", CreditNumber: "MSHCN2026-0001"}}
+	j := newJob(s, iss)
+	j.Once(context.Background())
+
+	if s.updatedTenant != nil {
+		t.Fatalf("the plan was shortened before the refund was recorded; "+
+			"the next pass shortens it again. expiry moved to %v", s.updatedTenant.PlanExpiresAt)
+	}
+
+	// The retry succeeds, and the period comes back exactly once.
+	s.issueErr = nil
+	s.due = []store.Refund{pendingRefund(900)}
+	s.due[0].CreditRef = "credit-1"
+	j.Once(context.Background())
+
+	if s.updatedTenant == nil {
+		t.Fatal("the successful pass never took the paid period back")
+	}
+	want := expires.Add(-kofi.Period)
+	if !s.updatedTenant.PlanExpiresAt.Equal(want) {
+		t.Fatalf("expiry = %v, want %v: exactly one period, however many passes it took",
+			s.updatedTenant.PlanExpiresAt, want)
+	}
+}
+
+// The same ordering has to hold on the no-document path.
+func TestARetryOnTheNoDocumentPathDoesNotShortenThePlanTwice(t *testing.T) {
+	expires := time.Date(2026, 10, 12, 0, 0, 0, 0, time.UTC)
+	rcpt := paidReceipt()
+	rcpt.InvoiceRef = ""
+	rcpt.Status = store.ReceiptPending
+	s := &fakeStore{
+		due: []store.Refund{pendingRefund(900)}, receipt: rcpt,
+		tenant:   &store.Tenant{ID: "t1", Plan: "crew", PlanExpiresAt: &expires},
+		issueErr: errors.New("database went away"),
+	}
+	j := newJob(s, &fakeIssuer{})
+	j.Once(context.Background())
+
+	if s.updatedTenant != nil {
+		t.Fatal("the plan was shortened before the refund was recorded on the no-document path")
 	}
 }
