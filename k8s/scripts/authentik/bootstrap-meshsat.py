@@ -317,7 +317,10 @@ MAIL = {
     "port": 25,
     "use_tls": False,
     "use_ssl": False,
-    "from_address": "MeshSat <noreply@meshsat.net>",
+    # "MeshSat Hub", not "MeshSat": the product the recipient signed up for is
+    # the Hub, and the owner has twice had to point out mail going out as the
+    # bare brand. It is what the From line shows in every mail client.
+    "from_address": "MeshSat Hub <noreply@meshsat.net>",
     "timeout": 30,
 }
 
@@ -331,8 +334,13 @@ def mail_stage(name, subject, template, **extra):
     return st
 
 
+# MeshSat-branded, not authentik's stock template. The stock one carries the
+# authentik logo, an authentik-blue button and a "Powered by authentik" footer,
+# which is what a MeshSat Hub customer saw on the first mail they ever got from
+# us. These live in k8s/scripts/authentik/templates/ and are mounted into the
+# authentik worker at /templates (see that directory's README).
 st_email = mail_stage("meshsat-enrollment-email", "Verify your email for MeshSat Hub",
-                      "email/account_confirmation.html", activate_user_on_success=False)
+                      "email/meshsat_account_confirmation.html", activate_user_on_success=False)
 
 st_write_marker, _ = UserWriteStage.objects.get_or_create(
     name="meshsat-enrollment-write-verified",
@@ -503,7 +511,7 @@ st_recovery_ident.pretend_user_exists = True
 st_recovery_ident.save()
 
 st_recovery_email = mail_stage("meshsat-recovery-email", "Reset your MeshSat Hub password",
-                               "email/password_reset.html", activate_user_on_success=True)
+                               "email/meshsat_password_reset.html", activate_user_on_success=True)
 
 st_recovery_write, _ = UserWriteStage.objects.get_or_create(
     name="meshsat-recovery-write",
