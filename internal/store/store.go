@@ -355,6 +355,21 @@ type Store interface {
 	// BlockReceipt parks a receipt that needs a person (an unexpected
 	// currency, no address to send it to) rather than retrying forever.
 	BlockReceipt(ctx context.Context, id, reason string) error
+	// ClaimReceipt leases one receipt row to one drainer until the given time
+	// and reports whether this caller won it. False means somebody else holds
+	// it; do not touch the billing system for that row.
+	//
+	// A receipt draws an invoice number out of a gapless legal series, so two
+	// drainers on one row create two documents and leave the first permanently
+	// unpaid in the books. That was previously prevented by timing alone -- one
+	// leader, a stop wait longer than the billing call, a grace period longer
+	// than the stop wait. This makes it the database's decision instead, so
+	// correctness stops depending on those margins holding. A drainer that dies
+	// mid-issue simply lets its lease expire (MESHSAT-998).
+	ClaimReceipt(ctx context.Context, id string, until time.Time) (bool, error)
+	// ReleaseReceipt drops a lease early, so a receipt that failed and is due
+	// again in a minute is not held for the rest of its lease.
+	ReleaseReceipt(ctx context.Context, id string) error
 	// ListReceiptsByStatus returns receipts in one state, newest first. The
 	// blocked ones are the reason this exists: they were terminal and
 	// invisible, so money taken for a document nobody could issue simply
