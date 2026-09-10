@@ -6,10 +6,10 @@ import (
 	"net/http"
 	"strings"
 
+	hubauth "github.com/meshsat/meshsat-hub/internal/auth"
 	"github.com/meshsat/meshsat-hub/internal/plans"
 	"github.com/meshsat/meshsat-hub/internal/store"
 	"github.com/meshsat/meshsat-hub/internal/stripe"
-	"github.com/meshsat/meshsat-hub/internal/tenancy"
 )
 
 // Starting and managing a subscription (MESHSAT-1023).
@@ -68,10 +68,10 @@ type checkoutResponse struct {
 // @Failure      503  {object}  map[string]string
 // @Router       /api/tenant/billing/checkout [post]
 func (h *BillingHandler) Checkout(w http.ResponseWriter, r *http.Request) {
-	if h.client == nil {
-		writeError(w, http.StatusServiceUnavailable, "billing is not configured")
-		return
-	}
+	// The request is validated BEFORE the backend is checked. A plan that
+	// cannot be bought is a client error whether or not the payment provider
+	// happens to be configured, and answering 503 to it would send somebody
+	// looking at the wrong thing.
 	var req checkoutRequest
 	if err := readJSON(w, r, &req, 4096); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
@@ -83,6 +83,10 @@ func (h *BillingHandler) Checkout(w http.ResponseWriter, r *http.Request) {
 		// Only the sellable tiers have prices. custom and beta are
 		// operator-set, and this is where a customer would otherwise try.
 		writeError(w, http.StatusBadRequest, "that plan cannot be bought here")
+		return
+	}
+	if h.client == nil {
+		writeError(w, http.StatusServiceUnavailable, "billing is not configured")
 		return
 	}
 	t := h.tenant(r)
@@ -142,7 +146,11 @@ func (h *BillingHandler) Portal(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *BillingHandler) tenant(r *http.Request) *store.Tenant {
-	id := tenancy.FromContext(r.Context())
+	// hubauth, NOT tenancy: the HTTP auth middleware puts the tenant under
+	// auth.TenantContextKey, while tenancy.FromContext reads the key the MQTT
+	// and webhook paths use. Getting this wrong 403s every signed-in customer
+	// who presses Subscribe, and it type-checks perfectly.
+	id := hubauth.TenantIDFromContext(r.Context())
 	if id == "" || h.store == nil {
 		return nil
 	}
