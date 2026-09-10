@@ -299,6 +299,30 @@ type Store interface {
 	// ListHubCredentialsByProvider returns, across all tenants, the hub-scoped
 	// credentials of one provider (per-tenant provider accounts, MESHSAT-977).
 	ListHubCredentialsByProvider(ctx context.Context, provider string) ([]Credential, error)
+
+	// Receipts (MESHSAT-998): the outbox that turns a Ko-fi payment into a
+	// document. CreateReceipt reports false when the delivery key is already
+	// present, which is what makes a replayed webhook produce no second
+	// receipt; it is the idempotency token, not a cache.
+	CreateReceipt(ctx context.Context, r *Receipt) (bool, error)
+	GetReceiptByKey(ctx context.Context, deliveryKey string) (*Receipt, error)
+	// ListDueReceipts returns pending receipts whose next attempt is due,
+	// oldest first, across every tenant. Drained by the lease holder.
+	ListDueReceipts(ctx context.Context, now time.Time, limit int) ([]Receipt, error)
+	// SetReceiptInvoice records the invoice a billing system created for a
+	// receipt that is still pending. Written the moment the invoice exists so
+	// a later failure resumes onto it: the invoice has taken a number out of
+	// a gapless series, and a retry that made a second one would leave the
+	// first permanently unpaid in the books.
+	SetReceiptInvoice(ctx context.Context, id, invoiceRef string) error
+	// MarkReceiptIssued records the document the billing system produced.
+	MarkReceiptIssued(ctx context.Context, id, invoiceNumber, invoiceRef string, at time.Time) error
+	// MarkReceiptAttempt records a failed attempt and when to try again. The
+	// row stays pending: a receipt for money that was taken is never dropped.
+	MarkReceiptAttempt(ctx context.Context, id, errMsg string, nextAttempt time.Time) error
+	// BlockReceipt parks a receipt that needs a person (an unexpected
+	// currency, no address to send it to) rather than retrying forever.
+	BlockReceipt(ctx context.Context, id, reason string) error
 }
 
 // OOBPeer is the Hub's out-of-band management pairing with one bridge
@@ -798,3 +822,70 @@ type Credential struct {
 	CreatedAt       time.Time  `json:"created_at"`
 	UpdatedAt       time.Time  `json:"updated_at"`
 }
+
+// Receipt is one payment that owes the customer a document (MESHSAT-998).
+//
+// It is an outbox, not a copy of the invoice. The billing system holds the
+// document and the number series; this row holds the fact that money arrived,
+// who it was for, and whether the document has been issued yet -- so a payment
+// can never be silently lost between the webhook returning 200 and the invoice
+// existing.
+//
+// The row is written before the plan is granted, because the receipt records
+// the payment rather than the grant: if the grant fails, the money still
+// arrived and the customer is still owed a receipt.
+type Receipt struct {
+	ID string `json:"id"`
+	// TenantID is who the payment was for. Present so the row is
+	// tenant-scoped: an offboarding export carries it and a purge destroys it,
+	// the same as every other table with this column. The invoice itself stays
+	// in the billing system, where it is kept under a legal retention duty
+	// rather than the tenant's instruction.
+	TenantID string `json:"tenant_id"`
+	// DeliveryKey is the idempotency token, unique across the table. It is the
+	// payment provider's delivery id when there is one, and a derived key when
+	// there is not -- an absent id must not become a blank that collides with
+	// every other blank, nor a hole that lets a replay through.
+	DeliveryKey string `json:"delivery_key"`
+	// TransactionID is the provider's transaction reference, for a human
+	// reconciling a bank line against a document.
+	TransactionID string `json:"transaction_id,omitempty"`
+	// Email and Name are who the document goes to and what the customer is
+	// called on it.
+	Email string `json:"email"`
+	Name  string `json:"name,omitempty"`
+	// AmountCents is the gross amount in the smallest unit of Currency. Money
+	// is never a float here: the payload's decimal string is parsed to an
+	// integer and stays one all the way to the invoice line.
+	AmountCents int64  `json:"amount_cents"`
+	Currency    string `json:"currency"`
+	// Plan and TierName describe what was bought, for the invoice line.
+	Plan     string    `json:"plan,omitempty"`
+	TierName string    `json:"tier_name,omitempty"`
+	PaidAt   time.Time `json:"paid_at"`
+
+	Status        string     `json:"status"` // ReceiptPending, ReceiptIssued, ReceiptBlocked
+	Attempts      int        `json:"attempts"`
+	LastError     string     `json:"last_error,omitempty"`
+	NextAttemptAt time.Time  `json:"next_attempt_at,omitempty"`
+	InvoiceNumber string     `json:"invoice_number,omitempty"`
+	InvoiceRef    string     `json:"invoice_ref,omitempty"`
+	IssuedAt      *time.Time `json:"issued_at,omitempty"`
+	CreatedAt     time.Time  `json:"created_at"`
+	UpdatedAt     time.Time  `json:"updated_at"`
+}
+
+// Receipt statuses.
+const (
+	// ReceiptPending means the document has not been issued yet. The drainer
+	// keeps trying; nothing expires out of this state on its own.
+	ReceiptPending = "pending"
+	// ReceiptIssued means the billing system produced the document and mailed
+	// it. InvoiceNumber says which one.
+	ReceiptIssued = "issued"
+	// ReceiptBlocked means a person has to look: an amount in a currency this
+	// company does not invoice in, or no address to send it to. Retrying would
+	// only produce the same answer, and guessing would produce a wrong
+	// document.
+	ReceiptBlocked = "blocked"
+)

@@ -36,6 +36,26 @@ kofi_verification_token: ""
 # kofi_tier_map:
 #   "Crew Membership": crew
 #   "Fleet Membership": fleet
+# Customer receipts (MESHSAT-998). A payment is recorded in the receipts
+# outbox whatever these say; they decide whether a document is issued for it.
+# With the URL or token unset, payments are recorded and no receipt goes out --
+# recoverable, because the outbox is drained as soon as they are set.
+#
+# The token is COMPANY-SCOPED in Invoice Ninja: it decides which brand, VAT
+# treatment and invoice number series a receipt is issued under.
+invoiceninja_url: ""
+invoiceninja_token: ""
+# The tax that goes on every line. The target company has inclusive taxes on,
+# so this is derived OUT of the price the customer paid, never added to it:
+# EUR 9.00 is 7.44 plus 1.56 VAT. It has to be sent explicitly because the
+# company default rate is a web-UI prefill the API does not apply.
+invoiceninja_tax_name: "BTW 21"
+invoiceninja_tax_rate: 21
+# The only currency that company invoices in. A payment in anything else is
+# parked for a person rather than converted at an invented rate.
+invoiceninja_currency: "EUR"
+invoiceninja_country_id: "528"
+invoiceninja_timeout: 30s
 # How many ATAK markers the OTS poller may auto-register. These rows never
 # count against anyone's subscription; this bounds a runaway TAK server.
 tak_api_max_devices: 5000

@@ -132,3 +132,27 @@ data:
   # Ko-fi tier name -> plan. Left unset the tier name is read as a plan name,
   # so a Ko-fi tier literally called "Crew" or "Fleet" needs nothing here.
   # HUB_KOFI_TIER_MAP: "Crew Membership=crew,Fleet Membership=fleet"
+
+  # --- customer receipts (MESHSAT-998) ---
+  # A Ko-fi payment is recorded in the receipts outbox either way; these decide
+  # whether a document is actually issued for it. HUB_INVOICENINJA_TOKEN is a
+  # secret and lives in the ExternalSecret -- with it unset, payments are
+  # recorded and no receipt goes out, which is recoverable: the outbox is
+  # drained whenever the token appears.
+  #
+  # The token is COMPANY-SCOPED. It must be the MeshSat Hub company's token
+  # (company 2), not the other company on that instance: the token is what
+  # decides the brand, the VAT treatment and the number series a receipt is
+  # issued under.
+  HUB_INVOICENINJA_URL: "https://invoiceninja.nuclearlighters.net"
+  # Dutch 21%, derived OUT of the price the customer paid rather than added to
+  # it: that company has inclusive taxes on, and EUR 9.00 is 7.44 + 1.56 VAT.
+  # The company default rate is a web-UI prefill the API does not apply, so
+  # this goes on every invoice line explicitly.
+  HUB_INVOICENINJA_TAX_NAME: "BTW 21"
+  HUB_INVOICENINJA_TAX_RATE: "21"
+  # The only currency that company invoices in. A payment in anything else is
+  # parked for a person rather than converted at an invented rate.
+  HUB_INVOICENINJA_CURRENCY: "EUR"
+  HUB_INVOICENINJA_COUNTRY_ID: "528"
+  HUB_INVOICENINJA_TIMEOUT: "30s"
