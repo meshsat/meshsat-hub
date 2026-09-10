@@ -68,6 +68,12 @@ bump-pin:test:
   script:
     - python3 k8s/scripts/bump_pin_test.py
   rules:
+    # Not in merge request pipelines, for the same reason as kubeconform above.
+    # This job was added after that rule was written; it uses `changes:` with no
+    # exclusion, so on its own it would keep creating a merge request pipeline
+    # that goes green in seconds while the branch pipeline is still building.
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+      when: never
     - changes:
         - k8s/scripts/bump-pin.py
         - k8s/scripts/bump_pin_test.py
@@ -151,6 +157,17 @@ kubeconform:
     - grep -c '^kind:' /tmp/rendered.yaml | xargs echo "rendered objects:"
   rules:
     - if: $CI_PIPELINE_SOURCE == "schedule"
+      when: never
+    # Not in merge request pipelines. Every other job here uses the legacy
+    # default (branches and tags), so a merge request pipeline would contain
+    # THIS JOB ALONE -- and the merge request page then reports "pipeline
+    # passed" once the manifests render, while lint, test, test:postgres, gosec
+    # and govulncheck are still running on the branch pipeline or have failed
+    # there. The project does not gate merges on a pipeline, so nothing was
+    # blocked incorrectly; what was wrong was the signal a person reads before
+    # clicking merge. With no job matching, no merge request pipeline is created
+    # and the merge request shows the branch pipeline, which is the real one.
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
       when: never
     - exists:
         - k8s/kustomization.yaml
