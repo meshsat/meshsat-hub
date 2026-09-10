@@ -553,3 +553,36 @@ func (c *captureAuditor) Log(_ context.Context, tenant, action, actor, detail, _
 	c.entries = append(c.entries, struct{ tenant, action, actor, detail string }{tenant, action, actor, detail})
 	return nil
 }
+
+// Money that arrives gets a document, even when it buys no tier. A one-off
+// donation used to return before the receipt was recorded, so EUR 5 could
+// arrive and the Hub would issue nothing at all (owner ruling, 2026-09-10).
+func TestADonationGetsADocumentButNoTier(t *testing.T) {
+	st, rc := newStore(), &memReceipts{}
+	h := handlerWithReceipts(st, rc)
+
+	rr := post(t, h, Payload{
+		VerificationToken: token, IsSubscriptionPayment: false,
+		Email: "someone@example.com", Amount: "5.00", Currency: "EUR",
+		KofiTransactionID: "txn-donation", Message: "keep going",
+	})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("code = %d", rr.Code)
+	}
+	if st.updates != 0 {
+		t.Errorf("%d tenants changed on a donation; a donation must never grant a tier", st.updates)
+	}
+	if len(rc.rows) != 1 {
+		t.Fatalf("a donation produced %d receipt rows, want 1", len(rc.rows))
+	}
+	row := rc.rows[0]
+	if row.AmountCents != 500 {
+		t.Errorf("amount = %d, want 500", row.AmountCents)
+	}
+	if row.TransactionID != "txn-donation" {
+		t.Errorf("transaction reference = %q", row.TransactionID)
+	}
+	if row.Email != "someone@example.com" {
+		t.Errorf("the document goes to %q, want the payer's own address", row.Email)
+	}
+}

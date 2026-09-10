@@ -31,6 +31,7 @@ func paymentsRouter(t *testing.T, s store.Store, ms *mockStore) (http.Handler, *
 	r.Get("/api/admin/payments/unmatched", h.ListUnmatched)
 	r.Get("/api/admin/receipts/blocked", h.ListBlockedReceipts)
 	r.Post("/api/admin/receipts/{id}/requeue", h.RequeueReceipt)
+	r.Get("/api/admin/vat/threshold", h.VATThreshold)
 	return r, a
 }
 
@@ -132,5 +133,58 @@ func TestABlockedReceiptCanBeListedAndRequeued(t *testing.T) {
 	r.ServeHTTP(w, httptest.NewRequest("POST", "/api/admin/receipts/rcp-issued/requeue", nil))
 	if w.Code != 404 {
 		t.Errorf("requeue of a non-blocked receipt: %d, want 404", w.Code)
+	}
+}
+
+// The flat Dutch 21% is only correct while cross-border B2C sales stay under
+// the Article 59c threshold, and nothing measured it. Domestic sales must not
+// count: the threshold is about supplies to OTHER member states, and including
+// our own would raise a false alarm on the busiest possible month and push the
+// business toward an OSS registration it does not need (MESHSAT-1016).
+func TestTheVATThresholdCountsOnlyCrossBorderEUSales(t *testing.T) {
+	s := newAuditStore(t)
+	ms := &mockStore{crossBorder: map[string]int64{
+		"NL": 500000, // domestic: must be excluded
+		"DE": 120000,
+		"IE": 30000,
+		"US": 900000, // not an EU sale at all
+		"":   4200,   // unknown: cannot be counted as an EU supply
+	}}
+	r, _ := paymentsRouter(t, s, ms)
+
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, httptest.NewRequest("GET", "/api/admin/vat/threshold", nil))
+	if w.Code != 200 {
+		t.Fatalf("got %d: %s", w.Code, w.Body.String())
+	}
+	var got struct {
+		CrossBorderCents int64            `json:"cross_border_cents"`
+		ThresholdCents   int64            `json:"threshold_cents"`
+		PercentUsed      float64          `json:"percent_used"`
+		ByCountry        map[string]int64 `json:"by_country"`
+		Note             string           `json:"note"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
+		t.Fatalf("decode: %v (%s)", err, w.Body.String())
+	}
+	if want := int64(150000); got.CrossBorderCents != want {
+		t.Errorf("cross-border total = %d, want %d (DE + IE only)", got.CrossBorderCents, want)
+	}
+	if _, ok := got.ByCountry["NL"]; ok {
+		t.Error("domestic Dutch sales are counted toward the cross-border threshold")
+	}
+	for _, c := range []string{"US", ""} {
+		if _, ok := got.ByCountry[c]; ok {
+			t.Errorf("%q is counted as an EU supply", c)
+		}
+	}
+	if got.ThresholdCents != 1000000 {
+		t.Errorf("threshold = %d cents, want 10 000 euro", got.ThresholdCents)
+	}
+	if got.PercentUsed < 14.9 || got.PercentUsed > 15.1 {
+		t.Errorf("percent used = %v, want ~15", got.PercentUsed)
+	}
+	if got.Note == "" {
+		t.Error("the figure arrives with no explanation of what to do at the limit")
 	}
 }

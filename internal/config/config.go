@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"log/slog"
 	"os"
 	"strconv"
 	"strings"
@@ -606,8 +607,15 @@ func Load() (Config, error) {
 		cfg.InvoiceNinjaTaxName = v
 	}
 	if v := os.Getenv("HUB_INVOICENINJA_TAX_RATE"); v != "" {
-		if f, err := strconv.ParseFloat(v, 64); err == nil && f >= 0 {
+		// Strictly greater than zero. A 0 was accepted before and is never what
+		// anybody meant: it issues every receipt with a 0% BTW line, which is a
+		// wrong document rather than a missing one, and nothing downstream can
+		// tell the difference (MESHSAT-1016).
+		if f, err := strconv.ParseFloat(v, 64); err == nil && f > 0 {
 			cfg.InvoiceNinjaTaxRate = f
+		} else {
+			slog.Error("config: HUB_INVOICENINJA_TAX_RATE is not a positive number; keeping the default",
+				"got", v, "using", cfg.InvoiceNinjaTaxRate)
 		}
 	}
 	if v := os.Getenv("HUB_INVOICENINJA_CURRENCY"); v != "" {

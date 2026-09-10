@@ -165,5 +165,10 @@ data:
   # The only currency that company invoices in. A payment in anything else is
   # parked for a person rather than converted at an invented rate.
   HUB_INVOICENINJA_CURRENCY: "EUR"
+  # The FALLBACK country for a customer record, used only when the buyer's own
+  # country is unknown. Since MESHSAT-1016 the buyer's country travels from
+  # enrollment onto the tenant and onto the receipt, and a receipt with no
+  # country is parked rather than issued -- so this is a backstop, not the
+  # blanket "everyone is Dutch" it used to be.
   HUB_INVOICENINJA_COUNTRY_ID: "528"
   HUB_INVOICENINJA_TIMEOUT: "30s"
