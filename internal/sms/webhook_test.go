@@ -59,7 +59,8 @@ func TestWebhook_ValidInbound(t *testing.T) {
 	if len(mb.published) != 2 {
 		t.Fatalf("expected 2 MQTT publishes (mo/decoded + hub/sms/inbound), got %d", len(mb.published))
 	}
-	if got, want := mb.published[0].topic, "meshsat/+31612345678/mo/decoded"; got != want {
+	// The "+" of an E.164 number is an MQTT wildcard and travels encoded.
+	if got, want := mb.published[0].topic, "meshsat/%2B31612345678/mo/decoded"; got != want {
 		t.Errorf("first topic = %s, want %s", got, want)
 	}
 	if mb.published[1].topic != "meshsat/hub/sms/inbound" {
