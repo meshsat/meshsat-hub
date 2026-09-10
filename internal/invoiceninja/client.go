@@ -469,7 +469,17 @@ type CompanyState struct {
 	// own sender or the instance-wide one. See SenderIsPerCompany.
 	EmailSendingMethod string
 	ReplyToEmail       string
+	// ShowCurrencyCode decides which branch of Number::formatMoney the document
+	// takes: false renders "EUR 9,00", true renders "9,00 EUR". FormatMoney
+	// implements the false branch, which is what this company is set to, so a
+	// change here would silently put the Hub's email and the PDF back out of
+	// step. Hence MoneyMatchesTheDocument and the startup check on it.
+	ShowCurrencyCode bool
 }
+
+// MoneyMatchesTheDocument reports whether FormatMoney still renders amounts the
+// way this company's invoices and credit notes render them.
+func (s *CompanyState) MoneyMatchesTheDocument() bool { return !s.ShowCurrencyCode }
 
 // SenderIsPerCompany reports whether this company's mail will actually go out
 // under its own identity.
@@ -562,6 +572,7 @@ type companySettings struct {
 	InclusiveTaxes     bool   `json:"inclusive_taxes"`
 	EmailSendingMethod string `json:"email_sending_method"`
 	ReplyToEmail       string `json:"reply_to_email"`
+	ShowCurrencyCode   bool   `json:"show_currency_code"`
 }
 
 func (s companySettings) state() *CompanyState {
@@ -570,5 +581,6 @@ func (s companySettings) state() *CompanyState {
 		InclusiveTaxes:     s.InclusiveTaxes,
 		EmailSendingMethod: s.EmailSendingMethod,
 		ReplyToEmail:       s.ReplyToEmail,
+		ShowCurrencyCode:   s.ShowCurrencyCode,
 	}
 }

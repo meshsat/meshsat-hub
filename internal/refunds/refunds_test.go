@@ -541,3 +541,71 @@ func TestARaceWithTheReceiptDrainerNeverCancelsAnIssuedInvoice(t *testing.T) {
 		t.Fatal("the plan was shortened on a pass that resolved nothing")
 	}
 }
+
+// The customer holds two documents about the same nine euro: the credit note
+// the billing system rendered, and the Hub's email beside it. They have to
+// write the figure the same way, or the pair reads as two companies with two
+// sets of books (MESHSAT-1019).
+func TestTheAmountIsWrittenTheWayTheDocumentWritesIt(t *testing.T) {
+	for _, tc := range []struct {
+		country, want, reject string
+	}{
+		{"NL", "€9,00", "9.00 EUR"},
+		{"DE", "9,00 €", "9.00 EUR"},
+		{"IE", "€9.00", "9,00"},
+	} {
+		t.Run(tc.country, func(t *testing.T) {
+			expires := time.Date(2026, 10, 12, 0, 0, 0, 0, time.UTC)
+			r := pendingRefund(900)
+			r.Country = tc.country
+			rec := paidReceipt()
+			rec.Country = tc.country
+			s := &fakeStore{
+				due: []store.Refund{r}, receipt: rec,
+				tenant: &store.Tenant{ID: "t1", Plan: "crew", PlanExpiresAt: &expires},
+			}
+			iss := &fakeIssuer{result: &invoiceninja.CreditResult{
+				CreditID: "credit-1", CreditNumber: "MSHCN2026-0001", InvoiceNumber: "MSH2026-0001"}}
+			m := &fakeMailer{}
+			j := newJob(s, iss)
+			j.SetMailer(m, "https://hub.meshsat.net")
+			j.Once(context.Background())
+
+			if len(m.bodies) != 1 {
+				t.Fatalf("no message was sent: %v", m.sent)
+			}
+			// Both renderings, because both are the customer's copy.
+			for name, body := range map[string]string{"text": m.bodies[0], "html": m.htmls[0]} {
+				if !strings.Contains(body, tc.want) {
+					t.Errorf("%s part does not write the amount as the document does (%q):\n%s",
+						name, tc.want, body)
+				}
+				if strings.Contains(body, tc.reject) {
+					t.Errorf("%s part still carries the old form %q", name, tc.reject)
+				}
+			}
+		})
+	}
+}
+
+// An amount with no document to match -- a refund of a payment whose receipt
+// never issued -- still uses the house style, because the customer cannot tell
+// which of our messages had a PDF behind it.
+func TestTheNoDocumentNoticeUsesTheSameStyle(t *testing.T) {
+	r := pendingRefund(900)
+	r.Country = "NL"
+	rec := paidReceipt()
+	rec.Country = "NL"
+	rec.Status = store.ReceiptPending
+	rec.InvoiceRef = ""
+	rec.InvoiceNumber = ""
+	s := &fakeStore{due: []store.Refund{r}, receipt: rec}
+	m := &fakeMailer{}
+	j := newJob(s, &fakeIssuer{})
+	j.SetMailer(m, "https://hub.meshsat.net")
+	j.Once(context.Background())
+
+	if len(m.bodies) != 1 || !strings.Contains(m.bodies[0], "€9,00") {
+		t.Fatalf("the no-document notice does not use the house style: %v\n%s", m.sent, strings.Join(m.bodies, "\n"))
+	}
+}
