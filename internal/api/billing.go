@@ -228,6 +228,7 @@ func (h *BillingHandler) Checkout(w http.ResponseWriter, r *http.Request) {
 		TenantID:   t.ID,
 		Email:      h.ownerEmail(r.Context(), t),
 		PriceID:    price,
+		PlanName:   plan,
 		CustomerID: t.StripeCustomerID,
 		SuccessURL: h.hubURL + "/#/settings?checkout=done",
 		CancelURL:  h.hubURL + "/#/settings?checkout=cancelled",
