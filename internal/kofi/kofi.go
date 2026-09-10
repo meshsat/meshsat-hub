@@ -194,15 +194,26 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	ctx := r.Context()
+
 	// Ko-fi sends one-off donations through the same webhook. Those are
-	// support, not subscriptions, and must not silently grant a tier.
+	// support, not subscriptions, and must never grant a tier -- but money
+	// arrived, so a document is owed for it (owner ruling, 2026-09-10:
+	// everything that comes in gets a receipt rather than a judgement about
+	// whether it is a taxable supply). It is recorded against whichever tenant
+	// the payer can be matched to, and against the platform tenant when they
+	// cannot, so the payer's own address is what the document goes to.
 	if !p.IsSubscriptionPayment {
 		slog.Info("kofi: one-off payment received, no tier change", "txn", p.KofiTransactionID)
+		t, _, err := h.match(ctx, p)
+		if err != nil || t == nil {
+			t = &store.Tenant{ID: store.DefaultTenantID, Name: donorName(p)}
+		}
+		h.recordReceipt(ctx, t, p, plans.Free)
 		writeOK(w, "thanks")
 		return
 	}
 
-	ctx := r.Context()
 	t, how, err := h.match(ctx, p)
 	if err != nil || t == nil {
 		// Loud and left alone. Guessing which customer a payment belongs to is
@@ -455,6 +466,19 @@ func NewClaimCode() (string, error) {
 		out[i] = claimAlphabet[int(v)%len(claimAlphabet)]
 	}
 	return string(out), nil
+}
+
+// donorName is what a one-off donor is called on their receipt when no tenant
+// owns them. Ko-fi gives us an address and nothing else, so the local part is
+// the closest thing to a name there is.
+func donorName(p Payload) string {
+	if i := strings.IndexByte(p.Email, '@'); i > 0 {
+		return p.Email[:i]
+	}
+	if p.Email != "" {
+		return p.Email
+	}
+	return "Ko-fi supporter"
 }
 
 // UnmatchedAction is the audit action a payment nobody could be found for is

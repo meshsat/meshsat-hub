@@ -93,6 +93,12 @@ type Request struct {
 	// Email is where the receipt goes, and the key a customer record is
 	// looked up by.
 	Email string
+	// CountryCode is where the buyer is, ISO 3166-1 alpha-2. Empty means
+	// unknown, and the customer record falls back to the company's own country
+	// as it always did. Whether Dutch VAT applies at all is decided upstream in
+	// internal/vat; this only makes the customer record truthful instead of
+	// stamping every buyer Dutch (MESHSAT-1016).
+	CountryCode string
 	// AmountCents is the GROSS amount paid, in minor units. The company
 	// derives the VAT out of it.
 	AmountCents int64
@@ -314,7 +320,7 @@ func (c *Client) ensureCustomer(ctx context.Context, req Request) (string, error
 	body := map[string]any{
 		"name":       name,
 		"id_number":  req.CustomerRef,
-		"country_id": c.CountryID,
+		"country_id": c.countryIDFor(req.CountryCode),
 		"contacts": []map[string]any{{
 			"email":      req.Email,
 			"send_email": true,
@@ -425,4 +431,58 @@ func snippet(b []byte) string {
 		s = s[:300] + "..."
 	}
 	return s
+}
+
+// isoNumeric maps ISO 3166-1 alpha-2 to the numeric code Invoice Ninja uses for
+// country_id. Only the EU VAT area is listed: a buyer outside it never reaches
+// this code, because internal/vat parks the receipt before the billing system
+// is touched at all.
+var isoNumeric = map[string]string{
+	"AT": "040", "BE": "056", "BG": "100", "HR": "191", "CY": "196", "CZ": "203",
+	"DK": "208", "EE": "233", "FI": "246", "FR": "250", "DE": "276", "GR": "300",
+	"EL": "300", "HU": "348", "IE": "372", "IT": "380", "LV": "428", "LT": "440",
+	"LU": "442", "MT": "470", "NL": "528", "PL": "616", "PT": "620", "RO": "642",
+	"SK": "703", "SI": "705", "ES": "724", "SE": "752",
+}
+
+// countryIDFor turns the buyer's country into Invoice Ninja's numeric id,
+// falling back to the configured company country when it is unknown or not one
+// this code recognises. The fallback is what every customer used to get
+// unconditionally.
+func (c *Client) countryIDFor(alpha2 string) string {
+	if id, ok := isoNumeric[strings.ToUpper(strings.TrimSpace(alpha2))]; ok {
+		return id
+	}
+	return c.CountryID
+}
+
+// VerifyInclusiveTaxes asks the billing system whether the company this token
+// points at really has inclusive taxes on.
+//
+// The whole receipt path assumes it: the amount sent is the GROSS the customer
+// paid and the VAT is derived out of it. If somebody turns the flag off in the
+// web UI, every receipt silently becomes 9.00 net plus 1.89 = 10.89 -- a wrong
+// document, issued with a real number out of a gapless series, with no error
+// anywhere. Nothing checked it before (MESHSAT-1016).
+//
+// A nil error with false means the company answered and the flag is off.
+func (c *Client) VerifyInclusiveTaxes(ctx context.Context) (bool, error) {
+	if c == nil || c.baseURL == "" || c.token == "" {
+		return false, ErrNotConfigured
+	}
+	var out struct {
+		Data []struct {
+			Settings struct {
+				InclusiveTaxes bool `json:"inclusive_taxes"`
+			} `json:"settings"`
+		} `json:"data"`
+	}
+	if err := c.do(ctx, http.MethodGet, "/api/v1/companies", nil, &out, "verify inclusive taxes"); err != nil {
+		return false, err
+	}
+	if len(out.Data) == 0 {
+		return false, fmt.Errorf("invoiceninja: the token sees no company")
+	}
+	// The token is company-scoped, so the first company is the one it acts as.
+	return out.Data[0].Settings.InclusiveTaxes, nil
 }

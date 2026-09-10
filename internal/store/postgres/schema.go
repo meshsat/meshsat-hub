@@ -525,4 +525,17 @@ ALTER TABLE tenants ADD COLUMN IF NOT EXISTS lapse_warned_at TIMESTAMPTZ;
 	{Version: 13, Name: "receipt_row_lease", SQL: `
 ALTER TABLE receipts ADD COLUMN IF NOT EXISTS leased_until TIMESTAMPTZ NOT NULL DEFAULT '1970-01-01 00:00:00+00';
 `},
+	// Where the buyer is decides whether Dutch VAT applies at all, and until
+	// now nothing anywhere knew: every customer was written into the billing
+	// system as Dutch and charged 21%. Right for the Netherlands, defensible
+	// inside the EU under the Article 59c threshold, and wrong for anybody
+	// outside it. billing_country is ISO 3166-1 alpha-2, empty when unknown;
+	// billing_country_evidence records what it was derived from, because the
+	// rules ask for evidence of a consumer's location rather than a guess
+	// (MESHSAT-1016).
+	{Version: 14, Name: "buyer_country", SQL: `
+ALTER TABLE tenants  ADD COLUMN IF NOT EXISTS billing_country VARCHAR(2) NOT NULL DEFAULT '';
+ALTER TABLE tenants  ADD COLUMN IF NOT EXISTS billing_country_evidence VARCHAR(255) NOT NULL DEFAULT '';
+ALTER TABLE receipts ADD COLUMN IF NOT EXISTS country VARCHAR(2) NOT NULL DEFAULT '';
+`},
 }

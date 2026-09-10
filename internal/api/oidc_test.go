@@ -538,3 +538,58 @@ func TestMetricsTokenGuard(t *testing.T) {
 		t.Fatal("valid bearer rejected")
 	}
 }
+
+// The tenant is created at first sign-in from the OIDC claims and nothing else,
+// so if the country does not ride along in a claim it is lost for good — and
+// every receipt for that customer is issued as Dutch at 21% whatever the truth
+// is. Two pieces of evidence, one declared and one observed (MESHSAT-1016).
+func TestOIDC_FirstSignInRecordsWhereTheBuyerIs(t *testing.T) {
+	e := newOIDCEnv(t, true)
+	cookie, state := e.startLogin(t, "")
+	rr := e.callback(t, cookie, state, jwt.MapClaims{
+		"sub": "u-vat", "email": "dieter@example.de", "email_verified": true, "name": "Dieter",
+		"groups": []string{"meshsat-owner"}, "country": "de", "signup_ip": "203.0.113.9",
+	})
+	if strings.Contains(location(rr), "error=") {
+		t.Fatalf("login failed: %s", location(rr))
+	}
+	ident, err := e.store.GetOIDCIdentity(context.Background(), e.idp.srv.URL+"/", "u-vat")
+	if err != nil {
+		t.Fatal(err)
+	}
+	tenant, err := e.store.GetTenant(context.Background(), ident.TenantID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if tenant.BillingCountry != "DE" {
+		t.Errorf("billing country = %q, want DE (upper-cased from the claim)", tenant.BillingCountry)
+	}
+	for _, want := range []string{"de", "203.0.113.9"} {
+		if !strings.Contains(strings.ToLower(tenant.BillingCountryEvidence), want) {
+			t.Errorf("evidence %q does not record %q", tenant.BillingCountryEvidence, want)
+		}
+	}
+}
+
+// An account that predates the claim, or an identity provider that does not
+// send it, must still be able to sign in and get a tenant. It simply has no
+// country, which parks its receipts rather than inventing one.
+func TestOIDC_NoCountryClaimStillProvisions(t *testing.T) {
+	e := newOIDCEnv(t, true)
+	cookie, state := e.startLogin(t, "")
+	rr := e.callback(t, cookie, state, jwt.MapClaims{
+		"sub": "u-nocountry", "email": "anon@example.com", "email_verified": true,
+		"groups": []string{"meshsat-owner"},
+	})
+	if strings.Contains(location(rr), "error=") {
+		t.Fatalf("login failed without a country claim: %s", location(rr))
+	}
+	ident, _ := e.store.GetOIDCIdentity(context.Background(), e.idp.srv.URL+"/", "u-nocountry")
+	tenant, err := e.store.GetTenant(context.Background(), ident.TenantID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if tenant.BillingCountry != "" {
+		t.Errorf("billing country = %q, want empty — an absent claim must not be guessed at", tenant.BillingCountry)
+	}
+}

@@ -12,6 +12,7 @@ import (
 
 	"github.com/meshsat/meshsat-hub/internal/invoiceninja"
 	"github.com/meshsat/meshsat-hub/internal/store"
+	"github.com/meshsat/meshsat-hub/internal/vat"
 )
 
 // Receipts: turning a payment into a document (MESHSAT-998).
@@ -75,6 +76,31 @@ func deliveryKey(p Payload) string {
 // an error to the caller's HTTP response: a failure here is loud in the log
 // and the delivery is still acknowledged, because refusing the webhook would
 // make Ko-fi replay a payment that has already been applied.
+// parkUnreadable records a payment whose amount could not be parsed, blocked,
+// so that money taken always leaves a document trail somebody can find. The
+// amount is deliberately zero: the figure is exactly what could not be read,
+// and an operator reads the real one off the transaction reference.
+func (h *Handler) parkUnreadable(ctx context.Context, t *store.Tenant, p Payload, plan string, cause error) {
+	r := &store.Receipt{
+		TenantID:      t.ID,
+		DeliveryKey:   deliveryKey(p),
+		TransactionID: p.KofiTransactionID,
+		Country:       t.BillingCountry,
+		Email:         h.receiptEmail(ctx, t, p),
+		Name:          t.Name,
+		Currency:      strings.ToUpper(strings.TrimSpace(p.Currency)),
+		Plan:          plan,
+		TierName:      p.TierName,
+		PaidAt:        paidAt(p),
+		Status:        store.ReceiptBlocked,
+		LastError:     "the amount " + p.Amount + " could not be read: " + cause.Error(),
+	}
+	if _, err := h.receipts.CreateReceipt(ctx, r); err != nil {
+		slog.Error("kofi: could not even park an unreadable payment",
+			"tenant", t.ID, "txn", p.KofiTransactionID, "error", err)
+	}
+}
+
 func (h *Handler) recordReceipt(ctx context.Context, t *store.Tenant, p Payload, plan string) {
 	if h.receipts == nil {
 		return
@@ -82,8 +108,13 @@ func (h *Handler) recordReceipt(ctx context.Context, t *store.Tenant, p Payload,
 	key := deliveryKey(p)
 	cents, err := invoiceninja.ParseAmount(p.Amount)
 	if err != nil {
-		slog.Error("kofi: payment amount could not be read, no receipt will be issued",
+		// Park it rather than return. Money has been taken and the customer is
+		// owed a document; returning here left no row at all, so the outbox had
+		// nothing to retry and the blocked list showed nothing. The only trace
+		// was this log line, which nothing alerts on (MESHSAT-1016).
+		slog.Error("kofi: payment amount could not be read; parking the receipt for a person",
 			"tenant", t.ID, "txn", p.KofiTransactionID, "error", err)
+		h.parkUnreadable(ctx, t, p, plan, err)
 		return
 	}
 
@@ -91,6 +122,7 @@ func (h *Handler) recordReceipt(ctx context.Context, t *store.Tenant, p Payload,
 		TenantID:      t.ID,
 		DeliveryKey:   key,
 		TransactionID: p.KofiTransactionID,
+		Country:       t.BillingCountry,
 		Email:         h.receiptEmail(ctx, t, p),
 		Name:          t.Name,
 		AmountCents:   cents,
@@ -224,8 +256,17 @@ func (j *ReceiptJob) issue(ctx context.Context, r *store.Receipt) {
 		j.block(ctx, r, "no email address to send the receipt to")
 		return
 	}
+	// Where the buyer is decides whether Dutch VAT applies at all, and this is
+	// asked BEFORE the billing system is touched: an invoice that has been sent
+	// has taken a number out of a gapless series, so a document at the wrong
+	// rate cannot simply be deleted afterwards (MESHSAT-1016).
+	if v := vat.For(r.Country); !v.Charge {
+		j.block(ctx, r, v.Reason)
+		return
+	}
 	req := invoiceninja.Request{
 		CustomerRef:       r.TenantID,
+		CountryCode:       r.Country,
 		Name:              r.Name,
 		Email:             r.Email,
 		AmountCents:       r.AmountCents,

@@ -239,6 +239,11 @@ func (h *OIDCHandler) Callback(w http.ResponseWriter, r *http.Request) {
 		h.failRedirect(w, r, "token")
 		return
 	}
+	// Where the buyer is, for VAT. Declared on the enrollment form, observed at
+	// signup, and carried here because the tenant is created from these claims
+	// and nothing else (MESHSAT-1016).
+	country, _ := claims["country"].(string)
+	signupIP, _ := claims["signup_ip"].(string)
 	groups := hubauth.StringSliceClaim(claims, h.cfg.GroupsClaim)
 	role, platformAdmin := h.roleFromGroups(groups)
 	if role == "" {
@@ -249,7 +254,8 @@ func (h *OIDCHandler) Callback(w http.ResponseWriter, r *http.Request) {
 	}
 	issuer := h.client.Provider.ExpectedIssuer()
 
-	user, tenantID, err := h.resolveUser(r.Context(), issuer, sub, email, emailVerified, name, role)
+	user, tenantID, err := h.resolveUser(r.Context(), issuer, sub, email, emailVerified, name, role,
+		buyerLocation{Country: country, SignupIP: signupIP})
 	if err != nil {
 		slog.Error("oidc: resolve user", "error", err, "email", email)
 		h.failRedirect(w, r, "provision")
@@ -324,7 +330,24 @@ func (h *OIDCHandler) roleFromGroups(groups []string) (role string, admin bool) 
 // resolveUser finds or creates the local user for a verified login, in order:
 // linked identity, bootstrap owner (default tenant), pending invite (joins the
 // inviting tenant), else a new tenant owned by the user.
-func (h *OIDCHandler) resolveUser(ctx context.Context, issuer, sub, email string, emailVerified bool, name, role string) (*store.LocalUser, string, error) {
+// buyerLocation is where a new account says it is and where it was seen from.
+// Two independent pieces, which is what the VAT rules ask for on a consumer
+// supply: one declared, one observed.
+type buyerLocation struct {
+	Country  string
+	SignupIP string
+}
+
+// evidence renders the pair for the record, so the reasoning behind a country
+// survives in a form a person can read a year later.
+func (b buyerLocation) evidence() string {
+	if b.Country == "" && b.SignupIP == "" {
+		return ""
+	}
+	return "declared " + b.Country + ", seen from " + b.SignupIP + " at sign-up"
+}
+
+func (h *OIDCHandler) resolveUser(ctx context.Context, issuer, sub, email string, emailVerified bool, name, role string, loc buyerLocation) (*store.LocalUser, string, error) {
 	if ident, err := h.store.GetOIDCIdentity(ctx, issuer, sub); err == nil && ident != nil {
 		u, err := h.store.GetUserByID(ctx, ident.TenantID, ident.UserID)
 		if err != nil {
@@ -384,7 +407,7 @@ func (h *OIDCHandler) resolveUser(ctx context.Context, issuer, sub, email string
 	}
 
 	// New account: a tenant of its own, the user is its owner.
-	tenant, err := h.createTenantFor(ctx, email, name)
+	tenant, err := h.createTenantFor(ctx, email, name, loc)
 	if err != nil {
 		return nil, "", err
 	}
@@ -481,7 +504,7 @@ func tenantSlug(email string) string {
 	return s
 }
 
-func (h *OIDCHandler) createTenantFor(ctx context.Context, email, name string) (*store.Tenant, error) {
+func (h *OIDCHandler) createTenantFor(ctx context.Context, email, name string, loc buyerLocation) (*store.Tenant, error) {
 	id, err := generateID()
 	if err != nil {
 		return nil, err
@@ -499,7 +522,9 @@ func (h *OIDCHandler) createTenantFor(ctx context.Context, email, name string) (
 		displayName = email
 	}
 	now := time.Now().UTC()
-	t := &store.Tenant{ID: "t_" + id[:16], Slug: slug, Name: displayName, Plan: plans.Free, Status: "active", CreatedAt: now, UpdatedAt: now}
+	t := &store.Tenant{ID: "t_" + id[:16], Slug: slug, Name: displayName, Plan: plans.Free, Status: "active", CreatedAt: now, UpdatedAt: now,
+		BillingCountry:         strings.ToUpper(strings.TrimSpace(loc.Country)),
+		BillingCountryEvidence: loc.evidence()}
 	if err := h.store.CreateTenant(ctx, t); err != nil {
 		return nil, err
 	}

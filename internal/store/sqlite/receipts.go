@@ -16,14 +16,14 @@ import (
 // The outbox that turns a payment into a document. See store.Receipt for why
 // it exists and why the delivery key is unique.
 
-const receiptCols = `id, tenant_id, delivery_key, transaction_id, email, name, amount_cents, currency,
+const receiptCols = `id, tenant_id, delivery_key, transaction_id, country, email, name, amount_cents, currency,
 	plan, tier_name, paid_at, status, attempts, last_error, next_attempt_at,
 	invoice_number, invoice_ref, issued_at, created_at, updated_at`
 
 func scanReceipt(sc interface{ Scan(...any) error }) (store.Receipt, error) {
 	var r store.Receipt
 	var paid, next, issued, created, updated string
-	if err := sc.Scan(&r.ID, &r.TenantID, &r.DeliveryKey, &r.TransactionID, &r.Email, &r.Name,
+	if err := sc.Scan(&r.ID, &r.TenantID, &r.DeliveryKey, &r.TransactionID, &r.Country, &r.Email, &r.Name,
 		&r.AmountCents, &r.Currency, &r.Plan, &r.TierName, &paid, &r.Status, &r.Attempts,
 		&r.LastError, &next, &r.InvoiceNumber, &r.InvoiceRef, &issued, &created, &updated); err != nil {
 		return r, err
@@ -58,8 +58,8 @@ func (d *DB) CreateReceipt(ctx context.Context, r *store.Receipt) (bool, error) 
 		r.NextAttemptAt = now
 	}
 	res, err := d.db.ExecContext(ctx, `INSERT OR IGNORE INTO receipts (`+receiptCols+`)
-		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-		r.ID, r.TenantID, r.DeliveryKey, r.TransactionID, r.Email, r.Name, r.AmountCents, r.Currency,
+		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+		r.ID, r.TenantID, r.DeliveryKey, r.TransactionID, r.Country, r.Email, r.Name, r.AmountCents, r.Currency,
 		r.Plan, r.TierName, fmtTime(r.PaidAt.UTC()), r.Status, r.Attempts, r.LastError,
 		fmtTime(r.NextAttemptAt.UTC()), r.InvoiceNumber, r.InvoiceRef, "", fmtTime(now), fmtTime(now))
 	if err != nil {
@@ -200,4 +200,27 @@ func (d *DB) ClaimReceipt(ctx context.Context, id string, until time.Time) (bool
 func (d *DB) ReleaseReceipt(ctx context.Context, id string) error {
 	_, err := d.db.ExecContext(ctx, `UPDATE receipts SET leased_until = '' WHERE id = ?`, id)
 	return err
+}
+
+// CrossBorderSalesSince totals issued receipts by country since an instant. See
+// store.Store: this is the measurement the flat Dutch rate depends on.
+func (d *DB) CrossBorderSalesSince(ctx context.Context, since time.Time) (map[string]int64, error) {
+	rows, err := d.db.QueryContext(ctx,
+		`SELECT country, COALESCE(SUM(amount_cents), 0) FROM receipts
+		 WHERE status = ? AND country <> '' AND issued_at >= ?
+		 GROUP BY country`, store.ReceiptIssued, fmtTime(since.UTC()))
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+	out := map[string]int64{}
+	for rows.Next() {
+		var c string
+		var cents int64
+		if err := rows.Scan(&c, &cents); err != nil {
+			return nil, err
+		}
+		out[c] = cents
+	}
+	return out, rows.Err()
 }
