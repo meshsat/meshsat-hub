@@ -101,7 +101,8 @@ func (j *LapseJob) Once(ctx context.Context) {
 			}
 			continue
 		}
-		was, expired := t.Plan, t.PlanExpiresAt.Format(time.RFC3339)
+		was, endedAt := t.Plan, *t.PlanExpiresAt
+		expired := endedAt.Format(time.RFC3339)
 		t.Plan, t.PlanExpiresAt = plans.Free, nil
 		if err := j.store.UpdateTenant(ctx, &t); err != nil {
 			slog.Error("kofi: lapse failed, will retry next run", "tenant", t.ID, "error", err)
@@ -112,7 +113,7 @@ func (j *LapseJob) Once(ctx context.Context) {
 		}
 		if j.mail != nil {
 			if to := j.ownerEmail(ctx, &t); to != "" {
-				subject, body := mail.Lapsed(j.ownerName(ctx, &t), was, j.upgradeURL)
+				subject, body := mail.Lapsed(j.ownerName(ctx, &t), was, endedAt, j.upgradeURL)
 				mail.SendOrLog(ctx, j.mail, to, subject, body, "plan lapsed")
 			}
 		}
