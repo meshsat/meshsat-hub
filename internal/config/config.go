@@ -88,22 +88,7 @@ type Config struct {
 	// the built-in default (internal/plans).
 	PlanDeviceLimits map[string]int `yaml:"plan_device_limits"`
 
-	// Ko-fi subscription webhook (MESHSAT-989).
-	//
-	// KofiWebhookSecret is the last path segment of /api/webhook/kofi/<secret>,
-	// so the endpoint is not discoverable and never appears in a log (the
-	// logging middleware redacts the last segment of every webhook path).
-	// KofiVerificationToken is the token Ko-fi puts in the payload; it is what
-	// actually authenticates the caller. Empty means the endpoint refuses
-	// everything, which is the right state for a payment endpoint nobody
-	// configured.
-	KofiWebhookSecret     string `yaml:"kofi_webhook_secret"`
-	KofiVerificationToken string `yaml:"kofi_verification_token"`
-	// KofiTierMap maps a Ko-fi tier name to a plan, for when the names on the
-	// Ko-fi page do not match the plan names: "Crew Membership: crew".
-	KofiTierMap map[string]string `yaml:"kofi_tier_map"`
-
-	// Stripe: the payment provider Ko-fi is being replaced by (MESHSAT-1023).
+	// Stripe: the payment provider (MESHSAT-1023).
 	//
 	// Three separate secrets, and conflating any two of them is a real mistake:
 	//
@@ -380,7 +365,6 @@ func Defaults() Config {
 		OTelServiceName:       "meshsat-hub",
 		TAKAPIMaxDevices:      5000,
 		AuthRateLimitPerMin:   30,
-		UpgradeURL:            "https://ko-fi.com/X2S326G23T",
 		StripeTimeout:         20 * time.Second,
 		MailFrom:              "billing@meshsat.net",
 		MailFromName:          "MeshSat Hub",
@@ -604,28 +588,7 @@ func Load() (Config, error) {
 	if v := os.Getenv("HUB_TRUSTED_PROXIES"); v != "" {
 		cfg.TrustedProxies = v
 	}
-	if v := os.Getenv("HUB_KOFI_WEBHOOK_SECRET"); v != "" {
-		cfg.KofiWebhookSecret = v
-	}
-	if v := os.Getenv("HUB_KOFI_VERIFICATION_TOKEN"); v != "" {
-		cfg.KofiVerificationToken = v
-	}
 	// HUB_KOFI_TIER_MAP="Crew Membership=crew,Fleet Membership=fleet"
-	if v := os.Getenv("HUB_KOFI_TIER_MAP"); v != "" {
-		m := map[string]string{}
-		for _, pair := range strings.Split(v, ",") {
-			k, val, ok := strings.Cut(pair, "=")
-			if !ok {
-				continue
-			}
-			if k = strings.TrimSpace(k); k != "" {
-				m[k] = strings.TrimSpace(val)
-			}
-		}
-		if len(m) > 0 {
-			cfg.KofiTierMap = m
-		}
-	}
 	// Stripe (MESHSAT-1023). Every one of these is refused when it is the
 	// literal string "<no value>": the ExternalSecret renders that for a key
 	// missing from the backing store, and it is NOT empty, so every `!= ""`

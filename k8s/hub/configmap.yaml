@@ -128,7 +128,6 @@ data:
   HUB_PLAN_CREW_DEVICES: "24"
   HUB_PLAN_FLEET_DEVICES: "100"
   HUB_PLAN_CUSTOM_DEVICES: "-1"
-  HUB_UPGRADE_URL: "https://ko-fi.com/X2S326G23T"
 
   # Transactional email. nllei01smtp-dkim01 authorises by IP and signs with DKIM
   # for meshsat.net; the Hub's tunnel address 10.255.200.37 is in its mynetworks
@@ -140,9 +139,6 @@ data:
   HUB_MAIL_FROM: "billing@meshsat.net"
   HUB_MAIL_FROM_NAME: "MeshSat Hub"
   HUB_PUBLIC_URL: "https://hub.meshsat.net"
-  # Ko-fi tier name -> plan. Left unset the tier name is read as a plan name,
-  # so a Ko-fi tier literally called "Crew" or "Fleet" needs nothing here.
-  # HUB_KOFI_TIER_MAP: "Crew Membership=crew,Fleet Membership=fleet"
 
   # --- Stripe (MESHSAT-1023), replacing Ko-fi ---
   #

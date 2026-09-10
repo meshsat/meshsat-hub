@@ -12,7 +12,6 @@ import (
 
 	"github.com/meshsat/meshsat-hub/internal/audit"
 	hubauth "github.com/meshsat/meshsat-hub/internal/auth"
-	"github.com/meshsat/meshsat-hub/internal/kofi"
 	"github.com/meshsat/meshsat-hub/internal/store"
 	"github.com/meshsat/meshsat-hub/internal/vat"
 )
@@ -43,6 +42,12 @@ func NewPaymentsHandler(a *audit.Service, s store.Store) *PaymentsHandler {
 // gross. Without it the meter reports the money that changed hands rather than
 // the supplies made, which is 21% too high.
 func (h *PaymentsHandler) SetTaxRate(pct float64) { h.taxRate = pct }
+
+// unmatchedPaymentAction is the audit action a payment that could not be
+// attributed is recorded under. It outlived the package that defined it: the
+// entries are in an append-only hash chain, so the name cannot be changed
+// without breaking the ability to read the history back.
+const unmatchedPaymentAction = "kofi_payment_unmatched"
 
 type unmatchedPaymentResponse struct {
 	RecordedAt string          `json:"recorded_at"`
@@ -79,7 +84,7 @@ func (h *PaymentsHandler) ListUnmatched(w http.ResponseWriter, r *http.Request) 
 	}
 	out := []unmatchedPaymentResponse{}
 	for _, e := range entries {
-		if e.Action != kofi.UnmatchedAction {
+		if e.Action != unmatchedPaymentAction {
 			continue
 		}
 		out = append(out, unmatchedPaymentResponse{
