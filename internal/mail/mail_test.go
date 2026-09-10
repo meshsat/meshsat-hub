@@ -172,15 +172,15 @@ func TestGreetingHandlesWhatItIsGiven(t *testing.T) {
 	}
 }
 
-func TestLapseWarningNamesTheMomentAndCarriesTheClaimCode(t *testing.T) {
-	m := LapseWarning("Alice", "crew", time.Now().Add(72*time.Hour), "https://ko-fi.com/x", "AB2K9XYZ")
+func TestLapseWarningNamesTheMomentAndSaysWhatChanges(t *testing.T) {
+	m := LapseWarning("Alice", "crew", time.Now().Add(72*time.Hour), "https://ko-fi.com/x")
 	if !strings.Contains(m.Subject, "crew") {
 		t.Errorf("subject does not name the plan: %q", m.Subject)
 	}
 	// Both renderings, because a plain-text reader is a customer too and a
 	// claim code that only exists in the HTML is a payment that never matches.
 	for _, part := range []struct{ name, body string }{{"text", m.Text}, {"html", m.HTML}} {
-		for _, want := range []string{"AB2K9XYZ", "https://ko-fi.com/x", "an SOS is never affected", "keeps working"} {
+		for _, want := range []string{"https://ko-fi.com/x", "an SOS is never affected", "keeps working"} {
 			if !strings.Contains(part.body, want) {
 				t.Errorf("%s part missing %q", part.name, want)
 			}
@@ -213,7 +213,7 @@ func TestEveryStatedTimeIsAnExactMomentInAStatedZone(t *testing.T) {
 
 		// And no message may state a time any other way.
 		for name, m := range map[string]Message{
-			"LapseWarning": LapseWarning("Alice", "crew", when, "u", "C"),
+			"LapseWarning": LapseWarning("Alice", "crew", when, "u"),
 			"Lapsed":       Lapsed("Alice", "crew", when, "u"),
 			"PlanChanged":  PlanChanged("Alice", "crew", 24, when, "u"),
 		} {
@@ -412,8 +412,8 @@ func allMessages() map[string]Message {
 		"Approved":           Approved("Alice Example", "https://hub.meshsat.net"),
 		"PlanChanged":        PlanChanged("Alice", "crew", 24, when, "https://hub.meshsat.net"),
 		"PlanChangedCustom":  PlanChanged("Alice", "custom", -1, when, "https://hub.meshsat.net"),
-		"LapseWarning":       LapseWarning("Alice", "crew", when, "https://ko-fi.com/x", "AB2K9XYZ"),
-		"LapseWarningNoCode": LapseWarning("Alice", "crew", when, "https://ko-fi.com/x", ""),
+		"LapseWarning":       LapseWarning("Alice", "crew", when, "https://ko-fi.com/x"),
+		"LapseWarningNoCode": LapseWarning("Alice", "crew", when, "https://ko-fi.com/x"),
 		"Lapsed":             Lapsed("Alice", "crew", when, "https://ko-fi.com/x"),
 		"Refunded":           Refunded("Alice", "9.00 EUR", "MSHCN2026-0001", "MSH2026-0001", when, "https://hub.meshsat.net"),
 		"RefundedPartial":    Refunded("Alice", "4.00 EUR", "MSHCN2026-0002", "MSH2026-0001", time.Time{}, "https://hub.meshsat.net"),

@@ -392,11 +392,11 @@ func (h *Handler) recordReceipt(ctx context.Context, t *store.Tenant, f receiptF
 		"receipt", r.ID, "amount_cents", r.AmountCents, "currency", r.Currency)
 }
 
-// recordUnattributed keeps money that could not be placed visible to a person.
-// It is an audit entry on the platform tenant, the same surface Ko-fi's
-// unmatched payments use, so one list covers both while both exist.
+// recordUnattributed keeps money that could not be placed visible to a person:
+// an audit entry on the platform tenant, listed at
+// GET /api/admin/payments/unmatched.
 func (h *Handler) recordUnattributed(ctx context.Context, ev Event, cents int64, currency, email, why string) {
-	metrics.KofiUnmatchedPaymentsTotal.Inc()
+	metrics.PaymentsUnattributedTotal.Inc()
 	detail, _ := json.Marshal(map[string]any{
 		"provider":     "stripe",
 		"event":        ev.ID,
