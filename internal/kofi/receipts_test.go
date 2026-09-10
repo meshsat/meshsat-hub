@@ -603,3 +603,21 @@ func TestAReceiptIsParkedUnlessTheCountryAllowsDutchVAT(t *testing.T) {
 		})
 	}
 }
+
+// A donation is not a subscription and not the free plan. Recording it as
+// plans.Free described a EUR 5 tip as "MeshSat Hub Free, subscription, one
+// month" on the customer's document.
+func TestADonationIsNotDescribedAsASubscription(t *testing.T) {
+	if got := productKey(DonationPlan); got != "MeshSat Hub support" {
+		t.Errorf("product key = %q", got)
+	}
+	got := description(DonationPlan, "Crew")
+	for _, wrong := range []string{"subscription", "one month", "Crew", "Free"} {
+		if strings.Contains(got, wrong) {
+			t.Errorf("a donation line says %q: %q", wrong, got)
+		}
+	}
+	if got == "" {
+		t.Error("a donation line is empty")
+	}
+}
