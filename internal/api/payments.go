@@ -167,10 +167,14 @@ type vatThresholdResponse struct {
 	// the Netherlands this calendar year. Domestic sales are excluded: the
 	// threshold is about supplies to other member states, and counting our own
 	// would raise a false alarm on the busiest possible month.
-	CrossBorderCents int64            `json:"cross_border_cents"`
-	ThresholdCents   int64            `json:"threshold_cents"`
-	PercentUsed      float64          `json:"percent_used"`
-	ByCountry        map[string]int64 `json:"by_country"`
+	CrossBorderCents int64 `json:"cross_border_cents"`
+	// RefundedCents is what was given back and therefore never supplied. It is
+	// already subtracted from CrossBorderCents; it is reported separately so a
+	// person can see why the figure moved down (MESHSAT-1019).
+	RefundedCents  int64            `json:"refunded_cents"`
+	ThresholdCents int64            `json:"threshold_cents"`
+	PercentUsed    float64          `json:"percent_used"`
+	ByCountry      map[string]int64 `json:"by_country"`
 	// Note says in words what the number means, because the person reading it
 	// at 80% needs to know what to do, not just that a bar is filling.
 	Note string `json:"note"`
@@ -195,6 +199,15 @@ func (h *PaymentsHandler) VATThreshold(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "could not read sales")
 		return
 	}
+	// A sale that was given back is not a supply to another member state.
+	// Counting it would report a distance to the threshold the business never
+	// travelled, and the threshold is what the flat Dutch rate rests on.
+	refunded, err := h.store.RefundsByCountrySince(r.Context(), since)
+	if err != nil {
+		slog.Error("vat: reading refunds failed", "error", err)
+		writeError(w, http.StatusInternalServerError, "could not read refunds")
+		return
+	}
 	out := vatThresholdResponse{
 		Year: year, ThresholdCents: vat.Threshold, ByCountry: map[string]int64{},
 	}
@@ -202,11 +215,23 @@ func (h *PaymentsHandler) VATThreshold(w http.ResponseWriter, r *http.Request) {
 		if !vat.CountsTowardThreshold(c) {
 			continue
 		}
-		out.ByCountry[c] = cents
-		out.CrossBorderCents += cents
+		net := cents - refunded[c]
+		if net < 0 {
+			// A refund of a sale from an earlier year, or a figure a person
+			// should look at. Never let it pull the total below what was
+			// actually supplied.
+			net = 0
+		}
+		out.ByCountry[c] = net
+		out.CrossBorderCents += net
+	}
+	for c, cents := range refunded {
+		if vat.CountsTowardThreshold(c) {
+			out.RefundedCents += cents
+		}
 	}
 	out.PercentUsed = float64(out.CrossBorderCents) / float64(vat.Threshold) * 100
-	out.Note = "Cross-border B2C sales to other EU member states this calendar year. " +
+	out.Note = "Cross-border B2C sales to other EU member states this calendar year, net of refunds. " +
 		"Dutch 21% may be charged on these while the total stays under the threshold. " +
 		"Above it, the customer's own country rate applies and OSS registration is required."
 	writeJSON(w, http.StatusOK, out)
