@@ -242,9 +242,55 @@ func TestOIDC_NewUser_CreatesTenantAndOwner(t *testing.T) {
 	if len(tenants) != 2 { // default + alice
 		t.Fatalf("tenants: %d", len(tenants))
 	}
+	// Alice owns this tenant, so the group does NOT take her role away. She was
+	// approved as a viewer, provisioned her own tenant as its owner, and used
+	// to be demoted on exactly this second sign-in -- left owning a tenant she
+	// could not administer, with nothing in the UI to explain it (owner ruling,
+	// 2026-09-10).
 	u, _ = e.store.GetUserByID(context.Background(), ident.TenantID, ident.UserID)
-	if u.Role != hubauth.RoleOperator {
-		t.Fatalf("role not refreshed from groups: %s", u.Role)
+	if u.Role != hubauth.RoleOwner {
+		t.Fatalf("the tenant's own owner was demoted to %q by a group", u.Role)
+	}
+}
+
+// Everyone who is not the tenant's owner still takes their role from the
+// identity provider on every sign-in: the exception is for the owner, not a
+// general halt to group-driven roles.
+func TestOIDC_AMemberIsStillRefreshedFromGroups(t *testing.T) {
+	e := newOIDCEnv(t, true)
+	ctx := context.Background()
+
+	// A tenant owned by somebody else, with our subject as an ordinary member.
+	if err := e.store.CreateTenant(ctx, &store.Tenant{
+		ID: "t_acme", Slug: "acme", Name: "ACME", Plan: plans.Free,
+		Status: store.TenantActive, OwnerUserID: "usr-someone-else",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	member := &store.LocalUser{ID: "usr-member", Email: "bob@example.com", Name: "Bob",
+		Role: hubauth.RoleOwner, Enabled: true}
+	if err := e.store.CreateUser(ctx, "t_acme", member); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.store.LinkOIDCIdentity(ctx, &store.OIDCIdentity{
+		Issuer: e.idp.srv.URL + "/", Subject: "u-member", UserID: member.ID, TenantID: "t_acme",
+		Email: "bob@example.com",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	cookie, state := e.startLogin(t, "")
+	rr := e.callback(t, cookie, state, jwt.MapClaims{"sub": "u-member", "email": "bob@example.com",
+		"email_verified": true, "groups": []string{"meshsat-viewer"}})
+	if strings.Contains(location(rr), "error=") {
+		t.Fatalf("member login failed: %s", location(rr))
+	}
+	got, err := e.store.GetUserByID(ctx, "t_acme", member.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Role != hubauth.RoleViewer {
+		t.Errorf("a member's role is %q, want viewer -- groups must still drive everyone who is not the owner", got.Role)
 	}
 }
 

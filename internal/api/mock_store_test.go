@@ -498,6 +498,9 @@ func (m *mockStore) MarkReceiptIssued(context.Context, string, string, string, t
 func (m *mockStore) MarkReceiptAttempt(context.Context, string, string, time.Time) error { return nil }
 func (m *mockStore) BlockReceipt(context.Context, string, string) error                  { return nil }
 
+func (m *mockStore) ClaimReceipt(context.Context, string, time.Time) (bool, error) { return true, nil }
+func (m *mockStore) ReleaseReceipt(context.Context, string) error                  { return nil }
+
 func (m *mockStore) ListReceiptsByStatus(context.Context, string, int) ([]store.Receipt, error) {
 	return m.receipts, nil
 }
