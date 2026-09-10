@@ -43,8 +43,6 @@ func Run(t *testing.T, open Opener) {
 		{"TenantOffboarding", testTenantOffboarding},
 		{"TenantQuota", testTenantQuota},
 		{"Receipts", testReceipts},
-		{"KofiDelivery", testKofiDelivery},
-		{"ClaimCode", testClaimCode},
 		{"OIDCClaim", testOIDCClaim},
 		{"ReceiptLease", testReceiptLease},
 		{"BuyerCountry", testBuyerCountry},

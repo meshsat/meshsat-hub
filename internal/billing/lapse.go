@@ -13,7 +13,8 @@ import (
 
 // LapseJob returns tenants whose paid period has ended to the free tier.
 //
-// This is the only mechanism that ever downgrades anyone, because Ko-fi has no
+// A safety net, not the mechanism: customer.subscription.deleted is what ends a
+// plan now, immediately. This exists because a webhook can be missed, and
 // cancellation event to listen for. It runs hourly on the lease holder, the
 // same way the purge job does, so the audit line is written once.
 //
@@ -76,7 +77,7 @@ func (j *LapseJob) Once(ctx context.Context) {
 	now := j.now().UTC()
 	tenants, err := j.store.ListTenants(ctx)
 	if err != nil {
-		slog.Error("kofi: listing tenants for lapse failed", "error", err)
+		slog.Error("billing: listing tenants for lapse failed", "error", err)
 		return
 	}
 	for i := range tenants {
@@ -97,7 +98,7 @@ func (j *LapseJob) Once(ctx context.Context) {
 			// Already free; clear the stale date so this stops being looked at.
 			t.PlanExpiresAt = nil
 			if err := j.store.UpdateTenant(ctx, &t); err != nil {
-				slog.Warn("kofi: could not clear a stale expiry", "tenant", t.ID, "error", err)
+				slog.Warn("billing: could not clear a stale expiry", "tenant", t.ID, "error", err)
 			}
 			continue
 		}
@@ -105,7 +106,7 @@ func (j *LapseJob) Once(ctx context.Context) {
 		expired := endedAt.Format(time.RFC3339)
 		t.Plan, t.PlanExpiresAt = plans.Free, nil
 		if err := j.store.UpdateTenant(ctx, &t); err != nil {
-			slog.Error("kofi: lapse failed, will retry next run", "tenant", t.ID, "error", err)
+			slog.Error("billing: lapse failed, will retry next run", "tenant", t.ID, "error", err)
 			continue
 		}
 		if j.forget != nil {
@@ -117,7 +118,7 @@ func (j *LapseJob) Once(ctx context.Context) {
 				mail.SendOrLog(ctx, j.mail, to, msg, "plan lapsed")
 			}
 		}
-		slog.Info("kofi: paid plan lapsed back to free; every registered device keeps working",
+		slog.Info("billing: paid plan lapsed back to free; every registered device keeps working",
 			"tenant", t.ID, "was", was, "expired", expired)
 		if j.audit != nil {
 			_ = j.audit.Log(ctx, t.ID, "subscription_lapsed", "lapse_job",
@@ -149,13 +150,13 @@ func (j *LapseJob) warn(ctx context.Context, t *store.Tenant, now time.Time) {
 	if to == "" {
 		return
 	}
-	msg := mail.LapseWarning(j.ownerName(ctx, t), t.Plan, *t.PlanExpiresAt, j.upgradeURL, t.KofiClaimCode)
+	msg := mail.LapseWarning(j.ownerName(ctx, t), t.Plan, *t.PlanExpiresAt, j.upgradeURL)
 	mail.SendOrLog(ctx, j.mail, to, msg, "lapse warning")
 	warned := now
 	t.LapseWarnedAt = &warned
 	if err := j.store.UpdateTenant(ctx, t); err != nil {
 		// Not fatal: the worst case is a second warning next hour.
-		slog.Warn("kofi: could not record that a lapse warning was sent", "tenant", t.ID, "error", err)
+		slog.Warn("billing: could not record that a lapse warning was sent", "tenant", t.ID, "error", err)
 	}
 }
 
