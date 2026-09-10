@@ -30,6 +30,30 @@ ak() {
     | { grep -v '^{"event"' || true; } | { grep -v '^###' || true; } | { grep -v 'objects imported automatically' || true; }
 }
 
+# The EmailStage renders INLINE IN THE FLOW EXECUTOR, which runs in auth-server
+# and not in the worker this script otherwise talks to. A template mounted only
+# on the worker therefore passes every check here and still breaks every real
+# signup with TemplateDoesNotExist, after the account row has already been
+# written (OMOIKANE-1664, 2026-09-10 — 25 minutes of a public signup page
+# answering with an error page). So ask the server itself, every time.
+verify_email_templates() {
+  local server="${AUTHENTIK_SERVER_DEPLOY:-deploy/auth-server}" bad=0
+  for tpl in email/meshsat_account_confirmation.html email/meshsat_password_reset.html; do
+    if kubectl --context "$CTX" -n "$NS" exec -i "$server" -- \
+         ak shell -c "from django.template.loader import get_template; get_template('$tpl'); print('OK')" 2>&1 \
+         | grep -q '^OK$'; then
+      echo "template $tpl is readable by the flow executor"
+    else
+      echo "FATAL: $tpl is NOT readable by auth-server, which is what renders it."
+      echo "       Enrollment will fail after the details stage. Mount the ConfigMap"
+      echo "       authentik-meshsat-email-templates at /templates/email on the SERVER"
+      echo "       deployment (omoikane k8s/auth/deployment-server.yaml), not only the worker."
+      bad=1
+    fi
+  done
+  [ "$bad" -eq 0 ] || exit 1
+}
+
 # Emits `NAME = <python literal>` lines for the values the scripts read.
 prelude() {
   python3 - "$@" <<'PY'
@@ -68,6 +92,7 @@ case "${1:-}" in
     shred -u "$tmp"
     echo "OIDC client stored in OpenBao ci-no/apps/meshsat-hub/hub (client id ${cid:0:6}...)"
     echo "$out" | sed -n 's/^ISSUER=/issuer:     /p; s/^ENROLLMENT=/enrollment: /p'
+    verify_email_templates
     ;;
   pause|resume)
     # Enrollment on or off: one boolean on the pause policy's binding. The
