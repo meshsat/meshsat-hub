@@ -262,6 +262,18 @@ type Store interface {
 	GetTenantBySlug(ctx context.Context, slug string) (*Tenant, error)
 	ListTenants(ctx context.Context) ([]Tenant, error)
 	UpdateTenant(ctx context.Context, t *Tenant) error
+	// ApplyKofiDelivery claims deliveryKey and, only if the claim is new,
+	// writes the plan grant onto the tenant. It reports whether it applied;
+	// false means this exact delivery was already applied and the caller must
+	// not grant anything for it.
+	//
+	// The claim and the grant are one transaction, which buys three things a
+	// read-then-write guard cannot. The webhook is not leader-gated, so two
+	// replicas can serve the same retry: only one insert survives the unique
+	// key. Every key ever applied is remembered, not just the last one, so a
+	// retry that arrives after a later payment cannot re-apply. And if the
+	// grant fails the claim rolls back with it, so Ko-fi's retry still works.
+	ApplyKofiDelivery(ctx context.Context, t *Tenant, deliveryKey string) (bool, error)
 	// SoftDeleteTenant blocks a tenant and starts the grace period. Reversible
 	// with UpdateTenant until PurgeTenant runs.
 	SoftDeleteTenant(ctx context.Context, id string, at time.Time) error

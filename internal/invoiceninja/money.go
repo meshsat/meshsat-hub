@@ -31,8 +31,11 @@ func (a amount) String() string {
 		strings.TrimPrefix(strconv.FormatInt(minorUnits+v%minorUnits, 10), "1")
 }
 
-// ErrBadAmount is returned for a payload amount that is not a plain decimal.
-var ErrBadAmount = errors.New("invoiceninja: amount is not a decimal number")
+// ErrBadAmount is returned for a payload amount this code will not invoice:
+// one that is not a plain decimal, or one that is not positive. Both are
+// terminal -- retrying cannot turn a refund or a typo into an invoiceable sum,
+// so the receipts drainer parks the row for a person rather than looping.
+var ErrBadAmount = errors.New("invoiceninja: amount is not a positive decimal number")
 
 // ParseAmount turns a payment provider's decimal string ("9.00", "29", "1,50")
 // into minor units without going through a float.
