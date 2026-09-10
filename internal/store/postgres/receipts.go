@@ -130,10 +130,15 @@ func (d *DB) MarkReceiptAttempt(ctx context.Context, id, errMsg string, nextAtte
 	return err
 }
 
+// BlockReceipt parks a receipt for a person. An ISSUED receipt is never parked:
+// the document exists and has a number out of a gapless series, and flipping it
+// to blocked would leave a customer holding an invoice nothing will ever
+// reconcile. The guard matters because two drainers touch this row -- the
+// receipt issuer and the refund issuer (MESHSAT-1019).
 func (d *DB) BlockReceipt(ctx context.Context, id, reason string) error {
 	_, err := d.db.ExecContext(ctx,
-		`UPDATE receipts SET status=$1, last_error=$2, updated_at=$3 WHERE id=$4`,
-		store.ReceiptBlocked, reason, time.Now().UTC(), id)
+		`UPDATE receipts SET status=$1, last_error=$2, updated_at=$3 WHERE id=$4 AND status<>$5`,
+		store.ReceiptBlocked, reason, time.Now().UTC(), id, store.ReceiptIssued)
 	return err
 }
 

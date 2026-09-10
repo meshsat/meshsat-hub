@@ -35,6 +35,9 @@ type fakeStore struct {
 	updatedTenant *store.Tenant
 	claimAll      bool
 	issueErr      error
+
+	getReceiptCalls    int
+	onSecondGetReceipt func()
 }
 
 func (f *fakeStore) ListDueRefunds(context.Context, time.Time, int) ([]store.Refund, error) {
@@ -44,7 +47,12 @@ func (f *fakeStore) GetReceipt(context.Context, string) (*store.Receipt, error) 
 	if f.getRErr != nil {
 		return nil, f.getRErr
 	}
-	return f.receipt, nil
+	f.getReceiptCalls++
+	r := f.receipt
+	if f.getReceiptCalls == 1 && f.onSecondGetReceipt != nil {
+		f.onSecondGetReceipt() // the other drainer finishes between the reads
+	}
+	return r, nil
 }
 func (f *fakeStore) SetRefundCredit(_ context.Context, id, ref string) error {
 	f.setCredits = append(f.setCredits, id+"="+ref)
@@ -483,5 +491,49 @@ func TestARetryOnTheNoDocumentPathDoesNotShortenThePlanTwice(t *testing.T) {
 
 	if s.updatedTenant != nil {
 		t.Fatal("the plan was shortened before the refund was recorded on the no-document path")
+	}
+}
+
+// TestARaceWithTheReceiptDrainerNeverCancelsAnIssuedInvoice.
+//
+// Both drainers run on the lease holder, a minute apart, and both touch the
+// same receipt row. An operator refunding a payment in the window before its
+// invoice is issued makes them collide: the refund path reads "no invoice yet"
+// and decides to cancel the receipt, while the receipt path is mid-flight and
+// issues one. Losing that race two ways is expensive -- the customer is billed
+// for money that has already gone back, and an issued receipt is flipped to
+// blocked so nothing will ever credit it.
+//
+// So the decision is re-read at the last moment. If an invoice appeared, the
+// refund goes back in the queue and the next pass takes the credit note path.
+func TestARaceWithTheReceiptDrainerNeverCancelsAnIssuedInvoice(t *testing.T) {
+	rcpt := paidReceipt()
+	rcpt.InvoiceRef = "" // as the refund path first sees it
+	rcpt.Status = store.ReceiptPending
+	s := &fakeStore{
+		due: []store.Refund{pendingRefund(900)}, receipt: rcpt,
+		tenant: &store.Tenant{ID: "t1", Plan: "crew"},
+	}
+	// The receipt drainer wins the race between the two reads.
+	s.onSecondGetReceipt = func() {
+		issued := paidReceipt()
+		issued.Status = store.ReceiptIssued
+		s.receipt = issued
+	}
+	iss := &fakeIssuer{}
+	j := newJob(s, iss)
+	j.Once(context.Background())
+
+	if len(s.blockedRcpts) != 0 {
+		t.Fatalf("an issued receipt was cancelled by the refund path: %v", s.blockedRcpts)
+	}
+	if len(s.issued) != 0 {
+		t.Fatal("the refund was closed with no document even though an invoice exists")
+	}
+	if len(s.attempts) != 1 {
+		t.Fatalf("the refund was not put back for the credit note path: %v", s.attempts)
+	}
+	if s.updatedTenant != nil {
+		t.Fatal("the plan was shortened on a pass that resolved nothing")
 	}
 }

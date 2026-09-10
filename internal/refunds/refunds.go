@@ -253,6 +253,28 @@ func (j *Job) issue(ctx context.Context, r *store.Refund) {
 // is issued, and the receipt is parked so the other drainer cannot bill for
 // money that has gone back.
 func (j *Job) closeWithoutDocument(ctx context.Context, r *store.Refund, receipt *store.Receipt) {
+	// Re-read before deciding. Both drainers run on the lease holder a minute
+	// apart and both touch this row: an operator refunding a payment in the
+	// window before its invoice is issued makes them collide. Losing that race
+	// costs twice -- the customer is billed for money that has already gone
+	// back, and an issued receipt is flipped to blocked so nothing will ever
+	// credit it. If an invoice appeared, hand the refund back to the queue and
+	// let the next pass take the credit note path.
+	fresh, err := j.store.GetReceipt(ctx, r.ReceiptID)
+	if err != nil {
+		j.retry(ctx, r, fmt.Errorf("re-reading the payment: %w", err))
+		return
+	}
+	if fresh != nil && fresh.InvoiceRef != "" {
+		slog.Info("refunds: an invoice appeared while this refund was being closed; crediting it instead",
+			"refund", r.ID, "receipt", fresh.ID, "invoice", fresh.InvoiceNumber)
+		j.retry(ctx, r, errors.New("an invoice was issued between reads; taking the credit note path"))
+		return
+	}
+	if fresh != nil {
+		receipt = fresh
+	}
+
 	if receipt.Status != store.ReceiptBlocked {
 		if err := j.store.BlockReceipt(ctx, receipt.ID,
 			"the payment was refunded before any invoice was issued, so no document is owed"); err != nil {
