@@ -113,8 +113,8 @@ func (j *LapseJob) Once(ctx context.Context) {
 		}
 		if j.mail != nil {
 			if to := j.ownerEmail(ctx, &t); to != "" {
-				subject, body := mail.Lapsed(j.ownerName(ctx, &t), was, endedAt, j.upgradeURL)
-				mail.SendOrLog(ctx, j.mail, to, subject, body, "plan lapsed")
+				msg := mail.Lapsed(j.ownerName(ctx, &t), was, endedAt, j.upgradeURL)
+				mail.SendOrLog(ctx, j.mail, to, msg, "plan lapsed")
 			}
 		}
 		slog.Info("kofi: paid plan lapsed back to free; every registered device keeps working",
@@ -149,8 +149,8 @@ func (j *LapseJob) warn(ctx context.Context, t *store.Tenant, now time.Time) {
 	if to == "" {
 		return
 	}
-	subject, body := mail.LapseWarning(j.ownerName(ctx, t), t.Plan, *t.PlanExpiresAt, j.upgradeURL, t.KofiClaimCode)
-	mail.SendOrLog(ctx, j.mail, to, subject, body, "lapse warning")
+	msg := mail.LapseWarning(j.ownerName(ctx, t), t.Plan, *t.PlanExpiresAt, j.upgradeURL, t.KofiClaimCode)
+	mail.SendOrLog(ctx, j.mail, to, msg, "lapse warning")
 	warned := now
 	t.LapseWarnedAt = &warned
 	if err := j.store.UpdateTenant(ctx, t); err != nil {
