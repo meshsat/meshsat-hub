@@ -42,19 +42,27 @@ func New(base, token string) *Client {
 
 // PendingUser is someone waiting for a decision.
 type PendingUser struct {
-	PK            int       `json:"pk"`
-	Username      string    `json:"username"`
-	Name          string    `json:"name"`
-	Email         string    `json:"email"`
-	Active        bool      `json:"is_active"`
-	SignupIP      string    `json:"signup_ip,omitempty"`
-	Organisation  string    `json:"organisation,omitempty"`
-	Country       string    `json:"country,omitempty"`
-	Callsign      string    `json:"callsign,omitempty"`
-	IntendedUse   string    `json:"intended_use,omitempty"`
-	MatrixID      string    `json:"matrix_id,omitempty"`
-	EmailVerified bool      `json:"email_verified"`
-	Created       time.Time `json:"created,omitempty"`
+	PK           int    `json:"pk"`
+	Username     string `json:"username"`
+	Name         string `json:"name"`
+	Email        string `json:"email"`
+	Active       bool   `json:"is_active"`
+	SignupIP     string `json:"signup_ip,omitempty"`
+	Organisation string `json:"organisation,omitempty"`
+	Country      string `json:"country,omitempty"`
+	Callsign     string `json:"callsign,omitempty"`
+	IntendedUse  string `json:"intended_use,omitempty"`
+	// Hardware is what they say they will connect. Collected on the form and,
+	// until this was added, never shown to the person deciding.
+	Hardware string `json:"hardware,omitempty"`
+	// TermsAcceptedAt is stamped by the policy on the user_write binding. It
+	// is the record that they agreed, which matters now that the service is
+	// paid for -- and an operator approving a request should be able to see it
+	// rather than take it on faith (MESHSAT-936).
+	TermsAcceptedAt string    `json:"terms_accepted_at,omitempty"`
+	MatrixID        string    `json:"matrix_id,omitempty"`
+	EmailVerified   bool      `json:"email_verified"`
+	Created         time.Time `json:"created,omitempty"`
 }
 
 type akUser struct {
@@ -134,14 +142,16 @@ func (c *Client) ListPending(ctx context.Context) ([]PendingUser, error) {
 	for _, u := range page.Results {
 		out = append(out, PendingUser{
 			PK: u.PK, Username: u.Username, Name: u.Name, Email: u.Email, Active: u.IsActive,
-			SignupIP:      attrStr(u.Attributes, "signup_ip"),
-			Organisation:  attrStr(u.Attributes, "organisation"),
-			Country:       attrStr(u.Attributes, "country"),
-			Callsign:      attrStr(u.Attributes, "callsign"),
-			IntendedUse:   attrStr(u.Attributes, "intended_use"),
-			MatrixID:      attrStr(u.Attributes, "matrix_id"),
-			EmailVerified: attrBool(u.Attributes, "email_verified"),
-			Created:       u.DateJoined,
+			SignupIP:        attrStr(u.Attributes, "signup_ip"),
+			Organisation:    attrStr(u.Attributes, "organisation"),
+			Country:         attrStr(u.Attributes, "country"),
+			Callsign:        attrStr(u.Attributes, "callsign"),
+			IntendedUse:     attrStr(u.Attributes, "intended_use"),
+			Hardware:        attrStr(u.Attributes, "hardware"),
+			TermsAcceptedAt: attrStr(u.Attributes, "terms_accepted_at"),
+			MatrixID:        attrStr(u.Attributes, "matrix_id"),
+			EmailVerified:   attrBool(u.Attributes, "email_verified"),
+			Created:         u.DateJoined,
 		})
 	}
 	return out, nil
