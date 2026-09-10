@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 
@@ -203,5 +204,58 @@ func TestValidEmail(t *testing.T) {
 		if got := validEmail(in); got != want {
 			t.Errorf("validEmail(%q)=%v", in, got)
 		}
+	}
+}
+
+// An operator-set plan is meant to be permanent, but nothing anywhere could
+// write plan_expires_at, so a tenant that still carried a Ko-fi expiry lapsed
+// straight back to free and the only fix was hand-written SQL (MESHSAT-989).
+func TestAdminCanSetAndClearThePlanExpiry(t *testing.T) {
+	s := newTenantStore(t)
+	ctx := context.Background()
+	when := time.Now().UTC().Add(48 * time.Hour).Truncate(time.Second)
+	tn, err := s.GetTenant(ctx, "t_acme")
+	if err != nil {
+		t.Fatal(err)
+	}
+	tn.PlanExpiresAt = &when
+	if err := s.UpdateTenant(ctx, tn); err != nil {
+		t.Fatal(err)
+	}
+
+	r := tenantRouter(t, s, &hubauth.User{ID: "u1", TenantID: "t_acme", Roles: []string{"owner"}, PlatformAdmin: true})
+
+	// Absent leaves it alone.
+	if rr := do(r, "PUT", "/api/admin/tenants/t_acme", `{"plan":"custom"}`); rr.Code != 200 {
+		t.Fatalf("set plan: %d %s", rr.Code, rr.Body.String())
+	}
+	got, _ := s.GetTenant(ctx, "t_acme")
+	if got.PlanExpiresAt == nil || !got.PlanExpiresAt.Equal(when) {
+		t.Errorf("an absent field changed the expiry: %v", got.PlanExpiresAt)
+	}
+
+	// "" clears it -- the operator plan now never lapses.
+	if rr := do(r, "PUT", "/api/admin/tenants/t_acme", `{"plan_expires_at":""}`); rr.Code != 200 {
+		t.Fatalf("clear: %d %s", rr.Code, rr.Body.String())
+	}
+	got, _ = s.GetTenant(ctx, "t_acme")
+	if got.PlanExpiresAt != nil {
+		t.Errorf("expiry not cleared: %v", got.PlanExpiresAt)
+	}
+
+	// A date sets it.
+	later := time.Now().UTC().Add(30 * 24 * time.Hour).Truncate(time.Second)
+	body := `{"plan_expires_at":"` + later.Format(time.RFC3339) + `"}`
+	if rr := do(r, "PUT", "/api/admin/tenants/t_acme", body); rr.Code != 200 {
+		t.Fatalf("set date: %d %s", rr.Code, rr.Body.String())
+	}
+	got, _ = s.GetTenant(ctx, "t_acme")
+	if got.PlanExpiresAt == nil || !got.PlanExpiresAt.Equal(later) {
+		t.Errorf("expiry not set: %v want %v", got.PlanExpiresAt, later)
+	}
+
+	// Anything else is a 400, not a silent no-op.
+	if rr := do(r, "PUT", "/api/admin/tenants/t_acme", `{"plan_expires_at":"next tuesday"}`); rr.Code != 400 {
+		t.Errorf("garbage date: %d %s", rr.Code, rr.Body.String())
 	}
 }
