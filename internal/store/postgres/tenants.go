@@ -214,3 +214,30 @@ func (d *DB) DeleteInvite(ctx context.Context, tenantID string, id string) error
 	_, err := d.db.ExecContext(ctx, "DELETE FROM tenant_invites WHERE id = $1 AND tenant_id = $2", id, tenantID)
 	return err
 }
+
+// EnsureClaimCode mints a Ko-fi claim code only if the tenant has none, and
+// returns whatever the tenant ends up carrying. The conditional UPDATE is the
+// whole point: the loser of a race reads back the winner's code instead of
+// walking away with one nobody stored.
+//
+// A candidate that collides with another tenant's code trips the partial
+// unique index and comes back as an error; the caller shows no code and the
+// next read mints a different one. At 32^8 candidates that is not a case worth
+// retrying in a loop.
+func (d *DB) EnsureClaimCode(ctx context.Context, tenantID, candidate string) (string, error) {
+	if tenantID == "" || candidate == "" {
+		return "", fmt.Errorf("postgres: tenant id and a candidate claim code are required")
+	}
+	if _, err := d.db.ExecContext(ctx,
+		`UPDATE tenants SET kofi_claim_code = $1, updated_at = $2
+		 WHERE id = $3 AND kofi_claim_code = ''`,
+		candidate, time.Now().UTC(), tenantID); err != nil {
+		return "", err
+	}
+	var code string
+	if err := d.db.QueryRowContext(ctx,
+		`SELECT kofi_claim_code FROM tenants WHERE id = $1`, tenantID).Scan(&code); err != nil {
+		return "", err
+	}
+	return code, nil
+}
