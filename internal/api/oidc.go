@@ -283,6 +283,25 @@ func (h *OIDCHandler) Callback(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, target, http.StatusFound)
 }
 
+// ownsTenant reports whether this user is the tenant's owner of record.
+//
+// It fails OPEN -- an unreadable tenant is treated as owned, so the role is
+// left alone. The asymmetry is deliberate: wrongly demoting locks a person out
+// of the tenant they own and needs an operator to undo, while wrongly skipping
+// a demotion leaves a stale role until the next sign-in.
+func (h *OIDCHandler) ownsTenant(ctx context.Context, tenantID, userID string) bool {
+	t, err := h.store.GetTenant(ctx, tenantID)
+	if err != nil {
+		slog.Warn("oidc: could not read the tenant to check ownership; leaving the role alone",
+			"tenant", tenantID, "error", err)
+		return true
+	}
+	if t == nil {
+		return true
+	}
+	return t.OwnerUserID != "" && t.OwnerUserID == userID
+}
+
 // roleFromGroups picks the highest mapped role; the admin group implies owner.
 func (h *OIDCHandler) roleFromGroups(groups []string) (role string, admin bool) {
 	rank := map[string]int{hubauth.RoleViewer: 1, hubauth.RoleOperator: 2, hubauth.RoleOwner: 3}
@@ -311,11 +330,23 @@ func (h *OIDCHandler) resolveUser(ctx context.Context, issuer, sub, email string
 		if err != nil {
 			return nil, "", fmt.Errorf("linked user %s missing: %w", ident.UserID, err)
 		}
-		if u.Role != role || (name != "" && u.Name != name) {
+		changed := false
+		if name != "" && u.Name != name {
+			u.Name = name
+			changed = true
+		}
+		// A tenant's own owner is never demoted by an identity-provider group.
+		// Approving somebody as viewer or operator still gives them their own
+		// tenant with themselves as owner, and this line used to take it back
+		// on their SECOND sign-in: they owned a tenant they could not
+		// administer -- no users, no API keys, no plan -- and nothing in the UI
+		// said why. Everyone else's role stays the provider's to decide (owner
+		// ruling, 2026-09-10).
+		if u.Role != role && !h.ownsTenant(ctx, ident.TenantID, u.ID) {
 			u.Role = role
-			if name != "" {
-				u.Name = name
-			}
+			changed = true
+		}
+		if changed {
 			if err := h.store.UpdateUser(ctx, ident.TenantID, u); err != nil {
 				return nil, "", err
 			}
