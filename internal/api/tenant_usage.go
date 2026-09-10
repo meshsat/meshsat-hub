@@ -8,7 +8,6 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	hubauth "github.com/meshsat/meshsat-hub/internal/auth"
-	"github.com/meshsat/meshsat-hub/internal/kofi"
 	"github.com/meshsat/meshsat-hub/internal/plans"
 	"github.com/meshsat/meshsat-hub/internal/quota"
 	"github.com/meshsat/meshsat-hub/internal/store"
@@ -35,13 +34,25 @@ func NewTenantUsageHandler(q *quota.Checker, s store.Store) *TenantUsageHandler 
 type usageResponse struct {
 	quota.Usage
 	Tiers []tierResponse `json:"tiers"`
-	// UpgradeURL is where a person goes to pay. Empty when unconfigured, and
-	// the UI hides the link rather than inventing one.
+	// UpgradeURL is where a person goes to pay, for as long as the old
+	// provider is still the one taking money. It is empty once checkout starts
+	// inside the Hub, and the UI shows a Subscribe button instead.
 	UpgradeURL string `json:"upgrade_url,omitempty"`
-	// ClaimCode goes in the Ko-fi message so the payment reaches this tenant
-	// and not another. Generated on first read, because every tenant that
-	// existed before tiers did needs one and nobody should have to ask.
-	ClaimCode string `json:"claim_code,omitempty"`
+	// Billing reports whether this tenant can start a checkout and whether it
+	// has anything to manage. The claim code it replaces is gone: a payment is
+	// bound to a tenant by the metadata on its Checkout session now, not by
+	// somebody typing a code into a message box (MESHSAT-1023).
+	Billing billingState `json:"billing"`
+}
+
+// billingState is what the Settings page needs to decide which buttons to draw.
+type billingState struct {
+	// Provider is "stripe" when checkout starts in the Hub, "kofi" while the
+	// old link is still the way to pay, and empty when nothing is configured.
+	Provider string `json:"provider,omitempty"`
+	// Manageable is true once there is a Stripe customer behind this tenant,
+	// which is what the portal needs.
+	Manageable bool `json:"manageable"`
 }
 
 type tierResponse struct {
@@ -83,36 +94,34 @@ func (h *TenantUsageHandler) AdminUsage(w http.ResponseWriter, r *http.Request) 
 	h.usage(w, r, chi.URLParam(r, "id"))
 }
 
-// claimCode returns the tenant's Ko-fi claim code, minting one the first time
-// it is asked for. A failure here is not worth failing the whole response
-// over: the page still shows the usage, just without the code.
-func (h *TenantUsageHandler) claimCode(r *http.Request, tenantID string) string {
-	if h.store == nil {
-		return ""
+// billing reports what the Settings page may offer this tenant.
+//
+// It replaces the claim code, which existed only because the old provider had
+// no way to carry a tenant id through checkout. A payment is bound to a tenant
+// by the metadata on its Checkout session now, so there is nothing for a
+// customer to copy and nothing for them to forget.
+func (h *TenantUsageHandler) billing(r *http.Request, tenantID string) billingState {
+	if stripeReady {
+		st := billingState{Provider: "stripe"}
+		if h.store != nil {
+			if t, err := h.store.GetTenant(r.Context(), tenantID); err == nil && t != nil {
+				st.Manageable = t.StripeCustomerID != ""
+			}
+		}
+		return st
 	}
-	t, err := h.store.GetTenant(r.Context(), tenantID)
-	if err != nil || t == nil {
-		return ""
+	if upgradeURL != "" {
+		return billingState{Provider: "kofi"}
 	}
-	if t.KofiClaimCode != "" {
-		return t.KofiClaimCode
-	}
-	code, err := kofi.NewClaimCode()
-	if err != nil {
-		slog.Warn("tenant: could not mint a Ko-fi claim code", "tenant", tenantID, "error", err)
-		return ""
-	}
-	// Conditional, not read-then-write: two first readers of this endpoint
-	// would otherwise each mint a code, the later write would win, and the
-	// earlier caller would be shown a code the database does not hold. A
-	// payment quoting it could never be matched (MESHSAT-1005).
-	got, err := h.store.EnsureClaimCode(r.Context(), tenantID, code)
-	if err != nil {
-		slog.Warn("tenant: could not save a Ko-fi claim code", "tenant", tenantID, "error", err)
-		return ""
-	}
-	return got
+	return billingState{}
 }
+
+// stripeReady is set once at startup, beside SetUpgradeURL, so the usage
+// endpoint can tell the UI which surface to draw without reaching for config.
+var stripeReady bool
+
+// SetStripeReady says whether checkout starts inside the Hub.
+func SetStripeReady(v bool) { stripeReady = v }
 
 func (h *TenantUsageHandler) usage(w http.ResponseWriter, r *http.Request, tenantID string) {
 	if tenantID == "" {
@@ -133,7 +142,7 @@ func (h *TenantUsageHandler) usage(w http.ResponseWriter, r *http.Request, tenan
 		writeError(w, http.StatusInternalServerError, "could not read usage")
 		return
 	}
-	resp := usageResponse{Usage: u, UpgradeURL: upgradeURL, ClaimCode: h.claimCode(r, tenantID)}
+	resp := usageResponse{Usage: u, UpgradeURL: upgradeURL, Billing: h.billing(r, tenantID)}
 	for _, name := range plans.Names() {
 		resp.Tiers = append(resp.Tiers, tierResponse{
 			Plan:    name,
