@@ -32,11 +32,19 @@ import (
 )
 
 // InboundSMS is published to MQTT when an SMS is received via webhook.
+//
+// It goes to two topics: meshsat/hub/sms/inbound, whose consumers read the
+// message under "body", and the device's mo/decoded topic, where every
+// consumer (routing, message persistence, SOS, TAK, APRS-IS) reads the same
+// "text" key the satellite handlers publish. Both fields carry the same
+// string; without "text" a routed SMS relay arrived as "[origin] " with
+// nothing after the prefix (MESHSAT-1022).
 type InboundSMS struct {
 	ID          string `json:"id"`
 	From        string `json:"from"`
 	To          string `json:"to"`
 	Body        string `json:"body"`
+	Text        string `json:"text"`
 	MessageSID  string `json:"message_sid,omitempty"`
 	Channel     string `json:"channel"`
 	Compressed  bool   `json:"compressed"`
@@ -371,6 +379,7 @@ func (h *WebhookHandler) processBinaryPipeline(r *http.Request, w http.ResponseW
 		From:        from,
 		To:          to,
 		Body:        text,
+		Text:        text,
 		MessageSID:  messageSID,
 		Channel:     "sms",
 		Compressed:  compressed,
@@ -442,16 +451,25 @@ func (h *WebhookHandler) processPlaintextSMS(r *http.Request, w http.ResponseWri
 		From:       from,
 		To:         to,
 		Body:       body,
+		Text:       body,
 		MessageSID: messageSID,
 		Channel:    "sms",
 		Timestamp:  time.Now().UTC().Format(time.RFC3339),
 	}
 
+	// A plain-text SMS is an inbound message like any other: it goes to the
+	// sender's mo/decoded topic so the routing engine evaluates it (the kit
+	// to Hub to kit relay of the TTC booth rides this), the message
+	// subscriber persists it (same stable id, duplicate insert is a no-op)
+	// and the dashboards see it. Until MESHSAT-1022 only the base64 branch
+	// published here, so no route ever fired for a plain-text SMS.
+	tid := h.tenantOf(r.Context(), from)
+	h.publish(hubmqtt.TopicMODecodedFor(tid, from), 1, false, msg)
 	h.publish("meshsat/hub/sms/inbound", 1, false, msg)
+	slog.Info("sms: plaintext published for routing", "from", from, "id", msgID, "tenant", tid)
 
 	// Persist inbound SMS.
 	if h.store != nil {
-		tid := h.tenantOf(r.Context(), from)
 		dbMsg := &store.Message{
 			ID:         msgID,
 			DeviceIMEI: from,
