@@ -64,6 +64,10 @@ type TenantStore interface {
 	GetTenant(ctx context.Context, id string) (*store.Tenant, error)
 	ListTenants(ctx context.Context) ([]store.Tenant, error)
 	UpdateTenant(ctx context.Context, t *store.Tenant) error
+	// ApplyKofiDelivery writes the grant only if this delivery has not already
+	// been applied, and reports whether it did. See store.Store for why this is
+	// a compare-and-set rather than a read followed by an update.
+	ApplyKofiDelivery(ctx context.Context, t *store.Tenant, deliveryKey string) (bool, error)
 }
 
 // Auditor records who was moved to which tier and why. Matches
@@ -201,14 +205,12 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	// Ko-fi retries a delivery until it gets a 200, so a response lost on the
 	// way back would apply the same payment twice and buy a second month for
-	// nothing. The delivery id is what it retries with, so that is the key.
-	if p.MessageID != "" && t.KofiLastMessageID == p.MessageID {
-		slog.Info("kofi: duplicate delivery ignored", "tenant", t.ID,
-			"message_id", p.MessageID, "txn", p.KofiTransactionID)
-		writeOK(w, "already applied")
-		return
-	}
-
+	// nothing. deliveryKey identifies the delivery -- message id, else the
+	// transaction id, else a digest of the payment -- and unlike a message_id it
+	// always has a value. ApplyKofiDelivery below claims it and grants in one
+	// transaction, so a replay, a retry arriving after a later payment, and two
+	// replicas racing the same delivery all resolve to exactly one month.
+	key := deliveryKey(p)
 	plan := h.planFor(p.TierName)
 
 	// Record that money arrived before granting anything. The receipt is for
@@ -239,9 +241,18 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	expires := from.Add(Period)
 	t.Plan, t.PlanExpiresAt = plan, &expires
 
-	if err := h.store.UpdateTenant(ctx, t); err != nil {
+	applied, err := h.store.ApplyKofiDelivery(ctx, t, key)
+	if err != nil {
 		slog.Error("kofi: could not apply a payment", "tenant", t.ID, "txn", p.KofiTransactionID, "error", err)
 		http.Error(w, `{"error":"update failed"}`, http.StatusInternalServerError)
+		return
+	}
+	if !applied {
+		// Another replica got this same delivery in between our read and our
+		// write. Its grant stands; ours would be a second month for one payment.
+		slog.Info("kofi: duplicate delivery ignored at the write", "tenant", t.ID,
+			"delivery", key, "txn", p.KofiTransactionID)
+		writeOK(w, "already applied")
 		return
 	}
 	if h.forget != nil {
@@ -275,7 +286,11 @@ func (h *Handler) planFor(tierName string) string {
 	if p, ok := h.tierFor[key]; ok {
 		return p
 	}
-	if plans.Known(key) && key != plans.Free {
+	// Only the paid tiers we sell, read as plan names. Deliberately not
+	// plans.Known: that table also holds custom and beta, both unlimited, so a
+	// Ko-fi tier somebody names "Custom" would buy an uncapped fleet for the
+	// price of Crew. Those two are operator-set and must stay that way.
+	if key == plans.Crew || key == plans.Fleet {
 		return plans.Normalise(key)
 	}
 	slog.Warn("kofi: unrecognised tier name, granting the smallest paid tier", "tier", tierName)

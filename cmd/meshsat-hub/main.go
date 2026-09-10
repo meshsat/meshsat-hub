@@ -1521,14 +1521,19 @@ func main() {
 				}
 				kofiHandler.ServeHTTP(w, req)
 			}), 60).ServeHTTP)
-		// Downgrading a lapsed plan is single-owner work and its audit line
-		// should be written once, so it runs on the lease holder.
-		leaderSingletons.Add("subscription-lapse",
-			kofi.NewLapseJob(dataStore, auditSvc, tenantStatus.Forget).Run)
 		slog.Info("kofi: subscription webhook enabled")
 	} else {
 		slog.Info("kofi: subscription webhook disabled; set HUB_KOFI_WEBHOOK_SECRET and HUB_KOFI_VERIFICATION_TOKEN to enable")
 	}
+
+	// Expiring a plan needs no Ko-fi credentials -- it reads a date this Hub
+	// already wrote. Registering it inside the block above meant that clearing
+	// or rotating either Ko-fi variable silently froze every paid plan forever,
+	// with the log line above claiming only that the *webhook* was off.
+	// Downgrading is single-owner work whose audit line should be written once,
+	// so it runs on the lease holder.
+	leaderSingletons.Add("subscription-lapse",
+		kofi.NewLapseJob(dataStore, auditSvc, tenantStatus.Forget).Run)
 
 	// QR provision claim — unauthenticated (nonce IS the auth, single-use, 30min TTL).
 	provisionClaimHandler := api.NewBridgeProvisionHandler(dataStore, bridgeCA, directoryTrustAnchor)

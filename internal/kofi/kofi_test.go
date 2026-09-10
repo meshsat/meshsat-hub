@@ -3,10 +3,12 @@ package kofi
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -15,9 +17,14 @@ import (
 )
 
 type memTenants struct {
+	// mu makes this fixture safe to drive from more than one goroutine, so a
+	// test can reproduce what production does: the Ko-fi webhook is not
+	// leader-gated, so two replicas can serve the same retry at once.
+	mu       sync.Mutex
 	tenants  []store.Tenant
 	users    map[string]store.LocalUser
 	updates  int
+	applied  map[string]bool
 	failNext bool
 }
 
@@ -45,6 +52,8 @@ func (m *memTenants) ListTenants(context.Context) ([]store.Tenant, error) {
 }
 
 func (m *memTenants) UpdateTenant(_ context.Context, t *store.Tenant) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	if m.failNext {
 		m.failNext = false
 		return store.ErrNotFound
@@ -57,6 +66,38 @@ func (m *memTenants) UpdateTenant(_ context.Context, t *store.Tenant) error {
 		}
 	}
 	return store.ErrNotFound
+}
+
+// ApplyKofiDelivery mirrors the real stores: a claim on the delivery key that
+// remembers every key ever applied, and a grant that happens only if the claim
+// is new. A fixture that only remembered the last key would let a late retry
+// double-grant here exactly as production used to.
+func (m *memTenants) ApplyKofiDelivery(_ context.Context, t *store.Tenant, deliveryKey string) (bool, error) {
+	if deliveryKey == "" {
+		return false, errors.New("memTenants: a Ko-fi delivery key is required")
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.applied == nil {
+		m.applied = map[string]bool{}
+	}
+	if m.applied[deliveryKey] {
+		return false, nil
+	}
+	if m.failNext {
+		m.failNext = false
+		return false, store.ErrNotFound // claim rolls back with the grant
+	}
+	for i := range m.tenants {
+		if m.tenants[i].ID != t.ID {
+			continue
+		}
+		m.applied[deliveryKey] = true
+		m.updates++
+		m.tenants[i] = *t
+		return true, nil
+	}
+	return false, store.ErrNotFound
 }
 
 const token = "kofi-verification-token"

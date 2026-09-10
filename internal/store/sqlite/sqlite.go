@@ -374,6 +374,12 @@ var postAlterMigrations = []string{
 	// the insert rather than be caught by a read that another replica can
 	// interleave with. tenant_id is present so the catalogue-driven export
 	// and purge pick this table up like any other.
+	`CREATE TABLE IF NOT EXISTS kofi_deliveries (
+    delivery_key TEXT PRIMARY KEY,
+    tenant_id    TEXT NOT NULL,
+    applied_at   TEXT NOT NULL
+)`,
+	`CREATE INDEX IF NOT EXISTS idx_kofi_deliveries_tenant ON kofi_deliveries (tenant_id, applied_at)`,
 	`CREATE TABLE IF NOT EXISTS receipts (
 		id TEXT PRIMARY KEY,
 		tenant_id TEXT NOT NULL,
