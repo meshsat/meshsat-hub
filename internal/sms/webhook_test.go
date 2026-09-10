@@ -53,20 +53,48 @@ func TestWebhook_ValidInbound(t *testing.T) {
 		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
 	}
 
-	if len(mb.published) != 1 {
-		t.Fatalf("expected 1 MQTT publish, got %d", len(mb.published))
+	// A plain-text SMS reaches the routing engine through the sender's
+	// mo/decoded topic and the sms/inbound consumers through the hub topic
+	// (MESHSAT-1022): two publishes, mo/decoded first.
+	if len(mb.published) != 2 {
+		t.Fatalf("expected 2 MQTT publishes (mo/decoded + hub/sms/inbound), got %d", len(mb.published))
 	}
-	if mb.published[0].topic != "meshsat/hub/sms/inbound" {
-		t.Errorf("topic = %s, want meshsat/hub/sms/inbound", mb.published[0].topic)
+	if got, want := mb.published[0].topic, "meshsat/+31612345678/mo/decoded"; got != want {
+		t.Errorf("first topic = %s, want %s", got, want)
+	}
+	if mb.published[1].topic != "meshsat/hub/sms/inbound" {
+		t.Errorf("second topic = %s, want meshsat/hub/sms/inbound", mb.published[1].topic)
+	}
+
+	// The mo/decoded contract every consumer reads: id, channel, text.
+	var decoded struct {
+		ID      string `json:"id"`
+		Channel string `json:"channel"`
+		Text    string `json:"text"`
+	}
+	if err := json.Unmarshal(mb.published[0].data, &decoded); err != nil {
+		t.Fatalf("mo/decoded payload: %v", err)
+	}
+	if decoded.ID != "sms-in-SM999" {
+		t.Errorf("mo/decoded id = %q, want sms-in-SM999", decoded.ID)
+	}
+	if decoded.Channel != "sms" {
+		t.Errorf("mo/decoded channel = %q, want sms", decoded.Channel)
+	}
+	if decoded.Text != "Hello from phone" {
+		t.Errorf("mo/decoded text = %q, want 'Hello from phone'", decoded.Text)
 	}
 
 	var msg InboundSMS
-	_ = json.Unmarshal(mb.published[0].data, &msg)
+	_ = json.Unmarshal(mb.published[1].data, &msg)
 	if msg.From != "+31612345678" {
 		t.Errorf("from = %s, want +31612345678", msg.From)
 	}
 	if msg.Body != "Hello from phone" {
 		t.Errorf("body = %s, want 'Hello from phone'", msg.Body)
+	}
+	if msg.Text != msg.Body {
+		t.Errorf("text = %q, want it equal to body %q", msg.Text, msg.Body)
 	}
 }
 
