@@ -138,3 +138,80 @@ func greeting(name string) string {
 	}
 	return "Hello " + name + ","
 }
+
+// Refunded tells a customer their money went back and carries the credit note.
+//
+// It exists because nothing else would say so. The payment processor's refund
+// emails are off by deliberate setting, and the billing system's own credit
+// mail goes out under the wrong company's sender, so before this a refunded
+// customer got their money and no document from anywhere (MESHSAT-1019).
+//
+// planEnds is the zero time when the refund did not move the plan, which is the
+// case for a partial refund: the customer kept part of what they bought.
+func Refunded(name, amount, creditNumber, invoiceNumber string, planEnds time.Time, hubURL string) (subject, body string) {
+	doc := "Your credit note"
+	if creditNumber != "" {
+		doc = "Your credit note " + creditNumber
+	}
+	ref := ""
+	if invoiceNumber != "" {
+		ref = fmt.Sprintf(" It cancels %s on invoice %s and reverses the VAT that was included in the price.",
+			amount, invoiceNumber)
+	}
+	plan := `
+Your plan is unchanged.`
+	if !planEnds.IsZero() {
+		plan = fmt.Sprintf(`
+This refund takes back the time that payment bought, so your plan now runs to
+%s. Nothing is deleted and nothing stops reporting: every device and bridge you
+have registered keeps working, and an SOS is never affected by billing.`, moment(planEnds))
+	}
+	return "Your MeshSat Hub refund", fmt.Sprintf(`%s
+
+We have refunded %s to you.%s
+
+%s is attached to this email as a PDF. Keep it with the original invoice: the
+two together are the complete record.
+
+The money goes back the way it came, through the payment provider you paid
+with. Banks usually take a few working days to show it.
+%s
+
+Your usage is on the Settings page:
+
+  %s
+
+If something looks wrong, reply to this email and a person will read it.
+
+The MeshSat team`, greeting(name), amount, ref, doc, plan, hubURL)
+}
+
+// RefundedNoDocument is the notice for a refund of a payment that never had an
+// invoice -- one given back while its receipt was still parked or still queued.
+// There is nothing to credit, so there is no credit note, and saying so plainly
+// is better than sending nothing at all.
+func RefundedNoDocument(name, amount string, planEnds time.Time, hubURL string) (subject, body string) {
+	plan := `
+Your plan is unchanged.`
+	if !planEnds.IsZero() {
+		plan = fmt.Sprintf(`
+This refund takes back the time that payment bought, so your plan now runs to
+%s. Nothing is deleted and nothing stops reporting: every device and bridge you
+have registered keeps working, and an SOS is never affected by billing.`, moment(planEnds))
+	}
+	return "Your MeshSat Hub refund", fmt.Sprintf(`%s
+
+We have refunded %s to you.
+
+No invoice had been issued for that payment yet, so there is no credit note to
+send: the payment and the refund cancel out and nothing is owed either way.
+%s
+
+Your usage is on the Settings page:
+
+  %s
+
+If something looks wrong, reply to this email and a person will read it.
+
+The MeshSat team`, greeting(name), amount, plan, hubURL)
+}

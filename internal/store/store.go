@@ -390,6 +390,43 @@ type Store interface {
 	// API, no UI and no CLI could reopen it, so the only way to issue the
 	// document was to edit the row by hand.
 	RequeueReceipt(ctx context.Context, id string, at time.Time) error
+
+	// Refunds (MESHSAT-1019): the outbox that turns money given back into a
+	// credit note. It is the mirror of the receipts outbox and exists for the
+	// same reason -- the billing system is a separate machine, a credit note
+	// draws a number out of its own gapless series, and a customer who has had
+	// their money back is owed the document that reverses the VAT.
+	//
+	// CreateRefund reports false when the receipt already has one: a payment is
+	// refunded once, and the UNIQUE constraint on receipt_id is the check.
+	CreateRefund(ctx context.Context, r *Refund) (bool, error)
+	GetRefund(ctx context.Context, id string) (*Refund, error)
+	GetRefundByReceipt(ctx context.Context, receiptID string) (*Refund, error)
+	ListDueRefunds(ctx context.Context, now time.Time, limit int) ([]Refund, error)
+	ListRefundsByStatus(ctx context.Context, status string, limit int) ([]Refund, error)
+	// SetRefundCredit records the credit note the billing system created, the
+	// instant it exists. A sent credit note has taken a number out of a gapless
+	// series, so a retry that created a second one would leave the books with a
+	// credit nobody ever received.
+	SetRefundCredit(ctx context.Context, id, creditRef string) error
+	MarkRefundIssued(ctx context.Context, id, creditNumber, creditRef string, at time.Time) error
+	MarkRefundAttempt(ctx context.Context, id, errMsg string, nextAttempt time.Time) error
+	BlockRefund(ctx context.Context, id, reason string) error
+	RequeueRefund(ctx context.Context, id string, at time.Time) error
+	ClaimRefund(ctx context.Context, id string, until time.Time) (bool, error)
+	ReleaseRefund(ctx context.Context, id string) error
+	// DeleteRefund removes a refund that has not produced a document yet, so an
+	// operator who recorded the wrong figure can record the right one. It
+	// refuses once the credit note exists, because that is a document with a
+	// number and deleting the row would not unmake it.
+	DeleteRefund(ctx context.Context, id string) error
+	// GetReceipt reads one receipt by id. The refund path starts from a
+	// receipt, so it has to be able to find one.
+	GetReceipt(ctx context.Context, id string) (*Receipt, error)
+	// RefundsByCountrySince totals issued refunds by country, so the VAT
+	// threshold meter can subtract money that was given back. A sale that was
+	// refunded is not a supply and must not count toward the threshold.
+	RefundsByCountrySince(ctx context.Context, since time.Time) (map[string]int64, error)
 }
 
 // OOBPeer is the Hub's out-of-band management pairing with one bridge
@@ -977,4 +1014,75 @@ const (
 	// only produce the same answer, and guessing would produce a wrong
 	// document.
 	ReceiptBlocked = "blocked"
+)
+
+// Refund is money given back that owes the customer a credit note
+// (MESHSAT-1019).
+//
+// The terms promise EU consumers the 14-day right of withdrawal, and a Ko-fi
+// payment is refundable in the payment processor. Until this existed the money
+// went back and no document followed it from anywhere: not from the processor,
+// whose refund emails are off by deliberate setting, and not from the billing
+// system, which had no credit-note flow wired. The sale stayed in the books at
+// full value with its VAT declared.
+//
+// The money itself moves by hand, in the payment processor, because that is
+// where it lives. This row is the record that it moved and the instruction to
+// produce the document, and it is written by an operator rather than inferred:
+// a refund nobody recorded is a refund nobody can be held to.
+type Refund struct {
+	ID string `json:"id"`
+	// TenantID is whose payment was given back. Tenant-scoped like the receipt
+	// it reverses, so export and purge pick it up.
+	TenantID string `json:"tenant_id"`
+	// ReceiptID is the payment being reversed. UNIQUE: one refund per payment.
+	// A partial refund is still one refund; recording a second one against the
+	// same payment is refused rather than allowed to double-credit.
+	ReceiptID string `json:"receipt_id"`
+	// AmountCents is the GROSS amount given back, in the smallest unit of
+	// Currency. It may be less than the payment, and never more -- the handler
+	// refuses that rather than crediting money nobody paid.
+	AmountCents int64  `json:"amount_cents"`
+	Currency    string `json:"currency"`
+	// Country is copied from the receipt and frozen, for the same reason the
+	// receipt freezes it: the credit note must reverse the VAT the invoice
+	// charged, whatever the customer's address says today.
+	Country string `json:"country,omitempty"`
+	// Reason is why the money went back, in an operator's words. It goes on the
+	// audit line and is not shown to the customer.
+	Reason string `json:"reason,omitempty"`
+	// RequestedBy names the operator who recorded it. An action on somebody
+	// else's money with no name attached is only half a record.
+	RequestedBy string `json:"requested_by,omitempty"`
+	// RefundedAt is when the money actually went back, which dates the credit
+	// note. It is the operator's figure, not the moment this row was written.
+	RefundedAt time.Time `json:"refunded_at"`
+
+	Status        string     `json:"status"` // RefundPending, RefundIssued, RefundBlocked
+	Attempts      int        `json:"attempts"`
+	LastError     string     `json:"last_error,omitempty"`
+	NextAttemptAt time.Time  `json:"next_attempt_at,omitempty"`
+	CreditNumber  string     `json:"credit_number,omitempty"`
+	CreditRef     string     `json:"credit_ref,omitempty"`
+	IssuedAt      *time.Time `json:"issued_at,omitempty"`
+	CreatedAt     time.Time  `json:"created_at"`
+	UpdatedAt     time.Time  `json:"updated_at"`
+}
+
+// Refund statuses.
+const (
+	// RefundPending means the credit note has not been produced yet. The
+	// drainer keeps trying; nothing expires out of this state on its own.
+	RefundPending = "pending"
+	// RefundIssued means the billing system produced the credit note and the
+	// customer has been sent it. CreditNumber says which one.
+	//
+	// It also covers the case where nothing was owed: a payment refunded
+	// before its receipt was ever issued has no invoice to credit, so the
+	// receipt is cancelled instead and this row is closed with no number. That
+	// is a complete outcome, not a failure.
+	RefundIssued = "issued"
+	// RefundBlocked means a person has to look. The commonest cause is a
+	// receipt whose invoice was deleted behind our back.
+	RefundBlocked = "blocked"
 )
