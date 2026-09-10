@@ -406,6 +406,14 @@ if TURNSTILE_SITE_KEY and TURNSTILE_SECRET:
     st_captcha.private_key = TURNSTILE_SECRET
     st_captcha.js_url = "https://challenges.cloudflare.com/turnstile/v0/api.js"
     st_captcha.api_url = "https://challenges.cloudflare.com/turnstile/v0/siteverify"
+    # Interactive, because the widget is in Turnstile's "managed" mode and
+    # Cloudflare decides per visitor whether to ask for a click. A
+    # non-interactive stage renders no widget at all, so a visitor who IS
+    # challenged has nothing to click and simply cannot enroll -- a failure
+    # that lands only on the people Cloudflare finds suspicious and never on
+    # us. Verified on production: the widget renders as a "Verify you are
+    # human" checkbox, so non-interactive would have stranded them.
+    st_captcha.interactive = True
     st_captcha.save()
     b, _ = FlowStageBinding.objects.get_or_create(target=enroll, stage=st_captcha, defaults={"order": 5})
     if b.order != 5:
