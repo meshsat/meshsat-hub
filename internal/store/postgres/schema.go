@@ -516,4 +516,13 @@ CREATE INDEX IF NOT EXISTS idx_kofi_deliveries_tenant ON kofi_deliveries (tenant
 	{Version: 12, Name: "tenant_lapse_warned_at", SQL: `
 ALTER TABLE tenants ADD COLUMN IF NOT EXISTS lapse_warned_at TIMESTAMPTZ;
 `},
+	// A receipt draws an invoice number out of a gapless legal series, so two
+	// drainers working one row would create two documents and leave the first
+	// permanently unpaid in the books. Until now only timing stopped that: one
+	// leader, a stop wait longer than the billing call, a pod grace period
+	// longer than the stop wait. leased_until makes it the database's job
+	// instead, like every other money guard here (MESHSAT-998).
+	{Version: 13, Name: "receipt_row_lease", SQL: `
+ALTER TABLE receipts ADD COLUMN IF NOT EXISTS leased_until TIMESTAMPTZ NOT NULL DEFAULT '1970-01-01 00:00:00+00';
+`},
 }
