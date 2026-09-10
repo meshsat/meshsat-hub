@@ -29,17 +29,12 @@ import (
 	"strings"
 	"time"
 
+	"github.com/meshsat/meshsat-hub/internal/billing"
 	"github.com/meshsat/meshsat-hub/internal/mail"
 	"github.com/meshsat/meshsat-hub/internal/metrics"
 	"github.com/meshsat/meshsat-hub/internal/plans"
 	"github.com/meshsat/meshsat-hub/internal/store"
 )
-
-// Period is how long one payment buys. A month plus two days: Ko-fi charges a
-// membership on the same day each month and the webhook can be late, and a
-// tenant should never lapse because a renewal landed a few hours after the
-// clock rolled over.
-const Period = 32 * 24 * time.Hour
 
 // Payload is the subset of Ko-fi's webhook JSON this needs. Ko-fi posts it as
 // a single form field named "data".
@@ -72,12 +67,6 @@ type TenantStore interface {
 	ApplyKofiDelivery(ctx context.Context, t *store.Tenant, deliveryKey string) (bool, error)
 }
 
-// Auditor records who was moved to which tier and why. Matches
-// audit.Service.Log.
-type Auditor interface {
-	Log(ctx context.Context, tenantID, action, actor, detail, ip string) error
-}
-
 // Handler serves POST /api/webhook/kofi/{secret}.
 type Handler struct {
 	store TenantStore
@@ -85,7 +74,7 @@ type Handler struct {
 	// Empty means the endpoint refuses everything: an unconfigured payment
 	// endpoint that accepts payloads is worse than one that is switched off.
 	token string
-	audit Auditor
+	audit billing.Auditor
 	// forget drops the tenant's cached record on the other replicas so a paid
 	// upgrade applies to the next request rather than at the end of a TTL.
 	forget func(tenantID string)
@@ -99,7 +88,7 @@ type Handler struct {
 	// receipts is the outbox that owes the customer a document (MESHSAT-998).
 	// nil when no billing system is configured, in which case payments still
 	// grant plans and nothing is recorded.
-	receipts ReceiptStore
+	receipts billing.ReceiptStore
 	// users resolves a tenant owner to an account, which is both how a payment
 	// is matched by address and where the receipt is sent.
 	users UserLookup
@@ -123,14 +112,14 @@ func (h *Handler) SetMailer(s mail.Sender, hubURL string) {
 	h.mail, h.hubURL = s, hubURL
 }
 
-func (h *Handler) SetAudit(a Auditor) { h.audit = a }
+func (h *Handler) SetAudit(a billing.Auditor) { h.audit = a }
 
 // SetInvalidator wires the cross-replica cache drop.
 func (h *Handler) SetInvalidator(f func(tenantID string)) { h.forget = f }
 
 // SetReceipts wires the receipt outbox. Without it a payment still grants a
 // plan and no document is ever produced, which is the state this replaced.
-func (h *Handler) SetReceipts(r ReceiptStore) { h.receipts = r }
+func (h *Handler) SetReceipts(r billing.ReceiptStore) { h.receipts = r }
 
 // SetUserLookup wires the tenant-owner lookup used to match a payment by
 // address and to address the receipt.
@@ -209,7 +198,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		if err != nil || t == nil {
 			t = &store.Tenant{ID: store.DefaultTenantID, Name: donorName(p)}
 		}
-		h.recordReceipt(ctx, t, p, DonationPlan)
+		h.recordReceipt(ctx, t, p, billing.DonationPlan)
 		writeOK(w, "thanks")
 		return
 	}
@@ -267,7 +256,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		// Renewals stack rather than reset, so paying early is never punished.
 		from = *t.PlanExpiresAt
 	}
-	expires := from.Add(Period)
+	expires := from.Add(billing.Period)
 	t.Plan, t.PlanExpiresAt = plan, &expires
 
 	applied, err := h.store.ApplyKofiDelivery(ctx, t, key)

@@ -445,6 +445,16 @@ func (m *mockStore) ApplyKofiDelivery(context.Context, *store.Tenant, string) (b
 	return true, nil
 }
 
+func (m *mockStore) TenantByStripeCustomer(context.Context, string) (*store.Tenant, error) {
+	return nil, store.ErrNotFound
+}
+
+// ApplyStripeEvent: the compare-and-set is the point of the real thing, so the
+// mock always reports that this call was the one that recorded the event.
+func (m *mockStore) ApplyStripeEvent(context.Context, string, string) (bool, error) {
+	return true, nil
+}
+
 // EnsureClaimCode: the conditional write is the point of the real thing, so
 // the mock just echoes the candidate back the way an empty column would.
 func (m *mockStore) EnsureClaimCode(_ context.Context, _, candidate string) (string, error) {
