@@ -14,12 +14,12 @@ import (
 
 // --- Tenants (MESHSAT-916) ---
 
-const tenantCols = "id, slug, name, owner_user_id, plan, status, created_at, updated_at, deleted_at, plan_expires_at, kofi_claim_code, kofi_payer_email, kofi_last_message_id"
+const tenantCols = "id, slug, name, owner_user_id, plan, status, created_at, updated_at, deleted_at, plan_expires_at, kofi_claim_code, kofi_payer_email, kofi_last_message_id, lapse_warned_at"
 
 func scanTenant(sc interface{ Scan(...any) error }) (store.Tenant, error) {
 	var t store.Tenant
-	var created, updated, deleted, expires string
-	if err := sc.Scan(&t.ID, &t.Slug, &t.Name, &t.OwnerUserID, &t.Plan, &t.Status, &created, &updated, &deleted, &expires, &t.KofiClaimCode, &t.KofiPayerEmail, &t.KofiLastMessageID); err != nil {
+	var created, updated, deleted, expires, warned string
+	if err := sc.Scan(&t.ID, &t.Slug, &t.Name, &t.OwnerUserID, &t.Plan, &t.Status, &created, &updated, &deleted, &expires, &t.KofiClaimCode, &t.KofiPayerEmail, &t.KofiLastMessageID, &warned); err != nil {
 		return t, err
 	}
 	t.CreatedAt, t.UpdatedAt = parseTime(created), parseTime(updated)
@@ -30,6 +30,10 @@ func scanTenant(sc interface{ Scan(...any) error }) (store.Tenant, error) {
 	if expires != "" {
 		e := parseTime(expires)
 		t.PlanExpiresAt = &e
+	}
+	if warned != "" {
+		w := parseTime(warned)
+		t.LapseWarnedAt = &w
 	}
 	return t, nil
 }
@@ -96,9 +100,47 @@ func (d *DB) ListTenants(ctx context.Context) ([]store.Tenant, error) {
 
 func (d *DB) UpdateTenant(ctx context.Context, t *store.Tenant) error {
 	t.UpdatedAt = time.Now().UTC()
-	_, err := d.db.ExecContext(ctx, `UPDATE tenants SET slug=?, name=?, owner_user_id=?, plan=?, status=?, updated_at=?, plan_expires_at=?, kofi_claim_code=?, kofi_payer_email=?, kofi_last_message_id=? WHERE id=?`,
-		t.Slug, t.Name, t.OwnerUserID, t.Plan, t.Status, fmtTime(t.UpdatedAt), fmtTimePtr(t.PlanExpiresAt), t.KofiClaimCode, t.KofiPayerEmail, t.KofiLastMessageID, t.ID)
+	_, err := d.db.ExecContext(ctx, `UPDATE tenants SET slug=?, name=?, owner_user_id=?, plan=?, status=?, updated_at=?, plan_expires_at=?, kofi_claim_code=?, kofi_payer_email=?, kofi_last_message_id=?, lapse_warned_at=? WHERE id=?`,
+		t.Slug, t.Name, t.OwnerUserID, t.Plan, t.Status, fmtTime(t.UpdatedAt), fmtTimePtr(t.PlanExpiresAt), t.KofiClaimCode, t.KofiPayerEmail, t.KofiLastMessageID, fmtTimePtr(t.LapseWarnedAt), t.ID)
 	return err
+}
+
+// ApplyKofiDelivery claims the delivery and grants the plan in one transaction.
+// If the grant fails the claim rolls back with it, so Ko-fi's retry still works.
+func (d *DB) ApplyKofiDelivery(ctx context.Context, t *store.Tenant, deliveryKey string) (bool, error) {
+	if deliveryKey == "" {
+		return false, fmt.Errorf("sqlite: a Ko-fi delivery key is required")
+	}
+	tx, err := d.rawDB.BeginTx(ctx, nil)
+	if err != nil {
+		return false, err
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	res, err := tx.ExecContext(ctx,
+		`INSERT OR IGNORE INTO kofi_deliveries (delivery_key, tenant_id, applied_at) VALUES (?, ?, ?)`,
+		deliveryKey, t.ID, fmtTime(time.Now().UTC()))
+	if err != nil {
+		return false, err
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return false, err
+	}
+	if n == 0 {
+		return false, nil // already applied
+	}
+
+	t.UpdatedAt = time.Now().UTC()
+	if _, err := tx.ExecContext(ctx,
+		`UPDATE tenants SET plan=?, plan_expires_at=?, kofi_payer_email=?, kofi_last_message_id=?, updated_at=? WHERE id=?`,
+		t.Plan, fmtTimePtr(t.PlanExpiresAt), t.KofiPayerEmail, t.KofiLastMessageID, fmtTime(t.UpdatedAt), t.ID); err != nil {
+		return false, err
+	}
+	if err := tx.Commit(); err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
 // fmtTimePtr renders an optional timestamp; nil becomes the empty string this

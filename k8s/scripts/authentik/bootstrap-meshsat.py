@@ -343,10 +343,10 @@ st_write_marker.save()
 
 enroll, e_created = Flow.objects.get_or_create(
     slug="meshsat-enrollment",
-    defaults={"name": "MeshSat Hub beta access", "title": "Request beta access to MeshSat Hub",
+    defaults={"name": "MeshSat Hub sign-up", "title": "Create your MeshSat Hub account",
               "designation": FlowDesignation.ENROLLMENT},
 )
-enroll.title = "Request beta access to MeshSat Hub"
+enroll.title = "Create your MeshSat Hub account"
 enroll.designation = FlowDesignation.ENROLLMENT
 enroll.save()
 for order, st in ((10, st_account), (20, st_details), (30, st_write), (40, st_email), (50, st_marker), (60, st_write_marker)):
@@ -354,7 +354,16 @@ for order, st in ((10, st_account), (20, st_details), (30, st_write), (40, st_em
     if b.order != order:
         b.order = order
         b.save()
-FlowStageBinding.objects.filter(target=enroll).exclude(stage__in=[st_account, st_details, st_write, st_email, st_marker, st_write_marker]).delete()
+# Prune bindings this script does not own, but never the captcha: it is bound
+# further down and only when Turnstile keys are supplied, so pruning by this list
+# would SILENTLY REMOVE a working CAPTCHA every time somebody ran bootstrap from
+# a shell that happened not to export them.
+_keep = [st_account, st_details, st_write, st_email, st_marker, st_write_marker]
+from authentik.stages.captcha.models import CaptchaStage as _CaptchaStage
+_captcha = _CaptchaStage.objects.filter(name="meshsat-enrollment-captcha").first()
+if _captcha:
+    _keep.append(_captcha)
+FlowStageBinding.objects.filter(target=enroll).exclude(stage__in=_keep).delete()
 
 # The address the signup came from is kept on the user (attributes.signup_ip).
 # It was originally how approval knew which address to admit to the edge

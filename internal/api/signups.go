@@ -1,6 +1,7 @@
 package api
 
 import (
+	"errors"
 	"log/slog"
 	"net/http"
 	"strconv"
@@ -10,6 +11,7 @@ import (
 	"github.com/meshsat/meshsat-hub/internal/audit"
 	hubauth "github.com/meshsat/meshsat-hub/internal/auth"
 	"github.com/meshsat/meshsat-hub/internal/authentik"
+	"github.com/meshsat/meshsat-hub/internal/mail"
 	"github.com/meshsat/meshsat-hub/internal/store"
 )
 
@@ -32,8 +34,10 @@ import (
 // request came from is worth having, but it never admitted anybody to anything
 // and now it does not pretend to.
 type SignupHandler struct {
-	ak    *authentik.Client
-	audit *audit.Service
+	ak     *authentik.Client
+	audit  *audit.Service
+	mail   mail.Sender
+	hubURL string
 }
 
 // NewSignupHandler creates the handler. A nil client disables the endpoints.
@@ -105,11 +109,27 @@ func (h *SignupHandler) Approve(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "role must be owner, operator or viewer")
 		return
 	}
-	signupIP, email, err := h.ak.Approve(r.Context(), pk, req.Role)
+	signupIP, email, name, err := h.ak.Approve(r.Context(), pk, req.Role)
 	if err != nil {
-		slog.Error("signups: approve failed", "pk", pk, "error", err)
-		writeError(w, http.StatusBadGateway, "approval failed at the identity provider")
+		// A refusal is not an upstream fault: it means the pk does not name a
+		// MeshSat signup waiting for a decision. Say so as a 409, so an operator
+		// can tell "I picked the wrong row" apart from "authentik is down".
+		switch {
+		case errors.Is(err, authentik.ErrNotPending):
+			slog.Warn("signups: approve refused, not a pending signup", "pk", pk)
+			writeError(w, http.StatusConflict, "that account is not a signup awaiting a decision")
+		case errors.Is(err, authentik.ErrEmailNotVerified):
+			slog.Warn("signups: approve refused, email not verified", "pk", pk)
+			writeError(w, http.StatusConflict, "that address has not been verified yet")
+		default:
+			slog.Error("signups: approve failed", "pk", pk, "error", err)
+			writeError(w, http.StatusBadGateway, "approval failed at the identity provider")
+		}
 		return
+	}
+	if h.mail != nil && email != "" {
+		subject, body := mail.Approved(name, h.hubURL)
+		mail.SendOrLog(r.Context(), h.mail, email, subject, body, "signup approved")
 	}
 	h.log(r, "signup_approved", email, "role="+req.Role+" ip="+signupIP)
 	slog.Info("signup approved", "email", email, "role", req.Role, "signup_ip", signupIP)
@@ -139,12 +159,28 @@ func (h *SignupHandler) Reject(w http.ResponseWriter, r *http.Request) {
 	}
 	email, err := h.ak.Reject(r.Context(), pk)
 	if err != nil {
-		slog.Warn("signups: reject refused", "pk", pk, "error", err)
-		writeError(w, http.StatusConflict, err.Error())
+		// Never echo err.Error() here: it carries the target account's address
+		// and, for transport failures, the identity provider's URLs and status
+		// lines. The operator gets the detail in the log, the client gets a
+		// fixed string and an honest status.
+		if errors.Is(err, authentik.ErrNotPending) {
+			slog.Warn("signups: reject refused, not a pending signup", "pk", pk)
+			writeError(w, http.StatusConflict, "that account is not a signup awaiting a decision")
+			return
+		}
+		slog.Error("signups: reject failed", "pk", pk, "error", err)
+		writeError(w, http.StatusBadGateway, "rejection failed at the identity provider")
 		return
 	}
 	h.log(r, "signup_rejected", email, "")
 	writeJSON(w, http.StatusOK, map[string]string{"email": email, "status": "rejected"})
+}
+
+// SetMailer gives the handler a way to tell somebody they were approved. Until
+// this existed, only the CLI approval path sent anything, so a person approved
+// through the UI was never told and an operator had to message them by hand.
+func (h *SignupHandler) SetMailer(s mail.Sender, hubURL string) {
+	h.mail, h.hubURL = s, hubURL
 }
 
 func (h *SignupHandler) log(r *http.Request, action, subject, detail string) {

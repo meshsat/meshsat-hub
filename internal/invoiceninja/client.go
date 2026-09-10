@@ -162,7 +162,7 @@ func (c *Client) IssueReceipt(ctx context.Context, req Request) (*Result, error)
 		return nil, errors.New("invoiceninja: no email address to send the receipt to")
 	}
 	if req.AmountCents <= 0 {
-		return nil, fmt.Errorf("invoiceninja: refusing to invoice %s", amount(req.AmountCents))
+		return nil, fmt.Errorf("%w: %s", ErrBadAmount, amount(req.AmountCents))
 	}
 
 	inv, err := c.resumeOrCreate(ctx, req)

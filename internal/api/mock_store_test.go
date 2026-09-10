@@ -414,11 +414,18 @@ func (m *mockStore) ListDeadmanConfigs(context.Context) ([]store.DeadmanConfig, 
 func (m *mockStore) DeleteDeadmanConfig(context.Context, string, string) error { return nil }
 
 // --- Tenants (MESHSAT-916) ---
-func (m *mockStore) CreateTenant(context.Context, *store.Tenant) error               { return nil }
-func (m *mockStore) GetTenant(context.Context, string) (*store.Tenant, error)        { return nil, nil }
-func (m *mockStore) GetTenantBySlug(context.Context, string) (*store.Tenant, error)  { return nil, nil }
-func (m *mockStore) ListTenants(context.Context) ([]store.Tenant, error)             { return nil, nil }
-func (m *mockStore) UpdateTenant(context.Context, *store.Tenant) error               { return nil }
+func (m *mockStore) CreateTenant(context.Context, *store.Tenant) error              { return nil }
+func (m *mockStore) GetTenant(context.Context, string) (*store.Tenant, error)       { return nil, nil }
+func (m *mockStore) GetTenantBySlug(context.Context, string) (*store.Tenant, error) { return nil, nil }
+func (m *mockStore) ListTenants(context.Context) ([]store.Tenant, error)            { return nil, nil }
+func (m *mockStore) UpdateTenant(context.Context, *store.Tenant) error              { return nil }
+
+// ApplyKofiDelivery: no API handler grants a plan, so this mock only needs to
+// satisfy the interface. The real behaviour is exercised in internal/kofi.
+func (m *mockStore) ApplyKofiDelivery(context.Context, *store.Tenant, string) (bool, error) {
+	return true, nil
+}
+
 func (m *mockStore) CreateInvite(context.Context, string, *store.TenantInvite) error { return nil }
 func (m *mockStore) GetPendingInviteByEmail(context.Context, string) (*store.TenantInvite, error) {
 	return nil, nil
