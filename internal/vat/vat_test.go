@@ -91,3 +91,38 @@ func indexOf(s, sub string) int {
 	}
 	return -1
 }
+
+// The threshold is measured on supplies EXCLUDING VAT. The Hub stores the gross
+// the customer paid, so it has to be stripped — and it was not, so the meter
+// read 21% high (found by scratchpad/kofi-suite.py against production).
+func TestNetOfInclusiveStripsTheVATTheCustomerPaid(t *testing.T) {
+	for _, tc := range []struct {
+		gross int64
+		rate  float64
+		want  int64
+		why   string
+	}{
+		{900, 21, 744, "the 9.00 subscription is 7.44 + 1.56 on the invoice"},
+		{1000, 21, 826, "a 10.00 donation"},
+		{500, 21, 413, "the 5.00 test donation"},
+		{900, 9, 826, "the reduced Dutch rate"},
+		{0, 21, 0, "nothing is still nothing"},
+		{-900, 21, -744, "a reversal strips the same way"},
+		{900, 0, 900, "a rate of zero is refused, not applied"},
+		{900, 100, 900, "so is a nonsensical one"},
+	} {
+		if got := NetOfInclusive(tc.gross, tc.rate); got != tc.want {
+			t.Errorf("NetOfInclusive(%d, %v) = %d, want %d — %s", tc.gross, tc.rate, got, tc.want, tc.why)
+		}
+	}
+}
+
+// The figure must never exceed the gross: that would report supplying more than
+// was charged, which is the one direction a tax meter must not err in.
+func TestNetIsNeverMoreThanTheGross(t *testing.T) {
+	for gross := int64(1); gross < 20000; gross += 7 {
+		if net := NetOfInclusive(gross, 21); net > gross {
+			t.Fatalf("NetOfInclusive(%d, 21) = %d, which is more than was charged", gross, net)
+		}
+	}
+}
