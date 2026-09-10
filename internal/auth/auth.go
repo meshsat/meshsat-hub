@@ -67,9 +67,11 @@ func TenantIDFromContext(ctx context.Context) string {
 
 // TenantMiddleware resolves the tenant ID from the authenticated user and injects
 // it into the request context. Resolution order:
-//  1. User.TenantID from JWT "tenant_id" claim (set by auth middleware)
-//  2. X-Tenant-ID header (for service-to-service calls)
-//  3. Falls back to "default" (single-tenant compatibility)
+//  1. X-Tenant-ID header, platform admins only
+//  2. User.TenantID, set by the auth middleware from the JWT claim or the
+//     users row -- and by the API key middleware from the key's tenant
+//  3. A tenant an earlier authenticated middleware left in the context
+//  4. Falls back to "default" (single-tenant compatibility)
 //
 // If enforce is true, requests without a resolvable tenant get a 403 response.
 // TenantStatusLookup reports a tenant's lifecycle status. Supplying one to
@@ -108,7 +110,19 @@ func TenantMiddleware(enforce bool) func(http.Handler) http.Handler {
 				tenantID = u.TenantID
 			}
 
-			// 3. Default fallback.
+			// 3. A tenant an earlier trusted middleware already resolved into
+			// the context (the API key chain). Belt and braces behind step 2:
+			// this value cannot come from a header, only from middleware that
+			// has already authenticated the caller, so honouring it is safe --
+			// and it means a resolver that forgets to fill User.TenantID
+			// degrades to nothing rather than to the default tenant's rows.
+			if tenantID == "" {
+				if tid, ok := r.Context().Value(TenantContextKey).(string); ok && tid != "" {
+					tenantID = tid
+				}
+			}
+
+			// 4. Default fallback.
 			if tenantID == "" {
 				if enforce {
 					w.Header().Set("Content-Type", "application/json")

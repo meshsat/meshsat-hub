@@ -157,7 +157,7 @@ func TestGreetingHandlesWhatItIsGiven(t *testing.T) {
 	}
 }
 
-func TestLapseWarningCountsDownAndCarriesTheClaimCode(t *testing.T) {
+func TestLapseWarningNamesTheMomentAndCarriesTheClaimCode(t *testing.T) {
 	subject, body := LapseWarning("Alice", "crew", time.Now().Add(72*time.Hour), "https://ko-fi.com/x", "AB2K9XYZ")
 	if !strings.Contains(subject, "crew") {
 		t.Errorf("subject does not name the plan: %q", subject)
@@ -170,5 +170,46 @@ func TestLapseWarningCountsDownAndCarriesTheClaimCode(t *testing.T) {
 	// The reassurance matters: a lapse changes the ceiling, not the service.
 	if !strings.Contains(body, "keeps working") {
 		t.Errorf("body does not say existing kit keeps working:\n%s", body)
+	}
+}
+
+// Every customer-facing time names an exact instant in a stated zone. The
+// messages used to print "tomorrow" beside a date two days out, because the
+// word was derived from elapsed hours -- readable, and wrong. A reader in
+// another timezone could not tell which was meant (MESHSAT-1004).
+func TestEveryStatedTimeIsAnExactMomentInAStatedZone(t *testing.T) {
+	// A winter instant and a summer one, so both CET and CEST are exercised
+	// and a missing zone database shows up as UTC rather than passing quietly.
+	for _, when := range []time.Time{
+		time.Date(2027, 1, 15, 22, 30, 5, 0, time.UTC),
+		time.Date(2026, 9, 12, 21, 59, 59, 0, time.UTC),
+	} {
+		want := map[bool]string{true: "CEST", false: "CET"}[when.Month() == time.September]
+		got := moment(when)
+		if !strings.HasSuffix(got, " "+want) {
+			t.Errorf("moment(%s) = %q, want it to end in %s -- is the tzdata import still there?", when, got, want)
+		}
+		// Weekday, day, month, year and clock all present.
+		for _, part := range []string{when.In(nlTime).Format("Monday"), when.In(nlTime).Format("02-Jan-2006"), when.In(nlTime).Format("15:04:05")} {
+			if !strings.Contains(got, part) {
+				t.Errorf("moment(%s) = %q, missing %q", when, got, part)
+			}
+		}
+
+		// And no message may state a time any other way.
+		for name, pair := range map[string][2]string{
+			"LapseWarning": func() [2]string { s, b := LapseWarning("Alice", "crew", when, "u", "C"); return [2]string{s, b} }(),
+			"Lapsed":       func() [2]string { s, b := Lapsed("Alice", "crew", when, "u"); return [2]string{s, b} }(),
+			"PlanChanged":  func() [2]string { s, b := PlanChanged("Alice", "crew", 24, when, "u"); return [2]string{s, b} }(),
+		} {
+			if !strings.Contains(pair[0]+pair[1], got) {
+				t.Errorf("%s never states the exact moment %q:\nsubject: %s\nbody: %s", name, got, pair[0], pair[1])
+			}
+			for _, vague := range []string{"tomorrow", "today", " in 1 days", " in 2 days"} {
+				if strings.Contains(strings.ToLower(pair[0]+pair[1]), vague) {
+					t.Errorf("%s still uses the relative word %q instead of the moment", name, vague)
+				}
+			}
+		}
 	}
 }
