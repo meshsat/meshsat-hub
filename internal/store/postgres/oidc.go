@@ -37,3 +37,30 @@ func (d *DB) GetOIDCIdentity(ctx context.Context, issuer, subject string) (*stor
 	id.LastLoginAt, id.CreatedAt = utc(id.LastLoginAt), utc(id.CreatedAt)
 	return &id, nil
 }
+
+// ClaimOIDCIdentity links an identity only if the subject is unlinked, and
+// returns whichever identity holds it afterwards. ON CONFLICT DO NOTHING is
+// the whole mechanism: the constraint decides the winner, so two replicas
+// serving two callbacks for one new subject cannot both believe they won.
+func (d *DB) ClaimOIDCIdentity(ctx context.Context, id *store.OIDCIdentity) (*store.OIDCIdentity, bool, error) {
+	now := time.Now().UTC()
+	id.LastLoginAt = now
+	if id.CreatedAt.IsZero() {
+		id.CreatedAt = now
+	}
+	res, err := d.db.ExecContext(ctx, `INSERT INTO oidc_identities (issuer, subject, user_id, tenant_id, email, platform_admin, last_login_at, created_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+		ON CONFLICT (issuer, subject) DO NOTHING`,
+		id.Issuer, id.Subject, id.UserID, id.TenantID, id.Email, id.PlatformAdmin, now, id.CreatedAt.UTC())
+	if err != nil {
+		return nil, false, err
+	}
+	if n, err := res.RowsAffected(); err == nil && n == 1 {
+		return id, true, nil
+	}
+	existing, err := d.GetOIDCIdentity(ctx, id.Issuer, id.Subject)
+	if err != nil {
+		return nil, false, err
+	}
+	return existing, false, nil
+}

@@ -11,6 +11,11 @@ import (
 // mockStore implements store.Store for unit tests with configurable return values.
 type mockStore struct {
 	platformAdmin bool // returned by IsPlatformAdmin
+
+	// Receipts outbox
+	receipts   []store.Receipt
+	requeued   []string
+	requeueErr error
 	// Devices
 	devices     []store.Device
 	device      *store.Device
@@ -426,6 +431,12 @@ func (m *mockStore) ApplyKofiDelivery(context.Context, *store.Tenant, string) (b
 	return true, nil
 }
 
+// EnsureClaimCode: the conditional write is the point of the real thing, so
+// the mock just echoes the candidate back the way an empty column would.
+func (m *mockStore) EnsureClaimCode(_ context.Context, _, candidate string) (string, error) {
+	return candidate, nil
+}
+
 func (m *mockStore) CreateInvite(context.Context, string, *store.TenantInvite) error { return nil }
 func (m *mockStore) GetPendingInviteByEmail(context.Context, string) (*store.TenantInvite, error) {
 	return nil, nil
@@ -436,6 +447,12 @@ func (m *mockStore) ListInvites(context.Context, string) ([]store.TenantInvite, 
 }
 func (m *mockStore) DeleteInvite(context.Context, string, string) error          { return nil }
 func (m *mockStore) LinkOIDCIdentity(context.Context, *store.OIDCIdentity) error { return nil }
+
+// ClaimOIDCIdentity: the mock always wins the claim. Losing is what the store
+// conformance suite and the OIDC race test exercise, against a real database.
+func (m *mockStore) ClaimOIDCIdentity(_ context.Context, id *store.OIDCIdentity) (*store.OIDCIdentity, bool, error) {
+	return id, true, nil
+}
 func (m *mockStore) GetOIDCIdentity(context.Context, string, string) (*store.OIDCIdentity, error) {
 	return nil, nil
 }
@@ -480,3 +497,12 @@ func (m *mockStore) MarkReceiptIssued(context.Context, string, string, string, t
 }
 func (m *mockStore) MarkReceiptAttempt(context.Context, string, string, time.Time) error { return nil }
 func (m *mockStore) BlockReceipt(context.Context, string, string) error                  { return nil }
+
+func (m *mockStore) ListReceiptsByStatus(context.Context, string, int) ([]store.Receipt, error) {
+	return m.receipts, nil
+}
+
+func (m *mockStore) RequeueReceipt(_ context.Context, id string, _ time.Time) error {
+	m.requeued = append(m.requeued, id)
+	return m.requeueErr
+}

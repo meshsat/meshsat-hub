@@ -102,12 +102,16 @@ func (h *TenantUsageHandler) claimCode(r *http.Request, tenantID string) string 
 		slog.Warn("tenant: could not mint a Ko-fi claim code", "tenant", tenantID, "error", err)
 		return ""
 	}
-	t.KofiClaimCode = code
-	if err := h.store.UpdateTenant(r.Context(), t); err != nil {
+	// Conditional, not read-then-write: two first readers of this endpoint
+	// would otherwise each mint a code, the later write would win, and the
+	// earlier caller would be shown a code the database does not hold. A
+	// payment quoting it could never be matched (MESHSAT-1005).
+	got, err := h.store.EnsureClaimCode(r.Context(), tenantID, code)
+	if err != nil {
 		slog.Warn("tenant: could not save a Ko-fi claim code", "tenant", tenantID, "error", err)
 		return ""
 	}
-	return code
+	return got
 }
 
 func (h *TenantUsageHandler) usage(w http.ResponseWriter, r *http.Request, tenantID string) {
