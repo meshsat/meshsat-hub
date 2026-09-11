@@ -52,6 +52,31 @@ func (m *memReceipts) CreateReceipt(_ context.Context, r *store.Receipt) (bool, 
 	return true, nil
 }
 
+// Both added with the payment_ref column: the webhook records which provider
+// payment settled a receipt so a refund can find the document to reverse.
+func (m *memReceipts) SetReceiptPaymentRef(_ context.Context, deliveryKey, paymentRef string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for i := range m.rows {
+		if m.rows[i].DeliveryKey == deliveryKey {
+			m.rows[i].PaymentRef = paymentRef
+			return nil
+		}
+	}
+	return store.ErrNotFound
+}
+
+func (m *memReceipts) GetReceiptByPaymentRef(_ context.Context, ref string) (*store.Receipt, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for i := range m.rows {
+		if ref != "" && m.rows[i].PaymentRef == ref {
+			return m.rows[i], nil
+		}
+	}
+	return nil, store.ErrNotFound
+}
+
 func (m *memReceipts) GetReceiptByKey(_ context.Context, k string) (*store.Receipt, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()

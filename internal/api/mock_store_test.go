@@ -510,6 +510,13 @@ func (m *mockStore) ListDueReceipts(context.Context, time.Time, int) ([]store.Re
 	return nil, nil
 }
 func (m *mockStore) SetReceiptInvoice(context.Context, string, string) error { return nil }
+
+// Which provider payment settled a receipt, so a refund can find the document
+// to reverse (postgres migration 17).
+func (m *mockStore) SetReceiptPaymentRef(context.Context, string, string) error { return nil }
+func (m *mockStore) GetReceiptByPaymentRef(context.Context, string) (*store.Receipt, error) {
+	return nil, store.ErrNotFound
+}
 func (m *mockStore) MarkReceiptIssued(context.Context, string, string, string, time.Time) error {
 	return nil
 }
