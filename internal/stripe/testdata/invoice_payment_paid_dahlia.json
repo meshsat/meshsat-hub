@@ -1,0 +1,29 @@
+{
+  "id": "evt_EXAMPLE",
+  "object": "event",
+  "api_version": "2026-08-26.dahlia",
+  "created": 1789095991,
+  "data": {
+    "object": {
+      "id": "inpay_EXAMPLE",
+      "object": "invoice_payment",
+      "amount_paid": 900,
+      "amount_requested": 900,
+      "created": 1789095909,
+      "currency": "eur",
+      "invoice": "in_EXAMPLE",
+      "is_default": true,
+      "livemode": true,
+      "payment": {
+        "payment_intent": "pi_EXAMPLE",
+        "type": "payment_intent"
+      },
+      "status": "paid",
+      "status_transitions": {
+        "canceled_at": null,
+        "paid_at": 1789095934
+      }
+    }
+  },
+  "type": "invoice_payment.paid"
+}
