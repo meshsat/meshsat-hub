@@ -1737,6 +1737,10 @@ func main() {
 	// it reaches Stripe once per request and without one an anonymous caller
 	// can point our fan-out at the payment provider.
 	r.Post("/api/donate", authRate(billingHandler.DonatePublic))
+	// The same thing as a link, for a static page that cannot POST to us. Must
+	// be registered before the SPA catch-all, which chi handles: an exact
+	// pattern beats "/*".
+	r.Get("/donate", authRate(billingHandler.DonateRedirect))
 	billingHandler.SetPrices(cfg.StripePrices)
 	billingHandler.SetDonationPrice(cfg.StripeDonationPrice)
 	api.SetStripeReady(stripeClient != nil && len(cfg.StripePrices) > 0)
