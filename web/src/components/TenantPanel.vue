@@ -19,6 +19,13 @@ const inviteEmail = ref('')
 const inviteRole = ref('operator')
 const inviting = ref(false)
 const error = ref('')
+// Offboarding (Phase 6). The API has existed since the launch; until now there
+// was no way to reach it without an API key, which is not a thing you can ask a
+// customer for when they want to leave.
+const exporting = ref(false)
+const closing = ref(false)
+const confirmClose = ref(false)
+const confirmText = ref('')
 const usage = ref(null)
 
 // Devices and bridges share one ceiling, because that is the number somebody
@@ -137,6 +144,44 @@ async function revoke(inv) {
     invites.value = invites.value.filter((i) => i.id !== inv.id)
   } catch (e) {
     error.value = e.message || 'Revoke failed'
+  }
+}
+
+// A customer must be able to take their data with them and to leave. Both are
+// rights under GDPR (portability, erasure) and both were API-only until now.
+async function exportData() {
+  exporting.value = true
+  error.value = ''
+  try {
+    const blob = await tenantApi.exportData()
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `meshsat-hub-${info.value?.slug || 'tenant'}-${new Date().toISOString().slice(0, 10)}.zip`
+    document.body.appendChild(a)
+    a.click()
+    a.remove()
+    URL.revokeObjectURL(url)
+    toast.success('Export downloaded')
+  } catch (e) {
+    error.value = e.message
+  } finally {
+    exporting.value = false
+  }
+}
+
+async function closeAccount() {
+  closing.value = true
+  error.value = ''
+  try {
+    await tenantApi.close()
+    toast.success('Account closed. You can still change your mind during the grace period.')
+    confirmClose.value = false
+    await load()
+  } catch (e) {
+    error.value = e.message
+  } finally {
+    closing.value = false
   }
 }
 
@@ -268,6 +313,46 @@ onMounted(load)
           </li>
         </ul>
         <p v-else class="mt-3 text-xs text-ms-muted">No pending invites.</p>
+      </div>
+
+      <div class="pt-4 border-t border-ms-border">
+        <h4 class="text-sm font-medium text-ms-text">Your data</h4>
+        <p class="text-[11px] text-ms-muted mt-1 mb-2">
+          Take a copy of everything in this account, or close it. Closing blocks access straight away and
+          erases the data after {{ info?.purge_grace_days || 30 }} days &mdash; until then it can be undone by asking us.
+        </p>
+        <div class="flex flex-wrap gap-2">
+          <button @click="exportData" :disabled="exporting"
+            class="px-3 py-1.5 bg-ms-well hover:bg-ms-card disabled:opacity-50 border border-ms-border text-ms-text text-sm font-medium rounded transition-colors">
+            {{ exporting ? 'Preparing…' : 'Download my data' }}
+          </button>
+          <button v-if="!confirmClose" @click="confirmClose = true; confirmText = ''"
+            class="px-3 py-1.5 bg-transparent hover:bg-ms-well border border-ms-border text-ms-muted hover:text-ms-error text-sm rounded transition-colors">
+            Close this account
+          </button>
+        </div>
+
+        <div v-if="confirmClose" class="mt-3 p-3 rounded border border-ms-error/50 bg-ms-error/5">
+          <p class="text-sm text-ms-text">This closes <span class="font-medium">{{ info?.name || info?.slug }}</span>.</p>
+          <ul class="text-[11px] text-ms-muted mt-1 mb-2 list-disc list-inside space-y-0.5">
+            <li>Everyone in the account loses access immediately.</li>
+            <li>Devices stop being manageable here. They do not stop transmitting.</li>
+            <li>A paid plan does not cancel itself &mdash; cancel it in Manage billing first, or it keeps charging.</li>
+            <li>After the grace period the data is destroyed and cannot be recovered.</li>
+          </ul>
+          <label for="close-confirm" class="block text-xs text-ms-muted2 mb-1">
+            Type <span class="font-mono text-ms-text">{{ info?.slug }}</span> to confirm
+          </label>
+          <div class="flex flex-wrap gap-2">
+            <input id="close-confirm" v-model="confirmText" autocomplete="off"
+              class="flex-1 min-w-0 px-3 py-1.5 bg-ms-well border border-ms-border rounded text-sm text-ms-text focus:outline-none focus:border-ms-error" />
+            <button @click="closeAccount" :disabled="closing || confirmText !== info?.slug"
+              class="px-3 py-1.5 bg-ms-error hover:opacity-90 disabled:opacity-40 text-white text-sm font-medium rounded transition-colors">
+              {{ closing ? 'Closing…' : 'Close account' }}
+            </button>
+            <button @click="confirmClose = false" class="px-3 py-1.5 text-sm text-ms-muted hover:text-ms-text">Cancel</button>
+          </div>
+        </div>
       </div>
     </div>
     <p v-if="error" class="text-ms-error text-sm mt-3">{{ error }}</p>
