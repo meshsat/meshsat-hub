@@ -423,6 +423,10 @@ func allMessages() map[string]Message {
 		"PaymentFailedRetrying": PaymentFailed("Alice", "crew", "EUR 9,00", when, when, "https://hub.meshsat.net"),
 		"PaymentFailedFinal":    PaymentFailed("Alice", "crew", "EUR 9,00", time.Time{}, when, "https://hub.meshsat.net"),
 		"PaymentFailedNoExpiry": PaymentFailed("Alice", "custom", "EUR 9,00", time.Time{}, time.Time{}, "https://hub.meshsat.net"),
+		// A gift, whose copy comes from the Hub because the billing system's
+		// one payment template is written for a subscription.
+		"DonationReceipt":           DonationReceipt("Alice Example", "EUR 1,00", "MSH2026-0001"),
+		"DonationReceiptUnnumbered": DonationReceipt("", "EUR 25,00", ""),
 	}
 }
 
