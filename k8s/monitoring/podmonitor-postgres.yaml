@@ -1,0 +1,37 @@
+# The Hub's database had NO Prometheus coverage. Port 9187 was exposed on every
+# CNPG instance and nothing scraped it, so the barman backup could go stale in
+# silence -- and it did: on 2026-09-11 a transient S3 PutObject error left a
+# backup latched walArchivingFailing with lastSuccessfulBackup 33 hours behind,
+# found by hand while investigating something else (IFRNLLEI01PRD-2833).
+#
+# That matters more here than for most databases: pgdata is deliberately
+# excluded from Velero (backup.velero.io/backup-volumes-excludes on the Cluster),
+# and the storage class is node-local with no cross-node re-attach. Barman to
+# NL's object store is the only copy of this database that is not on one disk.
+#
+# Declared here rather than via the Cluster's spec.monitoring.enablePodMonitor,
+# which CloudNativePG 1.30 reports as deprecated and asks operators to manage
+# themselves.
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: meshsat-hub-postgres
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/name: meshsat-hub
+    release: monitoring
+    environment: production
+    managed-by: argocd
+spec:
+  jobLabel: cnpg.io/cluster
+  namespaceSelector:
+    matchNames:
+      - meshsat-hub-db
+  selector:
+    matchLabels:
+      cnpg.io/cluster: meshsat-hub-main
+      cnpg.io/podRole: instance
+  podMetricsEndpoints:
+    - port: metrics
+      path: /metrics
+      interval: 30s
