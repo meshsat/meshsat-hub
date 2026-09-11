@@ -18,7 +18,8 @@ import (
 // (MESHSAT-1019).
 //
 // The money itself moves in the payment processor, by hand, because that is
-// where it lives: Ko-fi never fires a webhook for a refund, and the Hub holds
+// where it lives: it is the manual path, kept for a refund taken outside
+// Stripe or predating it. Stripe fires charge.refunded and the Hub holds
 // no gateway credentials. So this endpoint does not refund anybody. It records
 // that a refund happened, and that record is what makes the credit note exist.
 //

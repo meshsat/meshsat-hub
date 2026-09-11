@@ -55,3 +55,19 @@ func TestIsExempt(t *testing.T) {
 		}
 	}
 }
+
+// The public donate link is followed by strangers from meshsat.net. If it ever
+// stops being exempt they get a sign-in page instead of a payment page, which
+// looks like the button is broken.
+func TestThePublicDonateLinkIsExempt(t *testing.T) {
+	for _, p := range []string{"/donate", "/api/donate"} {
+		if !isExempt(p) {
+			t.Errorf("%s is not exempt; a giver with no account cannot sign in", p)
+		}
+	}
+	// And the neighbouring tenant route must NOT be: a donation attached to an
+	// account is an owner action.
+	if isExempt("/api/tenant/billing/donate") {
+		t.Error("the signed-in donate route must stay behind auth")
+	}
+}
