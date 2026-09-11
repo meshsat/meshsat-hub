@@ -4,3 +4,4 @@ resources:
   - externalsecrets.yaml
   - cluster-meshsat-hub-main.yaml
   - scheduledbackup.yaml
+  - backup-unwedge.yaml
