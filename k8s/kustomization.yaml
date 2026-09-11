@@ -17,11 +17,13 @@ resources:
   - namespaces.yaml
   - platform/
   - db/
+  - tak-db/
   - nats/
   - basemap/
   - redis/
   - stunnel/
   - hub/
+  - tak/
   - monitoring/
 
 images:

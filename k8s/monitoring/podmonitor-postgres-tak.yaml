@@ -1,0 +1,33 @@
+# Scrape the TAK database, for the same reason the Hub's cluster is scraped
+# (podmonitor-postgres.yaml): pgdata is excluded from Velero, the storage class
+# is node-local with no cross-node re-attach, and barman to the object store is
+# the only copy of this database that is not on one disk. A backup can go stale
+# in silence — it did on the Hub's cluster on 2026-09-11, 36 hours behind while
+# the Cluster reported ContinuousArchiving=True.
+#
+# It matters a little more here: these databases hold customers' CoT history,
+# and a tenant's OpenTAKServer runs migrations against its own database on every
+# start, so a wedged cluster shows up as a customer's map going quiet.
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: meshsat-tak-postgres
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/name: meshsat-tak
+    release: monitoring
+    environment: production
+    managed-by: argocd
+spec:
+  jobLabel: cnpg.io/cluster
+  namespaceSelector:
+    matchNames:
+      - meshsat-tak-db
+  selector:
+    matchLabels:
+      cnpg.io/cluster: meshsat-tak-main
+      cnpg.io/podRole: instance
+  podMetricsEndpoints:
+    - port: metrics
+      path: /metrics
+      interval: 30s

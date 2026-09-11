@@ -1,0 +1,72 @@
+# The first network policy in this tree. Every other namespace here relies on
+# the cluster being private; this one cannot, because each pod is an
+# OpenTAKServer: third-party Python, reachable from the internet, running schema
+# migrations on every start. Each one is treated as attacker-controllable, and
+# the owner accepted that they share a kernel with etcd and the API server. These
+# rules are the compensating control and are not optional.
+#
+# Cilium rather than the core NetworkPolicy API because Cilium is the CNI here
+# and `toEntities` expresses "not the rest of the world" directly.
+#
+# What the takfront design bought: the Hub is now the ONLY client of an
+# OpenTAKServer. Phones terminate their TLS at the Hub, which identifies the
+# tenant from the client certificate and proxies the stream on. So this namespace
+# needs no ingress from the edge relay at all, which is a smaller hole than the
+# original design had.
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: tak-instance-default-deny
+  namespace: meshsat-tak
+  labels:
+    app.kubernetes.io/name: meshsat-tak
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: tak-instance
+  # An empty ingress/egress list would deny everything; the entries below are
+  # the complete set of holes.
+  ingress:
+    # The Hub's pods: the CoT stream on 8089 and the internal admin API on 8444.
+    # Nothing else in the cluster may reach a tenant's server, including another
+    # tenant's server.
+    - fromEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: meshsat-hub
+            app.kubernetes.io/name: hub
+      toPorts:
+        - ports:
+            - port: "8089"
+              protocol: TCP
+            - port: "8444"
+              protocol: TCP
+  egress:
+    # DNS, so the pod can resolve its database. L3/L4 only, deliberately: a
+    # `rules: dns:` block here would need Cilium's L7 DNS proxy, and if that is
+    # not enabled the pods lose DNS altogether rather than gaining visibility.
+    # Add L7 DNS later, against a cluster where the proxy is confirmed on.
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: kube-system
+            k8s-app: kube-dns
+      toPorts:
+        - ports:
+            - port: "53"
+              protocol: UDP
+            - port: "53"
+              protocol: TCP
+    # Its own database, and only its own database's cluster.
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: meshsat-tak-db
+            cnpg.io/cluster: meshsat-tak-main
+      toPorts:
+        - ports:
+            - port: "5432"
+              protocol: TCP
+  # Everything else is denied by omission, which is the point. In particular:
+  # another tenant's pod, the Hub's database, NATS, KeyDB, the Kubernetes API,
+  # the cloud metadata address and the whole internet. OpenTAKServer tries to
+  # download marker icons from GitHub on first start; under this policy that
+  # stalls and then gives up, and the image already carries the icons. The
+  # release gate asserts each of these denials rather than trusting this comment.

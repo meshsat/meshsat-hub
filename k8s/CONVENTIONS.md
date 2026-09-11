@@ -18,6 +18,13 @@ has its own `kustomization.yaml`. A service dir contains, as applicable: `deploy
   `auth.meshsat.net` Ingress.
 - `meshsat-hub-db` — the CNPG Cluster only. DB pods carry control-plane tolerations; app pods
   NEVER do.
+- `meshsat-tak` — one OpenTAKServer per customer, created by the tak-operator at runtime, not by
+  a commit. Only namespace-wide groundwork is in git (`k8s/tak/`): ServiceAccount, pull secret,
+  quota, network policy. **The one namespace that enforces PodSecurity `restricted`**, and the
+  only one with a default-deny network policy.
+- `meshsat-tak-db` — the TAK CNPG Cluster only, separate from `meshsat-hub-db` so a tenant's
+  OpenTAKServer is never one SQL injection away from the Hub's tables. Enforces `baseline` and
+  audits `restricted` (CNPG is not yet verified against the strict profile).
 - `monitoring` — ServiceMonitors and the metrics-token ExternalSecret (per-object namespace).
 
 ## Naming & labels
@@ -90,6 +97,30 @@ has its own `kustomization.yaml`. A service dir contains, as applicable: `deploy
   `nl-s3.nuclearlighters.net`, retention 14d, daily base backup 02:45 (6-field cron).
 - Restore drill before cutover: throwaway `Cluster` with `bootstrap.recovery` from the bucket,
   row counts against live, delete (NOTES.md).
+
+## Hosted TAK (per-tenant OpenTAKServer)
+
+- `meshsat-tak-main-rw.meshsat-tak-db.svc:5432`. 3 instances, the same template as the Hub's
+  cluster, plus three things it lacks: `pg_hba` (`host sameuser all all scram-sha-256` then
+  `host all all all reject`, validated in spike S3, so a tenant role reaches only its own
+  database), a memory limit, and `priorityClassName`. Backups go to a `tak` prefix in the
+  existing `s3://cnpg-meshsat-hub` bucket — a second bucket needs a SeaweedFS identity that
+  cannot be provisioned from this repo, and the same credentials already write other prefixes
+  there. Daily base backup 03:15, staggered behind omoikane (02:30) and the Hub (02:45).
+- **Placement exception, recorded deliberately (owner decision, phase 0).** OpenTAKServer pods
+  run on the control-plane tier (dmz03/04/05) even though they are internet-facing third-party
+  Python, because the workers are 49, 90 and 92 percent committed and there is no gVisor or Kata
+  on this cluster. The security review advised against it and the owner accepted the residual
+  risk. In exchange, every one of these is mandatory and none is optional: PodSecurity
+  `restricted` enforced on the namespace, a default-deny CiliumNetworkPolicy, a ResourceQuota and
+  LimitRange, `automountServiceAccountToken: false` on both the ServiceAccount and the pods, an
+  image built from `k8s/ots/Dockerfile` and pinned by digest, and `priorityClassName:
+  meshsat-tak` which sits BELOW `meshsat-hub-critical` so a customer's map server can never
+  outrank the Hub's own data path. Revisit if a dedicated TAK node becomes affordable.
+- The Hub is the only client of an OpenTAKServer. Phones terminate TLS at the Hub
+  (`internal/takfront`, one public port for every tenant, tenant identified by the client
+  certificate's issuer because TAK clients send no SNI), so nothing in `meshsat-tak` accepts
+  traffic from the edge relay.
 
 ## Public path
 

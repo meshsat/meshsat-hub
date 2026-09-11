@@ -8,3 +8,4 @@ resources:
   - servicemonitor-hub.yaml
   - servicemonitor-nats.yaml
   - podmonitor-postgres.yaml
+  - podmonitor-postgres-tak.yaml
