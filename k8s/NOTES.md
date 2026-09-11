@@ -43,6 +43,30 @@ Things Argo CD cannot do by itself, in the order they happen. Keep this current.
    from a Hub pod during rehearsal; if not, route it (edge/xfrm) or set `HUB_TAK_ENABLED=false`
    at cutover and file the follow-up.
 
+## Hosted per-tenant TAK, phase 1 foundations (MESHSAT-1035, 2026-09-12)
+
+- **OpenBao paths created** under `ci-no/apps/meshsat-hub/`: `tak` (`ca_wrap_key`, 32 random
+  bytes — the operator wraps each tenant's CA key with it, because the cluster stores Secrets
+  unencrypted in etcd and Velero backs them up) and `cnpg-tak` (`tak_admin_password`, the TAK
+  cluster's initdb owner). Both were absent and are now version 1. Nothing references
+  `ca_wrap_key` until the operator ships in phase 2, which is the right order: a missing property
+  renders the literal `<no value>`, which is not empty and passes an `!= ""` guard.
+- **The TAK cluster backs up to a PREFIX, not its own bucket.** `s3://cnpg-meshsat-hub/tak`, with
+  the same barman credentials as the Hub's cluster, because a new SeaweedFS bucket needs an
+  identity that cannot be provisioned from the repo. WALs land under `tak/meshsat-tak-main/` so
+  the two clusters cannot collide. If a separate identity is ever created, moving is a
+  `destinationPath` edit plus a fresh base backup.
+- **Not yet true, and phase 2 has to solve it:** CNPG has a `Database` CRD but **no
+  `DatabaseRole` CRD** — roles are `spec.managed.roles` on the Cluster. So the operator cannot
+  create a per-tenant role by writing its own object; it must either patch the Cluster (which
+  Argo `selfHeal` would fight) or create the role in SQL as `tak_admin`. Decide before writing
+  `internal/takoperator/db.go`.
+- First-sync checks for this part: `kubectl -n meshsat-tak-db get cluster` 3/3 on dmz03/04/05;
+  every ExternalSecret in both new namespaces `Ready`; the first `ScheduledBackup` object exists;
+  `kubectl -n meshsat-tak get resourcequota meshsat-tak -o yaml` shows zero used; and
+  `kubectl get cnp -n meshsat-tak` lists the default-deny policy. Nothing runs in `meshsat-tak`
+  until phase 2, so an empty namespace there is the expected state.
+
 ## Phase 3: authentik (k8s/scripts/authentik/)
 
 - `run-bootstrap.sh bootstrap` after the Ingress `auth.meshsat.net` serves (needs the tree

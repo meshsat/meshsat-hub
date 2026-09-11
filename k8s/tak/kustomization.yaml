@@ -1,0 +1,14 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+# Namespace-wide groundwork for the hosted per-tenant TAK servers. The pods,
+# Services and per-tenant Secrets are created by the tak-operator at runtime and
+# are deliberately NOT in git: one object per customer is not a commit.
+#
+# The nginx ConfigMap the original plan listed here comes with the operator
+# instead, because which Marti paths stay open is a property of the pod the
+# operator renders, not of the namespace.
+resources:
+  - serviceaccount.yaml
+  - registry-externalsecret.yaml
+  - quota.yaml
+  - networkpolicy.yaml
