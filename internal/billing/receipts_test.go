@@ -104,6 +104,27 @@ func (m *memReceipts) ListDueReceipts(_ context.Context, now time.Time, limit in
 	return out, nil
 }
 
+// ListReceiptsByStatus backs the backlog gauges. Real behaviour, not a stub:
+// a double that always answers "nothing waiting" would let a broken gauge pass.
+func (m *memReceipts) ListReceiptsByStatus(_ context.Context, status string, limit int) ([]store.Receipt, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.fail {
+		return nil, errors.New("receipt store is down")
+	}
+	var out []store.Receipt
+	for _, e := range m.rows {
+		if e.Status != status {
+			continue
+		}
+		out = append(out, *e)
+		if len(out) >= limit {
+			break
+		}
+	}
+	return out, nil
+}
+
 func (m *memReceipts) find(id string) *store.Receipt {
 	for _, e := range m.rows {
 		if e.ID == id {

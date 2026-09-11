@@ -1571,6 +1571,7 @@ func main() {
 			}), 600).ServeHTTP)
 		slog.Info("stripe: payment webhook enabled", "prices", len(cfg.StripePrices),
 			"donations", cfg.StripeDonationPrice != "")
+		verifyStripeWebhookVersion(stripeClient)
 	} else {
 		slog.Info("stripe: payment webhook disabled; set HUB_STRIPE_WEBHOOK_SECRET and HUB_STRIPE_PATH_SECRET to enable")
 	}
@@ -2652,6 +2653,79 @@ func migrateOnly() bool {
 	}
 	v := strings.ToLower(os.Getenv("HUB_MIGRATE_ONLY"))
 	return v == "true" || v == "1"
+}
+
+// verifyStripeWebhookVersion asks Stripe, once at startup and off every request
+// path, what API version the webhook endpoint is actually set to.
+//
+// It is the one assumption in the payment path that cannot be read from this
+// repo. The endpoint's version lives in the Stripe dashboard, and Stripe refuses
+// POST /v1/accounts on your own account, so it can never be managed from here.
+// It is one click from changing, and the only symptom would be a payload that
+// decodes to zero values -- which is how six defects reached production in two
+// days, each of them looking like normal operation.
+//
+// Same shape as verifyBillingCompany deliberately: a detached goroutine with its
+// own timeout so an unreachable Stripe never keeps the Hub down, an ALL-CAPS
+// error naming the exact consequence, and an affirmative line on success so an
+// operator can see the check ran rather than only that it did not complain.
+func verifyStripeWebhookVersion(c *stripe.Client) {
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		eps, err := c.WebhookAPIVersion(ctx)
+		if err != nil {
+			slog.Warn("stripe: could not read the webhook endpoint's API version; "+
+				"the Hub assumes its payloads match "+stripe.PinnedAPIVersion(),
+				"error", err)
+			return
+		}
+		pinned := stripe.PinnedAPIVersion()
+		checked := 0
+		for _, ep := range eps {
+			if !ep.Enabled() {
+				continue
+			}
+			checked++
+			switch {
+			case ep.APIVersion == "":
+				slog.Error("stripe: A WEBHOOK ENDPOINT HAS NO PINNED API VERSION, so Stripe will "+
+					"render its deliveries at the ACCOUNT DEFAULT and change their shape without "+
+					"warning when that default moves. Pin it in the dashboard.",
+					"endpoint", ep.ID, "url", redactPathSecret(ep.URL))
+			case ep.APIVersion != pinned && !stripe.KnownAPIVersion(ep.APIVersion):
+				slog.Error("stripe: THE WEBHOOK ENDPOINT IS SENDING AN API VERSION THIS HUB HAS NOT "+
+					"BEEN READ AGAINST. Stripe moves fields between versions and this codebase "+
+					"decodes them by hand, so receipts, plan expiries and credit notes may be "+
+					"silently wrong. Read the changelog between the two, capture payloads into "+
+					"internal/stripe/testdata, run the shape tests, then widen knownAPIVersions.",
+					"endpoint_version", ep.APIVersion, "hub_pinned", pinned,
+					"endpoint", ep.ID, "url", redactPathSecret(ep.URL))
+			case ep.APIVersion != pinned:
+				slog.Warn("stripe: the webhook endpoint sends a different API version than outbound "+
+					"calls pin, but it is one this Hub has been read against",
+					"endpoint_version", ep.APIVersion, "hub_pinned", pinned, "endpoint", ep.ID)
+			default:
+				slog.Info("stripe: webhook API version verified",
+					"version", ep.APIVersion, "endpoint", ep.ID, "events", len(ep.Events))
+			}
+		}
+		if checked == 0 {
+			slog.Error("stripe: THIS ACCOUNT HAS NO ENABLED WEBHOOK ENDPOINT. Nothing will tell the " +
+				"Hub about a payment, a cancellation or a refund: money will be taken and no plan " +
+				"granted, no receipt issued and no credit note produced.")
+		}
+	}()
+}
+
+// redactPathSecret drops the last path segment of a webhook URL. That segment is
+// HUB_STRIPE_PATH_SECRET, and a log line is exactly the sort of place a URL
+// travels to -- consoles, tickets, screenshots.
+func redactPathSecret(u string) string {
+	if i := strings.LastIndex(u, "/"); i >= 0 {
+		return u[:i+1] + "..."
+	}
+	return u
 }
 
 // verifyBillingCompany asks the billing system, once at startup and off every

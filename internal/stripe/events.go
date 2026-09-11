@@ -21,6 +21,13 @@ type Event struct {
 		Object json.RawMessage `json:"object"`
 	} `json:"data"`
 	Created int64 `json:"created"`
+	// APIVersion is the version that rendered this payload. Stripe sends it on
+	// every envelope and it used to be decoded into nothing, which meant the
+	// Hub had no idea what shape it was being sent: the webhook endpoint's
+	// version is set in the Stripe dashboard, outside this repo and outside any
+	// config the Hub can read. Six defects came from a field moving between
+	// versions with nothing to notice it had (MESHSAT-1023).
+	APIVersion string `json:"api_version"`
 }
 
 // The event types this acts on. Anything else is acknowledged and ignored:
@@ -149,6 +156,19 @@ func (s subscription) periodEnd() time.Time {
 // past_due and unpaid deliberately still count: the customer's card failed and
 // Stripe is retrying, and taking a fleet's ceiling away mid-retry would be a
 // worse answer than waiting for Stripe to give up and send the deleted event.
+// knownStatus reports whether Stripe's status string is one this Hub has an
+// opinion about. It matters because live() answers false for anything it does
+// not recognise, and false means "end this plan" -- so a status Stripe adds or
+// renames would quietly cancel subscriptions that are perfectly healthy.
+func (s subscription) knownStatus() bool {
+	switch s.Status {
+	case "active", "trialing", "past_due", "unpaid",
+		"canceled", "incomplete", "incomplete_expired", "paused":
+		return true
+	}
+	return false
+}
+
 func (s subscription) live() bool {
 	switch s.Status {
 	case "active", "trialing", "past_due", "unpaid":

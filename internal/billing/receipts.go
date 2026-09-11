@@ -31,6 +31,7 @@ import (
 
 	"github.com/meshsat/meshsat-hub/internal/invoiceninja"
 	"github.com/meshsat/meshsat-hub/internal/mail"
+	"github.com/meshsat/meshsat-hub/internal/metrics"
 	"github.com/meshsat/meshsat-hub/internal/store"
 	"github.com/meshsat/meshsat-hub/internal/vat"
 )
@@ -70,6 +71,9 @@ type ReceiptStore interface {
 	CreateReceipt(ctx context.Context, r *store.Receipt) (bool, error)
 	GetReceiptByKey(ctx context.Context, deliveryKey string) (*store.Receipt, error)
 	ListDueReceipts(ctx context.Context, now time.Time, limit int) ([]store.Receipt, error)
+	// ListReceiptsByStatus backs the backlog gauges. Read-only and best-effort:
+	// a failure here never stops a document being issued.
+	ListReceiptsByStatus(ctx context.Context, status string, limit int) ([]store.Receipt, error)
 	SetReceiptInvoice(ctx context.Context, id, invoiceRef string) error
 	// SetReceiptPaymentRef and GetReceiptByPaymentRef record and find which
 	// provider payment settled a receipt. Used by the webhook, not by this
@@ -157,6 +161,7 @@ func (j *ReceiptJob) Run(ctx context.Context) {
 // Once performs a single pass. Exported so a test can drive it with a clock.
 func (j *ReceiptJob) Once(ctx context.Context) {
 	now := j.now().UTC()
+	j.observeBacklog(ctx, now)
 	due, err := j.store.ListDueReceipts(ctx, now, j.batch)
 	if err != nil {
 		slog.Error("billing: listing receipts to issue failed", "error", err)
@@ -189,6 +194,43 @@ func (j *ReceiptJob) Once(ctx context.Context) {
 		}
 	}
 }
+
+// observeBacklog publishes what is waiting, so a wedged outbox is visible.
+//
+// The drainer never gives up on a receipt -- it is a document owed for money
+// already taken -- so a failure it cannot get past retries quietly at an hour's
+// interval forever. That is the right behaviour and the wrong amount of noise:
+// the customer has paid and has no VAT document, and nothing said so. Same for
+// a parked receipt, which needs a person and would otherwise sit unread behind
+// GET /api/admin/receipts/blocked.
+//
+// Best-effort by design: a failure here must never stop the pass that issues
+// documents.
+func (j *ReceiptJob) observeBacklog(ctx context.Context, now time.Time) {
+	pending, err := j.store.ListReceiptsByStatus(ctx, store.ReceiptPending, backlogSample)
+	if err != nil {
+		slog.Debug("billing: could not measure the receipt backlog", "error", err)
+		return
+	}
+	metrics.ReceiptsPending.Set(float64(len(pending)))
+	oldest := 0.0
+	for i := range pending {
+		if age := now.Sub(pending[i].CreatedAt).Seconds(); age > oldest {
+			oldest = age
+		}
+	}
+	metrics.ReceiptOldestPendingAge.Set(oldest)
+
+	blocked, err := j.store.ListReceiptsByStatus(ctx, store.ReceiptBlocked, backlogSample)
+	if err != nil {
+		return
+	}
+	metrics.ReceiptsBlocked.Set(float64(len(blocked)))
+}
+
+// backlogSample bounds the backlog query. A real backlog is a handful of rows;
+// if it is ever larger than this the gauges read as a floor, which still alerts.
+const backlogSample = 500
 
 // receiptLease bounds how long one drainer may hold a receipt row. Long enough
 // to cover a billing call that runs to its 30 s timeout with room to spare,

@@ -142,6 +142,21 @@ func (f *fakeReceipts) GetReceiptByKey(_ context.Context, k string) (*store.Rece
 func (f *fakeReceipts) ListDueReceipts(context.Context, time.Time, int) ([]store.Receipt, error) {
 	return nil, nil
 }
+func (f *fakeReceipts) ListReceiptsByStatus(_ context.Context, status string, limit int) ([]store.Receipt, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	var out []store.Receipt
+	for i := range f.rows {
+		if f.rows[i].Status != status {
+			continue
+		}
+		out = append(out, f.rows[i])
+		if len(out) >= limit {
+			break
+		}
+	}
+	return out, nil
+}
 func (f *fakeReceipts) SetReceiptInvoice(context.Context, string, string) error { return nil }
 func (f *fakeReceipts) MarkReceiptIssued(context.Context, string, string, string, time.Time) error {
 	return nil
