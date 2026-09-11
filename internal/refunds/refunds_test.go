@@ -609,3 +609,67 @@ func TestTheNoDocumentNoticeUsesTheSameStyle(t *testing.T) {
 		t.Fatalf("the no-document notice does not use the house style: %v\n%s", m.sent, strings.Join(m.bodies, "\n"))
 	}
 }
+
+// donationReceipt is money given, not a period bought.
+func donationReceipt() *store.Receipt {
+	return &store.Receipt{
+		ID: "rcpt-1", TenantID: "t1", Email: "giver@example.com", Name: "A Giver",
+		AmountCents: 100, Currency: "EUR", Country: "NL",
+		Plan: billing.DonationPlan, TierName: "Donation",
+		Status: store.ReceiptIssued, InvoiceRef: "inv-1", InvoiceNumber: "MSH2026-0001",
+	}
+}
+
+// Refunding a donation must not touch the plan.
+//
+// reversePlan only asked whether the refund was FULL, never what the receipt
+// was for, and a donation is always refunded in full. So a giver who asked for
+// a EUR 1 gift back had a month taken off the subscription they had paid for
+// separately. Proven on production 2026-09-11: refunding the donation moved a
+// live Crew plan from 16 October to 14 September, and a second refund carried
+// it into the past. Near the end of a period it lapses the plan outright and
+// caps their device registrations.
+//
+// A donation buys no period. There is none to take back.
+func TestRefundingADonationDoesNotShortenTheSubscription(t *testing.T) {
+	expires := time.Date(2026, 10, 12, 0, 0, 0, 0, time.UTC)
+	s := &fakeStore{
+		due: []store.Refund{pendingRefund(100)}, receipt: donationReceipt(),
+		tenant: &store.Tenant{ID: "t1", Plan: "crew", PlanExpiresAt: &expires},
+	}
+	iss := &fakeIssuer{result: &invoiceninja.CreditResult{
+		CreditID: "credit-1", CreditNumber: "MSHCN2026-0001", InvoiceNumber: "MSH2026-0001"}}
+	j := newJob(s, iss)
+	j.Once(context.Background())
+
+	if s.updatedTenant != nil {
+		t.Fatalf("refunding a donation shortened a paid subscription to %v",
+			s.updatedTenant.PlanExpiresAt)
+	}
+	// The document is still owed: the money went back and the books must say so.
+	if len(s.issued) != 1 {
+		t.Fatalf("the donation refund produced no credit note: %v", s.issued)
+	}
+}
+
+// The subscription case must keep working: a full refund of a period removes
+// exactly that period.
+func TestRefundingASubscriptionStillRemovesItsPeriod(t *testing.T) {
+	expires := time.Date(2026, 10, 12, 0, 0, 0, 0, time.UTC)
+	s := &fakeStore{
+		due: []store.Refund{pendingRefund(900)}, receipt: paidReceipt(),
+		tenant: &store.Tenant{ID: "t1", Plan: "crew", PlanExpiresAt: &expires},
+	}
+	iss := &fakeIssuer{result: &invoiceninja.CreditResult{
+		CreditID: "credit-1", CreditNumber: "MSHCN2026-0001", InvoiceNumber: "MSH2026-0001"}}
+	j := newJob(s, iss)
+	j.Once(context.Background())
+
+	if s.updatedTenant == nil || s.updatedTenant.PlanExpiresAt == nil {
+		t.Fatal("a full refund of a subscription left the plan untouched")
+	}
+	if want := expires.Add(-billing.Period); !s.updatedTenant.PlanExpiresAt.Equal(want) {
+		t.Errorf("expiry = %s, want %s (exactly one period back)",
+			s.updatedTenant.PlanExpiresAt.Format(time.RFC3339), want.Format(time.RFC3339))
+	}
+}
