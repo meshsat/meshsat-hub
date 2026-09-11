@@ -1,0 +1,60 @@
+# The first ResourceQuota and LimitRange in this tree, and they are here rather
+# than around the Hub for a reason: every object in this namespace is created by
+# the tak-operator on a customer's request, so the number of pods is driven by
+# sign-ups rather than by a commit. A bug in the operator, or a tenant loop,
+# must not be able to consume the control-plane tier that etcd and the API server
+# live on.
+#
+# The numbers come from the phase-0 measurements: one tenant's OpenTAKServer is
+# about 720Mi of requests across its four containers (api 192Mi, cot_parser
+# 240Mi, eud_handler 160Mi, rabbitmq 128Mi) and roughly zero CPU at idle. So
+# 48Gi of requests is about 66 tenants, which matches the 50-70 the tier was
+# measured to hold. Limits are allowed to overcommit, as they are everywhere
+# else here.
+#
+# Raise these deliberately, with a measurement, not because something is
+# Pending: a refused pod is the quota doing its job and is a capacity
+# conversation, exactly like a Pending Hub pod is.
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: meshsat-tak
+  namespace: meshsat-tak
+  labels:
+    app.kubernetes.io/name: meshsat-tak
+spec:
+  hard:
+    requests.cpu: "12"
+    requests.memory: 48Gi
+    limits.memory: 192Gi
+    pods: "150"
+    count/deployments.apps: "80"
+    count/services: "80"
+    count/secrets: "400"
+    count/configmaps: "200"
+    # Zero on purpose. Every tenant's OpenTAKServer is stateless on disk: the
+    # data folder is an emptyDir, icons are baked into the image, and all durable
+    # state is in meshsat-tak-main. A PVC appearing here means somebody has
+    # introduced node-local state that no backup covers, and it should fail
+    # loudly rather than work quietly.
+    count/persistentvolumeclaims: "0"
+---
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: meshsat-tak
+  namespace: meshsat-tak
+  labels:
+    app.kubernetes.io/name: meshsat-tak
+spec:
+  limits:
+    - type: Container
+      # No default CPU limit: the house rule is requests.cpu only, because a CPU
+      # limit throttles rather than protects, and CoT parsing is bursty.
+      defaultRequest:
+        cpu: 50m
+        memory: 192Mi
+      default:
+        memory: 1Gi
+      max:
+        memory: 2Gi

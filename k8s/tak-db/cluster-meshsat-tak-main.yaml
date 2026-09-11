@@ -1,0 +1,112 @@
+# meshsat-tak-main: the PostgreSQL cluster behind the hosted per-tenant TAK
+# servers (MESHSAT-1035 phase 1). Deliberately NOT the Hub's cluster: every
+# OpenTAKServer is third-party Python reachable from the internet, it runs schema
+# migrations on every start, and it must never be one SQL injection away from the
+# Hub's own tables.
+#
+# Same template as meshsat-hub-main, with three differences, each on purpose:
+#
+#   - pg_hba. The pair below is what spike S3 validated against a real PG 18.4:
+#     a role can reach ONLY the database of the same name, and everything else is
+#     rejected. CNPG emits its own local and `streaming_replica` cert rules ahead
+#     of user-supplied ones, so replication and the operator are unaffected.
+#   - resources and priorityClassName, which CONVENTIONS.md requires of anything
+#     carrying control-plane tolerations. meshsat-hub-main predates that rule and
+#     still lacks both; this cluster does not repeat it.
+#   - the backup path is a `tak` prefix in the EXISTING bucket rather than a new
+#     one. A new bucket needs a SeaweedFS identity that cannot be provisioned
+#     from here, and the same credentials already write other prefixes in this
+#     bucket. WALs land under tak/meshsat-tak-main/, so the two clusters cannot
+#     collide.
+#
+# Per-tenant databases and roles are created by the tak-operator, not here.
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: meshsat-tak-main
+  namespace: meshsat-tak-db
+  labels:
+    app.kubernetes.io/name: meshsat-tak-main
+spec:
+  instances: 3
+  primaryUpdateStrategy: unsupervised
+
+  postgresql:
+    parameters:
+      synchronous_commit: "on"
+      # Each tenant role is capped at 15 connections by the operator; 200 is the
+      # same ceiling the Hub's cluster uses and covers ~13 busy tenants before
+      # it needs raising. Raise this and the per-role cap together.
+      max_connections: "200"
+    # Proven in spike S3: a tenant role reaches its own database and nothing
+    # else. The reject line must stay LAST — anything after it is unreachable.
+    pg_hba:
+      - host sameuser all all scram-sha-256
+      - host all all all reject
+  minSyncReplicas: 1
+  maxSyncReplicas: 1
+
+  storage:
+    size: 10Gi
+    storageClass: local-hostpath-retain
+
+  # Stateful, so: control-plane tier, one instance per node, required
+  # anti-affinity. A local volume binds permanently on first schedule, so
+  # `preferred` could put two of three members on one machine and lose the
+  # quorum with it.
+  affinity:
+    enablePodAntiAffinity: true
+    topologyKey: kubernetes.io/hostname
+    nodeSelector:
+      node-role.kubernetes.io/control-plane: ""
+    tolerations:
+      - key: node-role.kubernetes.io/control-plane
+        operator: Exists
+        effect: NoSchedule
+
+  # The price of a control-plane toleration (CONVENTIONS.md): a memory ceiling
+  # and a priority class, so this can never starve etcd or the API server.
+  resources:
+    requests:
+      cpu: 100m
+      memory: 512Mi
+    limits:
+      memory: 2Gi
+  priorityClassName: meshsat-tak
+
+  # barman owns DB backups; Velero must NOT fs-copy pgdata.
+  inheritedMetadata:
+    annotations:
+      backup.velero.io/backup-volumes-excludes: pgdata
+
+  # A placeholder owner so the cluster bootstraps with a database of its own.
+  # Tenant databases are added later, one per instance, by the operator.
+  bootstrap:
+    initdb:
+      database: tak_admin
+      owner: tak_admin
+      secret:
+        name: meshsat-tak-db-credentials
+
+  managed:
+    roles:
+      - name: tak_admin
+        ensure: present
+        login: true
+        passwordSecret:
+          name: db-role-tak-admin
+
+  backup:
+    barmanObjectStore:
+      destinationPath: s3://cnpg-meshsat-hub/tak
+      endpointURL: https://nl-s3.nuclearlighters.net
+      s3Credentials:
+        accessKeyId:
+          name: cnpg-barman-creds
+          key: ACCESS_KEY_ID
+        secretAccessKey:
+          name: cnpg-barman-creds
+          key: SECRET_ACCESS_KEY
+      wal:
+        compression: gzip
+    retentionPolicy: "14d"
