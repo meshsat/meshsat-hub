@@ -18,14 +18,14 @@ import (
 
 const receiptCols = `id, tenant_id, delivery_key, transaction_id, country, email, name, amount_cents, currency,
 	plan, tier_name, paid_at, status, attempts, last_error, next_attempt_at,
-	invoice_number, invoice_ref, issued_at, created_at, updated_at`
+	invoice_number, invoice_ref, payment_ref, issued_at, created_at, updated_at`
 
 func scanReceipt(sc interface{ Scan(...any) error }) (store.Receipt, error) {
 	var r store.Receipt
 	var issued sql.NullTime
 	if err := sc.Scan(&r.ID, &r.TenantID, &r.DeliveryKey, &r.TransactionID, &r.Country, &r.Email, &r.Name,
 		&r.AmountCents, &r.Currency, &r.Plan, &r.TierName, &r.PaidAt, &r.Status, &r.Attempts,
-		&r.LastError, &r.NextAttemptAt, &r.InvoiceNumber, &r.InvoiceRef, &issued,
+		&r.LastError, &r.NextAttemptAt, &r.InvoiceNumber, &r.InvoiceRef, &r.PaymentRef, &issued,
 		&r.CreatedAt, &r.UpdatedAt); err != nil {
 		return r, err
 	}
@@ -59,11 +59,11 @@ func (d *DB) CreateReceipt(ctx context.Context, r *store.Receipt) (bool, error) 
 		r.PaidAt = now
 	}
 	res, err := d.db.ExecContext(ctx, `INSERT INTO receipts (`+receiptCols+`)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22)
 		ON CONFLICT (delivery_key) DO NOTHING`,
 		r.ID, r.TenantID, r.DeliveryKey, r.TransactionID, r.Country, r.Email, r.Name, r.AmountCents, r.Currency,
 		r.Plan, r.TierName, r.PaidAt.UTC(), r.Status, r.Attempts, r.LastError,
-		r.NextAttemptAt.UTC(), r.InvoiceNumber, r.InvoiceRef, nil, now, now)
+		r.NextAttemptAt.UTC(), r.InvoiceNumber, r.InvoiceRef, r.PaymentRef, nil, now, now)
 	if err != nil {
 		return false, err
 	}
@@ -106,6 +106,32 @@ func (d *DB) ListDueReceipts(ctx context.Context, now time.Time, limit int) ([]s
 		out = append(out, r)
 	}
 	return out, rows.Err()
+}
+
+// SetReceiptPaymentRef records which provider payment settled this receipt, so
+// a refund can find the document to reverse. Keyed on the delivery key because
+// the caller is a webhook that knows the invoice, not our row id.
+func (d *DB) SetReceiptPaymentRef(ctx context.Context, deliveryKey, paymentRef string) error {
+	_, err := d.db.ExecContext(ctx,
+		`UPDATE receipts SET payment_ref=$1, updated_at=$2 WHERE delivery_key=$3`,
+		paymentRef, time.Now().UTC(), deliveryKey)
+	return err
+}
+
+// GetReceiptByPaymentRef finds the receipt a refunded payment belongs to.
+func (d *DB) GetReceiptByPaymentRef(ctx context.Context, paymentRef string) (*store.Receipt, error) {
+	if paymentRef == "" {
+		return nil, store.ErrNotFound
+	}
+	r, err := scanReceipt(d.db.QueryRowContext(ctx,
+		"SELECT "+receiptCols+" FROM receipts WHERE payment_ref=$1", paymentRef))
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, store.ErrNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &r, nil
 }
 
 func (d *DB) SetReceiptInvoice(ctx context.Context, id, invoiceRef string) error {

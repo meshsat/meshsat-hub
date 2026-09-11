@@ -71,6 +71,11 @@ type ReceiptStore interface {
 	GetReceiptByKey(ctx context.Context, deliveryKey string) (*store.Receipt, error)
 	ListDueReceipts(ctx context.Context, now time.Time, limit int) ([]store.Receipt, error)
 	SetReceiptInvoice(ctx context.Context, id, invoiceRef string) error
+	// SetReceiptPaymentRef and GetReceiptByPaymentRef record and find which
+	// provider payment settled a receipt. Used by the webhook, not by this
+	// drainer, and on the same interface because they are the same table.
+	SetReceiptPaymentRef(ctx context.Context, deliveryKey, paymentRef string) error
+	GetReceiptByPaymentRef(ctx context.Context, paymentRef string) (*store.Receipt, error)
 	MarkReceiptIssued(ctx context.Context, id, invoiceNumber, invoiceRef string, at time.Time) error
 	MarkReceiptAttempt(ctx context.Context, id, errMsg string, nextAttempt time.Time) error
 	BlockReceipt(ctx context.Context, id, reason string) error

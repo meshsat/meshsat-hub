@@ -34,6 +34,11 @@ const (
 	EventInvoicePaid         = "invoice.paid"
 	EventInvoiceFailed       = "invoice.payment_failed"
 	EventChargeRefunded      = "charge.refunded"
+	// EventInvoicePaymentPaid is the only place Stripe still joins an invoice
+	// to the payment that settled it. charge.invoice is gone, and neither the
+	// charge nor the payment intent points back at an invoice, so without this
+	// a refunded subscription matches no receipt and issues no credit note.
+	EventInvoicePaymentPaid = "invoice_payment.paid"
 )
 
 // checkoutSession is data.object for checkout.session.completed.
@@ -245,6 +250,17 @@ func (i invoice) priceID() string {
 		return p
 	}
 	return l.Price.ID
+}
+
+// invoicePayment is data.object for invoice_payment.paid. It exists to carry
+// one fact: which payment settled which invoice.
+type invoicePayment struct {
+	ID      string `json:"id"`
+	Invoice string `json:"invoice"`
+	Status  string `json:"status"`
+	Payment struct {
+		PaymentIntent string `json:"payment_intent"`
+	} `json:"payment"`
 }
 
 // charge is data.object for charge.refunded. Stripe sends the whole charge with

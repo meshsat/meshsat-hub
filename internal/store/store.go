@@ -335,6 +335,15 @@ type Store interface {
 	// a gapless series, and a retry that made a second one would leave the
 	// first permanently unpaid in the books.
 	SetReceiptInvoice(ctx context.Context, id, invoiceRef string) error
+	// SetReceiptPaymentRef records the provider payment a receipt was settled
+	// by, so a later refund can find the document to reverse. Matching on the
+	// delivery key rather than the id because the caller is a webhook that
+	// knows the invoice, not our row id.
+	SetReceiptPaymentRef(ctx context.Context, deliveryKey, paymentRef string) error
+	// GetReceiptByPaymentRef finds the receipt a refunded payment belongs to.
+	// Returns ErrNotFound when nothing matches: a refund for money this Hub
+	// never documented must be reported, never guessed at.
+	GetReceiptByPaymentRef(ctx context.Context, paymentRef string) (*Receipt, error)
 	// MarkReceiptIssued records the document the billing system produced.
 	MarkReceiptIssued(ctx context.Context, id, invoiceNumber, invoiceRef string, at time.Time) error
 	// MarkReceiptAttempt records a failed attempt and when to try again. The
@@ -1001,15 +1010,25 @@ type Receipt struct {
 	TierName string    `json:"tier_name,omitempty"`
 	PaidAt   time.Time `json:"paid_at"`
 
-	Status        string     `json:"status"` // ReceiptPending, ReceiptIssued, ReceiptBlocked
-	Attempts      int        `json:"attempts"`
-	LastError     string     `json:"last_error,omitempty"`
-	NextAttemptAt time.Time  `json:"next_attempt_at,omitempty"`
-	InvoiceNumber string     `json:"invoice_number,omitempty"`
-	InvoiceRef    string     `json:"invoice_ref,omitempty"`
-	IssuedAt      *time.Time `json:"issued_at,omitempty"`
-	CreatedAt     time.Time  `json:"created_at"`
-	UpdatedAt     time.Time  `json:"updated_at"`
+	Status        string    `json:"status"` // ReceiptPending, ReceiptIssued, ReceiptBlocked
+	Attempts      int       `json:"attempts"`
+	LastError     string    `json:"last_error,omitempty"`
+	NextAttemptAt time.Time `json:"next_attempt_at,omitempty"`
+	InvoiceNumber string    `json:"invoice_number,omitempty"`
+	InvoiceRef    string    `json:"invoice_ref,omitempty"`
+	// PaymentRef is the provider's payment reference (a Stripe payment
+	// intent), learned AFTER the receipt is written and only so a refund can
+	// find it again.
+	//
+	// It exists because the refund event no longer carries the invoice: Stripe
+	// removed charge.invoice, and neither the charge nor the payment intent
+	// links back to one. Without this a refunded subscription matched no
+	// receipt, so no credit note was issued and the sale stayed in the books
+	// at full value with its VAT declared.
+	PaymentRef string     `json:"payment_ref,omitempty"`
+	IssuedAt   *time.Time `json:"issued_at,omitempty"`
+	CreatedAt  time.Time  `json:"created_at"`
+	UpdatedAt  time.Time  `json:"updated_at"`
 }
 
 // Receipt statuses.
