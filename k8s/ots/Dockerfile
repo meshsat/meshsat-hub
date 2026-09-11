@@ -37,9 +37,11 @@ COPY --from=build /opt/ots /opt/ots
 # pip is only needed to build the image; nothing is installed at runtime (OTS
 # plugins are disabled). pip 26.2.1 vendors msgpack 1.1.2 and setuptools 70.3.0
 # (pip/_vendor/vendor.txt), which trivy flags. So remove pip from the venv and
-# from the base image, along with ensurepip's bundled wheel.
+# from the base image, along with ensurepip's bundled wheel. The base
+# interpreter is named by its full path because PATH puts the venv first, and
+# the venv's pip is already gone by then.
 RUN /opt/ots/bin/python -m pip uninstall --yes pip \
-    && python -m pip uninstall --yes pip \
+    && /usr/local/bin/python3 -m pip uninstall --yes pip \
     && rm -rf /usr/local/lib/python3.13/ensurepip \
     && useradd --system --uid 10001 --user-group --home-dir /var/lib/ots --shell /usr/sbin/nologin ots \
     && mkdir -p /var/lib/ots \
