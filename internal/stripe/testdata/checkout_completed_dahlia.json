@@ -1,0 +1,145 @@
+{
+  "id": "evt_EXAMPLE",
+  "object": "event",
+  "api_version": "2026-08-26.dahlia",
+  "created": 1789095939,
+  "data": {
+    "object": {
+      "id": "cs_live_EXAMPLE",
+      "object": "checkout.session",
+      "adaptive_pricing": {
+        "enabled": true
+      },
+      "after_expiration": null,
+      "allow_promotion_codes": null,
+      "allowed_payment_method_types": null,
+      "amount_subtotal": 900,
+      "amount_total": 900,
+      "automatic_tax": {
+        "enabled": false,
+        "liability": null,
+        "provider": null,
+        "status": null
+      },
+      "billing_address_collection": "required",
+      "branding_settings": {
+        "background_color": "#ffffff",
+        "border_style": "rounded",
+        "button_color": "#0074d4",
+        "display_name": "MeshSat Hub",
+        "font_family": "default",
+        "icon": {
+          "file": "file_1UEHJp4j5c6KcLizVMUpyobh",
+          "type": "file"
+        },
+        "logo": {
+          "file": "file_1UEHJz4j5c6KcLizQYH1WsnC",
+          "type": "file"
+        }
+      },
+      "cancel_url": "https://hub.meshsat.net/#/settings?checkout=cancelled",
+      "client_reference_id": null,
+      "client_secret": null,
+      "collected_information": {
+        "business_name": null,
+        "individual_name": null,
+        "shipping_details": null
+      },
+      "consent": null,
+      "consent_collection": null,
+      "created": 1789095851,
+      "currency": "eur",
+      "currency_conversion": null,
+      "custom_fields": [],
+      "custom_text": {
+        "after_submit": null,
+        "shipping_address": null,
+        "submit": {
+          "message": "MeshSat Hub Crew. Your plan starts as soon as this goes through, and you can cancel it yourself from Settings at any time. The price includes VAT, and a receipt follows by email."
+        },
+        "terms_of_service_acceptance": null
+      },
+      "customer": "cus_EXAMPLE",
+      "customer_account": null,
+      "customer_creation": "always",
+      "customer_details": {
+        "address": {
+          "city": "Leiden",
+          "country": "NL",
+          "line1": "Floresstraat 17",
+          "line2": null,
+          "postal_code": "2315 HP",
+          "state": null
+        },
+        "business_name": null,
+        "email": "billing+example@meshsat.net",
+        "individual_name": null,
+        "name": "Example Customer",
+        "phone": null,
+        "tax_exempt": "none",
+        "tax_ids": []
+      },
+      "customer_email": null,
+      "discounts": [],
+      "expires_at": 1789182251,
+      "integration_identifier": null,
+      "invoice": "in_EXAMPLE",
+      "invoice_creation": null,
+      "livemode": true,
+      "locale": null,
+      "managed_payments": {
+        "enabled": false
+      },
+      "metadata": {
+        "tenant_id": "default"
+      },
+      "mode": "subscription",
+      "origin_context": null,
+      "payment_intent": null,
+      "payment_link": null,
+      "payment_method_collection": "always",
+      "payment_method_configuration_details": {
+        "id": "pmc_1UEGjb4j5c6KcLizIZAsuBcF",
+        "parent": null
+      },
+      "payment_method_options": {
+        "card": {
+          "request_three_d_secure": "automatic"
+        }
+      },
+      "payment_method_types": [
+        "card"
+      ],
+      "payment_status": "paid",
+      "permissions": null,
+      "phone_number_collection": {
+        "enabled": false
+      },
+      "recovered_from": null,
+      "saved_payment_method_options": {
+        "allow_redisplay_filters": [
+          "always"
+        ],
+        "payment_method_remove": "disabled",
+        "payment_method_save": null
+      },
+      "setup_intent": null,
+      "shipping_address_collection": null,
+      "shipping_cost": null,
+      "shipping_options": [],
+      "status": "complete",
+      "submit_type": null,
+      "subscription": "sub_EXAMPLE",
+      "success_url": "https://hub.meshsat.net/#/settings?checkout=done",
+      "total_details": {
+        "amount_discount": 0,
+        "amount_shipping": 0,
+        "amount_tax": 0
+      },
+      "ui_mode": "hosted_page",
+      "url": null,
+      "wallet_options": null
+    }
+  },
+  "type": "checkout.session.completed"
+}

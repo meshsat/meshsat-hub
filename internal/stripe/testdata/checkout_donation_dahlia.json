@@ -1,0 +1,147 @@
+{
+  "id": "evt_EXAMPLE",
+  "object": "event",
+  "api_version": "2026-08-26.dahlia",
+  "created": 1789093101,
+  "data": {
+    "object": {
+      "id": "cs_live_EXAMPLE",
+      "object": "checkout.session",
+      "adaptive_pricing": {
+        "enabled": true
+      },
+      "after_expiration": null,
+      "allow_promotion_codes": null,
+      "allowed_payment_method_types": null,
+      "amount_subtotal": 100,
+      "amount_total": 100,
+      "automatic_tax": {
+        "enabled": false,
+        "liability": null,
+        "provider": null,
+        "status": null
+      },
+      "billing_address_collection": "required",
+      "branding_settings": {
+        "background_color": "#ffffff",
+        "border_style": "rounded",
+        "button_color": "#0074d4",
+        "display_name": "MeshSat Hub",
+        "font_family": "default",
+        "icon": {
+          "file": "file_1UEHJp4j5c6KcLizVMUpyobh",
+          "type": "file"
+        },
+        "logo": {
+          "file": "file_1UEHJz4j5c6KcLizQYH1WsnC",
+          "type": "file"
+        }
+      },
+      "cancel_url": "https://hub.meshsat.net/#/?donation=cancelled",
+      "client_reference_id": null,
+      "client_secret": null,
+      "collected_information": null,
+      "consent": null,
+      "consent_collection": null,
+      "created": 1789092972,
+      "currency": "eur",
+      "currency_conversion": null,
+      "custom_fields": [],
+      "custom_text": {
+        "after_submit": null,
+        "shipping_address": null,
+        "submit": null,
+        "terms_of_service_acceptance": null
+      },
+      "customer": null,
+      "customer_account": null,
+      "customer_creation": "if_required",
+      "customer_details": {
+        "address": {
+          "city": "Leiden",
+          "country": "NL",
+          "line1": "Floresstraat 17",
+          "line2": null,
+          "postal_code": "2315 HP",
+          "state": null
+        },
+        "business_name": null,
+        "email": "billing+example@meshsat.net",
+        "individual_name": null,
+        "name": "Example Customer",
+        "phone": null,
+        "tax_exempt": "none",
+        "tax_ids": []
+      },
+      "customer_email": null,
+      "discounts": [],
+      "expires_at": 1789179371,
+      "integration_identifier": null,
+      "invoice": null,
+      "invoice_creation": {
+        "enabled": false,
+        "invoice_data": {
+          "account_tax_ids": null,
+          "custom_fields": null,
+          "description": null,
+          "footer": null,
+          "issuer": null,
+          "metadata": {},
+          "rendering_options": null
+        }
+      },
+      "livemode": true,
+      "locale": null,
+      "managed_payments": {
+        "enabled": false
+      },
+      "metadata": {
+        "kind": "donation"
+      },
+      "mode": "payment",
+      "origin_context": null,
+      "payment_intent": "pi_EXAMPLE",
+      "payment_link": null,
+      "payment_method_collection": "if_required",
+      "payment_method_configuration_details": {
+        "id": "pmc_1UEGjb4j5c6KcLizIZAsuBcF",
+        "parent": null
+      },
+      "payment_method_options": {
+        "card": {
+          "request_three_d_secure": "automatic"
+        }
+      },
+      "payment_method_types": [
+        "card",
+        "bancontact",
+        "eps",
+        "ideal"
+      ],
+      "payment_status": "paid",
+      "permissions": null,
+      "phone_number_collection": {
+        "enabled": false
+      },
+      "recovered_from": null,
+      "saved_payment_method_options": null,
+      "setup_intent": null,
+      "shipping_address_collection": null,
+      "shipping_cost": null,
+      "shipping_options": [],
+      "status": "complete",
+      "submit_type": null,
+      "subscription": null,
+      "success_url": "https://hub.meshsat.net/#/?donation=thanks",
+      "total_details": {
+        "amount_discount": 0,
+        "amount_shipping": 0,
+        "amount_tax": 0
+      },
+      "ui_mode": "hosted_page",
+      "url": null,
+      "wallet_options": null
+    }
+  },
+  "type": "checkout.session.completed"
+}
