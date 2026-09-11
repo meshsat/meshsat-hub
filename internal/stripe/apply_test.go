@@ -3,6 +3,7 @@ package stripe
 import (
 	"fmt"
 	"testing"
+	"time"
 
 	"github.com/meshsat/meshsat-hub/internal/billing"
 	"github.com/meshsat/meshsat-hub/internal/plans"
@@ -165,5 +166,68 @@ func TestAZeroAmountSessionRecordsNothing(t *testing.T) {
 	}
 	if len(rc.rows) != 0 {
 		t.Fatalf("receipts = %d, want 0", len(rc.rows))
+	}
+}
+
+func failedInvoice(id, cus string, due int64, nextAttempt int64) string {
+	return fmt.Sprintf(`{"id":%q,"type":%q,"created":%d,"data":{"object":{
+		"id":"in_fail","customer":%q,"subscription":"sub_1","amount_due":%d,"amount_paid":0,
+		"currency":"eur","customer_email":"payer@example.com","customer_name":"Payer",
+		"attempt_count":1,"next_payment_attempt":%d}}}`,
+		id, EventInvoiceFailed, fixedNow.Unix(), cus, due, nextAttempt)
+}
+
+// A failing card is the provider retrying, not a cancellation. Ending a plan
+// over one attempt would take a fleet off the air because a card expired.
+func TestAFailedPaymentDoesNotTouchThePlan(t *testing.T) {
+	st := newTenants(store.Tenant{ID: "t1", Plan: plans.Crew, StripeCustomerID: "cus_1"})
+	h, rc, _ := newHandler(t, st)
+
+	if w := deliver(t, h, failedInvoice("evt_fail", "cus_1", 900, fixedNow.Add(72*time.Hour).Unix())); w.Code != 200 {
+		t.Fatalf("got %d: %s", w.Code, w.Body.String())
+	}
+	if got := st.get("t1"); got.Plan != plans.Crew {
+		t.Errorf("plan = %q, want crew kept: a retry is not a cancellation", got.Plan)
+	}
+	// And no receipt: nothing was paid, so nothing is owed a document.
+	if len(rc.rows) != 0 {
+		t.Errorf("receipts = %d, want 0: a failed payment is not a sale", len(rc.rows))
+	}
+}
+
+// The event has to be handled at all. Before this, six events were routed and
+// none of them was a failure, so a declined or Radar-blocked renewal left no
+// metric, no audit entry and no word to the customer.
+func TestAFailedPaymentIsAcknowledged(t *testing.T) {
+	st := newTenants(store.Tenant{ID: "t1", Plan: plans.Crew, StripeCustomerID: "cus_1"})
+	h, _, _ := newHandler(t, st)
+
+	w := deliver(t, h, failedInvoice("evt_ack", "cus_1", 900, 0))
+	if w.Code != 200 {
+		t.Fatalf("got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+// A zero-amount invoice failing is a proration or a trial and means nothing.
+func TestAZeroAmountFailureIsIgnored(t *testing.T) {
+	st := newTenants(store.Tenant{ID: "t1", Plan: plans.Crew, StripeCustomerID: "cus_1"})
+	h, _, _ := newHandler(t, st)
+
+	if w := deliver(t, h, failedInvoice("evt_zero_fail", "cus_1", 0, 0)); w.Code != 200 {
+		t.Fatalf("got %d: %s", w.Code, w.Body.String())
+	}
+	if got := st.get("t1"); got.Plan != plans.Crew {
+		t.Errorf("plan = %q", got.Plan)
+	}
+}
+
+// A failure for a customer nobody knows is still money-adjacent and still has
+// to be visible, the same as any other unattributable event.
+func TestAFailedPaymentWithNoTenantIsRecordedForAPerson(t *testing.T) {
+	st := newTenants()
+	h, _, _ := newHandler(t, st)
+
+	if w := deliver(t, h, failedInvoice("evt_orphan_fail", "cus_unknown", 900, 0)); w.Code != 200 {
+		t.Fatalf("got %d: %s (an unattributable event is acknowledged, not retried)", w.Code, w.Body.String())
 	}
 }

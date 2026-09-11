@@ -108,6 +108,75 @@ The MeshSat team`, greeting(name), plan, limit, when, hubURL)
 	}
 }
 
+// PaymentFailed tells a customer their renewal did not go through, while
+// something can still be done about it.
+//
+// The tone matters more here than anywhere else in this file. Nothing is lost
+// yet: the plan is untouched, every device keeps reporting, and an SOS is
+// unaffected -- and a customer who reads this as "your service is off" may go
+// and buy somebody else's. So it says what is still true before it says what
+// is wrong, and it never uses the word suspended.
+//
+// retryAt is zero when the provider has stopped retrying, which is the one
+// case where the customer has to act rather than wait.
+func PaymentFailed(name, plan, amount string, retryAt, planEnds time.Time, hubURL string) Message {
+	facts := [][2]string{
+		{"Plan", esc(plan)},
+		{"Amount", esc(amount)},
+	}
+	var whatNext, whatNextHTML string
+	if retryAt.IsZero() {
+		whatNext = "We have stopped trying, so this one needs you: update your card on the " +
+			"Settings page and the payment will go through."
+		whatNextHTML = "We have stopped trying, so this one needs you: update your card on the " +
+			"Settings page and the payment will go through."
+	} else {
+		facts = append(facts, [2]string{"Next attempt", esc(moment(retryAt))})
+		whatNext = "We will try again automatically. If the card has changed, you can update it " +
+			"on the Settings page and there is nothing else to do."
+		whatNextHTML = whatNext
+	}
+	untilText, untilHTML := "", ""
+	if !planEnds.IsZero() {
+		facts = append(facts, [2]string{"Plan runs to", esc(moment(planEnds))})
+		untilText = fmt.Sprintf("\n\nYour plan runs to %s either way.", moment(planEnds))
+		untilHTML = "Your plan runs to " + esc(moment(planEnds)) + " either way."
+	}
+
+	text := fmt.Sprintf(`%s
+
+Your payment of %s for the %s plan did not go through.
+
+Nothing has changed about your account. Every device and bridge you have
+registered is still working and still reporting, and an SOS is never affected
+by billing.%s
+
+%s
+
+  %s
+
+The MeshSat team`, greeting(name), amount, plan, untilText, whatNext, hubURL)
+
+	html := para(esc(greeting(name))) +
+		para("Your payment for the "+esc(plan)+" plan did not go through.") +
+		factTable(facts) +
+		para("<strong>Nothing has changed about your account.</strong> Every device and bridge you "+
+			"have registered is still working and still reporting, and an SOS is never affected "+
+			"by billing.")
+	if untilHTML != "" {
+		html += para(untilHTML)
+	}
+	html += para(whatNextHTML) +
+		button("Update your card", hubURL) +
+		lastPara("The MeshSat team")
+
+	return Message{
+		Subject: "Your MeshSat Hub payment did not go through",
+		Text:    text,
+		HTML:    Wrap(html),
+	}
+}
+
 // LapseWarning goes out before a paid plan ends, while the customer can still
 // do something about it. Nothing sent one before: a lapsed customer found out
 // when a device registration was refused.

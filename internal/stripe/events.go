@@ -32,6 +32,7 @@ const (
 	EventSubscriptionUpdated = "customer.subscription.updated"
 	EventSubscriptionDeleted = "customer.subscription.deleted"
 	EventInvoicePaid         = "invoice.paid"
+	EventInvoiceFailed       = "invoice.payment_failed"
 	EventChargeRefunded      = "charge.refunded"
 )
 
@@ -133,16 +134,22 @@ func (s subscription) live() bool {
 // invoice is data.object for invoice.paid. This is the document trigger: an
 // invoice is paid once per period, which is exactly when a receipt is owed.
 type invoice struct {
-	ID              string `json:"id"`
-	Customer        string `json:"customer"`
-	Subscription    string `json:"subscription"`
-	AmountPaid      int64  `json:"amount_paid"`
-	Currency        string `json:"currency"`
-	CustomerEmail   string `json:"customer_email"`
-	CustomerName    string `json:"customer_name"`
-	Charge          string `json:"charge"`
-	Created         int64  `json:"created"`
-	CustomerAddress struct {
+	ID           string `json:"id"`
+	Customer     string `json:"customer"`
+	Subscription string `json:"subscription"`
+	AmountPaid   int64  `json:"amount_paid"`
+	AmountDue    int64  `json:"amount_due"`
+	AttemptCount int    `json:"attempt_count"`
+	// NextPaymentAttempt is unix seconds, or 0 when Stripe has given up
+	// retrying. Zero is the interesting case: it means this is the last word
+	// on the payment, not a step on the way.
+	NextPaymentAttempt int64  `json:"next_payment_attempt"`
+	Currency           string `json:"currency"`
+	CustomerEmail      string `json:"customer_email"`
+	CustomerName       string `json:"customer_name"`
+	Charge             string `json:"charge"`
+	Created            int64  `json:"created"`
+	CustomerAddress    struct {
 		Country string `json:"country"`
 	} `json:"customer_address"`
 	Lines struct {
