@@ -53,13 +53,17 @@ func newAuditStore(t *testing.T) store.Store {
 // A payment that upgraded nobody has to be findable. Before this it was a
 // slog.Warn and nothing else: nothing alerted on it, and an operator had no
 // way to see that money had arrived (MESHSAT-1007).
+//
+// This seeds the action internal/stripe ACTUALLY writes. The version of this
+// test that seeded the predecessor's action instead is why nobody noticed the
+// endpoint had been returning [] since the Stripe migration.
 func TestUnmatchedPaymentsAreListedForAnOperator(t *testing.T) {
 	s := newAuditStore(t)
 	r, a := paymentsRouter(t, s, &mockStore{})
 	ctx := t.Context()
 
-	detail := `{"transaction_id":"txn-77","tier":"Crew","amount":"9.00","currency":"EUR","payer_email":"someone@example.com","message":"no code here","reason":"no claim code, payer address, or remembered payer matched a tenant"}`
-	if err := a.Log(ctx, store.DefaultTenantID, unmatchedPaymentAction, "kofi_webhook", detail, ""); err != nil {
+	detail := `{"provider":"stripe","event":"evt_77","type":"checkout.session.completed","amount_cents":900,"currency":"eur","payer_email":"someone@example.com","reason":"checkout completed with no tenant"}`
+	if err := a.Log(ctx, store.DefaultTenantID, unattributedPaymentAction, "stripe_webhook", detail, ""); err != nil {
 		t.Fatal(err)
 	}
 	// Noise on the same tenant must not appear in the listing.
@@ -87,11 +91,40 @@ func TestUnmatchedPaymentsAreListedForAnOperator(t *testing.T) {
 	if err := json.Unmarshal(got[0].Payment, &p); err != nil {
 		t.Fatalf("payment detail is not JSON an operator can read: %v", err)
 	}
-	// Everything needed to attribute it by hand.
-	for _, k := range []string{"transaction_id", "amount", "currency", "payer_email", "reason"} {
+	// Everything needed to attribute it by hand, in the shape
+	// internal/stripe.recordUnattributed writes.
+	for _, k := range []string{"event", "amount_cents", "currency", "payer_email", "reason"} {
 		if p[k] == nil || p[k] == "" {
 			t.Errorf("payment record is missing %q: %v", k, p)
 		}
+	}
+}
+
+// The audit log is an append-only hash chain, so entries the predecessor wrote
+// cannot be rewritten under the current action name. They still have to be
+// readable, or the migration silently hid money somebody already failed to
+// place.
+func TestAnUnattributedPaymentUnderTheOldActionIsStillListed(t *testing.T) {
+	s := newAuditStore(t)
+	r, a := paymentsRouter(t, s, &mockStore{})
+	ctx := t.Context()
+
+	legacy := `{"transaction_id":"txn-77","tier":"Crew","amount":"9.00","currency":"EUR","payer_email":"old@example.com","reason":"no claim code matched a tenant"}`
+	if err := a.Log(ctx, store.DefaultTenantID, legacyUnattributedPaymentAction, "kofi_webhook", legacy, ""); err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest("GET", "/api/admin/payments/unmatched", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	var got []struct {
+		Payment json.RawMessage `json:"payment"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
+		t.Fatalf("decode: %v (%s)", err, w.Body.String())
+	}
+	if len(got) != 1 {
+		t.Fatalf("got %d payments, want 1: the old action must stay readable: %s", len(got), w.Body.String())
 	}
 }
 
