@@ -81,16 +81,24 @@ func (f *Federation) Start(ctx context.Context) error {
 	ctx, f.cancel = context.WithCancel(ctx)
 	f.running.Store(true)
 
+	// A failed start must not leave the instance looking alive: Relay checks
+	// running, and the context would otherwise never be cancelled.
+	fail := func(err error) error {
+		f.running.Store(false)
+		f.cancel()
+		return err
+	}
+
 	tlsCfg, err := f.buildTLSConfig()
 	if err != nil {
-		return fmt.Errorf("tak federation: TLS config: %w", err)
+		return fail(fmt.Errorf("tak federation: TLS config: %w", err))
 	}
 
 	// Listen for inbound federation connections
 	addr := ":" + strconv.Itoa(f.cfg.Port)
 	listener, err := tls.Listen("tcp", addr, tlsCfg)
 	if err != nil {
-		return fmt.Errorf("tak federation: listen %s: %w", addr, err)
+		return fail(fmt.Errorf("tak federation: listen %s: %w", addr, err))
 	}
 	f.listener = listener
 
@@ -183,34 +191,48 @@ func (f *Federation) ConnectedPeers() []string {
 	return result
 }
 
+// buildTLSConfig requires the certificate, key AND CA. Federation v2 is
+// mutual TLS: the Hub presents a certificate to every peer and verifies
+// theirs. With no CA, RequireAndVerifyClientCert falls back to the system
+// roots and would accept any publicly issued certificate as a peer, so none
+// of the three is optional. [MESHSAT-1031]
 func (f *Federation) buildTLSConfig() (*tls.Config, error) {
-	tlsCfg := &tls.Config{
-		MinVersion: tls.VersionTLS12,
-		ClientAuth: tls.RequireAndVerifyClientCert,
+	var missing []string
+	if f.cfg.CertFile == "" {
+		missing = append(missing, "HUB_TAK_FEDERATION_CERT")
+	}
+	if f.cfg.KeyFile == "" {
+		missing = append(missing, "HUB_TAK_FEDERATION_KEY")
+	}
+	if f.cfg.CAFile == "" {
+		missing = append(missing, "HUB_TAK_FEDERATION_CA")
+	}
+	if len(missing) > 0 {
+		return nil, fmt.Errorf("mutual TLS needs %s; set them or set HUB_TAK_FEDERATION_ENABLED=false",
+			strings.Join(missing, ", "))
 	}
 
-	if f.cfg.CertFile != "" && f.cfg.KeyFile != "" {
-		cert, err := tls.LoadX509KeyPair(f.cfg.CertFile, f.cfg.KeyFile)
-		if err != nil {
-			return nil, fmt.Errorf("load cert: %w", err)
-		}
-		tlsCfg.Certificates = []tls.Certificate{cert}
+	cert, err := tls.LoadX509KeyPair(f.cfg.CertFile, f.cfg.KeyFile)
+	if err != nil {
+		return nil, fmt.Errorf("load cert: %w", err)
 	}
 
-	if f.cfg.CAFile != "" {
-		caPEM, err := os.ReadFile(f.cfg.CAFile)
-		if err != nil {
-			return nil, fmt.Errorf("read CA: %w", err)
-		}
-		pool := x509.NewCertPool()
-		if !pool.AppendCertsFromPEM(caPEM) {
-			return nil, fmt.Errorf("invalid CA")
-		}
-		tlsCfg.RootCAs = pool
-		tlsCfg.ClientCAs = pool
+	caPEM, err := os.ReadFile(f.cfg.CAFile)
+	if err != nil {
+		return nil, fmt.Errorf("read CA: %w", err)
+	}
+	pool := x509.NewCertPool()
+	if !pool.AppendCertsFromPEM(caPEM) {
+		return nil, fmt.Errorf("invalid CA: no PEM certificate in %s", f.cfg.CAFile)
 	}
 
-	return tlsCfg, nil
+	return &tls.Config{
+		MinVersion:   tls.VersionTLS12,
+		ClientAuth:   tls.RequireAndVerifyClientCert,
+		Certificates: []tls.Certificate{cert},
+		RootCAs:      pool,
+		ClientCAs:    pool,
+	}, nil
 }
 
 func (f *Federation) acceptLoop(ctx context.Context) {

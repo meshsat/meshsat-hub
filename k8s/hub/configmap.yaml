@@ -124,8 +124,13 @@ data:
   # how many a busy or looping TAK server can create.
   HUB_TAK_API_MAX_DEVICES: "5000"
   HUB_TAK_CALLSIGN_PREFIX: "MESHSAT-HUB"
-  HUB_TAK_FEDERATION_ENABLED: "true"
-  HUB_TAK_FEDERATION_PEERS: "192.168.15.10:9001"
+  # TAK Federation v2 is off (MESHSAT-1031). It came across with the compose
+  # values at the cutover and never started here: no mTLS material exists, the
+  # GR peer 192.168.15.10 is not routable from this cluster, and no OTS listens
+  # on 9001. Re-enabling needs HUB_TAK_FEDERATION_CERT/_KEY/_CA mounted from a
+  # Secret, a peer the workers can reach, and a Service if peers dial in. The
+  # TAK client and the OTS poller above are separate and unaffected.
+  HUB_TAK_FEDERATION_ENABLED: "false"
 
   # --- public exposure (MESHSAT-995) ---
   # Whose X-Forwarded-For to believe when resolving the client IP for rate
