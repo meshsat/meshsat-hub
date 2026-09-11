@@ -360,19 +360,26 @@ func (c *Client) applyCredit(ctx context.Context, inv *invoiceEnvelope, credit *
 // CreditPDF fetches the rendered credit note. The Hub attaches it to the notice
 // it sends the customer.
 func (c *Client) CreditPDF(ctx context.Context, creditID string) ([]byte, error) {
+	return c.documentPDF(ctx, "credits", creditID, "credit pdf")
+}
+
+// documentPDF downloads one rendered document. Shared by CreditPDF and
+// InvoicePDF: both send the customer a PDF the Hub fetched itself, and the
+// checks below are the same for either.
+func (c *Client) documentPDF(ctx context.Context, collection, id, op string) ([]byte, error) {
 	if c.baseURL == "" || c.token == "" {
 		return nil, ErrNotConfigured
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet,
-		c.baseURL+"/api/v1/credits/"+url.PathEscape(creditID)+"/download", nil)
+		c.baseURL+"/api/v1/"+collection+"/"+url.PathEscape(id)+"/download", nil)
 	if err != nil {
-		return nil, fmt.Errorf("invoiceninja: credit pdf: %w", err)
+		return nil, fmt.Errorf("invoiceninja: %s: %w", op, err)
 	}
 	req.Header.Set("X-API-TOKEN", c.token)
 	req.Header.Set("X-Requested-With", "XMLHttpRequest")
 	resp, err := c.hc.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("invoiceninja: credit pdf: %w", err)
+		return nil, fmt.Errorf("invoiceninja: %s: %w", op, err)
 	}
 	defer func() {
 		_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, maxPDF))
@@ -380,15 +387,15 @@ func (c *Client) CreditPDF(ctx context.Context, creditID string) ([]byte, error)
 	}()
 	body, err := io.ReadAll(io.LimitReader(resp.Body, maxPDF))
 	if err != nil {
-		return nil, fmt.Errorf("invoiceninja: credit pdf: reading: %w", err)
+		return nil, fmt.Errorf("invoiceninja: %s: reading: %w", op, err)
 	}
 	if resp.StatusCode < 200 || resp.StatusCode > 299 {
-		return nil, &Error{Status: resp.StatusCode, Op: "credit pdf", Body: snippet(body)}
+		return nil, &Error{Status: resp.StatusCode, Op: op, Body: snippet(body)}
 	}
 	// This host answers an unknown path with its web application at 200, so a
 	// wrong URL comes back as HTML rather than an error. Check what arrived.
 	if !strings.HasPrefix(string(body), "%PDF") {
-		return nil, fmt.Errorf("invoiceninja: credit pdf: the response is not a PDF (%d bytes)", len(body))
+		return nil, fmt.Errorf("invoiceninja: %s: the response is not a PDF (%d bytes)", op, len(body))
 	}
 	return body, nil
 }

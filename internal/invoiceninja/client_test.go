@@ -618,3 +618,74 @@ func TestATaxExemptRequestCarriesNoTaxOnTheLine(t *testing.T) {
 		t.Errorf("cost = %v, want the full 5.00", item["cost"])
 	}
 }
+
+// Recording the payment is what mails the customer, so SuppressReceiptEmail has
+// to reach that call and nothing else. It exists because this company has one
+// payment template and it is written for a subscription: a donation sent under
+// it tells the giver their subscription is active and that the document shows
+// the VAT included in the price, when the document shows no tax at all.
+func TestSuppressReceiptEmailReachesThePaymentCall(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		suppress bool
+		want     string
+	}{
+		{"a subscription is mailed by the billing system", false, "true"},
+		{"a donation is not, the Hub sends its own", true, "false"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := newFake()
+			srv := f.server(t)
+			c := New(srv.URL, "test-token", 5*time.Second)
+
+			req := testRequest()
+			req.SuppressReceiptEmail = tc.suppress
+			if _, err := c.IssueReceipt(context.Background(), req); err != nil {
+				t.Fatalf("IssueReceipt: %v", err)
+			}
+
+			pay := f.bodies[indexOf(t, f, "POST /payments")]
+			if pay["email_receipt"] != tc.want {
+				t.Errorf("email_receipt = %v, want %q", pay["email_receipt"], tc.want)
+			}
+			// It is a string, not a bool: this API rejects the bool.
+			if _, ok := pay["email_receipt"].(string); !ok {
+				t.Errorf("email_receipt is %T, want a string", pay["email_receipt"])
+			}
+		})
+	}
+}
+
+// The invoice PDF travels with the donation receipt the Hub sends itself. Same
+// checks as the credit note, because this host answers an unknown path with its
+// web application at 200 rather than an error.
+func TestInvoicePDFRefusesAnythingThatIsNotAPDF(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/v1/invoices/inv-1/download" {
+			t.Errorf("fetched %q", r.URL.Path)
+		}
+		_, _ = w.Write([]byte("<!doctype html><html>the web app</html>"))
+	}))
+	defer srv.Close()
+
+	c := New(srv.URL, "tok", 5*time.Second)
+	if _, err := c.InvoicePDF(context.Background(), "inv-1"); err == nil {
+		t.Fatal("HTML was accepted as a PDF and would have been attached to a receipt")
+	}
+}
+
+func TestInvoicePDFReturnsTheDocument(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte("%PDF-1.4 receipt"))
+	}))
+	defer srv.Close()
+
+	c := New(srv.URL, "tok", 5*time.Second)
+	pdf, err := c.InvoicePDF(context.Background(), "inv-1")
+	if err != nil {
+		t.Fatalf("InvoicePDF: %v", err)
+	}
+	if string(pdf) != "%PDF-1.4 receipt" {
+		t.Errorf("got %q", pdf)
+	}
+}
