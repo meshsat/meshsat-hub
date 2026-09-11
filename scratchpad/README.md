@@ -31,6 +31,13 @@ Invoice Ninja client, rewind `invoice_number_counter` and `credit_number_counter
 to 1, and verify `email_style_custom` survived by sha256 — a purge that takes
 the company's email shell with it is worse than the documents it removed.
 
+**Clean up in Stripe before deleting the tenant row.** Delete the tenant first
+and the Hub keeps receiving subscription events for an account that no longer
+exists. It records those as unattributed, correctly — and on 2026-09-11 that
+litter fired a tier-1 page minutes after the alert was deployed, three times,
+for no money at all. A probe must never manufacture the alerts it exists to
+help prove. Cancel in Stripe, wait, then purge.
+
 **Test MO messages cost money.** Routing has wildcard `Relay MO -> SMS` rules,
 so a test message can text a real phone. See rule 14 in CLAUDE.md.
 
