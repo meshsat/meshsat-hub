@@ -20,7 +20,7 @@ const routes = [
   { path: '/ota', name: 'ota', component: () => import('./views/OtaView.vue'), meta: { requiresAuth: true } },
   { path: '/network', name: 'network', component: () => import('./views/NetworkView.vue'), meta: { requiresAuth: true } },
   { path: '/routing', name: 'routing', component: () => import('./views/RoutingView.vue'), meta: { requiresAuth: true } },
-  { path: '/tak', name: 'tak', component: () => import('./views/TakOperationsView.vue'), meta: { requiresAuth: true } },
+  { path: '/tak', name: 'tak', component: () => import('./views/TakOperationsView.vue'), meta: { requiresAuth: true, requiresPlatformAdmin: true } },
   { path: '/integrations', name: 'integrations', component: () => import('./views/IntegrationsView.vue'), meta: { requiresAuth: true } },
   { path: '/topology', name: 'topology', component: () => import('./views/TopologyView.vue'), meta: { requiresAuth: true } },
   { path: '/devices/:imei', name: 'deviceDetail', component: () => import('./views/DeviceDetail.vue'), meta: { requiresAuth: true } },
@@ -48,6 +48,11 @@ router.beforeEach((to) => {
     return { name: 'login', query: to.fullPath && to.fullPath !== '/' ? { redirect: to.fullPath } : {} }
   }
   if (to.name === 'login' && auth.isAuthenticated) {
+    return { name: 'dashboard' }
+  }
+  // Platform-only views (TAK Ops, MESHSAT-1032). The API refuses them too;
+  // this keeps a customer from landing on a page of 403s.
+  if (to.meta.requiresPlatformAdmin && !auth.isPlatformAdmin) {
     return { name: 'dashboard' }
   }
 })

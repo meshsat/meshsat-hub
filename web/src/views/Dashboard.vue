@@ -6,8 +6,10 @@ import { exportCSV } from '../utils/csv'
 import Sparkline from '../components/Sparkline.vue'
 import EmptyState from '../components/EmptyState.vue'
 import { useDashboardStore } from '../stores/dashboard'
+import { useAuthStore } from '../stores/auth'
 
 const dash = useDashboardStore()
+const auth = useAuthStore()
 
 const loading = ref(true)
 const lastRefresh = ref(null)
@@ -63,8 +65,9 @@ async function loadAll() {
   retRoutes.value = results[9].status === 'fulfilled' ? results[9].value : { count: 0 }
   bridgeList.value = results[10].status === 'fulfilled' && Array.isArray(results[10].value) ? results[10].value : []
 
-  // Load TAK integration status for KPI widget
-  try {
+  // Load TAK integration status for KPI widget. The TAK gateway is the
+  // platform's; a customer neither sees it nor asks for it (MESHSAT-1032).
+  if (auth.isPlatformAdmin) try {
     const intList = await integrations.list()
     const takInt = (intList || []).find(i => i.name && i.name.includes('TAK') && !i.name.includes('Federation'))
     const fedInt = (intList || []).find(i => i.name && i.name.includes('Federation'))
@@ -285,8 +288,8 @@ function directionColor(d) {
           <div class="text-gray-500 text-[10px] mt-0.5">online / total</div>
         </div>
 
-        <!-- TAK Server -->
-        <div class="bg-tactical-surface rounded-lg p-4 border border-tactical-border cursor-pointer" @click="$router.push('/tak')">
+        <!-- TAK Server and Federation: the platform's TAK gateway, never shown to a customer (MESHSAT-1032) -->
+        <div v-if="auth.isPlatformAdmin" class="bg-tactical-surface rounded-lg p-4 border border-tactical-border cursor-pointer" @click="$router.push('/tak')">
           <div class="text-blue-400 text-xs uppercase tracking-wider mb-1">TAK Server</div>
           <div class="flex items-baseline gap-1">
             <span class="text-xl font-bold" :class="dash.takEnabled ? 'text-ms-success' : 'text-ms-muted'">{{ dash.takEnabled ? 'ON' : 'OFF' }}</span>
@@ -295,7 +298,7 @@ function directionColor(d) {
         </div>
 
         <!-- TAK Federation -->
-        <div class="bg-tactical-surface rounded-lg p-4 border border-tactical-border cursor-pointer" @click="$router.push('/tak')">
+        <div v-if="auth.isPlatformAdmin" class="bg-tactical-surface rounded-lg p-4 border border-tactical-border cursor-pointer" @click="$router.push('/tak')">
           <div class="text-purple-400 text-xs uppercase tracking-wider mb-1">Federation</div>
           <div class="flex items-baseline gap-1">
             <span class="text-xl font-bold" :class="dash.takFedPeers > 0 ? 'text-purple-400' : 'text-ms-muted'">{{ dash.takFedPeers }}</span>

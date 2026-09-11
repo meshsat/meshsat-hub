@@ -139,7 +139,7 @@ func TestTAK_PositionMQTTToCoT(t *testing.T) {
 	defer takClient.Disconnect()
 
 	// 5. TAK subscriber wiring MQTT → CoT
-	sub := tak.NewSubscriber(hubMQTT, takClient, "TEST-HUB", 300)
+	sub := tak.NewSubscriber(hubMQTT, takClient, platformTopics{}, "TEST-HUB", 300)
 	if err := sub.Start(); err != nil {
 		t.Fatalf("tak subscriber start: %v", err)
 	}
@@ -195,7 +195,7 @@ func TestTAK_SOSMQTTToEmergencyCoT(t *testing.T) {
 	}
 	defer takClient.Disconnect()
 
-	sub := tak.NewSubscriber(hubMQTT, takClient, "TEST-HUB", 300)
+	sub := tak.NewSubscriber(hubMQTT, takClient, platformTopics{}, "TEST-HUB", 300)
 	if err := sub.Start(); err != nil {
 		t.Fatalf("tak subscriber start: %v", err)
 	}
@@ -243,7 +243,7 @@ func TestTAK_MODecodedToChat(t *testing.T) {
 	}
 	defer takClient.Disconnect()
 
-	sub := tak.NewSubscriber(hubMQTT, takClient, "TEST-HUB", 300)
+	sub := tak.NewSubscriber(hubMQTT, takClient, platformTopics{}, "TEST-HUB", 300)
 	if err := sub.Start(); err != nil {
 		t.Fatalf("tak subscriber start: %v", err)
 	}
@@ -302,7 +302,7 @@ func TestTAK_NullIslandFiltered(t *testing.T) {
 	}
 	defer takClient.Disconnect()
 
-	sub := tak.NewSubscriber(hubMQTT, takClient, "TEST-HUB", 300)
+	sub := tak.NewSubscriber(hubMQTT, takClient, platformTopics{}, "TEST-HUB", 300)
 	if err := sub.Start(); err != nil {
 		t.Fatalf("tak subscriber start: %v", err)
 	}

@@ -86,7 +86,7 @@ const navGroups = [
     { to: '/email', label: 'Email' },
     { to: '/routing', label: 'Routing' },
     { to: '/integrations', label: 'Integrations' },
-    { to: '/tak', label: 'TAK Ops' },
+    { to: '/tak', label: 'TAK Ops', platformAdmin: true },
     { to: '/webhooks', label: 'Webhooks' },
   ]},
   { label: 'Infrastructure', items: [
@@ -97,6 +97,13 @@ const navGroups = [
     { to: '/settings', label: 'Settings' },
   ]},
 ]
+
+// Items flagged platformAdmin belong to the platform, not to a tenant, and a
+// customer never sees them. TAK Ops is the operator's own TAK gateway
+// (MESHSAT-1032).
+const visibleNavGroups = computed(() => navGroups
+  .map(group => ({ ...group, items: group.items.filter(item => !item.platformAdmin || auth.isPlatformAdmin) }))
+  .filter(group => group.items.length > 0))
 </script>
 
 <template>
@@ -113,7 +120,7 @@ const navGroups = [
           <router-link :to="{ name: 'dashboard' }" class="shrink-0" aria-label="MeshSat Hub home"><BrandLockup /></router-link>
           <!-- Nav dropdowns (center, flex-1) -->
           <nav class="hidden md:flex flex-1 items-center mx-2 lg:mx-6 gap-1">
-            <template v-for="group in navGroups" :key="group.label">
+            <template v-for="group in visibleNavGroups" :key="group.label">
               <div class="relative" @mouseenter="showDropdown(group.label)" @mouseleave="hideDropdown">
                 <button class="px-3 py-1.5 rounded text-xs font-medium whitespace-nowrap transition-colors flex items-center gap-1"
                   :class="isGroupActive(group)
@@ -239,7 +246,7 @@ const navGroups = [
 
             <!-- Nav groups -->
             <div class="flex-1 px-2 py-2 space-y-1">
-              <template v-for="group in navGroups" :key="group.label">
+              <template v-for="group in visibleNavGroups" :key="group.label">
                 <div class="text-xs text-gray-500 uppercase tracking-wider px-3 pt-3 pb-1 font-display">{{ group.label }}</div>
                 <RouterLink v-for="item in group.items" :key="item.to" :to="item.to"
                   class="block px-3 py-2 rounded text-sm transition-colors text-gray-400 hover:text-gray-200 hover:bg-white/5"

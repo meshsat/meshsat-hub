@@ -18,6 +18,7 @@ const bridgeStaleSec = 120
 type Subscriber struct {
 	mqtt           bus.MessageBus
 	client         *Client
+	platform       PlatformChecker // only the platform tenant's traffic is forwarded
 	callsignPrefix string
 	cotStaleSec    int
 	bridgeBirths   map[string]*protocol.BridgeBirth // bridge_id -> last birth cert
@@ -25,8 +26,9 @@ type Subscriber struct {
 	birthMu        sync.RWMutex
 }
 
-// NewSubscriber creates a new TAK MQTT subscriber.
-func NewSubscriber(mqtt bus.MessageBus, client *Client, callsignPrefix string, cotStaleSec int) *Subscriber {
+// NewSubscriber creates a new TAK MQTT subscriber. platform decides which
+// traffic may reach the TAK server; only the platform tenant's does.
+func NewSubscriber(mqtt bus.MessageBus, client *Client, platform PlatformChecker, callsignPrefix string, cotStaleSec int) *Subscriber {
 	if callsignPrefix == "" {
 		callsignPrefix = "MESHSAT-HUB"
 	}
@@ -36,6 +38,7 @@ func NewSubscriber(mqtt bus.MessageBus, client *Client, callsignPrefix string, c
 	return &Subscriber{
 		mqtt:           mqtt,
 		client:         client,
+		platform:       platform,
 		callsignPrefix: callsignPrefix,
 		cotStaleSec:    cotStaleSec,
 		bridgeBirths:   make(map[string]*protocol.BridgeBirth),
@@ -44,7 +47,12 @@ func NewSubscriber(mqtt bus.MessageBus, client *Client, callsignPrefix string, c
 }
 
 // Start subscribes to device MQTT topics and begins forwarding to TAK.
+// Every subscription goes through platformOnly: both topic shapes are still
+// subscribed, and the owner of record, not the shape, decides. [MESHSAT-1032]
 func (s *Subscriber) Start() error {
+	if s.platform == nil {
+		return fmt.Errorf("tak subscriber: no platform checker; refusing to forward any tenant's traffic")
+	}
 	subs := []struct {
 		topic   string
 		handler func(string, []byte)
@@ -59,7 +67,7 @@ func (s *Subscriber) Start() error {
 	}
 
 	for _, sub := range subs {
-		if err := s.subscribeBoth(sub.topic, sub.handler); err != nil {
+		if err := s.subscribeBoth(sub.topic, platformOnly(s.platform, sub.handler)); err != nil {
 			return fmt.Errorf("tak subscriber: %w", err)
 		}
 	}

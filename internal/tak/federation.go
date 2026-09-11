@@ -45,6 +45,7 @@ type Federation struct {
 	msgsIn   atomic.Int64
 	msgsOut  atomic.Int64
 	cancel   context.CancelFunc
+	platform PlatformChecker // decides which traffic may be federated; nil federates nothing
 }
 
 // FederationBus abstracts the MQTT message bus for federation.
@@ -431,6 +432,11 @@ func (f *Federation) sendToPeers(data []byte) {
 
 // handleMQTTForFederation forwards MQTT events to federation peers as CoT XML.
 func (f *Federation) handleMQTTForFederation(topic string, payload []byte) {
+	// Only the platform tenant's traffic is federated; with no checker,
+	// nothing is. [MESHSAT-1032]
+	if f.platform == nil || !f.platform.IsPlatformTopic(context.Background(), topic) {
+		return
+	}
 	if len(payload) == 0 {
 		return
 	}
