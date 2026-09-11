@@ -157,12 +157,26 @@ func (c *Client) Donation(ctx context.Context, req DonationRequest) (*Session, e
 	f.Set("cancel_url", req.CancelURL)
 	f.Set("billing_address_collection", "required")
 	f.Set("automatic_tax[enabled]", "false")
+	// Says what this session is for. A donation session may legitimately carry
+	// no tenant; without this marker the webhook could not tell that from a
+	// payment that lost its tenant, and would have to guess at one of them.
+	f.Set("metadata["+MetadataKind+"]", KindDonation)
 	if req.TenantID != "" {
 		f.Set("metadata[tenant_id]", req.TenantID)
 	}
 	if req.Email != "" {
 		f.Set("customer_email", req.Email)
 	}
+	// Deliberately NOT stable, unlike Checkout's key. A donation is repeatable:
+	// the same person may give twice, for the same amount, from the same
+	// account. A key derived from tenant and price would make Stripe answer the
+	// second one with the FIRST session for 24 hours, so a genuine second gift
+	// would silently reuse a session that is already paid or expired.
+	//
+	// Nothing is lost by that. do() performs a single request with no retry
+	// loop, so there is no automatic retry to deduplicate, and an unpaid
+	// Checkout session has no effect on anything and simply expires. A
+	// double-clicked button costs one abandoned session, not one extra charge.
 	var s Session
 	if err := c.post(ctx, "/checkout/sessions", f, idempotency("donation", req.TenantID, strconv.FormatInt(time.Now().UnixNano(), 36)), &s); err != nil {
 		return nil, err

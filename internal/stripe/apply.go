@@ -72,6 +72,18 @@ func (h *Handler) onCheckout(ctx context.Context, ev Event) error {
 	}
 	t, err := h.tenantFor(ctx, cs.Metadata, cs.Customer)
 	if err != nil {
+		// An anonymous donation is not a payment that lost its tenant. Nobody
+		// signed in to make it and there is no account it could belong to, so
+		// treating it as unattributable would leave real income with no
+		// document, sitting in a list for a person who cannot resolve it.
+		//
+		// The two are only distinguishable because the Hub stamps every
+		// session it creates -- see MetadataKind. This check MUST stay narrow:
+		// a session with no tenant and no marker is still genuinely
+		// unaccounted for and must keep landing in the unattributed list.
+		if isAnonymousDonation(cs) {
+			return h.anonymousDonation(ctx, ev, cs)
+		}
 		h.recordUnattributed(ctx, ev, cs.AmountTotal, cs.Currency, cs.email(), "checkout completed with no tenant")
 		return err
 	}
@@ -101,7 +113,7 @@ func (h *Handler) onCheckout(ctx context.Context, ev Event) error {
 	}
 
 	// A one-off payment is a donation: it gets a document and buys no tier.
-	if cs.Mode == "payment" && cs.AmountTotal > 0 {
+	if isOneOffPayment(cs) {
 		h.recordReceipt(ctx, t, receiptFacts{
 			key:      donationKey(cs.PaymentIntent, cs.ID),
 			txn:      cs.PaymentIntent,
@@ -115,6 +127,62 @@ func (h *Handler) onCheckout(ctx context.Context, ev Event) error {
 			paidAt:   time.Unix(ev.Created, 0).UTC(),
 		})
 	}
+	return nil
+}
+
+// isOneOffPayment reports whether this session is a payment rather than a
+// subscription, for an amount worth documenting.
+//
+// It deliberately does NOT require the donation marker. A one-off payment that
+// already resolves to a tenant is unambiguous whatever its metadata says, and
+// requiring the marker would mean a session created before the marker existed
+// produced no receipt if it were paid after the deploy -- money taken with no
+// document, which is the one outcome this whole outbox exists to prevent.
+func isOneOffPayment(cs checkoutSession) bool {
+	return cs.Mode == "payment" && cs.AmountTotal > 0
+}
+
+// isAnonymousDonation is the stricter test, used only where there is no tenant.
+// Here the marker is the ONLY thing separating a gift from somebody with no
+// account from a payment that lost the tenant it should have had, so it is
+// required and a session without it stays unattributed.
+func isAnonymousDonation(cs checkoutSession) bool {
+	return isOneOffPayment(cs) && cs.Metadata[MetadataKind] == KindDonation
+}
+
+// anonymousDonation records a gift from somebody with no account.
+//
+// It hangs off the platform tenant because a receipt row is tenant-scoped --
+// an export carries it and a purge destroys it, like every other table with
+// that column -- and there is no other tenant it could belong to. Everything
+// identifying the giver comes from what Stripe collected at checkout, which is
+// also what the document is made out to.
+//
+// No plan is granted here, and none may ever be. A donation that unlocked
+// anything would acquire a counter-performance and stop being outside the
+// scope of BTW, which is the whole basis on which it is invoiced without one
+// (internal/vat.ForDonation).
+func (h *Handler) anonymousDonation(ctx context.Context, ev Event, cs checkoutSession) error {
+	t := &store.Tenant{ID: store.DefaultTenantID}
+	ok, err := h.once(ctx, ev.ID, t.ID)
+	if err != nil || !ok {
+		return err
+	}
+	slog.Info("stripe: donation from somebody with no account",
+		"session", cs.ID, "amount_cents", cs.AmountTotal, "currency", cs.Currency,
+		"country", cs.country())
+	h.recordReceipt(ctx, t, receiptFacts{
+		key:      donationKey(cs.PaymentIntent, cs.ID),
+		txn:      cs.PaymentIntent,
+		cents:    cs.AmountTotal,
+		currency: cs.Currency,
+		email:    cs.email(),
+		name:     cs.CustomerDetails.Name,
+		plan:     billing.DonationPlan,
+		tier:     "Donation",
+		country:  cs.country(),
+		paidAt:   time.Unix(ev.Created, 0).UTC(),
+	})
 	return nil
 }
 

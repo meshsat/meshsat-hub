@@ -580,3 +580,41 @@ func TestInspectCompanyReadsTheSenderSetting(t *testing.T) {
 		t.Fatalf("state = %+v", st)
 	}
 }
+
+// Money outside the scope of VAT gets a line with no tax on it at all.
+//
+// This is not zero-rating within the system, it is money the system does not
+// reach: a voluntary contribution with no counter-performance
+// (internal/vat.ForDonation). The company has inclusive_taxes on, so leaving
+// the rate in place would carve 21% out of a gift and print VAT on a document
+// that owes none -- which the giver's own books could then reclaim.
+func TestATaxExemptRequestCarriesNoTaxOnTheLine(t *testing.T) {
+	f := newFake()
+	srv := f.server(t)
+	c := New(srv.URL, "test-token", 5*time.Second)
+
+	req := testRequest()
+	req.TaxExempt = true
+	req.AmountCents = 500
+	req.ProductKey = "MeshSat Hub support"
+	if _, err := c.IssueReceipt(context.Background(), req); err != nil {
+		t.Fatalf("IssueReceipt: %v", err)
+	}
+
+	body := f.bodies[indexOf(t, f, "POST /invoices")]
+	items, _ := body["line_items"].([]any)
+	if len(items) != 1 {
+		t.Fatalf("line_items = %v", body["line_items"])
+	}
+	item := items[0].(map[string]any)
+	if item["tax_name1"] != "" {
+		t.Errorf("tax_name1 = %v, want empty: this money is outside the scope of BTW", item["tax_name1"])
+	}
+	if item["tax_rate1"] != float64(0) {
+		t.Errorf("tax_rate1 = %v, want 0", item["tax_rate1"])
+	}
+	// The amount is still the whole gift. Nothing is derived out of it.
+	if item["cost"] != float64(5) {
+		t.Errorf("cost = %v, want the full 5.00", item["cost"])
+	}
+}

@@ -174,7 +174,15 @@ func (j *ReceiptJob) issue(ctx context.Context, r *store.Receipt) {
 	// asked BEFORE the billing system is touched: an invoice that has been sent
 	// has taken a number out of a gapless series, so a document at the wrong
 	// rate cannot simply be deleted afterwards (MESHSAT-1016).
-	if v := vat.For(r.Country); !v.Charge {
+	//
+	// A donation is decided by what it buys, not by where the giver is, so it
+	// takes a different rule and is never parked for a country -- see
+	// vat.ForDonation.
+	v := vat.For(r.Country)
+	if r.Plan == DonationPlan {
+		v = vat.ForDonation()
+	}
+	if !v.Charge && !v.OutsideScope {
 		j.block(ctx, r, v.Reason)
 		return
 	}
@@ -185,6 +193,7 @@ func (j *ReceiptJob) issue(ctx context.Context, r *store.Receipt) {
 		Email:             r.Email,
 		AmountCents:       r.AmountCents,
 		Currency:          r.Currency,
+		TaxExempt:         v.OutsideScope,
 		ProductKey:        productKey(r.Plan),
 		Description:       description(r.Plan, r.TierName),
 		PaidAt:            r.PaidAt,
@@ -276,7 +285,11 @@ func money(cents int64) string {
 // not a plan and never grants one: it exists so the document does not describe
 // a EUR 5 tip as "MeshSat Hub Free, subscription, one month", which is what it
 // said the first time donations were invoiced at all.
-const DonationPlan = "donation"
+//
+// Defined in internal/store because two SQL queries have to recognise the same
+// string; aliased here so every caller in the billing layer keeps reading
+// naturally.
+const DonationPlan = store.DonationPlan
 
 func productKey(plan string) string {
 	switch plan {
