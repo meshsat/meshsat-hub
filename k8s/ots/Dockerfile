@@ -10,9 +10,13 @@
 # never creates a CA. Each tenant's CA is created and held by the operator.
 #
 # requirements.txt is a hash-locked resolve of requirements.in for CPython 3.13
-# on manylinux x86_64:
-#   uv pip compile requirements.in --python-version 3.13 \
+# on manylinux x86_64. overrides.txt replaces the vulnerable exact versions that
+# OTS pins, and drops frida:
+#   uv pip compile requirements.in --override overrides.txt --python-version 3.13 \
 #     --python-platform x86_64-manylinux_2_28 --generate-hashes -o requirements.txt
+# pip installs the lock with --no-deps. Otherwise pip would resolve OTS's own
+# exact pins and put the vulnerable versions straight back. The lock is complete,
+# so --no-deps loses nothing.
 #
 # A few dependencies ship only sdists (flask-apscheduler, for one), so the venv
 # is built on the full image, which has a compiler, and copied into slim. Both
@@ -22,7 +26,7 @@
 FROM python:3.13-trixie AS build
 RUN python -m venv /opt/ots
 COPY requirements.txt /tmp/requirements.txt
-RUN /opt/ots/bin/pip install --no-cache-dir --require-hashes -r /tmp/requirements.txt
+RUN /opt/ots/bin/pip install --no-cache-dir --no-deps --require-hashes -r /tmp/requirements.txt
 
 FROM python:3.13-slim-trixie
 ENV PATH=/opt/ots/bin:$PATH \
