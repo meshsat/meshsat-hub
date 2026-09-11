@@ -32,6 +32,23 @@ lint:
     - golangci-lint run ./...
 
 # -----------------------------------------------------------------------------
+# SHELL — no early-exiting pipe reader inside a script that sets pipefail.
+#
+# `cmd | head` returns 141 once the producer outgrows a pipe buffer, and pipefail
+# turns that into a failed job. It took out every deploy on 2026-09-11 because
+# bump_k8s_pin -- the job that deploys -- ended in `git log -100 ... | head -1`.
+# It passes in review and on small inputs, which is exactly why it needs a gate.
+# -----------------------------------------------------------------------------
+shell:pipefail:
+  stage: lint
+  image: alpine:3.21
+  tags: [docker]
+  before_script:
+    - apk add --no-cache bash grep
+  script:
+    - bash scripts/check-pipefail-sigpipe.sh .
+
+# -----------------------------------------------------------------------------
 # SWAGGER — ensure swagger.json is up to date with code annotations
 # -----------------------------------------------------------------------------
 swagger:
