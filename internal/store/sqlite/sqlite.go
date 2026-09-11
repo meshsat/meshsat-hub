@@ -407,6 +407,7 @@ var postAlterMigrations = []string{
 		next_attempt_at TEXT NOT NULL DEFAULT '',
 		invoice_number TEXT NOT NULL DEFAULT '',
 		invoice_ref TEXT NOT NULL DEFAULT '',
+		payment_ref TEXT NOT NULL DEFAULT '',
 		issued_at TEXT NOT NULL DEFAULT '',
 		created_at TEXT NOT NULL DEFAULT (datetime('now')),
 		updated_at TEXT NOT NULL DEFAULT (datetime('now'))
@@ -443,6 +444,10 @@ var postAlterMigrations = []string{
 // lateAlterMigrations alter tables created in postAlterMigrations.
 // Duplicate column errors are ignored for idempotency.
 var lateAlterMigrations = []string{
+	// Mirrors postgres migration 17: which provider payment settled a receipt,
+	// so a refund can find the document to reverse. Late because receipts is
+	// created in postAlterMigrations.
+	`ALTER TABLE receipts ADD COLUMN payment_ref TEXT NOT NULL DEFAULT ''`,
 	// Offboarding: an existing database gets the soft-delete column here;
 	// tenants is created in postAlterMigrations, so this has to be late.
 	`ALTER TABLE tenants ADD COLUMN deleted_at TEXT NOT NULL DEFAULT ''`,
