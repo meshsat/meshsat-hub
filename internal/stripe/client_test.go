@@ -307,3 +307,52 @@ func TestCheckoutWordingSurvivesAMissingPlanName(t *testing.T) {
 		t.Errorf("no sensible fallback wording: %q", msg)
 	}
 }
+
+// Stripe renamed ui_mode's embedded value and the two API versions refuse each
+// other: at 2025-08-27.basil "embedded" is required and "embedded_page" is
+// rejected with "you must upgrade"; at 2026-08-26.dahlia it is the other way
+// round. Both checked against the live API on 2026-09-11.
+//
+// This test exists so that raising apiVersion fails HERE, next to the constant,
+// rather than on the donate page for every visitor at once.
+func TestTheEmbeddedDonationUsesTheValueThePinnedVersionAccepts(t *testing.T) {
+	c, form, _ := capture(t, 200, `{"id":"cs_1","client_secret":"cs_1_secret"}`)
+	_, err := c.Donation(context.Background(), DonationRequest{
+		PriceID:   "price_donation",
+		ReturnURL: "https://hub.example/donate/thanks?session_id={CHECKOUT_SESSION_ID}",
+	})
+	if err != nil {
+		t.Fatalf("donation: %v", err)
+	}
+	if got := form.Get("ui_mode"); got != "embedded" {
+		t.Errorf("ui_mode = %q, want \"embedded\".\n\n"+
+			"If apiVersion was just raised to 2026-08-26.dahlia or later, the value is now "+
+			"\"embedded_page\" and BOTH this test and client.go have to change together. "+
+			"The versions reject each other's spelling, so donations break for everyone "+
+			"the moment the pin moves.", got)
+	}
+	// Embedded and hosted are mutually exclusive; Stripe refuses a session with both.
+	if form.Get("success_url") != "" || form.Get("cancel_url") != "" {
+		t.Error("an embedded session carries success_url/cancel_url; Stripe refuses that")
+	}
+	if form.Get("return_url") == "" {
+		t.Error("an embedded session needs a return_url")
+	}
+}
+
+// The button is the last thing somebody reads before parting with money, and a
+// donation buys nothing. "Pay" is the word for a purchase.
+func TestADonationAsksToDonateRatherThanToPay(t *testing.T) {
+	c, form, _ := capture(t, 200, `{"id":"cs_1","url":"https://x"}`)
+	_, _ = c.Donation(context.Background(), DonationRequest{
+		PriceID: "price_donation", SuccessURL: "https://h/ok", CancelURL: "https://h/no",
+	})
+	if got := form.Get("submit_type"); got != "donate" {
+		t.Errorf("submit_type = %q, want \"donate\"", got)
+	}
+	if msg := form.Get("custom_text[submit][message]"); msg == "" {
+		t.Error("no custom text: the page says nothing about what the money is for")
+	} else if strings.Contains(strings.ToLower(msg), "subscription") == false {
+		t.Error("the custom text should say plainly that this buys no subscription")
+	}
+}

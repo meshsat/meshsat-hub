@@ -83,6 +83,9 @@ func (e *Error) Retryable() bool {
 type Session struct {
 	ID  string `json:"id"`
 	URL string `json:"url"`
+	// ClientSecret is returned only for ui_mode=embedded, where there is no
+	// hosted URL to send anyone to: the form is mounted inside our own page.
+	ClientSecret string `json:"client_secret"`
 }
 
 // CheckoutRequest starts a subscription.
@@ -158,6 +161,11 @@ type DonationRequest struct {
 	PriceID    string // a price with a customer-chosen amount
 	SuccessURL string
 	CancelURL  string
+	// ReturnURL, when set, switches the session to ui_mode=embedded: Stripe
+	// renders only the payment form and we host it, so the page around it can
+	// say what the money is for. Mutually exclusive with SuccessURL/CancelURL --
+	// Stripe refuses a session carrying both.
+	ReturnURL string
 }
 
 // Donation creates a Checkout session for a one-off payment. It buys no tier;
@@ -173,10 +181,40 @@ func (c *Client) Donation(ctx context.Context, req DonationRequest) (*Session, e
 	f.Set("mode", "payment")
 	f.Set("line_items[0][price]", req.PriceID)
 	f.Set("line_items[0][quantity]", "1")
-	f.Set("success_url", req.SuccessURL)
-	f.Set("cancel_url", req.CancelURL)
+	if req.ReturnURL != "" {
+		// Embedded: Stripe draws the form, we draw everything around it.
+		//
+		// "embedded" is correct FOR THE PINNED VERSION and only for it. Stripe
+		// renamed this value, and the two versions refuse each other outright:
+		//
+		//   2025-08-27.basil   ui_mode=embedded      OK
+		//                      ui_mode=embedded_page "you must upgrade"
+		//   2026-08-26.dahlia  ui_mode=embedded      "no longer supported,
+		//                                             use embedded_page"
+		//                      ui_mode=embedded_page OK
+		//
+		// So raising apiVersion breaks donations until this line is changed with
+		// it. It fails loudly -- Stripe answers 400 and the Hub surfaces it --
+		// but it fails for everybody at once, which is why it is written down
+		// here rather than left to be rediscovered. Verified against the live
+		// API on 2026-09-11, both versions, both values.
+		f.Set("ui_mode", "embedded")
+		f.Set("return_url", req.ReturnURL)
+	} else {
+		f.Set("success_url", req.SuccessURL)
+		f.Set("cancel_url", req.CancelURL)
+	}
 	f.Set("billing_address_collection", "required")
 	f.Set("automatic_tax[enabled]", "false")
+	// The button says what the transaction is. Stripe's default is "Pay", which
+	// is what you write for a purchase; this is a gift that buys nothing, and
+	// telling somebody they are paying for something is the wrong word at the
+	// last moment before they part with money.
+	f.Set("submit_type", "donate")
+	f.Set("custom_text[submit][message]",
+		"MeshSat is open source and this buys no subscription, no features and no support. "+
+			"It pays for the satellite airtime, the hardware and the servers that keep the "+
+			"network answering when the usual ones are not.")
 	// Says what this session is for. A donation session may legitimately carry
 	// no tenant; without this marker the webhook could not tell that from a
 	// payment that lost its tenant, and would have to guess at one of them.
