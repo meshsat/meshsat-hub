@@ -1202,6 +1202,9 @@ func main() {
 	clHandler.SetStore(dataStore)
 	clHandler.SetHeMBReassembler(hembReassemblyBuf)
 	clHandler.SetResolver(thingResolver)
+	if cfg.CloudloopWebhookExpectedIPs != "" {
+		clHandler.SetExpectedSources(strings.Split(cfg.CloudloopWebhookExpectedIPs, ","))
+	}
 	if cfg.CloudloopWebhookAllowedIPs != "" {
 		clHandler.SetAllowedIPs(strings.Split(cfg.CloudloopWebhookAllowedIPs, ","))
 	}
