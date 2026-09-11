@@ -26,7 +26,7 @@ func TestIsExempt(t *testing.T) {
 
 		// Webhooks: the provider authenticates itself.
 		{"/api/webhook/rockblock", true, "provider signature"},
-		{"/api/webhook/kofi/s3cr3t", true, "path secret plus body token"},
+		{"/api/webhook/stripe/s3cr3t", true, "path secret plus a signed body"},
 
 		// Unauthenticated auth endpoints.
 		{"/api/auth/login", true, ""},

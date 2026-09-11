@@ -43,18 +43,28 @@ func NewPaymentsHandler(a *audit.Service, s store.Store) *PaymentsHandler {
 // the supplies made, which is 21% too high.
 func (h *PaymentsHandler) SetTaxRate(pct float64) { h.taxRate = pct }
 
-// unmatchedPaymentAction is the audit action a payment that could not be
-// attributed is recorded under. It outlived the package that defined it: the
-// entries are in an append-only hash chain, so the name cannot be changed
-// without breaking the ability to read the history back.
-const unmatchedPaymentAction = "kofi_payment_unmatched"
+// The audit actions an unattributable payment is recorded under. There are two
+// because the audit log is an append-only SHA-256 hash chain: the entries the
+// predecessor wrote cannot be rewritten, so the OLD name has to stay readable
+// while the current provider writes the new one.
+//
+// This surface was dead from the Stripe migration until 2026-09-11. It filtered
+// on the legacy name alone while internal/stripe wrote payment_unattributed, so
+// GET /api/admin/payments/unmatched answered [] however much money had failed
+// to be placed -- the exact opposite of what MESHSAT-1007 built it for. The
+// metric was the only remaining signal. Keep both names here; a rename in
+// internal/stripe must be added to this list, never substituted into it.
+const (
+	unattributedPaymentAction       = "payment_unattributed"
+	legacyUnattributedPaymentAction = "kofi_payment_unmatched"
+)
 
 type unmatchedPaymentResponse struct {
 	RecordedAt string          `json:"recorded_at"`
 	Payment    json.RawMessage `json:"payment"`
 }
 
-// ListUnmatched returns Ko-fi subscription payments that matched no tenant.
+// ListUnmatched returns payments that matched no tenant.
 // @Summary      Payments that matched no tenant
 // @Tags         admin
 // @Produce      json
@@ -84,7 +94,7 @@ func (h *PaymentsHandler) ListUnmatched(w http.ResponseWriter, r *http.Request) 
 	}
 	out := []unmatchedPaymentResponse{}
 	for _, e := range entries {
-		if e.Action != unmatchedPaymentAction {
+		if e.Action != unattributedPaymentAction && e.Action != legacyUnattributedPaymentAction {
 			continue
 		}
 		out = append(out, unmatchedPaymentResponse{

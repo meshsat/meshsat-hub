@@ -588,7 +588,6 @@ func Load() (Config, error) {
 	if v := os.Getenv("HUB_TRUSTED_PROXIES"); v != "" {
 		cfg.TrustedProxies = v
 	}
-	// HUB_KOFI_TIER_MAP="Crew Membership=crew,Fleet Membership=fleet"
 	// Stripe (MESHSAT-1023). Every one of these is refused when it is the
 	// literal string "<no value>": the ExternalSecret renders that for a key
 	// missing from the backing store, and it is NOT empty, so every `!= ""`

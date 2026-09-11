@@ -47,8 +47,9 @@ type usageResponse struct {
 
 // billingState is what the Settings page needs to decide which buttons to draw.
 type billingState struct {
-	// Provider is "stripe" when checkout starts in the Hub, "kofi" while the
-	// old link is still the way to pay, and empty when nothing is configured.
+	// Provider is "stripe" when checkout starts in the Hub, "external" when the
+	// only route to pay is a link somebody else hosts (upgrade_url, which a
+	// self-hoster may set), and empty when nothing is configured.
 	Provider string `json:"provider,omitempty"`
 	// Manageable is true once there is a Stripe customer behind this tenant,
 	// which is what the portal needs.
@@ -111,7 +112,7 @@ func (h *TenantUsageHandler) billing(r *http.Request, tenantID string) billingSt
 		return st
 	}
 	if upgradeURL != "" {
-		return billingState{Provider: "kofi"}
+		return billingState{Provider: "external"}
 	}
 	return billingState{}
 }

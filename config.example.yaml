@@ -23,19 +23,11 @@ plan_device_limits:
   crew: 24
   fleet: 100
   custom: -1
-# Where the app sends someone who wants a larger tier.
-upgrade_url: "https://ko-fi.com/X2S326G23T"
-# Ko-fi subscription webhook. kofi_webhook_secret is ours and forms the URL
-# given to Ko-fi, https://<host>/api/webhook/kofi/<secret>; the verification
-# token is issued by Ko-fi and copied from its webhook settings page. With
-# either unset the endpoint refuses every request.
-kofi_webhook_secret: ""
-kofi_verification_token: ""
-# Ko-fi tier name -> plan, when the names on the Ko-fi page differ from the
-# plan names. Unset, the tier name is read as a plan name.
-# kofi_tier_map:
-#   "Crew Membership": crew
-#   "Fleet Membership": fleet
+# Where the app sends someone who wants a larger tier, when checkout does NOT
+# start in the Hub. Leave it unset if you have configured Stripe below: the
+# Settings page then draws its own Subscribe button instead of this link. It is
+# for a self-hoster whose payments go somewhere this Hub knows nothing about.
+upgrade_url: ""
 # Customer receipts (MESHSAT-998). A payment is recorded in the receipts
 # outbox whatever these say; they decide whether a document is issued for it.
 # With the URL or token unset, payments are recorded and no receipt goes out --
