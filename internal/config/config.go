@@ -271,12 +271,20 @@ type Config struct {
 
 	// Cloudloop MO webhook + MQTT subscriber
 	CloudloopWebhookAllowedIPs string `yaml:"cloudloop_webhook_allowed_ips"` // comma-separated IP allowlist (default: Cloudloop IPs)
-	CloudloopWebhookToken      string `yaml:"cloudloop_webhook_token"`       // shared token (?token= or X-Webhook-Token); required when the allowlist is "*"
-	CloudloopMQTTBroker        string `yaml:"cloudloop_mqtt_broker"`         // MQTT broker URL (e.g., ssl://mqtt.cloudloop.com:8883)
-	CloudloopMQTTCACert        string `yaml:"cloudloop_mqtt_ca_cert"`        // Path to CA cert PEM
-	CloudloopMQTTCert          string `yaml:"cloudloop_mqtt_cert"`           // Path to client cert PEM
-	CloudloopMQTTKey           string `yaml:"cloudloop_mqtt_key"`            // Path to client key PEM
-	CloudloopAccountID         string `yaml:"cloudloop_account_id"`          // Cloudloop account ID for MQTT topic
+
+	// CloudloopWebhookExpectedIPs is OBSERVE-ONLY and never refuses a delivery.
+	// The allowlist above is "*" because Cloudloop publishes no egress addresses
+	// to allowlist, and narrowing it by guesswork would risk dropping a
+	// satellite MO message -- the path an SOS arrives on. This records where
+	// deliveries actually come from instead, which is what would show the path
+	// secret had leaked. Accepts single addresses and CIDRs.
+	CloudloopWebhookExpectedIPs string `yaml:"cloudloop_webhook_expected_ips"`
+	CloudloopWebhookToken       string `yaml:"cloudloop_webhook_token"` // shared token (?token= or X-Webhook-Token); required when the allowlist is "*"
+	CloudloopMQTTBroker         string `yaml:"cloudloop_mqtt_broker"`   // MQTT broker URL (e.g., ssl://mqtt.cloudloop.com:8883)
+	CloudloopMQTTCACert         string `yaml:"cloudloop_mqtt_ca_cert"`  // Path to CA cert PEM
+	CloudloopMQTTCert           string `yaml:"cloudloop_mqtt_cert"`     // Path to client cert PEM
+	CloudloopMQTTKey            string `yaml:"cloudloop_mqtt_key"`      // Path to client key PEM
+	CloudloopAccountID          string `yaml:"cloudloop_account_id"`    // Cloudloop account ID for MQTT topic
 
 	// Bridge lifecycle
 	BridgeOfflineTimeout   int    `yaml:"bridge_offline_timeout"`     // seconds without health before marking offline (default 300)
@@ -889,6 +897,9 @@ func Load() (Config, error) {
 	// Cloudloop MO webhook/MQTT overrides
 	if v := os.Getenv("HUB_CLOUDLOOP_WEBHOOK_ALLOWED_IPS"); v != "" {
 		cfg.CloudloopWebhookAllowedIPs = v
+	}
+	if v := os.Getenv("HUB_CLOUDLOOP_WEBHOOK_EXPECTED_IPS"); v != "" {
+		cfg.CloudloopWebhookExpectedIPs = v
 	}
 	if v := os.Getenv("HUB_CLOUDLOOP_WEBHOOK_TOKEN"); v != "" {
 		cfg.CloudloopWebhookToken = v
