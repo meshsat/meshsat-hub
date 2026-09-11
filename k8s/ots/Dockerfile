@@ -34,7 +34,14 @@ ENV PATH=/opt/ots/bin:$PATH \
     PYTHONDONTWRITEBYTECODE=1 \
     OTS_DATA_FOLDER=/var/lib/ots
 COPY --from=build /opt/ots /opt/ots
-RUN useradd --system --uid 10001 --user-group --home-dir /var/lib/ots --shell /usr/sbin/nologin ots \
+# pip is only needed to build the image; nothing is installed at runtime (OTS
+# plugins are disabled). pip 26.2.1 vendors msgpack 1.1.2 and setuptools 70.3.0
+# (pip/_vendor/vendor.txt), which trivy flags. So remove pip from the venv and
+# from the base image, along with ensurepip's bundled wheel.
+RUN /opt/ots/bin/python -m pip uninstall --yes pip \
+    && python -m pip uninstall --yes pip \
+    && rm -rf /usr/local/lib/python3.13/ensurepip \
+    && useradd --system --uid 10001 --user-group --home-dir /var/lib/ots --shell /usr/sbin/nologin ots \
     && mkdir -p /var/lib/ots \
     && chown 10001:10001 /var/lib/ots
 USER 10001:10001
