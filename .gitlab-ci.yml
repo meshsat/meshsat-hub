@@ -268,9 +268,10 @@ package:stunnel:
 
 # -----------------------------------------------------------------------------
 # OTS IMAGE: OpenTAKServer for hosted per-tenant TAK (MESHSAT-1034, -1035).
-# Built on every branch push that touches k8s/ots, so a broken lock fails before
-# merge. Pushed and scanned only on main. The tak-operator config pins it by
-# digest; bump_k8s_pin does not manage this image.
+# Built and CVE-scanned on every branch push that touches k8s/ots, so a broken
+# lock or a vulnerable dependency fails before merge. Pushed only on main, where
+# trivy:ots is the authoritative gate. The tak-operator config pins the image by
+# digest; bump_k8s_pin does not manage it.
 # -----------------------------------------------------------------------------
 .ots-image:
   variables:
@@ -293,8 +294,22 @@ package:ots:
         docker tag "$OTS_IMAGE:$OTS_VERSION-$CI_COMMIT_SHORT_SHA" "$OTS_IMAGE:$OTS_VERSION"
         docker push "$OTS_IMAGE:$OTS_VERSION"
       else
-        echo "branch pipeline: image built, not pushed"
+        # Branch pipelines cannot push (GHCR_USER is a protected group variable),
+        # so they scan the image this job just built. Same gate as trivy:ots,
+        # which stays authoritative on main. The binary comes out of the same
+        # aquasec/trivy:0.58.2 image that job runs: Alpine's repos for docker:28
+        # have no trivy package, and v0.58.2 is no longer on GitHub releases.
+        TC=$(docker create aquasec/trivy:0.58.2)
+        docker cp "$TC:/usr/local/bin/trivy" /usr/local/bin/trivy
+        docker rm "$TC" >/dev/null
+        trivy image --scanners vuln --quiet --ignore-unfixed --severity CRITICAL,HIGH --exit-code 1 "$OTS_IMAGE:$OTS_VERSION-$CI_COMMIT_SHORT_SHA"
+        echo "branch pipeline: image built and scanned, not pushed"
       fi
+  # The OTS image is about 1 GB, and keeping one per build filled runner03's
+  # disk on 2026-09-11. Remove what this job tagged, whether it passed or
+  # failed. The shared build cache is left alone.
+  after_script:
+    - docker image rm -f "$OTS_IMAGE:$OTS_VERSION-$CI_COMMIT_SHORT_SHA" "$OTS_IMAGE:$OTS_VERSION" >/dev/null 2>&1 || true
   rules:
     - if: $CI_PIPELINE_SOURCE == "schedule"
       when: never
