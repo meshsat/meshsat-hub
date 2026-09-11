@@ -145,10 +145,18 @@ var (
 	// PaymentsUnattributedTotal counts subscription payments that matched no
 	// tenant. Money arrived and nobody was upgraded: somebody has to look at
 	// it, and until this existed the only trace was a log line (MESHSAT-1007).
-	PaymentsUnattributedTotal = promauto.NewCounter(prometheus.CounterOpts{
+	// The `kind` label separates the two very different things this counts.
+	// "payment" is money that arrived and belongs to nobody -- somebody has been
+	// charged and will get no receipt and no VAT document, which is worth waking
+	// a person for. "lifecycle" is a subscription event naming a tenant this Hub
+	// does not know: worth seeing, but no money moved and it is what a deleted
+	// test tenant produces when Stripe sends a trailing event. Paging on both
+	// made the first alert fire within minutes of being deployed, for a probe's
+	// cleanup (MESHSAT-1023).
+	PaymentsUnattributedTotal = promauto.NewCounterVec(prometheus.CounterOpts{
 		Name: "meshsat_hub_payments_unattributed_total",
-		Help: "Payments that could not be attributed to a tenant and need a person.",
-	})
+		Help: "Events that could not be attributed to a tenant, by whether money moved.",
+	}, []string{"kind"})
 
 	// PaymentsFailedTotal counts renewals the provider could not take. The plan
 	// is deliberately NOT changed for one of these -- a failing card is the
