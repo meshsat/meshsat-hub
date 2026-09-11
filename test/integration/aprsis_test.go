@@ -124,7 +124,7 @@ func TestAPRSIS_IridiumPositionInjected(t *testing.T) {
 	}
 	defer aprsClient.Disconnect()
 
-	sub := aprsis.NewSubscriber(hubMQTT, aprsClient, 1) // 1s coalesce for test speed
+	sub := aprsis.NewSubscriber(hubMQTT, aprsClient, platformTopics{}, 1) // 1s coalesce for test speed
 	if err := sub.Start(); err != nil {
 		t.Fatalf("aprsis subscriber start: %v", err)
 	}
@@ -175,7 +175,7 @@ func TestAPRSIS_MeshPositionNotInjected(t *testing.T) {
 	}
 	defer aprsClient.Disconnect()
 
-	sub := aprsis.NewSubscriber(hubMQTT, aprsClient, 1)
+	sub := aprsis.NewSubscriber(hubMQTT, aprsClient, platformTopics{}, 1)
 	if err := sub.Start(); err != nil {
 		t.Fatalf("aprsis subscriber start: %v", err)
 	}
@@ -212,7 +212,7 @@ func TestAPRSIS_RateLimited(t *testing.T) {
 	}
 	defer aprsClient.Disconnect()
 
-	sub := aprsis.NewSubscriber(hubMQTT, aprsClient, 60) // 60s coalesce — tight window
+	sub := aprsis.NewSubscriber(hubMQTT, aprsClient, platformTopics{}, 60) // 60s coalesce — tight window
 	if err := sub.Start(); err != nil {
 		t.Fatalf("aprsis subscriber start: %v", err)
 	}
@@ -255,7 +255,7 @@ func TestAPRSIS_MODecodedWithIridiumCoords(t *testing.T) {
 	}
 	defer aprsClient.Disconnect()
 
-	sub := aprsis.NewSubscriber(hubMQTT, aprsClient, 1)
+	sub := aprsis.NewSubscriber(hubMQTT, aprsClient, platformTopics{}, 1)
 	if err := sub.Start(); err != nil {
 		t.Fatalf("aprsis subscriber start: %v", err)
 	}

@@ -229,7 +229,7 @@ func testStack(t *testing.T) *testEnv {
 	clWebhook.SetDedup(env.Dedup)
 
 	// 7. SOS detector (subscribes to mo/decoded, publishes to sos topic).
-	sosDetector := sos.NewDetector(env.HubMQTT, nil, nil, "", "")
+	sosDetector := sos.NewDetector(env.HubMQTT, nil, nil, nil, "")
 	if err := sosDetector.Start(); err != nil {
 		t.Fatalf("start SOS detector: %v", err)
 	}

@@ -16,8 +16,9 @@ import (
 // positions into APRS-IS. Also receives APRS-IS messages addressed to MeshSat
 // devices and forwards them to MQTT.
 type Subscriber struct {
-	mqtt   bus.MessageBus
-	client *Client
+	mqtt     bus.MessageBus
+	client   *Client
+	platform PlatformChecker // only the platform tenant's traffic is injected
 
 	// Rate limiting: max 1 position per device per coalesceSec
 	coalesceSec int
@@ -25,23 +26,29 @@ type Subscriber struct {
 	mu          sync.Mutex
 }
 
-// NewSubscriber creates a new APRS-IS MQTT subscriber.
-func NewSubscriber(mqtt bus.MessageBus, client *Client, coalesceSec int) *Subscriber {
+// NewSubscriber creates a new APRS-IS MQTT subscriber. platform decides which
+// traffic may be injected; only the platform tenant's is.
+func NewSubscriber(mqtt bus.MessageBus, client *Client, platform PlatformChecker, coalesceSec int) *Subscriber {
 	if coalesceSec <= 0 {
 		coalesceSec = 60
 	}
 	return &Subscriber{
 		mqtt:        mqtt,
 		client:      client,
+		platform:    platform,
 		coalesceSec: coalesceSec,
 		lastSent:    make(map[string]time.Time),
 	}
 }
 
 // Start subscribes to position MQTT topics and sets up the APRS-IS inbound handler.
+// Every subscription goes through platformOnly. [MESHSAT-1032]
 func (s *Subscriber) Start() error {
+	if s.platform == nil {
+		return fmt.Errorf("aprsis subscriber: no platform checker; refusing to inject any tenant's positions")
+	}
 	for _, f := range hubmqtt.DualFilters("meshsat/+/position") {
-		if err := s.mqtt.Subscribe(f, 1, s.handlePosition); err != nil {
+		if err := s.mqtt.Subscribe(f, 1, platformOnly(s.platform, s.handlePosition)); err != nil {
 			return err
 		}
 	}
@@ -224,7 +231,7 @@ func (s *Subscriber) shouldSend(deviceID string) bool {
 
 func (s *Subscriber) subscribeMO() error {
 	for _, f := range hubmqtt.DualFilters("meshsat/+/mo/decoded") {
-		if err := s.mqtt.Subscribe(f, 1, s.handleMODecoded); err != nil {
+		if err := s.mqtt.Subscribe(f, 1, platformOnly(s.platform, s.handleMODecoded)); err != nil {
 			return err
 		}
 	}
