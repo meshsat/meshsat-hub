@@ -119,9 +119,19 @@ li:last-child{border-bottom:1px solid var(--rule)}
 li b{font-weight:600; font-variant-numeric:tabular-nums}
 li span{color:var(--muted); font-size:.9375rem}
 .note{margin:0 0 1rem; color:var(--muted); font-size:.9375rem}
+/* Stripe renders the embedded form on its own white surface and offers no way
+   to follow the viewer's theme -- Checkout's appearance comes from the
+   dashboard, not from anything initEmbeddedCheckout accepts. In light mode a
+   white card on the off-white page reads correctly. In dark mode our own dark
+   panel around Stripe's white one produced a frame inside a frame, so the panel
+   gets out of the way and the white card stands alone: a paper form on a dark
+   desk rather than a rendering mistake. */
 .panel{
   background:var(--panel); border:1px solid var(--rule);
   border-radius:10px; padding:1.25rem; min-height:22rem;
+}
+@media (prefers-color-scheme:dark){
+  .panel{background:none; border:0; padding:0}
 }
 a{color:var(--accent); text-underline-offset:.2em}
 a:hover{text-decoration:none}
@@ -153,11 +163,7 @@ a:focus-visible{outline:2px solid var(--accent); outline-offset:3px; border-radi
       subscription &mdash; and because it buys nothing in return, it carries no VAT. You will
       get a receipt.
     </p>
-    <p class="foot">
-      MeshSat is supported by
-      <a href="https://www.sidnfonds.nl/projecten/meshsat-keeping-people-connected-when-the-network-is-not" rel="noopener">SIDN fonds</a>.
-      <br><a href="{{.Site}}">Back to meshsat.net</a>
-    </p>
+    <p class="foot"><a href="{{.Site}}">Back to meshsat.net</a></p>
   </main>
 
   <aside>
