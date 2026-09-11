@@ -86,6 +86,18 @@ data:
   # Linode UK -- separate infrastructure from Cloudloop's, so they do not
   # transfer.
   HUB_CLOUDLOOP_WEBHOOK_ALLOWED_IPS: "*"
+  # Where satellite webhooks are EXPECTED to come from. Observe-only: a delivery
+  # from outside this range is still PROCESSED, and increments
+  # meshsat_hub_webhook_unexpected_source_total. Deliberately not a blocklist --
+  # Cloudloop publishes no egress addresses to allowlist, so any range here is a
+  # guess, and this is the path an SOS arrives on. Refusing on a guess would be
+  # a distress message that never arrives.
+  #
+  # Left unset until the real range is known. To find it: set it to the
+  # provider's claimed region (Cloudloop runs on AWS eu-west-2) and watch the
+  # counter -- warnings mean the guess is wrong, and nothing was dropped while
+  # you found out.
+  # HUB_CLOUDLOOP_WEBHOOK_EXPECTED_IPS: ""
   HUB_APRSIS_ENABLED: "false"
   HUB_WG_ENABLED: "false"
   HUB_HAWKBIT_ENABLED: "false"

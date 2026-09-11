@@ -214,6 +214,16 @@ var (
 		Help: "Stripe webhook deliveries by the API version that rendered them.",
 	}, []string{"version"})
 
+	// WebhookUnexpectedSourceTotal counts inbound provider webhooks that arrived
+	// from outside the expected source range. It NEVER gates anything: this is
+	// the satellite MO path, the path an SOS arrives on, and a wrong allowlist
+	// there is a distress message that never arrives. So the control is
+	// observation only, and this counter is the whole of it (MESHSAT-995).
+	WebhookUnexpectedSourceTotal = promauto.NewCounterVec(prometheus.CounterOpts{
+		Name: "meshsat_hub_webhook_unexpected_source_total",
+		Help: "Provider webhooks processed from outside the expected source range, by provider.",
+	}, []string{"provider"})
+
 	// DTN custody transfer metrics (MESHSAT-491)
 
 	// CustodyAcceptedTotal counts custody offers accepted by the Hub.
