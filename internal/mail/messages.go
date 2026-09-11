@@ -436,3 +436,68 @@ func greeting(name string) string {
 	}
 	return "Hello " + name + ","
 }
+
+// DonationReceipt is the giver's copy of a donation document.
+//
+// It comes from the Hub rather than from the billing system, which is the same
+// split the credit note makes, for a different reason. Invoice Ninja has ONE
+// payment template per company and it is written for a subscription: it says
+// the document "shows the VAT included in the price", that "your MeshSat Hub
+// subscription is active for the period this payment covers", and it points at
+// the Settings page. All three are false for a gift -- the document carries no
+// tax at all, a donation buys no tier, and an anonymous giver has no account to
+// have settings in. The first real donation went out under that template.
+//
+// There is deliberately no link to the Hub in here. Anyone can donate without
+// an account, so for most readers a sign-in destination is noise.
+func DonationReceipt(name, amount, invoiceNumber string) Message {
+	doc := "Your receipt"
+	if invoiceNumber != "" {
+		doc = "Your receipt " + invoiceNumber
+	}
+
+	text := fmt.Sprintf(`%s
+
+Thank you. We have received your donation of %s.
+
+%s is attached to this email as a PDF.
+
+There is no VAT on it. A donation buys nothing, and a voluntary contribution
+with no counter-performance is outside the scope of BTW -- so the document
+shows no tax because none is owed, not because it was left off.
+
+It grants no plan and needs no account either. Nothing about your MeshSat
+changes because of it.
+
+If something looks wrong, reply to this email and a person will read it.
+
+The MeshSat team`, greeting(name), amount, doc)
+
+	rows := [][2]string{{"Donation", esc(amount)}}
+	if invoiceNumber != "" {
+		rows = append(rows, [2]string{"Receipt", esc(invoiceNumber)})
+	}
+
+	html := para(esc(greeting(name))) +
+		para("Thank you. We have received your donation of "+strong(esc(amount))+".") +
+		factTable(rows) +
+		para(esc(doc)+" is attached to this email as a PDF.") +
+		para("There is no VAT on it. A donation buys nothing, and a voluntary contribution "+
+			"with no counter-performance is outside the scope of BTW, so the document shows "+
+			"no tax because none is owed, not because it was left off.") +
+		para("It grants no plan and needs no account either. Nothing about your MeshSat "+
+			"changes because of it.") +
+		note("If something looks wrong, reply to this email and a person will read it.") +
+		lastPara("The MeshSat team")
+
+	subject := "Your MeshSat donation receipt"
+	if invoiceNumber != "" {
+		subject += " " + invoiceNumber
+	}
+
+	return Message{
+		Subject: subject,
+		Text:    text,
+		HTML:    Wrap(html),
+	}
+}
