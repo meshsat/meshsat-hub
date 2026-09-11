@@ -148,6 +148,15 @@ type Config struct {
 	// forgot their password had no route to recovery from the login screen.
 	OIDCRecoveryURL string `yaml:"oidc_recovery_url"`
 
+	// OIDCPasswordChangeURL and OIDCMFASetupURL are the identity provider's
+	// self-service flows for a signed-in customer. They need naming here because
+	// authentik's own settings page (/if/user/) refuses `external` users -- which
+	// every customer is, by licensing -- so a customer could neither change their
+	// password nor turn on two-factor, while the sign-in flow had been validating
+	// MFA all along. A flow executor is not that settings page and works for them.
+	OIDCPasswordChangeURL string `yaml:"oidc_password_change_url"`
+	OIDCMFASetupURL       string `yaml:"oidc_mfa_setup_url"`
+
 	// AuthRateLimitPerMin bounds the unauthenticated auth endpoints per client
 	// IP per minute: /api/auth/config, the OIDC login and callback pair, and
 	// refresh. The callback performs an outbound token exchange against
@@ -579,6 +588,12 @@ func Load() (Config, error) {
 	}
 	if v := os.Getenv("HUB_OIDC_RECOVERY_URL"); v != "" {
 		cfg.OIDCRecoveryURL = v
+	}
+	if v := os.Getenv("HUB_OIDC_PASSWORD_CHANGE_URL"); v != "" {
+		cfg.OIDCPasswordChangeURL = v
+	}
+	if v := os.Getenv("HUB_OIDC_MFA_SETUP_URL"); v != "" {
+		cfg.OIDCMFASetupURL = v
 	}
 	if v := os.Getenv("HUB_AUTH_RATE_LIMIT_PER_MIN"); v != "" {
 		if n, err := strconv.Atoi(v); err == nil && n > 0 {
