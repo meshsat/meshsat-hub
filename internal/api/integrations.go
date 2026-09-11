@@ -61,7 +61,7 @@ func (h *IntegrationHandler) GetFederation() FederationStatter {
 // @Produce json
 // @Success 200 {array} IntegrationStatus
 // @Router /api/integrations [get]
-func (h *IntegrationHandler) ListIntegrations(w http.ResponseWriter, _ *http.Request) {
+func (h *IntegrationHandler) ListIntegrations(w http.ResponseWriter, r *http.Request) {
 	integrations := []IntegrationStatus{
 		h.rock7Status(),
 		h.cloudloopWebhookStatus(),
@@ -69,8 +69,12 @@ func (h *IntegrationHandler) ListIntegrations(w http.ResponseWriter, _ *http.Req
 		h.globalstarStatus(),
 		h.smsStatus(),
 		h.emailStatus(),
-		h.takStatus(),
-		h.takFederationStatus(),
+	}
+	// The TAK gateway and federation are the platform's, pointed at the
+	// operator's own TAK server: its address and peers are not a customer's
+	// business. [MESHSAT-1032]
+	if requestIsPlatformAdmin(r) {
+		integrations = append(integrations, h.takStatus(), h.takFederationStatus())
 	}
 	writeJSON(w, http.StatusOK, integrations)
 }
