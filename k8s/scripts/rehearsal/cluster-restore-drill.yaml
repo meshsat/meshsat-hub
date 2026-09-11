@@ -1,0 +1,79 @@
+# Throwaway CNPG cluster that restores meshsat-hub-main FROM THE BACKUP BUCKET.
+#
+# Not the same thing as cluster-drill.yaml beside it: that one bootstraps with
+# initdb and exists for the Galera -> Postgres migration rehearsal. This one
+# bootstraps with `recovery`, which is the only way to find out whether the
+# backups are actually restorable. They never have been (k8s/NOTES.md "First
+# sync checklist" item 4, open since the cutover).
+#
+# kubectl-applied, deliberately NOT in the kustomize tree: Argo has prune off,
+# so a hand-applied cluster here is not something Argo will fight over or tidy
+# away mid-drill. Delete it yourself when the drill is done.
+#
+# Read docs/restore-drill.md before running this. In particular: check that
+# nl-s3 is accepting writes and that `lastSuccessfulBackup` on the live cluster
+# is recent, because a restore proves nothing about a backup that was never
+# taken.
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: meshsat-hub-drill
+  namespace: meshsat-hub-db
+  labels:
+    app.kubernetes.io/name: meshsat-hub-drill
+    app.kubernetes.io/part-of: meshsat-hub
+spec:
+  instances: 1
+  # Must be the same major version as the source, or newer. The live cluster is
+  # PostgreSQL 18; a restore into an older image fails after it has already
+  # pulled the base backup down.
+  imageName: ghcr.io/cloudnative-pg/postgresql:18.4-system-trixie
+  storage:
+    size: 5Gi
+    # -delete, not the live cluster's -retain: this PV is meant to disappear
+    # with the drill rather than linger as an orphan nobody dares remove.
+    storageClass: local-hostpath-delete
+  affinity:
+    # The control-plane tier, where the live database lives and where there is
+    # room. The workers sit at ~90% memory requests; do not put this there.
+    nodeSelector:
+      node-role.kubernetes.io/control-plane: ""
+    tolerations:
+      - key: node-role.kubernetes.io/control-plane
+        operator: Exists
+        effect: NoSchedule
+  inheritedMetadata:
+    annotations:
+      backup.velero.io/backup-volumes-excludes: pgdata
+
+  # NO `backup:` stanza. A drill cluster must never be able to write to the
+  # bucket it is restoring from: it would archive its own WAL under a serverName
+  # of its own, and a mistake there puts junk in the real backup's neighbourhood.
+  # Read-only by omission.
+
+  bootstrap:
+    recovery:
+      source: meshsat-hub-main
+      # No `recoveryTarget`: restore to the end of the available WAL, which is
+      # the thing worth proving. To test point-in-time recovery instead, add
+      # e.g. `recoveryTarget: { targetTime: "2026-09-10 03:00:00+00" }` — and
+      # note that a target BEFORE firstRecoverabilityPoint fails.
+
+  externalClusters:
+    - name: meshsat-hub-main
+      barmanObjectStore:
+        # serverName must match what the live cluster writes under, not this
+        # cluster's own name. Getting this wrong is the usual way a restore
+        # drill fails with "no backup found" against a bucket that has one.
+        serverName: meshsat-hub-main
+        destinationPath: s3://cnpg-meshsat-hub
+        endpointURL: https://nl-s3.nuclearlighters.net
+        s3Credentials:
+          accessKeyId:
+            name: cnpg-barman-creds
+            key: ACCESS_KEY_ID
+          secretAccessKey:
+            name: cnpg-barman-creds
+            key: SECRET_ACCESS_KEY
+        wal:
+          compression: gzip
