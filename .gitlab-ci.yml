@@ -267,6 +267,79 @@ package:stunnel:
         - .gitlab-ci.yml
 
 # -----------------------------------------------------------------------------
+# OTS IMAGE: OpenTAKServer for hosted per-tenant TAK (MESHSAT-1034, -1035).
+# Built on every branch push that touches k8s/ots, so a broken lock fails before
+# merge. Pushed and scanned only on main. The tak-operator config pins it by
+# digest; bump_k8s_pin does not manage this image.
+# -----------------------------------------------------------------------------
+.ots-image:
+  variables:
+    OTS_IMAGE: "ghcr.io/meshsat/meshsat-hub-ots"
+    OTS_VERSION: "1.7.13"
+
+package:ots:
+  extends: .ots-image
+  stage: package
+  tags: [docker]
+  image: docker:28
+  needs: []
+  timeout: 45m
+  script:
+    - docker build -t "$OTS_IMAGE:$OTS_VERSION-$CI_COMMIT_SHORT_SHA" -f k8s/ots/Dockerfile k8s/ots
+    - |
+      if [ "$CI_COMMIT_BRANCH" = "main" ]; then
+        echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GHCR_USER" --password-stdin
+        docker push "$OTS_IMAGE:$OTS_VERSION-$CI_COMMIT_SHORT_SHA"
+        docker tag "$OTS_IMAGE:$OTS_VERSION-$CI_COMMIT_SHORT_SHA" "$OTS_IMAGE:$OTS_VERSION"
+        docker push "$OTS_IMAGE:$OTS_VERSION"
+      else
+        echo "branch pipeline: image built, not pushed"
+      fi
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "schedule"
+      when: never
+    - if: $CI_COMMIT_BRANCH
+      changes:
+        - k8s/ots/**/*
+        - .gitlab-ci.yml
+
+# The OTS image runs third-party Python that faces the internet, so the same
+# CVE gate as the Hub image applies to it.
+trivy:ots:
+  extends: .ots-image
+  stage: package
+  tags: [docker]
+  image:
+    name: aquasec/trivy:0.58.2
+    entrypoint: [""]
+  needs:
+    - job: package:ots
+      artifacts: false
+  timeout: 30m
+  variables:
+    TRIVY_USERNAME: $GHCR_USER
+    TRIVY_PASSWORD: $GHCR_TOKEN
+    TRIVY_CACHE_DIR: .trivycache
+  cache:
+    key: trivy-db
+    paths:
+      - .trivycache/
+  script:
+    - IMAGE="${OTS_IMAGE}:${OTS_VERSION}-${CI_COMMIT_SHORT_SHA}"
+    # Full census, informational.
+    - trivy image --scanners vuln --quiet --format table --severity CRITICAL,HIGH "$IMAGE" || true
+    # The gate: its exit status is the job's.
+    - trivy image --scanners vuln --quiet --ignore-unfixed --severity CRITICAL,HIGH --exit-code 1 "$IMAGE"
+    - echo "no fixable CRITICAL/HIGH CVEs in $IMAGE"
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "schedule"
+      when: never
+    - if: $CI_COMMIT_BRANCH == "main"
+      changes:
+        - k8s/ots/**/*
+        - .gitlab-ci.yml
+
+# -----------------------------------------------------------------------------
 # TRIVY — fixable CRITICAL/HIGH CVEs in the pushed image block the pipeline
 # (MESHSAT-930). The scanner image is the job image and pulls the artifact
 # straight from GHCR with the registry credentials; no docker daemon needed.
