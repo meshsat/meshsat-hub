@@ -1730,9 +1730,17 @@ func main() {
 	// Which surface the Settings page draws: a Subscribe button when checkout
 	// starts here, or the old external link while it does not.
 	billingHandler := api.NewBillingHandler(dataStore, stripeClient, cfg.PublicURL)
+	// A donation from somebody with no account. Registered at the ROOT, not
+	// under /api/tenant, because there is no tenant: the route is exempt from
+	// the auth chain (internal/auth.isExempt) since the giver is a stranger by
+	// definition. Behind the same per-IP budget as the auth endpoints, because
+	// it reaches Stripe once per request and without one an anonymous caller
+	// can point our fan-out at the payment provider.
+	r.Post("/api/donate", authRate(billingHandler.DonatePublic))
 	billingHandler.SetPrices(cfg.StripePrices)
 	billingHandler.SetDonationPrice(cfg.StripeDonationPrice)
 	api.SetStripeReady(stripeClient != nil && len(cfg.StripePrices) > 0)
+	api.SetDonationsReady(stripeClient != nil && cfg.StripeDonationPrice != "")
 	offboarding := api.NewTenantOffboardingHandler(dataStore, auditSvc, tenantStatus.Forget)
 	r.Route("/api/tenant", func(r chi.Router) {
 		r.With(hubauth.RequireRole(hubauth.RoleViewer)).Get("/", tenantHandler.Get)
@@ -1740,6 +1748,7 @@ func main() {
 		// Paying is an owner's decision, not an operator's.
 		r.With(hubauth.RequireRole(hubauth.RoleOwner)).Post("/billing/checkout", billingHandler.Checkout)
 		r.With(hubauth.RequireRole(hubauth.RoleOwner)).Post("/billing/portal", billingHandler.Portal)
+		r.With(hubauth.RequireRole(hubauth.RoleOwner)).Post("/billing/donate", billingHandler.Donate)
 		r.With(hubauth.RequireRole(hubauth.RoleOwner)).Put("/", tenantHandler.Update)
 		// Take your data with you, or have it destroyed. Owner only.
 		r.With(hubauth.RequireRole(hubauth.RoleOwner)).Get("/export", offboarding.Export)

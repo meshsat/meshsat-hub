@@ -45,7 +45,88 @@ func (h *BillingHandler) SetPrices(priceToPlan map[string]string) {
 	}
 }
 
+// SetDonationPrice takes the price with a customer-chosen amount. Empty means
+// there is no donation path, which is a supported state: both donation
+// endpoints then answer 503 rather than 500.
 func (h *BillingHandler) SetDonationPrice(priceID string) { h.donatio = strings.TrimSpace(priceID) }
+
+type donateRequest struct {
+	// Email is only a suggestion for the checkout form and may be empty. The
+	// address Stripe collects is the one that reaches the document.
+	Email string `json:"email"`
+}
+
+// donate is the half both donation endpoints share. tenantID is empty for a
+// giver with no account, which is allowed: stripe.DonationRequest takes an
+// optional tenant, and the webhook tells an anonymous gift apart from a
+// misrouted payment by the marker the client stamps on the session.
+func (h *BillingHandler) donate(w http.ResponseWriter, r *http.Request, tenantID, email string) {
+	if h.donatio == "" {
+		writeError(w, http.StatusServiceUnavailable, "donations are not configured")
+		return
+	}
+	if h.client == nil {
+		writeError(w, http.StatusServiceUnavailable, "billing is not configured")
+		return
+	}
+	s, err := h.client.Donation(r.Context(), stripe.DonationRequest{
+		TenantID:   tenantID,
+		Email:      email,
+		PriceID:    h.donatio,
+		SuccessURL: h.hubURL + "/#/settings?donation=thanks",
+		CancelURL:  h.hubURL + "/#/settings?donation=cancelled",
+	})
+	if err != nil {
+		slog.Error("billing: could not start a donation", "tenant", tenantID, "error", err)
+		writeError(w, http.StatusBadGateway, "the payment provider could not be reached")
+		return
+	}
+	slog.Info("billing: donation started", "tenant", tenantID, "session", s.ID)
+	writeJSON(w, http.StatusOK, checkoutResponse{URL: s.URL})
+}
+
+// Donate starts a one-off donation for a signed-in tenant.
+// @Summary      Donate
+// @Description  Creates a Stripe Checkout session for a one-off donation bound to this tenant. Grants no plan.
+// @Tags         billing
+// @Produce      json
+// @Success      200  {object}  checkoutResponse
+// @Failure      403  {object}  map[string]string
+// @Failure      503  {object}  map[string]string
+// @Router       /api/tenant/billing/donate [post]
+func (h *BillingHandler) Donate(w http.ResponseWriter, r *http.Request) {
+	t := h.tenant(r)
+	if t == nil {
+		writeError(w, http.StatusForbidden, "no tenant")
+		return
+	}
+	h.donate(w, r, t.ID, h.ownerEmail(r.Context(), t))
+}
+
+// DonatePublic starts a one-off donation from somebody with no account.
+// @Summary      Donate without an account
+// @Description  Creates a Stripe Checkout session for a one-off donation with no tenant. Unauthenticated and rate limited. Grants no plan.
+// @Tags         billing
+// @Accept       json
+// @Produce      json
+// @Success      200  {object}  checkoutResponse
+// @Failure      400  {object}  map[string]string
+// @Failure      503  {object}  map[string]string
+// @Router       /api/donate [post]
+func (h *BillingHandler) DonatePublic(w http.ResponseWriter, r *http.Request) {
+	// No tenant, and deliberately no attempt to find one. This route is exempt
+	// from the auth chain, so TenantMiddleware never ran and there is nothing
+	// in the context to read -- calling h.tenant(r) here would always return
+	// nil and invite somebody to "fix" it later by trusting a header.
+	var req donateRequest
+	if r.Body != nil && r.ContentLength != 0 {
+		if err := readJSON(w, r, &req, 1024); err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+	}
+	h.donate(w, r, "", strings.TrimSpace(req.Email))
+}
 
 type checkoutRequest struct {
 	Plan string `json:"plan"`

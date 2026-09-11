@@ -445,3 +445,86 @@ func TestADonationIsNotDescribedAsASubscription(t *testing.T) {
 		t.Error("a donation line is empty")
 	}
 }
+
+// capturingIssuer keeps the last request so a test can assert on what the
+// billing system was actually asked to produce, not merely that it was called.
+type capturingIssuer struct {
+	calls int
+	last  invoiceninja.Request
+}
+
+func (c *capturingIssuer) IssueReceipt(_ context.Context, r invoiceninja.Request) (*invoiceninja.Result, error) {
+	c.calls++
+	c.last = r
+	return &invoiceninja.Result{InvoiceID: "inv-1", InvoiceNumber: "MSH2026-0001"}, nil
+}
+
+func donationReceipt(t *testing.T, rc *memReceipts, id, country string) {
+	t.Helper()
+	now := time.Now().UTC()
+	if _, err := rc.CreateReceipt(context.Background(), &store.Receipt{
+		ID: id, TenantID: store.DefaultTenantID, Country: country,
+		DeliveryKey: "k-" + id, Email: "giver@example.com", Name: "A Giver",
+		AmountCents: 500, Currency: "EUR", Plan: DonationPlan, TierName: "Donation",
+		PaidAt: now, NextAttemptAt: now.Add(-time.Minute),
+	}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// A donation is decided by what it buys, not by where the giver is. A SALE to
+// the United States is parked -- place of supply is outside the EU -- but a
+// gift is not a supply, so there is nothing to place and nothing to decide.
+// Parking it would leave real income with no document and hand a person a
+// question they cannot answer.
+func TestADonationIsNeverParkedForItsCountry(t *testing.T) {
+	for _, country := range []string{"NL", "DE", "US", "JP", ""} {
+		t.Run("from "+country, func(t *testing.T) {
+			rc, iss := &memReceipts{}, &capturingIssuer{}
+			donationReceipt(t, rc, "rcp", country)
+			NewReceiptJob(rc, iss, nil).Once(context.Background())
+
+			if iss.calls != 1 {
+				t.Fatalf("a donation from %q produced %d billing calls, want 1", country, iss.calls)
+			}
+			if rc.rows[0].Status == store.ReceiptBlocked {
+				t.Errorf("a donation from %q was parked: %q", country, rc.rows[0].LastError)
+			}
+		})
+	}
+}
+
+// The document carries no tax line. The company has inclusive_taxes on, so
+// leaving the rate in place would carve 21% out of a gift and put VAT on a
+// document that owes none -- which the giver's own books could then reclaim.
+func TestADonationIsInvoicedWithNoVAT(t *testing.T) {
+	rc, iss := &memReceipts{}, &capturingIssuer{}
+	donationReceipt(t, rc, "rcp", "NL")
+	NewReceiptJob(rc, iss, nil).Once(context.Background())
+
+	if iss.calls != 1 {
+		t.Fatalf("billing calls = %d, want 1", iss.calls)
+	}
+	if !iss.last.TaxExempt {
+		t.Error("a donation was invoiced with the company's VAT rate; it is outside the scope of BTW")
+	}
+}
+
+// And the ordinary case must not have moved: a subscription is still a supply
+// and still carries Dutch VAT.
+func TestASubscriptionIsStillInvoicedWithVAT(t *testing.T) {
+	rc, iss := &memReceipts{}, &capturingIssuer{}
+	now := time.Now().UTC()
+	if _, err := rc.CreateReceipt(context.Background(), &store.Receipt{
+		ID: "rcp", TenantID: "t-a", Country: "NL", DeliveryKey: "k",
+		Email: "buyer@example.com", Name: "Buyer", AmountCents: 900, Currency: "EUR",
+		Plan: "crew", TierName: "Crew", PaidAt: now, NextAttemptAt: now.Add(-time.Minute),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	NewReceiptJob(rc, iss, nil).Once(context.Background())
+
+	if iss.last.TaxExempt {
+		t.Error("a subscription was invoiced tax exempt; it is a supply and carries 21%")
+	}
+}

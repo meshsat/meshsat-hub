@@ -106,6 +106,13 @@ type Request struct {
 	// ProductKey and Description are the invoice line.
 	ProductKey  string
 	Description string
+	// TaxExempt issues the line with no tax at all, overriding the company's
+	// rate. It exists for money that is outside the scope of VAT rather than
+	// zero-rated or exempt within it -- a donation with no counter-performance
+	// (internal/vat.ForDonation). The company has inclusive_taxes on, so
+	// leaving the rate in place would carve 21% out of a gift and put tax on a
+	// document that owes none.
+	TaxExempt bool
 	// PaidAt dates both the invoice and the payment.
 	PaidAt time.Time
 	// Reference is the payment provider's transaction id, recorded on the
@@ -258,6 +265,10 @@ func (c *Client) resumeOrCreate(ctx context.Context, req Request) (*invoice, err
 		return nil, err
 	}
 	date := req.PaidAt.UTC().Format("2006-01-02")
+	taxName, taxRate := c.TaxName, c.TaxRate
+	if req.TaxExempt {
+		taxName, taxRate = "", 0
+	}
 	body := map[string]any{
 		"client_id": clientID,
 		"date":      date,
@@ -271,8 +282,8 @@ func (c *Client) resumeOrCreate(ctx context.Context, req Request) (*invoice, err
 			// out of this figure; adding tax on top would overcharge.
 			"cost":      amount(req.AmountCents),
 			"quantity":  1,
-			"tax_name1": c.TaxName,
-			"tax_rate1": c.TaxRate,
+			"tax_name1": taxName,
+			"tax_rate1": taxRate,
 		}},
 	}
 	var out struct {
