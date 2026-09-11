@@ -7,3 +7,4 @@ resources:
   - metrics-token-externalsecret.yaml
   - servicemonitor-hub.yaml
   - servicemonitor-nats.yaml
+  - podmonitor-postgres.yaml

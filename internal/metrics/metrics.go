@@ -145,10 +145,18 @@ var (
 	// PaymentsUnattributedTotal counts subscription payments that matched no
 	// tenant. Money arrived and nobody was upgraded: somebody has to look at
 	// it, and until this existed the only trace was a log line (MESHSAT-1007).
-	PaymentsUnattributedTotal = promauto.NewCounter(prometheus.CounterOpts{
+	// The `kind` label separates the two very different things this counts.
+	// "payment" is money that arrived and belongs to nobody -- somebody has been
+	// charged and will get no receipt and no VAT document, which is worth waking
+	// a person for. "lifecycle" is a subscription event naming a tenant this Hub
+	// does not know: worth seeing, but no money moved and it is what a deleted
+	// test tenant produces when Stripe sends a trailing event. Paging on both
+	// made the first alert fire within minutes of being deployed, for a probe's
+	// cleanup (MESHSAT-1023).
+	PaymentsUnattributedTotal = promauto.NewCounterVec(prometheus.CounterOpts{
 		Name: "meshsat_hub_payments_unattributed_total",
-		Help: "Payments that could not be attributed to a tenant and need a person.",
-	})
+		Help: "Events that could not be attributed to a tenant, by whether money moved.",
+	}, []string{"kind"})
 
 	// PaymentsFailedTotal counts renewals the provider could not take. The plan
 	// is deliberately NOT changed for one of these -- a failing card is the
@@ -158,6 +166,53 @@ var (
 		Name: "meshsat_hub_payments_failed_total",
 		Help: "Subscription payments the provider could not take.",
 	})
+
+	// ReceiptsPending is how many receipts are waiting to be issued, and
+	// ReceiptOldestPendingAge how long the oldest has waited. The outbox
+	// deliberately never abandons a receipt -- it is a document somebody is owed
+	// for money already taken -- so a wedged one retries quietly forever, and
+	// until these existed nothing at all marked that a customer had paid and
+	// received no VAT document (MESHSAT-1023).
+	ReceiptsPending = promauto.NewGauge(prometheus.GaugeOpts{
+		Name: "meshsat_hub_receipts_pending",
+		Help: "Receipts recorded but not yet issued as a document.",
+	})
+
+	ReceiptOldestPendingAge = promauto.NewGauge(prometheus.GaugeOpts{
+		Name: "meshsat_hub_receipt_oldest_pending_age_seconds",
+		Help: "Age of the oldest receipt still waiting to be issued.",
+	})
+
+	// ReceiptsBlocked counts receipts parked for a person: an unknown currency,
+	// a buyer outside the EU, an amount that would not parse. Money was taken
+	// and the document cannot be issued without a decision. They sit at
+	// GET /api/admin/receipts/blocked and nothing surfaced them before.
+	ReceiptsBlocked = promauto.NewGauge(prometheus.GaugeOpts{
+		Name: "meshsat_hub_receipts_blocked",
+		Help: "Receipts parked for a human decision before a document can be issued.",
+	})
+
+	// StripeFieldMissingTotal counts payload fields the Hub depends on that were
+	// not where it looked. This exists because of how the first seven Stripe
+	// defects presented: Stripe moved a field between API versions, the Go
+	// struct kept the old json tag, encoding/json produced a zero value, and a
+	// fallback made it look like normal operation -- no error, no log, no
+	// failing test. Six separate bugs, one shape. Every fallback that stands in
+	// for an absent field now increments this, so the next move is visible the
+	// first time it happens rather than at the next audit (MESHSAT-1023).
+	StripeFieldMissingTotal = promauto.NewCounterVec(prometheus.CounterOpts{
+		Name: "meshsat_hub_stripe_field_missing_total",
+		Help: "Stripe payload fields the Hub depends on that were absent, by field.",
+	}, []string{"field"})
+
+	// StripeAPIVersionTotal counts deliveries by the API version that rendered
+	// them. The webhook endpoint's version is set in the Stripe dashboard,
+	// entirely outside this repo, so this is the only record of what the Hub is
+	// actually being sent. Low cardinality on purpose: one series per version.
+	StripeAPIVersionTotal = promauto.NewCounterVec(prometheus.CounterOpts{
+		Name: "meshsat_hub_stripe_api_version_total",
+		Help: "Stripe webhook deliveries by the API version that rendered them.",
+	}, []string{"version"})
 
 	// DTN custody transfer metrics (MESHSAT-491)
 

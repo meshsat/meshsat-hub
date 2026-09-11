@@ -135,6 +135,11 @@ func writeText(w http.ResponseWriter, code int, msg string) {
 }
 
 func (h *Handler) dispatch(ctx context.Context, ev Event) error {
+	// Record which API version rendered this before acting on it: the endpoint's
+	// version is a dashboard setting the Hub cannot read any other way, and a
+	// version it has not been read against is the precondition for every
+	// silent-zero-value defect this package has had.
+	noteAPIVersion(ev.APIVersion, ev.Type)
 	switch ev.Type {
 	case EventCheckoutCompleted:
 		return h.onCheckout(ctx, ev)
