@@ -312,6 +312,13 @@ func isExempt(path string) bool {
 		return true
 	case isProvisionClaim(path): // QR provision claim — nonce IS the auth (MESHSAT-414)
 		return true
+	case path == "/api/donate":
+		// A gift from somebody with no account. There is nothing to
+		// authenticate: the caller is a stranger by definition and the money
+		// is verified by Stripe, not by us. Rate limited in main.go, and it
+		// creates a Checkout session and nothing else -- no tenant is read and
+		// none can be named by the caller.
+		return true
 	case path == "/api/auth/login",
 		path == "/api/auth/refresh",
 		path == "/api/auth/config",

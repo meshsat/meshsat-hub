@@ -36,6 +36,20 @@ const (
 )
 
 // checkoutSession is data.object for checkout.session.completed.
+// MetadataKind is the metadata key the Hub stamps on a session to say what it
+// is FOR, and KindDonation is its one value today.
+//
+// It exists so a session with no tenant can be told apart from a mistake. The
+// Hub creates every Checkout session it will ever be asked about, so a session
+// carrying neither a tenant nor this marker is genuinely unaccounted for and
+// belongs in the unattributed list. Without the marker an anonymous donation
+// and a misrouted payment are the same event, and one of them would have to be
+// guessed at.
+const (
+	MetadataKind = "kind"
+	KindDonation = "donation"
+)
+
 type checkoutSession struct {
 	ID              string            `json:"id"`
 	Customer        string            `json:"customer"`

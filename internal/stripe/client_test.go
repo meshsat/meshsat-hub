@@ -225,3 +225,49 @@ func TestTheSecretKeyIsSentAsABearerAndNeverInTheBody(t *testing.T) {
 		}
 	}
 }
+
+// Every session the Hub creates says what it is for. Without this a donation
+// from somebody with no account is indistinguishable, at the webhook, from a
+// payment that lost its tenant -- and one of the two would have to be guessed
+// at. See apply.go's isAnonymousDonation.
+func TestADonationSessionSaysItIsADonation(t *testing.T) {
+	c, form, _ := capture(t, 200, `{"id":"cs_1","url":"https://checkout.stripe.com/x"}`)
+
+	if _, err := c.Donation(context.Background(), DonationRequest{
+		PriceID: "price_gift", SuccessURL: "https://h/ok", CancelURL: "https://h/no",
+	}); err != nil {
+		t.Fatalf("Donation: %v", err)
+	}
+	if form.Get("metadata["+MetadataKind+"]") != KindDonation {
+		t.Errorf("session carries no donation marker: %v", form)
+	}
+	if form.Get("mode") != "payment" {
+		t.Errorf("mode = %q, want payment", form.Get("mode"))
+	}
+	// A gift buys nothing, so no tenant is required -- but the giver's country
+	// still has to be collected, because the document is made out to them.
+	if form.Get("billing_address_collection") != "required" {
+		t.Errorf("billing address is not collected: %v", form)
+	}
+	if form.Get("metadata[tenant_id]") != "" {
+		t.Errorf("an anonymous donation must not invent a tenant: %v", form)
+	}
+}
+
+// A signed-in giver's donation carries both: the marker and their tenant.
+func TestASignedInDonationCarriesTheTenantToo(t *testing.T) {
+	c, form, _ := capture(t, 200, `{"id":"cs_1","url":"https://checkout.stripe.com/x"}`)
+
+	if _, err := c.Donation(context.Background(), DonationRequest{
+		TenantID: "t_acme", PriceID: "price_gift",
+		SuccessURL: "https://h/ok", CancelURL: "https://h/no",
+	}); err != nil {
+		t.Fatalf("Donation: %v", err)
+	}
+	if form.Get("metadata[tenant_id]") != "t_acme" {
+		t.Errorf("tenant lost: %v", form)
+	}
+	if form.Get("metadata["+MetadataKind+"]") != KindDonation {
+		t.Errorf("marker lost: %v", form)
+	}
+}

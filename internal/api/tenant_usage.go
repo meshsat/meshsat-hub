@@ -54,6 +54,10 @@ type billingState struct {
 	// Manageable is true once there is a Stripe customer behind this tenant,
 	// which is what the portal needs.
 	Manageable bool `json:"manageable"`
+	// Donatable is true when a donation price is configured. A donation is a
+	// separate thing from a plan: it grants no tier and, having no
+	// counter-performance, carries no VAT (internal/vat.ForDonation).
+	Donatable bool `json:"donatable"`
 }
 
 type tierResponse struct {
@@ -103,7 +107,7 @@ func (h *TenantUsageHandler) AdminUsage(w http.ResponseWriter, r *http.Request) 
 // customer to copy and nothing for them to forget.
 func (h *TenantUsageHandler) billing(r *http.Request, tenantID string) billingState {
 	if stripeReady {
-		st := billingState{Provider: "stripe"}
+		st := billingState{Provider: "stripe", Donatable: donationsReady}
 		if h.store != nil {
 			if t, err := h.store.GetTenant(r.Context(), tenantID); err == nil && t != nil {
 				st.Manageable = t.StripeCustomerID != ""
@@ -123,6 +127,15 @@ var stripeReady bool
 
 // SetStripeReady says whether checkout starts inside the Hub.
 func SetStripeReady(v bool) { stripeReady = v }
+
+// donationsReady is set at startup the same way, from whether a donation price
+// exists. Separate from stripeReady because a Hub can sell plans without
+// accepting gifts, and drawing a Donate button that always 503s is worse than
+// drawing none.
+var donationsReady bool
+
+// SetDonationsReady says whether a one-off donation can be made.
+func SetDonationsReady(v bool) { donationsReady = v }
 
 func (h *TenantUsageHandler) usage(w http.ResponseWriter, r *http.Request, tenantID string) {
 	if tenantID == "" {

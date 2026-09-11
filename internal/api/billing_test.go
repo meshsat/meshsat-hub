@@ -76,3 +76,58 @@ func TestACustomerCannotBuyAnOperatorSetTier(t *testing.T) {
 		}
 	}
 }
+
+// The public donation route is exempt from the auth chain, so TenantMiddleware
+// never runs and there is nothing in the context to read. The handler must not
+// go looking: a version that called h.tenant(r) here would always get nil, and
+// the obvious "fix" is to start trusting a header the caller controls.
+func TestThePublicDonationRouteNeedsNoTenant(t *testing.T) {
+	ms := &mockStore{}
+	h := NewBillingHandler(ms, nil, "https://hub.meshsat.net")
+	h.SetDonationPrice("price_gift")
+
+	req := httptest.NewRequest(http.MethodPost, "/api/donate", nil)
+	w := httptest.NewRecorder()
+	h.DonatePublic(w, req)
+
+	if w.Code == http.StatusForbidden {
+		t.Fatalf("got 403 %q -- a stranger has no tenant and that is the point of this route",
+			strings.TrimSpace(w.Body.String()))
+	}
+	// The client is nil in this test, so the furthest it can get is 503.
+	if w.Code != http.StatusServiceUnavailable {
+		t.Errorf("got %d %q, want 503 (no Stripe client configured in this test)",
+			w.Code, strings.TrimSpace(w.Body.String()))
+	}
+}
+
+// With no donation price configured there is no donation path, and that is a
+// supported state rather than a crash.
+func TestDonationsAreRefusedCleanlyWhenNoPriceIsConfigured(t *testing.T) {
+	h := NewBillingHandler(&mockStore{}, nil, "https://hub.meshsat.net")
+	// deliberately no SetDonationPrice
+
+	req := httptest.NewRequest(http.MethodPost, "/api/donate", nil)
+	w := httptest.NewRecorder()
+	h.DonatePublic(w, req)
+	if w.Code != http.StatusServiceUnavailable {
+		t.Errorf("got %d, want 503", w.Code)
+	}
+	if !strings.Contains(w.Body.String(), "donations are not configured") {
+		t.Errorf("body = %q; it should say which thing is missing", strings.TrimSpace(w.Body.String()))
+	}
+}
+
+// The signed-in route is the mirror image: it DOES require a tenant, because a
+// donation from a customer should be attached to their account.
+func TestTheSignedInDonationRouteRequiresATenant(t *testing.T) {
+	h := NewBillingHandler(&mockStore{}, nil, "https://hub.meshsat.net")
+	h.SetDonationPrice("price_gift")
+
+	req := httptest.NewRequest(http.MethodPost, "/api/tenant/billing/donate", nil)
+	w := httptest.NewRecorder()
+	h.Donate(w, req)
+	if w.Code != http.StatusForbidden {
+		t.Errorf("got %d, want 403 for a request carrying no tenant", w.Code)
+	}
+}
