@@ -593,3 +593,51 @@ func TestOIDC_NoCountryClaimStillProvisions(t *testing.T) {
 		t.Errorf("billing country = %q, want empty — an absent claim must not be guessed at", tenant.BillingCountry)
 	}
 }
+
+// A customer could not change their password or turn on two-factor: authentik's
+// settings page refuses `external` users, which every customer is, and nothing
+// in the Hub linked to a flow that would work for them. Meanwhile the sign-in
+// flow had been validating MFA all along -- the check existed and the way to
+// satisfy it did not. These URLs are what makes both reachable.
+func TestTheSelfServiceFlowsAreOfferedToSignedInCustomers(t *testing.T) {
+	h := &OIDCHandler{
+		client: &hubauth.OIDCClient{},
+		modes:  []string{"oidc"},
+		cfg: OIDCConfig{
+			RecoveryURL:       "https://auth.example/if/flow/recovery/",
+			PasswordChangeURL: "https://auth.example/if/flow/meshsat-password-change/",
+			MFASetupURL:       "https://auth.example/if/flow/meshsat-mfa-setup/",
+		},
+	}
+	rec := httptest.NewRecorder()
+	h.Config(rec, httptest.NewRequest(http.MethodGet, "/api/auth/config", nil))
+	var got authConfigResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatalf("decoding: %v", err)
+	}
+	if got.PasswordChangeURL == "" {
+		t.Error("no password-change URL: a customer has no way to change their password at all")
+	}
+	if got.MFASetupURL == "" {
+		t.Error("no MFA setup URL: sign-in validates two-factor but nobody can enrol a device")
+	}
+}
+
+// Without a provider there is nothing to link to, and offering a dead link on
+// the settings page is worse than offering nothing.
+func TestNoProviderMeansNoSelfServiceLinks(t *testing.T) {
+	h := &OIDCHandler{
+		modes: []string{"local"},
+		cfg: OIDCConfig{
+			PasswordChangeURL: "https://auth.example/if/flow/meshsat-password-change/",
+			MFASetupURL:       "https://auth.example/if/flow/meshsat-mfa-setup/",
+		},
+	}
+	rec := httptest.NewRecorder()
+	h.Config(rec, httptest.NewRequest(http.MethodGet, "/api/auth/config", nil))
+	var got authConfigResponse
+	_ = json.Unmarshal(rec.Body.Bytes(), &got)
+	if got.PasswordChangeURL != "" || got.MFASetupURL != "" {
+		t.Error("self-service links offered with no identity provider behind them")
+	}
+}
