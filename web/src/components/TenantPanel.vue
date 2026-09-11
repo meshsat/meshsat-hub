@@ -55,6 +55,18 @@ async function subscribe(plan) {
   }
 }
 
+async function donate() {
+  if (checkoutBusy.value) return
+  checkoutBusy.value = true
+  try {
+    const { url } = await tenantApi.donate()
+    window.location.href = url
+  } catch (e) {
+    toast.error(e?.message || 'Could not start the donation. Please try again.')
+    checkoutBusy.value = false
+  }
+}
+
 async function manageBilling() {
   if (checkoutBusy.value) return
   checkoutBusy.value = true
@@ -214,9 +226,17 @@ onMounted(load)
             class="px-3 py-1.5 border border-ms-border rounded text-xs text-ms-text2 hover:text-ms-text hover:border-ms-border-light transition-colors disabled:opacity-50">
             Manage billing
           </button>
+          <button v-if="usage.billing?.donatable" type="button" :disabled="checkoutBusy"
+            @click="donate"
+            class="px-3 py-1.5 border border-ms-border rounded text-xs text-ms-text2 hover:text-ms-text hover:border-ms-border-light transition-colors disabled:opacity-50">
+            Donate
+          </button>
           <p class="w-full text-[11px] text-ms-muted mt-1">
             Payment is handled by Stripe. Cancel or change your card whenever you like — your
             devices keep reporting either way, and an SOS is never affected by billing.
+          </p>
+          <p v-if="usage.billing?.donatable" class="w-full text-[11px] text-ms-muted">
+            A donation is support rather than a purchase: it changes no plan and unlocks nothing.
           </p>
         </div>
       </div>

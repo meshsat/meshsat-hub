@@ -210,10 +210,15 @@ func (d *DB) ReleaseReceipt(ctx context.Context, id string) error {
 // CrossBorderSalesSince totals issued receipts by country since an instant. See
 // store.Store: this is the measurement the flat Dutch rate depends on.
 func (d *DB) CrossBorderSalesSince(ctx context.Context, since time.Time) (map[string]int64, error) {
+	// Donations are excluded. The Article 59c threshold measures cross-border
+	// B2C SUPPLIES, and a voluntary contribution with no counter-performance is
+	// not a supply at all (internal/vat.ForDonation) -- it carries no VAT and
+	// belongs in no member state's column. Counting it would report distance
+	// travelled toward a limit that the money cannot move.
 	rows, err := d.db.QueryContext(ctx,
 		`SELECT country, COALESCE(SUM(amount_cents), 0) FROM receipts
-		 WHERE status = ? AND country <> '' AND issued_at >= ?
-		 GROUP BY country`, store.ReceiptIssued, fmtTime(since.UTC()))
+		 WHERE status = ? AND country <> '' AND issued_at >= ? AND plan <> ?
+		 GROUP BY country`, store.ReceiptIssued, fmtTime(since.UTC()), store.DonationPlan)
 	if err != nil {
 		return nil, err
 	}

@@ -126,3 +126,48 @@ func TestNetIsNeverMoreThanTheGross(t *testing.T) {
 		}
 	}
 }
+
+// A donation buys nothing, so there is no supply, so there is no VAT. The
+// Belastingdienst's rule on vrijwillige bijdragen turns on counter-performance
+// and not on where the giver is: "U berekent geen btw als u vrijwillige
+// bijdragen ontvangt zonder dat er een overeenkomst is tussen u en de gever."
+func TestADonationIsOutsideTheScopeOfVAT(t *testing.T) {
+	d := ForDonation()
+	if !d.OutsideScope {
+		t.Error("a donation must be outside the scope of BTW")
+	}
+	if d.Charge {
+		t.Error("a donation must not be charged Dutch VAT: that is tax on a gift")
+	}
+	if d.Reason != "" {
+		t.Errorf("a donation must never be parked; got reason %q", d.Reason)
+	}
+	if d.Basis == "" {
+		t.Error("the basis has to survive the person who decided it")
+	}
+}
+
+// The country cannot change it, in either direction. This is the half that is
+// easy to get wrong: a SALE outside the EU is parked because place of supply
+// is elsewhere, but place of supply is a question about a supply, and a gift
+// is not one. Parking a donation would hold income hostage to a decision that
+// does not need making.
+func TestNoCountryChangesTheDonationTreatment(t *testing.T) {
+	for _, c := range []string{"NL", "DE", "EL", "US", "JP", "", "  ", "ZZ"} {
+		d := ForDonation()
+		if !d.OutsideScope || d.Charge || d.Reason != "" {
+			t.Errorf("country %q changed the treatment of a donation: %+v", c, d)
+		}
+	}
+}
+
+// The two rules must not be confused with each other. A sale to the same
+// country is decided the old way, and still parks outside the EU.
+func TestASaleIsStillDecidedByCountry(t *testing.T) {
+	if d := For("US"); d.Charge || d.OutsideScope || d.Reason == "" {
+		t.Errorf("a SALE outside the EU must still park: %+v", d)
+	}
+	if d := For("NL"); !d.Charge || d.OutsideScope {
+		t.Errorf("a domestic SALE must still be charged Dutch VAT: %+v", d)
+	}
+}
