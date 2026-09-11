@@ -1,0 +1,29 @@
+{
+  "id": "evt_EXAMPLE",
+  "type": "customer.subscription.created",
+  "created": 1789095909,
+  "data": {
+    "object": {
+      "id": "sub_EXAMPLE",
+      "object": "subscription",
+      "customer": "cus_EXAMPLE",
+      "status": "active",
+      "cancel_at_period_end": false,
+      "metadata": {
+        "tenant_id": "default"
+      },
+      "items": {
+        "data": [
+          {
+            "id": "si_EXAMPLE_VEoPozwxnvOOWM",
+            "current_period_start": 1789095909,
+            "current_period_end": 1791687909,
+            "price": {
+              "id": "price_crew_EXAMPLE"
+            }
+          }
+        ]
+      }
+    }
+  }
+}

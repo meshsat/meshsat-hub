@@ -87,9 +87,13 @@ func (s checkoutSession) country() string {
 
 // subscription is data.object for the customer.subscription.* events.
 type subscription struct {
-	ID                string            `json:"id"`
-	Customer          string            `json:"customer"`
-	Status            string            `json:"status"`
+	ID       string `json:"id"`
+	Customer string `json:"customer"`
+	Status   string `json:"status"`
+	// CurrentPeriodEnd was top level until Stripe moved the billing period
+	// onto the items in the basil API versions, which is what this endpoint is
+	// pinned to. Kept for an event replayed at an older version; read
+	// periodEnd(), never this.
 	CurrentPeriodEnd  int64             `json:"current_period_end"`
 	CancelAtPeriodEnd bool              `json:"cancel_at_period_end"`
 	Metadata          map[string]string `json:"metadata"`
@@ -98,6 +102,8 @@ type subscription struct {
 			Price struct {
 				ID string `json:"id"`
 			} `json:"price"`
+			// Where the period actually lives now.
+			CurrentPeriodEnd int64 `json:"current_period_end"`
 		} `json:"data"`
 	} `json:"items"`
 }
@@ -112,11 +118,26 @@ func (s subscription) priceID() string {
 	return s.Items.Data[0].Price.ID
 }
 
+// periodEnd is when Stripe says this period ends, in whichever shape the event
+// arrived in.
+//
+// Getting this wrong is quiet rather than loud: onSubscription falls back to
+// now + billing.Period when it is zero, so a plan still works and still
+// expires -- just on a date the Hub invented rather than the one Stripe
+// charges on. The first real subscription was granted "until 2026-10-16"
+// against a true period end of 2026-10-11, because the top-level field had
+// moved onto the items and nothing noticed. Everything downstream of the
+// expiry -- the lapse job, the warning email, the date shown to the customer
+// -- was working from that invented date.
 func (s subscription) periodEnd() time.Time {
-	if s.CurrentPeriodEnd == 0 {
+	end := s.CurrentPeriodEnd
+	if len(s.Items.Data) > 0 && s.Items.Data[0].CurrentPeriodEnd != 0 {
+		end = s.Items.Data[0].CurrentPeriodEnd
+	}
+	if end == 0 {
 		return time.Time{}
 	}
-	return time.Unix(s.CurrentPeriodEnd, 0).UTC()
+	return time.Unix(end, 0).UTC()
 }
 
 // live reports whether this subscription should be granting a plan right now.
