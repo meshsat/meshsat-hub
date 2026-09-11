@@ -244,3 +244,15 @@ func SetBuildInfo(version, mode, goVersion string) {
 func Handler() http.Handler {
 	return promhttp.Handler()
 }
+
+// A CounterVec has no series until a label combination is first used, and an
+// absent series is not the same as a zero one: an alert written as
+// increase(...{kind="payment"}[15m]) > 0 has nothing to evaluate against until
+// the first unattributed payment ever happens. Materialise both values at
+// startup so "no money has gone missing" is a fact the metric states rather
+// than an absence somebody has to interpret (MESHSAT-1023).
+func init() {
+	for _, kind := range []string{"payment", "lifecycle"} {
+		PaymentsUnattributedTotal.WithLabelValues(kind)
+	}
+}
