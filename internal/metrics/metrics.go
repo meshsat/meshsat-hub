@@ -150,6 +150,15 @@ var (
 		Help: "Payments that could not be attributed to a tenant and need a person.",
 	})
 
+	// PaymentsFailedTotal counts renewals the provider could not take. The plan
+	// is deliberately NOT changed for one of these -- a failing card is the
+	// provider retrying, not a cancellation -- so without this nothing at all
+	// marks that a customer is on their way to lapsing (MESHSAT-1023).
+	PaymentsFailedTotal = promauto.NewCounter(prometheus.CounterOpts{
+		Name: "meshsat_hub_payments_failed_total",
+		Help: "Subscription payments the provider could not take.",
+	})
+
 	// DTN custody transfer metrics (MESHSAT-491)
 
 	// CustodyAcceptedTotal counts custody offers accepted by the Hub.

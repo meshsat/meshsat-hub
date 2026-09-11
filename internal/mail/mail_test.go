@@ -412,12 +412,17 @@ func allMessages() map[string]Message {
 		"Approved":           Approved("Alice Example", "https://hub.meshsat.net"),
 		"PlanChanged":        PlanChanged("Alice", "crew", 24, when, "https://hub.meshsat.net"),
 		"PlanChangedCustom":  PlanChanged("Alice", "custom", -1, when, "https://hub.meshsat.net"),
-		"LapseWarning":       LapseWarning("Alice", "crew", when, "https://ko-fi.com/x"),
-		"LapseWarningNoCode": LapseWarning("Alice", "crew", when, "https://ko-fi.com/x"),
-		"Lapsed":             Lapsed("Alice", "crew", when, "https://ko-fi.com/x"),
+		"LapseWarning":       LapseWarning("Alice", "crew", when, "https://hub.meshsat.net"),
+		"Lapsed":             Lapsed("Alice", "crew", when, "https://hub.meshsat.net"),
 		"Refunded":           Refunded("Alice", "9.00 EUR", "MSHCN2026-0001", "MSH2026-0001", when, "https://hub.meshsat.net"),
 		"RefundedPartial":    Refunded("Alice", "4.00 EUR", "MSHCN2026-0002", "MSH2026-0001", time.Time{}, "https://hub.meshsat.net"),
 		"RefundedNoDocument": RefundedNoDocument("Alice", "9.00 EUR", when, "https://hub.meshsat.net"),
+		// A renewal that failed, in both shapes: the provider will try again,
+		// and the provider has given up. The second is the one where the
+		// customer has to act.
+		"PaymentFailedRetrying": PaymentFailed("Alice", "crew", "EUR 9,00", when, when, "https://hub.meshsat.net"),
+		"PaymentFailedFinal":    PaymentFailed("Alice", "crew", "EUR 9,00", time.Time{}, when, "https://hub.meshsat.net"),
+		"PaymentFailedNoExpiry": PaymentFailed("Alice", "custom", "EUR 9,00", time.Time{}, time.Time{}, "https://hub.meshsat.net"),
 	}
 }
 
