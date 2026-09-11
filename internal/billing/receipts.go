@@ -30,6 +30,7 @@ import (
 	"time"
 
 	"github.com/meshsat/meshsat-hub/internal/invoiceninja"
+	"github.com/meshsat/meshsat-hub/internal/mail"
 	"github.com/meshsat/meshsat-hub/internal/store"
 	"github.com/meshsat/meshsat-hub/internal/vat"
 )
@@ -82,6 +83,18 @@ type Issuer interface {
 	IssueReceipt(ctx context.Context, req invoiceninja.Request) (*invoiceninja.Result, error)
 }
 
+// Mailer sends a donation's receipt from the Hub, with its PDF attached.
+type Mailer interface {
+	mail.Sender
+	mail.AttachmentSender
+}
+
+// DocFetcher fetches a rendered invoice so the Hub can attach it. Kept off
+// Issuer so an issuer that cannot do it still satisfies the interface.
+type DocFetcher interface {
+	InvoicePDF(ctx context.Context, invoiceID string) ([]byte, error)
+}
+
 // ReceiptJob issues the documents the webhook recorded.
 //
 // It runs on the lease holder, like the lapse job, because issuing an invoice
@@ -93,6 +106,8 @@ type ReceiptJob struct {
 	store  ReceiptStore
 	issuer Issuer
 	audit  Auditor
+	mail   Mailer
+	docs   DocFetcher
 	every  time.Duration
 	batch  int
 	now    func() time.Time
@@ -102,6 +117,22 @@ type ReceiptJob struct {
 func NewReceiptJob(s ReceiptStore, issuer Issuer, a Auditor) *ReceiptJob {
 	return &ReceiptJob{store: s, issuer: issuer, audit: a, every: time.Minute, batch: 25, now: time.Now}
 }
+
+// SetMailer lets the job send a DONATION's receipt itself, with the PDF
+// attached. Subscription receipts still come from the billing system, whose
+// template is written for exactly that and is correct.
+//
+// Both arguments are needed together: without either, the job leaves the
+// billing system's own email switched on. See selfNotifies.
+func (j *ReceiptJob) SetMailer(m Mailer, docs DocFetcher) { j.mail, j.docs = m, docs }
+
+// selfNotifies reports whether a donation's receipt can come from the Hub.
+//
+// This gates the suppression as well as the sending, and that is the whole
+// point of it. Switching off the billing system's email without being able to
+// send our own would mean money taken and the giver told nothing -- far worse
+// than a message written for a subscription arriving about a gift.
+func (j *ReceiptJob) selfNotifies() bool { return j.mail != nil && j.docs != nil }
 
 // Run drains the outbox until the context is cancelled.
 func (j *ReceiptJob) Run(ctx context.Context) {
@@ -179,7 +210,8 @@ func (j *ReceiptJob) issue(ctx context.Context, r *store.Receipt) {
 	// takes a different rule and is never parked for a country -- see
 	// vat.ForDonation.
 	v := vat.For(r.Country)
-	if r.Plan == DonationPlan {
+	donation := r.Plan == DonationPlan
+	if donation {
 		v = vat.ForDonation()
 	}
 	if !v.Charge && !v.OutsideScope {
@@ -187,18 +219,24 @@ func (j *ReceiptJob) issue(ctx context.Context, r *store.Receipt) {
 		return
 	}
 	req := invoiceninja.Request{
-		CustomerRef:       r.TenantID,
-		CountryCode:       r.Country,
-		Name:              r.Name,
-		Email:             r.Email,
-		AmountCents:       r.AmountCents,
-		Currency:          r.Currency,
-		TaxExempt:         v.OutsideScope,
-		ProductKey:        productKey(r.Plan),
-		Description:       description(r.Plan, r.TierName),
-		PaidAt:            r.PaidAt,
-		Reference:         r.TransactionID,
-		ExistingInvoiceID: r.InvoiceRef,
+		CustomerRef: r.TenantID,
+		CountryCode: r.Country,
+		Name:        r.Name,
+		Email:       r.Email,
+		AmountCents: r.AmountCents,
+		Currency:    r.Currency,
+		TaxExempt:   v.OutsideScope,
+		// The billing system has one payment template per company and it is
+		// written for a subscription, so it tells a giver their subscription is
+		// active and that the document shows the VAT included in the price --
+		// neither of which is true of a gift. Send the donor's copy from here
+		// instead, but only when we actually can.
+		SuppressReceiptEmail: donation && j.selfNotifies(),
+		ProductKey:           productKey(r.Plan),
+		Description:          description(r.Plan, r.TierName),
+		PaidAt:               r.PaidAt,
+		Reference:            r.TransactionID,
+		ExistingInvoiceID:    r.InvoiceRef,
 		OnInvoiceCreated: func(invoiceID string) error {
 			// Written before the invoice is numbered or paid. An invoice that
 			// has been sent has taken a number out of a gapless series, so a
@@ -243,10 +281,63 @@ func (j *ReceiptJob) issue(ctx context.Context, r *store.Receipt) {
 		return
 	}
 	slog.Info("billing: receipt issued", "receipt", r.ID, "tenant", r.TenantID, "invoice", res.InvoiceNumber)
+	if donation && j.selfNotifies() {
+		j.notifyDonor(ctx, r, res)
+	}
 	if j.audit != nil {
 		_ = j.audit.Log(ctx, r.TenantID, "receipt_issued", "receipt_job",
 			fmt.Sprintf("invoice %s for %s %s", res.InvoiceNumber, money(r.AmountCents), r.Currency), "")
 	}
+}
+
+// notifyDonor sends a giver their receipt from the Hub.
+//
+// A failure here is logged and never retried. The document exists, it is in the
+// books and it is numbered; re-running the issue path to fix an email would
+// risk the document rather than the message.
+func (j *ReceiptJob) notifyDonor(ctx context.Context, r *store.Receipt, res *invoiceninja.Result) {
+	msg := mail.DonationReceipt(r.Name,
+		invoiceninja.FormatMoney(r.AmountCents, r.Currency, r.Country), res.InvoiceNumber)
+
+	pdf, err := j.docs.InvoicePDF(ctx, res.InvoiceID)
+	if err != nil {
+		// Send the words without the document rather than nothing at all. The
+		// giver still learns the money arrived and which receipt covers it, and
+		// a person can send the PDF.
+		slog.Error("billing: could not fetch the donation receipt PDF; sending the notice without it",
+			"receipt", r.ID, "invoice", res.InvoiceNumber, "error", err)
+		mail.SendOrLog(ctx, j.mail, r.Email, msg, "donation receipt")
+		return
+	}
+	att := mail.Attachment{
+		Filename:    pdfName(res.InvoiceNumber),
+		ContentType: "application/pdf",
+		Content:     pdf,
+	}
+	if err := j.mail.SendMessageWith(ctx, r.Email, msg, att); err != nil {
+		slog.Error("billing: could not send the donation receipt", "receipt", r.ID,
+			"to", r.Email, "error", err)
+		return
+	}
+	slog.Info("billing: donation receipt sent", "receipt", r.ID, "to", r.Email,
+		"invoice", res.InvoiceNumber)
+}
+
+// pdfName names the attachment after the document, so a giver filing it does
+// not have to open it to know what it is. Anything that is not plainly safe in
+// a filename is dropped rather than escaped.
+func pdfName(invoiceNumber string) string {
+	n := strings.Map(func(c rune) rune {
+		switch {
+		case c >= 'A' && c <= 'Z', c >= 'a' && c <= 'z', c >= '0' && c <= '9', c == '-', c == '_':
+			return c
+		}
+		return -1
+	}, invoiceNumber)
+	if n == "" {
+		n = "receipt"
+	}
+	return n + ".pdf"
 }
 
 func (j *ReceiptJob) block(ctx context.Context, r *store.Receipt, reason string) {

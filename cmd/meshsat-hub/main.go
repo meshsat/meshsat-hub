@@ -1502,8 +1502,20 @@ func main() {
 		inClient.TaxRate = cfg.InvoiceNinjaTaxRate
 		inClient.Currency = cfg.InvoiceNinjaCurrency
 		inClient.CountryID = cfg.InvoiceNinjaCountryID
-		leaderSingletons.Add("receipt-issuer",
-			billing.NewReceiptJob(dataStore, inClient, auditSvc).Run)
+		receiptJob := billing.NewReceiptJob(dataStore, inClient, auditSvc)
+		// A DONATION's receipt comes from the Hub, not from the billing system:
+		// Invoice Ninja has one payment template per company, it is written for
+		// a subscription, and it tells a giver their subscription is active and
+		// that the document shows the VAT included in the price. Neither is
+		// true of a gift. Subscription receipts still come from the billing
+		// system, whose template is right for them.
+		//
+		// Without a mailer the job leaves that email switched on rather than
+		// suppressing it and sending nothing.
+		if m, ok := mailer.(billing.Mailer); ok && m != nil {
+			receiptJob.SetMailer(m, inClient)
+		}
+		leaderSingletons.Add("receipt-issuer", receiptJob.Run)
 		slog.Info("billing: customer receipts enabled", "tax", cfg.InvoiceNinjaTaxName,
 			"rate", cfg.InvoiceNinjaTaxRate, "currency", cfg.InvoiceNinjaCurrency)
 		verifyBillingCompany(inClient)
@@ -1741,6 +1753,11 @@ func main() {
 	// be registered before the SPA catch-all, which chi handles: an exact
 	// pattern beats "/*".
 	r.Get("/donate", authRate(billingHandler.DonateRedirect))
+	// Where Stripe returns the giver. Not rate limited: these render a constant
+	// page, touch nothing and cost nothing, and throttling somebody who has
+	// just paid is the wrong thing to do to them.
+	r.Get("/donate/thanks", billingHandler.DonateThanks)
+	r.Get("/donate/cancelled", billingHandler.DonateCancelled)
 	billingHandler.SetPrices(cfg.StripePrices)
 	billingHandler.SetDonationPrice(cfg.StripeDonationPrice)
 	api.SetStripeReady(stripeClient != nil && len(cfg.StripePrices) > 0)
