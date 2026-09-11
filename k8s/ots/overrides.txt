@@ -1,0 +1,21 @@
+# uv overrides for opentakserver==1.7.13 (MESHSAT-1035).
+#
+# OTS pins these exact versions. Each floor below is the first release that
+# fixes a fixable HIGH/CRITICAL finding from trivy:ots (main pipeline 53333).
+# The image installs the resolved lock with `pip --no-deps`, so OTS's own pins
+# cannot pull the vulnerable versions back in.
+cryptography>=50.0.0
+pyopenssl>=26.0.0
+pyjwt>=2.12.0
+protobuf>=6.33.5,<7
+lxml>=6.1.0
+msgpack>=1.2.1
+python-socketio>=5.16.2
+setuptools>=78.1.1
+poetry>=2.3.3
+dulwich>=1.2.5,<2
+# frida comes in with androguard and ships a Go binary (golang.org/x/text,
+# CVE-2026-56852). OTS only uses androguard.core.apk, which never imports frida
+# (only androguard/pentest does). This marker never matches, so frida is
+# excluded.
+frida; sys_platform == "never"
