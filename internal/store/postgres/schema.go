@@ -592,4 +592,20 @@ CREATE TABLE IF NOT EXISTS stripe_events (
 );
 CREATE INDEX IF NOT EXISTS idx_stripe_events_tenant ON stripe_events (tenant_id, applied_at);
 `},
+	// v17: remember which provider payment settled a receipt (MESHSAT-1023).
+	//
+	// Stripe's charge no longer carries the invoice it paid, and neither the
+	// charge nor the payment intent links back to one, so a refunded
+	// subscription matched no receipt and issued no credit note -- the sale
+	// stayed in the books at full value with its VAT declared. The link is
+	// recorded when the payment happens rather than reconstructed under
+	// pressure at refund time.
+	//
+	// Nullable-by-default and empty for every existing row, which is correct:
+	// those were settled before anything recorded this, and a refund of one
+	// still falls through to the older matching paths.
+	{Version: 17, Name: "receipt payment ref", SQL: `
+ALTER TABLE receipts ADD COLUMN IF NOT EXISTS payment_ref VARCHAR(128) NOT NULL DEFAULT '';
+CREATE INDEX IF NOT EXISTS idx_receipts_payment_ref ON receipts (payment_ref) WHERE payment_ref <> '';
+`},
 }

@@ -406,6 +406,42 @@ func (h *Handler) notifyPaymentFailed(ctx context.Context, t *store.Tenant, inv 
 	mail.SendOrLog(ctx, h.mail, to, msg, "payment failed")
 }
 
+// onInvoicePaymentPaid records which payment settled which invoice.
+//
+// It changes no plan, writes no document and moves no money. Its whole job is
+// to save one fact at the moment Stripe still states it, because by refund
+// time nothing does: charge.invoice was removed, and neither the charge nor
+// the payment intent points back at an invoice. Without this a refunded
+// subscription matched no receipt, so no credit note was issued and the sale
+// stayed in the books at full value with its VAT declared.
+//
+// Deliberately NOT recorded through `once`: this is a note on an existing row
+// rather than an application of money, it is idempotent by construction (the
+// same value written twice is the same value), and consuming the event id here
+// would make a redelivery look applied when the receipt may not have existed
+// yet.
+func (h *Handler) onInvoicePaymentPaid(ctx context.Context, ev Event) error {
+	var ip invoicePayment
+	if err := json.Unmarshal(ev.Data.Object, &ip); err != nil {
+		return fmt.Errorf("invoice payment: %w", err)
+	}
+	ref := strings.TrimSpace(ip.Payment.PaymentIntent)
+	if h.receipts == nil || ip.Invoice == "" || ref == "" || ip.Status != "paid" {
+		return nil
+	}
+	if err := h.receipts.SetReceiptPaymentRef(ctx, invoiceKey(ip.Invoice), ref); err != nil {
+		// The receipt may simply not exist yet -- invoice.paid and this arrive
+		// together and in no guaranteed order. Say so and move on rather than
+		// making Stripe retry a payment over a bookkeeping note.
+		slog.Warn("stripe: could not record which payment settled an invoice; "+
+			"a refund of it will need matching by hand",
+			"invoice", ip.Invoice, "payment", ref, "error", err)
+		return nil
+	}
+	slog.Debug("stripe: recorded the payment behind an invoice", "invoice", ip.Invoice, "payment", ref)
+	return nil
+}
+
 func (h *Handler) onChargeRefunded(ctx context.Context, ev Event) error {
 	var ch charge
 	if err := json.Unmarshal(ev.Data.Object, &ch); err != nil {
@@ -425,6 +461,16 @@ func (h *Handler) onChargeRefunded(ctx context.Context, ev Event) error {
 		if err == nil && got != nil {
 			rec = got
 			break
+		}
+	}
+	// Nothing matched by key. For a subscription that is the normal case
+	// rather than an error: invoiceKey(ch.Invoice) is empty because Stripe
+	// removed charge.invoice, so the link has to come from what
+	// invoice_payment.paid recorded when the money arrived.
+	if rec == nil && ch.PaymentIntent != "" {
+		got, err := h.receipts.GetReceiptByPaymentRef(ctx, ch.PaymentIntent)
+		if err == nil && got != nil {
+			rec = got
 		}
 	}
 	if rec == nil {
