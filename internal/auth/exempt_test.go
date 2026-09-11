@@ -60,7 +60,16 @@ func TestIsExempt(t *testing.T) {
 // stops being exempt they get a sign-in page instead of a payment page, which
 // looks like the button is broken.
 func TestThePublicDonateLinkIsExempt(t *testing.T) {
-	for _, p := range []string{"/donate", "/api/donate"} {
+	for _, p := range []string{
+		"/donate",
+		"/api/donate",
+		// Where Stripe returns them afterwards. These carry no session and
+		// never will: the whole point is that a giver needs no account, and
+		// the first real donation ended on a sign-in wall because the return
+		// went into the SPA instead.
+		"/donate/thanks",
+		"/donate/cancelled",
+	} {
 		if !isExempt(p) {
 			t.Errorf("%s is not exempt; a giver with no account cannot sign in", p)
 		}

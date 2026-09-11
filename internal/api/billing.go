@@ -117,9 +117,13 @@ func (h *BillingHandler) DonateRedirect(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	s, err := h.client.Donation(r.Context(), stripe.DonationRequest{
-		PriceID:    h.donatio,
-		SuccessURL: h.hubURL + "/#/?donation=thanks",
-		CancelURL:  h.hubURL + "/#/?donation=cancelled",
+		PriceID: h.donatio,
+		// Plain server-rendered pages, NOT routes in the SPA. Every SPA route
+		// carries requiresAuth, so returning an anonymous giver into the app
+		// bounced them to a sign-in wall the moment after they paid. They have
+		// no account and are not going to make one.
+		SuccessURL: h.hubURL + "/donate/thanks",
+		CancelURL:  h.hubURL + "/donate/cancelled",
 	})
 	if err != nil {
 		slog.Error("billing: could not start an anonymous donation", "error", err)

@@ -312,11 +312,14 @@ func isExempt(path string) bool {
 		return true
 	case isProvisionClaim(path): // QR provision claim — nonce IS the auth (MESHSAT-414)
 		return true
-	case path == "/donate":
-		// The public donate link, followed from meshsat.net. Exempt for the
-		// same reason as /api/donate below; named explicitly rather than left
-		// to the single-page-app heuristic further down, which would exempt it
-		// only by accident of having no dot in it.
+	case path == "/donate",
+		path == "/donate/thanks",
+		path == "/donate/cancelled":
+		// The public donate link, followed from meshsat.net, and the two pages
+		// Stripe returns the giver to. Exempt for the same reason as
+		// /api/donate below; named explicitly rather than left to the
+		// single-page-app heuristic further down, which would exempt them only
+		// by accident of having no dot in the last segment.
 		return true
 	case path == "/api/donate":
 		// A gift from somebody with no account. There is nothing to
