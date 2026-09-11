@@ -561,6 +561,81 @@ ident.recovery_flow = recovery
 ident.save()
 note(f"flow meshsat-recovery {'created' if r_created else 'ok'}")
 
+# ---------------------------------------------------------------- self-service
+# A customer could not change their password or turn on two-factor.
+#
+# authentik's own settings interface (/if/user/) refuses them -- "Interface can
+# only be accessed by internal users" -- and every MeshSat customer is `external`
+# by licensing, so that page is not an option and never will be. What IS
+# available to them is any flow with require_authenticated: a flow executor is
+# not the settings interface, and /if/flow/<slug>/ works for an external user.
+#
+# The sign-in flow has validated MFA at order 30 since it was built, so the
+# check was there all along and the way to satisfy it was not: nobody could
+# enrol a device.
+#
+# Stock flows exist for both (default-password-change,
+# default-authenticator-totp-setup) and they are reachable, but they are shared
+# with the other product on this instance and they are titled for an
+# administrator. These wrap the SAME stages -- no duplicate authenticators, one
+# place a TOTP device is registered -- with wording a customer should see.
+from authentik.flows.models import FlowAuthenticationRequirement  # noqa: E402
+
+def self_service_flow(slug, name, title, stages):
+    f, created = Flow.objects.get_or_create(
+        slug=slug,
+        defaults={"name": name, "title": title,
+                  "designation": FlowDesignation.STAGE_CONFIGURATION},
+    )
+    f.name, f.title = name, title
+    f.designation = FlowDesignation.STAGE_CONFIGURATION
+    # Not optional: without this the flow would let an unauthenticated stranger
+    # walk it and set somebody's password.
+    f.authentication = FlowAuthenticationRequirement.REQUIRE_AUTHENTICATED
+    f.save()
+    for order, st in stages:
+        b, _ = FlowStageBinding.objects.get_or_create(target=f, stage=st, defaults={"order": order})
+        if b.order != order:
+            b.order = order
+            b.save()
+    FlowStageBinding.objects.filter(target=f).exclude(stage__in=[st for _, st in stages]).delete()
+    note(f"flow {slug} {'created' if created else 'ok'}")
+    return f
+
+# Password change. The stock flow is prompt-then-write with NO re-authentication,
+# so a stolen session is an account takeover rather than a nuisance. Asking for
+# the current password first is the difference between the two, and it is one
+# stage.
+_stock_pw_prompt = PromptStage.objects.filter(name="default-password-change-prompt").first()
+_stock_pw_write = UserWriteStage.objects.filter(name="default-password-change-write").first()
+if pw_stage and _stock_pw_prompt and _stock_pw_write:
+    self_service_flow(
+        "meshsat-password-change",
+        "MeshSat Hub password change",
+        "Change your MeshSat Hub password",
+        [(10, pw_stage), (20, _stock_pw_prompt), (30, _stock_pw_write)],
+    )
+else:
+    note("flow meshsat-password-change SKIPPED (stock password-change stages absent)")
+
+# Two-factor. Reuses the stock TOTP stage so a device registered here is the
+# same device the sign-in flow's validator already knows about.
+_stock_totp = None
+try:
+    from authentik.stages.authenticator_totp.models import AuthenticatorTOTPStage  # noqa: E402
+    _stock_totp = AuthenticatorTOTPStage.objects.filter(name="default-authenticator-totp-setup").first()
+except Exception:  # authenticator app not installed
+    _stock_totp = None
+if _stock_totp:
+    self_service_flow(
+        "meshsat-mfa-setup",
+        "MeshSat Hub two-factor setup",
+        "Add two-factor authentication",
+        [(10, _stock_totp)],
+    )
+else:
+    note("flow meshsat-mfa-setup SKIPPED (stock TOTP stage absent)")
+
 # ---------------------------------------------------------------- Hub service account
 # The Hub approves beta requests itself (MESHSAT-978), which needs an API
 # identity of its own. The token is printed once so run-bootstrap.sh can store
