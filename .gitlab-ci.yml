@@ -340,8 +340,16 @@ bump_k8s_pin:
       #
       # Each pin commit records the commit it pinned in a Source: trailer, so
       # that is what this reads back.
+      # `sed -n 1p`, NOT `head -1`. head exits after the first line, which closes
+      # the pipe under it; git log is still writing, takes SIGPIPE, and returns
+      # 141 -- which `set -o pipefail` promotes into a failed job. It only bites
+      # once the log is larger than a pipe buffer, so it passed review and every
+      # small-repo test and then blocked EVERY deploy the moment this job first
+      # ran for real (2026-09-11: pipelines 53297 and 53302, both exit 141,
+      # production stuck on the previous pin). sed -n 1p reads to EOF and prints
+      # only the first line, so nothing upstream is ever signalled.
       pinned=$(git log -100 --pretty=%b -- k8s/kustomization.yaml \
-               | sed -n "s|^Source: .*@\([0-9a-f]\{40\}\).*|\1|p" | head -1)
+               | sed -n "s|^Source: .*@\([0-9a-f]\{40\}\).*|\1|p" | sed -n 1p)
       if [ -n "$pinned" ] && [ "$pinned" != "$CI_COMMIT_SHA" ] \
          && git cat-file -e "${pinned}^{commit}" 2>/dev/null \
          && git merge-base --is-ancestor "$CI_COMMIT_SHA" "$pinned"; then
