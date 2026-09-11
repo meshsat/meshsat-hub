@@ -85,9 +85,12 @@ type Session struct {
 
 // CheckoutRequest starts a subscription.
 type CheckoutRequest struct {
-	TenantID   string
-	Email      string
-	PriceID    string
+	TenantID string
+	Email    string
+	PriceID  string
+	// PlanName is what the customer is buying, for the wording on the hosted
+	// page. Empty is fine; the line item still names the product.
+	PlanName   string
 	SuccessURL string
 	CancelURL  string
 	// CustomerID reuses an existing Stripe customer when this tenant has one,
@@ -119,6 +122,20 @@ func (c *Client) Checkout(ctx context.Context, req CheckoutRequest) (*Session, e
 	// Copied onto the subscription, so every later subscription event carries
 	// the tenant without a lookup.
 	f.Set("subscription_data[metadata][tenant_id]", req.TenantID)
+	// The hosted page's logo, colours and title come from the ACCOUNT, and this
+	// account is the operating entity's rather than the product's -- so a
+	// customer subscribing to MeshSat Hub sees the entity's name at the top.
+	// Account branding cannot be set through the API by the account itself
+	// ("you may only use it on connected accounts"), so it is a dashboard job.
+	//
+	// What IS controllable per session is the wording, and the line item, which
+	// carries the product name. Both are used to say plainly whose page this is
+	// and what is being bought -- the same reasoning as the branded email: a
+	// customer who cannot tell who is charging them has a reason to stop.
+	f.Set("custom_text[submit][message]",
+		"MeshSat Hub "+tierLabel(req.PriceID, req.PlanName)+". Your plan starts as soon as this "+
+			"goes through, and you can cancel it yourself from Settings at any time. "+
+			"The price includes VAT, and a receipt follows by email.")
 	if req.CustomerID != "" {
 		f.Set("customer", req.CustomerID)
 	} else if req.Email != "" {
@@ -282,3 +299,11 @@ func (c *Client) do(req *http.Request, op string, out any) error {
 // apiVersion is pinned so Stripe cannot change a payload shape underneath a
 // running Hub. Raising it is a deliberate act with a changelog to read first.
 const apiVersion = "2025-08-27.basil"
+
+// tierLabel is the plan a customer is buying, phrased for the checkout page.
+func tierLabel(priceID, plan string) string {
+	if p := strings.TrimSpace(plan); p != "" {
+		return strings.ToUpper(p[:1]) + p[1:]
+	}
+	return "subscription"
+}
