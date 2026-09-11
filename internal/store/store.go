@@ -320,7 +320,7 @@ type Store interface {
 	// credentials of one provider (per-tenant provider accounts, MESHSAT-977).
 	ListHubCredentialsByProvider(ctx context.Context, provider string) ([]Credential, error)
 
-	// Receipts (MESHSAT-998): the outbox that turns a Ko-fi payment into a
+	// Receipts (MESHSAT-998): the outbox that turns a payment into a
 	// document. CreateReceipt reports false when the delivery key is already
 	// present, which is what makes a replayed webhook produce no second
 	// receipt; it is the idempotency token, not a cache.
@@ -1030,7 +1030,7 @@ const (
 // Refund is money given back that owes the customer a credit note
 // (MESHSAT-1019).
 //
-// The terms promise EU consumers the 14-day right of withdrawal, and a Ko-fi
+// The terms promise EU consumers the 14-day right of withdrawal, and a
 // payment is refundable in the payment processor. Until this existed the money
 // went back and no document followed it from anywhere: not from the processor,
 // whose refund emails are off by deliberate setting, and not from the billing

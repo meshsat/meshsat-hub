@@ -87,7 +87,7 @@ type adminUpdateTenantRequest struct {
 	// pointer, so the three cases stay distinguishable: absent leaves it
 	// alone, "" clears it, and a date sets it. Nothing anywhere could write
 	// this field before, so an operator-set plan on a tenant that still
-	// carried a Ko-fi expiry lapsed back to free on its own, and fixing it
+	// carried an expiry lapsed back to free on its own, and fixing it
 	// meant going into the database by hand (MESHSAT-989).
 	PlanExpiresAt *string `json:"plan_expires_at,omitempty"`
 }
