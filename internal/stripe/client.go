@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -183,22 +184,9 @@ func (c *Client) Donation(ctx context.Context, req DonationRequest) (*Session, e
 	f.Set("line_items[0][quantity]", "1")
 	if req.ReturnURL != "" {
 		// Embedded: Stripe draws the form, we draw everything around it.
-		//
-		// "embedded" is correct FOR THE PINNED VERSION and only for it. Stripe
-		// renamed this value, and the two versions refuse each other outright:
-		//
-		//   2025-08-27.basil   ui_mode=embedded      OK
-		//                      ui_mode=embedded_page "you must upgrade"
-		//   2026-08-26.dahlia  ui_mode=embedded      "no longer supported,
-		//                                             use embedded_page"
-		//                      ui_mode=embedded_page OK
-		//
-		// So raising apiVersion breaks donations until this line is changed with
-		// it. It fails loudly -- Stripe answers 400 and the Hub surfaces it --
-		// but it fails for everybody at once, which is why it is written down
-		// here rather than left to be rediscovered. Verified against the live
-		// API on 2026-09-11, both versions, both values.
-		f.Set("ui_mode", "embedded")
+		// The value is DERIVED from the pinned version, not hardcoded -- see
+		// embeddedUIMode.
+		f.Set("ui_mode", embeddedUIMode())
 		f.Set("return_url", req.ReturnURL)
 	} else {
 		f.Set("success_url", req.SuccessURL)
@@ -364,6 +352,42 @@ func (c *Client) do(req *http.Request, op string, out any) error {
 // apiVersion is pinned so Stripe cannot change a payload shape underneath a
 // running Hub. Raising it is a deliberate act with a changelog to read first.
 const apiVersion = "2025-08-27.basil"
+
+// uiModeByVersion is Stripe's spelling of the embedded Checkout mode at each API
+// version. Stripe renamed the value and the versions REFUSE each other, which
+// makes this the sharpest edge on the pin. Verified against the live API on
+// 2026-09-11, all four combinations:
+//
+//	2025-08-27.basil   ui_mode=embedded      OK
+//	                   ui_mode=embedded_page "you must upgrade"
+//	2026-08-26.dahlia  ui_mode=embedded      "no longer supported, use embedded_page"
+//	                   ui_mode=embedded_page OK
+//
+// Deriving it means raising apiVersion no longer silently breaks the donation
+// page: add the new version here and the page keeps working. A comment and a
+// test would only have told somebody AFTER they broke it.
+var uiModeByVersion = map[string]string{
+	"2025-08-27.basil":  "embedded",
+	"2026-08-26.dahlia": "embedded_page",
+}
+
+// embeddedUIMode returns the spelling the pinned version accepts.
+//
+// An unmapped version falls forward to the newer spelling and says so: Stripe
+// moves in one direction, so the newer name is the better guess, and either
+// wrong answer fails loudly with a 400 from Stripe rather than quietly. The
+// donation page degrades to hosted Checkout on that error, so a donor still
+// meets something payable.
+func embeddedUIMode() string {
+	if v, ok := uiModeByVersion[apiVersion]; ok {
+		return v
+	}
+	slog.Warn("stripe: no embedded ui_mode recorded for the pinned API version; "+
+		"guessing the newer spelling. If donations start failing, this is why -- "+
+		"add the version to uiModeByVersion.",
+		"api_version", apiVersion, "using", "embedded_page")
+	return "embedded_page"
+}
 
 // tierLabel is the plan a customer is buying, phrased for the checkout page.
 func tierLabel(priceID, plan string) string {

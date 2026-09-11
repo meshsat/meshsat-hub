@@ -1,0 +1,191 @@
+# Release the backup slot when a Backup gets stuck.
+#
+# THE PROBLEM, seen for real on 2026-09-11. NL SeaweedFS filled up, WAL archiving
+# failed for hours and then recovered on its own -- but the daily Backup object
+# stayed latched in `walArchivingFailing`. CloudNativePG never retries a failed
+# Backup AND never releases it, so the next one cannot start: an on-demand backup
+# sat in `pending` for seven minutes with the operator logging
+#
+#     A backup is already in progress or waiting to be started, retrying
+#
+# and the following night's scheduled run would have hit the same held slot.
+# Meanwhile the cluster reported ContinuousArchiving=True and
+# LastBackupSucceeded=True, because both describe the last ATTEMPT. The database
+# went 36 hours without an off-node copy and nothing said so; it took deleting
+# the stuck object by hand.
+#
+# Deleting a FAILED Backup object destroys nothing. For barmanObjectStore the
+# object is a record of an attempt; the attempt never wrote a base backup, and
+# the bucket has its own retention. Completed Backups are never touched here.
+#
+# This runs hourly, not because an hour matters for a daily backup, but because
+# the cost is one API call and the alternative is a slot held until somebody
+# notices. MeshSatHubBackupStale still fires if this fails to help -- the two are
+# independent on purpose.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: meshsat-hub-backup-unwedge
+  namespace: meshsat-hub-db
+  labels:
+    app.kubernetes.io/name: meshsat-hub
+    app.kubernetes.io/component: backup-unwedge
+---
+# Deliberately the narrowest thing that works: one resource, one namespace, and
+# no `create`. It can remove a failed attempt and nothing else -- it cannot take
+# a backup, cannot read a secret, cannot touch the Cluster.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: meshsat-hub-backup-unwedge
+  namespace: meshsat-hub-db
+  labels:
+    app.kubernetes.io/name: meshsat-hub
+rules:
+  - apiGroups: ["postgresql.cnpg.io"]
+    resources: ["backups"]
+    verbs: ["get", "list", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: meshsat-hub-backup-unwedge
+  namespace: meshsat-hub-db
+  labels:
+    app.kubernetes.io/name: meshsat-hub
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: meshsat-hub-backup-unwedge
+subjects:
+  - kind: ServiceAccount
+    name: meshsat-hub-backup-unwedge
+    namespace: meshsat-hub-db
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: meshsat-hub-backup-unwedge
+  namespace: meshsat-hub-db
+  labels:
+    app.kubernetes.io/name: meshsat-hub
+    app.kubernetes.io/component: backup-unwedge
+spec:
+  schedule: "17 * * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 3
+  startingDeadlineSeconds: 600
+  jobTemplate:
+    spec:
+      backoffLimit: 1
+      ttlSecondsAfterFinished: 3600
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: meshsat-hub
+            app.kubernetes.io/component: backup-unwedge
+        spec:
+          serviceAccountName: meshsat-hub-backup-unwedge
+          restartPolicy: Never
+          # The database lives on the control-plane tier and so does this.
+          nodeSelector:
+            node-role.kubernetes.io/control-plane: ""
+          tolerations:
+            - key: node-role.kubernetes.io/control-plane
+              operator: Exists
+              effect: NoSchedule
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 65534
+            runAsGroup: 65534
+            seccompProfile:
+              type: RuntimeDefault
+          containers:
+            - name: unwedge
+              # python:3-alpine and the STANDARD LIBRARY only. The first
+              # version of this used alpine + `apk add curl jq`, which cannot
+              # work: readOnlyRootFilesystem is on, apk needs to write, and a job
+              # whose first act is to fetch packages fails at exactly the moment
+              # the estate is already having a bad day. urllib and json are in
+              # the image.
+              image: docker.io/library/python:3.13-alpine
+              imagePullPolicy: IfNotPresent
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop: ["ALL"]
+              resources:
+                requests: {cpu: "10m", memory: "48Mi"}
+                limits: {memory: "128Mi"}
+              env:
+                - name: NS
+                  value: meshsat-hub-db
+                - name: CLUSTER
+                  value: meshsat-hub-main
+                # How old a failed Backup must be before it is cleared. Long
+                # enough that nothing in flight is ever touched.
+                - name: MIN_AGE_SECONDS
+                  value: "7200"
+              command: ["python3", "-u", "-c"]
+              args:
+                - |
+                  import calendar, json, os, ssl, sys, time, urllib.request
+
+                  NS = os.environ["NS"]
+                  CLUSTER = os.environ["CLUSTER"]
+                  MIN_AGE = int(os.environ["MIN_AGE_SECONDS"])
+                  SA = "/var/run/secrets/kubernetes.io/serviceaccount"
+                  BASE = ("https://kubernetes.default.svc/apis/postgresql.cnpg.io/v1"
+                          f"/namespaces/{NS}/backups")
+
+                  with open(f"{SA}/token") as f:
+                      token = f.read().strip()
+                  ctx = ssl.create_default_context(cafile=f"{SA}/ca.crt")
+
+                  def call(url, method="GET"):
+                      r = urllib.request.Request(url, method=method)
+                      r.add_header("Authorization", "Bearer " + token)
+                      with urllib.request.urlopen(r, context=ctx, timeout=30) as resp:
+                          body = resp.read().decode()
+                          return resp.status, (json.loads(body) if body.strip() else {})
+
+                  _, listing = call(BASE)
+                  now = time.time()
+
+                  # Only attempts that FAILED, only this cluster's, and only ones
+                  # old enough that they cannot still be running. A completed
+                  # Backup records a real backup and is never a candidate.
+                  FAILED = {"failed", "walArchivingFailing"}
+                  stuck = []
+                  for b in listing.get("items", []):
+                      if (b.get("spec", {}).get("cluster", {}) or {}).get("name") != CLUSTER:
+                          continue
+                      if (b.get("status", {}) or {}).get("phase") not in FAILED:
+                          continue
+                      created = b["metadata"]["creationTimestamp"]
+                      # timegm, NOT mktime. Kubernetes timestamps are UTC and
+                      # mktime reads a parsed struct as LOCAL time, so on a host
+                      # at UTC+2 every Backup looked two hours older than it was
+                      # -- which would have deleted one five minutes into its
+                      # run. Caught by testing the selector against the real
+                      # cluster listing rather than trusting it.
+                      age = now - calendar.timegm(time.strptime(created, "%Y-%m-%dT%H:%M:%SZ"))
+                      if age <= MIN_AGE:
+                          continue
+                      stuck.append((b["metadata"]["name"], b["status"]["phase"], int(age // 3600)))
+
+                  if not stuck:
+                      print("backup-unwedge: nothing stuck; the slot is free")
+                      sys.exit(0)
+
+                  for name, phase, hours in stuck:
+                      print(f"backup-unwedge: clearing {name} ({phase}, {hours}h old). "
+                            "It is holding the slot so no later backup can start. This "
+                            "destroys no backup data -- the attempt never wrote any.")
+                      status, _ = call(f"{BASE}/{name}", method="DELETE")
+                      if status not in (200, 202):
+                          print(f"backup-unwedge: FAILED to clear {name} (HTTP {status})")
+                          sys.exit(1)
+                      print(f"backup-unwedge: cleared {name}; the next backup can start")

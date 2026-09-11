@@ -47,9 +47,13 @@ ak() {
 verify_email_templates() {
   local server="${AUTHENTIK_SERVER_DEPLOY:-deploy/auth-server}" bad=0
   for tpl in email/meshsat_account_confirmation.html email/meshsat_password_reset.html; do
-    if kubectl --context "$CTX" -n "$NS" exec -i "$server" -- \
-         ak shell -c "from django.template.loader import get_template; get_template('$tpl'); print('OK')" 2>&1 \
-         | grep -q '^OK$'; then
+    # Captured, not piped into `grep -q`: grep -q exits on the first match and
+    # SIGPIPEs kubectl, which `set -o pipefail` turns into a failed run. Keeping
+    # the output also means the failure below can show what actually came back.
+    local out
+    out=$(kubectl --context "$CTX" -n "$NS" exec -i "$server" -- \
+         ak shell -c "from django.template.loader import get_template; get_template('$tpl'); print('OK')" 2>&1) || true
+    if grep -q '^OK$' <<<"$out"; then
       echo "template $tpl is readable by the flow executor"
     else
       echo "FATAL: $tpl is NOT readable by auth-server, which is what renders it."

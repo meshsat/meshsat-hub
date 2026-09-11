@@ -33,9 +33,14 @@ import (
 //
 // Raising this list is a deliberate act: capture the payloads, run the shape
 // tests against them, then add the version here.
+// Literal keys, deliberately -- not `apiVersion:`. Keying on the constant meant
+// that raising the pin to a version already listed here collided and the package
+// stopped compiling with "duplicate key in map literal", which says nothing about
+// Stripe, payments or what to do. A test asserts the pinned version is present,
+// so the same mistake now fails with a sentence instead.
 var knownAPIVersions = map[string]string{
 	// What every outbound call pins, via the Stripe-Version header.
-	apiVersion: "pinned for outbound calls; the webhook endpoint is set to this in the dashboard",
+	"2025-08-27.basil": "pinned for outbound calls; the webhook endpoint is set to this in the dashboard",
 	// The account default. The /v1/events endpoint renders archived events at
 	// this version regardless of any header, so it is what a replay tool sees.
 	"2026-08-26.dahlia": "the account default; what a replayed archived event is rendered at",

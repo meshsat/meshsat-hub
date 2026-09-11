@@ -62,7 +62,7 @@ check_header() {
     local endpoint="$1" header="$2" expected="$3" severity="${4:-FAIL}"
     local value
     value=$(curl -s -o /dev/null -D - -H "Authorization: Bearer ${HUB_AUTH_TOKEN}" \
-        "${HUB_TARGET_URL}${endpoint}" 2>/dev/null | grep -i "^${header}:" | head -1 | tr -d '\r')
+        "${HUB_TARGET_URL}${endpoint}" 2>/dev/null | grep -i "^${header}:" | sed -n 1p | tr -d '\r')
 
     if [ -z "$value" ]; then
         if [ "$severity" = "FAIL" ]; then
@@ -73,7 +73,7 @@ check_header() {
         return
     fi
 
-    if echo "$value" | grep -qi "$expected"; then
+    if grep -qi "$expected" <<<"$value"; then
         pass "${endpoint} has ${header}"
     else
         if [ "$severity" = "FAIL" ]; then
@@ -107,7 +107,7 @@ echo ""
 
 # HSTS check (only meaningful over HTTPS)
 echo "[1.3] HSTS (Strict-Transport-Security)"
-if echo "$HUB_TARGET_URL" | grep -q "^https://"; then
+if grep -q "^https://" <<<"$HUB_TARGET_URL"; then
     check_header "/healthz" "Strict-Transport-Security" "max-age="
     check_header "/api/auth/me" "Strict-Transport-Security" "max-age="
 else
@@ -149,8 +149,8 @@ VIEWER_RESP=$(curl -s -H "Authorization: Bearer ${HUB_AUTH_TOKEN}" \
     -d '{"label":"owasp-viewer-test","role":"viewer"}' \
     "${HUB_TARGET_URL}/api/auth/keys" 2>/dev/null)
 
-VIEWER_KEY=$(echo "$VIEWER_RESP" | grep -o '"key":"[^"]*"' | head -1 | cut -d'"' -f4)
-VIEWER_KEY_ID=$(echo "$VIEWER_RESP" | grep -o '"id":"[^"]*"' | head -1 | cut -d'"' -f4)
+VIEWER_KEY=$(grep -o '"key":"[^"]*"' <<<"$VIEWER_RESP" | sed -n 1p | cut -d'"' -f4)
+VIEWER_KEY_ID=$(grep -o '"id":"[^"]*"' <<<"$VIEWER_RESP" | sed -n 1p | cut -d'"' -f4)
 
 if [ -n "$VIEWER_KEY" ]; then
     OWNER_ENDPOINTS=("/api/auth/keys" "/api/audit")
@@ -205,7 +205,7 @@ if [ "$XSS_STATUS" = "201" ] || [ "$XSS_STATUS" = "200" ]; then
     # Check if the stored value is returned without encoding in JSON
     DEVICE_RESP=$(curl -s -H "Authorization: Bearer ${HUB_AUTH_TOKEN}" \
         "${HUB_TARGET_URL}/api/devices/XSSTEST123456")
-    if echo "$DEVICE_RESP" | grep -q '<script>'; then
+    if grep -q '<script>' <<<"$DEVICE_RESP"; then
         warn "XSS payload stored and returned in JSON (CSP should prevent execution)"
     else
         pass "XSS payload sanitized or encoded"
@@ -228,7 +228,7 @@ for payload in "${TRAVERSAL_PAYLOADS[@]}"; do
         # Verify it's not just an empty JSON response (chi 404 returns 200 for some patterns)
         body=$(curl -s -H "Authorization: Bearer ${HUB_AUTH_TOKEN}" \
             "${HUB_TARGET_URL}/api/devices/${payload}")
-        if echo "$body" | grep -qE '(root:|passwd|/bin/sh)'; then
+        if grep -qE '(root:|passwd|/bin/sh)' <<<"$body"; then
             fail "Path traversal succeeded with file disclosure: ${payload}"
         else
             pass "Path traversal returned 200 but no file disclosure (safe): ${payload}"
