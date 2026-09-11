@@ -38,6 +38,8 @@ type Client struct {
 	key     string
 	http    *http.Client
 	baseURL string
+	// now exists so a test can pin the attempt bucket.
+	now func() time.Time
 }
 
 // NewClient returns a client, or nil when no key is configured.
@@ -48,7 +50,7 @@ func NewClient(secretKey string, timeout time.Duration) *Client {
 	if timeout <= 0 {
 		timeout = 20 * time.Second
 	}
-	return &Client{key: secretKey, http: &http.Client{Timeout: timeout}, baseURL: apiBase}
+	return &Client{key: secretKey, http: &http.Client{Timeout: timeout}, baseURL: apiBase, now: time.Now}
 }
 
 // SetBaseURL points the client at a test double.
@@ -142,7 +144,8 @@ func (c *Client) Checkout(ctx context.Context, req CheckoutRequest) (*Session, e
 		f.Set("customer_email", req.Email)
 	}
 	var s Session
-	if err := c.post(ctx, "/checkout/sessions", f, idempotency("checkout", req.TenantID, req.PriceID), &s); err != nil {
+	if err := c.post(ctx, "/checkout/sessions", f,
+		idempotency("checkout", req.TenantID, req.PriceID, c.attemptBucket()), &s); err != nil {
 		return nil, err
 	}
 	return &s, nil
@@ -232,6 +235,30 @@ func (c *Client) Subscription(ctx context.Context, id string) (status string, pe
 		return "", time.Time{}, "", err
 	}
 	return sub.Status, sub.periodEnd(), sub.priceID(), nil
+}
+
+// attemptBucket scopes an idempotency key to one ATTEMPT rather than to a
+// tenant forever.
+//
+// A key of tenant+price alone looked safe and was not. Stripe remembers a key
+// for 24 hours and refuses it if the parameters differ, so a customer who
+// opened Checkout, wandered off and pressed Subscribe again the same day got
+// either the first session back -- by then expired -- or a flat 400 that the
+// Hub reported as "the payment provider could not be reached". The Subscribe
+// button simply stopped working for the rest of the day, for that customer, on
+// that plan.
+//
+// Fifteen minutes is chosen against what the key is actually for: a double
+// click or a browser retry arrives within seconds and should get the SAME
+// session back, while somebody genuinely starting again does so minutes later
+// and should get a fresh one. It is also far inside Stripe's 24-hour session
+// expiry, so a deduplicated response is never a dead link.
+//
+// Donations deliberately do not use this: an anonymous giver has no tenant, so
+// a time bucket would be the whole key and two strangers donating in the same
+// quarter hour would be handed each other's session.
+func (c *Client) attemptBucket() string {
+	return strconv.FormatInt(c.now().UTC().Truncate(15*time.Minute).Unix(), 36)
 }
 
 // idempotency builds a key so a retried create does not make a second object.
