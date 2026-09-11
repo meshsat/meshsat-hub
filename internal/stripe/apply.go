@@ -209,6 +209,13 @@ func (h *Handler) onSubscription(ctx context.Context, ev Event) error {
 		return err
 	}
 
+	if !sub.knownStatus() {
+		// live() answers false for anything it does not recognise, and false
+		// means end the plan. A status Stripe adds or renames would therefore
+		// cancel healthy subscriptions and log it as a normal cancellation.
+		missingField("subscription.status", ev.Type,
+			"an unrecognised status ("+sub.Status+") is treated as not-live, which ENDS the plan")
+	}
 	ending := ev.Type == EventSubscriptionDeleted || !sub.live()
 	if ending {
 		return h.endPlan(ctx, t, sub, ev)
@@ -227,6 +234,13 @@ func (h *Handler) onSubscription(ctx context.Context, ev Event) error {
 
 	expires := sub.periodEnd()
 	if expires.IsZero() {
+		// Neither items[].current_period_end nor the legacy top-level field was
+		// readable. The plan is still granted -- refusing would be worse -- but
+		// the expiry below is invented from the clock, not Stripe's. This is the
+		// bug that gave every subscriber 16 October when Stripe said the 11th,
+		// and logged "plan granted" with the invented date as if it were real.
+		missingField("subscription.items[].current_period_end", ev.Type,
+			"the plan expiry is being invented from the clock instead of read from Stripe")
 		expires = h.now().UTC().Add(billing.Period)
 	}
 	expires = expires.Add(grace)
@@ -295,6 +309,16 @@ func (h *Handler) onInvoicePaid(ctx context.Context, ev Event) error {
 	// invoice.paid BEFORE checkout.session.completed on a first subscription,
 	// and the binding is written by the latter. Reading only the customer left
 	// the first real payment unattributed and undocumented.
+	if len(inv.metadata()) == 0 && inv.subscriptionID() == "" && inv.Customer != "" {
+		// The whole parent.subscription_details block was unreadable, not just
+		// the tenant id. That is a shape change, not a stranger's payment --
+		// and it presents identically, which is exactly how the dahlia field
+		// move left the first real subscription payment with no VAT document
+		// while the logs read like somebody else's money had arrived.
+		missingField("invoice.parent.subscription_details", ev.Type,
+			"a subscription invoice carries no subscription details at all, so the payment "+
+				"cannot be attributed and will be recorded as unattributed")
+	}
 	t, err := h.tenantFor(ctx, inv.metadata(), inv.Customer)
 	if err != nil {
 		h.recordUnattributed(ctx, ev, inv.AmountPaid, inv.Currency, inv.CustomerEmail, "invoice paid with no tenant")
@@ -303,6 +327,19 @@ func (h *Handler) onInvoicePaid(ctx context.Context, ev Event) error {
 	ok, err := h.once(ctx, ev.ID, t.ID)
 	if err != nil || !ok {
 		return err
+	}
+	// Both of these end up on a VAT document, which is why an absent field has
+	// to be said out loud rather than quietly stood in for.
+	if inv.priceID() == "" {
+		// firstNonEmpty below will write whatever plan the tenant already had
+		// onto the receipt -- a plausible-looking document describing a sale
+		// that may not be the one that happened.
+		missingField("invoice.lines[].pricing.price_details.price", ev.Type,
+			"the receipt will name the tenant's existing plan rather than what was actually bought")
+	}
+	if inv.Created == 0 {
+		missingField("invoice.created", ev.Type,
+			"the receipt will be dated now instead of when the invoice was paid")
 	}
 	h.recordReceipt(ctx, t, receiptFacts{
 		key:      invoiceKey(inv.ID),
@@ -596,7 +633,15 @@ func (h *Handler) recordReceipt(ctx context.Context, t *store.Tenant, f receiptF
 // an audit entry on the platform tenant, listed at
 // GET /api/admin/payments/unmatched.
 func (h *Handler) recordUnattributed(ctx context.Context, ev Event, cents int64, currency, email, why string) {
-	metrics.PaymentsUnattributedTotal.Inc()
+	// Money that belongs to nobody is a different thing from a lifecycle event
+	// that names an unknown tenant: the first means a customer has been charged
+	// and will get no document, the second means a subscription outlived the
+	// account it was for. Only the first is worth waking somebody.
+	kind := "lifecycle"
+	if cents > 0 {
+		kind = "payment"
+	}
+	metrics.PaymentsUnattributedTotal.WithLabelValues(kind).Inc()
 	detail, _ := json.Marshal(map[string]any{
 		"provider":     "stripe",
 		"event":        ev.ID,
