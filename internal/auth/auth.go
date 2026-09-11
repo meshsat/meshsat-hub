@@ -312,6 +312,12 @@ func isExempt(path string) bool {
 		return true
 	case isProvisionClaim(path): // QR provision claim — nonce IS the auth (MESHSAT-414)
 		return true
+	case path == "/donate":
+		// The public donate link, followed from meshsat.net. Exempt for the
+		// same reason as /api/donate below; named explicitly rather than left
+		// to the single-page-app heuristic further down, which would exempt it
+		// only by accident of having no dot in it.
+		return true
 	case path == "/api/donate":
 		// A gift from somebody with no account. There is nothing to
 		// authenticate: the caller is a stranger by definition and the money

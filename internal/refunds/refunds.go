@@ -2,7 +2,7 @@
 // sale (MESHSAT-1019).
 //
 // The gap this closes was total. The terms promise EU consumers 14 days to
-// withdraw from a subscription and get their money back, and a Ko-fi payment is
+// withdraw from a subscription and get their money back, and a payment is
 // refundable in the payment processor -- but nothing produced a document when
 // that happened. The processor's refund emails are off by deliberate setting;
 // the billing system had no credit-note flow wired at all. So a refunded
@@ -13,7 +13,7 @@
 // than a preference:
 //
 //   - The money moves by hand, in the payment processor, so the trigger is an
-//     operator recording that it moved. Nothing here refunds anybody: a Ko-fi
+//     operator recording that it moved. Nothing here refunds anybody: a
 //     webhook never fires on a refund, and inferring one from a poll would put
 //     this code in the position of issuing legal documents for an event it
 //     guessed at.
@@ -327,7 +327,7 @@ func (j *Job) reversePlan(ctx context.Context, r *store.Refund, receipt *store.R
 	}
 	if t.PlanExpiresAt == nil {
 		// No expiry means an operator set this tier by hand and it does not
-		// lapse. A Ko-fi refund must not silently convert that into a plan
+		// lapse. A refund must not silently convert that into a plan
 		// with an end date.
 		return time.Time{}
 	}

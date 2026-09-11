@@ -85,6 +85,55 @@ func (h *BillingHandler) donate(w http.ResponseWriter, r *http.Request, tenantID
 	writeJSON(w, http.StatusOK, checkoutResponse{URL: s.URL})
 }
 
+// DonateRedirect starts an anonymous donation and sends the browser straight
+// to Stripe.
+//
+// It exists because meshsat.net cannot reach the JSON endpoint. The site's CSP
+// allows connect-src only to itself, its analytics host and api.github.com,
+// and form-action only to 'self', so a fetch() or a form POST from the site to
+// this Hub is blocked by the browser. A plain link is the one thing that needs
+// no CSP change, no CORS, and no JavaScript on a static site -- so the button
+// is an anchor and this is where it lands.
+//
+// A GET with an effect is a deliberate trade. The effect is small and local:
+// a Checkout session is created at Stripe, nothing is written here, no money
+// moves, and an unused session expires by itself. It is the same shape as a
+// Stripe Payment Link, which is a URL people put in a page. The route is rate
+// limited per IP, and the anchor carries rel="nofollow" so crawlers leave it
+// alone.
+//
+// @Summary      Donate without an account
+// @Description  Creates a Stripe Checkout session for an anonymous donation and redirects to it. For linking from a static page.
+// @Tags         billing
+// @Success      303  "redirect to Stripe Checkout"
+// @Failure      503  {string}  string  "donations are not available"
+// @Router       /donate [get]
+func (h *BillingHandler) DonateRedirect(w http.ResponseWriter, r *http.Request) {
+	if h.donatio == "" || h.client == nil {
+		// A person followed a link, so answer in words rather than JSON.
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		w.WriteHeader(http.StatusServiceUnavailable)
+		_, _ = w.Write([]byte("Donations are not available at the moment. Nothing was charged.\n"))
+		return
+	}
+	s, err := h.client.Donation(r.Context(), stripe.DonationRequest{
+		PriceID:    h.donatio,
+		SuccessURL: h.hubURL + "/#/?donation=thanks",
+		CancelURL:  h.hubURL + "/#/?donation=cancelled",
+	})
+	if err != nil {
+		slog.Error("billing: could not start an anonymous donation", "error", err)
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		w.WriteHeader(http.StatusBadGateway)
+		_, _ = w.Write([]byte("The payment provider could not be reached. Nothing was charged.\n"))
+		return
+	}
+	slog.Info("billing: anonymous donation started", "session", s.ID)
+	// 303, not 302: the browser must GET the Stripe page, and a later back
+	// button must not silently repeat this.
+	http.Redirect(w, r, s.URL, http.StatusSeeOther)
+}
+
 // Donate starts a one-off donation for a signed-in tenant.
 // @Summary      Donate
 // @Description  Creates a Stripe Checkout session for a one-off donation bound to this tenant. Grants no plan.
