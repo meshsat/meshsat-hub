@@ -316,6 +316,16 @@ func (j *Job) closeWithoutDocument(ctx context.Context, r *store.Refund, receipt
 //
 // Returns the plan's new end, or the zero time when the plan was not moved.
 func (j *Job) reversePlan(ctx context.Context, r *store.Refund, receipt *store.Receipt) time.Time {
+	if receipt.Plan == billing.DonationPlan {
+		// A donation buys no period, so there is none to take back. Without
+		// this a giver who asked for a EUR 1 gift back lost a month of the
+		// subscription they had paid for separately -- proven on production
+		// 2026-09-11, where refunding a donation moved a live Crew plan from
+		// 16 October to 14 September, and a second refund took it into the
+		// past. Near the end of a period it would lapse the plan outright and
+		// cap their device registrations.
+		return time.Time{}
+	}
 	if r.AmountCents < receipt.AmountCents {
 		return time.Time{} // partial refund: the plan stands
 	}
