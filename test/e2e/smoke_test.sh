@@ -72,8 +72,11 @@ KEY_RESP=$(curl -s -H "${auth_header}" -H "Content-Type: application/json" \
     -d '{"label":"e2e-test","role":"viewer"}' \
     "${HUB_HOST_1}/api/auth/keys")
 
-API_KEY=$(echo "$KEY_RESP" | grep -o '"key":"[^"]*"' | head -1 | cut -d'"' -f4)
-KEY_ID=$(echo "$KEY_RESP" | grep -o '"id":"[^"]*"' | head -1 | cut -d'"' -f4)
+# Herestrings, not `echo ... | grep`, and `sed -n 1p`, not `head -1`: under
+# `set -o pipefail` a reader that exits early (head, grep -q) SIGPIPEs whatever
+# is still writing, and 141 fails the script. See the note in .gitlab-ci.yml.
+API_KEY=$(grep -o '"key":"[^"]*"' <<<"$KEY_RESP" | sed -n 1p | cut -d'"' -f4)
+KEY_ID=$(grep -o '"id":"[^"]*"' <<<"$KEY_RESP" | sed -n 1p | cut -d'"' -f4)
 
 if [ -n "$API_KEY" ]; then
     pass "Created API key on host 1"

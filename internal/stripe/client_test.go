@@ -324,12 +324,15 @@ func TestTheEmbeddedDonationUsesTheValueThePinnedVersionAccepts(t *testing.T) {
 	if err != nil {
 		t.Fatalf("donation: %v", err)
 	}
-	if got := form.Get("ui_mode"); got != "embedded" {
-		t.Errorf("ui_mode = %q, want \"embedded\".\n\n"+
-			"If apiVersion was just raised to 2026-08-26.dahlia or later, the value is now "+
-			"\"embedded_page\" and BOTH this test and client.go have to change together. "+
-			"The versions reject each other's spelling, so donations break for everyone "+
-			"the moment the pin moves.", got)
+	// Asserted against the MAPPING, not a literal: raising apiVersion is now a
+	// one-line change to uiModeByVersion rather than a silent breakage.
+	want := uiModeByVersion[apiVersion]
+	if want == "" {
+		t.Fatalf("no embedded ui_mode recorded for the pinned version %q. Add it to "+
+			"uiModeByVersion -- until then every donation session is a guess.", apiVersion)
+	}
+	if got := form.Get("ui_mode"); got != want {
+		t.Errorf("ui_mode = %q, want %q for the pinned %s", got, want, apiVersion)
 	}
 	// Embedded and hosted are mutually exclusive; Stripe refuses a session with both.
 	if form.Get("success_url") != "" || form.Get("cancel_url") != "" {
@@ -354,5 +357,30 @@ func TestADonationAsksToDonateRatherThanToPay(t *testing.T) {
 		t.Error("no custom text: the page says nothing about what the money is for")
 	} else if strings.Contains(strings.ToLower(msg), "subscription") == false {
 		t.Error("the custom text should say plainly that this buys no subscription")
+	}
+}
+
+// The spellings are not interchangeable and each version rejects the other's,
+// so a mapping that lost an entry, or gained a wrong one, breaks donations for
+// everybody at once. Checked against the live API on 2026-09-11.
+func TestTheEmbeddedSpellingsAreRecordedPerVersion(t *testing.T) {
+	want := map[string]string{
+		"2025-08-27.basil":  "embedded",
+		"2026-08-26.dahlia": "embedded_page",
+	}
+	for version, spelling := range want {
+		got, ok := uiModeByVersion[version]
+		if !ok {
+			t.Errorf("no ui_mode recorded for %s", version)
+			continue
+		}
+		if got != spelling {
+			t.Errorf("ui_mode for %s = %q, want %q. Stripe rejects the other spelling "+
+				"outright, so this is not a preference.", version, got, spelling)
+		}
+	}
+	// And the pinned version must be one of them, or every embedded session is a guess.
+	if _, ok := uiModeByVersion[apiVersion]; !ok {
+		t.Errorf("the pinned version %s has no ui_mode recorded", apiVersion)
 	}
 }
