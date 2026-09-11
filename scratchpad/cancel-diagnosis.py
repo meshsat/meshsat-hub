@@ -163,6 +163,14 @@ def main():
         print("auto-drop  : n/a, the plan was never granted")
 
     stripe("DELETE", f"/customers/{cus_id}", key=sk)
+    # Let Stripe's trailing events land BEFORE the tenant row goes. Deleting the
+    # tenant first leaves the Hub receiving subscription events for an account
+    # that no longer exists, which it correctly records as unattributed -- and
+    # which fired a tier-1 page on 2026-09-11 for this probe's litter
+    # (IFRNLLEI01PRD-2833). A probe must not manufacture the alerts it exists to
+    # help prove.
+    print("settling (letting trailing webhooks land before the tenant goes)...")
+    time.sleep(20)
     purge()
     print("cleaned up")
     return 0
