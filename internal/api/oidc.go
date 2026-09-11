@@ -47,6 +47,10 @@ type OIDCConfig struct {
 	SignupURL    string
 	CommunityURL string
 	RecoveryURL  string
+	// PasswordChangeURL and MFASetupURL are the identity provider's
+	// self-service flows for a signed-in customer.
+	PasswordChangeURL string
+	MFASetupURL       string
 }
 
 // OIDCHandler implements GET /api/auth/oidc/login, GET /api/auth/oidc/callback
@@ -85,6 +89,11 @@ type authConfigResponse struct {
 	// Hub linked to it, so the only way to reach it was to already be on
 	// authentik's own sign-in page and notice the link there.
 	RecoveryURL string `json:"recovery_url,omitempty"`
+	// PasswordChangeURL and MFASetupURL are the self-service flows a signed-in
+	// customer can reach. authentik's settings page is closed to `external`
+	// users, so without these there is no route to either from anywhere.
+	PasswordChangeURL string `json:"password_change_url,omitempty"`
+	MFASetupURL       string `json:"mfa_setup_url,omitempty"`
 }
 
 // Config tells the SPA which login methods exist.
@@ -99,6 +108,8 @@ func (h *OIDCHandler) Config(w http.ResponseWriter, r *http.Request) {
 		resp.OIDCLoginURL = "/api/auth/oidc/login"
 		resp.SignupURL = h.cfg.SignupURL
 		resp.RecoveryURL = h.cfg.RecoveryURL
+		resp.PasswordChangeURL = h.cfg.PasswordChangeURL
+		resp.MFASetupURL = h.cfg.MFASetupURL
 	}
 	writeJSON(w, http.StatusOK, resp)
 }

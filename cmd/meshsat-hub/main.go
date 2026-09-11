@@ -1361,6 +1361,8 @@ func main() {
 			TenantEnforce:       cfg.TenantEnforce,
 			SignupURL:           cfg.OIDCSignupURL,
 			RecoveryURL:         cfg.OIDCRecoveryURL,
+			PasswordChangeURL:   cfg.OIDCPasswordChangeURL,
+			MFASetupURL:         cfg.OIDCMFASetupURL,
 			CommunityURL:        cfg.CommunityURL,
 		}, modes)
 		authCfg.Resolver = oidcHandler
