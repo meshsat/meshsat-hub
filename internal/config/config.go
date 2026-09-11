@@ -106,6 +106,14 @@ type Config struct {
 	StripeSecretKey     string `yaml:"stripe_secret_key"`
 	StripeWebhookSecret string `yaml:"stripe_webhook_secret"`
 	StripePathSecret    string `yaml:"stripe_path_secret"`
+
+	// StripePublishableKey is the ONE Stripe value meant to be public: it is
+	// served to the browser so Stripe.js can mount the embedded donation form,
+	// and on its own it can neither create nor read anything. It went unused
+	// while the Hub used only hosted Checkout, where nothing ran client-side.
+	// Read through stripeSecret anyway -- a missing key renders the literal
+	// "<no value>" and a page built on that is broken rather than absent.
+	StripePublishableKey string `yaml:"stripe_publishable_key"`
 	// StripePrices maps a Stripe price id to a plan. A price that names
 	// anything but a sellable tier is refused at load: custom and beta are
 	// unlimited and operator-set.
@@ -609,6 +617,9 @@ func Load() (Config, error) {
 	}
 	if v := stripeSecret("HUB_STRIPE_PATH_SECRET"); v != "" {
 		cfg.StripePathSecret = v
+	}
+	if v := stripeSecret("HUB_STRIPE_PUBLISHABLE_KEY"); v != "" {
+		cfg.StripePublishableKey = v
 	}
 	if v := os.Getenv("HUB_STRIPE_DONATION_PRICE"); v != "" {
 		cfg.StripeDonationPrice = strings.TrimSpace(v)
