@@ -1,13 +1,17 @@
 package stripe
 
 import (
+	"context"
 	"fmt"
 	"testing"
 	"time"
 
 	"github.com/meshsat/meshsat-hub/internal/billing"
+	"github.com/meshsat/meshsat-hub/internal/metrics"
 	"github.com/meshsat/meshsat-hub/internal/plans"
 	"github.com/meshsat/meshsat-hub/internal/store"
+	"github.com/prometheus/client_golang/prometheus"
+	dto "github.com/prometheus/client_model/go"
 )
 
 // donationEvent builds a completed one-off Checkout session. marker controls
@@ -230,4 +234,48 @@ func TestAFailedPaymentWithNoTenantIsRecordedForAPerson(t *testing.T) {
 	if w := deliver(t, h, failedInvoice("evt_orphan_fail", "cus_unknown", 900, 0)); w.Code != 200 {
 		t.Fatalf("got %d: %s (an unattributable event is acknowledged, not retried)", w.Code, w.Body.String())
 	}
+}
+
+// The first alert written against this counter fired within minutes of being
+// deployed -- for a probe whose tenant row had been deleted while Stripe was
+// still sending trailing subscription events. No money was involved in any of
+// them. Paging a human for that is how a pager stops being believed, so the
+// counter distinguishes money from lifecycle and only the first is tier-1.
+func TestOnlyRealMoneyCountsAsAnUnattributedPayment(t *testing.T) {
+	h, _, _ := newHandler(t, &fakeTenants{})
+
+	before := counterValue(t, "payment")
+	beforeLifecycle := counterValue(t, "lifecycle")
+
+	// A subscription event naming a tenant nobody knows: no money moved.
+	h.recordUnattributed(context.Background(),
+		Event{ID: "evt_a", Type: EventSubscriptionDeleted}, 0, "", "", "subscription event with no tenant")
+	if got := counterValue(t, "payment"); got != before {
+		t.Errorf("a zero-amount lifecycle event moved the payment counter (%v -> %v); "+
+			"it would page somebody for a deleted test tenant", before, got)
+	}
+	if got := counterValue(t, "lifecycle"); got != beforeLifecycle+1 {
+		t.Errorf("the lifecycle counter did not move; the event would be invisible")
+	}
+
+	// Money that belongs to nobody: somebody has been charged and will get no
+	// receipt and no VAT document.
+	h.recordUnattributed(context.Background(),
+		Event{ID: "evt_b", Type: EventInvoicePaid}, 900, "eur", "someone@example.test", "invoice paid with no tenant")
+	if got := counterValue(t, "payment"); got != before+1 {
+		t.Errorf("real unattributed money did not move the payment counter (%v -> %v)", before, got)
+	}
+}
+
+func counterValue(t *testing.T, kind string) float64 {
+	t.Helper()
+	var m dto.Metric
+	c, err := metrics.PaymentsUnattributedTotal.GetMetricWithLabelValues(kind)
+	if err != nil {
+		t.Fatalf("reading the counter: %v", err)
+	}
+	if err := c.(prometheus.Metric).Write(&m); err != nil {
+		t.Fatalf("writing the counter: %v", err)
+	}
+	return m.GetCounter().GetValue()
 }

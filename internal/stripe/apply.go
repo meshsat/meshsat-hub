@@ -633,7 +633,15 @@ func (h *Handler) recordReceipt(ctx context.Context, t *store.Tenant, f receiptF
 // an audit entry on the platform tenant, listed at
 // GET /api/admin/payments/unmatched.
 func (h *Handler) recordUnattributed(ctx context.Context, ev Event, cents int64, currency, email, why string) {
-	metrics.PaymentsUnattributedTotal.Inc()
+	// Money that belongs to nobody is a different thing from a lifecycle event
+	// that names an unknown tenant: the first means a customer has been charged
+	// and will get no document, the second means a subscription outlived the
+	// account it was for. Only the first is worth waking somebody.
+	kind := "lifecycle"
+	if cents > 0 {
+		kind = "payment"
+	}
+	metrics.PaymentsUnattributedTotal.WithLabelValues(kind).Inc()
 	detail, _ := json.Marshal(map[string]any{
 		"provider":     "stripe",
 		"event":        ev.ID,
