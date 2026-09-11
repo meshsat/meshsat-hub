@@ -44,12 +44,17 @@ type tenantResponse struct {
 	Status      string `json:"status"`
 	CreatedAt   string `json:"created_at"`
 	UpdatedAt   string `json:"updated_at"`
+	// PurgeGraceDays is how long a closed account can still be recovered. The
+	// close dialog quotes it to the customer, and a number the UI hardcoded
+	// would be one refactor away from disagreeing with what actually happens.
+	PurgeGraceDays int `json:"purge_grace_days"`
 }
 
 func toTenantResponse(t *store.Tenant) tenantResponse {
 	return tenantResponse{
 		ID: t.ID, Slug: t.Slug, Name: t.Name, OwnerUserID: t.OwnerUserID, Plan: t.Plan, Status: t.Status,
 		CreatedAt: t.CreatedAt.UTC().Format(time.RFC3339), UpdatedAt: t.UpdatedAt.UTC().Format(time.RFC3339),
+		PurgeGraceDays: int(store.PurgeGrace / (24 * time.Hour)),
 	}
 }
 

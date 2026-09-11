@@ -337,3 +337,17 @@ func TestUsageReportsWhichBillingSurfaceToDraw(t *testing.T) {
 		t.Errorf("manageable = %v once there is a Stripe customer", b["manageable"])
 	}
 }
+
+// The close-account dialog tells a customer how long they have to change their
+// mind. That number must come from the same place the purge job reads, or the
+// UI will one day promise a grace period the data does not get.
+func TestTheCloseDialogIsToldTheRealGracePeriod(t *testing.T) {
+	got := toTenantResponse(&store.Tenant{ID: "t1", Slug: "acme"})
+	want := int(store.PurgeGrace / (24 * time.Hour))
+	if got.PurgeGraceDays != want {
+		t.Errorf("purge_grace_days = %d, want %d (store.PurgeGrace)", got.PurgeGraceDays, want)
+	}
+	if got.PurgeGraceDays == 0 {
+		t.Error("a zero grace period would tell the customer their data is already gone")
+	}
+}
