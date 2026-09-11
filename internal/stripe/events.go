@@ -134,12 +134,29 @@ func (s subscription) live() bool {
 // invoice is data.object for invoice.paid. This is the document trigger: an
 // invoice is paid once per period, which is exactly when a receipt is owed.
 type invoice struct {
-	ID           string `json:"id"`
-	Customer     string `json:"customer"`
+	ID       string `json:"id"`
+	Customer string `json:"customer"`
+	// Subscription was top level until Stripe API 2026-08-26 (dahlia), which
+	// moved it under parent.subscription_details. Kept so an event from an
+	// older API version still parses; read subscriptionID(), never this.
 	Subscription string `json:"subscription"`
-	AmountPaid   int64  `json:"amount_paid"`
-	AmountDue    int64  `json:"amount_due"`
-	AttemptCount int    `json:"attempt_count"`
+	// Parent is where dahlia put the subscription AND the metadata this Hub
+	// set on it. That metadata is what binds an invoice to a tenant, and not
+	// reading it is what left the first real subscription payment with no
+	// document: onInvoicePaid could only fall back to the customer binding,
+	// which on a FIRST subscription does not exist yet -- Stripe sends
+	// invoice.paid before checkout.session.completed, so the binding is
+	// written a second after the invoice needed it. Every first-time
+	// subscriber would have lost their first VAT document that way.
+	Parent struct {
+		SubscriptionDetails struct {
+			Subscription string            `json:"subscription"`
+			Metadata     map[string]string `json:"metadata"`
+		} `json:"subscription_details"`
+	} `json:"parent"`
+	AmountPaid   int64 `json:"amount_paid"`
+	AmountDue    int64 `json:"amount_due"`
+	AttemptCount int   `json:"attempt_count"`
 	// NextPaymentAttempt is unix seconds, or 0 when Stripe has given up
 	// retrying. Zero is the interesting case: it means this is the last word
 	// on the payment, not a step on the way.
@@ -154,11 +171,37 @@ type invoice struct {
 	} `json:"customer_address"`
 	Lines struct {
 		Data []struct {
+			// Price is the pre-dahlia shape; Pricing is where the same price
+			// id lives from 2026-08-26 onwards. Read priceID(), not either.
 			Price struct {
 				ID string `json:"id"`
 			} `json:"price"`
+			Pricing struct {
+				PriceDetails struct {
+					Price string `json:"price"`
+				} `json:"price_details"`
+			} `json:"pricing"`
 		} `json:"data"`
 	} `json:"lines"`
+}
+
+// metadata is the tenant-bearing metadata this Hub set on the subscription,
+// which Stripe copies onto every invoice raised for it.
+//
+// It is trustworthy for the same reason the Checkout session's metadata is:
+// the signature is verified over the raw body before any of this is decoded,
+// and the value was written by this Hub when it created the session. A
+// customer cannot set it.
+func (i invoice) metadata() map[string]string {
+	return i.Parent.SubscriptionDetails.Metadata
+}
+
+// subscriptionID reads whichever shape this event arrived in.
+func (i invoice) subscriptionID() string {
+	if s := i.Parent.SubscriptionDetails.Subscription; s != "" {
+		return s
+	}
+	return i.Subscription
 }
 
 func (i invoice) country() string {
@@ -176,7 +219,11 @@ func (i invoice) priceID() string {
 	if len(i.Lines.Data) == 0 {
 		return ""
 	}
-	return i.Lines.Data[0].Price.ID
+	l := i.Lines.Data[0]
+	if p := strings.TrimSpace(l.Pricing.PriceDetails.Price); p != "" {
+		return p
+	}
+	return l.Price.ID
 }
 
 // charge is data.object for charge.refunded. Stripe sends the whole charge with
