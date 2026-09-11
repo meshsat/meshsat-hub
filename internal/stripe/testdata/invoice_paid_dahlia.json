@@ -1,0 +1,60 @@
+{
+  "id": "evt_EXAMPLE",
+  "api_version": "2026-08-26.dahlia",
+  "type": "invoice.paid",
+  "created": 1789095938,
+  "data": {
+    "object": {
+      "id": "in_EXAMPLE",
+      "object": "invoice",
+      "amount_due": 900,
+      "amount_paid": 900,
+      "attempt_count": 0,
+      "billing_reason": "subscription_create",
+      "created": 1789095909,
+      "currency": "eur",
+      "customer": "cus_EXAMPLE",
+      "customer_address": {
+        "city": "Amsterdam",
+        "country": "NL",
+        "line1": "1 Example Street",
+        "line2": null,
+        "postal_code": "1000 AA",
+        "state": null
+      },
+      "customer_email": "customer@example.org",
+      "customer_name": "A Customer",
+      "lines": {
+        "data": [
+          {
+            "id": "il_1UEKm14j5c6KcLizOAHWdGcf",
+            "amount": 900,
+            "currency": "eur",
+            "description": "1 \u00d7 MeshSat Hub Crew (at \u20ac9.00 / month)",
+            "pricing": {
+              "price_details": {
+                "price": "price_crew_EXAMPLE",
+                "product": "prod_EXAMPLE"
+              },
+              "type": "price_details",
+              "unit_amount_decimal": "900"
+            }
+          }
+        ]
+      },
+      "metadata": {},
+      "next_payment_attempt": null,
+      "parent": {
+        "quote_details": null,
+        "subscription_details": {
+          "metadata": {
+            "tenant_id": "default"
+          },
+          "subscription": "sub_EXAMPLE"
+        },
+        "type": "subscription_details"
+      },
+      "status": "paid"
+    }
+  }
+}
