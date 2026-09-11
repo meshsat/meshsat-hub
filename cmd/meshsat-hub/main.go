@@ -426,7 +426,8 @@ func main() {
 		if err := takClient.Connect(); err != nil {
 			slog.Warn("tak: connection failed (will not forward CoT)", "error", err)
 		} else if msgBus.IsConnected() {
-			takSub := tak.NewSubscriber(msgBus, takClient, cfg.TAKCallsignPrefix, cfg.TAKCotStaleSec)
+			// Only the platform tenant's traffic reaches the operator's TAK server (MESHSAT-1032).
+			takSub := tak.NewSubscriber(msgBus, takClient, tenants, cfg.TAKCallsignPrefix, cfg.TAKCotStaleSec)
 			if err := takSub.Start(); err != nil {
 				slog.Error("tak: failed to start subscriber", "error", err)
 			} else {
@@ -472,6 +473,7 @@ func main() {
 				CotStaleSec:    cfg.TAKCotStaleSec,
 			}
 			takFederation = tak.NewFederation(fedCfg, &federationBusAdapter{mb: msgBus})
+			takFederation.SetPlatformChecker(tenants) // platform tenant only (MESHSAT-1032)
 			if err := takFederation.Start(ctx); err != nil {
 				slog.Error("tak federation: failed to start", "error", err)
 				takFederation = nil
@@ -488,7 +490,8 @@ func main() {
 			if err := aprsisClient.Connect(); err != nil {
 				slog.Warn("aprsis: connection failed (will not inject positions)", "error", err)
 			} else if msgBus.IsConnected() {
-				aprsisSub := aprsis.NewSubscriber(msgBus, aprsisClient, 60)
+				// Only the platform tenant's positions go to public APRS-IS (MESHSAT-1032).
+				aprsisSub := aprsis.NewSubscriber(msgBus, aprsisClient, tenants, 60)
 				if err := aprsisSub.Start(); err != nil {
 					slog.Error("aprsis: failed to start subscriber", "error", err)
 				}
@@ -2082,8 +2085,12 @@ func main() {
 		return takFederation
 	})
 	r.Get("/api/integrations", integrationHandler.ListIntegrations)
-	r.Get("/api/tak/federation/peers", integrationHandler.ListFederationPeers)
-	r.Get("/api/tak/missions", func(w http.ResponseWriter, r *http.Request) {
+	// The TAK gateway, its missions and its federation are the platform's,
+	// pointed at the operator's own TAK server: platform administrators only
+	// (MESHSAT-1032).
+	takAdmin := r.With(hubauth.RequirePlatformAdmin())
+	takAdmin.Get("/api/tak/federation/peers", integrationHandler.ListFederationPeers)
+	takAdmin.Get("/api/tak/missions", func(w http.ResponseWriter, r *http.Request) {
 		if cfg.TAKHost == "" {
 			api.WriteJSON(w, http.StatusOK, []interface{}{})
 			return
@@ -2103,7 +2110,7 @@ func main() {
 		}
 		api.WriteJSON(w, http.StatusOK, map[string]any{"missions": missions, "available": true})
 	})
-	r.Get("/api/tak/fleet-status", func(w http.ResponseWriter, r *http.Request) {
+	takAdmin.Get("/api/tak/fleet-status", func(w http.ResponseWriter, r *http.Request) {
 		fedIn, fedOut, fedPeers := int64(0), int64(0), 0
 		if integrationHandler.GetFederation() != nil {
 			fedIn, fedOut, fedPeers = integrationHandler.GetFederation().Stats()
