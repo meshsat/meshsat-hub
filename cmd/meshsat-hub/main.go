@@ -1758,7 +1758,10 @@ func main() {
 	// The same thing as a link, for a static page that cannot POST to us. Must
 	// be registered before the SPA catch-all, which chi handles: an exact
 	// pattern beats "/*".
-	r.Get("/donate", authRate(billingHandler.DonateRedirect))
+	// The MeshSat-owned donation page, with Stripe's form embedded in it. Falls
+	// back to the hosted redirect on its own when the publishable key is absent
+	// or Stripe declines, so this route always leads somewhere payable.
+	r.Get("/donate", authRate(billingHandler.DonatePage))
 	// Where Stripe returns the giver. Not rate limited: these render a constant
 	// page, touch nothing and cost nothing, and throttling somebody who has
 	// just paid is the wrong thing to do to them.
@@ -1766,6 +1769,7 @@ func main() {
 	r.Get("/donate/cancelled", billingHandler.DonateCancelled)
 	billingHandler.SetPrices(cfg.StripePrices)
 	billingHandler.SetDonationPrice(cfg.StripeDonationPrice)
+	billingHandler.SetPublishableKey(cfg.StripePublishableKey)
 	api.SetStripeReady(stripeClient != nil && len(cfg.StripePrices) > 0)
 	api.SetDonationsReady(stripeClient != nil && cfg.StripeDonationPrice != "")
 	offboarding := api.NewTenantOffboardingHandler(dataStore, auditSvc, tenantStatus.Forget)

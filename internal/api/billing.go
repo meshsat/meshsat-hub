@@ -28,6 +28,9 @@ type BillingHandler struct {
 	prices  map[string]string // plan -> price id
 	hubURL  string
 	donatio string // the donation price id, empty when there is no donation path
+	// publishable is Stripe's browser-side key, set only when the embedded
+	// donation page is wanted. Empty means the hosted redirect.
+	publishable string
 }
 
 // NewBillingHandler returns a handler. A nil client is a supported state: the
