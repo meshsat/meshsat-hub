@@ -1,7 +1,8 @@
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import TenantPanel from '../components/TenantPanel.vue'
 import SignupsPanel from '../components/SignupsPanel.vue'
+import { useAuthStore } from '../stores/auth'
 import { health, constellations, mptcp as mptcpApi, tor, codecs, ipougrs, backup, reticulum, settings } from '../api/client'
 
 const loading = ref(true)
@@ -14,6 +15,17 @@ const codecList = ref([])
 const ipougrsStatus = ref(null)
 const retIdentity = ref(null)
 const error = ref('')
+// Self-service links, published by GET /api/auth/config rather than built here:
+// the SPA does not know the identity provider's base URL, and a hardcoded one
+// would be wrong for anybody self-hosting.
+const authStore = useAuthStore()
+const accountSecurity = computed(() => {
+  const c = authStore.authConfig || {}
+  return [
+    { href: c.password_change_url, label: 'Change password' },
+    { href: c.mfa_setup_url, label: 'Add two-factor authentication' },
+  ].filter((l) => !!l.href)
+})
 const exportLoading = ref(false)
 const exportResult = ref(null)
 const mqttUrl = ref('')
@@ -24,6 +36,9 @@ const rotateLoading = ref(false)
 const rotateResult = ref(null)
 
 onMounted(async () => {
+  // The config may not be loaded yet: it is fetched by the login page, and an
+  // already-signed-in user reaching Settings directly never went through it.
+  authStore.fetchAuthConfig()
   const results = await Promise.allSettled([
     health.check(),
     health.readyz(),
@@ -183,6 +198,22 @@ function statusText(ok) {
             </div>
           </div>
         </div>
+      </div>
+
+      <div v-if="accountSecurity.length" class="mb-6 bg-tactical-surface rounded-lg border border-tactical-border p-4">
+        <h2 class="text-sm font-display font-semibold text-ms-text uppercase tracking-wider mb-1">Account security</h2>
+        <p class="text-[11px] text-ms-muted mb-3">
+          Your MeshSat ID is held by the identity provider, so these open there and bring you back.
+        </p>
+        <div class="flex flex-wrap gap-2">
+          <a v-for="l in accountSecurity" :key="l.href" :href="l.href" target="_blank" rel="noopener"
+            class="px-3 py-1.5 bg-ms-well hover:bg-ms-card border border-ms-border text-ms-text text-sm font-medium rounded transition-colors">
+            {{ l.label }}
+          </a>
+        </div>
+        <p class="text-[11px] text-ms-muted mt-2">
+          Two-factor is checked at every sign-in once you add it.
+        </p>
       </div>
 
       <div class="mb-6"><TenantPanel /></div>
