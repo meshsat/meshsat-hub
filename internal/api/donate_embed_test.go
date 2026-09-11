@@ -113,8 +113,11 @@ func TestThePageSaysWhatTheMoneyIsAndIsNot(t *testing.T) {
 			t.Errorf("the donation page never says %q", want)
 		}
 	}
-	if !strings.Contains(src, "sidnfonds.nl") {
-		t.Error("the page does not credit SIDN fonds")
+	// Deliberately NOT the funder credit. Telling somebody you are already
+	// grant-funded, on the page where you ask them for money, argues against
+	// the ask. It belongs on the org profile, not here (owner ruling).
+	if strings.Contains(src, "sidnfonds") {
+		t.Error("the donation page credits a funder; that undercuts the ask and was removed on purpose")
 	}
 }
 
