@@ -56,11 +56,25 @@ Things Argo CD cannot do by itself, in the order they happen. Keep this current.
   identity that cannot be provisioned from the repo. WALs land under `tak/meshsat-tak-main/` so
   the two clusters cannot collide. If a separate identity is ever created, moving is a
   `destinationPath` edit plus a fresh base backup.
-- **Not yet true, and phase 2 has to solve it:** CNPG has a `Database` CRD but **no
-  `DatabaseRole` CRD** — roles are `spec.managed.roles` on the Cluster. So the operator cannot
-  create a per-tenant role by writing its own object; it must either patch the Cluster (which
-  Argo `selfHeal` would fight) or create the role in SQL as `tak_admin`. Decide before writing
-  `internal/takoperator/db.go`.
+- **The operator creates databases and roles as objects, not as SQL.** CNPG **1.30.0** on this
+  cluster serves both, namespaced: `databases` and `databaseroles` in `postgresql.cnpg.io/v1`
+  (`kubectl api-resources --api-group=postgresql.cnpg.io`). `DatabaseRole.spec` carries
+  `connectionLimit` — the per-tenant cap of 15 as a field rather than as SQL — plus
+  `passwordSecret`, `ensure: present|absent`, `inRoles`, `login`, `clientCertificate.enabled`, and
+  `databaseRoleReclaimPolicy: delete|retain`; `Database.spec` has the matching
+  `databaseReclaimPolicy`, plus `connectionLimit`, `extensions` and `allowConnections` (which is
+  how a suspended tenant is made unreachable without dropping anything).
+
+  So the approved teardown rule — dropped only when the Hub's purge annotation is present,
+  retained otherwise — is a field value: write `retain` normally, flip to `delete` on purge. The
+  operator never touches the Cluster object, so Argo `selfHeal` has nothing to fight, and
+  `tak_admin` needs no `createdb` or `createrole`.
+
+  ⚠ This paragraph previously asserted the opposite — that no `DatabaseRole` CRD existed and the
+  operator would have to patch the Cluster or hand-roll SQL. That was wrong, written from an
+  absence of evidence rather than from `kubectl api-resources`, and it shipped in a merged commit,
+  which is exactly what makes a claim look checked. If anything here reads like a capability
+  limit, run the one command before building around it.
 - First-sync checks for this part: `kubectl -n meshsat-tak-db get cluster` 3/3 on dmz03/04/05;
   every ExternalSecret in both new namespaces `Ready`; the first `ScheduledBackup` object exists;
   `kubectl -n meshsat-tak get resourcequota meshsat-tak -o yaml` shows zero used; and
