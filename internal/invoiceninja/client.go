@@ -113,6 +113,19 @@ type Request struct {
 	// leaving the rate in place would carve 21% out of a gift and put tax on a
 	// document that owes none.
 	TaxExempt bool
+	// SuppressReceiptEmail stops the billing system mailing the customer, so
+	// the caller can send that message itself.
+	//
+	// Invoice Ninja has ONE payment template per company and it is written for
+	// a subscription: it says the document "shows the VAT included in the
+	// price", that "your MeshSat Hub subscription is active for the period this
+	// payment covers", and points at the Settings page. Every one of those is
+	// false for a donation -- the document carries no VAT at all, a gift buys
+	// no tier, and an anonymous giver has no account to have settings in. One
+	// template cannot serve two kinds of money, so the donation's copy comes
+	// from internal/mail instead (the same split the credit note already
+	// makes, for a different reason).
+	SuppressReceiptEmail bool
 	// PaidAt dates both the invoice and the payment.
 	PaidAt time.Time
 	// Reference is the payment provider's transaction id, recorded on the
@@ -383,9 +396,24 @@ func (c *Client) recordPayment(ctx context.Context, clientID, invoiceID string, 
 		}},
 		// Explicit rather than relying on the company default, so a settings
 		// change in the UI cannot silently stop customers being sent receipts.
-		"email_receipt": "true",
+		"email_receipt": emailReceipt(req.SuppressReceiptEmail),
 	}
 	return c.do(ctx, http.MethodPost, "/payments", body, nil, "record payment")
+}
+
+// emailReceipt renders the flag the way the API wants it: a string, not a bool.
+func emailReceipt(suppressed bool) string {
+	if suppressed {
+		return "false"
+	}
+	return "true"
+}
+
+// InvoicePDF fetches the rendered invoice, so the Hub can attach it to a
+// message it sends itself. Same shape as CreditPDF, including the HTML check:
+// this host answers an unknown path with its web application at 200.
+func (c *Client) InvoicePDF(ctx context.Context, invoiceID string) ([]byte, error) {
+	return c.documentPDF(ctx, "invoices", invoiceID, "invoice pdf")
 }
 
 func (c *Client) do(ctx context.Context, method, path string, body, out any, op string) error {
