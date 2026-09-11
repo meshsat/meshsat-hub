@@ -91,10 +91,12 @@ type WebhookHandler struct {
 	hembReassembler interface{ AddRawFrame([]byte) ([]byte, error) }
 	resolver        *ThingResolver
 	allowedIPs      []string
-	token           string                // platform webhook token (default tenant); required when allowedIPs is "*" and no accounts
-	accounts        *integrations.Service // per-tenant webhook tokens (MESHSAT-977)
-	oob             OOBClassifier         // management frames (MESHSAT-964)
-	store           interface {
+	// expected is observe-only: it never refuses a request. See source.go.
+	expected expectedSources
+	token    string                // platform webhook token (default tenant); required when allowedIPs is "*" and no accounts
+	accounts *integrations.Service // per-tenant webhook tokens (MESHSAT-977)
+	oob      OOBClassifier         // management frames (MESHSAT-964)
+	store    interface {
 		InsertMessage(ctx context.Context, tenantID string, m *store.Message) error
 		SetBridgeOnline(ctx context.Context, tenantID string, bridgeID string, online bool) error
 		SetBridgeHealth(ctx context.Context, tenantID string, bridgeID string, health string) error
@@ -231,6 +233,13 @@ func (h *WebhookHandler) SetAllowedIPs(ips []string) {
 	h.allowedIPs = ips
 }
 
+// SetExpectedSources configures the observe-only source range. It does NOT gate
+// anything -- a delivery from outside it is still processed -- and that is the
+// point: this is the path an SOS arrives on.
+func (h *WebhookHandler) SetExpectedSources(ips []string) {
+	h.expected = parseExpectedSources(ips)
+}
+
 // SetResolver attaches a ThingResolver for learning IMEI-to-thingID mappings
 // from incoming MO messages. Each processed LingoMO teaches the resolver
 // about the device's thingId and modem type (SBD vs IMT).
@@ -263,6 +272,11 @@ func (h *WebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, `{"error":"method not allowed"}`, http.StatusMethodNotAllowed)
 		return
 	}
+
+	// Observation first, and unconditionally: it must run for every delivery,
+	// including ones a later check refuses, or the record of where traffic comes
+	// from would have a hole exactly where it matters.
+	h.noteSource(r, "cloudloop")
 
 	// IP allowlist check — reject all requests when no allowlist is configured.
 	// Use "*" to allow all IPs (useful when webhook signature validation suffices).
