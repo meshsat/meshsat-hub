@@ -33,6 +33,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"strings"
@@ -316,25 +317,45 @@ func (c *Client) resumeOrCreate(ctx context.Context, req Request) (*invoice, err
 	return &out.Data, nil
 }
 
-// ensureCustomer finds the customer by email or creates one.
+// ensureCustomer finds this tenant's customer record, or creates one.
 //
-// Email is the key because it is what the receipt is sent to and what a person
-// searches by. If the customer's address changes, this creates a second record
-// rather than merging: the id_number on both says they are the same tenant,
-// and merging customer records automatically is not a decision code should
-// make on its own.
+// Email is tried first because it is the most specific match and what a person
+// searches by. The TENANT is the fallback and the real identity: one tenant is
+// one customer, whatever address the money arrived with. A payer may use a
+// personal address, a company card or a partner's account -- the same reason
+// internal/stripe refuses to resolve a tenant from an email.
+//
+// Looking up by tenant is not a nicety. id_number is UNIQUE in the billing
+// system, so a tenant that pays twice from two different addresses used to
+// miss on email, try to create a second record, and be refused:
+//
+//	HTTP 422 {"errors":{"id_number":["The id number has already been taken."]}}
+//
+// which parked the receipt and left the money with no document. That is
+// exactly what happened to the first real subscription payment: the donation
+// before it had created the record under a different address. This file used
+// to claim the opposite -- that a changed address "creates a second record
+// rather than merging" -- which the billing system does not allow.
 func (c *Client) ensureCustomer(ctx context.Context, req Request) (string, error) {
-	var found struct {
-		Data []struct {
-			ID string `json:"id"`
-		} `json:"data"`
-	}
-	q := "/clients?per_page=2&email=" + url.QueryEscape(req.Email)
-	if err := c.do(ctx, http.MethodGet, q, nil, &found, "find customer"); err != nil {
+	if id, err := c.findCustomer(ctx, "email="+url.QueryEscape(req.Email), ""); err != nil {
 		return "", err
+	} else if id != "" {
+		return id, nil
 	}
-	if len(found.Data) > 0 && found.Data[0].ID != "" {
-		return found.Data[0].ID, nil
+	// Same tenant, different address. Reuse the record rather than making a
+	// second one the billing system would refuse anyway. The documents go to
+	// the contact already on it, which is the tenant's known address rather
+	// than whatever was typed at the payment page.
+	if ref := strings.TrimSpace(req.CustomerRef); ref != "" {
+		id, err := c.findCustomer(ctx, "id_number="+url.QueryEscape(ref), ref)
+		if err != nil {
+			return "", err
+		}
+		if id != "" {
+			slog.Info("invoiceninja: reusing this tenant's customer record; the payment carried "+
+				"a different address", "tenant", ref, "paid_with", req.Email, "client", id)
+			return id, nil
+		}
 	}
 
 	name := req.Name
@@ -362,6 +383,32 @@ func (c *Client) ensureCustomer(ctx context.Context, req Request) (string, error
 		return "", errors.New("invoiceninja: customer created without an id")
 	}
 	return out.Data.ID, nil
+}
+
+// findCustomer runs one filtered lookup. wantRef, when set, is checked against
+// the id_number that came back: the billing system matches id_number
+// case-insensitively, and a customer record is a place money is filed, so it
+// is worth confirming rather than assuming.
+func (c *Client) findCustomer(ctx context.Context, filter, wantRef string) (string, error) {
+	var found struct {
+		Data []struct {
+			ID       string `json:"id"`
+			IDNumber string `json:"id_number"`
+		} `json:"data"`
+	}
+	if err := c.do(ctx, http.MethodGet, "/clients?per_page=2&"+filter, nil, &found, "find customer"); err != nil {
+		return "", err
+	}
+	for _, d := range found.Data {
+		if d.ID == "" {
+			continue
+		}
+		if wantRef != "" && d.IDNumber != wantRef {
+			continue
+		}
+		return d.ID, nil
+	}
+	return "", nil
 }
 
 // markSent assigns the invoice number. No email goes out here: the customer's
