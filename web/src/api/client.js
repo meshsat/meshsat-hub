@@ -328,6 +328,10 @@ export const tenant = {
   revokeInvite: (id) => fetchJSON(`/tenant/invites/${id}`, { method: 'DELETE' }),
   // Billing (MESHSAT-1023). Both return { url } to send the customer to.
   checkout: (plan) => fetchJSON('/tenant/billing/checkout', { method: 'POST', body: JSON.stringify({ plan }) }),
+  // Offboarding. Export is a ZIP, so it goes through fetchBlob rather than a
+  // plain link: the endpoint is owner-only and an <a href> carries no bearer.
+  exportData: () => fetchBlob('/tenant/export'),
+  close: () => fetchJSON('/tenant', { method: 'DELETE' }),
   billingPortal: () => fetchJSON('/tenant/billing/portal', { method: 'POST' }),
   // A one-off gift. Grants no tier: it is support, not a purchase.
   donate: () => fetchJSON('/tenant/billing/donate', { method: 'POST' }),
