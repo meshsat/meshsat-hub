@@ -290,7 +290,12 @@ func (h *Handler) onInvoicePaid(ctx context.Context, ev Event) error {
 		// nothing is owed.
 		return nil
 	}
-	t, err := h.tenantFor(ctx, nil, inv.Customer)
+	// The subscription's own metadata comes with the invoice, so this does not
+	// depend on the customer having been bound yet. It must not: Stripe sends
+	// invoice.paid BEFORE checkout.session.completed on a first subscription,
+	// and the binding is written by the latter. Reading only the customer left
+	// the first real payment unattributed and undocumented.
+	t, err := h.tenantFor(ctx, inv.metadata(), inv.Customer)
 	if err != nil {
 		h.recordUnattributed(ctx, ev, inv.AmountPaid, inv.Currency, inv.CustomerEmail, "invoice paid with no tenant")
 		return err
@@ -345,7 +350,9 @@ func (h *Handler) onInvoiceFailed(ctx context.Context, ev Event) error {
 	}
 	metrics.PaymentsFailedTotal.Inc()
 
-	t, err := h.tenantFor(ctx, nil, inv.Customer)
+	// Same as onInvoicePaid: the tenant rides on the subscription's metadata,
+	// so a failure is visible even for a customer not yet bound.
+	t, err := h.tenantFor(ctx, inv.metadata(), inv.Customer)
 	if err != nil {
 		h.recordUnattributed(ctx, ev, inv.AmountDue, inv.Currency, inv.CustomerEmail, "invoice payment failed with no tenant")
 		return err
