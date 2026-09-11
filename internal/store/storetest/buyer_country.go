@@ -60,6 +60,19 @@ func testBuyerCountry(t *testing.T, s store.Store) {
 		{"bc-nl", "NL", store.ReceiptIssued, 500000},     // domestic: excluded by the caller
 		{"bc-pending", "FR", store.ReceiptPending, 9999}, // not issued: not a supply yet
 	}
+	// A donation from an EU giver. Issued, and deliberately large, so that a
+	// query which forgot to exclude it could not possibly pass below.
+	donation := &store.Receipt{
+		ID: "bc-gift", TenantID: tn.ID, DeliveryKey: "k-bc-gift", Country: "BE",
+		Email: "giver@example.com", AmountCents: 900000, Currency: "EUR",
+		Plan: store.DonationPlan, Status: store.ReceiptIssued, PaidAt: now, NextAttemptAt: now,
+	}
+	if created, err := s.CreateReceipt(ctx, donation); err != nil || !created {
+		t.Fatalf("seed donation: created=%v err=%v", created, err)
+	}
+	if err := s.MarkReceiptIssued(ctx, donation.ID, "MSH2026-bc-gift", "ref-bc-gift", now); err != nil {
+		t.Fatalf("mark donation issued: %v", err)
+	}
 	for _, sd := range seed {
 		r := &store.Receipt{
 			ID: sd.id, TenantID: tn.ID, DeliveryKey: "k-" + sd.id, Country: sd.country,
@@ -90,5 +103,13 @@ func testBuyerCountry(t *testing.T, s store.Store) {
 	// the caller must be able to see the domestic figure separately.
 	if byCountry["NL"] != 500000 {
 		t.Errorf("domestic total = %d, want it reported so the caller can exclude it", byCountry["NL"])
+	}
+	// A donation is NOT a supply. The Article 59c threshold measures
+	// cross-border B2C supplies, and a voluntary contribution with no
+	// counter-performance carries no VAT and belongs in no member state's
+	// column -- including it would report distance travelled toward a limit
+	// that the money cannot move.
+	if n, ok := byCountry["BE"]; ok {
+		t.Errorf("a donation counted toward the VAT threshold: BE = %d", n)
 	}
 }

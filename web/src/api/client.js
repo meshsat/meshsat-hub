@@ -329,6 +329,8 @@ export const tenant = {
   // Billing (MESHSAT-1023). Both return { url } to send the customer to.
   checkout: (plan) => fetchJSON('/tenant/billing/checkout', { method: 'POST', body: JSON.stringify({ plan }) }),
   billingPortal: () => fetchJSON('/tenant/billing/portal', { method: 'POST' }),
+  // A one-off gift. Grants no tier: it is support, not a purchase.
+  donate: () => fetchJSON('/tenant/billing/donate', { method: 'POST' }),
 }
 
 // Beta requests waiting for a decision (MESHSAT-978). Platform admins only;

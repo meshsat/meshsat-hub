@@ -48,6 +48,15 @@ type Decision struct {
 	// Basis records why VAT is charged the way it is. It goes in the log and
 	// on the record, so the reasoning survives the person who made it.
 	Basis string
+	// OutsideScope reports that the payment carries NO VAT at all and the
+	// document must still be issued.
+	//
+	// This is a third state, and conflating it with either of the other two
+	// gets it wrong in a different direction. It is not Charge, because there
+	// is no VAT to charge. It is not a parked decision -- Charge false with a
+	// Reason -- because nothing is wrong and nobody needs to look: the
+	// treatment is settled, not undecided.
+	OutsideScope bool
 }
 
 // euVATArea is the EU-27 as ISO 3166-1 alpha-2. "EL" is accepted alongside "GR"
@@ -82,6 +91,50 @@ func For(country string) Decision {
 			Reason: "buyer is outside the EU (" + c + "), so EU VAT does not apply and this receipt " +
 				"cannot be issued at the Dutch rate. Issue it by hand, or decide the treatment first.",
 		}
+	}
+}
+
+// ForDonation decides the VAT treatment of a voluntary payment that buys
+// nothing at all.
+//
+// The Belastingdienst's rule on vrijwillige bijdragen turns on counter-
+// performance, and NOT on where the giver is:
+//
+//	"U berekent wel btw over vrijwillige bijdragen die u ontvangt als
+//	 vergoeding."  -- their example is a museum with a voluntary entrance
+//	 fee: there IS a supply, the visitor merely chooses the price.
+//
+//	"U berekent geen btw als u vrijwillige bijdragen ontvangt zonder dat er
+//	 een overeenkomst is tussen u en de gever."  -- their example is a street
+//	 musician.
+//
+// A MeshSat donation is the second kind. It grants no tier, no period and no
+// feature, and that is enforced rather than promised: internal/stripe's
+// onCheckout never writes a plan for a mode=payment session, and
+// billing.DonationPlan carries no tier and no period. Remove that property and
+// this function stops being true -- a donation that unlocked anything would be
+// a sale at 21%.
+//
+// Two consequences, and the second is the one that is easy to miss:
+//
+//   - The document carries no VAT line. Charging 21% on a gift is charging tax
+//     that is not due, and the customer's own books would then reclaim VAT that
+//     was never owed.
+//
+//   - The giver's country is IRRELEVANT. Place of supply is a question about a
+//     supply, and there is none, so a donation from outside the EU is NOT
+//     parked the way a SALE outside the EU is. Parking it would hold a document
+//     hostage to a decision that does not need making, and the money would sit
+//     with no record for a person who cannot resolve it.
+//
+// It is still income. For an eenmanszaak this is winst uit onderneming and is
+// declared as turnover; it simply carries no BTW. And it does not count toward
+// the Article 59c threshold, because that measures cross-border B2C SUPPLIES --
+// see CountsTowardThreshold and the store's CrossBorderSalesSince.
+func ForDonation() Decision {
+	return Decision{
+		OutsideScope: true,
+		Basis:        "voluntary contribution with no counter-performance, outside the scope of BTW",
 	}
 }
 

@@ -953,6 +953,16 @@ type Credential struct {
 // existing.
 //
 // The row is written before the plan is granted, because the receipt records
+// DonationPlan is the value receipts.plan carries for a one-off donation
+// rather than a subscription.
+//
+// It lives here, in the lowest layer, because two queries have to recognise it
+// in SQL -- CrossBorderSalesSince excludes it from the VAT threshold -- and a
+// store cannot import internal/billing without a cycle. billing.DonationPlan
+// aliases this so there is one spelling of the string and not two that agree
+// today.
+const DonationPlan = "donation"
+
 // the payment rather than the grant: if the grant fails, the money still
 // arrived and the customer is still owed a receipt.
 type Receipt struct {
