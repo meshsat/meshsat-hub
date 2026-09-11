@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/meshsat/meshsat-hub/internal/billing"
+	"github.com/meshsat/meshsat-hub/internal/invoiceninja"
 	"github.com/meshsat/meshsat-hub/internal/mail"
 	"github.com/meshsat/meshsat-hub/internal/metrics"
 	"github.com/meshsat/meshsat-hub/internal/plans"
@@ -320,6 +321,84 @@ func (h *Handler) onInvoicePaid(ctx context.Context, ev Event) error {
 // existed for a person to record by hand what had already happened. That
 // endpoint stays, because a refund can still be made outside Stripe, but it is
 // no longer the only way a customer gets their credit note.
+// onInvoiceFailed records a renewal the provider could not take.
+//
+// It changes NO plan, and that is the point rather than an omission. A failed
+// card is Stripe retrying over the following days, not a cancellation, and
+// onSubscription already keeps past_due and unpaid on their tier for exactly
+// that reason. Ending somebody's plan because one attempt failed would take a
+// fleet off the air over an expired card.
+//
+// What it does is make the attempt visible, which nothing did before: six
+// events were handled and none of them was a failure, so a declined renewal --
+// or one blocked by Radar, which this account now runs in a stricter mode --
+// left no metric, no audit entry and no word to the customer. The first anyone
+// would know is a plan quietly lapsing weeks later.
+func (h *Handler) onInvoiceFailed(ctx context.Context, ev Event) error {
+	var inv invoice
+	if err := json.Unmarshal(ev.Data.Object, &inv); err != nil {
+		return fmt.Errorf("invoice: %w", err)
+	}
+	if inv.AmountDue <= 0 {
+		// Nothing was owed, so nothing failed in a way anybody cares about.
+		return nil
+	}
+	metrics.PaymentsFailedTotal.Inc()
+
+	t, err := h.tenantFor(ctx, nil, inv.Customer)
+	if err != nil {
+		h.recordUnattributed(ctx, ev, inv.AmountDue, inv.Currency, inv.CustomerEmail, "invoice payment failed with no tenant")
+		return err
+	}
+	ok, err := h.once(ctx, ev.ID, t.ID)
+	if err != nil || !ok {
+		return err
+	}
+
+	// Stripe stops retrying eventually. Until then this is a warning; after
+	// it, it is the final answer on the payment and the plan will lapse on its
+	// own date.
+	final := inv.NextPaymentAttempt == 0
+	detail, _ := json.Marshal(map[string]any{
+		"provider": "stripe", "event": ev.ID, "invoice": inv.ID,
+		"amount_cents": inv.AmountDue, "currency": inv.Currency,
+		"attempt": inv.AttemptCount, "final": final,
+	})
+	h.log(ctx, t.ID, "payment_failed", string(detail))
+	slog.Warn("stripe: a renewal could not be taken",
+		"tenant", t.ID, "invoice", inv.ID, "amount_cents", inv.AmountDue,
+		"currency", inv.Currency, "attempt", inv.AttemptCount, "final", final,
+		"plan", t.Plan, "note", "the plan is unchanged; a failing card is a retry, not a cancellation")
+
+	h.notifyPaymentFailed(ctx, t, inv, final)
+	return nil
+}
+
+func (h *Handler) notifyPaymentFailed(ctx context.Context, t *store.Tenant, inv invoice, final bool) {
+	if h.mail == nil {
+		return
+	}
+	to := firstNonEmpty(inv.CustomerEmail, h.ownerEmail(ctx, t))
+	if to == "" {
+		return
+	}
+	var retryAt time.Time
+	if !final {
+		retryAt = time.Unix(inv.NextPaymentAttempt, 0).UTC()
+	}
+	// Written the way the customer's own documents write it: internal/refunds
+	// does the same, so a figure in this mail matches the one on their invoice
+	// rather than being a second dialect of the same amount.
+	amount := invoiceninja.FormatMoney(inv.AmountDue, inv.Currency, t.BillingCountry)
+	// A nil expiry is an operator-set tier, which has no end date to quote.
+	var ends time.Time
+	if t.PlanExpiresAt != nil {
+		ends = t.PlanExpiresAt.UTC()
+	}
+	msg := mail.PaymentFailed(h.ownerName(ctx, t), t.Plan, amount, retryAt, ends, h.hubURL)
+	mail.SendOrLog(ctx, h.mail, to, msg, "payment failed")
+}
+
 func (h *Handler) onChargeRefunded(ctx context.Context, ev Event) error {
 	var ch charge
 	if err := json.Unmarshal(ev.Data.Object, &ch); err != nil {

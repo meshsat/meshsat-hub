@@ -142,6 +142,8 @@ func (h *Handler) dispatch(ctx context.Context, ev Event) error {
 		return h.onSubscription(ctx, ev)
 	case EventInvoicePaid:
 		return h.onInvoicePaid(ctx, ev)
+	case EventInvoiceFailed:
+		return h.onInvoiceFailed(ctx, ev)
 	case EventChargeRefunded:
 		return h.onChargeRefunded(ctx, ev)
 	default:
