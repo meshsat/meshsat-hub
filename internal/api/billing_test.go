@@ -131,3 +131,29 @@ func TestTheSignedInDonationRouteRequiresATenant(t *testing.T) {
 		t.Errorf("got %d, want 403 for a request carrying no tenant", w.Code)
 	}
 }
+
+// The public button on meshsat.net is a plain link, because the site's CSP
+// allows connect-src and form-action only to itself: a fetch or a form POST
+// from there to this Hub is blocked by the browser. So the link has to land on
+// something that redirects.
+func TestTheDonateLinkRedirectsToTheProvider(t *testing.T) {
+	h := NewBillingHandler(&mockStore{}, nil, "https://hub.meshsat.net")
+	h.SetDonationPrice("price_gift")
+
+	req := httptest.NewRequest(http.MethodGet, "/donate", nil)
+	w := httptest.NewRecorder()
+	h.DonateRedirect(w, req)
+
+	// No Stripe client in this test, so it cannot reach a redirect. What it
+	// must not do is answer a person who followed a link with JSON.
+	if ct := w.Header().Get("Content-Type"); !strings.HasPrefix(ct, "text/plain") {
+		t.Errorf("content-type = %q; somebody followed a link, so the failure has to be in words", ct)
+	}
+	if !strings.Contains(w.Body.String(), "Nothing was charged") {
+		t.Errorf("body = %q; a failed payment page must say plainly that no money moved",
+			strings.TrimSpace(w.Body.String()))
+	}
+	if w.Code != http.StatusServiceUnavailable {
+		t.Errorf("got %d, want 503", w.Code)
+	}
+}
