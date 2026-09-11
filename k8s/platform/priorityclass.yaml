@@ -14,3 +14,18 @@ value: 900000
 preemptionPolicy: Never
 globalDefault: false
 description: "MeshSat Hub data path: hub, nats, keydb, stunnel, edge relay."
+---
+# Hosted per-tenant TAK, deliberately BELOW the Hub's data path. A customer's
+# OpenTAKServer and its database carry control-plane tolerations, so they need a
+# priority for the same reason everything else there does — but if the scheduler
+# ever has to choose, the Hub's own path wins: an SOS must not queue behind
+# somebody's map server. preemptionPolicy Never for the same reason as its
+# sibling, it buys queue order and never evicts another team's workload.
+apiVersion: scheduling.k8s.io/v1
+kind: PriorityClass
+metadata:
+  name: meshsat-tak
+value: 800000
+preemptionPolicy: Never
+globalDefault: false
+description: "Hosted per-tenant TAK: OpenTAKServer instances and their Postgres cluster."

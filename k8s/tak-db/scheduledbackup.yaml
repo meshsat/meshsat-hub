@@ -1,0 +1,15 @@
+# Daily base backup of meshsat-tak-main at 03:15 (CNPG cron is 6-field, seconds
+# first). Staggered away from omoikane-main at 02:30 and meshsat-hub-main at
+# 02:45: all three write to the same object store host.
+apiVersion: postgresql.cnpg.io/v1
+kind: ScheduledBackup
+metadata:
+  name: meshsat-tak-main-daily
+  namespace: meshsat-tak-db
+  labels:
+    app.kubernetes.io/name: meshsat-tak-main
+spec:
+  schedule: "0 15 3 * * *"
+  backupOwnerReference: self
+  cluster:
+    name: meshsat-tak-main

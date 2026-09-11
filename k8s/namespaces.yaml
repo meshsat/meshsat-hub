@@ -11,3 +11,42 @@ metadata:
   name: meshsat-hub-db
   labels:
     app.kubernetes.io/part-of: meshsat-hub
+---
+# Hosted per-tenant TAK (MESHSAT-1035). One OpenTAKServer per customer lives
+# here, created by the tak-operator rather than by a commit.
+#
+# This is the one namespace in the tree that ENFORCES PodSecurity `restricted`,
+# and it is the one that needs it: every pod is third-party Python reachable from
+# the internet, and the owner accepted that it shares a kernel with etcd. The
+# profile costs nothing, because the pods are already non-root with all
+# capabilities dropped and a RuntimeDefault seccomp profile — enforcing it just
+# means a future edit cannot quietly regress that.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: meshsat-tak
+  labels:
+    app.kubernetes.io/part-of: meshsat-hub
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/enforce-version: latest
+    pod-security.kubernetes.io/audit: restricted
+    pod-security.kubernetes.io/warn: restricted
+---
+# The TAK databases, separate from the Hub's cluster so that an OpenTAKServer is
+# never one SQL injection away from the Hub's own tables.
+#
+# `restricted` is AUDITED here but only `baseline` is enforced: CNPG's own pods
+# have not been verified against the restricted profile on this cluster, and
+# enforcing it untested would block cluster creation rather than harden anything.
+# Tighten to enforce once a CNPG upgrade has been checked against it; the audit
+# annotations will say whether it would have passed.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: meshsat-tak-db
+  labels:
+    app.kubernetes.io/part-of: meshsat-hub
+    pod-security.kubernetes.io/enforce: baseline
+    pod-security.kubernetes.io/enforce-version: latest
+    pod-security.kubernetes.io/audit: restricted
+    pod-security.kubernetes.io/warn: restricted
