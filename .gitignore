@@ -52,3 +52,9 @@ meshsat-sim
 # python bytecode from local script checks
 __pycache__/
 *.pyc
+
+# Probe credentials. scratchpad/ scripts drive production; the one key they may
+# be given is a Stripe TEST key, and it still never belongs in git.
+scratchpad/.stripe-test-key
+scratchpad/*.key
+scratchpad/.env
