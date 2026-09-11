@@ -179,3 +179,75 @@ func testReceipts(t *testing.T, db store.Store) {
 		t.Fatal("CreateReceipt accepted an empty delivery key")
 	}
 }
+
+// testReceiptPaymentRef pins the link a refund needs to find its document.
+//
+// Stripe removed charge.invoice, and neither the charge nor the payment intent
+// points back at an invoice, so a refunded subscription matched no receipt and
+// issued no credit note -- the sale stayed in the books at full value with its
+// VAT declared. The join is recorded when the payment arrives instead.
+func testReceiptPaymentRef(t *testing.T, db store.Store) {
+	ctx := context.Background()
+	now := time.Now().UTC().Truncate(time.Second)
+
+	r := &store.Receipt{
+		TenantID: "t-payref", DeliveryKey: "stripe:inv:in_payref",
+		TransactionID: "in_payref", Email: "payer@example.org",
+		AmountCents: 900, Currency: "EUR", Plan: "crew", PaidAt: now, NextAttemptAt: now,
+	}
+	if _, err := db.CreateReceipt(ctx, r); err != nil {
+		t.Fatalf("CreateReceipt: %v", err)
+	}
+
+	// A receipt starts with no payment recorded against it.
+	got, err := db.GetReceiptByKey(ctx, r.DeliveryKey)
+	if err != nil {
+		t.Fatalf("GetReceiptByKey: %v", err)
+	}
+	if got.PaymentRef != "" {
+		t.Errorf("a new receipt carries payment_ref %q", got.PaymentRef)
+	}
+
+	// Nothing matches before the link is recorded, and that is reported as a
+	// miss rather than as the first row in the table.
+	if _, err := db.GetReceiptByPaymentRef(ctx, "pi_payref"); err == nil {
+		t.Fatal("an unrecorded payment matched a receipt")
+	}
+	// An empty reference must never match anything: every un-linked receipt
+	// carries one, so a match would attach a credit note to an arbitrary sale.
+	if _, err := db.GetReceiptByPaymentRef(ctx, ""); err == nil {
+		t.Fatal("an empty payment reference matched a receipt")
+	}
+
+	if err := db.SetReceiptPaymentRef(ctx, r.DeliveryKey, "pi_payref"); err != nil {
+		t.Fatalf("SetReceiptPaymentRef: %v", err)
+	}
+	found, err := db.GetReceiptByPaymentRef(ctx, "pi_payref")
+	if err != nil {
+		t.Fatalf("GetReceiptByPaymentRef after recording: %v", err)
+	}
+	if found.ID != r.ID {
+		t.Errorf("found receipt %q, want %q", found.ID, r.ID)
+	}
+	if found.PaymentRef != "pi_payref" {
+		t.Errorf("payment_ref = %q", found.PaymentRef)
+	}
+
+	// Writing the same value twice is the same value: Stripe redelivers, and
+	// this is a note on a row rather than an application of money.
+	if err := db.SetReceiptPaymentRef(ctx, r.DeliveryKey, "pi_payref"); err != nil {
+		t.Fatalf("second SetReceiptPaymentRef: %v", err)
+	}
+	if again, err := db.GetReceiptByPaymentRef(ctx, "pi_payref"); err != nil || again.ID != r.ID {
+		t.Errorf("redelivery changed the link: %v %v", again, err)
+	}
+
+	// It survives a round trip through the normal read path.
+	back, err := db.GetReceiptByKey(ctx, r.DeliveryKey)
+	if err != nil {
+		t.Fatalf("GetReceiptByKey: %v", err)
+	}
+	if back.PaymentRef != "pi_payref" {
+		t.Errorf("payment_ref did not survive the round trip: %q", back.PaymentRef)
+	}
+}
