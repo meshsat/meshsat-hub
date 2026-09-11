@@ -271,3 +271,39 @@ func TestASignedInDonationCarriesTheTenantToo(t *testing.T) {
 		t.Errorf("marker lost: %v", form)
 	}
 }
+
+// The hosted page's logo and title come from the ACCOUNT, and the account's own
+// key cannot change them ("you may only use it on connected accounts"), so that
+// half is a dashboard job. It is done: acct_1UEGj54j5c6KcLiz is MeshSat Hub's
+// own, named and branded as such. This wording is the half the session controls,
+// and it still earns its place by naming the PLAN being bought -- a customer who
+// cannot tell what they are about to be charged for has a reason to stop.
+func TestCheckoutSaysWhoIsChargingAndWhatFor(t *testing.T) {
+	c, form, _ := capture(t, 200, `{"id":"cs_1","url":"https://x"}`)
+	_, _ = c.Checkout(context.Background(), CheckoutRequest{
+		TenantID: "t1", PriceID: "price_crew", PlanName: "crew",
+	})
+	msg := form.Get("custom_text[submit][message]")
+	if !strings.Contains(msg, "MeshSat Hub") {
+		t.Errorf("the checkout page never names the product: %q", msg)
+	}
+	if !strings.Contains(strings.ToLower(msg), "crew") {
+		t.Errorf("it does not say which plan is being bought: %q", msg)
+	}
+	// The two facts a customer most needs before paying.
+	for _, want := range []string{"cancel", "VAT"} {
+		if !strings.Contains(msg, want) {
+			t.Errorf("the wording omits %q: %q", want, msg)
+		}
+	}
+}
+
+// A missing plan name must not produce "MeshSat Hub ." or a panic on plan[:1].
+func TestCheckoutWordingSurvivesAMissingPlanName(t *testing.T) {
+	c, form, _ := capture(t, 200, `{"id":"cs_1","url":"https://x"}`)
+	_, _ = c.Checkout(context.Background(), CheckoutRequest{TenantID: "t1", PriceID: "price_crew"})
+	msg := form.Get("custom_text[submit][message]")
+	if !strings.Contains(msg, "MeshSat Hub subscription") {
+		t.Errorf("no sensible fallback wording: %q", msg)
+	}
+}
