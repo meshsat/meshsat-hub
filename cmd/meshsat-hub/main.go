@@ -1393,6 +1393,17 @@ func main() {
 			slog.Warn("unknown plan in plan_device_limits, ignored", "plan", plan, "known", plans.Names())
 		}
 	}
+	// The TAK account ceiling (MESHSAT-1037): a separate meter, the same rule.
+	// It gates CREATING an account and never an existing one's traffic, so a
+	// lapsed or over-cap tenant keeps every TAK user it has and keeps their
+	// position reports and SOS path.
+	for plan, limit := range cfg.PlanTAKUserLimits {
+		if plans.SetTAKUserLimit(plan, limit) {
+			slog.Info("plan TAK user limit overridden from config", "plan", plan, "tak_users", limit)
+		} else {
+			slog.Warn("unknown plan in plan_tak_user_limits, ignored", "plan", plan, "known", plans.Names())
+		}
+	}
 	// The plan comes from the same cached tenant read the status middleware
 	// already does, so a create costs two counts and no extra tenant query.
 	quotaChecker := quota.New(dataStore, tenantStatus.Plan)
