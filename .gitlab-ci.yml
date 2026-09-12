@@ -49,6 +49,31 @@ shell:pipefail:
     - bash scripts/check-pipefail-sigpipe.sh .
 
 # -----------------------------------------------------------------------------
+# BUMP-PIN — the deploy path's one moving part, now with a test (MESHSAT-1047).
+#
+# bump-pin.py rewrites the image digest Argo CD deploys. It had no test, which is
+# how it came to rewrite the digest while freezing the comment beside it: the file
+# claimed a commit four days older than what was actually running.
+#
+# The fix gave it a branch that REWRITES a comment, and kustomization.yaml carries
+# seven hand-written comments beside other images -- which version, what the image
+# is for, and why the nats version is pinned at all. A regression there would
+# destroy information while every deploy still looked fine, so it is asserted.
+# -----------------------------------------------------------------------------
+bump-pin:test:
+  stage: lint
+  image: python:3-alpine
+  tags: [docker]
+  needs: []
+  script:
+    - python3 k8s/scripts/bump_pin_test.py
+  rules:
+    - changes:
+        - k8s/scripts/bump-pin.py
+        - k8s/scripts/bump_pin_test.py
+        - k8s/kustomization.yaml
+
+# -----------------------------------------------------------------------------
 # SWAGGER — ensure swagger.json is up to date with code annotations
 # -----------------------------------------------------------------------------
 swagger:
@@ -469,7 +494,11 @@ bump_k8s_pin:
       digest=$(docker buildx imagetools inspect "$MESHSAT_HUB_IMAGE:$CI_COMMIT_SHORT_SHA" --format "{{json .Manifest}}" \
                | python3 -c "import json,sys; print(json.load(sys.stdin)[\"digest\"])")
       rc=0
-      python3 k8s/scripts/bump-pin.py k8s/kustomization.yaml "$MESHSAT_HUB_IMAGE" "$digest" || rc=$?
+      # The 4th argument is the provenance comment (MESHSAT-1047). Without it the
+      # digest moved on every deploy and its comment never did, so the file named
+      # a commit from days earlier. These are values this job already has.
+      python3 k8s/scripts/bump-pin.py k8s/kustomization.yaml "$MESHSAT_HUB_IMAGE" "$digest" \
+        "$CI_COMMIT_BRANCH $CI_COMMIT_SHORT_SHA ($(date -u +%Y-%m-%d))" || rc=$?
       case "$rc" in 0) : ;; 3) echo "pin already current"; exit 0;; *) exit "$rc";; esac
       git commit -am "[skip ci] chore(k8s): bump $MESHSAT_HUB_IMAGE pin to $CI_COMMIT_SHORT_SHA" \
         -m "Source: $CI_PROJECT_PATH@$CI_COMMIT_SHA (pipeline $CI_PIPELINE_ID)"
