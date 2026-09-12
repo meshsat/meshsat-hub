@@ -17,6 +17,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -123,6 +124,40 @@ func (f *fakeTAKCerts) Collect(_ context.Context, _, _ string) (TAKCertMaterial,
 	}, TAKCertReady, "", nil
 }
 
+// apiFrontTrust is the chain of the certificate the TAK front presents -- a
+// DIFFERENT certificate from the tenant CA, which is the whole point: the
+// truststore in a package must carry this one. Generated once; two RSA keys per
+// test is pure cost.
+var (
+	apiFrontOnce sync.Once
+	apiFrontPEM  []byte
+)
+
+func apiFrontTrust(t *testing.T) []byte {
+	t.Helper()
+	apiFrontOnce.Do(func() {
+		key, err := rsa.GenerateKey(rand.Reader, 2048)
+		if err != nil {
+			panic(err)
+		}
+		tmpl := &x509.Certificate{
+			SerialNumber:          big.NewInt(500),
+			Subject:               pkix.Name{CommonName: "Test Front CA"},
+			NotBefore:             time.Now().Add(-time.Hour),
+			NotAfter:              time.Now().Add(24 * time.Hour),
+			IsCA:                  true,
+			BasicConstraintsValid: true,
+			KeyUsage:              x509.KeyUsageCertSign,
+		}
+		der, err := x509.CreateCertificate(rand.Reader, tmpl, tmpl, &key.PublicKey, key)
+		if err != nil {
+			panic(err)
+		}
+		apiFrontPEM = pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der})
+	})
+	return apiFrontPEM
+}
+
 // enrolFixture wires a handler over a mock whose tenant already has a Ready
 // instance and one active user.
 func enrolFixture(t *testing.T) (*TenantTAKHandler, *mockStore, *fakeTAKCerts) {
@@ -136,7 +171,7 @@ func enrolFixture(t *testing.T) (*TenantTAKHandler, *mockStore, *fakeTAKCerts) {
 	}
 	certs := &fakeTAKCerts{fx: newTAKCertFixture(t, "phone01"), outcome: TAKCertReady}
 	h := takHandlerOn(t, m)
-	h.SetTAKCerts(certs)
+	h.SetTAKCerts(certs, apiFrontTrust(t))
 	return h, m, certs
 }
 
@@ -437,7 +472,8 @@ func TestEnrolRefusesWhatCannotWork(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			h := takHandlerOn(t, tc.store)
 			if tc.attach {
-				h.SetTAKCerts(&fakeTAKCerts{fx: newTAKCertFixture(t, "phone01"), outcome: TAKCertReady})
+				h.SetTAKCerts(&fakeTAKCerts{fx: newTAKCertFixture(t, "phone01"), outcome: TAKCertReady},
+					apiFrontTrust(t))
 			}
 			req, rec := takRequest(http.MethodPost,
 				"/api/tenant/tak/users/"+tc.username+"/enrollment", "")
@@ -446,6 +482,24 @@ func TestEnrolRefusesWhatCannotWork(t *testing.T) {
 				t.Errorf("status = %d, want %d: %s", rec.Code, tc.want, rec.Body.String())
 			}
 		})
+	}
+}
+
+// TestEnrolmentIsRefusedWithoutTheFrontsChain: a handler that can mint
+// certificates but does not know what the front presents would build a package
+// with an empty truststore. The phone would fail the TLS handshake, at the
+// client, where nothing on our side records it -- so refuse up front instead.
+func TestEnrolmentIsRefusedWithoutTheFrontsChain(t *testing.T) {
+	h, _, certs := enrolFixture(t)
+	h.SetTAKCerts(certs, nil)
+
+	req, rec := takRequest(http.MethodPost, "/api/tenant/tak/users/phone01/enrollment", "")
+	enrolRouter(h).ServeHTTP(rec, req)
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status = %d, want 503: %s", rec.Code, rec.Body.String())
+	}
+	if len(certs.requested) != 0 {
+		t.Error("a certificate was requested for a package that could not have worked")
 	}
 }
 

@@ -85,6 +85,10 @@ type TenantTAKHandler struct {
 	// us at all -- the instance's own Host is an in-cluster service name no phone
 	// can resolve.
 	publicHost string
+	// frontTrust is the PEM chain of the certificate the TAK front presents. It
+	// becomes the truststore in every enrolment package, which is what a phone
+	// verifies the server against. NOT the tenant CA: that is the client side.
+	frontTrust []byte
 	log        *slog.Logger
 }
 
