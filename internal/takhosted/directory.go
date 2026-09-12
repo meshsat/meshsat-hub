@@ -49,6 +49,15 @@ type DirectoryRefresher struct {
 	// skipped remembers why each tenant was left out, for the readiness probe
 	// and for a person asking "where is my TAK server".
 	skipped map[string]string
+	// tenants is the same set the published Directory holds, keyed by tenant id.
+	//
+	// It exists because takfront.Directory is deliberately immutable and indexed
+	// by CA SUBJECT, not by tenant id -- it has no accessor to enumerate tenants
+	// or look one up, and adding one would invite mutating a snapshot that
+	// handshakes read without locking. The outbound forwarder needs a *Tenant to
+	// dial, so it reads it from here: one source of truth, built in the same pass
+	// that publishes the directory.
+	tenants map[string]takfront.Tenant
 }
 
 // DefaultRefreshInterval is how often the snapshot is rebuilt. Five minutes is
@@ -68,6 +77,7 @@ func NewDirectoryRefresher(c *Client, k *IdentityKeeper,
 		client: c, certs: k,
 		setDirectory: setDirectory, log: log,
 		skipped: map[string]string{},
+		tenants: map[string]takfront.Tenant{},
 	}
 }
 
@@ -84,6 +94,7 @@ func (r *DirectoryRefresher) PublishEmpty() error {
 	}
 	r.mu.Lock()
 	r.last = d
+	r.tenants = map[string]takfront.Tenant{}
 	r.mu.Unlock()
 	r.setDirectory(d)
 	return nil
@@ -153,9 +164,15 @@ func (r *DirectoryRefresher) Refresh(ctx context.Context) error {
 		return fmt.Errorf("build directory from %d tenants: %w", len(tenants), err)
 	}
 
+	byID := make(map[string]takfront.Tenant, len(tenants))
+	for _, t := range tenants {
+		byID[t.TenantID] = t
+	}
+
 	r.mu.Lock()
 	r.last = d
 	r.skipped = skipped
+	r.tenants = byID
 	r.mu.Unlock()
 	r.setDirectory(d)
 

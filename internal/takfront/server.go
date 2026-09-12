@@ -281,6 +281,32 @@ func (s *Server) serve(ctx context.Context, raw net.Conn) {
 		"seconds", int64(time.Since(start).Seconds()), "error", perr)
 }
 
+// DialTenant opens a connection to one tenant's OpenTAKServer as the Hub,
+// for callers that need to SEND CoT rather than proxy a phone (MESHSAT-1037).
+//
+// It exists so internal/takhosted's outbound forwarder does not reimplement the
+// TLS policy below. That policy has a subtlety worth not re-deriving: when a
+// tenant sets no UpstreamServerName, the dial sets InsecureSkipVerify AND
+// supplies a VerifyConnection that checks the chain against the tenant's own CA,
+// so only the NAME check is skipped. A second implementation that set
+// InsecureSkipVerify without the callback would accept any certificate from
+// anything answering on that address, and it would look correct.
+//
+// It deliberately does NOT go through claim(): that budget is the tenant's
+// PHONE allowance (MaxConnsPerTenant, default 100). A forwarder consuming a slot
+// from it would cost every tenant one seat, and at the ceiling would refuse a
+// real phone because the Hub itself was holding the last one. Accounting and
+// dialing are already separate here -- claim happens at the call site, not in the
+// dialer -- so this wrapper inherits that separation rather than breaking it.
+//
+// The caller owns the returned connection and must close it.
+func (s *Server) DialTenant(ctx context.Context, t *Tenant) (net.Conn, error) {
+	if t == nil {
+		return nil, errors.New("takfront: no tenant")
+	}
+	return s.dialUpstream(ctx, t)
+}
+
 // dialUpstream connects to the tenant's server as the tenant's single identity.
 func (s *Server) dialUpstream(ctx context.Context, t *Tenant) (net.Conn, error) {
 	cfg := &tls.Config{
