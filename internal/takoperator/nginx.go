@@ -77,6 +77,19 @@ http {
             return 404;
         }
 
+        # Authentication for the paths below, and nothing else.
+        #
+        # Every /api/user/ endpoint is gated on @roles_accepted("administrator"),
+        # so a caller needs a session token before it can create a single user.
+        # Without this location the admin slice was reachable and unusable, which
+        # is how it first shipped: the Hub could connect and could never log in.
+        # Exact match, so /api/login-anything is not forwarded with it.
+        location = /api/login {
+            if ($is_hub = 0) { return 403; }
+            proxy_pass http://127.0.0.1:8081;
+            proxy_set_header Host $host;
+        }
+
         location /api/user/ {
             if ($is_hub = 0) { return 403; }
             proxy_pass http://127.0.0.1:8081;
