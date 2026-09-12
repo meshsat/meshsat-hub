@@ -7,7 +7,6 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"github.com/meshsat/meshsat-hub/internal/integrations"
 	"github.com/meshsat/meshsat-hub/internal/invoiceninja"
@@ -84,7 +83,6 @@ import (
 	"github.com/meshsat/meshsat-hub/internal/store/postgres"
 	"github.com/meshsat/meshsat-hub/internal/store/sqlite"
 	"github.com/meshsat/meshsat-hub/internal/stripe"
-	"github.com/meshsat/meshsat-hub/internal/tak"
 	"github.com/meshsat/meshsat-hub/internal/timesync"
 	hubtor "github.com/meshsat/meshsat-hub/internal/tor"
 	"github.com/meshsat/meshsat-hub/internal/webhook"
@@ -132,21 +130,6 @@ func (a *escalationAdapter) Trigger(ctx context.Context, tenantID, chainID, devi
 		Detail:     detail,
 	}
 	return a.engine.Trigger(ctx, tenantID, alert)
-}
-
-// federationBusAdapter wraps bus.MessageBus to satisfy tak.FederationBus.
-// Needed because bus.MessageBus.Subscribe takes a named MessageHandler type
-// while tak.FederationBus.Subscribe takes func(string, []byte) directly.
-type federationBusAdapter struct {
-	mb bus.MessageBus
-}
-
-func (a *federationBusAdapter) Publish(topic string, qos byte, retained bool, payload []byte) error {
-	return a.mb.Publish(topic, qos, retained, payload)
-}
-
-func (a *federationBusAdapter) Subscribe(topic string, qos byte, handler func(string, []byte)) error {
-	return a.mb.Subscribe(topic, qos, handler)
 }
 
 // @title        MeshSat Hub API
@@ -414,71 +397,21 @@ func main() {
 	mptcpMonitor := mptcp.NewMonitor(30*time.Second, msgBus)
 	go mptcpMonitor.Start(ctx)
 
-	// TAK/CoT gateway starts unconditionally (each site has its own OTS, no conflict).
-	// TAK Federation and APRS-IS remain singletons inside leader election.
-	var takClient *tak.Client
-	if cfg.TAKEnabled && cfg.TAKHost != "" {
-		takPort := cfg.TAKPort
-		if takPort == 0 {
-			takPort = 8087
-		}
-		takClient = tak.NewClient(cfg.TAKHost, takPort, cfg.TAKSSL)
-		if err := takClient.Connect(); err != nil {
-			slog.Warn("tak: connection failed (will not forward CoT)", "error", err)
-		} else if msgBus.IsConnected() {
-			// Only the platform tenant's traffic reaches the operator's TAK server (MESHSAT-1032).
-			takSub := tak.NewSubscriber(msgBus, takClient, tenants, cfg.TAKCallsignPrefix, cfg.TAKCotStaleSec)
-			if err := takSub.Start(); err != nil {
-				slog.Error("tak: failed to start subscriber", "error", err)
-			} else {
-				slog.Info("tak: CoT gateway started", "host", cfg.TAKHost, "port", takPort)
-			}
-		}
-	}
-
-	// OTS REST API poller — inbound CoT relay (OTS → Hub → MQTT → bridges).
-	// The TCP connection above is Hub→OTS only. OTS plain TCP does not relay
-	// events back. This poller provides the reverse path via the REST API.
-	if cfg.TAKAPIBaseURL != "" && cfg.TAKAPIUsername != "" {
-		leaderSingletons.Add("tak-ots-poller", func(sctx context.Context) {
-			p := tak.NewOTSPoller(cfg.TAKAPIBaseURL, cfg.TAKAPIUsername, cfg.TAKAPIPassword, cfg.TAKAPIPollSec, msgBus, dataStore, store.DefaultTenantID)
-			p.SetMaxDevices(cfg.TAKAPIMaxDevices)
-			p.Start()
-			<-sctx.Done()
-			p.Stop()
-		})
-	}
-
-	var takFederation *tak.Federation
+	// TAK is a per-tenant feature now (MESHSAT-1037, MESHSAT-1065). Each tenant
+	// gets its own OpenTAKServer, or points the Hub at a server they run
+	// themselves; internal/takhosted owns both paths and starts from takfront.go
+	// and takoutbound.go. The platform-wide CoT gateway, its OTS marker poller and
+	// TAK Federation v2 are gone (MESHSAT-1032): they pointed every tenant's
+	// traffic at one OpenTAKServer the operator ran. internal/tak keeps only the
+	// CoT codec, which takhosted uses to render events.
 	var aprsisClient *aprsis.Client
 
 	// The elector itself is started at the end of startup (see
 	// leader.RunWith below), after every singleton has been registered.
 	onLeaderAcquired := func() {
-		// onAcquired: Federation + APRS-IS (connection-holding services that
-		// need explicit teardown); the rest of the singleton set is started by
-		// RunWith.
-		slog.Info("leader acquired — starting Federation and APRS-IS")
-
-		// TAK Federation v2 (optional — bidirectional CoT relay with remote TAK servers).
-		if cfg.TAKFederationEnabled && msgBus.IsConnected() {
-			fedCfg := tak.FederationConfig{
-				Enabled:        true,
-				Port:           cfg.TAKFederationPort,
-				Peers:          cfg.TAKFederationPeers,
-				CertFile:       cfg.TAKFederationCert,
-				KeyFile:        cfg.TAKFederationKey,
-				CAFile:         cfg.TAKFederationCA,
-				CallsignPrefix: cfg.TAKCallsignPrefix,
-				CotStaleSec:    cfg.TAKCotStaleSec,
-			}
-			takFederation = tak.NewFederation(fedCfg, &federationBusAdapter{mb: msgBus})
-			takFederation.SetPlatformChecker(tenants) // platform tenant only (MESHSAT-1032)
-			if err := takFederation.Start(ctx); err != nil {
-				slog.Error("tak federation: failed to start", "error", err)
-				takFederation = nil
-			}
-		}
+		// onAcquired: APRS-IS, the one connection-holding service left that needs
+		// explicit teardown; the rest of the singleton set is started by RunWith.
+		slog.Info("leader acquired — starting APRS-IS")
 
 		// APRS-IS IGate (optional — inject satellite positions into APRS-IS network).
 		if cfg.APRSISEnabled && cfg.APRSISCallsign != "" && cfg.APRSISPasscode != "" {
@@ -500,18 +433,10 @@ func main() {
 	}
 	onLeaderLost := func() {
 		// onLost: stop singleton services
-		slog.Info("leader lost — stopping TAK, Federation, and APRS-IS")
+		slog.Info("leader lost — stopping APRS-IS")
 		if aprsisClient != nil {
 			aprsisClient.Disconnect()
 			aprsisClient = nil
-		}
-		if takFederation != nil {
-			takFederation.Stop()
-			takFederation = nil
-		}
-		if takClient != nil {
-			takClient.Disconnect()
-			takClient = nil
 		}
 	}
 
@@ -2155,55 +2080,7 @@ func main() {
 
 	// Integration channel status API
 	integrationHandler := api.NewIntegrationHandler(cfg)
-	integrationHandler.SetFederationGetter(func() api.FederationStatter {
-		if takFederation == nil {
-			return nil
-		}
-		return takFederation
-	})
 	r.Get("/api/integrations", integrationHandler.ListIntegrations)
-	// The TAK gateway, its missions and its federation are the platform's,
-	// pointed at the operator's own TAK server: platform administrators only
-	// (MESHSAT-1032).
-	takAdmin := r.With(hubauth.RequirePlatformAdmin())
-	takAdmin.Get("/api/tak/federation/peers", integrationHandler.ListFederationPeers)
-	takAdmin.Get("/api/tak/missions", func(w http.ResponseWriter, r *http.Request) {
-		if cfg.TAKHost == "" {
-			api.WriteJSON(w, http.StatusOK, []interface{}{})
-			return
-		}
-		proxy := tak.NewMartiProxy(cfg.TAKHost, 8443, true, cfg.TAKAPIInsecureTLS)
-		missions, err := proxy.ListMissions()
-		if err != nil {
-			if errors.Is(err, tak.ErrMartiUnavailable) {
-				// OpenTAKServer answers the Marti mission API with its web UI: the
-				// feature is not available on this TAK server, which is a state,
-				// not a gateway failure.
-				api.WriteJSON(w, http.StatusOK, map[string]any{"missions": []any{}, "available": false, "reason": "the TAK server does not expose the Marti mission API"})
-				return
-			}
-			api.WriteJSON(w, http.StatusBadGateway, map[string]string{"error": err.Error()})
-			return
-		}
-		api.WriteJSON(w, http.StatusOK, map[string]any{"missions": missions, "available": true})
-	})
-	takAdmin.Get("/api/tak/fleet-status", func(w http.ResponseWriter, r *http.Request) {
-		fedIn, fedOut, fedPeers := int64(0), int64(0), 0
-		if integrationHandler.GetFederation() != nil {
-			fedIn, fedOut, fedPeers = integrationHandler.GetFederation().Stats()
-		}
-		api.WriteJSON(w, http.StatusOK, map[string]interface{}{
-			"tak_enabled":            true, // Hub is always a TAK/CoT gateway
-			"tak_host":               cfg.TAKHost,
-			"external_tak_connected": cfg.TAKEnabled && cfg.TAKHost != "",
-			"federation_enabled":     cfg.TAKFederationEnabled,
-			"federation_peers":       fedPeers,
-			"federation_in":          fedIn,
-			"federation_out":         fedOut,
-			"mode":                   "Hub CoT Gateway",
-		})
-	})
-
 	r.Get("/api/constellations", func(w http.ResponseWriter, r *http.Request) {
 		backends := constellationRouter.ListBackends()
 		w.Header().Set("Content-Type", "application/json")
@@ -2565,9 +2442,6 @@ func main() {
 	close(touchCh) // drain remaining API key last_used updates
 	if aprsisClient != nil {
 		aprsisClient.Disconnect()
-	}
-	if takClient != nil {
-		takClient.Disconnect()
 	}
 	msgBus.Disconnect()
 	_ = otelShutdown(shutdownCtx)
