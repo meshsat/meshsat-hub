@@ -238,7 +238,24 @@ func InstanceName(label string) string { return "tak-" + label }
 // `host sameuser all all scram-sha-256`: a role may reach only the database
 // whose name matches its own. Keeping them equal is what makes that rule an
 // isolation boundary rather than a formality.
+//
+// This is a POSTGRES identifier and carries an underscore. It is NOT a valid
+// Kubernetes object name — use DBObjectName for that.
 func DatabaseName(label string) string { return "tak_" + label }
+
+// DBObjectName is the metadata.name of the Database and DatabaseRole objects.
+//
+// It exists because these are two different naming domains and conflating them
+// is a real failure, not a style question: Kubernetes object names must be RFC
+// 1123 subdomains (lowercase alphanumeric, '-' and '.', no underscore), while the
+// Postgres database and role want the underscored `tak_<label>` so that they
+// match each other for `host sameuser`. Writing the Postgres name into
+// metadata.name gets a 422 from the API server, which is how this was found —
+// the phase-2 gate's first TakInstance reported
+// `metadata.name: Invalid value: "tak_gatetest01"`.
+//
+// So: DNS-safe here, underscored in spec.name and spec.owner.
+func DBObjectName(label string) string { return "tak-" + label }
 
 // CASecretName holds the tenant CA certificate and its WRAPPED key.
 func CASecretName(label string) string { return "tak-" + label + "-ca" }
