@@ -19,16 +19,17 @@ import (
 // Hashes are here for the same reason as the secrets they stand for: a
 // password or token hash is an offline cracking target, not portable data.
 var RedactedInExport = map[string]bool{
-	"api_keys.key_hash":          true,
-	"bridge_oob_peers.key_enc":   true,
-	"bridges.mqtt_password_hash": true,
-	"credentials.encrypted_data": true,
-	"device_keys.key_hash":       true,
-	"device_keys.key_hex":        true, // the tenant's own message encryption key
-	"refresh_tokens.token_hash":  true,
-	"tenant_invites.token_hash":  true,
-	"users.password_hash":        true,
-	"webhook_configs.secret":     true,
+	"api_keys.key_hash":           true,
+	"bridge_oob_peers.key_enc":    true,
+	"bridges.mqtt_password_hash":  true,
+	"credentials.encrypted_data":  true,
+	"device_keys.key_hash":        true,
+	"device_keys.key_hex":         true, // the tenant's own message encryption key
+	"refresh_tokens.token_hash":   true,
+	"tak_users.enroll_token_hash": true,
+	"tenant_invites.token_hash":   true,
+	"users.password_hash":         true,
+	"webhook_configs.secret":      true,
 }
 
 // RedactionMarker replaces a redacted value, so a reader can tell the

@@ -64,6 +64,7 @@ type mockStore struct {
 	apiKeyErr   error
 	createKeyFn func(ctx context.Context, tid string, k *store.APIKey) error
 	bridgeCount int // for the device quota check
+	takUsers    int // for the TAK account ceiling (MESHSAT-1037)
 }
 
 func (m *mockStore) Migrate(context.Context) error { return nil }
@@ -603,3 +604,40 @@ func (m *mockStore) ReleaseRefund(context.Context, string) error                
 func (m *mockStore) RefundsByCountrySince(context.Context, time.Time) (map[string]int64, error) {
 	return nil, nil
 }
+
+// Hosted TAK (MESHSAT-1037). No API handler reads these yet -- the schema and the
+// meter landed before the wiring -- so they are stubs, with one exception.
+//
+// CountTAKUsers returns a settable field rather than a bare 0. A fake that always
+// reports "no TAK users" would let a quota test pass while proving nothing: the
+// ceiling can only ever be reached if the count can be made non-zero. Set
+// takUsers to exercise it.
+func (m *mockStore) CountTAKUsers(context.Context, string) (int, error) {
+	return m.takUsers, nil
+}
+
+func (m *mockStore) UpsertTAKInstance(context.Context, *store.TAKInstance) error { return nil }
+
+func (m *mockStore) GetTAKInstance(context.Context, string) (*store.TAKInstance, error) {
+	return nil, store.ErrNotFound
+}
+
+func (m *mockStore) ListTAKInstances(context.Context) ([]*store.TAKInstance, error) {
+	return nil, nil
+}
+
+func (m *mockStore) DeleteTAKInstance(context.Context, string) error { return nil }
+
+func (m *mockStore) CreateTAKUser(context.Context, string, *store.TAKUser) error { return nil }
+
+func (m *mockStore) GetTAKUser(context.Context, string, string) (*store.TAKUser, error) {
+	return nil, store.ErrNotFound
+}
+
+func (m *mockStore) ListTAKUsers(context.Context, string) ([]*store.TAKUser, error) {
+	return nil, nil
+}
+
+func (m *mockStore) UpdateTAKUser(context.Context, string, *store.TAKUser) error { return nil }
+
+func (m *mockStore) DeleteTAKUser(context.Context, string, string) error { return nil }
