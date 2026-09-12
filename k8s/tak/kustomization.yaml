@@ -12,3 +12,8 @@ resources:
   - registry-externalsecret.yaml
   - quota.yaml
   - networkpolicy.yaml
+  # The Hub's rights on the custom resources. It lives here, in the namespace
+  # that holds them, because a Role only grants rights in its own namespace --
+  # adding these rules to k8s/platform/rbac.yaml (namespace: meshsat-hub) would
+  # have granted nothing and failed as a runtime 403.
+  - rbac-hub.yaml
