@@ -261,17 +261,41 @@ func InstanceDeployment(label, otsImage, rabbitImage, nginxImage string, replica
 						Env:             []corev1.EnvVar{{Name: "RABBITMQ_NODENAME", Value: "rabbit@localhost"}},
 						SecurityContext: restricted(rabbitUID, rabbitGID),
 						VolumeMounts:    []corev1.VolumeMount{{Name: "rabbit", MountPath: "/var/lib/rabbitmq"}},
-						// Readiness gates the main containers: with a native
-						// sidecar the pod does not start them until this passes,
-						// which is the whole point of moving it here.
+						// A STARTUP probe, which is the one that orders startup.
+						//
+						// This was wrong once and the mistake is easy to repeat:
+						// for a native sidecar the kubelet starts the main
+						// containers once the sidecar has STARTED, and only a
+						// startupProbe makes it wait for the sidecar to be
+						// usable. A readinessProbe governs the POD's readiness,
+						// not the ordering. With readiness alone, rabbitmq and
+						// ots-eud started in the same second, ots-eud raced the
+						// broker, and it then sat up with a dead AMQP channel
+						// dropping every phone that connected — worse than
+						// crashing, because its TCP readiness probe still passed.
+						StartupProbe: &corev1.Probe{
+							ProbeHandler: corev1.ProbeHandler{
+								TCPSocket: &corev1.TCPSocketAction{Port: intstrFromInt(5672)},
+							},
+							InitialDelaySeconds: 3,
+							PeriodSeconds:       2,
+							TimeoutSeconds:      3,
+							// A cold broker can take tens of seconds; 60 attempts
+							// at 2s is two minutes before the pod is declared a
+							// failure, which is longer than RabbitMQ has ever
+							// needed here.
+							FailureThreshold: 60,
+						},
+						// Readiness still matters for the pod's own status, so a
+						// broker that dies later takes the pod out of service
+						// rather than leaving it advertised as healthy.
 						ReadinessProbe: &corev1.Probe{
 							ProbeHandler: corev1.ProbeHandler{
 								TCPSocket: &corev1.TCPSocketAction{Port: intstrFromInt(5672)},
 							},
-							InitialDelaySeconds: 5,
-							PeriodSeconds:       5,
-							TimeoutSeconds:      3,
-							FailureThreshold:    30, // a cold broker can take a while
+							PeriodSeconds:    10,
+							TimeoutSeconds:   3,
+							FailureThreshold: 3,
 						},
 						Resources: corev1.ResourceRequirements{
 							Requests: corev1.ResourceList{corev1.ResourceCPU: qty("50m"), corev1.ResourceMemory: qty("128Mi")},
