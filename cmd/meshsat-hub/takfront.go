@@ -13,7 +13,6 @@ import (
 	"github.com/meshsat/meshsat-hub/internal/audit"
 	"github.com/meshsat/meshsat-hub/internal/bus"
 	"github.com/meshsat/meshsat-hub/internal/config"
-	"github.com/meshsat/meshsat-hub/internal/leader"
 	"github.com/meshsat/meshsat-hub/internal/store"
 	"github.com/meshsat/meshsat-hub/internal/takfront"
 	"github.com/meshsat/meshsat-hub/internal/takhosted"
@@ -81,9 +80,9 @@ func startTAKFront(
 	auditSvc *audit.Service,
 	tenantStatus *tenancy.StatusCache,
 	msgBus bus.MessageBus,
-	singletons *leader.Singletons,
 	purgeJob *tenancy.PurgeJob,
 	takHandler *api.TenantTAKHandler,
+	upstreams *takhosted.Upstreams,
 ) error {
 	if cfg.TAKFrontCertFile == "" || cfg.TAKFrontKeyFile == "" {
 		return errors.New("HUB_TAK_FRONT_CERT_FILE and HUB_TAK_FRONT_KEY_FILE must both be set: " +
@@ -172,24 +171,16 @@ func startTAKFront(
 	// Per replica, not a singleton.
 	go refresher.Run(ctx)
 
-	// The outbound half: a tenant's own kit positions pushed into that tenant's
-	// OpenTAKServer, so a customer's satellite devices appear on their ATAK map
-	// beside their phones.
+	// Hand the hosted-instance lookup to the shared upstream resolver.
 	//
-	// This one IS a leader singleton. It writes, and two replicas forwarding the
-	// same position would draw every device on the map twice.
-	//
-	// srv.DialTenant rather than a dial of its own: that method carries
-	// takfront's upstream TLS policy -- verify the chain against the tenant's own
-	// CA while skipping only the name check -- and deliberately does not spend a
-	// slot from the tenant's MaxConnsPerTenant phone budget. A reimplementation
-	// here would be the place those two properties quietly diverge.
-	//
-	// Registered unconditionally: Run checks the bus for itself and says so if it
-	// is absent, and it runs when leadership is acquired rather than now, which is
-	// a different moment from this one.
-	fwd := takhosted.NewForwarder(msgBus, dataStore, srv.DialTenant, refresher.TenantByID, slog.Default())
-	singletons.Add("takhosted-outbound", fwd.Run)
+	// The outbound forwarder itself is registered by startTAKOutbound, OUTSIDE this
+	// function and outside HUB_TAK_FRONT_ENABLED, because a tenant who brings their
+	// own TAK server (MESHSAT-1065) needs no front at all -- and the front needs a
+	// server certificate that does not exist yet. Until this line runs, only
+	// tenants' own servers resolve, which is correct rather than degraded.
+	if upstreams != nil {
+		upstreams.SetHosted(refresher.TenantByID)
+	}
 
 	slog.Info("takfront: listening", "addr", addr, "tak_namespace", takhosted.TakNamespace())
 	return nil

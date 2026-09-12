@@ -141,13 +141,15 @@ func newForwarderOn(t *testing.T, ots *capturedOTS, s store.Store) (*Forwarder, 
 		var d net.Dialer
 		return d.DialContext(ctx, "tcp", tn.Upstream)
 	}
-	lookup := func(id string) *takfront.Tenant {
+	// One upstream for t1. The forwarder fans out over a slice now (MESHSAT-1065),
+	// so a tenant may have a hosted instance, their own server, or both.
+	ups := func(_ context.Context, id string) []*takfront.Tenant {
 		if id == "t1" {
-			return tenant
+			return []*takfront.Tenant{tenant}
 		}
 		return nil
 	}
-	f := NewForwarder(b, s, dial, lookup, nil)
+	f := NewForwarder(b, s, dial, ups, nil)
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
 	go f.Run(ctx)
