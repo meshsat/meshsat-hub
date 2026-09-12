@@ -214,9 +214,13 @@ build:
   tags: [docker]
   script:
     - go build -ldflags "-s -w -X main.version=${CI_COMMIT_SHORT_SHA}" -o bin/meshsat-hub ./cmd/meshsat-hub/
+    # The tak-operator ships in the same image (see Dockerfile); building it here
+    # too means a break in it fails the pipeline rather than the image build.
+    - go build -ldflags "-s -w -X main.version=${CI_COMMIT_SHORT_SHA}" -o bin/tak-operator ./cmd/tak-operator/
   artifacts:
     paths:
       - bin/meshsat-hub
+      - bin/tak-operator
     expire_in: 1 week
 
 # -----------------------------------------------------------------------------
