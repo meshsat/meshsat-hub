@@ -273,3 +273,17 @@ func (c *Client) ListCertRequests(ctx context.Context, namespace string) ([]TakC
 func (c *Client) SetCertRequestStatus(ctx context.Context, namespace, name string, st TakCertificateRequestStatus) error {
 	return c.PatchStatus(ctx, InstanceGV, namespace, CertReqResource, name, st)
 }
+
+// ListUserRequests returns every TakUserRequest in the namespace.
+func (c *Client) ListUserRequests(ctx context.Context, namespace string) ([]TakUserRequest, error) {
+	var list TakUserRequestList
+	if err := c.List(ctx, InstanceGV, namespace, UserReqResource, &list); err != nil {
+		return nil, err
+	}
+	return list.Items, nil
+}
+
+// SetUserRequestStatus writes a TakUserRequest's status.
+func (c *Client) SetUserRequestStatus(ctx context.Context, namespace, name string, st TakUserRequestStatus) error {
+	return c.PatchStatus(ctx, InstanceGV, namespace, UserReqResource, name, st)
+}

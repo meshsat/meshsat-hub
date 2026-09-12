@@ -32,10 +32,11 @@ rules:
   # The custom resources: read them, write their status, and add or remove the
   # teardown finalizer. Nothing else.
   - apiGroups: ["tak.meshsat.net"]
-    resources: ["takinstances", "takcertificaterequests"]
+    resources: ["takinstances", "takcertificaterequests", "takuserrequests"]
     verbs: ["get", "list", "watch", "patch", "update"]
   - apiGroups: ["tak.meshsat.net"]
-    resources: ["takinstances/status", "takcertificaterequests/status"]
+    resources:
+      ["takinstances/status", "takcertificaterequests/status", "takuserrequests/status"]
     verbs: ["get", "patch", "update"]
   # Per-instance material: the tenant CA (certificate plus WRAPPED key), the
   # server certificate, and the pinned OpenTAKServer values. Names are derived

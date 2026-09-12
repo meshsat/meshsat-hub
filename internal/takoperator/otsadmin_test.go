@@ -22,6 +22,21 @@ type fakeOTS struct {
 	refuseReset bool
 	resets      int
 	logins      []string
+
+	// The account surface, for the TakUserRequest reconciler (userreq.go).
+	// users maps a name to whether it is active.
+	users       map[string]bool
+	adds        []string
+	deactivates []string
+	// addedPasswords records what /api/user/add was sent, so a test can prove the
+	// generated password never turns up in a status, a log or an error.
+	addedPasswords []string
+	// Forced answers, for the refusal and retry paths. Zero means "behave
+	// normally", so existing tests are unaffected.
+	addStatus        int
+	addBody          string
+	deactivateStatus int
+	deactivateBody   string
 }
 
 func (f *fakeOTS) handler() http.Handler {
@@ -55,6 +70,69 @@ func (f *fakeOTS) handler() http.Handler {
 		if !f.refuseReset {
 			f.password = in.NewPassword
 		}
+		_, _ = w.Write([]byte(`{"success":true}`))
+	})
+	mux.HandleFunc("/api/user/add", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if r.Header.Get("Authentication-Token") != "tok-123" {
+			w.WriteHeader(http.StatusUnauthorized)
+			_, _ = w.Write([]byte(`{"success":false,"error":"no token"}`))
+			return
+		}
+		var in struct {
+			Username        string `json:"username"`
+			Password        string `json:"password"`
+			ConfirmPassword string `json:"confirm_password"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&in)
+		f.adds = append(f.adds, in.Username)
+		f.addedPasswords = append(f.addedPasswords, in.Password)
+		if f.addStatus != 0 {
+			w.WriteHeader(f.addStatus)
+			_, _ = w.Write([]byte(f.addBody))
+			return
+		}
+		if in.Password != in.ConfirmPassword || in.Password == "" {
+			w.WriteHeader(http.StatusBadRequest)
+			_, _ = w.Write([]byte(`{"error":"passwords do not match"}`))
+			return
+		}
+		if f.users == nil {
+			f.users = map[string]bool{}
+		}
+		if _, exists := f.users[in.Username]; exists {
+			// Upstream's wording for a taken name, which is a 400 like every other
+			// refusal -- the body is the only thing that distinguishes them.
+			w.WriteHeader(http.StatusBadRequest)
+			_, _ = w.Write([]byte(`{"error":"user already exists"}`))
+			return
+		}
+		f.users[in.Username] = true
+		_, _ = w.Write([]byte(`{"success":true}`))
+	})
+	mux.HandleFunc("/api/user/deactivate", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if r.Header.Get("Authentication-Token") != "tok-123" {
+			w.WriteHeader(http.StatusUnauthorized)
+			_, _ = w.Write([]byte(`{"success":false,"error":"no token"}`))
+			return
+		}
+		var in struct {
+			Username string `json:"username"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&in)
+		f.deactivates = append(f.deactivates, in.Username)
+		if f.deactivateStatus != 0 {
+			w.WriteHeader(f.deactivateStatus)
+			_, _ = w.Write([]byte(f.deactivateBody))
+			return
+		}
+		if _, exists := f.users[in.Username]; !exists {
+			w.WriteHeader(http.StatusBadRequest)
+			_, _ = w.Write([]byte(`{"error":"user does not exist"}`))
+			return
+		}
+		f.users[in.Username] = false
 		_, _ = w.Write([]byte(`{"success":true}`))
 	})
 	return mux

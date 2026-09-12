@@ -32,6 +32,10 @@ const (
 	// Resource names, as they appear in API paths.
 	InstanceResource = "takinstances"
 	CertReqResource  = "takcertificaterequests"
+	// UserReqResource is the OpenTAKServer account requests. The Hub cannot
+	// create accounts itself: the administrator password lives in a Secret it may
+	// not read, so it asks here. See userreq.go.
+	UserReqResource = "takuserrequests"
 
 	// Namespace holding both the custom resources and the instances.
 	DefaultNamespace = "meshsat-tak"
