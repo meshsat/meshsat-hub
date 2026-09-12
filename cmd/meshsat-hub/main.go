@@ -76,6 +76,7 @@ import (
 	"github.com/meshsat/meshsat-hub/internal/rockblock"
 	"github.com/meshsat/meshsat-hub/internal/routing"
 	"github.com/meshsat/meshsat-hub/internal/scheduler"
+	"github.com/meshsat/meshsat-hub/internal/signups"
 	"github.com/meshsat/meshsat-hub/internal/sms"
 	"github.com/meshsat/meshsat-hub/internal/sos"
 	"github.com/meshsat/meshsat-hub/internal/store"
@@ -1825,6 +1826,23 @@ func main() {
 	// Tell a person their request was approved. Only the CLI path used to send
 	// anything, and it sent from the shared identity provider's default address.
 	signupHandler.SetMailer(mailer, cfg.PublicURL)
+
+	// And tell the OPERATOR that somebody is waiting, which nothing did
+	// (MESHSAT-1081). Enrolment happens in the identity provider, so the Hub has
+	// no event to hang an email on -- it has the list instead, which is better:
+	// this reports what is outstanding, so a notice lost in transit is corrected
+	// by the next pass rather than leaving a request invisible.
+	//
+	// A leader singleton: two replicas polling would mean two emails per request.
+	// What it has already reported lives in the database, not in memory, so a
+	// lease handover does not re-announce the queue.
+	if signupWatcher := signups.New(akClient, akClient, dataStore, mailer,
+		cfg.OIDCAdminGroup, cfg.AdminNotifyEmail, cfg.PublicURL, slog.Default()); signupWatcher != nil {
+		leaderSingletons.Add("signup-notify", signupWatcher.Run)
+	} else {
+		slog.Info("signups: nobody will be emailed about account requests awaiting a decision",
+			"authentik", akClient != nil, "mail", mailer != nil)
+	}
 	r.Route("/api/admin/signups", func(r chi.Router) {
 		r.Use(hubauth.RequirePlatformAdmin())
 		r.Get("/", signupHandler.List)
