@@ -158,20 +158,26 @@ data:
   # The hosted TAK front (MESHSAT-1037): one TLS listener for every tenant's
   # phones, tenant identified from the client certificate's issuer.
   #
-  # OFF until the certificate Secret exists. The front presents ONE server
-  # certificate to every phone in every tenant -- ATAK sends no SNI on the CoT
-  # socket, so the front must present a certificate before it knows who is
-  # calling -- and every tenant's truststore carries that certificate's chain.
-  # It is therefore supplied, never generated: a certificate the Hub minted for
-  # itself would be refused by every phone already enrolled.
+  # ON since 2026-09-12. The front presents ONE server certificate to every phone
+  # in every tenant -- ATAK sends no SNI on the CoT socket, so the front must
+  # present a certificate before it knows who is calling -- and every tenant's
+  # truststore carries that certificate's chain. It is therefore supplied, never
+  # generated: a certificate the Hub minted for itself would be refused by every
+  # phone already enrolled.
+  #
+  # This said "OFF until the certificate Secret exists" for four days after the
+  # Secret started existing (2026-09-08), which is the kind of comment that stops
+  # somebody looking. The files are meshsat-net-tls, mounted by the Deployment at
+  # the path below, and takfront.CertFile re-reads them when cert-manager renews.
   #
   # Turning this on without the files is a startup error that logs and continues,
   # not a crash: TAK is one feature among many and must not take satellite
-  # ingest, SMS and the dashboard down with it.
-  HUB_TAK_FRONT_ENABLED: "false"
+  # ingest, SMS and the dashboard down with it. The volume is optional for the
+  # same reason.
+  HUB_TAK_FRONT_ENABLED: "true"
   HUB_TAK_FRONT_ADDR: ":8089"
-  # HUB_TAK_FRONT_CERT_FILE: "/etc/meshsat/takfront/tls.crt"
-  # HUB_TAK_FRONT_KEY_FILE: "/etc/meshsat/takfront/tls.key"
+  HUB_TAK_FRONT_CERT_FILE: "/etc/meshsat/takfront/tls.crt"
+  HUB_TAK_FRONT_KEY_FILE: "/etc/meshsat/takfront/tls.key"
   # Where the TakInstance and TakCertificateRequest objects live. The Hub runs in
   # meshsat-hub and reaches across, which is why its rights on them are a
   # separate Role in that namespace (k8s/tak/rbac-hub.yaml).

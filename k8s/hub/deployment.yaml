@@ -122,8 +122,33 @@ spec:
             - name: cloudloop-certs
               mountPath: /certs/cloudloop
               readOnly: true
+            # The ONE server certificate the hosted TAK front presents to every
+            # tenant's phones (MESHSAT-1037). HUB_TAK_FRONT_{CERT,KEY}_FILE name
+            # tls.crt and tls.key under this path.
+            - name: takfront-tls
+              mountPath: /etc/meshsat/takfront
+              readOnly: true
       volumes:
         - name: cloudloop-certs
           secret:
             secretName: hub-cloudloop-certs
             defaultMode: 0400
+        # The wildcard *.meshsat.net certificate, which the NATS StatefulSet and
+        # the stunnel Deployment already mount in this namespace -- so this is the
+        # house pattern rather than a new place to keep that key. It is renewed end
+        # to end (Let's Encrypt, NL cert-manager, PushSecret to OpenBao,
+        # ExternalSecret to here) and takfront.CertFile re-reads it when it
+        # changes, because the front would otherwise present an expired
+        # certificate after every renewal and every phone would fail at once.
+        #
+        # optional: true ON PURPOSE. A required volume means a missing or
+        # mid-reconcile Secret stops the pod scheduling at all, which would take
+        # satellite ingest, SMS and the dashboard down for the sake of one
+        # feature. The configmap states that principle beside the flag; this is
+        # what honours it: the pod starts, startTAKFront logs that it could not
+        # load a certificate, and everything else serves.
+        - name: takfront-tls
+          secret:
+            secretName: meshsat-net-tls
+            defaultMode: 0400
+            optional: true
