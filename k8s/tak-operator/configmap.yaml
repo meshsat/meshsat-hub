@@ -25,7 +25,24 @@ data:
   # tenant at all: package:ots pushed a new :1.7.13, and without changing the
   # digest here the operator would keep starting the vulnerable image. That is the
   # pin working as intended, not a defect -- but it means a CVE fix is two commits.
-  TAK_OTS_IMAGE: "ghcr.io/meshsat/meshsat-hub-ots@sha256:eff91a26376bed8d743c1ef2446c1ff165cc99c2c8713c0116f2e3628bf2b8e2"
+  # Moved again 2026-09-12 (MESHSAT-1057). Every instance was losing 134 seconds
+  # of EVERY start to an un-timed GitHub fetch for marker icons that this
+  # namespace's egress policy drops; the image now carries the archive and the
+  # loader reads it from disk. Same two-commit shape as the CVE fix below, for the
+  # same reason: the pin is what decides whether a fix reaches a tenant.
+  #
+  # ⚠ A REPIN IS NOT ENOUGH ON ITS OWN. The Deployment takes this ConfigMap
+  # through `envFrom`, cmd/tak-operator/main.go reads TAK_OTS_IMAGE once at
+  # startup into the Reconciler, and there is no reloader annotation -- so Argo
+  # updating this file leaves the RUNNING operator creating instances from the
+  # old image, silently. After this merges:
+  #
+  #     kubectl --context notrf01 -n meshsat-tak rollout restart deploy/tak-operator
+  #
+  # and check the new pod's startup line reports the digest below as ots_image.
+  # This is the same trap that left the Hub running 121 minutes with the correct
+  # Secret and the wrong Stripe key.
+  TAK_OTS_IMAGE: "ghcr.io/meshsat/meshsat-hub-ots@sha256:8c68463c1bff7c0b1ba7426d492cd64a45a492fee698d2da1feaf6c59af7de4a"
   # In the pod because OpenTAKServer's socketio client connects to RabbitMQ as
   # `guest` with no credentials, and guest is loopback-only. Spike S5 settled
   # that it must run as the image's own uid 100: as root with capabilities
