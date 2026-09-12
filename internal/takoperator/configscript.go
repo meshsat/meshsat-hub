@@ -118,15 +118,20 @@ with open(path, "w") as f:
     yaml.safe_dump(cfg, f)
 print("wrote config.yml with keys:", ", ".join(sorted(cfg)))
 
-# The default administrator OpenTAKServer creates on first start is
-# administrator/password. The operator generates a random one and the first
-# start uses it, so the documented default is never valid on a hosted instance.
-# Written where the entrypoint looks for it rather than passed on a command line,
-# which would put it in the pod spec and in every "kubectl describe".
-admin = os.environ.get("OTS_ADMIN_PASSWORD")
-if admin:
-    with open(os.path.join(DATA, ".admin_password"), "w") as f:
-        f.write(admin)
-    os.chmod(os.path.join(DATA, ".admin_password"), 0o600)
-    print("staged the administrator password")
+# NOTHING is staged here for the administrator account, deliberately.
+#
+# An earlier version of this script wrote the generated password to
+# ".admin_password" in the data folder, believing the entrypoint read it. It does
+# not: nothing in OpenTAKServer 1.7.13 opens that path. The file was inert, and a
+# merged commit message claimed on the strength of it that the documented default
+# administrator/password "never works" on a hosted instance. Probed against the
+# live gate instance: it worked, HTTP 200 with a session token.
+#
+# app.py creates "administrator" with the literal password "password" on first
+# start (app.py:471 logs it in as many words), and the only way to change it is
+# POST /api/user/password/reset, which needs the API listening and the schema
+# migrated. Neither is true while this init container runs, so the change belongs
+# to the operator once the Deployment is Ready: see bootstrapAdmin in
+# otsadmin.go. OTS_ADMIN_PASSWORD stays in the config Secret, which is where the
+# operator reads it from.
 `
