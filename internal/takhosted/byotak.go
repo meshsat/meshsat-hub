@@ -152,6 +152,12 @@ func (e *ExternalUpstreams) Forget(tenantID string) {
 	e.mu.Unlock()
 }
 
+// externalLabel marks an upstream as a tenant's OWN TAK server rather than a
+// hosted instance. A fixed string on purpose: it reaches logs and metrics, where
+// a hosted instance's per-tenant random label must not, so the two are told apart
+// by comparing against this rather than by guessing at the shape of the other.
+const externalLabel = "external"
+
 // buildExternalTenant turns stored values into a dialable upstream, or explains
 // why it cannot.
 //
@@ -198,7 +204,7 @@ func buildExternalTenant(tenantID string, v map[string]string) (*takfront.Tenant
 		// Label identifies this upstream in logs and metrics only. "external"
 		// rather than an instance label, because there is no instance: nothing
 		// here was provisioned by the operator.
-		Label:    "external",
+		Label:    externalLabel,
 		Upstream: net.JoinHostPort(host, strconv.Itoa(n)),
 		Identity: pair,
 		// CA is deliberately left nil. It is the field takfront.NewDirectory
