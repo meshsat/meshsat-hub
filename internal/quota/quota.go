@@ -88,6 +88,78 @@ func (q *Checker) Usage(ctx context.Context, tenantID string) (Usage, error) {
 	return u, nil
 }
 
+// TAKUsage is a tenant's standing on the TAK account meter (MESHSAT-1037).
+//
+// Separate from Usage, and deliberately not folded into it: Usage already costs
+// two counts and AllowAnother goes through it on every device create, so adding
+// a third count there would make every registration pay for a number only the
+// TAK page asks for. One meter, one query.
+type TAKUsage struct {
+	Plan      string `json:"plan"`
+	Users     int    `json:"users"`
+	Limit     int    `json:"limit"`     // -1 when the plan has no ceiling
+	Remaining int    `json:"remaining"` // -1 when unlimited; never negative otherwise
+	OverLimit bool   `json:"over_limit"`
+}
+
+// TAKUsage reports how many TAK accounts a tenant has and may have.
+func (q *Checker) TAKUsage(ctx context.Context, tenantID string) (TAKUsage, error) {
+	u := TAKUsage{Plan: plans.Free, Limit: plans.Unlimited, Remaining: plans.Unlimited}
+	if q == nil || q.store == nil {
+		return u, nil
+	}
+	if q.plan != nil {
+		p, err := q.plan(ctx, tenantID)
+		if err != nil {
+			return u, err
+		}
+		u.Plan = plans.Normalise(p)
+	}
+	n, err := q.store.CountTAKUsers(ctx, tenantID)
+	if err != nil {
+		return u, err
+	}
+	u.Users = n
+	u.Limit = plans.For(u.Plan).TAKUsers
+	if u.Limit == plans.Unlimited {
+		u.Remaining = plans.Unlimited
+		return u, nil
+	}
+	if remaining := u.Limit - u.Users; remaining > 0 {
+		u.Remaining = remaining
+	} else {
+		u.Remaining = 0
+		u.OverLimit = u.Users > u.Limit
+	}
+	return u, nil
+}
+
+// AllowsTAKUser reports whether the tenant may add one more TAK account.
+//
+// It gates CREATING an account and nothing else. An account that exists keeps
+// connecting, keeps its position reports flowing and keeps its SOS path,
+// whatever the tier says and whether or not the plan has lapsed.
+//
+// A lookup failure allows the create, for the same reason AllowAnother does: a
+// count query timing out is not a reason to stop a customer adding a teammate to
+// their map.
+func (q *Checker) AllowsTAKUser(ctx context.Context, tenantID string) (bool, string) {
+	if q == nil || q.store == nil {
+		return true, ""
+	}
+	u, err := q.TAKUsage(ctx, tenantID)
+	if err != nil {
+		slog.Warn("quota: TAK usage lookup failed, allowing the account", "tenant", tenantID, "error", err)
+		return true, ""
+	}
+	if plans.AllowsAnotherTAKUser(u.Plan, u.Users) {
+		return true, ""
+	}
+	return false, fmt.Sprintf(
+		"the %s plan covers %d TAK accounts and you have %d. "+
+			"Remove one, or move up a plan to add more.", u.Plan, u.Limit, u.Users)
+}
+
 // AllowAnother reports whether the tenant may register one more device or
 // bridge, and if not, a message written for the person who will read it.
 //

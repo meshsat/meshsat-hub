@@ -164,6 +164,26 @@ type Store interface {
 	ListBridges(ctx context.Context, tenantID string) ([]*Bridge, error)
 	// CountBridges counts a tenant's bridges, which share the device ceiling.
 	CountBridges(ctx context.Context, tenantID string) (int, error)
+	// CountTAKUsers counts a tenant's TAK accounts (MESHSAT-1037). A SEPARATE
+	// meter from the device ceiling: a TAK user is a person with a phone and a
+	// certificate, not a piece of kit, and a small fleet can have many people
+	// watching the map. Live count, for the same reason as the others -- a
+	// purge and a user removal both move rows without passing through one place.
+	CountTAKUsers(ctx context.Context, tenantID string) (int, error)
+
+	// Hosted TAK (MESHSAT-1037). The operator owns the real state in the
+	// TakInstance custom resource; these rows are what the Hub reads to build
+	// the takfront directory and to answer "is this phone still allowed"
+	// without a Kubernetes call on the connection path.
+	UpsertTAKInstance(ctx context.Context, inst *TAKInstance) error
+	GetTAKInstance(ctx context.Context, tenantID string) (*TAKInstance, error)
+	ListTAKInstances(ctx context.Context) ([]*TAKInstance, error)
+	DeleteTAKInstance(ctx context.Context, tenantID string) error
+	CreateTAKUser(ctx context.Context, tenantID string, u *TAKUser) error
+	GetTAKUser(ctx context.Context, tenantID string, username string) (*TAKUser, error)
+	ListTAKUsers(ctx context.Context, tenantID string) ([]*TAKUser, error)
+	UpdateTAKUser(ctx context.Context, tenantID string, u *TAKUser) error
+	DeleteTAKUser(ctx context.Context, tenantID string, username string) error
 	UpdateBridge(ctx context.Context, tenantID string, bridgeID string, updates BridgeUpdate) error
 	DeleteBridge(ctx context.Context, tenantID string, bridgeID string) error
 	SetBridgeOnline(ctx context.Context, tenantID string, bridgeID string, online bool) error
@@ -448,6 +468,59 @@ type OOBPeer struct {
 }
 
 // Bridge represents a registered field bridge (parent of devices).
+// TAKInstance is the Hub's record of a tenant's own hosted OpenTAKServer
+// (MESHSAT-1037).
+//
+// The authoritative state lives in the TakInstance custom resource the
+// tak-operator reconciles; this row is a cache the Hub can read on every
+// connection without asking the Kubernetes API. CACertPEM is the tenant's trust
+// anchor, which is what lets takfront identify a phone's tenant from its
+// certificate issuer.
+type TAKInstance struct {
+	TenantID string `json:"tenant_id"`
+	// Label is the opaque ten-character instance name. Never the tenant's slug:
+	// it appears in the CA subject, which travels to every phone, so it must
+	// leak nothing about who the customer is.
+	Label string `json:"label"`
+	// State is what the customer asked for: Running, Suspended or Hibernated.
+	State string `json:"state"`
+	// Phase is what the operator reports: Provisioning, Ready, Failed and so on.
+	Phase string `json:"phase"`
+	// Host is host:port of the instance's CoT listener inside the cluster.
+	Host      string     `json:"host"`
+	CACertPEM string     `json:"ca_cert_pem"`
+	CreatedAt *time.Time `json:"created_at,omitempty"`
+	UpdatedAt *time.Time `json:"updated_at,omitempty"`
+}
+
+// TAKUser is one TAK account in a tenant's instance (MESHSAT-1037).
+//
+// Username is what OpenTAKServer matches a client certificate's common name
+// against: EudHandlerSSL reads the CN and looks up exactly this name, so a
+// certificate with no matching row is refused at the CoT socket. It has no
+// hyphens because OpenTAKServer's own validator rejects them with HTTP 400.
+//
+// EnrollTokenHash is a SHA-256 of a single-use enrollment token, never the token
+// itself: the token is shown once as a QR or emailed, and storing it would put a
+// live credential in every backup. It is listed in RedactedInExport too.
+type TAKUser struct {
+	TenantID string `json:"tenant_id"`
+	Username string `json:"username"`
+	Callsign string `json:"callsign"`
+	// Active false keeps the row and its history while refusing the connection,
+	// which is what a suspended teammate should look like.
+	Active       bool       `json:"active"`
+	CertSerial   string     `json:"cert_serial"`
+	CertNotAfter *time.Time `json:"cert_not_after,omitempty"`
+	// RevokedSerial is refused by the Authorizer immediately. There is no CRL:
+	// the front asks on every connection, so nothing has to be distributed.
+	RevokedSerial   string     `json:"revoked_serial"`
+	EnrollTokenHash string     `json:"-"`
+	EnrollExpiresAt *time.Time `json:"enroll_expires_at,omitempty"`
+	CreatedAt       *time.Time `json:"created_at,omitempty"`
+	UpdatedAt       *time.Time `json:"updated_at,omitempty"`
+}
+
 type Bridge struct {
 	BridgeID        string     `json:"bridge_id"`
 	TenantID        string     `json:"tenant_id"`

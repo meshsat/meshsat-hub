@@ -608,4 +608,60 @@ CREATE INDEX IF NOT EXISTS idx_stripe_events_tenant ON stripe_events (tenant_id,
 ALTER TABLE receipts ADD COLUMN IF NOT EXISTS payment_ref VARCHAR(128) NOT NULL DEFAULT '';
 CREATE INDEX IF NOT EXISTS idx_receipts_payment_ref ON receipts (payment_ref) WHERE payment_ref <> '';
 `},
+	// v18: hosted per-tenant TAK (MESHSAT-1037).
+	//
+	// Two tables, and BOTH carry tenant_id because that column is not
+	// decoration: the tenant export and the purge job discover which tables
+	// belong to a tenant by reflecting on it
+	// (postgres/tenant_lifecycle.go: information_schema.columns WHERE
+	// column_name = 'tenant_id'). A table without it is silently never
+	// exported and never erased, which is the quiet way to keep a customer's
+	// data after they asked for it to be destroyed.
+	//
+	// tak_instances is the Hub's record of a tenant's OpenTAKServer. The
+	// operator owns the real state in the TakInstance custom resource; this
+	// row is what the Hub reads to build the takfront directory without a
+	// Kubernetes call on the request path, plus the CA certificate it must
+	// trust. label is the opaque ten-character instance name -- never the
+	// tenant's slug, because a CA subject travels to every phone and must leak
+	// nothing about who the customer is.
+	//
+	// tak_users is one TAK account. enroll_token_hash holds a SHA-256 of a
+	// single-use enrollment token, never the token: it is emailed or shown as
+	// a QR once, and a stored token would be a credential sitting in a backup.
+	// It is also in store.RedactedInExport for the same reason.
+	//
+	// revoked_serial is the certificate serial the Hub refuses after a user is
+	// removed. There is no CRL: the front asks the Authorizer on every
+	// connection, so refusing a serial here is immediate and needs no
+	// distribution.
+	{Version: 18, Name: "hosted tak", SQL: `
+CREATE TABLE IF NOT EXISTS tak_instances (
+	tenant_id VARCHAR(64) PRIMARY KEY,
+	label VARCHAR(32) NOT NULL,
+	state VARCHAR(16) NOT NULL DEFAULT 'Running',
+	phase VARCHAR(32) NOT NULL DEFAULT '',
+	host VARCHAR(253) NOT NULL DEFAULT '',
+	ca_cert_pem TEXT NOT NULL DEFAULT '',
+	created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+	updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_tak_instances_label ON tak_instances (label);
+CREATE TABLE IF NOT EXISTS tak_users (
+	tenant_id VARCHAR(64) NOT NULL,
+	username VARCHAR(32) NOT NULL,
+	callsign VARCHAR(64) NOT NULL DEFAULT '',
+	active BOOLEAN NOT NULL DEFAULT true,
+	cert_serial VARCHAR(64) NOT NULL DEFAULT '',
+	cert_not_after TIMESTAMPTZ,
+	revoked_serial VARCHAR(64) NOT NULL DEFAULT '',
+	enroll_token_hash VARCHAR(64) NOT NULL DEFAULT '',
+	enroll_expires_at TIMESTAMPTZ,
+	created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+	updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+	PRIMARY KEY (tenant_id, username)
+);
+CREATE INDEX IF NOT EXISTS idx_tak_users_serial ON tak_users (cert_serial) WHERE cert_serial <> '';
+CREATE INDEX IF NOT EXISTS idx_tak_users_enroll ON tak_users (enroll_token_hash) WHERE enroll_token_hash <> '';
+`},
 }

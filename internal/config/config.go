@@ -88,6 +88,17 @@ type Config struct {
 	// the built-in default (internal/plans).
 	PlanDeviceLimits map[string]int `yaml:"plan_device_limits"`
 
+	// PlanTAKUserLimits overrides a tier's ceiling on TAK accounts in the
+	// tenant's own hosted OpenTAKServer (MESHSAT-1037):
+	// HUB_PLAN_FREE_TAK_USERS, HUB_PLAN_CREW_TAK_USERS,
+	// HUB_PLAN_FLEET_TAK_USERS, HUB_PLAN_CUSTOM_TAK_USERS. -1 means no
+	// ceiling; a tier absent here keeps the built-in default (internal/plans).
+	//
+	// A separate knob from PlanDeviceLimits because it meters something else: a
+	// TAK user is a person with a certificate, a device is a piece of kit, and
+	// a small fleet can have many people watching the map.
+	PlanTAKUserLimits map[string]int `yaml:"plan_tak_user_limits"`
+
 	// Stripe: the payment provider (MESHSAT-1023).
 	//
 	// Three separate secrets, and conflating any two of them is a real mistake:
@@ -601,6 +612,23 @@ func Load() (Config, error) {
 			cfg.PlanDeviceLimits = map[string]int{}
 		}
 		cfg.PlanDeviceLimits[plan] = n
+	}
+	// The TAK account ceiling, read the same way and held to the same rules: an
+	// unparseable value or anything below -1 is ignored rather than guessed at,
+	// so a typo in the ConfigMap cannot hand out an accidental allowance.
+	for _, plan := range []string{"free", "crew", "fleet", "custom"} {
+		v := os.Getenv("HUB_PLAN_" + strings.ToUpper(plan) + "_TAK_USERS")
+		if v == "" {
+			continue
+		}
+		n, err := strconv.Atoi(v)
+		if err != nil || n < -1 {
+			continue
+		}
+		if cfg.PlanTAKUserLimits == nil {
+			cfg.PlanTAKUserLimits = map[string]int{}
+		}
+		cfg.PlanTAKUserLimits[plan] = n
 	}
 	if v := os.Getenv("HUB_OIDC_RECOVERY_URL"); v != "" {
 		cfg.OIDCRecoveryURL = v

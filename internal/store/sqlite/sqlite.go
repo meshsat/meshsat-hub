@@ -439,6 +439,14 @@ var postAlterMigrations = []string{
 	)`,
 	`CREATE INDEX IF NOT EXISTS idx_refunds_due ON refunds(status, next_attempt_at)`,
 	`CREATE INDEX IF NOT EXISTS idx_refunds_tenant ON refunds(tenant_id)`,
+	// Mirrors postgres migration 18: hosted per-tenant TAK (MESHSAT-1037).
+	// Both tables carry tenant_id so the export and the purge find them by
+	// reflection rather than by a hardcoded list.
+	`CREATE TABLE IF NOT EXISTS tak_instances (tenant_id TEXT PRIMARY KEY, label TEXT NOT NULL, state TEXT NOT NULL DEFAULT 'Running', phase TEXT NOT NULL DEFAULT '', host TEXT NOT NULL DEFAULT '', ca_cert_pem TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL DEFAULT (datetime('now')), updated_at TEXT NOT NULL DEFAULT (datetime('now')))`,
+	`CREATE UNIQUE INDEX IF NOT EXISTS idx_tak_instances_label ON tak_instances (label)`,
+	`CREATE TABLE IF NOT EXISTS tak_users (tenant_id TEXT NOT NULL, username TEXT NOT NULL, callsign TEXT NOT NULL DEFAULT '', active INTEGER NOT NULL DEFAULT 1, cert_serial TEXT NOT NULL DEFAULT '', cert_not_after TEXT NOT NULL DEFAULT '', revoked_serial TEXT NOT NULL DEFAULT '', enroll_token_hash TEXT NOT NULL DEFAULT '', enroll_expires_at TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL DEFAULT (datetime('now')), updated_at TEXT NOT NULL DEFAULT (datetime('now')), PRIMARY KEY (tenant_id, username))`,
+	`CREATE INDEX IF NOT EXISTS idx_tak_users_serial ON tak_users (cert_serial)`,
+	`CREATE INDEX IF NOT EXISTS idx_tak_users_enroll ON tak_users (enroll_token_hash)`,
 }
 
 // lateAlterMigrations alter tables created in postAlterMigrations.

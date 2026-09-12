@@ -155,6 +155,21 @@ data:
   HUB_PLAN_FLEET_DEVICES: "100"
   HUB_PLAN_CUSTOM_DEVICES: "-1"
 
+  # TAK accounts per tier (MESHSAT-1037), a separate meter from devices: a TAK
+  # user is a person with a phone and a certificate, a device is a piece of kit,
+  # and a two-device survey team can have a dozen people watching the map.
+  # Registration only, exactly like the device cap above -- an account that
+  # exists keeps connecting and keeps its SOS path whatever the tier says.
+  #
+  # Custom gets a real number rather than -1, unlike its device allowance: every
+  # TAK user is a long-lived TLS session and a row in a Python process on the
+  # control-plane tier, so this ceiling protects the cluster rather than the
+  # invoice. Raise it deliberately for a tenant that needs more.
+  HUB_PLAN_FREE_TAK_USERS: "4"
+  HUB_PLAN_CREW_TAK_USERS: "12"
+  HUB_PLAN_FLEET_TAK_USERS: "40"
+  HUB_PLAN_CUSTOM_TAK_USERS: "100"
+
   # Transactional email. nllei01smtp-dkim01 authorises by IP and signs with DKIM
   # for meshsat.net; the Hub's tunnel address 10.255.200.37 is in its mynetworks
   # AND in opendkim's trusted.hosts -- reaching the relay and being signed by it
