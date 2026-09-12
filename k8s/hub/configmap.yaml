@@ -158,19 +158,18 @@ data:
   # The hosted TAK front (MESHSAT-1037): one TLS listener for every tenant's
   # phones, tenant identified from the client certificate's issuer.
   #
-  # OFF again, 2026-09-12, and the reason is worth keeping: it was switched ON the
-  # same day, which is how MESHSAT-1076 was found. With the front running, the two
-  # Hub replicas fight over one shared upstream-identity request -- whichever did
-  # not ask sees a certificate it has no key for, deletes it and asks again -- so
-  # NO tenant ever enters the front's directory and no phone can connect. A
-  # customer could have switched TAK on and been handed an instance that never
-  # serves. Switch this back to "true" when MESHSAT-1076 is fixed, and watch the
-  # `takhosted: directory refreshed` line: `tenants` must equal the number of
-  # Ready instances.
+  # ON, 2026-09-13, after MESHSAT-1076. It was switched on once before and taken
+  # straight back off, which is worth keeping because it is how that defect was
+  # found: with the front running, two Hub replicas fought over one shared
+  # upstream-identity request -- whichever did not ask saw a certificate it had no
+  # key for, deleted it and asked again -- so NO tenant entered the front's
+  # directory and no phone could connect, while every probe stayed green. Each
+  # replica now has its own request object and its own key.
   #
-  # Everything else about the front IS ready and is deliberately left in place --
-  # the volume below, the paths, the edge's 8089 leg -- because none of it is what
-  # was wrong and re-deriving it later would be pure waste.
+  # WHAT TO WATCH, and the number that would have caught that in one refresh:
+  # `meshsat_hub_takhosted_directory_tenants` must equal the number of Ready
+  # instances. The same pair is in the log line `takhosted: directory refreshed`
+  # as `tenants` and `skipped`.
   #
   # The front presents ONE server certificate to every phone in every tenant --
   # ATAK sends no SNI on the CoT socket, so it must present a certificate before
@@ -189,7 +188,7 @@ data:
   # not a crash: TAK is one feature among many and must not take satellite
   # ingest, SMS and the dashboard down with it. The volume is optional for the
   # same reason.
-  HUB_TAK_FRONT_ENABLED: "false"
+  HUB_TAK_FRONT_ENABLED: "true"
   HUB_TAK_FRONT_ADDR: ":8089"
   HUB_TAK_FRONT_CERT_FILE: "/etc/meshsat/takfront/tls.crt"
   HUB_TAK_FRONT_KEY_FILE: "/etc/meshsat/takfront/tls.key"
