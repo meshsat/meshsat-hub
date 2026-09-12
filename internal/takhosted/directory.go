@@ -12,6 +12,9 @@ import (
 	"sync"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promauto"
+
 	"github.com/meshsat/meshsat-hub/internal/store"
 	"github.com/meshsat/meshsat-hub/internal/takfront"
 )
@@ -230,9 +233,30 @@ func (r *DirectoryRefresher) Refresh(ctx context.Context) error {
 	r.mu.Unlock()
 	r.setDirectory(d)
 
+	// These two numbers are the ones that matter, so they are a metric and not only
+	// a log line. MESHSAT-1076 was a month of silence waiting to happen: the front
+	// listened, the pods were Ready, every probe was green, and `tenants` was nought
+	// while instances existed. An alert on directoryTenants < the number of Ready
+	// instances would have caught it on the first refresh.
+	directoryTenants.Set(float64(d.Len()))
+	directorySkipped.Set(float64(len(skipped)))
+
 	r.log.Info("takhosted: directory refreshed", "tenants", d.Len(), "skipped", len(skipped))
 	return nil
 }
+
+// No tenant label on either gauge, deliberately: the series count would then grow
+// with the customer count, which is the rule takfront's recorder already follows.
+var (
+	directoryTenants = promauto.NewGauge(prometheus.GaugeOpts{
+		Name: "meshsat_hub_takhosted_directory_tenants",
+		Help: "Tenants the TAK front can currently serve (has a CA and an upstream identity for).",
+	})
+	directorySkipped = promauto.NewGauge(prometheus.GaugeOpts{
+		Name: "meshsat_hub_takhosted_directory_skipped",
+		Help: "Tenant instances the front knows about but cannot serve yet, by any cause.",
+	})
+)
 
 // tenantFor turns one instance into a takfront.Tenant, or explains why it cannot
 // yet. The reason string is for a human: it ends up in a log line and in the

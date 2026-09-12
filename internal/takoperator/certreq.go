@@ -18,6 +18,50 @@ import (
 // as in the schema, because a CRD is one apply away from being edited.
 var usernamePattern = regexp.MustCompile(`^[a-z0-9]{3,32}$`)
 
+// hubRequestTTL is how long a DECIDED hub identity request may sit uncollected
+// before the operator treats it as abandoned.
+//
+// The Hub collects within one refresh cycle (five minutes) and deletes the object
+// as it does, so anything still here an hour later belongs to a replica that no
+// longer exists. An hour is far beyond any legitimate window and well short of the
+// seven-day certificate it carries.
+const hubRequestTTL = time.Hour
+
+// abandonedHubRequest reports whether a request is an orphan nobody will collect.
+//
+// # Why this is needed at all (MESHSAT-1076)
+//
+// Identity requests are named per replica, so each pod has its own object. That is
+// what stops two replicas deleting each other's certificates -- but it means a
+// replaced pod leaves its object behind, and a Deployment is rolled on every
+// deploy. Without reaping, the namespace accumulates one dead request per pod per
+// tenant forever.
+//
+// Deliberately narrow:
+//   - hub purpose only. An EUD request belongs to a customer's enrolment, which
+//     has its own fifteen-minute lifecycle and is deleted on claim; reaping those
+//     on a timer would be a second mechanism arguing with the first.
+//   - decided only. A Pending request is the operator's own backlog, and deleting
+//     work it has not done yet would lose a certificate somebody is waiting for.
+//
+// Pure, so the age arithmetic can be tested without a cluster -- the mistake this
+// guards against is an off-by-a-timezone reap, which already happened once in this
+// estate with `time.mktime` reading a UTC timestamp as local.
+func abandonedHubRequest(req *TakCertificateRequest, now time.Time) bool {
+	if req == nil || req.Spec.Purpose != PurposeHub {
+		return false
+	}
+	if req.Status.Phase != CertIssued && req.Status.Phase != CertDenied {
+		return false
+	}
+	if req.CreationTimestamp.IsZero() {
+		// No age to judge by. Leaving it is the safe direction: an uncollected
+		// request is clutter, a deleted one somebody needed is an outage.
+		return false
+	}
+	return now.Sub(req.CreationTimestamp.Time) > hubRequestTTL
+}
+
 // certRequestDenyReason is the terminal-refusal check, pure so that it can be
 // tested without a cluster -- the same shape userreq.go already uses.
 //
@@ -67,9 +111,21 @@ func (r *Reconciler) reconcileCertRequests(ctx context.Context) error {
 		return fmt.Errorf("list certificate requests: %w", err)
 	}
 	var firstErr error
+	now := time.Now()
 	for i := range reqs {
 		req := reqs[i]
 		if req.Status.Phase == CertIssued || req.Status.Phase == CertDenied {
+			// Decided. Sweep it up if nobody is ever going to collect it.
+			if abandonedHubRequest(&req, now) {
+				if err := r.Client.Delete(ctx, InstanceGV, r.Namespace, CertReqResource, req.Name); err != nil {
+					r.Log.Warn("takoperator: could not reap an abandoned identity request",
+						"name", req.Name, "error", err)
+				} else {
+					r.Log.Info("takoperator: reaped an abandoned identity request",
+						"name", req.Name, "replica", req.Labels["tak.meshsat.net/replica"],
+						"age", now.Sub(req.CreationTimestamp.Time).Round(time.Minute).String())
+				}
+			}
 			continue
 		}
 		if err := r.issue(ctx, &req); err != nil {

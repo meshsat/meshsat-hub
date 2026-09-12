@@ -3,6 +3,9 @@ package takoperator
 import (
 	"strings"
 	"testing"
+	"time"
+
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 // This file exists because the certificate-request validator had NO tests, and
@@ -95,6 +98,76 @@ func TestTheOtherRefusalsStillHold(t *testing.T) {
 		if why := certRequestDenyReason(req); why == "" {
 			t.Errorf("%s was accepted", what)
 		}
+	}
+}
+
+// Reaping abandoned identity requests (MESHSAT-1076). Requests are named per
+// replica so two Hub replicas cannot fight over one certificate, which means a
+// replaced pod leaves its object behind -- and a Deployment is rolled on every
+// deploy. These assertions are about the two directions of the mistake: leaving
+// clutter forever, and deleting something somebody is waiting for.
+func TestAbandonedHubRequestsAreReapedAndNothingElseIs(t *testing.T) {
+	now := time.Date(2026, 9, 13, 12, 0, 0, 0, time.UTC)
+	aged := func(purpose, phase string, age time.Duration) *TakCertificateRequest {
+		r := certReq(certTestLabel, purpose, HubIdentityCN, someCSR)
+		if purpose == PurposeEUD {
+			r.Spec.Username = "phone01"
+		}
+		r.Status.Phase = phase
+		r.CreationTimestamp = metav1.NewTime(now.Add(-age))
+		return r
+	}
+
+	for _, tc := range []struct {
+		what string
+		req  *TakCertificateRequest
+		want bool
+	}{
+		{"an hours-old issued hub request is abandoned", aged(PurposeHub, CertIssued, 2*time.Hour), true},
+		{"an hours-old denied hub request is abandoned", aged(PurposeHub, CertDenied, 2*time.Hour), true},
+		{"a fresh issued hub request is NOT (the Hub collects within one refresh)",
+			aged(PurposeHub, CertIssued, 3*time.Minute), false},
+		{"a hub request just under the TTL is NOT", aged(PurposeHub, CertIssued, hubRequestTTL-time.Minute), false},
+		{"a PENDING hub request is never reaped, however old -- it is the operator's own backlog",
+			aged(PurposeHub, "", 48*time.Hour), false},
+		{"an EUD request is never reaped on a timer; enrolment has its own lifecycle",
+			aged(PurposeEUD, CertIssued, 48*time.Hour), false},
+	} {
+		if got := abandonedHubRequest(tc.req, now); got != tc.want {
+			t.Errorf("%s: got %v, want %v", tc.what, got, tc.want)
+		}
+	}
+
+	// No creation timestamp means no age to judge by. Leaving it is the safe
+	// direction: clutter is cheap, deleting a certificate somebody waits for is not.
+	noStamp := certReq(certTestLabel, PurposeHub, HubIdentityCN, someCSR)
+	noStamp.Status.Phase = CertIssued
+	if abandonedHubRequest(noStamp, now) {
+		t.Error("a request with no creation timestamp was reaped")
+	}
+	if abandonedHubRequest(nil, now) {
+		t.Error("a nil request was reaped")
+	}
+}
+
+// The age arithmetic is done in UTC against the object's own timestamp. This
+// estate has already deleted things early once by reading a UTC timestamp as local
+// (the backup unwedge CronJob, where time.mktime shifted everything two hours), so
+// the boundary is asserted explicitly.
+func TestTheReapBoundaryDoesNotShiftWithTheLocalZone(t *testing.T) {
+	req := certReq(certTestLabel, PurposeHub, HubIdentityCN, someCSR)
+	req.Status.Phase = CertIssued
+	created := time.Date(2026, 9, 13, 10, 0, 0, 0, time.UTC)
+	req.CreationTimestamp = metav1.NewTime(created)
+
+	// Just inside the window, expressed in a zone three hours ahead: still young.
+	tooSoon := created.Add(hubRequestTTL - time.Minute).In(time.FixedZone("UTC+3", 3*3600))
+	if abandonedHubRequest(req, tooSoon) {
+		t.Error("reaped a request that is still inside its TTL when the clock is in another zone")
+	}
+	past := created.Add(hubRequestTTL + time.Minute).In(time.FixedZone("UTC-7", -7*3600))
+	if !abandonedHubRequest(req, past) {
+		t.Error("failed to reap an expired request when the clock is in another zone")
 	}
 }
 

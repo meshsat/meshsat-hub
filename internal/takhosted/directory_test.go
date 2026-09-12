@@ -354,7 +354,7 @@ func TestAnEmptyDirectoryIsPublishableSoTheFrontCanStartWithNoTenants(t *testing
 	cl := NewClientWith(srv.Client(), srv.URL, "meshsat-tak")
 
 	var got *takfront.Directory
-	r := NewDirectoryRefresher(cl, NewIdentityKeeper(cl, nil),
+	r := NewDirectoryRefresher(cl, NewIdentityKeeper(cl, "replica-one", nil),
 		func(d *takfront.Directory) { got = d }, nil)
 
 	if err := r.PublishEmpty(); err != nil {
@@ -408,7 +408,7 @@ func TestAProvisioningTenantIsSkippedRatherThanFailingTheWholeBatch(t *testing.T
 	defer srv.Close()
 	cl := NewClientWith(srv.Client(), srv.URL, "meshsat-tak")
 	var got *takfront.Directory
-	r := NewDirectoryRefresher(cl, NewIdentityKeeper(cl, nil),
+	r := NewDirectoryRefresher(cl, NewIdentityKeeper(cl, "replica-one", nil),
 		func(d *takfront.Directory) { got = d }, nil)
 
 	// First pass asks for the Ready tenant's certificate; second serves it.
@@ -452,7 +452,7 @@ func TestAFailedRefreshKeepsThePreviousSnapshot(t *testing.T) {
 	cl := NewClientWith(srv.Client(), srv.URL, "meshsat-tak")
 
 	published := []*takfront.Directory{}
-	r := NewDirectoryRefresher(cl, NewIdentityKeeper(cl, nil),
+	r := NewDirectoryRefresher(cl, NewIdentityKeeper(cl, "replica-one", nil),
 		func(d *takfront.Directory) { published = append(published, d) }, nil)
 
 	prime(t, r)
@@ -495,7 +495,7 @@ func TestTheHubAsksForItsUpstreamIdentityAndIsSkippedUntilItArrives(t *testing.T
 	defer srv.Close()
 	cl := NewClientWith(srv.Client(), srv.URL, "meshsat-tak")
 	var got *takfront.Directory
-	r := NewDirectoryRefresher(cl, NewIdentityKeeper(cl, nil),
+	r := NewDirectoryRefresher(cl, NewIdentityKeeper(cl, "replica-one", nil),
 		func(d *takfront.Directory) { got = d }, nil)
 
 	if err := r.Refresh(context.Background()); err != nil {
@@ -550,7 +550,7 @@ func TestTwoTenantsSharingACASubjectFailsLoudlyAndKeepsTheOldSnapshot(t *testing
 	defer srv.Close()
 	cl := NewClientWith(srv.Client(), srv.URL, "meshsat-tak")
 	published := 0
-	r := NewDirectoryRefresher(cl, NewIdentityKeeper(cl, nil),
+	r := NewDirectoryRefresher(cl, NewIdentityKeeper(cl, "replica-one", nil),
 		func(*takfront.Directory) { published++ }, nil)
 
 	// Prime so BOTH tenants have their identities, or they would both be skipped
