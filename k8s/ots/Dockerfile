@@ -29,6 +29,38 @@ COPY requirements.txt /tmp/requirements.txt
 RUN /opt/ots/bin/pip install --no-cache-dir --no-deps --require-hashes -r /tmp/requirements.txt
 
 FROM python:3.13-slim-trixie
+# Debian security updates for the packages the BASE IMAGE brings.
+#
+# Nothing here installs them: perl-base and libsqlite3-0 arrive with
+# python:3.13-slim-trixie. That tag is rebuilt on its own schedule, which is
+# slower than advisories are published, so the image drifts into failing its own
+# CVE gate with no change on our side. It did on 2026-09-12: 12 findings, 9 HIGH
+# and 3 CRITICAL, all in those two packages, all with fixes already in Debian
+# (MESHSAT-1068). package:ots scans with --ignore-unfixed --exit-code 1 and is
+# allow_failure: false, so that reds every branch pipeline in the repo.
+#
+# Upgrade rather than pin two versions: a pin is correct for exactly one advisory
+# and has to be chased afterwards, and the gate already ignores anything with no
+# fix available. Only the runtime stage needs it -- the build stage's packages
+# never ship, since only /opt/ots is copied out of it.
+#
+# This is the first apt-get upgrade in the estate; every other Debian-based
+# Dockerfile here only installs. So it is deliberate rather than copied from
+# somewhere.
+#
+# CACHE CAVEAT: this layer has no changing inputs, so a runner with a warm build
+# cache can reuse it and ship stale packages anyway. If the same two packages
+# appear again, the build cache is the reason -- build this job with
+# --pull --no-cache rather than editing the line below.
+#
+# DEBIAN_FRONTEND is exported inside the layer rather than set with ENV, so it
+# does not persist into the shipped image and change apt's behaviour for anybody
+# who later execs into the container.
+RUN export DEBIAN_FRONTEND=noninteractive \
+    && apt-get update \
+    && apt-get upgrade -y \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
 ENV PATH=/opt/ots/bin:$PATH \
     PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
