@@ -17,7 +17,15 @@ data:
   # OpenTAKServer 1.7.13, built by package:ots from k8s/ots/Dockerfile and gated
   # by trivy:ots. Pinned by digest: a tag would let a rebuild change what
   # customers run without a commit.
-  TAK_OTS_IMAGE: "ghcr.io/meshsat/meshsat-hub-ots@sha256:c0428be361d1e6233bf3f61ebf387b9af1e37598d8213062dff0182ea69f49f5"
+  #
+  # Moved 2026-09-12 (MESHSAT-1068). The previous digest c0428be3 carried 12
+  # fixable CVEs -- 9 HIGH, 3 CRITICAL -- in perl-base and libsqlite3-0, which
+  # arrive with python:3.13-slim-trixie and which the Dockerfile did not upgrade.
+  # The rebuild scans clean: Total 0. This line is the reason the fix reaches a
+  # tenant at all: package:ots pushed a new :1.7.13, and without changing the
+  # digest here the operator would keep starting the vulnerable image. That is the
+  # pin working as intended, not a defect -- but it means a CVE fix is two commits.
+  TAK_OTS_IMAGE: "ghcr.io/meshsat/meshsat-hub-ots@sha256:eff91a26376bed8d743c1ef2446c1ff165cc99c2c8713c0116f2e3628bf2b8e2"
   # In the pod because OpenTAKServer's socketio client connects to RabbitMQ as
   # `guest` with no credentials, and guest is loopback-only. Spike S5 settled
   # that it must run as the image's own uid 100: as root with capabilities
