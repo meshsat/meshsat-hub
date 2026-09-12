@@ -87,6 +87,9 @@ const navGroups = [
     { to: '/routing', label: 'Routing' },
     { to: '/integrations', label: 'Integrations' },
     { to: '/webhooks', label: 'Webhooks' },
+    // Per-tenant hosted TAK (MESHSAT-1037). Carries no platformAdmin flag: it is
+    // the customer's own server, not the platform's.
+    { to: '/tak', label: 'TAK' },
   ]},
   { label: 'Infrastructure', items: [
     { to: '/network', label: 'Network' },
