@@ -105,6 +105,39 @@ type fakeAPI struct {
 	// instPatchErr makes a patch fail, to prove the teardown then refuses to
 	// delete an unmarked instance.
 	instPatchErr bool
+
+	// TakUserRequests. userApplies records each applied desired state in order,
+	// so a test can tell an Ensure from a Deactivate without reading the object.
+	userReqs    map[string]*TakUserRequest
+	userApplies []string
+}
+
+// actAsOperator writes the status the operator would write, at the object's
+// CURRENT generation. Tests use it to move a request to Applied or Denied; a
+// status left behind at an older generation is how a stale phase is simulated.
+func (f *fakeAPI) actAsOperator(name, phase, message string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	req, ok := f.userReqs[name]
+	if !ok {
+		return
+	}
+	req.Status = UserReqStat{
+		Phase:              phase,
+		ObservedGeneration: req.Metadata.Generation,
+		Message:            message,
+	}
+}
+
+// userRequest returns a copy of one request, for assertions.
+func (f *fakeAPI) userRequest(name string) (TakUserRequest, bool) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	req, ok := f.userReqs[name]
+	if !ok {
+		return TakUserRequest{}, false
+	}
+	return *req, true
 }
 
 func newFakeAPI(ca *testCA) *fakeAPI {
@@ -200,6 +233,52 @@ func (f *fakeAPI) handler(t *testing.T) http.Handler {
 				}
 				f.instances = kept
 				f.deletes++
+				_, _ = w.Write([]byte(`{}`))
+			default:
+				w.WriteHeader(http.StatusNotFound)
+				_, _ = w.Write([]byte(`{"kind":"Status","message":"unexpected method"}`))
+			}
+
+		// TakUserRequests: the Hub applies desired state, and actAsOperator plays
+		// the operator writing status.
+		//
+		// Generation is modelled on purpose. The API server bumps it on a SPEC
+		// change and not otherwise, and the keeper's correctness depends on
+		// comparing it with observedGeneration -- a fake that never bumped it would
+		// let a stale Applied pass for a current one, which is exactly the bug the
+		// check exists to prevent.
+		case strings.Contains(r.URL.Path, "/takuserrequests/"):
+			name := r.URL.Path[strings.LastIndex(r.URL.Path, "/")+1:]
+			if f.userReqs == nil {
+				f.userReqs = map[string]*TakUserRequest{}
+			}
+			switch r.Method {
+			case http.MethodGet:
+				req, ok := f.userReqs[name]
+				if !ok {
+					w.WriteHeader(http.StatusNotFound)
+					_, _ = w.Write([]byte(`{"kind":"Status","message":"not found"}`))
+					return
+				}
+				_ = json.NewEncoder(w).Encode(req)
+			case http.MethodPatch:
+				var in TakUserRequest
+				_ = json.NewDecoder(r.Body).Decode(&in)
+				cur := in
+				if prev, existed := f.userReqs[name]; existed {
+					cur.Status = prev.Status
+					cur.Metadata.Generation = prev.Metadata.Generation
+					if prev.Spec != in.Spec {
+						cur.Metadata.Generation = prev.Metadata.Generation + 1
+					}
+				} else {
+					cur.Metadata.Generation = 1
+				}
+				f.userReqs[name] = &cur
+				f.userApplies = append(f.userApplies, name+":"+in.Spec.Action)
+				_ = json.NewEncoder(w).Encode(cur)
+			case http.MethodDelete:
+				delete(f.userReqs, name)
 				_, _ = w.Write([]byte(`{}`))
 			default:
 				w.WriteHeader(http.StatusNotFound)
