@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"crypto/tls"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -114,7 +113,12 @@ func startTAKFront(
 		return errors.New("HUB_TAK_FRONT_CERT_FILE and HUB_TAK_FRONT_KEY_FILE must both be set: " +
 			"the front presents ONE certificate to every tenant's phones and cannot mint its own")
 	}
-	serverCert, err := tls.LoadX509KeyPair(cfg.TAKFrontCertFile, cfg.TAKFrontKeyFile)
+	// Reloading, not loaded once. meshsat-net-tls is renewed end to end every
+	// sixty days or so and kubelet rewrites the mounted files underneath this
+	// pod; a certificate parsed at startup would not change, so the front would
+	// present an expired one until somebody restarted it and every tenant's
+	// phones would fail within the same hour. See takfront.CertFile.
+	frontCert, err := takfront.NewCertFile(cfg.TAKFrontCertFile, cfg.TAKFrontKeyFile, slog.Default())
 	if err != nil {
 		return fmt.Errorf("loading the TAK front certificate: %w", err)
 	}
@@ -176,8 +180,8 @@ func startTAKFront(
 	rec := takfront.NewRecorder(auditSvc, slog.Default())
 
 	srv, err := takfront.NewServer(takfront.Config{
-		Certificate: serverCert,
-		Logger:      slog.Default(),
+		GetCertificate: frontCert.GetCertificate,
+		Logger:         slog.Default(),
 	}, authz, rec)
 	if err != nil {
 		return fmt.Errorf("building the TAK front: %w", err)
