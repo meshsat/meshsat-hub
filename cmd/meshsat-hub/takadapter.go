@@ -71,6 +71,56 @@ func translateAccountResult(err error) (api.TAKAccountOutcome, string, error) {
 	}
 }
 
+// takCerts turns the certificate keeper's sentinels into API outcomes, for the
+// same reason takAccounts does.
+type takCerts struct{ keeper *takhosted.CertKeeper }
+
+var _ api.TAKCerts = takCerts{}
+
+// NewKey is on the keeper's package rather than the keeper itself: generating a
+// key needs no cluster and no state, and keeping it off the stateful type is what
+// makes it obvious that the private half is never held here.
+func (c takCerts) NewKey(username string) (csrPEM, keyPEM []byte, err error) {
+	return takhosted.NewEUDKey(username)
+}
+
+func (c takCerts) Request(ctx context.Context, label, username string, csrPEM []byte) error {
+	return c.keeper.Request(ctx, label, username, csrPEM)
+}
+
+func (c takCerts) Discard(ctx context.Context, label, username string) error {
+	return c.keeper.Discard(ctx, label, username)
+}
+
+// Collect maps the keeper's three outcomes onto the API's.
+//
+// The error is returned as nil for pending and refused on purpose: both are
+// expected answers the handler turns into a status code, and only a genuine
+// infrastructure failure comes back with a non-nil error. That is what lets the
+// handler answer 503 for "the cluster is unhappy" and 202 for "wait a moment",
+// instead of collapsing them into one unhelpful retry.
+func (c takCerts) Collect(ctx context.Context, label, username string) (api.TAKCertMaterial, api.TAKCertOutcome, string, error) {
+	m, err := c.keeper.Collect(ctx, label, username)
+	switch {
+	case err == nil:
+		return api.TAKCertMaterial{
+			CertPEM:   m.CertPEM,
+			CACertPEM: m.CACertPEM,
+			Serial:    m.Serial,
+			NotAfter:  m.NotAfter,
+		}, api.TAKCertReady, "", nil
+
+	case errors.Is(err, takhosted.ErrCertPending):
+		return api.TAKCertMaterial{}, api.TAKCertPending, "", nil
+
+	case errors.Is(err, takhosted.ErrCertDenied):
+		return api.TAKCertMaterial{}, api.TAKCertRefused, customerReason(err), nil
+
+	default:
+		return api.TAKCertMaterial{}, api.TAKCertPending, "", err
+	}
+}
+
 // customerReason strips the package prefixes off a message that is about to be
 // shown to a person. "takhosted: the TAK account request was refused: username
 // must be 3 to 32..." is a log line; the customer needs the last clause.

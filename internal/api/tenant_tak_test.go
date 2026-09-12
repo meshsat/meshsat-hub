@@ -62,7 +62,7 @@ func takHandlerOn(t *testing.T, m *mockStore) *TenantTAKHandler {
 	q := quota.New(m, func(context.Context, string) (string, error) { return "free", nil })
 	// A nil audit service is handled: logAudit returns early, and a customer's
 	// request must never fail because an audit write did.
-	return NewTenantTAKHandler(m, nil, q, 8089)
+	return NewTenantTAKHandler(m, nil, q, 8089, "hub.example.test")
 }
 
 func takRequest(method, target string, body string) (*http.Request, *httptest.ResponseRecorder) {
