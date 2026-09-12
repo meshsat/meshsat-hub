@@ -1413,6 +1413,29 @@ func main() {
 	// Destroying a closed tenant's data is single-owner work and its audit
 	// line should be written once, so it runs on the lease holder.
 	leaderSingletons.Add("tenant-purge", tenancy.NewPurgeJob(dataStore, auditSvc, 0).Run)
+
+	// The hosted TAK front (MESHSAT-1037): one TLS listener for every tenant's
+	// phones, tenant identified from the client certificate's ISSUER, bytes piped
+	// into that tenant's own OpenTAKServer.
+	//
+	// Why one listener and not a port per tenant: ATAK, iTAK and WinTAK send no
+	// SNI on the CoT socket, so a passthrough proxy cannot route on a hostname,
+	// and TLS encrypts the client certificate, so it cannot route on that either.
+	// Only a terminating endpoint can tell tenants apart.
+	//
+	// It runs on EVERY replica. The front is a door, so each replica must accept
+	// phones and resolve any tenant's issuer; making it a leader singleton would
+	// leave the other replicas unable to serve.
+	if cfg.TAKFrontEnabled {
+		if err := startTAKFront(ctx, cfg, dataStore, auditSvc, tenantStatus); err != nil {
+			// Not fatal. A Hub that refuses to start because the TAK front could
+			// not bind would take down satellite ingest, SMS and the dashboard
+			// along with it, and TAK is one feature among many.
+			slog.Error("takfront: not started", "error", err)
+		}
+	} else {
+		slog.Info("takfront: disabled (HUB_TAK_FRONT_ENABLED is not set)")
+	}
 	r.Use(hubauth.TenantMiddleware(cfg.TenantEnforce))
 	r.Use(metrics.ChiMiddleware)
 	r.Use(hubmw.Logging) // Structured HTTP request logging (runs last to see auth context).

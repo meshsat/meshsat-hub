@@ -73,6 +73,12 @@ spec:
               containerPort: 6070
             - name: reticulum
               containerPort: 4242
+            # The hosted TAK front (MESHSAT-1037): one TLS listener for every
+            # tenant's phones. 8089 rather than a 6xxx port, matching the public
+            # TAK SSL port so the edge configuration reads straight across --
+            # the same protocol-standard exception reticulum's 4242 already is.
+            - name: takfront
+              containerPort: 8089
           env:
             - name: POD_NAMESPACE
               valueFrom:

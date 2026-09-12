@@ -11,6 +11,11 @@ spec:
   ports:
     - {name: http, port: 6070, targetPort: http}
     - {name: reticulum, port: 4242, targetPort: reticulum}
+    # The hosted TAK front (MESHSAT-1037). The edge relay forwards to this from
+    # its own hostPort; phones terminate TLS here, not at the edge, because the
+    # client certificate is what identifies the tenant and a passthrough proxy
+    # cannot read it.
+    - {name: takfront, port: 8089, targetPort: takfront}
 ---
 # Selector-less Service with no endpoints: the /metrics path on the public
 # Ingress points here so ingress-nginx answers 503 instead of proxying the
