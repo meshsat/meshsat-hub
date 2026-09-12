@@ -1,125 +1,120 @@
 <script setup>
+// Help points at the documentation instead of carrying a second copy of it
+// (MESHSAT-1083).
+//
+// What was here before was 125 lines of product prose, and where it disagreed
+// with docs.meshsat.net the page was the wrong one. Three of its instructions
+// had become actively harmful:
+//
+//   - "point your callback to https://hub.meshsat.net/api/webhook/rockblock".
+//     Webhook URLs are per-tenant with the secret in the path; the global path
+//     is a 404, so a customer following this page could not receive a message.
+//   - "set a shared secret as HUB_ROCKBLOCK_SECRET" and "set HUB_TWILIO_* env
+//     vars". Those are server environment variables a hosted customer has no
+//     access to -- and the RockBLOCK shared-secret comparison never worked at
+//     all, because Ground Control signs deliveries with an RS256 JWT.
+//   - its one documentation link pointed at meshsat.net/docs/, which 404s. The
+//     docs are served from docs.meshsat.net by a separate container.
+//
+// That is what a second copy costs: fixing a sentence here needs a frontend
+// build and a deploy, so it loses the race with the product every time. The
+// docs are 13 Hub pages and a faster pipeline, and they are PUBLIC, while this
+// page is behind auth and therefore invisible to anyone evaluating MeshSat.
+//
+// So: links, the API reference that genuinely belongs in-app because it is
+// generated from this running build, and nothing that can drift.
+const DOCS = 'https://docs.meshsat.net'
+
+const sections = [
+  {
+    title: 'Getting started',
+    links: [
+      ['Start here', '/hub/', 'What the Hub is and the first thing to do'],
+      ['Accounts and plans', '/hub/accounts', 'What each plan allows, upgrading, lapsing'],
+      ['Connect a bridge', '/hub/connect-a-bridge', 'Credentials, certificate, and where they go'],
+      ['Devices', '/hub/devices', 'Registering them, and what counts against your plan'],
+    ],
+  },
+  {
+    title: 'Day to day',
+    links: [
+      ['Map and messages', '/hub/map-and-messages', 'The log, the map, and routing rules'],
+      ['SOS and escalation', '/hub/sos-and-escalation', 'Who gets told, and how to test it'],
+      ['TAK', '/hub/tak', 'A TAK server of your own, or point us at yours'],
+      ['Your team', '/hub/team', 'Invites and what each role may do'],
+    ],
+  },
+  {
+    title: 'Connecting things up',
+    links: [
+      ['Provider accounts', '/hub/provider-accounts', 'Your own Cloudloop, Rock7 and Twilio — and your webhook URLs'],
+      ['Hub API', '/hub/api', 'Doing all of this from a script'],
+      ['API keys', '/hub/api-keys', 'Scoped keys, and how to revoke one'],
+      ['Your data', '/hub/your-data', 'Export, the audit log, closing the account'],
+    ],
+  },
+  {
+    title: 'When something does not work',
+    links: [
+      ['Where to look first', '/hub/troubleshooting', 'A message that never arrived, a rule that did nothing, a phone that will not connect'],
+    ],
+  },
+]
 </script>
 
 <template>
   <div class="p-4 lg:p-6 max-w-4xl mx-auto">
-    <h1 class="text-2xl font-display font-bold mb-2">Help & Documentation</h1>
-    <p class="text-sm text-gray-400 mb-6">Quick reference for MeshSat Hub features and workflows.</p>
+    <h1 class="text-2xl font-display font-bold mb-2">Help</h1>
+    <p class="text-sm text-gray-400 mb-6">
+      The documentation lives at
+      <a :href="DOCS + '/hub/'" target="_blank" rel="noopener"
+         class="text-brand-primary hover:text-brand-accent underline">docs.meshsat.net</a>.
+      It is kept alongside the product rather than copied into it, so what you read there is
+      current. It is also public, so you can send a link to somebody who has no account.
+    </p>
 
     <div class="space-y-4">
-      <div class="bg-tactical-surface rounded-lg border border-tactical-border p-4">
-        <h2 class="text-sm font-display font-semibold text-gray-200 uppercase tracking-wider mb-2">Getting Started</h2>
-        <div class="space-y-2 text-[12px] text-gray-400 leading-relaxed">
-          <p>MeshSat Hub is the cloud side of MeshSat: it receives what your bridges and satellite devices send (Iridium SBD, Globalstar, mesh, Reticulum), keeps your fleet in one place, and turns messages into routing, alerts and situational awareness.</p>
-          <p><strong class="text-gray-300">1.</strong> Sign in with your MeshSat ID. During the beta, access is approved by hand; the login page has a "Request beta access" link and you get an email when your account is enabled.</p>
-          <p><strong class="text-gray-300">2.</strong> Connect a bridge in <strong class="text-gray-300">Fleet</strong> — add it, issue its credentials and certificate, and paste them into the bridge's Hub Connection settings. Or register a standalone satellite device in <strong class="text-gray-300">Devices</strong> (IMEI + modem type).</p>
-          <p><strong class="text-gray-300">3.</strong> For RockBLOCK devices, point your Ground Control (Rock7) HTTP callback to <code class="text-gray-300 bg-gray-800 px-1 rounded">https://hub.meshsat.net/api/webhook/rockblock</code>.</p>
-          <p><strong class="text-gray-300">4.</strong> Set up routing rules in <strong class="text-gray-300">Routing</strong> to forward incoming messages to notifications, webhooks, MQTT, TAK, or APRS.</p>
-          <p>Invite teammates from <strong class="text-gray-300">Settings › Tenant</strong>; they sign in with their own MeshSat ID and land in your organisation with the role you chose.</p>
-        </div>
+      <div v-for="s in sections" :key="s.title"
+           class="bg-tactical-surface rounded-lg border border-tactical-border p-4">
+        <h2 class="text-sm font-display font-semibold text-gray-200 uppercase tracking-wider mb-3">
+          {{ s.title }}
+        </h2>
+        <ul class="space-y-2">
+          <li v-for="[label, path, blurb] in s.links" :key="path" class="text-[12px] leading-relaxed">
+            <a :href="DOCS + path" target="_blank" rel="noopener"
+               class="text-brand-primary hover:text-brand-accent font-medium">{{ label }}</a>
+            <span class="text-gray-500"> — {{ blurb }}</span>
+          </li>
+        </ul>
       </div>
 
+      <!-- This one stays in the app on purpose: it is generated from the build
+           that is running, so it is the only reference guaranteed to match the
+           endpoints this Hub actually serves. -->
       <div class="bg-tactical-surface rounded-lg border border-tactical-border p-4">
-        <h2 class="text-sm font-display font-semibold text-gray-200 uppercase tracking-wider mb-2">Pages</h2>
-        <div class="space-y-2 text-[12px] text-gray-400">
-          <div class="font-display text-[10px] text-gray-500 uppercase tracking-wider mt-1">Operations</div>
-          <div><strong class="text-gray-300">Dashboard</strong> — KPI overview: hub health, device count, message throughput, credit balance, constellation status, safety alerts, and recent messages.</div>
-          <div><strong class="text-gray-300">Map</strong> — Device and bridge positions from GPS reports, SOS events, TAK markers and Iridium geolocation.</div>
-          <div><strong class="text-gray-300">Devices</strong> — Register, view, and manage satellite devices. Each device has a detail page with keys, config versions, and position history.</div>
-          <div><strong class="text-gray-300">Messages</strong> — View all MO (Mobile Originated) and MT (Mobile Terminated) messages. Send MT messages to devices via Iridium or SMS via Twilio.</div>
-
-          <div class="font-display text-[10px] text-gray-500 uppercase tracking-wider mt-3">Safety</div>
-          <div><strong class="text-gray-300">Escalation</strong> — View active alerts and configure escalation chains (notification steps with delays and channels).</div>
-          <div><strong class="text-gray-300">Deadman</strong> — Dead man's switch: alert when a device stops checking in within a configured interval.</div>
-          <div><strong class="text-gray-300">Geofences</strong> — Draw geographic boundaries on the map. Triggers alerts when devices enter or leave a zone.</div>
-          <div><strong class="text-gray-300">Notifications</strong> — Configure per-device notification preferences (Apprise URLs, event types, enable/disable).</div>
-
-          <div class="font-display text-[10px] text-gray-500 uppercase tracking-wider mt-3">Channels</div>
-          <div><strong class="text-gray-300">Email</strong> — PGP-encrypted email gateway. Add contacts with public keys, send/receive encrypted email over satellite.</div>
-          <div><strong class="text-gray-300">Routing</strong> — Configurable any-to-any message routing with 7 destination handlers (SMS, email, webhook, notification, MQTT, TAK, APRS). Includes route flow diagram and test tool.</div>
-          <div><strong class="text-gray-300">Webhooks</strong> — Outbound webhook dispatcher. Forward device events to external HTTP endpoints with delivery logs and retry.</div>
-
-          <div class="font-display text-[10px] text-gray-500 uppercase tracking-wider mt-3">Infrastructure</div>
-          <div><strong class="text-gray-300">Network</strong> — Satellite constellation status (Iridium, Globalstar) and MPTCP concentrator configuration.</div>
-          <div><strong class="text-gray-300">Topology</strong> — Reticulum transport layer: hub identity, transport interfaces, routing table, relay statistics.</div>
-          <div><strong class="text-gray-300">OTA</strong> — Over-the-air firmware updates for field devices via hawkBit. Register targets, create rollouts, monitor deployments.</div>
-          <div><strong class="text-gray-300">Backup</strong> — Export all devices, messages, routes, and configuration as JSON. Import to restore or migrate.</div>
-          <div><strong class="text-gray-300">Settings</strong> — System health, Reticulum identity, network services, sensor payload codecs, API documentation links.</div>
-
-          <div class="font-display text-[10px] text-gray-500 uppercase tracking-wider mt-3">Admin (owner only)</div>
-          <div><strong class="text-gray-300">Users</strong> — Invite, manage roles (owner/operator/viewer), and delete users.</div>
-          <div><strong class="text-gray-300">API Keys</strong> — Create scoped API keys with role, device restriction, and expiry. Keys use the <code class="text-gray-300 bg-gray-800 px-1 rounded">meshsat_</code> prefix.</div>
-          <div><strong class="text-gray-300">Audit</strong> — Tamper-evident SHA-256 hash-chain audit log. Every login, webhook, and admin action is recorded with chain verification.</div>
-        </div>
-      </div>
-
-      <div class="bg-tactical-surface rounded-lg border border-tactical-border p-4">
-        <h2 class="text-sm font-display font-semibold text-gray-200 uppercase tracking-wider mb-2">Webhook Setup</h2>
-        <div class="space-y-2 text-[12px] text-gray-400 leading-relaxed">
-          <p><strong class="text-gray-300">RockBLOCK (Iridium SBD)</strong> — In your Rock7 Core account, set the delivery URL to <code class="text-gray-300 bg-gray-800 px-1 rounded">https://your-hub/api/webhook/rockblock</code>. Set a shared secret and configure it as <code class="text-gray-300 bg-gray-800 px-1 rounded">HUB_ROCKBLOCK_SECRET</code> in Hub's config.</p>
-          <p><strong class="text-gray-300">Twilio (SMS)</strong> — Configure your Twilio phone number's webhook URL to <code class="text-gray-300 bg-gray-800 px-1 rounded">https://your-hub/api/webhook/sms</code>. Set <code class="text-gray-300 bg-gray-800 px-1 rounded">HUB_TWILIO_*</code> env vars for outbound SMS.</p>
-          <p><strong class="text-gray-300">Globalstar</strong> — Set the SPOT/Globalstar callback to <code class="text-gray-300 bg-gray-800 px-1 rounded">https://your-hub/api/webhook/globalstar</code>.</p>
-        </div>
-      </div>
-
-      <div class="bg-tactical-surface rounded-lg border border-tactical-border p-4">
-        <h2 class="text-sm font-display font-semibold text-gray-200 uppercase tracking-wider mb-2">Routing Rules</h2>
-        <div class="space-y-2 text-[12px] text-gray-400 leading-relaxed">
-          <p>Routing rules define how incoming messages are processed and forwarded. Each rule has a source (satellite channel), destination (handler), optional filter, and enabled/disabled state.</p>
-          <p><strong class="text-gray-300">Sources</strong> — Any satellite constellation (Iridium, Globalstar) or "all" for catch-all rules.</p>
-          <p><strong class="text-gray-300">Destinations</strong> — SMS, Email, Webhook, Notification (Apprise/ntfy), MQTT topic, TAK/CoT server, or APRS-IS.</p>
-          <p><strong class="text-gray-300">Filters</strong> — Match on device IMEI, message content, or channel. Empty filter matches all messages.</p>
-          <p><strong class="text-gray-300">Default routes</strong> — Hub ships with 5 default routes (APRS, MQTT, Notifications, TAK, Webhooks) that can be enabled/disabled.</p>
-          <p>Use the <strong class="text-gray-300">Route Tester</strong> to simulate a message and see which rules would fire.</p>
-        </div>
-      </div>
-
-      <div class="bg-tactical-surface rounded-lg border border-tactical-border p-4">
-        <h2 class="text-sm font-display font-semibold text-gray-200 uppercase tracking-wider mb-2">SOS & Dead Man's Switch</h2>
-        <div class="space-y-2 text-[12px] text-gray-400 leading-relaxed">
-          <p><strong class="text-gray-300">SOS Detection</strong> — Hub monitors incoming messages for SOS keywords. When detected, an alert is triggered and the escalation chain is activated.</p>
-          <p><strong class="text-gray-300">Dead Man's Switch</strong> — Configure a check-in interval per device. If the device doesn't send a message (MO or position) within the interval, an alert fires after the grace period expires. Snooze is available for planned maintenance.</p>
-          <p><strong class="text-gray-300">Escalation Chains</strong> — Define multi-step notification sequences with delays. Example: SMS immediately, then email after 5 minutes, then phone call after 15 minutes.</p>
-        </div>
-      </div>
-
-      <div class="bg-tactical-surface rounded-lg border border-tactical-border p-4">
-        <h2 class="text-sm font-display font-semibold text-gray-200 uppercase tracking-wider mb-2">API & Authentication</h2>
-        <div class="space-y-2 text-[12px] text-gray-400 leading-relaxed">
-          <p>Hub exposes a REST API on all <code class="text-gray-300 bg-gray-800 px-1 rounded">/api/*</code> endpoints. Authenticate with a Bearer token (API key or auth token).</p>
-          <p><strong class="text-gray-300">API Keys</strong> — Create scoped keys in the Admin section. Keys can be restricted to a specific role (viewer/operator/owner), device IMEI, and expiry date.</p>
-          <p><strong class="text-gray-300">Swagger/OpenAPI</strong> — API documentation is available at <code class="text-gray-300 bg-gray-800 px-1 rounded">/api/swagger/</code> when the Hub is running.</p>
-          <p><strong class="text-gray-300">RBAC</strong> — Three roles: <strong>Viewer</strong> (read-only), <strong>Operator</strong> (send messages, manage devices), <strong>Owner</strong> (full admin access including users, keys, audit).</p>
-        </div>
-      </div>
-
-      <div class="bg-tactical-surface rounded-lg border border-tactical-border p-4">
-        <h2 class="text-sm font-display font-semibold text-gray-200 uppercase tracking-wider mb-2">Troubleshooting</h2>
-        <div class="space-y-2 text-[12px] text-gray-400 leading-relaxed">
-          <p><strong class="text-gray-300">Webhook not receiving messages</strong> — Check that the Ground Control callback URL is correct and that the shared secret matches. View the Audit log for <code class="text-gray-300 bg-gray-800 px-1 rounded">message_received</code> events.</p>
-          <p><strong class="text-gray-300">MT send fails</strong> — Verify the device IMEI is registered and the Cloudloop API key is configured. Check credits balance on the Dashboard.</p>
-          <p><strong class="text-gray-300">Hub not ready</strong> — <code class="text-gray-300 bg-gray-800 px-1 rounded">/readyz?verbose=1</code> names the failing dependency; the database is the only critical one, the rest (MQTT, Redis, notifiers) report as informational.</p>
-          <p><strong class="text-gray-300">Login fails</strong> — API Token login uses the <code class="text-gray-300 bg-gray-800 px-1 rounded">HUB_AUTH_TOKEN</code> env var. Email login requires OIDC to be configured.</p>
-          <p><strong class="text-gray-300">Messages not routing</strong> — Check the Routing page for active routes. Use the Route Tester to verify which rules match. Ensure the destination handler is configured (e.g., Twilio for SMS, Apprise URL for notifications).</p>
+        <h2 class="text-sm font-display font-semibold text-gray-200 uppercase tracking-wider mb-2">
+          API reference for this Hub
+        </h2>
+        <p class="text-[12px] text-gray-500 mb-3">
+          Generated from the build you are signed in to, so it matches the endpoints this Hub
+          serves rather than the latest release.
+        </p>
+        <div class="flex flex-wrap gap-x-6 gap-y-2 text-sm">
+          <a href="/api/docs" target="_blank" rel="noopener"
+             class="text-brand-primary hover:text-brand-accent">Swagger UI</a>
+          <a href="/api/docs/swagger.json" target="_blank" rel="noopener"
+             class="text-gray-400 hover:text-gray-300">OpenAPI JSON</a>
+          <a href="/api/docs/swagger.yaml" target="_blank" rel="noopener"
+             class="text-gray-400 hover:text-gray-300">OpenAPI YAML</a>
         </div>
       </div>
     </div>
 
-    <!-- Additional Resources -->
-    <div class="bg-tactical-surface rounded-lg border border-tactical-border p-4 mt-4">
-      <h2 class="text-sm font-display font-semibold text-gray-200 uppercase tracking-wider mb-2">Additional Resources</h2>
-      <div class="flex flex-wrap gap-x-6 gap-y-2 text-sm">
-        <a href="/api/docs" target="_blank" class="text-brand-primary hover:text-brand-primary">Swagger API Docs</a>
-        <a href="/api/docs/swagger.json" target="_blank" class="text-gray-400 hover:text-gray-300">OpenAPI JSON</a>
-        <a href="/api/docs/swagger.yaml" target="_blank" class="text-gray-400 hover:text-gray-300">OpenAPI YAML</a>
-      </div>
-    </div>
-
-    <!-- Version -->
-    <p class="text-[10px] text-ms-muted mt-6 text-center">
-      MeshSat Hub ·
-      <a href="https://meshsat.net/docs/" target="_blank" rel="noopener" class="underline hover:text-ms-text">Documentation</a> ·
-      <a href="mailto:beta-access-hub@meshsat.net" class="underline hover:text-ms-text">Support</a>
+    <p class="text-[11px] text-ms-muted mt-6 text-center">
+      Something here wrong, or missing?
+      <a href="mailto:hello@meshsat.net?subject=MeshSat%20Hub%3A%20documentation"
+         class="underline hover:text-ms-text">Tell us</a>
+      — a page nobody can follow is a bug.
     </p>
   </div>
 </template>
