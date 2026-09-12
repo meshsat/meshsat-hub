@@ -43,6 +43,18 @@ data:
   # n8n workflow that added an approved address to the VPS allowlists; the edge
   # opened at public launch and that list is gone (MESHSAT-995).
   HUB_AUTHENTIK_URL: https://auth.meshsat.net
+  # Where the Hub's OPERATOR notices go -- today, "somebody is waiting for a
+  # decision on an account" (MESHSAT-1081). Until that existed, enrolment reached
+  # a YouTrack issue and a Matrix message and no inbox, so a request sat in the
+  # Beta requests panel until somebody happened to open Settings.
+  #
+  # DELIBERATELY UNSET. With no address configured the recipients are resolved
+  # from the members of HUB_OIDC_ADMIN_GROUP in the identity provider, so adding
+  # a platform admin there is all it takes to start receiving these -- no edit
+  # here, no redeploy. Set it only to send somewhere else instead, such as a
+  # shared alias or a ticket queue, and remember that a ConfigMap change needs
+  # `kubectl -n meshsat-hub rollout restart deploy/hub` to reach a running pod.
+  # HUB_ADMIN_NOTIFY_EMAIL: ""
   # The owner's MeshSat ID attaches to the migrated `default` tenant at first login
   # instead of creating a new one (MR 16); everyone else gets their own tenant.
   HUB_OIDC_BOOTSTRAP_OWNER_EMAIL: "admin@meshsat.net"

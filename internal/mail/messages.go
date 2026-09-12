@@ -501,3 +501,142 @@ The MeshSat team`, greeting(name), amount, doc)
 		HTML:    Wrap(html),
 	}
 }
+
+// SignupRequest is one account request, carrying what the person deciding
+// actually needs to see.
+//
+// Declared here rather than taken from internal/authentik so that this package
+// keeps importing nothing but the standard library. A mail template that drags
+// in an identity-provider client is a template that cannot be tested without
+// one.
+type SignupRequest struct {
+	Name         string
+	Email        string
+	Organisation string
+	Country      string
+	Callsign     string
+	Hardware     string
+	IntendedUse  string
+	// When the request arrived. Rendered as an exact moment, never as "2 days
+	// ago": see moment's comment for what relative words cost here before.
+	When time.Time
+}
+
+// PendingSignups tells the platform's administrators that somebody is waiting
+// for a decision on an account.
+//
+// # Why this message exists
+//
+// Nothing told the operator. Approval has been in the Hub since MESHSAT-978 and
+// the applicant gets an email the moment it happens -- but the step BEFORE that,
+// a stranger finishing enrolment and landing in meshsat-pending, reached a
+// YouTrack issue and a Matrix message and no inbox. So a request sat in the Beta
+// requests panel until somebody happened to open Settings, and the person who
+// had just been asked to verify their address waited without knowing for what.
+//
+// This is a notice, not a receipt: it is addressed to the operator and it names
+// the outstanding work, so a message lost in transit is corrected by the next one
+// rather than leaving a request invisible forever.
+//
+// unverified is the count of enrolments that have NOT confirmed their address.
+// They are named but not listed, because they cannot be approved yet -- the
+// identity provider refuses it, and so does ak.Approve -- so the operator has
+// nothing to act on for them. They are worth a line because an enrolment that
+// never verifies is a signal about the signup flow rather than about one person.
+func PendingSignups(reqs []SignupRequest, unverified int, hubURL string) Message {
+	settings := strings.TrimRight(hubURL, "/") + "/#/settings"
+
+	var subject string
+	switch n := len(reqs); n {
+	case 0:
+		// Only reached with unverified requests and no actionable ones. The
+		// watcher does not send in that case, but a message is never built
+		// half-formed: a subject line is not optional.
+		subject = "MeshSat Hub: an account request has not been verified"
+	case 1:
+		subject = "MeshSat Hub: 1 account request is waiting for you"
+	default:
+		subject = fmt.Sprintf("MeshSat Hub: %d account requests are waiting for you", n)
+	}
+
+	var text strings.Builder
+	var body strings.Builder
+
+	lead := "Somebody has asked for a MeshSat Hub account and is waiting for a decision."
+	if len(reqs) > 1 {
+		lead = fmt.Sprintf("%d people have asked for MeshSat Hub accounts and are waiting for a decision.", len(reqs))
+	}
+	text.WriteString("Hello,\n\n" + lead + "\n")
+	body.WriteString(para("Hello,") + para(esc(lead)))
+
+	for _, r := range reqs {
+		rows := [][2]string{{"Name", esc(fallback(r.Name, "(not given)"))}}
+		text.WriteString("\n  " + fallback(r.Name, "(no name given)") + "\n")
+		add := func(label, value string) {
+			if strings.TrimSpace(value) == "" {
+				return
+			}
+			rows = append(rows, [2]string{label, esc(value)})
+			text.WriteString("    " + label + ": " + value + "\n")
+		}
+		add("Email", r.Email)
+		add("Organisation", r.Organisation)
+		add("Country", r.Country)
+		add("Callsign", r.Callsign)
+		add("Hardware", r.Hardware)
+		add("Intended use", r.IntendedUse)
+		if !r.When.IsZero() {
+			add("Requested", moment(r.When))
+		}
+		body.WriteString(factTable(rows))
+	}
+
+	if unverified > 0 {
+		s := fmt.Sprintf("%d further enrolment has not confirmed its address yet, so it cannot be "+
+			"approved until it does.", unverified)
+		if unverified > 1 {
+			s = fmt.Sprintf("%d further enrolments have not confirmed their addresses yet, so they "+
+				"cannot be approved until they do.", unverified)
+		}
+		text.WriteString("\n" + s + "\n")
+		body.WriteString(note(esc(s)))
+	}
+
+	text.WriteString(`
+Approve or reject them on the Settings page, under Beta requests:
+
+  ` + settings + `
+
+Approving activates the account, grants a role and emails them, so you do not
+have to tell them yourself; their workspace is created the first time they sign
+in. Rejecting is silent -- nothing is sent, so say so yourself if they deserve
+an answer.
+
+The MeshSat team`)
+
+	body.WriteString(button(settings, "Review the requests") +
+		urlUnder(settings) +
+		para("Approving activates the account, grants a role and emails them, so you do not have "+
+			"to tell them yourself; their workspace is created the first time they sign in.") +
+		// Said plainly because it is a trap: an operator who believes both
+		// decisions notify will leave a rejected applicant waiting for an answer
+		// that is never coming. Reject sends nothing -- filed as MESHSAT-1082
+		// rather than papered over here.
+		note("Rejecting is silent &mdash; nothing is sent, so say so yourself if they deserve an answer.") +
+		lastPara("The MeshSat team"))
+
+	return Message{
+		Subject: subject,
+		Text:    text.String(),
+		HTML:    Wrap(body.String()),
+	}
+}
+
+// fallback keeps an empty field from rendering as a blank row, which reads as a
+// bug in the message rather than as a field the person left empty.
+func fallback(s, or string) string {
+	if strings.TrimSpace(s) == "" {
+		return or
+	}
+	return s
+}
