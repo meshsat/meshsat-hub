@@ -79,7 +79,11 @@ spec:
               protocol: TCP
   # Everything else is denied by omission, which is the point. In particular:
   # another tenant's pod, the Hub's database, NATS, KeyDB, the Kubernetes API,
-  # the cloud metadata address and the whole internet. OpenTAKServer tries to
-  # download marker icons from GitHub on first start; under this policy that
-  # stalls and then gives up, and the image already carries the icons. The
+  # the cloud metadata address and the whole internet. Upstream OpenTAKServer
+  # downloads marker icons from GitHub on first start with no timeout, and
+  # because Cilium DROPS rather than rejects, that did not fail under this
+  # policy -- it stalled 134 seconds on every start while the API was not
+  # listening. Fixed in the image, which now carries the archive and reads it
+  # from disk (MESHSAT-1057); this comment used to claim the icons were already
+  # baked in, which was how the stall went unexplained for two diagnoses. The
   # release gate asserts each of these denials rather than trusting this comment.

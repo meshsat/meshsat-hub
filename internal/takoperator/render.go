@@ -180,10 +180,17 @@ func InstanceDeployment(label, otsImage, rabbitImage, nginxImage string, replica
 					}},
 					Volumes: []corev1.Volume{
 						// Stateless on disk: all durable state is in the TAK
-						// Postgres cluster, icons are baked into the image, and
-						// the namespace's quota forbids PersistentVolumeClaims so
-						// this cannot quietly become node-local state nothing
-						// backs up.
+						// Postgres cluster, and the namespace's quota forbids
+						// PersistentVolumeClaims so this cannot quietly become
+						// node-local state nothing backs up.
+						//
+						// This EmptyDir is OTS_DATA_FOLDER, so it MASKS anything
+						// the image puts under /var/lib/ots. That is why the
+						// marker icon archive ships at /opt/ots/share instead,
+						// and why this comment no longer says the icons are
+						// baked in here: they were not, and the instance spent
+						// 134 seconds of every start trying to download them
+						// (MESHSAT-1057).
 						{Name: "data", VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}}},
 						{Name: "rabbit", VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}}},
 						{Name: "tmp", VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}}},
