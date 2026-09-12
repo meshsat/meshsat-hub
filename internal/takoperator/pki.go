@@ -252,6 +252,61 @@ func (ca *CA) IssueServerCert(commonName string, dnsNames []string, validDays in
 	return certPEM, keyPEM, nil
 }
 
+// IssueClientCert mints a client certificate together with its key, for a caller
+// that has no CSR to offer — specifically the operator itself, which needs a
+// CN=meshsat-hub identity to reach an instance's admin API on 8444.
+//
+// Kept as its own function rather than folded into IssueFromCSR on purpose. That
+// function's contract is that the private key never exists in this process,
+// which is what makes a phone's certificate unforgeable by us; this one
+// generates the key deliberately, and the difference should be visible at the
+// call site rather than hidden behind an optional argument.
+//
+// Short lifetimes are free here: the certificate is minted for one HTTP
+// conversation and thrown away, never written to a Secret.
+func (ca *CA) IssueClientCert(commonName string, validDays int) (certPEM, keyPEM []byte, err error) {
+	if commonName == "" {
+		return nil, nil, errors.New("takoperator: refusing to issue a client certificate with no common name")
+	}
+	key, err := rsa.GenerateKey(rand.Reader, minRSABits)
+	if err != nil {
+		return nil, nil, fmt.Errorf("takoperator: generate client key: %w", err)
+	}
+	if validDays <= 0 {
+		validDays = HubValidDays
+	}
+	serial, err := randomSerial()
+	if err != nil {
+		return nil, nil, err
+	}
+	now := time.Now()
+	notAfter := now.Add(time.Duration(validDays) * 24 * time.Hour)
+	if notAfter.After(ca.cert.NotAfter) {
+		notAfter = ca.cert.NotAfter
+	}
+	tmpl := &x509.Certificate{
+		SerialNumber: serial,
+		Subject: pkix.Name{
+			CommonName:   commonName,
+			Organization: ca.cert.Subject.Organization,
+		},
+		NotBefore:   now.Add(-5 * time.Minute),
+		NotAfter:    notAfter,
+		KeyUsage:    x509.KeyUsageDigitalSignature,
+		ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth},
+	}
+	der, err := x509.CreateCertificate(rand.Reader, tmpl, ca.cert, &key.PublicKey, ca.key)
+	if err != nil {
+		return nil, nil, fmt.Errorf("takoperator: sign client certificate: %w", err)
+	}
+	certPEM = pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der})
+	keyPEM = pem.EncodeToMemory(&pem.Block{
+		Type:  "RSA PRIVATE KEY",
+		Bytes: x509.MarshalPKCS1PrivateKey(key),
+	})
+	return certPEM, keyPEM, nil
+}
+
 func checkPublicKey(pub any) error {
 	switch k := pub.(type) {
 	case *rsa.PublicKey:

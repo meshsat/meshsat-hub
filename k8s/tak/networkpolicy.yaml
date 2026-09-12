@@ -40,6 +40,19 @@ spec:
               protocol: TCP
             - port: "8444"
               protocol: TCP
+    # The operator, for the admin API and only the admin API. It has to reach a
+    # new instance once, to take `administrator` off OpenTAKServer's documented
+    # default password — which can only be done through the REST API, after the
+    # schema exists, so it cannot be done while the init container runs. Never
+    # 8089: the operator is not a phone and has no business speaking CoT.
+    - fromEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: meshsat-tak
+            app.kubernetes.io/name: tak-operator
+      toPorts:
+        - ports:
+            - port: "8444"
+              protocol: TCP
   egress:
     # DNS, so the pod can resolve its database. L3/L4 only, deliberately: a
     # `rules: dns:` block here would need Cilium's L7 DNS proxy, and if that is

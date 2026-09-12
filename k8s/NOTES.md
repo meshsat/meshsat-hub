@@ -81,6 +81,63 @@ Things Argo CD cannot do by itself, in the order they happen. Keep this current.
   `kubectl get cnp -n meshsat-tak` lists the default-deny policy. Nothing runs in `meshsat-tak`
   until phase 2, so an empty namespace there is the expected state.
 
+## Hosted per-tenant TAK, phase 2 gate (MESHSAT-1037, 2026-09-12)
+
+A certified phone streams CoT into a tenant's own OpenTAKServer. Proven on the live instance, not
+inferred: `eud_handler - handle_auth - gatephone is ID'ed by cert`, one row in `euds`
+(`last_status = Connected`), and two rows each in `points` and `cot` carrying the exact
+coordinates the client sent.
+
+**A certificate is necessary and NOT sufficient.** `EudHandlerSSL.setup` reads the common name and
+calls `handle_auth("")`, which does `datastore.find_user(username=<CN>)` and drops the connection
+on `User <x> does not exist`. The `certificates` table is not consulted at all. So the operator
+minting a certificate does not admit a phone — an OTS **user row** must exist with that exact
+username. Nothing in the operator creates one today; that is the `otsadmin.go`/enrollment half of
+phases 4 and 5, and it is the single reason a correctly certified phone was refused for hours.
+
+**The admin gateway could never have worked as first shipped.** Every `/api/user/*` route is gated
+on `@roles_accepted("administrator")`, so a caller needs a session token — and `/api/login` was
+not among the proxied locations. The Hub could reach the endpoint and could not authenticate to
+it. Fixed here by adding `location = /api/login` behind the same `CN=meshsat-hub` check.
+
+⚠ **`administrator`/`password` worked, and a merged commit message said it could not.** That
+message claimed the operator generates a random password "so `password` never works". It does
+generate one — into the config Secret — but nothing applied it. The mechanism was a file,
+`.admin_password`, written into the data folder on the belief that the entrypoint read it; no code
+in OpenTAKServer 1.7.13 opens that path, so the file was inert. Probed against the live instance:
+HTTP 200 with a session token. `app.py:471` creates the account and logs the password in as many
+words.
+
+Stated precisely, because the severity matters: the API binds `127.0.0.1` inside the pod, the only
+externally reachable listener is nginx on 8444 with `ssl_verify_client on` against the tenant CA,
+and that config is default-deny. The default credential was reachable **from inside the pod**, not
+from the internet. Defence in depth, and the kind a hosted service has no excuse to skip. The fix
+is `bootstrapAdmin` (`internal/takoperator/otsadmin.go`): after the Deployment reports a ready
+replica, the operator mints itself a short-lived `CN=meshsat-hub` client certificate from the
+tenant CA, logs in with the default, resets to the pinned value, and **re-tests the default** —
+because a reset that reports success and changes nothing is indistinguishable from a working one
+in the logs, which is exactly how the inert file survived review.
+
+⚠ **`networkpolicy.yaml` claimed "the image already carries the icons". It does not.** The `icon`
+table is empty, no `icons.sqlite` exists in the data folder, and `app.py main()` attempts a
+`requests.get` to github.com with **no timeout** on every start. Under the egress policy — which
+is doing its job — Cilium drops rather than rejects, so `connect()` hangs for **134 seconds**
+before the server starts. During that window nothing listens on 8081 and a healthy instance looks
+wedged; it sent me down two wrong diagnoses (an Alembic lock deadlock, then a stalled process)
+before the on-disk logs in `/var/lib/ots/logs/` showed the real sequence. There is no config flag
+for it. Filed as **MESHSAT-1057**.
+
+Two more things worth keeping:
+
+- **Read `/var/lib/ots/logs/`, not the container's stdout.** OpenTAKServer logs to files
+  (`opentakserver.log`, `cot_parser.log`, `eud_handler_ssl.log`). `ots-cot`'s stdout is empty by
+  design, which looks exactly like a process that never started.
+- **A readiness probe on an mTLS port is self-inflicted noise.** The TCP probe on 8089 produces an
+  `SSLEOFError` traceback in `eud_handler_ssl.log` every ten seconds with no client present; ten
+  of them had accumulated while I was reading that file for evidence of a phone. Keep the probe —
+  it is what catches "running" being mistaken for "serving" — but expect the tracebacks and do not
+  diagnose from them.
+
 ## Phase 3: authentik (k8s/scripts/authentik/)
 
 - `run-bootstrap.sh bootstrap` after the Ingress `auth.meshsat.net` serves (needs the tree
