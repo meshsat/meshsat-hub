@@ -18,6 +18,43 @@ import (
 // as in the schema, because a CRD is one apply away from being edited.
 var usernamePattern = regexp.MustCompile(`^[a-z0-9]{3,32}$`)
 
+// certRequestDenyReason is the terminal-refusal check, pure so that it can be
+// tested without a cluster -- the same shape userreq.go already uses.
+//
+// THE USERNAME RULE IS PER PURPOSE, and that is the whole point of this function
+// existing. It used to be one pattern for every request, which made the Hub's own
+// identity unrequestable: HubIdentityCN is "meshsat-hub", it contains a hyphen,
+// and the pattern forbids hyphens. The hyphen is deliberate -- userreq.go relies
+// on it to keep a tenant from managing the Hub's account through the customer API,
+// and the instance's nginx gateway admits exactly CN=meshsat-hub -- so the fix is
+// not to rename the Hub but to stop applying a phone's rule to it.
+//
+// What that bug looked like in production, with the front enabled: the API server
+// refused every hub request with 422, the Hub logged "no upstream identity for
+// tenant", the directory refreshed to `tenants:0 skipped:1`, and no phone in any
+// tenant could have connected. The front was listening and correct; there was
+// simply nothing in it. Nothing failed loudly enough to notice without reading
+// the Hub's log, which is why this function now has tests.
+func certRequestDenyReason(req *TakCertificateRequest) string {
+	switch {
+	case !labelPattern.MatchString(req.Spec.Label):
+		return "label is not ten lowercase alphanumerics"
+	case req.Spec.Purpose != PurposeEUD && req.Spec.Purpose != PurposeHub:
+		return "purpose must be eud or hub"
+	case req.Spec.Purpose == PurposeHub && req.Spec.Username != HubIdentityCN:
+		// Narrower than the phone rule, not looser: a hub certificate is admitted
+		// by every tenant's admin gateway, so the only name it may ever carry is
+		// the Hub's own.
+		return "a hub certificate is only ever issued for " + HubIdentityCN
+	case req.Spec.Purpose == PurposeEUD && !usernamePattern.MatchString(req.Spec.Username):
+		return "username must be 3 to 32 lowercase alphanumerics with no hyphens, " +
+			"because OpenTAKServer refuses anything else"
+	case req.Spec.CSRPEM == "":
+		return "no certificate request supplied"
+	}
+	return ""
+}
+
 // reconcileCertRequests issues every request that has not been decided yet.
 //
 // A request is decided exactly once. An already-Issued request is never
@@ -64,16 +101,8 @@ func (r *Reconciler) issue(ctx context.Context, req *TakCertificateRequest) erro
 		})
 	}
 
-	switch {
-	case !labelPattern.MatchString(req.Spec.Label):
-		return deny("label is not ten lowercase alphanumerics")
-	case !usernamePattern.MatchString(req.Spec.Username):
-		return deny("username must be 3 to 32 lowercase alphanumerics with no hyphens, " +
-			"because OpenTAKServer refuses anything else")
-	case req.Spec.Purpose != PurposeEUD && req.Spec.Purpose != PurposeHub:
-		return deny("purpose must be eud or hub")
-	case req.Spec.CSRPEM == "":
-		return deny("no certificate request supplied")
+	if why := certRequestDenyReason(req); why != "" {
+		return deny(why)
 	}
 
 	// The instance must exist. Without this check the Hub could obtain a
