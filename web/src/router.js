@@ -20,7 +20,6 @@ const routes = [
   { path: '/ota', name: 'ota', component: () => import('./views/OtaView.vue'), meta: { requiresAuth: true } },
   { path: '/network', name: 'network', component: () => import('./views/NetworkView.vue'), meta: { requiresAuth: true } },
   { path: '/routing', name: 'routing', component: () => import('./views/RoutingView.vue'), meta: { requiresAuth: true } },
-  { path: '/tak', name: 'tak', component: () => import('./views/TakOperationsView.vue'), meta: { requiresAuth: true, requiresPlatformAdmin: true } },
   { path: '/integrations', name: 'integrations', component: () => import('./views/IntegrationsView.vue'), meta: { requiresAuth: true } },
   { path: '/topology', name: 'topology', component: () => import('./views/TopologyView.vue'), meta: { requiresAuth: true } },
   { path: '/devices/:imei', name: 'deviceDetail', component: () => import('./views/DeviceDetail.vue'), meta: { requiresAuth: true } },

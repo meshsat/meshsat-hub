@@ -11,12 +11,6 @@ services:
       - HUB_LOG_LEVEL=info
       - HUB_LOG_FORMAT=json
       # TAK/CoT integration (requires 'tak' profile: docker compose --profile tak up)
-      - HUB_TAK_ENABLED=false
-      - HUB_TAK_HOST=opentakserver
-      - HUB_TAK_PORT=8087
-      - HUB_TAK_SSL=false
-      - HUB_TAK_CALLSIGN_PREFIX=MESHSAT-HUB
-      - HUB_TAK_COT_STALE_SECONDS=600
       # Apprise notifications (requires 'notifications' profile)
       - HUB_APPRISE_ENABLED=false
       - HUB_APPRISE_URL=http://apprise:8000

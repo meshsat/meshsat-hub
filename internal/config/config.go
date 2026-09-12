@@ -57,29 +57,12 @@ type Config struct {
 	LocalLoginEnabled *bool  `yaml:"local_login_enabled"` // email/password login; default true in local mode, false in oidc mode
 	MetricsToken      string `yaml:"metrics_token"`       // when set, /metrics requires this bearer token
 
-	// TAK/CoT integration
-	TAKEnabled        bool   `yaml:"tak_enabled"`
-	TAKHost           string `yaml:"tak_host"`
-	TAKPort           int    `yaml:"tak_port"`
-	TAKSSL            bool   `yaml:"tak_ssl"`
-	TAKCallsignPrefix string `yaml:"tak_callsign_prefix"`
-	TAKCotStaleSec    int    `yaml:"tak_cot_stale_seconds"`
-
-	// OTS (OpenTAKServer) REST API polling — inbound CoT relay
-	TAKAPIBaseURL  string `yaml:"tak_api_base_url"` // e.g. http://192.168.192.10:8880
-	TAKAPIUsername string `yaml:"tak_api_username"` // OTS login username
-	TAKAPIPassword string `yaml:"tak_api_password"` // OTS login password
-	TAKAPIPollSec  int    `yaml:"tak_api_poll_sec"` // poll interval seconds (default 10)
-	// TAKAPIInsecureTLS skips certificate verification for the Marti API
-	// (OpenTAKServer's self-signed certificate). Default true; set
-	// HUB_TAK_API_INSECURE_TLS=false once the server has a trusted certificate.
-	TAKAPIInsecureTLS bool `yaml:"tak_api_insecure_tls"`
-	// TAKAPIMaxDevices bounds how many ATAK markers the poller will
-	// auto-register as devices. These rows are excluded from the subscription
-	// count (store.ArtefactDeviceTypes), so nobody is billed for them; the
-	// ceiling exists so a busy or misbehaving TAK server cannot fill the
-	// devices table. 0 means no ceiling.
-	TAKAPIMaxDevices int `yaml:"tak_api_max_devices"`
+	// TAK is per-tenant (MESHSAT-1037, MESHSAT-1065): each tenant gets its own
+	// OpenTAKServer, or points the Hub at a server they run. The platform-wide
+	// settings that were here -- one TAK host and port, the OTS REST poller and its
+	// marker ceiling -- went with the code that read them (MESHSAT-1032). The
+	// hosted front's own settings are further down (TAKFront*, TAKNamespace), and a
+	// tenant's own server is a provider account, not config.
 
 	// PlanDeviceLimits overrides a subscription tier's combined device and
 	// bridge ceiling, so a tier can be re-priced without a deploy:
@@ -235,14 +218,6 @@ type Config struct {
 	// PublicURL is where a customer signs in. It appears in the mail above, so
 	// it has to be the address they can actually reach, not an internal one.
 	PublicURL string `yaml:"public_url"`
-
-	// TAK Federation v2
-	TAKFederationEnabled bool     `yaml:"tak_federation_enabled"`
-	TAKFederationPort    int      `yaml:"tak_federation_port"`  // default 9001
-	TAKFederationPeers   []string `yaml:"tak_federation_peers"` // remote TAK server host:port
-	TAKFederationCert    string   `yaml:"tak_federation_cert"`
-	TAKFederationKey     string   `yaml:"tak_federation_key"`
-	TAKFederationCA      string   `yaml:"tak_federation_ca"`
 
 	// APRS-IS IGate
 	APRSISEnabled  bool   `yaml:"aprsis_enabled"`
@@ -426,7 +401,6 @@ func Defaults() Config {
 		HealthProbeTimeout:    "3s",
 		ShutdownDrainSeconds:  0,
 		OTelServiceName:       "meshsat-hub",
-		TAKAPIMaxDevices:      5000,
 		AuthRateLimitPerMin:   30,
 		StripeTimeout:         20 * time.Second,
 		MailFrom:              "billing@meshsat.net",
@@ -584,48 +558,6 @@ func Load() (Config, error) {
 		cfg.TLSPinBackup = v
 	}
 
-	// TAK/CoT overrides
-	if v := os.Getenv("HUB_TAK_ENABLED"); v != "" {
-		cfg.TAKEnabled = strings.EqualFold(v, "true") || v == "1"
-	}
-	if v := os.Getenv("HUB_TAK_HOST"); v != "" {
-		cfg.TAKHost = v
-	}
-	if v := os.Getenv("HUB_TAK_PORT"); v != "" {
-		if p, err := strconv.Atoi(v); err == nil {
-			cfg.TAKPort = p
-		}
-	}
-	if v := os.Getenv("HUB_TAK_SSL"); v != "" {
-		cfg.TAKSSL = strings.EqualFold(v, "true") || v == "1"
-	}
-	if v := os.Getenv("HUB_TAK_CALLSIGN_PREFIX"); v != "" {
-		cfg.TAKCallsignPrefix = v
-	}
-	if v := os.Getenv("HUB_TAK_COT_STALE_SECONDS"); v != "" {
-		if n, err := strconv.Atoi(v); err == nil {
-			cfg.TAKCotStaleSec = n
-		}
-	}
-
-	// OTS API overrides
-	if v := os.Getenv("HUB_TAK_API_INSECURE_TLS"); v != "" {
-		cfg.TAKAPIInsecureTLS = strings.EqualFold(v, "true") || v == "1"
-	}
-	if v := os.Getenv("HUB_TAK_API_BASE_URL"); v != "" {
-		cfg.TAKAPIBaseURL = v
-	}
-	if v := os.Getenv("HUB_TAK_API_USERNAME"); v != "" {
-		cfg.TAKAPIUsername = v
-	}
-	if v := os.Getenv("HUB_TAK_API_PASSWORD"); v != "" {
-		cfg.TAKAPIPassword = v
-	}
-	if v := os.Getenv("HUB_TAK_API_POLL_SEC"); v != "" {
-		if n, err := strconv.Atoi(v); err == nil {
-			cfg.TAKAPIPollSec = n
-		}
-	}
 	for _, plan := range []string{"free", "crew", "fleet", "custom"} {
 		v := os.Getenv("HUB_PLAN_" + strings.ToUpper(plan) + "_DEVICES")
 		if v == "" {
@@ -783,34 +715,6 @@ func Load() (Config, error) {
 	if v := os.Getenv("HUB_UPGRADE_URL"); v != "" {
 		cfg.UpgradeURL = v
 	}
-	if v := os.Getenv("HUB_TAK_API_MAX_DEVICES"); v != "" {
-		if n, err := strconv.Atoi(v); err == nil && n >= 0 {
-			cfg.TAKAPIMaxDevices = n
-		}
-	}
-
-	// TAK Federation overrides
-	if v := os.Getenv("HUB_TAK_FEDERATION_ENABLED"); v != "" {
-		cfg.TAKFederationEnabled = strings.EqualFold(v, "true") || v == "1"
-	}
-	if v := os.Getenv("HUB_TAK_FEDERATION_PORT"); v != "" {
-		if p, err := strconv.Atoi(v); err == nil {
-			cfg.TAKFederationPort = p
-		}
-	}
-	if v := os.Getenv("HUB_TAK_FEDERATION_PEERS"); v != "" {
-		cfg.TAKFederationPeers = strings.Split(v, ",")
-	}
-	if v := os.Getenv("HUB_TAK_FEDERATION_CERT"); v != "" {
-		cfg.TAKFederationCert = v
-	}
-	if v := os.Getenv("HUB_TAK_FEDERATION_KEY"); v != "" {
-		cfg.TAKFederationKey = v
-	}
-	if v := os.Getenv("HUB_TAK_FEDERATION_CA"); v != "" {
-		cfg.TAKFederationCA = v
-	}
-
 	// APRS-IS overrides
 	if v := os.Getenv("HUB_APRSIS_ENABLED"); v != "" {
 		cfg.APRSISEnabled = strings.EqualFold(v, "true") || v == "1"

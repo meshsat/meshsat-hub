@@ -39,9 +39,12 @@ Things Argo CD cannot do by itself, in the order they happen. Keep this current.
    asks for a client certificate; `:4243` likewise.
 7. `package:stunnel` has pushed `ghcr.io/meshsat/meshsat-hub-stunnel:3.21`; replace the tag pin
    in `kustomization.yaml` with the digest after the first pull.
-8. TAK: OpenTAKServer stays on the DMZ hosts. Verify `192.168.192.10:8088/8880` is reachable
-   from a Hub pod during rehearsal; if not, route it (edge/xfrm) or set `HUB_TAK_ENABLED=false`
-   at cutover and file the follow-up.
+8. TAK: nothing to check here any more. The platform TAK path to the DMZ
+   OpenTAKServer was removed (MESHSAT-1032), so the Hub no longer reaches
+   `192.168.192.10:8088/8880` and `HUB_TAK_ENABLED` no longer exists. TAK is
+   per-tenant now: the operator runs one OpenTAKServer per tenant in
+   `meshsat-tak` (MESHSAT-1037), or a tenant points the Hub at a server they run
+   themselves (MESHSAT-1065). The DMZ instances are decommissioned separately.
 
 ## Hosted per-tenant TAK, phase 1 foundations (MESHSAT-1035, 2026-09-12)
 

@@ -86,7 +86,6 @@ const navGroups = [
     { to: '/email', label: 'Email' },
     { to: '/routing', label: 'Routing' },
     { to: '/integrations', label: 'Integrations' },
-    { to: '/tak', label: 'TAK Ops', platformAdmin: true },
     { to: '/webhooks', label: 'Webhooks' },
   ]},
   { label: 'Infrastructure', items: [
@@ -99,8 +98,9 @@ const navGroups = [
 ]
 
 // Items flagged platformAdmin belong to the platform, not to a tenant, and a
-// customer never sees them. TAK Ops is the operator's own TAK gateway
-// (MESHSAT-1032).
+// customer never sees them. The flag is kept though nothing carries it today:
+// TAK Ops was the last one and went with the platform TAK gateway
+// (MESHSAT-1032), and a per-tenant TAK page is coming (MESHSAT-1037).
 const visibleNavGroups = computed(() => navGroups
   .map(group => ({ ...group, items: group.items.filter(item => !item.platformAdmin || auth.isPlatformAdmin) }))
   .filter(group => group.items.length > 0))

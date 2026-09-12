@@ -144,7 +144,6 @@ Lease API; message dispatch is protected by database claims, not by the leader.
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `HUB_TAK_ENABLED` | `false` | TAK/CoT gateway |
 | `HUB_APRSIS_ENABLED` | `false` | APRS-IS IGate |
 | `HUB_WG_ENABLED` | `false` | WireGuard peer management |
 | `HUB_PPROF_ENABLED` | `false` | pprof debug endpoints |
