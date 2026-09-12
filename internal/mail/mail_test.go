@@ -427,6 +427,19 @@ func allMessages() map[string]Message {
 		// one payment template is written for a subscription.
 		"DonationReceipt":           DonationReceipt("Alice Example", "EUR 1,00", "MSH2026-0001"),
 		"DonationReceiptUnnumbered": DonationReceipt("", "EUR 25,00", ""),
+		// The one message addressed to the operator rather than to a customer.
+		// It is in here because the brand shell and the plain-text twin are
+		// properties of every message the Hub sends, not only the paid ones.
+		"PendingSignups": PendingSignups([]SignupRequest{{
+			Name: "Thomas Example", Email: "thomas@example.org",
+			Organisation: "Example SAR", Country: "DE", Callsign: "DG1KTG",
+			Hardware: "RockBLOCK 9603", IntendedUse: "search and rescue",
+			When: when,
+		}}, 0, "https://hub.meshsat.net"),
+		"PendingSignupsMany": PendingSignups([]SignupRequest{
+			{Name: "Thomas Example", Email: "thomas@example.org", When: when},
+			{Email: "noname@example.org"},
+		}, 2, "https://hub.meshsat.net"),
 	}
 }
 

@@ -157,6 +157,36 @@ func (c *Client) ListPending(ctx context.Context) ([]PendingUser, error) {
 	return out, nil
 }
 
+// AdminEmails returns the addresses the platform's administrators can be
+// reached at: the active members of group who have one.
+//
+// Resolved from the identity provider rather than configured, so that adding an
+// administrator there is all it takes to start receiving the Hub's operator
+// notices. A configured address still wins where one is set -- see
+// internal/signups -- because a shared alias is a legitimate thing to want.
+//
+// An inactive account is skipped: it cannot sign in to act on what it is told.
+func (c *Client) AdminEmails(ctx context.Context, group string) ([]string, error) {
+	group = strings.TrimSpace(group)
+	if group == "" {
+		return nil, errors.New("no administrator group named")
+	}
+	var page struct {
+		Results []akUser `json:"results"`
+	}
+	q := url.Values{"groups_by_name": {group}, "page_size": {"200"}}
+	if err := c.do(ctx, http.MethodGet, "/api/v3/core/users/?"+q.Encode(), nil, &page); err != nil {
+		return nil, err
+	}
+	out := make([]string, 0, len(page.Results))
+	for _, u := range page.Results {
+		if u.IsActive && strings.Contains(u.Email, "@") {
+			out = append(out, u.Email)
+		}
+	}
+	return out, nil
+}
+
 // Group names the bootstrap creates.
 const (
 	PendingGroup = "meshsat-pending"

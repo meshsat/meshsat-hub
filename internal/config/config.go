@@ -51,8 +51,14 @@ type Config struct {
 	// Approving a beta request from inside the Hub (MESHSAT-978). Without a
 	// token the endpoints report themselves unconfigured and the manual
 	// script stays the way to do it.
-	AuthentikURL      string `yaml:"authentik_url"`
-	AuthentikToken    string `yaml:"authentik_token"`
+	AuthentikURL   string `yaml:"authentik_url"`
+	AuthentikToken string `yaml:"authentik_token"`
+	// AdminNotifyEmail is where the Hub's operator notices go: an account
+	// request waiting for a decision, today. Leave it unset and the recipients
+	// are resolved from the members of OIDCAdminGroup in the identity provider,
+	// which is the automated default -- set it only to send somewhere else, such
+	// as a shared alias or a ticket queue.
+	AdminNotifyEmail  string `yaml:"admin_notify_email"`
 	CommunityURL      string `yaml:"community_url"`       // MeshSat community room (Matrix) shown while an account awaits approval
 	LocalLoginEnabled *bool  `yaml:"local_login_enabled"` // email/password login; default true in local mode, false in oidc mode
 	MetricsToken      string `yaml:"metrics_token"`       // when set, /metrics requires this bearer token
@@ -527,6 +533,9 @@ func Load() (Config, error) {
 	}
 	if v := os.Getenv("HUB_AUTHENTIK_TOKEN"); v != "" {
 		cfg.AuthentikToken = v
+	}
+	if v := os.Getenv("HUB_ADMIN_NOTIFY_EMAIL"); v != "" {
+		cfg.AdminNotifyEmail = strings.ToLower(strings.TrimSpace(v))
 	}
 	if v := os.Getenv("HUB_COMMUNITY_URL"); v != "" {
 		cfg.CommunityURL = v
