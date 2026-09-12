@@ -1,0 +1,62 @@
+# What the Hub may do to the TAK custom resources, and nothing more.
+#
+# This is a SEPARATE Role in meshsat-tak rather than a rule added to
+# k8s/platform/rbac.yaml, and the distinction is not cosmetic: that Role is
+# `namespace: meshsat-hub`, and a Role only ever grants rights in its own
+# namespace. The custom resources live in meshsat-tak. Adding the rules there
+# would have granted nothing at all, and the failure would have surfaced as a 403
+# at runtime rather than as anything visible in review -- which is why
+# takhosted's client gives 403 its own error naming this Role.
+#
+# The subject is the meshsat-hub ServiceAccount from the OTHER namespace. That is
+# ordinary RBAC and the same shape the operator already uses to reach
+# meshsat-tak-db.
+#
+# The verb split is the operator's contract, written down in
+# k8s/tak-operator/rbac.yaml: "the Hub creates a TakInstance when a customer turns
+# TAK on and deletes it when the tenant is purged; the operator reacts." So:
+#
+#   - The Hub CREATES and DELETES both kinds, and reads them. The operator cannot.
+#   - The Hub may NOT touch either status subresource. Status is the operator's
+#     report, and a Hub that could write it could claim an instance was Ready
+#     when no OpenTAKServer existed. The release gate asserts the API server
+#     refuses it; boundary_test.go asserts the code never tries.
+#   - No Secrets, no Pods, no Deployments, no Services. The Hub never sees a
+#     tenant's CA key: that is the whole reason the operator exists as a separate
+#     process, and it holds the only wrap key.
+#
+# resourceNames cannot narrow this the way the Hub's two Secret rules are
+# narrowed: instance and certificate-request names derive from a tenant id and a
+# username at runtime, so there is no fixed set to enumerate.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: meshsat-hub-tak
+  namespace: meshsat-tak
+  labels:
+    app.kubernetes.io/name: meshsat-hub
+    app.kubernetes.io/part-of: meshsat-hub
+rules:
+  - apiGroups: ["tak.meshsat.net"]
+    resources: ["takinstances", "takcertificaterequests"]
+    verbs: ["get", "list", "watch", "create", "delete", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: meshsat-hub-tak
+  namespace: meshsat-tak
+  labels:
+    app.kubernetes.io/name: meshsat-hub
+    app.kubernetes.io/part-of: meshsat-hub
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: meshsat-hub-tak
+subjects:
+  # The Hub runs in meshsat-hub and reaches across into meshsat-tak. The
+  # namespace on the subject is what makes that work; omit it and the binding
+  # silently refers to a ServiceAccount in meshsat-tak that does not exist.
+  - kind: ServiceAccount
+    name: meshsat-hub
+    namespace: meshsat-hub
