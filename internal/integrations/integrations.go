@@ -33,6 +33,9 @@ const (
 	ProviderRockBLOCK  = "rockblock"
 	ProviderGlobalstar = "globalstar"
 	ProviderEmail      = "email"
+	// ProviderTAK is a tenant's OWN TAK/CoT server (MESHSAT-1065), as opposed to
+	// the hosted per-tenant instance the operator runs for them.
+	ProviderTAK = "tak"
 
 	// CredType marks a provider-account row in the credentials table.
 	CredType = "provider_account"
@@ -100,6 +103,29 @@ var Specs = []Spec{
 		Webhook: "/api/webhook/email",
 		Fields: []Field{
 			{Key: "webhook_secret", Label: "Webhook secret", Secret: true, Required: true, Generate: true},
+		}},
+	// Bring your own TAK server (MESHSAT-1065). A tenant that already runs TAK
+	// Server, FreeTAKServer, OpenTAKServer or taky points the Hub at it and their
+	// devices' positions, SOS and telemetry are forwarded there as CoT.
+	//
+	// Outbound only: their phones connect to their own server directly, so the
+	// Hub's TAK front is not involved and this works whether or not it is enabled.
+	//
+	// The client key is a secret like any other and is stored encrypted; the
+	// certificate and CA are not secret but are kept in the same row because they
+	// are useless apart. server_name is separate from host on purpose: an address
+	// and the name on a certificate are different things, and leaving it empty is
+	// what asks for the chain to be verified while skipping the name check -- which
+	// is the only workable setting for a server whose certificate names something
+	// its address does not.
+	{Provider: ProviderTAK, Label: "Your own TAK server", Description: "Forward this tenant's positions, SOS and telemetry as Cursor-on-Target to a TAK server you run. Mutual TLS: the Hub presents the client certificate below and verifies your server against the CA you give it.",
+		Fields: []Field{
+			{Key: "host", Label: "Host", Required: true, Hint: "hostname or address of the CoT listener, without a port"},
+			{Key: "port", Label: "Port", Required: true, Default: "8089", Hint: "the TLS CoT port, 8089 on a stock TAK server"},
+			{Key: "server_name", Label: "Certificate name", Hint: "leave empty unless your server's certificate names something other than the host above; empty verifies the chain and skips the name check"},
+			{Key: "ca_pem", Label: "Server CA (PEM)", Required: true, Hint: "the authority that signed your server's certificate"},
+			{Key: "client_cert_pem", Label: "Client certificate (PEM)", Required: true, Hint: "the certificate your server accepts from this Hub"},
+			{Key: "client_key_pem", Label: "Client key (PEM)", Secret: true, Required: true, Hint: "the private key for that certificate; stored encrypted and never shown again"},
 		}},
 }
 
