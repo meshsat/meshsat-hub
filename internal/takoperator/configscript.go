@@ -17,12 +17,23 @@ package takoperator
 //     invalidates every password hash OpenTAKServer has stored, so a "refresh"
 //     would lock a tenant's TAK users out of their own server.
 //
-// ⚠ UNCONFIRMED, and the phase-2 gate is what settles it: the exact filenames
-// OpenTAKServer expects for a server certificate it did not generate itself.
-// Spike S5 seeded `srv_*` files into ca/certs/opentakserver/ and the instance
-// served TLS, but that path was derived from reading the tree rather than from
-// the upstream source. If `eud_handler --ssl` comes up without a certificate,
-// this is the first place to look — not the PKI code, which is tested.
+// CONFIRMED from the upstream source, after the phase-2 gate caught it.
+// `EudServerSSL.server_bind` (opentakserver/eud_handler/EudServerSSL.py) loads
+// exactly three paths under OTS_CA_FOLDER:
+//
+//	certs/opentakserver/opentakserver.pem          the server certificate
+//	certs/opentakserver/opentakserver.nopass.key   its key, WITHOUT a passphrase
+//	ca.pem                                          the client trust anchor
+//
+// The third name is the one that bit: the first attempt seeded
+// `opentakserver.key` only, so `eud_handler --ssl` died in server_bind with a
+// bare FileNotFoundError and the CoT port accepted nothing. Upstream normally
+// writes both a passphrase-protected `.key` and a `.nopass.key`; the key the
+// operator issues has no passphrase at all, so the same bytes serve as both.
+//
+// Worth knowing for any future seeding: the traceback names no filename, because
+// the path is built inside the load_cert_chain call. Read EudServerSSL.py rather
+// than guessing from the data folder, which is how this was got wrong once.
 const configScript = `
 import os, shutil, sys
 
@@ -47,13 +58,29 @@ if os.path.exists(seed_ca) and not os.path.exists(os.path.join(CA, "ca.pem")):
     print("seeded the tenant CA certificate; no CA key is present, by design")
 
 # --- the server certificate this instance presents ---
+#
+# opentakserver.nopass.key is the name eud_handler --ssl actually opens; see the
+# note above. The operator's key carries no passphrase, so the same bytes are
+# written under both names: .key for the code paths that expect upstream's
+# layout, .nopass.key for the one that binds the CoT port.
 for src, dst in (("/seed-tls/tls.crt", "opentakserver.pem"),
-                 ("/seed-tls/tls.key", "opentakserver.key")):
+                 ("/seed-tls/tls.key", "opentakserver.key"),
+                 ("/seed-tls/tls.key", "opentakserver.nopass.key")):
     if os.path.exists(src):
         target = os.path.join(CERTS, dst)
         if not os.path.exists(target):
             shutil.copyfile(src, target)
+            os.chmod(target, 0o600 if dst.endswith("key") else 0o644)
             print("seeded", dst)
+
+# Fail loudly rather than leave eud_handler to die on a bare FileNotFoundError:
+# if any of the three files the SSL listener needs is missing, say which.
+missing = [f for f in ("opentakserver.pem", "opentakserver.nopass.key")
+           if not os.path.exists(os.path.join(CERTS, f))]
+if not os.path.exists(os.path.join(CA, "ca.pem")):
+    missing.append("ca.pem")
+if missing:
+    sys.exit("eud_handler --ssl will not start: missing " + ", ".join(missing))
 
 # --- config.yml, written once ---
 path = os.path.join(DATA, "config.yml")
