@@ -1810,6 +1810,10 @@ func main() {
 		// tenant's map, so it is an owner's decision like adding the user was.
 		r.With(hubauth.RequireRole(hubauth.RoleOwner)).
 			Post("/tak/users/{username}/enrollment", takHandler.Enrol)
+		// The same enrolment as a QR code, for pointing a phone straight at it.
+		// Owner-only for the same reason: it IS the credential, in image form.
+		r.With(hubauth.RequireRole(hubauth.RoleOwner)).
+			Post("/tak/users/{username}/enrollment/qr", takHandler.EnrolQR)
 	})
 	// Approving a beta request without leaving the Hub (MESHSAT-978). Without
 	// an authentik token the endpoints say so and the script stays the way.
