@@ -55,6 +55,7 @@ func startTAKFront(
 	tenantStatus *tenancy.StatusCache,
 	msgBus bus.MessageBus,
 	singletons *leader.Singletons,
+	purgeJob *tenancy.PurgeJob,
 ) error {
 	if cfg.TAKFrontCertFile == "" || cfg.TAKFrontKeyFile == "" {
 		return errors.New("HUB_TAK_FRONT_CERT_FILE and HUB_TAK_FRONT_KEY_FILE must both be set: " +
@@ -68,6 +69,14 @@ func startTAKFront(
 	crClient, err := takhosted.NewInClusterClient(cfg.TAKNamespace)
 	if err != nil {
 		return fmt.Errorf("building the Kubernetes client for the TAK custom resources: %w", err)
+	}
+
+	// Closing an account has to destroy its TAK server and that server's
+	// database, not only the Hub's rows. Attached here because the custom-resource
+	// client is built here, and only when hosted TAK is actually configured: a Hub
+	// without it purges exactly as it did before.
+	if purgeJob != nil {
+		purgeJob.SetTAKInstances(crClient)
 	}
 
 	// Tenant status is a STRING, so the adapter compares explicitly against
