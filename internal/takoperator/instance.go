@@ -181,6 +181,7 @@ func (r *Reconciler) reconcileInstance(ctx context.Context, inst *TakInstance) e
 	}
 
 	phase := PhaseProvisioning
+	adminChanged := false
 	switch {
 	case inst.Spec.State == StateSuspended:
 		phase = PhaseSuspended
@@ -193,20 +194,52 @@ func (r *Reconciler) reconcileInstance(ctx context.Context, inst *TakInstance) e
 		}
 		if ready {
 			phase = PhaseReady
+			// Take `administrator` off OpenTAKServer's documented default
+			// password, which is the literal string "password" (app.py:471).
+			//
+			// This cannot be done any earlier. It needs the REST API listening
+			// and the schema migrated, and neither is true while the init
+			// container runs — which is why the first attempt, a file written
+			// into the data folder, was inert.
+			//
+			// A failure is logged and retried on the next pass rather than
+			// failing the instance: the tenant's server is up and serving, and
+			// flapping the phase to Failed would hide that. But it gets its own
+			// condition, so "not done yet" can never read as done.
+			if err := r.bootstrapAdmin(ctx, label, ca); err != nil {
+				r.Log.Warn("takoperator: administrator password bootstrap failed",
+					"label", label, "error", err)
+			} else {
+				adminChanged = true
+			}
 		}
+	}
+	conditions := []metav1.Condition{{
+		Type:               "Ready",
+		Status:             boolToCondition(phase == PhaseReady),
+		ObservedGeneration: inst.Generation,
+		LastTransitionTime: metav1.Now(),
+		Reason:             phase,
+	}}
+	if phase == PhaseReady {
+		reason := "PendingRetry"
+		if adminChanged {
+			reason = "Changed"
+		}
+		conditions = append(conditions, metav1.Condition{
+			Type:               "AdminPasswordChanged",
+			Status:             boolToCondition(adminChanged),
+			ObservedGeneration: inst.Generation,
+			LastTransitionTime: metav1.Now(),
+			Reason:             reason,
+		})
 	}
 	return r.Client.SetInstanceStatus(ctx, r.Namespace, inst.Name, TakInstanceStatus{
 		Phase:              phase,
 		ObservedGeneration: inst.Generation,
 		Host:               ServiceHost(label),
 		CACertPEM:          string(ca.CertPEM()),
-		Conditions: []metav1.Condition{{
-			Type:               "Ready",
-			Status:             boolToCondition(phase == PhaseReady),
-			ObservedGeneration: inst.Generation,
-			LastTransitionTime: metav1.Now(),
-			Reason:             phase,
-		}},
+		Conditions:         conditions,
 	})
 }
 
