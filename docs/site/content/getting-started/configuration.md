@@ -32,12 +32,9 @@ Hub reads config from YAML (`config.yaml`) with environment variable overrides (
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `HUB_TAK_ENABLED` | `false` | Enable TAK gateway |
-| `HUB_TAK_HOST` | `opentakserver` | TAK server hostname |
-| `HUB_TAK_PORT` | `8087` | TCP CoT port |
-| `HUB_TAK_SSL` | `false` | Use TLS for TAK connection |
-| `HUB_TAK_CALLSIGN_PREFIX` | `MESHSAT-HUB` | CoT callsign prefix |
-| `HUB_TAK_COT_STALE_SECONDS` | `600` | CoT event stale time |
+| `HUB_TAK_FRONT_ENABLED` | `false` | Accept ATAK/iTAK/WinTAK connections on :8089 for hosted per-tenant TAK |
+| `HUB_TAK_FRONT_ADDR` | `:8089` | Listen address of that front |
+| `HUB_TAK_NAMESPACE` | `meshsat-tak` | Namespace the per-tenant OpenTAKServer instances run in |
 
 ### APRS-IS
 

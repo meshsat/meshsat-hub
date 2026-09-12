@@ -48,6 +48,3 @@ invoiceninja_tax_rate: 21
 invoiceninja_currency: "EUR"
 invoiceninja_country_id: "528"
 invoiceninja_timeout: 30s
-# How many ATAK markers the OTS poller may auto-register. These rows never
-# count against anyone's subscription; this bounds a runaway TAK server.
-tak_api_max_devices: 5000

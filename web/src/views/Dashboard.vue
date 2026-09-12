@@ -1,6 +1,6 @@
 <script setup>
 import { ref, computed, onMounted, onUnmounted } from 'vue'
-import { devices, health, credits, ratelimit, messages, escalation, deadman, constellations, reticulum as reticulumApi, bridges, integrations, tak } from '../api/client'
+import { devices, health, credits, ratelimit, messages, escalation, deadman, constellations, reticulum as reticulumApi, bridges, integrations } from '../api/client'
 import { formatUTC } from '../utils/time'
 import { exportCSV } from '../utils/csv'
 import Sparkline from '../components/Sparkline.vue'
@@ -64,23 +64,6 @@ async function loadAll() {
   retIdentity.value = results[8].status === 'fulfilled' ? results[8].value : null
   retRoutes.value = results[9].status === 'fulfilled' ? results[9].value : { count: 0 }
   bridgeList.value = results[10].status === 'fulfilled' && Array.isArray(results[10].value) ? results[10].value : []
-
-  // Load TAK integration status for KPI widget. The TAK gateway is the
-  // platform's; a customer neither sees it nor asks for it (MESHSAT-1032).
-  if (auth.isPlatformAdmin) try {
-    const intList = await integrations.list()
-    const takInt = (intList || []).find(i => i.name && i.name.includes('TAK') && !i.name.includes('Federation'))
-    const fedInt = (intList || []).find(i => i.name && i.name.includes('Federation'))
-    let missionCount = 0
-    try { const m = await tak.missions(); const list = Array.isArray(m) ? m : (m?.missions || []); missionCount = list.length } catch {}
-    dash.setTakStatus(
-      takInt?.enabled || false,
-      fedInt?.config?.connected_peers ? parseInt(fedInt.config.connected_peers) : 0,
-      fedInt?.config?.msgs_in ? parseInt(fedInt.config.msgs_in) : 0,
-      fedInt?.config?.msgs_out ? parseInt(fedInt.config.msgs_out) : 0,
-      missionCount
-    )
-  } catch {}
 
   lastRefresh.value = new Date()
   loading.value = false
@@ -286,25 +269,6 @@ function directionColor(d) {
             <span class="text-sm text-gray-400">{{ bridgeList.length }}</span>
           </div>
           <div class="text-gray-500 text-[10px] mt-0.5">online / total</div>
-        </div>
-
-        <!-- TAK Server and Federation: the platform's TAK gateway, never shown to a customer (MESHSAT-1032) -->
-        <div v-if="auth.isPlatformAdmin" class="bg-tactical-surface rounded-lg p-4 border border-tactical-border cursor-pointer" @click="$router.push('/tak')">
-          <div class="text-blue-400 text-xs uppercase tracking-wider mb-1">TAK Server</div>
-          <div class="flex items-baseline gap-1">
-            <span class="text-xl font-bold" :class="dash.takEnabled ? 'text-ms-success' : 'text-ms-muted'">{{ dash.takEnabled ? 'ON' : 'OFF' }}</span>
-          </div>
-          <div class="text-gray-500 text-[10px] mt-0.5">{{ dash.takMissions }} missions</div>
-        </div>
-
-        <!-- TAK Federation -->
-        <div v-if="auth.isPlatformAdmin" class="bg-tactical-surface rounded-lg p-4 border border-tactical-border cursor-pointer" @click="$router.push('/tak')">
-          <div class="text-purple-400 text-xs uppercase tracking-wider mb-1">Federation</div>
-          <div class="flex items-baseline gap-1">
-            <span class="text-xl font-bold" :class="dash.takFedPeers > 0 ? 'text-purple-400' : 'text-ms-muted'">{{ dash.takFedPeers }}</span>
-            <span class="text-gray-500 text-xs">peers</span>
-          </div>
-          <div class="text-gray-500 text-[10px] mt-0.5">{{ dash.takFedIn + dash.takFedOut }} CoT relayed</div>
         </div>
 
         <!-- Devices Online/Idle/Offline -->
