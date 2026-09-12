@@ -97,6 +97,14 @@ type fakeAPI struct {
 	listErr   bool
 	creates   int
 	deletes   int
+	// instOps records per-INSTANCE operations in the order they arrive, because
+	// the teardown's load-bearing property is a sequence: the purge marker must be
+	// patched on BEFORE the delete. Counting both would pass just as well if they
+	// happened the wrong way round, which retains the customer's database.
+	instOps []string
+	// instPatchErr makes a patch fail, to prove the teardown then refuses to
+	// delete an unmarked instance.
+	instPatchErr bool
 }
 
 func newFakeAPI(ca *testCA) *fakeAPI {
@@ -151,11 +159,76 @@ func (f *fakeAPI) handler(t *testing.T) http.Handler {
 				_, _ = w.Write([]byte(`{}`))
 			}
 
+		// One instance by name. Without this case a PATCH or DELETE of an instance
+		// fell to the default 404, which the client reads as ErrNotFound -- so a
+		// teardown test would have passed while tearing nothing down.
+		case strings.Contains(r.URL.Path, "/takinstances/"):
+			name := r.URL.Path[strings.LastIndex(r.URL.Path, "/")+1:]
+			switch r.Method {
+			case http.MethodPatch:
+				var in TakInstance
+				_ = json.NewDecoder(r.Body).Decode(&in)
+				f.instOps = append(f.instOps,
+					"patch:"+name+":"+PurgeAnnotation+"="+in.Metadata.Annotations[PurgeAnnotation])
+				if f.instPatchErr {
+					w.WriteHeader(http.StatusInternalServerError)
+					_, _ = w.Write([]byte(`{"kind":"Status","message":"patch refused"}`))
+					return
+				}
+				for i := range f.instances {
+					if f.instances[i].Metadata.Name != name {
+						continue
+					}
+					if f.instances[i].Metadata.Annotations == nil {
+						f.instances[i].Metadata.Annotations = map[string]string{}
+					}
+					for k, v := range in.Metadata.Annotations {
+						f.instances[i].Metadata.Annotations[k] = v
+					}
+					_ = json.NewEncoder(w).Encode(f.instances[i])
+					return
+				}
+				w.WriteHeader(http.StatusNotFound)
+				_, _ = w.Write([]byte(`{"kind":"Status","message":"not found"}`))
+			case http.MethodDelete:
+				f.instOps = append(f.instOps, "delete:"+name)
+				var kept []TakInstance
+				for _, inst := range f.instances {
+					if inst.Metadata.Name != name {
+						kept = append(kept, inst)
+					}
+				}
+				f.instances = kept
+				f.deletes++
+				_, _ = w.Write([]byte(`{}`))
+			default:
+				w.WriteHeader(http.StatusNotFound)
+				_, _ = w.Write([]byte(`{"kind":"Status","message":"unexpected method"}`))
+			}
+
 		default:
 			w.WriteHeader(http.StatusNotFound)
 			_, _ = w.Write([]byte(`{"kind":"Status","message":"unexpected path"}`))
 		}
 	})
+}
+
+// ops returns the per-instance operations seen, in order.
+func (f *fakeAPI) ops() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]string{}, f.instOps...)
+}
+
+// instanceNames returns the instances still present.
+func (f *fakeAPI) instanceNames() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	out := []string{}
+	for _, inst := range f.instances {
+		out = append(out, inst.Metadata.Name)
+	}
+	return out
 }
 
 func (f *fakeAPI) setInstances(in ...TakInstance) {
