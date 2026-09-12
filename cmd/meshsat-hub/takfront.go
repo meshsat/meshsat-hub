@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net"
+	"net/url"
 	"strconv"
 
 	"github.com/meshsat/meshsat-hub/internal/api"
@@ -46,6 +47,30 @@ func takPublicPort(addr string) int {
 		return defaultTAKPort
 	}
 	return n
+}
+
+// defaultTAKPublicHost is the fallback name a phone dials.
+const defaultTAKPublicHost = "hub.meshsat.net"
+
+// takPublicHost is the hostname that goes into an enrolment package.
+//
+// It must be the PUBLIC name, never the instance's in-cluster Service address:
+// the connectString in a .pref is read by a handset on the internet, and an
+// in-cluster name resolves to nothing there. Derived from the Hub's own public
+// URL because that is the name the customer already reaches us by, and the edge
+// forwards 8089 on the same hostnames.
+//
+// Falls back rather than returning empty: an empty connectString produces a
+// package that fails on the phone with nothing at all to explain it.
+func takPublicHost(publicURL string) string {
+	if publicURL == "" {
+		return defaultTAKPublicHost
+	}
+	u, err := url.Parse(publicURL)
+	if err != nil || u.Hostname() == "" {
+		return defaultTAKPublicHost
+	}
+	return u.Hostname()
 }
 
 // startTAKFront brings up the hosted TAK front (MESHSAT-1037).
@@ -115,6 +140,10 @@ func startTAKFront(
 			takhosted.NewProvisioner(crClient, dataStore, slog.Default()),
 			takAccounts{keeper: takhosted.NewAccountKeeper(crClient, slog.Default())},
 		)
+		// Enrolment packages (MESHSAT-1040). Attached here for the same reason and
+		// with the same consequence: without hosted TAK configured, minting an
+		// enrolment answers 503 rather than panicking on a nil keeper.
+		takHandler.SetTAKCerts(takCerts{keeper: takhosted.NewCertKeeper(crClient, slog.Default())})
 	}
 
 	// Tenant status is a STRING, so the adapter compares explicitly against
