@@ -358,11 +358,6 @@ export const health = {
   readyz: () => fetch('/readyz').then(r => r.json()).catch(() => ({ status: 'error' })),
 }
 
-export const tak = {
-  fleetStatus: () => fetchJSON('/tak/fleet-status'),
-  federationPeers: () => fetchJSON('/tak/federation/peers'),
-  missions: () => fetchJSON('/tak/missions'),
-}
 
 export const alertRules = {
   list: () => fetchJSON('/alert-rules'),

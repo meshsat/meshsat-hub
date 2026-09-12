@@ -10,8 +10,9 @@ import (
 
 // platformTopics is the topic half of tenancy.Resolver.IsPlatformTopic, for
 // tests that have no store: a device or bridge topic is the platform's when
-// it names no customer tenant. The TAK and APRS-IS subscribers refuse to
-// start without a checker (MESHSAT-1032).
+// it names no customer tenant. The APRS-IS subscriber refuses to start without
+// a checker (MESHSAT-1032). The TAK subscriber used this too until the platform
+// TAK path was removed; TAK is per-tenant now (MESHSAT-1037, MESHSAT-1065).
 type platformTopics struct{}
 
 func (platformTopics) IsPlatformTopic(_ context.Context, topic string) bool {

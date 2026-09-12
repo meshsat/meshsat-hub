@@ -110,27 +110,12 @@ data:
   HUB_APRSIS_ENABLED: "false"
   HUB_WG_ENABLED: "false"
   HUB_HAWKBIT_ENABLED: "false"
-  # TAK: OpenTAKServer stays on the DMZ hosts (not part of this migration). The
-  # values are the NL compose ones; reachability of 192.168.192.10 from the
-  # cluster is verified at rehearsal (NOTES.md). Self-signed OTS certificate.
-  HUB_TAK_ENABLED: "true"
-  HUB_TAK_HOST: "192.168.192.10"
-  HUB_TAK_PORT: "8088"
-  HUB_TAK_API_BASE_URL: "http://192.168.192.10:8880"
-  HUB_TAK_API_POLL_SEC: "10"
-  HUB_TAK_API_INSECURE_TLS: "true"
-  # ATAK marker rows the poller registers itself. They are excluded from every
-  # tenant's subscription count (nobody bought them, MESHSAT-989); this bounds
-  # how many a busy or looping TAK server can create.
-  HUB_TAK_API_MAX_DEVICES: "5000"
-  HUB_TAK_CALLSIGN_PREFIX: "MESHSAT-HUB"
-  # TAK Federation v2 is off (MESHSAT-1031). It came across with the compose
-  # values at the cutover and never started here: no mTLS material exists, the
-  # GR peer 192.168.15.10 is not routable from this cluster, and no OTS listens
-  # on 9001. Re-enabling needs HUB_TAK_FEDERATION_CERT/_KEY/_CA mounted from a
-  # Secret, a peer the workers can reach, and a Service if peers dial in. The
-  # TAK client and the OTS poller above are separate and unaffected.
-  HUB_TAK_FEDERATION_ENABLED: "false"
+  # TAK is per-tenant (MESHSAT-1037, MESHSAT-1065): the operator runs one
+  # OpenTAKServer per tenant, or a tenant points the Hub at their own server
+  # through Settings -> Integrations. The platform-wide keys that used to be
+  # here -- one TAK host, its OTS marker poller and TAK Federation v2 -- are
+  # gone with the code that read them (MESHSAT-1032). The HUB_TAK_FRONT_* and
+  # HUB_TAK_NAMESPACE keys below belong to the hosted path and stay.
 
   # --- public exposure (MESHSAT-995) ---
   # Whose X-Forwarded-For to believe when resolving the client IP for rate

@@ -3,7 +3,6 @@ package api
 import (
 	"net/http"
 	"os"
-	"strconv"
 	"strings"
 	"time"
 
@@ -23,35 +22,14 @@ type IntegrationStatus struct {
 	Setup       string            `json:"setup,omitempty"`
 }
 
-// FederationStatter provides live stats from the TAK Federation instance.
-type FederationStatter interface {
-	Stats() (in, out int64, peerCount int)
-	ConnectedPeers() []string
-}
-
 // IntegrationHandler returns the status of all inbound integration channels.
 type IntegrationHandler struct {
-	cfg           config.Config
-	getFederation func() FederationStatter // returns current federation or nil
+	cfg config.Config
 }
 
 // NewIntegrationHandler creates a new IntegrationHandler from the Hub config.
 func NewIntegrationHandler(cfg config.Config) *IntegrationHandler {
 	return &IntegrationHandler{cfg: cfg}
-}
-
-// SetFederationGetter sets a function that returns the current TAK Federation instance.
-// This uses a closure to safely read the federation pointer set by the leader election goroutine.
-func (h *IntegrationHandler) SetFederationGetter(fn func() FederationStatter) {
-	h.getFederation = fn
-}
-
-// GetFederation returns the current federation instance (or nil).
-func (h *IntegrationHandler) GetFederation() FederationStatter {
-	if h.getFederation == nil {
-		return nil
-	}
-	return h.getFederation()
 }
 
 // ListIntegrations returns the status of all inbound integration channels.
@@ -70,12 +48,12 @@ func (h *IntegrationHandler) ListIntegrations(w http.ResponseWriter, r *http.Req
 		h.smsStatus(),
 		h.emailStatus(),
 	}
-	// The TAK gateway and federation are the platform's, pointed at the
-	// operator's own TAK server: its address and peers are not a customer's
-	// business. [MESHSAT-1032]
-	if requestIsPlatformAdmin(r) {
-		integrations = append(integrations, h.takStatus(), h.takFederationStatus())
-	}
+	// TAK is NOT listed here. It is a per-tenant feature now (MESHSAT-1037,
+	// MESHSAT-1065), so it appears on this page as a provider account --
+	// "Your own TAK server" from internal/integrations, rendered by
+	// ProviderAccounts.vue -- rather than as a platform channel. The two entries
+	// that used to be here described one OpenTAKServer the operator ran, and
+	// claimed the Hub was "always a TAK/CoT gateway", which stopped being true.
 	writeJSON(w, http.StatusOK, integrations)
 }
 
@@ -223,138 +201,6 @@ func (h *IntegrationHandler) emailStatus() IntegrationStatus {
 		Config:      cfg,
 		Setup:       "Configure your email server to forward inbound messages to this webhook.",
 	}
-}
-
-func (h *IntegrationHandler) takStatus() IntegrationStatus {
-	// The Hub IS a TAK gateway — it generates CoT from bridge MQTT data,
-	// has federation on port 9001, and optionally forwards to an external TAK Server.
-	// "Enabled" means the Hub's CoT gateway is active (always true — it's a core feature).
-	// The external TAK Server connection is optional enhancement.
-	enabled := true // Hub is always a TAK/CoT gateway
-	externalConnected := h.cfg.TAKEnabled && h.cfg.TAKHost != ""
-
-	cfg := map[string]string{}
-	cfg["mode"] = "Hub CoT Gateway (built-in)"
-
-	if h.cfg.TAKHost != "" {
-		cfg["external_tak_server"] = h.cfg.TAKHost + ":" + strconv.Itoa(h.cfg.TAKPort)
-		cfg["external_connected"] = "yes"
-	} else {
-		cfg["external_tak_server"] = "none (standalone mode)"
-	}
-	if h.cfg.TAKSSL {
-		cfg["ssl"] = "enabled"
-	}
-	if h.cfg.TAKCallsignPrefix != "" {
-		cfg["callsign_prefix"] = h.cfg.TAKCallsignPrefix
-	} else {
-		cfg["callsign_prefix"] = "MESHSAT-HUB (default)"
-	}
-	if h.cfg.TAKCotStaleSec > 0 {
-		cfg["cot_stale_seconds"] = strconv.Itoa(h.cfg.TAKCotStaleSec)
-	} else {
-		cfg["cot_stale_seconds"] = "600 (default)"
-	}
-
-	// Count active bridge connections as "clients"
-	cfg["reticulum_tcp"] = "listening on :4242"
-
-	return IntegrationStatus{
-		Name:        "TAK (CoT Gateway)",
-		Type:        "tcp",
-		Enabled:     enabled,
-		Connected:   externalConnected || h.cfg.TAKFederationEnabled,
-		Description: "MeshSat Hub CoT gateway — receives positions, SOS, telemetry from fleet bridges via MQTT, generates CoT events, and optionally forwards to external TAK Server or federation peers",
-		Config:      cfg,
-		Setup:       "The Hub is a built-in TAK/CoT gateway. Optionally set HUB_TAK_HOST to forward CoT to an external TAK Server, or enable federation (HUB_TAK_FEDERATION_ENABLED) for peer-to-peer CoT relay.",
-	}
-}
-
-func (h *IntegrationHandler) takFederationStatus() IntegrationStatus {
-	enabled := h.cfg.TAKFederationEnabled
-	cfg := map[string]string{}
-
-	if len(h.cfg.TAKFederationPeers) > 0 {
-		cfg["peers"] = strings.Join(h.cfg.TAKFederationPeers, ", ")
-	} else {
-		cfg["peers"] = "none configured"
-	}
-	if h.cfg.TAKFederationPort > 0 {
-		cfg["port"] = strconv.Itoa(h.cfg.TAKFederationPort)
-	} else {
-		cfg["port"] = "9001 (default)"
-	}
-	cfg["cert"] = fileStatus(h.cfg.TAKFederationCert)
-	cfg["key"] = fileStatus(h.cfg.TAKFederationKey)
-	cfg["ca"] = fileStatus(h.cfg.TAKFederationCA)
-
-	connected := false
-	if h.getFederation != nil {
-		if fed := h.getFederation(); fed != nil {
-			in, out, pc := fed.Stats()
-			connected = pc > 0
-			cfg["connected_peers"] = strconv.Itoa(pc)
-			cfg["msgs_in"] = strconv.FormatInt(in, 10)
-			cfg["msgs_out"] = strconv.FormatInt(out, 10)
-			if peers := fed.ConnectedPeers(); len(peers) > 0 {
-				cfg["peer_addrs"] = strings.Join(peers, ", ")
-			}
-		}
-	}
-
-	return IntegrationStatus{
-		Name:        "TAK Federation v2",
-		Type:        "tcp",
-		Enabled:     enabled,
-		Connected:   connected,
-		Description: "TAK Server federation — bidirectional CoT relay with remote TAK Servers on port 9001 (mutual TLS)",
-		Config:      cfg,
-		Setup:       "Set HUB_TAK_FEDERATION_ENABLED=true, HUB_TAK_FEDERATION_PEERS=host1:9001,host2:9001, and provide mTLS cert/key/CA.",
-	}
-}
-
-// FederationPeerInfo describes a federation peer for the API.
-type FederationPeerInfo struct {
-	Address   string `json:"address"`
-	Connected bool   `json:"connected"`
-	MsgsIn    int64  `json:"msgs_in"`
-	MsgsOut   int64  `json:"msgs_out"`
-}
-
-// ListFederationPeers returns connected TAK federation peers.
-// @Summary TAK federation peers
-// @Tags tak
-// @Produce json
-// @Success 200 {object} map[string]interface{}
-// @Router /api/tak/federation/peers [get]
-func (h *IntegrationHandler) ListFederationPeers(w http.ResponseWriter, _ *http.Request) {
-	result := map[string]interface{}{
-		"enabled":    h.cfg.TAKFederationEnabled,
-		"peers":      []FederationPeerInfo{},
-		"total_in":   int64(0),
-		"total_out":  int64(0),
-		"peer_count": 0,
-	}
-
-	if h.getFederation != nil {
-		if fed := h.getFederation(); fed != nil {
-			in, out, pc := fed.Stats()
-			result["total_in"] = in
-			result["total_out"] = out
-			result["peer_count"] = pc
-
-			peers := []FederationPeerInfo{}
-			for _, addr := range fed.ConnectedPeers() {
-				peers = append(peers, FederationPeerInfo{
-					Address:   addr,
-					Connected: true,
-				})
-			}
-			result["peers"] = peers
-		}
-	}
-
-	writeJSON(w, http.StatusOK, result)
 }
 
 // maskSecret returns a masked version of a secret string, showing only the
