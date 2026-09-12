@@ -1421,6 +1421,15 @@ func main() {
 	purgeJob := tenancy.NewPurgeJob(dataStore, auditSvc, 0)
 	leaderSingletons.Add("tenant-purge", purgeJob.Run)
 
+	// Hosted TAK's customer-facing surface (MESHSAT-1037). Constructed HERE rather
+	// than beside the other /api/tenant handlers further down, because
+	// startTAKFront attaches its provisioner and account keeper a few lines below
+	// and that runs before those handlers exist. Built the other way round, every
+	// TAK endpoint would answer 503 while looking perfectly wired.
+	//
+	// Its routes are still registered with the rest of /api/tenant.
+	takHandler := api.NewTenantTAKHandler(dataStore, auditSvc, quotaChecker, takPublicPort(cfg.TAKFrontAddr))
+
 	// The hosted TAK front (MESHSAT-1037): one TLS listener for every tenant's
 	// phones, tenant identified from the client certificate's ISSUER, bytes piped
 	// into that tenant's own OpenTAKServer.
@@ -1436,7 +1445,8 @@ func main() {
 	// forwarder it registers ("takhosted-outbound"): that writes into tenants'
 	// servers, so it belongs to the lease holder alone.
 	if cfg.TAKFrontEnabled {
-		if err := startTAKFront(ctx, cfg, dataStore, auditSvc, tenantStatus, msgBus, leaderSingletons, purgeJob); err != nil {
+		if err := startTAKFront(ctx, cfg, dataStore, auditSvc, tenantStatus, msgBus,
+			leaderSingletons, purgeJob, takHandler); err != nil {
 			// Not fatal. A Hub that refuses to start because the TAK front could
 			// not bind would take down satellite ingest, SMS and the dashboard
 			// along with it, and TAK is one feature among many.
@@ -1839,6 +1849,15 @@ func main() {
 		r.With(hubauth.RequireRole(hubauth.RoleOwner)).Put("/integrations/{provider}", intH.Put)
 		r.With(hubauth.RequireRole(hubauth.RoleOwner)).Delete("/integrations/{provider}", intH.Delete)
 		r.With(hubauth.RequireRole(hubauth.RoleOwner)).Post("/integrations/{provider}/test", intH.Test)
+		// Hosted TAK (MESHSAT-1037). Anyone may see whether the tenant has a
+		// server and how many accounts it has; only an owner turns it on or
+		// changes who can connect, because both spend plan allowance and decide
+		// who sees the fleet on a map.
+		r.With(hubauth.RequireRole(hubauth.RoleViewer)).Get("/tak", takHandler.Status)
+		r.With(hubauth.RequireRole(hubauth.RoleOwner)).Post("/tak", takHandler.Enable)
+		r.With(hubauth.RequireRole(hubauth.RoleViewer)).Get("/tak/users", takHandler.ListUsers)
+		r.With(hubauth.RequireRole(hubauth.RoleOwner)).Post("/tak/users", takHandler.AddUser)
+		r.With(hubauth.RequireRole(hubauth.RoleOwner)).Delete("/tak/users/{username}", takHandler.RemoveUser)
 	})
 	// Approving a beta request without leaving the Hub (MESHSAT-978). Without
 	// an authentik token the endpoints say so and the script stays the way.

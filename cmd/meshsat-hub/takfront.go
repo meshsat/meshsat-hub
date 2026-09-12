@@ -7,7 +7,9 @@ import (
 	"fmt"
 	"log/slog"
 	"net"
+	"strconv"
 
+	"github.com/meshsat/meshsat-hub/internal/api"
 	"github.com/meshsat/meshsat-hub/internal/audit"
 	"github.com/meshsat/meshsat-hub/internal/bus"
 	"github.com/meshsat/meshsat-hub/internal/config"
@@ -21,6 +23,31 @@ import (
 // defaultTAKFrontAddr is the standard TAK SSL port. It matches the public port
 // so the edge configuration reads straight across.
 const defaultTAKFrontAddr = ":8089"
+
+// defaultTAKPort is the same number as an integer, for the API to report.
+const defaultTAKPort = 8089
+
+// takPublicPort is the port a phone connects to.
+//
+// Taken from the front's own listen address because the two are deliberately the
+// same number: the edge forwards 8089 to 8089 so the haproxy configuration and
+// the enrollment package read straight across. A malformed address falls back to
+// the standard port rather than reporting zero, since a customer seeing "port 0"
+// learns nothing and the front would not have started anyway.
+func takPublicPort(addr string) int {
+	if addr == "" {
+		addr = defaultTAKFrontAddr
+	}
+	_, port, err := net.SplitHostPort(addr)
+	if err != nil {
+		return defaultTAKPort
+	}
+	n, err := strconv.Atoi(port)
+	if err != nil || n <= 0 || n > 65535 {
+		return defaultTAKPort
+	}
+	return n
+}
 
 // startTAKFront brings up the hosted TAK front (MESHSAT-1037).
 //
@@ -56,6 +83,7 @@ func startTAKFront(
 	msgBus bus.MessageBus,
 	singletons *leader.Singletons,
 	purgeJob *tenancy.PurgeJob,
+	takHandler *api.TenantTAKHandler,
 ) error {
 	if cfg.TAKFrontCertFile == "" || cfg.TAKFrontKeyFile == "" {
 		return errors.New("HUB_TAK_FRONT_CERT_FILE and HUB_TAK_FRONT_KEY_FILE must both be set: " +
@@ -77,6 +105,17 @@ func startTAKFront(
 	// without it purges exactly as it did before.
 	if purgeJob != nil {
 		purgeJob.SetTAKInstances(crClient)
+	}
+
+	// The customer-facing surface: turning TAK on, and the accounts a tenant's
+	// phones authenticate as. Attached here for the same reason -- the
+	// custom-resource client lives in this function -- and through the adapter in
+	// takadapter.go, because internal/api must not import internal/takhosted.
+	if takHandler != nil {
+		takHandler.SetTAK(
+			takhosted.NewProvisioner(crClient, dataStore, slog.Default()),
+			takAccounts{keeper: takhosted.NewAccountKeeper(crClient, slog.Default())},
+		)
 	}
 
 	// Tenant status is a STRING, so the adapter compares explicitly against
@@ -104,6 +143,12 @@ func startTAKFront(
 
 	keeper := takhosted.NewIdentityKeeper(crClient, slog.Default())
 	refresher := takhosted.NewDirectoryRefresher(crClient, keeper, srv.SetDirectory, slog.Default())
+	// The refresher is the ONLY writer of the tak_instances status columns: it
+	// holds the custom resource, so it is the only thing that has phase, host and
+	// the CA certificate together. UpsertTAKInstance overwrites all three
+	// unconditionally, so a second partial writer would blank the CA and drop
+	// every tenant out of the directory.
+	refresher.SetStore(dataStore)
 
 	// Before Serve, always. See the function comment.
 	if err := refresher.PublishEmpty(); err != nil {
