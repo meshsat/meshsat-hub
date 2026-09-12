@@ -1,0 +1,125 @@
+# TakUserRequest: the Hub asks for an OpenTAKServer account, the operator makes it.
+#
+# Why this kind exists, when the Hub can already reach an instance's admin gateway
+# over mutual TLS: every /api/user/ route needs an administrator session, the
+# administrator password is generated per instance into the Secret
+# tak-<label>-config, and the Hub's Role grants no Secrets in this namespace. That
+# refusal is deliberate and cannot be narrowed -- the same Secret also carries
+# secret_key and password_salt, and Kubernetes RBAC cannot grant one key of a
+# Secret, so "let the Hub read the password" means handing the internet-facing
+# process the instance's session-signing key and password salt. The operator holds
+# it already and logs in with it during bootstrapAdmin, so the Hub asks instead.
+#
+# A certificate is necessary and NOT sufficient. EudHandlerSSL.setup reads the
+# client certificate's common name and calls datastore.find_user(username=<CN>),
+# dropping the connection with "User <x> does not exist" when nothing matches; the
+# certificates table is never consulted. So a correctly certified phone is refused
+# until an account of exactly that name exists, which is what this creates, and
+# which cost the phase-2 gate several hours to discover.
+#
+# THE SPEC CARRIES NO PASSWORD. The operator generates one and the Hub never sees
+# it. A password here would be a live credential sitting in etcd and in every
+# Velero backup, and nothing needs it: ATAK authenticates with its certificate,
+# and the account's password exists only because OpenTAKServer requires a user row
+# to have one.
+#
+# It is declarative rather than a job. label and username are the account's
+# identity and are immutable; action is desired state and may change, so switching
+# a teammate off is a patch on one object rather than a delete and recreate, and
+# status.observedGeneration says whether the operator has caught up with the spec.
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: takuserrequests.tak.meshsat.net
+  labels:
+    app.kubernetes.io/name: tak-operator
+spec:
+  group: tak.meshsat.net
+  scope: Namespaced
+  names:
+    kind: TakUserRequest
+    listKind: TakUserRequestList
+    plural: takuserrequests
+    singular: takuserrequest
+  versions:
+    - name: v1alpha1
+      served: true
+      storage: true
+      subresources:
+        status: {}
+      additionalPrinterColumns:
+        - name: Label
+          type: string
+          jsonPath: .spec.label
+        - name: Username
+          type: string
+          jsonPath: .spec.username
+        - name: Action
+          type: string
+          jsonPath: .spec.action
+        - name: Phase
+          type: string
+          jsonPath: .status.phase
+        - name: Age
+          type: date
+          jsonPath: .metadata.creationTimestamp
+      schema:
+        openAPIV3Schema:
+          type: object
+          required: [spec]
+          properties:
+            spec:
+              type: object
+              required: [label, username, action]
+              properties:
+                label:
+                  type: string
+                  pattern: '^[a-z0-9]{10}$'
+                  description: >-
+                    The TakInstance holding this account. Immutable: an account
+                    cannot move between tenants, and the operator checks the
+                    instance exists before touching anything.
+                  x-kubernetes-validations:
+                    - rule: self == oldSelf
+                      message: label is immutable
+                username:
+                  type: string
+                  pattern: '^[a-z0-9]{3,32}$'
+                  description: >-
+                    The OpenTAKServer account, and the common name a phone's
+                    certificate must carry to be admitted at the CoT socket.
+                    Lowercase alphanumeric with no hyphens, because OpenTAKServer
+                    1.7.13 answers HTTP 400 to a username containing one -- proven
+                    in MESHSAT-1046, where `meshsat-proxy` was refused and
+                    `meshsatproxy` accepted. Immutable: a rename is a different
+                    account, and the old one would be left behind still able to
+                    connect.
+                  x-kubernetes-validations:
+                    - rule: self == oldSelf
+                      message: username is immutable
+                action:
+                  type: string
+                  enum: [Ensure, Deactivate]
+                  description: >-
+                    Ensure creates the account if it is absent and leaves it able
+                    to connect. Deactivate switches it off WITHOUT deleting it,
+                    because the EUD rows, the position history and the audit trail
+                    all reference the user, and a tenant removing a teammate is not
+                    asking to rewrite its map's history. Mutable: this is desired
+                    state, so turning an account off is one patch.
+            status:
+              type: object
+              properties:
+                phase:
+                  type: string
+                  enum: [Pending, Applied, Denied]
+                observedGeneration:
+                  type: integer
+                  format: int64
+                  description: >-
+                    The spec generation this status describes. Applied with an
+                    observedGeneration behind .metadata.generation means the
+                    operator has not yet acted on the latest change.
+                message:
+                  type: string
+                  description: Why a request was denied, in words a person can act on.

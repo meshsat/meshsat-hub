@@ -43,7 +43,11 @@ func (r *Reconciler) reconcileCertRequests(ctx context.Context) error {
 			}
 		}
 	}
-	return nil
+	// firstErr, not nil: this used to collect the first failure and then discard
+	// it, so a certificate nobody could issue never reached ReconcileOnce and the
+	// pass logged success. A phone whose certificate never arrives is silent on
+	// somebody's map, which is the kind of failure that has to be loud.
+	return firstErr
 }
 
 // issue decides one request.
