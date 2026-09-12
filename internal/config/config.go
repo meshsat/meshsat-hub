@@ -99,6 +99,33 @@ type Config struct {
 	// a small fleet can have many people watching the map.
 	PlanTAKUserLimits map[string]int `yaml:"plan_tak_user_limits"`
 
+	// The hosted TAK front (MESHSAT-1037): one TLS listener serving every
+	// tenant's phones, identifying the tenant from the client certificate's
+	// issuer and proxying into that tenant's own OpenTAKServer.
+	//
+	// TAKFrontEnabled is the switch. It stays off until the certificate below
+	// exists, because the front cannot be started without one.
+	TAKFrontEnabled bool `yaml:"tak_front_enabled"`
+	// TAKFrontAddr is what the listener binds, default :8089 -- the standard TAK
+	// SSL port, matching the public one so the edge configuration needs no
+	// mental translation.
+	TAKFrontAddr string `yaml:"tak_front_addr"`
+	// TAKFrontCertFile and TAKFrontKeyFile are the ONE server certificate every
+	// phone sees.
+	//
+	// It cannot be per tenant: ATAK sends no SNI on the CoT socket, so the front
+	// must present a certificate before it knows which tenant is calling. Every
+	// tenant's truststore therefore carries this certificate's chain, which is
+	// also why it is supplied rather than generated -- a certificate the Hub
+	// minted for itself would have to be distributed to every phone that already
+	// trusts the previous one.
+	TAKFrontCertFile string `yaml:"tak_front_cert_file"`
+	TAKFrontKeyFile  string `yaml:"tak_front_key_file"`
+	// TAKNamespace holds the custom resources. The Hub runs in meshsat-hub and
+	// reaches across into this one, which is why its Role for them is a separate
+	// Role in that namespace.
+	TAKNamespace string `yaml:"tak_namespace"`
+
 	// Stripe: the payment provider (MESHSAT-1023).
 	//
 	// Three separate secrets, and conflating any two of them is a real mistake:
@@ -629,6 +656,22 @@ func Load() (Config, error) {
 			cfg.PlanTAKUserLimits = map[string]int{}
 		}
 		cfg.PlanTAKUserLimits[plan] = n
+	}
+	// The hosted TAK front (MESHSAT-1037).
+	if v := os.Getenv("HUB_TAK_FRONT_ENABLED"); v != "" {
+		cfg.TAKFrontEnabled = v == "true" || v == "1"
+	}
+	if v := os.Getenv("HUB_TAK_FRONT_ADDR"); v != "" {
+		cfg.TAKFrontAddr = v
+	}
+	if v := os.Getenv("HUB_TAK_FRONT_CERT_FILE"); v != "" {
+		cfg.TAKFrontCertFile = v
+	}
+	if v := os.Getenv("HUB_TAK_FRONT_KEY_FILE"); v != "" {
+		cfg.TAKFrontKeyFile = v
+	}
+	if v := os.Getenv("HUB_TAK_NAMESPACE"); v != "" {
+		cfg.TAKNamespace = v
 	}
 	if v := os.Getenv("HUB_OIDC_RECOVERY_URL"); v != "" {
 		cfg.OIDCRecoveryURL = v
