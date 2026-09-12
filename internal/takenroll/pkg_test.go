@@ -13,6 +13,7 @@ import (
 	"io"
 	"math/big"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -30,6 +31,69 @@ type fixture struct {
 	leafKey *rsa.PrivateKey
 	atak    Bundle
 	itak    Bundle
+}
+
+// The front's certificate chain, which is NOT the tenant CA. Generated once: it
+// is identical for every test and two RSA keys per test is pure cost.
+//
+// Shaped like a real tls.crt -- leaf first, then the issuing CA -- so the tests
+// exercise the same ordering Kubernetes hands us.
+var (
+	frontOnce  sync.Once
+	frontChain []byte
+	frontCA    *x509.Certificate
+	frontLeaf  *x509.Certificate
+)
+
+func frontTrust(t *testing.T) ([]byte, *x509.Certificate, *x509.Certificate) {
+	t.Helper()
+	frontOnce.Do(func() {
+		caKey, err := rsa.GenerateKey(rand.Reader, 2048)
+		if err != nil {
+			panic(err)
+		}
+		caTmpl := &x509.Certificate{
+			SerialNumber:          big.NewInt(100),
+			Subject:               pkix.Name{CommonName: "Test Front Issuing CA"},
+			NotBefore:             time.Now().Add(-time.Hour),
+			NotAfter:              time.Now().Add(24 * time.Hour),
+			IsCA:                  true,
+			BasicConstraintsValid: true,
+			KeyUsage:              x509.KeyUsageCertSign,
+		}
+		caDER, err := x509.CreateCertificate(rand.Reader, caTmpl, caTmpl, &caKey.PublicKey, caKey)
+		if err != nil {
+			panic(err)
+		}
+		frontCA, err = x509.ParseCertificate(caDER)
+		if err != nil {
+			panic(err)
+		}
+		leafKey, err := rsa.GenerateKey(rand.Reader, 2048)
+		if err != nil {
+			panic(err)
+		}
+		leafDER, err := x509.CreateCertificate(rand.Reader, &x509.Certificate{
+			SerialNumber: big.NewInt(101),
+			Subject:      pkix.Name{CommonName: "*.meshsat.net"},
+			DNSNames:     []string{"*.meshsat.net", "meshsat.net"},
+			NotBefore:    time.Now().Add(-time.Hour),
+			NotAfter:     time.Now().Add(24 * time.Hour),
+			ExtKeyUsage:  []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+		}, frontCA, &leafKey.PublicKey, caKey)
+		if err != nil {
+			panic(err)
+		}
+		frontLeaf, err = x509.ParseCertificate(leafDER)
+		if err != nil {
+			panic(err)
+		}
+		frontChain = append(
+			pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: leafDER}),
+			pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: caDER})...,
+		)
+	})
+	return frontChain, frontCA, frontLeaf
 }
 
 func build(t *testing.T, mutate func(*Input)) fixture {
@@ -73,13 +137,17 @@ func build(t *testing.T, mutate func(*Input)) fixture {
 		t.Fatal(err)
 	}
 
+	chain, _, _ := frontTrust(t)
 	in := Input{
-		Host:      "hub.meshsat.net",
-		Port:      8089,
-		Username:  "phone01",
-		KeyPEM:    pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(leafKey)}),
-		CertPEM:   pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: leafDER}),
+		Host:     "hub.meshsat.net",
+		Port:     8089,
+		Username: "phone01",
+		KeyPEM:   pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(leafKey)}),
+		CertPEM:  pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: leafDER}),
+		// The TENANT's CA: the chain the phone's own certificate belongs to.
 		CACertPEM: pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: caDER}),
+		// The FRONT's chain: what the truststore must carry instead.
+		ServerTrustPEM: chain,
 	}
 	if mutate != nil {
 		mutate(&in)
@@ -271,8 +339,124 @@ func TestTheKeystoresDecodeAsAClientWouldReadThem(t *testing.T) {
 	if err != nil {
 		t.Fatalf("truststore does not decode: %v", err)
 	}
-	if len(trust) != 1 || !trust[0].Equal(f.caCert) {
-		t.Errorf("truststore holds %d certs, want the tenant CA alone", len(trust))
+	// The FRONT's issuer, not the tenant CA. See TestTheTruststoreCarriesTheFrontsChain.
+	_, serverCA, _ := frontTrust(t)
+	if len(trust) != 1 || !trust[0].Equal(serverCA) {
+		t.Errorf("truststore holds %d certs, want the front's issuing CA", len(trust))
+	}
+}
+
+// TestTheTruststoreCarriesTheFrontsChainAndNotTheTenantCA is the regression test
+// for a defect this file's own test used to assert INTO existence: it checked
+// that the truststore held the tenant CA, which is the wrong certificate.
+//
+// Two chains are in play. The phone's certificate is issued by the TENANT's CA,
+// and the front verifies the phone against it -- that is how it knows which
+// tenant is calling. The front's own certificate is a public one for the Hub's
+// hostname, because ATAK sends no SNI on the CoT socket so one certificate must
+// answer every tenant. caLocation is what the phone verifies the SERVER against.
+// Put the tenant CA there and every handshake fails, at the client, where we
+// never see it.
+func TestTheTruststoreCarriesTheFrontsChainAndNotTheTenantCA(t *testing.T) {
+	f := build(t, nil)
+	_, serverCA, serverLeaf := frontTrust(t)
+
+	for name, data := range map[string][]byte{
+		"atak": unzip(t, unzip(t, f.atak.Data)["80b828699e074a239066d454a76284eb/phone01.zip"])["5c2bfcae3d98c9f4d262172df99ebac5/truststore-root.p12"],
+		"itak": unzip(t, f.itak.Data)["truststore-root.p12"],
+	} {
+		trust, err := pkcs12.DecodeTrustStore(data, pkcs12.DefaultPassword)
+		if err != nil {
+			t.Fatalf("%s truststore does not decode: %v", name, err)
+		}
+		var hasServerCA, hasTenantCA, hasLeaf bool
+		for _, c := range trust {
+			switch {
+			case c.Equal(serverCA):
+				hasServerCA = true
+			case c.Equal(f.caCert):
+				hasTenantCA = true
+			case c.Equal(serverLeaf):
+				hasLeaf = true
+			}
+		}
+		if !hasServerCA {
+			t.Errorf("%s truststore does not carry the front's issuing CA; the phone cannot verify the server", name)
+		}
+		if hasTenantCA {
+			t.Errorf("%s truststore carries the TENANT CA; that is the client side, not the server side", name)
+		}
+		// Pinning the leaf would work until the certificate is renewed, which for
+		// Let's Encrypt is every 60 days, and then break every phone at once.
+		if hasLeaf {
+			t.Errorf("%s truststore pins the front's LEAF; it must anchor on the CA", name)
+		}
+	}
+}
+
+// The client p12 keeps the TENANT chain, which is the other half of the same
+// distinction: that is the chain the phone's own certificate belongs to.
+func TestTheClientKeystoreKeepsTheTenantChain(t *testing.T) {
+	f := build(t, nil)
+	inner := unzip(t, unzip(t, f.atak.Data)["80b828699e074a239066d454a76284eb/phone01.zip"])
+	_, _, cas, err := pkcs12.DecodeChain(inner["5c2bfcae3d98c9f4d262172df99ebac5/phone01.p12"], pkcs12.DefaultPassword)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cas) != 1 || !cas[0].Equal(f.caCert) {
+		t.Errorf("the client p12 carries %d CAs, want the tenant CA", len(cas))
+	}
+}
+
+func TestAPackageWithNoServerTrustIsRefused(t *testing.T) {
+	base := build(t, nil).in
+	in := base
+	in.ServerTrustPEM = nil
+	_, _, err := Build(in)
+	if err == nil {
+		t.Fatal("built a package with nothing for the phone to trust the server with")
+	}
+	if !strings.Contains(err.Error(), "server trust") {
+		t.Errorf("the refusal does not name what is missing: %v", err)
+	}
+}
+
+// A private deployment may hand over a single self-signed server certificate. It
+// is not marked as a CA, and trusting exactly it is a coherent choice, so that
+// must still produce a package rather than an error.
+func TestASingleSelfSignedServerCertificateIsUsableAsTheAnchor(t *testing.T) {
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatal(err)
+	}
+	der, err := x509.CreateCertificate(rand.Reader, &x509.Certificate{
+		SerialNumber: big.NewInt(7),
+		Subject:      pkix.Name{CommonName: "tak.example.test"},
+		NotBefore:    time.Now().Add(-time.Hour),
+		NotAfter:     time.Now().Add(time.Hour),
+	}, &x509.Certificate{
+		SerialNumber: big.NewInt(7),
+		Subject:      pkix.Name{CommonName: "tak.example.test"},
+		NotBefore:    time.Now().Add(-time.Hour),
+		NotAfter:     time.Now().Add(time.Hour),
+	}, &key.PublicKey, key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	selfSigned, err := x509.ParseCertificate(der)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f := build(t, func(in *Input) {
+		in.ServerTrustPEM = pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der})
+	})
+	trust, err := pkcs12.DecodeTrustStore(
+		unzip(t, f.itak.Data)["truststore-root.p12"], pkcs12.DefaultPassword)
+	if err != nil {
+		t.Fatalf("truststore does not decode: %v", err)
+	}
+	if len(trust) != 1 || !trust[0].Equal(selfSigned) {
+		t.Errorf("a self-signed server certificate was not used as the anchor")
 	}
 }
 

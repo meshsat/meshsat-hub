@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net"
 	"net/url"
+	"os"
 	"strconv"
 
 	"github.com/meshsat/meshsat-hub/internal/api"
@@ -143,7 +144,20 @@ func startTAKFront(
 		// Enrolment packages (MESHSAT-1040). Attached here for the same reason and
 		// with the same consequence: without hosted TAK configured, minting an
 		// enrolment answers 503 rather than panicking on a nil keeper.
-		takHandler.SetTAKCerts(takCerts{keeper: takhosted.NewCertKeeper(crClient, slog.Default())})
+		//
+		// The front's certificate chain goes with it, read from the same file the
+		// listener above was built from, so the truststore a phone is given is by
+		// construction the chain of the certificate it will actually be shown.
+		// Deriving it from serverCert's DER would work too and would drop the
+		// root, which the file has and a truststore wants.
+		frontTrustPEM, err := os.ReadFile(cfg.TAKFrontCertFile)
+		if err != nil {
+			return fmt.Errorf("reading the TAK front certificate for the enrolment truststore: %w", err)
+		}
+		takHandler.SetTAKCerts(
+			takCerts{keeper: takhosted.NewCertKeeper(crClient, slog.Default())},
+			frontTrustPEM,
+		)
 	}
 
 	// Tenant status is a STRING, so the adapter compares explicitly against
