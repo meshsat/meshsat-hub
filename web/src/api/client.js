@@ -289,6 +289,27 @@ export const integrations = {
   list: () => fetchJSON('/integrations'),
 }
 
+// Hosted TAK, per tenant (MESHSAT-1037, MESHSAT-1040).
+//
+// This replaces an earlier `tak` export that called three PLATFORM endpoints
+// (/tak/fleet-status, /tak/federation/peers, /tak/missions). Those were removed
+// with the platform TAK gateway in MESHSAT-1032; everything here is under
+// /tenant/ and is scoped to the signed-in account.
+//
+// enrol and enrolQR each return a live credential that is valid for fifteen
+// minutes and one download, and each call invalidates the previous one. Do not
+// cache either result.
+export const tak = {
+  status: () => fetchJSON('/tenant/tak'),
+  enable: () => fetchJSON('/tenant/tak', { method: 'POST' }),
+  users: () => fetchJSON('/tenant/tak/users'),
+  addUser: (data) => fetchJSON('/tenant/tak/users', { method: 'POST', body: JSON.stringify(data) }),
+  removeUser: (username) => fetchJSON(`/tenant/tak/users/${encodeURIComponent(username)}`, { method: 'DELETE' }),
+  enrol: (username) => fetchJSON(`/tenant/tak/users/${encodeURIComponent(username)}/enrollment`, { method: 'POST' }),
+  enrolQR: (username, size = 512) =>
+    fetchBlob(`/tenant/tak/users/${encodeURIComponent(username)}/enrollment/qr?size=${size}`, { method: 'POST' }),
+}
+
 export const credentials = {
   list: () => fetchJSON('/credentials'),
   get: (id) => fetchJSON(`/credentials/${id}`),
