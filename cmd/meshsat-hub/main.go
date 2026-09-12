@@ -1412,7 +1412,14 @@ func main() {
 	}
 	// Destroying a closed tenant's data is single-owner work and its audit
 	// line should be written once, so it runs on the lease holder.
-	leaderSingletons.Add("tenant-purge", tenancy.NewPurgeJob(dataStore, auditSvc, 0).Run)
+	//
+	// Held in a variable because startTAKFront attaches the hosted TAK teardown to
+	// it below, the way bridgeSub is handed its quota checker just above. A purge
+	// has to destroy the tenant's own OpenTAKServer and its database too, and
+	// PurgeTenant finds its tables by reflecting on tenant_id -- a cluster object
+	// has no such column, so nothing would ever come back for it.
+	purgeJob := tenancy.NewPurgeJob(dataStore, auditSvc, 0)
+	leaderSingletons.Add("tenant-purge", purgeJob.Run)
 
 	// The hosted TAK front (MESHSAT-1037): one TLS listener for every tenant's
 	// phones, tenant identified from the client certificate's ISSUER, bytes piped
@@ -1429,7 +1436,7 @@ func main() {
 	// forwarder it registers ("takhosted-outbound"): that writes into tenants'
 	// servers, so it belongs to the lease holder alone.
 	if cfg.TAKFrontEnabled {
-		if err := startTAKFront(ctx, cfg, dataStore, auditSvc, tenantStatus, msgBus, leaderSingletons); err != nil {
+		if err := startTAKFront(ctx, cfg, dataStore, auditSvc, tenantStatus, msgBus, leaderSingletons, purgeJob); err != nil {
 			// Not fatal. A Hub that refuses to start because the TAK front could
 			// not bind would take down satellite ingest, SMS and the dashboard
 			// along with it, and TAK is one feature among many.
