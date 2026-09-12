@@ -1353,7 +1353,8 @@ func main() {
 	// TAK endpoint would answer 503 while looking perfectly wired.
 	//
 	// Its routes are still registered with the rest of /api/tenant.
-	takHandler := api.NewTenantTAKHandler(dataStore, auditSvc, quotaChecker, takPublicPort(cfg.TAKFrontAddr))
+	takHandler := api.NewTenantTAKHandler(dataStore, auditSvc, quotaChecker,
+		takPublicPort(cfg.TAKFrontAddr), takPublicHost(cfg.PublicURL))
 
 	// The hosted TAK front (MESHSAT-1037): one TLS listener for every tenant's
 	// phones, tenant identified from the client certificate's ISSUER, bytes piped
@@ -1617,6 +1618,13 @@ func main() {
 	provisionClaimHandler.SetNATSAuth(natsAuth)
 	r.Get("/api/bridges/{id}/provision/{nonce}", provisionClaimHandler.ClaimProvision)
 
+	// TAK enrolment claim — unauthenticated for the same reason (MESHSAT-1040):
+	// the caller is a TAK client on a phone with no Hub account, so the claim id
+	// and nonce ARE the credential. Single-use, fifteen minutes, one refusal
+	// string for every failure. Exempted in internal/auth by isTAKEnrolClaim; the
+	// route existing is not enough on its own.
+	r.Get("/api/tak/enroll/{claimID}/{nonce}", takHandler.Claim)
+
 	// SMS gateway (optional — inbound webhook + outbound subscriber + send API)
 	if cfg.SMSEnabled {
 		smsWebhook := sms.NewWebhookHandler(msgBus, cfg.SMSWebhookSecret)
@@ -1798,6 +1806,10 @@ func main() {
 		r.With(hubauth.RequireRole(hubauth.RoleViewer)).Get("/tak/users", takHandler.ListUsers)
 		r.With(hubauth.RequireRole(hubauth.RoleOwner)).Post("/tak/users", takHandler.AddUser)
 		r.With(hubauth.RequireRole(hubauth.RoleOwner)).Delete("/tak/users/{username}", takHandler.RemoveUser)
+		// Minting an enrolment hands out a certificate that can see the whole
+		// tenant's map, so it is an owner's decision like adding the user was.
+		r.With(hubauth.RequireRole(hubauth.RoleOwner)).
+			Post("/tak/users/{username}/enrollment", takHandler.Enrol)
 	})
 	// Approving a beta request without leaving the Hub (MESHSAT-978). Without
 	// an authentik token the endpoints say so and the script stays the way.

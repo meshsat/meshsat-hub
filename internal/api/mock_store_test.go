@@ -75,6 +75,10 @@ type mockStore struct {
 	createdTAKUser   *store.TAKUser
 	updatedTAKUser   *store.TAKUser
 	createTAKUserErr error
+
+	// system_config, which the enrolment stash lives in (MESHSAT-1040).
+	sysConfig    map[string]string
+	sysConfigErr error
 }
 
 func (m *mockStore) Migrate(context.Context) error { return nil }
@@ -331,9 +335,26 @@ func (m *mockStore) AggregateCosts(context.Context, string, time.Time, time.Time
 	return nil, nil
 }
 
-// System config
-func (m *mockStore) GetSystemConfig(context.Context, string) (string, error) { return "", nil }
-func (m *mockStore) SetSystemConfig(context.Context, string, string) error   { return nil }
+// System config actually stores, rather than answering "" to everything.
+//
+// It has to: system_config is where a one-time enrolment stash lives
+// (MESHSAT-1040), so a fake that forgets every write would let the claim path's
+// tests pass while proving nothing -- the single-use property IS "the second read
+// finds a blank", and a stub returns a blank the first time too.
+func (m *mockStore) GetSystemConfig(_ context.Context, key string) (string, error) {
+	return m.sysConfig[key], nil
+}
+
+func (m *mockStore) SetSystemConfig(_ context.Context, key, value string) error {
+	if m.sysConfigErr != nil {
+		return m.sysConfigErr
+	}
+	if m.sysConfig == nil {
+		m.sysConfig = map[string]string{}
+	}
+	m.sysConfig[key] = value
+	return nil
+}
 
 // Device groups
 func (m *mockStore) CreateDeviceGroup(context.Context, string, *store.DeviceGroup) error { return nil }

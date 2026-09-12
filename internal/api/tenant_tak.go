@@ -77,16 +77,26 @@ type TenantTAKHandler struct {
 	quota *quota.Checker
 	prov  TAKProvisioner
 	accts TAKAccounts
+	certs TAKCerts
 	// port is the public TAK SSL port a phone connects to.
 	port int
-	log  *slog.Logger
+	// publicHost is the name a phone dials. It goes into the enrolment package's
+	// connectString, which is the one value that decides whether a phone reaches
+	// us at all -- the instance's own Host is an in-cluster service name no phone
+	// can resolve.
+	publicHost string
+	log        *slog.Logger
 }
 
 // NewTenantTAKHandler creates the handler. It is inert until SetTAK supplies the
 // provisioner and the account keeper, which is what a Hub running without hosted
 // TAK wants.
-func NewTenantTAKHandler(s store.Store, a *audit.Service, q *quota.Checker, port int) *TenantTAKHandler {
-	return &TenantTAKHandler{store: s, audit: a, quota: q, port: port, log: slog.Default()}
+func NewTenantTAKHandler(s store.Store, a *audit.Service, q *quota.Checker, port int, publicHost string) *TenantTAKHandler {
+	return &TenantTAKHandler{
+		store: s, audit: a, quota: q,
+		port: port, publicHost: publicHost,
+		log: slog.Default(),
+	}
 }
 
 // SetTAK attaches the hosted-TAK machinery, in the shape of DeviceHandler.SetQuota.

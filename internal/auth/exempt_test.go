@@ -33,6 +33,8 @@ func TestIsExempt(t *testing.T) {
 		{"/api/auth/config", true, ""},
 		{"/api/auth/oidc/callback", true, ""},
 		{"/api/bridges/b1/provision/nonce123", true, "the nonce is the auth"},
+		{"/api/tak/enroll/0123456789abcdef0123456789abcdef/fedcba9876543210fedcba9876543210",
+			true, "a TAK client on a phone has no account; the nonce is the auth"},
 
 		// MUST NOT be exempt.
 		{"/debug/pprof/", false, "heap dumps carry tokens and message plaintext"},
@@ -45,6 +47,10 @@ func TestIsExempt(t *testing.T) {
 		{"/api/backup/export", false, ""},
 		{"/api/bridges/b1/credentials", false, "not the provision claim shape"},
 		{"/api/auth/keys", false, "owner-only in the router, never exempt here"},
+		{"/api/tenant/tak", false, "the customer-facing TAK surface is owner/viewer, never public"},
+		{"/api/tenant/tak/users", false, "listing who can see the fleet is not public"},
+		{"/api/tak/enroll", false, "not the claim shape"},
+		{"/api/tak/enroll/only-one-segment", false, "not the claim shape"},
 	} {
 		if got := isExempt(tc.path); got != tc.want {
 			verb := "is exempt but must not be"
@@ -52,6 +58,31 @@ func TestIsExempt(t *testing.T) {
 				verb = "is not exempt but must be"
 			}
 			t.Errorf("%s %s (%s)", tc.path, verb, tc.why)
+		}
+	}
+}
+
+// The TAK enrolment claim has to be reachable by a phone with no Hub account, so
+// it is exempt -- and that exemption is the only thing standing in front of a
+// certificate that can read a tenant's whole map. Too narrow and enrolment cannot
+// work at all; too broad and something under /api/tak/ is public by accident.
+func TestTheTAKEnrolmentClaimIsExemptAndNothingElseIs(t *testing.T) {
+	id := "0123456789abcdef0123456789abcdef"
+	nonce := "fedcba9876543210fedcba9876543210"
+	if !isExempt("/api/tak/enroll/" + id + "/" + nonce) {
+		t.Error("the claim path is not exempt; no phone could ever enrol")
+	}
+	// Anything that is not exactly the two-segment claim shape stays behind auth.
+	for _, p := range []string{
+		"/api/tak/enroll/" + id,
+		"/api/tak/enroll/" + id + "/" + nonce + "/extra",
+		"/api/tak/enroll/" + id + "/" + nonce + "/../../admin",
+		"/api/tak/",
+		"/api/tak/missions",
+		"/api/tak/fleet-status",
+	} {
+		if isExempt(p) {
+			t.Errorf("%s is exempt and must not be", p)
 		}
 	}
 }
