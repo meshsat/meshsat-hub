@@ -395,7 +395,7 @@ func TestPublishEmptyClearsTheDialableTenants(t *testing.T) {
 	srv := httptest.NewServer(api.handler(t))
 	t.Cleanup(srv.Close)
 	cl := NewClientWith(srv.Client(), srv.URL, "meshsat-tak")
-	r := NewDirectoryRefresher(cl, NewIdentityKeeper(cl, nil), func(*takfront.Directory) {}, nil)
+	r := NewDirectoryRefresher(cl, NewIdentityKeeper(cl, "replica-one", nil), func(*takfront.Directory) {}, nil)
 
 	prime(t, r)
 	if err := r.Refresh(context.Background()); err != nil {
@@ -424,7 +424,7 @@ func TestTenantByIDReturnsACopy(t *testing.T) {
 	srv := httptest.NewServer(api.handler(t))
 	t.Cleanup(srv.Close)
 	cl := NewClientWith(srv.Client(), srv.URL, "meshsat-tak")
-	r := NewDirectoryRefresher(cl, NewIdentityKeeper(cl, nil), func(*takfront.Directory) {}, nil)
+	r := NewDirectoryRefresher(cl, NewIdentityKeeper(cl, "replica-one", nil), func(*takfront.Directory) {}, nil)
 	prime(t, r)
 	if err := r.Refresh(context.Background()); err != nil {
 		t.Fatalf("refresh: %v", err)

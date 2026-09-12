@@ -5,9 +5,11 @@ import (
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
+	"crypto/sha256"
 	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
+	"encoding/hex"
 	"encoding/pem"
 	"errors"
 	"fmt"
@@ -48,6 +50,10 @@ type IdentityKeeper struct {
 	client *Client
 	log    *slog.Logger
 	now    func() time.Time
+	// replica identifies THIS process. It is part of every request's object name,
+	// which is what stops two replicas fighting over one certificate. See
+	// certRequestName.
+	replica string
 
 	mu sync.Mutex
 	// held is the usable identity per tenant.
@@ -87,26 +93,78 @@ const (
 )
 
 // NewIdentityKeeper wires one up.
-func NewIdentityKeeper(c *Client, log *slog.Logger) *IdentityKeeper {
+//
+// replica identifies this process and MUST differ between replicas; pass the pod
+// name. An empty string is replaced with random bytes rather than a shared
+// default, because a shared name is the defect this parameter exists to prevent
+// (MESHSAT-1076) and a misconfigured POD_NAME must not silently reintroduce it.
+// The cost of a random one is an abandoned request object per restart, which the
+// operator reaps.
+func NewIdentityKeeper(c *Client, replica string, log *slog.Logger) *IdentityKeeper {
 	if log == nil {
 		log = slog.Default()
+	}
+	if replica == "" {
+		var b [8]byte
+		if _, err := rand.Read(b[:]); err != nil {
+			// Even this is survivable: the clock is unique enough to keep two
+			// replicas apart, and failing to start over it would be worse.
+			replica = fmt.Sprintf("anon-%d", time.Now().UnixNano())
+		} else {
+			replica = "anon-" + hex.EncodeToString(b[:])
+		}
+		log.Warn("takhosted: no replica id given for the upstream identity, using a random one",
+			"replica", replica)
 	}
 	return &IdentityKeeper{
 		client:  c,
 		log:     log,
 		now:     time.Now,
+		replica: replica,
 		held:    map[string]*heldIdentity{},
 		pending: map[string]*pendingKey{},
 	}
 }
 
-// certRequestName is the object name for a tenant's Hub identity request.
+// certRequestName is the object name for one replica's identity request for one
+// tenant.
 //
-// Deterministic, so a retry lands on the same object instead of queueing a second
-// signature, and derived from the opaque label rather than the tenant id: a
-// certificate request name is visible in the namespace, and the label leaks
-// nothing about who the customer is.
-func certRequestName(label string) string { return "hub-" + label }
+// # Why the replica is in the name (MESHSAT-1076)
+//
+// It used to be just "hub-"+label: one object for every replica. But the private
+// key that matches the certificate lives in ONE replica's memory, on purpose --
+// it is never written down. So the replica that did not ask looks at the signed
+// certificate, finds it holds no matching key, concludes it must have restarted
+// mid-flight, deletes the certificate and asks again. The other replica then does
+// the same. Two replicas delete each other's certificates forever, no tenant ever
+// enters the front's directory, and not one phone can connect. Found on production
+// the day the front was first switched on; every pipeline was green throughout.
+//
+// One object per replica per tenant makes that structurally impossible, and it
+// keeps the property the rest of this design rests on: the key stays in memory.
+// The alternative -- a leader mints one identity and shares it through a Secret --
+// would put a key that authenticates to every tenant's admin gateway at rest in
+// etcd, which this cluster stores unencrypted and Velero copies to the object
+// store, and would force the Hub's Role to gain Secret read in meshsat-tak, which
+// the release gate asserts is closed. It would also put a leader on the serving
+// path, when the whole point of two replicas is that either can serve alone.
+//
+// The replica is hashed rather than spelled out to keep the name short and
+// certainly valid; the readable form goes in a label so `kubectl get -L` can
+// answer "whose is this?".
+func certRequestName(label, replica string) string {
+	sum := sha256.Sum256([]byte(replica))
+	return "hub-" + label + "-" + hex.EncodeToString(sum[:4])
+}
+
+// replicaLabel is the full replica id, trimmed to what a label value allows, so
+// an operator can see which pod owns a request.
+func replicaLabel(replica string) string {
+	if len(replica) > 63 {
+		return replica[:63]
+	}
+	return replica
+}
 
 // For returns the Hub's certificate for one tenant, asking for one if needed.
 //
@@ -151,7 +209,7 @@ func (k *IdentityKeeper) For(ctx context.Context, tenantID, label string) (tls.C
 
 // collect ensures a request exists for the tenant and gathers the result.
 func (k *IdentityKeeper) collect(ctx context.Context, tenantID, label string) (tls.Certificate, error) {
-	name := certRequestName(label)
+	name := certRequestName(label, k.replica)
 
 	req, err := k.client.GetCertRequest(ctx, name)
 	switch {
@@ -173,6 +231,13 @@ func (k *IdentityKeeper) collect(ctx context.Context, tenantID, label string) (t
 			// The certificate is signed but the key that matches it is gone --
 			// this replica restarted while the request was in flight. Start over
 			// with a fresh key rather than keep a certificate nobody can use.
+			//
+			// This branch is only SOUND because the object name carries the
+			// replica (MESHSAT-1076). While the name was shared, "I hold no key
+			// for this" was also true for a certificate a DIFFERENT replica had
+			// just been issued, so this deleted a working certificate and the two
+			// replicas destroyed each other's forever. With one object per
+			// replica the condition means what it says.
 			k.log.Info("takhosted: an issued certificate has no matching key on this replica, asking again",
 				"tenant", tenantID)
 			if err := k.client.DeleteCertRequest(ctx, name); err != nil {
@@ -246,6 +311,11 @@ func (k *IdentityKeeper) ask(ctx context.Context, tenantID, label, name string) 
 				"app.kubernetes.io/name":  "meshsat-hub",
 				"tak.meshsat.net/label":   label,
 				"tak.meshsat.net/purpose": PurposeHub,
+				// Which replica this belongs to. The object NAME carries a hash of
+				// it; this is the readable form, so `kubectl get -L
+				// tak.meshsat.net/replica` answers "whose is this?" without
+				// anyone having to recompute a digest.
+				"tak.meshsat.net/replica": replicaLabel(k.replica),
 			},
 		},
 		Spec: CertReqSpec{

@@ -55,7 +55,7 @@ func TestARefreshRecordsTheOperatorsStateForEveryInstance(t *testing.T) {
 	cl := NewClientWith(srv.Client(), srv.URL, "meshsat-tak")
 
 	db := rowStore(t)
-	r := NewDirectoryRefresher(cl, NewIdentityKeeper(cl, nil), func(*takfront.Directory) {}, nil)
+	r := NewDirectoryRefresher(cl, NewIdentityKeeper(cl, "replica-one", nil), func(*takfront.Directory) {}, nil)
 	r.SetStore(db)
 
 	ctx := context.Background()
@@ -118,7 +118,7 @@ func TestALaterRefreshUpdatesTheRecordedPhase(t *testing.T) {
 	cl := NewClientWith(srv.Client(), srv.URL, "meshsat-tak")
 
 	db := rowStore(t)
-	r := NewDirectoryRefresher(cl, NewIdentityKeeper(cl, nil), func(*takfront.Directory) {}, nil)
+	r := NewDirectoryRefresher(cl, NewIdentityKeeper(cl, "replica-one", nil), func(*takfront.Directory) {}, nil)
 	r.SetStore(db)
 
 	ctx := context.Background()
@@ -161,7 +161,7 @@ func TestARefresherWithNoStoreStillServes(t *testing.T) {
 	cl := NewClientWith(srv.Client(), srv.URL, "meshsat-tak")
 
 	var published int
-	r := NewDirectoryRefresher(cl, NewIdentityKeeper(cl, nil),
+	r := NewDirectoryRefresher(cl, NewIdentityKeeper(cl, "replica-one", nil),
 		func(d *takfront.Directory) {
 			if d != nil {
 				published = d.Len()

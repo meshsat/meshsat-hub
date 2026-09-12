@@ -49,6 +49,26 @@ func takPublicPort(addr string) int {
 	return n
 }
 
+// takReplicaID is who this process is, for the per-replica identity requests.
+//
+// The pod name on Kubernetes, the hostname otherwise, and an empty string if
+// neither is available -- in which case NewIdentityKeeper generates a random id
+// rather than letting two replicas share one. It must never silently collide:
+// that is MESHSAT-1076, where two replicas deleted each other's certificates
+// forever and no phone in any tenant could connect.
+//
+// Deliberately the same source as mqttClientID and leaderInstanceID, so a reader
+// finds one answer to "how does a replica know which one it is" rather than three.
+func takReplicaID() string {
+	if pod := os.Getenv("POD_NAME"); pod != "" {
+		return pod
+	}
+	if host, err := os.Hostname(); err == nil && host != "" {
+		return host
+	}
+	return ""
+}
+
 // defaultTAKPublicHost is the fallback name a phone dials.
 const defaultTAKPublicHost = "hub.meshsat.net"
 
@@ -187,7 +207,10 @@ func startTAKFront(
 		return fmt.Errorf("building the TAK front: %w", err)
 	}
 
-	keeper := takhosted.NewIdentityKeeper(crClient, slog.Default())
+	// The replica id is part of every identity request's object name, so two
+	// replicas never share one certificate (MESHSAT-1076). Same source as the MQTT
+	// client id and the leader identity: the pod name from the downward API.
+	keeper := takhosted.NewIdentityKeeper(crClient, takReplicaID(), slog.Default())
 	refresher := takhosted.NewDirectoryRefresher(crClient, keeper, srv.SetDirectory, slog.Default())
 	// The refresher is the ONLY writer of the tak_instances status columns: it
 	// holds the custom resource, so it is the only thing that has phase, host and
