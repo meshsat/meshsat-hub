@@ -237,6 +237,7 @@ func (f *Forwarder) send(ctx context.Context, tenantID string, tenant *takfront.
 			// The upstream went away: drop it and try once more with a fresh one.
 			f.drop(key)
 			if attempt == 1 {
+				forwardsFailed.WithLabelValues(kindOf(tenant), reasonWrite).Inc()
 				return fmt.Errorf("write to %s: %w", tenant.Upstream, err)
 			}
 			continue
@@ -266,7 +267,18 @@ func (f *Forwarder) connFor(ctx context.Context, key string, tenant *takfront.Te
 
 	conn, err := f.dial(ctx, tenant)
 	if err != nil {
+		forwardsFailed.WithLabelValues(kindOf(tenant), reasonDial).Inc()
 		return nil, fmt.Errorf("dial %s: %w", tenant.Upstream, err)
+	}
+	// A successful dial is not a working connection (MESHSAT-1066). Under TLS 1.3
+	// the server receives our certificate after it has finished its own handshake,
+	// so it refuses us on a connection we already believe is open. Find that out
+	// HERE: before the connection is cached, and before the log below claims it
+	// opened.
+	if why := upstreamRejected(conn); why != nil {
+		_ = conn.Close()
+		forwardsFailed.WithLabelValues(kindOf(tenant), reasonRefused).Inc()
+		return nil, fmt.Errorf("%s refused this Hub: %w", tenant.Upstream, why)
 	}
 	c := &upstreamConn{conn: conn, last: time.Now()}
 
