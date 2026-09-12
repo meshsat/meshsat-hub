@@ -40,12 +40,15 @@ func DatabaseObject(label, dbCluster string, hibernated, purge bool) CNPGDatabas
 	return CNPGDatabase{
 		TypeMeta: metav1.TypeMeta{APIVersion: CNPGGV, Kind: "Database"},
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      DatabaseName(label),
+			// DNS-safe: a Kubernetes object name may not contain an underscore.
+			Name:      DBObjectName(label),
 			Namespace: DefaultDBNamespace,
 			Labels:    objectLabels(label),
 		},
 		Spec: CNPGDatabaseSpec{
-			Cluster:          ClusterRef{Name: dbCluster},
+			Cluster: ClusterRef{Name: dbCluster},
+			// Underscored: these are Postgres identifiers, and they must equal
+			// each other for the cluster's `host sameuser` rule to isolate.
 			Name:             DatabaseName(label),
 			Owner:            DatabaseName(label),
 			Ensure:           "present",
@@ -73,12 +76,14 @@ func RoleObject(label, dbCluster string, purge bool) CNPGDatabaseRole {
 	return CNPGDatabaseRole{
 		TypeMeta: metav1.TypeMeta{APIVersion: CNPGGV, Kind: "DatabaseRole"},
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      DatabaseName(label),
+			// DNS-safe, for the same reason as the Database above.
+			Name:      DBObjectName(label),
 			Namespace: DefaultDBNamespace,
 			Labels:    objectLabels(label),
 		},
 		Spec: CNPGDatabaseRoleSpec{
-			Cluster:         ClusterRef{Name: dbCluster},
+			Cluster: ClusterRef{Name: dbCluster},
+			// The Postgres role name, equal to the database name on purpose.
 			Name:            DatabaseName(label),
 			Ensure:          "present",
 			Login:           &login,
