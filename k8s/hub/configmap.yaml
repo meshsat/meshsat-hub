@@ -158,23 +158,38 @@ data:
   # The hosted TAK front (MESHSAT-1037): one TLS listener for every tenant's
   # phones, tenant identified from the client certificate's issuer.
   #
-  # ON since 2026-09-12. The front presents ONE server certificate to every phone
-  # in every tenant -- ATAK sends no SNI on the CoT socket, so the front must
-  # present a certificate before it knows who is calling -- and every tenant's
-  # truststore carries that certificate's chain. It is therefore supplied, never
-  # generated: a certificate the Hub minted for itself would be refused by every
-  # phone already enrolled.
+  # OFF again, 2026-09-12, and the reason is worth keeping: it was switched ON the
+  # same day, which is how MESHSAT-1076 was found. With the front running, the two
+  # Hub replicas fight over one shared upstream-identity request -- whichever did
+  # not ask sees a certificate it has no key for, deletes it and asks again -- so
+  # NO tenant ever enters the front's directory and no phone can connect. A
+  # customer could have switched TAK on and been handed an instance that never
+  # serves. Switch this back to "true" when MESHSAT-1076 is fixed, and watch the
+  # `takhosted: directory refreshed` line: `tenants` must equal the number of
+  # Ready instances.
   #
-  # This said "OFF until the certificate Secret exists" for four days after the
-  # Secret started existing (2026-09-08), which is the kind of comment that stops
-  # somebody looking. The files are meshsat-net-tls, mounted by the Deployment at
-  # the path below, and takfront.CertFile re-reads them when cert-manager renews.
+  # Everything else about the front IS ready and is deliberately left in place --
+  # the volume below, the paths, the edge's 8089 leg -- because none of it is what
+  # was wrong and re-deriving it later would be pure waste.
+  #
+  # The front presents ONE server certificate to every phone in every tenant --
+  # ATAK sends no SNI on the CoT socket, so it must present a certificate before
+  # it knows who is calling -- and every tenant's truststore carries that
+  # certificate's chain. It is therefore supplied, never generated: a certificate
+  # the Hub minted for itself would be refused by every phone already enrolled.
+  #
+  # This comment said "OFF until the certificate Secret exists" for four days
+  # after the Secret started existing (2026-09-08), which is the kind of note that
+  # stops somebody looking. The files are meshsat-net-tls, mounted by the
+  # Deployment at the path below, and takfront.CertFile re-reads them when
+  # cert-manager renews (without that, a renewal would have silently served an
+  # expired certificate to every phone at once).
   #
   # Turning this on without the files is a startup error that logs and continues,
   # not a crash: TAK is one feature among many and must not take satellite
   # ingest, SMS and the dashboard down with it. The volume is optional for the
   # same reason.
-  HUB_TAK_FRONT_ENABLED: "true"
+  HUB_TAK_FRONT_ENABLED: "false"
   HUB_TAK_FRONT_ADDR: ":8089"
   HUB_TAK_FRONT_CERT_FILE: "/etc/meshsat/takfront/tls.crt"
   HUB_TAK_FRONT_KEY_FILE: "/etc/meshsat/takfront/tls.key"
