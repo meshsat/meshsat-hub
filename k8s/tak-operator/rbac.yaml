@@ -34,6 +34,20 @@ rules:
   - apiGroups: ["tak.meshsat.net"]
     resources: ["takinstances", "takcertificaterequests", "takuserrequests"]
     verbs: ["get", "list", "watch", "patch", "update"]
+  # Reaping abandoned identity requests (MESHSAT-1076). Identity requests are
+  # named per replica so that two Hub replicas cannot fight over one certificate,
+  # which means a replaced pod leaves its object behind and a Deployment is rolled
+  # on every deploy. Without this the namespace accumulates one dead request per
+  # pod per tenant forever.
+  #
+  # DELETE ON CERTIFICATE REQUESTS ONLY, deliberately. The Hub owns the lifecycle
+  # of a TakInstance -- it creates one when a customer turns TAK on and deletes it
+  # when the tenant is purged, and the operator reacts. An operator that could
+  # delete a TakInstance could destroy a tenant's server and its database, which is
+  # the one thing this split of responsibilities exists to prevent.
+  - apiGroups: ["tak.meshsat.net"]
+    resources: ["takcertificaterequests"]
+    verbs: ["delete"]
   - apiGroups: ["tak.meshsat.net"]
     resources:
       ["takinstances/status", "takcertificaterequests/status", "takuserrequests/status"]
