@@ -105,7 +105,7 @@ func (r *Reconciler) Run(ctx context.Context, interval time.Duration) {
 	}
 }
 
-// ReconcileOnce makes one pass over both kinds.
+// ReconcileOnce makes one pass over all three kinds.
 func (r *Reconciler) ReconcileOnce(ctx context.Context) error {
 	instances, err := r.Client.ListInstances(ctx, r.Namespace)
 	if err != nil {
@@ -123,6 +123,13 @@ func (r *Reconciler) ReconcileOnce(ctx context.Context) error {
 		}
 	}
 	if err := r.reconcileCertRequests(ctx); err != nil && firstErr == nil {
+		firstErr = err
+	}
+	// OpenTAKServer accounts. A certificate alone does not admit a phone --
+	// EudHandlerSSL looks the common name up as a user -- and the Hub cannot create
+	// the account itself because the administrator password is in a Secret it may
+	// not read. See userreq.go.
+	if err := r.reconcileUserRequests(ctx); err != nil && firstErr == nil {
 		firstErr = err
 	}
 	return firstErr
