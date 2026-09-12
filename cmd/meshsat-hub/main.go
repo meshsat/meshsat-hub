@@ -1425,9 +1425,11 @@ func main() {
 	//
 	// It runs on EVERY replica. The front is a door, so each replica must accept
 	// phones and resolve any tenant's issuer; making it a leader singleton would
-	// leave the other replicas unable to serve.
+	// leave the other replicas unable to serve. The exception is the outbound
+	// forwarder it registers ("takhosted-outbound"): that writes into tenants'
+	// servers, so it belongs to the lease holder alone.
 	if cfg.TAKFrontEnabled {
-		if err := startTAKFront(ctx, cfg, dataStore, auditSvc, tenantStatus); err != nil {
+		if err := startTAKFront(ctx, cfg, dataStore, auditSvc, tenantStatus, msgBus, leaderSingletons); err != nil {
 			// Not fatal. A Hub that refuses to start because the TAK front could
 			// not bind would take down satellite ingest, SMS and the dashboard
 			// along with it, and TAK is one feature among many.
