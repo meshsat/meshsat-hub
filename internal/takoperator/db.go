@@ -97,19 +97,26 @@ func RoleObject(label, dbCluster string, purge bool) CNPGDatabaseRole {
 	}
 }
 
-// DBPasswordSecret is the basic-auth Secret CNPG reads the role's password from.
+// DBPasswordSecret is the basic-auth Secret holding the tenant role's password.
 // CNPG requires username and password keys, the same shape the Hub's own cluster
 // credentials use.
 //
-// The password is generated once, by the operator, and never leaves the cluster:
-// the Hub does not connect to a tenant's database, only the tenant's
-// OpenTAKServer does.
-func DBPasswordSecret(label, password string) corev1.Secret {
+// It is created in TWO namespaces with the same content, and that is deliberate
+// rather than sloppy: CNPG reads it beside the cluster in meshsat-tak-db, and the
+// instance's init container reads it in meshsat-tak, because a pod's
+// secretKeyRef is namespace-local and cannot see across. Writing it in only one
+// place is what wedged the phase-2 gate's pod on
+// `secret "tak-gatetest01-db" not found`.
+//
+// Both copies are written from one generated password by ApplyDatabase, so they
+// cannot drift. The password never leaves the cluster: the Hub does not connect
+// to a tenant's database, only the tenant's OpenTAKServer does.
+func DBPasswordSecret(label, namespace, password string) corev1.Secret {
 	return corev1.Secret{
 		TypeMeta: metav1.TypeMeta{APIVersion: "v1", Kind: "Secret"},
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      DBSecretName(label),
-			Namespace: DefaultDBNamespace,
+			Namespace: namespace,
 			Labels:    objectLabels(label),
 		},
 		Type: corev1.SecretTypeBasicAuth,
@@ -133,27 +140,33 @@ func NewPassword() (string, error) {
 
 // ApplyDatabase creates or updates a tenant's database, role and role password.
 //
-// The password is written only when the Secret does not already exist. Rotating
-// it on every reconcile would change the password under a running
-// OpenTAKServer, which keeps a connection pool and would fail its next
-// migration rather than reconnect.
+// The password is generated only when it does not already exist. Rotating it on
+// every reconcile would change the password under a running OpenTAKServer, which
+// keeps a connection pool and would fail its next migration rather than
+// reconnect.
+//
+// Both copies of the Secret are written here, from one password: CNPG's in the
+// database namespace and the pod's in the instance namespace. Keeping the two
+// writes in one function is what stops them drifting.
 func (r *Reconciler) ApplyDatabase(ctx context.Context, label string, hibernated bool) error {
-	var existing corev1.Secret
-	err := r.Client.Get(ctx, "v1", DefaultDBNamespace, "secrets", DBSecretName(label), &existing)
-	switch {
-	case err == nil:
-		// Keep the password that is already in use.
-	case isNotFound(err):
-		pw, perr := NewPassword()
-		if perr != nil {
-			return perr
+	password, err := r.existingDBPassword(ctx, label)
+	if err != nil {
+		return err
+	}
+	if password == "" {
+		password, err = NewPassword()
+		if err != nil {
+			return err
 		}
-		sec := DBPasswordSecret(label, pw)
-		if aerr := r.Client.Apply(ctx, "v1", DefaultDBNamespace, "secrets", sec.Name, sec); aerr != nil {
-			return fmt.Errorf("takoperator: apply db password secret: %w", aerr)
+	}
+	// Applied every pass, not only on creation: if one namespace's copy is
+	// deleted or was never written, the next reconcile restores it from the
+	// password already in use rather than locking the instance out.
+	for _, ns := range []string{r.DBNamespace, r.Namespace} {
+		sec := DBPasswordSecret(label, ns, password)
+		if aerr := r.Client.Apply(ctx, "v1", ns, "secrets", sec.Name, sec); aerr != nil {
+			return fmt.Errorf("takoperator: apply db password secret in %s: %w", ns, aerr)
 		}
-	default:
-		return fmt.Errorf("takoperator: read db password secret: %w", err)
 	}
 
 	role := RoleObject(label, r.DBCluster, false)
@@ -194,10 +207,35 @@ func (r *Reconciler) PurgeDatabase(ctx context.Context, label string) error {
 	if err := r.Client.Delete(ctx, CNPGGV, DefaultDBNamespace, RoleResource, role.Name); err != nil {
 		return fmt.Errorf("takoperator: delete role: %w", err)
 	}
-	if err := r.Client.Delete(ctx, "v1", DefaultDBNamespace, "secrets", DBSecretName(label)); err != nil {
-		return fmt.Errorf("takoperator: delete db password secret: %w", err)
+	// Both copies, or the next instance with this label would inherit a password
+	// that no longer matches the role.
+	for _, ns := range []string{r.DBNamespace, r.Namespace} {
+		if err := r.Client.Delete(ctx, "v1", ns, "secrets", DBSecretName(label)); err != nil {
+			return fmt.Errorf("takoperator: delete db password secret in %s: %w", ns, err)
+		}
 	}
 	return nil
+}
+
+// existingDBPassword returns the password already in use, or "" if neither copy
+// of the Secret exists yet. The database namespace is authoritative because CNPG
+// reads that one to set the role's password.
+func (r *Reconciler) existingDBPassword(ctx context.Context, label string) (string, error) {
+	for _, ns := range []string{r.DBNamespace, r.Namespace} {
+		var sec corev1.Secret
+		err := r.Client.Get(ctx, "v1", ns, "secrets", DBSecretName(label), &sec)
+		switch {
+		case err == nil:
+			if pw := string(sec.Data[corev1.BasicAuthPasswordKey]); pw != "" {
+				return pw, nil
+			}
+		case isNotFound(err):
+			continue
+		default:
+			return "", fmt.Errorf("takoperator: read db password secret in %s: %w", ns, err)
+		}
+	}
+	return "", nil
 }
 
 // RetainDatabase is the ordinary teardown: stop serving, keep the data. It
