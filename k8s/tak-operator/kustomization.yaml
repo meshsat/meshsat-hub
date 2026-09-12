@@ -1,0 +1,15 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+# The operator, and the two custom resource definitions it reconciles.
+#
+# The CRDs are here rather than in k8s/tak/ because they are the operator's API:
+# the namespace's groundwork is useful without them, but they mean nothing without
+# something to act on them. No TakInstance or TakCertificateRequest is in git —
+# those are created by the Hub at runtime, one per customer.
+resources:
+  - crds/takinstance.yaml
+  - crds/takcertificaterequest.yaml
+  - rbac.yaml
+  - configmap.yaml
+  - externalsecret.yaml
+  - deployment.yaml

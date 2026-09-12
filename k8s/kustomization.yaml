@@ -24,6 +24,7 @@ resources:
   - stunnel/
   - hub/
   - tak/
+  - tak-operator/
   - monitoring/
 
 images:

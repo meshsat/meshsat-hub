@@ -1,0 +1,84 @@
+# The tak-operator.
+#
+# Same image as the Hub, different command — the way the OpenTAKServer image runs
+# three programs. One image means one build, one digest, one CVE scan, and the
+# property that matters most here: the operator and the Hub are always the same
+# commit, so the custom resources they share cannot drift apart. It also means
+# bump_k8s_pin keeps this current for free.
+#
+# ONE replica, and Recreate rather than RollingUpdate. Two operators would race
+# on first provisioning: both would find no CA Secret, both would generate a CA,
+# and the loser's certificate could already be in a TakInstance status that the
+# Hub has read. A few seconds with no reconciliation during a rollout costs
+# nothing, because running instances are untouched by the operator being absent.
+# No PodDisruptionBudget for the same reason: minAvailable 1 on a single replica
+# would block a node drain forever, and there is nothing here worth blocking a
+# drain for.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: tak-operator
+  namespace: meshsat-tak
+  labels:
+    app.kubernetes.io/name: tak-operator
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: tak-operator
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: tak-operator
+    spec:
+      serviceAccountName: tak-operator
+      # TRUE here, unlike everything else in this namespace. The operator's whole
+      # job is talking to the API server; the OpenTAKServer pods it creates get
+      # false, on both the pod and the ServiceAccount, because third-party Python
+      # on a public path has no business holding an API credential.
+      automountServiceAccountToken: true
+      enableServiceLinks: false
+      priorityClassName: meshsat-tak
+      # Stateless, so the worker tier, per CONVENTIONS.md. It holds the CA wrap
+      # key in memory, which is the same trust the Hub already has on these
+      # nodes.
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: node-role.kubernetes.io/worker
+                    operator: Exists
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: tak-operator
+          image: ghcr.io/meshsat/meshsat-hub
+          command: ["tak-operator"]
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          env:
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+          envFrom:
+            - configMapRef:
+                name: tak-operator-config
+            - secretRef:
+                name: tak-operator-secrets
+          resources:
+            requests:
+              cpu: 20m
+              memory: 64Mi
+            limits:
+              memory: 256Mi

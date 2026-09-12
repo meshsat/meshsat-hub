@@ -1,0 +1,104 @@
+# The operator's identity and the narrowest rights that let it do its job.
+#
+# Namespaced Roles only, no ClusterRole — the same choice as k8s/platform/rbac.yaml
+# and for the same reason: nothing here needs to see or touch another namespace,
+# and a ClusterRole is a standing invitation to widen later without noticing.
+#
+# It needs no rights on CustomResourceDefinitions at runtime. Argo CD applies
+# those from git; the operator only reads and updates the objects made from them.
+#
+# Note what the operator may NOT do to the custom resources: no create, no
+# delete. The Hub creates a TakInstance when a customer turns TAK on and deletes
+# it when the tenant is purged; the operator reacts. An operator that could create
+# instances could provision for a tenant nobody asked about.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: tak-operator
+  namespace: meshsat-tak
+  labels:
+    app.kubernetes.io/name: tak-operator
+imagePullSecrets:
+  - name: registry-meshsat
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: tak-operator
+  namespace: meshsat-tak
+  labels:
+    app.kubernetes.io/name: tak-operator
+rules:
+  # The custom resources: read them, write their status, and add or remove the
+  # teardown finalizer. Nothing else.
+  - apiGroups: ["tak.meshsat.net"]
+    resources: ["takinstances", "takcertificaterequests"]
+    verbs: ["get", "list", "watch", "patch", "update"]
+  - apiGroups: ["tak.meshsat.net"]
+    resources: ["takinstances/status", "takcertificaterequests/status"]
+    verbs: ["get", "patch", "update"]
+  # Per-instance material: the tenant CA (certificate plus WRAPPED key), the
+  # server certificate, and the pinned OpenTAKServer values. Names are derived
+  # from a runtime label, so these cannot be restricted by resourceNames the way
+  # the Hub's two Secrets are.
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["get", "list", "create", "patch", "update", "delete"]
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    verbs: ["get", "list", "create", "patch", "update", "delete"]
+  - apiGroups: [""]
+    resources: ["services"]
+    verbs: ["get", "list", "create", "patch", "update", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: tak-operator
+  namespace: meshsat-tak
+  labels:
+    app.kubernetes.io/name: tak-operator
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: tak-operator
+subjects:
+  - kind: ServiceAccount
+    name: tak-operator
+    namespace: meshsat-tak
+---
+# In the database namespace the operator may manage per-tenant databases and
+# roles, and the Secret holding a role's password. It may NOT touch the Cluster
+# object: that is Argo's, and a controller editing it would fight selfHeal. The
+# CNPG Database and DatabaseRole CRDs exist precisely so this is unnecessary
+# (verified on the cluster: CNPG 1.30 serves both).
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: tak-operator
+  namespace: meshsat-tak-db
+  labels:
+    app.kubernetes.io/name: tak-operator
+rules:
+  - apiGroups: ["postgresql.cnpg.io"]
+    resources: ["databases", "databaseroles"]
+    verbs: ["get", "list", "create", "patch", "update", "delete"]
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["get", "list", "create", "patch", "update", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: tak-operator
+  namespace: meshsat-tak-db
+  labels:
+    app.kubernetes.io/name: tak-operator
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: tak-operator
+subjects:
+  - kind: ServiceAccount
+    name: tak-operator
+    namespace: meshsat-tak
