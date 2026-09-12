@@ -65,6 +65,31 @@ func boolPtr(b bool) *bool    { return &b }
 func int64Ptr(i int64) *int64 { return &i }
 func int32Ptr(i int32) *int32 { return &i }
 
+// alwaysRestart marks an init container as a NATIVE SIDECAR: it starts before the
+// main containers, stays running, and is restarted on its own if it dies. That is
+// how RabbitMQ gets to be listening before OpenTAKServer's API tries to use it.
+var alwaysRestart = corev1.ContainerRestartPolicyAlways
+
+// withReadinessProbe attaches a TCP readiness probe to a container.
+//
+// It exists because of a concrete false positive: without a probe, Kubernetes
+// counts a container as ready the moment it is running, so `ots-eud` reported
+// ready between crash loops, the pod satisfied readyReplicas > 0, and the
+// instance was marked Ready while its CoT port refused every connection. "The
+// process started" is not "a phone can connect".
+func withReadinessProbe(c corev1.Container, port int32) corev1.Container {
+	c.ReadinessProbe = &corev1.Probe{
+		ProbeHandler: corev1.ProbeHandler{
+			TCPSocket: &corev1.TCPSocketAction{Port: intstrFromInt(port)},
+		},
+		InitialDelaySeconds: 10,
+		PeriodSeconds:       10,
+		TimeoutSeconds:      3,
+		FailureThreshold:    3,
+	}
+	return c
+}
+
 // restricted is the security context every container here carries.
 func restricted(uid, gid int64) *corev1.SecurityContext {
 	return &corev1.SecurityContext{
@@ -213,25 +238,61 @@ func InstanceDeployment(label, otsImage, rabbitImage, nginxImage string, replica
 							Requests: corev1.ResourceList{corev1.ResourceCPU: qty("50m"), corev1.ResourceMemory: qty("96Mi")},
 							Limits:   corev1.ResourceList{corev1.ResourceMemory: qty("256Mi")},
 						},
+					}, {
+						// RabbitMQ as a NATIVE SIDECAR, not an ordinary
+						// container. OpenTAKServer's API and its CoT parser
+						// connect to it at startup, and ordinary containers all
+						// start at once: in the phase-2 gate ots-api died with
+						// pika.exceptions.AMQPConnectionError and ots-cot exited
+						// 0, both because the broker was not listening yet. They
+						// recovered by being restarted, which is luck rather
+						// than design. As an init container with
+						// restartPolicy: Always it is up and ready before any of
+						// the three OpenTAKServer processes start.
+						//
+						// It runs as the image's own uid 100/gid 101: as root
+						// with capabilities dropped its entrypoint fails
+						// chowning the data directory, and as a different
+						// non-root uid it cannot write it at all (spike S5).
+						Name:            "rabbitmq",
+						Image:           rabbitImage,
+						ImagePullPolicy: corev1.PullIfNotPresent,
+						RestartPolicy:   &alwaysRestart,
+						Env:             []corev1.EnvVar{{Name: "RABBITMQ_NODENAME", Value: "rabbit@localhost"}},
+						SecurityContext: restricted(rabbitUID, rabbitGID),
+						VolumeMounts:    []corev1.VolumeMount{{Name: "rabbit", MountPath: "/var/lib/rabbitmq"}},
+						// Readiness gates the main containers: with a native
+						// sidecar the pod does not start them until this passes,
+						// which is the whole point of moving it here.
+						ReadinessProbe: &corev1.Probe{
+							ProbeHandler: corev1.ProbeHandler{
+								TCPSocket: &corev1.TCPSocketAction{Port: intstrFromInt(5672)},
+							},
+							InitialDelaySeconds: 5,
+							PeriodSeconds:       5,
+							TimeoutSeconds:      3,
+							FailureThreshold:    30, // a cold broker can take a while
+						},
+						Resources: corev1.ResourceRequirements{
+							Requests: corev1.ResourceList{corev1.ResourceCPU: qty("50m"), corev1.ResourceMemory: qty("128Mi")},
+							Limits:   corev1.ResourceList{corev1.ResourceMemory: qty("512Mi")},
+						},
 					}},
 					Containers: []corev1.Container{
-						{
-							Name:            "rabbitmq",
-							Image:           rabbitImage,
-							ImagePullPolicy: corev1.PullIfNotPresent,
-							Env:             []corev1.EnvVar{{Name: "RABBITMQ_NODENAME", Value: "rabbit@localhost"}},
-							SecurityContext: restricted(rabbitUID, rabbitGID),
-							VolumeMounts:    []corev1.VolumeMount{{Name: "rabbit", MountPath: "/var/lib/rabbitmq"}},
-							Resources: corev1.ResourceRequirements{
-								Requests: corev1.ResourceList{corev1.ResourceCPU: qty("50m"), corev1.ResourceMemory: qty("128Mi")},
-								Limits:   corev1.ResourceList{corev1.ResourceMemory: qty("512Mi")},
-							},
-						},
 						otsContainer("ots-api", []string{"opentakserver"}, "192Mi"),
 						// The EUD handler forks a process per connection, which
 						// is why the Hub caps connections per tenant at its own
 						// front door rather than relying on this limit.
-						otsContainer("ots-eud", []string{"eud_handler", "--ssl"}, "160Mi"),
+						//
+						// It is the ONLY container here with a readiness probe,
+						// and it needs one: without it Kubernetes reported this
+						// container "ready" while eud_handler was crash-looping
+						// on a missing key and the CoT port refused every
+						// connection. "The process is running" is not "a phone
+						// can connect", and the gate believed the former.
+						withReadinessProbe(
+							otsContainer("ots-eud", []string{"eud_handler", "--ssl"}, "160Mi"),
+							EUDPort),
 						otsContainer("ots-cot", []string{"cot_parser"}, "240Mi"),
 						{
 							Name:            "admin",
