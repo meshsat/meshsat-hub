@@ -53,8 +53,22 @@ func TestRabbitMQIsANativeSidecarSoTheOTSProcessesNeverRaceIt(t *testing.T) {
 			"container that must EXIT before the others start, and the broker would never be up",
 			rabbit.RestartPolicy)
 	}
+	// A STARTUP probe is what orders startup, and this distinction cost a whole
+	// gate run. For a native sidecar the kubelet starts the main containers once
+	// the sidecar has STARTED; only a startupProbe makes it wait for the sidecar
+	// to be usable. A readinessProbe governs the POD's readiness instead.
+	//
+	// With readiness alone, rabbitmq and ots-eud started in the same second,
+	// ots-eud raced the broker, and it then ran with a dead AMQP channel,
+	// dropping every phone in close_connection while its own TCP readiness probe
+	// kept passing. Silently broken, which is worse than crash-looping.
+	if rabbit.StartupProbe == nil {
+		t.Error("the sidecar has no startupProbe; without one the main containers do not wait for " +
+			"the broker, and ots-eud comes up with a dead AMQP channel that still looks ready")
+	}
 	if rabbit.ReadinessProbe == nil {
-		t.Error("the sidecar needs a readiness probe, or it does not gate the main containers")
+		t.Error("the sidecar should also carry a readiness probe, so a broker that dies later " +
+			"takes the pod out of service instead of leaving it advertised as healthy")
 	}
 	if findContainer(spec.Containers, "rabbitmq") != nil {
 		t.Errorf("rabbitmq is ALSO a main container; it would start twice. containers=%v",
