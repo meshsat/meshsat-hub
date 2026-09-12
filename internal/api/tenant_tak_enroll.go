@@ -13,10 +13,12 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	qrcode "github.com/skip2/go-qrcode"
 
 	hubauth "github.com/meshsat/meshsat-hub/internal/auth"
 	"github.com/meshsat/meshsat-hub/internal/store"
@@ -171,13 +173,120 @@ func randomHex(n int) (string, error) {
 }
 
 type enrolmentResponse struct {
-	// URL is what the QR encodes and what a phone fetches. It carries the claim
-	// id and the nonce, which together are the only credential.
+	// URL is what the QR encodes and what a phone fetches. ABSOLUTE, because the
+	// thing that follows it is a handset that has no idea which host this came
+	// from. It carries the claim id and the nonce, which together are the only
+	// credential -- so it is a secret, and it is shown once.
 	URL string `json:"url"`
 	// ExpiresAt is when the claim stops working.
 	ExpiresAt time.Time `json:"expires_at"`
 	// Username is the account the package will authenticate as.
 	Username string `json:"username"`
+}
+
+// mintEnrolment does everything both enrolment endpoints need: check the tenant
+// really can enrol this person, ask the operator for a certificate, and stash the
+// sealed key under a fresh claim id and nonce.
+//
+// Extracted rather than duplicated because the JSON endpoint and the QR endpoint
+// must mint IDENTICALLY. Two copies of this would drift, and the half that
+// drifted would be the one nobody tests by hand -- a QR is scanned by a phone, so
+// a wrong URL in it shows up as "the phone just does not connect".
+//
+// Returns (nil, status, message) on refusal, so the caller can answer in its own
+// content type.
+//
+// NOTE it supersedes: each call asks the operator to replace any outstanding
+// request for this username and overwrites the row's token hash, so the previous
+// link stops working. One live enrolment per person, which is what you want --
+// two valid links for one identity is two chances to leak it.
+func (h *TenantTAKHandler) mintEnrolment(r *http.Request, username string) (*enrolmentResponse, int, string) {
+	ctx := r.Context()
+	tenantID := hubauth.TenantIDFromContext(ctx)
+
+	if h.certs == nil {
+		return nil, http.StatusServiceUnavailable, "hosted TAK is not available on this Hub"
+	}
+	if !takUsernamePattern.MatchString(username) {
+		return nil, http.StatusBadRequest, "that is not a TAK username"
+	}
+
+	inst, err := h.store.GetTAKInstance(ctx, tenantID)
+	switch {
+	case errors.Is(err, store.ErrNotFound):
+		return nil, http.StatusNotFound, "this account has no TAK server yet"
+	case err != nil:
+		return nil, http.StatusInternalServerError, "could not read the TAK status"
+	}
+	if inst.Phase != "Ready" {
+		// Enrolling against a server that is not up yields a package whose
+		// connection fails with nothing to explain it.
+		return nil, http.StatusConflict, "the TAK server is not ready yet"
+	}
+
+	user, err := h.store.GetTAKUser(ctx, tenantID, username)
+	switch {
+	case errors.Is(err, store.ErrNotFound):
+		return nil, http.StatusNotFound, "no such TAK user"
+	case err != nil:
+		return nil, http.StatusInternalServerError, "could not read the TAK user"
+	}
+	if !user.Active {
+		return nil, http.StatusConflict, "that TAK user is suspended"
+	}
+
+	csrPEM, keyPEM, err := h.certs.NewKey(username)
+	if err != nil {
+		h.log.Error("tak enrolment: generating a key failed", "tenant", tenantID, "error", err)
+		return nil, http.StatusInternalServerError, "could not start the enrolment"
+	}
+	if err := h.certs.Request(ctx, inst.Label, username, csrPEM); err != nil {
+		h.log.Error("tak enrolment: asking for a certificate failed",
+			"tenant", tenantID, "username", username, "error", err)
+		return nil, http.StatusServiceUnavailable, "could not ask for a certificate"
+	}
+
+	claimID, err := randomHex(16)
+	if err != nil {
+		return nil, http.StatusInternalServerError, "could not start the enrolment"
+	}
+	nonce, err := randomHex(16)
+	if err != nil {
+		return nil, http.StatusInternalServerError, "could not start the enrolment"
+	}
+	sealed, err := sealKey(keyPEM, nonce, claimID)
+	if err != nil {
+		return nil, http.StatusInternalServerError, "could not start the enrolment"
+	}
+
+	now := time.Now().UTC()
+	blob, err := json.Marshal(enrolStash{
+		TenantID: tenantID, Username: username, Label: inst.Label,
+		KeyCipher: sealed, CreatedAt: now,
+	})
+	if err != nil {
+		return nil, http.StatusInternalServerError, "could not start the enrolment"
+	}
+	if err := h.store.SetSystemConfig(ctx, enrolStashKey(claimID), string(blob)); err != nil {
+		return nil, http.StatusInternalServerError, "could not start the enrolment"
+	}
+
+	// The hash, never the token: the token is shown once and storing it would put
+	// a live credential in every backup. The expiry is on the row so the UI can
+	// say "waiting to be claimed" without holding anything secret.
+	sum := sha256.Sum256([]byte(nonce))
+	expires := now.Add(enrolTTL)
+	user.EnrollTokenHash = hex.EncodeToString(sum[:])
+	user.EnrollExpiresAt = &expires
+	if err := h.store.UpdateTAKUser(ctx, tenantID, user); err != nil {
+		return nil, http.StatusInternalServerError, "could not start the enrolment"
+	}
+
+	return &enrolmentResponse{
+		URL:       fmt.Sprintf("https://%s/api/tak/enroll/%s/%s", h.publicHost, claimID, nonce),
+		ExpiresAt: expires,
+		Username:  username,
+	}, 0, ""
 }
 
 // Enrol mints a one-time enrolment for one of the tenant's TAK users.
@@ -192,110 +301,62 @@ type enrolmentResponse struct {
 // @Failure      503  {object}  map[string]string
 // @Router       /api/tenant/tak/users/{username}/enrollment [post]
 func (h *TenantTAKHandler) Enrol(w http.ResponseWriter, r *http.Request) {
-	ctx := r.Context()
-	tenantID := hubauth.TenantIDFromContext(ctx)
+	username := strings.ToLower(chi.URLParam(r, "username"))
+	out, status, msg := h.mintEnrolment(r, username)
+	if out == nil {
+		writeError(w, status, msg)
+		return
+	}
+	h.logAudit(r, hubauth.TenantIDFromContext(r.Context()), "tak_enrolment_minted", "username="+username)
+	// no-store: the body carries a live credential, and a proxy or a browser
+	// cache holding it would outlive the fifteen minutes on purpose.
+	w.Header().Set("Cache-Control", "no-store")
+	writeJSON(w, http.StatusCreated, out)
+}
+
+// EnrolQR is the same enrolment as a QR code, for pointing a phone at it.
+//
+// @Summary      Mint a one-time TAK enrolment as a QR code
+// @Tags         tenant
+// @Produce      image/png
+// @Param        username  path   string  true   "TAK username"
+// @Param        size      query  int     false  "QR size in pixels (default 512)"
+// @Success      200  {file}  image/png
+// @Failure      400  {object}  map[string]string
+// @Failure      404  {object}  map[string]string
+// @Router       /api/tenant/tak/users/{username}/enrollment/qr [post]
+func (h *TenantTAKHandler) EnrolQR(w http.ResponseWriter, r *http.Request) {
 	username := strings.ToLower(chi.URLParam(r, "username"))
 
-	if h.certs == nil {
-		writeError(w, http.StatusServiceUnavailable, "hosted TAK is not available on this Hub")
-		return
-	}
-	if !takUsernamePattern.MatchString(username) {
-		writeError(w, http.StatusBadRequest, "that is not a TAK username")
-		return
+	size := 512
+	if v := r.URL.Query().Get("size"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n >= 128 && n <= 2048 {
+			size = n
+		}
 	}
 
-	inst, err := h.store.GetTAKInstance(ctx, tenantID)
-	switch {
-	case errors.Is(err, store.ErrNotFound):
-		writeError(w, http.StatusNotFound, "this account has no TAK server yet")
-		return
-	case err != nil:
-		writeError(w, http.StatusInternalServerError, "could not read the TAK status")
+	out, status, msg := h.mintEnrolment(r, username)
+	if out == nil {
+		writeError(w, status, msg)
 		return
 	}
-	if inst.Phase != "Ready" {
-		// Enrolling against a server that is not up yields a package whose
-		// connection fails with nothing to explain it.
-		writeError(w, http.StatusConflict, "the TAK server is not ready yet")
-		return
-	}
-
-	user, err := h.store.GetTAKUser(ctx, tenantID, username)
-	switch {
-	case errors.Is(err, store.ErrNotFound):
-		writeError(w, http.StatusNotFound, "no such TAK user")
-		return
-	case err != nil:
-		writeError(w, http.StatusInternalServerError, "could not read the TAK user")
-		return
-	}
-	if !user.Active {
-		writeError(w, http.StatusConflict, "that TAK user is suspended")
-		return
-	}
-
-	csrPEM, keyPEM, err := h.certs.NewKey(username)
+	png, err := qrcode.Encode(out.URL, qrcode.Medium, size)
 	if err != nil {
-		h.log.Error("tak enrolment: generating a key failed", "tenant", tenantID, "error", err)
-		writeError(w, http.StatusInternalServerError, "could not start the enrolment")
+		h.log.Error("tak enrolment: rendering the QR failed", "username", username, "error", err)
+		writeError(w, http.StatusInternalServerError, "could not render the QR code")
 		return
 	}
-	if err := h.certs.Request(ctx, inst.Label, username, csrPEM); err != nil {
-		h.log.Error("tak enrolment: asking for a certificate failed",
-			"tenant", tenantID, "username", username, "error", err)
-		writeError(w, http.StatusServiceUnavailable, "could not ask for a certificate")
-		return
+	h.logAudit(r, hubauth.TenantIDFromContext(r.Context()), "tak_enrolment_minted",
+		"username="+username+" form=qr")
+	w.Header().Set("Content-Type", "image/png")
+	// The image IS the credential -- it encodes the claim URL -- so it must not be
+	// cached any more than the JSON form is.
+	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("X-Enrolment-Expires", out.ExpiresAt.Format(time.RFC3339))
+	w.WriteHeader(http.StatusOK)
+	if _, err := w.Write(png); err != nil {
+		h.log.Warn("tak enrolment: the QR was not fully delivered", "username", username, "error", err)
 	}
-
-	claimID, err := randomHex(16)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "could not start the enrolment")
-		return
-	}
-	nonce, err := randomHex(16)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "could not start the enrolment")
-		return
-	}
-	sealed, err := sealKey(keyPEM, nonce, claimID)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "could not start the enrolment")
-		return
-	}
-
-	now := time.Now().UTC()
-	blob, err := json.Marshal(enrolStash{
-		TenantID: tenantID, Username: username, Label: inst.Label,
-		KeyCipher: sealed, CreatedAt: now,
-	})
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "could not start the enrolment")
-		return
-	}
-	if err := h.store.SetSystemConfig(ctx, enrolStashKey(claimID), string(blob)); err != nil {
-		writeError(w, http.StatusInternalServerError, "could not start the enrolment")
-		return
-	}
-
-	// The hash, never the token: the token is shown once and storing it would put
-	// a live credential in every backup. The expiry is on the row so the UI can
-	// say "waiting to be claimed" without holding anything secret.
-	sum := sha256.Sum256([]byte(nonce))
-	expires := now.Add(enrolTTL)
-	user.EnrollTokenHash = hex.EncodeToString(sum[:])
-	user.EnrollExpiresAt = &expires
-	if err := h.store.UpdateTAKUser(ctx, tenantID, user); err != nil {
-		writeError(w, http.StatusInternalServerError, "could not start the enrolment")
-		return
-	}
-
-	h.logAudit(r, tenantID, "tak_enrolment_minted", "username="+username)
-	writeJSON(w, http.StatusCreated, enrolmentResponse{
-		URL:       fmt.Sprintf("/api/tak/enroll/%s/%s", claimID, nonce),
-		ExpiresAt: expires,
-		Username:  username,
-	})
 }
 
 // Claim hands over the enrolment package. UNAUTHENTICATED: the claim id and nonce
