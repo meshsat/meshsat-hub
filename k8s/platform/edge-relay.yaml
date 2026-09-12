@@ -41,6 +41,24 @@ data:
     # stunnel has no health endpoint; a TCP connect every 30s keeps its log quiet enough.
     backend stunnel
         server stunnel stunnel.meshsat-hub.svc.cluster.local:4243 resolvers kubedns init-addr none check inter 30s
+    # Hosted TAK (MESHSAT-1037). 9089 in from the VPS, 8089 on to the Hub's own TLS
+    # front, which terminates and identifies the tenant from the client
+    # certificate's issuer.
+    #
+    # TCP passthrough, and it has to be: ATAK, iTAK and WinTAK send no SNI on the
+    # CoT socket, and TLS encrypts the client certificate, so nothing between the
+    # phone and the Hub can tell tenants apart. Terminating here would either serve
+    # one tenant or serve the wrong one.
+    #
+    # This backend reads DOWN until HUB_TAK_FRONT_ENABLED is set and the front has
+    # its server certificate. That is correct rather than a fault: the leg is laid
+    # down before the feature is switched on, and `show stat` saying DOWN is the
+    # honest answer while nothing is listening.
+    frontend tak_in
+        bind :9089
+        default_backend hub_takfront
+    backend hub_takfront
+        server hub hub.meshsat-hub.svc.cluster.local:8089 resolvers kubedns init-addr none check inter 30s
 ---
 apiVersion: apps/v1
 kind: DaemonSet
@@ -73,6 +91,12 @@ spec:
               hostPort: 9443
             - containerPort: 4243
               hostPort: 4243
+            # 9089, not 8089: the VPS edge listens on the standard TAK port 8089
+            # publicly and forwards here. 9443 and 4243 are this DaemonSet's other
+            # legs and 8443 belongs to omoikane's relay on the same nodes, so 9089
+            # is the free number that keeps the pairing readable.
+            - containerPort: 9089
+              hostPort: 9089
           readinessProbe:
             tcpSocket: {port: 9443}
             periodSeconds: 10

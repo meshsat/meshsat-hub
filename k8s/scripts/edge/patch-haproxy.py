@@ -6,6 +6,12 @@ Usage: patch-haproxy.py <phase> <haproxy.cfg> [--out FILE]
   phase = cutover  : point hub.meshsat.net / mqtt-hub.meshsat.net / reticulum.meshsat.net
                      at the cluster (phase 5); implies `auth`
   phase = rollback : restore the DMZ backends for hub/mqtt/reticulum (keeps auth)
+  phase = tak      : add the hosted TAK leg (MESHSAT-1037) -- a `tak_in` frontend on
+                     :8089, the standard TAK SSL port, passing through in TCP mode to
+                     the three workers' edge relay on :9089. Additive: nothing existing
+                     changes, so the blast radius is MeshSat only. The host also needs
+                     `ufw allow 8089/tcp`, and the relay's 9089 hostPort must be live
+                     in the cluster FIRST or the edge forwards to nothing.
   phase = launch   : PUBLIC LAUNCH (MESHSAT-995). Undoes the retired `registration`
                      gate if a config still carries it, takes the two
                      MeshSat hosts out of Tier 5a, drops the NL+GR geo gate on
@@ -224,6 +230,53 @@ def rollback(text):
     return text
 
 
+# The hosted TAK leg (MESHSAT-1037): one public port for every tenant's phones.
+#
+# A SEPARATE frontend on :8089 rather than a hook on tls_in, and that is the whole
+# design decision. ATAK, iTAK and WinTAK send no SNI on the CoT socket, so the only
+# hook :443 could offer is "SNI absent" -- and tls_in is shared by ten domains, so
+# that rule would divert every no-SNI connection for all of them here. Mostly
+# scanners, but a monitoring probe that connects by IP without SNI would start
+# failing, and that pages somebody. 8089 is also the standard TAK SSL port, so the
+# public number and the Hub's own listener are the same and the config needs no
+# mental translation.
+#
+# bind :8089 without an address, unlike tls_in: each VPS binds a different public
+# IPv4 (185.125.171.172 / 185.44.82.32 / 185.121.169.27), so one wildcard bind is
+# the only form that applies unchanged to all three. ufw is what keeps it to the
+# public interface.
+#
+# TCP passthrough end to end. Terminating anywhere but the Hub would hide the
+# client certificate, which is the only thing naming the tenant.
+TAK_FRONTEND = """frontend tak_in
+    bind :8089
+    mode tcp
+    option tcplog
+    timeout client 3600s
+    default_backend meshsat_tak
+"""
+
+
+def tak(text):
+    """Add the TAK leg: :8089 public in, the three workers' relay on :9089 out."""
+    assert "frontend tls_in" in text, "this does not look like a VPS edge config"
+    # Long-lived CoT sessions, like the bridge legs: a field team stays connected
+    # for a shift, and 250 per worker is the per-tenant phone budget times a
+    # comfortable number of tenants.
+    block = tcp_backend("meshsat_tak", 9089, 250)
+    if "backend meshsat_tak" in text:
+        # Idempotent: re-applying updates the worker list and changes nothing else.
+        text = replace_backend(text, "meshsat_tak", block)
+    else:
+        if not text.endswith("\n"):
+            text += "\n"
+        text += "\n" + TAK_FRONTEND + "\n" + block
+    assert "bind :8089" in text, "the TAK frontend did not land"
+    for _, ip in NODES:
+        assert f"{ip}:9089" in text, f"worker {ip} is missing from the TAK backend"
+    return text
+
+
 def main():
     if len(sys.argv) < 3:
         print(__doc__)
@@ -232,7 +285,7 @@ def main():
     out = sys.argv[sys.argv.index("--out") + 1] if "--out" in sys.argv else None
     orig = open(path).read()
     new = {"auth": add_auth, "cutover": cutover, "rollback": rollback,
-           "launch": launch}[phase](orig)
+           "launch": launch, "tak": tak}[phase](orig)
     diff = difflib.unified_diff(orig.splitlines(True), new.splitlines(True), fromfile=path, tofile=f"{path} ({phase})")
     sys.stderr.write("".join(diff))
     if out:
