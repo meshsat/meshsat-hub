@@ -27,6 +27,25 @@ FROM python:3.13-trixie AS build
 RUN python -m venv /opt/ots
 COPY requirements.txt /tmp/requirements.txt
 RUN /opt/ots/bin/pip install --no-cache-dir --no-deps --require-hashes -r /tmp/requirements.txt
+# Marker icons come from the image, not from the internet at run time
+# (MESHSAT-1057). OpenTAKServer fetches a 9.6 MB sqlite archive from GitHub with
+# NO timeout on first start; a tenant's instance has no egress and Cilium drops
+# rather than rejects, so that hung for 134 seconds on EVERY start, with the API
+# not listening for the whole window, and the stall was swallowed by a bare
+# `except BaseException`.
+#
+# Both steps run HERE, in the build stage: this is where there is egress, and
+# only /opt/ots is copied into the runtime stage, so that tree is the one way to
+# get a file into the image. /opt/ots/share is also outside /var/lib/ots, which
+# the operator mounts as an EmptyDir that masks anything the image leaves under
+# OTS_DATA_FOLDER -- the reason shipping the archive alone would not have worked.
+#
+# The fetch is digest-pinned and the patch's anchor is byte-exact; either one
+# failing fails the build, which is deliberate. A silent no-op here restores a
+# 134-second stall that nobody would think to look for twice.
+COPY bundle-iconsets.py patch-icon-fetch.py /tmp/
+RUN /opt/ots/bin/python /tmp/bundle-iconsets.py /opt/ots/share/iconsets.sqlite \
+    && /opt/ots/bin/python /tmp/patch-icon-fetch.py /opt/ots/share/iconsets.sqlite
 
 FROM python:3.13-slim-trixie
 # Debian security updates for the packages the BASE IMAGE brings.

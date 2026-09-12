@@ -33,10 +33,16 @@ spec:
     count/secrets: "400"
     count/configmaps: "200"
     # Zero on purpose. Every tenant's OpenTAKServer is stateless on disk: the
-    # data folder is an emptyDir, icons are baked into the image, and all durable
-    # state is in meshsat-tak-main. A PVC appearing here means somebody has
-    # introduced node-local state that no backup covers, and it should fail
-    # loudly rather than work quietly.
+    # data folder is an emptyDir and all durable state is in meshsat-tak-main.
+    # A PVC appearing here means somebody has introduced node-local state that
+    # no backup covers, and it should fail loudly rather than work quietly.
+    #
+    # This comment used to add "icons are baked into the image", which was not
+    # true and was one of three places repeating it while every instance spent
+    # 134 seconds of each start trying to download them (MESHSAT-1057). The
+    # archive now does ship in the image -- at /opt/ots/share, outside the
+    # emptyDir that masks OTS_DATA_FOLDER, which is why the first attempt at
+    # this would not have worked.
     count/persistentvolumeclaims: "0"
 ---
 apiVersion: v1
