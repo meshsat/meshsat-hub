@@ -5,6 +5,8 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+
+	corev1 "k8s.io/api/core/v1"
 )
 
 // rfc1123 is the name Kubernetes accepts for an object: lowercase alphanumeric,
@@ -51,7 +53,7 @@ func TestTheRenderedDatabaseObjectsCarryBothKindsOfNameCorrectly(t *testing.T) {
 	const label = "abcdefghij"
 	db := DatabaseObject(label, "meshsat-tak-main", false, false)
 	role := RoleObject(label, "meshsat-tak-main", false)
-	secret := DBPasswordSecret(label, "irrelevant")
+	secret := DBPasswordSecret(label, DefaultDBNamespace, "irrelevant")
 
 	for name, objName := range map[string]string{
 		"Database.metadata.name":     db.Name,
@@ -83,6 +85,92 @@ func TestTheRenderedDatabaseObjectsCarryBothKindsOfNameCorrectly(t *testing.T) {
 	// mismatch there means CNPG cannot find the password.
 	if role.Spec.PasswordSecret == nil || role.Spec.PasswordSecret.Name != secret.Name {
 		t.Errorf("role points at password secret %+v, but the secret is %q", role.Spec.PasswordSecret, secret.Name)
+	}
+}
+
+// Every Secret the rendered pod references must exist in the POD's namespace.
+//
+// This is the third failure of the same family, and the most expensive: the pod
+// read its database credentials from `tak-<label>-db` in meshsat-tak while the
+// operator created that Secret only in meshsat-tak-db, where CNPG needs it. A
+// secretKeyRef is namespace-local, so the init container sat in
+// CreateContainerConfigError with `secret "tak-gatetest01-db" not found` until it
+// was looked at directly.
+//
+// The earlier tests could not catch it: they asserted names were well formed and
+// that the Postgres identifiers matched, never that a referenced Secret is one
+// somebody creates in the namespace that reads it.
+//
+// Mutation-checked: writing the password to only the database namespace makes
+// this fail with "the pod reads Secret ... but nothing creates it in the pod's
+// namespace".
+func TestEverySecretThePodReadsIsCreatedInThePodsNamespace(t *testing.T) {
+	const label = "abcdefghij"
+	dep := InstanceDeployment(label, "ots@sha256:x", "rabbit:1", "nginx@sha256:y", 1)
+	spec := dep.Spec.Template.Spec
+
+	referenced := map[string]bool{}
+	for _, v := range spec.Volumes {
+		if v.Secret != nil {
+			referenced[v.Secret.SecretName] = true
+		}
+	}
+	collect := func(envs []corev1.EnvVar) {
+		for _, e := range envs {
+			if e.ValueFrom != nil && e.ValueFrom.SecretKeyRef != nil {
+				referenced[e.ValueFrom.SecretKeyRef.Name] = true
+			}
+		}
+	}
+	for _, c := range spec.InitContainers {
+		collect(c.Env)
+	}
+	for _, c := range spec.Containers {
+		collect(c.Env)
+	}
+
+	// What the operator creates in the instance namespace.
+	created := map[string]bool{
+		CASecretName(label):     true,
+		TLSSecretName(label):    true,
+		ConfigSecretName(label): true,
+		DBSecretName(label):     true, // written in BOTH namespaces, on purpose
+	}
+
+	if len(referenced) == 0 {
+		t.Fatal("the rendered pod references no Secrets at all, which cannot be right")
+	}
+	for name := range referenced {
+		if !created[name] {
+			t.Errorf("the pod reads Secret %q, but nothing creates it in the pod's namespace; "+
+				"the kubelet will report CreateContainerConfigError", name)
+		}
+	}
+}
+
+// The two copies of the database password must be byte-identical, or CNPG sets
+// one password on the role while OpenTAKServer connects with another.
+func TestBothCopiesOfTheDatabasePasswordAgree(t *testing.T) {
+	const label = "abcdefghij"
+	const pw = "a-password-that-must-not-change"
+	inDB := DBPasswordSecret(label, DefaultDBNamespace, pw)
+	inApp := DBPasswordSecret(label, DefaultNamespace, pw)
+
+	if inDB.Name != inApp.Name {
+		t.Errorf("names differ: %q and %q", inDB.Name, inApp.Name)
+	}
+	if inDB.Namespace == inApp.Namespace {
+		t.Fatalf("both copies claim namespace %q; they must be in different ones", inDB.Namespace)
+	}
+	if inDB.StringData[corev1.BasicAuthPasswordKey] != inApp.StringData[corev1.BasicAuthPasswordKey] {
+		t.Error("the two copies carry different passwords")
+	}
+	if inDB.StringData[corev1.BasicAuthUsernameKey] != DatabaseName(label) {
+		t.Errorf("username is %q, want the Postgres role name %q",
+			inDB.StringData[corev1.BasicAuthUsernameKey], DatabaseName(label))
+	}
+	if inDB.Type != corev1.SecretTypeBasicAuth {
+		t.Errorf("type is %q; CNPG requires basic-auth", inDB.Type)
 	}
 }
 
