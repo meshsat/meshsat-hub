@@ -121,14 +121,39 @@ tenant CA, logs in with the default, resets to the pinned value, and **re-tests 
 because a reset that reports success and changes nothing is indistinguishable from a working one
 in the logs, which is exactly how the inert file survived review.
 
-⚠ **`networkpolicy.yaml` claimed "the image already carries the icons". It does not.** The `icon`
-table is empty, no `icons.sqlite` exists in the data folder, and `app.py main()` attempts a
-`requests.get` to github.com with **no timeout** on every start. Under the egress policy — which
-is doing its job — Cilium drops rather than rejects, so `connect()` hangs for **134 seconds**
-before the server starts. During that window nothing listens on 8081 and a healthy instance looks
-wedged; it sent me down two wrong diagnoses (an Alembic lock deadlock, then a stalled process)
-before the on-disk logs in `/var/lib/ots/logs/` showed the real sequence. There is no config flag
-for it. Filed as **MESHSAT-1057**.
+**The 134-second icon stall, and the comment that hid it — FIXED (MESHSAT-1057).** Three separate
+files claimed "icons are baked into the image" (`networkpolicy.yaml`, `quota.yaml`,
+`render.go`). None of it was true: the `icon` table was empty, no `icons.sqlite` existed in the
+data folder, and `app.py main()` did a `requests.get` to github.com with **no timeout** on every
+start. Under the egress policy — which is doing its job — Cilium drops rather than rejects, so
+`connect()` hung for **134 seconds** before the server started. During that window nothing listens
+on 8081 and a healthy instance looks wedged; it sent me down two wrong diagnoses (an Alembic lock
+deadlock, then a stalled process) before the on-disk logs in `/var/lib/ots/logs/` showed the real
+sequence.
+
+There is no config flag for it, so the image carries the archive and the loader is patched to read
+it: `k8s/ots/bundle-iconsets.py` fetches it at **build** time (digest-pinned — it goes into every
+tenant's database, so an unpinned third-party asset would be a supply-chain hole) and
+`k8s/ots/patch-icon-fetch.py` rewrites the call. Three things about that fix are load-bearing:
+
+- **The archive ships at `/opt/ots/share`, not in the data folder.** `OTS_DATA_FOLDER` is
+  `/var/lib/ots`, which `render.go` mounts as an EmptyDir, so it **masks** anything the image puts
+  there. Shipping the file where OTS expects it would have been inert — the same shape of mistake
+  as the `.admin_password` file above.
+- **Shipping the file alone would not have been enough anyway.** The guard is the row count, so an
+  empty `icon` table sends it to the network whatever is on disk. The loader had to change too.
+- **The patch fails the build if upstream's text moves.** The anchor is byte-exact including CRLF
+  (app.py has Windows line endings) and must match exactly once; a silent no-op would restore a
+  stall nobody would think to look for twice. The download is kept as a fallback, with a timeout.
+
+Proven without building the image (rule 12a): `patch-icon-fetch.py` takes an optional target so it
+can be run against the real `app.py` out of the wheel — happy path, idempotent re-run, a drifted
+anchor refusing and writing nothing, an LF-converted file refused, and the generated block executed
+against stubs to prove both branches yield `.content`.
+
+⚠ **`app.py` is not the only un-timed fetch in OpenTAKServer** — there are 11, in
+`mediamtx_api.py` (7) and `blueprints/scheduled_jobs.py` (3, including `data.aishub.net`). Those
+features are off in our deployment, so they are filed separately rather than patched here.
 
 Two more things worth keeping:
 
