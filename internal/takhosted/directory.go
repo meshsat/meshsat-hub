@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/meshsat/meshsat-hub/internal/store"
 	"github.com/meshsat/meshsat-hub/internal/takfront"
 )
 
@@ -38,7 +39,17 @@ import (
 type DirectoryRefresher struct {
 	client *Client
 	certs  *IdentityKeeper
-	log    *slog.Logger
+	// store, when set, receives a row per instance on every pass: the Hub's cache
+	// of operator-owned state, so a customer-facing endpoint can answer "where is
+	// my TAK server" without a Kubernetes call.
+	//
+	// This is the ONLY writer of the status columns. UpsertTAKInstance overwrites
+	// phase, host and ca_cert_pem unconditionally -- the store conformance suite
+	// asserts it does -- so a second writer holding only some of those values
+	// would blank the CA certificate, and takfront identifies a phone's tenant by
+	// its certificate issuer. Every tenant would drop out of the directory.
+	store store.Store
+	log   *slog.Logger
 
 	// setDirectory is takfront.Server.SetDirectory. Injected rather than holding
 	// the server, so this is testable without a listener.
@@ -78,6 +89,44 @@ func NewDirectoryRefresher(c *Client, k *IdentityKeeper,
 		setDirectory: setDirectory, log: log,
 		skipped: map[string]string{},
 		tenants: map[string]takfront.Tenant{},
+	}
+}
+
+// SetStore attaches the Hub's own record of each instance, written on every pass.
+//
+// Optional: without it the front works exactly as before, because the directory is
+// built from the custom resources and never from these rows. What the rows buy is
+// a customer-facing endpoint that can answer "where is my TAK server" without a
+// Kubernetes call on a request path.
+func (r *DirectoryRefresher) SetStore(s store.Store) { r.store = s }
+
+// recordInstance caches one instance's operator-owned state.
+//
+// Written for EVERY instance the API server returned, including one still
+// provisioning or failed -- that is exactly when somebody asks where their server
+// is, and a row that only appeared once everything worked would be useless then.
+//
+// Every replica does this on every pass, with identical values, because the
+// refresher is deliberately not a leader singleton. The writes are idempotent
+// upserts, so the cost is a little traffic rather than any contention.
+func (r *DirectoryRefresher) recordInstance(ctx context.Context, inst TakInstance) {
+	if r.store == nil {
+		return
+	}
+	if err := r.store.UpsertTAKInstance(ctx, &store.TAKInstance{
+		TenantID:  inst.Spec.TenantID,
+		Label:     inst.Spec.Label,
+		State:     inst.Spec.State,
+		Phase:     inst.Status.Phase,
+		Host:      inst.Status.Host,
+		CACertPEM: inst.Status.CACertPEM,
+	}); err != nil {
+		// Never fatal to a refresh. The directory comes from the custom resources,
+		// so a failed write leaves a customer-facing endpoint briefly stale and
+		// nothing else; failing the pass would take every tenant's phones down to
+		// protect a cache.
+		r.log.Warn("takhosted: could not record the TAK instance row",
+			"tenant", inst.Spec.TenantID, "error", err)
 	}
 }
 
@@ -148,6 +197,11 @@ func (r *DirectoryRefresher) Refresh(ctx context.Context) error {
 			r.log.Warn("takhosted: instance with no tenant id, skipped", "name", inst.Metadata.Name)
 			continue
 		}
+		// Before tenantFor, so an instance that is not servable yet is still
+		// recorded. A tenant waiting on provisioning is the one most likely to be
+		// asking about it.
+		r.recordInstance(ctx, inst)
+
 		t, why := r.tenantFor(ctx, inst)
 		if why != "" {
 			skipped[tenantID] = why

@@ -65,6 +65,16 @@ type mockStore struct {
 	createKeyFn func(ctx context.Context, tid string, k *store.APIKey) error
 	bridgeCount int // for the device quota check
 	takUsers    int // for the TAK account ceiling (MESHSAT-1037)
+
+	// Hosted TAK (MESHSAT-1037). Settable, not stubbed: the endpoints' interesting
+	// paths all sit behind "this tenant has a server" and "this account already
+	// exists", so fakes that can only answer "no" would prove nothing.
+	takInstance      *store.TAKInstance
+	takUser          *store.TAKUser
+	takUserList      []*store.TAKUser
+	createdTAKUser   *store.TAKUser
+	updatedTAKUser   *store.TAKUser
+	createTAKUserErr error
 }
 
 func (m *mockStore) Migrate(context.Context) error { return nil }
@@ -618,8 +628,15 @@ func (m *mockStore) CountTAKUsers(context.Context, string) (int, error) {
 
 func (m *mockStore) UpsertTAKInstance(context.Context, *store.TAKInstance) error { return nil }
 
+// GetTAKInstance returns a settable instance rather than always ErrNotFound, for
+// the same reason CountTAKUsers is settable: every interesting path through the
+// TAK endpoints is behind "this tenant HAS a server", so a fake that can only say
+// "no" would let those tests pass while exercising nothing.
 func (m *mockStore) GetTAKInstance(context.Context, string) (*store.TAKInstance, error) {
-	return nil, store.ErrNotFound
+	if m.takInstance == nil {
+		return nil, store.ErrNotFound
+	}
+	return m.takInstance, nil
 }
 
 func (m *mockStore) ListTAKInstances(context.Context) ([]*store.TAKInstance, error) {
@@ -628,16 +645,33 @@ func (m *mockStore) ListTAKInstances(context.Context) ([]*store.TAKInstance, err
 
 func (m *mockStore) DeleteTAKInstance(context.Context, string) error { return nil }
 
-func (m *mockStore) CreateTAKUser(context.Context, string, *store.TAKUser) error { return nil }
+func (m *mockStore) CreateTAKUser(_ context.Context, _ string, u *store.TAKUser) error {
+	if u != nil {
+		m.createdTAKUser = u
+	}
+	return m.createTAKUserErr
+}
 
+// GetTAKUser is settable so the deactivated-account path can be reached. Adding
+// somebody back after they were removed needs an OpenTAKServer route that has not
+// been verified, so the endpoint refuses it with a reason -- and a fake that could
+// never report an existing account would leave that refusal untested.
 func (m *mockStore) GetTAKUser(context.Context, string, string) (*store.TAKUser, error) {
-	return nil, store.ErrNotFound
+	if m.takUser == nil {
+		return nil, store.ErrNotFound
+	}
+	return m.takUser, nil
 }
 
 func (m *mockStore) ListTAKUsers(context.Context, string) ([]*store.TAKUser, error) {
-	return nil, nil
+	return m.takUserList, nil
 }
 
-func (m *mockStore) UpdateTAKUser(context.Context, string, *store.TAKUser) error { return nil }
+func (m *mockStore) UpdateTAKUser(_ context.Context, _ string, u *store.TAKUser) error {
+	if u != nil {
+		m.updatedTAKUser = u
+	}
+	return nil
+}
 
 func (m *mockStore) DeleteTAKUser(context.Context, string, string) error { return nil }

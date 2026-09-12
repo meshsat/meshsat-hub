@@ -50,6 +50,12 @@ const (
 	crVersion        = "v1alpha1"
 	instanceResource = "takinstances"
 	certReqResource  = "takcertificaterequests"
+	// userReqResource asks the operator for an OpenTAKServer account. The Hub
+	// cannot create one itself: every /api/user/ route needs an administrator
+	// session, that password lives in the instance's config Secret, and the Hub's
+	// Role grants no Secrets in this namespace -- nor should it, since the same
+	// Secret carries secret_key and password_salt and RBAC cannot grant one key.
+	userReqResource = "takuserrequests"
 
 	// defaultNamespace holds the custom resources and the instances. The Hub
 	// runs in meshsat-hub and reaches across to it, which is why its Role for
@@ -69,6 +75,21 @@ const (
 	PurposeHub  = "hub"
 	PurposeEUD  = "eud"
 	HubIdentity = "meshsat-hub"
+)
+
+// Account actions and phases, mirroring the operator's own constants. Duplicated
+// for the same reason as everything else here: this package may not import the
+// operator, which holds every tenant's CA key.
+const (
+	// ActionEnsure means the account should exist and be able to connect.
+	ActionEnsure = "Ensure"
+	// ActionDeactivate switches it off without deleting it, so the EUD rows, the
+	// position history and the audit trail that reference the user survive.
+	ActionDeactivate = "Deactivate"
+
+	UserPending = "Pending"
+	UserApplied = "Applied"
+	UserDenied  = "Denied"
 )
 
 // Errors a caller may want to distinguish.
@@ -139,8 +160,14 @@ type CertReqStat struct {
 
 // objectMeta is the sliver of metadata the Hub sets or reads.
 type objectMeta struct {
-	Name        string            `json:"name,omitempty"`
-	Namespace   string            `json:"namespace,omitempty"`
+	Name      string `json:"name,omitempty"`
+	Namespace string `json:"namespace,omitempty"`
+	// Generation is bumped by the API server on every spec change, and is what
+	// makes a status trustworthy: a TakUserRequest whose action was patched from
+	// Ensure to Deactivate keeps its old "Applied" status until the operator acts,
+	// so a reader that ignored this would report a teammate switched off while
+	// they were still able to connect. Compare it with status.observedGeneration.
+	Generation  int64             `json:"generation,omitempty"`
 	Labels      map[string]string `json:"labels,omitempty"`
 	Annotations map[string]string `json:"annotations,omitempty"`
 }
@@ -307,6 +334,92 @@ func (c *Client) GetCertRequest(ctx context.Context, name string) (*TakCertifica
 // certificate that is public but still identifies a user.
 func (c *Client) DeleteCertRequest(ctx context.Context, name string) error {
 	err := c.do(ctx, http.MethodDelete, c.objectPath(certReqResource, name), "", nil, nil)
+	if errors.Is(err, ErrNotFound) {
+		return nil
+	}
+	return err
+}
+
+// TakUserRequest asks the operator to create or deactivate one OpenTAKServer
+// account. The minimal shape again, for the same reason as the others.
+//
+// Note what is absent: a password. The operator generates one and the Hub never
+// learns it. A TAK client authenticates with its certificate, and the account's
+// password exists only because OpenTAKServer requires a user row to have one.
+type TakUserRequest struct {
+	APIVersion string      `json:"apiVersion,omitempty"`
+	Kind       string      `json:"kind,omitempty"`
+	Metadata   objectMeta  `json:"metadata,omitempty"`
+	Spec       UserReqSpec `json:"spec"`
+	Status     UserReqStat `json:"status,omitempty"`
+}
+
+// UserReqSpec is desired state: label and username are the account's identity and
+// the CRD holds them immutable, while action may be patched.
+type UserReqSpec struct {
+	Label    string `json:"label"`
+	Username string `json:"username"`
+	Action   string `json:"action"`
+}
+
+// UserReqStat is written only by the operator. The Hub's Role carries no status
+// verb on this kind, so an attempt to write it would be a 403.
+type UserReqStat struct {
+	Phase              string `json:"phase,omitempty"`
+	ObservedGeneration int64  `json:"observedGeneration,omitempty"`
+	Message            string `json:"message,omitempty"`
+}
+
+// userRequestName is the object name for one account request.
+//
+// Deterministic, so asking twice lands on the same object rather than queueing a
+// second one, and built from the opaque label rather than the tenant id because
+// the name is visible in the namespace and the label leaks nothing about who the
+// customer is -- the same rule as certRequestName.
+//
+// DNS-safe by construction: the label is ten lowercase alphanumerics and the
+// username three to thirty-two of the same, so the result carries only those and
+// two hyphens, and is at most 48 characters.
+func userRequestName(label, username string) string {
+	return "user-" + label + "-" + username
+}
+
+// CreateUserRequest asks for an account, and is also how the Hub changes one:
+// server-side apply makes create and update a single idempotent call, which is
+// what a declarative object wants. Switching an account off is this call with
+// action Deactivate.
+func (c *Client) CreateUserRequest(ctx context.Context, req TakUserRequest) error {
+	req.APIVersion = crGroup + "/" + crVersion
+	req.Kind = "TakUserRequest"
+	if req.Metadata.Name == "" {
+		return errors.New("takhosted: user request needs a name")
+	}
+	req.Metadata.Namespace = c.namespace
+	body, err := json.Marshal(req)
+	if err != nil {
+		return fmt.Errorf("takhosted: encode user request: %w", err)
+	}
+	path := c.objectPath(userReqResource, req.Metadata.Name) +
+		"?fieldManager=" + fieldManager + "&force=true"
+	return c.do(ctx, http.MethodPatch, path, "application/apply-patch+yaml", body, nil)
+}
+
+// GetUserRequest reads one back, which is how the Hub learns whether the account
+// exists yet. A missing request is ErrNotFound.
+func (c *Client) GetUserRequest(ctx context.Context, name string) (*TakUserRequest, error) {
+	var req TakUserRequest
+	if err := c.do(ctx, http.MethodGet, c.objectPath(userReqResource, name), "", nil, &req); err != nil {
+		return nil, err
+	}
+	return &req, nil
+}
+
+// DeleteUserRequest removes a request object. Deleting it does NOT remove the
+// account from the instance -- the operator acts on a spec, it does not own the
+// account's lifetime -- so this is cleanup of a finished request, and removing a
+// teammate means applying action Deactivate instead.
+func (c *Client) DeleteUserRequest(ctx context.Context, name string) error {
+	err := c.do(ctx, http.MethodDelete, c.objectPath(userReqResource, name), "", nil, nil)
 	if errors.Is(err, ErrNotFound) {
 		return nil
 	}
