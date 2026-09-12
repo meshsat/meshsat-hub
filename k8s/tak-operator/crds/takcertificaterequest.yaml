@@ -55,6 +55,24 @@ spec:
             spec:
               type: object
               required: [label, purpose, username, csrPEM]
+              x-kubernetes-validations:
+                # The username rule depends on the purpose, which a field-level
+                # `pattern` cannot express -- and one pattern for both is what made
+                # the Hub's own identity unrequestable. HubIdentityCN is
+                # "meshsat-hub"; the hyphen is deliberate (it keeps a tenant from
+                # managing that account through the customer-facing API, and the
+                # instance's nginx gateway admits exactly CN=meshsat-hub) and the
+                # phone rule forbids hyphens because OpenTAKServer does.
+                #
+                # With both rules collapsed into one, the API server answered 422 to
+                # every hub request, the Hub logged "no upstream identity for
+                # tenant", and its directory refreshed to nought tenants -- so no
+                # phone in any tenant could connect, while the front itself looked
+                # perfectly healthy.
+                - rule: "self.purpose == 'hub' ? self.username == 'meshsat-hub' : self.username.matches('^[a-z0-9]{3,32}$')"
+                  message: >-
+                    username must be 3 to 32 lowercase alphanumerics for an eud
+                    certificate, or exactly meshsat-hub for a hub certificate
               properties:
                 label:
                   type: string
@@ -78,16 +96,17 @@ spec:
                       message: purpose is immutable
                 username:
                   type: string
-                  pattern: '^[a-z0-9]{3,32}$'
                   description: >-
                     The OpenTAKServer user this certificate authenticates, and
                     the ONLY thing that becomes the certificate's common name.
-                    Lowercase alphanumeric with no hyphens, because
-                    OpenTAKServer 1.7.13 answers HTTP 400 to a username
+                    For purpose eud: lowercase alphanumeric with no hyphens,
+                    because OpenTAKServer 1.7.13 answers HTTP 400 to a username
                     containing one — proven while building the end-to-end test in
                     MESHSAT-1046, where `meshsat-proxy` was refused and
                     `meshsatproxy` accepted. Encoded here so the next person does
-                    not rediscover it.
+                    not rediscover it. For purpose hub: exactly meshsat-hub, which
+                    is the one name that gateway admits. The rule is above, on the
+                    spec, because it depends on two fields at once.
                   x-kubernetes-validations:
                     - rule: self == oldSelf
                       message: username is immutable
