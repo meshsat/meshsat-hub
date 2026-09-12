@@ -37,11 +37,20 @@ import (
 // stop it: a device whose type is an artefact type is never forwarded, and a UID
 // carrying the Hub's own marker prefix is never forwarded either.
 type Forwarder struct {
-	bus    bus.MessageBus
-	store  store.Store
-	dial   func(ctx context.Context, t *takfront.Tenant) (net.Conn, error)
-	tenant func(tenantID string) *takfront.Tenant
-	log    *slog.Logger
+	bus   bus.MessageBus
+	store store.Store
+	dial  func(ctx context.Context, t *takfront.Tenant) (net.Conn, error)
+	// upstreams returns EVERY server this tenant's CoT should reach: the hosted
+	// instance the operator runs for them, the server they run themselves
+	// (MESHSAT-1065), or both.
+	//
+	// A slice rather than one upstream, because choosing would quietly break
+	// whichever was not chosen. Prefer the customer's own server and their
+	// satellite kit disappears from the hosted map their phones are looking at;
+	// prefer the hosted one and nothing ever arrives on the server they just
+	// configured. Both are surprising in a way no error message would explain.
+	upstreams func(ctx context.Context, tenantID string) []*takfront.Tenant
+	log       *slog.Logger
 
 	// staleSec is how long a forwarded position stays current on an ATAK map.
 	staleSec int
@@ -79,14 +88,14 @@ func NewForwarder(
 	b bus.MessageBus,
 	s store.Store,
 	dial func(ctx context.Context, t *takfront.Tenant) (net.Conn, error),
-	tenant func(tenantID string) *takfront.Tenant,
+	upstreams func(ctx context.Context, tenantID string) []*takfront.Tenant,
 	log *slog.Logger,
 ) *Forwarder {
 	if log == nil {
 		log = slog.Default()
 	}
 	return &Forwarder{
-		bus: b, store: s, dial: dial, tenant: tenant, log: log,
+		bus: b, store: s, dial: dial, upstreams: upstreams, log: log,
 		staleSec: DefaultStaleSec,
 		conns:    map[string]*upstreamConn{},
 	}
@@ -166,10 +175,10 @@ func (f *Forwarder) onPosition(ctx context.Context, topic string, payload []byte
 		return
 	}
 
-	tenant := f.tenant(tenantID)
-	if tenant == nil {
-		// No TAK server for this tenant, or it is not Ready. Not an error: most
-		// tenants will never turn TAK on.
+	ups := f.upstreams(ctx, tenantID)
+	if len(ups) == 0 {
+		// Nowhere to send: no hosted instance that is Ready, and no server of the
+		// tenant's own. Not an error -- most tenants will never turn TAK on.
 		return
 	}
 
@@ -194,9 +203,17 @@ func (f *Forwarder) onPosition(ctx context.Context, topic string, payload []byte
 		return
 	}
 
-	if err := f.send(ctx, tenantID, tenant, xml); err != nil {
-		f.log.Warn("takhosted: forwarding a position failed",
-			"tenant", tenantID, "error", err)
+	// Every upstream is attempted, and one failing must not stop the others: a
+	// customer's own server being unreachable is no reason to keep their kit off
+	// their hosted map, nor the reverse.
+	for _, up := range ups {
+		if up == nil {
+			continue
+		}
+		if err := f.send(ctx, tenantID, up, xml); err != nil {
+			f.log.Warn("takhosted: forwarding a position failed",
+				"tenant", tenantID, "upstream", up.Upstream, "kind", up.Label, "error", err)
+		}
 	}
 }
 
@@ -205,15 +222,20 @@ func (f *Forwarder) onPosition(ctx context.Context, topic string, payload []byte
 func (f *Forwarder) send(ctx context.Context, tenantID string, tenant *takfront.Tenant, xml []byte) error {
 	payload := append(append([]byte{}, xml...), '\n')
 
+	// Keyed by tenant AND upstream address: a tenant can now have more than one
+	// server, and keying by tenant alone would make two upstreams share one
+	// connection and send each position to whichever was dialled first.
+	key := upstreamKey(tenantID, tenant)
+
 	for attempt := 0; attempt < 2; attempt++ {
-		c, err := f.connFor(ctx, tenantID, tenant)
+		c, err := f.connFor(ctx, key, tenant)
 		if err != nil {
 			return err
 		}
 		_ = c.conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
 		if _, err := c.conn.Write(payload); err != nil {
 			// The upstream went away: drop it and try once more with a fresh one.
-			f.drop(tenantID)
+			f.drop(key)
 			if attempt == 1 {
 				return fmt.Errorf("write to %s: %w", tenant.Upstream, err)
 			}
@@ -227,9 +249,16 @@ func (f *Forwarder) send(ctx context.Context, tenantID string, tenant *takfront.
 	return errors.New("takhosted: could not write to the tenant's TAK server")
 }
 
-func (f *Forwarder) connFor(ctx context.Context, tenantID string, tenant *takfront.Tenant) (*upstreamConn, error) {
+// upstreamKey identifies one connection: a tenant can have several upstreams now,
+// so the tenant alone is not enough. Keyed on the address rather than the label,
+// because the address is what a connection actually goes to.
+func upstreamKey(tenantID string, t *takfront.Tenant) string {
+	return tenantID + "|" + t.Upstream
+}
+
+func (f *Forwarder) connFor(ctx context.Context, key string, tenant *takfront.Tenant) (*upstreamConn, error) {
 	f.mu.Lock()
-	if c, ok := f.conns[tenantID]; ok {
+	if c, ok := f.conns[key]; ok {
 		f.mu.Unlock()
 		return c, nil
 	}
@@ -243,22 +272,24 @@ func (f *Forwarder) connFor(ctx context.Context, tenantID string, tenant *takfro
 
 	f.mu.Lock()
 	// Another goroutine may have dialled while this one was waiting.
-	if existing, ok := f.conns[tenantID]; ok {
+	if existing, ok := f.conns[key]; ok {
 		f.mu.Unlock()
 		_ = conn.Close()
 		return existing, nil
 	}
-	f.conns[tenantID] = c
+	f.conns[key] = c
 	f.mu.Unlock()
+	// The tenant and the address, not the key: a reader wants to know whose server
+	// this is and where it is, and the key is an implementation detail.
 	f.log.Info("takhosted: opened a CoT connection to a tenant's TAK server",
-		"tenant", tenantID, "upstream", tenant.Upstream)
+		"tenant", tenant.TenantID, "upstream", tenant.Upstream, "kind", tenant.Label)
 	return c, nil
 }
 
-func (f *Forwarder) drop(tenantID string) {
+func (f *Forwarder) drop(key string) {
 	f.mu.Lock()
-	c, ok := f.conns[tenantID]
-	delete(f.conns, tenantID)
+	c, ok := f.conns[key]
+	delete(f.conns, key)
 	f.mu.Unlock()
 	if ok {
 		_ = c.conn.Close()

@@ -309,6 +309,33 @@ func (s *Server) DialTenant(ctx context.Context, t *Tenant) (net.Conn, error) {
 
 // dialUpstream connects to the tenant's server as the tenant's single identity.
 func (s *Server) dialUpstream(ctx context.Context, t *Tenant) (net.Conn, error) {
+	return DialUpstream(ctx, t, s.cfg.DialTimeout)
+}
+
+// DialUpstream is the upstream TLS policy, reachable without a Server.
+//
+// Exported for the outbound forwarder, which must also serve tenants who bring
+// their OWN TAK server (MESHSAT-1065) and therefore runs whether or not the front
+// is enabled -- the front needs a server certificate, and a customer pointing the
+// Hub at their own endpoint needs no front at all.
+//
+// It exists as one function rather than two because the property that matters is
+// easy to reimplement incorrectly: when UpstreamServerName is empty the chain is
+// STILL verified against the tenant's own CA and only the name check is skipped,
+// via VerifyConnection so it also fires on a resumed session. A second copy that
+// set InsecureSkipVerify without that callback would accept any certificate from
+// anything answering on the address, and would look right.
+func DialUpstream(ctx context.Context, t *Tenant, timeout time.Duration) (net.Conn, error) {
+	if t == nil {
+		return nil, errors.New("takfront: no tenant")
+	}
+	if timeout <= 0 {
+		timeout = 10 * time.Second
+	}
+	return dialUpstreamWith(ctx, t, timeout)
+}
+
+func dialUpstreamWith(ctx context.Context, t *Tenant, timeout time.Duration) (net.Conn, error) {
 	cfg := &tls.Config{
 		Certificates: []tls.Certificate{t.Identity},
 		RootCAs:      t.UpstreamCAs,
@@ -328,10 +355,10 @@ func (s *Server) dialUpstream(ctx context.Context, t *Tenant) (net.Conn, error) 
 		}
 	}
 	dialer := &tls.Dialer{
-		NetDialer: &net.Dialer{Timeout: s.cfg.DialTimeout},
+		NetDialer: &net.Dialer{Timeout: timeout},
 		Config:    cfg,
 	}
-	dctx, cancel := context.WithTimeout(ctx, s.cfg.DialTimeout)
+	dctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	conn, err := dialer.DialContext(dctx, "tcp", t.Upstream)
 	if err != nil {

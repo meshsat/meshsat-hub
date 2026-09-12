@@ -1444,9 +1444,24 @@ func main() {
 	// leave the other replicas unable to serve. The exception is the outbound
 	// forwarder it registers ("takhosted-outbound"): that writes into tenants'
 	// servers, so it belongs to the lease holder alone.
+	// Where a tenant's CoT goes: their hosted instance, the TAK server they run
+	// themselves (MESHSAT-1065), or both. Built before the front, because the
+	// outbound leg does not depend on it.
+	takUpstreams := newTAKUpstreams(providerAccounts)
+
+	// The outbound leg starts whatever the front is doing. A customer pointing the
+	// Hub at their own TAK server needs no front -- their phones connect to their
+	// server directly -- and the front needs a server certificate that does not
+	// exist yet. Gating this on HUB_TAK_FRONT_ENABLED would make a working feature
+	// wait on an unrelated one.
+	startTAKOutbound(dataStore, msgBus, leaderSingletons, takUpstreams)
+
 	if cfg.TAKFrontEnabled {
+		// No leaderSingletons argument any more: the one singleton this used to
+		// register is the outbound forwarder, and that now starts above,
+		// independent of the front.
 		if err := startTAKFront(ctx, cfg, dataStore, auditSvc, tenantStatus, msgBus,
-			leaderSingletons, purgeJob, takHandler); err != nil {
+			purgeJob, takHandler, takUpstreams); err != nil {
 			// Not fatal. A Hub that refuses to start because the TAK front could
 			// not bind would take down satellite ingest, SMS and the dashboard
 			// along with it, and TAK is one feature among many.
