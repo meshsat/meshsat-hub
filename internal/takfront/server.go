@@ -65,6 +65,16 @@ type Config struct {
 	// in it (commoncommo skips hostname verification deliberately), but it does
 	// check the chain.
 	Certificate tls.Certificate
+	// GetCertificate, when set, is used INSTEAD of Certificate and is consulted
+	// on every handshake.
+	//
+	// It exists because the certificate above is loaded once and the real one
+	// rotates: meshsat-net-tls is renewed end to end by cert-manager through
+	// OpenBao, the mounted files change underneath a running pod, and a parsed
+	// certificate in memory does not. Without this the front would go on
+	// presenting an expired certificate after a renewal until somebody restarted
+	// it, and every phone would fail at the same moment. See CertFile.
+	GetCertificate func(*tls.ClientHelloInfo) (*tls.Certificate, error)
 	// HandshakeTimeout bounds how long a connection may stay unidentified.
 	// Zero means 15s.
 	HandshakeTimeout time.Duration
@@ -128,7 +138,7 @@ func NewServer(cfg Config, authz Authorizer, rec Recorder) (*Server, error) {
 	if authz == nil {
 		return nil, ErrNoAuthorizer
 	}
-	if len(cfg.Certificate.Certificate) == 0 {
+	if len(cfg.Certificate.Certificate) == 0 && cfg.GetCertificate == nil {
 		return nil, errors.New("takfront: no server certificate")
 	}
 	s := &Server{
@@ -139,8 +149,7 @@ func NewServer(cfg Config, authz Authorizer, rec Recorder) (*Server, error) {
 	}
 	s.dir.Store(&Directory{byIssuer: map[string]*entry{}})
 	s.baseTLS = &tls.Config{
-		Certificates: []tls.Certificate{cfg.Certificate},
-		MinVersion:   tls.VersionTLS12,
+		MinVersion: tls.VersionTLS12,
 		// Any certificate, verified by us: the tenant's CA is chosen from the
 		// issuer, so stock verification against a union of every tenant CA
 		// would prove nothing about which tenant a phone belongs to.
@@ -155,6 +164,14 @@ func NewServer(cfg Config, authz Authorizer, rec Recorder) (*Server, error) {
 			_, err := s.dir.Load().ResolveChain(cs.PeerCertificates, time.Now())
 			return err
 		},
+	}
+	// One or the other, never both: a stale Certificates entry beside a working
+	// callback is the kind of thing that serves the wrong certificate on a
+	// resumed session and is almost impossible to see.
+	if cfg.GetCertificate != nil {
+		s.baseTLS.GetCertificate = cfg.GetCertificate
+	} else {
+		s.baseTLS.Certificates = []tls.Certificate{cfg.Certificate}
 	}
 	return s, nil
 }
