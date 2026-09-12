@@ -90,7 +90,25 @@ type Input struct {
 	Description string // what the client shows in its server list
 	KeyPEM      []byte // the phone's private key
 	CertPEM     []byte // the leaf the operator issued, CN == Username
-	CACertPEM   []byte // the tenant's CA chain
+	// CACertPEM is the TENANT's CA: the chain the phone's own certificate was
+	// issued under. It goes in the client p12 beside the leaf.
+	CACertPEM []byte
+	// ServerTrustPEM is the chain of the certificate THE FRONT PRESENTS, and it
+	// is what the truststore carries.
+	//
+	// These are two different certificates and conflating them is the obvious
+	// mistake -- it was made here once. The phone's certificate is issued by the
+	// tenant's CA, which is how the front works out which tenant is calling. The
+	// front's own certificate is a public one for the Hub's hostname (today a
+	// Let's Encrypt `*.meshsat.net`), because ATAK sends no SNI on the CoT socket
+	// so one certificate has to answer every tenant. `caLocation` in the .pref is
+	// what the phone verifies THAT against, so a truststore holding the tenant CA
+	// makes every handshake fail -- and it fails at the client, where we would
+	// never see it.
+	//
+	// internal/config says the same thing about the front's certificate: "Every
+	// tenant's truststore therefore carries this certificate's chain."
+	ServerTrustPEM []byte
 }
 
 // Bundle is one file to hand to a customer.
@@ -112,6 +130,12 @@ func (in Input) validate() error {
 			"(OpenTAKServer rejects hyphens, dots and @)", in.Username, usernamePattern)
 	case len(in.KeyPEM) == 0, len(in.CertPEM) == 0, len(in.CACertPEM) == 0:
 		return fmt.Errorf("takenroll: key, certificate and CA are all required")
+	case len(in.ServerTrustPEM) == 0:
+		// Refused rather than defaulted to the tenant CA. A package whose
+		// truststore cannot verify the front is one the phone rejects at the
+		// handshake, which looks like "TAK does not work" and is invisible here.
+		return fmt.Errorf("takenroll: no server trust chain; the phone would have " +
+			"nothing to verify the TAK front's certificate against")
 	}
 	return nil
 }
@@ -181,13 +205,48 @@ func (in Input) keystores() (client, trust []byte, err error) {
 	if err != nil {
 		return nil, nil, fmt.Errorf("takenroll: client p12: %w", err)
 	}
+
+	// The truststore is the FRONT's chain, not the tenant's. See Input.
+	anchors, err := trustAnchors(in.ServerTrustPEM)
+	if err != nil {
+		return nil, nil, fmt.Errorf("takenroll: server trust chain: %w", err)
+	}
 	// EncodeTrustStore marks the certificates with the OID that makes this a
 	// Java 1.8+ TrustStore, which is what the client wants for caLocation.
-	trust, err = pkcs12.Legacy.EncodeTrustStore(cas, p12Password)
+	trust, err = pkcs12.Legacy.EncodeTrustStore(anchors, p12Password)
 	if err != nil {
 		return nil, nil, fmt.Errorf("takenroll: truststore: %w", err)
 	}
 	return client, trust, nil
+}
+
+// trustAnchors picks the certificates a client should trust out of a served
+// chain.
+//
+// A Kubernetes tls.crt is leaf-first: leaf, then intermediate, then sometimes the
+// root. The leaf is not a trust anchor -- pinning it would break the phone the
+// next time the certificate is renewed, which for Let's Encrypt is every 60 days.
+// So anchors are selected by IsCA rather than by position, which also handles a
+// bare root, an intermediate-and-root pair, and a single self-signed certificate
+// (a test or a private deployment) without any special cases.
+func trustAnchors(pemBytes []byte) ([]*x509.Certificate, error) {
+	certs, err := parseCerts(pemBytes)
+	if err != nil {
+		return nil, err
+	}
+	var cas []*x509.Certificate
+	for _, c := range certs {
+		if c.IsCA {
+			cas = append(cas, c)
+		}
+	}
+	if len(cas) > 0 {
+		return cas, nil
+	}
+	// Nothing in the chain says it is a CA. Use what was given rather than
+	// refusing: a deployment may hand us a single self-signed server certificate,
+	// and trusting exactly that is a coherent choice the caller has made.
+	return certs, nil
 }
 
 // xmlHeader is upstream's literal header, single quotes and standalone and all,

@@ -91,7 +91,16 @@ type TAKCerts interface {
 
 // SetTAKCerts attaches the certificate machinery. Enrolment is refused until it
 // is set, which is what a Hub running without hosted TAK wants.
-func (h *TenantTAKHandler) SetTAKCerts(c TAKCerts) { h.certs = c }
+//
+// frontTrustPEM is the chain of the certificate the TAK front presents, and it
+// arrives HERE rather than through its own setter so the two cannot be set
+// independently: a handler holding one without the other would mint enrolments
+// whose truststore is empty, and the phone would fail the handshake with nothing
+// on our side to show why.
+func (h *TenantTAKHandler) SetTAKCerts(c TAKCerts, frontTrustPEM []byte) {
+	h.certs = c
+	h.frontTrust = frontTrustPEM
+}
 
 // enrolTTL is how long a claim is good for. Fifteen minutes: long enough to walk
 // to the phone and scan the code, short enough that an unclaimed enrolment is not
@@ -204,7 +213,10 @@ func (h *TenantTAKHandler) mintEnrolment(r *http.Request, username string) (*enr
 	ctx := r.Context()
 	tenantID := hubauth.TenantIDFromContext(ctx)
 
-	if h.certs == nil {
+	// Both, together: without the front's chain the package would carry an empty
+	// truststore and the phone would fail the handshake. Same message for both, so
+	// the answer says nothing about how this Hub is configured.
+	if h.certs == nil || len(h.frontTrust) == 0 {
 		return nil, http.StatusServiceUnavailable, "hosted TAK is not available on this Hub"
 	}
 	if !takUsernamePattern.MatchString(username) {
@@ -464,13 +476,19 @@ func (h *TenantTAKHandler) Claim(w http.ResponseWriter, r *http.Request) {
 	// Description is left to takenroll's default ("MeshSat Hub"), which is what a
 	// phone shows in its server list. One name for every tenant is deliberate: the
 	// instance label is opaque precisely so it never reaches a handset.
+	//
+	// Two different chains go in, and swapping them is the mistake that was made
+	// here once: CACertPEM is the TENANT's CA, which issued this phone's own
+	// certificate, while ServerTrustPEM is the FRONT's chain, which is what the
+	// phone verifies the server against.
 	atak, itak, err := takenroll.Build(takenroll.Input{
-		Host:      h.publicHost,
-		Port:      h.port,
-		Username:  stash.Username,
-		KeyPEM:    keyPEM,
-		CertPEM:   []byte(material.CertPEM),
-		CACertPEM: []byte(material.CACertPEM),
+		Host:           h.publicHost,
+		Port:           h.port,
+		Username:       stash.Username,
+		KeyPEM:         keyPEM,
+		CertPEM:        []byte(material.CertPEM),
+		CACertPEM:      []byte(material.CACertPEM),
+		ServerTrustPEM: h.frontTrust,
 	})
 	if err != nil {
 		h.log.Error("tak enrolment: building the package failed",
