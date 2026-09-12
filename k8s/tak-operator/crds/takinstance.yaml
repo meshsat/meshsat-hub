@@ -1,0 +1,128 @@
+# TakInstance: one customer's hosted OpenTAKServer, as a request rather than as a
+# description. The Hub creates one of these and nothing else; the tak-operator
+# turns it into a Deployment, a Service, Secrets, a Database and a DatabaseRole.
+#
+# The spec is deliberately tiny. Everything a customer could influence is either
+# absent or immutable, because the Hub's ServiceAccount can create these objects
+# and the Hub is internet-facing: the blast radius of a compromised Hub must be
+# "asks for an instance it is already entitled to", not "describes a pod".
+#
+# Nothing here carries a hostname, an image, a resource figure or a command. The
+# operator decides all of that.
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: takinstances.tak.meshsat.net
+  labels:
+    app.kubernetes.io/name: tak-operator
+spec:
+  group: tak.meshsat.net
+  scope: Namespaced
+  names:
+    kind: TakInstance
+    listKind: TakInstanceList
+    plural: takinstances
+    singular: takinstance
+  versions:
+    - name: v1alpha1
+      served: true
+      storage: true
+      subresources:
+        status: {}
+      additionalPrinterColumns:
+        - name: Label
+          type: string
+          jsonPath: .spec.label
+        - name: State
+          type: string
+          jsonPath: .spec.state
+        - name: Phase
+          type: string
+          jsonPath: .status.phase
+        - name: Age
+          type: date
+          jsonPath: .metadata.creationTimestamp
+      schema:
+        openAPIV3Schema:
+          type: object
+          required: [spec]
+          properties:
+            spec:
+              type: object
+              required: [tenantID, label]
+              properties:
+                tenantID:
+                  type: string
+                  minLength: 1
+                  maxLength: 64
+                  description: >-
+                    The MeshSat tenant this instance belongs to. Immutable: an
+                    instance that could change owner would hand one customer's
+                    CoT history to another.
+                  x-kubernetes-validations:
+                    - rule: self == oldSelf
+                      message: tenantID is immutable
+                label:
+                  type: string
+                  pattern: '^[a-z0-9]{10}$'
+                  description: >-
+                    An opaque random identifier for this instance, used in object
+                    names and its in-cluster hostname. Opaque on purpose: it must
+                    not leak the tenant's name, slug or id to anybody who can see
+                    a DNS name or a certificate. Immutable, because renaming it
+                    would orphan the database and the Secrets.
+                  x-kubernetes-validations:
+                    - rule: self == oldSelf
+                      message: label is immutable
+                state:
+                  type: string
+                  enum: [Running, Suspended, Hibernated]
+                  default: Running
+                  description: >-
+                    Running serves traffic. Suspended scales the Deployment to
+                    zero and leaves the data alone, which is what a lapsed or
+                    suspended tenant gets. Hibernated additionally blocks new
+                    connections to the database, for an idle free tenant.
+                    Suspension NEVER deletes anything: deletion is a purge, and a
+                    purge is a separate, annotated act.
+                files:
+                  type: boolean
+                  default: false
+                  description: >-
+                    Data packages and missions. False until the per-tenant object
+                    store sync exists (P9); while false the instance's nginx
+                    answers 404 for those paths rather than writing to a volume
+                    nothing backs up.
+            status:
+              type: object
+              properties:
+                phase:
+                  type: string
+                  enum: [Pending, Provisioning, Ready, Suspended, Hibernated, Failed]
+                observedGeneration:
+                  type: integer
+                  format: int64
+                host:
+                  type: string
+                  description: In-cluster address the Hub dials, host:port.
+                caCertPEM:
+                  type: string
+                  description: >-
+                    The tenant CA certificate, PEM. PUBLIC by definition — it is
+                    the trust anchor the Hub verifies this instance's phones
+                    against. The private key never appears in a status, a spec or
+                    any object the Hub can read.
+                message:
+                  type: string
+                conditions:
+                  type: array
+                  items:
+                    type: object
+                    required: [type, status, lastTransitionTime, reason]
+                    properties:
+                      type: {type: string}
+                      status: {type: string, enum: ["True", "False", "Unknown"]}
+                      observedGeneration: {type: integer, format: int64}
+                      lastTransitionTime: {type: string, format: date-time}
+                      reason: {type: string}
+                      message: {type: string}

@@ -1,0 +1,132 @@
+# TakCertificateRequest: the Hub asks for a certificate; the operator decides
+# what it says.
+#
+# The single most important property of this API is that the SUBJECT IS NOT
+# NEGOTIABLE. The operator issues every certificate as CN=spec.username and
+# ignores whatever subject the CSR carries. Upstream OpenTAKServer's enrollment
+# signs whatever CN it is handed, which is how a user there can mint a
+# certificate naming `administrator`; this API exists so that cannot happen here.
+#
+# The Hub holds no CA key. It generates a key pair, sends the CSR, and receives a
+# certificate — so a compromised Hub can obtain certificates for users it names,
+# but cannot forge one for a user it does not own (the operator checks ownership
+# against the TakInstance) and cannot sign anything itself.
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: takcertificaterequests.tak.meshsat.net
+  labels:
+    app.kubernetes.io/name: tak-operator
+spec:
+  group: tak.meshsat.net
+  scope: Namespaced
+  names:
+    kind: TakCertificateRequest
+    listKind: TakCertificateRequestList
+    plural: takcertificaterequests
+    singular: takcertificaterequest
+  versions:
+    - name: v1alpha1
+      served: true
+      storage: true
+      subresources:
+        status: {}
+      additionalPrinterColumns:
+        - name: Label
+          type: string
+          jsonPath: .spec.label
+        - name: Purpose
+          type: string
+          jsonPath: .spec.purpose
+        - name: Username
+          type: string
+          jsonPath: .spec.username
+        - name: Phase
+          type: string
+          jsonPath: .status.phase
+        - name: Age
+          type: date
+          jsonPath: .metadata.creationTimestamp
+      schema:
+        openAPIV3Schema:
+          type: object
+          required: [spec]
+          properties:
+            spec:
+              type: object
+              required: [label, purpose, username, csrPEM]
+              properties:
+                label:
+                  type: string
+                  pattern: '^[a-z0-9]{10}$'
+                  description: The TakInstance whose CA signs this. Immutable.
+                  x-kubernetes-validations:
+                    - rule: self == oldSelf
+                      message: label is immutable
+                purpose:
+                  type: string
+                  enum: [eud, hub]
+                  description: >-
+                    eud is a phone: 90 days, client authentication only. hub is
+                    the Hub's own upstream identity: 7 days, because it is
+                    renewed automatically and a short life is free. The
+                    customer-facing API must never create a hub request; that is
+                    enforced in the Hub, since the operator cannot tell which
+                    caller inside the Hub asked.
+                  x-kubernetes-validations:
+                    - rule: self == oldSelf
+                      message: purpose is immutable
+                username:
+                  type: string
+                  pattern: '^[a-z0-9]{3,32}$'
+                  description: >-
+                    The OpenTAKServer user this certificate authenticates, and
+                    the ONLY thing that becomes the certificate's common name.
+                    Lowercase alphanumeric with no hyphens, because
+                    OpenTAKServer 1.7.13 answers HTTP 400 to a username
+                    containing one — proven while building the end-to-end test in
+                    MESHSAT-1046, where `meshsat-proxy` was refused and
+                    `meshsatproxy` accepted. Encoded here so the next person does
+                    not rediscover it.
+                  x-kubernetes-validations:
+                    - rule: self == oldSelf
+                      message: username is immutable
+                csrPEM:
+                  type: string
+                  minLength: 1
+                  maxLength: 8192
+                  description: >-
+                    A PKCS#10 certificate request, PEM. Its signature is checked,
+                    so the requester must hold the private key; its subject and
+                    extensions are discarded.
+                  x-kubernetes-validations:
+                    - rule: self == oldSelf
+                      message: csrPEM is immutable
+            status:
+              type: object
+              properties:
+                phase:
+                  type: string
+                  enum: [Pending, Issued, Denied]
+                observedGeneration:
+                  type: integer
+                  format: int64
+                certPEM:
+                  type: string
+                  description: The issued certificate, PEM.
+                caCertPEM:
+                  type: string
+                  description: The issuing tenant CA, PEM, so the holder can build a chain.
+                serial:
+                  type: string
+                  description: >-
+                    Decimal serial. The Hub records it per user, because
+                    OpenTAKServer publishes no CRL and ATAK would not read one:
+                    revocation is the Hub refusing a serial at its own front
+                    door.
+                notAfter:
+                  type: string
+                  format: date-time
+                message:
+                  type: string
+                  description: Why a request was denied, in words a person can act on.

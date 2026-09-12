@@ -1,0 +1,34 @@
+# Non-secret configuration for the operator.
+#
+# The images live here rather than in the root kustomization's `images:` block,
+# which is the documented exception: kustomize rewrites image fields on pod specs,
+# and these are values the operator reads and puts into pod specs it writes at
+# runtime. It also means bump_k8s_pin does not manage them — changing which
+# OpenTAKServer customers run is a deliberate edit, not a side effect of a Hub
+# build. `.gitlab-ci.yml` says the same thing beside the package:ots job.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: tak-operator-config
+  namespace: meshsat-tak
+  labels:
+    app.kubernetes.io/name: tak-operator
+data:
+  # OpenTAKServer 1.7.13, built by package:ots from k8s/ots/Dockerfile and gated
+  # by trivy:ots. Pinned by digest: a tag would let a rebuild change what
+  # customers run without a commit.
+  TAK_OTS_IMAGE: "ghcr.io/meshsat/meshsat-hub-ots@sha256:c0428be361d1e6233bf3f61ebf387b9af1e37598d8213062dff0182ea69f49f5"
+  # In the pod because OpenTAKServer's socketio client connects to RabbitMQ as
+  # `guest` with no credentials, and guest is loopback-only. Spike S5 settled
+  # that it must run as the image's own uid 100: as root with capabilities
+  # dropped its entrypoint fails chowning the data directory.
+  # TODO pin by digest after the first pull, as k8s/NOTES.md says for stunnel.
+  TAK_RABBITMQ_IMAGE: "docker.io/library/rabbitmq:4.1-alpine"
+  # The instance's internal admin gateway. Same digest the basemap uses.
+  TAK_NGINX_IMAGE: "docker.io/nginxinc/nginx-unprivileged@sha256:65e3e85dbaed8ba248841d9d58a899b6197106c23cb0ff1a132b7bfe0547e4c0"
+  TAK_DB_NAMESPACE: "meshsat-tak-db"
+  TAK_DB_CLUSTER: "meshsat-tak-main"
+  # Every pass lists two small collections, so this is cheap. It is also the
+  # worst-case delay before a customer who just turned TAK on sees an instance.
+  TAK_RECONCILE_INTERVAL_SEC: "30"
+  TAK_LOG_LEVEL: "info"
