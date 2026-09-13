@@ -42,7 +42,7 @@ data:
   # and check the new pod's startup line reports the digest below as ots_image.
   # This is the same trap that left the Hub running 121 minutes with the correct
   # Secret and the wrong Stripe key.
-  TAK_OTS_IMAGE: "ghcr.io/meshsat/meshsat-hub-ots@sha256:8c68463c1bff7c0b1ba7426d492cd64a45a492fee698d2da1feaf6c59af7de4a"
+  TAK_OTS_IMAGE: "ghcr.io/meshsat/meshsat-hub-ots@sha256:988e0105cee08756f9b515fd555bb990a6fd2fd3a82bba79b275f090a432a6cc"
   # In the pod because OpenTAKServer's socketio client connects to RabbitMQ as
   # `guest` with no credentials, and guest is loopback-only. Spike S5 settled
   # that it must run as the image's own uid 100: as root with capabilities
