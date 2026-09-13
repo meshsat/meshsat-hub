@@ -221,6 +221,60 @@ govulncheck:
     - govulncheck ./...
 
 # -----------------------------------------------------------------------------
+# WEB — the committed dist must match the committed source
+# -----------------------------------------------------------------------------
+# CI DOES NOT BUILD THE FRONTEND, and the Go binary embeds cmd/meshsat-hub/web/dist
+# verbatim (`//go:embed dist/*`). So the SPA that ships is whatever was last
+# committed, and a change to web/src with no rebuild ships the old interface with
+# a green pipeline and nothing to look at. That has already bitten: P8 deleted a
+# view and `/tak` still routed to it until dist was rebuilt by hand.
+#
+# This does not build dist FOR you -- it is committed on purpose, so the image
+# build needs no Node and the artefact is reviewable. It asserts the committed
+# output is the output the committed source produces.
+#
+# Byte-for-byte comparison is sound because the build is deterministic: rebuilding
+# unchanged source reproduces the tree hash exactly (verified before writing this).
+# If that ever stops being true this job reds immediately, which is the correct
+# response -- a non-reproducible frontend build is its own problem.
+#
+# Node 20 is pinned because that is what produced the committed dist. A different
+# major may emit different output and turn this into a false red.
+web:dist-current:
+  stage: lint
+  image: node:20-alpine
+  tags: [docker]
+  rules:
+    # Always on main. Without this a dist that went stale in an earlier merge
+    # stays stale for as long as nobody happens to touch web/ again -- the rule
+    # below would simply never fire, and the gate would be silent about a defect
+    # that is already shipped.
+    - if: $CI_COMMIT_BRANCH == "main"
+    # On branches: source edits, dependency changes, and hand-edits of dist itself.
+    - changes:
+        - web/**/*
+        - cmd/meshsat-hub/web/dist/**/*
+  before_script:
+    - apk add --no-cache git
+  script:
+    - cd web
+    - npm ci --no-audit --no-fund
+    - npm run build
+    - cd ..
+    # --exit-code fails on any difference. --stat first so the log names the files
+    # rather than making somebody scroll a minified diff.
+    - |
+      if ! git diff --quiet -- cmd/meshsat-hub/web/dist; then
+        echo "committed dist does not match what web/ builds:"
+        git diff --stat -- cmd/meshsat-hub/web/dist
+        echo ""
+        echo "Rebuild and commit it:  cd web && npm ci && npm run build"
+        echo "The binary embeds dist verbatim, so without this the shipped UI is stale."
+        exit 1
+      fi
+    - echo "committed dist matches the committed source"
+
+# -----------------------------------------------------------------------------
 # TEST — unit tests
 # -----------------------------------------------------------------------------
 test:
