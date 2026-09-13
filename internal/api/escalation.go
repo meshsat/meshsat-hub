@@ -1,8 +1,10 @@
 package api
 
 import (
+	"fmt"
 	"log/slog"
 	"net/http"
+	"strings"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/meshsat/meshsat-hub/internal/auth"
@@ -68,6 +70,25 @@ func (h *EscalationHandler) CreateChain(w http.ResponseWriter, r *http.Request) 
 	if len(chain.Tiers) == 0 {
 		writeError(w, http.StatusBadRequest, "at least one tier is required")
 		return
+	}
+	// A tier with no targets notifies nobody, and the engine cannot tell the
+	// difference between that and a tier whose delivery failed -- it counts a
+	// retry and walks on. So a chain that looks saved and pages no one is
+	// indistinguishable from a working one until the day it matters
+	// (MESHSAT-1115). This is a safety feature; refuse it at the door.
+	for i, tier := range chain.Tiers {
+		if len(tier.Targets) == 0 {
+			writeError(w, http.StatusBadRequest, fmt.Sprintf(
+				"tier %d has no targets, so it would notify nobody", i+1))
+			return
+		}
+		for _, t := range tier.Targets {
+			if strings.TrimSpace(t) == "" {
+				writeError(w, http.StatusBadRequest, fmt.Sprintf(
+					"tier %d has an empty target", i+1))
+				return
+			}
+		}
 	}
 	if err := h.store.CreateEscalationChain(r.Context(), tid, &chain); err != nil {
 		slog.Error("create escalation chain", "error", err)

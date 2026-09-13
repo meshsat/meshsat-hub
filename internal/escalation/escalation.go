@@ -154,7 +154,26 @@ func (e *Engine) processAlert(ctx context.Context, alert *store.Alert, now time.
 	// Load the chain to get tier configuration.
 	chain, err := e.store.GetEscalationChain(ctx, alert.TenantID, alert.ChainID)
 	if err != nil {
-		slog.Error("escalation: chain not found", "chain_id", alert.ChainID, "error", err)
+		// Exhaust the alert rather than returning. Returning leaves NextEscAt in
+		// the past, so the alert stays due and this runs again every interval --
+		// for ever, at Error level, for an alert that can never be delivered.
+		//
+		// This is reachable in ordinary use, not just from corruption: there is
+		// no UpdateEscalationChain at any layer, so editing a chain means delete
+		// and recreate, which orphans every alert already pointing at the old id
+		// (MESHSAT-1115).
+		alert.State = store.AlertStateExhausted
+		alert.UpdatedAt = now
+		if uerr := e.store.UpdateAlert(ctx, alert.TenantID, alert); uerr != nil {
+			// Keep the old behaviour on a write failure: better to retry the
+			// loop than to drop the alert silently.
+			slog.Error("escalation: chain missing AND the alert could not be closed; will retry",
+				"id", alert.ID, "chain_id", alert.ChainID, "error", err, "update_error", uerr)
+			return
+		}
+		slog.Error("escalation: chain not found, alert closed undelivered",
+			"id", alert.ID, "tenant", alert.TenantID, "type", alert.Type,
+			"chain_id", alert.ChainID, "error", err)
 		return
 	}
 
