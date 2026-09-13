@@ -120,7 +120,7 @@ func TestReject_RefusesAnAccountThatIsNotAPendingSignup(t *testing.T) {
 	u := pendingUser()
 	u["is_active"] = true
 	c, f := newFake(t, u)
-	if _, err := c.Reject(context.Background(), 7); !errors.Is(err, ErrNotPending) {
+	if _, _, err := c.Reject(context.Background(), 7); !errors.Is(err, ErrNotPending) {
 		t.Fatalf("err = %v, want ErrNotPending", err)
 	}
 	if f.deletes != 0 {
@@ -142,4 +142,25 @@ func contains(s, sub string) bool {
 		}
 	}
 	return false
+}
+
+// Reject returns the NAME as well as the address, and both are read before the
+// account is deleted -- afterwards there is nothing left to ask (MESHSAT-1082).
+// Without the name the notice would greet a stranger who had given us one.
+func TestRejectReturnsWhoItWasSoTheyCanBeTold(t *testing.T) {
+	c, f := newFake(t, pendingUser())
+
+	email, name, err := c.Reject(context.Background(), 7)
+	if err != nil {
+		t.Fatalf("reject: %v", err)
+	}
+	if email != "alice@example.com" {
+		t.Errorf("email = %q", email)
+	}
+	if name != "Alice Example" {
+		t.Errorf("name = %q; without it the rejection notice cannot greet them", name)
+	}
+	if f.deletes != 1 {
+		t.Errorf("deletes = %d, want exactly 1", f.deletes)
+	}
 }
