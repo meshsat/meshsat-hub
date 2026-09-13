@@ -13,7 +13,7 @@ import "strings"
 // Three properties matter more than anything else here, and each has a test or a
 // release-gate assertion behind it:
 //
-//  1. Only CN=meshsat-hub gets in. The listener verifies client certificates
+//  1. Only CN=meshsat_hub gets in. The listener verifies client certificates
 //     against the tenant's own CA, and then checks the common name as well —
 //     because that CA also signs every phone in the tenant, and a phone
 //     certificate must not be an admin credential.
@@ -47,11 +47,11 @@ http {
     proxy_read_timeout 30s;
 
     # The DN arrives in RFC 2253 form, so the common name is one component of a
-    # comma-separated string: CN=meshsat-hub,O=MeshSat. Matching the component
-    # rather than a substring keeps a user called "meshsat-hubbish" out.
+    # comma-separated string: CN=meshsat_hub,O=MeshSat. Matching the component
+    # rather than a substring keeps a user called "meshsat_hubbish" out.
     map $ssl_client_s_dn $is_hub {
         default                     0;
-        "~(^|,)CN=meshsat-hub(,|$)" 1;
+        "~(^|,)CN=meshsat_hub(,|$)" 1;
     }
 
     server {

@@ -189,6 +189,7 @@ func (r *Reconciler) reconcileInstance(ctx context.Context, inst *TakInstance) e
 
 	phase := PhaseProvisioning
 	adminChanged := false
+	hubAccount := false
 	switch {
 	case inst.Spec.State == StateSuspended:
 		phase = PhaseSuspended
@@ -219,6 +220,24 @@ func (r *Reconciler) reconcileInstance(ctx context.Context, inst *TakInstance) e
 			} else {
 				adminChanged = true
 			}
+
+			// And give the instance an account for the identity the FRONT connects
+			// as (MESHSAT-1088). Without it OpenTAKServer drops the front's
+			// connection and silently stores nothing, while every phone, every
+			// certificate and every log line looks correct.
+			//
+			// Same treatment as the password above: retried on the next pass rather
+			// than failing the instance, because the server is up and a tenant with
+			// a working admin gateway is better than one marked Failed. It carries
+			// its own condition so "not done yet" cannot read as done -- and here
+			// that matters more, because the symptom of missing it is silence.
+			if err := r.ensureHubAccount(ctx, label, ca); err != nil {
+				r.Log.Error("takoperator: the hub's own OTS account is missing, so this "+
+					"tenant will store NO CoT from any phone",
+					"label", label, "error", err)
+			} else {
+				hubAccount = true
+			}
 		}
 	}
 	conditions := []metav1.Condition{{
@@ -239,6 +258,20 @@ func (r *Reconciler) reconcileInstance(ctx context.Context, inst *TakInstance) e
 			ObservedGeneration: inst.Generation,
 			LastTransitionTime: metav1.Now(),
 			Reason:             reason,
+		})
+		// The condition that says whether this instance can actually store
+		// anything. False here means Ready is true and the tenant is nonetheless
+		// deaf -- which is exactly the state MESHSAT-1088 shipped in.
+		hubReason := "PendingRetry"
+		if hubAccount {
+			hubReason = "Ensured"
+		}
+		conditions = append(conditions, metav1.Condition{
+			Type:               "HubAccountEnsured",
+			Status:             boolToCondition(hubAccount),
+			ObservedGeneration: inst.Generation,
+			LastTransitionTime: metav1.Now(),
+			Reason:             hubReason,
 		})
 	}
 	return r.Client.SetInstanceStatus(ctx, r.Namespace, inst.Name, TakInstanceStatus{
