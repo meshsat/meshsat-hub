@@ -145,17 +145,32 @@ func (d *Dispatcher) SetWebhooks(configs []WebhookConfig) {
 	d.webhooks = configs
 }
 
-// AddWebhook appends a webhook configuration.
-func (d *Dispatcher) AddWebhook(cfg WebhookConfig) {
-	d.mu.Lock()
-	defer d.mu.Unlock()
+// withDefaults fills in the retry and timeout policy.
+//
+// It is applied on the way IN to the store and again on the way OUT of it, not
+// only when a config is added to the in-memory list. That was the bug: the
+// defaults were applied to the copy AddWebhook appended and the row written to
+// the database kept its zeros, so the values survived exactly until the first
+// reload -- announcement, replica, or restart.
+//
+// TimeoutSec 0 is the dangerous half: deliver builds http.Client{Timeout: 0},
+// which is no timeout at all, so one webhook target that accepts a connection
+// and never answers holds a goroutine for the life of the process.
+func (cfg WebhookConfig) withDefaults() WebhookConfig {
 	if cfg.MaxRetries <= 0 {
 		cfg.MaxRetries = 3
 	}
 	if cfg.TimeoutSec <= 0 {
 		cfg.TimeoutSec = 10
 	}
-	d.webhooks = append(d.webhooks, cfg)
+	return cfg
+}
+
+// AddWebhook appends a webhook configuration.
+func (d *Dispatcher) AddWebhook(cfg WebhookConfig) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.webhooks = append(d.webhooks, cfg.withDefaults())
 }
 
 // RemoveWebhook removes one of the tenant's webhooks by ID. It reports whether

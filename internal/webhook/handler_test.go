@@ -266,3 +266,133 @@ func withURLParam(r *http.Request, key, value string) *http.Request {
 	rctx.URLParams.Add(key, value)
 	return r.WithContext(context.WithValue(r.Context(), chi.RouteCtxKey, rctx))
 }
+
+// Both of these were found by creating one webhook against production and
+// reading what came back, after the tenancy fix had already shipped. Neither
+// was visible in a unit test, because every test until now built the config in
+// Go and never round-tripped it through the store or the router.
+
+// The generated id goes into DELETE /api/webhooks/{id}, which is ONE chi path
+// segment. An id built from the URL carries "https://" and every path
+// separator, so the delete request 404s at the router and the webhook can never
+// be removed.
+func TestTheGeneratedIDIsAddressableInAURLPath(t *testing.T) {
+	fs := newFakeStore(tenantA)
+	d := NewDispatcher(nil)
+	d.AllowLoopbackTargetsForTest()
+	d.SetStore(fs)
+	h := NewAPIHandler(d)
+
+	w := httptest.NewRecorder()
+	h.CreateWebhook(w, asTenant("POST", "/api/webhooks",
+		`{"url":"https://hooks.example.com/a/b?x=1","events":["mo"],"enabled":true}`, tenantA))
+	if w.Code != http.StatusCreated {
+		t.Fatalf("create: %d %s", w.Code, w.Body.String())
+	}
+	var created map[string]string
+	_ = json.Unmarshal(w.Body.Bytes(), &created)
+	id := created["id"]
+
+	if strings.ContainsAny(id, "/?#%") {
+		t.Fatalf("the generated id %q contains a character that cannot survive one path "+
+			"segment. DELETE /api/webhooks/{id} will 404 and the webhook is undeletable.", id)
+	}
+
+	// And prove it actually deletes through the handler, chi param and all.
+	r := withURLParam(asTenant("DELETE", "/api/webhooks/"+id, "", tenantA), "id", id)
+	dw := httptest.NewRecorder()
+	h.DeleteWebhook(dw, r)
+	if dw.Code != http.StatusNoContent {
+		t.Fatalf("delete: %d %s", dw.Code, dw.Body.String())
+	}
+	if got := d.ListWebhooks(tenantA); len(got) != 0 {
+		t.Errorf("the webhook survived its own delete: %v", got)
+	}
+	rows, _ := fs.ListWebhooks(context.Background(), tenantA)
+	if len(rows) != 0 {
+		t.Errorf("the row survived its own delete: %v", rows)
+	}
+}
+
+// Two webhooks created with the same URL, by the same tenant, must not be one
+// row: the id is the primary key and SaveWebhook does ON CONFLICT DO UPDATE.
+func TestTwoWebhooksOnTheSameURLAreTwoRows(t *testing.T) {
+	fs := newFakeStore(tenantA)
+	d := NewDispatcher(nil)
+	d.AllowLoopbackTargetsForTest()
+	d.SetStore(fs)
+	h := NewAPIHandler(d)
+
+	const body = `{"url":"https://hooks.example.com/same","events":["mo"],"enabled":true}`
+	for i := 0; i < 2; i++ {
+		w := httptest.NewRecorder()
+		h.CreateWebhook(w, asTenant("POST", "/api/webhooks", body, tenantA))
+		if w.Code != http.StatusCreated {
+			t.Fatalf("create %d: %d %s", i, w.Code, w.Body.String())
+		}
+	}
+	if got := d.ListWebhooks(tenantA); len(got) != 2 {
+		t.Errorf("got %d webhooks, want 2 -- the second overwrote the first", len(got))
+	}
+}
+
+// The retry and timeout policy has to be in the ROW, not only in the copy the
+// dispatcher holds. TimeoutSec 0 becomes http.Client{Timeout: 0}, which is no
+// timeout at all: a target that accepts the connection and never answers holds
+// a goroutine for the life of the process.
+func TestTheRetryAndTimeoutPolicySurvivesAReload(t *testing.T) {
+	fs := newFakeStore(tenantA)
+	d := NewDispatcher(nil)
+	d.AllowLoopbackTargetsForTest()
+	d.SetStore(fs)
+	h := NewAPIHandler(d)
+
+	w := httptest.NewRecorder()
+	h.CreateWebhook(w, asTenant("POST", "/api/webhooks",
+		`{"url":"https://hooks.example.com/a","events":["mo"],"enabled":true}`, tenantA))
+	if w.Code != http.StatusCreated {
+		t.Fatalf("create: %d %s", w.Code, w.Body.String())
+	}
+
+	// What was actually written down.
+	rows, _ := fs.ListWebhooks(context.Background(), tenantA)
+	if len(rows) != 1 {
+		t.Fatalf("rows = %d, want 1", len(rows))
+	}
+	if rows[0].TimeoutSec == 0 || rows[0].MaxRetries == 0 {
+		t.Errorf("the stored row has timeout_sec=%d max_retries=%d. A zero timeout is no "+
+			"timeout: one unresponsive target then holds a goroutine forever.",
+			rows[0].TimeoutSec, rows[0].MaxRetries)
+	}
+
+	// And what a restarted replica loads back.
+	fresh := NewDispatcher(nil)
+	fresh.SetStore(fs)
+	if err := fresh.LoadAll(context.Background()); err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	got := fresh.ListWebhooks(tenantA)
+	if len(got) != 1 || got[0].TimeoutSec != 10 || got[0].MaxRetries != 3 {
+		t.Errorf("after a reload: %+v, want timeout_sec 10 and max_retries 3", got)
+	}
+}
+
+// A row already in the database with zeros -- written before this was fixed, or
+// by hand -- must heal on load rather than delivering with no timeout.
+func TestAStoredRowWithNoPolicyHealsOnLoad(t *testing.T) {
+	fs := newFakeStore(tenantA)
+	_ = fs.SaveWebhook(context.Background(), tenantA, &store.WebhookConfig{
+		ID: "legacy", URL: "https://hooks.example.com/legacy",
+		Events: []string{"mo"}, Enabled: true, // MaxRetries and TimeoutSec zero
+	})
+
+	d := NewDispatcher(nil)
+	d.SetStore(fs)
+	if err := d.LoadAll(context.Background()); err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	got := d.ListWebhooks(tenantA)
+	if len(got) != 1 || got[0].TimeoutSec != 10 || got[0].MaxRetries != 3 {
+		t.Errorf("loaded %+v, want the defaults applied", got)
+	}
+}
