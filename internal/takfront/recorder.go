@@ -51,12 +51,21 @@ const (
 	// counted but logged at Debug, because the overwhelming source of it is the
 	// edge relay's own TCP health check (MESHSAT-1074).
 	reasonProbe = "probe"
+	// reasonPlaintext is a client that spoke something other than TLS to a TLS
+	// port. Separated from reasonHandshake because the two need different
+	// answers: a handshake refusal is a client we turned down and is worth a
+	// WARN each time, while this is overwhelmingly unauthenticated noise on a
+	// public port. The signal that matters is the RATE -- a customer whose TAK
+	// client has TLS switched off is a sustained stream from one place, a
+	// scanner is a single hit (MESHSAT-1074).
+	reasonPlaintext = "plaintext"
 )
 
 func init() {
 	for _, reason := range []string{
 		reasonServerFull, reasonHandshake, reasonUnauthorized, reasonTenantFull,
 		reasonUpstream, reasonDeadline, reasonUnidentified, reasonProbe,
+		reasonPlaintext,
 	} {
 		streamsRefused.WithLabelValues(reason)
 	}
