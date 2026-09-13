@@ -157,7 +157,7 @@ func (h *SignupHandler) Reject(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "bad signup id")
 		return
 	}
-	email, err := h.ak.Reject(r.Context(), pk)
+	email, name, err := h.ak.Reject(r.Context(), pk)
 	if err != nil {
 		// Never echo err.Error() here: it carries the target account's address
 		// and, for transport failures, the identity provider's URLs and status
@@ -171,6 +171,16 @@ func (h *SignupHandler) Reject(w http.ResponseWriter, r *http.Request) {
 		slog.Error("signups: reject failed", "pk", pk, "error", err)
 		writeError(w, http.StatusBadGateway, "rejection failed at the identity provider")
 		return
+	}
+	// Tell them (MESHSAT-1082). Rejection used to be silent: the account was
+	// deleted, an audit row was written, and somebody who had signed up and
+	// confirmed their address waited for an answer that was never coming.
+	//
+	// SendOrLog, so a relay that is down cannot turn a completed rejection into
+	// an error. The decision has already been made and the account is already
+	// gone; failing the request would tell the operator it had not worked.
+	if h.mail != nil && email != "" {
+		mail.SendOrLog(r.Context(), h.mail, email, mail.Rejected(name), "signup rejected")
 	}
 	h.log(r, "signup_rejected", email, "")
 	writeJSON(w, http.StatusOK, map[string]string{"email": email, "status": "rejected"})

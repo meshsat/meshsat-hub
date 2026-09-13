@@ -305,13 +305,16 @@ func (c *Client) Approve(ctx context.Context, pk int, role string) (signupIP, em
 
 // Reject deletes the account. It refuses an account that is already active or
 // no longer pending, so this cannot be turned into a way to delete a real user.
-func (c *Client) Reject(ctx context.Context, pk int) (email string, err error) {
+// Reject deletes a pending signup and returns who it was, so the caller can tell
+// them (MESHSAT-1082). The name and address are read BEFORE the delete, because
+// afterwards there is nothing left to ask.
+func (c *Client) Reject(ctx context.Context, pk int) (email, name string, err error) {
 	u, err := c.pending(ctx, pk)
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
 	if err := c.do(ctx, http.MethodDelete, fmt.Sprintf("/api/v3/core/users/%d/", pk), nil, nil); err != nil {
-		return "", err
+		return "", "", err
 	}
-	return u.Email, nil
+	return u.Email, u.Name, nil
 }
