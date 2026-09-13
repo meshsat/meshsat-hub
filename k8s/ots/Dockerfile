@@ -50,7 +50,9 @@ RUN /opt/ots/bin/python /tmp/bundle-iconsets.py /opt/ots/share/iconsets.sqlite \
 
 # A default timeout for every HTTP request OpenTAKServer makes (MESHSAT-1070).
 #
-# Eleven call sites in the wheel, none with a timeout. On this network that is not
+# Fourteen call sites in the wheel with no timeout (mediamtx_api.py x10,
+# scheduled_jobs.py x4; the 15th, app.py's icon fetch, was given one by
+# patch-icon-fetch.py). On this network that is not
 # a fast failure: an instance has no egress, Cilium DROPS rather than rejects, so
 # connect() hangs rather than failing. One of those calls already cost 134 seconds
 # of every start before it was patched to read from disk.
