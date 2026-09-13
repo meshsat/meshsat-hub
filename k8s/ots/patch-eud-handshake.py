@@ -113,6 +113,45 @@ REPLACEMENT = (
     b'                self.close_connection()\r\n'
 )
 
+# The SECOND half of this fix, and the one that actually mattered (MESHSAT-1089).
+#
+# The first version patched only EudHandlerSSL.setup(), on the reasoning that
+# setting self.shutdown would make handle() return harmlessly. It does exit the
+# loop -- but handle() calls close_connection() UNCONDITIONALLY on the way out,
+# after the loop, and that was never read. Result: SSLEOFError tracebacks went to
+# zero and the log still carried nine tracebacks per ninety seconds, because
+# close_connection dereferences self.rabbit_channel, which is None when setup()
+# never got far enough to create one.
+#
+# close_connection is the right place: it is reached from setup() AND from
+# handle(), so guarding it covers both, which is what patching one caller could
+# never do. Publishing a disconnect for a connection that never authenticated is
+# meaningless anyway -- there is no uid to report.
+CLOSE_ANCHOR = (
+    b'    def close_connection(self):\r\n'
+    b'        self.logger.info("{} disconnected".format(self.client_address[0]))\r\n'
+    b'\r\n'
+    b'        self.rabbit_channel.basic_publish(\r\n'
+)
+
+CLOSE_REPLACEMENT = (
+    b'    def close_connection(self):\r\n'
+    b'        # MESHSAT-1089: reached from setup() and from the tail of handle().\r\n'
+    b'        # When a peer goes away before the TLS handshake -- which the readiness\r\n'
+    b'        # probe does every ten seconds -- there is no rabbit channel and no uid,\r\n'
+    b'        # so this dereferenced None and raised AttributeError INSIDE the error\r\n'
+    b'        # path, turning one aborted probe into a full traceback.\r\n'
+    b'        if getattr(self, "rabbit_channel", None) is None:\r\n'
+    b'            self.logger.debug(\r\n'
+    b'                "{} closed before it was connected".format(self.client_address[0])\r\n'
+    b'            )\r\n'
+    b'            return\r\n'
+    b'        self.logger.info("{} disconnected".format(self.client_address[0]))\r\n'
+    b'\r\n'
+    b'        self.rabbit_channel.basic_publish(\r\n'
+)
+
+HANDLER_GLOB = "/opt/ots/lib/python*/site-packages/opentakserver/eud_handler/EudHandler.py"
 VENV_GLOB = "/opt/ots/lib/python*/site-packages/opentakserver/eud_handler/EudHandlerSSL.py"
 
 
@@ -160,6 +199,42 @@ def main() -> int:
         )
 
     path.write_bytes(raw.replace(ANCHOR, REPLACEMENT, 1))
+    print(f"patch-eud-handshake: patched {path}")
+
+    return patch_close_connection(path)
+
+
+def patch_close_connection(ssl_path: pathlib.Path) -> int:
+    """Guard close_connection, which both setup() and handle() reach."""
+    found = glob.glob(HANDLER_GLOB)
+    if len(found) == 1:
+        path = pathlib.Path(found[0])
+    else:
+        # Testing mode: EudHandler.py sits beside the file we were handed.
+        path = ssl_path.parent / "EudHandler.py"
+        if not path.is_file():
+            return die(
+                f"expected exactly one EudHandler.py in the venv, found {found}, "
+                f"and none beside {ssl_path}."
+            )
+
+    raw = path.read_bytes()
+    if MARKER in raw:
+        print(f"patch-eud-handshake: {path} is already patched, nothing to do")
+        return 0
+
+    n = raw.count(CLOSE_ANCHOR)
+    if n != 1:
+        return die(
+            f"the close_connection anchor matched {n} times in {path}, expected exactly 1.\n"
+            "\n"
+            "Without this guard an aborted connection still produces a full traceback\n"
+            "from the tail of handle(), which calls close_connection unconditionally --\n"
+            "measured at nine per ninety seconds on a live instance even with the\n"
+            "setup() half of this patch applied."
+        )
+
+    path.write_bytes(raw.replace(CLOSE_ANCHOR, CLOSE_REPLACEMENT, 1))
     print(f"patch-eud-handshake: patched {path}")
     return 0
 
