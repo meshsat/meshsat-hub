@@ -64,7 +64,10 @@ the service takes money.
       company on that instance, `dkim=pass d=ellizg.com`.
 - [ ] The PDF carries the VAT number, the legal entity, and 21% derived OUT of
       the price (EUR 9.00 = 7.44 + 1.56), not added to it.
-- [ ] `GET /api/admin/vat/threshold` moved by the NET amount, not the gross.
+- [ ] `GET /api/admin/vat/threshold` moved by the NET amount, not the gross --
+      but ONLY if the buyer is in another EU member state. For a Dutch buyer it
+      must stay where it was: the meter counts cross-border B2C supplies, and a
+      domestic sale appearing in it would be a false alarm.
 
 ## Giving it back
 
@@ -78,11 +81,77 @@ the service takes money.
 
 ## Afterwards
 
-- [ ] Decide whether to purge the documents. If this was your own card, purging
+- [x] Decide whether to purge the documents. If this was your own card, purging
       and rewinding the counters keeps `MSH2026-0001` for the first real
       customer. If it was somebody else's money, **keep them**: they are that
       person's tax documents and the counters stay where they are.
-- [ ] Note the date here, and what the first number actually issued was.
+- [x] Note the date here, and what the first number actually issued was.
+
+## It was run: 13 September 2026
+
+Every box above is ticked. One real EUR 9.00 Crew subscription on the owner's own
+card, started from the Hub's own Settings page, refunded in Stripe, then
+cancelled immediately.
+
+| | |
+|---|---|
+| first invoice issued | **MSH2026-0001** |
+| first credit note issued | **MSHCN2026-0001** |
+| next customer gets | **MSH2026-0002** |
+
+**The documents were KEPT, and the counters were NOT rewound.** The owner's
+ruling, and it reverses what the bullet above leans towards, so the reasoning is
+worth keeping: the pair nets to zero, which is exactly how a refunded sale is
+supposed to look in the books. Both PDFs are also sitting in a real mailbox
+naming a real person. Rewinding would later hand `MSH2026-0001` to somebody
+else, while a document with that number already exists describing a different
+party — a worse defect than an unremarkable first invoice being numbered 0002.
+Purge only what was never real.
+
+Timeline, read from the cluster rather than from a dashboard:
+
+```
+20:02:37  billing: checkout started                  tenant=t_218d…  plan=crew
+20:04:07  stripe: payment recorded for a receipt     900 EUR
+20:04:07  stripe: plan granted                       was=free → crew
+20:04:07  mail: sent                                 "plan changed"
+20:04:26  billing: receipt issued                    MSH2026-0001
+20:08:59  customer.subscription.updated              cancel at period end — plan KEPT
+20:18:14  stripe: refund recorded from the processor requested_by=stripe
+20:18:26  refunds: credit note issued                MSHCN2026-0001
+20:18:26  refunds: plan shortened by one period      16 Oct → 14 Sep
+20:18:28  refunds: credit note sent
+20:23:20  customer.subscription.deleted              → free, immediately
+```
+
+Notes worth keeping for whoever runs this next:
+
+- **`invoice.paid` really does arrive before `checkout.session.completed`.** The
+  tenant had no `billing_country`, so the receipt took NL from the invoice's own
+  billing address, and `billing_country_evidence` reads "billing address at
+  Stripe checkout cs_live_…". A card billed outside the EU would have parked the
+  receipt at the VAT gate with the tenant looking perfectly fine afterwards.
+- **`GET /api/admin/vat/threshold` did NOT move, and that is correct.** NL is a
+  domestic supply and the meter deliberately counts only cross-border B2C. The
+  checklist above says "moved by the NET amount"; that only holds for a buyer in
+  another member state. Corrected here rather than left to mislead.
+- **Cancelling in the customer portal does not end a plan.** It sets
+  `cancel_at_period_end`, so only `customer.subscription.updated` fires and the
+  tier is deliberately kept — the customer paid for the month. Only an immediate
+  cancellation in the dashboard fires `customer.subscription.deleted`, which is
+  the one event Ko-fi could never send and the whole reason for the migration.
+  Run it that way if you want that event covered; at period end it is a month's
+  wait.
+- **A refund shortens, it does not strip.** `plan_expires_at` moved back by
+  exactly one `Period` (32 days) and nothing else, leaving the hourly
+  `subscription-lapse` job as the single place that decides what a lapse means.
+- Receipt and credit note were both issued on **attempt 0**, 19 s and 12 s after
+  their events. Neither outbox had to retry.
+- **PayPal cannot be offered for a subscription.** Stripe refuses it outright:
+  *"The payment method `paypal` cannot be used in `subscription` mode."* It is
+  enabled on the account and does appear on `/donate`, which is `mode=payment`.
+  iDEAL, SEPA Direct Debit and Klarna are all accepted for subscriptions; Stripe's
+  automatic selection offered card alone.
 
 ## What this proves that test mode cannot
 
