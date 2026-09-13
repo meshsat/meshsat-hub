@@ -13,6 +13,11 @@ const toast = useToastStore()
 const available = ref(false)
 const info = ref(null)
 const name = ref('')
+// Bridge offline timeout (MESHSAT-1117). '' means the tenant has chosen
+// nothing and the platform default applies; the API sends that default back so
+// this can show the number actually in force rather than hardcoding one.
+const bridgeTimeout = ref('')
+const savingTimeout = ref(false)
 const saving = ref(false)
 const invites = ref([])
 const inviteEmail = ref('')
@@ -90,6 +95,7 @@ async function load() {
   try {
     info.value = await tenantApi.get()
     name.value = info.value.name || ''
+    bridgeTimeout.value = info.value.bridge_offline_timeout ? String(info.value.bridge_offline_timeout) : ''
     available.value = true
   } catch {
     available.value = false
@@ -118,6 +124,27 @@ async function saveName() {
     error.value = e.message || 'Save failed'
   } finally {
     saving.value = false
+  }
+}
+
+async function saveBridgeTimeout() {
+  const raw = bridgeTimeout.value.trim()
+  // Empty means "use the platform default", which the API takes as 0.
+  const secs = raw === '' ? 0 : Number(raw)
+  if (!Number.isInteger(secs) || secs < 0) {
+    error.value = 'Offline timeout must be a whole number of seconds'
+    return
+  }
+  savingTimeout.value = true
+  error.value = ''
+  try {
+    info.value = await tenantApi.update({ name: name.value.trim(), bridge_offline_timeout: secs })
+    bridgeTimeout.value = info.value.bridge_offline_timeout ? String(info.value.bridge_offline_timeout) : ''
+    toast.success(secs === 0 ? 'Using the platform default' : 'Offline timeout saved')
+  } catch (e) {
+    error.value = e.message || 'Save failed'
+  } finally {
+    savingTimeout.value = false
   }
 }
 
@@ -210,6 +237,29 @@ onMounted(load)
             Save
           </button>
         </div>
+
+        <!-- Bridge offline timeout (MESHSAT-1117): a fleet setting that used to
+             be one environment variable for every tenant on the platform. -->
+        <label for="tenant-bridge-timeout" class="block text-xs text-ms-muted2 mt-4 mb-1">
+          Mark a bridge offline after
+        </label>
+        <div class="flex gap-2 items-center">
+          <input id="tenant-bridge-timeout" v-model="bridgeTimeout" type="number" inputmode="numeric"
+            :min="info?.bridge_offline_timeout_min" :max="info?.bridge_offline_timeout_max"
+            :placeholder="String(info?.bridge_offline_timeout_default ?? '')"
+            class="w-28 min-w-0 px-3 py-1.5 bg-ms-well border border-ms-border rounded text-sm text-ms-text focus:outline-none focus:border-brand-primary" />
+          <span class="text-xs text-ms-muted">seconds of silence</span>
+          <button @click="saveBridgeTimeout"
+            :disabled="savingTimeout || bridgeTimeout.trim() === (info?.bridge_offline_timeout ? String(info.bridge_offline_timeout) : '')"
+            class="px-3 py-1.5 bg-brand-primary hover:bg-brand-accent disabled:opacity-50 text-ms-on-primary text-sm font-medium rounded transition-colors">
+            Save
+          </button>
+        </div>
+        <p class="mt-1 text-xs text-ms-muted">
+          Leave empty for the platform default ({{ info?.bridge_offline_timeout_default }}s).
+          Between {{ info?.bridge_offline_timeout_min }} and {{ info?.bridge_offline_timeout_max }} seconds.
+          This only changes when a bridge is shown as offline; it never affects SOS or message delivery.
+        </p>
         <dl class="mt-3 text-xs text-ms-muted grid grid-cols-[auto_1fr] gap-x-3 gap-y-1">
           <dt>Slug</dt><dd class="font-mono text-ms-text">{{ info?.slug }}</dd>
           <dt>Plan</dt><dd class="text-ms-text capitalize">{{ info?.plan }}</dd>

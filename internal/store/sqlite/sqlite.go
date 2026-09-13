@@ -476,6 +476,8 @@ var lateAlterMigrations = []string{
 	// Postgres twin and internal/vat.
 	`ALTER TABLE tenants ADD COLUMN billing_country TEXT NOT NULL DEFAULT ''`,
 	`ALTER TABLE tenants ADD COLUMN billing_country_evidence TEXT NOT NULL DEFAULT ''`,
+	// MESHSAT-1117. 0 = use the platform default.
+	`ALTER TABLE tenants ADD COLUMN bridge_offline_timeout INTEGER NOT NULL DEFAULT 0`,
 	`ALTER TABLE receipts ADD COLUMN country TEXT NOT NULL DEFAULT ''`,
 	// MESHSAT-964: last report bearer/time on bridges
 	`ALTER TABLE bridges ADD COLUMN last_report_bearer TEXT NOT NULL DEFAULT ''`,

@@ -766,6 +766,11 @@ type Tenant struct {
 	Status      string    `json:"status"` // active, suspended, deleted
 	CreatedAt   time.Time `json:"created_at"`
 	UpdatedAt   time.Time `json:"updated_at"`
+	// BridgeOfflineTimeout is how many seconds a bridge of this tenant may go
+	// quiet before the reaper marks it offline. 0 means use the platform
+	// default (HUB_BRIDGE_OFFLINE_TIMEOUT), which is what every tenant gets
+	// until its owner chooses otherwise (MESHSAT-1117).
+	BridgeOfflineTimeout int `json:"bridge_offline_timeout,omitempty"`
 	// PlanExpiresAt is when a paid tier lapses back to free. nil means the
 	// plan does not expire, which is what free, custom and beta are.
 	//

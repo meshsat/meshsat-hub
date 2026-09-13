@@ -323,8 +323,19 @@ type Config struct {
 	CloudloopAccountID          string `yaml:"cloudloop_account_id"`    // Cloudloop account ID for MQTT topic
 
 	// Bridge lifecycle
-	BridgeOfflineTimeout   int    `yaml:"bridge_offline_timeout"`     // seconds without health before marking offline (default 300)
-	BridgeCACertExportPath string `yaml:"bridge_ca_cert_export_path"` // path to export bridge CA cert for NATS mTLS (empty=disabled)
+	BridgeOfflineTimeout int `yaml:"bridge_offline_timeout"` // seconds without health before marking offline (default 300)
+	// BridgeOfflineTimeoutMin and Max bound what a TENANT OWNER may choose for
+	// their own fleet (MESHSAT-1117). The value above stays the default every
+	// tenant gets until it chooses otherwise, and remains the only value a
+	// self-hosted single-tenant Hub ever needs.
+	//
+	// Bounded rather than free because both ends are harmful: below a bridge's
+	// own heartbeat interval the reaper flaps a healthy fleet offline between
+	// beats, and a very large value leaves a dead bridge reading as online for
+	// as long as the owner cares to type.
+	BridgeOfflineTimeoutMin int    `yaml:"bridge_offline_timeout_min"` // lowest a tenant may set (default 60)
+	BridgeOfflineTimeoutMax int    `yaml:"bridge_offline_timeout_max"` // highest a tenant may set (default 86400)
+	BridgeCACertExportPath  string `yaml:"bridge_ca_cert_export_path"` // path to export bridge CA cert for NATS mTLS (empty=disabled)
 	// BridgeCASecretName is a pre-created Kubernetes Secret (in POD_NAMESPACE)
 	// the Hub keeps equal to its bridge CA certificate for NATS/stunnel mTLS;
 	// empty disables the writer. Key defaults to ca.crt.
@@ -397,22 +408,25 @@ func Defaults() Config {
 		ReticulumTCPEnabled:   true,
 		ReticulumTCPAddr:      ":4242",
 		BridgeOfflineTimeout:  300, // 5 minutes
-		DBSlowQueryMS:         100,
-		OIDCScopes:            "openid profile email",
-		OIDCGroupsClaim:       "groups",
-		OIDCAdminGroup:        "meshsat-platform-admin",
-		SQLitePath:            "/data/hub.db",
-		DBRetryMaxAttempts:    8,
-		AuditRetentionDays:    90,
-		HealthProbeTimeout:    "3s",
-		ShutdownDrainSeconds:  0,
-		OTelServiceName:       "meshsat-hub",
-		AuthRateLimitPerMin:   30,
-		StripeTimeout:         20 * time.Second,
-		MailFrom:              "billing@meshsat.net",
-		MailFromName:          "MeshSat Hub",
-		MailTimeout:           15 * time.Second,
-		PublicURL:             "https://hub.meshsat.net",
+		// A tenant may choose between one minute and one day.
+		BridgeOfflineTimeoutMin: 60,
+		BridgeOfflineTimeoutMax: 86400,
+		DBSlowQueryMS:           100,
+		OIDCScopes:              "openid profile email",
+		OIDCGroupsClaim:         "groups",
+		OIDCAdminGroup:          "meshsat-platform-admin",
+		SQLitePath:              "/data/hub.db",
+		DBRetryMaxAttempts:      8,
+		AuditRetentionDays:      90,
+		HealthProbeTimeout:      "3s",
+		ShutdownDrainSeconds:    0,
+		OTelServiceName:         "meshsat-hub",
+		AuthRateLimitPerMin:     30,
+		StripeTimeout:           20 * time.Second,
+		MailFrom:                "billing@meshsat.net",
+		MailFromName:            "MeshSat Hub",
+		MailTimeout:             15 * time.Second,
+		PublicURL:               "https://hub.meshsat.net",
 		// Receipts: Dutch 21% VAT, inclusive, EUR, NL. The rate lives here
 		// rather than in code so re-pricing or a rate change is a ConfigMap
 		// edit; the URL and token stay unset until an operator supplies them.
@@ -934,6 +948,16 @@ func Load() (Config, error) {
 	if v := os.Getenv("HUB_BRIDGE_OFFLINE_TIMEOUT"); v != "" {
 		if n, err := strconv.Atoi(v); err == nil {
 			cfg.BridgeOfflineTimeout = n
+		}
+	}
+	if v := os.Getenv("HUB_BRIDGE_OFFLINE_TIMEOUT_MIN"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			cfg.BridgeOfflineTimeoutMin = n
+		}
+	}
+	if v := os.Getenv("HUB_BRIDGE_OFFLINE_TIMEOUT_MAX"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			cfg.BridgeOfflineTimeoutMax = n
 		}
 	}
 
