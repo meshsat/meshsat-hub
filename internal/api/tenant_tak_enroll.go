@@ -108,6 +108,12 @@ func (h *TenantTAKHandler) SetTAKCerts(c TAKCerts, frontTrustPEM []byte) {
 // deserves less room than a bridge's first boot.
 const enrolTTL = 15 * time.Minute
 
+// TAKEnrolTTL exports enrolTTL for the stash reaper, which has to know how long
+// a row may live before it is safe to remove. Exported rather than duplicated:
+// two copies of a TTL drift, and the one that drifts is the sweeper's, which
+// then deletes a claim that was still good.
+const TAKEnrolTTL = enrolTTL
+
 // enrolClaimRefused is the ONLY thing an unauthenticated caller is ever told.
 // Distinguishing the cases would turn this endpoint into an oracle for which
 // enrolments exist.

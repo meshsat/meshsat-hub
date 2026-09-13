@@ -228,6 +228,17 @@ type Store interface {
 	// System config (key-value settings, e.g. hub identity keys)
 	GetSystemConfig(ctx context.Context, key string) (string, error)
 	SetSystemConfig(ctx context.Context, key, value string) error
+	// ListSystemConfigOlderThan returns the keys under prefix whose row has not
+	// been written since cutoff. Added for the stash reaper: until MESHSAT-1098
+	// there was no way to enumerate system_config at all, so an unclaimed
+	// provisioning bundle -- a plaintext MQTT password and a client private key
+	// -- had no path out of the table or out of the backups.
+	ListSystemConfigOlderThan(ctx context.Context, prefix string, cutoff time.Time) ([]string, error)
+	// DeleteSystemConfig removes a row outright. Callers that merely CONSUME a
+	// value keep blanking it (SetSystemConfig(key, "")), which is what the
+	// claim paths do; this is for the sweeper, where leaving an empty row per
+	// abandoned provisioning attempt would grow without bound.
+	DeleteSystemConfig(ctx context.Context, key string) error
 
 	// Device groups (fleet organization)
 	CreateDeviceGroup(ctx context.Context, tenantID string, g *DeviceGroup) error

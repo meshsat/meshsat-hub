@@ -412,6 +412,50 @@ func testSystemConfig(t *testing.T, db store.Store) {
 	if _, err := db.GetSystemConfig(ctx, "missing-key"); err == nil {
 		t.Error("missing key should error")
 	}
+
+	// Enumerate and delete (MESHSAT-1098). Until these existed there was no way
+	// to find a stale row in this table at all, which is how twelve plaintext
+	// provisioning bundles -- MQTT password and client private key -- sat in
+	// production from March to September and went into every backup.
+	old := time.Now().Add(-2 * time.Hour)
+	for _, k := range []string{"sweep:a", "sweep:b", "other:c"} {
+		if err := db.SetSystemConfig(ctx, k, "x"); err != nil {
+			t.Fatalf("seed %s: %v", k, err)
+		}
+	}
+	// Nothing is older than two hours ago, because everything was just written.
+	stale, err := db.ListSystemConfigOlderThan(ctx, "sweep:", old)
+	if err != nil {
+		t.Fatalf("list (nothing due): %v", err)
+	}
+	if len(stale) != 0 {
+		t.Errorf("list returned %v for a cutoff before anything was written; a sweeper "+
+			"on this would delete rows that are still in use", stale)
+	}
+	// With a cutoff in the future, both prefixed rows are due -- and the row
+	// under a different prefix is NOT.
+	stale, err = db.ListSystemConfigOlderThan(ctx, "sweep:", time.Now().Add(time.Hour))
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if len(stale) != 2 || stale[0] != "sweep:a" || stale[1] != "sweep:b" {
+		t.Errorf("list = %v, want exactly the two sweep: rows in key order", stale)
+	}
+
+	if err := db.DeleteSystemConfig(ctx, "sweep:a"); err != nil {
+		t.Fatalf("delete: %v", err)
+	}
+	if _, err := db.GetSystemConfig(ctx, "sweep:a"); err == nil {
+		t.Error("a deleted key still reads back")
+	}
+	// Deleting something absent is not an error: the sweeper races the claim
+	// path, and losing that race is the normal case rather than a fault.
+	if err := db.DeleteSystemConfig(ctx, "sweep:a"); err != nil {
+		t.Errorf("deleting a missing key errored: %v", err)
+	}
+	if v, err := db.GetSystemConfig(ctx, "other:c"); err != nil || v != "x" {
+		t.Errorf("a row under a different prefix was affected: %q %v", v, err)
+	}
 }
 
 func testClaims(t *testing.T, db store.Store) {
