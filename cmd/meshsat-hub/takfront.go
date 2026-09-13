@@ -201,7 +201,9 @@ func startTAKFront(
 	// A purged tenant must not keep a cached "yes" for its TAK users
 	// (MESHSAT-1109).
 	tenantEvict.Register(authz)
-	rec := takfront.NewRecorder(auditSvc, slog.Default())
+	// The platform tenant owns audit entries for refusals that could not be
+	// attributed to a customer (MESHSAT-1110).
+	rec := takfront.NewRecorder(auditSvc, store.DefaultTenantID, slog.Default())
 
 	srv, err := takfront.NewServer(takfront.Config{
 		GetCertificate: frontCert.GetCertificate,
