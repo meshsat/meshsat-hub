@@ -27,14 +27,15 @@ func TestFire_DeliversToMatchingWebhook(t *testing.T) {
 	d := NewDispatcher(nil)
 	d.AllowLoopbackTargetsForTest() // httptest listens on 127.0.0.1
 	d.AddWebhook(WebhookConfig{
-		ID:      "test-1",
-		URL:     srv.URL,
-		Events:  []EventType{EventMO},
-		Enabled: true,
+		TenantID: tenantA,
+		ID:       "test-1",
+		URL:      srv.URL,
+		Events:   []EventType{EventMO},
+		Enabled:  true,
 	})
 
 	data, _ := json.Marshal(map[string]string{"text": "hello"})
-	d.Fire(EventMO, "device-1", data)
+	d.Fire(tenantA, EventMO, "device-1", data)
 
 	time.Sleep(200 * time.Millisecond)
 
@@ -67,14 +68,15 @@ func TestFire_SkipsNonMatchingEvents(t *testing.T) {
 	d := NewDispatcher(nil)
 	d.AllowLoopbackTargetsForTest() // httptest listens on 127.0.0.1
 	d.AddWebhook(WebhookConfig{
-		ID:      "sos-only",
-		URL:     srv.URL,
-		Events:  []EventType{EventSOS}, // only SOS
-		Enabled: true,
+		TenantID: tenantA,
+		ID:       "sos-only",
+		URL:      srv.URL,
+		Events:   []EventType{EventSOS}, // only SOS
+		Enabled:  true,
 	})
 
 	// Fire MO event — should not match
-	d.Fire(EventMO, "device-1", json.RawMessage(`{}`))
+	d.Fire(tenantA, EventMO, "device-1", json.RawMessage(`{}`))
 	time.Sleep(200 * time.Millisecond)
 
 	if called {
@@ -93,13 +95,14 @@ func TestFire_SkipsDisabledWebhook(t *testing.T) {
 	d := NewDispatcher(nil)
 	d.AllowLoopbackTargetsForTest() // httptest listens on 127.0.0.1
 	d.AddWebhook(WebhookConfig{
-		ID:      "disabled",
-		URL:     srv.URL,
-		Events:  []EventType{EventMO},
-		Enabled: false, // disabled
+		TenantID: tenantA,
+		ID:       "disabled",
+		URL:      srv.URL,
+		Events:   []EventType{EventMO},
+		Enabled:  false, // disabled
 	})
 
-	d.Fire(EventMO, "device-1", json.RawMessage(`{}`))
+	d.Fire(tenantA, EventMO, "device-1", json.RawMessage(`{}`))
 	time.Sleep(200 * time.Millisecond)
 
 	if called {
@@ -121,14 +124,15 @@ func TestFire_HMACSigning(t *testing.T) {
 	d := NewDispatcher(nil)
 	d.AllowLoopbackTargetsForTest() // httptest listens on 127.0.0.1
 	d.AddWebhook(WebhookConfig{
-		ID:      "signed",
-		URL:     srv.URL,
-		Secret:  secret,
-		Events:  []EventType{EventSOS},
-		Enabled: true,
+		TenantID: tenantA,
+		ID:       "signed",
+		URL:      srv.URL,
+		Secret:   secret,
+		Events:   []EventType{EventSOS},
+		Enabled:  true,
 	})
 
-	d.Fire(EventSOS, "device-1", json.RawMessage(`{"triggered":true}`))
+	d.Fire(tenantA, EventSOS, "device-1", json.RawMessage(`{"triggered":true}`))
 	time.Sleep(200 * time.Millisecond)
 
 	if signature == "" {
@@ -166,6 +170,7 @@ func TestFire_RetriesOnFailure(t *testing.T) {
 	d := NewDispatcher(nil)
 	d.AllowLoopbackTargetsForTest() // httptest listens on 127.0.0.1
 	d.AddWebhook(WebhookConfig{
+		TenantID:   tenantA,
 		ID:         "retry-test",
 		URL:        srv.URL,
 		Events:     []EventType{EventMO},
@@ -174,7 +179,7 @@ func TestFire_RetriesOnFailure(t *testing.T) {
 		TimeoutSec: 5,
 	})
 
-	d.Fire(EventMO, "device-1", json.RawMessage(`{}`))
+	d.Fire(tenantA, EventMO, "device-1", json.RawMessage(`{}`))
 	time.Sleep(5 * time.Second) // allow retries
 
 	mu.Lock()
@@ -188,28 +193,28 @@ func TestFire_RetriesOnFailure(t *testing.T) {
 func TestAddRemoveWebhook(t *testing.T) {
 	d := NewDispatcher(nil)
 	d.AllowLoopbackTargetsForTest() // httptest listens on 127.0.0.1
-	d.AddWebhook(WebhookConfig{ID: "a", URL: "http://a.com", Enabled: true})
-	d.AddWebhook(WebhookConfig{ID: "b", URL: "http://b.com", Enabled: true})
+	d.AddWebhook(WebhookConfig{TenantID: tenantA, ID: "a", URL: "http://a.com", Enabled: true})
+	d.AddWebhook(WebhookConfig{TenantID: tenantA, ID: "b", URL: "http://b.com", Enabled: true})
 
-	if len(d.ListWebhooks()) != 2 {
-		t.Fatalf("expected 2 webhooks, got %d", len(d.ListWebhooks()))
+	if len(d.ListWebhooks(tenantA)) != 2 {
+		t.Fatalf("expected 2 webhooks, got %d", len(d.ListWebhooks(tenantA)))
 	}
 
-	d.RemoveWebhook("a")
-	if len(d.ListWebhooks()) != 1 {
-		t.Fatalf("expected 1 webhook after remove, got %d", len(d.ListWebhooks()))
+	d.RemoveWebhook(tenantA, "a")
+	if len(d.ListWebhooks(tenantA)) != 1 {
+		t.Fatalf("expected 1 webhook after remove, got %d", len(d.ListWebhooks(tenantA)))
 	}
-	if d.ListWebhooks()[0].ID != "b" {
-		t.Errorf("remaining webhook: got %q, want b", d.ListWebhooks()[0].ID)
+	if d.ListWebhooks(tenantA)[0].ID != "b" {
+		t.Errorf("remaining webhook: got %q, want b", d.ListWebhooks(tenantA)[0].ID)
 	}
 }
 
 func TestListWebhooks_RedactsSecret(t *testing.T) {
 	d := NewDispatcher(nil)
 	d.AllowLoopbackTargetsForTest() // httptest listens on 127.0.0.1
-	d.AddWebhook(WebhookConfig{ID: "secret", URL: "http://a.com", Secret: "my-secret", Enabled: true})
+	d.AddWebhook(WebhookConfig{TenantID: tenantA, ID: "secret", URL: "http://a.com", Secret: "my-secret", Enabled: true})
 
-	list := d.ListWebhooks()
+	list := d.ListWebhooks(tenantA)
 	if list[0].Secret != "****" {
 		t.Errorf("secret not redacted: %q", list[0].Secret)
 	}
@@ -218,10 +223,10 @@ func TestListWebhooks_RedactsSecret(t *testing.T) {
 func TestRecentLogs(t *testing.T) {
 	d := NewDispatcher(nil)
 	d.AllowLoopbackTargetsForTest() // httptest listens on 127.0.0.1
-	d.recordLog("wh-1", "mo", "device-1", 200, "", 0)
-	d.recordLog("wh-1", "sos", "device-2", 500, "server error", 1)
+	d.recordLog(DeliveryLog{TenantID: tenantA, WebhookID: "wh-1", Event: "mo", DeviceID: "device-1", StatusCode: 200, Error: "", Attempt: 0})
+	d.recordLog(DeliveryLog{TenantID: tenantA, WebhookID: "wh-1", Event: "sos", DeviceID: "device-2", StatusCode: 500, Error: "server error", Attempt: 1})
 
-	logs := d.RecentLogs(10)
+	logs := d.RecentLogs(tenantA, 10)
 	if len(logs) != 2 {
 		t.Fatalf("expected 2 logs, got %d", len(logs))
 	}

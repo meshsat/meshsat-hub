@@ -133,7 +133,7 @@ func NewEmailHandler(client *hubemail.Client) DestinationHandler {
 
 // WebhookFirer is the subset of webhook.Dispatcher needed by the routing handler.
 type WebhookFirer interface {
-	Fire(event webhook.EventType, deviceID string, data json.RawMessage)
+	Fire(tenantID string, event webhook.EventType, deviceID string, data json.RawMessage)
 }
 
 // NotificationSender can send notifications (Apprise, ntfy, etc.).
@@ -152,9 +152,17 @@ type MQTTPublisher interface {
 // The webhook dispatcher already has its own URL targets configured — this handler
 // triggers a "routed_message" event so all registered webhooks receive the message.
 func NewWebhookHandler(dispatcher WebhookFirer) DestinationHandler {
-	return func(_ context.Context, _ *store.Route, deviceID string, payload json.RawMessage) {
-		dispatcher.Fire(webhook.EventType("routed_message"), deviceID, payload)
-		slog.Debug("routing/webhook: fired routed_message event", "device", deviceID)
+	return func(ctx context.Context, _ *store.Route, deviceID string, payload json.RawMessage) {
+		// The engine puts the message's tenant on the handler context
+		// (engine.go: tenancy.WithTenant). This used to discard it and fire at
+		// every registered webhook of every tenant -- MESHSAT-1118.
+		tenantID := tenancy.FromContext(ctx)
+		if tenantID == "" {
+			slog.Warn("routing/webhook: no tenant on the routed message; not firing", "device", deviceID)
+			return
+		}
+		dispatcher.Fire(tenantID, webhook.EventType("routed_message"), deviceID, payload)
+		slog.Debug("routing/webhook: fired routed_message event", "device", deviceID, "tenant", tenantID)
 	}
 }
 
