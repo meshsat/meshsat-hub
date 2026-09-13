@@ -303,11 +303,11 @@ func (c *Client) Approve(ctx context.Context, pk int, role string) (signupIP, em
 	return attrStr(u.Attributes, "signup_ip"), u.Email, u.Name, nil
 }
 
-// Reject deletes the account. It refuses an account that is already active or
-// no longer pending, so this cannot be turned into a way to delete a real user.
 // Reject deletes a pending signup and returns who it was, so the caller can tell
-// them (MESHSAT-1082). The name and address are read BEFORE the delete, because
-// afterwards there is nothing left to ask.
+// them (MESHSAT-1082). It refuses an account that is already active or no longer
+// pending, so this cannot be turned into a way to delete a real user. The name
+// and address are read BEFORE the delete, because afterwards there is nothing
+// left to ask.
 func (c *Client) Reject(ctx context.Context, pk int) (email, name string, err error) {
 	u, err := c.pending(ctx, pk)
 	if err != nil {
