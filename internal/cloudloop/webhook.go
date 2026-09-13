@@ -593,7 +593,7 @@ func (h *WebhookHandler) processLingoMO(ctx context.Context, mo *LingoMO, remote
 
 	// Dead man's switch: device sent an MO message, reset its timer.
 	if h.deadman != nil {
-		h.deadman.CheckIn(imei)
+		h.deadman.CheckIn(h.tenantOf(ctx, imei), imei)
 	}
 
 	// Audit: log message_received event.

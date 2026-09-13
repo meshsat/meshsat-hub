@@ -377,7 +377,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	// Dead man's switch: device sent an MO message, reset its timer.
 	if h.deadman != nil {
-		h.deadman.CheckIn(deviceID)
+		h.deadman.CheckIn(h.tenantOf(ctx, deviceID), deviceID)
 	}
 
 	// Audit: log message_received event (use RemoteAddr directly — never trust X-Forwarded-For in webhook handlers).

@@ -159,7 +159,7 @@ func (s *Subscriber) handlePosition(topic string, payload []byte) {
 	// Touch device last_seen and dead man's switch check-in.
 	_ = s.store.TouchDeviceLastSeen(ctx, tenantID, deviceID)
 	if s.deadman != nil {
-		s.deadman.CheckIn(deviceID)
+		s.deadman.CheckIn(tenantID, deviceID)
 	}
 
 	slog.Debug("position: stored",

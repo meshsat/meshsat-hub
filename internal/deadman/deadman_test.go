@@ -43,7 +43,7 @@ func TestMissedCheckin_TriggersAlert(t *testing.T) {
 	dev.LastSeen = oldTime
 	_ = s.UpdateDevice(ctx, "default", dev)
 
-	m.Configure(Config{
+	m.Configure(store.DefaultTenantID, Config{
 		DeviceIMEI: "dev1",
 		ChainID:    chain.ID,
 		Interval:   1 * time.Hour,
@@ -83,7 +83,7 @@ func TestRecentCheckin_NoAlert(t *testing.T) {
 	// TouchDeviceLastSeen sets it to now, which is within the 1h window.
 	_ = s.TouchDeviceLastSeen(ctx, "default", "dev2")
 
-	m.Configure(Config{
+	m.Configure(store.DefaultTenantID, Config{
 		DeviceIMEI: "dev2",
 		ChainID:    chain.ID,
 		Interval:   1 * time.Hour,
@@ -116,7 +116,7 @@ func TestSnooze_SuppressesAlert(t *testing.T) {
 	dev.LastSeen = time.Now().Add(-2 * time.Hour)
 	_ = s.UpdateDevice(ctx, "default", dev)
 
-	m.Configure(Config{
+	m.Configure(store.DefaultTenantID, Config{
 		DeviceIMEI: "dev3",
 		ChainID:    chain.ID,
 		Interval:   1 * time.Hour,
@@ -125,7 +125,7 @@ func TestSnooze_SuppressesAlert(t *testing.T) {
 	})
 
 	// Snooze for 1 hour.
-	m.Snooze("dev3", 1*time.Hour)
+	m.Snooze(store.DefaultTenantID, "dev3", 1*time.Hour)
 
 	m.scan(ctx)
 
@@ -152,7 +152,7 @@ func TestDuplicateAlert_NotTriggered(t *testing.T) {
 	dev.LastSeen = time.Now().Add(-2 * time.Hour)
 	_ = s.UpdateDevice(ctx, "default", dev)
 
-	m.Configure(Config{
+	m.Configure(store.DefaultTenantID, Config{
 		DeviceIMEI: "dev4",
 		ChainID:    chain.ID,
 		Interval:   1 * time.Hour,
@@ -187,7 +187,7 @@ func TestClearAlert_AllowsRetrigger(t *testing.T) {
 	dev.LastSeen = time.Now().Add(-2 * time.Hour)
 	_ = s.UpdateDevice(ctx, "default", dev)
 
-	m.Configure(Config{
+	m.Configure(store.DefaultTenantID, Config{
 		DeviceIMEI: "dev5",
 		ChainID:    chain.ID,
 		Interval:   1 * time.Hour,
@@ -196,7 +196,7 @@ func TestClearAlert_AllowsRetrigger(t *testing.T) {
 	})
 
 	m.scan(ctx)
-	m.ClearAlert("dev5")
+	m.ClearAlert(store.DefaultTenantID, "dev5")
 	m.scan(ctx)
 
 	alerts, _ := s.ListAlerts(ctx, "default", false, 10)
@@ -222,7 +222,7 @@ func TestCheckIn_ResetsAlertAndTouchesLastSeen(t *testing.T) {
 	dev.LastSeen = time.Now().Add(-2 * time.Hour)
 	_ = s.UpdateDevice(ctx, "default", dev)
 
-	m.Configure(Config{
+	m.Configure(store.DefaultTenantID, Config{
 		DeviceIMEI: "dev6",
 		ChainID:    chain.ID,
 		Interval:   1 * time.Hour,
@@ -238,7 +238,7 @@ func TestCheckIn_ResetsAlertAndTouchesLastSeen(t *testing.T) {
 	}
 
 	// Device checks in via CheckIn.
-	m.CheckIn("dev6")
+	m.CheckIn(store.DefaultTenantID, "dev6")
 
 	// Verify last_seen was updated (should be recent, not 2 hours ago).
 	dev, _ = s.GetDevice(ctx, "default", "dev6")
@@ -268,7 +268,7 @@ func TestCheckIn_ClearsAlertFlag(t *testing.T) {
 
 	_ = s.CreateDevice(ctx, "default", &store.Device{IMEI: "dev7"})
 
-	m.Configure(Config{
+	m.Configure(store.DefaultTenantID, Config{
 		DeviceIMEI: "dev7",
 		ChainID:    chain.ID,
 		Interval:   1 * time.Hour,
@@ -284,7 +284,7 @@ func TestCheckIn_ClearsAlertFlag(t *testing.T) {
 	}
 
 	// CheckIn clears alert flag and touches last_seen.
-	m.CheckIn("dev7")
+	m.CheckIn(store.DefaultTenantID, "dev7")
 
 	// Verify alerted flag is cleared (internal state check via ClearAlert+scan behavior).
 	// After CheckIn, last_seen is now, so scan should NOT trigger.
@@ -297,7 +297,7 @@ func TestCheckIn_ClearsAlertFlag(t *testing.T) {
 	// Verify that ClearAlert was called internally (alerted flag is false).
 	// Use ClearAlert + re-scan with old time via the existing ClearAlert test pattern.
 	// The alert flag was already cleared by CheckIn, so calling ClearAlert again is a no-op.
-	m.ClearAlert("dev7")
+	m.ClearAlert(store.DefaultTenantID, "dev7")
 
 	// Now manually test that the internal alerted map was cleared by CheckIn.
 	// We can't easily set last_seen to old via the store API, but we can verify
@@ -314,22 +314,22 @@ func TestCheckIn_ClearsAlertFlag(t *testing.T) {
 
 func TestConfigureDisabled_RemovesMonitoring(t *testing.T) {
 	m := NewMonitor(newTestStore(t), nil)
-	m.Configure(Config{DeviceIMEI: "dev1", Enabled: true, Interval: time.Hour})
-	if len(m.ListConfigs()) != 1 {
+	m.Configure(store.DefaultTenantID, Config{DeviceIMEI: "dev1", Enabled: true, Interval: time.Hour})
+	if len(m.ListConfigs(store.DefaultTenantID)) != 1 {
 		t.Fatal("expected 1 config")
 	}
-	m.Configure(Config{DeviceIMEI: "dev1", Enabled: false})
-	if len(m.ListConfigs()) != 0 {
+	m.Configure(store.DefaultTenantID, Config{DeviceIMEI: "dev1", Enabled: false})
+	if len(m.ListConfigs(store.DefaultTenantID)) != 0 {
 		t.Fatal("expected 0 configs after disable")
 	}
 }
 
 func TestRemove_CleansUp(t *testing.T) {
 	m := NewMonitor(newTestStore(t), nil)
-	m.Configure(Config{DeviceIMEI: "dev1", Enabled: true, Interval: time.Hour})
-	m.Snooze("dev1", time.Hour)
-	m.Remove("dev1")
-	if len(m.ListConfigs()) != 0 {
+	m.Configure(store.DefaultTenantID, Config{DeviceIMEI: "dev1", Enabled: true, Interval: time.Hour})
+	m.Snooze(store.DefaultTenantID, "dev1", time.Hour)
+	m.Remove(store.DefaultTenantID, "dev1")
+	if len(m.ListConfigs(store.DefaultTenantID)) != 0 {
 		t.Fatal("expected 0 configs after remove")
 	}
 }
@@ -339,11 +339,11 @@ func TestRemove_CleansUp(t *testing.T) {
 func TestStatePersistsAcrossMonitors(t *testing.T) {
 	s := newTestStore(t)
 	m1 := NewMonitor(s, escalation.New(s, escalation.LogNotifier{}))
-	m1.Configure(Config{DeviceIMEI: "dev9", ChainID: "c", Interval: time.Hour, Grace: time.Minute, Enabled: true})
-	m1.Snooze("dev9", time.Hour)
+	m1.Configure(store.DefaultTenantID, Config{DeviceIMEI: "dev9", ChainID: "c", Interval: time.Hour, Grace: time.Minute, Enabled: true})
+	m1.Snooze(store.DefaultTenantID, "dev9", time.Hour)
 
 	m2 := NewMonitor(s, escalation.New(s, escalation.LogNotifier{}))
-	cfgs := m2.ListConfigs()
+	cfgs := m2.ListConfigs(store.DefaultTenantID)
 	if len(cfgs) != 1 || cfgs[0].DeviceIMEI != "dev9" || cfgs[0].Interval != time.Hour {
 		t.Fatalf("second monitor does not see the config: %+v", cfgs)
 	}
