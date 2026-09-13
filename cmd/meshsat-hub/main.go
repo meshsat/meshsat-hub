@@ -2017,7 +2017,9 @@ func main() {
 	bridgeAuthHandler.SetNATSAuth(natsAuth)
 	r.Post("/api/bridges/{id}/credentials", bridgeAuthHandler.GenerateCredentials)
 	r.Post("/api/bridges/{id}/certificate", bridgeAuthHandler.IssueCertificate)
-	r.Post("/api/bridges/acl/regenerate", bridgeAuthHandler.RegenerateACL)
+	// PLATFORM ADMIN ONLY (MESHSAT-1116): ListBridgesWithCredentials takes no
+	// tenant and this re-renders the cluster-wide meshsat-nats-auth Secret.
+	r.With(hubauth.RequirePlatformAdmin()).Post("/api/bridges/acl/regenerate", bridgeAuthHandler.RegenerateACL)
 
 	// One-step bridge provisioning with QR code (MESHSAT-414)
 	provisionHandler := api.NewBridgeProvisionHandler(dataStore, bridgeCA, directoryTrustAnchor)
@@ -2088,14 +2090,20 @@ func main() {
 		r.Get("/api/hemb/stats", hembStatsHandler.GetStats)
 	}
 
-	// Platform settings (MQTT public URL for bridge onboarding)
-	r.Get("/api/settings/mqtt-url", bridgeAuthHandler.GetMQTTURL)
-	r.Put("/api/settings/mqtt-url", bridgeAuthHandler.SetMQTTURL)
-
-	// Service security status + password rotation
+	// Platform settings. PLATFORM ADMIN ONLY, and the name is the reason: these
+	// write system_config, which is (key, value, updated_at) with no tenant_id,
+	// so the value is one value for every tenant. Until MESHSAT-1116 these sat on
+	// the root router behind nothing but authentication, which meant any member
+	// of any tenant -- a viewer included -- could rewrite the MQTT URL that every
+	// bridge is handed at onboarding, for everybody.
 	securityHandler := api.NewSecuritySettingsHandler(dataStore)
-	r.Get("/api/settings/security", securityHandler.GetSecurityStatus)
-	r.Post("/api/settings/security/rotate", securityHandler.RotateServicePasswords)
+	r.Group(func(r chi.Router) {
+		r.Use(hubauth.RequirePlatformAdmin())
+		r.Get("/api/settings/mqtt-url", bridgeAuthHandler.GetMQTTURL)
+		r.Put("/api/settings/mqtt-url", bridgeAuthHandler.SetMQTTURL)
+		r.Get("/api/settings/security", securityHandler.GetSecurityStatus)
+		r.Post("/api/settings/security/rotate", securityHandler.RotateServicePasswords)
+	})
 
 	// Device registry API
 	deviceHandler := api.NewDeviceHandler(dataStore)
@@ -2135,7 +2143,10 @@ func main() {
 
 	// Channel key rotation — Hub generates + distributes to all bridges [MESHSAT-447]
 	channelKeyHandler := api.NewChannelKeyHandler(dataStore, keyStore, bridgeCommander)
-	r.Post("/api/keys/channel/rotate", channelKeyHandler.RotateChannelKey)
+	// PLATFORM ADMIN ONLY (MESHSAT-1116): channelkeys.go hardcodes
+	// store.DefaultTenantID and pushes key_rotate to every online bridge of that
+	// tenant, ignoring the caller's. It also returns the plaintext key.
+	r.With(hubauth.RequirePlatformAdmin()).Post("/api/keys/channel/rotate", channelKeyHandler.RotateChannelKey)
 
 	// MT message send (Rock7 / Iridium)
 	sendHandler := api.NewSendHandler(rock7Client, dataStore)
@@ -2255,9 +2266,21 @@ func main() {
 	// Backup/restore
 	backupProvider := &backup.HubStateProvider{Config: cfg, WebhookLister: webhookDispatcher}
 	backupHandler := backup.NewAPIHandler(backupProvider, "/data")
-	r.Get("/api/backup/export", backupHandler.ExportBackup)
-	r.Post("/api/backup/diff", backupHandler.DiffBackup)
-	r.Post("/api/backup/import", backupHandler.ImportBackup)
+	// PLATFORM ADMIN ONLY. This is Hub state, not a tenant's data: the provider
+	// is built from cfg, so the export carries the Hub's own configuration.
+	// A tenant wanting its own data has GET /api/tenant/export.
+	//
+	// Until MESHSAT-1116 these were ungated, and the export was verified against
+	// production to contain the LIVE Stripe secret key, the Stripe webhook
+	// signing secret and the Twilio API key SID -- ExportConfig redacts four
+	// fields out of thirty-two. Any authenticated customer could take them.
+	// Import is worse in kind: it lets one push Hub state back.
+	r.Group(func(r chi.Router) {
+		r.Use(hubauth.RequirePlatformAdmin())
+		r.Get("/api/backup/export", backupHandler.ExportBackup)
+		r.Post("/api/backup/diff", backupHandler.DiffBackup)
+		r.Post("/api/backup/import", backupHandler.ImportBackup)
+	})
 
 	// WireGuard peer management + auto-provisioning (optional)
 	if cfg.WGEnabled && cfg.WGURL != "" {
