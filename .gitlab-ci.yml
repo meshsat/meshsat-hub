@@ -221,6 +221,34 @@ govulncheck:
     - govulncheck ./...
 
 # -----------------------------------------------------------------------------
+# OTS — the image patches must WORK, not merely apply
+# -----------------------------------------------------------------------------
+# The Dockerfile already asserts the patches APPLIED: the marker is in the module
+# Python loads. That is not the same as asserting they work, and the difference
+# is not academic -- MESHSAT-1089's first fix passed that assertion while every
+# tenant still wrote nine tracebacks per ninety seconds, because it cured one
+# caller of close_connection and the other was never read. It was caught by
+# measuring production afterwards, which is a poor last line of defence.
+#
+# These tests execute the patched code. They need no network, no image and no
+# OpenTAKServer: each fixture is built from the patch script's own anchor, because
+# upstream is GPL-3.0-or-later and this repository is Apache-2.0, so its source
+# must not be vendored here.
+#
+# The two halves are deliberately separate: this job proves the patched result
+# behaves, and the image build proves the anchors still match real upstream.
+ots:patch-tests:
+  stage: lint
+  image: python:3.13-slim
+  tags: [docker]
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main"
+    - changes:
+        - k8s/ots/**/*
+  script:
+    - python3 -m unittest discover -s k8s/ots -p 'test_*.py' -v
+
+# -----------------------------------------------------------------------------
 # WEB — the committed dist must match the committed source
 # -----------------------------------------------------------------------------
 # CI DOES NOT BUILD THE FRONTEND, and the Go binary embeds cmd/meshsat-hub/web/dist
