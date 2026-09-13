@@ -12,6 +12,7 @@ import (
 	"net"
 	"sync"
 	"sync/atomic"
+	"syscall"
 	"time"
 )
 
@@ -249,7 +250,12 @@ func (s *Server) serve(ctx context.Context, raw net.Conn) {
 		return
 	}
 	if err := conn.HandshakeContext(ctx); err != nil {
-		// Includes every resolution failure: unknown issuer, expired, no CN.
+		// Includes every resolution failure: unknown issuer, expired, no CN --
+		// EXCEPT the case where nothing was ever offered to resolve.
+		if peerVanished(err) {
+			s.probed(ctx, conn, remote, err)
+			return
+		}
 		s.refuse(ctx, conn, "", reasonHandshake, remote, err)
 		return
 	}
@@ -495,6 +501,47 @@ func firstRealError(errs ...error) error {
 		}
 	}
 	return nil
+}
+
+// peerVanished reports whether a handshake ended because the other end went away
+// without ever presenting anything, rather than because this front turned it down.
+//
+// # Why this distinction earns its keep (MESHSAT-1074)
+//
+// The edge relay health-checks the TAK port by opening a TCP connection and
+// closing it. No ClientHello is ever sent, so the handshake ends in EOF and used
+// to be logged as `takfront: connection refused reason=handshake` at WARN -- byte
+// for byte what a genuinely rejected phone looks like. Three relays checking two
+// replicas produced that line continuously, for ever, on a brand-new path: it
+// buried the one signal worth reading, and an unbounded WARN has already filled a
+// root filesystem in this estate once, with a 107 GB log.
+//
+// The refusal is still COUNTED, under its own reason, so the condition stays
+// visible in metrics without a line per probe. A phone that drops mid-handshake
+// lands here too, which is correct -- that is also not a refusal.
+//
+// Only "the peer stopped talking" counts. A timeout deliberately does NOT: a
+// handshake that starts and then stalls can mean a real network fault, and that is
+// worth a WARN.
+func peerVanished(err error) bool {
+	if err == nil {
+		return false
+	}
+	return errors.Is(err, io.EOF) ||
+		errors.Is(err, io.ErrUnexpectedEOF) ||
+		errors.Is(err, net.ErrClosed) ||
+		errors.Is(err, syscall.ECONNRESET)
+}
+
+// probed records a connection that went away before the handshake. Same counter
+// as a refusal, different reason, and Debug rather than Warn.
+func (s *Server) probed(ctx context.Context, c net.Conn, remote net.Addr, err error) {
+	_ = c.Close()
+	s.cfg.Logger.Debug("takfront: connection closed before the handshake",
+		"remote", remote.String(), "error", err)
+	if s.rec != nil {
+		s.rec.Refused(ctx, "", reasonProbe, remote)
+	}
 }
 
 func (s *Server) refuse(ctx context.Context, c net.Conn, tenantID, reason string, remote net.Addr, err error) {

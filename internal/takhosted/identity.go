@@ -60,6 +60,20 @@ type IdentityKeeper struct {
 	held map[string]*heldIdentity
 	// pending keys, by tenant, waiting for a signature.
 	pending map[string]*pendingKey
+	// refused records the tenants whose request the operator turned down, so the
+	// Hub can try again on a backoff instead of reading the same refusal forever
+	// (MESHSAT-1075).
+	refused map[string]*refusal
+}
+
+// refusal is what the Hub remembers about a turned-down request.
+type refusal struct {
+	// at is when the last attempt was refused, and tries how many have been.
+	// Together they pace the retry; without them a five-minute refresh would
+	// delete and re-ask every five minutes for as long as the cause persisted.
+	at     time.Time
+	tries  int
+	reason string
 }
 
 type heldIdentity struct {
@@ -77,7 +91,14 @@ type pendingKey struct {
 // yet. The caller should skip this tenant and try on the next refresh.
 var ErrIdentityPending = errors.New("takhosted: upstream identity is pending issuance")
 
-// ErrIdentityDenied means the operator refused to sign. This does not fix itself.
+// ErrIdentityDenied means the operator refused to sign.
+//
+// It used to carry the sentence "This does not fix itself", which was an accurate
+// description of a defect rather than a design (MESHSAT-1075): a refused request
+// was left in place and re-read on every refresh, so the tenant was skipped
+// forever and the only cure was a person deleting the object by hand. The Hub now
+// clears a refusal and asks again on a backoff, so this error means "not right
+// now" rather than "never".
 var ErrIdentityDenied = errors.New("takhosted: upstream identity was denied")
 
 const (
@@ -90,7 +111,34 @@ const (
 	// gives up on it and asks again with a fresh key. Without this, an object
 	// somebody deleted by hand would leave the tenant waiting forever.
 	pendingPatience = 10 * time.Minute
+
+	// A refused request is retried, because the commonest causes are transient --
+	// an instance that was not Ready yet, a CRD mid-rollout, a validator that has
+	// since been corrected. The first retry is immediate for exactly that reason:
+	// when the front was first enabled, every tenant was refused by a validator
+	// that a later merge fixed, and nothing made the Hub ask again.
+	//
+	// After that it backs off, because a genuinely malformed request would
+	// otherwise mean one delete and one create per tenant per refresh forever.
+	denialRetryBase = 5 * time.Minute
+	denialRetryMax  = time.Hour
 )
+
+// retryAfter is how long to wait before asking again, having been refused tries
+// times already. Doubling from denialRetryBase, capped.
+func retryAfter(tries int) time.Duration {
+	if tries <= 1 {
+		return 0
+	}
+	d := denialRetryBase
+	for i := 2; i < tries; i++ {
+		d *= 2
+		if d >= denialRetryMax {
+			return denialRetryMax
+		}
+	}
+	return d
+}
 
 // NewIdentityKeeper wires one up.
 //
@@ -123,6 +171,7 @@ func NewIdentityKeeper(c *Client, replica string, log *slog.Logger) *IdentityKee
 		replica: replica,
 		held:    map[string]*heldIdentity{},
 		pending: map[string]*pendingKey{},
+		refused: map[string]*refusal{},
 	}
 }
 
@@ -256,6 +305,9 @@ func (k *IdentityKeeper) collect(ctx context.Context, tenantID, label string) (t
 		k.mu.Lock()
 		k.held[tenantID] = &heldIdentity{pair: pair, notAfter: leaf.NotAfter, serial: req.Status.Serial}
 		delete(k.pending, tenantID)
+		// Whatever was refused before has been superseded: start the backoff from
+		// nothing if this tenant is ever refused again.
+		delete(k.refused, tenantID)
 		k.mu.Unlock()
 		k.log.Info("takhosted: upstream identity issued",
 			"tenant", tenantID, "serial", req.Status.Serial, "not_after", leaf.NotAfter.UTC())
@@ -269,7 +321,7 @@ func (k *IdentityKeeper) collect(ctx context.Context, tenantID, label string) (t
 		return pair, nil
 
 	case CertDenied:
-		return tls.Certificate{}, fmt.Errorf("%w: %s", ErrIdentityDenied, req.Status.Message)
+		return tls.Certificate{}, k.afterRefusal(ctx, tenantID, label, name, req.Status.Message)
 
 	default:
 		// Pending, or a phase this Hub does not know. If the wait has gone on too
@@ -292,6 +344,83 @@ func (k *IdentityKeeper) collect(ctx context.Context, tenantID, label string) (t
 		}
 		return tls.Certificate{}, ErrIdentityPending
 	}
+}
+
+// afterRefusal decides what to do about a request the operator turned down.
+//
+// # The defect this replaces (MESHSAT-1075)
+//
+// A refusal used to be returned and nothing else. The object stayed, so every
+// refresh read the same Denied status and returned the same error: the tenant was
+// skipped from the front's directory for good, no phone in it could connect, and
+// the only cure was a person noticing and deleting the object by hand. There was
+// no metric and one WARN line per refresh.
+//
+// That is the wrong default, because the causes seen in practice are transient.
+// When the front was first switched on, EVERY tenant was refused -- by a username
+// validator that a later merge corrected -- and the Hub would have stayed dead
+// after the fix landed.
+//
+// So a refusal now clears the object and asks again, on a backoff so that a
+// genuinely bad request does not mean one delete and one create per tenant per
+// refresh for ever. The first retry is immediate, the rest double from five
+// minutes to an hour.
+//
+// It is logged at ERROR, not WARN, and the line says what it costs: for as long
+// as this lasts the tenant is absent from the front and its phones cannot connect.
+// Once per decision, not once per refresh.
+func (k *IdentityKeeper) afterRefusal(ctx context.Context, tenantID, label, name, why string) error {
+	refusedErr := fmt.Errorf("%w: %s", ErrIdentityDenied, why)
+
+	k.mu.Lock()
+	r := k.refused[tenantID]
+	if r == nil {
+		r = &refusal{}
+		k.refused[tenantID] = r
+	}
+	wait := retryAfter(r.tries + 1)
+	due := r.tries == 0 || k.now().Sub(r.at) >= wait
+	tries := r.tries
+	k.mu.Unlock()
+
+	identityRefused.Inc()
+
+	if !due {
+		// Already asked recently. Stay quiet: the directory's skipped gauge and
+		// this counter are what make the condition visible, and a log line per
+		// refresh per tenant is how a new path fills a disk.
+		k.log.Debug("takhosted: upstream identity still refused, waiting before asking again",
+			"tenant", tenantID, "reason", why, "attempts", tries)
+		return refusedErr
+	}
+
+	k.log.Error("takhosted: the operator REFUSED this tenant's upstream identity -- "+
+		"while this lasts the tenant is absent from the TAK front and none of its phones can connect; asking again",
+		"tenant", tenantID, "reason", why, "attempt", tries+1,
+		"next_attempt_after", retryAfter(tries+2).String())
+
+	if err := k.client.DeleteCertRequest(ctx, name); err != nil {
+		// Leave the bookkeeping alone so the next refresh retries the delete
+		// rather than counting this as an attempt that happened.
+		return fmt.Errorf("takhosted: clearing a refused request: %w", err)
+	}
+
+	k.mu.Lock()
+	r.tries++
+	r.at = k.now()
+	r.reason = why
+	// The key that went with the refused request is of no further use; ask()
+	// replaces it, but dropping it here keeps the two maps from disagreeing about
+	// what is in flight.
+	delete(k.pending, tenantID)
+	k.mu.Unlock()
+
+	if err := k.ask(ctx, tenantID, label, name); err != nil {
+		return err
+	}
+	// Asked again, so the caller should treat this as pending rather than as a
+	// refusal -- otherwise a single refusal reads as permanent to every layer above.
+	return ErrIdentityPending
 }
 
 // ask generates a key, submits a CSR and records the pending key.
@@ -385,4 +514,8 @@ func (k *IdentityKeeper) Forget(tenantID string) {
 	defer k.mu.Unlock()
 	delete(k.held, tenantID)
 	delete(k.pending, tenantID)
+	// The refusal goes too. A tenant that is forgotten and later reappears is, as
+	// far as this keeper is concerned, a new tenant; making it serve out a backoff
+	// earned by a previous incarnation would delay it for no reason.
+	delete(k.refused, tenantID)
 }
