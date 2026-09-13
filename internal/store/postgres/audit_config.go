@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/meshsat/meshsat-hub/internal/store"
@@ -197,4 +198,41 @@ func (d *DB) SetSystemConfig(ctx context.Context, key, value string) error {
 		"INSERT INTO system_config (key, value) VALUES ($1, $2) ON CONFLICT (key) DO UPDATE SET value=EXCLUDED.value, updated_at=now()",
 		key, value)
 	return err
+}
+
+// ListSystemConfigOlderThan returns keys under prefix last written before cutoff.
+//
+// LIKE with an escaped prefix, not a bare concatenation: a prefix containing %
+// or _ would otherwise match far more than the caller meant, and the caller is
+// a sweeper that deletes what it finds.
+func (d *DB) ListSystemConfigOlderThan(ctx context.Context, prefix string, cutoff time.Time) ([]string, error) {
+	rows, err := d.db.QueryContext(ctx,
+		`SELECT key FROM system_config WHERE key LIKE $1 ESCAPE '\' AND updated_at < $2 ORDER BY key`,
+		likePrefix(prefix), cutoff)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+	var keys []string
+	for rows.Next() {
+		var k string
+		if err := rows.Scan(&k); err != nil {
+			return nil, err
+		}
+		keys = append(keys, k)
+	}
+	return keys, rows.Err()
+}
+
+// DeleteSystemConfig removes a row. A key that is not there is not an error --
+// the sweeper races the claim path, and losing that race is the normal case.
+func (d *DB) DeleteSystemConfig(ctx context.Context, key string) error {
+	_, err := d.db.ExecContext(ctx, "DELETE FROM system_config WHERE key=$1", key)
+	return err
+}
+
+// likePrefix escapes the LIKE metacharacters so a prefix is matched literally.
+func likePrefix(prefix string) string {
+	r := strings.NewReplacer(`\`, `\\`, "%", `\%`, "_", `\_`)
+	return r.Replace(prefix) + "%"
 }

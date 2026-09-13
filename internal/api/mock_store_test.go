@@ -3,6 +3,8 @@ package api
 import (
 	"context"
 	"fmt"
+	"sort"
+	"strings"
 	"time"
 
 	"github.com/meshsat/meshsat-hub/internal/store"
@@ -10,6 +12,7 @@ import (
 
 // mockStore implements store.Store for unit tests with configurable return values.
 type mockStore struct {
+	bridge        *store.Bridge // what GetBridge returns, when set
 	tenant        *store.Tenant
 	platformAdmin bool // returned by IsPlatformAdmin
 
@@ -282,7 +285,15 @@ func (m *mockStore) DeleteRoute(context.Context, string, string) error         {
 
 // Bridges
 func (m *mockStore) CreateOrUpdateBridge(context.Context, string, *store.Bridge) error { return nil }
-func (m *mockStore) GetBridge(context.Context, string, string) (*store.Bridge, error) {
+
+// bridge, when set, is what GetBridge returns -- added so the provisioning
+// handler can be exercised at all (it 404s before doing anything otherwise).
+func (m *mockStore) GetBridge(_ context.Context, _, id string) (*store.Bridge, error) {
+	if m.bridge != nil && (m.bridge.BridgeID == id || m.bridge.BridgeID == "") {
+		b := *m.bridge
+		b.BridgeID = id
+		return &b, nil
+	}
 	return nil, fmt.Errorf("not found")
 }
 func (m *mockStore) ListBridges(context.Context, string) ([]*store.Bridge, error) { return nil, nil }
@@ -353,6 +364,28 @@ func (m *mockStore) SetSystemConfig(_ context.Context, key, value string) error 
 		m.sysConfig = map[string]string{}
 	}
 	m.sysConfig[key] = value
+	return nil
+}
+
+func (m *mockStore) ListSystemConfigOlderThan(_ context.Context, prefix string, _ time.Time) ([]string, error) {
+	if m.sysConfigErr != nil {
+		return nil, m.sysConfigErr
+	}
+	var keys []string
+	for k := range m.sysConfig {
+		if strings.HasPrefix(k, prefix) {
+			keys = append(keys, k)
+		}
+	}
+	sort.Strings(keys)
+	return keys, nil
+}
+
+func (m *mockStore) DeleteSystemConfig(_ context.Context, key string) error {
+	if m.sysConfigErr != nil {
+		return m.sysConfigErr
+	}
+	delete(m.sysConfig, key)
 	return nil
 }
 
