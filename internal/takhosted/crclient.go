@@ -69,12 +69,27 @@ const (
 
 // Phases and purposes the Hub reads or asks for.
 const (
-	PhaseReady  = "Ready"
-	CertIssued  = "Issued"
-	CertDenied  = "Denied"
-	PurposeHub  = "hub"
-	PurposeEUD  = "eud"
-	HubIdentity = "meshsat-hub"
+	PhaseReady = "Ready"
+	CertIssued = "Issued"
+	CertDenied = "Denied"
+	PurposeHub = "hub"
+	PurposeEUD = "eud"
+
+	// HubIdentity is the common name the Hub asks for and presents to a tenant's
+	// OpenTAKServer. It is DUPLICATED from the operator's own constant on purpose --
+	// see this package's doc comment and boundary_test.go for why the import that
+	// would remove the duplication is forbidden. (Written without the qualified
+	// name on purpose: boundary_test.go scans for that text, deliberately, so that
+	// nobody can introduce a real reference under cover of a comment.)
+	//
+	// ⚠ UNDERSCORE, NOT HYPHEN, AND IT MUST MATCH THE OPERATOR AND THE CRD
+	// (MESHSAT-1088). OpenTAKServer's username validator refuses a hyphen, so no
+	// account could exist for the old name and every tenant stored nothing. Three
+	// copies of this string exist -- here, in the operator, and as a CEL literal in
+	// the CRD -- and the API server enforces the CRD's. When only two were updated,
+	// the Hub's requests came back 422 and the directory emptied. There is a test
+	// on each side pinning it to the CRD, which is the arbiter both must satisfy.
+	HubIdentity = "meshsat_hub"
 )
 
 // Account actions and phases, mirroring the operator's own constants. Duplicated

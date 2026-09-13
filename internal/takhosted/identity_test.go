@@ -11,6 +11,7 @@ import (
 	"errors"
 	"math/big"
 	"net/http"
+	"os"
 	"strings"
 	"sync"
 	"testing"
@@ -479,5 +480,42 @@ func TestHoldingReportsWhatIsActuallyHeld(t *testing.T) {
 	k.Forget("t1")
 	if len(k.Holding()) != 0 {
 		t.Error("Forget did not drop the identity")
+	}
+}
+
+// The name the Hub asks for lives in THREE places: this package, the operator,
+// and a CEL literal in the CRD. The API server enforces the CRD's, so that is the
+// arbiter -- and the import that would collapse the duplication is forbidden by
+// this package's security boundary (see boundary_test.go), so a test is what keeps
+// them in step.
+//
+// This is not hypothetical. MESHSAT-1088 changed the operator and the CRD and
+// missed this copy; every hub certificate request came back
+//
+//	422 ... username must be 3 to 32 lowercase alphanumerics for an eud
+//	certificate, or exactly meshsat_hub for a hub certificate
+//
+// the directory emptied to `tenants:0 skipped:1` on both replicas, and the front
+// refused every phone with SSLV3_ALERT_BAD_CERTIFICATE -- because with no tenant
+// in the directory there is no issuer to attribute a certificate to. Every
+// pipeline was green.
+func TestTheHubAsksForTheNameTheCRDAdmits(t *testing.T) {
+	raw, err := os.ReadFile("../../k8s/tak-operator/crds/takcertificaterequest.yaml")
+	if err != nil {
+		t.Skipf("CRD not readable from here: %v", err)
+	}
+	want := "self.username == '" + HubIdentity + "'"
+	if !strings.Contains(string(raw), want) {
+		t.Fatalf("the CRD does not admit %q for a hub certificate.\n"+
+			"The API server refuses what this package sends, so the Hub can obtain no "+
+			"upstream identity, the directory empties, and NO phone in ANY tenant can "+
+			"connect.\nLooked for: %s", HubIdentity, want)
+	}
+	// And the reason the separator matters at all: OpenTAKServer's own validator
+	// allows letters, numbers, underscore and full stop -- never a hyphen.
+	if strings.Contains(HubIdentity, "-") {
+		t.Errorf("HubIdentity = %q uses a hyphen, which OpenTAKServer's username "+
+			"validator refuses, so no account can exist for it and the tenant's "+
+			"server will silently store nothing", HubIdentity)
 	}
 }
