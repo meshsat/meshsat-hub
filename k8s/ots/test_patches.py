@@ -59,6 +59,53 @@ def load_patch_module():
 P = load_patch_module()
 
 
+ICONFETCH = HERE / "patch-icon-fetch.py"
+
+
+def load_icon_module():
+    """Import patch-icon-fetch.py for its ANCHOR and REPLACEMENT (the name has a dash)."""
+    spec = importlib.util.spec_from_file_location("patch_icon_fetch", ICONFETCH)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+I = load_icon_module()
+
+
+def write_app_fixture(d: pathlib.Path, anchor=None):
+    """Build a minimal app.py around the real anchor.
+
+    Built from the script's OWN constant, never from a vendored copy of
+    app.py: OpenTAKServer is GPL-3.0-or-later and this repository is Apache-2.0.
+    CRLF throughout, because app.py is CRLF and the anchor is byte-exact.
+    """
+    src = (
+        b"import os\r\n"
+        b"import requests\r\n"
+        b"\r\n"
+        b"\r\n"
+        b"def main():\r\n"
+        b"    with app.app_context():\r\n"
+        b"        if icons == 0:\r\n"
+        b"            try:\r\n"
+        + (I.ANCHOR if anchor is None else anchor)
+        + b"                logger.info('loaded')\r\n"
+        b"            except BaseException as e:\r\n"
+        b"                logger.error(e)\r\n"
+    )
+    path = d / "app.py"
+    path.write_bytes(src)
+    return path
+
+
+def run_icon_patch(bundled, app_path):
+    return subprocess.run(
+        [sys.executable, str(ICONFETCH), str(bundled), str(app_path)],
+        capture_output=True, text=True,
+    )
+
+
 def write_fixtures(d: pathlib.Path):
     """Build a minimal EudHandlerSSL.py and EudHandler.py around the real anchors.
 
@@ -294,6 +341,194 @@ class RequestTimeoutDefault(unittest.TestCase):
         first = Session.request
         spec.loader.exec_module(mod)
         self.assertIs(Session.request, first)
+
+
+class HttpxTimeoutDefault(unittest.TestCase):
+    """sitecustomize.py's httpx half -- MESHSAT-1107.
+
+    httpx already defaults to 5 s, so this is not about an unbounded hang. It is
+    about the number being OURS: a library default can move on an upgrade, and if
+    it ever became None these calls would silently acquire the failure mode the
+    requests half exists to prevent.
+    """
+
+    def _install(self):
+        built = []
+
+        class Timeout:
+            def __init__(self, value):
+                self.value = value
+
+            def __eq__(self, other):
+                return isinstance(other, Timeout) and other.value == self.value
+
+            def __repr__(self):
+                return f"Timeout({self.value})"
+
+        class Client:
+            def __init__(self, *args, **kw):
+                built.append(kw.get("timeout", "NONE"))
+
+        class AsyncClient(Client):
+            pass
+
+        fake = types.ModuleType("httpx")
+        fake.Client = Client
+        fake.AsyncClient = AsyncClient
+        fake.Timeout = Timeout
+        sys.modules["httpx"] = fake
+        # requests too: sitecustomize installs both, and without a stand-in the
+        # requests half would import the real one or bail, neither of which this
+        # test wants to depend on.
+        sys.modules.setdefault("requests", types.ModuleType("requests"))
+        sys.modules["requests"].Session = type("Session", (), {"request": lambda self, *a, **k: None})
+
+        # By PATH, never by name -- `import sitecustomize` returns the SYSTEM one.
+        spec = importlib.util.spec_from_file_location("meshsat_sc_httpx", SITECUSTOMIZE)
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        return fake, built, spec, mod
+
+    def tearDown(self):
+        sys.modules.pop("httpx", None)
+        sys.modules.pop("requests", None)
+
+    def test_a_client_built_without_a_timeout_gets_ours(self):
+        httpx, built, _, _ = self._install()
+        httpx.Client(http2=True)  # exactly how tak_gov_link_api.py builds it
+        self.assertEqual(built, [httpx.Timeout(5.0)])
+
+    def test_the_pinned_value_matches_the_library_default_on_purpose(self):
+        """If this ever needs changing, read the docstring first.
+
+        The number is deliberately identical to httpx 0.28.1's own default,
+        measured in the running image. Raising it to the generous requests
+        numbers would make a hanging tak.gov call fail twelve times slower than
+        it does today -- a regression dressed up as a fix.
+        """
+        spec = importlib.util.spec_from_file_location("meshsat_sc_const", SITECUSTOMIZE)
+        mod = importlib.util.module_from_spec(spec)
+        sys.modules.setdefault("requests", types.ModuleType("requests"))
+        sys.modules["requests"].Session = type("S", (), {"request": lambda self, *a, **k: None})
+        spec.loader.exec_module(mod)
+        self.assertEqual(mod._HTTPX_TIMEOUT, 5.0)
+
+    def test_an_explicit_timeout_always_wins(self):
+        httpx, built, _, _ = self._install()
+        httpx.Client(http2=True, timeout=1.5)
+        httpx.Client(timeout=None)  # even None: if upstream means it, upstream wins
+        self.assertEqual(built, [1.5, None])
+
+    def test_the_async_client_is_covered_too(self):
+        httpx, built, _, _ = self._install()
+        httpx.AsyncClient()
+        self.assertEqual(built, [httpx.Timeout(5.0)])
+
+    def test_installing_twice_does_not_wrap_twice(self):
+        httpx, _, spec, mod = self._install()
+        first = httpx.Client.__init__
+        spec.loader.exec_module(mod)
+        self.assertIs(httpx.Client.__init__, first)
+
+
+
+class IconPatchApplication(unittest.TestCase):
+    """patch-icon-fetch.py -- MESHSAT-1108.
+
+    Its sibling patch-eud-handshake.py has had this coverage since MESHSAT-1089.
+    This one rewrites app.py in every tenant's image and had none, so nothing
+    proved the loader it writes still works -- and that loader is what decides
+    whether an instance spends 134 seconds of every start on a blocked fetch.
+    """
+
+    def test_it_applies_once_and_is_idempotent(self):
+        with tempfile.TemporaryDirectory() as d:
+            d = pathlib.Path(d)
+            app = write_app_fixture(d)
+            r = run_icon_patch("/opt/ots/share/iconsets.sqlite", app)
+            self.assertEqual(r.returncode, 0, r.stderr)
+            once = app.read_bytes()
+            self.assertEqual(once.count(I.MARKER), 1)
+            self.assertNotIn(I.ANCHOR, once)
+
+            r2 = run_icon_patch("/opt/ots/share/iconsets.sqlite", app)
+            self.assertEqual(r2.returncode, 0, r2.stderr)
+            self.assertEqual(app.read_bytes(), once, "a second run changed the file")
+            self.assertIn("already patched", r2.stdout)
+
+    def test_the_result_compiles_and_keeps_crlf(self):
+        with tempfile.TemporaryDirectory() as d:
+            d = pathlib.Path(d)
+            app = write_app_fixture(d)
+            self.assertEqual(run_icon_patch("/x/icons.sqlite", app).returncode, 0)
+            raw = app.read_bytes()
+            self.assertNotIn(b"\n", raw.replace(b"\r\n", b""), "a bare LF crept in")
+            py_compile.compile(str(app), doraise=True)
+
+    def test_drift_refuses_and_writes_nothing(self):
+        """A silent no-op would restore a 134 s stall nobody would look for twice."""
+        with tempfile.TemporaryDirectory() as d:
+            d = pathlib.Path(d)
+            drifted = I.ANCHOR.replace(b"stream=True", b"stream=False")
+            app = write_app_fixture(d, anchor=drifted)
+            before = app.read_bytes()
+            r = run_icon_patch("/x/icons.sqlite", app)
+            self.assertNotEqual(r.returncode, 0, "drift was accepted")
+            self.assertEqual(app.read_bytes(), before, "a refused patch still wrote")
+            self.assertIn("expected exactly 1", r.stderr)
+
+    def test_an_lf_converted_file_is_refused(self):
+        with tempfile.TemporaryDirectory() as d:
+            d = pathlib.Path(d)
+            app = write_app_fixture(d)
+            app.write_bytes(app.read_bytes().replace(b"\r\n", b"\n"))
+            before = app.read_bytes()
+            r = run_icon_patch("/x/icons.sqlite", app)
+            self.assertNotEqual(r.returncode, 0)
+            self.assertEqual(app.read_bytes(), before)
+
+
+class IconLoaderBehaviour(unittest.TestCase):
+    """Execute the loader the patch writes, rather than trusting the substitution."""
+
+    def _run(self, bundled, exists):
+        body = textwrap.dedent(I.REPLACEMENT.format(bundled=bundled))
+        calls = []
+
+        class FakeRequests:
+            @staticmethod
+            def get(url, **kw):
+                calls.append(kw)
+                return types.SimpleNamespace(content=b"from-network")
+
+        log = Recorder()
+        ns = {
+            "os": types.SimpleNamespace(path=types.SimpleNamespace(exists=lambda p: exists)),
+            "requests": FakeRequests,
+            "logger": log,
+            "open": open,
+        }
+        exec(body, ns)
+        return ns["r"], calls, log
+
+    def test_it_reads_the_bundled_archive_when_it_is_there(self):
+        with tempfile.TemporaryDirectory() as d:
+            archive = pathlib.Path(d) / "iconsets.sqlite"
+            archive.write_bytes(b"SQLite format 3\x00PRETEND")
+            r, calls, log = self._run(str(archive), exists=True)
+            self.assertEqual(r.content, b"SQLite format 3\x00PRETEND")
+            self.assertEqual(calls, [], "it went to the network with the archive present")
+            self.assertTrue(any("bundled icon sets" in m.lower() for _, m in log.lines))
+
+    def test_the_network_fallback_carries_a_timeout(self):
+        """Upstream's call has none; a fallback without one restores the bug."""
+        r, calls, log = self._run("/does/not/exist", exists=False)
+        self.assertEqual(r.content, b"from-network")
+        self.assertEqual(len(calls), 1)
+        self.assertIn("timeout", calls[0], "the fallback fetch has no timeout")
+        self.assertEqual(calls[0]["timeout"], (5, 30))
+        self.assertTrue(any("falling back" in m.lower() for _, m in log.lines))
+
 
 
 if __name__ == "__main__":
