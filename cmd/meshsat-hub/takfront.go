@@ -126,6 +126,7 @@ func startTAKFront(
 	tenantStatus *tenancy.StatusCache,
 	msgBus bus.MessageBus,
 	purgeJob *tenancy.PurgeJob,
+	tenantEvict *tenancy.Evictor,
 	takHandler *api.TenantTAKHandler,
 	upstreams *takhosted.Upstreams,
 ) error {
@@ -197,6 +198,9 @@ func startTAKFront(
 	}
 
 	authz := takhosted.NewAuthorizer(dataStore, tenantActive)
+	// A purged tenant must not keep a cached "yes" for its TAK users
+	// (MESHSAT-1109).
+	tenantEvict.Register(authz)
 	rec := takfront.NewRecorder(auditSvc, slog.Default())
 
 	srv, err := takfront.NewServer(takfront.Config{
@@ -211,6 +215,10 @@ func startTAKFront(
 	// replicas never share one certificate (MESHSAT-1076). Same source as the MQTT
 	// client id and the leader identity: the pod name from the downward API.
 	keeper := takhosted.NewIdentityKeeper(crClient, takReplicaID(), slog.Default())
+	// The one that most needed it: a held identity survives until the
+	// certificate's own renewal window, so without this a purged tenant kept a
+	// usable hosted-TAK identity resident for weeks (MESHSAT-1109).
+	tenantEvict.Register(keeper)
 	refresher := takhosted.NewDirectoryRefresher(crClient, keeper, srv.SetDirectory, slog.Default())
 	// The refresher is the ONLY writer of the tak_instances status columns: it
 	// holds the custom resource, so it is the only thing that has phase, host and

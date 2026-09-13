@@ -1338,6 +1338,27 @@ func main() {
 	}
 	hubauth.SetTenantStatusLookup(tenantStatus.Status)
 
+	// Dropping a purged tenant out of every in-memory cache, on every replica
+	// (MESHSAT-1109). Five caches each documented a Forget as "what the purge
+	// path calls" and nothing called any of them, so an erased account went on
+	// living in memory -- for the hosted-TAK identity keeper, until the
+	// certificate's renewal window rather than for seconds.
+	//
+	// It is announced over the bus for the same reason tenant status is: the
+	// purge job is a leader singleton, so evicting only where it runs would
+	// leave the other replicas holding the tenant.
+	// The hosted-TAK caches register themselves further down, where they are
+	// built: takUpstreams below, and the authorizer and identity keeper inside
+	// startTAKFront. Registration is only read when an eviction happens, so
+	// order does not matter as long as it is before the first purge.
+	tenantEvict := tenancy.NewEvictor(msgBus, slog.Default())
+	tenantEvict.Register(tenants)
+	tenantEvict.Register(tenantStatus)
+	if err := tenantEvict.Subscribe(); err != nil {
+		slog.Warn("tenant cache eviction not subscribed; a purge performed on another replica "+
+			"leaves this one holding the tenant until its own TTLs expire", "error", err)
+	}
+
 	// Subscription tiers (MESHSAT-989). The ceiling is on REGISTERING devices
 	// and bridges and on nothing else: ingest, delivery, the dead man's switch
 	// and SOS are never gated by it, so a lapsed or over-cap tenant still gets
@@ -1376,6 +1397,7 @@ func main() {
 	// PurgeTenant finds its tables by reflecting on tenant_id -- a cluster object
 	// has no such column, so nothing would ever come back for it.
 	purgeJob := tenancy.NewPurgeJob(dataStore, auditSvc, 0)
+	purgeJob.SetEvictor(tenantEvict)
 	leaderSingletons.Add("tenant-purge", purgeJob.Run)
 
 	// One-time provisioning material that was never claimed (MESHSAT-1098).
@@ -1423,6 +1445,7 @@ func main() {
 	// themselves (MESHSAT-1065), or both. Built before the front, because the
 	// outbound leg does not depend on it.
 	takUpstreams := newTAKUpstreams(providerAccounts)
+	tenantEvict.Register(takUpstreams)
 
 	// The outbound leg starts whatever the front is doing. A customer pointing the
 	// Hub at their own TAK server needs no front -- their phones connect to their
@@ -1436,7 +1459,7 @@ func main() {
 		// register is the outbound forwarder, and that now starts above,
 		// independent of the front.
 		if err := startTAKFront(ctx, cfg, dataStore, auditSvc, tenantStatus, msgBus,
-			purgeJob, takHandler, takUpstreams); err != nil {
+			purgeJob, tenantEvict, takHandler, takUpstreams); err != nil {
 			// Not fatal. A Hub that refuses to start because the TAK front could
 			// not bind would take down satellite ingest, SMS and the dashboard
 			// along with it, and TAK is one feature among many.

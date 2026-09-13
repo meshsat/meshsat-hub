@@ -140,6 +140,22 @@ func (c *StatusCache) Forget(tenantID string) {
 	}
 }
 
+// ForgetTenant drops this tenant's cached status HERE only, without announcing
+// it (MESHSAT-1109).
+//
+// The silence is the point. This is what the Evictor calls, and the Evictor is
+// already either the replica that performed the purge or a replica reacting to
+// the purge announcement. Calling Forget instead would publish a status event
+// from every replica on receipt of every purge -- N messages for one eviction,
+// each of which any replica could in principle act on again. ForgetTenant is
+// the leaf; Forget is the one that speaks.
+func (c *StatusCache) ForgetTenant(tenantID string) {
+	if c == nil {
+		return
+	}
+	c.forgetLocal(tenantID)
+}
+
 func (c *StatusCache) forgetLocal(tenantID string) {
 	c.mu.Lock()
 	delete(c.seen, tenantID)

@@ -159,6 +159,35 @@ func (r *Resolver) Forget(imei string) {
 	r.mu.Unlock()
 }
 
+// ForgetTenant drops every cached answer that points at this tenant, for a
+// purge or a closure (MESHSAT-1109).
+//
+// It scans rather than taking a list of ids, because the caller does not have
+// one: by the time a purge announces itself the device and bridge rows are
+// already deleted, so there is nothing left to enumerate. The maps are small --
+// one entry per device or bridge that has sent traffic within the TTL -- and
+// this runs once per purged tenant, not per message.
+//
+// The tenant's own existence entry goes too. Leaving it would keep Known()
+// answering "yes, that tenant exists" for up to the TTL after its rows were
+// destroyed, which is exactly the window in which an unregistered device naming
+// it in a topic would be adopted into a tenant that is gone.
+func (r *Resolver) ForgetTenant(tenantID string) {
+	if r == nil || tenantID == "" {
+		return
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for _, m := range []map[string]entry{r.devices, r.bridges} {
+		for k, e := range m {
+			if e.tenant == tenantID {
+				delete(m, k)
+			}
+		}
+	}
+	delete(r.tenants, tenantID)
+}
+
 func (r *Resolver) resolve(ctx context.Context, cache map[string]entry, key string, lookup func(context.Context, string) (string, error), kind string) string {
 	tenant, _ := r.known(ctx, cache, key, lookup, kind)
 	return tenant

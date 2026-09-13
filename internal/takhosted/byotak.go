@@ -142,6 +142,15 @@ func (e *ExternalUpstreams) For(ctx context.Context, tenantID string) (*takfront
 	return tenant, why
 }
 
+// ForgetTenant satisfies tenancy.TenantForgetter so a purge or a closure
+// reaches this cache too (MESHSAT-1109).
+func (e *ExternalUpstreams) ForgetTenant(tenantID string) {
+	if e == nil {
+		return
+	}
+	e.Forget(tenantID)
+}
+
 // Forget drops a tenant's cached answer, for when their settings change.
 func (e *ExternalUpstreams) Forget(tenantID string) {
 	if e == nil {
