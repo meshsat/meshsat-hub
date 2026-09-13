@@ -256,6 +256,10 @@ func (s *Server) serve(ctx context.Context, raw net.Conn) {
 			s.probed(ctx, conn, remote, err)
 			return
 		}
+		if spokePlaintext(err) {
+			s.plaintext(ctx, conn, remote, err)
+			return
+		}
 		s.refuse(ctx, conn, "", reasonHandshake, remote, err)
 		return
 	}
@@ -531,6 +535,50 @@ func peerVanished(err error) bool {
 		errors.Is(err, io.ErrUnexpectedEOF) ||
 		errors.Is(err, net.ErrClosed) ||
 		errors.Is(err, syscall.ECONNRESET)
+}
+
+// spokePlaintext reports whether the other end sent something that was not TLS at
+// all to a TLS port -- an HTTP request, a bare CoT stream, a scanner's probe
+// payload.
+//
+// # Why this is not just another handshake refusal (MESHSAT-1074)
+//
+// Port 8089 is the standard TAK SSL port and it is open to the whole internet on
+// three VPS, so it is scanned. Every one of those arrives here as
+// `tls: first record does not look like a TLS handshake`, which is byte for byte
+// what a customer who switched TLS off in ATAK produces. They cannot be told
+// apart by address either: the edge relay is TCP passthrough with no PROXY
+// protocol -- deliberately, because ATAK sends no SNI and the client certificate
+// is encrypted -- so EVERY real phone also arrives from a relay's own address.
+//
+// So the two are separated by REASON instead, and the rate is what distinguishes
+// them: a misconfigured client is a sustained stream, a scanner is one hit. Lumped
+// under reasonHandshake they were indistinguishable from an unknown issuer or an
+// expired certificate as well.
+//
+// Matched on the TYPE and on Conn, never on the message text. crypto/tls returns
+// a tls.RecordHeaderError -- a struct VALUE with no Unwrap and no Is, never
+// wrapped in a *net.OpError, so errors.Is cannot see it and errors.As with a value
+// target is the only way to reach it. Conn is the stdlib's own discriminator:
+// crypto/tls sets it only for "a client sent an initial handshake that didn't look
+// like TLS" and leaves it nil for the other three RecordHeaderError messages
+// (SSLv2, version mismatch, oversized record). Those stay a WARN, because a
+// version mismatch mid-stream is a middlebox fault and is worth reading.
+func spokePlaintext(err error) bool {
+	var rhe tls.RecordHeaderError
+	return errors.As(err, &rhe) && rhe.Conn != nil
+}
+
+// plaintext records a client that spoke something other than TLS to the TLS port.
+// Counted like any refusal, under its own reason, and logged at Info: it is a real
+// event unlike a probe, so Debug would hide it in production, but it is not
+// per-connection actionable so a WARN each time would bury the refusals that are.
+func (s *Server) plaintext(ctx context.Context, c net.Conn, remote net.Addr, err error) {
+	_ = c.Close()
+	s.cfg.Logger.Info("takfront: not a TLS client", "remote", remote.String(), "error", err)
+	if s.rec != nil {
+		s.rec.Refused(ctx, "", reasonPlaintext, remote)
+	}
 }
 
 // probed records a connection that went away before the handshake. Same counter
