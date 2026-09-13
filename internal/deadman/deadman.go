@@ -31,7 +31,6 @@ type Monitor struct {
 	store    store.Store
 	engine   *escalation.Engine
 	interval time.Duration // how often to scan for missed check-ins
-	tenantID string
 }
 
 // NewMonitor creates a dead man's switch monitor.
@@ -40,7 +39,6 @@ func NewMonitor(s store.Store, e *escalation.Engine) *Monitor {
 		store:    s,
 		engine:   e,
 		interval: 30 * time.Second,
-		tenantID: store.DefaultTenantID,
 	}
 }
 
@@ -70,11 +68,21 @@ func fromStored(c store.DeadmanConfig) Config {
 
 // Configure sets the dead man's switch config for a device. Disabling
 // removes it.
-func (m *Monitor) Configure(cfg Config) {
+// Configure saves a device's dead man's switch for ONE tenant.
+//
+// Every method here used to work on tenantID, which was hardcoded to
+// store.DefaultTenantID at construction (MESHSAT-1118). So a customer
+// configuring, snoozing or deleting their own switch was reading and writing the
+// DEFAULT tenant's rows -- and since MESHSAT-1115 made SOS escalation real, a
+// snooze from one tenant is a page that does not happen for another.
+//
+// The background scan was always correct: it reads every tenant's rows and
+// triggers with cfg.TenantID. Only the configuration API was wrong.
+func (m *Monitor) Configure(tenantID string, cfg Config) {
 	ctx, cancel := m.ctx()
 	defer cancel()
 	if !cfg.Enabled {
-		if err := m.store.DeleteDeadmanConfig(ctx, m.tenantID, cfg.DeviceIMEI); err != nil {
+		if err := m.store.DeleteDeadmanConfig(ctx, tenantID, cfg.DeviceIMEI); err != nil {
 			slog.Error("deadman: delete config", "device", cfg.DeviceIMEI, "error", err)
 		}
 		slog.Info("deadman: disabled", "device", cfg.DeviceIMEI)
@@ -82,10 +90,10 @@ func (m *Monitor) Configure(cfg Config) {
 	}
 	stored := toStored(cfg)
 	// Keep snooze/alerted state across a reconfigure.
-	if prev, err := m.store.GetDeadmanConfig(ctx, m.tenantID, cfg.DeviceIMEI); err == nil {
+	if prev, err := m.store.GetDeadmanConfig(ctx, tenantID, cfg.DeviceIMEI); err == nil {
 		stored.SnoozedUntil, stored.Alerted = prev.SnoozedUntil, prev.Alerted
 	}
-	if err := m.store.SaveDeadmanConfig(ctx, m.tenantID, stored); err != nil {
+	if err := m.store.SaveDeadmanConfig(ctx, tenantID, stored); err != nil {
 		slog.Error("deadman: save config", "device", cfg.DeviceIMEI, "error", err)
 		return
 	}
@@ -94,61 +102,64 @@ func (m *Monitor) Configure(cfg Config) {
 }
 
 // Remove disables the dead man's switch for a device.
-func (m *Monitor) Remove(deviceIMEI string) {
+func (m *Monitor) Remove(tenantID, deviceIMEI string) {
 	ctx, cancel := m.ctx()
 	defer cancel()
-	if err := m.store.DeleteDeadmanConfig(ctx, m.tenantID, deviceIMEI); err != nil {
+	if err := m.store.DeleteDeadmanConfig(ctx, tenantID, deviceIMEI); err != nil {
 		slog.Error("deadman: remove config", "device", deviceIMEI, "error", err)
 	}
 	slog.Info("deadman: removed", "device", deviceIMEI)
 }
 
 // Snooze temporarily suppresses the dead man's switch for a device.
-func (m *Monitor) Snooze(deviceIMEI string, duration time.Duration) {
-	m.update(deviceIMEI, func(c *store.DeadmanConfig) { c.SnoozedUntil = time.Now().UTC().Add(duration) })
+func (m *Monitor) Snooze(tenantID, deviceIMEI string, duration time.Duration) {
+	m.update(tenantID, deviceIMEI, func(c *store.DeadmanConfig) { c.SnoozedUntil = time.Now().UTC().Add(duration) })
 	slog.Info("deadman: snoozed", "device", deviceIMEI, "duration", duration)
 }
 
 // ClearSnooze removes an active snooze.
-func (m *Monitor) ClearSnooze(deviceIMEI string) {
-	m.update(deviceIMEI, func(c *store.DeadmanConfig) { c.SnoozedUntil = time.Time{} })
+func (m *Monitor) ClearSnooze(tenantID, deviceIMEI string) {
+	m.update(tenantID, deviceIMEI, func(c *store.DeadmanConfig) { c.SnoozedUntil = time.Time{} })
 }
 
 // ClearAlert resets the alert state so the device can trigger again.
-func (m *Monitor) ClearAlert(deviceIMEI string) {
-	m.update(deviceIMEI, func(c *store.DeadmanConfig) { c.Alerted = false })
+func (m *Monitor) ClearAlert(tenantID, deviceIMEI string) {
+	m.update(tenantID, deviceIMEI, func(c *store.DeadmanConfig) { c.Alerted = false })
 }
 
 // update applies fn to the stored config of a device, if it exists.
-func (m *Monitor) update(deviceIMEI string, fn func(*store.DeadmanConfig)) {
+func (m *Monitor) update(tenantID, deviceIMEI string, fn func(*store.DeadmanConfig)) {
 	ctx, cancel := m.ctx()
 	defer cancel()
-	c, err := m.store.GetDeadmanConfig(ctx, m.tenantID, deviceIMEI)
+	c, err := m.store.GetDeadmanConfig(ctx, tenantID, deviceIMEI)
 	if err != nil {
 		return
 	}
 	fn(c)
-	if err := m.store.SaveDeadmanConfig(ctx, m.tenantID, c); err != nil {
+	if err := m.store.SaveDeadmanConfig(ctx, tenantID, c); err != nil {
 		slog.Error("deadman: update config", "device", deviceIMEI, "error", err)
 	}
 }
 
 // CheckIn records that a device has sent a message (resets the window).
-func (m *Monitor) CheckIn(deviceIMEI string) {
+func (m *Monitor) CheckIn(tenantID, deviceIMEI string) {
 	ctx, cancel := m.ctx()
 	defer cancel()
-	if c, err := m.store.GetDeadmanConfig(ctx, m.tenantID, deviceIMEI); err == nil && c.Alerted {
+	if c, err := m.store.GetDeadmanConfig(ctx, tenantID, deviceIMEI); err == nil && c.Alerted {
 		c.Alerted = false
-		if err := m.store.SaveDeadmanConfig(ctx, m.tenantID, c); err == nil {
+		if err := m.store.SaveDeadmanConfig(ctx, tenantID, c); err == nil {
 			slog.Info("deadman: device checked in, alert cleared", "device", deviceIMEI)
 		}
 	}
 	// Touch last_seen in the store.
-	_ = m.store.TouchDeviceLastSeen(ctx, m.tenantID, deviceIMEI)
+	_ = m.store.TouchDeviceLastSeen(ctx, tenantID, deviceIMEI)
 }
 
 // ListConfigs returns all active dead man's switch configs.
-func (m *Monitor) ListConfigs() []Config {
+// ListConfigs returns the switches belonging to ONE tenant. The store call is
+// deliberately unfiltered -- there is no tenant-scoped list method -- so the
+// filter is here; without it a customer saw every other tenant's devices.
+func (m *Monitor) ListConfigs(tenantID string) []Config {
 	ctx, cancel := m.ctx()
 	defer cancel()
 	stored, err := m.store.ListDeadmanConfigs(ctx)
@@ -158,7 +169,7 @@ func (m *Monitor) ListConfigs() []Config {
 	}
 	configs := make([]Config, 0, len(stored))
 	for _, c := range stored {
-		if c.Enabled {
+		if c.Enabled && c.TenantID == tenantID {
 			configs = append(configs, fromStored(c))
 		}
 	}

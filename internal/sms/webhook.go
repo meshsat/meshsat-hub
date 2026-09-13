@@ -423,7 +423,7 @@ func (h *WebhookHandler) processBinaryPipeline(r *http.Request, w http.ResponseW
 
 	// Dead man's switch: sender checked in.
 	if h.deadman != nil {
-		h.deadman.CheckIn(from)
+		h.deadman.CheckIn(h.tenantOf(r.Context(), from), from)
 	}
 
 	// Audit log.
@@ -500,7 +500,7 @@ func (h *WebhookHandler) processPlaintextSMS(r *http.Request, w http.ResponseWri
 
 	// Dead man's switch.
 	if h.deadman != nil {
-		h.deadman.CheckIn(from)
+		h.deadman.CheckIn(h.tenantOf(r.Context(), from), from)
 	}
 
 	// Twilio expects a TwiML XML response. Empty <Response/> = don't reply.

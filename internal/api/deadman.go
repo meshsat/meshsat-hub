@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/meshsat/meshsat-hub/internal/auth"
 	"github.com/meshsat/meshsat-hub/internal/deadman"
 )
 
@@ -31,8 +32,10 @@ type deadmanConfigRequest struct {
 // @Produce json
 // @Success 200 {array} deadman.Config
 // @Router /api/deadman [get]
-func (h *DeadmanHandler) ListConfigs(w http.ResponseWriter, _ *http.Request) {
-	configs := h.monitor.ListConfigs()
+func (h *DeadmanHandler) ListConfigs(w http.ResponseWriter, r *http.Request) {
+	// The caller's own tenant, not store.DefaultTenantID, which is what every
+	// one of these used to reach (MESHSAT-1118).
+	configs := h.monitor.ListConfigs(auth.TenantIDFromContext(r.Context()))
 	if configs == nil {
 		configs = []deadman.Config{}
 	}
@@ -74,7 +77,7 @@ func (h *DeadmanHandler) Configure(w http.ResponseWriter, r *http.Request) {
 		Grace:      time.Duration(req.GraceMin) * time.Minute,
 		Enabled:    req.Enabled,
 	}
-	h.monitor.Configure(cfg)
+	h.monitor.Configure(auth.TenantIDFromContext(r.Context()), cfg)
 	writeJSON(w, http.StatusOK, cfg)
 }
 
@@ -86,7 +89,7 @@ func (h *DeadmanHandler) Configure(w http.ResponseWriter, r *http.Request) {
 // @Router /api/deadman/{imei} [delete]
 func (h *DeadmanHandler) Delete(w http.ResponseWriter, r *http.Request) {
 	imei := chi.URLParam(r, "imei")
-	h.monitor.Remove(imei)
+	h.monitor.Remove(auth.TenantIDFromContext(r.Context()), imei)
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -115,7 +118,7 @@ func (h *DeadmanHandler) Snooze(w http.ResponseWriter, r *http.Request) {
 		req.DurationMin = 60
 	}
 	dur := time.Duration(req.DurationMin) * time.Minute
-	h.monitor.Snooze(imei, dur)
+	h.monitor.Snooze(auth.TenantIDFromContext(r.Context()), imei, dur)
 	writeJSON(w, http.StatusOK, map[string]string{
 		"status":   "snoozed",
 		"device":   imei,
