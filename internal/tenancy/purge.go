@@ -25,6 +25,11 @@ type PurgeJob struct {
 	// takInstances destroys a tenant's hosted TAK server. nil when the Hub runs
 	// without hosted TAK, which is the ordinary case.
 	takInstances TAKInstanceDeleter
+
+	// evictor drops the tenant from every in-memory cache, on every replica.
+	// nil is allowed; the caches then expire on their own TTLs, which for the
+	// hosted-TAK identity keeper means weeks (MESHSAT-1109).
+	evictor *Evictor
 }
 
 // TAKInstanceDeleter destroys a tenant's hosted OpenTAKServer (MESHSAT-1037).
@@ -55,6 +60,12 @@ func NewPurgeJob(s store.Store, a *audit.Service, grace time.Duration) *PurgeJob
 // a tenant's rows and leaves its OpenTAKServer running, because PurgeTenant
 // reflects over tenant_id and a cluster object has no such column.
 func (j *PurgeJob) SetTAKInstances(d TAKInstanceDeleter) { j.takInstances = d }
+
+// SetEvictor attaches the in-memory cache eviction (MESHSAT-1109). Without it a
+// purge destroys a tenant's rows and leaves the tenant resident in every
+// replica's memory -- most consequentially its hosted-TAK identity, which is
+// held until the certificate's own renewal window rather than for seconds.
+func (j *PurgeJob) SetEvictor(e *Evictor) { j.evictor = e }
 
 // Run purges until the context is cancelled. It is a leader singleton: two
 // replicas racing to delete the same rows would be harmless but pointless, and
@@ -121,6 +132,10 @@ func (j *PurgeJob) once(ctx context.Context) {
 			slog.Error("purge: failed, will retry next run", "tenant", t.ID, "error", err)
 			continue
 		}
+		// After the rows are gone, not before. A cache evicted first would
+		// simply re-read the tenant it was told to forget, straight back out of
+		// the database that still holds it.
+		j.evictor.Evict(t.ID)
 		slog.Warn("purge: tenant data destroyed", "tenant", t.ID, "slug", t.Slug)
 	}
 }

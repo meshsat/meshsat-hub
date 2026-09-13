@@ -32,6 +32,22 @@ type Upstreams struct {
 	log      *slog.Logger
 }
 
+// ForgetTenant satisfies tenancy.TenantForgetter by passing the eviction down
+// to the external cache it wraps (MESHSAT-1109).
+//
+// It exists so main.go can register the one object it already holds. The hosted
+// side needs nothing: it is a lookup into the directory the refresher rebuilds,
+// not a cache of its own.
+func (u *Upstreams) ForgetTenant(tenantID string) {
+	if u == nil {
+		return
+	}
+	u.mu.RLock()
+	ext := u.external
+	u.mu.RUnlock()
+	ext.ForgetTenant(tenantID)
+}
+
 // NewUpstreams wires the resolver. external may be nil.
 func NewUpstreams(external *ExternalUpstreams, log *slog.Logger) *Upstreams {
 	if log == nil {

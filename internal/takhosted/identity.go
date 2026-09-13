@@ -508,6 +508,20 @@ func (k *IdentityKeeper) Holding() map[string]time.Time {
 	return out
 }
 
+// ForgetTenant satisfies tenancy.TenantForgetter so a purge or a closure
+// actually reaches this cache (MESHSAT-1109).
+//
+// This is the one that most needed it. The others expire on their own within
+// seconds; a held identity survives until the certificate's renewal window,
+// which is weeks -- so before this, a purged tenant kept a usable hosted-TAK
+// identity resident in every replica.
+func (k *IdentityKeeper) ForgetTenant(tenantID string) {
+	if k == nil {
+		return
+	}
+	k.Forget(tenantID)
+}
+
 // Forget drops a tenant's identity and any pending key, for a purge.
 func (k *IdentityKeeper) Forget(tenantID string) {
 	k.mu.Lock()
