@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"github.com/meshsat/meshsat-hub/internal/tenancy"
+	"sync"
 	"sync/atomic"
 	"testing"
 
@@ -57,10 +58,21 @@ func TestFormatRoutedSMS(t *testing.T) {
 
 type mockWebhookFirer struct {
 	fired atomic.Int32
+	mu    sync.Mutex
+	saw   []string // the tenant each Fire was given
 }
 
-func (m *mockWebhookFirer) Fire(_ webhook.EventType, _ string, _ json.RawMessage) {
+func (m *mockWebhookFirer) Fire(tenantID string, _ webhook.EventType, _ string, _ json.RawMessage) {
 	m.fired.Add(1)
+	m.mu.Lock()
+	m.saw = append(m.saw, tenantID)
+	m.mu.Unlock()
+}
+
+func (m *mockWebhookFirer) tenants() []string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return append([]string(nil), m.saw...)
 }
 
 type mockNotifier struct {
@@ -99,9 +111,26 @@ func testPayload() json.RawMessage {
 func TestNewWebhookHandler(t *testing.T) {
 	firer := &mockWebhookFirer{}
 	h := NewWebhookHandler(firer)
-	h(context.Background(), nil, "dev1", testPayload())
+	// The engine always puts the message's tenant on the handler context.
+	h(tenancy.WithTenant(context.Background(), "t_alpha"), nil, "dev1", testPayload())
 	if firer.fired.Load() != 1 {
 		t.Error("expected webhook to fire")
+	}
+	if got := firer.tenants(); len(got) != 1 || got[0] != "t_alpha" {
+		t.Errorf("the handler passed tenant %v, want [t_alpha]. It used to discard the "+
+			"context and fire at every tenant's webhooks (MESHSAT-1118).", got)
+	}
+}
+
+// A routed message that somehow arrives with no tenant must fire nothing.
+// Firing would mean choosing a tenant, and the only choice available is
+// "everyone", which is the bug this replaced.
+func TestWebhookHandlerFiresNothingWithoutATenant(t *testing.T) {
+	firer := &mockWebhookFirer{}
+	h := NewWebhookHandler(firer)
+	h(context.Background(), nil, "dev1", testPayload())
+	if firer.fired.Load() != 0 {
+		t.Errorf("fired %d times with no tenant on the context; want 0", firer.fired.Load())
 	}
 }
 

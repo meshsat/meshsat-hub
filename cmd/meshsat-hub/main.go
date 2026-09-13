@@ -474,6 +474,13 @@ func main() {
 
 	// Outbound webhook dispatcher (fires on MO, SOS, position, telemetry, MT status).
 	webhookDispatcher := webhook.NewDispatcher(msgBus)
+	webhookDispatcher.SetStore(dataStore)
+	// The targets were never read from the database before MESHSAT-1118 -- the
+	// API appended to a slice and nothing wrote it down, so every rollout
+	// silently dropped every customer's webhooks.
+	if err := webhookDispatcher.LoadAll(context.Background()); err != nil {
+		slog.Error("webhook: could not load webhooks from the database", "error", err)
+	}
 	webhookAPIHandler := webhook.NewAPIHandler(webhookDispatcher)
 	if msgBus.IsConnected() {
 		if err := webhookDispatcher.Start(msgBus); err != nil {
@@ -1354,6 +1361,11 @@ func main() {
 	tenantEvict := tenancy.NewEvictor(msgBus, slog.Default())
 	tenantEvict.Register(tenants)
 	tenantEvict.Register(tenantStatus)
+	// A purged tenant's webhooks must stop being live outbound targets. The
+	// dispatcher holds them in memory, so without this a closed account went on
+	// receiving every message its old webhooks were subscribed to until the next
+	// restart (MESHSAT-1118).
+	tenantEvict.Register(webhookDispatcher)
 	if err := tenantEvict.Subscribe(); err != nil {
 		slog.Warn("tenant cache eviction not subscribed; a purge performed on another replica "+
 			"leaves this one holding the tenant until its own TTLs expire", "error", err)

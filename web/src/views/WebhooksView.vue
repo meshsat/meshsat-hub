@@ -9,7 +9,7 @@ const logs = ref([])
 const error = ref('')
 const loading = ref(true)
 
-const form = ref({ url: '', events: 'mo,sos,position', active: true })
+const form = ref({ url: '', events: 'mo,sos,position', enabled: true })
 const showForm = ref(false)
 
 onMounted(async () => {
@@ -39,9 +39,13 @@ async function createWebhook() {
     await webhooks.create({
       url: form.value.url.trim(),
       events: form.value.events.split(',').map(e => e.trim()).filter(Boolean),
-      active: form.value.active,
+      // The API field is `enabled`. It was `active` here, which the Go struct
+      // ignored, so every webhook the UI created was created DISABLED and
+      // never fired -- and the status column below read the same wrong name,
+      // so it showed "Disabled" and looked consistent (MESHSAT-1118).
+      enabled: form.value.enabled,
     })
-    form.value = { url: '', events: 'mo,sos,position', active: true }
+    form.value = { url: '', events: 'mo,sos,position', enabled: true }
     showForm.value = false
     await loadData()
   } catch (e) {
@@ -97,7 +101,7 @@ function statusCodeColor(code) {
         </div>
         <div class="flex items-center justify-between">
           <label class="flex items-center gap-2 text-sm text-gray-400">
-            <input type="checkbox" v-model="form.active" class="rounded" /> Active
+            <input type="checkbox" v-model="form.enabled" class="rounded" /> Active
           </label>
           <button @click="createWebhook"
             class="bg-brand-accent hover:bg-brand-primary text-ms-on-primary px-4 py-2 rounded text-sm transition-colors">Create</button>
@@ -122,7 +126,7 @@ function statusCodeColor(code) {
                   class="inline-block bg-gray-700 text-gray-300 text-xs px-1.5 py-0.5 rounded mr-1">{{ e }}</span>
               </td>
               <td class="px-3 py-2">
-                <span v-if="h.active" class="text-ms-success text-xs">Active</span>
+                <span v-if="h.enabled" class="text-ms-success text-xs">Active</span>
                 <span v-else class="text-gray-500 text-xs">Disabled</span>
               </td>
               <td class="px-3 py-2 text-right">
