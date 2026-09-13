@@ -228,7 +228,23 @@ test:
   image: golang:1.25-alpine
   tags: [docker]
   script:
-    - go test -v -count=1 ./...
+    # -timeout is EXPLICIT because Go's default is 10 minutes PER PACKAGE and this
+    # suite runs close to it on a contended runner (MESHSAT-1088's pipeline).
+    #
+    # Measured: `test` and `test:postgres` are queued together, and a runner with
+    # `concurrent = 2` can take BOTH. Each one's `go test ./...` then parallelises
+    # across packages over all 16 cores, so the host is oversubscribed roughly
+    # twofold and the Argon2id-heavy store conformance tests -- deliberately
+    # expensive, by design -- run out of budget. Same commit, same tests:
+    #
+    #   both jobs on runner01  -> 748s and 792s, both killed at the 10m default
+    #   split across 02 and 03 -> 233s and 173s, green
+    #
+    # Locally the two slowest packages take 40s and 55s, so nothing here is hung;
+    # the default was simply too tight to survive sharing a host. A genuine hang
+    # still fails the job, just later, which is the right trade: a false red
+    # teaches people to retry pipelines without reading them.
+    - go test -v -count=1 -timeout 25m ./...
 
 # Postgres store tests against a real server (MESHSAT-903). The unit job above
 # skips them when HUB_TEST_POSTGRES_DSN is unset; this job provides it through a
@@ -245,7 +261,10 @@ test:postgres:
     POSTGRES_DB: meshsat_test
     HUB_TEST_POSTGRES_DSN: "postgres://postgres@pg:5432/meshsat_test?sslmode=disable"
   script:
-    - go test -v -count=1 ./internal/store/...
+    # Same reasoning as the `test` job above: explicit budget, not the 10m default.
+    # This job is the one that hit it first, because the store conformance suite is
+    # where the password hashing lives.
+    - go test -v -count=1 -timeout 25m ./internal/store/...
 
 # -----------------------------------------------------------------------------
 # BUILD — compile Go binary

@@ -59,20 +59,28 @@ spec:
                 # The username rule depends on the purpose, which a field-level
                 # `pattern` cannot express -- and one pattern for both is what made
                 # the Hub's own identity unrequestable. HubIdentityCN is
-                # "meshsat-hub"; the hyphen is deliberate (it keeps a tenant from
-                # managing that account through the customer-facing API, and the
-                # instance's nginx gateway admits exactly CN=meshsat-hub) and the
-                # phone rule forbids hyphens because OpenTAKServer does.
+                # "meshsat_hub": the separator keeps a tenant from managing that
+                # account through the customer-facing API (the phone pattern admits
+                # only lowercase letters and digits), and the instance's nginx
+                # gateway admits exactly CN=meshsat_hub.
+                #
+                # IT IS AN UNDERSCORE, NOT A HYPHEN, AND THIS LITERAL MUST MATCH THE
+                # Go CONSTANT (MESHSAT-1088). It was a hyphen until the first real
+                # instance was put under traffic and stored nothing: OpenTAKServer's
+                # EUD handler looks the presented common name up as one of its own
+                # users, and its validator refuses a hyphen, so an account for the
+                # Hub could not be created at all. Change one of these two and every
+                # hub request is answered 422 -- which is the sibling defect below.
                 #
                 # With both rules collapsed into one, the API server answered 422 to
                 # every hub request, the Hub logged "no upstream identity for
                 # tenant", and its directory refreshed to nought tenants -- so no
                 # phone in any tenant could connect, while the front itself looked
                 # perfectly healthy.
-                - rule: "self.purpose == 'hub' ? self.username == 'meshsat-hub' : self.username.matches('^[a-z0-9]{3,32}$')"
+                - rule: "self.purpose == 'hub' ? self.username == 'meshsat_hub' : self.username.matches('^[a-z0-9]{3,32}$')"
                   message: >-
                     username must be 3 to 32 lowercase alphanumerics for an eud
-                    certificate, or exactly meshsat-hub for a hub certificate
+                    certificate, or exactly meshsat_hub for a hub certificate
               properties:
                 label:
                   type: string
@@ -104,7 +112,7 @@ spec:
                     containing one — proven while building the end-to-end test in
                     MESHSAT-1046, where `meshsat-proxy` was refused and
                     `meshsatproxy` accepted. Encoded here so the next person does
-                    not rediscover it. For purpose hub: exactly meshsat-hub, which
+                    not rediscover it. For purpose hub: exactly meshsat_hub, which
                     is the one name that gateway admits. The rule is above, on the
                     spec, because it depends on two fields at once.
                   x-kubernetes-validations:
