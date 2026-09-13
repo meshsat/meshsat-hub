@@ -171,7 +171,17 @@ func detectSOS(msg moDecodedMsg) (keyword, source string) {
 // resolveChainID returns the escalation chain ID to use. If a specific chain
 // is configured, use it. Otherwise, try the first available chain.
 func (d *Detector) resolveChainID(tenantID string) string {
-	if d.chainID != "" {
+	// The configured chain belongs to ONE tenant, because escalation_chains rows
+	// are tenant-scoped. Honouring it for every tenant would send every
+	// customer's SOS to a chain id that does not exist in their tenant:
+	// GetEscalationChain fails, and the alert is closed undelivered. Silently,
+	// for everyone except the default tenant (MESHSAT-1115).
+	//
+	// HUB_SOS_CHAIN_ID stays supported because the Hub is Apache 2.0 and a
+	// self-hosted single-tenant deployment is a real case -- it is simply scoped
+	// to the tenant it can actually name. Every other tenant uses its own chain,
+	// which is the multi-tenant answer and needs no configuration.
+	if d.chainID != "" && tenantID == d.tenants.Default() {
 		return d.chainID
 	}
 
