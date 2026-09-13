@@ -437,6 +437,88 @@ func TestACertificateFromAnUnknownCANeverReachesATenant(t *testing.T) {
 	}
 }
 
+// levelSpy records the level each message was logged at, so a test can assert the
+// LEVEL and not merely that something was written. Production runs at Info, so
+// Info and Debug are the difference between a line an operator sees and one that
+// does not exist for them.
+type levelSpy struct {
+	mu     sync.Mutex
+	levels map[string]slog.Level
+}
+
+func newLevelSpy() *levelSpy { return &levelSpy{levels: map[string]slog.Level{}} }
+
+func (s *levelSpy) Enabled(context.Context, slog.Level) bool { return true }
+func (s *levelSpy) Handle(_ context.Context, r slog.Record) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.levels[r.Message] = r.Level
+	return nil
+}
+func (s *levelSpy) WithAttrs([]slog.Attr) slog.Handler { return s }
+func (s *levelSpy) WithGroup(string) slog.Handler      { return s }
+func (s *levelSpy) level(msg string) (slog.Level, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	l, ok := s.levels[msg]
+	return l, ok
+}
+
+// MESHSAT-1074. The predicate is tested in probe_test.go; this tests the BRANCH,
+// which is the part a mutation can delete without any of those failing. Port 8089
+// is open to the whole internet, so plaintext arrives on it constantly and must
+// not be recorded as the same thing as a phone we turned down.
+func TestPlaintextIsRecordedApartFromARefusal(t *testing.T) {
+	ots := newFakeOTS(t, "a")
+	ca := newTestCA(t, "tenant-a-ca")
+	spy := newLevelSpy()
+	f := startFront(t, Config{Logger: slog.New(spy)}, allowAll{}, []Tenant{tenantOn(t, "aaa", ca, ots)})
+
+	// No TLS at all -- exactly what a scanner, or ATAK with SSL switched off,
+	// puts on the wire.
+	conn, err := net.Dial("tcp", f.addr)
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+	t.Cleanup(func() { _ = conn.Close() })
+	if _, err := conn.Write([]byte("GET /healthz HTTP/1.1\r\nHost: x\r\n\r\n")); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+
+	waitFor(t, "the plaintext connection to be recorded", func() bool {
+		refused, _, _ := f.rec.state()
+		return len(refused) == 1
+	})
+	refused, opened, _ := f.rec.state()
+	if refused[0] != "/"+reasonPlaintext {
+		t.Errorf("refused = %v, want %q -- lumping plaintext in with a genuine "+
+			"refusal is what made the one signal worth reading unreadable",
+			refused, "/"+reasonPlaintext)
+	}
+	if len(opened) != 0 {
+		t.Errorf("opened = %v, want none", opened)
+	}
+	if seen, got := ots.snapshot(); len(seen) != 0 || len(got) != 0 {
+		t.Errorf("upstream saw %v and %d bytes, want neither", seen, len(got))
+	}
+
+	// The LEVEL is a decision, not a detail. Debug would make it invisible in
+	// production, which runs at Info -- and then a customer whose client has TLS
+	// switched off produces no line anywhere. Warn would put it back among the
+	// refusals it was separated from. So: Info, asserted.
+	lvl, ok := spy.level("takfront: not a TLS client")
+	if !ok {
+		t.Fatal("nothing was logged for a plaintext connection")
+	}
+	if lvl != slog.LevelInfo {
+		t.Errorf("logged at %v, want Info: Debug is invisible in production and "+
+			"Warn is what this change exists to stop", lvl)
+	}
+	if _, loud := spy.level("takfront: connection refused"); loud {
+		t.Error("plaintext also logged the refusal line, so the WARN it was meant to stop is still there")
+	}
+}
+
 // OpenTAKServer publishes no CRL and ATAK would not read one, so a certificate
 // cannot say whether its user is still allowed. The Authorizer is asked on every
 // connection, and the server must not exist without one.
