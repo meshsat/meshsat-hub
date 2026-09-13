@@ -70,11 +70,13 @@ type CostEntry struct {
 
 // Sender listens on MQTT for MT send requests and forwards them via Cloudloop.
 type Sender struct {
-	tenants      *tenancy.Resolver // nil = default namespace
-	client       *Client           // platform client (used when no pool is set)
-	pool         *ClientPool       // per-tenant clients (MESHSAT-977)
-	mqtt         bus.MessageBus
-	limiter      interface{ Allow(string, bool) bool }
+	tenants *tenancy.Resolver // nil = default namespace
+	client  *Client           // platform client (used when no pool is set)
+	pool    *ClientPool       // per-tenant clients (MESHSAT-977)
+	mqtt    bus.MessageBus
+	limiter interface {
+		Allow(tenantID, deviceID string, isSOS bool) bool
+	}
 	audit        *audit.Service
 	resolver     DeviceResolver
 	costRecorder CostRecorder
@@ -106,7 +108,9 @@ func (s *Sender) SetAudit(a *audit.Service) {
 
 // SetRateLimiter attaches a per-device rate limiter. If set, sends are
 // checked against the limiter before calling Cloudloop. SOS messages bypass.
-func (s *Sender) SetRateLimiter(l interface{ Allow(string, bool) bool }) {
+func (s *Sender) SetRateLimiter(l interface {
+	Allow(tenantID, deviceID string, isSOS bool) bool
+}) {
 	s.limiter = l
 }
 
@@ -183,14 +187,19 @@ func (s *Sender) handleMTSend(topic string, payload []byte) {
 	)
 
 	// Rate limit check (SOS messages bypass).
+	//
+	// The tenant is resolved BEFORE the check rather than after it: the send
+	// budget is per (tenant, device), and clientFor is the same cached lookup
+	// the next line was already doing, so this costs no extra round trip on the
+	// message path (MESHSAT-1118).
+	client, tenant := s.clientFor(deviceID)
 	isSOS := req.Priority >= 9
-	if s.limiter != nil && !s.limiter.Allow(deviceID, isSOS) {
-		slog.Warn("cloudloop: MT send rate-limited", "device", deviceID)
+	if s.limiter != nil && !s.limiter.Allow(tenant, deviceID, isSOS) {
+		slog.Warn("cloudloop: MT send rate-limited", "device", deviceID, "tenant", tenant)
 		s.publishStatus(deviceID, "", "rate_limited", "device rate limit exceeded")
 		return
 	}
 
-	client, tenant := s.clientFor(deviceID)
 	if client == nil {
 		slog.Warn("cloudloop: no account for the device's tenant", "device", deviceID, "tenant", tenant)
 		s.publishStatus(deviceID, "", "failed", "no Cloudloop account configured for this tenant")
@@ -350,11 +359,12 @@ func (s *Sender) IsIMTDevice(imei string) bool {
 func (s *Sender) SendDirect(imei string, req MTSendRequest) (*SendDirectResult, error) {
 	thingID, isIMT := s.resolveDevice(imei)
 
+	client, tenant := s.clientFor(imei)
 	isSOS := req.Priority >= 9
-	if s.limiter != nil && !s.limiter.Allow(imei, isSOS) {
+	if s.limiter != nil && !s.limiter.Allow(tenant, imei, isSOS) {
 		return nil, fmt.Errorf("device rate limit exceeded")
 	}
-	client, tenant := s.clientFor(imei)
+
 	if client == nil {
 		return nil, fmt.Errorf("no Cloudloop account configured for tenant %s", tenant)
 	}

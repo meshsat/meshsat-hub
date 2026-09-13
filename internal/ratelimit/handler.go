@@ -6,7 +6,18 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
+
+	"github.com/meshsat/meshsat-hub/internal/auth"
 )
+
+// tenantOf is the tenant of the caller's session, which auth.TenantMiddleware
+// puts on the context. Every endpoint below is scoped to it (MESHSAT-1118):
+// reading usage used to show every tenant's devices, and setting an override
+// used to exempt a device id belonging to anybody -- airtime billed to the
+// victim's own carrier account.
+func tenantOf(r *http.Request) string {
+	return auth.TenantIDFromContext(r.Context())
+}
 
 // Handler provides REST API endpoints for rate limit management.
 type Handler struct {
@@ -32,7 +43,7 @@ func (h *Handler) GetUsage(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, `{"error":"device ID required"}`, http.StatusBadRequest)
 		return
 	}
-	usage := h.limiter.Usage(deviceID)
+	usage := h.limiter.Usage(tenantOf(r), deviceID)
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(usage)
 }
@@ -44,7 +55,7 @@ func (h *Handler) GetUsage(w http.ResponseWriter, r *http.Request) {
 // @Success 200 {array} DeviceUsage
 // @Router /api/ratelimit [get]
 func (h *Handler) GetAllUsage(w http.ResponseWriter, r *http.Request) {
-	all := h.limiter.AllUsage()
+	all := h.limiter.AllUsage(tenantOf(r))
 	if all == nil {
 		all = []DeviceUsage{}
 	}
@@ -80,7 +91,7 @@ func (h *Handler) PostOverride(w http.ResponseWriter, r *http.Request) {
 		req.DurationHours = 24
 	}
 
-	SetOverride(deviceID, time.Duration(req.DurationHours)*time.Hour)
+	SetOverride(tenantOf(r), deviceID, time.Duration(req.DurationHours)*time.Hour)
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
@@ -104,6 +115,6 @@ func (h *Handler) DeleteOverride(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, `{"error":"device ID required"}`, http.StatusBadRequest)
 		return
 	}
-	ClearOverride(deviceID)
+	ClearOverride(tenantOf(r), deviceID)
 	w.WriteHeader(http.StatusNoContent)
 }
