@@ -24,6 +24,9 @@ const newCallsign = ref('')
 const minted = ref(null)
 const qrURL = ref('')
 const qrFor = ref('')
+// Which package the QR on screen will fetch. Chosen before minting, so it is a
+// record of what was handed out rather than a switch.
+const qrClient = ref('atak')
 const error = ref('')
 const notice = ref('')
 const loading = ref(false)
@@ -117,15 +120,16 @@ async function enrol(username) {
   }
 }
 
-async function showQR(username) {
+async function showQR(username, client = 'atak') {
   busy.value = username
   error.value = ''
   minted.value = null
   clearQR()
   try {
-    const blob = await tak.enrolQR(username)
+    const blob = await tak.enrolQR(username, 512, client)
     qrURL.value = URL.createObjectURL(blob)
     qrFor.value = username
+    qrClient.value = client
     await load()
   } catch (e) {
     error.value = e.message
@@ -144,10 +148,10 @@ function clearQR() {
   }
 }
 
-async function copyLink() {
+async function copyLink(which = 'url') {
   try {
-    await navigator.clipboard.writeText(minted.value.url)
-    notice.value = 'Enrolment link copied'
+    await navigator.clipboard.writeText(which === 'itak' ? minted.value.itak_url : minted.value.url)
+    notice.value = which === 'itak' ? 'iTAK enrolment link copied' : 'Enrolment link copied'
   } catch {
     notice.value = 'Select the link and copy it'
   }
@@ -210,22 +214,53 @@ async function copyLink() {
     <!-- The minted enrolment, shown once -->
     <div v-if="minted" class="bg-green-900/30 border border-green-700 rounded-lg p-4 mb-4">
       <div class="text-green-300 font-semibold mb-2">Enrolment for {{ minted.username }}</div>
-      <div class="text-sm text-gray-300 mb-2">
+      <div class="text-sm text-gray-300 mb-3">
         Open this on the phone, once. It works for one download and expires
-        {{ formatUTC(minted.expires_at) }}.
+        {{ formatUTC(minted.expires_at) }} &mdash; and both links below are the
+        <strong class="text-gray-100">same</strong> enrolment, so using either one spends it.
       </div>
-      <code class="block bg-gray-900 text-ms-success px-3 py-2 rounded font-mono text-xs break-all select-all">
-        {{ minted.url }}
-      </code>
-      <div class="mt-3 flex gap-3">
-        <button @click="copyLink" class="text-sm text-brand-primary hover:text-brand-accent">Copy link</button>
+
+      <div class="mb-3">
+        <div class="text-[11px] font-display uppercase tracking-wider text-gray-400 mb-1">
+          Android and Windows &mdash; ATAK, WinTAK
+        </div>
+        <code class="block bg-gray-900 text-ms-success px-3 py-2 rounded font-mono text-xs break-all select-all">
+          {{ minted.url }}
+        </code>
+        <button @click="copyLink('url')" class="mt-1 text-sm text-brand-primary hover:text-brand-accent">
+          Copy link
+        </button>
+      </div>
+
+      <!-- iTAK reads a FLAT archive with no manifest, so the ATAK package does not
+           import into it at all. This page promised iTAK support while every link
+           it produced was the ATAK one (MESHSAT-1084); since a claim is single use,
+           finding that out on an iPhone cost the enrolment. -->
+      <div>
+        <div class="text-[11px] font-display uppercase tracking-wider text-gray-400 mb-1">
+          iPhone and iPad &mdash; iTAK
+        </div>
+        <code class="block bg-gray-900 text-ms-success px-3 py-2 rounded font-mono text-xs break-all select-all">
+          {{ minted.itak_url }}
+        </code>
+        <button @click="copyLink('itak')" class="mt-1 text-sm text-brand-primary hover:text-brand-accent">
+          Copy link
+        </button>
+      </div>
+
+      <div class="mt-4">
         <button @click="minted = null" class="text-sm text-gray-400 hover:text-gray-200">Dismiss</button>
       </div>
     </div>
 
     <!-- The same thing as a QR -->
     <div v-if="qrURL" class="bg-tactical-surface border border-tactical-border rounded-lg p-4 mb-4">
-      <div class="text-gray-200 font-semibold mb-2">Scan this on {{ qrFor }}'s phone</div>
+      <div class="text-gray-200 font-semibold mb-1">Scan this on {{ qrFor }}'s phone</div>
+      <div class="text-xs text-gray-400 mb-2">
+        Fetches the
+        <strong class="text-gray-200">{{ qrClient === 'itak' ? 'iTAK' : 'ATAK and WinTAK' }}</strong>
+        package. Scanning it spends the enrolment, so mint a new one if you picked the wrong app.
+      </div>
       <img :src="qrURL" :alt="`Enrolment QR code for ${qrFor}`" class="bg-white p-2 rounded max-w-[260px]" />
       <div class="mt-3">
         <button @click="clearQR" class="text-sm text-gray-400 hover:text-gray-200">Dismiss</button>
@@ -283,9 +318,15 @@ async function copyLink() {
                 class="bg-brand-primary/15 hover:bg-brand-primary/25 text-brand-primary px-2 py-1 rounded-lg text-xs mr-2 transition-colors disabled:opacity-40">
                 Enrol
               </button>
-              <button @click="showQR(u.username)" :disabled="busy === u.username || !u.active"
+              <button @click="showQR(u.username, 'atak')" :disabled="busy === u.username || !u.active"
+                title="QR for ATAK or WinTAK"
                 class="bg-gray-700 hover:bg-gray-600 text-gray-200 px-2 py-1 rounded-lg text-xs mr-2 transition-colors disabled:opacity-40">
                 QR
+              </button>
+              <button @click="showQR(u.username, 'itak')" :disabled="busy === u.username || !u.active"
+                title="QR for iTAK on iPhone or iPad"
+                class="bg-gray-700 hover:bg-gray-600 text-gray-200 px-2 py-1 rounded-lg text-xs mr-2 transition-colors disabled:opacity-40">
+                QR&nbsp;iTAK
               </button>
               <button @click="removeUser(u.username)" :disabled="busy === u.username"
                 class="bg-red-900 hover:bg-red-800 text-red-200 px-2 py-1 rounded-lg text-xs transition-colors disabled:opacity-40">

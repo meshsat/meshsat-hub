@@ -517,3 +517,56 @@ func TestTheCertificateIsAskedForUnderTheInstanceLabel(t *testing.T) {
 		}
 	}
 }
+
+// The two package flavours (MESHSAT-1084). ATAK and WinTAK read a zip with a
+// manifest; iTAK reads a flat one. They are different archive shapes, so handing
+// an iTAK user the ATAK package does not "mostly work" -- it does not import. And
+// because a claim is single use, finding that out on the phone costs the
+// enrolment.
+//
+// Claim has always served both and selected on ?client=itak. What was missing was
+// any way to ASK: every link and QR the TAK page produced was the ATAK one.
+func TestAClaimURLCanAskForTheITAKPackage(t *testing.T) {
+	const base = "https://hub.meshsat.net/api/tak/enroll/abc/def"
+
+	if got := claimURLFor(base, "itak"); got != base+"?client=itak" {
+		t.Errorf("itak URL = %q", got)
+	}
+	// Case and stray spacing come from a query string a person may have typed.
+	for _, spelling := range []string{"iTAK", "ITAK", " itak ", "iTak"} {
+		if got := claimURLFor(base, spelling); got != base+"?client=itak" {
+			t.Errorf("claimURLFor(%q) = %q, want the iTAK package", spelling, got)
+		}
+	}
+
+	// Anything else is ATAK, including nothing and a misspelling. This runs AFTER
+	// the enrolment is minted, so refusing an unknown value would spend a claim and
+	// hand back an error -- the default has to be the flavour most phones want.
+	for _, spelling := range []string{"", "atak", "ATAK", "android", "winrak", "itakk"} {
+		if got := claimURLFor(base, spelling); got != base {
+			t.Errorf("claimURLFor(%q) = %q, want the plain ATAK URL", spelling, got)
+		}
+	}
+
+	// A base that already carries a query keeps it. Nothing builds one today;
+	// appending a second "?" would silently produce a URL the router never matches.
+	withQuery := base + "?x=1"
+	if got := claimURLFor(withQuery, "itak"); got != withQuery+"&client=itak" {
+		t.Errorf("claimURLFor on a URL with a query = %q", got)
+	}
+}
+
+// The minted response carries both, so the shape of a claim URL is decided in one
+// place rather than rebuilt in JavaScript.
+func TestTheMintedEnrolmentOffersBothPackages(t *testing.T) {
+	out := &enrolmentResponse{}
+	claim := "https://hub.meshsat.net/api/tak/enroll/abc/def"
+	out.URL, out.ITAKURL = claim, claimURLFor(claim, "itak")
+
+	if out.ITAKURL == out.URL {
+		t.Fatal("both URLs are identical, so the iTAK package is unreachable")
+	}
+	if !strings.HasPrefix(out.ITAKURL, out.URL) {
+		t.Errorf("the iTAK URL is not the same claim: %q vs %q", out.ITAKURL, out.URL)
+	}
+}
