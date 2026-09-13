@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -25,11 +26,23 @@ type TenantHandler struct {
 	// forget drops the cached lifecycle status across the replicas, so a
 	// suspension applies to the next request rather than at the end of a TTL.
 	forget func(tenantID string)
+	// The platform's bridge-offline-timeout policy: the default every tenant
+	// gets, and the bounds an owner may choose within (MESHSAT-1117).
+	bridgeTimeoutDefault int
+	bridgeTimeoutMin     int
+	bridgeTimeoutMax     int
 }
 
 // NewTenantHandler creates the tenant handler.
 func NewTenantHandler(s store.Store) *TenantHandler {
 	return &TenantHandler{store: s}
+}
+
+// SetBridgeOfflineTimeoutPolicy gives the handler the platform's default and
+// the bounds a tenant owner may choose within (MESHSAT-1117). Without it the
+// setting is not offered at all, which is what a Hub built before this had.
+func (h *TenantHandler) SetBridgeOfflineTimeoutPolicy(def, min, max int) {
+	h.bridgeTimeoutDefault, h.bridgeTimeoutMin, h.bridgeTimeoutMax = def, min, max
 }
 
 // SetStatusInvalidator wires the cross-replica cache drop.
@@ -48,13 +61,30 @@ type tenantResponse struct {
 	// close dialog quotes it to the customer, and a number the UI hardcoded
 	// would be one refactor away from disagreeing with what actually happens.
 	PurgeGraceDays int `json:"purge_grace_days"`
+	// BridgeOfflineTimeout is the tenant's own choice in seconds, or 0 meaning
+	// "use the platform default" -- which BridgeOfflineTimeoutDefault carries,
+	// so the UI can show the number that is actually in force instead of
+	// hardcoding one that can drift from the ConfigMap.
+	BridgeOfflineTimeout        int `json:"bridge_offline_timeout"`
+	BridgeOfflineTimeoutDefault int `json:"bridge_offline_timeout_default"`
+	BridgeOfflineTimeoutMin     int `json:"bridge_offline_timeout_min"`
+	BridgeOfflineTimeoutMax     int `json:"bridge_offline_timeout_max"`
+}
+
+func (h *TenantHandler) toTenantResponse(t *store.Tenant) tenantResponse {
+	r := toTenantResponse(t)
+	r.BridgeOfflineTimeoutDefault = h.bridgeTimeoutDefault
+	r.BridgeOfflineTimeoutMin = h.bridgeTimeoutMin
+	r.BridgeOfflineTimeoutMax = h.bridgeTimeoutMax
+	return r
 }
 
 func toTenantResponse(t *store.Tenant) tenantResponse {
 	return tenantResponse{
 		ID: t.ID, Slug: t.Slug, Name: t.Name, OwnerUserID: t.OwnerUserID, Plan: t.Plan, Status: t.Status,
 		CreatedAt: t.CreatedAt.UTC().Format(time.RFC3339), UpdatedAt: t.UpdatedAt.UTC().Format(time.RFC3339),
-		PurgeGraceDays: int(store.PurgeGrace / (24 * time.Hour)),
+		PurgeGraceDays:       int(store.PurgeGrace / (24 * time.Hour)),
+		BridgeOfflineTimeout: t.BridgeOfflineTimeout,
 	}
 }
 
@@ -77,6 +107,11 @@ func toInviteResponse(i *store.TenantInvite) inviteResponse {
 
 type updateTenantRequest struct {
 	Name string `json:"name"`
+	// BridgeOfflineTimeout is a pointer so the three cases stay
+	// distinguishable: absent leaves the setting alone, 0 returns the tenant to
+	// the platform default, and a number sets it. A plain int would make every
+	// name change silently reset the timeout to the default.
+	BridgeOfflineTimeout *int `json:"bridge_offline_timeout,omitempty"`
 }
 
 type createInviteRequest struct {
@@ -110,7 +145,7 @@ func (h *TenantHandler) Get(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "tenant not found")
 		return
 	}
-	writeJSON(w, http.StatusOK, toTenantResponse(t))
+	writeJSON(w, http.StatusOK, h.toTenantResponse(t))
 }
 
 // Update renames the signed-in user's tenant (owner-only).
@@ -139,12 +174,26 @@ func (h *TenantHandler) Update(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	t.Name = name
+	if req.BridgeOfflineTimeout != nil {
+		v := *req.BridgeOfflineTimeout
+		// 0 is "go back to the platform default" and is always allowed. Any
+		// other value has to sit inside the platform's bounds: below a bridge's
+		// own heartbeat the reaper flaps a healthy fleet offline, and far above
+		// it a dead bridge reads as online for as long as somebody typed.
+		if v != 0 && (v < h.bridgeTimeoutMin || v > h.bridgeTimeoutMax) {
+			writeError(w, http.StatusBadRequest, fmt.Sprintf(
+				"bridge_offline_timeout must be 0 (platform default) or between %d and %d seconds",
+				h.bridgeTimeoutMin, h.bridgeTimeoutMax))
+			return
+		}
+		t.BridgeOfflineTimeout = v
+	}
 	if err := h.store.UpdateTenant(r.Context(), t); err != nil {
 		slog.Error("tenant: update failed", "error", err)
 		writeError(w, http.StatusInternalServerError, "update failed")
 		return
 	}
-	writeJSON(w, http.StatusOK, toTenantResponse(t))
+	writeJSON(w, http.StatusOK, h.toTenantResponse(t))
 }
 
 // ListInvites lists the tenant's invites (owner-only).

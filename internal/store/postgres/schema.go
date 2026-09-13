@@ -664,4 +664,22 @@ CREATE TABLE IF NOT EXISTS tak_users (
 CREATE INDEX IF NOT EXISTS idx_tak_users_serial ON tak_users (cert_serial) WHERE cert_serial <> '';
 CREATE INDEX IF NOT EXISTS idx_tak_users_enroll ON tak_users (enroll_token_hash) WHERE enroll_token_hash <> '';
 `},
+	// v19: the first tenant-owned operational setting (MESHSAT-1117).
+	//
+	// HUB_BRIDGE_OFFLINE_TIMEOUT decides how long a bridge may go quiet before
+	// the Hub calls it offline. That is a property of how a particular fleet
+	// operates -- a vehicle on a city network and a kit on a satellite schedule
+	// do not want the same number -- and it was one global environment variable
+	// for every tenant on a multi-tenant platform, changeable only by editing a
+	// ConfigMap.
+	//
+	// 0 means "use the platform default", which is what every existing tenant
+	// gets and is why this can be added without touching a single row. The
+	// platform still bounds what an owner may choose
+	// (HUB_BRIDGE_OFFLINE_TIMEOUT_MIN / _MAX): too low and the reaper flaps a
+	// healthy fleet offline between heartbeats, too high and a dead bridge
+	// reads as online for a day.
+	{Version: 19, Name: "tenant bridge offline timeout", SQL: `
+ALTER TABLE tenants ADD COLUMN IF NOT EXISTS bridge_offline_timeout INTEGER NOT NULL DEFAULT 0;
+`},
 }

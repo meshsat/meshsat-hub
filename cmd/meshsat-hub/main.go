@@ -552,8 +552,11 @@ func main() {
 	// Bridge reaper: marks bridges offline when last_seen exceeds timeout.
 	if cfg.BridgeOfflineTimeout > 0 {
 		timeout := time.Duration(cfg.BridgeOfflineTimeout) * time.Second
+		// A tenant may choose a shorter timeout than the platform default, so
+		// the reaper ticks for the shortest value anyone is allowed to set.
+		floor := time.Duration(cfg.BridgeOfflineTimeoutMin) * time.Second
 		leaderSingletons.Add("bridge-reaper", func(sctx context.Context) {
-			r := bridge.NewReaper(dataStore, timeout)
+			r := bridge.NewReaperWithFloor(dataStore, timeout, floor)
 			r.Start()
 			<-sctx.Done()
 			r.Stop()
@@ -1839,6 +1842,8 @@ func main() {
 	// Tenant self-service (members read, owners manage invites) and the
 	// platform-admin tenant directory (MESHSAT-916, MR 16).
 	tenantHandler := api.NewTenantHandler(dataStore)
+	tenantHandler.SetBridgeOfflineTimeoutPolicy(cfg.BridgeOfflineTimeout,
+		cfg.BridgeOfflineTimeoutMin, cfg.BridgeOfflineTimeoutMax)
 	tenantHandler.SetStatusInvalidator(tenantStatus.Forget)
 	usageHandler := api.NewTenantUsageHandler(quotaChecker, dataStore)
 	api.SetUpgradeURL(cfg.UpgradeURL)

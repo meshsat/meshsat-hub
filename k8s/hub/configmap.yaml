@@ -142,6 +142,22 @@ data:
   # is what stops an anonymous caller pointing our fan-out at our own IdP.
   HUB_AUTH_RATE_LIMIT_PER_MIN: "30"
 
+  # --- tenant-owned operational settings (MESHSAT-1117) ---
+  # How long a bridge may go quiet before the Hub calls it offline. This stays
+  # the DEFAULT every tenant gets; an owner can now choose their own in
+  # Settings -> Tenant, because a vehicle on a city network and a kit on a
+  # satellite schedule do not want the same number. MIN and MAX bound what an
+  # owner may pick: below a bridge's own heartbeat the reaper flaps a healthy
+  # fleet offline between beats, and far above it a dead bridge reads as online
+  # for as long as somebody cared to type. Changing any of these is an edit and
+  # an Argo sync, not a build.
+  #
+  # This decides one thing only: whether a bridge is SHOWN as offline. It is not
+  # on the delivery path and has nothing to do with SOS.
+  HUB_BRIDGE_OFFLINE_TIMEOUT: "300"
+  HUB_BRIDGE_OFFLINE_TIMEOUT_MIN: "60"
+  HUB_BRIDGE_OFFLINE_TIMEOUT_MAX: "86400"
+
   # --- subscription tiers (MESHSAT-989) ---
   # One combined ceiling on registered devices and bridges per tenant. It gates
   # REGISTRATION only: a tenant over its cap or on a lapsed plan keeps every

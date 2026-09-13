@@ -183,11 +183,18 @@ func (d *DB) TouchBridgeLastSeen(ctx context.Context, tenantID string, bridgeID 
 	return err
 }
 
+// MarkStaleBridgesOffline marks every bridge offline whose last_seen is older
+// than its own tenant's timeout, falling back to the platform default. See the
+// postgres implementation for why it is one statement and why COALESCE/NULLIF.
 func (d *DB) MarkStaleBridgesOffline(ctx context.Context, timeout time.Duration) (int64, error) {
 	secs := int(timeout.Seconds())
 	res, err := d.db.ExecContext(ctx,
-		"UPDATE bridges SET online=0, updated_at=datetime('now') WHERE online=1 AND last_seen IS NOT NULL AND last_seen < datetime('now', ?)",
-		fmt.Sprintf("-%d seconds", secs))
+		`UPDATE bridges SET online=0, updated_at=datetime('now')
+		 WHERE online=1 AND last_seen IS NOT NULL
+		   AND last_seen < datetime('now', '-' || COALESCE(NULLIF(
+		         (SELECT t.bridge_offline_timeout FROM tenants t WHERE t.id = bridges.tenant_id), 0
+		       ), ?) || ' seconds')`,
+		secs)
 	if err != nil {
 		return 0, err
 	}

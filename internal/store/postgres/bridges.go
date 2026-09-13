@@ -170,11 +170,26 @@ func (d *DB) TouchBridgeLastSeen(ctx context.Context, tenantID string, bridgeID 
 
 // MarkStaleBridgesOffline flips online bridges whose last_seen is older than
 // timeout to offline and returns the number of rows changed (all tenants).
+// MarkStaleBridgesOffline marks every bridge offline whose last_seen is older
+// than ITS OWN TENANT's timeout, falling back to the platform default.
+//
+// One statement rather than a query per tenant (MESHSAT-1117): the reaper runs
+// on a timer for the whole fleet, and a loop over tenants would turn a periodic
+// UPDATE into N round trips that grow with the customer list. The subquery is a
+// correlated lookup on the tenants primary key.
+//
+// COALESCE(NULLIF(..., 0), $1) is doing two jobs: NULLIF turns the sentinel 0
+// ("this tenant has chosen nothing") into NULL, and COALESCE also covers a
+// bridge whose tenant row is missing entirely -- which an inner join would have
+// silently skipped, leaving that bridge online forever.
 func (d *DB) MarkStaleBridgesOffline(ctx context.Context, timeout time.Duration) (int64, error) {
 	secs := int(timeout.Seconds())
 	res, err := d.db.ExecContext(ctx,
-		`UPDATE bridges SET online=FALSE, updated_at=now()
-		 WHERE online=TRUE AND last_seen IS NOT NULL AND last_seen < now() - ($1::int * interval '1 second')`,
+		`UPDATE bridges b SET online=FALSE, updated_at=now()
+		 WHERE b.online=TRUE AND b.last_seen IS NOT NULL
+		   AND b.last_seen < now() - (COALESCE(NULLIF(
+		         (SELECT t.bridge_offline_timeout FROM tenants t WHERE t.id = b.tenant_id), 0
+		       ), $1::int) * interval '1 second')`,
 		secs)
 	if err != nil {
 		return 0, err
