@@ -3,6 +3,7 @@ package geo
 import (
 	"context"
 	"log/slog"
+	"net/url"
 	"sync"
 	"time"
 )
@@ -29,6 +30,10 @@ type Fence struct {
 
 // FenceEvent is emitted when a device crosses a geofence boundary.
 type FenceEvent struct {
+	// TenantID is the tenant that owns both the fence and the device. A fence
+	// event raises an escalation chain, and a chain belongs to a tenant, so an
+	// event that cannot say whose it is cannot be acted on.
+	TenantID   string    `json:"tenant_id,omitempty"`
 	FenceID    string    `json:"fence_id"`
 	FenceName  string    `json:"fence_name"`
 	DeviceIMEI string    `json:"device_imei"`
@@ -42,47 +47,91 @@ type FenceEvent struct {
 type EventHandler func(ctx context.Context, event FenceEvent)
 
 // Engine evaluates device positions against configured geofences.
+//
+// MESHSAT-1118: every map here was keyed without a tenant. ListFences returned
+// every tenant's fences -- a fence polygon is where a customer operates, which
+// is not a thing to hand to another customer -- RemoveFence deleted any fence by
+// id, and Evaluate checked a device against EVERY tenant's fences, so one
+// tenant's vehicle crossing another tenant's boundary would raise that tenant's
+// escalation chain. Fence.TenantID has existed on the struct all along and
+// nothing set it or read it.
 type Engine struct {
-	mu       sync.RWMutex
-	fences   map[string]*Fence          // fence ID → fence
-	state    map[string]map[string]bool // device IMEI → fence ID → inside?
+	mu     sync.RWMutex
+	fences map[string]*Fence // scope(tenant, fence ID) → fence
+	// state is tenant → device IMEI → fence ID → inside?. Device ids are not
+	// unique across tenants, so a flat device key would let one tenant's device
+	// carry another's crossing state.
+	state    map[string]map[string]map[string]bool
 	handlers []EventHandler
+}
+
+// scope keys a fence by its tenant. Both halves are escaped: a fence id is
+// caller-supplied, so without it tenant "a" fence "b:c" and tenant "a:b" fence
+// "c" would be the same entry.
+func scope(tenantID, id string) string {
+	return url.QueryEscape(tenantID) + ":" + url.QueryEscape(id)
 }
 
 // NewEngine creates a geofence engine.
 func NewEngine() *Engine {
 	return &Engine{
 		fences: make(map[string]*Fence),
-		state:  make(map[string]map[string]bool),
+		state:  make(map[string]map[string]map[string]bool),
 	}
 }
 
-// AddFence registers a geofence.
+// AddFence registers a geofence. f.TenantID names its owner and is set from the
+// caller's session, never from a request body.
 func (e *Engine) AddFence(f Fence) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	e.fences[f.ID] = &f
-	slog.Info("geofence: added", "id", f.ID, "name", f.Name, "vertices", len(f.Polygon), "trigger", f.Trigger)
+	e.fences[scope(f.TenantID, f.ID)] = &f
+	slog.Info("geofence: added", "tenant", f.TenantID, "id", f.ID, "name", f.Name,
+		"vertices", len(f.Polygon), "trigger", f.Trigger)
 }
 
-// RemoveFence removes a geofence.
-func (e *Engine) RemoveFence(id string) {
+// RemoveFence removes one of the tenant's own geofences. It reports whether a
+// fence was removed.
+func (e *Engine) RemoveFence(tenantID, id string) bool {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	delete(e.fences, id)
-	// Clean up state for this fence.
-	for _, deviceState := range e.state {
+	k := scope(tenantID, id)
+	if _, ok := e.fences[k]; !ok {
+		return false
+	}
+	delete(e.fences, k)
+	// Clean up this tenant's crossing state for the fence.
+	for _, deviceState := range e.state[tenantID] {
 		delete(deviceState, id)
 	}
+	return true
 }
 
-// ListFences returns all configured fences.
-func (e *Engine) ListFences() []Fence {
+// ForgetTenant drops every fence and every crossing state held for a tenant.
+// Implements tenancy.TenantForgetter.
+func (e *Engine) ForgetTenant(tenantID string) {
+	if e == nil || tenantID == "" {
+		return
+	}
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	for k, f := range e.fences {
+		if f.TenantID == tenantID {
+			delete(e.fences, k)
+		}
+	}
+	delete(e.state, tenantID)
+}
+
+// ListFences returns the tenant's own fences.
+func (e *Engine) ListFences(tenantID string) []Fence {
 	e.mu.RLock()
 	defer e.mu.RUnlock()
 	fences := make([]Fence, 0, len(e.fences))
 	for _, f := range e.fences {
-		fences = append(fences, *f)
+		if f.TenantID == tenantID {
+			fences = append(fences, *f)
+		}
 	}
 	return fences
 }
@@ -94,32 +143,46 @@ func (e *Engine) OnEvent(h EventHandler) {
 	e.handlers = append(e.handlers, h)
 }
 
-// Evaluate checks a position against all fences and emits events for transitions.
-func (e *Engine) Evaluate(ctx context.Context, deviceIMEI string, lat, lon float64) []FenceEvent {
+// Evaluate checks a position against the fences OF THE DEVICE'S OWN TENANT and
+// emits events for transitions.
+//
+// tenantID is the tenant that owns the device. An empty tenant evaluates
+// nothing: a fence event raises an escalation chain, and the only alternative
+// to naming a tenant is raising everybody's.
+func (e *Engine) Evaluate(ctx context.Context, tenantID, deviceIMEI string, lat, lon float64) []FenceEvent {
+	if tenantID == "" {
+		slog.Warn("geofence: refusing to evaluate a position with no tenant", "device", deviceIMEI)
+		return nil
+	}
+
 	e.mu.Lock()
 	defer e.mu.Unlock()
 
-	if e.state[deviceIMEI] == nil {
-		e.state[deviceIMEI] = make(map[string]bool)
+	if e.state[tenantID] == nil {
+		e.state[tenantID] = make(map[string]map[string]bool)
 	}
+	if e.state[tenantID][deviceIMEI] == nil {
+		e.state[tenantID][deviceIMEI] = make(map[string]bool)
+	}
+	deviceState := e.state[tenantID][deviceIMEI]
 
 	var events []FenceEvent
 	p := Point{Lat: lat, Lon: lon}
 	now := time.Now().UTC()
 
 	for _, fence := range e.fences {
-		if !fence.Enabled {
+		if !fence.Enabled || fence.TenantID != tenantID {
 			continue
 		}
 
 		inside := PointInPolygon(p, fence.Polygon)
-		wasInside := e.state[deviceIMEI][fence.ID]
+		wasInside := deviceState[fence.ID]
 
 		if inside == wasInside {
 			continue // no transition
 		}
 
-		e.state[deviceIMEI][fence.ID] = inside
+		deviceState[fence.ID] = inside
 
 		var eventType string
 		if inside && !wasInside {
@@ -137,6 +200,7 @@ func (e *Engine) Evaluate(ctx context.Context, deviceIMEI string, lat, lon float
 		}
 
 		event := FenceEvent{
+			TenantID:   tenantID,
 			FenceID:    fence.ID,
 			FenceName:  fence.Name,
 			DeviceIMEI: deviceIMEI,
@@ -148,7 +212,7 @@ func (e *Engine) Evaluate(ctx context.Context, deviceIMEI string, lat, lon float
 		events = append(events, event)
 
 		slog.Info("geofence: event",
-			"fence", fence.Name, "device", deviceIMEI, "type", eventType,
+			"tenant", tenantID, "fence", fence.Name, "device", deviceIMEI, "type", eventType,
 			"lat", lat, "lon", lon)
 	}
 

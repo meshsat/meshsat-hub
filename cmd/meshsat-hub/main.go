@@ -2369,6 +2369,11 @@ func main() {
 
 	// Geofence engine + API
 	geoEngine := geo.NewEngine()
+	// Registered here rather than beside the other caches, because the engine is
+	// built further down than the Evictor. Registration is only read when an
+	// eviction happens, so order does not matter as long as it is before the
+	// first purge.
+	tenantEvict.Register(geoEngine)
 	geoHandler := api.NewGeofenceHandler(geoEngine)
 	r.Get("/api/geofences", geoHandler.ListFences)
 	r.Post("/api/geofences", geoHandler.CreateFence)
