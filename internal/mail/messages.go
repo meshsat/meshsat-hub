@@ -502,6 +502,52 @@ The MeshSat team`, greeting(name), amount, doc)
 	}
 }
 
+// Rejected tells someone their account request was not accepted (MESHSAT-1082).
+//
+// Until this existed, rejection was SILENT: the account was deleted, an audit row
+// was written, and the person who had signed up and confirmed their address was
+// left waiting for an answer that was never coming. Approval had sent mail since
+// MESHSAT-978; the other half of the same decision sent nothing.
+//
+// # Why it gives no reason
+//
+// Deliberate, and not evasion. The criteria include anti-abuse signals, and a
+// message that explains which one was tripped is a message that teaches someone
+// how to try again differently. It also turns a decision into an argument. So the
+// notice says what happened, that nothing was kept, and how to reach a person --
+// which is the part that matters if the decision was wrong.
+//
+// It is sent BEFORE the operator can change their mind, so it says nothing that
+// would be false if they later approve a fresh request.
+func Rejected(name string) Message {
+	text := fmt.Sprintf(`%s
+
+We are not able to give you a MeshSat Hub account at this time.
+
+Your request has been closed and the details you gave us have been removed. There
+is no account, and nothing further will happen.
+
+If you think this is a mistake, reply to this message or write to
+hello@meshsat.net and a person will read it. You are welcome to apply again.
+
+The MeshSat team`, greeting(name))
+
+	html := para(esc(greeting(name))) +
+		para("We are not able to give you a MeshSat Hub account at this time.") +
+		para("Your request has been closed and the details you gave us have been removed. "+
+			"There is no account, and nothing further will happen.") +
+		note("If you think this is a mistake, reply to this message or write to "+
+			link("mailto:hello@meshsat.net")+" and a person will read it. You are "+
+			"welcome to apply again.") +
+		lastPara("The MeshSat team")
+
+	return Message{
+		Subject: "About your MeshSat Hub account request",
+		Text:    text,
+		HTML:    Wrap(html),
+	}
+}
+
 // SignupRequest is one account request, carrying what the person deciding
 // actually needs to see.
 //
@@ -609,8 +655,7 @@ Approve or reject them on the Settings page, under Beta requests:
 
 Approving activates the account, grants a role and emails them, so you do not
 have to tell them yourself; their workspace is created the first time they sign
-in. Rejecting is silent -- nothing is sent, so say so yourself if they deserve
-an answer.
+in. Rejecting also emails them, so either decision reaches the person who asked.
 
 The MeshSat team`)
 
@@ -618,11 +663,10 @@ The MeshSat team`)
 		urlUnder(settings) +
 		para("Approving activates the account, grants a role and emails them, so you do not have "+
 			"to tell them yourself; their workspace is created the first time they sign in.") +
-		// Said plainly because it is a trap: an operator who believes both
-		// decisions notify will leave a rejected applicant waiting for an answer
-		// that is never coming. Reject sends nothing -- filed as MESHSAT-1082
-		// rather than papered over here.
-		note("Rejecting is silent &mdash; nothing is sent, so say so yourself if they deserve an answer.") +
+		// Both decisions notify since MESHSAT-1082. This line used to warn that
+		// rejection was silent, which was true and is the kind of sentence that
+		// must be deleted the day it stops being true.
+		note("Rejecting also emails them, so either decision reaches the person who asked.") +
 		lastPara("The MeshSat team"))
 
 	return Message{
