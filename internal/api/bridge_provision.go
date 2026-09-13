@@ -2,6 +2,7 @@ package api
 
 import (
 	"crypto/rand"
+	"crypto/subtle"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -203,6 +204,18 @@ func (h *BridgeProvisionHandler) Provision(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
+	// Blank it, exactly as a claim does. The bundle has just been handed to the
+	// caller in this response, so the stash has served its purpose -- and it
+	// carries the plaintext MQTT password and the client PRIVATE KEY, which
+	// exist nowhere else. Leaving it behind is how the two production field
+	// kits kept theirs in system_config, and therefore in every unencrypted
+	// barman backup, from March to September (MESHSAT-1098).
+	if err := h.store.SetSystemConfig(r.Context(), stashKey, ""); err != nil {
+		// Loud, not silent: the credential is out and the row is still there.
+		slog.Error("bridge provision: could not clear the stash after handing out the bundle; "+
+			"it holds a plaintext key and this needs a person", "bridge_id", id, "error", err)
+	}
+
 	slog.Info("bridge provisioned (direct)", "bridge_id", id, "nonce", nonce[:8])
 	writeJSON(w, http.StatusOK, stash.Bundle)
 }
@@ -296,6 +309,18 @@ func (h *BridgeProvisionHandler) ProvisionQR(w http.ResponseWriter, r *http.Requ
 // used to tell those cases apart.
 const provisionClaimRefused = "invalid or expired provisioning token"
 
+// ProvisionTTL is how long a provisioning bundle may be claimed for.
+//
+// Named rather than written inline at the one place it is enforced, which is
+// why nothing tested expiry: a bare `30*time.Minute` in the handler cannot be
+// reached from a test, so the stash-expiry path had no coverage at all. The TAK
+// enrolment path's enrolTTL is the precedent.
+//
+// ⚠ This bounds when a bundle can be CLAIMED. It does not bound how long the
+// row survives -- an unclaimed stash outlived its TTL by six months before the
+// reaper in internal/stashreaper existed (MESHSAT-1098).
+const ProvisionTTL = 30 * time.Minute
+
 func (h *BridgeProvisionHandler) ClaimProvision(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	nonce := chi.URLParam(r, "nonce")
@@ -318,7 +343,7 @@ func (h *BridgeProvisionHandler) ClaimProvision(w http.ResponseWriter, r *http.R
 	}
 
 	// Verify nonce matches.
-	if stash.Nonce != nonce {
+	if subtle.ConstantTimeCompare([]byte(stash.Nonce), []byte(nonce)) != 1 {
 		slog.Warn("provision claim: nonce mismatch",
 			"bridge_id", id,
 			"expected", stash.Nonce[:8]+"...",
@@ -328,10 +353,10 @@ func (h *BridgeProvisionHandler) ClaimProvision(w http.ResponseWriter, r *http.R
 	}
 
 	// Check age — reject if older than 30 minutes.
-	if time.Since(stash.CreatedAt) > 30*time.Minute {
+	if time.Since(stash.CreatedAt) > ProvisionTTL {
 		// Clean up expired stash.
 		_ = h.store.SetSystemConfig(r.Context(), stashKey, "")
-		writeError(w, http.StatusGone, "provisioning token expired (>30 minutes)")
+		writeError(w, http.StatusGone, "provisioning token expired")
 		return
 	}
 

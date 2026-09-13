@@ -81,6 +81,7 @@ import (
 	"github.com/meshsat/meshsat-hub/internal/signups"
 	"github.com/meshsat/meshsat-hub/internal/sms"
 	"github.com/meshsat/meshsat-hub/internal/sos"
+	"github.com/meshsat/meshsat-hub/internal/stashreaper"
 	"github.com/meshsat/meshsat-hub/internal/store"
 	"github.com/meshsat/meshsat-hub/internal/store/dbwrap"
 	"github.com/meshsat/meshsat-hub/internal/store/postgres"
@@ -1376,6 +1377,23 @@ func main() {
 	// has no such column, so nothing would ever come back for it.
 	purgeJob := tenancy.NewPurgeJob(dataStore, auditSvc, 0)
 	leaderSingletons.Add("tenant-purge", purgeJob.Run)
+
+	// One-time provisioning material that was never claimed (MESHSAT-1098).
+	// Claiming a bundle blanks its stash; nothing ever removed the ones nobody
+	// came for, so twelve of them -- each a plaintext MQTT password and a client
+	// private key -- sat in system_config from March to September and went into
+	// every backup. The TTL is enforced only on a claim, which is exactly the
+	// request an abandoned stash never receives, so expiry has to be driven by
+	// something else.
+	//
+	// A leader singleton because it deletes shared rows; hourly because this is
+	// a disclosure risk measured in months, not a queue with a latency budget.
+	leaderSingletons.Add("stash-reaper", stashreaper.New(dataStore, []stashreaper.Prefix{
+		{Prefix: "provision_stash:", TTL: api.ProvisionTTL,
+			Why: "bridge provisioning bundle: plaintext MQTT password and client private key"},
+		{Prefix: "tak_enroll:", TTL: api.TAKEnrolTTL,
+			Why: "TAK enrolment stash: sealed under a nonce that is never stored, but still credential-shaped"},
+	}, time.Hour, slog.Default()).Run)
 
 	// Hosted TAK's customer-facing surface (MESHSAT-1037). Constructed HERE rather
 	// than beside the other /api/tenant handlers further down, because

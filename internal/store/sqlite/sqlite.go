@@ -1692,6 +1692,39 @@ func (d *DB) SetSystemConfig(ctx context.Context, key, value string) error {
 	return err
 }
 
+// ListSystemConfigOlderThan returns keys under prefix last written before cutoff.
+// See the Postgres twin for why the prefix is escaped rather than concatenated.
+func (d *DB) ListSystemConfigOlderThan(ctx context.Context, prefix string, cutoff time.Time) ([]string, error) {
+	rows, err := d.db.QueryContext(ctx,
+		`SELECT key FROM system_config WHERE key LIKE ? ESCAPE '\' AND updated_at < ? ORDER BY key`,
+		likePrefix(prefix), cutoff.UTC().Format("2006-01-02 15:04:05"))
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+	var keys []string
+	for rows.Next() {
+		var k string
+		if err := rows.Scan(&k); err != nil {
+			return nil, err
+		}
+		keys = append(keys, k)
+	}
+	return keys, rows.Err()
+}
+
+// DeleteSystemConfig removes a row; a missing key is not an error.
+func (d *DB) DeleteSystemConfig(ctx context.Context, key string) error {
+	_, err := d.db.ExecContext(ctx, "DELETE FROM system_config WHERE key=?", key)
+	return err
+}
+
+// likePrefix escapes the LIKE metacharacters so a prefix is matched literally.
+func likePrefix(prefix string) string {
+	r := strings.NewReplacer(`\`, `\\`, "%", `\%`, "_", `\_`)
+	return r.Replace(prefix) + "%"
+}
+
 // --- Cost ledger ---
 
 func (d *DB) InsertCostEntry(ctx context.Context, tenantID string, c *store.CostEntry) error {
