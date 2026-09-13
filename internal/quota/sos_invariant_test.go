@@ -164,12 +164,12 @@ func TestSOSSurvivesTheQuota(t *testing.T) {
 	// device that has spent its entire rate-limit budget still gets an SOS out.
 	rl := ratelimit.NewDeviceLimiter(1, 0, 1, 1, nil)
 	for i := 0; i < 5; i++ {
-		rl.Allow(sosIMEI, false)
+		rl.Allow(tenantID, sosIMEI, false)
 	}
-	if rl.Allow(sosIMEI, false) {
+	if rl.Allow(tenantID, sosIMEI, false) {
 		t.Fatal("precondition failed: the rate limiter should be exhausted")
 	}
-	if !rl.Allow(sosIMEI, true) {
+	if !rl.Allow(tenantID, sosIMEI, true) {
 		t.Error("an SOS was dropped by the rate limiter")
 	}
 }

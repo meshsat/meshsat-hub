@@ -32,13 +32,13 @@ func NewRedisLimiter(client *redis.Client, dailyCap, monthlyCap int) *RedisLimit
 
 // Allow checks if a send is permitted. Uses Redis INCR with daily/monthly key expiry.
 // SOS messages always bypass.
-func (l *RedisLimiter) Allow(deviceID string, isSOS bool) bool {
+func (l *RedisLimiter) Allow(tenantID, deviceID string, isSOS bool) bool {
 	if isSOS {
 		metrics.RatelimitDecisions.WithLabelValues("allowed").Inc()
 		return true
 	}
 
-	if isOverridden(deviceID) {
+	if isOverridden(tenantID, deviceID) {
 		metrics.RatelimitDecisions.WithLabelValues("allowed").Inc()
 		return true
 	}
@@ -48,7 +48,7 @@ func (l *RedisLimiter) Allow(deviceID string, isSOS bool) bool {
 	// Monthly cap check
 	if l.monthlyCap > 0 {
 		month := time.Now().UTC().Format("2006-01")
-		monthKey := fmt.Sprintf("%s%s:m:%s", l.prefix, deviceID, month)
+		monthKey := fmt.Sprintf("%s%s:m:%s", l.prefix, scope(tenantID, deviceID), month)
 		mCount, err := l.client.Get(ctx, monthKey).Int64()
 		if err == nil && int(mCount) >= l.monthlyCap {
 			slog.Warn("ratelimit: monthly cap exceeded", "device", deviceID, "count", mCount, "cap", l.monthlyCap)
@@ -61,7 +61,7 @@ func (l *RedisLimiter) Allow(deviceID string, isSOS bool) bool {
 	// Daily cap check + increment
 	if l.dailyCap > 0 {
 		today := time.Now().UTC().Format("2006-01-02")
-		dayKey := fmt.Sprintf("%s%s:%s", l.prefix, deviceID, today)
+		dayKey := fmt.Sprintf("%s%s:%s", l.prefix, scope(tenantID, deviceID), today)
 
 		count, err := l.client.Incr(ctx, dayKey).Result()
 		if err != nil {
@@ -83,7 +83,7 @@ func (l *RedisLimiter) Allow(deviceID string, isSOS bool) bool {
 	// Increment monthly counter
 	if l.monthlyCap > 0 {
 		month := time.Now().UTC().Format("2006-01")
-		monthKey := fmt.Sprintf("%s%s:m:%s", l.prefix, deviceID, month)
+		monthKey := fmt.Sprintf("%s%s:m:%s", l.prefix, scope(tenantID, deviceID), month)
 		count, err := l.client.Incr(ctx, monthKey).Result()
 		if err != nil {
 			slog.Warn("ratelimit: redis monthly incr error", "error", err)
@@ -98,10 +98,10 @@ func (l *RedisLimiter) Allow(deviceID string, isSOS bool) bool {
 }
 
 // Usage returns current rate limit status for a device.
-func (l *RedisLimiter) Usage(deviceID string) DeviceUsage {
+func (l *RedisLimiter) Usage(tenantID, deviceID string) DeviceUsage {
 	ctx := context.Background()
 	today := time.Now().UTC().Format("2006-01-02")
-	dayKey := fmt.Sprintf("%s%s:%s", l.prefix, deviceID, today)
+	dayKey := fmt.Sprintf("%s%s:%s", l.prefix, scope(tenantID, deviceID), today)
 
 	dailyCount := 0
 	if v, err := l.client.Get(ctx, dayKey).Result(); err == nil {
@@ -111,7 +111,7 @@ func (l *RedisLimiter) Usage(deviceID string) DeviceUsage {
 	monthlyCount := 0
 	if l.monthlyCap > 0 {
 		month := time.Now().UTC().Format("2006-01")
-		monthKey := fmt.Sprintf("%s%s:m:%s", l.prefix, deviceID, month)
+		monthKey := fmt.Sprintf("%s%s:m:%s", l.prefix, scope(tenantID, deviceID), month)
 		if v, err := l.client.Get(ctx, monthKey).Result(); err == nil {
 			monthlyCount, _ = strconv.Atoi(v)
 		}
@@ -130,7 +130,7 @@ func (l *RedisLimiter) Usage(deviceID string) DeviceUsage {
 	}
 
 	overrides.RLock()
-	if exp, ok := overrides.m[deviceID]; ok && time.Now().Before(exp) {
+	if exp, ok := overrides.m[scope(tenantID, deviceID)]; ok && time.Now().Before(exp) {
 		usage.OverrideUntil = exp.Format(time.RFC3339)
 	}
 	overrides.RUnlock()
@@ -140,7 +140,7 @@ func (l *RedisLimiter) Usage(deviceID string) DeviceUsage {
 
 // AllUsage is not efficiently supported by Redis — returns empty.
 // Use the /api/ratelimit/{deviceID} endpoint for per-device queries.
-func (l *RedisLimiter) AllUsage() []DeviceUsage {
+func (l *RedisLimiter) AllUsage(string) []DeviceUsage {
 	return nil
 }
 
