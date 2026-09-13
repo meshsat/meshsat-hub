@@ -41,21 +41,32 @@ leaves a caller's own value alone, so if upstream ever starts passing one, their
 wins. The read timeout is per-read, not total, so a streamed download of any size
 still works as long as bytes keep arriving.
 
-AND IT DOES NOT COVER `httpx`, which the title's "every HTTP request" overstates.
-`blueprints/ots_api/tak_gov_link_api.py` drives seven calls through
-`httpx.Client(http2=True)` with no timeout of their own, and this module wraps
-`requests.Session.request` only. Measured in the shipped image rather than
-assumed: httpx 0.28.1 defaults to `Timeout(timeout=5.0)`, so those are bounded
-already -- a different and much smaller problem than the unbounded hang above.
-Filed separately; do not widen this module to chase it without re-measuring that
-default, because it is a library default and can change under us.
+IT ALSO COVERS `httpx`, since MESHSAT-1107, but for a different reason and with a
+different number. `blueprints/ots_api/tak_gov_link_api.py` drives seven calls
+through `httpx.Client(http2=True)` with no timeout of their own. Those were
+already bounded: re-measured in the running image on 2026-09-13, httpx 0.28.1
+defaults to `Timeout(timeout=5.0)`. So this is not the unbounded hang above.
 
-The numbers are deliberately generous: this is a backstop against hanging for
-ever, not a latency budget.
+What it fixes is ownership. Five seconds is a LIBRARY default, not our decision,
+and it can move on an upgrade -- if it ever became `None`, these calls would
+acquire exactly the failure mode the rest of this module exists to prevent, and
+nothing would say so.
+
+So the httpx default is pinned HERE, deliberately at the same 5.0 the library
+already uses. Keeping the number identical is the point: this changes who decides,
+not how the system behaves. Raising it to the generous requests numbers below
+would make a hanging tak.gov call fail twelve times slower than it does today,
+which would be a regression dressed up as a fix.
 """
 
+# Generous on purpose: a backstop against hanging for ever, not a latency budget.
+# These cover mediamtx (local) and aishub (a stream that can be slow but alive).
 _CONNECT_TIMEOUT = 10.0
 _READ_TIMEOUT = 60.0
+
+# Deliberately equal to httpx 0.28.1's own default, measured in the shipped
+# image. See the docstring: the aim is to own the value, not to change it.
+_HTTPX_TIMEOUT = 5.0
 
 
 def _install() -> None:
@@ -80,4 +91,43 @@ def _install() -> None:
     session.request = request
 
 
+def _install_httpx() -> None:
+    """Pin httpx's client timeout so it is ours rather than the library's.
+
+    Wraps the CONSTRUCTOR, not the request: httpx resolves its timeout once, when
+    the client is built, and `tak_gov_link_api.py` builds `httpx.Client(http2=True)`
+    and then makes every call through it.
+
+    `"timeout" not in kwargs` is what keeps a caller's own value: it distinguishes
+    "passed nothing" from "passed five seconds", which comparing against the
+    default cannot. If upstream ever starts passing one, theirs wins -- the same
+    rule the requests wrapper follows with setdefault.
+    """
+    try:
+        import httpx
+    except Exception:  # pragma: no cover - httpx is a dependency of OTS
+        return
+
+    for name in ("Client", "AsyncClient"):
+        cls = getattr(httpx, name, None)
+        if cls is None:  # pragma: no cover - both exist in every httpx we ship
+            continue
+        original = cls.__init__
+        # Idempotent, like the requests wrapper: a re-import must not nest.
+        if getattr(original, "_meshsat_timeout_default", False):
+            continue
+
+        def make(original):
+            def __init__(self, *args, **kwargs):
+                if "timeout" not in kwargs:
+                    kwargs["timeout"] = httpx.Timeout(_HTTPX_TIMEOUT)
+                return original(self, *args, **kwargs)
+
+            __init__._meshsat_timeout_default = True
+            return __init__
+
+        cls.__init__ = make(original)
+
+
 _install()
+_install_httpx()
