@@ -24,7 +24,12 @@ async function fetchJSON(url, opts = {}) {
   }
   if (!res.ok) {
     const err = await res.json().catch(() => ({ error: res.statusText }))
-    throw new Error(err.error || res.statusText)
+    const e = new Error(err.error || res.statusText)
+    // The status, so a caller can tell "this tenant has no such thing" from
+    // "the request failed". Without it every catch block is forced to treat a
+    // permanent 404 as a transient error and retry it forever (MESHSAT-1111).
+    e.status = res.status
+    throw e
   }
   if (res.status === 204) return null
   return res.json()

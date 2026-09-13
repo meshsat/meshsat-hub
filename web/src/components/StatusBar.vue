@@ -11,6 +11,8 @@ const utcTime = ref('')
 
 let pollTimer = null
 let clockTimer = null
+// Set once /api/credits has answered 404: this tenant has no provider account.
+let creditsUnavailable = false
 
 function updateClock() {
   const now = new Date()
@@ -40,10 +42,20 @@ async function poll() {
     }
   } catch { /* ignore */ }
 
-  try {
-    const c = await credits.get()
-    if (c && c.balance !== undefined) creditBalance.value = c.balance
-  } catch { /* ignore */ }
+  // Credits are an Iridium balance, and most tenants bring no Cloudloop account
+  // at all -- airtime is not ours. For them /api/credits answers 404 forever,
+  // and asking every 30 s wrote an INFO line per miss per open tab, in both
+  // replicas, for as long as anyone had the Hub open (MESHSAT-1111).
+  if (!creditsUnavailable) {
+    try {
+      const c = await credits.get()
+      if (c && c.balance !== undefined) creditBalance.value = c.balance
+    } catch (e) {
+      // 404 is the settled answer, not a failure: stop asking. Anything else
+      // is transient and worth retrying on the next tick.
+      if (e && e.status === 404) creditsUnavailable = true
+    }
+  }
 
   try {
     const msgs = await messages.list('', 1000)

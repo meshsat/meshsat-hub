@@ -37,11 +37,16 @@ onUnmounted(() => {
   if (pollTimer) clearInterval(pollTimer)
 })
 
+// Set once /api/credits has answered 404 (MESHSAT-1111). See StatusBar.vue:
+// most tenants have no Cloudloop account, so that 404 is permanent, and this
+// view polls on the same 30 s timer -- two askers per open dashboard.
+let creditsUnavailable = false
+
 async function loadAll() {
   const results = await Promise.allSettled([
     health.check(),
     devices.list(),
-    credits.get(),
+    creditsUnavailable ? Promise.resolve(null) : credits.get(),
     ratelimit.all(),
     messages.list('', 50),
     escalation.listAlerts(true, 10),
@@ -54,7 +59,10 @@ async function loadAll() {
 
   hubHealth.value = results[0].status === 'fulfilled' ? results[0].value : { status: 'error' }
   deviceList.value = results[1].status === 'fulfilled' && Array.isArray(results[1].value) ? results[1].value : []
-  creditBalance.value = results[2].status === 'fulfilled' ? (results[2].value?.balance ?? results[2].value) : null
+  if (results[2].status === 'rejected' && results[2].reason?.status === 404) creditsUnavailable = true
+  creditBalance.value = results[2].status === 'fulfilled' && results[2].value !== null
+    ? (results[2].value?.balance ?? results[2].value)
+    : null
   budgetList.value = results[3].status === 'fulfilled' && Array.isArray(results[3].value) ? results[3].value : []
   messageList.value = results[4].status === 'fulfilled' && Array.isArray(results[4].value) ? results[4].value : []
   alertList.value = results[5].status === 'fulfilled' && Array.isArray(results[5].value) ? results[5].value : []
