@@ -1747,10 +1747,19 @@ func main() {
 		webhookRoute(integrations.ProviderEmail, "webhook_secret", "/api/webhook/email", emailWebhook.ServeHTTP)
 
 		emailAPIHandler := hubemail.NewAPIHandler(emailKeyRing)
+		// The Hub's OWN public key stays readable by any member: it is public by
+		// definition and a correspondent needs it.
 		r.Get("/api/email/keys/public", emailAPIHandler.GetPublicKey)
-		r.Get("/api/email/keys", emailAPIHandler.ListContacts)
-		r.Post("/api/email/keys", emailAPIHandler.AddContact)
-		r.Delete("/api/email/keys/{email}", emailAPIHandler.DeleteContact)
+		// PLATFORM ADMIN ONLY (MESHSAT-1116). KeyRing.contacts is one
+		// process-wide map with no tenant key, so listing exposed every tenant's
+		// correspondents and -- the sharp one -- overwriting an address's public
+		// key redirects that recipient's encrypted mail to an attacker-held key.
+		r.Group(func(r chi.Router) {
+			r.Use(hubauth.RequirePlatformAdmin())
+			r.Get("/api/email/keys", emailAPIHandler.ListContacts)
+			r.Post("/api/email/keys", emailAPIHandler.AddContact)
+			r.Delete("/api/email/keys/{email}", emailAPIHandler.DeleteContact)
+		})
 		// Owner-only: TestSend takes a caller-supplied recipient, subject and
 		// body and sends them through the Hub's own SMTP identity. Without a
 		// role check any viewer of any tenant could relay mail under this
@@ -2188,11 +2197,19 @@ func main() {
 	r.Get("/api/webhooks/logs", webhookAPIHandler.GetLogs)
 	// MPTCP concentrator API
 	mptcpHandler := mptcp.NewAPIHandler(mptcpMonitor)
-	r.Get("/api/mptcp/status", mptcpHandler.GetStatus)
-	r.Put("/api/mptcp/strategy", mptcpHandler.SetStrategy)
-	r.Get("/api/mptcp/endpoints", mptcpHandler.ListEndpoints)
-	r.Post("/api/mptcp/endpoints", mptcpHandler.AddEndpointHandler)
-	r.Delete("/api/mptcp/endpoints/{id}", mptcpHandler.RemoveEndpointHandler)
+	// PLATFORM ADMIN ONLY (MESHSAT-1116). This is not tenant state and not even
+	// process state: AddEndpoint/RemoveEndpoint shell out to `ip mptcp`, so a
+	// tenant member was reaching the HOST kernel's path manager. SetStrategy is
+	// process-wide. Status and endpoint listing go with them -- they describe
+	// the host, and a customer has no business reading it.
+	r.Group(func(r chi.Router) {
+		r.Use(hubauth.RequirePlatformAdmin())
+		r.Get("/api/mptcp/status", mptcpHandler.GetStatus)
+		r.Put("/api/mptcp/strategy", mptcpHandler.SetStrategy)
+		r.Get("/api/mptcp/endpoints", mptcpHandler.ListEndpoints)
+		r.Post("/api/mptcp/endpoints", mptcpHandler.AddEndpointHandler)
+		r.Delete("/api/mptcp/endpoints/{id}", mptcpHandler.RemoveEndpointHandler)
+	})
 
 	// Integration channel status API
 	integrationHandler := api.NewIntegrationHandler(cfg)
@@ -2289,10 +2306,18 @@ func main() {
 			slog.Warn("wireguard: login failed (peer management disabled)", "error", err)
 		} else {
 			wgHandler := wireguard.NewAPIHandler(wgClient)
-			r.Get("/api/wireguard/peers", wgHandler.ListPeers)
-			r.Post("/api/wireguard/peers", wgHandler.CreatePeer)
-			r.Get("/api/wireguard/peers/{id}/config", wgHandler.GetPeerConfig)
-			r.Delete("/api/wireguard/peers/{id}", wgHandler.DeletePeer)
+			// PLATFORM ADMIN ONLY (MESHSAT-1116). There is one WireGuard server
+			// for the whole deployment and the handler has no tenant model, so
+			// every peer belonged to everybody: any member could enumerate,
+			// create and delete another tenant's peers, and GetPeerConfig hands
+			// back a peer's PRIVATE KEY.
+			r.Group(func(r chi.Router) {
+				r.Use(hubauth.RequirePlatformAdmin())
+				r.Get("/api/wireguard/peers", wgHandler.ListPeers)
+				r.Post("/api/wireguard/peers", wgHandler.CreatePeer)
+				r.Get("/api/wireguard/peers/{id}/config", wgHandler.GetPeerConfig)
+				r.Delete("/api/wireguard/peers/{id}", wgHandler.DeletePeer)
+			})
 
 			// Auto-provisioner: creates/deletes WG peers on device register/delete.
 			wgProvisioner := wireguard.NewProvisioner(wgClient)
@@ -2342,16 +2367,28 @@ func main() {
 		hbClient := hawkbit.NewClient(cfg.HawkBitURL, cfg.HawkBitUsername, cfg.HawkBitPassword)
 		if hbClient.IsReachable(ctx) {
 			hbHandler := hawkbit.NewAPIHandler(hbClient)
-			r.Get("/api/ota/targets", hbHandler.ListTargets)
-			r.Post("/api/ota/targets", hbHandler.CreateTarget)
-			r.Get("/api/ota/targets/{controllerId}", hbHandler.GetTarget)
-			r.Delete("/api/ota/targets/{controllerId}", hbHandler.DeleteTarget)
-			r.Get("/api/ota/targets/{controllerId}/actions", hbHandler.GetTargetActions)
-			r.Delete("/api/ota/targets/{controllerId}/actions/{actionId}", hbHandler.CancelAction)
-			r.Post("/api/ota/rollouts", hbHandler.CreateRollout)
-			r.Get("/api/ota/rollouts/{id}", hbHandler.GetRollout)
-			r.Post("/api/ota/rollouts/{id}/start", hbHandler.StartRollout)
-			r.Post("/api/ota/rollouts/{id}/pause", hbHandler.PauseRollout)
+			// PLATFORM ADMIN ONLY (MESHSAT-1116), and this is the highest-impact
+			// primitive on the whole router: CreateRollout + StartRollout push
+			// FIRMWARE to the fleet. internal/hawkbit has no tenant references
+			// anywhere -- one platform hawkBit instance, no ownership model --
+			// so any authenticated member of any tenant could start a rollout,
+			// or cancel another tenant's in-flight update.
+			//
+			// Gating is the honest stopgap. Making OTA a tenant feature means
+			// giving hawkbit a tenant model first.
+			r.Group(func(r chi.Router) {
+				r.Use(hubauth.RequirePlatformAdmin())
+				r.Get("/api/ota/targets", hbHandler.ListTargets)
+				r.Post("/api/ota/targets", hbHandler.CreateTarget)
+				r.Get("/api/ota/targets/{controllerId}", hbHandler.GetTarget)
+				r.Delete("/api/ota/targets/{controllerId}", hbHandler.DeleteTarget)
+				r.Get("/api/ota/targets/{controllerId}/actions", hbHandler.GetTargetActions)
+				r.Delete("/api/ota/targets/{controllerId}/actions/{actionId}", hbHandler.CancelAction)
+				r.Post("/api/ota/rollouts", hbHandler.CreateRollout)
+				r.Get("/api/ota/rollouts/{id}", hbHandler.GetRollout)
+				r.Post("/api/ota/rollouts/{id}/start", hbHandler.StartRollout)
+				r.Post("/api/ota/rollouts/{id}/pause", hbHandler.PauseRollout)
+			})
 			checker.AddInfoProbe("hawkbit", func(ctx context.Context) error {
 				if !hbClient.IsReachable(ctx) {
 					return fmt.Errorf("hawkbit not reachable")
