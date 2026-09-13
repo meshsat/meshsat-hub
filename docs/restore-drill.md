@@ -115,14 +115,32 @@ exactly this comparison; the same thing by hand is:
 
 ```bash
 Q="select key, encode(sha256(value::bytea),'hex') from system_config
-   where key in ('bridge_ca_cert','bridge_ca_key','reticulum_signing_key',
-                 'reticulum_encryption_key','directory_signing_key','credential_master_key')
+   where key in ('bridge_ca_cert',
+                 'bridge_ca_key_enc','reticulum_signing_key_enc',
+                 'reticulum_encryption_key_enc','directory_signing_key_enc',
+                 'credential_master_key_enc')
    order by key"
 diff <($LIVE "$Q") <($DRILL "$Q")
 ```
 
 These must be **byte-identical**. Any difference is a failed drill, not a
 rounding error.
+
+⚠ **The `_enc` suffix is not a typo, and comparing the unsuffixed names instead
+would pass for the wrong reason** (MESHSAT-1098, 2026-09-13). Those five values
+are now AES-256-GCM sealed with `HUB_CONFIG_WRAP_KEY`, and the plaintext rows
+they replaced are blanked — so the old query would compare two empty strings and
+report a match. `bridge_ca_cert` stays unsuffixed because it is a public trust
+anchor and is deliberately not sealed.
+
+**A restore is therefore not enough on its own.** The sealed rows are
+meaningless without the wrap key, which lives in OpenBao at
+`ci-no/apps/meshsat-hub/hub`, property `HUB_CONFIG_WRAP_KEY`, and NOT in this
+database. A drill that restores the database and forgets the wrap key produces a
+Hub that refuses to start — which is the designed behaviour, because the
+alternative is one that starts and regenerates every key. **Confirm the wrap key
+is backed up somewhere the database restore does not depend on before calling
+any drill green.**
 
 **3. The document series.** The one thing a wrong restore would quietly corrupt:
 
