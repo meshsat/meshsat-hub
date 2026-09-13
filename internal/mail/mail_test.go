@@ -410,6 +410,8 @@ func allMessages() map[string]Message {
 	when := time.Date(2026, 10, 12, 21, 59, 59, 0, time.UTC)
 	return map[string]Message{
 		"Approved":           Approved("Alice Example", "https://hub.meshsat.net"),
+		"Rejected":           Rejected("Alice Example"),
+		"RejectedNoName":     Rejected(""),
 		"PlanChanged":        PlanChanged("Alice", "crew", 24, when, "https://hub.meshsat.net"),
 		"PlanChangedCustom":  PlanChanged("Alice", "custom", -1, when, "https://hub.meshsat.net"),
 		"LapseWarning":       LapseWarning("Alice", "crew", when, "https://hub.meshsat.net"),
