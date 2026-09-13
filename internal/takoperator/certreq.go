@@ -67,8 +67,8 @@ func abandonedHubRequest(req *TakCertificateRequest, now time.Time) bool {
 //
 // THE USERNAME RULE IS PER PURPOSE, and that is the whole point of this function
 // existing. It used to be one pattern for every request, which made the Hub's own
-// identity unrequestable: HubIdentityCN is "meshsat-hub", it contains a hyphen,
-// and the pattern forbids hyphens. The hyphen is deliberate -- userreq.go relies
+// identity unrequestable: HubIdentityCN carries a separator the phone pattern
+// forbids. That separator is deliberate -- userreq.go relies
 // on it to keep a tenant from managing the Hub's account through the customer API,
 // and the instance's nginx gateway admits exactly CN=meshsat-hub -- so the fix is
 // not to rename the Hub but to stop applying a phone's rule to it.

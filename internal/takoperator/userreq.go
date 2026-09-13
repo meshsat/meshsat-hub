@@ -232,8 +232,9 @@ func userRequestRefusal(spec TakUserRequestSpec) string {
 		// This one matters. "administrator" passes the username pattern, so without
 		// this check a tenant could ask the operator to create or deactivate the
 		// very account whose password the operator holds. HubIdentityCN needs no
-		// check of its own: it contains a hyphen, which the pattern already
-		// refuses.
+		// check of its own: it carries an underscore, which the pattern already
+		// refuses -- see the constant for why that separator is load-bearing
+		// (MESHSAT-1088).
 		return "the administrator account cannot be managed through this API"
 	case spec.Action != ActionEnsure && spec.Action != ActionDeactivate:
 		return "action must be Ensure or Deactivate"
