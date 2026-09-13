@@ -46,11 +46,31 @@ import (
 
 const (
 	// HubIdentityCN is the common name the Hub — and the operator, acting through
-	// the same door — presents to an instance's admin gateway. The nginx there
-	// matches this exact subject component, because the tenant CA also signs
-	// every phone in the tenant and a phone certificate must never be usable as
-	// an admin credential.
-	HubIdentityCN = "meshsat-hub"
+	// the same door — presents to an instance's admin gateway AND to its CoT
+	// listener. The nginx there matches this exact subject component, because the
+	// tenant CA also signs every phone in the tenant and a phone certificate must
+	// never be usable as an admin credential.
+	//
+	// THE SEPARATOR IS AN UNDERSCORE, NOT A HYPHEN, AND THAT IS LOAD-BEARING
+	// (MESHSAT-1088). It was "meshsat-hub" until the first real instance was put
+	// under traffic and stored nothing at all.
+	//
+	// OpenTAKServer's EUD handler looks the presented common name up as one of its
+	// own user accounts and drops the connection when there is no such account.
+	// The front dials the instance as THIS name, so an account for it has to
+	// exist. But upstream's own validator —
+	// opentakserver/UsernameValidator.check_username — walks the string and
+	// refuses any character whose Unicode category is not a letter or a number,
+	// exempting exactly underscore and full stop. A hyphen is category Pd. So an
+	// account named "meshsat-hub" could not be created through upstream's API at
+	// all, which is why every phone worked and the Hub's own connection never did.
+	//
+	// An underscore satisfies upstream and keeps the property the hyphen was there
+	// for: usernamePattern admits only lowercase letters and digits, so a tenant
+	// still cannot ask the operator to create, deactivate or impersonate this
+	// account through the customer-facing API. Do not "tidy" it to a hyphen or
+	// strip the separator.
+	HubIdentityCN = "meshsat_hub"
 
 	// otsAdminUsername is the account OpenTAKServer bootstraps for itself.
 	otsAdminUsername = "administrator"
@@ -103,6 +123,57 @@ func (r *Reconciler) bootstrapAdmin(ctx context.Context, label string, ca *CA) e
 // ensureConfig and never rotated here: the instance's own config.yml does not
 // carry it, so the Secret is the only record, and regenerating it would lock the
 // tenant out of an account they may already be using.
+// ErrHubAccountRefused means the instance would not create the account the front
+// connects as, so nothing that reaches it will be stored.
+var ErrHubAccountRefused = errors.New(
+	"takoperator: the instance refused an account for the Hub's own identity; " +
+		"no CoT from any phone in this tenant will be stored")
+
+// ensureHubAccount gives the instance an OpenTAKServer account for the identity
+// the front actually connects as.
+//
+// # Why this is not optional (MESHSAT-1088)
+//
+// takfront dials the tenant's OTS "as the tenant's single identity" —
+// HubIdentityCN — and OTS's EUD handler looks that common name up as one of its
+// own users, dropping the connection when it finds none. Without this the front
+// accepts the phone's certificate, resolves the tenant by issuer, authorises the
+// user, proxies the bytes, and the instance discards every one of them. Measured
+// on the first real instance: euds=0 cot=0 points=0 with the account missing, and
+// euds=1 cot=1 points=1 from the identical connection once it existed.
+//
+// It reuses the same primitive that creates a phone's account, deliberately: one
+// code path to OpenTAKServer's user API means one place where upstream's refusals
+// are read correctly, and that primitive is already idempotent — an existing
+// account is success, not an error.
+//
+// It does NOT go through TakUserRequest. That API is customer-facing and must keep
+// refusing this name; the operator reaching its own admin gateway is a different
+// trust boundary.
+func (r *Reconciler) ensureHubAccount(ctx context.Context, label string, ca *CA) error {
+	password, err := r.adminPassword(ctx, label)
+	if err != nil {
+		return err
+	}
+	cl, err := instanceAdminClient(ca, label, r.Namespace)
+	if err != nil {
+		return err
+	}
+	base := instanceAdminURL(label, r.Namespace)
+	message, refused, err := applyUserWith(ctx, cl, base, password, HubIdentityCN, ActionEnsure)
+	if err != nil {
+		return fmt.Errorf("ensuring the hub account on %s: %w", label, err)
+	}
+	if refused {
+		// Terminal and worth shouting about: the instance is Ready, it looks
+		// healthy, and not one position will ever be stored.
+		return fmt.Errorf("%w: %s", ErrHubAccountRefused, message)
+	}
+	r.Log.Info("takoperator: hub account ensured on the instance",
+		"label", label, "username", HubIdentityCN, "result", message)
+	return nil
+}
+
 func (r *Reconciler) adminPassword(ctx context.Context, label string) (string, error) {
 	name := ConfigSecretName(label)
 	var sec corev1.Secret
