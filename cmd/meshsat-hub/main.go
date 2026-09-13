@@ -7,6 +7,7 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"github.com/meshsat/meshsat-hub/internal/integrations"
 	"github.com/meshsat/meshsat-hub/internal/invoiceninja"
@@ -76,6 +77,7 @@ import (
 	"github.com/meshsat/meshsat-hub/internal/rockblock"
 	"github.com/meshsat/meshsat-hub/internal/routing"
 	"github.com/meshsat/meshsat-hub/internal/scheduler"
+	"github.com/meshsat/meshsat-hub/internal/sealedconfig"
 	"github.com/meshsat/meshsat-hub/internal/signups"
 	"github.com/meshsat/meshsat-hub/internal/sms"
 	"github.com/meshsat/meshsat-hub/internal/sos"
@@ -237,6 +239,34 @@ func main() {
 		_ = dataStore.Close()
 		os.Exit(0)
 	}
+	// The Hub's own long-lived keys are sealed at rest from here on
+	// (MESHSAT-1098). This has to happen before ANYTHING reads system_config,
+	// because three of the readers respond to a value they cannot parse by
+	// generating a replacement: the credential master key would orphan every
+	// tenant's carrier credentials while logging "bootstrapped", and the
+	// directory anchor would silently replace the key every field bridge pinned
+	// at provisioning.
+	//
+	// Preflight decides that question once, up front. A sealed value that does
+	// not open means the wrap key is wrong or gone -- which is recoverable, but
+	// only if the process refuses to start rather than helpfully regenerating.
+	wrapKey, wrapErr := sealedconfig.ParseWrapKey(os.Getenv("HUB_CONFIG_WRAP_KEY"))
+	if wrapErr != nil && !errors.Is(wrapErr, sealedconfig.ErrNoWrapKey) {
+		slog.Error("sealedconfig: the wrap key is unusable", "error", wrapErr)
+	}
+	keeper := sealedconfig.New(dataStore, wrapKey)
+	if _, err := sealedconfig.Preflight(ctx, keeper, slog.Default()); err != nil {
+		slog.Error("REFUSING TO START: one of the Hub's own keys is sealed and did not open. "+
+			"Starting anyway would regenerate it: the credential master key would make every "+
+			"tenant's Cloudloop and Twilio credentials undecryptable, and the directory signing "+
+			"key would invalidate the trust anchor every field bridge pinned. Check "+
+			"HUB_CONFIG_WRAP_KEY against ci-no/apps/meshsat-hub/hub rather than clearing the row.",
+			"error", err)
+		_ = dataStore.Close()
+		os.Exit(1)
+	}
+	dataStore = newSealedStore(dataStore, keeper)
+
 	// Tenant resolution for inbound MQTT traffic: device/bridge → owning tenant,
 	// default tenant for unregistered ones (MESHSAT-864 MR 19).
 	tenants := tenancy.NewResolver(dataStore, store.DefaultTenantID, 30*time.Second)
