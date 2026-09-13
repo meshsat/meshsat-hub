@@ -47,12 +47,16 @@ const (
 	reasonUpstream     = "upstream"
 	reasonDeadline     = "deadline"
 	reasonUnidentified = "unidentified"
+	// reasonProbe is a connection that went away before it said anything. It is
+	// counted but logged at Debug, because the overwhelming source of it is the
+	// edge relay's own TCP health check (MESHSAT-1074).
+	reasonProbe = "probe"
 )
 
 func init() {
 	for _, reason := range []string{
 		reasonServerFull, reasonHandshake, reasonUnauthorized, reasonTenantFull,
-		reasonUpstream, reasonDeadline, reasonUnidentified,
+		reasonUpstream, reasonDeadline, reasonUnidentified, reasonProbe,
 	} {
 		streamsRefused.WithLabelValues(reason)
 	}

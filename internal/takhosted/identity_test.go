@@ -301,19 +301,159 @@ func TestARestartedReplicaRecoversItsOwnIdentity(t *testing.T) {
 	}
 }
 
-func TestADenialIsReportedAndNotRetriedForever(t *testing.T) {
+// This test used to be called "...AndNotRetriedForever" and asserted that a
+// refusal was simply returned. That was the defect, not the design
+// (MESHSAT-1075): the refused object stayed, every refresh read the same Denied
+// status, and the tenant was absent from the front until a person deleted the
+// object by hand. When the front was first switched on, EVERY tenant was refused
+// by a username validator that a later merge corrected -- and the Hub would have
+// stayed dark after the fix landed.
+func TestARefusalIsRetriedAndCarriesTheReason(t *testing.T) {
 	api := newFakeCRAPI(t)
 	api.denyAll = true
 	cl, _ := newTestClient(t, api.handler(t))
 
 	k := NewIdentityKeeper(cl, "hub-aaaa-1", nil)
+	now := time.Date(2026, 9, 13, 12, 0, 0, 0, time.UTC)
+	k.now = func() time.Time { return now }
+
 	_, _ = k.For(context.Background(), "t1", "abcdefghij")
+
+	// The first refusal is acted on at once, because the usual cause is transient.
 	_, err := k.For(context.Background(), "t1", "abcdefghij")
+	if !errors.Is(err, ErrIdentityPending) {
+		t.Fatalf("the first refusal gave %v, want it to have asked again (ErrIdentityPending)", err)
+	}
+	if len(api.deleted) == 0 {
+		t.Fatal("the refused request was not cleared before asking again")
+	}
+
+	// The second says so, rather than deleting and recreating on every refresh.
+	_, err = k.For(context.Background(), "t1", "abcdefghij")
 	if !errors.Is(err, ErrIdentityDenied) {
-		t.Fatalf("a denied request gave %v, want ErrIdentityDenied", err)
+		t.Fatalf("a refusal inside the backoff gave %v, want ErrIdentityDenied", err)
 	}
 	if !strings.Contains(err.Error(), "refused by the fake operator") {
 		t.Errorf("the operator's reason was dropped: %v", err)
+	}
+}
+
+// The whole point of the backoff: a genuinely bad request must not mean one delete
+// and one create per tenant on every refresh for ever. The refresh runs every five
+// minutes against every tenant.
+func TestAPersistentRefusalBacksOffInsteadOfChurning(t *testing.T) {
+	api := newFakeCRAPI(t)
+	api.denyAll = true
+	cl, _ := newTestClient(t, api.handler(t))
+
+	k := NewIdentityKeeper(cl, "hub-aaaa-1", nil)
+	now := time.Date(2026, 9, 13, 12, 0, 0, 0, time.UTC)
+	k.now = func() time.Time { return now }
+
+	_, _ = k.For(context.Background(), "t1", "abcdefghij") // creates
+	_, _ = k.For(context.Background(), "t1", "abcdefghij") // refused -> retried
+	afterFirstRetry := len(api.deleted)
+
+	// Thirty more refreshes INSIDE the window touch the API server not at all.
+	// Three quarters of the window, deliberately short of the boundary: walking
+	// exactly to it makes the last refresh legitimately due, which is a flaky test
+	// rather than a defect.
+	for i := 0; i < 30; i++ {
+		now = now.Add(denialRetryBase / 40)
+		if _, err := k.For(context.Background(), "t1", "abcdefghij"); !errors.Is(err, ErrIdentityDenied) {
+			t.Fatalf("refresh %d gave %v, want ErrIdentityDenied", i, err)
+		}
+	}
+	if len(api.deleted) != afterFirstRetry {
+		t.Errorf("deleted %d times during the backoff, want %d: it is churning the API server",
+			len(api.deleted), afterFirstRetry)
+	}
+
+	// Once the window has passed it tries again, so a cause fixed later is picked up.
+	now = now.Add(denialRetryBase + time.Minute)
+	if _, err := k.For(context.Background(), "t1", "abcdefghij"); !errors.Is(err, ErrIdentityPending) {
+		t.Fatalf("after the backoff gave %v, want another attempt", err)
+	}
+	if len(api.deleted) <= afterFirstRetry {
+		t.Error("the backoff never expired, so the tenant is dark for good")
+	}
+}
+
+// A cause that is fixed between refreshes must be picked up, which is the scenario
+// that actually happened on production.
+func TestARefusalThatStopsIsForgotten(t *testing.T) {
+	api := newFakeCRAPI(t)
+	api.denyAll = true
+	cl, _ := newTestClient(t, api.handler(t))
+
+	k := NewIdentityKeeper(cl, "hub-aaaa-1", nil)
+	now := time.Date(2026, 9, 13, 12, 0, 0, 0, time.UTC)
+	k.now = func() time.Time { return now }
+
+	_, _ = k.For(context.Background(), "t1", "abcdefghij")
+	_, _ = k.For(context.Background(), "t1", "abcdefghij") // refused, asked again
+
+	// The operator is fixed -- on production this was a merge that corrected the
+	// username validator. The Hub waits out the current backoff and then recovers
+	// BY ITSELF, which is the entire point: before this, it never did.
+	//
+	// In practice recovery is usually immediate rather than delayed, because a fix
+	// that ships as a new image rolls the pods and a fresh keeper remembers no
+	// refusals. The backoff only bites a CRD-only change with no Hub rollout.
+	api.denyAll = false
+	now = now.Add(denialRetryBase + time.Minute)
+	if _, err := settle(t, k, "t1", "abcdefghij"); err != nil {
+		t.Fatalf("a tenant never recovered after the cause was fixed: %v", err)
+	}
+
+	// And the refusal is forgotten, so a later one starts from an immediate retry
+	// rather than serving out a backoff earned long ago.
+	k.mu.Lock()
+	_, remembered := k.refused["t1"]
+	k.mu.Unlock()
+	if remembered {
+		t.Error("a tenant that recovered still carries its old refusal")
+	}
+}
+
+func TestTheRefusalBackoffLadder(t *testing.T) {
+	for _, tc := range []struct {
+		tries int
+		want  time.Duration
+	}{
+		{0, 0}, {1, 0}, // the first attempt is immediate, deliberately
+		{2, denialRetryBase},
+		{3, 2 * denialRetryBase},
+		{4, 4 * denialRetryBase},
+		{5, 8 * denialRetryBase},
+		{6, denialRetryMax}, {7, denialRetryMax}, {99, denialRetryMax},
+	} {
+		if got := retryAfter(tc.tries); got != tc.want {
+			t.Errorf("retryAfter(%d) = %s, want %s", tc.tries, got, tc.want)
+		}
+	}
+	if denialRetryMax < denialRetryBase {
+		t.Error("the cap is below the base, so the ladder would go backwards")
+	}
+}
+
+// Forget is what the purge path calls. A tenant that is removed and later
+// recreated must not inherit a backoff earned by a previous incarnation.
+func TestForgetClearsARefusal(t *testing.T) {
+	api := newFakeCRAPI(t)
+	api.denyAll = true
+	cl, _ := newTestClient(t, api.handler(t))
+	k := NewIdentityKeeper(cl, "hub-aaaa-1", nil)
+
+	_, _ = k.For(context.Background(), "t1", "abcdefghij")
+	_, _ = k.For(context.Background(), "t1", "abcdefghij")
+	k.Forget("t1")
+
+	k.mu.Lock()
+	_, remembered := k.refused["t1"]
+	k.mu.Unlock()
+	if remembered {
+		t.Error("Forget left the refusal behind")
 	}
 }
 

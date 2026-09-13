@@ -256,6 +256,14 @@ var (
 		Name: "meshsat_hub_takhosted_directory_skipped",
 		Help: "Tenant instances the front knows about but cannot serve yet, by any cause.",
 	})
+	// identityRefused counts refusals, not tenants: a tenant stuck in a refusal
+	// loop shows as a climbing rate, which is what an alert can fire on. The
+	// directory's skipped gauge says how many tenants are dark; this says whether
+	// a refusal is the reason (MESHSAT-1075).
+	identityRefused = promauto.NewCounter(prometheus.CounterOpts{
+		Name: "meshsat_hub_takhosted_identity_refused_total",
+		Help: "Times the operator refused to sign the Hub's upstream identity for a tenant.",
+	})
 )
 
 // tenantFor turns one instance into a takfront.Tenant, or explains why it cannot
