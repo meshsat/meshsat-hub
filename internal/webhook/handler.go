@@ -1,6 +1,8 @@
 package webhook
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -110,11 +112,25 @@ func (h *APIHandler) CreateWebhook(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if cfg.ID == "" {
-		// Namespaced by tenant: the id is the primary key of webhook_configs,
-		// so two tenants registering the same URL used to collide -- and with
-		// ON CONFLICT DO UPDATE, the second would have taken over the first's
-		// row.
-		cfg.ID = "wh-" + tenantID + "-" + cfg.URL
+		// A random id, not one derived from the URL.
+		//
+		// It used to be "wh-" + the URL, which puts "https://" and every path
+		// separator into the primary key of webhook_configs -- and into the
+		// {id} segment of DELETE /api/webhooks/{id}, which is ONE chi path
+		// segment. So a webhook created without an explicit id could never be
+		// deleted: the request 404'd at the router. Verified against production
+		// on 2026-09-14, which is also how the row this replaced was found.
+		//
+		// Random also settles the collision the tenant prefix was papering
+		// over: the id is the primary key and SaveWebhook does ON CONFLICT DO
+		// UPDATE, so two tenants registering the same URL would otherwise have
+		// been one row with two owners.
+		b := make([]byte, 8)
+		if _, err := rand.Read(b); err != nil {
+			writeErr(w, http.StatusInternalServerError, "could not generate a webhook id")
+			return
+		}
+		cfg.ID = "wh-" + hex.EncodeToString(b)
 	}
 	if err := h.dispatcher.Save(r.Context(), cfg); err != nil {
 		writeErr(w, http.StatusInternalServerError, "could not save the webhook")

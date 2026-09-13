@@ -55,10 +55,13 @@ func fromStore(tenantID string, w store.WebhookConfig) WebhookConfig {
 	for _, e := range w.Events {
 		events = append(events, EventType(e))
 	}
+	// withDefaults on the way out too, so a row written before the defaults were
+	// persisted -- or by hand -- heals on load rather than delivering with no
+	// timeout.
 	return WebhookConfig{
 		ID: w.ID, TenantID: tenantID, URL: w.URL, Secret: w.Secret, Events: events,
 		MaxRetries: w.MaxRetries, TimeoutSec: w.TimeoutSec, Enabled: w.Enabled,
-	}
+	}.withDefaults()
 }
 
 // LoadAll reads every tenant's webhooks into memory. Called once at startup.
@@ -124,6 +127,7 @@ func (d *Dispatcher) ReloadTenant(ctx context.Context, tenantID string) error {
 // recorded disappears at the next rollout, and the customer has no way to tell
 // that from the Hub having forgotten it on purpose.
 func (d *Dispatcher) Save(ctx context.Context, cfg WebhookConfig) error {
+	cfg = cfg.withDefaults()
 	if s := d.getStore(); s != nil {
 		row := toStore(cfg)
 		if err := s.SaveWebhook(ctx, cfg.TenantID, &row); err != nil {
