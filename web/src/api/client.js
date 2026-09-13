@@ -306,8 +306,14 @@ export const tak = {
   addUser: (data) => fetchJSON('/tenant/tak/users', { method: 'POST', body: JSON.stringify(data) }),
   removeUser: (username) => fetchJSON(`/tenant/tak/users/${encodeURIComponent(username)}`, { method: 'DELETE' }),
   enrol: (username) => fetchJSON(`/tenant/tak/users/${encodeURIComponent(username)}/enrollment`, { method: 'POST' }),
-  enrolQR: (username, size = 512) =>
-    fetchBlob(`/tenant/tak/users/${encodeURIComponent(username)}/enrollment/qr?size=${size}`, { method: 'POST' }),
+  // client picks the package the scan will fetch: 'atak' (ATAK/WinTAK) or 'itak'.
+  // It is decided BEFORE minting because this endpoint mints -- re-rendering the
+  // QR in the other flavour would invalidate the code already on screen.
+  enrolQR: (username, size = 512, client = 'atak') =>
+    fetchBlob(
+      `/tenant/tak/users/${encodeURIComponent(username)}/enrollment/qr?size=${size}&client=${encodeURIComponent(client)}`,
+      { method: 'POST' },
+    ),
 }
 
 export const credentials = {

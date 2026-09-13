@@ -187,6 +187,15 @@ type enrolmentResponse struct {
 	// from. It carries the claim id and the nonce, which together are the only
 	// credential -- so it is a secret, and it is shown once.
 	URL string `json:"url"`
+	// ITAKURL is the SAME enrolment, fetching the iTAK package instead. iTAK reads
+	// a flat archive with no manifest, so the ATAK package does not import into it
+	// at all -- and a claim is single use, so a customer who tries the wrong one on
+	// an iPhone burns the enrolment (MESHSAT-1084).
+	//
+	// Returned as a field rather than left for the UI to build, so the shape of a
+	// claim URL is decided in exactly one place. Both point at the same claim: using
+	// either one spends it.
+	ITAKURL string `json:"itak_url"`
 	// ExpiresAt is when the claim stops working.
 	ExpiresAt time.Time `json:"expires_at"`
 	// Username is the account the package will authenticate as.
@@ -294,8 +303,10 @@ func (h *TenantTAKHandler) mintEnrolment(r *http.Request, username string) (*enr
 		return nil, http.StatusInternalServerError, "could not start the enrolment"
 	}
 
+	claim := fmt.Sprintf("https://%s/api/tak/enroll/%s/%s", h.publicHost, claimID, nonce)
 	return &enrolmentResponse{
-		URL:       fmt.Sprintf("https://%s/api/tak/enroll/%s/%s", h.publicHost, claimID, nonce),
+		URL:       claim,
+		ITAKURL:   claimURLFor(claim, "itak"),
 		ExpiresAt: expires,
 		Username:  username,
 	}, 0, ""
@@ -328,11 +339,17 @@ func (h *TenantTAKHandler) Enrol(w http.ResponseWriter, r *http.Request) {
 
 // EnrolQR is the same enrolment as a QR code, for pointing a phone at it.
 //
+// The `client` parameter decides WHICH package the scan will fetch, and it has to
+// be decided here rather than offered as a toggle afterwards: this endpoint MINTS,
+// so re-rendering the QR in the other flavour would invalidate the code already on
+// screen. See claimFlavour for why two flavours exist at all (MESHSAT-1084).
+//
 // @Summary      Mint a one-time TAK enrolment as a QR code
 // @Tags         tenant
 // @Produce      image/png
 // @Param        username  path   string  true   "TAK username"
 // @Param        size      query  int     false  "QR size in pixels (default 512)"
+// @Param        client    query  string  false  "atak (default) or itak"
 // @Success      200  {file}  image/png
 // @Failure      400  {object}  map[string]string
 // @Failure      404  {object}  map[string]string
@@ -352,7 +369,7 @@ func (h *TenantTAKHandler) EnrolQR(w http.ResponseWriter, r *http.Request) {
 		writeError(w, status, msg)
 		return
 	}
-	png, err := qrcode.Encode(out.URL, qrcode.Medium, size)
+	png, err := qrcode.Encode(claimURLFor(out.URL, r.URL.Query().Get("client")), qrcode.Medium, size)
 	if err != nil {
 		h.log.Error("tak enrolment: rendering the QR failed", "username", username, "error", err)
 		writeError(w, http.StatusInternalServerError, "could not render the QR code")
@@ -369,6 +386,32 @@ func (h *TenantTAKHandler) EnrolQR(w http.ResponseWriter, r *http.Request) {
 	if _, err := w.Write(png); err != nil {
 		h.log.Warn("tak enrolment: the QR was not fully delivered", "username", username, "error", err)
 	}
+}
+
+// claimURLFor points a claim URL at the right package for the phone holding it.
+//
+// ATAK and WinTAK read a zip with MANIFEST/manifest.xml beside the preferences;
+// iTAK reads a FLAT zip with no manifest at all. They are different archive
+// shapes, not variants of one, so the ATAK package simply does not import into
+// iTAK -- and because a claim is single use, a customer who tries it on an iPhone
+// burns the enrolment and has to mint another.
+//
+// Claim already served both and selected on this parameter. What was missing was
+// any way to ask for it: the TAK page promised "ATAK, WinTAK or iTAK" and every
+// link and QR it produced was the ATAK one (MESHSAT-1084).
+//
+// Anything that is not iTAK means ATAK, including an empty or misspelt value. The
+// default has to be the one that works for most phones rather than an error,
+// because this runs after the enrolment has been minted.
+func claimURLFor(base, client string) string {
+	if !strings.EqualFold(strings.TrimSpace(client), "itak") {
+		return base
+	}
+	sep := "?"
+	if strings.Contains(base, "?") {
+		sep = "&"
+	}
+	return base + sep + "client=itak"
 }
 
 // Claim hands over the enrolment package. UNAUTHENTICATED: the claim id and nonce
