@@ -86,41 +86,75 @@ const (
 )
 
 // recorder is the production Recorder: Prometheus for everything, and the audit
-// log only for decisions about an identified tenant.
+// log only for decisions that name a real client.
 //
-// A refusal at the TLS layer is counted but NEVER audited. Audit entries are a
-// per-tenant SHA-256 hash chain, so each one is a serialised database write;
-// auditing unauthenticated connections would let anyone who can reach the port
-// drive that chain, and there is no tenant to attribute the entry to anyway.
+// Most refusals at the TLS layer are counted and NEVER audited. Audit entries
+// are a per-tenant SHA-256 hash chain, so each one is a serialised database
+// write; auditing unauthenticated connections would let anyone who can reach the
+// port drive that chain, and there is no tenant to attribute the entry to
+// anyway. Port 8089 faces the whole internet and is scanned constantly.
+//
+// reasonUnidentified is the one exception, and it is safe for a specific reason
+// rather than by judgement (MESHSAT-1110). VerifyConnection refuses the
+// handshake outright when ResolveChain fails, so an unknown issuer, an expired
+// certificate or a missing client-auth usage never gets this far -- they are
+// reasonHandshake, with no certificate we trusted. Reaching reasonUnidentified
+// means the chain verified against a real tenant CA during the handshake and
+// then failed on the re-read moments later: the directory changed underneath a
+// connecting client, or a certificate crossed its expiry between the two checks.
+// A scanner cannot manufacture that, and nothing else in the system would ever
+// show it happened.
 type recorder struct {
 	audit Auditor
-	log   *slog.Logger
+	// platformTenant owns the entries for events that have no tenant of their
+	// own. Empty disables auditing those, which is what a caller that does not
+	// want them passes.
+	platformTenant string
+	log            *slog.Logger
 }
 
 // NewRecorder returns the Recorder to pass to NewServer. A nil Auditor keeps the
 // metrics and drops the audit entries, which is what tests want.
-func NewRecorder(a Auditor, log *slog.Logger) Recorder {
+//
+// platformTenant receives the entries for refusals that could not be attributed
+// to a customer, the same way the purge job writes tenant_purged to the platform
+// tenant because the tenant it describes has stopped existing.
+func NewRecorder(a Auditor, platformTenant string, log *slog.Logger) Recorder {
 	if log == nil {
 		log = slog.Default()
 	}
-	return &recorder{audit: a, log: log}
+	return &recorder{audit: a, platformTenant: platformTenant, log: log}
 }
 
 func (r *recorder) Refused(ctx context.Context, tenantID, reason string, remote net.Addr) {
 	streamsRefused.WithLabelValues(reason).Inc()
-	// Only an identified tenant is audited, and only for a decision the tenant
-	// could act on: a user whose certificate verified but who is no longer
-	// allowed, or a tenant at its connection ceiling.
-	if r.audit == nil || tenantID == "" {
+	if r.audit == nil {
 		return
 	}
+	owner := tenantID
+	detail := "refused: " + reason
 	switch reason {
 	case reasonUnauthorized, reasonTenantFull, reasonUpstream:
+		// An identified tenant, audited for a decision it could act on: a user
+		// whose certificate verified but who is no longer allowed, or a tenant
+		// at its connection ceiling.
+		if tenantID == "" {
+			return
+		}
+	case reasonUnidentified:
+		// No tenant by construction -- being unable to name one IS the event.
+		// See the type comment for why this one is not scanner-drivable.
+		if r.platformTenant == "" {
+			return
+		}
+		owner = r.platformTenant
+		detail += " (a client that had just verified could no longer be attributed " +
+			"to a tenant; the directory may have changed mid-handshake)"
 	default:
 		return
 	}
-	if err := r.audit.Log(ctx, tenantID, actionStreamRefused, "tak-front",
-		"refused: "+reason, host(remote)); err != nil {
+	if err := r.audit.Log(ctx, owner, actionStreamRefused, "tak-front",
+		detail, host(remote)); err != nil {
 		r.log.Warn("takfront: audit refused", "error", err)
 	}
 }
