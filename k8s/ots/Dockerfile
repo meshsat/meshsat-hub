@@ -43,9 +43,41 @@ RUN /opt/ots/bin/pip install --no-cache-dir --no-deps --require-hashes -r /tmp/r
 # The fetch is digest-pinned and the patch's anchor is byte-exact; either one
 # failing fails the build, which is deliberate. A silent no-op here restores a
 # 134-second stall that nobody would think to look for twice.
-COPY bundle-iconsets.py patch-icon-fetch.py /tmp/
+COPY bundle-iconsets.py patch-icon-fetch.py patch-eud-handshake.py /tmp/
 RUN /opt/ots/bin/python /tmp/bundle-iconsets.py /opt/ots/share/iconsets.sqlite \
-    && /opt/ots/bin/python /tmp/patch-icon-fetch.py /opt/ots/share/iconsets.sqlite
+    && /opt/ots/bin/python /tmp/patch-icon-fetch.py /opt/ots/share/iconsets.sqlite \
+    && /opt/ots/bin/python /tmp/patch-eud-handshake.py
+
+# A default timeout for every HTTP request OpenTAKServer makes (MESHSAT-1070).
+#
+# Eleven call sites in the wheel, none with a timeout. On this network that is not
+# a fast failure: an instance has no egress, Cilium DROPS rather than rejects, so
+# connect() hangs rather than failing. One of those calls already cost 134 seconds
+# of every start before it was patched to read from disk.
+#
+# sitecustomize is imported by site.py at interpreter startup, so the default is in
+# place before any application code runs. It goes in the venv's site-packages, which
+# is on sys.path for /opt/ots/bin/python and nothing else.
+COPY sitecustomize.py /opt/ots/lib/python3.13/site-packages/sitecustomize.py
+
+# PROVE BOTH TOOK EFFECT, in the image, or fail the build.
+#
+# This estate has shipped two files that were read by nothing: a generated admin
+# password written to a path OpenTAKServer never opens, and an icon archive placed
+# under a directory the operator masks with an EmptyDir. "The file is present" is
+# not "the file is used", and neither of those was noticed until somebody measured.
+#
+# So: assert the handshake patch is in the loaded module, and that requests really
+# carries our default. If Python stops importing sitecustomize, or the venv layout
+# moves, or the patch silently no-ops, the build stops here.
+RUN /opt/ots/bin/python -c "\
+import sys, requests, inspect; \
+import opentakserver.eud_handler.EudHandlerSSL as m; \
+src = inspect.getsource(m); \
+assert 'MESHSAT-1089' in src, 'the EudHandlerSSL patch is NOT in the module Python loads'; \
+assert getattr(requests.Session.request, '_meshsat_timeout_default', False), \
+    'sitecustomize did not install the default request timeout'; \
+print('ots image: handshake patch and request timeout default both verified')"
 
 FROM python:3.13-slim-trixie
 # Debian security updates for the packages the BASE IMAGE brings.
