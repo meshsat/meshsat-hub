@@ -179,6 +179,23 @@ data:
   HUB_PLAN_FLEET_DEVICES: "100"
   HUB_PLAN_CUSTOM_DEVICES: "-1"
 
+  # Per-device send budget per tier (MESHSAT-1117 tranche 2c). Until one of
+  # these is set, every tenant gets HUB_RATELIMIT_DAILY_CAP and nothing changes
+  # -- which is how this shipped, deliberately.
+  #
+  # These can only ever RAISE a tenant's budget: a resolved cap is never below
+  # HUB_RATELIMIT_DAILY_CAP / _MONTHLY_CAP. Setting a tier LOWER does nothing,
+  # on purpose. A lower tier resolving to a smaller budget would mean a lapse
+  # reduces message DELIVERY, and the subscription ceiling is only ever allowed
+  # to gate registration -- never ingest, never delivery, never SOS.
+  #
+  # So the way to give a paid tier meaning here is to raise it, e.g.
+  #   HUB_PLAN_CREW_DAILY_CAP: "500"
+  #   HUB_PLAN_FLEET_DAILY_CAP: "2000"
+  # A single customer can be raised on their own with a platform-admin PUT to
+  # /api/admin/tenants/{id} (ratelimit_daily_cap), which is not owner-editable:
+  # a send budget is a commercial lever and self-service would make it free.
+
   # TAK accounts per tier (MESHSAT-1037), a separate meter from devices: a TAK
   # user is a person with a phone and a certificate, a device is a piece of kit,
   # and a two-device survey team can have a dozen people watching the map.

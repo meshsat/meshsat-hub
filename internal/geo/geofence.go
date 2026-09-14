@@ -156,8 +156,16 @@ func (e *Engine) Evaluate(ctx context.Context, tenantID, deviceIMEI string, lat,
 	}
 
 	e.mu.Lock()
-	defer e.mu.Unlock()
-
+	// NOT deferred: the handler loop at the end of this function must run with
+	// the lock RELEASED. The comment down there always said "outside the
+	// critical section" and, with a defer, it never was -- a handler that
+	// touched the engine would deadlock on a non-reentrant mutex, and a handler
+	// that sent an SMS (which is what a fence's escalation chain does) would
+	// hold every other tenant's evaluation behind its network call.
+	//
+	// Harmless until now only because nothing calls OnEvent -- see MESHSAT-1119,
+	// the engine evaluates nothing at all -- which is exactly why it had to be
+	// fixed before somebody wires the first handler up.
 	if e.state[tenantID] == nil {
 		e.state[tenantID] = make(map[string]map[string]bool)
 	}
@@ -216,9 +224,16 @@ func (e *Engine) Evaluate(ctx context.Context, tenantID, deviceIMEI string, lat,
 			"lat", lat, "lon", lon)
 	}
 
-	// Notify handlers outside the critical section.
+	// Copy the handlers, then release the lock, then call them. Both halves
+	// matter: the copy is because e.handlers may be appended to by OnEvent, and
+	// releasing is because a handler may do anything at all, including calling
+	// back into this engine.
+	handlers := make([]EventHandler, len(e.handlers))
+	copy(handlers, e.handlers)
+	e.mu.Unlock()
+
 	for _, event := range events {
-		for _, h := range e.handlers {
+		for _, h := range handlers {
 			h(ctx, event)
 		}
 	}

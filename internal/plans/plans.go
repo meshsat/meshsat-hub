@@ -47,6 +47,21 @@ type Limits struct {
 	// store.ArtefactDeviceTypes already excludes from billing; counting them
 	// as users would bill a tenant for a busy map.
 	TAKUsers int
+	// DailyCap and MonthlyCap are the tenant's per-device send budget
+	// (MESHSAT-1117 tranche 2c). 0 means this plan says nothing and the
+	// platform value (HUB_RATELIMIT_DAILY_CAP / _MONTHLY_CAP) applies, which
+	// is what every plan does until an operator sets one -- so adding this
+	// changed nothing for anybody on the day it shipped.
+	//
+	// Unlike Devices, these are NEVER allowed to resolve BELOW the platform
+	// value. A plan can raise a tenant's budget, never lower it. The reason is
+	// the invariant that outranks the feature: a lapse drops a tenant's plan,
+	// and if a lower plan meant a smaller send budget then a lapse would
+	// reduce message delivery -- which is exactly what "the ceiling gates
+	// registration and nothing else" forbids. Raising paid tiers gives the
+	// tier commercial meaning without ever taking delivery away.
+	DailyCap   int
+	MonthlyCap int
 }
 
 // defaults are overridden from config at startup, so a tier can be re-priced
@@ -67,12 +82,59 @@ var defaults = map[string]Limits{
 
 var table = cloneDefaults()
 
+// ResetForTest restores every plan's built-in limits.
+//
+// Exported because the table is package-level state that startup mutates, and a
+// test in ANOTHER package that raises a tier has no other way to put it back --
+// SetSendCaps and SetLimit deliberately ignore a zero, so they cannot undo
+// themselves. Tests only, same shape as webhook.AllowLoopbackTargetsForTest.
+func ResetForTest() { table = cloneDefaults() }
+
 func cloneDefaults() map[string]Limits {
 	out := make(map[string]Limits, len(defaults))
 	for k, v := range defaults {
 		out[k] = v
 	}
 	return out
+}
+
+// SetSendCaps overrides a plan's per-device send budget. Called once at
+// startup from config; an unknown plan name is ignored rather than invented.
+//
+// Like SetLimit it changes FIELDS rather than replacing the struct -- see the
+// comment there for the bug that caused.
+func SetSendCaps(plan string, daily, monthly int) bool {
+	plan = Normalise(plan)
+	l, ok := table[plan]
+	if !ok {
+		return false
+	}
+	if daily > 0 {
+		l.DailyCap = daily
+	}
+	if monthly > 0 {
+		l.MonthlyCap = monthly
+	}
+	table[plan] = l
+	return true
+}
+
+// SendCaps returns the plan's send budget, never lower than the platform
+// floor. A plan that says nothing (0) resolves to the floor.
+//
+// The floor is the whole safety property here: whatever an operator puts in the
+// config, a tenant's budget can only ever be raised above what every tenant
+// gets today, so a plan change -- including a lapse -- cannot reduce delivery.
+func SendCaps(plan string, floorDaily, floorMonthly int) (daily, monthly int) {
+	l := For(plan)
+	daily, monthly = l.DailyCap, l.MonthlyCap
+	if daily < floorDaily {
+		daily = floorDaily
+	}
+	if monthly < floorMonthly {
+		monthly = floorMonthly
+	}
+	return daily, monthly
 }
 
 // SetLimit overrides a plan's device ceiling. Called once at startup from

@@ -153,6 +153,16 @@ type adminUpdateTenantRequest struct {
 	// carried an expiry lapsed back to free on its own, and fixing it
 	// meant going into the database by hand (MESHSAT-989).
 	PlanExpiresAt *string `json:"plan_expires_at,omitempty"`
+	// RatelimitDailyCap and RatelimitMonthlyCap override this tenant's
+	// per-device send budget above whatever its plan gives (MESHSAT-1117
+	// tranche 2c). PLATFORM ADMIN ONLY, which is why they live on this request
+	// and not on updateTenantRequest: a send budget is a commercial lever, and
+	// letting a tenant owner raise their own would make it free.
+	//
+	// Pointers, like PlanExpiresAt: absent leaves it alone, 0 removes the
+	// override and returns the tenant to its plan.
+	RatelimitDailyCap   *int `json:"ratelimit_daily_cap,omitempty"`
+	RatelimitMonthlyCap *int `json:"ratelimit_monthly_cap,omitempty"`
 }
 
 // Get returns the signed-in user's tenant.
@@ -413,6 +423,28 @@ func (h *TenantHandler) AdminUpdate(w http.ResponseWriter, r *http.Request) {
 			when = when.UTC()
 			t.PlanExpiresAt = &when
 		}
+	}
+	// The send-budget overrides. Refused if negative; 0 clears. No upper bound
+	// is imposed here on purpose -- this is the platform operator, who is the
+	// one person entitled to decide that a customer gets more airtime, and the
+	// floor in plans.SendCaps already guarantees it can never be LESS than
+	// every other tenant gets.
+	for _, o := range []struct {
+		name string
+		req  *int
+		dst  *int
+	}{
+		{"ratelimit_daily_cap", req.RatelimitDailyCap, &t.RatelimitDailyCap},
+		{"ratelimit_monthly_cap", req.RatelimitMonthlyCap, &t.RatelimitMonthlyCap},
+	} {
+		if o.req == nil {
+			continue
+		}
+		if *o.req < 0 {
+			writeError(w, http.StatusBadRequest, o.name+" must be 0 (use the plan) or positive")
+			return
+		}
+		*o.dst = *o.req
 	}
 	if err := h.store.UpdateTenant(r.Context(), t); err != nil {
 		writeError(w, http.StatusInternalServerError, "update failed")
