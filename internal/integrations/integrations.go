@@ -265,6 +265,12 @@ var ErrNotConfigured = errors.New("provider account not configured for this tena
 // The TTL stays as the backstop: a missed announcement still self-heals.
 const ReloadTopic = "meshsat/hub/integrations/changed"
 
+// CacheTTL is how long a resolved account is held per replica, and therefore
+// the worst-case staleness if ReloadTopic is not reaching this process.
+// Exported so the startup warning can state the actual number rather than a
+// remembered one.
+const CacheTTL = time.Minute
+
 type reloadEvent struct {
 	TenantID string `json:"tenant_id"`
 }
@@ -307,7 +313,7 @@ type tokenHit struct {
 
 // New creates a service over the store with the credentials master key.
 func New(s store.Store, masterKey []byte) *Service {
-	return &Service{store: s, key: masterKey, ttl: time.Minute, defaultID: store.DefaultTenantID,
+	return &Service{store: s, key: masterKey, ttl: CacheTTL, defaultID: store.DefaultTenantID,
 		platform: map[string]*Account{}, cache: map[string]map[string]*cached{}, tokens: map[string]tokenHit{}}
 }
 

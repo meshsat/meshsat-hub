@@ -200,3 +200,80 @@ func TestNoBusIsNotAFailure(t *testing.T) {
 		t.Fatal("the account did not save with no bus attached")
 	}
 }
+
+// flakyBus refuses the first n Subscribe calls, the way the real bus does while
+// the broker is not up yet: it calls the broker, waits, and returns an error
+// WITHOUT registering the handler, so there is nothing for the reconnect
+// handler to replay later.
+type flakyBus struct {
+	*loopbackBus
+	remainingFailures int
+}
+
+func (f *flakyBus) Subscribe(topic string, q byte, h bus.MessageHandler) error {
+	if f.remainingFailures > 0 {
+		f.remainingFailures--
+		return errNotConnected
+	}
+	return f.loopbackBus.Subscribe(topic, q, h)
+}
+
+var errNotConnected = &notConnected{}
+
+type notConnected struct{}
+
+func (*notConnected) Error() string { return "bus: not currently connected" }
+
+// SetBus must REPORT a failed subscription rather than swallow it, and must
+// work when called again.
+//
+// This is the contract the caller's retry loop depends on. Without it, a broker
+// that is down for the few seconds around startup leaves that replica with no
+// cross-replica sync for the life of the process -- silently, with only the
+// cache TTL underneath. The first version of this fix gated a single attempt on
+// IsConnected() and did exactly that.
+func TestSetBusReportsAFailedSubscriptionAndCanBeRetried(t *testing.T) {
+	db, err := sqlite.New(t.TempDir()+"/hub.db", 0)
+	if err != nil {
+		t.Fatalf("sqlite: %v", err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	ctx := context.Background()
+	if err := db.Migrate(ctx); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	key := make([]byte, 32)
+	shared := newLoopback()
+	fb := &flakyBus{loopbackBus: shared, remainingFailures: 2}
+
+	writer, reader := New(db, key), New(db, key)
+	writer.noURLCheck, reader.noURLCheck = true, true
+	if err := writer.SetBus(shared); err != nil {
+		t.Fatalf("writer.SetBus: %v", err)
+	}
+
+	// The reader's broker is down: two attempts fail, and they must SAY so.
+	if err := reader.SetBus(fb); err == nil {
+		t.Fatal("SetBus swallowed a failed subscription; the caller cannot know to retry " +
+			"and this replica would never receive another account change")
+	}
+	if err := reader.SetBus(fb); err == nil {
+		t.Fatal("second attempt also had to fail for this fixture to mean anything")
+	}
+
+	// Third attempt succeeds, as the retry loop in main.go would find.
+	if err := reader.SetBus(fb); err != nil {
+		t.Fatalf("third attempt should have succeeded: %v", err)
+	}
+
+	// And the subscription is real: a write on the other service reaches it.
+	if _, err := reader.ForTenant(ctx, "t1", ProviderNtfy); err != nil {
+		t.Fatalf("seed read: %v", err)
+	}
+	if _, err := writer.Set(ctx, "t1", ProviderNtfy, map[string]string{"url": "https://ntfy.example.com"}); err != nil {
+		t.Fatalf("set: %v", err)
+	}
+	if got, _ := reader.ForTenant(ctx, "t1", ProviderNtfy); got == nil {
+		t.Fatal("the retried subscription is not actually receiving announcements")
+	}
+}
