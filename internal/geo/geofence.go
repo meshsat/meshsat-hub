@@ -6,6 +6,8 @@ import (
 	"net/url"
 	"sync"
 	"time"
+
+	"github.com/meshsat/meshsat-hub/internal/bus"
 )
 
 // TriggerMode defines when a geofence triggers.
@@ -77,6 +79,7 @@ type Engine struct {
 	state    map[string]map[string]map[string]bool
 	handlers []EventHandler
 	store    Store
+	bus      bus.MessageBus
 	// cooldown is the platform default suppression window; a fence may set its
 	// own with CooldownSec. lastFired is tenant -> device -> fence -> when the
 	// last event for that triple was emitted.
@@ -196,7 +199,13 @@ func (e *Engine) OnEvent(h EventHandler) {
 // tenantID is the tenant that owns the device. An empty tenant evaluates
 // nothing: a fence event raises an escalation chain, and the only alternative
 // to naming a tenant is raising everybody's.
-func (e *Engine) Evaluate(ctx context.Context, tenantID, deviceIMEI string, lat, lon float64) []FenceEvent {
+// at is the POSITION's own timestamp, not the moment we processed it, and may
+// be zero. It becomes the event's Timestamp, which matters for more than
+// tidiness: both Hub replicas evaluate the same position, and the escalation
+// handler claims a crossing once across replicas using that timestamp as the
+// message's identity. A processing clock would differ between the two and page
+// the on-call twice.
+func (e *Engine) Evaluate(ctx context.Context, tenantID, deviceIMEI string, lat, lon float64, at time.Time) []FenceEvent {
 	if tenantID == "" {
 		slog.Warn("geofence: refusing to evaluate a position with no tenant", "device", deviceIMEI)
 		return nil
@@ -224,6 +233,13 @@ func (e *Engine) Evaluate(ctx context.Context, tenantID, deviceIMEI string, lat,
 	var events []FenceEvent
 	p := Point{Lat: lat, Lon: lon}
 	now := e.clock().UTC()
+	// The event carries the position's time when it has one; the COOLDOWN is
+	// always measured on our own clock, so a device with a wrong clock cannot
+	// defeat it.
+	eventAt := at.UTC()
+	if at.IsZero() {
+		eventAt = now
+	}
 
 	for _, fence := range e.fences {
 		if !fence.Enabled || fence.TenantID != tenantID {
@@ -278,7 +294,7 @@ func (e *Engine) Evaluate(ctx context.Context, tenantID, deviceIMEI string, lat,
 			EventType:  eventType,
 			Lat:        lat,
 			Lon:        lon,
-			Timestamp:  now,
+			Timestamp:  eventAt,
 		}
 		events = append(events, event)
 

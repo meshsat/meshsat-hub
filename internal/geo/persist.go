@@ -2,10 +2,101 @@ package geo
 
 import (
 	"context"
+	"encoding/json"
 	"log/slog"
 
+	"github.com/meshsat/meshsat-hub/internal/bus"
 	"github.com/meshsat/meshsat-hub/internal/store"
 )
+
+// ReloadTopic tells every replica that a tenant's fences changed.
+//
+// The engine holds its fences in memory because Evaluate runs on every position,
+// but the API writes them to the database and there are two Hub replicas. Without
+// this a fence created through the API is armed on ONE of them, and whether a
+// crossing is noticed depends on which replica the create happened to land on.
+// Same shape as webhook.ReloadTopic and tenancy.StatusTopic.
+//
+// This is about liveness, not about double-paging: the escalation handler claims
+// each crossing once across replicas (store.ClaimOnce), so two armed replicas
+// still produce one page.
+const ReloadTopic = "meshsat/hub/geofences/changed"
+
+type reloadEvent struct {
+	TenantID string `json:"tenant_id"`
+}
+
+// SetBus attaches the message bus used to announce changes, and subscribes to
+// other replicas' announcements. A nil bus means changes apply locally only.
+func (e *Engine) SetBus(b bus.MessageBus) error {
+	e.mu.Lock()
+	e.bus = b
+	e.mu.Unlock()
+	if b == nil {
+		return nil
+	}
+	return b.Subscribe(ReloadTopic, 1, func(_ string, payload []byte) {
+		var ev reloadEvent
+		if err := json.Unmarshal(payload, &ev); err != nil || ev.TenantID == "" {
+			return
+		}
+		if err := e.ReloadTenant(context.Background(), ev.TenantID); err != nil {
+			slog.Error("geofence: reload after a change on another replica",
+				"tenant", ev.TenantID, "error", err)
+		}
+	})
+}
+
+// ReloadTenant replaces one tenant's fences from the database, leaving every
+// other tenant's alone.
+func (e *Engine) ReloadTenant(ctx context.Context, tenantID string) error {
+	s := e.getStore()
+	if s == nil || tenantID == "" {
+		return nil
+	}
+	rows, err := s.ListGeofences(ctx, tenantID)
+	if err != nil {
+		return err
+	}
+
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	for k, f := range e.fences {
+		if f.TenantID == tenantID {
+			delete(e.fences, k)
+		}
+	}
+	for _, r := range rows {
+		f := fromStore(r)
+		e.fences[scope(f.TenantID, f.ID)] = &f
+	}
+	// Crossing state is deliberately NOT cleared: a device that was inside a
+	// fence before the reload is still inside it, and dropping the flag would
+	// make the next position read as a fresh entry and page somebody for a
+	// crossing that never happened.
+	return nil
+}
+
+// announce tells other replicas to reload this tenant. A failure is logged and
+// not returned: the change is already durable, and the other replica picks it up
+// at its next restart. Refusing the customer's request here would report a
+// failure for work that succeeded.
+func (e *Engine) announce(tenantID string) {
+	e.mu.RLock()
+	b := e.bus
+	e.mu.RUnlock()
+	if b == nil || tenantID == "" {
+		return
+	}
+	payload, err := json.Marshal(reloadEvent{TenantID: tenantID})
+	if err != nil {
+		return
+	}
+	if err := b.Publish(ReloadTopic, 1, false, payload); err != nil {
+		slog.Warn("geofence: could not announce the change to other replicas",
+			"tenant", tenantID, "error", err)
+	}
+}
 
 // MESHSAT-1119. Fences were held in a map and nothing wrote them down, so a
 // customer's fence survived until the next rollout and the other replica never
@@ -103,6 +194,7 @@ func (e *Engine) Save(ctx context.Context, f Fence) error {
 		}
 	}
 	e.AddFence(f)
+	e.announce(f.TenantID)
 	return nil
 }
 
@@ -117,6 +209,7 @@ func (e *Engine) Delete(ctx context.Context, tenantID, id string) (bool, error) 
 			return removed, err
 		}
 	}
+	e.announce(tenantID)
 	return removed, nil
 }
 

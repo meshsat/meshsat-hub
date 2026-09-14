@@ -514,6 +514,14 @@ func main() {
 	// per fence is delivered per window. The FIRST crossing is never delayed
 	// (MESHSAT-1119).
 	geoEngine.SetCooldown(time.Duration(cfg.GeofenceCooldownSec) * time.Second)
+	// Keep both replicas' fences in step. Without this a fence created through
+	// the API is armed on whichever replica served the request and on no other,
+	// so whether a crossing is noticed depends on load balancing.
+	if msgBus.IsConnected() {
+		if err := geoEngine.SetBus(msgBus); err != nil {
+			slog.Error("geofence: could not subscribe to fence changes from other replicas", "error", err)
+		}
+	}
 	// Fences were never written down before this, so they vanished at every
 	// rollout. Load what the database has.
 	if err := geoEngine.LoadAll(context.Background()); err != nil {
@@ -765,6 +773,33 @@ func main() {
 				"type", ev.EventType)
 			return
 		}
+		// BOTH replicas evaluate the same position, so both reach this handler
+		// with the same crossing. Claim it once, exactly as the SOS detector
+		// does with "sos:<tenant>:<message>" -- without this the on-call person
+		// gets two SMS for one crossing, which is the failure this whole issue
+		// was about arriving from the other direction.
+		//
+		// The key uses the POSITION's timestamp, which both replicas read from
+		// the same MQTT payload. A position with no timestamp falls back to the
+		// processing clock, where the two replicas can differ by a second and
+		// page twice; that is the one gap left and it needs a device that sends
+		// no time at all.
+		claimKey := fmt.Sprintf("geofence:%s:%s:%s:%s:%d",
+			ev.TenantID, ev.DeviceIMEI, ev.FenceID, ev.EventType, ev.Timestamp.Unix())
+		claimCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+		won, err := dataStore.ClaimOnce(claimCtx, claimKey)
+		cancel()
+		if err != nil {
+			slog.Error("geofence: claim failed, not raising the chain",
+				"tenant", ev.TenantID, "fence", ev.FenceName, "error", err)
+			return
+		}
+		if !won {
+			slog.Debug("geofence: another replica is raising this crossing",
+				"tenant", ev.TenantID, "fence", ev.FenceName, "device", ev.DeviceIMEI)
+			return
+		}
+
 		alert := &store.Alert{
 			TenantID:   ev.TenantID,
 			ChainID:    ev.ChainID,

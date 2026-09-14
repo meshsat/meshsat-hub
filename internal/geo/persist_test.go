@@ -2,9 +2,12 @@ package geo
 
 import (
 	"context"
+	"encoding/json"
 	"sync"
 	"testing"
+	"time"
 
+	"github.com/meshsat/meshsat-hub/internal/bus"
 	"github.com/meshsat/meshsat-hub/internal/store"
 )
 
@@ -107,7 +110,7 @@ func TestAFenceSurvivesARestart(t *testing.T) {
 	// And it actually fires after the reload, which is the point of persisting.
 	c := &collector{}
 	fresh.OnEvent(c.handle)
-	fresh.Evaluate(context.Background(), testTenant, "dev-a", 0.5, 0.5)
+	fresh.Evaluate(context.Background(), testTenant, "dev-a", 0.5, 0.5, time.Time{})
 	if n := len(c.all()); n != 1 {
 		t.Errorf("a reloaded fence produced %d events on a crossing, want 1", n)
 	}
@@ -160,5 +163,190 @@ func TestAnEngineWithNoStoreStillWorks(t *testing.T) {
 	}
 	if len(e.ListFences(testTenant)) != 1 {
 		t.Error("the fence was not armed in memory")
+	}
+}
+
+// Both Hub replicas evaluate the same position. A fence created through the API
+// lands on ONE of them, so without this every crossing depended on which replica
+// the create happened to reach -- and the live probe that found it passed the
+// first time and failed the second for exactly that reason.
+func TestAReloadArmsAFenceCreatedElsewhere(t *testing.T) {
+	fs := newFenceStore(testTenant)
+	// "The other replica": same database, its own memory, knows nothing yet.
+	other := NewEngine()
+	other.SetStore(fs)
+
+	// A fence is created on the first replica.
+	first := NewEngine()
+	first.SetStore(fs)
+	if err := first.Save(context.Background(), fenceIn(testTenant, "perimeter")); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+	if len(other.ListFences(testTenant)) != 0 {
+		t.Fatal("precondition: the other replica should not have it yet")
+	}
+
+	// The announcement reaches it.
+	if err := other.ReloadTenant(context.Background(), testTenant); err != nil {
+		t.Fatalf("reload: %v", err)
+	}
+	got := other.ListFences(testTenant)
+	if len(got) != 1 || got[0].ID != "perimeter" {
+		t.Fatalf("after the reload the other replica has %v, want the fence", got)
+	}
+
+	c := &collector{}
+	other.OnEvent(c.handle)
+	other.Evaluate(context.Background(), testTenant, "dev-a", 0.5, 0.5, time.Time{})
+	if len(c.all()) != 1 {
+		t.Error("the reloaded fence did not fire on a crossing")
+	}
+}
+
+// A reload must not clear crossing state: a device already inside a fence is
+// still inside it, and forgetting that pages somebody for a crossing that never
+// happened.
+func TestAReloadDoesNotInventACrossing(t *testing.T) {
+	fs := newFenceStore(testTenant)
+	e := NewEngine()
+	e.SetStore(fs)
+	if err := e.Save(context.Background(), fenceIn(testTenant, "perimeter")); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+	c := &collector{}
+	e.OnEvent(c.handle)
+
+	e.Evaluate(context.Background(), testTenant, "dev-a", 0.5, 0.5, time.Time{}) // enter, fires
+	if n := len(c.all()); n != 1 {
+		t.Fatalf("got %d events, want 1", n)
+	}
+
+	if err := e.ReloadTenant(context.Background(), testTenant); err != nil {
+		t.Fatalf("reload: %v", err)
+	}
+	e.Evaluate(context.Background(), testTenant, "dev-a", 0.5, 0.5, time.Time{}) // still inside
+	if n := len(c.all()); n != 1 {
+		t.Errorf("got %d events after a reload, want 1: the reload forgot the device was "+
+			"already inside and reported a crossing that never happened", n)
+	}
+}
+
+// The event carries the POSITION's time, not the processing time, because both
+// replicas key their once-only claim on it.
+func TestTheEventCarriesThePositionsOwnTime(t *testing.T) {
+	e := NewEngine()
+	c := &collector{}
+	e.OnEvent(c.handle)
+	e.AddFence(fenceIn(testTenant, "perimeter"))
+
+	at := time.Date(2026, 9, 14, 1, 2, 3, 0, time.UTC)
+	e.Evaluate(context.Background(), testTenant, "dev-a", 0.5, 0.5, at)
+
+	got := c.all()
+	if len(got) != 1 {
+		t.Fatalf("got %d events, want 1", len(got))
+	}
+	if !got[0].Timestamp.Equal(at) {
+		t.Errorf("event time %s, want the position's %s. Both replicas claim the crossing "+
+			"using this value; a processing clock differs between them and pages twice.",
+			got[0].Timestamp, at)
+	}
+}
+
+// announceBus records what the engine told the other replicas.
+type announceBus struct {
+	mu        sync.Mutex
+	published []string
+	handler   bus.MessageHandler
+}
+
+func (b *announceBus) Connect() error { return nil }
+func (b *announceBus) Publish(topic string, _ byte, _ bool, payload []byte) error {
+	b.mu.Lock()
+	b.published = append(b.published, topic)
+	h := b.handler
+	b.mu.Unlock()
+	// Deliver to the subscriber, the way the broker would.
+	if h != nil {
+		h(topic, payload)
+	}
+	return nil
+}
+func (b *announceBus) PublishJSON(t string, q byte, r bool, _ any) error {
+	return b.Publish(t, q, r, nil)
+}
+func (b *announceBus) Subscribe(_ string, _ byte, h bus.MessageHandler) error {
+	b.mu.Lock()
+	b.handler = h
+	b.mu.Unlock()
+	return nil
+}
+func (b *announceBus) QueueSubscribe(t string, q byte, _ string, h bus.MessageHandler) error {
+	return b.Subscribe(t, q, h)
+}
+func (b *announceBus) IsConnected() bool { return true }
+func (b *announceBus) Disconnect()       {}
+
+func (b *announceBus) topics() []string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return append([]string(nil), b.published...)
+}
+
+// Creating or deleting a fence has to be announced, or the other replica stays
+// unaware until it restarts and whether a crossing is noticed depends on which
+// replica served the create.
+func TestFenceChangesAreAnnouncedToOtherReplicas(t *testing.T) {
+	fs := newFenceStore(testTenant)
+	b := &announceBus{}
+	e := NewEngine()
+	e.SetStore(fs)
+	if err := e.SetBus(b); err != nil {
+		t.Fatalf("set bus: %v", err)
+	}
+
+	if err := e.Save(context.Background(), fenceIn(testTenant, "perimeter")); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+	if got := b.topics(); len(got) != 1 || got[0] != ReloadTopic {
+		t.Fatalf("after a create the engine published %v, want one %s", got, ReloadTopic)
+	}
+
+	if _, err := e.Delete(context.Background(), testTenant, "perimeter"); err != nil {
+		t.Fatalf("delete: %v", err)
+	}
+	if got := b.topics(); len(got) != 2 {
+		t.Errorf("after a delete the engine published %v, want a second announcement", got)
+	}
+}
+
+// The receiving side: an announcement arms the fence on a replica that knew
+// nothing about it.
+func TestAnAnnouncementArmsTheOtherReplica(t *testing.T) {
+	fs := newFenceStore(testTenant)
+	// The fence already exists in the database, written by the other replica.
+	if err := fs.SaveGeofence(context.Background(), testTenant, &store.Geofence{
+		ID: "perimeter", TenantID: testTenant, Name: "perimeter",
+		Polygon: []store.GeoPoint{{Lat: 0, Lon: 0}, {Lat: 0, Lon: 1}, {Lat: 1, Lon: 1}, {Lat: 1, Lon: 0}},
+		Trigger: "both", ChainID: "chain-" + testTenant, Enabled: true,
+	}); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+
+	b := &announceBus{}
+	e := NewEngine()
+	e.SetStore(fs)
+	if err := e.SetBus(b); err != nil {
+		t.Fatalf("set bus: %v", err)
+	}
+	if len(e.ListFences(testTenant)) != 0 {
+		t.Fatal("precondition: this replica should know nothing yet")
+	}
+
+	payload, _ := json.Marshal(reloadEvent{TenantID: testTenant})
+	_ = b.Publish(ReloadTopic, 1, false, payload)
+
+	if got := e.ListFences(testTenant); len(got) != 1 {
+		t.Errorf("after the announcement this replica has %v, want the fence", got)
 	}
 }

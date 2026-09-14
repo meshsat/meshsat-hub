@@ -39,7 +39,7 @@ func TestTheFirstCrossingIsNeverDelayed(t *testing.T) {
 	e.OnEvent(c.handle)
 	e.AddFence(fenceIn(testTenant, "perimeter"))
 
-	got := e.Evaluate(context.Background(), testTenant, "dev-a", 0.5, 0.5)
+	got := e.Evaluate(context.Background(), testTenant, "dev-a", 0.5, 0.5, time.Time{})
 
 	if len(got) != 1 {
 		t.Fatalf("the first crossing produced %d events, want 1. A cooldown must never "+
@@ -62,9 +62,9 @@ func TestRepeatCrossingsAreSuppressedWithinTheWindow(t *testing.T) {
 	inside := true
 	for i := 0; i < 12; i++ {
 		if inside {
-			e.Evaluate(context.Background(), testTenant, "dev-a", 0.5, 0.5)
+			e.Evaluate(context.Background(), testTenant, "dev-a", 0.5, 0.5, time.Time{})
 		} else {
-			e.Evaluate(context.Background(), testTenant, "dev-a", 50, 50)
+			e.Evaluate(context.Background(), testTenant, "dev-a", 50, 50, time.Time{})
 		}
 		inside = !inside
 		*now = now.Add(10 * time.Second)
@@ -85,15 +85,15 @@ func TestTheFenceFiresAgainAfterTheWindow(t *testing.T) {
 	e.OnEvent(c.handle)
 	e.AddFence(fenceIn(testTenant, "perimeter"))
 
-	e.Evaluate(context.Background(), testTenant, "dev-a", 0.5, 0.5) // enter, fires
+	e.Evaluate(context.Background(), testTenant, "dev-a", 0.5, 0.5, time.Time{}) // enter, fires
 	*now = now.Add(30 * time.Second)
-	e.Evaluate(context.Background(), testTenant, "dev-a", 50, 50) // exit, suppressed
+	e.Evaluate(context.Background(), testTenant, "dev-a", 50, 50, time.Time{}) // exit, suppressed
 	if n := len(c.all()); n != 1 {
 		t.Fatalf("got %d events inside the window, want 1", n)
 	}
 
 	*now = now.Add(6 * time.Minute)
-	e.Evaluate(context.Background(), testTenant, "dev-a", 0.5, 0.5) // enter, fires again
+	e.Evaluate(context.Background(), testTenant, "dev-a", 0.5, 0.5, time.Time{}) // enter, fires again
 	if n := len(c.all()); n != 2 {
 		t.Errorf("got %d events after the window expired, want 2 -- a cooldown is not a mute", n)
 	}
@@ -109,21 +109,21 @@ func TestSuppressingAnEventStillTracksWhereTheDeviceIs(t *testing.T) {
 	e.OnEvent(c.handle)
 	e.AddFence(fenceIn(testTenant, "perimeter"))
 
-	e.Evaluate(context.Background(), testTenant, "dev-a", 0.5, 0.5) // enter, fires
+	e.Evaluate(context.Background(), testTenant, "dev-a", 0.5, 0.5, time.Time{}) // enter, fires
 	*now = now.Add(10 * time.Second)
-	e.Evaluate(context.Background(), testTenant, "dev-a", 50, 50) // exit, suppressed
+	e.Evaluate(context.Background(), testTenant, "dev-a", 50, 50, time.Time{}) // exit, suppressed
 
 	// Six minutes later the device is still OUTSIDE. That is not a transition,
 	// so nothing should fire however long the cooldown has been over.
 	*now = now.Add(6 * time.Minute)
-	e.Evaluate(context.Background(), testTenant, "dev-a", 50, 50)
+	e.Evaluate(context.Background(), testTenant, "dev-a", 50, 50, time.Time{})
 	if n := len(c.all()); n != 1 {
 		t.Fatalf("a device that has not moved produced %d events, want 1. The suppressed "+
 			"exit did not update the state, so the engine still thinks it is inside.", n)
 	}
 
 	// Now it genuinely re-enters, and that must fire.
-	e.Evaluate(context.Background(), testTenant, "dev-a", 0.5, 0.5)
+	e.Evaluate(context.Background(), testTenant, "dev-a", 0.5, 0.5, time.Time{})
 	if n := len(c.all()); n != 2 {
 		t.Errorf("a genuine re-entry produced %d events total, want 2", n)
 	}
@@ -139,9 +139,9 @@ func TestAFenceMayChooseItsOwnCooldown(t *testing.T) {
 	f.CooldownSec = 60
 	e.AddFence(f)
 
-	e.Evaluate(context.Background(), testTenant, "dev-a", 0.5, 0.5)
+	e.Evaluate(context.Background(), testTenant, "dev-a", 0.5, 0.5, time.Time{})
 	*now = now.Add(90 * time.Second)
-	e.Evaluate(context.Background(), testTenant, "dev-a", 50, 50)
+	e.Evaluate(context.Background(), testTenant, "dev-a", 50, 50, time.Time{})
 
 	if n := len(c.all()); n != 2 {
 		t.Errorf("got %d events, want 2: the fence's own 60s cooldown should have expired "+
@@ -161,8 +161,8 @@ func TestTheCooldownIsPerDeviceAndPerFence(t *testing.T) {
 
 	// dev-a crosses both fences (the box is the same, so both fire), then dev-b
 	// crosses too. Nothing here shares a cooldown.
-	e.Evaluate(context.Background(), testTenant, "dev-a", 0.5, 0.5)
-	e.Evaluate(context.Background(), testTenant, "dev-b", 0.5, 0.5)
+	e.Evaluate(context.Background(), testTenant, "dev-a", 0.5, 0.5, time.Time{})
+	e.Evaluate(context.Background(), testTenant, "dev-b", 0.5, 0.5, time.Time{})
 
 	if n := len(c.all()); n != 4 {
 		t.Errorf("got %d events, want 4 (two devices x two fences). A cooldown keyed too "+
@@ -181,9 +181,9 @@ func TestNoCooldownConfiguredMeansEveryCrossingFires(t *testing.T) {
 
 	for i := 0; i < 4; i++ {
 		if i%2 == 0 {
-			e.Evaluate(context.Background(), testTenant, "dev-a", 0.5, 0.5)
+			e.Evaluate(context.Background(), testTenant, "dev-a", 0.5, 0.5, time.Time{})
 		} else {
-			e.Evaluate(context.Background(), testTenant, "dev-a", 50, 50)
+			e.Evaluate(context.Background(), testTenant, "dev-a", 50, 50, time.Time{})
 		}
 		*now = now.Add(time.Second)
 	}
@@ -201,10 +201,10 @@ func TestRemovingAFenceForgetsItsCooldown(t *testing.T) {
 	e.OnEvent(c.handle)
 	e.AddFence(fenceIn(testTenant, "perimeter"))
 
-	e.Evaluate(context.Background(), testTenant, "dev-a", 0.5, 0.5)
+	e.Evaluate(context.Background(), testTenant, "dev-a", 0.5, 0.5, time.Time{})
 	e.RemoveFence(testTenant, "perimeter")
 	e.AddFence(fenceIn(testTenant, "perimeter"))
-	e.Evaluate(context.Background(), testTenant, "dev-a", 0.5, 0.5)
+	e.Evaluate(context.Background(), testTenant, "dev-a", 0.5, 0.5, time.Time{})
 
 	if n := len(c.all()); n != 2 {
 		t.Errorf("got %d events, want 2: a re-created fence inherited the deleted one's "+
