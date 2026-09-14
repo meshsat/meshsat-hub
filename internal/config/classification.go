@@ -53,9 +53,7 @@ var Classification = map[string]Class{
 
 	// --- tenant-provider: Tenant-owned, still moving to internal/integrations
 	// (MESHSAT-1121). This block SHRINKS as tranches land; APRS-IS left it first.
-	// (18 remaining of the 22 the audit found)
-	"apprise_enabled":  ClassTenantProvider,
-	"apprise_url":      ClassTenantProvider,
+	// (13 remaining of the 22 the audit found)
 	"email_enabled":    ClassTenantProvider,
 	"email_from":       ClassTenantProvider,
 	"email_password":   ClassTenantProvider,
@@ -66,9 +64,6 @@ var Classification = map[string]Class{
 	"hawkbit_password": ClassTenantProvider,
 	"hawkbit_url":      ClassTenantProvider,
 	"hawkbit_username": ClassTenantProvider,
-	"ntfy_enabled":     ClassTenantProvider,
-	"ntfy_token":       ClassTenantProvider,
-	"ntfy_url":         ClassTenantProvider,
 	"wg_enabled":       ClassTenantProvider,
 	"wg_password":      ClassTenantProvider,
 	"wg_url":           ClassTenantProvider,
@@ -81,6 +76,16 @@ var Classification = map[string]Class{
 	// APRS-IS landed first (MESHSAT-1121 T1). Each tenant now connects to the
 	// network under its OWN amateur licence, and a tenant with no callsign on
 	// file transmits nothing rather than borrowing the operator's.
+	// Apprise and ntfy landed second (T2). The alert TARGETS were always per
+	// tenant and per device; only the backend that delivered to them was global,
+	// and it was unset in production -- so every notification URL a customer
+	// saved was accepted and delivered nowhere.
+	"apprise_enabled": ClassTenantDone,
+	"apprise_url":     ClassTenantDone,
+	"ntfy_enabled":    ClassTenantDone,
+	"ntfy_token":      ClassTenantDone,
+	"ntfy_url":        ClassTenantDone,
+
 	"aprsis_callsign": ClassTenantDone,
 	"aprsis_enabled":  ClassTenantDone,
 	"aprsis_passcode": ClassTenantDone,

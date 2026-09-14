@@ -762,22 +762,34 @@ func main() {
 	}
 
 	// Escalation engine (SOS, dead man's switch, custom alerts).
+	// Apprise and ntfy are per-tenant delivery backends (MESHSAT-1121). The
+	// environment values are the PLATFORM's, serving the default tenant, exactly
+	// like Twilio's. Registered unconditionally so a tenant that brings its own
+	// relay is delivered to even when the operator runs none -- which is the
+	// production case: neither backend has ever been deployed, so every
+	// notification URL a customer saved was accepted and delivered nowhere.
 	var notifiers []escalation.Notifier
+	var applatform *apprise.Client
 	if cfg.AppriseEnabled && cfg.AppriseURL != "" {
-		appriseClient := apprise.New(cfg.AppriseURL)
-		notifiers = append(notifiers, appriseClient)
-		checker.AddInfoProbe("apprise", appriseClient.Healthz)
-		slog.Info("apprise: notification backend enabled", "url", cfg.AppriseURL)
+		applatform = apprise.New(cfg.AppriseURL)
+		checker.AddInfoProbe("apprise", applatform.Healthz)
+		slog.Info("apprise: platform notification backend enabled", "url", cfg.AppriseURL)
+		providerAccounts.SetPlatform(integrations.ProviderApprise, map[string]string{"url": cfg.AppriseURL})
 	}
+	notifiers = append(notifiers, apprise.NewNotifierPool(apprise.NewClientPool(applatform, providerAccounts)))
+
+	var ntfyPlatform *ntfy.Client
 	if cfg.NtfyEnabled && cfg.NtfyURL != "" {
-		ntfyClient := ntfy.New(cfg.NtfyURL)
+		ntfyPlatform = ntfy.New(cfg.NtfyURL)
 		if cfg.NtfyToken != "" {
-			ntfyClient.SetToken(cfg.NtfyToken)
+			ntfyPlatform.SetToken(cfg.NtfyToken)
 		}
-		notifiers = append(notifiers, ntfyClient)
-		checker.AddInfoProbe("ntfy", ntfyClient.Healthz)
-		slog.Info("ntfy: notification backend enabled", "url", cfg.NtfyURL)
+		checker.AddInfoProbe("ntfy", ntfyPlatform.Healthz)
+		slog.Info("ntfy: platform push backend enabled", "url", cfg.NtfyURL)
+		providerAccounts.SetPlatform(integrations.ProviderNtfy, map[string]string{
+			"url": cfg.NtfyURL, "token": cfg.NtfyToken})
 	}
+	notifiers = append(notifiers, ntfy.NewNotifierPool(ntfy.NewClientPool(ntfyPlatform, providerAccounts)))
 	// Twilio: the platform account (env) serves the default tenant; every other
 	// tenant brings its own on the Integrations page (MESHSAT-977).
 	var smsPlatform *sms.Client
@@ -2637,9 +2649,14 @@ func main() {
 	routeEngine.RegisterHandler("mqtt", routing.NewMQTTHandler(msgBus))
 	routeEngine.RegisterHandler("tak", routing.NewTAKHandler(msgBus))
 	routeEngine.RegisterHandler("aprs", routing.NewAPRSHandler(msgBus))
-	if len(notifiers) > 0 {
-		routeEngine.RegisterHandler("notification", routing.NewNotificationHandler(notifiers[0]))
-	}
+	// The "notification" destination means Apprise, named explicitly rather than
+	// taken as notifiers[0]. That index used to decide which backend a routed
+	// message went to purely by which ones happened to be configured, so turning
+	// Apprise off silently moved every routed notification onto SMS -- real
+	// messages, real airtime, billed to the tenant's own carrier account.
+	// Deliberately NOT the multi-notifier, for the same reason (critical rule 14).
+	routeEngine.RegisterHandler("notification",
+		routing.NewNotificationHandler(apprise.NewNotifierPool(apprise.NewClientPool(applatform, providerAccounts))))
 	if msgBus.IsConnected() {
 		_ = routing.SeedDefaults(ctx, dataStore, store.DefaultTenantID)
 		if err := routeEngine.Start(); err != nil {
