@@ -46,6 +46,14 @@ const (
 	// falling back to the operator's callsign.
 	ProviderAPRSIS = "aprsis"
 
+	// ProviderApprise and ProviderNtfy are where a tenant's alerts are DELIVERED
+	// (MESHSAT-1121). The targets were always per tenant and per device
+	// (store.NotificationPref); only the backend that delivers to them was one
+	// global value, and it was unset in production -- so every notification URL a
+	// customer saved was accepted and delivered nowhere.
+	ProviderApprise = "apprise"
+	ProviderNtfy    = "ntfy"
+
 	// CredType marks a provider-account row in the credentials table.
 	CredType = "provider_account"
 	// Scope is the target_scope of a provider-account row.
@@ -152,6 +160,18 @@ var Specs = []Spec{
 			{Key: "passcode", Label: "APRS-IS passcode", Secret: true, Required: true, Hint: "the numeric passcode for that callsign. Not a password: it is derived from the callsign itself."},
 			{Key: "server", Label: "Server", Default: "rotate.aprs2.net:14580", Hint: "host:port of an APRS-IS core server; the default rotates across the pool."},
 			{Key: "enabled", Label: "Transmit", Default: "true", Hint: "set to false to stop transmitting without deleting your callsign and passcode."},
+		}},
+	// Apprise and ntfy are DELIVERY backends, not accounts. What a tenant enters
+	// here is the server their alerts go through; who the alerts reach is already
+	// per tenant and per device on the Notifications page.
+	{Provider: ProviderApprise, Label: "Apprise (notification relay)", Description: "The Apprise server your alerts are delivered through. The notification URLs you set per device on the Notifications page are handed to this server. Without one, those URLs are stored and never delivered to.",
+		Fields: []Field{
+			{Key: "url", Label: "Apprise API URL", Required: true, Hint: "base URL of an Apprise API server, e.g. https://apprise.example.org"},
+		}},
+	{Provider: ProviderNtfy, Label: "ntfy (push notifications)", Description: "The ntfy server your push notifications are published to. Use your own, or the public ntfy.sh. Alert targets that name an ntfy topic are published here.",
+		Fields: []Field{
+			{Key: "url", Label: "ntfy server URL", Required: true, Default: "https://ntfy.sh", Hint: "e.g. https://ntfy.sh or your own instance"},
+			{Key: "token", Label: "Access token", Secret: true, Hint: "only needed for a protected topic; leave empty for a public one."},
 		}},
 }
 
