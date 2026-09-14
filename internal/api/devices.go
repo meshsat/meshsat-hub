@@ -1,6 +1,7 @@
 package api
 
 import (
+	"errors"
 	"log/slog"
 	"net/http"
 
@@ -113,7 +114,24 @@ func (h *DeviceHandler) CreateDevice(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := h.store.CreateDevice(r.Context(), tid, &dev); err != nil {
-		writeError(w, http.StatusConflict, "device already exists or error: "+err.Error())
+		// An IMEI is unique across the WHOLE platform, not per tenant, and that
+		// is deliberate (see the devices table in postgres/schema.go): a
+		// satellite provider delivers an MO by IMEI with no tenant context, so
+		// the Hub must be able to answer "whose is this?" from the IMEI alone.
+		// The cost of that invariant lands here, on the second tenant to
+		// register a kit, who used to get a raw database error as a 409. Say
+		// what actually happened -- without naming the other account.
+		owner, lerr := h.store.LookupDeviceTenant(r.Context(), dev.IMEI)
+		switch {
+		case lerr == nil && owner == tid:
+			writeError(w, http.StatusConflict, "this device is already registered in your account")
+		case lerr == nil && owner != "", errors.Is(lerr, store.ErrAmbiguousTenant):
+			writeError(w, http.StatusConflict,
+				"this device is registered to another account; contact support to have it transferred")
+		default:
+			slog.Error("device: create failed", "error", err, "tenant", tid, "imei", dev.IMEI)
+			writeError(w, http.StatusInternalServerError, "could not register the device")
+		}
 		return
 	}
 	created, _ := h.store.GetDevice(r.Context(), tid, dev.IMEI)
