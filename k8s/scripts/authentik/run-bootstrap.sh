@@ -103,6 +103,17 @@ case "${1:-}" in
     bao kv patch -mount=secret ci-no/apps/meshsat-hub/hub @"$tmp" >/dev/null
     shred -u "$tmp"
     echo "OIDC client stored in OpenBao ci-no/apps/meshsat-hub/hub (client id ${cid:0:6}...)"
+    # The status page's client (MESHSAT-1134) lives with the rest of its secrets.
+    scid="$(echo "$out" | sed -n 's/^STATUS_OIDC_CLIENT_ID=//p')"
+    ssec="$(echo "$out" | sed -n 's/^STATUS_OIDC_CLIENT_SECRET=//p')"
+    siss="$(echo "$out" | sed -n 's/^STATUS_ISSUER=//p')"
+    if [ -n "$scid" ] && [ -n "$ssec" ]; then
+      tmp="$(mktemp)"; chmod 600 "$tmp"
+      printf '{"OIDC_CLIENT_ID":"%s","OIDC_CLIENT_SECRET":"%s","OIDC_ISSUER":"%s"}' "$scid" "$ssec" "$siss" > "$tmp"
+      bao kv patch -mount=secret ci/meshsat-status @"$tmp" >/dev/null
+      shred -u "$tmp"
+      echo "status page OIDC client stored in OpenBao ci/meshsat-status (client id ${scid:0:6}...)"
+    fi
     echo "$out" | sed -n 's/^ISSUER=/issuer:     /p; s/^ENROLLMENT=/enrollment: /p'
     verify_email_templates
     ;;

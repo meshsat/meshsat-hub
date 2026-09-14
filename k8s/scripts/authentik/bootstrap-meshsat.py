@@ -187,6 +187,54 @@ if app.provider_id != provider.pk:
     app.save()
 note(f"application meshsat-hub {'created' if a_created else 'ok'}")
 
+# ---------------------------------------------------------------- status page
+# status.meshsat.net (Kener) signs its operators in with MeshSat ID. Same scope
+# mappings as the Hub, so the `meshsat` scope carries the groups claim Kener
+# maps to its roles; the application is bound to meshsat-platform-admin, so a
+# customer with a MeshSat ID cannot even reach the consent screen (MESHSAT-1134).
+STATUS_URL = "https://status.meshsat.net"
+status_redirects = [RedirectURI(matching_mode=RedirectURIMatchingMode.STRICT, url=f"{STATUS_URL}/account/oidc/callback")]
+status_provider, sp_created = OAuth2Provider.objects.get_or_create(
+    name="MeshSat Status",
+    defaults={
+        "client_type": ClientType.CONFIDENTIAL,
+        "client_id": secrets.token_urlsafe(32)[:40],
+        "client_secret": secrets.token_urlsafe(48),
+        "signing_key": cert,
+        "authorization_flow": auth_flow,
+        "invalidation_flow": invalidation,
+        "include_claims_in_id_token": True,
+        "sub_mode": "user_uuid",
+        "redirect_uris": status_redirects,
+    },
+)
+status_provider.redirect_uris = status_redirects
+status_provider.client_type = ClientType.CONFIDENTIAL
+status_provider.grant_types = [GrantType.AUTHORIZATION_CODE, GrantType.REFRESH_TOKEN]
+if status_provider.authorization_flow_id != auth_flow.pk:
+    status_provider.authorization_flow = auth_flow
+if invalidation and status_provider.invalidation_flow_id != invalidation.pk:
+    status_provider.invalidation_flow = invalidation
+if cert and not status_provider.signing_key_id:
+    status_provider.signing_key = cert
+status_provider.include_claims_in_id_token = True
+status_provider.save()
+status_provider.property_mappings.set(wanted)
+note(f"provider MeshSat Status {'created' if sp_created else 'ok'}")
+status_app, sa_created = Application.objects.get_or_create(
+    slug="meshsat-status",
+    defaults={"name": "MeshSat Status", "provider": status_provider, "meta_launch_url": STATUS_URL + "/manage", "open_in_new_tab": False},
+)
+if status_app.provider_id != status_provider.pk:
+    status_app.provider = status_provider
+    status_app.save()
+# Access policy: only platform admins. A group binding on the application is
+# evaluated before authorization, so everyone else gets authentik's own denial.
+_, sb_created = PolicyBinding.objects.get_or_create(
+    target=status_app, group=groups["meshsat-platform-admin"], defaults={"order": 0, "enabled": True},
+)
+note(f"application meshsat-status {'created' if sa_created else 'ok'} (admin-only binding {'created' if sb_created else 'ok'})")
+
 
 # ---------------------------------------------------------------- enrollment flow
 def prompt(name, field_key, label, ptype, order, required=True, placeholder="", sub_text="", initial=""):
@@ -754,6 +802,9 @@ print("---MESHSAT_OIDC_CONFIG---")
 print(f"HUB_OIDC_CLIENT_ID={provider.client_id}")
 print(f"HUB_OIDC_CLIENT_SECRET={provider.client_secret}")
 print("HUB_AUTHENTIK_TOKEN=" + approver_token.key)
+print(f"STATUS_OIDC_CLIENT_ID={status_provider.client_id}")
+print(f"STATUS_OIDC_CLIENT_SECRET={status_provider.client_secret}")
+print(f"STATUS_ISSUER=https://auth.meshsat.net/application/o/{status_app.slug}/")
 print(f"ISSUER=https://auth.meshsat.net/application/o/{app.slug}/")
 print(f"ENROLLMENT=https://auth.meshsat.net/if/flow/{enroll.slug}/")
 print("---END---")
