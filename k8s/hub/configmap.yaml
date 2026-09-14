@@ -128,6 +128,12 @@ data:
   # APRS-IS stays off for the platform: the operator has no callsign on file, and
   # a callsign is a licence issued to a named person. A tenant that brings its
   # own transmits regardless of this value.
+  # The platform's own Apprise relay, deployed in k8s/apprise (MESHSAT-1121).
+  # It was unset with no relay anywhere in the estate, so every notification URL
+  # a customer saved was accepted and delivered nowhere -- the silence this whole
+  # issue started from. A tenant may still point at its own relay instead.
+  HUB_APPRISE_ENABLED: "true"
+  HUB_APPRISE_URL: "http://apprise:8000"
   HUB_APRSIS_ENABLED: "false"
   # The platform's own wg-easy, deployed in k8s/wireguard (MESHSAT-1121). It was
   # "false" with no server anywhere in the estate, so Network was a nav entry in

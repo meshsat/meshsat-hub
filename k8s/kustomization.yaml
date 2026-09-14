@@ -27,6 +27,7 @@ resources:
   - wireguard/
   - hawkbit/
   - tor/
+  - apprise/
   - hub/
   - tak/
   - tak-operator/
