@@ -21,6 +21,10 @@ const savingTimeout = ref(false)
 // Audit retention (MESHSAT-1117 tranche 2b), same shape as the timeout above.
 const auditDays = ref('')
 const savingAudit = ref(false)
+const savingOOB = ref(false)
+const oobMax = ref('')
+const oobSms = ref('')
+const oobSat = ref('')
 const saving = ref(false)
 const invites = ref([])
 const inviteEmail = ref('')
@@ -100,6 +104,9 @@ async function load() {
     name.value = info.value.name || ''
     bridgeTimeout.value = info.value.bridge_offline_timeout ? String(info.value.bridge_offline_timeout) : ''
     auditDays.value = info.value.audit_retention_days ? String(info.value.audit_retention_days) : ''
+    oobMax.value = info.value.oob_max_per_hour ? String(info.value.oob_max_per_hour) : ''
+    oobSms.value = info.value.oob_sms_timeout_sec ? String(info.value.oob_sms_timeout_sec) : ''
+    oobSat.value = info.value.oob_sat_timeout_sec ? String(info.value.oob_sat_timeout_sec) : ''
     available.value = true
   } catch {
     available.value = false
@@ -169,6 +176,36 @@ async function saveAuditRetention() {
     error.value = e.message || 'Save failed'
   } finally {
     savingAudit.value = false
+  }
+}
+
+// Out-of-band command policy (MESHSAT-1121). One save for the three, because
+// they are one decision: how hard this tenant drives its own field kit.
+async function saveOOB() {
+  const parse = (raw, label) => {
+    const t = raw.trim()
+    if (t === '') return 0
+    const n = Number(t)
+    if (!Number.isInteger(n) || n < 0) throw new Error(`${label} must be a whole number`)
+    return n
+  }
+  savingOOB.value = true
+  error.value = ''
+  try {
+    info.value = await tenantApi.update({
+      name: name.value.trim(),
+      oob_max_per_hour: parse(oobMax.value, 'Commands per hour'),
+      oob_sms_timeout_sec: parse(oobSms.value, 'SMS reply timeout'),
+      oob_sat_timeout_sec: parse(oobSat.value, 'Satellite reply timeout'),
+    })
+    oobMax.value = info.value.oob_max_per_hour ? String(info.value.oob_max_per_hour) : ''
+    oobSms.value = info.value.oob_sms_timeout_sec ? String(info.value.oob_sms_timeout_sec) : ''
+    oobSat.value = info.value.oob_sat_timeout_sec ? String(info.value.oob_sat_timeout_sec) : ''
+    toast.success('Command policy saved')
+  } catch (e) {
+    error.value = e.message || 'Save failed'
+  } finally {
+    savingOOB.value = false
   }
 }
 
@@ -306,6 +343,48 @@ onMounted(load)
           Leave empty for the platform default ({{ info?.audit_retention_default }} days).
           Between {{ info?.audit_retention_min }} and {{ info?.audit_retention_max }} days.
           Entries older than this are archived and then removed.
+        </p>
+
+        <!-- Out-of-band command policy (MESHSAT-1121). These commands go to this
+             tenant's OWN field kit over a bearer this tenant pays for, so the
+             rate and the reply timeouts are its call, inside platform bounds. -->
+        <h4 class="text-xs font-semibold text-ms-text2 mt-5 mb-1">Out-of-band commands</h4>
+        <p class="text-xs text-ms-muted mb-2">
+          How hard the Hub may drive your field kit when MQTT is down and commands go over SMS or
+          satellite. Every command is encrypted; that is not optional.
+        </p>
+        <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          <div>
+            <label for="tenant-oob-max" class="block text-xs text-ms-muted2 mb-1">Commands per hour</label>
+            <input id="tenant-oob-max" v-model="oobMax" type="number" inputmode="numeric"
+              :min="info?.oob_max_per_hour_min" :max="info?.oob_max_per_hour_max"
+              :placeholder="String(info?.oob_max_per_hour_default ?? '')"
+              class="w-full min-w-0 px-3 py-1.5 bg-ms-well border border-ms-border rounded text-sm text-ms-text focus:outline-none focus:border-brand-primary" />
+          </div>
+          <div>
+            <label for="tenant-oob-sms" class="block text-xs text-ms-muted2 mb-1">SMS reply wait (s)</label>
+            <input id="tenant-oob-sms" v-model="oobSms" type="number" inputmode="numeric"
+              :min="info?.oob_timeout_min" :max="info?.oob_timeout_max"
+              :placeholder="String(info?.oob_sms_timeout_default ?? '')"
+              class="w-full min-w-0 px-3 py-1.5 bg-ms-well border border-ms-border rounded text-sm text-ms-text focus:outline-none focus:border-brand-primary" />
+          </div>
+          <div>
+            <label for="tenant-oob-sat" class="block text-xs text-ms-muted2 mb-1">Satellite reply wait (s)</label>
+            <input id="tenant-oob-sat" v-model="oobSat" type="number" inputmode="numeric"
+              :min="info?.oob_timeout_min" :max="info?.oob_timeout_max"
+              :placeholder="String(info?.oob_sat_timeout_default ?? '')"
+              class="w-full min-w-0 px-3 py-1.5 bg-ms-well border border-ms-border rounded text-sm text-ms-text focus:outline-none focus:border-brand-primary" />
+          </div>
+        </div>
+        <div class="flex gap-2 items-center mt-2">
+          <button @click="saveOOB" :disabled="savingOOB"
+            class="px-3 py-1.5 bg-brand-primary hover:bg-brand-accent disabled:opacity-50 text-ms-on-primary text-sm font-medium rounded transition-colors">
+            Save
+          </button>
+        </div>
+        <p class="mt-1 text-xs text-ms-muted">
+          Leave a box empty for the platform default. A satellite reply waits for a pass, so it is
+          normally much longer than an SMS one.
         </p>
         <dl class="mt-3 text-xs text-ms-muted grid grid-cols-[auto_1fr] gap-x-3 gap-y-1">
           <dt>Slug</dt><dd class="font-mono text-ms-text">{{ info?.slug }}</dd>

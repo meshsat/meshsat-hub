@@ -35,6 +35,14 @@ type TenantHandler struct {
 	auditRetentionDefault int
 	auditRetentionMin     int
 	auditRetentionMax     int
+	// The platform's out-of-band command policy, same shape (MESHSAT-1121).
+	oobMaxPerHourDefault int
+	oobMaxPerHourMin     int
+	oobMaxPerHourMax     int
+	oobSMSTimeoutDefault int
+	oobSatTimeoutDefault int
+	oobTimeoutMin        int
+	oobTimeoutMax        int
 }
 
 // NewTenantHandler creates the tenant handler.
@@ -53,6 +61,15 @@ func (h *TenantHandler) SetBridgeOfflineTimeoutPolicy(def, min, max int) {
 // and the bounds a tenant owner may choose within (MESHSAT-1117).
 func (h *TenantHandler) SetAuditRetentionPolicy(def, min, max int) {
 	h.auditRetentionDefault, h.auditRetentionMin, h.auditRetentionMax = def, min, max
+}
+
+// SetOOBPolicy gives the handler the platform's out-of-band defaults and the
+// bounds a tenant owner may choose within (MESHSAT-1121). Seconds throughout, so
+// the wire format needs no duration parsing.
+func (h *TenantHandler) SetOOBPolicy(maxPerHour, maxMin, maxMax, smsDefault, satDefault, timeoutMin, timeoutMax int) {
+	h.oobMaxPerHourDefault, h.oobMaxPerHourMin, h.oobMaxPerHourMax = maxPerHour, maxMin, maxMax
+	h.oobSMSTimeoutDefault, h.oobSatTimeoutDefault = smsDefault, satDefault
+	h.oobTimeoutMin, h.oobTimeoutMax = timeoutMin, timeoutMax
 }
 
 // SetStatusInvalidator wires the cross-replica cache drop.
@@ -85,6 +102,19 @@ type tenantResponse struct {
 	AuditRetentionDefault int `json:"audit_retention_default"`
 	AuditRetentionMin     int `json:"audit_retention_min"`
 	AuditRetentionMax     int `json:"audit_retention_max"`
+	// Out-of-band command policy: this tenant's own choices, 0 meaning the
+	// platform default, with that default and the bounds alongside so the form
+	// shows the number actually in force (MESHSAT-1121).
+	OOBMaxPerHour        int `json:"oob_max_per_hour"`
+	OOBMaxPerHourDefault int `json:"oob_max_per_hour_default"`
+	OOBMaxPerHourMin     int `json:"oob_max_per_hour_min"`
+	OOBMaxPerHourMax     int `json:"oob_max_per_hour_max"`
+	OOBSMSTimeoutSec     int `json:"oob_sms_timeout_sec"`
+	OOBSMSTimeoutDefault int `json:"oob_sms_timeout_default"`
+	OOBSatTimeoutSec     int `json:"oob_sat_timeout_sec"`
+	OOBSatTimeoutDefault int `json:"oob_sat_timeout_default"`
+	OOBTimeoutMin        int `json:"oob_timeout_min"`
+	OOBTimeoutMax        int `json:"oob_timeout_max"`
 }
 
 func (h *TenantHandler) toTenantResponse(t *store.Tenant) tenantResponse {
@@ -95,6 +125,13 @@ func (h *TenantHandler) toTenantResponse(t *store.Tenant) tenantResponse {
 	r.AuditRetentionDefault = h.auditRetentionDefault
 	r.AuditRetentionMin = h.auditRetentionMin
 	r.AuditRetentionMax = h.auditRetentionMax
+	r.OOBMaxPerHourDefault = h.oobMaxPerHourDefault
+	r.OOBMaxPerHourMin = h.oobMaxPerHourMin
+	r.OOBMaxPerHourMax = h.oobMaxPerHourMax
+	r.OOBSMSTimeoutDefault = h.oobSMSTimeoutDefault
+	r.OOBSatTimeoutDefault = h.oobSatTimeoutDefault
+	r.OOBTimeoutMin = h.oobTimeoutMin
+	r.OOBTimeoutMax = h.oobTimeoutMax
 	return r
 }
 
@@ -105,6 +142,9 @@ func toTenantResponse(t *store.Tenant) tenantResponse {
 		PurgeGraceDays:       int(store.PurgeGrace / (24 * time.Hour)),
 		BridgeOfflineTimeout: t.BridgeOfflineTimeout,
 		AuditRetentionDays:   t.AuditRetentionDays,
+		OOBMaxPerHour:        t.OOBMaxPerHour,
+		OOBSMSTimeoutSec:     t.OOBSMSTimeoutSec,
+		OOBSatTimeoutSec:     t.OOBSatTimeoutSec,
 	}
 }
 
@@ -135,6 +175,13 @@ type updateTenantRequest struct {
 	// AuditRetentionDays, same pointer semantics: absent leaves it alone,
 	// 0 returns the tenant to the platform default.
 	AuditRetentionDays *int `json:"audit_retention_days,omitempty"`
+	// Out-of-band command policy, same pointer semantics throughout: absent
+	// leaves it alone, 0 returns the tenant to the platform default. Owner
+	// editable, unlike the send caps -- these are the tenant's OWN kit on the
+	// tenant's OWN airtime, not a commercial lever (MESHSAT-1121).
+	OOBMaxPerHour    *int `json:"oob_max_per_hour,omitempty"`
+	OOBSMSTimeoutSec *int `json:"oob_sms_timeout_sec,omitempty"`
+	OOBSatTimeoutSec *int `json:"oob_sat_timeout_sec,omitempty"`
 }
 
 type createInviteRequest struct {
@@ -234,6 +281,33 @@ func (h *TenantHandler) Update(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		t.AuditRetentionDays = v
+	}
+	// Out-of-band command policy. 0 always means the platform default; anything
+	// else sits inside the platform's bounds. Both ends matter: a ceiling of 1
+	// makes a field kit unmanageable, and an unbounded one turns a stuck script
+	// into a bill on the customer's own carrier account (MESHSAT-1121).
+	for _, f := range []struct {
+		name     string
+		val      *int
+		dst      *int
+		min, max int
+		unit     string
+	}{
+		{"oob_max_per_hour", req.OOBMaxPerHour, &t.OOBMaxPerHour, h.oobMaxPerHourMin, h.oobMaxPerHourMax, "frames per hour"},
+		{"oob_sms_timeout_sec", req.OOBSMSTimeoutSec, &t.OOBSMSTimeoutSec, h.oobTimeoutMin, h.oobTimeoutMax, "seconds"},
+		{"oob_sat_timeout_sec", req.OOBSatTimeoutSec, &t.OOBSatTimeoutSec, h.oobTimeoutMin, h.oobTimeoutMax, "seconds"},
+	} {
+		if f.val == nil {
+			continue
+		}
+		v := *f.val
+		if v != 0 && (v < f.min || v > f.max) {
+			writeError(w, http.StatusBadRequest, fmt.Sprintf(
+				"%s must be 0 (platform default) or between %d and %d %s",
+				f.name, f.min, f.max, f.unit))
+			return
+		}
+		*f.dst = v
 	}
 	if err := h.store.UpdateTenant(r.Context(), t); err != nil {
 		slog.Error("tenant: update failed", "error", err)

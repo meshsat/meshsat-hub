@@ -486,6 +486,13 @@ var lateAlterMigrations = []string{
 	`ALTER TABLE tenants ADD COLUMN audit_retention_days INTEGER NOT NULL DEFAULT 0`,
 	`ALTER TABLE tenants ADD COLUMN ratelimit_daily_cap INTEGER NOT NULL DEFAULT 0`,
 	`ALTER TABLE tenants ADD COLUMN ratelimit_monthly_cap INTEGER NOT NULL DEFAULT 0`,
+	// MESHSAT-1121: out-of-band command policy, per tenant. 0 = platform default.
+	// The frames go to the tenant's own kit on the tenant's own airtime, so the
+	// rate and the reply timeouts are theirs to set. No oob_encrypt column: OOB
+	// frames are always sealed.
+	`ALTER TABLE tenants ADD COLUMN oob_max_per_hour INTEGER NOT NULL DEFAULT 0`,
+	`ALTER TABLE tenants ADD COLUMN oob_sms_timeout_sec INTEGER NOT NULL DEFAULT 0`,
+	`ALTER TABLE tenants ADD COLUMN oob_sat_timeout_sec INTEGER NOT NULL DEFAULT 0`,
 	// MESHSAT-1119 cooldown. 0 = platform default. In lateAlterMigrations, NOT
 	// beside the CREATE TABLE: that slice is not duplicate-tolerant, and putting
 	// it there passed every test on a fresh database and failed on the second
