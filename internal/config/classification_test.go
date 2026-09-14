@@ -82,8 +82,8 @@ func TestEverySettingIsClassified(t *testing.T) {
 func TestNoNewTenantOwnedSettingsHaveAppeared(t *testing.T) {
 	// A RATCHET, not a constant: it starts at the 22 the audit found and comes
 	// down as each tranche lands, so a setting cannot quietly move back out of
-	// the UI. APRS-IS took 4, Apprise and ntfy 5, the email gateway 6.
-	const auditedProvider = 7 // hawkBit 4, WireGuard 3
+	// the UI. APRS-IS took 4, Apprise and ntfy 5, email 6, WireGuard 3.
+	const auditedProvider = 4 // hawkBit 4
 	const auditedColumn = 3   // OOB max/hour, SMS timeout, satellite timeout
 
 	provider, column := 0, 0

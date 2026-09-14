@@ -1,0 +1,74 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: wg-easy
+  namespace: meshsat-hub
+  labels:
+    app.kubernetes.io/name: wg-easy
+spec:
+  serviceName: wg-easy
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: wg-easy
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: wg-easy
+    spec:
+      # Control-plane tier: the worker tier is ~90% committed on two of three
+      # nodes, this one is at 6-7%. Same placement as the database and NATS.
+      nodeSelector:
+        node-role.kubernetes.io/control-plane: ""
+      tolerations:
+        - {key: node-role.kubernetes.io/control-plane, operator: Exists, effect: NoSchedule}
+      containers:
+        - name: wg-easy
+          image: ghcr.io/wg-easy/wg-easy
+          env:
+            # WG_HOST is what goes into the peer configurations the Hub hands
+            # out, so it must be an address a field device can actually reach.
+            - name: WG_HOST
+              valueFrom: {configMapKeyRef: {name: wg-easy-config, key: WG_HOST}}
+            - name: PASSWORD_HASH
+              valueFrom: {secretKeyRef: {name: wg-easy-secrets, key: PASSWORD_HASH}}
+            - name: WG_DEFAULT_ADDRESS
+              value: "10.44.0.x"
+            - name: WG_DEFAULT_DNS
+              value: ""
+            - name: UI_TRAFFIC_STATS
+              value: "true"
+          ports:
+            - {name: ui, containerPort: 51821, protocol: TCP}
+            - {name: wireguard, containerPort: 51820, protocol: UDP}
+          securityContext:
+            # NET_ADMIN ONLY, and no /lib/modules hostPath. Bringing up a
+            # WireGuard interface needs NET_ADMIN and there is no way around it,
+            # but SYS_MODULE (to insmod the module from inside the container) is
+            # a much larger ask: it is load-arbitrary-kernel-code. WireGuard has
+            # been in-tree since Linux 5.6, so the module is the NODE's business.
+            # If it is genuinely missing, load it on the node rather than giving
+            # this container the right to load anything.
+            capabilities:
+              add: [NET_ADMIN]
+              drop: [ALL]
+            privileged: false
+            allowPrivilegeEscalation: false
+          resources:
+            requests: {cpu: 20m, memory: 64Mi}
+            limits: {memory: 256Mi}
+          volumeMounts:
+            - {name: config, mountPath: /etc/wireguard}
+          readinessProbe:
+            tcpSocket: {port: 51821}
+            initialDelaySeconds: 5
+            periodSeconds: 10
+  volumeClaimTemplates:
+    - metadata:
+        name: config
+      spec:
+        accessModes: [ReadWriteOnce]
+        storageClassName: openebs-hostpath
+        resources:
+          requests:
+            storage: 1Gi

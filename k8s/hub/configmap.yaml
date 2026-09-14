@@ -119,8 +119,21 @@ data:
   # counter -- warnings mean the guess is wrong, and nothing was dropped while
   # you found out.
   # HUB_CLOUDLOOP_WEBHOOK_EXPECTED_IPS: ""
+  # APRS-IS, WireGuard and hawkBit are all PER TENANT since MESHSAT-1121: each
+  # tenant brings its own callsign, wg-easy and hawkBit on the Integrations page.
+  # These three variables are now only the PLATFORM's own account, serving the
+  # default tenant, exactly like HUB_SMS_* is the platform's Twilio. A customer
+  # is unaffected by them either way.
+  #
+  # APRS-IS stays off for the platform: the operator has no callsign on file, and
+  # a callsign is a licence issued to a named person. A tenant that brings its
+  # own transmits regardless of this value.
   HUB_APRSIS_ENABLED: "false"
-  HUB_WG_ENABLED: "false"
+  # The platform's own wg-easy, deployed in k8s/wireguard (MESHSAT-1121). It was
+  # "false" with no server anywhere in the estate, so Network was a nav entry in
+  # front of nothing.
+  HUB_WG_ENABLED: "true"
+  HUB_WG_URL: "http://wg-easy:51821"
   HUB_HAWKBIT_ENABLED: "false"
   # TAK is per-tenant (MESHSAT-1037, MESHSAT-1065): the operator runs one
   # OpenTAKServer per tenant, or a tenant points the Hub at their own server
