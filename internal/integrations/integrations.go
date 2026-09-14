@@ -16,11 +16,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"sort"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/meshsat/meshsat-hub/internal/bus"
 	"github.com/meshsat/meshsat-hub/internal/crypto"
 	"github.com/meshsat/meshsat-hub/internal/netguard"
 	"github.com/meshsat/meshsat-hub/internal/store"
@@ -248,6 +250,25 @@ var ErrUnknownProvider = errors.New("unknown provider")
 // ErrNotConfigured is returned by Require when the tenant has no account.
 var ErrNotConfigured = errors.New("provider account not configured for this tenant")
 
+// ReloadTopic tells every replica that a tenant's provider accounts changed.
+//
+// The Hub runs two replicas and each holds its own 60-second cache of resolved
+// accounts, so without this the replica that did NOT serve the write keeps its
+// old answer -- including a cached NEGATIVE, which is the damaging one: for up
+// to a minute it behaves as though the tenant has no credentials at all. That
+// is not a display problem. ForTenant is the resolution point for every client
+// pool, so in that window the unaware replica does not send the SMS, does not
+// deliver the notification, does not inject the position and does not send the
+// mail (MESHSAT-1127, reproduced on production).
+//
+// Same shape as webhook.ReloadTopic, geo.ReloadTopic and email.ReloadTopic.
+// The TTL stays as the backstop: a missed announcement still self-heals.
+const ReloadTopic = "meshsat/hub/integrations/changed"
+
+type reloadEvent struct {
+	TenantID string `json:"tenant_id"`
+}
+
 // Service reads and writes provider accounts with a short cache.
 type Service struct {
 	// noURLCheck disables the save-time SSRF check on URL fields.
@@ -265,6 +286,8 @@ type Service struct {
 	key       []byte
 	ttl       time.Duration
 	defaultID string
+
+	bus bus.MessageBus
 
 	mu       sync.RWMutex
 	platform map[string]*Account           // provider -> env account (default tenant fallback)
@@ -286,6 +309,49 @@ type tokenHit struct {
 func New(s store.Store, masterKey []byte) *Service {
 	return &Service{store: s, key: masterKey, ttl: time.Minute, defaultID: store.DefaultTenantID,
 		platform: map[string]*Account{}, cache: map[string]map[string]*cached{}, tokens: map[string]tokenHit{}}
+}
+
+// SetBus attaches the message bus and subscribes to ReloadTopic.
+//
+// Without a bus the service still works and still self-heals at the TTL; this
+// only closes the window. A Hub running one replica needs none of it.
+func (s *Service) SetBus(b bus.MessageBus) error {
+	s.mu.Lock()
+	s.bus = b
+	s.mu.Unlock()
+	if b == nil {
+		return nil
+	}
+	return b.Subscribe(ReloadTopic, 1, func(_ string, payload []byte) {
+		var ev reloadEvent
+		if err := json.Unmarshal(payload, &ev); err != nil || ev.TenantID == "" {
+			return
+		}
+		// Drop the tenant's whole entry rather than one provider: Invalidate
+		// also clears the token map, and a webhook path secret that moved with
+		// the account has to stop resolving to the old tenant at the same
+		// instant the account changes.
+		s.Invalidate(ev.TenantID)
+	})
+}
+
+// announce tells the other replicas this tenant's accounts changed.
+//
+// A failure is logged, not returned: the account IS written, and refusing the
+// customer's save because a broker hiccuped would be worse than the 60-second
+// staleness this exists to avoid.
+func (s *Service) announce(tenantID string) {
+	s.mu.RLock()
+	b := s.bus
+	s.mu.RUnlock()
+	if b == nil || tenantID == "" {
+		return
+	}
+	if err := b.PublishJSON(ReloadTopic, 1, false, reloadEvent{TenantID: tenantID}); err != nil {
+		slog.Warn("integrations: could not announce the change to other replicas; "+
+			"they will serve a stale account until their cache expires",
+			"error", err, "tenant", tenantID, "ttl", s.ttl)
+	}
 }
 
 // SetPlatform registers the environment-configured account of a provider. Only
@@ -506,6 +572,7 @@ func (s *Service) Set(ctx context.Context, tenantID, provider string, fields map
 		}
 	}
 	s.Invalidate(tenantID)
+	s.announce(tenantID)
 	return &Account{Provider: provider, TenantID: tenantID, Fields: merged, UpdatedAt: now}, nil
 }
 
@@ -521,6 +588,7 @@ func (s *Service) Delete(ctx context.Context, tenantID, provider string) error {
 		}
 	}
 	s.Invalidate(tenantID)
+	s.announce(tenantID)
 	return nil
 }
 
