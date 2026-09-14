@@ -116,10 +116,24 @@ var Specs = []Spec{
 			{Key: "api_key", Label: "API key", Secret: true, Required: true},
 			{Key: "webhook_secret", Label: "Webhook secret", Secret: true, Required: true, Generate: true},
 		}},
-	{Provider: ProviderEmail, Label: "Email gateway (inbound)", Description: "The secret the mail relay presents when delivering inbound mail for this tenant.",
+	// Both halves of the PGP email gateway. The webhook secret (inbound) has been
+	// here since MESHSAT-977; the SENDING half was added by MESHSAT-1121, where it
+	// had been six global environment variables, so every tenant's alerts would
+	// have left from one address signed with one key.
+	//
+	// None of the sending fields is Required, deliberately. A tenant that already
+	// has a row with only webhook_secret must keep being able to save it: Set
+	// enforces Required across the whole account, so marking smtp_host required
+	// would reject every existing inbound-only account on its next edit.
+	{Provider: ProviderEmail, Label: "Email gateway (PGP)", Description: "Send and receive PGP email for this tenant. The webhook secret authenticates inbound mail; the SMTP details below are the address your alerts are sent from. Leave the SMTP fields empty to receive only.",
 		Webhook: "/api/webhook/email",
 		Fields: []Field{
-			{Key: "webhook_secret", Label: "Webhook secret", Secret: true, Required: true, Generate: true},
+			{Key: "webhook_secret", Label: "Webhook secret", Secret: true, Required: true, Generate: true, Hint: "authenticates inbound mail delivered for this tenant."},
+			{Key: "smtp_host", Label: "SMTP host", Hint: "host:port of your outgoing mail server; leave empty to receive only."},
+			{Key: "from", Label: "From address", Hint: "the address your alerts are sent from."},
+			{Key: "username", Label: "SMTP username", Hint: "leave empty if your relay authorises by address."},
+			{Key: "password", Label: "SMTP password", Secret: true},
+			{Key: "pgp_key", Label: "PGP private key (armored)", Secret: true, Hint: "your own key, used to sign outgoing mail and decrypt inbound. Leave empty and one is generated per run, which is fine for encrypting TO contacts but cannot decrypt anything sent to a previous run."},
 		}},
 	// Bring your own TAK server (MESHSAT-1065). A tenant that already runs TAK
 	// Server, FreeTAKServer, OpenTAKServer or taky points the Hub at it and their

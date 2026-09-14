@@ -6,22 +6,38 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/meshsat/meshsat-hub/internal/api"
+	hubauth "github.com/meshsat/meshsat-hub/internal/auth"
 )
 
 // APIHandler provides REST endpoints for PGP key management and email testing.
+//
+// Every handler resolves the CALLER'S tenant and works on that tenant's gateway.
+// It used to hold one keyRing and one client for the whole Hub, so a PGP contact
+// added by one customer was visible to, and overwritable by, every other -- and
+// since Encrypt picks the recipient key by bare address, one tenant could have
+// caused another tenant's alert to be encrypted to a key they controlled
+// (MESHSAT-1121).
 type APIHandler struct {
-	keyRing *KeyRing
-	client  *Client
+	pool *Pool
 }
 
 // NewAPIHandler creates a new email API handler.
-func NewAPIHandler(kr *KeyRing) *APIHandler {
-	return &APIHandler{keyRing: kr}
+func NewAPIHandler(pool *Pool) *APIHandler {
+	return &APIHandler{pool: pool}
 }
 
-// SetClient sets the SMTP client for test send functionality.
-func (h *APIHandler) SetClient(c *Client) {
-	h.client = c
+// gatewayFor resolves the calling tenant's gateway, or writes 503 and returns
+// nil. 503 rather than 404: the endpoint exists, this tenant has not configured
+// it, and saying so is the whole point of MESHSAT-1121.
+func (h *APIHandler) gatewayFor(w http.ResponseWriter, r *http.Request) *Gateway {
+	tid := hubauth.TenantIDFromContext(r.Context())
+	gw := h.pool.ForTenant(r.Context(), tid)
+	if gw == nil {
+		api.WriteError(w, http.StatusServiceUnavailable,
+			"no email gateway configured for this tenant (Integrations page)")
+		return nil
+	}
+	return gw
 }
 
 // GetPublicKey returns the Hub's PGP public key in ASCII-armored format.
@@ -31,10 +47,14 @@ func (h *APIHandler) SetClient(c *Client) {
 //	@Produce      text/plain
 //	@Success      200  {string}  string
 //	@Router       /api/email/keys/public [get]
-func (h *APIHandler) GetPublicKey(w http.ResponseWriter, _ *http.Request) {
+func (h *APIHandler) GetPublicKey(w http.ResponseWriter, r *http.Request) {
+	gw := h.gatewayFor(w, r)
+	if gw == nil {
+		return
+	}
 	w.Header().Set("Content-Type", "application/pgp-keys")
 	w.Header().Set("Content-Disposition", "attachment; filename=meshsat-hub.asc")
-	_, _ = w.Write([]byte(h.keyRing.HubPublicKey()))
+	_, _ = w.Write([]byte(gw.KeyRing.HubPublicKey()))
 }
 
 // ListContacts returns metadata for all stored PGP contacts.
@@ -44,8 +64,12 @@ func (h *APIHandler) GetPublicKey(w http.ResponseWriter, _ *http.Request) {
 //	@Produce      json
 //	@Success      200  {array}  ContactInfo
 //	@Router       /api/email/keys [get]
-func (h *APIHandler) ListContacts(w http.ResponseWriter, _ *http.Request) {
-	infos := h.keyRing.ListContactInfo()
+func (h *APIHandler) ListContacts(w http.ResponseWriter, r *http.Request) {
+	gw := h.gatewayFor(w, r)
+	if gw == nil {
+		return
+	}
+	infos := gw.KeyRing.ListContactInfo()
 	if infos == nil {
 		infos = []ContactInfo{}
 	}
@@ -79,13 +103,17 @@ func (h *APIHandler) AddContact(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := h.keyRing.AddContact(req.Email, req.ArmoredKey); err != nil {
+	gw := h.gatewayFor(w, r)
+	if gw == nil {
+		return
+	}
+	if err := gw.KeyRing.AddContact(req.Email, req.ArmoredKey); err != nil {
 		slog.Error("email: add contact key failed", "email", req.Email, "error", err)
 		api.WriteError(w, http.StatusBadRequest, "invalid PGP key")
 		return
 	}
 
-	slog.Info("email: contact key added", "email", req.Email)
+	slog.Info("email: contact key added", "tenant", hubauth.TenantIDFromContext(r.Context()), "email", req.Email)
 	api.WriteJSON(w, http.StatusCreated, map[string]string{"status": "ok", "email": req.Email})
 }
 
@@ -102,7 +130,11 @@ func (h *APIHandler) DeleteContact(w http.ResponseWriter, r *http.Request) {
 		api.WriteError(w, http.StatusBadRequest, "missing email")
 		return
 	}
-	h.keyRing.RemoveContact(email)
+	gw := h.gatewayFor(w, r)
+	if gw == nil {
+		return
+	}
+	gw.KeyRing.RemoveContact(email)
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -129,8 +161,8 @@ func (h *APIHandler) TestSend(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if h.client == nil {
-		api.WriteError(w, http.StatusServiceUnavailable, "email gateway not configured")
+	gw := h.gatewayFor(w, r)
+	if gw == nil {
 		return
 	}
 
@@ -143,12 +175,12 @@ func (h *APIHandler) TestSend(w http.ResponseWriter, r *http.Request) {
 		msgBody = req.Body
 	}
 
-	if err := h.client.Send(req.To, subject, msgBody); err != nil {
+	if err := gw.Client.Send(req.To, subject, msgBody); err != nil {
 		api.WriteError(w, http.StatusInternalServerError, "send failed: "+err.Error())
 		return
 	}
 
-	encrypted := h.keyRing.GetContact(req.To) != nil
+	encrypted := gw.KeyRing.GetContact(req.To) != nil
 	api.WriteJSON(w, http.StatusOK, map[string]interface{}{
 		"status":    "sent",
 		"to":        req.To,
