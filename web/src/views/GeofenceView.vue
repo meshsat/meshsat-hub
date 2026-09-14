@@ -2,7 +2,7 @@
 import { ref, onMounted, onUnmounted, watch } from 'vue'
 import { createMap, setMapTheme, probeLocalArchive, maplibregl } from '../map/basemap'
 import { useThemeStore } from '../stores/theme'
-import { geofences } from '../api/client'
+import { geofences, escalation } from '../api/client'
 
 const mapContainer = ref(null)
 const fenceList = ref([])
@@ -12,6 +12,11 @@ const showForm = ref(false)
 const formName = ref('')
 const formTrigger = ref('both')
 const formChainId = ref('')
+// The tenant's escalation chains, so the chain a fence triggers is PICKED and
+// not typed (MESHSAT-1119). A typo in a free-text field produced a fence that
+// silently paged nobody -- which is the exact failure this feature was.
+const chains = ref([])
+const chainsLoaded = ref(false)
 const basemapMissing = ref(false)
 const vertexCount = ref(0)
 const theme = useThemeStore()
@@ -209,6 +214,7 @@ onMounted(async () => {
   })
   map.on('click', onMapClick)
   await loadFences()
+  await loadChains()
 })
 
 watch(() => theme.dark, async (dark) => {
@@ -252,7 +258,17 @@ onUnmounted(() => {
           <option value="exit">Exit</option>
           <option value="both">Enter + Exit</option>
         </select>
-        <input v-model="formChainId" placeholder="Escalation chain ID (optional)" class="bg-gray-800 border border-gray-700 rounded px-3 py-2 text-sm">
+        <!-- Picked, not typed (MESHSAT-1119): a typo in a free-text chain id
+             produced a fence that silently paged nobody, which is exactly the
+             failure this feature was. Falls back to the text field if the
+             chain list cannot be loaded, rather than blocking the form. -->
+        <select v-if="chainsLoaded" v-model="formChainId"
+          class="bg-gray-800 border border-gray-700 rounded px-3 py-2 text-sm">
+          <option value="">No alert — record crossings only</option>
+          <option v-for="c in chains" :key="c.id" :value="c.id">{{ c.name || c.id }}</option>
+        </select>
+        <input v-else v-model="formChainId" placeholder="Escalation chain ID (optional)"
+          class="bg-gray-800 border border-gray-700 rounded px-3 py-2 text-sm">
       </div>
       <div class="flex gap-2">
         <span class="text-xs text-gray-400">{{ vertexCount }} vertices</span>
