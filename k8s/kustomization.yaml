@@ -36,7 +36,7 @@ resources:
 images:
   # --- the Hub itself (CI-built, private GHCR; pull secret registry-meshsat) ---
   - name: ghcr.io/meshsat/meshsat-hub
-    digest: sha256:852c2345d7f723e185b13b6e6c2d671fcb639a9d96a00cc1f98a2c7e7eaaf037  # main 5443cdaa (2026-09-14)
+    digest: sha256:66fac526356f39775a8caf94431ac621784e361e4f0c5889cac414353265db5f  # main 1269bc8d (2026-09-14)
   # stunnel for the Reticulum leg, built by the package:stunnel CI job from k8s/stunnel/Dockerfile.
   - name: ghcr.io/meshsat/meshsat-hub-stunnel
     newTag: "3.21"
