@@ -32,9 +32,13 @@ spec:
             # per-tenant NotificationPref rows -- instead of two.
             - name: APPRISE_STATELESS_URLS
               value: ""
+          # 256Mi was OOMKilled repeatedly. Apprise-API is Python/Django with
+          # gunicorn workers and imports the whole 90-backend plugin set at
+          # startup, so its floor is well above what "a small notification relay"
+          # suggests. Measured, not guessed: it died at 256Mi and settles here.
           resources:
-            requests: {cpu: 20m, memory: 64Mi}
-            limits: {memory: 256Mi}
+            requests: {cpu: 50m, memory: 192Mi}
+            limits: {memory: 512Mi}
           # No capability drop. The image creates its own runtime user at
           # startup (linuxserver-style PUID/PGID) and with drop: [ALL] the
           # useradd fails -- "failure while writing changes to /etc/shadow" --
