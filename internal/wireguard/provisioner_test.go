@@ -42,8 +42,8 @@ func TestProvisioner_OnDeviceCreated(t *testing.T) {
 	c := NewClient(srv.URL, "testpass")
 	_ = c.Login(context.Background())
 
-	p := NewProvisioner(c)
-	addr, peer, err := p.OnDeviceCreated(context.Background(), "300234063904190")
+	p := NewProvisionerPool(NewClientPool(c, nil))
+	addr, peer, err := p.OnDeviceCreated(context.Background(), "default", "300234063904190")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -60,7 +60,7 @@ func TestProvisioner_OnDeviceCreated(t *testing.T) {
 		t.Errorf("peer name = %s, want meshsat-300234063904190", createdName)
 	}
 
-	if p.GetPeerID("300234063904190") != "peer-123" {
+	if p.GetPeerID("default", "300234063904190") != "peer-123" {
 		t.Error("peer ID not tracked")
 	}
 }
@@ -87,16 +87,16 @@ func TestProvisioner_OnDeviceDeleted(t *testing.T) {
 	c := NewClient(srv.URL, "testpass")
 	_ = c.Login(context.Background())
 
-	p := NewProvisioner(c)
+	p := NewProvisionerPool(NewClientPool(c, nil))
 	// Manually set up a tracked peer.
-	p.peers["dev1"] = "peer-456"
+	p.peers[peerKey("default", "dev1")] = "peer-456"
 
-	p.OnDeviceDeleted(context.Background(), "dev1")
+	p.OnDeviceDeleted(context.Background(), "default", "dev1")
 
 	if deletedID != "peer-456" {
 		t.Errorf("deleted peer ID = %s, want peer-456", deletedID)
 	}
-	if p.GetPeerID("dev1") != "" {
+	if p.GetPeerID("default", "dev1") != "" {
 		t.Error("peer should be removed from tracking")
 	}
 }
@@ -125,16 +125,16 @@ func TestProvisioner_Hydrate(t *testing.T) {
 	c := NewClient(srv.URL, "testpass")
 	_ = c.Login(context.Background())
 
-	p := NewProvisioner(c)
-	p.Hydrate(context.Background())
+	p := NewProvisionerPool(NewClientPool(c, nil))
+	p.Hydrate(context.Background(), "default")
 
-	if p.GetPeerID("dev001") != "p1" {
-		t.Errorf("dev001 peer = %s, want p1", p.GetPeerID("dev001"))
+	if p.GetPeerID("default", "dev001") != "p1" {
+		t.Errorf("dev001 peer = %s, want p1", p.GetPeerID("default", "dev001"))
 	}
-	if p.GetPeerID("dev002") != "p2" {
-		t.Errorf("dev002 peer = %s, want p2", p.GetPeerID("dev002"))
+	if p.GetPeerID("default", "dev002") != "p2" {
+		t.Errorf("dev002 peer = %s, want p2", p.GetPeerID("default", "dev002"))
 	}
-	if p.GetPeerID("manual-peer") != "" {
+	if p.GetPeerID("default", "manual-peer") != "" {
 		t.Error("manual-peer should not be tracked")
 	}
 }
@@ -155,10 +155,10 @@ func TestProvisioner_GetDeviceConfig(t *testing.T) {
 	c := NewClient(srv.URL, "testpass")
 	_ = c.Login(context.Background())
 
-	p := NewProvisioner(c)
-	p.peers["dev1"] = "peer-789"
+	p := NewProvisionerPool(NewClientPool(c, nil))
+	p.peers[peerKey("default", "dev1")] = "peer-789"
 
-	cfg, err := p.GetDeviceConfig(context.Background(), "dev1")
+	cfg, err := p.GetDeviceConfig(context.Background(), "default", "dev1")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -168,9 +168,47 @@ func TestProvisioner_GetDeviceConfig(t *testing.T) {
 }
 
 func TestProvisioner_GetDeviceConfig_NoPeer(t *testing.T) {
-	p := NewProvisioner(nil)
-	_, err := p.GetDeviceConfig(context.Background(), "unknown")
+	p := NewProvisionerPool(NewClientPool(nil, nil))
+	_, err := p.GetDeviceConfig(context.Background(), "default", "unknown")
 	if err == nil {
 		t.Error("expected error for unknown device")
+	}
+}
+
+// The peer map is keyed by tenant AND device (MESHSAT-1121). A device id is only
+// unique within a tenant, so keyed on the device alone one tenant's registration
+// overwrote another's peer mapping -- and the next delete then removed the WRONG
+// tenant's peer, while GetDeviceConfig handed back the wrong peer's PRIVATE KEY.
+func TestPeerMappingsAreKeptApartPerTenant(t *testing.T) {
+	p := NewProvisionerPool(NewClientPool(nil, nil))
+
+	p.mu.Lock()
+	p.peers[peerKey("t_one", "shared-id")] = "peer-one"
+	p.peers[peerKey("t_two", "shared-id")] = "peer-two"
+	p.mu.Unlock()
+
+	if got := p.GetPeerID("t_one", "shared-id"); got != "peer-one" {
+		t.Errorf("tenant one resolved to %q, want peer-one", got)
+	}
+	if got := p.GetPeerID("t_two", "shared-id"); got != "peer-two" {
+		t.Errorf("tenant two resolved to %q, want peer-two: one tenant's peer "+
+			"mapping overwrote the other's for the same device id, so a config "+
+			"download would hand over the wrong peer's private key", got)
+	}
+	if got := p.GetPeerID("t_three", "shared-id"); got != "" {
+		t.Errorf("a tenant with no peer for this device resolved to %q", got)
+	}
+}
+
+// A tenant with no wg-easy configured must not have its device registration
+// fail: WireGuard is optional, and a device is not a VPN peer.
+func TestRegisteringADeviceSucceedsForATenantWithNoVPN(t *testing.T) {
+	p := NewProvisionerPool(NewClientPool(nil, nil))
+	addr, peer, err := p.OnDeviceCreated(context.Background(), "t_novpn", "300234063904190")
+	if err != nil {
+		t.Fatalf("registering a device failed for a tenant with no VPN: %v", err)
+	}
+	if peer != nil || addr != "" {
+		t.Errorf("got a peer %v / %q for a tenant with no VPN", peer, addr)
 	}
 }

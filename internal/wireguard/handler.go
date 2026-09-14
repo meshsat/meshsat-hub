@@ -2,6 +2,7 @@ package wireguard
 
 import (
 	"encoding/json"
+	hubauth "github.com/meshsat/meshsat-hub/internal/auth"
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
@@ -10,9 +11,30 @@ import (
 // APIHandler provides REST endpoints for WireGuard peer management.
 type APIHandler struct {
 	client *Client
+	pool   *ClientPool
 }
 
-// NewAPIHandler creates a new WireGuard API handler.
+// NewAPIHandlerPool builds a handler that acts on the CALLING tenant's own
+// wg-easy. Peer configs carry private keys, so this is the difference between a
+// customer seeing their own VPN and seeing everybody's (MESHSAT-1121).
+func NewAPIHandlerPool(pool *ClientPool) *APIHandler {
+	return &APIHandler{pool: pool}
+}
+
+// clientFor resolves the caller's wg-easy, or writes 503 and returns nil.
+func (h *APIHandler) clientFor(w http.ResponseWriter, r *http.Request) *Client {
+	if h.pool == nil {
+		return h.client
+	}
+	c := h.pool.ForTenant(r.Context(), hubauth.TenantIDFromContext(r.Context()))
+	if c == nil {
+		wgWriteError(w, http.StatusServiceUnavailable,
+			"no WireGuard server configured for this tenant (Integrations page)")
+		return nil
+	}
+	return c
+}
+
 func NewAPIHandler(client *Client) *APIHandler {
 	return &APIHandler{client: client}
 }
@@ -37,7 +59,11 @@ func wgWriteError(w http.ResponseWriter, status int, msg string) {
 // @Failure 502 {object} map[string]string
 // @Router /api/wireguard/peers [get]
 func (h *APIHandler) ListPeers(w http.ResponseWriter, r *http.Request) {
-	peers, err := h.client.ListPeers(r.Context())
+	c := h.clientFor(w, r)
+	if c == nil {
+		return
+	}
+	peers, err := c.ListPeers(r.Context())
 	if err != nil {
 		wgWriteError(w, http.StatusBadGateway, err.Error())
 		return
@@ -71,7 +97,11 @@ func (h *APIHandler) CreatePeer(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	peer, err := h.client.CreatePeer(r.Context(), req.Name)
+	c := h.clientFor(w, r)
+	if c == nil {
+		return
+	}
+	peer, err := c.CreatePeer(r.Context(), req.Name)
 	if err != nil {
 		wgWriteError(w, http.StatusBadGateway, err.Error())
 		return
@@ -89,7 +119,11 @@ func (h *APIHandler) CreatePeer(w http.ResponseWriter, r *http.Request) {
 // @Router /api/wireguard/peers/{id}/config [get]
 func (h *APIHandler) GetPeerConfig(w http.ResponseWriter, r *http.Request) {
 	peerID := chi.URLParam(r, "id")
-	config, err := h.client.GetPeerConfig(r.Context(), peerID)
+	c := h.clientFor(w, r)
+	if c == nil {
+		return
+	}
+	config, err := c.GetPeerConfig(r.Context(), peerID)
 	if err != nil {
 		wgWriteError(w, http.StatusBadGateway, err.Error())
 		return
@@ -107,7 +141,11 @@ func (h *APIHandler) GetPeerConfig(w http.ResponseWriter, r *http.Request) {
 // @Router /api/wireguard/peers/{id} [delete]
 func (h *APIHandler) DeletePeer(w http.ResponseWriter, r *http.Request) {
 	peerID := chi.URLParam(r, "id")
-	if err := h.client.DeletePeer(r.Context(), peerID); err != nil {
+	c := h.clientFor(w, r)
+	if c == nil {
+		return
+	}
+	if err := c.DeletePeer(r.Context(), peerID); err != nil {
 		wgWriteError(w, http.StatusBadGateway, err.Error())
 		return
 	}

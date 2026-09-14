@@ -46,10 +46,19 @@ var platformOnlyRoutes = []string{
 	`"/api/mptcp/strategy"`,
 	`"/api/mptcp/endpoints"`,
 	`"/api/mptcp/endpoints/{id}"`,
-	// One WireGuard server for the deployment; the config carries a private key.
-	`"/api/wireguard/peers"`,
-	`"/api/wireguard/peers/{id}/config"`,
-	`"/api/wireguard/peers/{id}"`,
+	// The three /api/wireguard/peers routes came off this list in MESHSAT-1121,
+	// for the same reason the email key routes did: the platform-admin gate was
+	// containment for a defect, not a property of the endpoint.
+	//
+	// There was ONE wg-easy for the whole deployment and the handler had no
+	// tenant model, so any member could enumerate, create and delete another
+	// tenant's peers -- and the config download carries a peer's PRIVATE KEY.
+	// Each tenant now brings its own server (internal/wireguard.ClientPool) and
+	// the provisioner's peer map is keyed by tenant AND device, so the endpoints
+	// reach only the caller's own peers and are owner-gated like the rest of a
+	// tenant's settings.
+	//
+	// If a shared server or a device-keyed peer map ever returns, put them BACK.
 	// Firmware to the fleet. The highest-impact primitive on the router.
 	`"/api/ota/targets"`,
 	`"/api/ota/targets/{controllerId}"`,

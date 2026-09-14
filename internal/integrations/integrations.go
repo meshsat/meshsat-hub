@@ -54,6 +54,14 @@ const (
 	ProviderApprise = "apprise"
 	ProviderNtfy    = "ntfy"
 
+	// ProviderWireGuard and ProviderHawkbit are infrastructure a tenant runs for
+	// its OWN field devices -- a VPN the kit dials into, a firmware server it
+	// updates from (MESHSAT-1121). Neither was ever deployed by the operator, so
+	// both were a nav entry in front of nothing; bring-your-own is what they
+	// should have been from the start.
+	ProviderWireGuard = "wireguard"
+	ProviderHawkbit   = "hawkbit"
+
 	// CredType marks a provider-account row in the credentials table.
 	CredType = "provider_account"
 	// Scope is the target_scope of a provider-account row.
@@ -181,6 +189,17 @@ var Specs = []Spec{
 	{Provider: ProviderApprise, Label: "Apprise (notification relay)", Description: "The Apprise server your alerts are delivered through. The notification URLs you set per device on the Notifications page are handed to this server. Without one, those URLs are stored and never delivered to.",
 		Fields: []Field{
 			{Key: "url", Label: "Apprise API URL", Required: true, Hint: "base URL of an Apprise API server, e.g. https://apprise.example.org"},
+		}},
+	{Provider: ProviderWireGuard, Label: "WireGuard (wg-easy)", Description: "A wg-easy server your field devices dial into. The Hub creates a peer when you register a device and removes it when you delete one. Peers are created on YOUR server; nothing is shared with another tenant.",
+		Fields: []Field{
+			{Key: "url", Label: "wg-easy URL", Required: true, Hint: "e.g. https://vpn.example.org"},
+			{Key: "password", Label: "wg-easy password", Secret: true, Required: true},
+		}},
+	{Provider: ProviderHawkbit, Label: "hawkBit (OTA firmware)", Description: "An Eclipse hawkBit server for firmware rollouts to your own fleet. hawkBit is multi-tenant itself, so the account below decides which of its tenants the Hub acts in.",
+		Fields: []Field{
+			{Key: "url", Label: "hawkBit URL", Required: true, Hint: "e.g. https://hawkbit.example.org"},
+			{Key: "username", Label: "Username", Required: true},
+			{Key: "password", Label: "Password", Secret: true, Required: true},
 		}},
 	{Provider: ProviderNtfy, Label: "ntfy (push notifications)", Description: "The ntfy server your push notifications are published to. Use your own, or the public ntfy.sh. Alert targets that name an ntfy topic are published here.",
 		Fields: []Field{

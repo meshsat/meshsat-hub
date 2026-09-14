@@ -2565,36 +2565,51 @@ func main() {
 		r.Post("/api/backup/import", backupHandler.ImportBackup)
 	})
 
-	// WireGuard peer management + auto-provisioning (optional)
-	if cfg.WGEnabled && cfg.WGURL != "" {
-		wgClient := wireguard.NewClient(cfg.WGURL, cfg.WGPassword)
-		if err := wgClient.Login(ctx); err != nil {
-			slog.Warn("wireguard: login failed (peer management disabled)", "error", err)
-		} else {
-			wgHandler := wireguard.NewAPIHandler(wgClient)
-			// PLATFORM ADMIN ONLY (MESHSAT-1116). There is one WireGuard server
-			// for the whole deployment and the handler has no tenant model, so
-			// every peer belonged to everybody: any member could enumerate,
-			// create and delete another tenant's peers, and GetPeerConfig hands
-			// back a peer's PRIVATE KEY.
-			r.Group(func(r chi.Router) {
-				r.Use(hubauth.RequirePlatformAdmin())
-				r.Get("/api/wireguard/peers", wgHandler.ListPeers)
-				r.Post("/api/wireguard/peers", wgHandler.CreatePeer)
-				r.Get("/api/wireguard/peers/{id}/config", wgHandler.GetPeerConfig)
-				r.Delete("/api/wireguard/peers/{id}", wgHandler.DeletePeer)
-			})
-
-			// Auto-provisioner: creates/deletes WG peers on device register/delete.
-			wgProvisioner := wireguard.NewProvisioner(wgClient)
-			wgProvisioner.Hydrate(ctx)
-			deviceHandler.SetProvisioner(wgProvisioner)
-
-			// Per-device WG config download endpoint.
-			r.Get("/api/devices/{imei}/wireguard", deviceHandler.GetDeviceWireguard)
-
-			slog.Info("wireguard: peer management + auto-provisioning enabled", "url", cfg.WGURL)
+	// WireGuard peer management + auto-provisioning, per tenant (MESHSAT-1121).
+	//
+	// The environment values are the PLATFORM's wg-easy and serve the default
+	// tenant; every other tenant brings its own on the Integrations page. All of
+	// this used to sit inside `if cfg.WGEnabled && cfg.WGURL != ""` behind a
+	// successful login, so on a Hub whose operator ran no VPN -- which is
+	// production -- the endpoints did not exist for anybody.
+	{
+		var wgPlatform *wireguard.Client
+		if cfg.WGEnabled && cfg.WGURL != "" {
+			wgPlatform = wireguard.NewClient(cfg.WGURL, cfg.WGPassword)
+			if err := wgPlatform.Login(ctx); err != nil {
+				slog.Warn("wireguard: the platform's own wg-easy refused the login", "error", err)
+				wgPlatform = nil
+			} else {
+				providerAccounts.SetPlatform(integrations.ProviderWireGuard, map[string]string{
+					"url": cfg.WGURL, "password": cfg.WGPassword})
+				slog.Info("wireguard: platform server enabled", "url", cfg.WGURL)
+			}
 		}
+		wgPool := wireguard.NewClientPool(wgPlatform, providerAccounts)
+		wgHandler := wireguard.NewAPIHandlerPool(wgPool)
+		// OWNER of the tenant, no longer PLATFORM ADMIN. The platform-admin gate
+		// was MESHSAT-1116's stopgap for a real defect: one server for the whole
+		// deployment and a handler with no tenant model, so any member could
+		// enumerate, create and delete another tenant's peers -- and
+		// GetPeerConfig hands back a peer's PRIVATE KEY. Each tenant has its own
+		// server now, so the endpoints reach only the caller's own peers.
+		r.Group(func(r chi.Router) {
+			r.Use(hubauth.RequireRole(hubauth.RoleOwner))
+			r.Get("/api/wireguard/peers", wgHandler.ListPeers)
+			r.Post("/api/wireguard/peers", wgHandler.CreatePeer)
+			r.Get("/api/wireguard/peers/{id}/config", wgHandler.GetPeerConfig)
+			r.Delete("/api/wireguard/peers/{id}", wgHandler.DeletePeer)
+		})
+
+		// Auto-provisioner: creates/deletes WG peers on device register/delete.
+		wgProvisioner := wireguard.NewProvisionerPool(wgPool)
+		if wgPlatform != nil {
+			wgProvisioner.Hydrate(ctx, store.DefaultTenantID)
+		}
+		deviceHandler.SetProvisioner(wgProvisioner)
+
+		// Per-device WG config download endpoint.
+		r.Get("/api/devices/{imei}/wireguard", deviceHandler.GetDeviceWireguard)
 	}
 
 	// Reticulum identity, routes, relay, and topology API

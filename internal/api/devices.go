@@ -122,10 +122,14 @@ func (h *DeviceHandler) CreateDevice(w http.ResponseWriter, r *http.Request) {
 
 	// Auto-provision WireGuard peer if enabled
 	if h.provisioner != nil {
-		vpnAddr, peer, err := h.provisioner.OnDeviceCreated(r.Context(), dev.IMEI)
+		// The peer goes on THIS tenant's own wg-easy (MESHSAT-1121); tid was
+		// already resolved above. A tenant with no VPN configured returns a nil
+		// peer and no error, because registering a device must not fail for a
+		// tenant that does not use one.
+		vpnAddr, peer, err := h.provisioner.OnDeviceCreated(r.Context(), tid, dev.IMEI)
 		if err != nil {
 			slog.Warn("wireguard: auto-provision failed (device created without VPN)", "imei", dev.IMEI, "error", err)
-		} else {
+		} else if peer != nil {
 			dw := &store.DeviceWireguard{
 				DeviceIMEI: dev.IMEI,
 				PeerID:     peer.ID,
@@ -203,7 +207,7 @@ func (h *DeviceHandler) DeleteDevice(w http.ResponseWriter, r *http.Request) {
 
 	// Remove WireGuard peer if provisioned
 	if h.provisioner != nil {
-		h.provisioner.OnDeviceDeleted(r.Context(), imei)
+		h.provisioner.OnDeviceDeleted(r.Context(), tid, imei)
 		if err := h.store.DeleteDeviceWireguard(r.Context(), tid, imei); err != nil {
 			slog.Debug("wireguard: no peer record to clean up", "imei", imei)
 		}
@@ -241,7 +245,7 @@ func (h *DeviceHandler) GetDeviceWireguard(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	config, err := h.provisioner.GetDeviceConfig(r.Context(), imei)
+	config, err := h.provisioner.GetDeviceConfig(r.Context(), tid, imei)
 	if err != nil {
 		writeError(w, http.StatusNotFound, "no wireguard peer for this device")
 		return

@@ -1,0 +1,17 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: wg-easy
+  namespace: meshsat-hub
+  labels:
+    app.kubernetes.io/name: wg-easy
+spec:
+  # The Hub talks to the UI/API port in-cluster; HUB_WG_URL names this Service.
+  # The UDP port is what field devices dial, and reaching it from outside needs
+  # an edge mapping that is deliberately NOT part of this manifest: opening a
+  # public UDP listener is a separate decision from running the server.
+  selector:
+    app.kubernetes.io/name: wg-easy
+  ports:
+    - {name: ui, port: 51821, targetPort: 51821, protocol: TCP}
+    - {name: wireguard, port: 51820, targetPort: 51820, protocol: UDP}

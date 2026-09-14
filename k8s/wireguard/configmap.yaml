@@ -1,0 +1,10 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: wg-easy-config
+  namespace: meshsat-hub
+data:
+  # The address a field device dials. Not the Service name: a peer configuration
+  # is used from outside the cluster, so an in-cluster name in it would be a
+  # configuration nobody can connect with.
+  WG_HOST: "vpn.meshsat.net"
