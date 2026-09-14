@@ -25,6 +25,7 @@ resources:
   # The platform's own wg-easy (MESHSAT-1121). Per-tenant servers are the
   # tenant's own infrastructure and are never deployed from here.
   - wireguard/
+  - hawkbit/
   - hub/
   - tak/
   - tak-operator/

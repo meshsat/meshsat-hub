@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"time"
 
 	"github.com/meshsat/meshsat-hub/internal/integrations"
 	"github.com/meshsat/meshsat-hub/internal/store"
@@ -20,6 +21,18 @@ type ClientPool struct {
 	platform *Client
 	accounts *integrations.Service
 	cache    integrations.ClientCache[*Client]
+
+	// noGuard disables the dial-time SSRF guard on clients this pool builds.
+	//
+	// TEST SEAM, and the only caller is a test in this package. The pool tests point
+	// at httptest servers, which bind to 127.0.0.1 -- exactly what the guard refuses
+	// and exactly what it should refuse. Those tests are about ROUTING (whose server
+	// and whose credentials get used); the guard itself is covered by
+	// internal/netguard's own tests, including that it survives DNS rebinding.
+	//
+	// Deliberately unexported with no production setter, so it cannot be reached
+	// from outside this package or switched on by configuration.
+	noGuard bool
 }
 
 func NewClientPool(platform *Client, accounts *integrations.Service) *ClientPool {
@@ -62,7 +75,8 @@ func (p *ClientPool) ForTenant(ctx context.Context, tenantID string) *Client {
 	// The token is part of the fingerprint, so rotating it rebuilds the client
 	// rather than leaving a cached one authenticating with the old value.
 	return p.cache.Get(tenantID, integrations.Fingerprint(url, token), func() *Client {
-		c := New(url)
+		// Guarded: this URL came from a TENANT (see internal/netguard).
+		c := New(url).maybeGuard(p.noGuard, 15*time.Second)
 		if token != "" {
 			c.SetToken(token)
 		}

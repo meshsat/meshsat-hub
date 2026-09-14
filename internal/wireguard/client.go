@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/meshsat/meshsat-hub/internal/fsutil"
+	"github.com/meshsat/meshsat-hub/internal/netguard"
 	"io"
 	"log/slog"
 	"net/http"
@@ -47,8 +48,12 @@ type PeerConfig struct {
 // NewClient creates a new wg-easy API client.
 func NewClient(baseURL, password string) *Client {
 	return &Client{
-		baseURL:    validatedBaseURL(baseURL),
-		password:   password,
+		baseURL:  validatedBaseURL(baseURL),
+		password: password,
+		// so the address is checked immediately before connect, after resolution.
+		// integrations.Set checks it on save too, but only this survives DNS
+		// rebinding -- a name that resolved publicly then can resolve to
+		// 127.0.0.1 now, and the Hub is in a cluster full of reachable services.
 		httpClient: &http.Client{Timeout: 10 * time.Second},
 	}
 }
@@ -110,6 +115,17 @@ func (c *Client) CreatePeer(ctx context.Context, name string) (*Peer, error) {
 	if err != nil {
 		return nil, fmt.Errorf("wg-easy create peer: marshal: %w", err)
 	}
+	// #nosec G704 -- SSRF is real here and is guarded TWICE, neither of which
+	// gosec's taint analysis can follow across a package boundary or into a
+	// dialer. c.baseURL comes from a tenant's integrations account since
+	// MESHSAT-1121 (it was an operator-set env var before, which is why this
+	// finding appeared with that change and is NOT a false positive):
+	//   1. integrations.Set runs netguard.ValidatePublicURL before storing it,
+	//      so an internal name or address is refused at the form.
+	//   2. c.httpClient is netguard.SafeHTTPClient, whose dialer refuses to
+	//      CONNECT to a non-public address after resolution -- which is the half
+	//      that survives DNS rebinding, and the one that actually holds.
+	// Removing either guard reopens it; internal/netguard's tests cover both.
 	req, err := http.NewRequestWithContext(ctx, "POST", c.baseURL+"/api/wireguard/client", bytes.NewReader(data))
 	if err != nil {
 		return nil, err
@@ -117,7 +133,8 @@ func (c *Client) CreatePeer(ctx context.Context, name string) (*Peer, error) {
 	req.Header.Set("Content-Type", "application/json")
 	c.addSession(req)
 
-	resp, err := c.httpClient.Do(req)
+	resp, err := c.httpClient.Do(req) // #nosec G704 -- see the note above this request
+
 	if err != nil {
 		return nil, fmt.Errorf("wg-easy create peer: %w", err)
 	}
@@ -235,4 +252,16 @@ func validatedBaseURL(raw string) string {
 		return strings.TrimRight(raw, "/")
 	}
 	return v
+}
+
+// maybeGuard makes this client refuse to CONNECT to an address the Hub keeps
+// on its own side of the wire. Called by the POOL, on a client built from a
+// TENANT's URL -- never on the platform's own, whose http://wg-easy:51821 is exactly what
+// the guard refuses and is correct for the operator to use (MESHSAT-1121).
+func (c *Client) maybeGuard(skip bool, timeout time.Duration) *Client {
+	if skip {
+		return c
+	}
+	c.httpClient = netguard.SafeHTTPClient(timeout)
+	return c
 }

@@ -7,16 +7,41 @@ import (
 	"strconv"
 
 	"github.com/go-chi/chi/v5"
+	hubauth "github.com/meshsat/meshsat-hub/internal/auth"
 )
 
 // APIHandler provides HTTP endpoints for hawkBit OTA management.
 type APIHandler struct {
 	client *Client
+	pool   *ClientPool
 }
 
 // NewAPIHandler creates an API handler for hawkBit OTA operations.
 func NewAPIHandler(client *Client) *APIHandler {
 	return &APIHandler{client: client}
+}
+
+// NewAPIHandlerPool builds a handler that acts on the CALLING tenant's own
+// hawkBit. OTA pushes firmware to hardware in the field, so acting in the wrong
+// tenant is the highest-impact mistake this router can make (MESHSAT-1121).
+func NewAPIHandlerPool(pool *ClientPool) *APIHandler {
+	return &APIHandler{pool: pool}
+}
+
+// clientFor resolves the caller's hawkBit, or writes 503 and returns nil.
+func (h *APIHandler) clientFor(w http.ResponseWriter, r *http.Request) *Client {
+	if h.pool == nil {
+		return h.client
+	}
+	c := h.pool.ForTenant(r.Context(), hubauth.TenantIDFromContext(r.Context()))
+	if c == nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusServiceUnavailable)
+		_ = json.NewEncoder(w).Encode(map[string]string{
+			"error": "no OTA server configured for this tenant (Integrations page)"})
+		return nil
+	}
+	return c
 }
 
 // ListTargets returns all OTA-managed devices.
@@ -27,7 +52,11 @@ func NewAPIHandler(client *Client) *APIHandler {
 // @Failure      502  {object}  map[string]string
 // @Router       /api/ota/targets [get]
 func (h *APIHandler) ListTargets(w http.ResponseWriter, r *http.Request) {
-	targets, err := h.client.ListTargets(r.Context())
+	c := h.clientFor(w, r)
+	if c == nil {
+		return
+	}
+	targets, err := c.ListTargets(r.Context())
 	if err != nil {
 		http.Error(w, fmt.Sprintf(`{"error":"%s"}`, err.Error()), http.StatusBadGateway)
 		return
@@ -46,7 +75,11 @@ func (h *APIHandler) ListTargets(w http.ResponseWriter, r *http.Request) {
 // @Router       /api/ota/targets/{controllerId} [get]
 func (h *APIHandler) GetTarget(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "controllerId")
-	target, err := h.client.GetTarget(r.Context(), id)
+	c := h.clientFor(w, r)
+	if c == nil {
+		return
+	}
+	target, err := c.GetTarget(r.Context(), id)
 	if err != nil {
 		http.Error(w, fmt.Sprintf(`{"error":"%s"}`, err.Error()), http.StatusBadGateway)
 		return
@@ -76,7 +109,11 @@ func (h *APIHandler) CreateTarget(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	created, err := h.client.CreateTarget(r.Context(), target)
+	c := h.clientFor(w, r)
+	if c == nil {
+		return
+	}
+	created, err := c.CreateTarget(r.Context(), target)
 	if err != nil {
 		http.Error(w, fmt.Sprintf(`{"error":"%s"}`, err.Error()), http.StatusBadGateway)
 		return
@@ -95,7 +132,11 @@ func (h *APIHandler) CreateTarget(w http.ResponseWriter, r *http.Request) {
 // @Router       /api/ota/targets/{controllerId} [delete]
 func (h *APIHandler) DeleteTarget(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "controllerId")
-	if err := h.client.DeleteTarget(r.Context(), id); err != nil {
+	c := h.clientFor(w, r)
+	if c == nil {
+		return
+	}
+	if err := c.DeleteTarget(r.Context(), id); err != nil {
 		http.Error(w, fmt.Sprintf(`{"error":"%s"}`, err.Error()), http.StatusBadGateway)
 		return
 	}
@@ -112,7 +153,11 @@ func (h *APIHandler) DeleteTarget(w http.ResponseWriter, r *http.Request) {
 // @Router       /api/ota/targets/{controllerId}/actions [get]
 func (h *APIHandler) GetTargetActions(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "controllerId")
-	actions, err := h.client.GetTargetActions(r.Context(), id)
+	c := h.clientFor(w, r)
+	if c == nil {
+		return
+	}
+	actions, err := c.GetTargetActions(r.Context(), id)
 	if err != nil {
 		http.Error(w, fmt.Sprintf(`{"error":"%s"}`, err.Error()), http.StatusBadGateway)
 		return
@@ -139,7 +184,11 @@ func (h *APIHandler) CancelAction(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := h.client.CancelAction(r.Context(), controllerID, actionID); err != nil {
+	c := h.clientFor(w, r)
+	if c == nil {
+		return
+	}
+	if err := c.CancelAction(r.Context(), controllerID, actionID); err != nil {
 		http.Error(w, fmt.Sprintf(`{"error":"%s"}`, err.Error()), http.StatusBadGateway)
 		return
 	}
@@ -167,7 +216,11 @@ func (h *APIHandler) CreateRollout(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	created, err := h.client.CreateRollout(r.Context(), rollout)
+	c := h.clientFor(w, r)
+	if c == nil {
+		return
+	}
+	created, err := c.CreateRollout(r.Context(), rollout)
 	if err != nil {
 		http.Error(w, fmt.Sprintf(`{"error":"%s"}`, err.Error()), http.StatusBadGateway)
 		return
@@ -194,7 +247,11 @@ func (h *APIHandler) GetRollout(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	rollout, err := h.client.GetRollout(r.Context(), id)
+	c := h.clientFor(w, r)
+	if c == nil {
+		return
+	}
+	rollout, err := c.GetRollout(r.Context(), id)
 	if err != nil {
 		http.Error(w, fmt.Sprintf(`{"error":"%s"}`, err.Error()), http.StatusBadGateway)
 		return
@@ -219,7 +276,11 @@ func (h *APIHandler) StartRollout(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := h.client.StartRollout(r.Context(), id); err != nil {
+	c := h.clientFor(w, r)
+	if c == nil {
+		return
+	}
+	if err := c.StartRollout(r.Context(), id); err != nil {
 		http.Error(w, fmt.Sprintf(`{"error":"%s"}`, err.Error()), http.StatusBadGateway)
 		return
 	}
@@ -242,7 +303,11 @@ func (h *APIHandler) PauseRollout(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := h.client.PauseRollout(r.Context(), id); err != nil {
+	c := h.clientFor(w, r)
+	if c == nil {
+		return
+	}
+	if err := c.PauseRollout(r.Context(), id); err != nil {
 		http.Error(w, fmt.Sprintf(`{"error":"%s"}`, err.Error()), http.StatusBadGateway)
 		return
 	}

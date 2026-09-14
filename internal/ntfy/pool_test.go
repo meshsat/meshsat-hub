@@ -26,7 +26,9 @@ func newAccounts(t *testing.T) *integrations.Service {
 	for i := range key {
 		key[i] = byte(i * 5)
 	}
-	return integrations.New(db, key)
+	svc := integrations.New(db, key)
+	svc.DisableURLCheckForTest() // httptest binds to loopback; see the method doc
+	return svc
 }
 
 // recorder records each publish and the Authorization header it carried, so a
@@ -62,7 +64,9 @@ func TestEachTenantPublishesToItsOwnServerWithItsOwnToken(t *testing.T) {
 
 	p := New(platform.URL)
 	p.SetToken("platform-token")
-	n := NewNotifierPool(NewClientPool(p, accounts))
+	pool := NewClientPool(p, accounts)
+	pool.noGuard = true // httptest binds to loopback; see the field comment
+	n := NewNotifierPool(pool)
 
 	if err := n.Notify(tenancy.WithTenant(ctx, "t_cust"), []string{"alerts"}, "s", "b"); err != nil {
 		t.Fatalf("the tenant's own server was not used: %v", err)
@@ -85,7 +89,9 @@ func TestEachTenantPublishesToItsOwnServerWithItsOwnToken(t *testing.T) {
 func TestATenantWithNoServerFailsLoudly(t *testing.T) {
 	accounts := newAccounts(t)
 	platform, platformAuths := recorder(t)
-	n := NewNotifierPool(NewClientPool(New(platform.URL), accounts))
+	pool := NewClientPool(New(platform.URL), accounts)
+	pool.noGuard = true // httptest binds to loopback; see the field comment
+	n := NewNotifierPool(pool)
 
 	if err := n.Notify(tenancy.WithTenant(context.Background(), "t_cust"), []string{"alerts"}, "s", "b"); err == nil {
 		t.Fatal("a tenant with no ntfy server reported success: the push went nowhere and nothing said so")
@@ -106,7 +112,9 @@ func TestRotatingTheTokenRebuildsTheClient(t *testing.T) {
 		map[string]string{"url": theirs.URL, "token": "old"}); err != nil {
 		t.Fatal(err)
 	}
-	n := NewNotifierPool(NewClientPool(nil, accounts))
+	pool := NewClientPool(nil, accounts)
+	pool.noGuard = true // httptest binds to loopback; see the field comment
+	n := NewNotifierPool(pool)
 	tctx := tenancy.WithTenant(ctx, "t_cust")
 	if err := n.Notify(tctx, []string{"alerts"}, "s", "b"); err != nil {
 		t.Fatal(err)

@@ -59,15 +59,18 @@ var platformOnlyRoutes = []string{
 	// tenant's settings.
 	//
 	// If a shared server or a device-keyed peer map ever returns, put them BACK.
-	// Firmware to the fleet. The highest-impact primitive on the router.
-	`"/api/ota/targets"`,
-	`"/api/ota/targets/{controllerId}"`,
-	`"/api/ota/targets/{controllerId}/actions"`,
-	`"/api/ota/targets/{controllerId}/actions/{actionId}"`,
-	`"/api/ota/rollouts"`,
-	`"/api/ota/rollouts/{id}"`,
-	`"/api/ota/rollouts/{id}/start"`,
-	`"/api/ota/rollouts/{id}/pause"`,
+	// The /api/ota/* routes came off this list in MESHSAT-1121, like the email
+	// and WireGuard ones, and for the same reason: the platform-admin gate was
+	// containment for a defect rather than a property of the endpoint.
+	//
+	// There was ONE hawkBit for the deployment with no ownership model anywhere,
+	// so any member of any tenant could start a rollout -- firmware to hardware
+	// in the field -- or cancel another tenant's in-flight update. Each tenant
+	// now supplies its own hawkBit account (internal/hawkbit.ClientPool), and
+	// hawkBit is multi-tenant itself, so the credentials decide which tenant the
+	// Hub acts in and the server enforces it.
+	//
+	// If a single shared hawkBit account ever returns, put them BACK here.
 	// /api/email/keys and /api/email/keys/{email} were here until MESHSAT-1121,
 	// and came off the list deliberately rather than by accident.
 	//
