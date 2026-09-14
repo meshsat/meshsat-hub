@@ -18,6 +18,9 @@ const name = ref('')
 // this can show the number actually in force rather than hardcoding one.
 const bridgeTimeout = ref('')
 const savingTimeout = ref(false)
+// Audit retention (MESHSAT-1117 tranche 2b), same shape as the timeout above.
+const auditDays = ref('')
+const savingAudit = ref(false)
 const saving = ref(false)
 const invites = ref([])
 const inviteEmail = ref('')
@@ -96,6 +99,7 @@ async function load() {
     info.value = await tenantApi.get()
     name.value = info.value.name || ''
     bridgeTimeout.value = info.value.bridge_offline_timeout ? String(info.value.bridge_offline_timeout) : ''
+    auditDays.value = info.value.audit_retention_days ? String(info.value.audit_retention_days) : ''
     available.value = true
   } catch {
     available.value = false
@@ -145,6 +149,26 @@ async function saveBridgeTimeout() {
     error.value = e.message || 'Save failed'
   } finally {
     savingTimeout.value = false
+  }
+}
+
+async function saveAuditRetention() {
+  const raw = auditDays.value.trim()
+  const days = raw === '' ? 0 : Number(raw)
+  if (!Number.isInteger(days) || days < 0) {
+    error.value = 'Audit retention must be a whole number of days'
+    return
+  }
+  savingAudit.value = true
+  error.value = ''
+  try {
+    info.value = await tenantApi.update({ name: name.value.trim(), audit_retention_days: days })
+    auditDays.value = info.value.audit_retention_days ? String(info.value.audit_retention_days) : ''
+    toast.success(days === 0 ? 'Using the platform default' : 'Audit retention saved')
+  } catch (e) {
+    error.value = e.message || 'Save failed'
+  } finally {
+    savingAudit.value = false
   }
 }
 
@@ -259,6 +283,29 @@ onMounted(load)
           Leave empty for the platform default ({{ info?.bridge_offline_timeout_default }}s).
           Between {{ info?.bridge_offline_timeout_min }} and {{ info?.bridge_offline_timeout_max }} seconds.
           This only changes when a bridge is shown as offline; it never affects SOS or message delivery.
+        </p>
+
+        <!-- Audit retention (MESHSAT-1117). The audit log is this tenant's own
+             record of who did what in its account. -->
+        <label for="tenant-audit-days" class="block text-xs text-ms-muted2 mt-4 mb-1">
+          Keep audit log entries for
+        </label>
+        <div class="flex gap-2 items-center">
+          <input id="tenant-audit-days" v-model="auditDays" type="number" inputmode="numeric"
+            :min="info?.audit_retention_min" :max="info?.audit_retention_max"
+            :placeholder="String(info?.audit_retention_default ?? '')"
+            class="w-28 min-w-0 px-3 py-1.5 bg-ms-well border border-ms-border rounded text-sm text-ms-text focus:outline-none focus:border-brand-primary" />
+          <span class="text-xs text-ms-muted">days</span>
+          <button @click="saveAuditRetention"
+            :disabled="savingAudit || auditDays.trim() === (info?.audit_retention_days ? String(info.audit_retention_days) : '')"
+            class="px-3 py-1.5 bg-brand-primary hover:bg-brand-accent disabled:opacity-50 text-ms-on-primary text-sm font-medium rounded transition-colors">
+            Save
+          </button>
+        </div>
+        <p class="mt-1 text-xs text-ms-muted">
+          Leave empty for the platform default ({{ info?.audit_retention_default }} days).
+          Between {{ info?.audit_retention_min }} and {{ info?.audit_retention_max }} days.
+          Entries older than this are archived and then removed.
         </p>
         <dl class="mt-3 text-xs text-ms-muted grid grid-cols-[auto_1fr] gap-x-3 gap-y-1">
           <dt>Slug</dt><dd class="font-mono text-ms-text">{{ info?.slug }}</dd>

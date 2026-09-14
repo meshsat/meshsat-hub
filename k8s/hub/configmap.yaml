@@ -158,6 +158,17 @@ data:
   HUB_BRIDGE_OFFLINE_TIMEOUT_MIN: "60"
   HUB_BRIDGE_OFFLINE_TIMEOUT_MAX: "86400"
 
+  # How long a tenant's audit entries are kept. An audit log is the CUSTOMER's
+  # own record of who did what in their account, so how long they keep it is
+  # their compliance question; an owner can now choose in Settings -> Tenant and
+  # this is the default. MIN is the load-bearing bound -- without it a tenant
+  # could shorten retention until the evidence of a security event in their own
+  # account is gone before anyone looks at it. MAX is the boring one: storage
+  # here is node-local and audit rows are an append-only hash chain that only
+  # ever grows.
+  HUB_AUDIT_RETENTION_MIN_DAYS: "30"
+  HUB_AUDIT_RETENTION_MAX_DAYS: "3650"
+
   # --- subscription tiers (MESHSAT-989) ---
   # One combined ceiling on registered devices and bridges per tenant. It gates
   # REGISTRATION only: a tenant over its cap or on a lapsed plan keeps every

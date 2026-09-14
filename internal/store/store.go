@@ -771,6 +771,11 @@ type Tenant struct {
 	// default (HUB_BRIDGE_OFFLINE_TIMEOUT), which is what every tenant gets
 	// until its owner chooses otherwise (MESHSAT-1117).
 	BridgeOfflineTimeout int `json:"bridge_offline_timeout,omitempty"`
+	// AuditRetentionDays is how long this tenant's audit entries are kept.
+	// 0 means use the platform default (HUB_AUDIT_RETENTION_DAYS). The audit
+	// log is the customer's own record of who did what in their account, so
+	// how long they keep it is their compliance question (MESHSAT-1117).
+	AuditRetentionDays int `json:"audit_retention_days,omitempty"`
 	// PlanExpiresAt is when a paid tier lapses back to free. nil means the
 	// plan does not expire, which is what free, custom and beta are.
 	//

@@ -682,4 +682,21 @@ CREATE INDEX IF NOT EXISTS idx_tak_users_enroll ON tak_users (enroll_token_hash)
 	{Version: 19, Name: "tenant bridge offline timeout", SQL: `
 ALTER TABLE tenants ADD COLUMN IF NOT EXISTS bridge_offline_timeout INTEGER NOT NULL DEFAULT 0;
 `},
+	// v20: audit retention, per tenant (MESHSAT-1117 tranche 2b).
+	//
+	// HUB_AUDIT_RETENTION_DAYS decided how long EVERY tenant's audit log lived.
+	// An audit log is the customer's own record of who did what in their
+	// account, and how long they need to keep it is their compliance question,
+	// not ours.
+	//
+	// 0 means "use the platform default", as with bridge_offline_timeout. The
+	// platform still bounds the choice, and the floor is the load-bearing half:
+	// without one a tenant could set a retention so short that the evidence of
+	// a security event in their own account is gone before anyone looks. The
+	// ceiling is the boring half -- storage here is node-local with no
+	// replicated block storage, and audit rows are an append-only hash chain
+	// that only ever grows.
+	{Version: 20, Name: "tenant audit retention", SQL: `
+ALTER TABLE tenants ADD COLUMN IF NOT EXISTS audit_retention_days INTEGER NOT NULL DEFAULT 0;
+`},
 }

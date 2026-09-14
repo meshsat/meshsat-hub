@@ -31,6 +31,10 @@ type TenantHandler struct {
 	bridgeTimeoutDefault int
 	bridgeTimeoutMin     int
 	bridgeTimeoutMax     int
+	// The platform's audit-retention policy, same shape.
+	auditRetentionDefault int
+	auditRetentionMin     int
+	auditRetentionMax     int
 }
 
 // NewTenantHandler creates the tenant handler.
@@ -43,6 +47,12 @@ func NewTenantHandler(s store.Store) *TenantHandler {
 // setting is not offered at all, which is what a Hub built before this had.
 func (h *TenantHandler) SetBridgeOfflineTimeoutPolicy(def, min, max int) {
 	h.bridgeTimeoutDefault, h.bridgeTimeoutMin, h.bridgeTimeoutMax = def, min, max
+}
+
+// SetAuditRetentionPolicy gives the handler the platform's default retention
+// and the bounds a tenant owner may choose within (MESHSAT-1117).
+func (h *TenantHandler) SetAuditRetentionPolicy(def, min, max int) {
+	h.auditRetentionDefault, h.auditRetentionMin, h.auditRetentionMax = def, min, max
 }
 
 // SetStatusInvalidator wires the cross-replica cache drop.
@@ -69,6 +79,12 @@ type tenantResponse struct {
 	BridgeOfflineTimeoutDefault int `json:"bridge_offline_timeout_default"`
 	BridgeOfflineTimeoutMin     int `json:"bridge_offline_timeout_min"`
 	BridgeOfflineTimeoutMax     int `json:"bridge_offline_timeout_max"`
+	// AuditRetentionDays is the tenant's own choice in days, 0 meaning the
+	// platform default, which AuditRetentionDefault carries.
+	AuditRetentionDays    int `json:"audit_retention_days"`
+	AuditRetentionDefault int `json:"audit_retention_default"`
+	AuditRetentionMin     int `json:"audit_retention_min"`
+	AuditRetentionMax     int `json:"audit_retention_max"`
 }
 
 func (h *TenantHandler) toTenantResponse(t *store.Tenant) tenantResponse {
@@ -76,6 +92,9 @@ func (h *TenantHandler) toTenantResponse(t *store.Tenant) tenantResponse {
 	r.BridgeOfflineTimeoutDefault = h.bridgeTimeoutDefault
 	r.BridgeOfflineTimeoutMin = h.bridgeTimeoutMin
 	r.BridgeOfflineTimeoutMax = h.bridgeTimeoutMax
+	r.AuditRetentionDefault = h.auditRetentionDefault
+	r.AuditRetentionMin = h.auditRetentionMin
+	r.AuditRetentionMax = h.auditRetentionMax
 	return r
 }
 
@@ -85,6 +104,7 @@ func toTenantResponse(t *store.Tenant) tenantResponse {
 		CreatedAt: t.CreatedAt.UTC().Format(time.RFC3339), UpdatedAt: t.UpdatedAt.UTC().Format(time.RFC3339),
 		PurgeGraceDays:       int(store.PurgeGrace / (24 * time.Hour)),
 		BridgeOfflineTimeout: t.BridgeOfflineTimeout,
+		AuditRetentionDays:   t.AuditRetentionDays,
 	}
 }
 
@@ -112,6 +132,9 @@ type updateTenantRequest struct {
 	// the platform default, and a number sets it. A plain int would make every
 	// name change silently reset the timeout to the default.
 	BridgeOfflineTimeout *int `json:"bridge_offline_timeout,omitempty"`
+	// AuditRetentionDays, same pointer semantics: absent leaves it alone,
+	// 0 returns the tenant to the platform default.
+	AuditRetentionDays *int `json:"audit_retention_days,omitempty"`
 }
 
 type createInviteRequest struct {
@@ -187,6 +210,20 @@ func (h *TenantHandler) Update(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		t.BridgeOfflineTimeout = v
+	}
+	if req.AuditRetentionDays != nil {
+		v := *req.AuditRetentionDays
+		// 0 is "the platform default" and always allowed. Anything else must
+		// sit inside the bounds: the floor is what stops a tenant shortening
+		// retention until the evidence of a security event in their own account
+		// is gone before anyone looks at it.
+		if v != 0 && (v < h.auditRetentionMin || v > h.auditRetentionMax) {
+			writeError(w, http.StatusBadRequest, fmt.Sprintf(
+				"audit_retention_days must be 0 (platform default) or between %d and %d days",
+				h.auditRetentionMin, h.auditRetentionMax))
+			return
+		}
+		t.AuditRetentionDays = v
 	}
 	if err := h.store.UpdateTenant(r.Context(), t); err != nil {
 		slog.Error("tenant: update failed", "error", err)
