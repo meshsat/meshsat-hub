@@ -9,7 +9,7 @@
 #
 # One container, deliberately: a tor sidecar never exits, so a two-container
 # Job would never complete. The image ships tor, sh and curl (checked
-# 2026-09-14) and runs as uid 100. DataDirectory /var/lib/tor is an emptyDir.
+# 2026-09-14) and runs as uid 100; torrc and DataDirectory live in a /tmp emptyDir.
 apiVersion: batch/v1
 kind: CronJob
 metadata:
@@ -54,7 +54,10 @@ spec:
                   # on a read-only root, so tor exited before bootstrapping (and --quiet
                   # hid it). tor also refuses -f /dev/null ("Unable to open configuration
                   # file"), so the three lines it needs are written to the writable /tmp.
-                  printf 'SocksPort 127.0.0.1:9050\nDataDirectory /var/lib/tor\nLog notice stderr\n' > /tmp/torrc
+                  # tor refuses a DataDirectory it does not own, and an emptyDir mounts
+                  # root-owned; a subdirectory made here is owned by uid 100.
+                  mkdir -p /tmp/tor && chmod 700 /tmp/tor
+                  printf 'SocksPort 127.0.0.1:9050\nDataDirectory /tmp/tor\nLog notice stderr\n' > /tmp/torrc
                   tor -f /tmp/torrc &
                   code=000
                   # Bootstrap plus descriptor fetch is 20-90 s on a good day; keep trying
@@ -84,8 +87,6 @@ spec:
                 requests: {cpu: 50m, memory: 64Mi}
                 limits: {memory: 256Mi}
               volumeMounts:
-                - {name: data, mountPath: /var/lib/tor}
                 - {name: tmp, mountPath: /tmp}
           volumes:
-            - {name: data, emptyDir: {}}
             - {name: tmp, emptyDir: {}}
