@@ -41,8 +41,14 @@ fi
 
 upd=$(kubectl "${NS[@]}" get deploy hub -o jsonpath='{.status.updatedReplicas}')
 rdy=$(kubectl "${NS[@]}" get deploy hub -o jsonpath='{.status.readyReplicas}')
+tot=$(kubectl "${NS[@]}" get deploy hub -o jsonpath='{.status.replicas}')
 rep=$(kubectl "${NS[@]}" get deploy hub -o jsonpath='{.spec.replicas}')
-echo "updated=${upd:-0}/${rep:-?} ready=${rdy:-0}/${rep:-?}"
-[ "${upd:-0}" = "${rep:-x}" ] && [ "${rdy:-0}" = "${rep:-x}" ] \
+echo "updated=${upd:-0}/${rep:-?} ready=${rdy:-0}/${rep:-?} total=${tot:-0}/${rep:-?}"
+# updated==ready==spec is NOT enough: mid-rollout, updated=2 (both new pods
+# exist) and ready=2 (one new + one OLD still ready) both hold while a new pod
+# is Pending and an old one is Terminating. This passed in exactly that state
+# on 2026-09-14 and a probe went out against a mixed fleet. status.replicas
+# counts old pods too, so it must ALSO equal spec: no surplus old pod left.
+[ "${upd:-0}" = "${rep:-x}" ] && [ "${rdy:-0}" = "${rep:-x}" ] && [ "${tot:-0}" = "${rep:-x}" ] \
   && { echo "OK  the deployed image is the pinned one and every replica is on it"; exit 0; }
 echo "NOT YET  the rollout is still in progress"; exit 1
