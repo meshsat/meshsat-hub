@@ -26,6 +26,7 @@ resources:
   # tenant's own infrastructure and are never deployed from here.
   - wireguard/
   - hawkbit/
+  - tor/
   - hub/
   - tak/
   - tak-operator/
