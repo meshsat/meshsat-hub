@@ -91,6 +91,10 @@ type reloadEvent struct {
 // declared here, one narrow interface, rather than taking store.Store: the
 // dispatcher is reachable from internal/routing, which carries field traffic.
 type Store interface {
+	// ClaimOnce records a key atomically; exactly one caller across all
+	// replicas gets true. Both replicas receive every MQTT message and both
+	// would otherwise POST to the customer's endpoint.
+	ClaimOnce(ctx context.Context, key string) (bool, error)
 	ListTenants(ctx context.Context) ([]store.Tenant, error)
 	ListWebhooks(ctx context.Context, tenantID string) ([]store.WebhookConfig, error)
 	SaveWebhook(ctx context.Context, tenantID string, w *store.WebhookConfig) error
@@ -283,7 +287,12 @@ func (d *Dispatcher) RecentLogs(tenantID string, limit int) []DeliveryLog {
 //
 // An empty tenantID matches nothing. That is deliberate: a caller that cannot
 // say whose event this is must not be given a fan-out to everyone.
-func (d *Dispatcher) Fire(tenantID string, event EventType, deviceID string, data json.RawMessage) {
+// dedupKey identifies the MESSAGE that caused this event, computed identically
+// on every replica (hubmqtt.FallbackMessageID is a hash of the topic and the
+// payload). An empty key means the caller could not identify the message, and
+// delivery then happens on every replica -- which is what this whole parameter
+// exists to prevent, so callers should always supply one.
+func (d *Dispatcher) Fire(tenantID string, event EventType, deviceID, dedupKey string, data json.RawMessage) {
 	if tenantID == "" {
 		slog.Warn("webhook: refusing to fire an event with no tenant", "event", event, "device", deviceID)
 		return
@@ -322,6 +331,11 @@ func (d *Dispatcher) Fire(tenantID string, event EventType, deviceID string, dat
 	}
 
 	for _, target := range targets {
+		// Claim per webhook, not per message: two webhooks on the same event are
+		// two deliveries, and each must survive the other's claim.
+		if !d.claim(tenantID, target.ID, dedupKey) {
+			continue
+		}
 		go d.deliver(target, body, payload.ID, event, deviceID)
 	}
 }
@@ -332,6 +346,34 @@ func (d *Dispatcher) Fire(tenantID string, event EventType, deviceID string, dat
 // can record them. They used to be dropped: recordLog was called with the
 // payload ID in the event column and an empty device, so every row in the
 // customer-facing log read "wh-1757…" with no device against it.
+// claim reports whether THIS replica should deliver. Both Hub replicas receive
+// every message on the bus, so without this a customer's endpoint is POSTed to
+// twice for every event -- and once webhooks were persisted and synced across
+// replicas (MESHSAT-1118), both replicas hold every webhook, so the duplicate
+// became certain rather than accidental.
+//
+// Fails OPEN: if the claim cannot be made, deliver. A webhook that arrives twice
+// is a nuisance; one that never arrives because the database hiccuped is a lost
+// event, and the payload carries its own id for a receiver that cares.
+func (d *Dispatcher) claim(tenantID, webhookID, dedupKey string) bool {
+	s := d.getStore()
+	if s == nil || dedupKey == "" {
+		return true
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	won, err := s.ClaimOnce(ctx, "webhook:"+tenantID+":"+webhookID+":"+dedupKey)
+	if err != nil {
+		slog.Warn("webhook: claim failed, delivering anyway", "webhook", webhookID, "error", err)
+		return true
+	}
+	if !won {
+		slog.Debug("webhook: another replica is delivering this event",
+			"webhook", webhookID, "message", dedupKey)
+	}
+	return won
+}
+
 func (d *Dispatcher) deliver(target WebhookConfig, body []byte, payloadID string, event EventType, deviceID string) {
 	timeout := time.Duration(target.TimeoutSec) * time.Second
 	client := &http.Client{Timeout: timeout}
@@ -439,7 +481,9 @@ func (d *Dispatcher) Start(mqtt bus.MessageBus) error {
 				if !ok {
 					return
 				}
-				d.Fire(tenantID, evt, deviceID, json.RawMessage(payload))
+				// The message's identity, derived the same way on every replica.
+				d.Fire(tenantID, evt, deviceID, hubmqtt.FallbackMessageID(topic, payload),
+					json.RawMessage(payload))
 			}); err != nil {
 				return fmt.Errorf("webhook subscribe %s: %w", f, err)
 			}

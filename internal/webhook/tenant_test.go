@@ -1,6 +1,7 @@
 package webhook
 
 import (
+	"context"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -81,7 +82,7 @@ func TestOneTenantsEventNeverReachesAnothersWebhook(t *testing.T) {
 	})
 
 	// The default tenant raises an SOS.
-	d.Fire(store.DefaultTenantID, EventSOS, "dev-victim", json.RawMessage(`{"triggered":true}`))
+	d.Fire(store.DefaultTenantID, EventSOS, "dev-victim", "probe-"+"dev-victim", json.RawMessage(`{"triggered":true}`))
 	time.Sleep(300 * time.Millisecond)
 
 	if victim.count() != 1 {
@@ -117,7 +118,7 @@ func TestAnEventWithNoTenantFiresNothing(t *testing.T) {
 		Events: []EventType{EventMO}, Enabled: true,
 	})
 
-	d.Fire("", EventMO, "dev-1", json.RawMessage(`{}`))
+	d.Fire("", EventMO, "dev-1", "probe-"+"dev-1", json.RawMessage(`{}`))
 	time.Sleep(200 * time.Millisecond)
 
 	if owned.count() != 0 {
@@ -215,3 +216,106 @@ func TestForgetTenantDropsTheWebhooksAndTheLogs(t *testing.T) {
 // import this one, so the check lives here as a compile-time assertion against
 // a local copy of the one method.
 var _ interface{ ForgetTenant(string) } = (*Dispatcher)(nil)
+
+// Both Hub replicas subscribe to every MQTT topic with a plain Subscribe, not a
+// queue group, so BOTH receive every message and both reach Fire. Without a
+// claim the customer's endpoint is POSTed to twice for one event.
+//
+// This got worse rather than better when webhooks were persisted and synced
+// across replicas: before that only one replica held any webhook, so the
+// duplicate was prevented by accident. Once both hold every webhook it is
+// certain.
+//
+// Two dispatchers sharing one fakeStore ARE two replicas sharing one database.
+func TestTwoReplicasDeliverAWebhookOnce(t *testing.T) {
+	rec := newRecorder(t)
+	fs := newFakeStore(store.DefaultTenantID)
+
+	cfg := WebhookConfig{
+		ID: "wh-1", TenantID: store.DefaultTenantID, URL: rec.srv.URL,
+		Events: []EventType{EventSOS}, Enabled: true,
+	}
+	replicas := make([]*Dispatcher, 2)
+	for i := range replicas {
+		d := NewDispatcher(nil)
+		d.AllowLoopbackTargetsForTest()
+		d.SetStore(fs)
+		d.AddWebhook(cfg)
+		replicas[i] = d
+	}
+
+	// The same message reaches both, so both compute the same dedup key.
+	const msg = "mo-deadbeefdeadbeef"
+	for _, d := range replicas {
+		d.Fire(store.DefaultTenantID, EventSOS, "dev-1", msg, json.RawMessage(`{"triggered":true}`))
+	}
+	time.Sleep(400 * time.Millisecond)
+
+	if got := rec.count(); got != 1 {
+		t.Errorf("the customer's endpoint was POSTed to %d times for one event, want 1. "+
+			"Both replicas receive every message; only one may deliver.", got)
+	}
+}
+
+// Two DIFFERENT webhooks on the same event are two deliveries, and neither may
+// be swallowed by the other's claim.
+func TestTwoWebhooksOnOneEventBothDeliver(t *testing.T) {
+	a, b := newRecorder(t), newRecorder(t)
+	fs := newFakeStore(store.DefaultTenantID)
+	d := NewDispatcher(nil)
+	d.AllowLoopbackTargetsForTest()
+	d.SetStore(fs)
+	d.AddWebhook(WebhookConfig{ID: "wh-a", TenantID: store.DefaultTenantID, URL: a.srv.URL,
+		Events: []EventType{EventSOS}, Enabled: true})
+	d.AddWebhook(WebhookConfig{ID: "wh-b", TenantID: store.DefaultTenantID, URL: b.srv.URL,
+		Events: []EventType{EventSOS}, Enabled: true})
+
+	d.Fire(store.DefaultTenantID, EventSOS, "dev-1", "mo-1", json.RawMessage(`{}`))
+	time.Sleep(400 * time.Millisecond)
+
+	if a.count() != 1 || b.count() != 1 {
+		t.Errorf("deliveries a=%d b=%d, want 1 each: the claim is per webhook, not per "+
+			"message, or one endpoint silently stops receiving", a.count(), b.count())
+	}
+}
+
+// A LATER message to the same webhook must still be delivered -- the claim
+// identifies the message, not the webhook.
+func TestASecondMessageIsStillDelivered(t *testing.T) {
+	rec := newRecorder(t)
+	fs := newFakeStore(store.DefaultTenantID)
+	d := NewDispatcher(nil)
+	d.AllowLoopbackTargetsForTest()
+	d.SetStore(fs)
+	d.AddWebhook(WebhookConfig{ID: "wh-1", TenantID: store.DefaultTenantID, URL: rec.srv.URL,
+		Events: []EventType{EventMO}, Enabled: true})
+
+	d.Fire(store.DefaultTenantID, EventMO, "dev-1", "mo-first", json.RawMessage(`{}`))
+	d.Fire(store.DefaultTenantID, EventMO, "dev-1", "mo-second", json.RawMessage(`{}`))
+	time.Sleep(400 * time.Millisecond)
+
+	if got := rec.count(); got != 2 {
+		t.Errorf("got %d deliveries for two distinct messages, want 2", got)
+	}
+}
+
+// The claim FAILS OPEN. A webhook that arrives twice is a nuisance; one that
+// never arrives because the database hiccuped is a lost event, and the payload
+// carries its own id for a receiver that cares.
+func TestAFailedClaimStillDelivers(t *testing.T) {
+	rec := newRecorder(t)
+	fs := newFakeStore(store.DefaultTenantID)
+	fs.claimErr = context.DeadlineExceeded
+	d := NewDispatcher(nil)
+	d.AllowLoopbackTargetsForTest()
+	d.SetStore(fs)
+	d.AddWebhook(WebhookConfig{ID: "wh-1", TenantID: store.DefaultTenantID, URL: rec.srv.URL,
+		Events: []EventType{EventMO}, Enabled: true})
+
+	d.Fire(store.DefaultTenantID, EventMO, "dev-1", "mo-1", json.RawMessage(`{}`))
+	time.Sleep(400 * time.Millisecond)
+
+	if got := rec.count(); got != 1 {
+		t.Errorf("got %d deliveries when the claim errored, want 1: this must fail open", got)
+	}
+}

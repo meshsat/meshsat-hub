@@ -198,3 +198,42 @@ func TestAnAnnouncementReloadsOnlyTheNamedTenant(t *testing.T) {
 		t.Errorf("reloading tenant A disturbed the default tenant: %v", got)
 	}
 }
+
+// The end-to-end shape of the duplicate: two replicas, one broker, one message
+// arriving on both, one customer endpoint. The dedup key has to come from the
+// SUBSCRIBER -- it is the only place that has the topic and payload the two
+// replicas share.
+func TestTwoReplicasOnTheBusDeliverOnce(t *testing.T) {
+	rec := newRecorder(t)
+	fs := newFakeStore(store.DefaultTenantID)
+
+	cfg := WebhookConfig{
+		ID: "wh-1", TenantID: store.DefaultTenantID, URL: rec.srv.URL,
+		Events: []EventType{EventMO}, Enabled: true,
+	}
+	// Each replica has its own bus connection, as two pods do.
+	buses := []*fakeBus{newFakeBus(), newFakeBus()}
+	for _, b := range buses {
+		d := NewDispatcher(b)
+		d.AllowLoopbackTargetsForTest()
+		d.SetStore(fs)
+		d.AddWebhook(cfg)
+		if err := d.Start(b); err != nil {
+			t.Fatalf("start: %v", err)
+		}
+	}
+
+	// The broker fans the same message out to both.
+	const topic = "meshsat/dev-1/mo/decoded"
+	payload := []byte(`{"text":"hello"}`)
+	for _, b := range buses {
+		b.deliver(topic, payload)
+	}
+	time.Sleep(400 * time.Millisecond)
+
+	if got := rec.count(); got != 1 {
+		t.Errorf("the customer's endpoint was POSTed to %d times for one message, want 1. "+
+			"The subscriber must derive a dedup key from the topic and payload, which is "+
+			"the only identity both replicas share.", got)
+	}
+}

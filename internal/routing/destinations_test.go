@@ -62,7 +62,7 @@ type mockWebhookFirer struct {
 	saw   []string // the tenant each Fire was given
 }
 
-func (m *mockWebhookFirer) Fire(tenantID string, _ webhook.EventType, _ string, _ json.RawMessage) {
+func (m *mockWebhookFirer) Fire(tenantID string, _ webhook.EventType, _, _ string, _ json.RawMessage) {
 	m.fired.Add(1)
 	m.mu.Lock()
 	m.saw = append(m.saw, tenantID)

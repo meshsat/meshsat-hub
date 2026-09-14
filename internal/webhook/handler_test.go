@@ -22,10 +22,29 @@ type fakeStore struct {
 	rows     map[string][]store.WebhookConfig // tenant -> webhooks
 	tenants  []string
 	failSave bool
+	// claims is the shared dispatch_claims table. Two dispatchers sharing one
+	// fakeStore are two Hub replicas sharing one database, which is the only
+	// way to test that a customer's endpoint is POSTed to once and not twice.
+	claims   map[string]bool
+	claimErr error
 }
 
 func newFakeStore(tenants ...string) *fakeStore {
-	return &fakeStore{rows: map[string][]store.WebhookConfig{}, tenants: tenants}
+	return &fakeStore{rows: map[string][]store.WebhookConfig{}, tenants: tenants,
+		claims: map[string]bool{}}
+}
+
+func (f *fakeStore) ClaimOnce(_ context.Context, key string) (bool, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.claimErr != nil {
+		return false, f.claimErr
+	}
+	if f.claims[key] {
+		return false, nil
+	}
+	f.claims[key] = true
+	return true, nil
 }
 
 func (f *fakeStore) ListTenants(context.Context) ([]store.Tenant, error) {
