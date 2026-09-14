@@ -134,6 +134,16 @@ data:
   # issue started from. A tenant may still point at its own relay instead.
   HUB_APPRISE_ENABLED: "true"
   HUB_APPRISE_URL: "http://apprise:8000"
+  # The Hub's Tor hidden service (k8s/tor, MESHSAT-1121). Set here rather than
+  # read from Tor's hostname FILE because the two are separate pods and the key
+  # volume is RWO node-local, so the Hub cannot mount it. A .onion is derived
+  # from that key and is stable for the life of the volume, which makes it
+  # configuration rather than state to discover at runtime.
+  #
+  # It reaches BOTH consumers: /api/tor/onion and the Reticulum Tor interface,
+  # which already read this variable. If the key volume is ever lost this value
+  # changes and every published reference to it breaks.
+  HUB_TOR_ONION: "ynyj72hfs4k5wwrmphxyu5lf4mpgzcrrjzap4ntfx7bmnxwpjdps2bid.onion"
   HUB_APRSIS_ENABLED: "false"
   # The platform's own wg-easy, deployed in k8s/wireguard (MESHSAT-1121). It was
   # "false" with no server anywhere in the estate, so Network was a nav entry in
