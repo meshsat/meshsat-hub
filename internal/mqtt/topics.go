@@ -261,13 +261,31 @@ func ExtractTenantID(topic string) string {
 	return tenant
 }
 
-// FallbackMessageID derives a stable message ID from a topic and payload for
-// publishers that carry no "id" field. Two replicas receiving the same MQTT
-// message derive the same ID, so the second insert is a duplicate no-op.
-func FallbackMessageID(topic string, payload []byte) string {
+// MessageDigest is the stable identity of one MQTT message: a digest of the
+// topic and the payload bytes exactly as they arrived.
+//
+// Both Hub replicas receive every message (plain Subscribe, not queue groups),
+// so this is what lets them agree on which message they are looking at without
+// talking to each other. A clock or a locally generated id cannot do that --
+// they differ between the two processes. Used as a row id so a second insert
+// collides harmlessly, and as a claim key so exactly one replica acts.
+func MessageDigest(topic string, payload []byte) string {
 	h := sha256.New()
 	h.Write([]byte(topic))
 	h.Write([]byte{0})
 	h.Write(payload)
-	return "mo-" + hex.EncodeToString(h.Sum(nil))[:16]
+	return hex.EncodeToString(h.Sum(nil))[:16]
+}
+
+// FallbackMessageID derives a stable message ID from a topic and payload for
+// publishers that carry no "id" field. Two replicas receiving the same MQTT
+// message derive the same ID, so the second insert is a duplicate no-op.
+func FallbackMessageID(topic string, payload []byte) string {
+	return "mo-" + MessageDigest(topic, payload)
+}
+
+// FallbackPositionID is the same identity wearing a position's prefix, so a row
+// id says what kind of thing it is (MESHSAT-1120).
+func FallbackPositionID(topic string, payload []byte) string {
+	return "pos-" + MessageDigest(topic, payload)
 }

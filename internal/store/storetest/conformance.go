@@ -51,6 +51,7 @@ func Run(t *testing.T, open Opener) {
 		{"Stripe", testStripe},
 		{"HostedTAK", testHostedTAK},
 		{"Geofences", testGeofences},
+		{"PositionInsertIsIdempotent", testPositionInsertIsIdempotent},
 		{"BridgeOfflineTimeout", testBridgeOfflineTimeout},
 		{"BridgeOfflineTimeoutWithNoTenantRow", testBridgeOfflineTimeoutWithNoTenantRow},
 	}
