@@ -59,10 +59,22 @@ var platformOnlyRoutes = []string{
 	`"/api/ota/rollouts/{id}"`,
 	`"/api/ota/rollouts/{id}/start"`,
 	`"/api/ota/rollouts/{id}/pause"`,
-	// A process-wide PGP keyring with no tenant key: overwriting a contact's
-	// public key redirects that recipient's encrypted mail.
-	`"/api/email/keys"`,
-	`"/api/email/keys/{email}"`,
+	// /api/email/keys and /api/email/keys/{email} were here until MESHSAT-1121,
+	// and came off the list deliberately rather than by accident.
+	//
+	// The reason they were platform-only was a DEFECT, not a property of the
+	// endpoint: the PGP keyring was one process-wide map keyed by bare email
+	// address, so listing showed every tenant's correspondents and overwriting an
+	// address's public key redirected that recipient's encrypted mail to a key
+	// somebody else supplied. Gating to platform admins contained it; it did not
+	// fix it, and it left customers unable to manage their own correspondents.
+	//
+	// The keyring is per tenant now (internal/email.Pool), so the endpoints reach
+	// only the caller's own contacts and are owner-gated like the rest of a
+	// tenant's settings. internal/email.TestTwoTenantsContactsForTheSameAddressDoNotCollide
+	// is what holds that, and it is mutation-tested against a shared keyring.
+	//
+	// If a future change reintroduces a shared keyring, put them BACK here.
 }
 
 // gatedLines returns, for every line of main.go, whether a route registered on

@@ -28,9 +28,9 @@ type InboundEmail struct {
 // WebhookHandler handles inbound email webhooks from services like
 // Mailgun, SendGrid, or custom SMTP-to-webhook bridges.
 type WebhookHandler struct {
-	mqtt    bus.MessageBus
-	keyRing *KeyRing
-	secret  string // shared secret (X-Webhook-Secret or ?secret=); empty = every request refused
+	mqtt   bus.MessageBus
+	pool   *Pool
+	secret string // shared secret (X-Webhook-Secret or ?secret=); empty = every request refused
 }
 
 // tenantOf is the tenant whose webhook path this mail arrived at, or the
@@ -61,8 +61,12 @@ func (h *WebhookHandler) secretOK(r *http.Request) bool {
 }
 
 // NewWebhookHandler creates a new inbound email webhook handler.
-func NewWebhookHandler(mqtt bus.MessageBus, kr *KeyRing) *WebhookHandler {
-	return &WebhookHandler{mqtt: mqtt, keyRing: kr}
+//
+// It takes the pool rather than one keyring because inbound mail is decrypted
+// with the PGP key of the tenant whose webhook path it arrived at -- mail
+// encrypted to one tenant's key is not another tenant's to read (MESHSAT-1121).
+func NewWebhookHandler(mqtt bus.MessageBus, pool *Pool) *WebhookHandler {
+	return &WebhookHandler{mqtt: mqtt, pool: pool}
 }
 
 // ServeHTTP handles the inbound email webhook POST.
@@ -135,8 +139,9 @@ func (h *WebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Try PGP decryption if body looks PGP-encrypted.
-	if h.keyRing != nil && strings.Contains(body, "-----BEGIN PGP MESSAGE-----") {
-		plaintext, signer, err := h.keyRing.Decrypt(body)
+	gw := h.pool.ForTenant(r.Context(), h.tenantOf(r))
+	if gw != nil && strings.Contains(body, "-----BEGIN PGP MESSAGE-----") {
+		plaintext, signer, err := gw.KeyRing.Decrypt(body)
 		if err != nil {
 			slog.Warn("email: PGP decryption failed", "from", from, "error", err)
 		} else {

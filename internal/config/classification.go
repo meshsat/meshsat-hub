@@ -53,13 +53,7 @@ var Classification = map[string]Class{
 
 	// --- tenant-provider: Tenant-owned, still moving to internal/integrations
 	// (MESHSAT-1121). This block SHRINKS as tranches land; APRS-IS left it first.
-	// (13 remaining of the 22 the audit found)
-	"email_enabled":    ClassTenantProvider,
-	"email_from":       ClassTenantProvider,
-	"email_password":   ClassTenantProvider,
-	"email_pgp_key":    ClassTenantProvider,
-	"email_smtp_host":  ClassTenantProvider,
-	"email_username":   ClassTenantProvider,
+	// (7 remaining of the 22 the audit found)
 	"hawkbit_enabled":  ClassTenantProvider,
 	"hawkbit_password": ClassTenantProvider,
 	"hawkbit_url":      ClassTenantProvider,
@@ -80,6 +74,17 @@ var Classification = map[string]Class{
 	// tenant and per device; only the backend that delivered to them was global,
 	// and it was unset in production -- so every notification URL a customer
 	// saved was accepted and delivered nowhere.
+	// The PGP email gateway landed third (T3). Its keyring is per tenant now,
+	// which also removed a cross-tenant defect: contacts were one process-wide
+	// map keyed by bare address, so one tenant could overwrite another's key for
+	// a correspondent and read mail encrypted to it.
+	"email_enabled":   ClassTenantDone,
+	"email_from":      ClassTenantDone,
+	"email_password":  ClassTenantDone,
+	"email_pgp_key":   ClassTenantDone,
+	"email_smtp_host": ClassTenantDone,
+	"email_username":  ClassTenantDone,
+
 	"apprise_enabled": ClassTenantDone,
 	"apprise_url":     ClassTenantDone,
 	"ntfy_enabled":    ClassTenantDone,

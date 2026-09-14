@@ -806,18 +806,30 @@ func main() {
 		notifiers = append(notifiers, sms.NewNotifierPool(smsPool))
 		slog.Info("sms: escalation notifier enabled", "platform_from", cfg.SMSFromNumber)
 	}
-	var emailKeyRing *hubemail.KeyRing
+	// The PGP email gateway, per tenant since MESHSAT-1121. The environment
+	// values are the PLATFORM's gateway and serve the default tenant; every other
+	// tenant brings its own SMTP details and its own PGP key on the Integrations
+	// page. The keyring is part of the gateway rather than shared, which is what
+	// stops one tenant's contact for an address overwriting another's.
+	var emailPlatform *hubemail.Gateway
 	if cfg.EmailEnabled && cfg.EmailSMTPHost != "" {
-		var err error
-		emailKeyRing, err = hubemail.NewKeyRing("MeshSat Hub", cfg.EmailFrom, cfg.EmailPGPKey)
+		kr, err := hubemail.NewKeyRing("MeshSat Hub", cfg.EmailFrom, cfg.EmailPGPKey)
 		if err != nil {
 			slog.Error("email: PGP keyring init failed", "error", err)
 		} else {
-			emailClient := hubemail.NewClient(cfg.EmailSMTPHost, cfg.EmailFrom, cfg.EmailUsername, cfg.EmailPassword, emailKeyRing)
-			notifiers = append(notifiers, hubemail.NewNotifier(emailClient))
-			slog.Info("email: escalation notifier enabled", "from", cfg.EmailFrom)
+			emailPlatform = &hubemail.Gateway{
+				Client:  hubemail.NewClient(cfg.EmailSMTPHost, cfg.EmailFrom, cfg.EmailUsername, cfg.EmailPassword, kr),
+				KeyRing: kr,
+			}
+			providerAccounts.SetPlatform(integrations.ProviderEmail, map[string]string{
+				"webhook_secret": cfg.EmailWebhookSecret, "smtp_host": cfg.EmailSMTPHost,
+				"from": cfg.EmailFrom, "username": cfg.EmailUsername,
+				"password": cfg.EmailPassword, "pgp_key": cfg.EmailPGPKey})
+			slog.Info("email: platform gateway enabled", "from", cfg.EmailFrom)
 		}
 	}
+	emailPool := hubemail.NewPool(emailPlatform, providerAccounts)
+	notifiers = append(notifiers, hubemail.NewNotifierPool(emailPool))
 	var escNotifier escalation.Notifier
 	switch len(notifiers) {
 	case 0:
@@ -1937,35 +1949,42 @@ func main() {
 		}
 	}
 
-	// Email gateway routes (PGP key management + inbound webhook)
-	if emailKeyRing != nil {
-		emailWebhook := hubemail.NewWebhookHandler(msgBus, emailKeyRing)
+	// Email gateway routes (PGP key management + inbound webhook).
+	//
+	// Registered unconditionally since MESHSAT-1121: a tenant with its own SMTP
+	// details and PGP key has a working gateway whether or not the OPERATOR
+	// configured one. This used to sit inside `if emailKeyRing != nil`, so on a
+	// Hub with no HUB_EMAIL_* set -- which is production -- the endpoints did not
+	// exist for anybody.
+	{
+		emailWebhook := hubemail.NewWebhookHandler(msgBus, emailPool)
 		emailWebhook.SetSecret(cfg.EmailWebhookSecret)
 		if cfg.EmailWebhookSecret == "" {
 			slog.Warn("email: HUB_EMAIL_WEBHOOK_SECRET unset; /api/webhook/email rejects every request (MESHSAT-976)")
 		}
 		webhookRoute(integrations.ProviderEmail, "webhook_secret", "/api/webhook/email", emailWebhook.ServeHTTP)
 
-		emailAPIHandler := hubemail.NewAPIHandler(emailKeyRing)
-		// The Hub's OWN public key stays readable by any member: it is public by
-		// definition and a correspondent needs it.
+		emailAPIHandler := hubemail.NewAPIHandler(emailPool)
+		// A tenant's own public key, readable by any of its members: it is public
+		// by definition and a correspondent needs it.
 		r.Get("/api/email/keys/public", emailAPIHandler.GetPublicKey)
-		// PLATFORM ADMIN ONLY (MESHSAT-1116). KeyRing.contacts is one
-		// process-wide map with no tenant key, so listing exposed every tenant's
-		// correspondents and -- the sharp one -- overwriting an address's public
-		// key redirects that recipient's encrypted mail to an attacker-held key.
+		// OWNER of the tenant, no longer PLATFORM ADMIN. The platform-admin gate
+		// was MESHSAT-1116's stopgap for a real defect: contacts lived in one
+		// process-wide map keyed by bare address, so listing exposed every
+		// tenant's correspondents and -- the sharp one -- overwriting an
+		// address's key redirected that recipient's encrypted mail to a key
+		// somebody else supplied. The keyring is per tenant now, so the defect is
+		// gone and a customer can manage their own correspondents again.
 		r.Group(func(r chi.Router) {
-			r.Use(hubauth.RequirePlatformAdmin())
+			r.Use(hubauth.RequireRole(hubauth.RoleOwner))
 			r.Get("/api/email/keys", emailAPIHandler.ListContacts)
 			r.Post("/api/email/keys", emailAPIHandler.AddContact)
 			r.Delete("/api/email/keys/{email}", emailAPIHandler.DeleteContact)
 		})
 		// Owner-only: TestSend takes a caller-supplied recipient, subject and
-		// body and sends them through the Hub's own SMTP identity. Without a
-		// role check any viewer of any tenant could relay mail under this
-		// domain's sending reputation.
+		// body and sends them through that tenant's SMTP identity. Without a
+		// role check any viewer could relay mail under it.
 		r.With(hubauth.RequireRole(hubauth.RoleOwner)).Post("/api/email/test", emailAPIHandler.TestSend)
-		emailAPIHandler.SetClient(hubemail.NewClient(cfg.EmailSMTPHost, cfg.EmailFrom, cfg.EmailUsername, cfg.EmailPassword, emailKeyRing))
 	}
 
 	// Auth info
@@ -2624,11 +2643,9 @@ func main() {
 	if cfg.SMSEnabled {
 		routeEngine.RegisterHandler("sms", routing.NewSMSHandlerPool(smsPool))
 	}
-	// Register Email destination handler if email is enabled.
-	if emailKeyRing != nil {
-		routeEmailClient := hubemail.NewClient(cfg.EmailSMTPHost, cfg.EmailFrom, cfg.EmailUsername, cfg.EmailPassword, emailKeyRing)
-		routeEngine.RegisterHandler("email", routing.NewEmailHandler(routeEmailClient))
-	}
+	// The email routing destination, per tenant. Registered unconditionally: a
+	// tenant with its own gateway can route to it even when the operator has none.
+	routeEngine.RegisterHandler("email", routing.NewEmailHandler(hubemail.NewNotifierPool(emailPool)))
 	// Register webhook, notification, MQTT, TAK, and APRS destination handlers.
 	// Satellite destination (MESHSAT-964 D): the text goes to a bridge's
 	// modem, IMT through the tenant's Cloudloop account for a 9704, Rock7 MT

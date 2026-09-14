@@ -12,8 +12,6 @@ import (
 	"github.com/meshsat/meshsat-hub/internal/sms"
 	"github.com/meshsat/meshsat-hub/internal/store"
 	"github.com/meshsat/meshsat-hub/internal/webhook"
-
-	hubemail "github.com/meshsat/meshsat-hub/internal/email"
 )
 
 // moDecodedPayload is the subset of mo/decoded fields needed for routing dispatch.
@@ -106,7 +104,12 @@ func NewSatelliteHandler(send SatelliteSender) DestinationHandler {
 
 // NewEmailHandler creates a routing destination handler that sends email.
 // The route's Filter field should contain recipient email address(es) (comma-separated).
-func NewEmailHandler(client *hubemail.Client) DestinationHandler {
+//
+// It takes a NotificationSender rather than a *hubemail.Client so the CONTEXT
+// reaches the sender, which is how the tenant's own gateway is chosen. With a
+// bare client, every tenant's routed mail left from the one address the
+// environment named (MESHSAT-1121).
+func NewEmailHandler(sender NotificationSender) DestinationHandler {
 	return func(ctx context.Context, route *store.Route, deviceID string, payload json.RawMessage) {
 		var msg moDecodedPayload
 		if err := json.Unmarshal(payload, &msg); err != nil {
@@ -123,10 +126,8 @@ func NewEmailHandler(client *hubemail.Client) DestinationHandler {
 		subject := fmt.Sprintf("MeshSat [%s] Message from %s", msg.Channel, deviceID)
 		body := fmt.Sprintf("Device: %s\nChannel: %s\n\n%s", deviceID, msg.Channel, msg.Text)
 
-		for _, to := range recipients {
-			if err := client.Send(to, subject, body); err != nil {
-				slog.Error("routing/email: send failed", "to", to, "device", deviceID, "error", err)
-			}
+		if err := sender.Notify(ctx, recipients, subject, body); err != nil {
+			slog.Error("routing/email: send failed", "device", deviceID, "error", err)
 		}
 	}
 }
