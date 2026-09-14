@@ -3,10 +3,11 @@ package api
 import (
 	"crypto/rand"
 	"encoding/hex"
-	"encoding/json"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -197,16 +198,38 @@ func (h *BridgeAuthHandler) GetMQTTURL(w http.ResponseWriter, r *http.Request) {
 // @Failure 400 {object} map[string]string
 // @Failure 500 {object} map[string]string
 // @Router /api/settings/mqtt-url [put]
+// mqttURLSchemes are the only schemes a bridge can actually dial.
+//
+// This value is handed to every bridge at onboarding, so a malformed or
+// hostile one is not a display bug -- it is baked into the provisioning bundle
+// of every kit enrolled afterwards, and the kit is in a field somewhere. The
+// list is deliberately closed: ws/wss are the NATS WebSocket path this
+// deployment uses, tcp/ssl and mqtt/mqtts are what a self-hosted Hub's broker
+// speaks. Anything else (javascript:, file:, http:) reaches no broker and has
+// no business being offered to a device.
+var mqttURLSchemes = map[string]bool{
+	"ws": true, "wss": true, "tcp": true, "ssl": true, "mqtt": true, "mqtts": true,
+}
+
 func (h *BridgeAuthHandler) SetMQTTURL(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		MQTTURL string `json:"mqtt_url"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid JSON")
+	// readJSON, not json.NewDecoder: critical rule 4. It caps the body, refuses
+	// unknown fields and refuses a second JSON value. This handler used the raw
+	// decoder until MESHSAT-1116.
+	if err := readJSON(w, r, &req, 4096); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 	if req.MQTTURL == "" {
 		writeError(w, http.StatusBadRequest, "mqtt_url is required")
+		return
+	}
+	u, err := url.Parse(req.MQTTURL)
+	if err != nil || u.Host == "" || !mqttURLSchemes[strings.ToLower(u.Scheme)] {
+		writeError(w, http.StatusBadRequest,
+			"mqtt_url must be an absolute URL with a host and one of these schemes: ws, wss, tcp, ssl, mqtt, mqtts")
 		return
 	}
 	if err := h.store.SetSystemConfig(r.Context(), mqttPublicURLKey, req.MQTTURL); err != nil {

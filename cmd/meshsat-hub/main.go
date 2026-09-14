@@ -378,6 +378,18 @@ func main() {
 	// account and serve the default tenant only.
 	credMasterKey := bootstrapCredentialMasterKey(dataStore)
 	providerAccounts := integrations.New(dataStore, credMasterKey)
+	// A saved provider account must be in force on BOTH replicas at once
+	// (MESHSAT-1127). Each replica holds its own 60-second cache, so without
+	// this the one that did not serve the write keeps a stale answer -- and a
+	// stale NEGATIVE means it behaves as though the tenant has no credentials:
+	// no SMS sent, no notification delivered, no position injected. Reproduced
+	// on production before it was fixed. The TTL remains the backstop.
+	if msgBus.IsConnected() {
+		if err := providerAccounts.SetBus(msgBus); err != nil {
+			slog.Error("integrations: could not subscribe to account changes from other replicas; "+
+				"a saved account will take up to a minute to apply everywhere", "error", err)
+		}
+	}
 	providerAccounts.SetPlatform(integrations.ProviderCloudloop, map[string]string{
 		"api_url": cfg.CloudloopAPIURL, "api_key": cfg.CloudloopAPIKey, "account_id": cfg.CloudloopAccountID, "webhook_token": cfg.CloudloopWebhookToken})
 	providerAccounts.SetPlatform(integrations.ProviderTwilio, map[string]string{

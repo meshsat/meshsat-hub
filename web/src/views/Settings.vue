@@ -180,8 +180,13 @@ function statusText(ok) {
         </div>
       </div>
 
-      <!-- Platform Settings -->
-      <div class="bg-tactical-surface rounded-lg border border-tactical-border p-5 mb-6">
+      <!-- Platform Settings. PLATFORM ADMIN ONLY (MESHSAT-1116): system_config
+           has no tenant_id, so this one value is handed to EVERY tenant's
+           bridges at onboarding. The API refuses a non-admin now, but showing a
+           customer a Save button that can only ever 403 is its own defect -- the
+           issue recorded a customer-tenant user seeing this panel. -->
+      <div v-if="authStore.isPlatformAdmin"
+           class="bg-tactical-surface rounded-lg border border-tactical-border p-5 mb-6">
         <h2 class="text-sm font-display font-semibold text-gray-200 uppercase tracking-wider mb-4">Platform</h2>
         <div class="space-y-3">
           <div>
