@@ -58,8 +58,17 @@ backs it up to S3 nightly with everything else, it survives a node, and it does
 not change under a manifest that did not.
 
 How it is told: the image ships a `postgresql` Spring profile that sets
-`spring.jpa.database` and the driver class, so `SPRING_PROFILES_ACTIVE=postgresql`
-plus `SPRING_DATASOURCE_URL/USERNAME/PASSWORD`. The password is ONE OpenBao
+`spring.jpa.database` and the driver class. **It is activated with the image's
+own `PROFILES` env var, not `SPRING_PROFILES_ACTIVE`.** The Entrypoint is
+`java ${JAVA_OPTS} -Dspring.profiles.active=${PROFILES} -Xms${X_MS} -Xmx${X_MX} …`
+with `PROFILES` defaulting to `h2`, and a `-D` system property beats the Spring
+env var — the first cut ran with *"1 profile is active: h2"* and Flyway applied
+the H2 DDL to Postgres (`type "clob" does not exist`) while the pod's env said
+postgresql. The same line is why the heap is set with `X_MS`/`X_MX`: `JAVA_OPTS`
+is expanded *first* and the image's own `-Xmx768m` came after it, so the
+`-Xmx1g` in `JAVA_OPTS` never took effect from the day this was deployed. Both
+read from `docker image inspect`, which is where an image's real knobs live.
+Then `SPRING_DATASOURCE_URL/USERNAME/PASSWORD`. The password is ONE OpenBao
 property (`ci-no/apps/meshsat-hub/hawkbit` → `HAWKBIT_DB_PASSWORD`) delivered
 to both namespaces — CNPG's `db-role-hawkbit` Secret and the pod's
 `hawkbit-secrets` — so role and client cannot disagree.

@@ -44,7 +44,15 @@ spec:
             # and the driver class. Activating it is the supported way to say
             # "this is Postgres"; setting those two by hand would be a copy of
             # upstream's file that drifts.
-            - name: SPRING_PROFILES_ACTIVE
+            #
+            # PROFILES, NOT SPRING_PROFILES_ACTIVE. The image's Entrypoint is
+            #   java ${JAVA_OPTS} -Dspring.profiles.active=${PROFILES} ...
+            # with PROFILES defaulting to h2. A -D system property beats the
+            # SPRING_PROFILES_ACTIVE env var, so the first cut of this ran with
+            # "1 profile is active: h2" and Flyway applied the H2 DDL to
+            # Postgres -- ERROR: type "clob" does not exist -- while the pod's
+            # env said postgresql. Read from `docker image inspect`, not guessed.
+            - name: PROFILES
               value: "postgresql"
             # The -rw service: hawkBit writes. sslmode=require, as the Hub uses.
             # Database `hawkbit`, owned by role `hawkbit` -- neither the Hub's
@@ -67,8 +75,17 @@ spec:
             # Heap capped well under the limit: a JVM that sizes its heap from
             # the cgroup limit and then needs metaspace and thread stacks on top
             # is how a container gets OOM-killed while "within" its limit.
-            - name: JAVA_OPTS
-              value: "-Xms256m -Xmx1g"
+            #
+            # X_MS / X_MX, NOT JAVA_OPTS. The Entrypoint expands JAVA_OPTS FIRST
+            # and then appends -Xms${X_MS} -Xmx${X_MX} (defaults 768m/768m), and
+            # for -X flags the last one wins -- so the JAVA_OPTS heap cap this
+            # carried from day one was overridden on every start and the JVM ran
+            # at the image's 768m the whole time. Found on the same image inspect
+            # as the PROFILES defect above.
+            - name: X_MS
+              value: "256m"
+            - name: X_MX
+              value: "1g"
             # hawkbit.security.user is a MAP keyed by username in this version,
             # not a scalar. The first attempt set hawkbit.security.user.name and
             # the container refused to start: "No converter found capable of
