@@ -133,7 +133,7 @@ func NewEmailHandler(client *hubemail.Client) DestinationHandler {
 
 // WebhookFirer is the subset of webhook.Dispatcher needed by the routing handler.
 type WebhookFirer interface {
-	Fire(tenantID string, event webhook.EventType, deviceID string, data json.RawMessage)
+	Fire(tenantID string, event webhook.EventType, deviceID, dedupKey string, data json.RawMessage)
 }
 
 // NotificationSender can send notifications (Apprise, ntfy, etc.).
@@ -161,7 +161,10 @@ func NewWebhookHandler(dispatcher WebhookFirer) DestinationHandler {
 			slog.Warn("routing/webhook: no tenant on the routed message; not firing", "device", deviceID)
 			return
 		}
-		dispatcher.Fire(tenantID, webhook.EventType("routed_message"), deviceID, payload)
+		// A dedup key so the two replicas do not both POST. Derived from the
+		// payload, so it is the same on both.
+		dispatcher.Fire(tenantID, webhook.EventType("routed_message"), deviceID,
+			hubmqtt.FallbackMessageID("routed/"+deviceID, payload), payload)
 		slog.Debug("routing/webhook: fired routed_message event", "device", deviceID, "tenant", tenantID)
 	}
 }

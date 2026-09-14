@@ -35,7 +35,7 @@ func TestFire_DeliversToMatchingWebhook(t *testing.T) {
 	})
 
 	data, _ := json.Marshal(map[string]string{"text": "hello"})
-	d.Fire(tenantA, EventMO, "device-1", data)
+	d.Fire(tenantA, EventMO, "device-1", "probe-"+"device-1", data)
 
 	time.Sleep(200 * time.Millisecond)
 
@@ -83,7 +83,7 @@ func TestFire_SkipsNonMatchingEvents(t *testing.T) {
 	})
 
 	// Fire MO event — should not match
-	d.Fire(tenantA, EventMO, "device-1", json.RawMessage(`{}`))
+	d.Fire(tenantA, EventMO, "device-1", "probe-"+"device-1", json.RawMessage(`{}`))
 	time.Sleep(200 * time.Millisecond)
 
 	mu.Lock()
@@ -118,7 +118,7 @@ func TestFire_SkipsDisabledWebhook(t *testing.T) {
 		Enabled:  false, // disabled
 	})
 
-	d.Fire(tenantA, EventMO, "device-1", json.RawMessage(`{}`))
+	d.Fire(tenantA, EventMO, "device-1", "probe-"+"device-1", json.RawMessage(`{}`))
 	time.Sleep(200 * time.Millisecond)
 
 	mu.Lock()
@@ -153,7 +153,7 @@ func TestFire_HMACSigning(t *testing.T) {
 		Enabled:  true,
 	})
 
-	d.Fire(tenantA, EventSOS, "device-1", json.RawMessage(`{"triggered":true}`))
+	d.Fire(tenantA, EventSOS, "device-1", "probe-"+"device-1", json.RawMessage(`{"triggered":true}`))
 	time.Sleep(200 * time.Millisecond)
 
 	mu.Lock()
@@ -202,7 +202,7 @@ func TestFire_RetriesOnFailure(t *testing.T) {
 		TimeoutSec: 5,
 	})
 
-	d.Fire(tenantA, EventMO, "device-1", json.RawMessage(`{}`))
+	d.Fire(tenantA, EventMO, "device-1", "probe-"+"device-1", json.RawMessage(`{}`))
 	time.Sleep(5 * time.Second) // allow retries
 
 	mu.Lock()
