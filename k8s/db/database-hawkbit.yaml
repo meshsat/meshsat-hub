@@ -1,0 +1,28 @@
+# hawkBit's database on the shared CNPG cluster (MESHSAT-1131).
+#
+# hawkBit shipped on the bundled H2 -- one file on a node-local volume with no
+# backup, whose version was whatever the image happened to carry. That is how it
+# broke on day one (H2 2.x removed IDENTITY()) and it is not a production
+# database. This puts it on the same Postgres the Hub uses, which barman backs
+# up to S3 nightly and which survives a node.
+#
+# A Database CR rather than a second bootstrap: the cluster already exists, and
+# CNPG >= 1.25 manages additional databases declaratively. The owner is the
+# dedicated `hawkbit` managed role (cluster-meshsat-hub-main.yaml), not the
+# Hub's `meshsat` role, so neither app can read the other's tables.
+#
+# reclaimPolicy: retain -- deleting this CR (or the hawkBit app) must not drop
+# the firmware rollout history. Dropping it is a hand decision.
+apiVersion: postgresql.cnpg.io/v1
+kind: Database
+metadata:
+  name: hawkbit
+  namespace: meshsat-hub-db
+  labels:
+    app.kubernetes.io/name: meshsat-hub-main
+spec:
+  name: hawkbit
+  owner: hawkbit
+  cluster:
+    name: meshsat-hub-main
+  databaseReclaimPolicy: retain

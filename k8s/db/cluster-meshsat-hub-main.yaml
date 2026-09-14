@@ -55,6 +55,15 @@ spec:
         login: true
         passwordSecret:
           name: db-role-meshsat
+      # hawkBit's own role (MESHSAT-1131). Owner of the `hawkbit` database only
+      # (see database-hawkbit.yaml); it has no grant on meshsat_hub and the Hub's
+      # role has none on hawkbit, so a compromise of one is not a read of the
+      # other. Password from the db-role-hawkbit ExternalSecret.
+      - name: hawkbit
+        ensure: present
+        login: true
+        passwordSecret:
+          name: db-role-hawkbit
 
   backup:
     barmanObjectStore:

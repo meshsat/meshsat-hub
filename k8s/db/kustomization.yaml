@@ -3,5 +3,6 @@ kind: Kustomization
 resources:
   - externalsecrets.yaml
   - cluster-meshsat-hub-main.yaml
+  - database-hawkbit.yaml
   - scheduledbackup.yaml
   - backup-unwedge.yaml
