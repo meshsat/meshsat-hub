@@ -224,3 +224,47 @@ func TestFramesAreAlwaysSealedEvenWithNoOptionsAtAll(t *testing.T) {
 			"were readable by anyone who saw the SMS")
 	}
 }
+
+// The per-hour ceiling is per TENANT as well as per bridge and bearer. A bridge
+// id is only unique within a tenant -- store.OOBPeer is keyed by both -- so with
+// a key of bridge|bearer alone, two tenants that named a bridge the same way
+// shared one budget and either could exhaust the other's ability to command its
+// own hardware (MESHSAT-1121).
+func TestTheRateCeilingIsPerTenantNotJustPerBridge(t *testing.T) {
+	svc, _, _ := newService(t) // MaxPerHour: 3
+	const bridge, bearer = "tesseract", BearerSMS
+
+	for i := 0; i < 3; i++ {
+		if !svc.allow("t_one", bridge, bearer, 3) {
+			t.Fatalf("tenant one was blocked on send %d of its own budget", i+1)
+		}
+	}
+	if svc.allow("t_one", bridge, bearer, 3) {
+		t.Fatal("tenant one exceeded its own ceiling")
+	}
+	if !svc.allow("t_two", bridge, bearer, 3) {
+		t.Fatal("a second tenant with a bridge of the same name was refused because " +
+			"the FIRST tenant had used its budget: one customer can stop another " +
+			"commanding their own field kit")
+	}
+}
+
+// A tenant's own ceiling is used, not the platform's. The platform number
+// remains the default for a tenant that has not chosen one.
+func TestATenantsOwnCeilingApplies(t *testing.T) {
+	svc, _, _ := newService(t) // platform default MaxPerHour: 3
+
+	svc.SetPolicy(func(_ context.Context, tenantID string) Policy {
+		if tenantID == "t_generous" {
+			return Policy{MaxPerHour: 5}
+		}
+		return Policy{} // unset: fall back to the platform's
+	})
+
+	if got := svc.policyFor(context.Background(), "t_generous").MaxPerHour; got != 5 {
+		t.Errorf("the tenant's own ceiling was %d, want 5", got)
+	}
+	if got := svc.policyFor(context.Background(), "t_plain").MaxPerHour; got != 3 {
+		t.Errorf("a tenant that chose nothing got %d, want the platform default 3", got)
+	}
+}

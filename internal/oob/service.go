@@ -61,6 +61,7 @@ type Service struct {
 	masterKey  []byte
 	audit      *audit.Service
 	maxPerHour int
+	policy     func(ctx context.Context, tenantID string) Policy
 
 	mu         sync.Mutex
 	transports map[string]Transport
@@ -88,6 +89,44 @@ func New(s Store, masterKey []byte, auditSvc *audit.Service, opts Options) *Serv
 	}
 	return &Service{store: s, masterKey: masterKey, audit: auditSvc, maxPerHour: opts.MaxPerHour,
 		transports: map[string]Transport{}, pending: map[string]chan Reply{}, sent: map[string][]time.Time{}, now: time.Now}
+}
+
+// Policy is one tenant's out-of-band command policy. A zero field means "use
+// the platform default", the convention every setting moved by MESHSAT-1117 uses.
+type Policy struct {
+	MaxPerHour int
+	SMSTimeout time.Duration
+	SatTimeout time.Duration
+}
+
+// SetPolicy makes the rate ceiling and the reply timeouts per tenant
+// (MESHSAT-1121). Without it the platform defaults apply to everybody, which is
+// what a self-hosted single-tenant Hub wants and what every deployment had
+// before.
+func (s *Service) SetPolicy(fn func(ctx context.Context, tenantID string) Policy) {
+	s.mu.Lock()
+	s.policy = fn
+	s.mu.Unlock()
+}
+
+// policyFor resolves a tenant's policy, falling back to the platform defaults
+// field by field so a tenant that set only one of them keeps the rest.
+func (s *Service) policyFor(ctx context.Context, tenantID string) Policy {
+	s.mu.Lock()
+	fn := s.policy
+	maxPerHour := s.maxPerHour
+	s.mu.Unlock()
+
+	p := Policy{MaxPerHour: maxPerHour}
+	if fn == nil {
+		return p
+	}
+	got := fn(ctx, tenantID)
+	if got.MaxPerHour > 0 {
+		p.MaxPerHour = got.MaxPerHour
+	}
+	p.SMSTimeout, p.SatTimeout = got.SMSTimeout, got.SatTimeout
+	return p
 }
 
 // RegisterTransport attaches a bearer.
@@ -222,10 +261,14 @@ func (s *Service) ChooseBearer(p *store.OOBPeer, via string, isIMT func(imei str
 	return "", ErrNoBearer
 }
 
-func (s *Service) allow(bridgeID, bearer string) bool {
+// allow is the per-hour ceiling. The key carries the TENANT as well as the
+// bridge: a bridge id is only unique within a tenant (store.OOBPeer is keyed by
+// both), so without it two tenants that happened to name a bridge the same way
+// would share one budget and either could exhaust the other's.
+func (s *Service) allow(tenantID, bridgeID, bearer string, maxPerHour int) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	key := bridgeID + "|" + bearer
+	key := tenantID + "|" + bridgeID + "|" + bearer
 	cut := s.now().Add(-time.Hour)
 	kept := s.sent[key][:0]
 	for _, t := range s.sent[key] {
@@ -233,7 +276,7 @@ func (s *Service) allow(bridgeID, bearer string) bool {
 			kept = append(kept, t)
 		}
 	}
-	if len(kept) >= s.maxPerHour {
+	if len(kept) >= maxPerHour {
 		s.sent[key] = kept
 		return false
 	}
@@ -266,7 +309,8 @@ func (s *Service) Send(ctx context.Context, tenantID, bridgeID, bearer, cmdName 
 	if !ok {
 		return nil, fmt.Errorf("oob: bearer %q is not available", bearer)
 	}
-	if !s.allow(bridgeID, bearer) {
+	pol := s.policyFor(ctx, tenantID)
+	if !s.allow(tenantID, bridgeID, bearer, pol.MaxPerHour) {
 		return nil, ErrRateLimit
 	}
 	key, err := s.key(p)
@@ -316,7 +360,15 @@ func (s *Service) Send(ctx context.Context, tenantID, bridgeID, bearer, cmdName 
 	if noReply {
 		return &Reply{Bearer: bearer, Counter: counter, Result: "sent"}, nil
 	}
+	// The tenant's own reply timeout when it set one, else the bearer's default.
+	// Satellite and SMS are different orders of magnitude -- an Iridium MT waits
+	// for a satellite pass -- so they are separate settings, not one number.
 	timeout := t.Timeout()
+	if bearer == BearerSMS && pol.SMSTimeout > 0 {
+		timeout = pol.SMSTimeout
+	} else if bearer != BearerSMS && pol.SatTimeout > 0 {
+		timeout = pol.SatTimeout
+	}
 	if dl, ok := ctx.Deadline(); ok && time.Until(dl) < timeout {
 		timeout = time.Until(dl)
 	}

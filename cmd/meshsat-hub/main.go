@@ -1320,6 +1320,22 @@ func main() {
 	oobSvc.RegisterTransport(oob.BearerSMS, &bearers.SMS{Pool: smsPool, Wait: cfg.OOBSMSTimeout})
 	oobSvc.RegisterTransport(oob.BearerIMT, &bearers.IMT{Pool: cloudloopPool, Resolver: thingResolver, Wait: cfg.OOBSatTimeout})
 	oobSvc.RegisterTransport(oob.BearerSBD, &bearers.SBD{Pool: rock7Pool, Wait: cfg.OOBSatTimeout})
+	// Per-tenant OOB policy (MESHSAT-1121). The tenant's stored value is CLAMPED
+	// here as well as validated in the API: a row can also be written by hand,
+	// and a ceiling of 0 would stop a tenant commanding its own kit at all while
+	// an unbounded one turns a stuck script into a bill on the customer's own
+	// carrier account.
+	oobSvc.SetPolicy(func(ctx context.Context, tenantID string) oob.Policy {
+		t, err := dataStore.GetTenant(ctx, tenantID)
+		if err != nil || t == nil {
+			return oob.Policy{}
+		}
+		return oob.Policy{
+			MaxPerHour: clampInt(t.OOBMaxPerHour, cfg.OOBMaxPerHourMin, cfg.OOBMaxPerHourMax),
+			SMSTimeout: clampDuration(time.Duration(t.OOBSMSTimeoutSec)*time.Second, cfg.OOBTimeoutMin, cfg.OOBTimeoutMax),
+			SatTimeout: clampDuration(time.Duration(t.OOBSatTimeoutSec)*time.Second, cfg.OOBTimeoutMin, cfg.OOBTimeoutMax),
+		}
+	})
 	if bridgeCommander != nil {
 		bridgeCommander.SetOOB(oobSvc, func(imei string) bool {
 			_, imt := thingResolver.Resolve(tenants.ForDevice(context.Background(), imei), imei)
@@ -2050,6 +2066,9 @@ func main() {
 		cfg.BridgeOfflineTimeoutMin, cfg.BridgeOfflineTimeoutMax)
 	tenantHandler.SetAuditRetentionPolicy(cfg.AuditRetentionDays,
 		cfg.AuditRetentionMinDays, cfg.AuditRetentionMaxDays)
+	tenantHandler.SetOOBPolicy(cfg.OOBMaxPerHour, cfg.OOBMaxPerHourMin, cfg.OOBMaxPerHourMax,
+		int(cfg.OOBSMSTimeout.Seconds()), int(cfg.OOBSatTimeout.Seconds()),
+		int(cfg.OOBTimeoutMin.Seconds()), int(cfg.OOBTimeoutMax.Seconds()))
 	// A platform admin changing a plan or a send-budget override must not wait
 	// out a cache. tenantStatus.Forget announces across replicas; the send-cap
 	// cache is local, so the other replica catches up at its own 30 s TTL --
@@ -3151,4 +3170,35 @@ func verifyBillingCompany(c *invoiceninja.Client) {
 				"reply_to", st.ReplyToEmail)
 		}
 	}()
+}
+
+// clampInt holds a stored per-tenant setting inside the platform's bounds. 0 is
+// passed through untouched: it means "use the platform default", and clamping it
+// up to the minimum would silently give every unconfigured tenant the floor
+// instead (MESHSAT-1121).
+func clampInt(v, lo, hi int) int {
+	if v == 0 {
+		return 0
+	}
+	if v < lo {
+		return lo
+	}
+	if hi > 0 && v > hi {
+		return hi
+	}
+	return v
+}
+
+// clampDuration is clampInt for a duration; 0 likewise means the default.
+func clampDuration(v, lo, hi time.Duration) time.Duration {
+	if v == 0 {
+		return 0
+	}
+	if v < lo {
+		return lo
+	}
+	if hi > 0 && v > hi {
+		return hi
+	}
+	return v
 }

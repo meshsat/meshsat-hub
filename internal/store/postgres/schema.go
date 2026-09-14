@@ -761,4 +761,29 @@ CREATE INDEX IF NOT EXISTS idx_geofences_tenant ON geofences (tenant_id);
 	{Version: 23, Name: "geofence cooldown", SQL: `
 ALTER TABLE geofences ADD COLUMN IF NOT EXISTS cooldown_sec INTEGER NOT NULL DEFAULT 0;
 `},
+	// v24: out-of-band command policy, per tenant (MESHSAT-1121).
+	//
+	// An OOB frame commands a tenant's OWN kit over a bearer the tenant is billed
+	// for, so how many may go out in an hour and how long to wait for a reply are
+	// the owner's operational choices, not the platform's. They were
+	// HUB_OOB_MAX_PER_HOUR, HUB_OOB_SMS_TIMEOUT and HUB_OOB_SAT_TIMEOUT: one set
+	// of numbers for everybody, tuned for the operator's two kits and applied to
+	// a customer with a hundred.
+	//
+	// 0 means the platform default, so this migration touches no existing row and
+	// a self-hosted single-tenant Hub is unaffected -- the shape every setting
+	// moved by MESHSAT-1117 uses.
+	//
+	// Timeouts are stored in SECONDS rather than as a duration string: the column
+	// is then comparable and clampable in SQL, and there is no parse that can
+	// fail at read time on a value somebody wrote by hand.
+	//
+	// There is deliberately no oob_encrypt column. Sealing is not a preference:
+	// the frame can reboot or factory-reset hardware in the field over bearers
+	// that are not confidential. HUB_OOB_ENCRYPT was deleted rather than moved.
+	{Version: 24, Name: "oob policy per tenant", SQL: `
+ALTER TABLE tenants ADD COLUMN IF NOT EXISTS oob_max_per_hour INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE tenants ADD COLUMN IF NOT EXISTS oob_sms_timeout_sec INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE tenants ADD COLUMN IF NOT EXISTS oob_sat_timeout_sec INTEGER NOT NULL DEFAULT 0;
+`},
 }

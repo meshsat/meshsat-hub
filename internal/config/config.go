@@ -299,9 +299,16 @@ type Config struct {
 	// There is no oob_encrypt: frames are ALWAYS sealed (MESHSAT-1121). The knob
 	// defaulted to true and was never set, so its only possible effect was to
 	// disable sealing for every tenant at once from a ConfigMap typo.
-	OOBMaxPerHour int           `yaml:"oob_max_per_hour"` // outbound frames per bridge per bearer per hour (default 20)
-	OOBSMSTimeout time.Duration `yaml:"oob_sms_timeout"`  // reply wait over SMS (default 60s)
-	OOBSatTimeout time.Duration `yaml:"oob_sat_timeout"`  // reply wait over Iridium (default 10m)
+	OOBMaxPerHour int `yaml:"oob_max_per_hour"` // outbound frames per bridge per bearer per hour (default 20)
+	// Bounds on what a tenant owner may choose (MESHSAT-1121). Both ends are
+	// harmful: a ceiling of 1 makes a kit unmanageable, and an unbounded one
+	// turns a stuck script into a bill on the customer's own carrier account.
+	OOBMaxPerHourMin int           `yaml:"oob_max_per_hour_min"`
+	OOBMaxPerHourMax int           `yaml:"oob_max_per_hour_max"`
+	OOBTimeoutMin    time.Duration `yaml:"oob_timeout_min"`
+	OOBTimeoutMax    time.Duration `yaml:"oob_timeout_max"`
+	OOBSMSTimeout    time.Duration `yaml:"oob_sms_timeout"` // reply wait over SMS (default 60s)
+	OOBSatTimeout    time.Duration `yaml:"oob_sat_timeout"` // reply wait over Iridium (default 10m)
 
 	// EmailWebhookSecret gates POST /api/webhook/email (X-Webhook-Secret or ?secret=); unset = webhook refused.
 	EmailWebhookSecret string `yaml:"email_webhook_secret"`
@@ -924,6 +931,30 @@ func Load() (Config, error) {
 	cfg.OOBMaxPerHour = 20
 	cfg.OOBSMSTimeout = 60 * time.Second
 	cfg.OOBSatTimeout = 10 * time.Minute
+	cfg.OOBMaxPerHourMin = 1
+	cfg.OOBMaxPerHourMax = 240
+	cfg.OOBTimeoutMin = 10 * time.Second
+	cfg.OOBTimeoutMax = 60 * time.Minute
+	for _, o := range []struct {
+		env string
+		dst *int
+	}{{"HUB_OOB_MAX_PER_HOUR_MIN", &cfg.OOBMaxPerHourMin}, {"HUB_OOB_MAX_PER_HOUR_MAX", &cfg.OOBMaxPerHourMax}} {
+		if v := os.Getenv(o.env); v != "" {
+			if n, err := strconv.Atoi(v); err == nil && n > 0 {
+				*o.dst = n
+			}
+		}
+	}
+	for _, o := range []struct {
+		env string
+		dst *time.Duration
+	}{{"HUB_OOB_TIMEOUT_MIN", &cfg.OOBTimeoutMin}, {"HUB_OOB_TIMEOUT_MAX", &cfg.OOBTimeoutMax}} {
+		if v := os.Getenv(o.env); v != "" {
+			if d, err := time.ParseDuration(v); err == nil && d > 0 {
+				*o.dst = d
+			}
+		}
+	}
 	if v := os.Getenv("HUB_OOB_MAX_PER_HOUR"); v != "" {
 		if n, err := strconv.Atoi(v); err == nil && n > 0 {
 			cfg.OOBMaxPerHour = n

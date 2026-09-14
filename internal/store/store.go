@@ -787,6 +787,14 @@ type Tenant struct {
 	// value applies. Not owner-editable: a send budget is a commercial lever.
 	RatelimitDailyCap   int `json:"ratelimit_daily_cap,omitempty"`
 	RatelimitMonthlyCap int `json:"ratelimit_monthly_cap,omitempty"`
+	// OOB command policy (MESHSAT-1121). 0 means use the platform default.
+	// Owner-editable within platform bounds: the frames go to this tenant's own
+	// field kit over a bearer this tenant is billed for, so the rate and the
+	// reply timeouts are its operational choices. There is no OOBEncrypt: an OOB
+	// frame is ALWAYS sealed.
+	OOBMaxPerHour    int `json:"oob_max_per_hour,omitempty"`
+	OOBSMSTimeoutSec int `json:"oob_sms_timeout_sec,omitempty"`
+	OOBSatTimeoutSec int `json:"oob_sat_timeout_sec,omitempty"`
 	// PlanExpiresAt is when a paid tier lapses back to free. nil means the
 	// plan does not expire, which is what free, custom and beta are.
 	//

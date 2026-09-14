@@ -63,9 +63,6 @@ var Classification = map[string]Class{
 	"wg_url":           ClassTenantProvider,
 
 	// --- tenant-column: Tenant-owned policy, moving to a tenants column (MESHSAT-1121). (3)
-	"oob_max_per_hour": ClassTenantColumn,
-	"oob_sat_timeout":  ClassTenantColumn,
-	"oob_sms_timeout":  ClassTenantColumn,
 
 	// APRS-IS landed first (MESHSAT-1121 T1). Each tenant now connects to the
 	// network under its OWN amateur licence, and a tenant with no callsign on
@@ -78,6 +75,14 @@ var Classification = map[string]Class{
 	// which also removed a cross-tenant defect: contacts were one process-wide
 	// map keyed by bare address, so one tenant could overwrite another's key for
 	// a correspondent and read mail encrypted to it.
+	// Out-of-band command policy landed fourth (T4, migration v24). The frames go
+	// to the tenant's own kit over a bearer the tenant is billed for, so the rate
+	// and the reply timeouts are its operational choices. There is no oob_encrypt:
+	// sealing is not a preference and the variable was deleted, not moved.
+	"oob_max_per_hour": ClassTenantDone,
+	"oob_sms_timeout":  ClassTenantDone,
+	"oob_sat_timeout":  ClassTenantDone,
+
 	"email_enabled":   ClassTenantDone,
 	"email_from":      ClassTenantDone,
 	"email_password":  ClassTenantDone,
@@ -145,6 +150,14 @@ var Classification = map[string]Class{
 	// The four keyed by Go field name carry yaml:"-": they are S3 credentials,
 	// deliberately kept out of the config FILE so they can only arrive by
 	// environment. They still have an owner, so they are still classified.
+	// Bounds on what a tenant owner may choose for the above. The BOUNDS are the
+	// platform's: both ends are harmful, so the operator sets the range and the
+	// customer picks inside it.
+	"oob_max_per_hour_min": ClassPlatform,
+	"oob_max_per_hour_max": ClassPlatform,
+	"oob_timeout_min":      ClassPlatform,
+	"oob_timeout_max":      ClassPlatform,
+
 	// --- platform: The deployment's own. (98)
 	"AuditArchiveS3AccessKey":        ClassPlatform,
 	"AuditArchiveS3SecretKey":        ClassPlatform,
