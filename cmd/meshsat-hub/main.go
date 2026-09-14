@@ -471,6 +471,9 @@ func main() {
 			} else if msgBus.IsConnected() {
 				// Only the platform tenant's positions go to public APRS-IS (MESHSAT-1032).
 				aprsisSub := aprsis.NewSubscriber(msgBus, aprsisClient, tenants, 60)
+				// One replica transmits each packet. APRS-IS is a public
+				// network and the callsign is ours (MESHSAT-1120).
+				aprsisSub.SetClaimer(dataStore)
 				if err := aprsisSub.Start(); err != nil {
 					slog.Error("aprsis: failed to start subscriber", "error", err)
 				}
