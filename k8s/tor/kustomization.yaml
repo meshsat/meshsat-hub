@@ -4,3 +4,4 @@ resources:
   - deployment.yaml
   - configmap.yaml
   - externalsecret.yaml
+  - onion-heartbeat.yaml
