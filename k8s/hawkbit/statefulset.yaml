@@ -40,10 +40,19 @@ spec:
             # is how a container gets OOM-killed while "within" its limit.
             - name: JAVA_OPTS
               value: "-Xms256m -Xmx1g"
-            - name: HAWKBIT_SECURITY_USER_NAME
-              valueFrom: {secretKeyRef: {name: hawkbit-secrets, key: USERNAME}}
-            - name: HAWKBIT_SECURITY_USER_PASSWORD
+            # hawkbit.security.user is a MAP keyed by username in this version,
+            # not a scalar. The first attempt set hawkbit.security.user.name and
+            # the container refused to start: "No converter found capable of
+            # converting from type [java.lang.String] to type
+            # [TenantAwareUserProperties$User]". The username is therefore part of
+            # the PROPERTY PATH, which is why it is a literal here and not read
+            # from the Secret -- an env var name cannot come from a Secret.
+            - name: HAWKBIT_SECURITY_USER_MESHSATHUB_PASSWORD
               valueFrom: {secretKeyRef: {name: hawkbit-secrets, key: PASSWORD_HASH}}
+            - name: HAWKBIT_SECURITY_USER_MESHSATHUB_ROLES
+              value: "TENANT_ADMIN"
+            - name: HAWKBIT_SECURITY_USER_MESHSATHUB_TENANT
+              value: "DEFAULT"
           ports:
             - {name: http, containerPort: 8080, protocol: TCP}
           resources:
