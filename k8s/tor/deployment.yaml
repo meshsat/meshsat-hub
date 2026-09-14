@@ -21,10 +21,26 @@ spec:
         node-role.kubernetes.io/control-plane: ""
       tolerations:
         - {key: node-role.kubernetes.io/control-plane, operator: Exists, effect: NoSchedule}
-      securityContext:
-        # The image runs tor as uid 100; the key directory must belong to it or
-        # tor refuses to start ("Private directory is not owned by this user").
-        fsGroup: 100
+      # NO fsGroup HERE, DELIBERATELY, and it is not an oversight to be tidied up.
+      #
+      # fsGroup: 100 was the obvious way to give uid 100 its volume, and it broke
+      # tor. The kubelet's default fsGroupChangePolicy is Always: on EVERY pod
+      # start it walks the volume, chgrps to the fsGroup and ORs in group bits --
+      # 0700 becomes 2770, 0600 becomes 0660. tor's check_private_dir then
+      # refuses to start at all:
+      #
+      #   [warn] Permissions on directory /var/lib/tor/hidden_service are too
+      #          permissive.
+      #   [err]  Reading config failed--see warnings above.
+      #
+      # It looked fine for as long as the pod was never restarted, because tor
+      # itself creates the directory 0700 AFTER the kubelet has finished. The
+      # first restart after that is when it dies, so this was latent from the
+      # first deploy and would have gone off on any rollout, node drain or image
+      # bump -- and it went off on a commit that had nothing to do with it.
+      #
+      # seed-identity runs as root and asserts ownership and modes below, which
+      # is deterministic and needs no help from the kubelet.
       initContainers:
         # Seed the identity key if the volume does not already have one.
         #
@@ -45,17 +61,26 @@ spec:
               set -eu
               d=/var/lib/tor/hidden_service
               if [ -s "$d/hs_ed25519_secret_key" ]; then
-                echo "identity already present on the volume; leaving it alone"
-                exit 0
+                echo "identity already present on the volume; leaving the key alone"
+              else
+                echo "no identity on the volume; restoring from the sealed backup"
+                mkdir -p "$d"
+                base64 -d < /seed/hs_ed25519_secret_key_b64 > "$d/hs_ed25519_secret_key"
+                base64 -d < /seed/hs_ed25519_public_key_b64 > "$d/hs_ed25519_public_key"
+                cp /seed/hostname "$d/hostname"
+                echo "restored $(cat "$d/hostname")"
               fi
-              echo "no identity on the volume; restoring from the sealed backup"
-              mkdir -p "$d"
-              base64 -d < /seed/hs_ed25519_secret_key_b64 > "$d/hs_ed25519_secret_key"
-              base64 -d < /seed/hs_ed25519_public_key_b64 > "$d/hs_ed25519_public_key"
-              cp /seed/hostname "$d/hostname"
-              chmod 0700 "$d"; chmod 0600 "$d"/hs_ed25519_* "$d/hostname"
-              chown -R 100:100 "$d"
-              echo "restored $(cat "$d/hostname")"
+              # Permissions are asserted on EVERY start, restore or not. tor
+              # refuses a key it considers too readable, and the thing that made
+              # it too readable was the volume plumbing rather than the restore,
+              # so fixing them only on the restore path fixes the wrong half.
+              # 0700 dirs, 0600 files, uid 100 (`tor` in this image). The
+              # provisioner hands out the volume root 0777, so that is included.
+              chown -R 100:100 /var/lib/tor
+              chmod 0700 /var/lib/tor
+              find /var/lib/tor -type d -exec chmod 0700 {} \;
+              find /var/lib/tor -type f -exec chmod 0600 {} \;
+              ls -ldn "$d"
           securityContext:
             runAsUser: 0
           volumeMounts:

@@ -46,10 +46,31 @@ Two deliberate choices in that initContainer:
 - **It never overwrites.** While the volume has a key, the volume is
   authoritative. Clobbering a live key on every restart would be a way to LOSE
   one rather than protect it.
-- **Permissions are part of the restore.** tor refuses to start on a key it
-  considers too readable, so the seed sets a 0700 directory, 0600 files and uid
-  100 (`tor` in this image). Getting the bytes right and the mode wrong fails
-  just as completely.
+- **Permissions are asserted on every start, not only on a restore.** tor
+  refuses to start on a key it considers too readable, so `seed-identity` sets a
+  0700 directory, 0600 files and uid 100 (`tor` in this image) each time.
+  Getting the bytes right and the mode wrong fails just as completely.
+
+## Do not add `fsGroup`, however obviously right it looks
+
+`fsGroup: 100` is the textbook way to hand a volume to a non-root uid, it was
+here, and it is what broke Tor. The kubelet's default `fsGroupChangePolicy` is
+`Always`: on **every** pod start it walks the volume, chgrps to the fsGroup and
+ORs in group bits, so a 0700 directory becomes `drwxrws---` (2770) and a 0600
+key becomes 0660. tor's `check_private_dir` then refuses the config outright:
+
+```
+[warn] Permissions on directory /var/lib/tor/hidden_service are too permissive.
+[err]  Reading config failed--see warnings above.
+```
+
+It hid for as long as the pod was never restarted, because tor creates the
+directory 0700 itself *after* the kubelet has finished with the volume. The
+first restart after that is when it dies — so it was latent from the first
+deploy and went off on an unrelated commit, which is the worst way to find it.
+
+`seed-identity` runs as root and sets ownership and modes directly, which is
+deterministic and needs nothing from the kubelet.
 
 To rotate the address deliberately: delete the PVC *and* the OpenBao entry, let
 Tor generate a fresh key, then store the new one the same way.
