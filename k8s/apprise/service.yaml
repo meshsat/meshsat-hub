@@ -1,0 +1,14 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: apprise
+  namespace: meshsat-hub
+  labels:
+    app.kubernetes.io/name: apprise
+spec:
+  # In-cluster only. HUB_APPRISE_URL names this Service; there is no ingress,
+  # because an open notification relay is an open relay.
+  selector:
+    app.kubernetes.io/name: apprise
+  ports:
+    - {name: http, port: 8000, targetPort: 8000, protocol: TCP}
