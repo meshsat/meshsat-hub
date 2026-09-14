@@ -388,7 +388,18 @@ func main() {
 		if err := providerAccounts.SetBus(msgBus); err != nil {
 			slog.Error("integrations: could not subscribe to account changes from other replicas; "+
 				"a saved account will take up to a minute to apply everywhere", "error", err)
+		} else {
+			// Affirmative, like verifyBillingCompany and the Stripe version
+			// check. Logging only the failure makes silence ambiguous: it reads
+			// the same whether the subscription happened or the whole branch was
+			// skipped because the broker was not connected yet. That ambiguity
+			// cost a diagnosis on MESHSAT-1127 itself.
+			slog.Info("integrations: subscribed to provider-account changes from other replicas",
+				"topic", integrations.ReloadTopic)
 		}
+	} else {
+		slog.Warn("integrations: the bus is not connected, so provider-account changes will NOT " +
+			"reach the other replica immediately; each falls back to its own cache expiry")
 	}
 	providerAccounts.SetPlatform(integrations.ProviderCloudloop, map[string]string{
 		"api_url": cfg.CloudloopAPIURL, "api_key": cfg.CloudloopAPIKey, "account_id": cfg.CloudloopAccountID, "webhook_token": cfg.CloudloopWebhookToken})
