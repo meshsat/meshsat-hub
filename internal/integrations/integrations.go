@@ -22,6 +22,7 @@ import (
 	"time"
 
 	"github.com/meshsat/meshsat-hub/internal/crypto"
+	"github.com/meshsat/meshsat-hub/internal/netguard"
 	"github.com/meshsat/meshsat-hub/internal/store"
 )
 
@@ -77,6 +78,12 @@ type Field struct {
 	Generate bool   `json:"generate,omitempty"` // filled with a random token when left empty
 	Default  string `json:"default,omitempty"`
 	Hint     string `json:"hint,omitempty"`
+	// URL marks a field the Hub will make outbound requests to. Those are
+	// validated against internal/netguard on save, because a tenant choosing a
+	// URL the Hub then fetches is a request-forgery primitive: the Hub sits in a
+	// cluster with a database, a broker and a metadata service all reachable by
+	// name (MESHSAT-1121, found by gosec as a G704 taint).
+	URL bool `json:"url,omitempty"`
 }
 
 // Spec describes a provider.
@@ -93,7 +100,7 @@ var Specs = []Spec{
 	{Provider: ProviderCloudloop, Label: "Cloudloop (Iridium SBD/IMT)", Description: "Ground Control Cloudloop account for RockBLOCK 9603/9704 devices: MT sends, credit balance, thing lookup and the MO webhook.",
 		Webhook: "/api/webhook/cloudloop",
 		Fields: []Field{
-			{Key: "api_url", Label: "API URL", Default: "https://api.cloudloop.com"},
+			{Key: "api_url", Label: "API URL", Default: "https://api.cloudloop.com", URL: true},
 			{Key: "api_key", Label: "API key", Secret: true, Required: true},
 			{Key: "account_id", Label: "Account ID", Hint: "Used for the Cloudloop MQTT topic; optional."},
 			{Key: "webhook_token", Label: "Webhook token", Secret: true, Generate: true, Hint: "The last segment of this tenant's webhook URL. Generated when left empty."},
@@ -120,7 +127,7 @@ var Specs = []Spec{
 	{Provider: ProviderGlobalstar, Label: "Globalstar", Description: "Globalstar API account and the secret its webhook signs with.",
 		Webhook: "/api/webhook/globalstar",
 		Fields: []Field{
-			{Key: "api_url", Label: "API URL"},
+			{Key: "api_url", Label: "API URL", URL: true},
 			{Key: "api_key", Label: "API key", Secret: true, Required: true},
 			{Key: "webhook_secret", Label: "Webhook secret", Secret: true, Required: true, Generate: true},
 		}},
@@ -188,22 +195,22 @@ var Specs = []Spec{
 	// per tenant and per device on the Notifications page.
 	{Provider: ProviderApprise, Label: "Apprise (notification relay)", Description: "The Apprise server your alerts are delivered through. The notification URLs you set per device on the Notifications page are handed to this server. Without one, those URLs are stored and never delivered to.",
 		Fields: []Field{
-			{Key: "url", Label: "Apprise API URL", Required: true, Hint: "base URL of an Apprise API server, e.g. https://apprise.example.org"},
+			{Key: "url", Label: "Apprise API URL", Required: true, URL: true, Hint: "base URL of an Apprise API server, e.g. https://apprise.example.org"},
 		}},
 	{Provider: ProviderWireGuard, Label: "WireGuard (wg-easy)", Description: "A wg-easy server your field devices dial into. The Hub creates a peer when you register a device and removes it when you delete one. Peers are created on YOUR server; nothing is shared with another tenant.",
 		Fields: []Field{
-			{Key: "url", Label: "wg-easy URL", Required: true, Hint: "e.g. https://vpn.example.org"},
+			{Key: "url", Label: "wg-easy URL", Required: true, URL: true, Hint: "e.g. https://vpn.example.org"},
 			{Key: "password", Label: "wg-easy password", Secret: true, Required: true},
 		}},
 	{Provider: ProviderHawkbit, Label: "hawkBit (OTA firmware)", Description: "An Eclipse hawkBit server for firmware rollouts to your own fleet. hawkBit is multi-tenant itself, so the account below decides which of its tenants the Hub acts in.",
 		Fields: []Field{
-			{Key: "url", Label: "hawkBit URL", Required: true, Hint: "e.g. https://hawkbit.example.org"},
+			{Key: "url", Label: "hawkBit URL", Required: true, URL: true, Hint: "e.g. https://hawkbit.example.org"},
 			{Key: "username", Label: "Username", Required: true},
 			{Key: "password", Label: "Password", Secret: true, Required: true},
 		}},
 	{Provider: ProviderNtfy, Label: "ntfy (push notifications)", Description: "The ntfy server your push notifications are published to. Use your own, or the public ntfy.sh. Alert targets that name an ntfy topic are published here.",
 		Fields: []Field{
-			{Key: "url", Label: "ntfy server URL", Required: true, Default: "https://ntfy.sh", Hint: "e.g. https://ntfy.sh or your own instance"},
+			{Key: "url", Label: "ntfy server URL", Required: true, URL: true, Default: "https://ntfy.sh", Hint: "e.g. https://ntfy.sh or your own instance"},
 			{Key: "token", Label: "Access token", Secret: true, Hint: "only needed for a protected topic; leave empty for a public one."},
 		}},
 }
@@ -243,6 +250,17 @@ var ErrNotConfigured = errors.New("provider account not configured for this tena
 
 // Service reads and writes provider accounts with a short cache.
 type Service struct {
+	// noURLCheck disables the save-time SSRF check on URL fields.
+	//
+	// TEST SEAM, and the only callers are tests in packages that point a provider
+	// at an httptest server, which binds to 127.0.0.1 -- exactly what the check
+	// refuses and exactly what it should refuse. Those tests are about which
+	// account a tenant resolves to; the check itself is covered by
+	// internal/integrations/ssrf_test.go and internal/netguard.
+	//
+	// Unexported with no production setter, so configuration cannot reach it.
+	noURLCheck bool
+
 	store     store.Store
 	key       []byte
 	ttl       time.Duration
@@ -439,6 +457,28 @@ func (s *Service) Set(ctx context.Context, tenantID, provider string, fields map
 	for _, f := range spec.Fields {
 		if f.Required && merged[f.Key] == "" {
 			return nil, fmt.Errorf("%s is required", f.Label)
+		}
+	}
+	// Every URL the Hub will make outbound requests to, checked BEFORE it is
+	// stored. A tenant choosing a URL the Hub then fetches is a request-forgery
+	// primitive: the Hub sits in a cluster with a database, a broker, an object
+	// store and a cloud metadata service all reachable by name or by RFC1918
+	// address (MESHSAT-1121).
+	//
+	// This is the chokepoint for ALL providers rather than a check in each pool,
+	// so a provider added later inherits it by marking its field URL: true.
+	// Rejecting here also gives the customer an error while they are looking at
+	// the form, rather than a send that quietly fails later.
+	//
+	// SetPlatform deliberately does NOT come through here: the operator's own
+	// http://wg-easy:51821 is exactly what this refuses, and it is correct for
+	// the platform to use it. The difference is who chose the value.
+	for _, f := range spec.Fields {
+		if !f.URL || merged[f.Key] == "" || s.noURLCheck {
+			continue
+		}
+		if err := netguard.ValidatePublicURL(merged[f.Key]); err != nil {
+			return nil, fmt.Errorf("%s: %w", f.Label, err)
 		}
 	}
 	plain, err := json.Marshal(merged)

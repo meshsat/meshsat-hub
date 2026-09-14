@@ -82,9 +82,12 @@ func TestEverySettingIsClassified(t *testing.T) {
 func TestNoNewTenantOwnedSettingsHaveAppeared(t *testing.T) {
 	// A RATCHET, not a constant: it starts at the 22 the audit found and comes
 	// down as each tranche lands, so a setting cannot quietly move back out of
-	// the UI. APRS-IS took 4, Apprise and ntfy 5, email 6, WireGuard 3.
-	const auditedProvider = 4 // hawkBit 4
-	const auditedColumn = 3   // OOB max/hour, SMS timeout, satellite timeout
+	// the UI. APRS-IS 4, Apprise and ntfy 5, email 6, OOB 4, WireGuard 3,
+	// hawkBit 4 -- all 26.
+	// ZERO. All 26 settings the audit found are reachable in the UI and stored
+	// per tenant. The ratchet stays so the next one cannot appear unnoticed.
+	const auditedProvider = 0
+	const auditedColumn = 3 // OOB max/hour, SMS timeout, satellite timeout
 
 	provider, column := 0, 0
 	for _, c := range Classification {

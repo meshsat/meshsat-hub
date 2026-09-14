@@ -2645,42 +2645,51 @@ func main() {
 	r.Delete("/api/geofences/{id}", geoHandler.DeleteFence)
 
 	// hawkBit OTA management (optional)
-	if cfg.HawkBitEnabled && cfg.HawkBitURL != "" {
-		hbClient := hawkbit.NewClient(cfg.HawkBitURL, cfg.HawkBitUsername, cfg.HawkBitPassword)
-		if hbClient.IsReachable(ctx) {
-			hbHandler := hawkbit.NewAPIHandler(hbClient)
-			// PLATFORM ADMIN ONLY (MESHSAT-1116), and this is the highest-impact
-			// primitive on the whole router: CreateRollout + StartRollout push
-			// FIRMWARE to the fleet. internal/hawkbit has no tenant references
-			// anywhere -- one platform hawkBit instance, no ownership model --
-			// so any authenticated member of any tenant could start a rollout,
-			// or cancel another tenant's in-flight update.
-			//
-			// Gating is the honest stopgap. Making OTA a tenant feature means
-			// giving hawkbit a tenant model first.
-			r.Group(func(r chi.Router) {
-				r.Use(hubauth.RequirePlatformAdmin())
-				r.Get("/api/ota/targets", hbHandler.ListTargets)
-				r.Post("/api/ota/targets", hbHandler.CreateTarget)
-				r.Get("/api/ota/targets/{controllerId}", hbHandler.GetTarget)
-				r.Delete("/api/ota/targets/{controllerId}", hbHandler.DeleteTarget)
-				r.Get("/api/ota/targets/{controllerId}/actions", hbHandler.GetTargetActions)
-				r.Delete("/api/ota/targets/{controllerId}/actions/{actionId}", hbHandler.CancelAction)
-				r.Post("/api/ota/rollouts", hbHandler.CreateRollout)
-				r.Get("/api/ota/rollouts/{id}", hbHandler.GetRollout)
-				r.Post("/api/ota/rollouts/{id}/start", hbHandler.StartRollout)
-				r.Post("/api/ota/rollouts/{id}/pause", hbHandler.PauseRollout)
-			})
-			checker.AddInfoProbe("hawkbit", func(ctx context.Context) error {
-				if !hbClient.IsReachable(ctx) {
-					return fmt.Errorf("hawkbit not reachable")
+	// hawkBit OTA, per tenant (MESHSAT-1121). hawkBit is multi-tenant ITSELF --
+	// its Management API scopes every request to the authenticated principal's
+	// tenant -- so per-tenant OTA is per-tenant CREDENTIALS and no tenant model
+	// had to be invented for Target or Rollout.
+	//
+	// The environment values are the PLATFORM's server, serving the default
+	// tenant. Registered unconditionally: this all sat inside
+	// `if cfg.HawkBitEnabled && ... && hbClient.IsReachable(ctx)`, so a Hub whose
+	// operator runs no hawkBit -- which is production -- had no endpoints for
+	// anybody, and a server that was merely DOWN at boot disabled the feature
+	// permanently with no retry.
+	{
+		var hbPlatform *hawkbit.Client
+		if cfg.HawkBitEnabled && cfg.HawkBitURL != "" {
+			hbPlatform = hawkbit.NewClient(cfg.HawkBitURL, cfg.HawkBitUsername, cfg.HawkBitPassword)
+			providerAccounts.SetPlatform(integrations.ProviderHawkbit, map[string]string{
+				"url": cfg.HawkBitURL, "username": cfg.HawkBitUsername, "password": cfg.HawkBitPassword})
+			// Reachability is a probe, not a gate any more: it reports, and the
+			// routes exist either way so a server that comes back needs no restart.
+			checker.AddInfoProbe("hawkbit", func(c context.Context) error {
+				if hbPlatform.IsReachable(c) {
+					return nil
 				}
-				return nil
+				return fmt.Errorf("hawkbit: %s is not reachable", cfg.HawkBitURL)
 			})
-			slog.Info("hawkbit: OTA management enabled", "url", cfg.HawkBitURL)
-		} else {
-			slog.Warn("hawkbit: server not reachable (OTA management disabled)", "url", cfg.HawkBitURL)
+			slog.Info("hawkbit: platform OTA server configured", "url", cfg.HawkBitURL)
 		}
+		hbHandler := hawkbit.NewAPIHandlerPool(hawkbit.NewClientPool(hbPlatform, providerAccounts))
+		// OWNER of the tenant, no longer PLATFORM ADMIN. The platform-admin gate
+		// was MESHSAT-1116's stopgap for there being one server with no ownership
+		// model, so any member could start a rollout or cancel another tenant's
+		// in-flight update. Each tenant acts in its own hawkBit tenant now.
+		r.Group(func(r chi.Router) {
+			r.Use(hubauth.RequireRole(hubauth.RoleOwner))
+			r.Get("/api/ota/targets", hbHandler.ListTargets)
+			r.Post("/api/ota/targets", hbHandler.CreateTarget)
+			r.Get("/api/ota/targets/{controllerId}", hbHandler.GetTarget)
+			r.Delete("/api/ota/targets/{controllerId}", hbHandler.DeleteTarget)
+			r.Get("/api/ota/targets/{controllerId}/actions", hbHandler.GetTargetActions)
+			r.Delete("/api/ota/targets/{controllerId}/actions/{actionId}", hbHandler.CancelAction)
+			r.Post("/api/ota/rollouts", hbHandler.CreateRollout)
+			r.Get("/api/ota/rollouts/{id}", hbHandler.GetRollout)
+			r.Post("/api/ota/rollouts/{id}/start", hbHandler.StartRollout)
+			r.Post("/api/ota/rollouts/{id}/pause", hbHandler.PauseRollout)
+		})
 	}
 
 	// Message routing engine (configurable source→destination rules)

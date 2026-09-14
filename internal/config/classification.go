@@ -51,14 +51,6 @@ const (
 // writes in config.yaml.
 var Classification = map[string]Class{
 
-	// --- tenant-provider: Tenant-owned, still moving to internal/integrations
-	// (MESHSAT-1121). This block SHRINKS as tranches land; APRS-IS left it first.
-	// (4 remaining of the 22 the audit found: hawkBit)
-	"hawkbit_enabled":  ClassTenantProvider,
-	"hawkbit_password": ClassTenantProvider,
-	"hawkbit_url":      ClassTenantProvider,
-	"hawkbit_username": ClassTenantProvider,
-
 	// --- tenant-column: Tenant-owned policy, moving to a tenants column (MESHSAT-1121). (3)
 
 	// APRS-IS landed first (MESHSAT-1121 T1). Each tenant now connects to the
@@ -78,6 +70,14 @@ var Classification = map[string]Class{
 	// sealing is not a preference and the variable was deleted, not moved.
 	// WireGuard landed fifth (T5), with the platform's own wg-easy deployed at
 	// last: the feature had been "false" with no server anywhere in the estate.
+	// hawkBit landed last (T6), with the platform's own server deployed. hawkBit
+	// is multi-tenant itself, so per-tenant OTA is per-tenant CREDENTIALS: the
+	// server decides which of its tenants the caller acts in.
+	"hawkbit_enabled":  ClassTenantDone,
+	"hawkbit_url":      ClassTenantDone,
+	"hawkbit_username": ClassTenantDone,
+	"hawkbit_password": ClassTenantDone,
+
 	"wg_enabled":  ClassTenantDone,
 	"wg_url":      ClassTenantDone,
 	"wg_password": ClassTenantDone,

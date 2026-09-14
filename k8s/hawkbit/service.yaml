@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: hawkbit
+  namespace: meshsat-hub
+  labels:
+    app.kubernetes.io/name: hawkbit
+spec:
+  # In-cluster only. HUB_HAWKBIT_URL names this Service; there is deliberately no
+  # ingress, because a field device reaches hawkBit through the Hub, and exposing
+  # a firmware server publicly is a separate decision from running one.
+  selector:
+    app.kubernetes.io/name: hawkbit
+  ports:
+    - {name: http, port: 8080, targetPort: 8080, protocol: TCP}

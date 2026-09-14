@@ -134,7 +134,12 @@ data:
   # front of nothing.
   HUB_WG_ENABLED: "true"
   HUB_WG_URL: "http://wg-easy:51821"
-  HUB_HAWKBIT_ENABLED: "false"
+  # The platform's own hawkBit, deployed in k8s/hawkbit (MESHSAT-1121). It was
+  # "false" with no OTA server anywhere in the estate, so OTA was a nav entry in
+  # front of nothing. hawkBit is multi-tenant itself, so a tenant pointing at its
+  # own account here is isolated by hawkBit rather than by us.
+  HUB_HAWKBIT_ENABLED: "true"
+  HUB_HAWKBIT_URL: "http://hawkbit:8080"
   # TAK is per-tenant (MESHSAT-1037, MESHSAT-1065): the operator runs one
   # OpenTAKServer per tenant, or a tenant points the Hub at their own server
   # through Settings -> Integrations. The platform-wide keys that used to be

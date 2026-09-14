@@ -9,6 +9,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"github.com/meshsat/meshsat-hub/internal/netguard"
 	"io"
 	"log/slog"
 	"net/http"
@@ -37,6 +38,10 @@ type Client struct {
 func New(baseURL string) *Client {
 	return &Client{
 		baseURL: strings.TrimRight(baseURL, "/"),
+		// so the address is checked immediately before connect, after resolution.
+		// integrations.Set checks it on save too, but only this survives DNS
+		// rebinding -- a name that resolved publicly then can resolve to
+		// 127.0.0.1 now, and the Hub is in a cluster full of reachable services.
 		httpClient: &http.Client{
 			Timeout: 15 * time.Second,
 		},
@@ -120,4 +125,16 @@ func (c *Client) Healthz(ctx context.Context) error {
 		return fmt.Errorf("ntfy: health: HTTP %d", resp.StatusCode)
 	}
 	return nil
+}
+
+// maybeGuard makes this client refuse to CONNECT to an address the Hub keeps
+// on its own side of the wire. Called by the POOL, on a client built from a
+// TENANT's URL -- never on the platform's own, whose http://ntfy:80 is exactly what
+// the guard refuses and is correct for the operator to use (MESHSAT-1121).
+func (c *Client) maybeGuard(skip bool, timeout time.Duration) *Client {
+	if skip {
+		return c
+	}
+	c.httpClient = netguard.SafeHTTPClient(timeout)
+	return c
 }

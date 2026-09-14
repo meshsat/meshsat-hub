@@ -37,7 +37,9 @@ func newAccounts(t *testing.T) *integrations.Service {
 	for i := range key {
 		key[i] = byte(i * 11)
 	}
-	return integrations.New(db, key)
+	svc := integrations.New(db, key)
+	svc.DisableURLCheckForTest() // httptest binds to loopback; see the method doc
+	return svc
 }
 
 // THE bug this tranche exists to remove. The keyring was one process-wide map
