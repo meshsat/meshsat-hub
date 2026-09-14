@@ -22,7 +22,25 @@ type Service struct {
 	info OnionInfo
 }
 
-// NewService creates a Tor service that reads the .onion hostname.
+// NewService creates a Tor service that reports the Hub's .onion address.
+//
+// It prefers the ADDRESS given directly (HUB_TOR_ONION) over reading a file,
+// because on Kubernetes the file cannot be reached: Tor and the Hub are separate
+// pods and the key volume is RWO node-local, so nothing can mount it twice. That
+// is not a compromise -- a .onion is derived from the key and is stable for the
+// life of the volume, which makes it configuration rather than runtime state.
+//
+// The file path still works, and is what a compose or single-host deployment
+// uses, where both processes do share the volume (MESHSAT-1121).
+func NewServiceFor(onion, hostnamePath string) *Service {
+	if onion = strings.TrimSpace(onion); onion != "" {
+		slog.Info("tor: .onion address taken from configuration", "address", onion)
+		return &Service{info: OnionInfo{HTTPAddress: onion, MQTTAddress: onion, Available: true}}
+	}
+	return NewService(hostnamePath)
+}
+
+// NewService creates a Tor service that reads the .onion hostname from a file.
 // hostnamePath is typically "/var/lib/tor/hidden_service/hostname".
 // If the file doesn't exist (Tor not running), the service reports unavailable.
 func NewService(hostnamePath string) *Service {

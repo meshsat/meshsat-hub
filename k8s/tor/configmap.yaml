@@ -1,0 +1,21 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: tor-config
+  namespace: meshsat-hub
+  labels:
+    app.kubernetes.io/name: tor
+data:
+  torrc: |
+    # Hidden service for the Hub. v3 addresses are the only kind tor still
+    # creates; the version line is explicit so a future default cannot move it.
+    HiddenServiceDir /var/lib/tor/hidden_service
+    HiddenServiceVersion 3
+    # The Hub's API, and the MQTT broker for bridges that reach the Hub over Tor
+    # instead of paying for satellite airtime.
+    HiddenServicePort 80 hub:6070
+    HiddenServicePort 1883 nats:1883
+    # No SOCKS port: this instance exists to PUBLISH a service, not to give
+    # anything in the cluster an outbound anonymising proxy.
+    SocksPort 0
+    Log notice stdout

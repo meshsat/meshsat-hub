@@ -2643,7 +2643,10 @@ func main() {
 	if torHostPath == "" {
 		torHostPath = "/var/lib/tor/hidden_service/hostname"
 	}
-	torService := hubtor.NewService(torHostPath)
+	// HUB_TOR_ONION wins over the file: on Kubernetes the Hub cannot mount Tor's
+	// key volume, and the address is stable configuration rather than state.
+	// The same variable already feeds the Reticulum Tor interface above.
+	torService := hubtor.NewServiceFor(os.Getenv("HUB_TOR_ONION"), torHostPath)
 	torHandler := hubtor.NewAPIHandler(torService)
 	r.Get("/api/tor/onion", torHandler.GetOnion)
 

@@ -88,3 +88,43 @@ func TestAPIHandler_GetOnion_NotAvailable(t *testing.T) {
 		t.Error("expected available=false")
 	}
 }
+
+// The address may come from configuration rather than a file, because on
+// Kubernetes the Hub cannot mount Tor's key volume -- separate pods, RWO
+// node-local storage (MESHSAT-1121).
+func TestTheOnionAddressCanComeFromConfiguration(t *testing.T) {
+	const addr = "abcdefghijklmnopqrstuvwxyz234567abcdefghijklmnopqrstuvwxyz23456.onion"
+
+	s := NewServiceFor(addr, "/nonexistent/hostname")
+	info := s.Info()
+	if !info.Available {
+		t.Fatal("a configured .onion address was reported unavailable: /api/tor/onion " +
+			"would say the Hub has no onion service when it has one")
+	}
+	if info.HTTPAddress != addr || info.MQTTAddress != addr {
+		t.Errorf("addresses = %q / %q, want %q", info.HTTPAddress, info.MQTTAddress, addr)
+	}
+}
+
+// With nothing configured it still falls back to the file, which is what a
+// compose or single-host deployment uses.
+func TestWithNoConfiguredAddressItStillReadsTheFile(t *testing.T) {
+	dir := t.TempDir()
+	path := dir + "/hostname"
+	if err := os.WriteFile(path, []byte("fromfile234567abcdefghijklmnopqrstuvwxyz234567abcdefghijklmnop.onion\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	s := NewServiceFor("", path)
+	if !s.Info().Available {
+		t.Fatal("the file fallback stopped working; a compose deployment would lose its onion")
+	}
+}
+
+// Whitespace is the realistic failure: the hostname file ends with a newline and
+// somebody will paste its contents into a ConfigMap.
+func TestAConfiguredAddressIsTrimmed(t *testing.T) {
+	s := NewServiceFor("  padded234567abcdefghijklmnopqrstuvwxyz234567abcdefghijklmnop.onion\n", "")
+	if got := s.Info().HTTPAddress; got != "padded234567abcdefghijklmnopqrstuvwxyz234567abcdefghijklmnop.onion" {
+		t.Errorf("address = %q, want it trimmed", got)
+	}
+}

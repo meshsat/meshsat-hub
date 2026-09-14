@@ -1,0 +1,57 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: tor
+  namespace: meshsat-hub
+  labels:
+    app.kubernetes.io/name: tor
+spec:
+  serviceName: tor
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: tor
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: tor
+    spec:
+      # Control-plane tier, with the database, NATS and KeyDB. Tor is ~30Mi.
+      nodeSelector:
+        node-role.kubernetes.io/control-plane: ""
+      tolerations:
+        - {key: node-role.kubernetes.io/control-plane, operator: Exists, effect: NoSchedule}
+      securityContext:
+        # The image runs tor as uid 100; the key directory must belong to it or
+        # tor refuses to start ("Private directory is not owned by this user").
+        fsGroup: 100
+      containers:
+        - name: tor
+          image: docker.io/osminogin/tor-simple
+          args: ["-f", "/etc/tor/torrc"]
+          ports:
+            - {name: or, containerPort: 9050, protocol: TCP}
+          resources:
+            requests: {cpu: 20m, memory: 32Mi}
+            limits: {memory: 128Mi}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: {drop: [ALL]}
+          volumeMounts:
+            - {name: keys, mountPath: /var/lib/tor}
+            - {name: config, mountPath: /etc/tor/torrc, subPath: torrc, readOnly: true}
+      volumes:
+        - name: config
+          configMap:
+            name: tor-config
+  volumeClaimTemplates:
+    - metadata:
+        name: keys
+      spec:
+        accessModes: [ReadWriteOnce]
+        # retain: the .onion address IS this key. Losing it changes the address
+        # and breaks every published reference to it.
+        storageClassName: local-hostpath-retain
+        resources:
+          requests:
+            storage: 1Gi
