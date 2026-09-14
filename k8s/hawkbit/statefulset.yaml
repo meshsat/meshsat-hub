@@ -26,13 +26,31 @@ spec:
         fsGroup: 1000
       containers:
         - name: hawkbit
-          image: docker.io/hawkbit/hawkbit-update-server
+          # Pinned to the digest that was running when this was fixed. It was
+          # an untagged `latest` before, which is how the H2 problem below can
+          # arrive silently on any pod replacement: the image moves, the
+          # bundled H2 moves with it, and nothing in this file changed.
+          image: docker.io/hawkbit/hawkbit-update-server@sha256:9120fb1d7687b9ec8e9ee006b54b10a75f6f941788fbd23942e9808fe42a2e07
           env:
             # The bundled H2 on a node-local volume. Deliberate: this instance
             # serves the default tenant's own kit. A tenant running OTA at fleet
             # scale brings its own hawkBit, which is what the provider is for.
+            #
+            # MODE=LEGACY IS LOAD-BEARING. hawkBit's EclipseLink layer emits the
+            # H2 function IDENTITY(), which H2 2.x removed. Without this, every
+            # authenticated REST call answers 500 with
+            #   JdbcSQLSyntaxErrorException: Function "IDENTITY" not found
+            # while the pod is 1/1 Running and /actuator answers -- so OTA was
+            # non-functional from the day it was deployed and nothing but the
+            # Hub's dependency probe could tell. Found by
+            # MeshSatHubBusDisconnected's sibling rule within an hour of it
+            # going live (MESHSAT-1129 -> MESHSAT-1131).
+            #
+            # Postgres (CNPG is already on this cluster) is the proper home for
+            # this and is filed on MESHSAT-1131; LEGACY keeps the existing
+            # volume and its data intact meanwhile.
             - name: SPRING_DATASOURCE_URL
-              value: "jdbc:h2:/var/lib/hawkbit/data;DB_CLOSE_DELAY=-1"
+              value: "jdbc:h2:/var/lib/hawkbit/data;DB_CLOSE_DELAY=-1;MODE=LEGACY"
             - name: SPRING_DATASOURCE_USERNAME
               value: "sa"
             # Heap capped well under the limit: a JVM that sizes its heap from
