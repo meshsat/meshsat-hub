@@ -1,7 +1,13 @@
 <script setup>
-// Per-tenant provider accounts (MESHSAT-977): Cloudloop, Twilio, Rock7,
-// RockBLOCK, Globalstar. Secrets are write-only; leaving a secret empty keeps
-// the stored value. Generated tokens are shown once after saving.
+// Per-tenant provider accounts (MESHSAT-977, extended by MESHSAT-1121).
+//
+// Entirely driven by the Specs table the API returns, so a new provider appears
+// here with no change to this file. Do NOT hardcode a provider name: the prose
+// below used to list the five that existed when it was written, and went stale
+// the first time one was added.
+//
+// Secrets are write-only; leaving a secret empty keeps the stored value.
+// Generated tokens are shown once after saving.
 import { ref, reactive, onMounted } from 'vue'
 import { tenant } from '../api/client'
 import { useAuthStore } from '../stores/auth'
@@ -94,8 +100,9 @@ async function copy(text) {
     <div class="mb-3">
       <h2 class="text-lg font-display font-semibold">Provider accounts</h2>
       <p class="text-gray-400 text-sm mt-1">
-        Your tenant's own Cloudloop, Twilio, Rock7, RockBLOCK and Globalstar credentials. Devices in this tenant send and
-        receive through these accounts; the inbound webhooks identify your tenant by the token or secret below.
+        Your own accounts with the services this Hub talks to. Devices in this tenant send and receive through them, and
+        the inbound webhooks identify your tenant by the token or secret below. Nothing here is shared with another
+        tenant, and nothing is used on your behalf until you fill it in.
       </p>
     </div>
     <div v-if="error" class="bg-red-900/50 border border-red-700 text-red-200 px-4 py-3 rounded mb-4">{{ error }}</div>

@@ -386,6 +386,15 @@ func main() {
 	providerAccounts.SetPlatform(integrations.ProviderRockBLOCK, map[string]string{"webhook_secret": cfg.RockBLOCKSecret})
 	providerAccounts.SetPlatform(integrations.ProviderGlobalstar, map[string]string{
 		"api_url": cfg.GlobalstarAPIURL, "api_key": cfg.GlobalstarAPIKey, "webhook_secret": cfg.GlobalstarWebhookSecret})
+	// The operator's own amateur licence, serving the default tenant. Registered
+	// so it shows on the Integrations page like every other provider account; the
+	// pool still reads cfg directly for the connection it opens on acquisition,
+	// because that happens before any tenant row is consulted (MESHSAT-1121).
+	if cfg.APRSISEnabled {
+		providerAccounts.SetPlatform(integrations.ProviderAPRSIS, map[string]string{
+			"callsign": cfg.APRSISCallsign, "passcode": cfg.APRSISPasscode,
+			"server": cfg.APRSISServer, "ssid": "10", "enabled": "true"})
+	}
 
 	cloudloopClient := cloudloop.NewClient(cfg.CloudloopAPIURL, cfg.CloudloopAPIKey)
 	// One client per tenant account; the platform client serves the default tenant.
@@ -451,38 +460,86 @@ func main() {
 	// traffic at one OpenTAKServer the operator ran. internal/tak keeps only the
 	// CoT codec, which takhosted uses to render events.
 	var aprsisClient *aprsis.Client
+	var aprsisPool *aprsis.ConnPool
+	var aprsisStop context.CancelFunc
 
 	// The elector itself is started at the end of startup (see
 	// leader.RunWith below), after every singleton has been registered.
 	onLeaderAcquired := func() {
 		// onAcquired: APRS-IS, the one connection-holding service left that needs
 		// explicit teardown; the rest of the singleton set is started by RunWith.
+		//
+		// LEADER-ONLY IS LOAD-BEARING, not just tidy. APRS-IS permits one login
+		// per callsign-SSID and drops the older session, so two replicas holding
+		// connections under one callsign would evict each other in a loop -- the
+		// same failure MESHSAT-980 hit on the MQTT broker.
 		slog.Info("leader acquired — starting APRS-IS")
 
-		// APRS-IS IGate (optional — inject satellite positions into APRS-IS network).
+		if !msgBus.IsConnected() {
+			return
+		}
+
+		// The environment's callsign is the PLATFORM's own, and belongs to the
+		// default tenant, exactly like every other provider's env values
+		// (MESHSAT-1121). It is optional now: a tenant that brought its own
+		// licence transmits whether or not the operator configured one.
 		if cfg.APRSISEnabled && cfg.APRSISCallsign != "" && cfg.APRSISPasscode != "" {
 			server := cfg.APRSISServer
 			if server == "" {
-				server = "euro.aprs2.net:14580"
+				server = "rotate.aprs2.net:14580"
 			}
 			aprsisClient = aprsis.NewClient(server, cfg.APRSISCallsign, 10, cfg.APRSISPasscode, "")
 			if err := aprsisClient.Connect(); err != nil {
-				slog.Warn("aprsis: connection failed (will not inject positions)", "error", err)
-			} else if msgBus.IsConnected() {
-				// Only the platform tenant's positions go to public APRS-IS (MESHSAT-1032).
-				aprsisSub := aprsis.NewSubscriber(msgBus, aprsisClient, tenants, 60)
-				// One replica transmits each packet. APRS-IS is a public
-				// network and the callsign is ours (MESHSAT-1120).
-				aprsisSub.SetClaimer(dataStore)
-				if err := aprsisSub.Start(); err != nil {
-					slog.Error("aprsis: failed to start subscriber", "error", err)
-				}
+				slog.Warn("aprsis: the platform's own callsign could not connect", "error", err)
+				aprsisClient = nil
 			}
 		}
+
+		// Started unconditionally from here: this used to sit inside the env
+		// guard, so a Hub whose operator had no callsign ran no APRS at all and
+		// no customer could use the feature either.
+		aprsisPool = aprsis.NewConnPool(aprsisClient, providerAccounts, store.DefaultTenantID)
+		aprsisSub := aprsis.NewSubscriber(msgBus, aprsisPool, tenants, 60)
+		// One replica transmits each packet, and this fails CLOSED: a duplicate
+		// on a public network under a real licence is worse than a gap (MESHSAT-1120).
+		aprsisSub.SetClaimer(dataStore)
+		if err := aprsisSub.Start(); err != nil {
+			slog.Error("aprsis: failed to start subscriber", "error", err)
+			return
+		}
+
+		// Connections are opened here, on a timer, and never on the message path:
+		// dialling inside an MQTT handler would let one tenant's bad server
+		// address stall every other tenant's positions.
+		ctx, cancel := context.WithCancel(context.Background())
+		aprsisStop = cancel
+		go func() {
+			t := time.NewTicker(30 * time.Second)
+			defer t.Stop()
+			aprsisPool.Reconcile(ctx)
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				case <-t.C:
+					aprsisPool.Reconcile(ctx)
+				}
+			}
+		}()
 	}
 	onLeaderLost := func() {
-		// onLost: stop singleton services
+		// onLost: stop singleton services. Every tenant's connection has to go,
+		// or the replica that is no longer leader keeps a callsign logged in and
+		// the new leader cannot take it.
 		slog.Info("leader lost — stopping APRS-IS")
+		if aprsisStop != nil {
+			aprsisStop()
+			aprsisStop = nil
+		}
+		if aprsisPool != nil {
+			aprsisPool.Close()
+			aprsisPool = nil
+		}
 		if aprsisClient != nil {
 			aprsisClient.Disconnect()
 			aprsisClient = nil

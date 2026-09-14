@@ -33,3 +33,27 @@ func (r *Resolver) IsPlatformTopic(ctx context.Context, topic string) bool {
 	}
 	return false
 }
+
+// TenantForTopic returns the tenant that OWNS the traffic on a device or bridge
+// topic, or "" when the topic is neither.
+//
+// It is IsPlatformTopic generalised, for a consumer that can now act on behalf
+// of any tenant rather than only the platform -- APRS-IS since MESHSAT-1121,
+// where each tenant transmits under its own amateur licence instead of sharing
+// the operator's callsign.
+//
+// It is safe to route on because the OWNER OF RECORD wins: ForDeviceTopic
+// consults the store first and only falls back to the tenant named in the topic
+// for a device nobody has registered. A publisher therefore cannot move its
+// traffic into another tenant -- and so cannot borrow another tenant's callsign
+// -- by choosing a topic prefix. That is the same property IsPlatformTopic
+// relies on, stated once here rather than re-derived per consumer.
+func (r *Resolver) TenantForTopic(ctx context.Context, topic string) string {
+	if tenant, device, _, ok := hubmqtt.ParseDeviceTopic(topic); ok {
+		return r.ForDeviceTopic(ctx, device, tenant)
+	}
+	if tenant, bridge, _, ok := hubmqtt.ParseBridgeTopic(topic); ok {
+		return r.ForBridgeTopic(ctx, bridge, tenant)
+	}
+	return ""
+}

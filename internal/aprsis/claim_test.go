@@ -107,10 +107,11 @@ func TestWithNoClaimerEverythingTransmits(t *testing.T) {
 	}
 }
 
-// allowAll is a PlatformChecker that lets the handler run.
-type allowAll struct{}
+// allTheDefaultTenant is a TenantResolver that routes everything to one tenant,
+// so these tests exercise the claim rather than the routing.
+type allTheDefaultTenant struct{}
 
-func (allowAll) IsPlatformTopic(context.Context, string) bool { return true }
+func (allTheDefaultTenant) TenantForTopic(context.Context, string) string { return "default" }
 
 // The claim being correct is worth nothing if the HANDLER does not consult it.
 // These call handlePosition itself rather than s.claim, so removing the call
@@ -122,9 +123,10 @@ func TestThePositionHandlerConsultsTheClaim(t *testing.T) {
 	payload := []byte(`{"lat":52.37,"lon":4.9,"source":"iridium"}`)
 
 	for i := 0; i < 2; i++ { // two replicas
-		s := NewSubscriber(nil, NewClient("", "MESHSAT", 9, "", ""), allowAll{}, 60)
+		c, _ := wiredClient(t, "MESHSAT", 9)
+		s := NewSubscriber(nil, poolWith(c, map[string]*Client{"default": c}), allTheDefaultTenant{}, 60)
 		s.SetClaimer(shared)
-		s.handlePosition(topic, payload)
+		s.handlePosition("default", topic, payload)
 	}
 
 	if shared.calls != 2 {
@@ -143,9 +145,10 @@ func TestTheMOHandlerConsultsTheClaim(t *testing.T) {
 	payload := []byte(`{"imei":"dev-1","text":"hello","iridium_latitude":52.37,"iridium_longitude":4.9}`)
 
 	for i := 0; i < 2; i++ {
-		s := NewSubscriber(nil, NewClient("", "MESHSAT", 9, "", ""), allowAll{}, 60)
+		c, _ := wiredClient(t, "MESHSAT", 9)
+		s := NewSubscriber(nil, poolWith(c, map[string]*Client{"default": c}), allTheDefaultTenant{}, 60)
 		s.SetClaimer(shared)
-		s.handleMODecoded(topic, payload)
+		s.handleMODecoded("default", topic, payload)
 	}
 
 	if shared.calls != 2 {
