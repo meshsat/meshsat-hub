@@ -71,6 +71,29 @@ func TestAnUnconfiguredFeatureSaysWhatWillNotHappen(t *testing.T) {
 	}
 }
 
+// Every message must say WHERE to fix it.
+//
+// "This feature is not available" with no destination is the same dead end as
+// the silence this endpoint replaces -- the customer now knows something is
+// wrong and still cannot act. It also stops the old habit coming back: the empty
+// states these replaced named HUB_HAWKBIT_ENABLED and HUB_EMAIL_ENABLED at the
+// customer, an environment variable on a server they have no access to.
+func TestEveryReasonSaysWhereToFixIt(t *testing.T) {
+	const dest = "Settings → Integrations"
+	for _, c := range featureCapabilities {
+		if !strings.Contains(c.Reason, dest) {
+			t.Errorf("feature %q does not tell the customer where to go (%q):\n\t%s",
+				c.Feature, dest, c.Reason)
+		}
+		// A message that names an environment variable is aimed at an operator,
+		// not a customer, and this whole issue exists to stop that.
+		if strings.Contains(c.Reason, "HUB_") {
+			t.Errorf("feature %q names an environment variable at the customer:\n\t%s",
+				c.Feature, c.Reason)
+		}
+	}
+}
+
 // The three states a tenant can be in, and the one that must never happen.
 func TestCapabilityResolvesPerTenant(t *testing.T) {
 	svc, ctx := newCapSvc(t)
