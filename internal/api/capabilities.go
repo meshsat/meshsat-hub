@@ -74,37 +74,37 @@ var featureCapabilities = []Capability{
 		Feature:   "notifications",
 		Label:     "Notifications",
 		Providers: []string{integrations.ProviderApprise, integrations.ProviderNtfy},
-		Reason:    "Notification targets are saved, but nothing delivers them until you add an Apprise or ntfy server. Add one under Settings -> Integrations.",
+		Reason:    "Notification targets are saved, but nothing delivers them until you add an Apprise or ntfy server under Settings → Integrations.",
 	},
 	{
 		Feature:   "email",
 		Label:     "Email gateway",
 		Providers: []string{integrations.ProviderEmail},
-		Reason:    "PGP email is not configured for this account. Add your SMTP details under Settings -> Integrations to send, or leave them empty to only receive.",
+		Reason:    "Add your SMTP details under Settings → Integrations to send PGP email. Receiving does not need them.",
 	},
 	{
 		Feature:   "ota",
 		Label:     "OTA firmware",
 		Providers: []string{integrations.ProviderHawkbit},
-		Reason:    "Firmware rollouts need a hawkBit server. Add one under Settings -> Integrations.",
+		Reason:    "Firmware rollouts need your own hawkBit server. Add one under Settings → Integrations.",
 	},
 	{
 		Feature:   "wireguard",
 		Label:     "WireGuard",
 		Providers: []string{integrations.ProviderWireGuard},
-		Reason:    "Device tunnels need a wg-easy server. Add one under Settings -> Integrations and the Hub will create a peer for each device you register.",
+		Reason:    "Device tunnels need your own wg-easy server. Add one under Settings → Integrations, and the Hub will create a peer for each device you register.",
 	},
 	{
 		Feature:   "aprs",
 		Label:     "APRS-IS",
 		Providers: []string{integrations.ProviderAPRSIS},
-		Reason:    "Nothing is put on air until you enter your own callsign and passcode under Settings -> Integrations. The Hub will not transmit your traffic under anyone else's licence.",
+		Reason:    "APRS-IS requires an amateur radio licence. Nothing is transmitted until you add your own callsign and passcode under Settings → Integrations — the passcode is derived from your callsign, not a password you choose.",
 	},
 	{
 		Feature:   "tak",
 		Label:     "TAK",
 		Providers: []string{integrations.ProviderTAK},
-		Reason:    "Positions are not forwarded anywhere until you add your own TAK server under Settings -> Integrations.",
+		Reason:    "Positions are not forwarded anywhere until you add your own TAK server under Settings → Integrations.",
 	},
 }
 
