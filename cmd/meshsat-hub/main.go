@@ -2124,6 +2124,11 @@ func main() {
 	api.SetStripeReady(stripeClient != nil && len(cfg.StripePrices) > 0)
 	api.SetDonationsReady(stripeClient != nil && cfg.StripeDonationPrice != "")
 	offboarding := api.NewTenantOffboardingHandler(dataStore, auditSvc, tenantStatus.Forget)
+	// Which features will actually do something for THIS tenant (MESHSAT-1121).
+	// Viewer, because it decides what the nav and the feature pages render and
+	// every role sees those; it reveals no credential, only whether one exists.
+	r.With(hubauth.RequireRole(hubauth.RoleViewer)).
+		Get("/api/capabilities", api.NewCapabilitiesHandler(providerAccounts).List)
 	r.Route("/api/tenant", func(r chi.Router) {
 		r.With(hubauth.RequireRole(hubauth.RoleViewer)).Get("/", tenantHandler.Get)
 		r.With(hubauth.RequireRole(hubauth.RoleViewer)).Get("/usage", usageHandler.Usage)

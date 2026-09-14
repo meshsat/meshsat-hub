@@ -1,13 +1,20 @@
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { ota } from '../api/client'
 import { formatUTC } from '../utils/time'
 import EmptyState from '../components/EmptyState.vue'
+import { useCapabilitiesStore } from '../stores/capabilities'
 
 const targets = ref([])
 const error = ref('')
 const loading = ref(true)
-const unavailable = ref(false) // hawkBit is not wired on this Hub (API answers 404)
+// Whether OTA is set up for THIS tenant, asked directly instead of inferred
+// from an error string. The old test was /not found|404/i against the message,
+// which a 403 does not match -- so an operator without permission saw an empty
+// target list and was told there was nothing there.
+const caps = useCapabilitiesStore()
+const unavailable = computed(() => caps.isUnavailable('ota'))
+const unavailableReason = computed(() => caps.reason('ota'))
 
 const showTargetForm = ref(false)
 const newTarget = ref({ controllerId: '', name: '' })
@@ -24,7 +31,13 @@ onMounted(async () => {
 async function loadData() {
   loading.value = true
   try {
-    const resp = await ota.listTargets().catch((e) => { unavailable.value = /not found|404/i.test(String(e?.message || '')); return { targets: [] } })
+    await caps.load()
+    // An unconfigured tenant has nothing to list, and the resulting error is
+    // not news -- the empty state already explains it.
+    const resp = await ota.listTargets().catch((e) => {
+      if (!unavailable.value) throw e
+      return { targets: [] }
+    })
     targets.value = resp.targets || resp || []
   } catch (e) {
     error.value = e.message
@@ -217,7 +230,13 @@ function statusColor(s) {
             </template>
             <tr v-if="targets.length === 0 && !loading">
               <td colspan="5" class="px-3 py-0">
-                <EmptyState v-if="unavailable" icon="device" title="OTA updates not enabled on this Hub" message="The platform runs without a hawkBit server (HUB_HAWKBIT_ENABLED). Targets and rollouts become available once it is configured." />
+                <EmptyState v-if="unavailable" unavailable title="OTA firmware is not set up for this account"
+                            :message="unavailableReason">
+                  <router-link to="/settings"
+                               class="text-sm px-3 py-2 rounded bg-brand-primary hover:bg-brand-accent text-ms-on-primary">
+                    Set up in Integrations
+                  </router-link>
+                </EmptyState>
                 <EmptyState v-else icon="device" title="No OTA targets" message="Register field devices as OTA targets to manage firmware updates remotely." />
               </td>
             </tr>

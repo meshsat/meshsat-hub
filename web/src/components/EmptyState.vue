@@ -3,6 +3,12 @@ defineProps({
   icon: { type: String, default: 'inbox' },
   title: { type: String, default: 'No data' },
   message: { type: String, default: '' },
+  // `unavailable` is a different thing from empty, and saying so matters: an
+  // empty table means "nothing here yet", while unavailable means "this will
+  // never do anything until you set it up". Rendering the second as the first
+  // is the defect MESHSAT-1121 started from -- a customer saved a notification
+  // target, got a 200, and nothing was ever delivered.
+  unavailable: { type: Boolean, default: false },
 })
 
 const icons = {
@@ -17,6 +23,8 @@ const icons = {
   users: 'M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z',
   clock: 'M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z',
   satellite: 'M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4',
+  // A plug, for a feature that has nothing on the other end of it.
+  unplugged: 'M18.364 5.636l-12.728 12.728M12 2v4m0 12v4M4.929 4.929l2.828 2.828m8.486 8.486l2.828 2.828M2 12h4m12 0h4',
 }
 </script>
 
@@ -24,11 +32,12 @@ const icons = {
   <div class="flex flex-col items-center justify-center py-12 px-4 text-center">
     <div class="w-16 h-16 mb-4 rounded-full bg-ms-well/70 flex items-center justify-center">
       <svg class="w-8 h-8 text-ms-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" :d="icons[icon] || icons.inbox" />
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
+              :d="icons[unavailable ? 'unplugged' : icon] || icons.inbox" />
       </svg>
     </div>
     <h3 class="text-ms-muted2 font-medium mb-1">{{ title }}</h3>
-    <p v-if="message" class="text-ms-muted text-sm max-w-xs">{{ message }}</p>
+    <p v-if="message" class="text-ms-muted text-sm" :class="unavailable ? 'max-w-md' : 'max-w-xs'">{{ message }}</p>
     <div v-if="$slots.default" class="mt-4">
       <slot />
     </div>

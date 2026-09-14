@@ -1,12 +1,26 @@
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { notifications, devices } from '../api/client'
 import EmptyState from '../components/EmptyState.vue'
+import { useCapabilitiesStore } from '../stores/capabilities'
 
 const prefs = ref([])
 const deviceList = ref([])
 const error = ref('')
 const loading = ref(true)
+
+// This page is the reason /api/capabilities exists (MESHSAT-1121). Saving a
+// target answers 200 whether or not anything can deliver it: with no relay
+// configured, escalation substitutes a LogNotifier and the alert becomes a line
+// in a log the customer cannot read. Nothing in the request path fails, so the
+// only way to tell them is to ask.
+//
+// It is a BANNER, not an empty state: the form still works and setting targets
+// up before adding a relay is a reasonable order to do things in. What is not
+// reasonable is doing it without being told.
+const caps = useCapabilitiesStore()
+const noRelay = computed(() => caps.isUnavailable('notifications'))
+const noRelayReason = computed(() => caps.reason('notifications'))
 
 const form = ref({ imei: '', urls: '', events: 'sos,deadman,geofence', enabled: true })
 const editing = ref(false)
@@ -18,6 +32,7 @@ onMounted(async () => {
 async function loadData() {
   loading.value = true
   try {
+    await caps.load()
     const [p, d] = await Promise.all([
       notifications.listPrefs().catch(() => []),
       devices.list().catch(() => []),
@@ -77,6 +92,19 @@ async function deletePref(imei) {
 <template>
   <div>
     <h1 class="text-2xl font-display font-bold mb-4">Notifications</h1>
+
+    <div v-if="noRelay"
+         class="bg-amber-900/50 border border-amber-700/50 text-amber-200 px-4 py-3 rounded mb-4 flex gap-3 items-start">
+      <svg class="w-5 h-5 shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
+              d="M12 9v4m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" />
+      </svg>
+      <div>
+        <p class="font-medium">These targets are saved, but nothing is delivering them.</p>
+        <p class="text-sm mt-1 text-amber-200/90">{{ noRelayReason }}</p>
+        <router-link to="/settings" class="text-sm underline mt-2 inline-block">Set up a relay in Integrations</router-link>
+      </div>
+    </div>
 
     <div v-if="error" class="bg-red-900/50 border border-red-700 text-red-200 px-4 py-3 rounded mb-4">{{ error }}</div>
 
