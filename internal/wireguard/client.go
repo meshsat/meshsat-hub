@@ -14,6 +14,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -22,7 +23,13 @@ type Client struct {
 	baseURL    string
 	password   string
 	httpClient *http.Client
-	sessionID  string
+
+	// mu guards sessionID. It is written by Login and read by addSession on
+	// every request, and the provisioner is driven from HTTP handlers, so the
+	// two race. That was true before the lazy login below and is why `go test
+	// -race` has to be run by hand -- CI cannot (CGO_ENABLED=0).
+	mu        sync.Mutex
+	sessionID string
 }
 
 // Peer represents a WireGuard peer from wg-easy.
@@ -66,13 +73,19 @@ func (c *Client) Login(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("wg-easy login: marshal: %w", err)
 	}
+	// #nosec G704 -- same two guards as every other request in this file, and
+	// the taint reaches Login only because ensureSession now calls it from the
+	// request path: integrations.Set validates the URL against netguard before
+	// storing it, and a tenant-built client dials through
+	// netguard.SafeHTTPClient, which refuses a non-public address after
+	// resolution. See the note on CreatePeer.
 	req, err := http.NewRequestWithContext(ctx, "POST", c.baseURL+"/api/session", bytes.NewReader(data))
 	if err != nil {
 		return err
 	}
 	req.Header.Set("Content-Type", "application/json")
 
-	resp, err := c.httpClient.Do(req)
+	resp, err := c.httpClient.Do(req) // #nosec G704 -- see the note above this request
 	if err != nil {
 		return fmt.Errorf("wg-easy login: %w", err)
 	}
@@ -85,8 +98,10 @@ func (c *Client) Login(ctx context.Context) error {
 	// Extract session cookie
 	for _, cookie := range resp.Cookies() {
 		if cookie.Name == "connect.sid" {
+			c.mu.Lock()
 			c.sessionID = cookie.Value
-			slog.Debug("wg-easy: logged in", "session", c.sessionID[:8]+"...")
+			c.mu.Unlock()
+			slog.Debug("wg-easy: logged in", "session", cookie.Value[:8]+"...")
 			return nil
 		}
 	}
@@ -196,26 +211,43 @@ func (c *Client) DisablePeer(ctx context.Context, peerID string) error {
 }
 
 func (c *Client) get(ctx context.Context, path string) ([]byte, error) {
+	if err := c.ensureSession(ctx); err != nil {
+		return nil, err
+	}
+	data, status, err := c.rawGet(ctx, path)
+	if status == http.StatusUnauthorized {
+		// The session expired or wg-easy restarted under us. Log in and retry
+		// ONCE -- a loop here would hammer a wg-easy that is simply refusing us.
+		c.clearSession()
+		if err := c.ensureSession(ctx); err != nil {
+			return nil, err
+		}
+		data, _, err = c.rawGet(ctx, path)
+	}
+	return data, err
+}
+
+func (c *Client) rawGet(ctx context.Context, path string) ([]byte, int, error) {
 	req, err := http.NewRequestWithContext(ctx, "GET", c.baseURL+path, nil) // #nosec G704 -- see NewClient
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	c.addSession(req)
 
 	resp, err := c.httpClient.Do(req) // #nosec G704 -- see NewClient
 	if err != nil {
-		return nil, fmt.Errorf("wg-easy GET %s: %w", path, err)
+		return nil, 0, fmt.Errorf("wg-easy GET %s: %w", path, err)
 	}
 	defer func() { _ = resp.Body.Close() }()
 
 	data, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, err
+		return nil, resp.StatusCode, err
 	}
 	if resp.StatusCode >= 400 {
-		return nil, fmt.Errorf("wg-easy GET %s: HTTP %d: %s", path, resp.StatusCode, string(data))
+		return nil, resp.StatusCode, fmt.Errorf("wg-easy GET %s: HTTP %d: %s", path, resp.StatusCode, string(data))
 	}
-	return data, nil
+	return data, resp.StatusCode, nil
 }
 
 func (c *Client) post(ctx context.Context, path string) error {
@@ -238,8 +270,11 @@ func (c *Client) post(ctx context.Context, path string) error {
 }
 
 func (c *Client) addSession(req *http.Request) {
-	if c.sessionID != "" {
-		req.AddCookie(&http.Cookie{Name: "connect.sid", Value: c.sessionID})
+	c.mu.Lock()
+	sid := c.sessionID
+	c.mu.Unlock()
+	if sid != "" {
+		req.AddCookie(&http.Cookie{Name: "connect.sid", Value: sid})
 	}
 }
 
@@ -264,4 +299,35 @@ func (c *Client) maybeGuard(skip bool, timeout time.Duration) *Client {
 	}
 	c.httpClient = netguard.SafeHTTPClient(timeout)
 	return c
+}
+
+// ensureSession logs in when there is no session yet.
+//
+// wg-easy's session is a cookie that dies whenever wg-easy restarts, and the
+// Hub used to log in exactly once at startup and never again. Two consequences,
+// both seen in production on the day this was deployed (MESHSAT-1121):
+//
+//   - A wg-easy that was not up yet when the Hub booted left the Hub with no
+//     session at all, and nothing retried.
+//   - A wg-easy pod restart -- a node drain, an image bump -- silently broke
+//     every call until somebody restarted the HUB.
+//
+// Logging in on demand removes the startup-order dependency entirely: it no
+// longer matters which of the two starts first, or how often the other restarts.
+func (c *Client) ensureSession(ctx context.Context) error {
+	c.mu.Lock()
+	have := c.sessionID != ""
+	c.mu.Unlock()
+	if have {
+		return nil
+	}
+	return c.Login(ctx)
+}
+
+// clearSession drops a session wg-easy has stopped honouring, so the next call
+// logs in again rather than repeating a request that will keep failing.
+func (c *Client) clearSession() {
+	c.mu.Lock()
+	c.sessionID = ""
+	c.mu.Unlock()
 }

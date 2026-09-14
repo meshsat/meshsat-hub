@@ -2576,12 +2576,21 @@ func main() {
 		var wgPlatform *wireguard.Client
 		if cfg.WGEnabled && cfg.WGURL != "" {
 			wgPlatform = wireguard.NewClient(cfg.WGURL, cfg.WGPassword)
+			// Registered WITHOUT waiting for a successful login, and the client
+			// is kept even when the login fails. It used to be conditional, and
+			// that produced a startup-order dependency seen on the day this was
+			// deployed: the Hub booted while wg-easy was still starting, the
+			// login was refused, the platform account was never registered, and
+			// nothing retried -- WireGuard was simply absent until the Hub
+			// happened to restart. The client logs in on demand now
+			// (Client.ensureSession), so which one starts first no longer
+			// matters, and neither does wg-easy restarting later.
+			providerAccounts.SetPlatform(integrations.ProviderWireGuard, map[string]string{
+				"url": cfg.WGURL, "password": cfg.WGPassword})
 			if err := wgPlatform.Login(ctx); err != nil {
-				slog.Warn("wireguard: the platform's own wg-easy refused the login", "error", err)
-				wgPlatform = nil
+				slog.Warn("wireguard: the platform's own wg-easy is not answering yet; "+
+					"the Hub will log in when it is", "error", err)
 			} else {
-				providerAccounts.SetPlatform(integrations.ProviderWireGuard, map[string]string{
-					"url": cfg.WGURL, "password": cfg.WGPassword})
 				slog.Info("wireguard: platform server enabled", "url", cfg.WGURL)
 			}
 		}
@@ -2604,6 +2613,8 @@ func main() {
 		// Auto-provisioner: creates/deletes WG peers on device register/delete.
 		wgProvisioner := wireguard.NewProvisionerPool(wgPool)
 		if wgPlatform != nil {
+			// Best effort: if wg-easy is not up yet this finds nothing, and the
+			// peer map fills in as devices are registered.
 			wgProvisioner.Hydrate(ctx, store.DefaultTenantID)
 		}
 		deviceHandler.SetProvisioner(wgProvisioner)
