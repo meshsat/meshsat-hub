@@ -1,6 +1,7 @@
 package aprsis
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"log/slog"
@@ -24,6 +25,52 @@ type Subscriber struct {
 	coalesceSec int
 	lastSent    map[string]time.Time
 	mu          sync.Mutex
+	// claimer makes exactly one replica transmit a given message.
+	claimer Claimer
+}
+
+// Claimer records a key once across every replica (store.ClaimOnce).
+//
+// Declared here as a one-method interface so this package does not import the
+// store: it is an MQTT-to-APRS bridge and has no other business with it.
+type Claimer interface {
+	ClaimOnce(ctx context.Context, key string) (bool, error)
+}
+
+// SetClaimer makes exactly one replica transmit each message (MESHSAT-1120).
+//
+// Both replicas subscribe to every topic with a plain Subscribe, and shouldSend
+// is a per-REPLICA map, so without this both would inject the same packet into
+// APRS-IS -- a public network, under our own callsign.
+func (s *Subscriber) SetClaimer(c Claimer) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.claimer = c
+}
+
+// claim reports whether THIS replica should transmit.
+//
+// It fails CLOSED, which is the opposite of webhook delivery, and deliberately.
+// A webhook is our own customer's endpoint and a lost event matters more than a
+// duplicate. APRS-IS is somebody else's shared infrastructure: a duplicate
+// packet under our callsign is antisocial and is the kind of thing that gets a
+// callsign filtered, while a missed position is invisible on a best-effort
+// feed nobody's safety depends on.
+func (s *Subscriber) claim(topic string, payload []byte) bool {
+	s.mu.Lock()
+	c := s.claimer
+	s.mu.Unlock()
+	if c == nil {
+		return true // single-replica or unconfigured: behave as before
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	won, err := c.ClaimOnce(ctx, "aprs:"+hubmqtt.MessageDigest(topic, payload))
+	if err != nil {
+		slog.Warn("aprsis: claim failed, not transmitting", "error", err)
+		return false
+	}
+	return won
 }
 
 // NewSubscriber creates a new APRS-IS MQTT subscriber. platform decides which
@@ -96,6 +143,11 @@ func (s *Subscriber) handlePosition(topic string, payload []byte) {
 		return
 	}
 
+	// One replica transmits, not both.
+	if !s.claim(topic, payload) {
+		return
+	}
+
 	comment := fmt.Sprintf("MeshSat via %s", pos.Source)
 	packet := FormatPosition(s.client.callsign, s.client.ssid, pos.Lat, pos.Lon, comment)
 
@@ -131,6 +183,10 @@ func (s *Subscriber) handleMODecoded(topic string, payload []byte) {
 	}
 
 	if !s.shouldSend(deviceID) {
+		return
+	}
+
+	if !s.claim(topic, payload) {
 		return
 	}
 
