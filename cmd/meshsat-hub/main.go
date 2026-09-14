@@ -1853,6 +1853,13 @@ func main() {
 		if !stripeClient.Live() {
 			slog.Warn("stripe: this is a TEST key; no real money will move")
 		}
+		// Payments on the public status page (MESHSAT-1134): one Stripe call an
+		// hour, reported through meshsat_hub_dependency_up{dependency="stripe"}.
+		// AddInfoProbe, never AddProbe -- a Stripe outage is a red row on
+		// status.meshsat.net, not a replica leaving the Service.
+		stripeProbe := stripe.NewProbe(stripeClient, time.Hour)
+		stripeProbe.Start(ctx)
+		checker.AddInfoProbe("stripe", stripeProbe.Health)
 	}
 	if cfg.StripeWebhookSecret != "" && cfg.StripePathSecret != "" {
 		sh := stripe.NewHandler(dataStore, cfg.StripeWebhookSecret)
