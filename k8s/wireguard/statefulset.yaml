@@ -42,18 +42,24 @@ spec:
             - {name: ui, containerPort: 51821, protocol: TCP}
             - {name: wireguard, containerPort: 51820, protocol: UDP}
           securityContext:
-            # NET_ADMIN ONLY, and no /lib/modules hostPath. Bringing up a
-            # WireGuard interface needs NET_ADMIN and there is no way around it,
-            # but SYS_MODULE (to insmod the module from inside the container) is
-            # a much larger ask: it is load-arbitrary-kernel-code. WireGuard has
-            # been in-tree since Linux 5.6, so the module is the NODE's business.
-            # If it is genuinely missing, load it on the node rather than giving
-            # this container the right to load anything.
+            # Still NOT SYS_MODULE, and still no /lib/modules hostPath -- that is
+            # the right to load arbitrary kernel code and the wireguard and
+            # iptable_nat modules are loaded on the nodes instead.
+            #
+            # runAsUser 0 and NET_RAW are here because the container failed
+            # without them: `iptables v1.8.11 (legacy): can't initialize iptables
+            # table 'nat': Permission denied (you must be root)`. wg-quick shells
+            # out to iptables-legacy, which needs NET_RAW for the netfilter
+            # socket as well as NET_ADMIN, and added capabilities are permitted
+            # but NOT effective for a non-root uid under allowPrivilegeEscalation
+            # false. Loading iptable_nat on the nodes did NOT fix it on its own;
+            # the blocker was the capability set, not the module.
+            runAsUser: 0
             capabilities:
-              add: [NET_ADMIN]
+              add: [NET_ADMIN, NET_RAW]
               drop: [ALL]
             privileged: false
-            allowPrivilegeEscalation: false
+            allowPrivilegeEscalation: true
           resources:
             requests: {cpu: 20m, memory: 64Mi}
             limits: {memory: 256Mi}
