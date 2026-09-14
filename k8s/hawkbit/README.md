@@ -40,31 +40,39 @@ a CNPG cluster beside meshsat-hub-main rather than scaling H2.
 a hawkBit that was merely DOWN at boot disabled the feature permanently with no
 retry. It is a health probe now and the routes exist either way.
 
-## `MODE=LEGACY` on the H2 URL is not cruft (MESHSAT-1131)
+## The database is Postgres, on the shared CNPG cluster (MESHSAT-1131)
 
-hawkBit's EclipseLink layer emits the H2 function `IDENTITY()`, which H2 2.x
-removed. Without `;MODE=LEGACY` on `SPRING_DATASOURCE_URL`, **every
-authenticated REST call answers 500** with
+hawkBit shipped here on the bundled H2: one file on a node-local volume, no
+backup, at whatever version the image happened to carry. That is how OTA broke
+on day one — H2 2.x removed `IDENTITY()`, which hawkBit's EclipseLink layer
+emits, so **every authenticated REST call answered 500** while the pod sat
+`1/1 Running` and `/actuator` answered. Nothing but the Hub's dependency probe
+could tell; `MeshSatHubDependencyDegraded` was firing for `hawkbit` on both
+replicas within an hour of the bus rule going live (MESHSAT-1129).
 
-```
-JdbcSQLSyntaxErrorException: Function "IDENTITY" not found
-```
+`MODE=LEGACY` held it for an evening. The fix is the database it should have
+had: `hawkbit` on `meshsat-hub-main`, owned by its own `hawkbit` role
+(`k8s/db/database-hawkbit.yaml`, `cluster-meshsat-hub-main.yaml`), reached via
+`meshsat-hub-main-rw.meshsat-hub-db.svc:5432` with `sslmode=require`. barman
+backs it up to S3 nightly with everything else, it survives a node, and it does
+not change under a manifest that did not.
 
-while the pod is `1/1 Running` and `/actuator` answers. OTA was non-functional
-from the day it was deployed and nothing but the Hub's dependency probe could
-tell — `1/1 Running` says nothing about whether the database works; only a
-REST call does. It was found because `MeshSatHubDependencyDegraded` was firing
-for `dependency=hawkbit` on both replicas within an hour of the bus rule going
-live (MESHSAT-1129).
+How it is told: the image ships a `postgresql` Spring profile that sets
+`spring.jpa.database` and the driver class, so `SPRING_PROFILES_ACTIVE=postgresql`
+plus `SPRING_DATASOURCE_URL/USERNAME/PASSWORD`. The password is ONE OpenBao
+property (`ci-no/apps/meshsat-hub/hawkbit` → `HAWKBIT_DB_PASSWORD`) delivered
+to both namespaces — CNPG's `db-role-hawkbit` Secret and the pod's
+`hawkbit-secrets` — so role and client cannot disagree.
 
-Two things follow:
+The volume stayed and changed jobs: it is the **artifact store** now
+(`ORG_ECLIPSE_HAWKBIT_REPOSITORY_FILE_PATH=/var/lib/hawkbit/artifacts`), because
+hawkBit's default artifact path is relative to the working directory, i.e. the
+container's ephemeral layer, and an uploaded firmware image would vanish on the
+next pod replacement. The old `data.mv.db` beside it is dead: no rollout ever
+succeeded on H2, so there was nothing to migrate.
 
-- **The image is pinned by digest**, not `latest`. The bundled H2 is whatever
-  the image ships; an untagged image lets it move on any pod replacement with
-  no commit to point at.
-- **Postgres is the proper home** for this (CNPG is already on the cluster and
-  hawkBit supports it natively) and is filed on MESHSAT-1131. Until that lands,
-  removing `MODE=LEGACY` as tidy-up re-breaks OTA silently.
+**The image is pinned by digest**, not `latest` — an untagged image is how the
+bundled database changed underneath a manifest that did not.
 
 Prove it with an authenticated call from a Hub pod, never with pod status:
 

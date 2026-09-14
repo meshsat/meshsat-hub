@@ -32,27 +32,38 @@ spec:
           # bundled H2 moves with it, and nothing in this file changed.
           image: docker.io/hawkbit/hawkbit-update-server@sha256:9120fb1d7687b9ec8e9ee006b54b10a75f6f941788fbd23942e9808fe42a2e07
           env:
-            # The bundled H2 on a node-local volume. Deliberate: this instance
-            # serves the default tenant's own kit. A tenant running OTA at fleet
-            # scale brings its own hawkBit, which is what the provider is for.
+            # Postgres on the shared CNPG cluster (MESHSAT-1131), not the bundled
+            # H2. H2 was one file on a node-local volume with no backup, and its
+            # version was whatever the image carried -- which is how OTA broke on
+            # day one (H2 2.x removed IDENTITY(); every REST call answered 500
+            # while the pod sat 1/1 Running). The Hub's Postgres is backed up to
+            # S3 nightly, survives a node, and does not change under a manifest.
             #
-            # MODE=LEGACY IS LOAD-BEARING. hawkBit's EclipseLink layer emits the
-            # H2 function IDENTITY(), which H2 2.x removed. Without this, every
-            # authenticated REST call answers 500 with
-            #   JdbcSQLSyntaxErrorException: Function "IDENTITY" not found
-            # while the pod is 1/1 Running and /actuator answers -- so OTA was
-            # non-functional from the day it was deployed and nothing but the
-            # Hub's dependency probe could tell. Found by
-            # MeshSatHubBusDisconnected's sibling rule within an hour of it
-            # going live (MESHSAT-1129 -> MESHSAT-1131).
-            #
-            # Postgres (CNPG is already on this cluster) is the proper home for
-            # this and is filed on MESHSAT-1131; LEGACY keeps the existing
-            # volume and its data intact meanwhile.
+            # The image ships a `postgresql` Spring profile
+            # (application-postgresql.properties) that sets spring.jpa.database
+            # and the driver class. Activating it is the supported way to say
+            # "this is Postgres"; setting those two by hand would be a copy of
+            # upstream's file that drifts.
+            - name: SPRING_PROFILES_ACTIVE
+              value: "postgresql"
+            # The -rw service: hawkBit writes. sslmode=require, as the Hub uses.
+            # Database `hawkbit`, owned by role `hawkbit` -- neither the Hub's
+            # role nor hawkBit's can read the other's tables (k8s/db/).
             - name: SPRING_DATASOURCE_URL
-              value: "jdbc:h2:/var/lib/hawkbit/data;DB_CLOSE_DELAY=-1;MODE=LEGACY"
+              value: "jdbc:postgresql://meshsat-hub-main-rw.meshsat-hub-db.svc:5432/hawkbit?sslmode=require"
             - name: SPRING_DATASOURCE_USERNAME
-              value: "sa"
+              value: "hawkbit"
+            - name: SPRING_DATASOURCE_PASSWORD
+              valueFrom: {secretKeyRef: {name: hawkbit-secrets, key: DB_PASSWORD}}
+            # The volume that used to hold H2 now holds ARTIFACTS. hawkBit's
+            # artifact store defaults to a path relative to the working dir,
+            # i.e. the container's ephemeral layer -- an uploaded firmware image
+            # would vanish on the next pod replacement. This keeps the existing
+            # claim (volumeClaimTemplates are immutable anyway) and gives it a
+            # job. The old data.mv.db beside it is dead and harmless; it has no
+            # rollouts in it, because none ever succeeded on H2.
+            - name: ORG_ECLIPSE_HAWKBIT_REPOSITORY_FILE_PATH
+              value: "/var/lib/hawkbit/artifacts"
             # Heap capped well under the limit: a JVM that sizes its heap from
             # the cgroup limit and then needs metaspace and thread stacks on top
             # is how a container gets OOM-killed while "within" its limit.
