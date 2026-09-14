@@ -50,14 +50,18 @@ spec:
               command: ["/bin/sh", "-ec"]
               args:
                 - |
-                  tor --quiet --SocksPort 127.0.0.1:9050 --DataDirectory /var/lib/tor --Log "notice stderr" &
+                  # -f /dev/null: the image's torrc logs to /var/log/tor, which does not
+                  # exist on a read-only root, so tor would exit before bootstrapping --
+                  # silently, under --quiet. Everything it needs is on the command line
+                  # and its notices go to the Job log.
+                  tor -f /dev/null --SocksPort 127.0.0.1:9050 --DataDirectory /var/lib/tor --Log "notice stderr" &
                   code=000
                   # Bootstrap plus descriptor fetch is 20-90 s on a good day; keep trying
                   # inside the Job's own deadline rather than trusting one attempt.
                   for i in $(seq 1 40); do
                     sleep 5
                     code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 45 \
-                      --socks5-hostname 127.0.0.1:9050 "http://${ONION}/healthz" 2>/dev/null || echo 000)
+                      --socks5-hostname 127.0.0.1:9050 "http://${ONION}/healthz" 2>/dev/null) || code=000
                     [ "$code" = "200" ] && break
                   done
                   if [ "$code" = "200" ]; then
