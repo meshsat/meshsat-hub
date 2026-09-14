@@ -776,6 +776,11 @@ type Tenant struct {
 	// log is the customer's own record of who did what in their account, so
 	// how long they keep it is their compliance question (MESHSAT-1117).
 	AuditRetentionDays int `json:"audit_retention_days,omitempty"`
+	// RatelimitDailyCap and RatelimitMonthlyCap are a PLATFORM ADMIN's override
+	// of this tenant's per-device send budget. 0 means none, and the plan's
+	// value applies. Not owner-editable: a send budget is a commercial lever.
+	RatelimitDailyCap   int `json:"ratelimit_daily_cap,omitempty"`
+	RatelimitMonthlyCap int `json:"ratelimit_monthly_cap,omitempty"`
 	// PlanExpiresAt is when a paid tier lapses back to free. nil means the
 	// plan does not expire, which is what free, custom and beta are.
 	//

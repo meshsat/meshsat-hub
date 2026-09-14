@@ -336,6 +336,18 @@ func main() {
 			msgBus,                       // for MQTT alerts
 		)
 	}
+	// The per-device send budget is resolved from the tenant's plan, with a
+	// platform admin's override on top, cached for 30 s so Allow never makes a
+	// database round trip on the message path (MESHSAT-1117 tranche 2c). The
+	// resolved value is never below the platform's own cap, so this can raise
+	// a paid tier's budget and can never lower anybody's.
+	sendCaps := ratelimit.NewPlanCaps(dataStore, cfg.RateLimitDailyCap, cfg.RateLimitMonthlyCap, 30*time.Second)
+	switch l := limiter.(type) {
+	case *ratelimit.RedisLimiter:
+		l.SetCapResolver(sendCaps.Resolve)
+	case *ratelimit.DeviceLimiter:
+		l.SetCapResolver(sendCaps.Resolve)
+	}
 	rateLimitHandler := ratelimit.NewHandler(limiter)
 
 	// --- Leader election (tri-mode) ---
@@ -1371,6 +1383,9 @@ func main() {
 	// receiving every message its old webhooks were subscribed to until the next
 	// restart (MESHSAT-1118).
 	tenantEvict.Register(webhookDispatcher)
+	// A plan change or an operator override must apply now, not at the end of
+	// the resolver's 30 s TTL.
+	tenantEvict.Register(sendCaps)
 	if err := tenantEvict.Subscribe(); err != nil {
 		slog.Warn("tenant cache eviction not subscribed; a purge performed on another replica "+
 			"leaves this one holding the tenant until its own TTLs expire", "error", err)
@@ -1392,6 +1407,18 @@ func main() {
 	// It gates CREATING an account and never an existing one's traffic, so a
 	// lapsed or over-cap tenant keeps every TAK user it has and keeps their
 	// position reports and SOS path.
+	// The per-device send budget per tier (MESHSAT-1117 tranche 2c). This is
+	// the one meter that can only ever be RAISED above the platform value:
+	// plans.SendCaps floors it, because a lower tier resolving to a smaller
+	// budget would mean a lapse reduces delivery.
+	for plan, caps := range cfg.PlanSendCaps {
+		if plans.SetSendCaps(plan, caps[0], caps[1]) {
+			slog.Info("plan send caps overridden from config",
+				"plan", plan, "daily", caps[0], "monthly", caps[1])
+		} else {
+			slog.Warn("unknown plan in plan_send_caps, ignored", "plan", plan, "known", plans.Names())
+		}
+	}
 	for plan, limit := range cfg.PlanTAKUserLimits {
 		if plans.SetTAKUserLimit(plan, limit) {
 			slog.Info("plan TAK user limit overridden from config", "plan", plan, "tak_users", limit)
@@ -1848,7 +1875,18 @@ func main() {
 		cfg.BridgeOfflineTimeoutMin, cfg.BridgeOfflineTimeoutMax)
 	tenantHandler.SetAuditRetentionPolicy(cfg.AuditRetentionDays,
 		cfg.AuditRetentionMinDays, cfg.AuditRetentionMaxDays)
-	tenantHandler.SetStatusInvalidator(tenantStatus.Forget)
+	// A platform admin changing a plan or a send-budget override must not wait
+	// out a cache. tenantStatus.Forget announces across replicas; the send-cap
+	// cache is local, so the other replica catches up at its own 30 s TTL --
+	// acceptable for a budget, unlike for a suspension.
+	//
+	// Deliberately NOT tenantEvict.Evict: that announces "this tenant is gone"
+	// and every registered cache drops everything it holds, which for the
+	// webhook dispatcher means deleting the tenant's live webhooks.
+	tenantHandler.SetStatusInvalidator(func(tenantID string) {
+		tenantStatus.Forget(tenantID)
+		sendCaps.ForgetTenant(tenantID)
+	})
 	usageHandler := api.NewTenantUsageHandler(quotaChecker, dataStore)
 	api.SetUpgradeURL(cfg.UpgradeURL)
 	// Which surface the Settings page draws: a Subscribe button when checkout

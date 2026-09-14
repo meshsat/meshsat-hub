@@ -699,4 +699,18 @@ ALTER TABLE tenants ADD COLUMN IF NOT EXISTS bridge_offline_timeout INTEGER NOT 
 	{Version: 20, Name: "tenant audit retention", SQL: `
 ALTER TABLE tenants ADD COLUMN IF NOT EXISTS audit_retention_days INTEGER NOT NULL DEFAULT 0;
 `},
+	// v21: per-tenant send budget (MESHSAT-1117 tranche 2c).
+	//
+	// Unlike the two settings before it, these are NOT for a tenant owner to
+	// set: a send budget is a commercial lever and self-service would make it
+	// free. They are a PLATFORM ADMIN's override on top of the plan-derived
+	// value, for the customer who has a reason and an invoice.
+	//
+	// 0 means "no override, use the plan", and the plan in turn falls back to
+	// the platform default. A resolved budget is never lower than the platform
+	// default -- see plans.SendCaps for why that floor is not optional.
+	{Version: 21, Name: "tenant send caps", SQL: `
+ALTER TABLE tenants ADD COLUMN IF NOT EXISTS ratelimit_daily_cap INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE tenants ADD COLUMN IF NOT EXISTS ratelimit_monthly_cap INTEGER NOT NULL DEFAULT 0;
+`},
 }

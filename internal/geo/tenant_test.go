@@ -3,6 +3,7 @@ package geo
 import (
 	"context"
 	"testing"
+	"time"
 )
 
 // MESHSAT-1118. geo.Fence has carried a TenantID field since it was written and
@@ -176,3 +177,47 @@ func TestTheFenceKeyCannotBeForgedByAColon(t *testing.T) {
 // of the one method, because importing internal/tenancy here would invert the
 // dependency.
 var _ interface{ ForgetTenant(string) } = (*Engine)(nil)
+
+// Evaluate used to call its event handlers while still holding e.mu -- the
+// `defer e.mu.Unlock()` outlived the loop, under a comment that said "outside
+// the critical section". Nothing caught it because nothing calls OnEvent
+// (MESHSAT-1119), so the handler list is always empty in production today.
+//
+// Two things go wrong the moment somebody wires the first handler up. A handler
+// that touches the engine deadlocks, because sync.Mutex is not reentrant. And a
+// handler that does I/O -- a fence's escalation chain sends an SMS -- holds
+// every other tenant's evaluation behind its network call.
+//
+// This test fails by HANGING rather than by reporting, which is what a deadlock
+// does; the timeout is what turns it back into a failure.
+func TestAHandlerMayCallBackIntoTheEngine(t *testing.T) {
+	e := NewEngine()
+	e.AddFence(fenceIn(testTenant, "f"))
+
+	var reentered bool
+	e.OnEvent(func(_ context.Context, ev FenceEvent) {
+		// Exactly what a real handler would plausibly do: look up the fence it
+		// was told about.
+		for _, f := range e.ListFences(ev.TenantID) {
+			if f.ID == ev.FenceID {
+				reentered = true
+			}
+		}
+	})
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		e.Evaluate(context.Background(), testTenant, "dev-a", 0.5, 0.5)
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("Evaluate did not return within 5s: a handler that reads the engine " +
+			"deadlocked against the lock Evaluate was still holding")
+	}
+	if !reentered {
+		t.Error("the handler ran but could not see the fence it was notified about")
+	}
+}

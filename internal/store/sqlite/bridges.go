@@ -114,10 +114,6 @@ func (d *DB) ListBridges(ctx context.Context, tenantID string) ([]*store.Bridge,
 			t, _ := time.Parse(time.DateTime, lastReportAt.String)
 			b.LastReportAt = &t
 		}
-		if lastReportAt.Valid && lastReportAt.String != "" {
-			t, _ := time.Parse(time.DateTime, lastReportAt.String)
-			b.LastReportAt = &t
-		}
 		if lastSeen.Valid {
 			t, _ := time.Parse(time.DateTime, lastSeen.String)
 			b.LastSeen = &t

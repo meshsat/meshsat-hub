@@ -23,6 +23,39 @@ type DeviceLimiter struct {
 	monthlyCap int // max sends per device per month (0 = unlimited)
 	monthly    map[string]*monthlyCounter
 	mqtt       bus.MessageBus // for alert notifications
+	// caps resolves a tenant's budget (MESHSAT-1117 tranche 2c). nil means
+	// every tenant gets dailyCap/monthlyCap, which is what a self-hosted
+	// single-tenant Hub has and what this was before.
+	caps CapResolver
+}
+
+// SetCapResolver makes the per-device budget depend on the tenant's plan and
+// on a platform admin's override. Called once at startup.
+func (l *DeviceLimiter) SetCapResolver(r CapResolver) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.caps = r
+}
+
+// capsFor resolves the tenant's budget, falling back to the platform values.
+// A resolver that answers 0 for either half means "nothing to say", not
+// "unlimited" -- returning unlimited on a failed lookup would let a database
+// blip hand somebody an unmetered satellite account.
+//
+// The caller must hold l.mu.
+func (l *DeviceLimiter) capsFor(tenantID string) Caps {
+	c := Caps{Daily: l.dailyCap, Monthly: l.monthlyCap}
+	if l.caps == nil {
+		return c
+	}
+	got := l.caps(tenantID)
+	if got.Daily > 0 {
+		c.Daily = got.Daily
+	}
+	if got.Monthly > 0 {
+		c.Monthly = got.Monthly
+	}
+	return c
 }
 
 type tokenBucket struct {
@@ -121,16 +154,18 @@ func (l *DeviceLimiter) Allow(tenantID, deviceID string, isSOS bool) bool {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
+	caps := l.capsFor(tenantID)
+
 	// Monthly cap check
-	if l.monthlyCap > 0 {
+	if caps.Monthly > 0 {
 		mc := l.getMonthly(tenantID, deviceID)
 		month := time.Now().UTC().Format("2006-01")
 		if mc.month != month {
 			mc.count = 0
 			mc.month = month
 		}
-		if mc.count >= l.monthlyCap {
-			slog.Warn("ratelimit: monthly cap exceeded", "tenant", tenantID, "device", deviceID, "count", mc.count, "cap", l.monthlyCap)
+		if mc.count >= caps.Monthly {
+			slog.Warn("ratelimit: monthly cap exceeded", "tenant", tenantID, "device", deviceID, "count", mc.count, "cap", caps.Monthly)
 			l.publishAlert(tenantID, deviceID, "monthly_cap_exceeded", mc.count)
 			metrics.RatelimitDecisions.WithLabelValues("denied").Inc()
 			metrics.RatelimitViolations.WithLabelValues("monthly_cap").Inc()
@@ -139,15 +174,15 @@ func (l *DeviceLimiter) Allow(tenantID, deviceID string, isSOS bool) bool {
 	}
 
 	// Daily cap check
-	if l.dailyCap > 0 {
+	if caps.Daily > 0 {
 		dc := l.getDaily(tenantID, deviceID)
 		today := time.Now().UTC().Format("2006-01-02")
 		if dc.date != today {
 			dc.count = 0
 			dc.date = today
 		}
-		if dc.count >= l.dailyCap {
-			slog.Warn("ratelimit: daily cap exceeded", "tenant", tenantID, "device", deviceID, "count", dc.count, "cap", l.dailyCap)
+		if dc.count >= caps.Daily {
+			slog.Warn("ratelimit: daily cap exceeded", "tenant", tenantID, "device", deviceID, "count", dc.count, "cap", caps.Daily)
 			l.publishAlert(tenantID, deviceID, "daily_cap_exceeded", dc.count)
 			metrics.RatelimitDecisions.WithLabelValues("denied").Inc()
 			metrics.RatelimitViolations.WithLabelValues("daily_cap").Inc()
@@ -169,11 +204,11 @@ func (l *DeviceLimiter) Allow(tenantID, deviceID string, isSOS bool) bool {
 	bucket.tokens -= 1.0
 
 	// Increment counters
-	if l.dailyCap > 0 {
+	if caps.Daily > 0 {
 		dc := l.getDaily(tenantID, deviceID)
 		dc.count++
 	}
-	if l.monthlyCap > 0 {
+	if caps.Monthly > 0 {
 		mc := l.getMonthly(tenantID, deviceID)
 		mc.count++
 	}
@@ -209,18 +244,19 @@ func (l *DeviceLimiter) Usage(tenantID, deviceID string) DeviceUsage {
 		mc.month = month
 	}
 
+	caps := l.capsFor(tenantID)
 	throttled := bucket.tokens < 1.0 ||
-		(l.dailyCap > 0 && dc.count >= l.dailyCap) ||
-		(l.monthlyCap > 0 && mc.count >= l.monthlyCap)
+		(caps.Daily > 0 && dc.count >= caps.Daily) ||
+		(caps.Monthly > 0 && mc.count >= caps.Monthly)
 
 	usage := DeviceUsage{
 		DeviceID:    deviceID,
 		TokensLeft:  bucket.tokens,
 		MaxTokens:   bucket.maxTokens,
 		DailySent:   dc.count,
-		DailyCap:    l.dailyCap,
+		DailyCap:    caps.Daily,
 		MonthlySent: mc.count,
-		MonthlyCap:  l.monthlyCap,
+		MonthlyCap:  caps.Monthly,
 		Throttled:   throttled,
 	}
 
@@ -241,6 +277,7 @@ func (l *DeviceLimiter) AllUsage(tenantID string) []DeviceUsage {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
+	caps := l.capsFor(tenantID)
 	var result []DeviceUsage
 	today := time.Now().UTC().Format("2006-01-02")
 	month := time.Now().UTC().Format("2006-01")
@@ -261,16 +298,16 @@ func (l *DeviceLimiter) AllUsage(tenantID string) []DeviceUsage {
 			mc.month = month
 		}
 		throttled := bucket.tokens < 1.0 ||
-			(l.dailyCap > 0 && dc.count >= l.dailyCap) ||
-			(l.monthlyCap > 0 && mc.count >= l.monthlyCap)
+			(caps.Daily > 0 && dc.count >= caps.Daily) ||
+			(caps.Monthly > 0 && mc.count >= caps.Monthly)
 		result = append(result, DeviceUsage{
 			DeviceID:    id,
 			TokensLeft:  bucket.tokens,
 			MaxTokens:   bucket.maxTokens,
 			DailySent:   dc.count,
-			DailyCap:    l.dailyCap,
+			DailyCap:    caps.Daily,
 			MonthlySent: mc.count,
-			MonthlyCap:  l.monthlyCap,
+			MonthlyCap:  caps.Monthly,
 			Throttled:   throttled,
 		})
 	}

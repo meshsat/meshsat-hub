@@ -88,6 +88,21 @@ type Config struct {
 	// a small fleet can have many people watching the map.
 	PlanTAKUserLimits map[string]int `yaml:"plan_tak_user_limits"`
 
+	// PlanSendCaps overrides a tier's per-device send budget
+	// (MESHSAT-1117 tranche 2c): HUB_PLAN_FREE_DAILY_CAP,
+	// HUB_PLAN_CREW_DAILY_CAP, ... and the _MONTHLY_CAP siblings.
+	//
+	// Unlike the two above, these can only ever RAISE a tenant's budget: a
+	// resolved cap is never below the platform's own RateLimitDailyCap /
+	// RateLimitMonthlyCap. A tier that resolved LOWER would mean a lapse
+	// reduces message delivery, which is what the subscription ceiling is
+	// forbidden to do. See plans.SendCaps.
+	//
+	// Absent for every tier by default, so this changed nothing for anybody on
+	// the day it shipped: every tenant keeps the single platform number until
+	// an operator raises a paid tier.
+	PlanSendCaps map[string][2]int `yaml:"plan_send_caps"`
+
 	// The hosted TAK front (MESHSAT-1037): one TLS listener serving every
 	// tenant's phones, identifying the tenant from the client certificate's
 	// issuer and proxying into that tenant's own OpenTAKServer.
@@ -619,6 +634,35 @@ func Load() (Config, error) {
 			cfg.PlanTAKUserLimits = map[string]int{}
 		}
 		cfg.PlanTAKUserLimits[plan] = n
+	}
+	// The per-device send budget per tier. Same rules again: an unparseable
+	// value is ignored rather than guessed at. -1 is NOT accepted here -- an
+	// unlimited satellite budget is not a thing to create with a typo, and
+	// airtime is billed to the customer's own carrier account.
+	for _, plan := range []string{"free", "crew", "fleet", "custom"} {
+		var daily, monthly int
+		for i, suffix := range []string{"_DAILY_CAP", "_MONTHLY_CAP"} {
+			v := os.Getenv("HUB_PLAN_" + strings.ToUpper(plan) + suffix)
+			if v == "" {
+				continue
+			}
+			n, err := strconv.Atoi(v)
+			if err != nil || n < 0 {
+				continue
+			}
+			if i == 0 {
+				daily = n
+			} else {
+				monthly = n
+			}
+		}
+		if daily == 0 && monthly == 0 {
+			continue
+		}
+		if cfg.PlanSendCaps == nil {
+			cfg.PlanSendCaps = map[string][2]int{}
+		}
+		cfg.PlanSendCaps[plan] = [2]int{daily, monthly}
 	}
 	// The hosted TAK front (MESHSAT-1037).
 	if v := os.Getenv("HUB_TAK_FRONT_ENABLED"); v != "" {

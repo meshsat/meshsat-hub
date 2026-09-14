@@ -58,9 +58,16 @@ func TestFire_DeliversToMatchingWebhook(t *testing.T) {
 }
 
 func TestFire_SkipsNonMatchingEvents(t *testing.T) {
+	// `called` is written by the httptest handler goroutine and read by the
+	// test goroutine, so it needs a mutex however obvious the sleep makes it
+	// look. `go test -race` reports it; CI never has, because this project is
+	// CGO_ENABLED=0 and the detector needs cgo.
+	var mu sync.Mutex
 	called := false
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
 		called = true
+		mu.Unlock()
 		w.WriteHeader(200)
 	}))
 	defer srv.Close()
@@ -79,15 +86,24 @@ func TestFire_SkipsNonMatchingEvents(t *testing.T) {
 	d.Fire(tenantA, EventMO, "device-1", json.RawMessage(`{}`))
 	time.Sleep(200 * time.Millisecond)
 
+	mu.Lock()
+	defer mu.Unlock()
 	if called {
 		t.Error("webhook should not be called for non-matching event")
 	}
 }
 
 func TestFire_SkipsDisabledWebhook(t *testing.T) {
+	// `called` is written by the httptest handler goroutine and read by the
+	// test goroutine, so it needs a mutex however obvious the sleep makes it
+	// look. `go test -race` reports it; CI never has, because this project is
+	// CGO_ENABLED=0 and the detector needs cgo.
+	var mu sync.Mutex
 	called := false
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
 		called = true
+		mu.Unlock()
 		w.WriteHeader(200)
 	}))
 	defer srv.Close()
@@ -105,6 +121,8 @@ func TestFire_SkipsDisabledWebhook(t *testing.T) {
 	d.Fire(tenantA, EventMO, "device-1", json.RawMessage(`{}`))
 	time.Sleep(200 * time.Millisecond)
 
+	mu.Lock()
+	defer mu.Unlock()
 	if called {
 		t.Error("disabled webhook should not be called")
 	}
@@ -112,11 +130,14 @@ func TestFire_SkipsDisabledWebhook(t *testing.T) {
 
 func TestFire_HMACSigning(t *testing.T) {
 	secret := "test-secret-key"
+	var mu sync.Mutex
 	var signature string
 	var body []byte
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
 		signature = r.Header.Get("X-Hub-Signature-256")
 		body, _ = io.ReadAll(r.Body)
+		mu.Unlock()
 		w.WriteHeader(200)
 	}))
 	defer srv.Close()
@@ -135,6 +156,8 @@ func TestFire_HMACSigning(t *testing.T) {
 	d.Fire(tenantA, EventSOS, "device-1", json.RawMessage(`{"triggered":true}`))
 	time.Sleep(200 * time.Millisecond)
 
+	mu.Lock()
+	defer mu.Unlock()
 	if signature == "" {
 		t.Fatal("missing X-Hub-Signature-256 header")
 	}
