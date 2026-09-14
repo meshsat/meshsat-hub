@@ -131,6 +131,20 @@ func TopicHubCreditsFor(tenantID string) string {
 	return Namespace(tenantID) + "/hub/credits"
 }
 
+// TopicAPRSInboundFor is where an APRS-IS message addressed to a tenant's own
+// callsign is published: the legacy hub topic for the default tenant,
+// meshsat/{tenant}/hub/aprsis/inbound otherwise.
+//
+// Per tenant since MESHSAT-1121, because each tenant now connects to APRS-IS
+// under its own licence. A message addressed to one tenant's callsign arrives on
+// that tenant's connection and is nobody else's to read.
+func TopicAPRSInboundFor(tenantID string) string {
+	if tenantID == "" || tenantID == DefaultTenant {
+		return "meshsat/hub/aprsis/inbound"
+	}
+	return Namespace(tenantID) + "/hub/aprsis/inbound"
+}
+
 // Tenant-prefixed namespace (MESHSAT-864 MR 20).
 //
 // Devices and bridges of the default tenant keep the historical topics

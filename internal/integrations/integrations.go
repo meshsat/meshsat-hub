@@ -37,6 +37,15 @@ const (
 	// the hosted per-tenant instance the operator runs for them.
 	ProviderTAK = "tak"
 
+	// ProviderAPRSIS is a tenant's OWN amateur-radio licence (MESHSAT-1121).
+	// Unlike every other provider here, the credential is not an account with a
+	// company: a callsign and its APRS-IS passcode are issued to a NAMED LICENSED
+	// OPERATOR, and transmitting under somebody else's is not a misconfiguration,
+	// it is using their licence. So there is deliberately no inheritance -- a
+	// tenant with no APRS-IS account of its own injects nothing, rather than
+	// falling back to the operator's callsign.
+	ProviderAPRSIS = "aprsis"
+
 	// CredType marks a provider-account row in the credentials table.
 	CredType = "provider_account"
 	// Scope is the target_scope of a provider-account row.
@@ -126,6 +135,23 @@ var Specs = []Spec{
 			{Key: "ca_pem", Label: "Server CA (PEM)", Required: true, Hint: "the authority that signed your server's certificate"},
 			{Key: "client_cert_pem", Label: "Client certificate (PEM)", Required: true, Hint: "the certificate your server accepts from this Hub"},
 			{Key: "client_key_pem", Label: "Client key (PEM)", Secret: true, Required: true, Hint: "the private key for that certificate; stored encrypted and never shown again"},
+		}},
+	// APRS-IS (MESHSAT-1121). The callsign is the tenant's own amateur licence,
+	// so `callsign` and `passcode` are both Required: a half-filled account must
+	// not resolve, or the Hub would hold a connection it cannot authenticate and
+	// the operator would see a login failure they did not cause.
+	//
+	// `enabled` is a field rather than "the row exists" on purpose. Deleting the
+	// account is the way to remove a licence from the Hub; pausing transmission
+	// for a weekend should not make somebody re-enter a passcode they may have to
+	// go and look up again.
+	{Provider: ProviderAPRSIS, Label: "APRS-IS (your callsign)", Description: "Inject your devices' satellite positions into the APRS-IS network under YOUR amateur radio callsign. Requires a licence: the passcode is derived from the callsign and is not a password you choose. Nothing is transmitted until you fill this in -- the Hub never puts your traffic on air under anyone else's callsign.",
+		Fields: []Field{
+			{Key: "callsign", Label: "Callsign", Required: true, Hint: "your licensed callsign, e.g. PD1ABC. Without the SSID."},
+			{Key: "ssid", Label: "SSID", Default: "10", Hint: "0-15, appended as -N. 10 is the usual choice for an internet gateway."},
+			{Key: "passcode", Label: "APRS-IS passcode", Secret: true, Required: true, Hint: "the numeric passcode for that callsign. Not a password: it is derived from the callsign itself."},
+			{Key: "server", Label: "Server", Default: "rotate.aprs2.net:14580", Hint: "host:port of an APRS-IS core server; the default rotates across the pool."},
+			{Key: "enabled", Label: "Transmit", Default: "true", Hint: "set to false to stop transmitting without deleting your callsign and passcode."},
 		}},
 }
 

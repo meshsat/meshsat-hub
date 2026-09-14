@@ -51,13 +51,11 @@ const (
 // writes in config.yaml.
 var Classification = map[string]Class{
 
-	// --- tenant-provider: Tenant-owned, moving to internal/integrations (MESHSAT-1121). (22)
+	// --- tenant-provider: Tenant-owned, still moving to internal/integrations
+	// (MESHSAT-1121). This block SHRINKS as tranches land; APRS-IS left it first.
+	// (18 remaining of the 22 the audit found)
 	"apprise_enabled":  ClassTenantProvider,
 	"apprise_url":      ClassTenantProvider,
-	"aprsis_callsign":  ClassTenantProvider,
-	"aprsis_enabled":   ClassTenantProvider,
-	"aprsis_passcode":  ClassTenantProvider,
-	"aprsis_server":    ClassTenantProvider,
 	"email_enabled":    ClassTenantProvider,
 	"email_from":       ClassTenantProvider,
 	"email_password":   ClassTenantProvider,
@@ -79,6 +77,14 @@ var Classification = map[string]Class{
 	"oob_max_per_hour": ClassTenantColumn,
 	"oob_sat_timeout":  ClassTenantColumn,
 	"oob_sms_timeout":  ClassTenantColumn,
+
+	// APRS-IS landed first (MESHSAT-1121 T1). Each tenant now connects to the
+	// network under its OWN amateur licence, and a tenant with no callsign on
+	// file transmits nothing rather than borrowing the operator's.
+	"aprsis_callsign": ClassTenantDone,
+	"aprsis_enabled":  ClassTenantDone,
+	"aprsis_passcode": ClassTenantDone,
+	"aprsis_server":   ClassTenantDone,
 
 	// --- tenant-done: Tenant-owned and already in the UI; env is the platform default. (25)
 	"audit_retention_days":      ClassTenantDone,

@@ -17,11 +17,13 @@ import (
 // positions into APRS-IS. Also receives APRS-IS messages addressed to MeshSat
 // devices and forwards them to MQTT.
 type Subscriber struct {
-	mqtt     bus.MessageBus
-	client   *Client
-	platform PlatformChecker // only the platform tenant's traffic is injected
+	mqtt    bus.MessageBus
+	pool    *ConnPool      // one connection per tenant that brought a callsign
+	tenants TenantResolver // whose traffic is this?
 
-	// Rate limiting: max 1 position per device per coalesceSec
+	// Rate limiting: max 1 position per device per coalesceSec.
+	// Keyed by tenant AND device: two tenants' devices are different radios on
+	// different licences, and one must not consume the other's budget.
 	coalesceSec int
 	lastSent    map[string]time.Time
 	mu          sync.Mutex
@@ -73,29 +75,29 @@ func (s *Subscriber) claim(topic string, payload []byte) bool {
 	return won
 }
 
-// NewSubscriber creates a new APRS-IS MQTT subscriber. platform decides which
-// traffic may be injected; only the platform tenant's is.
-func NewSubscriber(mqtt bus.MessageBus, client *Client, platform PlatformChecker, coalesceSec int) *Subscriber {
+// NewSubscriber creates a new APRS-IS MQTT subscriber. Each message is injected
+// under the callsign of the tenant that owns the device, or not at all.
+func NewSubscriber(mqtt bus.MessageBus, pool *ConnPool, tenants TenantResolver, coalesceSec int) *Subscriber {
 	if coalesceSec <= 0 {
 		coalesceSec = 60
 	}
 	return &Subscriber{
 		mqtt:        mqtt,
-		client:      client,
-		platform:    platform,
+		pool:        pool,
+		tenants:     tenants,
 		coalesceSec: coalesceSec,
 		lastSent:    make(map[string]time.Time),
 	}
 }
 
-// Start subscribes to position MQTT topics and sets up the APRS-IS inbound handler.
-// Every subscription goes through platformOnly. [MESHSAT-1032]
+// Start subscribes to position MQTT topics and sets up the APRS-IS inbound
+// handler. Every subscription goes through routeByTenant. [MESHSAT-1032/-1121]
 func (s *Subscriber) Start() error {
-	if s.platform == nil {
-		return fmt.Errorf("aprsis subscriber: no platform checker; refusing to inject any tenant's positions")
+	if s.tenants == nil {
+		return fmt.Errorf("aprsis subscriber: no tenant resolver; refusing to inject any tenant's positions")
 	}
 	for _, f := range hubmqtt.DualFilters("meshsat/+/position") {
-		if err := s.mqtt.Subscribe(f, 1, platformOnly(s.platform, s.handlePosition)); err != nil {
+		if err := s.mqtt.Subscribe(f, 1, routeByTenant(s.tenants, s.handlePosition)); err != nil {
 			return err
 		}
 	}
@@ -103,8 +105,11 @@ func (s *Subscriber) Start() error {
 		return fmt.Errorf("aprsis subscriber: %w", err)
 	}
 
-	// Inbound: APRS-IS messages → MQTT
-	s.client.SetPacketHandler(s.handleInboundPacket)
+	// Inbound: APRS-IS messages -> MQTT, per connection so a message addressed to
+	// one tenant's callsign cannot surface in another tenant's topic space.
+	if s.pool != nil {
+		s.pool.SetPacketHandler(s.handleInboundPacket)
+	}
 
 	slog.Info("aprsis: subscriber started", "coalesce_sec", s.coalesceSec)
 	return nil
@@ -118,9 +123,17 @@ type positionMsg struct {
 	Timestamp string  `json:"timestamp,omitempty"`
 }
 
-func (s *Subscriber) handlePosition(topic string, payload []byte) {
+func (s *Subscriber) handlePosition(tenantID, topic string, payload []byte) {
 	deviceID := hubmqtt.ExtractDeviceID(topic)
 	if deviceID == "" {
+		return
+	}
+
+	// Whose licence is this going out under? nil means the tenant has no APRS
+	// account, has paused transmission, or its connection is not up -- all of
+	// which mean "do not transmit", never "use somebody else's callsign".
+	client := s.pool.ForTenant(tenantID)
+	if client == nil {
 		return
 	}
 
@@ -138,8 +151,8 @@ func (s *Subscriber) handlePosition(topic string, payload []byte) {
 		return
 	}
 
-	// Rate limit per device
-	if !s.shouldSend(deviceID) {
+	// Rate limit per tenant+device
+	if !s.shouldSend(tenantID, deviceID) {
 		return
 	}
 
@@ -149,13 +162,14 @@ func (s *Subscriber) handlePosition(topic string, payload []byte) {
 	}
 
 	comment := fmt.Sprintf("MeshSat via %s", pos.Source)
-	packet := FormatPosition(s.client.callsign, s.client.ssid, pos.Lat, pos.Lon, comment)
+	packet := FormatPosition(client.callsign, client.ssid, pos.Lat, pos.Lon, comment)
 
-	if err := s.client.Send(packet); err != nil {
-		slog.Warn("aprsis: send position failed", "error", err, "device", deviceID)
+	if err := client.Send(packet); err != nil {
+		slog.Warn("aprsis: send position failed", "error", err, "tenant", tenantID, "device", deviceID)
 		return
 	}
-	slog.Debug("aprsis: position injected", "device", deviceID, "lat", pos.Lat, "lon", pos.Lon)
+	slog.Debug("aprsis: position injected", "tenant", tenantID, "callsign", client.FormatCallsign(),
+		"device", deviceID, "lat", pos.Lat, "lon", pos.Lon)
 }
 
 // moDecodedMsg matches meshsat/{device_id}/mo/decoded.
@@ -166,9 +180,14 @@ type moDecodedMsg struct {
 	IridiumLon float64 `json:"iridium_longitude,omitempty"`
 }
 
-func (s *Subscriber) handleMODecoded(topic string, payload []byte) {
+func (s *Subscriber) handleMODecoded(tenantID, topic string, payload []byte) {
 	deviceID := hubmqtt.ExtractDeviceID(topic)
 	if deviceID == "" {
+		return
+	}
+
+	client := s.pool.ForTenant(tenantID)
+	if client == nil {
 		return
 	}
 
@@ -182,7 +201,7 @@ func (s *Subscriber) handleMODecoded(topic string, payload []byte) {
 		return
 	}
 
-	if !s.shouldSend(deviceID) {
+	if !s.shouldSend(tenantID, deviceID) {
 		return
 	}
 
@@ -200,20 +219,24 @@ func (s *Subscriber) handleMODecoded(topic string, payload []byte) {
 		comment += " " + text
 	}
 
-	packet := FormatPosition(s.client.callsign, s.client.ssid, mo.IridiumLat, mo.IridiumLon, comment)
+	packet := FormatPosition(client.callsign, client.ssid, mo.IridiumLat, mo.IridiumLon, comment)
 
-	if err := s.client.Send(packet); err != nil {
-		slog.Warn("aprsis: send MO position failed", "error", err, "device", deviceID)
+	if err := client.Send(packet); err != nil {
+		slog.Warn("aprsis: send MO position failed", "error", err, "tenant", tenantID, "device", deviceID)
 		return
 	}
-	slog.Debug("aprsis: MO position injected", "device", deviceID)
+	slog.Debug("aprsis: MO position injected", "tenant", tenantID, "device", deviceID)
 }
 
-// handleInboundPacket processes APRS-IS packets addressed to MeshSat devices.
-func (s *Subscriber) handleInboundPacket(line string) {
+// handleInboundPacket processes APRS-IS packets addressed to a tenant's callsign.
+//
+// tenantID and callsign come from the CONNECTION the packet arrived on, not from
+// the packet: each tenant has its own socket, logged in under its own licence, so
+// the addressee can only be that tenant's callsign (MESHSAT-1121).
+func (s *Subscriber) handleInboundPacket(tenantID, callsign, line string) {
 	// APRS message format: SRC>DST,PATH::ADDRESSEE :message{id
-	// We're looking for messages addressed to our callsign
-	myCall := strings.ToUpper(s.client.callsign)
+	// We're looking for messages addressed to this connection's callsign
+	myCall := strings.ToUpper(callsign)
 
 	colonIdx := strings.Index(line, ":")
 	if colonIdx < 0 || colonIdx+1 >= len(line) {
@@ -253,7 +276,7 @@ func (s *Subscriber) handleInboundPacket(line string) {
 	}
 	srcCall := line[:srcEnd]
 
-	slog.Info("aprsis: inbound message", "from", srcCall, "to", addressee, "text", msgText)
+	slog.Info("aprsis: inbound message", "tenant", tenantID, "from", srcCall, "to", addressee, "text", msgText)
 
 	// Publish to MQTT — use the addressee as a device hint
 	msg := map[string]interface{}{
@@ -264,30 +287,36 @@ func (s *Subscriber) handleInboundPacket(line string) {
 		"received": time.Now().UTC().Format(time.RFC3339),
 	}
 
-	topic := "meshsat/hub/aprsis/inbound"
+	// The tenant's own topic space. Publishing every tenant's inbound traffic to
+	// the one legacy hub topic would hand each of them the others' messages.
+	topic := hubmqtt.TopicAPRSInboundFor(tenantID)
 	if err := s.mqtt.PublishJSON(topic, 1, false, msg); err != nil {
-		slog.Warn("aprsis: publish inbound failed", "error", err)
+		slog.Warn("aprsis: publish inbound failed", "tenant", tenantID, "error", err)
 	}
 }
 
-// shouldSend returns true if enough time has passed since the last send for this device.
-func (s *Subscriber) shouldSend(deviceID string) bool {
+// shouldSend returns true if enough time has passed since the last send for this
+// tenant's device. The key carries the tenant because two tenants may legitimately
+// register the same device id, and one tenant must never be able to silence
+// another's beacons by consuming the coalesce window.
+func (s *Subscriber) shouldSend(tenantID, deviceID string) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	key := tenantID + "\x00" + deviceID
 	now := time.Now()
-	if last, ok := s.lastSent[deviceID]; ok {
+	if last, ok := s.lastSent[key]; ok {
 		if now.Sub(last) < time.Duration(s.coalesceSec)*time.Second {
 			return false
 		}
 	}
-	s.lastSent[deviceID] = now
+	s.lastSent[key] = now
 	return true
 }
 
 func (s *Subscriber) subscribeMO() error {
 	for _, f := range hubmqtt.DualFilters("meshsat/+/mo/decoded") {
-		if err := s.mqtt.Subscribe(f, 1, platformOnly(s.platform, s.handleMODecoded)); err != nil {
+		if err := s.mqtt.Subscribe(f, 1, routeByTenant(s.tenants, s.handleMODecoded)); err != nil {
 			return err
 		}
 	}
