@@ -379,28 +379,38 @@ func main() {
 	credMasterKey := bootstrapCredentialMasterKey(dataStore)
 	providerAccounts := integrations.New(dataStore, credMasterKey)
 	// A saved provider account must be in force on BOTH replicas at once
-	// (MESHSAT-1127). Each replica holds its own 60-second cache, so without
-	// this the one that did not serve the write keeps a stale answer -- and a
-	// stale NEGATIVE means it behaves as though the tenant has no credentials:
-	// no SMS sent, no notification delivered, no position injected. Reproduced
-	// on production before it was fixed. The TTL remains the backstop.
-	if msgBus.IsConnected() {
-		if err := providerAccounts.SetBus(msgBus); err != nil {
-			slog.Error("integrations: could not subscribe to account changes from other replicas; "+
-				"a saved account will take up to a minute to apply everywhere", "error", err)
-		} else {
-			// Affirmative, like verifyBillingCompany and the Stripe version
-			// check. Logging only the failure makes silence ambiguous: it reads
-			// the same whether the subscription happened or the whole branch was
-			// skipped because the broker was not connected yet. That ambiguity
-			// cost a diagnosis on MESHSAT-1127 itself.
-			slog.Info("integrations: subscribed to provider-account changes from other replicas",
-				"topic", integrations.ReloadTopic)
+	// (MESHSAT-1127). Each replica holds its own 60-second cache, so without this
+	// the one that did not serve the write keeps a stale answer -- and a stale
+	// NEGATIVE means it behaves as though the tenant has no credentials: no SMS
+	// sent, no notification delivered, no position injected. Reproduced on
+	// production before it was fixed. The TTL remains the backstop.
+	//
+	// IT RETRIES, and that is not belt-and-braces. Connect() failure above is a
+	// warning retried in the background, so the broker can be down at this point;
+	// and bus.Subscribe calls the broker and waits, returning an error WITHOUT
+	// registering the handler, so there is nothing for the reconnect handler to
+	// replay. A single attempt gated on IsConnected() -- which is what this was
+	// first -- therefore leaves the pod permanently without cross-replica sync
+	// after one unlucky restart, silently, with only the TTL underneath it.
+	go func() {
+		for attempt := 1; ; attempt++ {
+			if err := providerAccounts.SetBus(msgBus); err == nil {
+				// Affirmative, like verifyBillingCompany and the Stripe version
+				// check. Logging only failures makes silence ambiguous: it reads
+				// the same whether the subscription happened or never ran. That
+				// ambiguity cost a diagnosis on MESHSAT-1127 itself.
+				slog.Info("integrations: subscribed to provider-account changes from other replicas",
+					"topic", integrations.ReloadTopic, "attempt", attempt)
+				return
+			} else if attempt == 1 || attempt%12 == 0 {
+				slog.Warn("integrations: NOT yet subscribed to provider-account changes; "+
+					"until this succeeds a saved account takes up to the cache TTL to reach this replica, "+
+					"so it may not send that tenant's SMS or deliver its notifications",
+					"error", err, "attempt", attempt, "ttl", integrations.CacheTTL)
+			}
+			time.Sleep(5 * time.Second)
 		}
-	} else {
-		slog.Warn("integrations: the bus is not connected, so provider-account changes will NOT " +
-			"reach the other replica immediately; each falls back to its own cache expiry")
-	}
+	}()
 	providerAccounts.SetPlatform(integrations.ProviderCloudloop, map[string]string{
 		"api_url": cfg.CloudloopAPIURL, "api_key": cfg.CloudloopAPIKey, "account_id": cfg.CloudloopAccountID, "webhook_token": cfg.CloudloopWebhookToken})
 	providerAccounts.SetPlatform(integrations.ProviderTwilio, map[string]string{
