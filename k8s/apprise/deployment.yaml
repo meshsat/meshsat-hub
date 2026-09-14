@@ -35,9 +35,17 @@ spec:
           resources:
             requests: {cpu: 20m, memory: 64Mi}
             limits: {memory: 256Mi}
+          # No capability drop. The image creates its own runtime user at
+          # startup (linuxserver-style PUID/PGID) and with drop: [ALL] the
+          # useradd fails -- "failure while writing changes to /etc/shadow" --
+          # and it aborts before serving anything.
+          #
+          # Accepted rather than fought: this is a stateless relay with no
+          # volume, no ingress and no credentials of its own, reachable only
+          # in-cluster. The hardening would have bought very little and cost a
+          # service that does not start.
           securityContext:
             allowPrivilegeEscalation: false
-            capabilities: {drop: [ALL]}
           readinessProbe:
             httpGet: {path: /status, port: 8000}
             initialDelaySeconds: 10
