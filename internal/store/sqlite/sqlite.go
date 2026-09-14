@@ -486,6 +486,11 @@ var lateAlterMigrations = []string{
 	`ALTER TABLE tenants ADD COLUMN audit_retention_days INTEGER NOT NULL DEFAULT 0`,
 	`ALTER TABLE tenants ADD COLUMN ratelimit_daily_cap INTEGER NOT NULL DEFAULT 0`,
 	`ALTER TABLE tenants ADD COLUMN ratelimit_monthly_cap INTEGER NOT NULL DEFAULT 0`,
+	// MESHSAT-1119 cooldown. 0 = platform default. In lateAlterMigrations, NOT
+	// beside the CREATE TABLE: that slice is not duplicate-tolerant, and putting
+	// it there passed every test on a fresh database and failed on the second
+	// Migrate -- caught by TestMigrateIsIdempotent, added hours earlier.
+	`ALTER TABLE geofences ADD COLUMN cooldown_sec INTEGER NOT NULL DEFAULT 0`,
 	`ALTER TABLE receipts ADD COLUMN country TEXT NOT NULL DEFAULT ''`,
 	// MESHSAT-964: last report bearer/time on bridges
 	`ALTER TABLE bridges ADD COLUMN last_report_bearer TEXT NOT NULL DEFAULT ''`,

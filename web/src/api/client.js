@@ -247,6 +247,7 @@ export const ipougrs = {
 }
 
 export const geofences = {
+  policy: () => fetchJSON('/geofences/policy'),
   list: () => fetchJSON('/geofences'),
   create: (data) => fetchJSON('/geofences', { method: 'POST', body: JSON.stringify(data) }),
   delete: (id) => fetchJSON(`/geofences/${id}`, { method: 'DELETE' }),

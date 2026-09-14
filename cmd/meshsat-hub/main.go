@@ -509,6 +509,11 @@ func main() {
 	// stored without being checked against a fence.
 	geoEngine := geo.NewEngine()
 	geoEngine.SetStore(dataStore)
+	// A fence that fires the moment point-in-polygon flips pages somebody every
+	// time a parked device jitters across the line, so one crossing per device
+	// per fence is delivered per window. The FIRST crossing is never delayed
+	// (MESHSAT-1119).
+	geoEngine.SetCooldown(time.Duration(cfg.GeofenceCooldownSec) * time.Second)
 	// Fences were never written down before this, so they vanished at every
 	// rollout. Load what the database has.
 	if err := geoEngine.LoadAll(context.Background()); err != nil {
@@ -2460,6 +2465,8 @@ func main() {
 
 	// Geofence engine + API
 	geoHandler := api.NewGeofenceHandler(geoEngine)
+	geoHandler.SetCooldownPolicy(cfg.GeofenceCooldownSec, cfg.GeofenceCooldownMin, cfg.GeofenceCooldownMax)
+	r.Get("/api/geofences/policy", geoHandler.Policy)
 	r.Get("/api/geofences", geoHandler.ListFences)
 	r.Post("/api/geofences", geoHandler.CreateFence)
 	r.Delete("/api/geofences/{id}", geoHandler.DeleteFence)

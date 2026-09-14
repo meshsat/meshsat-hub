@@ -3,6 +3,7 @@ package api
 import (
 	"crypto/rand"
 	"encoding/hex"
+	"fmt"
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
@@ -14,6 +15,39 @@ import (
 // GeofenceHandler provides CRUD for geofences via the in-memory geo.Engine.
 type GeofenceHandler struct {
 	engine *geo.Engine
+	// The platform's crossing-cooldown policy (MESHSAT-1119): the default a
+	// fence gets, and the bounds an owner may choose within.
+	cooldownDefault int
+	cooldownMin     int
+	cooldownMax     int
+}
+
+// SetCooldownPolicy gives the handler the platform's default crossing cooldown
+// and the bounds a fence may set.
+func (h *GeofenceHandler) SetCooldownPolicy(def, min, max int) {
+	h.cooldownDefault, h.cooldownMin, h.cooldownMax = def, min, max
+}
+
+// geofencePolicy is what the form needs in order to show the number actually in
+// force rather than hardcoding one that drifts from the ConfigMap.
+type geofencePolicy struct {
+	CooldownDefault int `json:"cooldown_default"`
+	CooldownMin     int `json:"cooldown_min"`
+	CooldownMax     int `json:"cooldown_max"`
+}
+
+// Policy returns the platform's geofence settings.
+// @Summary      Geofence platform policy
+// @Tags         geofences
+// @Produce      json
+// @Success      200  {object}  geofencePolicy
+// @Router       /api/geofences/policy [get]
+func (h *GeofenceHandler) Policy(w http.ResponseWriter, _ *http.Request) {
+	writeJSON(w, http.StatusOK, geofencePolicy{
+		CooldownDefault: h.cooldownDefault,
+		CooldownMin:     h.cooldownMin,
+		CooldownMax:     h.cooldownMax,
+	})
 }
 
 // NewGeofenceHandler creates a geofence API handler.
@@ -66,6 +100,15 @@ func (h *GeofenceHandler) CreateFence(w http.ResponseWriter, r *http.Request) {
 	}
 	if f.Trigger == "" {
 		f.Trigger = geo.TriggerBoth
+	}
+	// 0 means the platform default and is always allowed. Anything else must
+	// sit inside the bounds: too short and a device on a boundary pages all
+	// night, too long and a genuine second crossing goes unreported.
+	if f.CooldownSec != 0 && (f.CooldownSec < h.cooldownMin || f.CooldownSec > h.cooldownMax) {
+		writeError(w, http.StatusBadRequest, fmt.Sprintf(
+			"cooldown_sec must be 0 (platform default) or between %d and %d seconds",
+			h.cooldownMin, h.cooldownMax))
+		return
 	}
 	// Persisted, not just added to a map (MESHSAT-1119). A fence that exists
 	// only in memory is gone at the next rollout, and the customer has no way

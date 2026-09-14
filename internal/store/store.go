@@ -902,15 +902,19 @@ type GeoPoint struct {
 // Geofence is a persisted geofence. The geo package owns the geometry and the
 // trigger semantics; this is only what goes in the table.
 type Geofence struct {
-	ID        string     `json:"id"`
-	TenantID  string     `json:"tenant_id"`
-	Name      string     `json:"name"`
-	Polygon   []GeoPoint `json:"polygon"`
-	Trigger   string     `json:"trigger"`  // enter, exit, both
-	ChainID   string     `json:"chain_id"` // escalation chain to raise
-	Enabled   bool       `json:"enabled"`
-	CreatedAt time.Time  `json:"created_at"`
-	UpdatedAt time.Time  `json:"updated_at"`
+	ID       string     `json:"id"`
+	TenantID string     `json:"tenant_id"`
+	Name     string     `json:"name"`
+	Polygon  []GeoPoint `json:"polygon"`
+	Trigger  string     `json:"trigger"`  // enter, exit, both
+	ChainID  string     `json:"chain_id"` // escalation chain to raise
+	// CooldownSec suppresses repeat events for the same device and fence after
+	// one fires. 0 means the platform default. It damps the output, not the
+	// input: the first crossing is never delayed (MESHSAT-1119).
+	CooldownSec int       `json:"cooldown_sec,omitempty"`
+	Enabled     bool      `json:"enabled"`
+	CreatedAt   time.Time `json:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
 }
 
 // DeadmanConfig is the persisted dead man's switch state for one device.

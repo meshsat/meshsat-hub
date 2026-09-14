@@ -19,13 +19,16 @@ const (
 
 // Fence defines a polygon geofence with trigger configuration.
 type Fence struct {
-	ID       string      `json:"id"`
-	Name     string      `json:"name"`
-	Polygon  []Point     `json:"polygon"`  // ordered vertices (closed polygon)
-	Trigger  TriggerMode `json:"trigger"`  // "enter", "exit", "both"
-	ChainID  string      `json:"chain_id"` // escalation chain to trigger
-	Enabled  bool        `json:"enabled"`
-	TenantID string      `json:"tenant_id,omitempty"`
+	ID      string      `json:"id"`
+	Name    string      `json:"name"`
+	Polygon []Point     `json:"polygon"`  // ordered vertices (closed polygon)
+	Trigger TriggerMode `json:"trigger"`  // "enter", "exit", "both"
+	ChainID string      `json:"chain_id"` // escalation chain to trigger
+	Enabled bool        `json:"enabled"`
+	// CooldownSec suppresses repeat events for the same device and this fence
+	// after one fires. 0 means the platform default. See Engine.cooldown.
+	CooldownSec int    `json:"cooldown_sec,omitempty"`
+	TenantID    string `json:"tenant_id,omitempty"`
 }
 
 // FenceEvent is emitted when a device crosses a geofence boundary.
@@ -74,6 +77,33 @@ type Engine struct {
 	state    map[string]map[string]map[string]bool
 	handlers []EventHandler
 	store    Store
+	// cooldown is the platform default suppression window; a fence may set its
+	// own with CooldownSec. lastFired is tenant -> device -> fence -> when the
+	// last event for that triple was emitted.
+	cooldown  time.Duration
+	lastFired map[string]map[string]map[string]time.Time
+	// now is time.Now, replaced in tests so a cooldown can be crossed without
+	// a test that sleeps for five minutes.
+	now func() time.Time
+}
+
+// SetCooldown sets the platform default suppression window (MESHSAT-1119).
+//
+// A geofence transition fires the moment point-in-polygon flips, so a device
+// parked on a boundary -- GPS jitter is metres, and a vehicle at a depot gate is
+// the obvious case -- produces enter/exit/enter/exit, and each one raises an
+// escalation chain and sends a real SMS.
+//
+// This damps the OUTPUT: the FIRST crossing fires immediately and is never
+// delayed, and further events for the same device and fence are dropped for the
+// window. The alternative, dwell time, damps the input by waiting for a second
+// report on the new side -- which with Iridium SBD reports minutes apart delays
+// every genuine crossing by a full reporting interval. On a safety path a late
+// alert is worse than a duplicate one, which is why this is the shape chosen.
+func (e *Engine) SetCooldown(d time.Duration) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.cooldown = d
 }
 
 // scope keys a fence by its tenant. Both halves are escaped: a fence id is
@@ -86,8 +116,10 @@ func scope(tenantID, id string) string {
 // NewEngine creates a geofence engine.
 func NewEngine() *Engine {
 	return &Engine{
-		fences: make(map[string]*Fence),
-		state:  make(map[string]map[string]map[string]bool),
+		fences:    make(map[string]*Fence),
+		state:     make(map[string]map[string]map[string]bool),
+		lastFired: make(map[string]map[string]map[string]time.Time),
+		now:       time.Now,
 	}
 }
 
@@ -111,9 +143,12 @@ func (e *Engine) RemoveFence(tenantID, id string) bool {
 		return false
 	}
 	delete(e.fences, k)
-	// Clean up this tenant's crossing state for the fence.
+	// Clean up this tenant's crossing state and cooldown stamps for the fence.
 	for _, deviceState := range e.state[tenantID] {
 		delete(deviceState, id)
+	}
+	for _, deviceStamps := range e.lastFired[tenantID] {
+		delete(deviceStamps, id)
 	}
 	return true
 }
@@ -132,6 +167,7 @@ func (e *Engine) ForgetTenant(tenantID string) {
 		}
 	}
 	delete(e.state, tenantID)
+	delete(e.lastFired, tenantID)
 }
 
 // ListFences returns the tenant's own fences.
@@ -187,7 +223,7 @@ func (e *Engine) Evaluate(ctx context.Context, tenantID, deviceIMEI string, lat,
 
 	var events []FenceEvent
 	p := Point{Lat: lat, Lon: lon}
-	now := time.Now().UTC()
+	now := e.clock().UTC()
 
 	for _, fence := range e.fences {
 		if !fence.Enabled || fence.TenantID != tenantID {
@@ -216,6 +252,21 @@ func (e *Engine) Evaluate(ctx context.Context, tenantID, deviceIMEI string, lat,
 		}
 		if fence.Trigger == TriggerExit && eventType != "exit" {
 			continue
+		}
+
+		// Cooldown (MESHSAT-1119). The crossing STATE above is always updated,
+		// even when the event is suppressed -- otherwise the inside/outside flag
+		// goes stale and a later genuine transition is missed entirely. Only the
+		// notification is dropped.
+		if window := e.cooldownFor(fence); window > 0 {
+			if last, ok := e.lastFiredAt(tenantID, deviceIMEI, fence.ID); ok && now.Sub(last) < window {
+				slog.Info("geofence: crossing suppressed by the cooldown",
+					"tenant", tenantID, "fence", fence.Name, "device", deviceIMEI,
+					"type", eventType, "cooldown", window.String(),
+					"since_last", now.Sub(last).Round(time.Second).String())
+				continue
+			}
+			e.stampFired(tenantID, deviceIMEI, fence.ID, now)
 		}
 
 		event := FenceEvent{
@@ -251,6 +302,40 @@ func (e *Engine) Evaluate(ctx context.Context, tenantID, deviceIMEI string, lat,
 	}
 
 	return events
+}
+
+// cooldownFor is the fence's own suppression window, or the platform default.
+// The caller must hold e.mu.
+// clock is e.now, or time.Now when the engine was built by a zero-value literal.
+func (e *Engine) clock() time.Time {
+	if e.now == nil {
+		return time.Now()
+	}
+	return e.now()
+}
+
+func (e *Engine) cooldownFor(f *Fence) time.Duration {
+	if f.CooldownSec > 0 {
+		return time.Duration(f.CooldownSec) * time.Second
+	}
+	return e.cooldown
+}
+
+// lastFiredAt and stampFired track when this device last produced an event for
+// this fence. The caller must hold e.mu.
+func (e *Engine) lastFiredAt(tenantID, deviceIMEI, fenceID string) (time.Time, bool) {
+	t, ok := e.lastFired[tenantID][deviceIMEI][fenceID]
+	return t, ok
+}
+
+func (e *Engine) stampFired(tenantID, deviceIMEI, fenceID string, at time.Time) {
+	if e.lastFired[tenantID] == nil {
+		e.lastFired[tenantID] = map[string]map[string]time.Time{}
+	}
+	if e.lastFired[tenantID][deviceIMEI] == nil {
+		e.lastFired[tenantID][deviceIMEI] = map[string]time.Time{}
+	}
+	e.lastFired[tenantID][deviceIMEI][fenceID] = at
 }
 
 // PointInPolygon tests if a point is inside a polygon using the ray-casting algorithm.

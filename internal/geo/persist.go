@@ -42,6 +42,7 @@ func toStore(f Fence) store.Geofence {
 	return store.Geofence{
 		ID: f.ID, TenantID: f.TenantID, Name: f.Name, Polygon: poly,
 		Trigger: string(f.Trigger), ChainID: f.ChainID, Enabled: f.Enabled,
+		CooldownSec: f.CooldownSec,
 	}
 }
 
@@ -57,6 +58,7 @@ func fromStore(g store.Geofence) Fence {
 	return Fence{
 		ID: g.ID, TenantID: g.TenantID, Name: g.Name, Polygon: poly,
 		Trigger: trigger, ChainID: g.ChainID, Enabled: g.Enabled,
+		CooldownSec: g.CooldownSec,
 	}
 }
 

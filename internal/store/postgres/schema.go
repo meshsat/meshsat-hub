@@ -740,4 +740,25 @@ CREATE TABLE IF NOT EXISTS geofences (
 );
 CREATE INDEX IF NOT EXISTS idx_geofences_tenant ON geofences (tenant_id);
 `},
+	// v23: a crossing cooldown, so a fence cannot page somebody all night.
+	//
+	// MESHSAT-1119 made fences fire. A transition triggers the moment
+	// point-in-polygon flips, so a device parked on a boundary -- a vehicle at a
+	// depot gate, and GPS jitter is metres -- produces enter/exit/enter/exit, and
+	// each one raises the chain and sends a real SMS.
+	//
+	// This damps the OUTPUT, not the input: the first transition fires
+	// IMMEDIATELY and further events for the same device and fence are suppressed
+	// for cooldown_sec. Dwell time (the obvious alternative, and what the issue
+	// first recommended) damps the input instead, which means waiting for a
+	// SECOND report on the new side -- and with Iridium SBD reports minutes
+	// apart, that delays every genuine crossing alert by a full reporting
+	// interval. On a safety path a late alert is worse than a duplicate one.
+	//
+	// 0 means the platform default (HUB_GEOFENCE_COOLDOWN_SEC), as with every
+	// other setting added by MESHSAT-1117. Per fence rather than per tenant
+	// because a depot gate and a national border want different numbers.
+	{Version: 23, Name: "geofence cooldown", SQL: `
+ALTER TABLE geofences ADD COLUMN IF NOT EXISTS cooldown_sec INTEGER NOT NULL DEFAULT 0;
+`},
 }
