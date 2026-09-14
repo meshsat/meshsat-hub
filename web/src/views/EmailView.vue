@@ -1,12 +1,17 @@
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { email } from '../api/client'
 import EmptyState from '../components/EmptyState.vue'
+import { useCapabilitiesStore } from '../stores/capabilities'
 
 const contacts = ref([])
 const publicKey = ref('')
 const loading = ref(true)
-const unavailable = ref(false) // the email gateway is not wired on this Hub (API answers 404)
+// See OtaView: asked, not inferred from an error string that a 403 fails to
+// match.
+const caps = useCapabilitiesStore()
+const unavailable = computed(() => caps.isUnavailable('email'))
+const unavailableReason = computed(() => caps.reason('email'))
 const error = ref('')
 const success = ref('')
 
@@ -26,12 +31,12 @@ onMounted(async () => {
 
 async function loadData() {
   loading.value = true
+  await caps.load()
   const results = await Promise.allSettled([
     email.listContacts(),
     email.publicKey(),
   ])
   contacts.value = results[0].status === 'fulfilled' && Array.isArray(results[0].value) ? results[0].value : []
-  unavailable.value = results[0].status === 'rejected' && /not found|404/i.test(String(results[0].reason?.message || ''))
   publicKey.value = results[1].status === 'fulfilled' ? (results[1].value?.key || results[1].value || '') : ''
   loading.value = false
 }
@@ -140,7 +145,13 @@ async function sendTest() {
         <div class="px-4 py-3 border-b border-tactical-border">
           <h2 class="text-sm font-display font-semibold text-gray-200 uppercase tracking-wider">Contacts ({{ contacts.length }})</h2>
         </div>
-        <EmptyState v-if="unavailable" icon="users" title="Email gateway not enabled on this Hub" message="The platform runs without the SMTP/PGP gateway (HUB_EMAIL_ENABLED). Contacts and test sends become available once it is configured." />
+        <EmptyState v-if="unavailable" unavailable title="Email gateway is not set up for this account"
+                    :message="unavailableReason">
+          <router-link to="/settings"
+                       class="text-sm px-3 py-2 rounded bg-brand-primary hover:bg-brand-accent text-ms-on-primary">
+            Set up in Integrations
+          </router-link>
+        </EmptyState>
         <EmptyState v-else-if="contacts.length === 0" icon="users" title="No email contacts" message="Add PGP-enabled contacts to send encrypted email through the gateway." />
         <div v-else class="divide-y divide-tactical-border/50">
           <div v-for="c in contacts" :key="c.email" class="px-4 py-3 flex items-center justify-between">

@@ -348,6 +348,12 @@ export const credentials = {
 }
 
 // Tenant (MR 16 API): the panel hides itself while the Hub returns 404.
+// Which features this tenant can actually use (MESHSAT-1121). Consumed by
+// stores/capabilities.js; pages should read the store, not call this.
+export const capabilities = {
+  list: () => fetchJSON('/capabilities'),
+}
+
 export const tenant = {
   get: () => fetchJSON('/tenant'),
   usage: () => fetchJSON('/tenant/usage'),
