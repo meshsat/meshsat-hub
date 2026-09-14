@@ -1235,7 +1235,7 @@ func main() {
 	// Out-of-band bridge commands (MESHSAT-964 C): sealed OOB frames over the
 	// kit's SIM (Twilio), a 9704 modem (Cloudloop IMT) or a 9603 modem
 	// (Rock7 MT), replies classified out of the three inbound webhooks.
-	oobSvc := oob.New(dataStore, credMasterKey, auditSvc, oob.Options{Encrypt: cfg.OOBEncrypt, MaxPerHour: cfg.OOBMaxPerHour})
+	oobSvc := oob.New(dataStore, credMasterKey, auditSvc, oob.Options{MaxPerHour: cfg.OOBMaxPerHour})
 	oobSvc.RegisterTransport(oob.BearerSMS, &bearers.SMS{Pool: smsPool, Wait: cfg.OOBSMSTimeout})
 	oobSvc.RegisterTransport(oob.BearerIMT, &bearers.IMT{Pool: cloudloopPool, Resolver: thingResolver, Wait: cfg.OOBSatTimeout})
 	oobSvc.RegisterTransport(oob.BearerSBD, &bearers.SBD{Pool: rock7Pool, Wait: cfg.OOBSatTimeout})

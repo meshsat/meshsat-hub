@@ -43,7 +43,7 @@ func newService(t *testing.T) (*Service, *fakeTransport, []byte) {
 	for i := range master {
 		master[i] = byte(i * 7)
 	}
-	svc := New(db, master, nil, Options{Encrypt: true, MaxPerHour: 3})
+	svc := New(db, master, nil, Options{MaxPerHour: 3})
 	tr := &fakeTransport{timeout: 2 * time.Second}
 	svc.RegisterTransport(BearerSMS, tr)
 	return svc, tr, vectorKey
@@ -158,5 +158,69 @@ func TestSendLimitsAndErrors(t *testing.T) {
 	_, _ = svc2.Pair(ctx, "t1", "tesseract", key, RoleIssuer, "+3160", "")
 	if _, err := svc2.Send(ctx, "t1", "tesseract", BearerSMS, "mgmt_ping", ArgSpec{}, false); err == nil || !strings.Contains(err.Error(), "no reply") {
 		t.Fatalf("timeout: %v", err)
+	}
+}
+
+// An OOB frame commands real hardware in the field over bearers that are not
+// themselves confidential, so sealing is not a setting. This builds the service
+// the way a caller who configures NOTHING gets it -- a zero-value Options -- and
+// insists the frame that leaves is still sealed.
+//
+// The zero value is the whole point. While Options carried an Encrypt bool,
+// Options{} meant Encrypt:false, so the careless construction was the insecure
+// one and only HUB_OOB_ENCRYPT=true (or the config default) saved it. A knob
+// whose unset position is "send my field commands in clear" is not a knob worth
+// keeping (MESHSAT-1121).
+func TestFramesAreAlwaysSealedEvenWithNoOptionsAtAll(t *testing.T) {
+	db, err := sqlite.New(t.TempDir()+"/hub.db", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	if err := db.Migrate(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	master := make([]byte, 32)
+	for i := range master {
+		master[i] = byte(i * 7)
+	}
+
+	svc := New(db, master, nil, Options{}) // nothing configured, deliberately
+	tr := &fakeTransport{timeout: 200 * time.Millisecond}
+	svc.RegisterTransport(BearerSMS, tr)
+
+	ctx := context.Background()
+	if _, err := svc.Pair(ctx, "t1", "tesseract", vectorKey, RoleImporter, "+31653618463", ""); err != nil {
+		t.Fatalf("pair: %v", err)
+	}
+	// No kit is listening, so Send returns "no reply" -- the frame still left,
+	// which is all this test cares about.
+	go func() { _, _ = svc.Send(ctx, "t1", "tesseract", BearerSMS, "mgmt_ping", ArgSpec{}, false) }()
+
+	var sent string
+	for i := 0; i < 50 && sent == ""; i++ {
+		time.Sleep(20 * time.Millisecond)
+		tr.mu.Lock()
+		if len(tr.sent) > 0 {
+			sent = tr.sent[0]
+		}
+		tr.mu.Unlock()
+	}
+	if sent == "" {
+		t.Fatal("nothing was sent")
+	}
+
+	wire, err := Decode(sent)
+	if err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	h, err := ParseHeader(wire)
+	if err != nil {
+		t.Fatalf("parse header: %v", err)
+	}
+	if !h.Enc() {
+		t.Fatal("a frame built from a zero-value Options went out UNSEALED: " +
+			"the args of a command that can reboot or factory-reset a field kit " +
+			"were readable by anyone who saw the SMS")
 	}
 }

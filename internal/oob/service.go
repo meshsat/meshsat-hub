@@ -60,7 +60,6 @@ type Service struct {
 	store      Store
 	masterKey  []byte
 	audit      *audit.Service
-	encrypt    bool
 	maxPerHour int
 
 	mu         sync.Mutex
@@ -71,9 +70,15 @@ type Service struct {
 }
 
 // Options tunes the service.
+//
+// There is deliberately no Encrypt option. An OOB frame commands real hardware
+// in the field -- reboot, power-cycle, factory reset -- over SMS and satellite
+// bearers that are not themselves confidential, so sealing its arguments is not
+// a preference. It used to be HUB_OOB_ENCRYPT, defaulting to true and never set
+// in production; the only thing the knob could do was turn sealing OFF for every
+// tenant at once, from a ConfigMap, silently. Removed in MESHSAT-1121.
 type Options struct {
-	Encrypt    bool // seal args encrypted (default true)
-	MaxPerHour int  // outbound frames per bridge per bearer per hour (default 20)
+	MaxPerHour int // outbound frames per bridge per bearer per hour (default 20)
 }
 
 // New creates the service. masterKey encrypts peer keys at rest.
@@ -81,7 +86,7 @@ func New(s Store, masterKey []byte, auditSvc *audit.Service, opts Options) *Serv
 	if opts.MaxPerHour <= 0 {
 		opts.MaxPerHour = 20
 	}
-	return &Service{store: s, masterKey: masterKey, audit: auditSvc, encrypt: opts.Encrypt, maxPerHour: opts.MaxPerHour,
+	return &Service{store: s, masterKey: masterKey, audit: auditSvc, maxPerHour: opts.MaxPerHour,
 		transports: map[string]Transport{}, pending: map[string]chan Reply{}, sent: map[string][]time.Time{}, now: time.Now}
 }
 
@@ -277,7 +282,10 @@ func (s *Service) Send(ctx context.Context, tenantID, bridgeID, bearer, cmdName 
 		return nil, errors.New("oob: key exhausted, re-pair the bridge")
 	}
 	counter := uint32(n)
-	f := Frame{Enc: s.encrypt, NoReply: noReply, PeerID: peerIDOf(p.PeerID), Counter: counter, Cmd: cmd.Code, Args: wireArgs}
+	// Always sealed. The frame still carries the flag because the WIRE format is
+	// shared with the bridge, which reads FlagEnc per frame and must keep being
+	// able to parse an unsealed one it did not originate.
+	f := Frame{Enc: true, NoReply: noReply, PeerID: peerIDOf(p.PeerID), Counter: counter, Cmd: cmd.Code, Args: wireArgs}
 	wire, err := Seal(f, key, RoleOf(p.LocalRole))
 	if err != nil {
 		return nil, err
@@ -300,7 +308,10 @@ func (s *Service) Send(ctx context.Context, tenantID, bridgeID, bearer, cmdName 
 		s.log(ctx, tenantID, "oob_send_failed", "system", fmt.Sprintf("bridge=%s bearer=%s cmd=%s counter=%d error=%s", bridgeID, bearer, cmd.Name, counter, err))
 		return nil, fmt.Errorf("oob: send over %s: %w", bearer, err)
 	}
-	s.log(ctx, tenantID, "oob_command_sent", "system", fmt.Sprintf("bridge=%s bearer=%s cmd=%s counter=%d enc=%v", bridgeID, bearer, cmd.Name, counter, s.encrypt))
+	// enc=true stays in the audit line, spelled out rather than dropped: the audit
+	// log is the record of what was actually sent, and "the args were sealed" is a
+	// security property somebody may need to read back years later.
+	s.log(ctx, tenantID, "oob_command_sent", "system", fmt.Sprintf("bridge=%s bearer=%s cmd=%s counter=%d enc=true", bridgeID, bearer, cmd.Name, counter))
 	slog.Info("oob: command sent", "bridge", bridgeID, "bearer", bearer, "cmd", cmd.Name, "counter", counter)
 	if noReply {
 		return &Reply{Bearer: bearer, Counter: counter, Result: "sent"}, nil
