@@ -87,7 +87,7 @@ func TestNoNewTenantOwnedSettingsHaveAppeared(t *testing.T) {
 	// ZERO. All 26 settings the audit found are reachable in the UI and stored
 	// per tenant. The ratchet stays so the next one cannot appear unnoticed.
 	const auditedProvider = 0
-	const auditedColumn = 3 // OOB max/hour, SMS timeout, satellite timeout
+	const auditedColumn = 0 // all three OOB policy settings landed in T4
 
 	provider, column := 0, 0
 	for _, c := range Classification {
