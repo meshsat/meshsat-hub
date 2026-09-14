@@ -54,12 +54,24 @@ spec:
             # but NOT effective for a non-root uid under allowPrivilegeEscalation
             # false. Loading iptable_nat on the nodes did NOT fix it on its own;
             # the blocker was the capability set, not the module.
+            # root, but with exactly two capabilities and no route to more.
+            #
+            # runAsUser 0 is unavoidable: added capabilities are PERMITTED but
+            # not EFFECTIVE for a non-root uid, so NET_ADMIN was held on paper
+            # and unusable, and wg-quick's iptables-legacy call failed with
+            # "you must be root". NET_RAW is for the netfilter socket.
+            #
+            # allowPrivilegeEscalation false is back, which is the part worth
+            # having: drop ALL then add two means this is root with CAP_NET_ADMIN
+            # and CAP_NET_RAW and nothing else, and NoNewPrivs stops a setuid
+            # binary inside the container reaching for more. It was set true
+            # while diagnosing the capability problem and stayed by accident.
             runAsUser: 0
             capabilities:
               add: [NET_ADMIN, NET_RAW]
               drop: [ALL]
             privileged: false
-            allowPrivilegeEscalation: true
+            allowPrivilegeEscalation: false
           resources:
             requests: {cpu: 20m, memory: 64Mi}
             limits: {memory: 256Mi}

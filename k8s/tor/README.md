@@ -28,8 +28,31 @@ every published reference to it breaks. To re-derive it:
 2. `kubectl -n meshsat-hub exec tor-0 -- cat /var/lib/tor/hidden_service/hostname`
 3. Put that value in `HUB_TOR_ONION` in `k8s/hub/configmap.yaml` and merge.
 
-That is why the storage class is `retain` and why this key is the one thing here
-worth backing up.
+That is why the storage class is `retain` -- but the volume is no longer the only
+copy. See below.
+
+## The key is backed up, and restores itself
+
+The identity key lives in OpenBao at `ci-no/apps/meshsat-hub/tor`
+(`HS_ED25519_SECRET_KEY_B64`, the public key, and the hostname). `externalsecret.yaml`
+pulls it into the Secret `tor-identity`, and the `seed-identity` initContainer
+writes it onto the volume **only when the volume has no key of its own**.
+
+So a lost volume, a rebuilt cluster or a replaced node all come back with the
+SAME .onion instead of a new one that breaks every published reference.
+
+Two deliberate choices in that initContainer:
+
+- **It never overwrites.** While the volume has a key, the volume is
+  authoritative. Clobbering a live key on every restart would be a way to LOSE
+  one rather than protect it.
+- **Permissions are part of the restore.** tor refuses to start on a key it
+  considers too readable, so the seed sets a 0700 directory, 0600 files and uid
+  100 (`tor` in this image). Getting the bytes right and the mode wrong fails
+  just as completely.
+
+To rotate the address deliberately: delete the PVC *and* the OpenBao entry, let
+Tor generate a fresh key, then store the new one the same way.
 
 ## Bootstrapping takes minutes, and that is normal
 
