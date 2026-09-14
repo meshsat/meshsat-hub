@@ -33,9 +33,19 @@ type FenceEvent struct {
 	// TenantID is the tenant that owns both the fence and the device. A fence
 	// event raises an escalation chain, and a chain belongs to a tenant, so an
 	// event that cannot say whose it is cannot be acted on.
-	TenantID   string    `json:"tenant_id,omitempty"`
-	FenceID    string    `json:"fence_id"`
-	FenceName  string    `json:"fence_name"`
+	TenantID  string `json:"tenant_id,omitempty"`
+	FenceID   string `json:"fence_id"`
+	FenceName string `json:"fence_name"`
+	// ChainID is the escalation chain the fence names. It is carried ON THE
+	// EVENT rather than looked up again by the handler, because the handler
+	// runs after Evaluate has released the lock and the fence may have been
+	// edited or deleted by then -- a crossing that has already happened must
+	// still page the people who were on call for it.
+	//
+	// This field not existing is why Fence.ChainID was inert: the form asked
+	// which chain to trigger, the value was stored, and nothing that could act
+	// on it ever saw it (MESHSAT-1119).
+	ChainID    string    `json:"chain_id,omitempty"`
 	DeviceIMEI string    `json:"device_imei"`
 	EventType  string    `json:"event_type"` // "enter" or "exit"
 	Lat        float64   `json:"lat"`
@@ -63,6 +73,7 @@ type Engine struct {
 	// carry another's crossing state.
 	state    map[string]map[string]map[string]bool
 	handlers []EventHandler
+	store    Store
 }
 
 // scope keys a fence by its tenant. Both halves are escaped: a fence id is
@@ -209,6 +220,7 @@ func (e *Engine) Evaluate(ctx context.Context, tenantID, deviceIMEI string, lat,
 
 		event := FenceEvent{
 			TenantID:   tenantID,
+			ChainID:    fence.ChainID,
 			FenceID:    fence.ID,
 			FenceName:  fence.Name,
 			DeviceIMEI: deviceIMEI,

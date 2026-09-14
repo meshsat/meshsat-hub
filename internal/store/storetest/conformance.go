@@ -50,6 +50,7 @@ func Run(t *testing.T, open Opener) {
 		{"Refunds", testRefunds},
 		{"Stripe", testStripe},
 		{"HostedTAK", testHostedTAK},
+		{"Geofences", testGeofences},
 		{"BridgeOfflineTimeout", testBridgeOfflineTimeout},
 		{"BridgeOfflineTimeoutWithNoTenantRow", testBridgeOfflineTimeoutWithNoTenantRow},
 	}

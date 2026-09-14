@@ -487,6 +487,14 @@ func (m *mockStore) ExpireStaleSends(context.Context, time.Duration) (int64, err
 func (m *mockStore) AdvanceAlert(context.Context, string, *store.Alert, time.Time) (bool, error) {
 	return true, nil
 }
+
+// --- Geofences (MESHSAT-1119) ---
+func (m *mockStore) SaveGeofence(context.Context, string, *store.Geofence) error { return nil }
+func (m *mockStore) ListGeofences(context.Context, string) ([]store.Geofence, error) {
+	return nil, nil
+}
+func (m *mockStore) DeleteGeofence(context.Context, string, string) error { return nil }
+
 func (m *mockStore) SaveDeadmanConfig(context.Context, string, *store.DeadmanConfig) error {
 	return nil
 }

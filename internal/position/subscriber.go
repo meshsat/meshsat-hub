@@ -40,6 +40,18 @@ type Subscriber struct {
 	store   store.Store
 	tenants *tenancy.Resolver // device → tenant
 	deadman *deadman.Monitor
+	// fences evaluates each stored position against the tenant's geofences
+	// (MESHSAT-1119). Optional, and nil until this was wired: the engine
+	// existed, had an Evaluate method, and NOTHING in the Hub ever called it,
+	// so geofencing was create/list/delete in front of nothing.
+	fences GeofenceEvaluator
+}
+
+// GeofenceEvaluator checks a position against the tenant's fences. Declared
+// here as a one-method interface rather than importing internal/geo's Engine,
+// so the position path keeps its dependencies to what it actually uses.
+type GeofenceEvaluator interface {
+	Evaluate(ctx context.Context, tenantID, deviceIMEI string, lat, lon float64) []geo.FenceEvent
 }
 
 // NewSubscriber creates a position subscriber.
@@ -48,6 +60,13 @@ func NewSubscriber(b bus.MessageBus, s store.Store, tenants *tenancy.Resolver) *
 		tenants = tenancy.NewResolver(s, store.DefaultTenantID, 30*time.Second)
 	}
 	return &Subscriber{bus: b, store: s, tenants: tenants}
+}
+
+// SetGeofence attaches the geofence engine. Without it, positions are stored
+// and no fence is ever evaluated -- which is what the Hub did until
+// MESHSAT-1119.
+func (s *Subscriber) SetGeofence(e GeofenceEvaluator) {
+	s.fences = e
 }
 
 // SetDeadman attaches a dead man's switch monitor for check-in on position updates.
@@ -160,6 +179,15 @@ func (s *Subscriber) handlePosition(topic string, payload []byte) {
 	_ = s.store.TouchDeviceLastSeen(ctx, tenantID, deviceID)
 	if s.deadman != nil {
 		s.deadman.CheckIn(tenantID, deviceID)
+	}
+
+	// Geofences, AFTER the position is stored (MESHSAT-1119). Order matters: a
+	// fence event raises an escalation chain that pages a human, and the first
+	// thing that human will do is look at where the device is. The handlers run
+	// on this goroutine, which is why Evaluate releases its lock before calling
+	// them -- see the comment there.
+	if s.fences != nil {
+		s.fences.Evaluate(ctx, tenantID, deviceID, msg.Lat, msg.Lon)
 	}
 
 	slog.Debug("position: stored",
