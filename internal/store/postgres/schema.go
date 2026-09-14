@@ -13,6 +13,17 @@ package postgres
 var migrations = []migration{
 	{Version: 1, Name: "initial_schema", SQL: `
 CREATE TABLE IF NOT EXISTS devices (
+	-- imei is the PRIMARY KEY on its own, NOT (tenant_id, imei), and that is
+	-- load-bearing rather than an inconsistency with geofences and
+	-- webhook_configs. A satellite provider delivers an MO by IMEI with no
+	-- tenant context, so LookupDeviceTenant must answer "whose is this?" from
+	-- the IMEI alone; if two tenants could hold one IMEI the resolver sees
+	-- ErrAmbiguousTenant and falls back to the PLATFORM tenant, filing a
+	-- customer's positions, messages and SOS under the operator's own account.
+	-- Re-keying was drafted and reverted on 2026-09-14 for exactly that reason.
+	-- One physical modem, one owner. A resold kit is a transfer, not a second
+	-- registration; the API tells the second tenant so instead of leaking a
+	-- database error.
 	imei VARCHAR(64) PRIMARY KEY,
 	label VARCHAR(255) NOT NULL DEFAULT '',
 	type VARCHAR(64) NOT NULL DEFAULT 'rockblock',

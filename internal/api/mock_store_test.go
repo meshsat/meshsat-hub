@@ -12,6 +12,10 @@ import (
 
 // mockStore implements store.Store for unit tests with configurable return values.
 type mockStore struct {
+	// What LookupDeviceTenant answers: the owning tenant of an IMEI, or an error.
+	deviceOwner    string
+	deviceOwnerErr error
+
 	bridge        *store.Bridge // what GetBridge returns, when set
 	tenant        *store.Tenant
 	platformAdmin bool // returned by IsPlatformAdmin
@@ -559,6 +563,12 @@ func (m *mockStore) IsPlatformAdmin(context.Context, string, string) (bool, erro
 }
 
 func (m *mockStore) LookupDeviceTenant(_ context.Context, _ string) (string, error) {
+	if m.deviceOwnerErr != nil {
+		return "", m.deviceOwnerErr
+	}
+	if m.deviceOwner != "" {
+		return m.deviceOwner, nil
+	}
 	return "", store.ErrNotFound
 }
 
