@@ -829,6 +829,19 @@ func main() {
 		}
 	}
 	emailPool := hubemail.NewPool(emailPlatform, providerAccounts)
+	// PGP contacts are durable and cross-replica since MESHSAT-1123. Before it
+	// they were a Go map: emptied by every rollout, and present on whichever
+	// replica served the write. A recipient with no key falls back to cleartext
+	// rather than erroring, so neither failure raised anything.
+	emailPool.SetContactStore(dataStore)
+	// Keep both replicas' keyrings in step, the same shape geofences use: a key
+	// added through the API on one replica must reach the other, or whether an
+	// alert is encrypted depends on load balancing.
+	if msgBus.IsConnected() {
+		if err := emailPool.SetBus(msgBus); err != nil {
+			slog.Error("email: could not subscribe to contact changes from other replicas", "error", err)
+		}
+	}
 	notifiers = append(notifiers, hubemail.NewNotifierPool(emailPool))
 	var escNotifier escalation.Notifier
 	switch len(notifiers) {

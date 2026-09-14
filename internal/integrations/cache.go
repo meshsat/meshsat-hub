@@ -30,6 +30,16 @@ func (c *ClientCache[T]) Get(tenantID, fp string, build func() T) T {
 	return v
 }
 
+// Forget drops one tenant's cached client, so the next Get rebuilds it. Used
+// when something the client was built FROM changed outside the account row --
+// a tenant's PGP contacts, say, which another replica may have edited
+// (MESHSAT-1123). An account change needs no Forget: the fingerprint covers it.
+func (c *ClientCache[T]) Forget(tenantID string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	delete(c.entries, tenantID)
+}
+
 // Fingerprint joins account fields into a cache key.
 func Fingerprint(parts ...string) string {
 	out := ""

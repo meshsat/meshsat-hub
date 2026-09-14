@@ -284,6 +284,13 @@ type Store interface {
 	// restart sees the same state).
 	// Geofences (MESHSAT-1119). Tenant-scoped throughout: a fence polygon is
 	// the area a customer operates in.
+	// Email PGP contacts (MESHSAT-1123). Tenant-scoped: a correspondent's
+	// public key belongs to the tenant that vouched for it, and an address is
+	// only unique within a tenant.
+	SaveEmailContact(ctx context.Context, tenantID, email, armoredKey string) error
+	ListEmailContacts(ctx context.Context, tenantID string) ([]EmailContact, error)
+	DeleteEmailContact(ctx context.Context, tenantID, email string) error
+
 	SaveGeofence(ctx context.Context, tenantID string, f *Geofence) error
 	ListGeofences(ctx context.Context, tenantID string) ([]Geofence, error)
 	DeleteGeofence(ctx context.Context, tenantID string, id string) error
@@ -905,6 +912,15 @@ var ErrReservedTenantID = errors.New("store: reserved tenant id")
 type GeoPoint struct {
 	Lat float64 `json:"lat"`
 	Lon float64 `json:"lon"`
+}
+
+// EmailContact is a correspondent's PGP public key, as stored.
+type EmailContact struct {
+	TenantID   string    `json:"tenant_id"`
+	Email      string    `json:"email"`
+	ArmoredKey string    `json:"armored_key"`
+	CreatedAt  time.Time `json:"created_at"`
+	UpdatedAt  time.Time `json:"updated_at"`
 }
 
 // Geofence is a persisted geofence. The geo package owns the geometry and the

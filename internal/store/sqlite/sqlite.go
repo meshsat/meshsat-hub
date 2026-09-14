@@ -184,6 +184,13 @@ var postAlterMigrations = []string{
 	// the same thing.
 	`CREATE TABLE IF NOT EXISTS geofences (id TEXT NOT NULL, tenant_id TEXT NOT NULL DEFAULT 'default', name TEXT NOT NULL DEFAULT '', polygon TEXT NOT NULL DEFAULT '[]', trigger_mode TEXT NOT NULL DEFAULT 'both', chain_id TEXT NOT NULL DEFAULT '', enabled INTEGER NOT NULL DEFAULT 1, created_at TEXT NOT NULL DEFAULT (datetime('now')), updated_at TEXT NOT NULL DEFAULT (datetime('now')), PRIMARY KEY (tenant_id, id))`,
 	`CREATE INDEX IF NOT EXISTS idx_geofences_tenant ON geofences (tenant_id)`,
+	// MESHSAT-1123. PGP contacts used to be a Go map and nothing else, so they
+	// were emptied by every rollout and existed on one replica of two -- and a
+	// recipient with no key falls back to CLEARTEXT rather than erroring, so
+	// neither failure raised anything. PRIMARY KEY (tenant_id, email): the
+	// address is only unique within a tenant.
+	`CREATE TABLE IF NOT EXISTS email_contacts (tenant_id TEXT NOT NULL DEFAULT 'default', email TEXT NOT NULL, armored_key TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL DEFAULT (datetime('now')), updated_at TEXT NOT NULL DEFAULT (datetime('now')), PRIMARY KEY (tenant_id, email))`,
+	`CREATE INDEX IF NOT EXISTS idx_email_contacts_tenant ON email_contacts (tenant_id)`,
 	`CREATE TABLE IF NOT EXISTS api_keys (
 		id TEXT PRIMARY KEY,
 		key_hash TEXT NOT NULL UNIQUE,

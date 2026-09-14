@@ -786,4 +786,33 @@ ALTER TABLE tenants ADD COLUMN IF NOT EXISTS oob_max_per_hour INTEGER NOT NULL D
 ALTER TABLE tenants ADD COLUMN IF NOT EXISTS oob_sms_timeout_sec INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE tenants ADD COLUMN IF NOT EXISTS oob_sat_timeout_sec INTEGER NOT NULL DEFAULT 0;
 `},
+	// v25: PGP email contacts get a table (MESHSAT-1123).
+	//
+	// They lived in a Go map and nowhere else, which failed twice over. Every
+	// rollout emptied it, and the Hub runs TWO replicas, so a key added through
+	// the API was known to whichever pod served the request and not the other.
+	//
+	// Neither failure raised anything: a recipient with no key on file falls back
+	// to CLEARTEXT rather than erroring, so the symptom was alert mail quietly
+	// ceasing to be encrypted, depending on the pod and on how recently anything
+	// had restarted.
+	//
+	// PRIMARY KEY (tenant_id, email), not email: the address is the natural key
+	// but it is only unique WITHIN a tenant, and a key on email alone is exactly
+	// the defect MESHSAT-1121 removed from the in-memory map -- one tenant's
+	// contact overwriting another's for the same correspondent.
+	//
+	// tenant_id is also what the tenant export and purge find their tables by, so
+	// a table without it silently stops being erased when an account closes.
+	{Version: 25, Name: "email contacts", SQL: `
+CREATE TABLE IF NOT EXISTS email_contacts (
+	tenant_id VARCHAR(64) NOT NULL,
+	email VARCHAR(320) NOT NULL,
+	armored_key TEXT NOT NULL,
+	created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+	updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+	PRIMARY KEY (tenant_id, email)
+);
+CREATE INDEX IF NOT EXISTS idx_email_contacts_tenant ON email_contacts (tenant_id);
+`},
 }

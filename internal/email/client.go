@@ -46,6 +46,14 @@ func (c *Client) Send(to, subject, body string) error {
 			encrypted = true
 		}
 	}
+	// Cleartext is a legitimate outcome -- most recipients have no PGP key -- but
+	// it was entirely SILENT, which is how contacts being wiped by a rollout or
+	// living on one replica of two produced no signal at all (MESHSAT-1123). The
+	// alert still goes out; it is now possible to notice that it went out in the
+	// clear.
+	if !encrypted {
+		slog.Warn("email: no PGP key on file for this recipient, sending CLEARTEXT", "to", to)
+	}
 
 	// Build RFC 2822 message.
 	var msg strings.Builder
