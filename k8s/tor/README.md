@@ -15,17 +15,28 @@ that over the file.
 That is not a workaround: a .onion is DERIVED FROM THE KEY and is stable for the
 life of the volume, so it is configuration, not state to be discovered at runtime.
 
-## Bootstrapping the address
+## Bootstrapping the address — DONE, and how to redo it
 
-It is not known until Tor has generated a key once:
+The address is not known until Tor has generated a key once, so this was a
+one-time follow-up and it has been done: `HUB_TOR_ONION` is set in
+`k8s/hub/configmap.yaml`.
 
-1. Merge this directory; Tor starts and writes `/var/lib/tor/hidden_service/hostname`.
-2. `kubectl -n meshsat-hub exec deploy/tor -- cat /var/lib/tor/hidden_service/hostname`
+If the key volume is ever lost or deliberately rotated, the address CHANGES and
+every published reference to it breaks. To re-derive it:
+
+1. Tor starts and writes `/var/lib/tor/hidden_service/hostname`.
+2. `kubectl -n meshsat-hub exec tor-0 -- cat /var/lib/tor/hidden_service/hostname`
 3. Put that value in `HUB_TOR_ONION` in `k8s/hub/configmap.yaml` and merge.
 
-Steps 2-3 are one-time. If the volume is ever lost the address changes and every
-published reference to it breaks, which is why the class is `retain` and why the
-key is worth backing up.
+That is why the storage class is `retain` and why this key is the one thing here
+worth backing up.
+
+## Bootstrapping takes minutes, and that is normal
+
+Tor loads a consensus and relay descriptors before the service is reachable
+("Bootstrapped 55% (loading_descriptors)"). The hostname file exists long before
+the service answers, so the presence of an address is not evidence that anything
+can connect to it yet.
 
 ## Single replica, deliberately
 
