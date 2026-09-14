@@ -287,6 +287,8 @@ func main() {
 	// elector exists).
 	auditRetentionCfg := audit.RetentionConfig{
 		RetentionDays: cfg.AuditRetentionDays,
+		MinDays:       cfg.AuditRetentionMinDays,
+		MaxDays:       cfg.AuditRetentionMaxDays,
 		ArchivePath:   cfg.AuditArchivePath,
 	}
 	if cfg.AuditArchiveS3Endpoint != "" || cfg.AuditArchiveS3Bucket != "" {
@@ -1844,6 +1846,8 @@ func main() {
 	tenantHandler := api.NewTenantHandler(dataStore)
 	tenantHandler.SetBridgeOfflineTimeoutPolicy(cfg.BridgeOfflineTimeout,
 		cfg.BridgeOfflineTimeoutMin, cfg.BridgeOfflineTimeoutMax)
+	tenantHandler.SetAuditRetentionPolicy(cfg.AuditRetentionDays,
+		cfg.AuditRetentionMinDays, cfg.AuditRetentionMaxDays)
 	tenantHandler.SetStatusInvalidator(tenantStatus.Forget)
 	usageHandler := api.NewTenantUsageHandler(quotaChecker, dataStore)
 	api.SetUpgradeURL(cfg.UpgradeURL)

@@ -351,11 +351,17 @@ type Config struct {
 	WGPassword string `yaml:"wg_password"` // wg-easy web UI password
 
 	// Observability
-	PprofEnabled       bool   `yaml:"pprof_enabled"`         // Enable /debug/pprof/* endpoints (default false)
-	DBSlowQueryMS      int    `yaml:"db_slow_query_ms"`      // Slow query threshold in milliseconds (default 100)
-	DBRetryMaxAttempts int    `yaml:"db_retry_max_attempts"` // Bound on transient DB error retries per operation (default 8)
-	AuditRetentionDays int    `yaml:"audit_retention_days"`  // Days to keep audit log entries (default 90, 0=disabled)
-	AuditArchivePath   string `yaml:"audit_archive_path"`    // Path to archive purged audit entries as JSONL (empty=no archive)
+	PprofEnabled       bool `yaml:"pprof_enabled"`         // Enable /debug/pprof/* endpoints (default false)
+	DBSlowQueryMS      int  `yaml:"db_slow_query_ms"`      // Slow query threshold in milliseconds (default 100)
+	DBRetryMaxAttempts int  `yaml:"db_retry_max_attempts"` // Bound on transient DB error retries per operation (default 8)
+	AuditRetentionDays int  `yaml:"audit_retention_days"`  // Days to keep audit log entries (default 90, 0=disabled)
+	// AuditRetentionMinDays and Max bound what a TENANT OWNER may choose
+	// (MESHSAT-1117). The floor is the one that matters: without it a tenant
+	// could set a retention short enough that the evidence of a security
+	// event in their own account is gone before anyone looks.
+	AuditRetentionMinDays int    `yaml:"audit_retention_min_days"` // lowest a tenant may set (default 30)
+	AuditRetentionMaxDays int    `yaml:"audit_retention_max_days"` // highest a tenant may set (default 3650)
+	AuditArchivePath      string `yaml:"audit_archive_path"`       // Path to archive purged audit entries as JSONL (empty=no archive)
 	// S3-compatible archive for purged audit entries (MR 22); when the endpoint,
 	// bucket and keys are set it replaces AuditArchivePath.
 	AuditArchiveS3Endpoint  string `yaml:"audit_archive_s3_endpoint"`
@@ -418,6 +424,8 @@ func Defaults() Config {
 		SQLitePath:              "/data/hub.db",
 		DBRetryMaxAttempts:      8,
 		AuditRetentionDays:      90,
+		AuditRetentionMinDays:   30,
+		AuditRetentionMaxDays:   3650,
 		HealthProbeTimeout:      "3s",
 		ShutdownDrainSeconds:    0,
 		OTelServiceName:         "meshsat-hub",
@@ -997,6 +1005,16 @@ func Load() (Config, error) {
 	if v := os.Getenv("HUB_AUDIT_RETENTION_DAYS"); v != "" {
 		if n, err := strconv.Atoi(v); err == nil {
 			cfg.AuditRetentionDays = n
+		}
+	}
+	if v := os.Getenv("HUB_AUDIT_RETENTION_MIN_DAYS"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			cfg.AuditRetentionMinDays = n
+		}
+	}
+	if v := os.Getenv("HUB_AUDIT_RETENTION_MAX_DAYS"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			cfg.AuditRetentionMaxDays = n
 		}
 	}
 	if v := os.Getenv("HUB_AUDIT_ARCHIVE_PATH"); v != "" {

@@ -64,6 +64,7 @@ func tsHandler(t *testing.T) (*TenantHandler, *tsStore) {
 	}
 	h := NewTenantHandler(st)
 	h.SetBridgeOfflineTimeoutPolicy(300, 60, 86400)
+	h.SetAuditRetentionPolicy(90, 30, 3650)
 	return h, st
 }
 
@@ -274,3 +275,112 @@ func itoa(n int) string {
 }
 
 var _ = hubauth.TenantIDFromContext
+
+// --- audit retention (tranche 2b) ---
+
+func TestAuditRetentionDefaultsAndBounds(t *testing.T) {
+	h, _ := tsHandler(t)
+
+	r, w := tsRequest("GET", "", tsTenant)
+	h.Get(w, r)
+	var got tenantResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if got.AuditRetentionDays != 0 {
+		t.Errorf("audit_retention_days = %d, want 0 (use the default)", got.AuditRetentionDays)
+	}
+	if got.AuditRetentionDefault != 90 || got.AuditRetentionMin != 30 || got.AuditRetentionMax != 3650 {
+		t.Errorf("policy = %d/%d..%d, want 90/30..3650",
+			got.AuditRetentionDefault, got.AuditRetentionMin, got.AuditRetentionMax)
+	}
+}
+
+func TestAnOwnerCanSetAuditRetentionWithinTheBounds(t *testing.T) {
+	h, st := tsHandler(t)
+
+	r, w := tsRequest("PUT", `{"name":"Alpha","audit_retention_days":365}`, tsTenant)
+	h.Update(w, r)
+	if w.Code != http.StatusOK {
+		t.Fatalf("set: %d %s", w.Code, w.Body.String())
+	}
+	tn, _ := st.GetTenant(context.Background(), tsTenant)
+	if tn.AuditRetentionDays != 365 {
+		t.Fatalf("stored %d, want 365", tn.AuditRetentionDays)
+	}
+
+	var put tenantResponse
+	_ = json.Unmarshal(w.Body.Bytes(), &put)
+	if put.AuditRetentionDays != 365 {
+		t.Errorf("the update replied with %d, want 365", put.AuditRetentionDays)
+	}
+}
+
+// The floor is the point of the clamp: a tenant must not be able to shorten
+// retention until the evidence of a security event in their own account is
+// gone before anyone looks at it.
+func TestAuditRetentionCannotBeShortenedBelowTheFloor(t *testing.T) {
+	h, st := tsHandler(t)
+
+	for _, days := range []int{1, 29, -5, 99999} {
+		r, w := tsRequest("PUT", `{"name":"Alpha","audit_retention_days":`+itoa(days)+`}`, tsTenant)
+		h.Update(w, r)
+		if w.Code != http.StatusBadRequest {
+			t.Errorf("%d days: got %d, want 400", days, w.Code)
+		}
+	}
+	tn, _ := st.GetTenant(context.Background(), tsTenant)
+	if tn.AuditRetentionDays != 0 {
+		t.Errorf("a refused value was stored anyway: %d", tn.AuditRetentionDays)
+	}
+}
+
+// The two settings are independent: saving one must not clear the other.
+func TestTheTwoTenantSettingsDoNotClobberEachOther(t *testing.T) {
+	h, st := tsHandler(t)
+
+	r, w := tsRequest("PUT", `{"name":"Alpha","bridge_offline_timeout":900}`, tsTenant)
+	h.Update(w, r)
+	if w.Code != http.StatusOK {
+		t.Fatalf("set timeout: %d %s", w.Code, w.Body.String())
+	}
+	r, w = tsRequest("PUT", `{"name":"Alpha","audit_retention_days":365}`, tsTenant)
+	h.Update(w, r)
+	if w.Code != http.StatusOK {
+		t.Fatalf("set retention: %d %s", w.Code, w.Body.String())
+	}
+
+	tn, _ := st.GetTenant(context.Background(), tsTenant)
+	if tn.BridgeOfflineTimeout != 900 {
+		t.Errorf("saving the retention reset the offline timeout to %d", tn.BridgeOfflineTimeout)
+	}
+	if tn.AuditRetentionDays != 365 {
+		t.Errorf("retention = %d, want 365", tn.AuditRetentionDays)
+	}
+}
+
+// Same pointer semantics as the offline timeout, and it needs its own test:
+// a rename must not silently reset the retention an owner chose, and a test
+// that saves the two settings in sequence cannot see that.
+func TestRenamingTheTenantLeavesTheAuditRetentionAlone(t *testing.T) {
+	h, st := tsHandler(t)
+
+	r, w := tsRequest("PUT", `{"name":"Alpha","audit_retention_days":365}`, tsTenant)
+	h.Update(w, r)
+	if w.Code != http.StatusOK {
+		t.Fatalf("set: %d %s", w.Code, w.Body.String())
+	}
+
+	r, w = tsRequest("PUT", `{"name":"Alpha Renamed"}`, tsTenant)
+	h.Update(w, r)
+	if w.Code != http.StatusOK {
+		t.Fatalf("rename: %d %s", w.Code, w.Body.String())
+	}
+
+	tn, _ := st.GetTenant(context.Background(), tsTenant)
+	if tn.AuditRetentionDays != 365 {
+		t.Errorf("the retention is %d after a name-only save, want 365. A plain int field "+
+			"would silently return every tenant to the platform default on any unrelated "+
+			"save -- and shortening retention destroys audit history.", tn.AuditRetentionDays)
+	}
+}
