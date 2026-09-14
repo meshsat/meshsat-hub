@@ -68,7 +68,12 @@ spec:
         name: config
       spec:
         accessModes: [ReadWriteOnce]
-        storageClassName: openebs-hostpath
+        # local-hostpath-RETAIN, the class every other stateful workload here
+        # uses. Retain and not delete because what is on this volume cannot be
+        # rebuilt: wg-easy holds the server key and the peer database, hawkBit
+        # holds its H2. There is no CSI and no replicated block storage in this
+        # cluster, so the volume IS the copy.
+        storageClassName: local-hostpath-retain
         resources:
           requests:
             storage: 1Gi
