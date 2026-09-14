@@ -18,8 +18,12 @@ git fetch -q origin main
 # Only the 64 hex characters. The pin line carries a trailing comment, and a
 # naive cut captures it -- which broke the first version of this check while a
 # truncated display hid the difference.
+# No `grep -m1`: it exits on the first match, the producer takes SIGPIPE once
+# its output outgrows a pipe buffer, and under pipefail that is exit 141 -- the
+# trap scripts/check-pipefail-sigpipe.sh exists to catch, and it caught this
+# very line in pipeline 54000. `sed -n 1p` reads to EOF.
 want=$(git show origin/main:k8s/kustomization.yaml \
-       | grep -m1 'digest:' | sed -n 's/.*sha256:\([0-9a-f]\{64\}\).*/\1/p')
+       | grep 'digest:' | sed -n 's/.*sha256:\([0-9a-f]\{64\}\).*/\1/p' | sed -n 1p)
 have=$(kubectl "${NS[@]}" get deploy hub \
        -o jsonpath='{.spec.template.spec.containers[0].image}' \
        | sed -n 's/.*@sha256:\([0-9a-f]\{64\}\).*/\1/p')
