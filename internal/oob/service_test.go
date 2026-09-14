@@ -52,6 +52,38 @@ func newService(t *testing.T) (*Service, *fakeTransport, []byte) {
 // The bridge issued the key (bundle path): the Hub is the importer, the kit
 // replies as the issuer. A sealed request goes out, the kit's reply comes
 // back through HandleInbound and resolves the waiting Send by counter.
+// waitForSend blocks until the transport has a frame, or the deadline passes.
+//
+// This replaced `for i := 0; i < 50` with a 20ms sleep -- a ONE SECOND budget
+// for an asynchronous send. It is not enough on a loaded shared CI runner, and
+// it failed pipeline 53984 with "nothing sent" on a commit that touches neither
+// this package nor anything it imports. Worse, missing the window costs about
+// 450 seconds rather than one: Send is still in flight on its own goroutine and
+// the test binary waits for it, so a flake also pushes the whole job toward its
+// limit.
+//
+// The poll interval is unchanged, so a healthy run is exactly as fast as
+// before; only the patience for an unhealthy machine went up.
+func waitForSend(t *testing.T, tr *fakeTransport) string {
+	t.Helper()
+	deadline := time.Now().Add(15 * time.Second)
+	for time.Now().Before(deadline) {
+		tr.mu.Lock()
+		n := len(tr.sent)
+		var first string
+		if n > 0 {
+			first = tr.sent[0]
+		}
+		tr.mu.Unlock()
+		if first != "" {
+			return first
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	t.Fatalf("nothing was sent within 15s; the frame never reached the transport")
+	return ""
+}
+
 func TestSendAndReplyRoundTrip(t *testing.T) {
 	svc, tr, key := newService(t)
 	ctx := context.Background()
@@ -74,17 +106,9 @@ func TestSendAndReplyRoundTrip(t *testing.T) {
 		done <- r
 	}()
 	// Wait for the frame to leave, then answer it the way the kit would.
-	var sentText string
-	for i := 0; i < 50 && sentText == ""; i++ {
-		time.Sleep(20 * time.Millisecond)
-		tr.mu.Lock()
-		if len(tr.sent) > 0 {
-			sentText = tr.sent[0]
-		}
-		tr.mu.Unlock()
-	}
-	if sentText == "" || !strings.HasPrefix(sentText, "MS:") {
-		t.Fatalf("nothing sent: %q", sentText)
+	sentText := waitForSend(t, tr)
+	if !strings.HasPrefix(sentText, "MS:") {
+		t.Fatalf("sent frame is not a MeshSat OOB frame: %q", sentText)
 	}
 	wire, _ := Decode(sentText)
 	req, err := Open(wire, key, RoleImporter) // the kit opens with the Hub's role
@@ -197,18 +221,7 @@ func TestFramesAreAlwaysSealedEvenWithNoOptionsAtAll(t *testing.T) {
 	// which is all this test cares about.
 	go func() { _, _ = svc.Send(ctx, "t1", "tesseract", BearerSMS, "mgmt_ping", ArgSpec{}, false) }()
 
-	var sent string
-	for i := 0; i < 50 && sent == ""; i++ {
-		time.Sleep(20 * time.Millisecond)
-		tr.mu.Lock()
-		if len(tr.sent) > 0 {
-			sent = tr.sent[0]
-		}
-		tr.mu.Unlock()
-	}
-	if sent == "" {
-		t.Fatal("nothing was sent")
-	}
+	sent := waitForSend(t, tr)
 
 	wire, err := Decode(sent)
 	if err != nil {
