@@ -49,6 +49,24 @@ shell:pipefail:
     - bash scripts/check-pipefail-sigpipe.sh .
 
 # -----------------------------------------------------------------------------
+# ENV KEYS — a manifest key the binary never reads (MESHSAT-1121).
+#
+# k8s/hub/externalsecret.yaml supplied HUB_CLOUDLOOP_MQTT_CA from the day it was
+# written; config.go only ever read HUB_CLOUDLOOP_MQTT_CA_CERT. A misnamed key is
+# indistinguishable from an unset one, so the Cloudloop MQTT subscriber ran with
+# an empty CA and silently fell back to the system root pool for two months.
+# Nothing compared the keys a manifest supplies against the keys the code reads.
+# -----------------------------------------------------------------------------
+config:env-keys:
+  stage: lint
+  image: alpine:3.21
+  tags: [docker]
+  before_script:
+    - apk add --no-cache bash grep findutils
+  script:
+    - bash scripts/check-env-keys.sh .
+
+# -----------------------------------------------------------------------------
 # BUMP-PIN — the deploy path's one moving part, now with a test (MESHSAT-1047).
 #
 # bump-pin.py rewrites the image digest Argo CD deploys. It had no test, which is
