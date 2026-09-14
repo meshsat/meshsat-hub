@@ -32,12 +32,24 @@ spec:
             # per-tenant NotificationPref rows -- instead of two.
             - name: APPRISE_STATELESS_URLS
               value: ""
-          # 256Mi was OOMKilled repeatedly. Apprise-API is Python/Django with
-          # gunicorn workers and imports the whole 90-backend plugin set at
-          # startup, so its floor is well above what "a small notification relay"
-          # suggests. Measured, not guessed: it died at 256Mi and settles here.
+            # THE reason this kept being OOMKilled, and why raising the memory
+            # limit did not help. gunicorn sizes its worker pool from the CPU
+            # count it can see, which in a container is the NODE's -- so it
+            # booted 70+ workers, each importing Apprise's whole 90-backend
+            # plugin set, and exhausted any limit it was given.
+            #
+            # Two workers is ample: this relay handles an alert now and then, not
+            # a request stream. WEB_CONCURRENCY is gunicorn's own variable, so it
+            # holds regardless of what the image wraps around it.
+            - name: WEB_CONCURRENCY
+              value: "2"
+            - name: APPRISE_WORKER_COUNT
+              value: "2"
+          # Sized for the TWO workers pinned above. The earlier 256Mi and 512Mi
+          # limits both OOMKilled, but memory was never the problem: an unbounded
+          # worker pool was, and no limit survives 70 copies of the plugin set.
           resources:
-            requests: {cpu: 50m, memory: 192Mi}
+            requests: {cpu: 50m, memory: 128Mi}
             limits: {memory: 512Mi}
           # No capability drop. The image creates its own runtime user at
           # startup (linuxserver-style PUID/PGID) and with drop: [ALL] the
