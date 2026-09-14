@@ -7,7 +7,6 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
-	"fmt"
 	"github.com/meshsat/meshsat-hub/internal/tenancy"
 	"log/slog"
 	"time"
@@ -154,8 +153,28 @@ func (s *Subscriber) handlePosition(topic string, payload []byte) {
 		msg.Source = "gps"
 	}
 
+	// The row id is a digest of the MQTT message, not a clock (MESHSAT-1120).
+	//
+	// BOTH replicas receive every position (plain Subscribe, not a queue group)
+	// and both insert. With a nanosecond clock they produced two ids and two
+	// rows: measured on production, one publish became two rows 210
+	// microseconds apart, and it had been happening to every position from
+	// every device since the Hub went to two replicas. Every track on the map
+	// was drawn from doubled points.
+	//
+	// This is the same fix internal/message has carried all along -- the
+	// position path simply never got it. A digest is preferable to claiming the
+	// message with store.ClaimOnce, which is AT MOST once: a replica dying
+	// between the claim and the insert would lose the position outright, and on
+	// this platform a lost position is worse than a duplicated one.
+	//
+	// What it cannot distinguish: two genuine reports whose payloads are byte
+	// identical. That needs a stationary device sending no timestamp, and it
+	// costs nothing real -- the second row would carry no information the first
+	// does not, and liveness is tracked by TouchDeviceLastSeen and the dead
+	// man's switch check-in below, which are separate calls and still run.
 	pos := &store.Position{
-		ID:         fmt.Sprintf("pos-%d", time.Now().UnixNano()),
+		ID:         hubmqtt.FallbackPositionID(topic, payload),
 		DeviceIMEI: deviceID,
 		Lat:        msg.Lat,
 		Lon:        msg.Lon,

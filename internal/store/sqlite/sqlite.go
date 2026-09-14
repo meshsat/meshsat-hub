@@ -756,8 +756,10 @@ func (d *DB) InsertPosition(ctx context.Context, tenantID string, p *store.Posit
 	if p.ID == "" {
 		p.ID = fmt.Sprintf("pos-%d", time.Now().UnixNano())
 	}
+	// INSERT OR IGNORE for the reason spelled out in the postgres implementation:
+	// the id is a digest of the MQTT message and both replicas insert it.
 	_, err := d.db.ExecContext(ctx,
-		`INSERT INTO positions (id, device_imei, lat, lon, alt, speed, heading, sats, source, cep, tenant_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		`INSERT OR IGNORE INTO positions (id, device_imei, lat, lon, alt, speed, heading, sats, source, cep, tenant_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		p.ID, p.DeviceIMEI, p.Lat, p.Lon, p.Alt, p.Speed, p.Heading, p.Sats, p.Source, p.CEP, tenantID)
 	return err
 }

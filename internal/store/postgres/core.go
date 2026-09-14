@@ -287,8 +287,13 @@ func (d *DB) InsertPosition(ctx context.Context, tenantID string, p *store.Posit
 	if p.ID == "" {
 		p.ID = fmt.Sprintf("pos-%d", time.Now().UnixNano())
 	}
+	// ON CONFLICT DO NOTHING, because the id is a digest of the MQTT message and
+	// BOTH replicas insert it (MESHSAT-1120). Without this the second insert
+	// returns a unique violation, the caller treats it as a failed store and
+	// returns early -- skipping the device last_seen touch, the dead man's
+	// switch check-in and the geofence evaluation that follow it.
 	_, err := d.db.ExecContext(ctx,
-		"INSERT INTO positions (id, device_imei, lat, lon, alt, speed, heading, sats, source, cep, tenant_id) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)",
+		"INSERT INTO positions (id, device_imei, lat, lon, alt, speed, heading, sats, source, cep, tenant_id) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) ON CONFLICT (id) DO NOTHING",
 		p.ID, p.DeviceIMEI, p.Lat, p.Lon, p.Alt, p.Speed, p.Heading, p.Sats, p.Source, p.CEP, tenantID)
 	return err
 }
