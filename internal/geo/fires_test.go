@@ -4,6 +4,7 @@ import (
 	"context"
 	"sync"
 	"testing"
+	"time"
 )
 
 // MESHSAT-1119. The engine had Evaluate and OnEvent and NOTHING in the Hub
@@ -42,7 +43,7 @@ func TestACrossingCarriesTheEscalationChain(t *testing.T) {
 	e.OnEvent(c.handle)
 	e.AddFence(fenceIn(testTenant, "perimeter"))
 
-	e.Evaluate(context.Background(), testTenant, "dev-a", 0.5, 0.5)
+	e.Evaluate(context.Background(), testTenant, "dev-a", 0.5, 0.5, time.Time{})
 
 	got := c.all()
 	if len(got) != 1 {
@@ -70,7 +71,7 @@ func TestACrossingFiresOncePerTransition(t *testing.T) {
 	e.AddFence(fenceIn(testTenant, "perimeter"))
 
 	for i := 0; i < 5; i++ {
-		e.Evaluate(context.Background(), testTenant, "dev-a", 0.5, 0.5)
+		e.Evaluate(context.Background(), testTenant, "dev-a", 0.5, 0.5, time.Time{})
 	}
 	if n := len(c.all()); n != 1 {
 		t.Fatalf("five positions inside the fence produced %d events, want 1. "+
@@ -78,8 +79,8 @@ func TestACrossingFiresOncePerTransition(t *testing.T) {
 	}
 
 	// Leaving and re-entering is two more transitions.
-	e.Evaluate(context.Background(), testTenant, "dev-a", 50, 50)
-	e.Evaluate(context.Background(), testTenant, "dev-a", 0.5, 0.5)
+	e.Evaluate(context.Background(), testTenant, "dev-a", 50, 50, time.Time{})
+	e.Evaluate(context.Background(), testTenant, "dev-a", 0.5, 0.5, time.Time{})
 	got := c.all()
 	if len(got) != 3 {
 		t.Fatalf("got %d events, want 3 (enter, exit, enter): %v", len(got), got)
@@ -107,8 +108,8 @@ func TestTriggerModeIsHonoured(t *testing.T) {
 			f.Trigger = tc.mode
 			e.AddFence(f)
 
-			e.Evaluate(context.Background(), testTenant, "dev-a", 0.5, 0.5) // enter
-			e.Evaluate(context.Background(), testTenant, "dev-a", 50, 50)   // exit
+			e.Evaluate(context.Background(), testTenant, "dev-a", 0.5, 0.5, time.Time{}) // enter
+			e.Evaluate(context.Background(), testTenant, "dev-a", 50, 50, time.Time{})   // exit
 
 			var kinds []string
 			for _, ev := range c.all() {
@@ -135,7 +136,7 @@ func TestADisabledFenceFiresNothing(t *testing.T) {
 	f.Enabled = false
 	e.AddFence(f)
 
-	e.Evaluate(context.Background(), testTenant, "dev-a", 0.5, 0.5)
+	e.Evaluate(context.Background(), testTenant, "dev-a", 0.5, 0.5, time.Time{})
 	if n := len(c.all()); n != 0 {
 		t.Errorf("a disabled fence produced %d events", n)
 	}
@@ -150,7 +151,7 @@ func TestADeviceNeverRaisesAnotherTenantsChain(t *testing.T) {
 	e.AddFence(fenceIn(testTenant, "victim-fence"))
 	e.AddFence(fenceIn(otherTenant, "own-fence"))
 
-	e.Evaluate(context.Background(), otherTenant, "dev-other", 0.5, 0.5)
+	e.Evaluate(context.Background(), otherTenant, "dev-other", 0.5, 0.5, time.Time{})
 
 	for _, ev := range c.all() {
 		if ev.ChainID == "chain-"+testTenant {

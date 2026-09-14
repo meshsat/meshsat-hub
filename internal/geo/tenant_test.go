@@ -47,7 +47,7 @@ func TestADeviceCannotCrossAnotherTenantsFence(t *testing.T) {
 	e.AddFence(fenceIn(otherTenant, "other-fence"))
 
 	// A device belonging to the OTHER tenant moves inside the box.
-	events := e.Evaluate(context.Background(), otherTenant, "dev-other", 0.5, 0.5)
+	events := e.Evaluate(context.Background(), otherTenant, "dev-other", 0.5, 0.5, time.Time{})
 
 	if len(events) != 1 {
 		t.Fatalf("got %d events, want exactly 1 (its own tenant's fence): %v", len(events), events)
@@ -70,7 +70,7 @@ func TestAPositionWithNoTenantFiresNothing(t *testing.T) {
 	// A fence that itself has no tenant must not become a catch-all either.
 	e.AddFence(fenceIn("", "orphan-fence"))
 
-	if events := e.Evaluate(context.Background(), "", "dev-1", 0.5, 0.5); len(events) != 0 {
+	if events := e.Evaluate(context.Background(), "", "dev-1", 0.5, 0.5, time.Time{}); len(events) != 0 {
 		t.Errorf("a tenant-less position fired %d fence events: %v", len(events), events)
 	}
 }
@@ -131,12 +131,12 @@ func TestCrossingStateIsPerTenant(t *testing.T) {
 	e.AddFence(fenceIn(otherTenant, "f"))
 	const shared = "300434067943980"
 
-	if got := e.Evaluate(context.Background(), otherTenant, shared, 0.5, 0.5); len(got) != 1 {
+	if got := e.Evaluate(context.Background(), otherTenant, shared, 0.5, 0.5, time.Time{}); len(got) != 1 {
 		t.Fatalf("the other tenant's entry produced %d events, want 1", len(got))
 	}
 	// The same device id under the victim tenant has not entered anything yet,
 	// so this must still read as an entry.
-	got := e.Evaluate(context.Background(), testTenant, shared, 0.5, 0.5)
+	got := e.Evaluate(context.Background(), testTenant, shared, 0.5, 0.5, time.Time{})
 	if len(got) != 1 || got[0].EventType != "enter" {
 		t.Errorf("got %v; the other tenant's crossing state suppressed this tenant's "+
 			"enter event for the same device id", got)
@@ -147,7 +147,7 @@ func TestForgetTenantDropsTheFencesAndTheState(t *testing.T) {
 	e := NewEngine()
 	e.AddFence(fenceIn(testTenant, "stays"))
 	e.AddFence(fenceIn(otherTenant, "goes"))
-	e.Evaluate(context.Background(), otherTenant, "dev-other", 0.5, 0.5)
+	e.Evaluate(context.Background(), otherTenant, "dev-other", 0.5, 0.5, time.Time{})
 
 	e.ForgetTenant(otherTenant)
 
@@ -160,7 +160,7 @@ func TestForgetTenantDropsTheFencesAndTheState(t *testing.T) {
 	// Re-adding and re-evaluating must read as a fresh entry, not as "already
 	// inside" left over from before the purge.
 	e.AddFence(fenceIn(otherTenant, "goes"))
-	got := e.Evaluate(context.Background(), otherTenant, "dev-other", 0.5, 0.5)
+	got := e.Evaluate(context.Background(), otherTenant, "dev-other", 0.5, 0.5, time.Time{})
 	if len(got) != 1 || got[0].EventType != "enter" {
 		t.Errorf("got %v; crossing state survived the purge", got)
 	}
@@ -208,7 +208,7 @@ func TestAHandlerMayCallBackIntoTheEngine(t *testing.T) {
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		e.Evaluate(context.Background(), testTenant, "dev-a", 0.5, 0.5)
+		e.Evaluate(context.Background(), testTenant, "dev-a", 0.5, 0.5, time.Time{})
 	}()
 
 	select {

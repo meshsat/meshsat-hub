@@ -51,7 +51,7 @@ type Subscriber struct {
 // here as a one-method interface rather than importing internal/geo's Engine,
 // so the position path keeps its dependencies to what it actually uses.
 type GeofenceEvaluator interface {
-	Evaluate(ctx context.Context, tenantID, deviceIMEI string, lat, lon float64) []geo.FenceEvent
+	Evaluate(ctx context.Context, tenantID, deviceIMEI string, lat, lon float64, at time.Time) []geo.FenceEvent
 }
 
 // NewSubscriber creates a position subscriber.
@@ -187,7 +187,10 @@ func (s *Subscriber) handlePosition(topic string, payload []byte) {
 	// on this goroutine, which is why Evaluate releases its lock before calling
 	// them -- see the comment there.
 	if s.fences != nil {
-		s.fences.Evaluate(ctx, tenantID, deviceID, msg.Lat, msg.Lon)
+		// The position's OWN timestamp, so both replicas derive the same
+		// identity for the crossing and only one of them pages.
+		at, _ := time.Parse(time.RFC3339, msg.Timestamp)
+		s.fences.Evaluate(ctx, tenantID, deviceID, msg.Lat, msg.Lon, at)
 	}
 
 	slog.Debug("position: stored",

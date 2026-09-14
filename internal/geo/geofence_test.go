@@ -4,6 +4,7 @@ import (
 	"context"
 	"sync"
 	"testing"
+	"time"
 )
 
 // Simple square polygon: (0,0), (0,10), (10,10), (10,0)
@@ -64,7 +65,7 @@ func TestEngine_EnterEvent(t *testing.T) {
 	})
 
 	// Move device inside — should trigger enter.
-	result := e.Evaluate(context.Background(), testTenant, "dev1", 5, 5)
+	result := e.Evaluate(context.Background(), testTenant, "dev1", 5, 5, time.Time{})
 	if len(result) != 1 {
 		t.Fatalf("expected 1 enter event, got %d", len(result))
 	}
@@ -73,7 +74,7 @@ func TestEngine_EnterEvent(t *testing.T) {
 	}
 
 	// Stay inside — no new event.
-	result = e.Evaluate(context.Background(), testTenant, "dev1", 6, 6)
+	result = e.Evaluate(context.Background(), testTenant, "dev1", 6, 6, time.Time{})
 	if len(result) != 0 {
 		t.Errorf("expected 0 events while staying inside, got %d", len(result))
 	}
@@ -87,13 +88,13 @@ func TestEngine_ExitEvent(t *testing.T) {
 	})
 
 	// Enter (no event for exit-only trigger).
-	result := e.Evaluate(context.Background(), testTenant, "dev1", 5, 5)
+	result := e.Evaluate(context.Background(), testTenant, "dev1", 5, 5, time.Time{})
 	if len(result) != 0 {
 		t.Errorf("expected 0 events for enter with exit-only trigger, got %d", len(result))
 	}
 
 	// Exit — should trigger.
-	result = e.Evaluate(context.Background(), testTenant, "dev1", 15, 15)
+	result = e.Evaluate(context.Background(), testTenant, "dev1", 15, 15, time.Time{})
 	if len(result) != 1 || result[0].EventType != "exit" {
 		t.Errorf("expected 1 exit event, got %v", result)
 	}
@@ -107,13 +108,13 @@ func TestEngine_BothTrigger(t *testing.T) {
 	})
 
 	// Enter.
-	result := e.Evaluate(context.Background(), testTenant, "dev1", 5, 5)
+	result := e.Evaluate(context.Background(), testTenant, "dev1", 5, 5, time.Time{})
 	if len(result) != 1 || result[0].EventType != "enter" {
 		t.Fatal("expected enter event")
 	}
 
 	// Exit.
-	result = e.Evaluate(context.Background(), testTenant, "dev1", 15, 15)
+	result = e.Evaluate(context.Background(), testTenant, "dev1", 15, 15, time.Time{})
 	if len(result) != 1 || result[0].EventType != "exit" {
 		t.Fatal("expected exit event")
 	}
@@ -126,7 +127,7 @@ func TestEngine_DisabledFence(t *testing.T) {
 		Trigger: TriggerBoth, Enabled: false,
 	})
 
-	result := e.Evaluate(context.Background(), testTenant, "dev1", 5, 5)
+	result := e.Evaluate(context.Background(), testTenant, "dev1", 5, 5, time.Time{})
 	if len(result) != 0 {
 		t.Errorf("expected 0 events for disabled fence, got %d", len(result))
 	}
@@ -144,7 +145,7 @@ func TestEngine_MultipleFences(t *testing.T) {
 	})
 
 	// Point (3,3) is inside both.
-	result := e.Evaluate(context.Background(), testTenant, "dev1", 3, 3)
+	result := e.Evaluate(context.Background(), testTenant, "dev1", 3, 3, time.Time{})
 	if len(result) != 2 {
 		t.Errorf("expected 2 enter events, got %d", len(result))
 	}
@@ -167,13 +168,13 @@ func TestEngine_DeviceIsolation(t *testing.T) {
 	})
 
 	// dev1 enters.
-	r1 := e.Evaluate(context.Background(), testTenant, "dev1", 5, 5)
+	r1 := e.Evaluate(context.Background(), testTenant, "dev1", 5, 5, time.Time{})
 	if len(r1) != 1 {
 		t.Fatal("expected enter for dev1")
 	}
 
 	// dev2 enters separately — should also trigger.
-	r2 := e.Evaluate(context.Background(), testTenant, "dev2", 5, 5)
+	r2 := e.Evaluate(context.Background(), testTenant, "dev2", 5, 5, time.Time{})
 	if len(r2) != 1 {
 		t.Fatal("expected enter for dev2")
 	}
