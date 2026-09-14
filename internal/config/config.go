@@ -348,6 +348,13 @@ type Config struct {
 	// own heartbeat interval the reaper flaps a healthy fleet offline between
 	// beats, and a very large value leaves a dead bridge reading as online for
 	// as long as the owner cares to type.
+	// GeofenceCooldownSec is how long a fence stays quiet for one device after
+	// it fires (MESHSAT-1119). A fence may set its own; this is the default.
+	// Min/Max bound what an owner may choose: too short and a device on a
+	// boundary pages all night, too long and a real second crossing is silent.
+	GeofenceCooldownSec     int    `yaml:"geofence_cooldown_sec"`      // default 300
+	GeofenceCooldownMin     int    `yaml:"geofence_cooldown_min"`      // lowest a fence may set (default 30)
+	GeofenceCooldownMax     int    `yaml:"geofence_cooldown_max"`      // highest (default 86400)
 	BridgeOfflineTimeoutMin int    `yaml:"bridge_offline_timeout_min"` // lowest a tenant may set (default 60)
 	BridgeOfflineTimeoutMax int    `yaml:"bridge_offline_timeout_max"` // highest a tenant may set (default 86400)
 	BridgeCACertExportPath  string `yaml:"bridge_ca_cert_export_path"` // path to export bridge CA cert for NATS mTLS (empty=disabled)
@@ -430,6 +437,9 @@ func Defaults() Config {
 		ReticulumTCPAddr:      ":4242",
 		BridgeOfflineTimeout:  300, // 5 minutes
 		// A tenant may choose between one minute and one day.
+		GeofenceCooldownSec:     300,
+		GeofenceCooldownMin:     30,
+		GeofenceCooldownMax:     86400,
 		BridgeOfflineTimeoutMin: 60,
 		BridgeOfflineTimeoutMax: 86400,
 		DBSlowQueryMS:           100,
@@ -1000,6 +1010,20 @@ func Load() (Config, error) {
 	if v := os.Getenv("HUB_BRIDGE_OFFLINE_TIMEOUT"); v != "" {
 		if n, err := strconv.Atoi(v); err == nil {
 			cfg.BridgeOfflineTimeout = n
+		}
+	}
+	for _, kv := range []struct {
+		env string
+		dst *int
+	}{
+		{"HUB_GEOFENCE_COOLDOWN_SEC", &cfg.GeofenceCooldownSec},
+		{"HUB_GEOFENCE_COOLDOWN_MIN", &cfg.GeofenceCooldownMin},
+		{"HUB_GEOFENCE_COOLDOWN_MAX", &cfg.GeofenceCooldownMax},
+	} {
+		if v := os.Getenv(kv.env); v != "" {
+			if n, err := strconv.Atoi(v); err == nil && n >= 0 {
+				*kv.dst = n
+			}
 		}
 	}
 	if v := os.Getenv("HUB_BRIDGE_OFFLINE_TIMEOUT_MIN"); v != "" {

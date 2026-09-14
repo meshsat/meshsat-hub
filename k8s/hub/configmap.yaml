@@ -169,6 +169,22 @@ data:
   HUB_AUDIT_RETENTION_MIN_DAYS: "30"
   HUB_AUDIT_RETENTION_MAX_DAYS: "3650"
 
+  # How long a geofence stays quiet for one device after it fires
+  # (MESHSAT-1119). A crossing triggers the moment point-in-polygon flips, so a
+  # device parked on a boundary -- GPS jitter is metres -- would otherwise page
+  # somebody every few minutes all night.
+  #
+  # This damps the OUTPUT: the FIRST crossing fires immediately and is never
+  # delayed. Dwell time, the obvious alternative, damps the input by waiting for
+  # a second position report on the new side -- and with Iridium reports minutes
+  # apart that delays every genuine crossing by a full reporting interval, which
+  # on a safety path is the worse failure.
+  #
+  # A fence may set its own cooldown_sec within MIN..MAX; 0 means this default.
+  HUB_GEOFENCE_COOLDOWN_SEC: "300"
+  HUB_GEOFENCE_COOLDOWN_MIN: "30"
+  HUB_GEOFENCE_COOLDOWN_MAX: "86400"
+
   # --- subscription tiers (MESHSAT-989) ---
   # One combined ceiling on registered devices and bridges per tenant. It gates
   # REGISTRATION only: a tenant over its cap or on a lapsed plan keeps every

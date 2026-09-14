@@ -17,6 +17,11 @@ const formChainId = ref('')
 // silently paged nobody -- which is the exact failure this feature was.
 const chains = ref([])
 const chainsLoaded = ref(false)
+// Crossing cooldown (MESHSAT-1119). '' means the platform default; the policy
+// endpoint supplies that number and the bounds so the form does not hardcode
+// one that drifts from the ConfigMap.
+const formCooldown = ref('')
+const policy = ref(null)
 const basemapMissing = ref(false)
 const vertexCount = ref(0)
 const theme = useThemeStore()
@@ -165,11 +170,13 @@ async function saveFence() {
       polygon: drawingPoints,
       trigger: formTrigger.value,
       chain_id: formChainId.value || undefined,
+      cooldown_sec: formCooldown.value.trim() === '' ? 0 : Number(formCooldown.value),
       enabled: true,
     })
     formName.value = ''
     formTrigger.value = 'both'
     formChainId.value = ''
+    formCooldown.value = ''
     showForm.value = false
     clearDrawing()
     await loadFences()
@@ -215,6 +222,7 @@ onMounted(async () => {
   map.on('click', onMapClick)
   await loadFences()
   await loadChains()
+  await loadPolicy()
 })
 
 watch(() => theme.dark, async (dark) => {
@@ -269,7 +277,21 @@ onUnmounted(() => {
         </select>
         <input v-else v-model="formChainId" placeholder="Escalation chain ID (optional)"
           class="bg-gray-800 border border-gray-700 rounded px-3 py-2 text-sm">
+        <!-- Crossing cooldown (MESHSAT-1119). A fence fires the moment the
+             device crosses the line, so one parked on a boundary would page
+             every few minutes; this is how long it then stays quiet for that
+             device. The FIRST crossing is never delayed. -->
+        <input v-model="formCooldown" type="number" inputmode="numeric"
+          :min="policy?.cooldown_min" :max="policy?.cooldown_max"
+          :placeholder="policy ? `Quiet for ${policy.cooldown_default}s after alerting` : 'Cooldown (seconds)'"
+          class="bg-gray-800 border border-gray-700 rounded px-3 py-2 text-sm">
       </div>
+      <p v-if="policy" class="text-xs text-gray-400 -mt-1">
+        After a crossing alerts, this fence stays quiet for that device for the cooldown
+        ({{ policy.cooldown_default }}s by default, {{ policy.cooldown_min }}&ndash;{{ policy.cooldown_max }}s).
+        The first crossing is never delayed &mdash; this only stops a device sitting on the
+        boundary from alerting repeatedly.
+      </p>
       <div class="flex gap-2">
         <span class="text-xs text-gray-400">{{ vertexCount }} vertices</span>
         <button @click="clearDrawing" class="text-xs text-gray-400 hover:text-gray-200">Clear</button>

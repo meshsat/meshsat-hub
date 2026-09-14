@@ -214,3 +214,74 @@ func TestDeleteFenceRemovesTheRow(t *testing.T) {
 		t.Errorf("the row survived the delete: %v", rows)
 	}
 }
+
+// --- crossing cooldown (MESHSAT-1119 follow-up) ---
+
+func gfHandlerWithPolicy() (*geo.Engine, *GeofenceHandler) {
+	e := geo.NewEngine()
+	h := NewGeofenceHandler(e)
+	h.SetCooldownPolicy(300, 30, 86400)
+	return e, h
+}
+
+// The form needs the number actually in force, not one it hardcoded and that
+// drifts from the ConfigMap.
+func TestTheGeofencePolicyIsPublished(t *testing.T) {
+	_, h := gfHandlerWithPolicy()
+	r, w := gfRequest("GET", "/api/geofences/policy", "", gfOther, nil)
+	h.Policy(w, r)
+
+	var got map[string]int
+	if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
+		t.Fatalf("decode: %v (%s)", err, w.Body.String())
+	}
+	if got["cooldown_default"] != 300 || got["cooldown_min"] != 30 || got["cooldown_max"] != 86400 {
+		t.Errorf("policy = %v, want 300/30..86400", got)
+	}
+}
+
+func TestTheCooldownIsBoundedByThePlatform(t *testing.T) {
+	e, h := gfHandlerWithPolicy()
+
+	body := func(secs string) string {
+		return `{"name":"perimeter","polygon":[{"lat":0,"lon":0},{"lat":0,"lon":1},{"lat":1,"lon":1}],` +
+			`"trigger":"both","enabled":true,"cooldown_sec":` + secs + `}`
+	}
+	for _, secs := range []string{"5", "999999", "-1"} {
+		r, w := gfRequest("POST", "/api/geofences", body(secs), gfOther, nil)
+		h.CreateFence(w, r)
+		if w.Code != http.StatusBadRequest {
+			t.Errorf("cooldown_sec %s: got %d, want 400", secs, w.Code)
+		}
+	}
+	if got := e.ListFences(gfOther); len(got) != 0 {
+		t.Errorf("a refused fence was created anyway: %v", got)
+	}
+
+	// 0 is "use the platform default" and is always allowed; so is a value
+	// inside the bounds.
+	for _, secs := range []string{"0", "600"} {
+		r, w := gfRequest("POST", "/api/geofences", body(secs), gfOther, nil)
+		h.CreateFence(w, r)
+		if w.Code != http.StatusCreated {
+			t.Errorf("cooldown_sec %s: got %d %s, want 201", secs, w.Code, w.Body.String())
+		}
+	}
+}
+
+// The value has to survive to the engine, or the fence quietly runs on the
+// platform default and the owner's choice did nothing.
+func TestTheChosenCooldownReachesTheFence(t *testing.T) {
+	e, h := gfHandlerWithPolicy()
+	body := `{"name":"perimeter","polygon":[{"lat":0,"lon":0},{"lat":0,"lon":1},{"lat":1,"lon":1}],` +
+		`"trigger":"both","enabled":true,"cooldown_sec":600}`
+	r, w := gfRequest("POST", "/api/geofences", body, gfOther, nil)
+	h.CreateFence(w, r)
+	if w.Code != http.StatusCreated {
+		t.Fatalf("create: %d %s", w.Code, w.Body.String())
+	}
+	got := e.ListFences(gfOther)
+	if len(got) != 1 || got[0].CooldownSec != 600 {
+		t.Errorf("the fence carries %v, want cooldown_sec 600", got)
+	}
+}

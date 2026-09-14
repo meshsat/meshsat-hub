@@ -10,7 +10,7 @@ import (
 // Geofences (MESHSAT-1119). See the postgres implementation for why the key is
 // (tenant_id, id) and not id.
 
-const geofenceCols = "id, tenant_id, name, polygon, trigger_mode, chain_id, enabled, created_at, updated_at"
+const geofenceCols = "id, tenant_id, name, polygon, trigger_mode, chain_id, enabled, cooldown_sec, created_at, updated_at"
 
 func scanGeofence(sc interface{ Scan(...any) error }) (store.Geofence, error) {
 	var f store.Geofence
@@ -18,7 +18,7 @@ func scanGeofence(sc interface{ Scan(...any) error }) (store.Geofence, error) {
 	var enabled int
 	var created, updated string
 	if err := sc.Scan(&f.ID, &f.TenantID, &f.Name, &polygon, &f.Trigger, &f.ChainID,
-		&enabled, &created, &updated); err != nil {
+		&enabled, &f.CooldownSec, &created, &updated); err != nil {
 		return f, err
 	}
 	_ = json.Unmarshal([]byte(polygon), &f.Polygon)
@@ -37,12 +37,12 @@ func (d *DB) SaveGeofence(ctx context.Context, tenantID string, f *store.Geofenc
 		enabled = 1
 	}
 	_, err = d.db.ExecContext(ctx,
-		`INSERT INTO geofences (id, tenant_id, name, polygon, trigger_mode, chain_id, enabled, updated_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'))
+		`INSERT INTO geofences (id, tenant_id, name, polygon, trigger_mode, chain_id, enabled, cooldown_sec, updated_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
 		 ON CONFLICT (tenant_id, id) DO UPDATE SET name=excluded.name, polygon=excluded.polygon,
 		   trigger_mode=excluded.trigger_mode, chain_id=excluded.chain_id,
-		   enabled=excluded.enabled, updated_at=datetime('now')`,
-		f.ID, tenantID, f.Name, string(polygon), f.Trigger, f.ChainID, enabled)
+		   enabled=excluded.enabled, cooldown_sec=excluded.cooldown_sec, updated_at=datetime('now')`,
+		f.ID, tenantID, f.Name, string(polygon), f.Trigger, f.ChainID, enabled, f.CooldownSec)
 	return err
 }
 

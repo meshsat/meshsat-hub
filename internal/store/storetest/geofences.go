@@ -22,7 +22,7 @@ func testGeofences(t *testing.T, db store.Store) {
 	square := []store.GeoPoint{{Lat: 0, Lon: 0}, {Lat: 0, Lon: 1}, {Lat: 1, Lon: 1}}
 	f := store.Geofence{
 		ID: "perimeter", Name: "Perimeter", Polygon: square,
-		Trigger: "both", ChainID: "chain-1", Enabled: true,
+		Trigger: "both", ChainID: "chain-1", Enabled: true, CooldownSec: 600,
 	}
 	if err := db.SaveGeofence(ctx, mine, &f); err != nil {
 		t.Fatalf("save: %v", err)
@@ -44,6 +44,11 @@ func testGeofences(t *testing.T, db store.Store) {
 	}
 	if !got[0].Enabled || got[0].Trigger != "both" {
 		t.Errorf("enabled/trigger did not survive: %+v", got[0])
+	}
+	if got[0].CooldownSec != 600 {
+		t.Errorf("cooldown_sec = %d, want 600. A fence that loses its cooldown falls back "+
+			"to the platform default silently, and the owner's choice did nothing.",
+			got[0].CooldownSec)
 	}
 
 	// Two tenants may name a fence the same thing. The key is (tenant_id, id),
