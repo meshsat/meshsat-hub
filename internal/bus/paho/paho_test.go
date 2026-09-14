@@ -113,6 +113,7 @@ func (m *fakeMessage) Ack()              {}
 func TestSubscribeSameFilterFansOutToAllHandlers(t *testing.T) {
 	fc := newFakeClient()
 	b := &Bus{inner: fc}
+	b.connected.Store(true) // these cases are about a CONNECTED bus
 
 	var got1, got2 []string
 	if err := b.Subscribe("meshsat/+/mo/decoded", 1, func(topic string, _ []byte) {
@@ -146,6 +147,7 @@ func TestSubscribeSameFilterFansOutToAllHandlers(t *testing.T) {
 func TestSubscribeQoSUpgradeResubscribes(t *testing.T) {
 	fc := newFakeClient()
 	b := &Bus{inner: fc}
+	b.connected.Store(true) // these cases are about a CONNECTED bus
 
 	var n0, n1 int
 	if err := b.Subscribe("meshsat/+/position", 0, func(string, []byte) { n0++ }); err != nil {
@@ -181,6 +183,7 @@ func TestSubscribeQoSUpgradeResubscribes(t *testing.T) {
 func TestResubscribeReplaysEveryFilterWithFanOut(t *testing.T) {
 	fc := newFakeClient()
 	b := &Bus{inner: fc}
+	b.connected.Store(true) // these cases are about a CONNECTED bus
 
 	var n1, n2, n3 int
 	must := func(err error) {
@@ -215,6 +218,7 @@ func TestSubscribeErrorLeavesNoRegistration(t *testing.T) {
 	fc := newFakeClient()
 	fc.subErr = errors.New("broker down")
 	b := &Bus{inner: fc}
+	b.connected.Store(true) // these cases are about a CONNECTED bus
 
 	if err := b.Subscribe("meshsat/+/sos", 1, func(string, []byte) {}); err == nil {
 		t.Fatal("expected subscribe error")
@@ -254,11 +258,79 @@ func TestRedactURL(t *testing.T) {
 func TestPublishRefusesWildcardTopic(t *testing.T) {
 	fc := &fakeClient{}
 	b := &Bus{inner: fc}
+	b.connected.Store(true) // these cases are about a CONNECTED bus
 	err := b.Publish("meshsat/+31653618463/mo/decoded", 1, false, []byte("{}"))
 	if !errors.Is(err, hubmqtt.ErrWildcardTopic) {
 		t.Fatalf("err = %v, want ErrWildcardTopic", err)
 	}
 	if err := b.Publish("meshsat/%2B31653618463/mo/decoded", 1, false, []byte("{}")); err != nil {
 		t.Fatalf("encoded topic refused: %v", err)
+	}
+}
+
+// Subscribing while the broker is unreachable must REGISTER the handler and
+// succeed, so the reconnect replays it.
+//
+// MESHSAT-1129: it used to return an error and register nothing, and three
+// facts made that catastrophic together. Connect() failure at startup is a
+// warning retried in the background, so an unconnected bus here is ordinary;
+// every caller in main.go was wrapped in `if msgBus.IsConnected()`, so it never
+// even got this far; and every Start() does `return err` on its first filter,
+// so the second half of a DualFilters pair was abandoned as well.
+//
+// The result was a pod that passed /readyz -- the bus probe is informational
+// and "never affects readiness" -- took half the traffic, and ran no MQTT
+// subscriber at all: no position stored, no message stored, no bridge marked
+// online, and no SOS detected, for the life of the process.
+func TestSubscribeWhileDisconnectedRegistersAndIsReplayedOnConnect(t *testing.T) {
+	fc := newFakeClient()
+	b := &Bus{inner: fc} // deliberately NOT connected
+
+	var got int
+	if err := b.Subscribe("meshsat/+/sos", 1, func(string, []byte) { got++ }); err != nil {
+		t.Fatalf("subscribing while disconnected must not fail, got %v", err)
+	}
+	if n := len(fc.subscribeCalls()); n != 0 {
+		t.Fatalf("a disconnected bus must not call the broker, got %d call(s)", n)
+	}
+
+	// The connection comes up. This is what SetOnConnectHandler does.
+	fc2 := newFakeClient()
+	b.connected.Store(true)
+	b.resubscribe(fc2)
+
+	if n := len(fc2.subscribeCalls()); n != 1 {
+		t.Fatalf("the handler registered while disconnected was NOT replayed on connect "+
+			"(%d broker call(s)); that replica would consume nothing for the life of the "+
+			"process, SOS included", n)
+	}
+	fc2.deliver(t, "meshsat/+/sos", "meshsat/dev1/sos", []byte(`{"triggered":true}`))
+	if got != 1 {
+		t.Fatalf("the replayed subscription does not deliver: handler ran %d time(s)", got)
+	}
+}
+
+// Both halves of a DualFilters pair must survive being registered while
+// disconnected. The old code returned on the first, so even a caller that
+// ignored the error lost the second filter -- which is the one that carries
+// every non-default tenant's traffic.
+func TestBothDualFiltersSurviveADisconnectedStart(t *testing.T) {
+	fc := newFakeClient()
+	b := &Bus{inner: fc} // not connected
+
+	for _, f := range hubmqtt.DualFilters("meshsat/+/position") {
+		if err := b.Subscribe(f, 1, func(string, []byte) {}); err != nil {
+			t.Fatalf("filter %q failed while disconnected: %v", f, err)
+		}
+	}
+
+	fc2 := newFakeClient()
+	b.connected.Store(true)
+	b.resubscribe(fc2)
+
+	want := len(hubmqtt.DualFilters("meshsat/+/position"))
+	if n := len(fc2.subscribeCalls()); n != want {
+		t.Fatalf("expected %d filters replayed, got %d: a non-default tenant's traffic "+
+			"would be invisible on this replica", want, n)
 	}
 }

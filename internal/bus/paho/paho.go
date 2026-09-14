@@ -57,6 +57,13 @@ type TLSConfig struct {
 }
 
 // New creates a new Paho MQTT bus.
+// connectBudget is how long Connect() waits before returning to the caller.
+// It is a budget, not a deadline: paho keeps retrying afterwards.
+const connectBudget = 20 * time.Second
+
+// connectRetryInterval is how often paho retries the initial connection.
+const connectRetryInterval = 10 * time.Second
+
 func New(brokerURL, clientID string) *Bus {
 	return NewWithTLS(brokerURL, clientID, nil)
 }
@@ -84,6 +91,13 @@ func NewWithTLS(brokerURL, clientID string, tlsCfg *TLSConfig) *Bus {
 		SetProtocolVersion(4). // MQTT 3.1.1 — required by NATS MQTT adapter
 		SetAutoReconnect(true).
 		SetMaxReconnectInterval(30 * time.Second).
+		// ConnectRetry makes paho keep trying the FIRST connection too.
+		// AutoReconnect alone only covers a connection that once succeeded, so
+		// without this a broker that is down at startup is permanent for the
+		// life of the process -- and main.go's "will retry in background" was
+		// simply untrue (MESHSAT-1129).
+		SetConnectRetry(true).
+		SetConnectRetryInterval(connectRetryInterval).
 		SetKeepAlive(60 * time.Second).
 		SetCleanSession(true).
 		SetOnConnectHandler(func(c pahomqtt.Client) {
@@ -194,25 +208,22 @@ func (b *Bus) dispatcherFor(filter string) pahomqtt.MessageHandler {
 }
 
 func (b *Bus) Connect() error {
-	// Retry initial connection up to 5 times with backoff.
-	// Paho's AutoReconnect only works after a successful initial connection,
-	// so we must handle the first connect ourselves.
-	var lastErr error
-	for attempt := 0; attempt < 5; attempt++ {
-		if attempt > 0 {
-			delay := time.Duration(attempt) * 2 * time.Second
-			slog.Info("bus: mqtt retrying initial connect", "attempt", attempt+1, "delay", delay)
-			time.Sleep(delay)
-		}
-		token := b.inner.Connect()
-		token.Wait()
-		if err := token.Error(); err != nil {
-			lastErr = err
-			continue
-		}
-		return nil
+	// Paho retries the initial connect itself now (SetConnectRetry above), so
+	// this waits for a budget and then hands back to the background rather than
+	// giving up. The old version tried five times over about twenty seconds and
+	// then stopped forever, which is what made a broker blip at startup a
+	// permanent condition: no reconnect, therefore no OnConnect, therefore no
+	// resubscribe, therefore no subscriber on that replica at all.
+	token := b.inner.Connect()
+	if !token.WaitTimeout(connectBudget) {
+		return fmt.Errorf("bus: mqtt not connected to %s within %s; paho is still retrying "+
+			"every %s and subscriptions will be replayed when it succeeds",
+			redactURL(b.brokerURL), connectBudget, connectRetryInterval)
 	}
-	return fmt.Errorf("bus: mqtt connect to %s: %w", redactURL(b.brokerURL), lastErr)
+	if err := token.Error(); err != nil {
+		return fmt.Errorf("bus: mqtt connect to %s: %w", redactURL(b.brokerURL), err)
+	}
+	return nil
 }
 
 func (b *Bus) Publish(topic string, qos byte, retained bool, payload []byte) error {
@@ -256,11 +267,28 @@ func (b *Bus) Subscribe(topic string, qos byte, handler bus.MessageHandler) erro
 	needSubscribe := !exists || subQoS > r.qos
 	b.mu.Unlock()
 
+	// NOT CONNECTED IS NOT AN ERROR. Connect() failure at startup is a warning
+	// retried in the background, so an unconnected bus here is an ordinary state.
+	//
+	// Register the handler and return successfully: resubscribe() replays every
+	// filter in b.routes when the connection comes up, so a registered handler
+	// reaches the broker by itself. Returning an error instead is what made
+	// MESHSAT-1129, and it failed twice over -- the handler was never registered,
+	// AND every caller does `return err` on the first filter, so the second half
+	// of a DualFilters pair was abandoned too.
+	//
+	// A broker that is CONNECTED and still refuses is a real error and is
+	// reported as one, so a bad filter still fails loudly.
 	if needSubscribe {
-		token := b.inner.Subscribe(topic, subQoS, b.dispatcherFor(topic))
-		token.Wait()
-		if err := token.Error(); err != nil {
-			return fmt.Errorf("bus: subscribe %s: %w", topic, err)
+		if !b.connected.Load() {
+			slog.Warn("bus: not connected yet; the handler is registered and will be "+
+				"sent to the broker when the connection comes up", "topic", topic)
+		} else {
+			token := b.inner.Subscribe(topic, subQoS, b.dispatcherFor(topic))
+			token.Wait()
+			if err := token.Error(); err != nil {
+				return fmt.Errorf("bus: subscribe %s: %w", topic, err)
+			}
 		}
 	}
 

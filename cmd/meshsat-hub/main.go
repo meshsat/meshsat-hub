@@ -379,38 +379,25 @@ func main() {
 	credMasterKey := bootstrapCredentialMasterKey(dataStore)
 	providerAccounts := integrations.New(dataStore, credMasterKey)
 	// A saved provider account must be in force on BOTH replicas at once
-	// (MESHSAT-1127). Each replica holds its own 60-second cache, so without this
-	// the one that did not serve the write keeps a stale answer -- and a stale
-	// NEGATIVE means it behaves as though the tenant has no credentials: no SMS
-	// sent, no notification delivered, no position injected. Reproduced on
-	// production before it was fixed. The TTL remains the backstop.
+	// (MESHSAT-1127). Each replica holds its own cache, so without this the one
+	// that did not serve the write keeps a stale answer -- and a stale NEGATIVE
+	// means it behaves as though the tenant has no credentials: no SMS sent, no
+	// notification delivered, no position injected. Reproduced on production.
 	//
-	// IT RETRIES, and that is not belt-and-braces. Connect() failure above is a
-	// warning retried in the background, so the broker can be down at this point;
-	// and bus.Subscribe calls the broker and waits, returning an error WITHOUT
-	// registering the handler, so there is nothing for the reconnect handler to
-	// replay. A single attempt gated on IsConnected() -- which is what this was
-	// first -- therefore leaves the pod permanently without cross-replica sync
-	// after one unlucky restart, silently, with only the TTL underneath it.
-	go func() {
-		for attempt := 1; ; attempt++ {
-			if err := providerAccounts.SetBus(msgBus); err == nil {
-				// Affirmative, like verifyBillingCompany and the Stripe version
-				// check. Logging only failures makes silence ambiguous: it reads
-				// the same whether the subscription happened or never ran. That
-				// ambiguity cost a diagnosis on MESHSAT-1127 itself.
-				slog.Info("integrations: subscribed to provider-account changes from other replicas",
-					"topic", integrations.ReloadTopic, "attempt", attempt)
-				return
-			} else if attempt == 1 || attempt%12 == 0 {
-				slog.Warn("integrations: NOT yet subscribed to provider-account changes; "+
-					"until this succeeds a saved account takes up to the cache TTL to reach this replica, "+
-					"so it may not send that tenant's SMS or deliver its notifications",
-					"error", err, "attempt", attempt, "ttl", integrations.CacheTTL)
-			}
-			time.Sleep(5 * time.Second)
-		}
-	}()
+	// No retry loop and no IsConnected() guard: bus.Subscribe registers the
+	// handler while disconnected and the bus replays it on connect
+	// (MESHSAT-1129). This used to carry its own 5-second retry, which was the
+	// right behaviour built in the wrong place -- one subscriber guarding itself
+	// while thirteen others did not.
+	if err := providerAccounts.SetBus(msgBus); err != nil {
+		slog.Error("integrations: could not subscribe to provider-account changes; "+
+			"a saved account will take up to the cache TTL to reach this replica, so it "+
+			"may not send that tenant's SMS or deliver its notifications",
+			"error", err, "ttl", integrations.CacheTTL)
+	} else {
+		slog.Info("integrations: subscribed to provider-account changes from other replicas",
+			"topic", integrations.ReloadTopic)
+	}
 	providerAccounts.SetPlatform(integrations.ProviderCloudloop, map[string]string{
 		"api_url": cfg.CloudloopAPIURL, "api_key": cfg.CloudloopAPIKey, "account_id": cfg.CloudloopAccountID, "webhook_token": cfg.CloudloopWebhookToken})
 	providerAccounts.SetPlatform(integrations.ProviderTwilio, map[string]string{
@@ -452,17 +439,13 @@ func main() {
 	mtSender.SetDeviceResolver(thingResolver)
 	mtSender.SetCostRecorder(&costRecorderAdapter{store: dataStore})
 	mtSender.SetCostPerMessage(0.05) // Iridium default
-	if msgBus.IsConnected() {
-		if err := mtSender.Start(); err != nil {
-			slog.Error("failed to start MT sender", "error", err)
-		}
+	if err := mtSender.Start(); err != nil {
+		slog.Error("failed to start MT sender", "error", err)
 	}
 
 	// Credit balance poller (polls Cloudloop API, publishes to meshsat/hub/credits).
-	if msgBus.IsConnected() { // tenants add accounts at runtime; the poller skips tenants without one
-		creditPoller := cloudloop.NewTenantCreditPoller(cloudloopPool, msgBus, 1*time.Hour)
-		leaderSingletons.Add("cloudloop-credit-poller", creditPoller.Start)
-	}
+	creditPoller := cloudloop.NewTenantCreditPoller(cloudloopPool, msgBus, 1*time.Hour)
+	leaderSingletons.Add("cloudloop-credit-poller", creditPoller.Start)
 
 	// Globalstar API client (optional — second satellite constellation).
 	var globalstarClient *globalstar.Client
@@ -508,9 +491,11 @@ func main() {
 		// same failure MESHSAT-980 hit on the MQTT broker.
 		slog.Info("leader acquired — starting APRS-IS")
 
-		if !msgBus.IsConnected() {
-			return
-		}
+		// No IsConnected() guard here either (MESHSAT-1129). It used to return
+		// early, so a replica that took the lease during a broker blip ran no
+		// APRS for that whole leadership term -- including the per-tenant pool,
+		// which is the customer-facing half and needs no broker to be built.
+		// bus.Subscribe registers while disconnected and the bus replays it.
 
 		// The environment's callsign is the PLATFORM's own, and belongs to the
 		// default tenant, exactly like every other provider's env values
@@ -589,10 +574,8 @@ func main() {
 		slog.Error("webhook: could not load webhooks from the database", "error", err)
 	}
 	webhookAPIHandler := webhook.NewAPIHandler(webhookDispatcher)
-	if msgBus.IsConnected() {
-		if err := webhookDispatcher.Start(msgBus); err != nil {
-			slog.Error("webhook: failed to start dispatcher", "error", err)
-		}
+	if err := webhookDispatcher.Start(msgBus); err != nil {
+		slog.Error("webhook: failed to start dispatcher", "error", err)
 	}
 
 	// Geofence engine (MESHSAT-1119). Built HERE, before the position
@@ -610,10 +593,8 @@ func main() {
 	// Keep both replicas' fences in step. Without this a fence created through
 	// the API is armed on whichever replica served the request and on no other,
 	// so whether a crossing is noticed depends on load balancing.
-	if msgBus.IsConnected() {
-		if err := geoEngine.SetBus(msgBus); err != nil {
-			slog.Error("geofence: could not subscribe to fence changes from other replicas", "error", err)
-		}
+	if err := geoEngine.SetBus(msgBus); err != nil {
+		slog.Error("geofence: could not subscribe to fence changes from other replicas", "error", err)
 	}
 	// Fences were never written down before this, so they vanished at every
 	// rollout. Load what the database has.
@@ -622,66 +603,59 @@ func main() {
 	}
 
 	// Position subscriber: stores MQTT position updates to the database.
-	var posSub *position.Subscriber
-	if msgBus.IsConnected() {
-		posSub = position.NewSubscriber(msgBus, dataStore, tenants)
-		posSub.SetGeofence(geoEngine)
-		if err := posSub.Start(); err != nil {
-			slog.Error("position: failed to start subscriber", "error", err)
-		}
+	posSub := position.NewSubscriber(msgBus, dataStore, tenants)
+	posSub.SetGeofence(geoEngine)
+	if err := posSub.Start(); err != nil {
+		slog.Error("position: failed to start subscriber", "error", err)
 	}
 
 	// Message subscriber: persists MO decoded messages from MQTT to the database.
-	if msgBus.IsConnected() {
-		msgSub := hubmessage.NewSubscriber(msgBus, dataStore, tenants)
-		if err := msgSub.Start(); err != nil {
-			slog.Error("message: failed to start subscriber", "error", err)
-		}
+	msgSub := hubmessage.NewSubscriber(msgBus, dataStore, tenants)
+	if err := msgSub.Start(); err != nil {
+		slog.Error("message: failed to start subscriber", "error", err)
 	}
 
 	// Bridge lifecycle subscriber: auto-provisions bridges and devices from MQTT birth/death/health.
 	var bridgeCommander *bridge.Commander
 	var bridgeSub *bridge.Subscriber
 	var hembReassemblyBuf *protocol.HeMBReassemblyBuffer
-	if msgBus.IsConnected() {
-		bridgeSub = bridge.NewSubscriber(msgBus, dataStore, tenants)
+	bridgeSub = bridge.NewSubscriber(msgBus, dataStore, tenants)
 
-		// HeMB reassembly: decode bonded RLNC-coded symbols from bridges.
-		hembReassemblyBuf = protocol.NewHeMBReassemblyBuffer(nil) // deliverFn set via subscriber handler
-		bridgeSub.SetHeMBReassembler(hembReassemblyBuf)
+	// HeMB reassembly: decode bonded RLNC-coded symbols from bridges.
+	hembReassemblyBuf = protocol.NewHeMBReassemblyBuffer(nil) // deliverFn set via subscriber handler
+	bridgeSub.SetHeMBReassembler(hembReassemblyBuf)
 
-		if err := bridgeSub.Start(); err != nil {
-			slog.Error("bridge: failed to start subscriber", "error", err)
-		}
-		defer bridgeSub.Stop()
-
-		// Bridge commander: sends commands to bridges and correlates responses.
-		bridgeCommander = bridge.NewCommander(msgBus, dataStore)
-		if err := bridgeCommander.Start(); err != nil {
-			slog.Error("bridge: failed to start commander", "error", err)
-		}
-		defer bridgeCommander.Stop()
-
-		// HeMB reassembly reaper: purge stale streams and update metrics.
-		go func() {
-			ticker := time.NewTicker(60 * time.Second)
-			defer ticker.Stop()
-			for {
-				select {
-				case <-ctx.Done():
-					return
-				case <-ticker.C:
-					if n := hembReassemblyBuf.Reap(); n > 0 {
-						slog.Info("hemb: reaped stale streams", "count", n)
-						metrics.HeMBStaleStreamsPurged.Add(float64(n))
-					}
-					stats := hembReassemblyBuf.Stats()
-					metrics.HeMBActiveStreams.Set(float64(stats.ActiveStreams))
-					metrics.HeMBReassemblyPending.Set(float64(stats.GenerationsPending))
-				}
-			}
-		}()
+	if err := bridgeSub.Start(); err != nil {
+		slog.Error("bridge: failed to start subscriber", "error", err)
 	}
+	defer bridgeSub.Stop()
+
+	// Bridge commander: sends commands to bridges and correlates responses.
+	bridgeCommander = bridge.NewCommander(msgBus, dataStore)
+	if err := bridgeCommander.Start(); err != nil {
+		slog.Error("bridge: failed to start commander", "error", err)
+	}
+	defer bridgeCommander.Stop()
+
+	// HeMB reassembly reaper: purge stale streams and update metrics.
+	go func() {
+		ticker := time.NewTicker(60 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				if n := hembReassemblyBuf.Reap(); n > 0 {
+					slog.Info("hemb: reaped stale streams", "count", n)
+					metrics.HeMBStaleStreamsPurged.Add(float64(n))
+				}
+				stats := hembReassemblyBuf.Stats()
+				metrics.HeMBActiveStreams.Set(float64(stats.ActiveStreams))
+				metrics.HeMBReassemblyPending.Set(float64(stats.GenerationsPending))
+			}
+		}
+	}()
 
 	// Bridge reaper: marks bridges offline when last_seen exceeds timeout.
 	if cfg.BridgeOfflineTimeout > 0 {
@@ -870,10 +844,8 @@ func main() {
 	// Keep both replicas' keyrings in step, the same shape geofences use: a key
 	// added through the API on one replica must reach the other, or whether an
 	// alert is encrypted depends on load balancing.
-	if msgBus.IsConnected() {
-		if err := emailPool.SetBus(msgBus); err != nil {
-			slog.Error("email: could not subscribe to contact changes from other replicas", "error", err)
-		}
+	if err := emailPool.SetBus(msgBus); err != nil {
+		slog.Error("email: could not subscribe to contact changes from other replicas", "error", err)
 	}
 	notifiers = append(notifiers, hubemail.NewNotifierPool(emailPool))
 	var escNotifier escalation.Notifier
@@ -961,13 +933,11 @@ func main() {
 	}
 
 	// SOS detector (subscribes to mo/decoded, triggers escalation on SOS messages).
-	if msgBus.IsConnected() {
-		sosDetector := sos.NewDetector(msgBus, escEngine, dataStore, tenants, cfg.SOSChainID)
-		if err := sosDetector.Start(); err != nil {
-			slog.Error("sos: failed to start detector", "error", err)
-		} else {
-			slog.Info("sos: detector started")
-		}
+	sosDetector := sos.NewDetector(msgBus, escEngine, dataStore, tenants, cfg.SOSChainID)
+	if err := sosDetector.Start(); err != nil {
+		slog.Error("sos: failed to start detector", "error", err)
+	} else {
+		slog.Info("sos: detector started")
 	}
 
 	// Fragment reassembler for multi-fragment MO messages.
@@ -1254,12 +1224,10 @@ func main() {
 	}
 
 	// Start Reticulum MQTT interface + route expiry goroutine.
-	if msgBus.IsConnected() {
-		if err := retMQTTIface.Start(); err != nil {
-			slog.Error("reticulum: failed to start mqtt interface", "error", err)
-		} else {
-			slog.Info("reticulum: mqtt interface started", "topic", reticulum.ReticulumMQTTTopic)
-		}
+	if err := retMQTTIface.Start(); err != nil {
+		slog.Error("reticulum: failed to start mqtt interface", "error", err)
+	} else {
+		slog.Info("reticulum: mqtt interface started", "topic", reticulum.ReticulumMQTTTopic)
 	}
 	go func() {
 		ticker := time.NewTicker(1 * time.Minute)
@@ -1790,18 +1758,16 @@ func main() {
 	// itself: the hub used to write every frame to every connected client
 	// regardless of tenant, which put one tenant's positions, messages and SOS
 	// events on every other tenant's socket.
-	if msgBus.IsConnected() {
-		for _, legacy := range []string{"meshsat/+/mo/decoded", "meshsat/+/position", "meshsat/+/sos"} {
-			for _, filter := range hubmqtt.DualFilters(legacy) {
-				_ = msgBus.Subscribe(filter, 0, func(topic string, payload []byte) {
-					tenantID, _, _, ok := hubmqtt.ParseDeviceTopic(topic)
-					if !ok {
-						slog.Debug("ws: unparseable device topic, not delivered", "topic", topic)
-						return
-					}
-					wsHub.BroadcastTenant(tenantID, payload)
-				})
-			}
+	for _, legacy := range []string{"meshsat/+/mo/decoded", "meshsat/+/position", "meshsat/+/sos"} {
+		for _, filter := range hubmqtt.DualFilters(legacy) {
+			_ = msgBus.Subscribe(filter, 0, func(topic string, payload []byte) {
+				tenantID, _, _, ok := hubmqtt.ParseDeviceTopic(topic)
+				if !ok {
+					slog.Debug("ws: unparseable device topic, not delivered", "topic", topic)
+					return
+				}
+				wsHub.BroadcastTenant(tenantID, payload)
+			})
 		}
 	}
 	// Webhook endpoints — rate limited to 60 requests/minute per source IP.
@@ -1988,27 +1954,23 @@ func main() {
 		smsWebhook.SetHeMBReassembler(hembReassemblyBuf)
 		// SMS Reticulum interface deferred to MESHSAT-404
 		webhookRoute(integrations.ProviderTwilio, "webhook_token", "/api/webhook/sms", smsWebhook.ServeHTTP)
-		if msgBus.IsConnected() {
-			smsSub := sms.NewSubscriber(smsPlatform, msgBus)
-			smsSub.SetClientPool(smsPool)
-			if err := smsSub.Start(); err != nil {
-				slog.Error("sms: failed to start outbound subscriber", "error", err)
-			} else {
-				slog.Info("sms: gateway enabled", "from", cfg.SMSFromNumber)
-			}
+		smsSub := sms.NewSubscriber(smsPlatform, msgBus)
+		smsSub.SetClientPool(smsPool)
+		if err := smsSub.Start(); err != nil {
+			slog.Error("sms: failed to start outbound subscriber", "error", err)
+		} else {
+			slog.Info("sms: gateway enabled", "from", cfg.SMSFromNumber)
 		}
 	}
 
 	// SMS inbound relay — Android publishes SMS to MQTT, Hub persists them.
-	if msgBus.IsConnected() {
-		smsInSub := sms.NewInboundSubscriber(msgBus, dataStore, store.DefaultTenantID)
-		smsInSub.SetTenants(tenants)
-		smsInSub.SetKeyStore(keyStore)
-		if err := smsInSub.Start(); err != nil {
-			slog.Error("sms: failed to start inbound MQTT subscriber", "error", err)
-		} else {
-			slog.Info("sms: inbound MQTT relay enabled (meshsat/+/sms/inbound)")
-		}
+	smsInSub := sms.NewInboundSubscriber(msgBus, dataStore, store.DefaultTenantID)
+	smsInSub.SetTenants(tenants)
+	smsInSub.SetKeyStore(keyStore)
+	if err := smsInSub.Start(); err != nil {
+		slog.Error("sms: failed to start inbound MQTT subscriber", "error", err)
+	} else {
+		slog.Info("sms: inbound MQTT relay enabled (meshsat/+/sms/inbound)")
 	}
 
 	// Email gateway routes (PGP key management + inbound webhook).
@@ -2782,11 +2744,9 @@ func main() {
 	// Deliberately NOT the multi-notifier, for the same reason (critical rule 14).
 	routeEngine.RegisterHandler("notification",
 		routing.NewNotificationHandler(apprise.NewNotifierPool(apprise.NewClientPool(applatform, providerAccounts))))
-	if msgBus.IsConnected() {
-		_ = routing.SeedDefaults(ctx, dataStore, store.DefaultTenantID)
-		if err := routeEngine.Start(); err != nil {
-			slog.Error("routing: failed to start engine", "error", err)
-		}
+	_ = routing.SeedDefaults(ctx, dataStore, store.DefaultTenantID)
+	if err := routeEngine.Start(); err != nil {
+		slog.Error("routing: failed to start engine", "error", err)
 	}
 	routeAPIHandler := routing.NewAPIHandler(dataStore, routeEngine)
 	r.Get("/api/routes", routeAPIHandler.ListRoutes)
