@@ -50,11 +50,12 @@ spec:
               command: ["/bin/sh", "-ec"]
               args:
                 - |
-                  # -f /dev/null: the image's torrc logs to /var/log/tor, which does not
-                  # exist on a read-only root, so tor would exit before bootstrapping --
-                  # silently, under --quiet. Everything it needs is on the command line
-                  # and its notices go to the Job log.
-                  tor -f /dev/null --SocksPort 127.0.0.1:9050 --DataDirectory /var/lib/tor --Log "notice stderr" &
+                  # Not the image's torrc: it logs to /var/log/tor, which does not exist
+                  # on a read-only root, so tor exited before bootstrapping (and --quiet
+                  # hid it). tor also refuses -f /dev/null ("Unable to open configuration
+                  # file"), so the three lines it needs are written to the writable /tmp.
+                  printf 'SocksPort 127.0.0.1:9050\nDataDirectory /var/lib/tor\nLog notice stderr\n' > /tmp/torrc
+                  tor -f /tmp/torrc &
                   code=000
                   # Bootstrap plus descriptor fetch is 20-90 s on a good day; keep trying
                   # inside the Job's own deadline rather than trusting one attempt.
