@@ -25,6 +25,42 @@ spec:
         # The image runs tor as uid 100; the key directory must belong to it or
         # tor refuses to start ("Private directory is not owned by this user").
         fsGroup: 100
+      initContainers:
+        # Seed the identity key if the volume does not already have one.
+        #
+        # Deliberately NOT an overwrite: the volume is authoritative while it
+        # exists, and clobbering a live key on every restart would be a way to
+        # lose one. This only restores after the volume is gone -- a rebuilt
+        # cluster, a replaced node -- and then the SAME .onion comes back.
+        #
+        # tor refuses to start on a key it considers world-readable, so the mode
+        # and ownership matter as much as the bytes: 0700 dir, 0600 files, uid
+        # 100 which is `tor` in this image.
+        - name: seed-identity
+          image: docker.io/busybox
+          command:
+            - sh
+            - -c
+            - |
+              set -eu
+              d=/var/lib/tor/hidden_service
+              if [ -s "$d/hs_ed25519_secret_key" ]; then
+                echo "identity already present on the volume; leaving it alone"
+                exit 0
+              fi
+              echo "no identity on the volume; restoring from the sealed backup"
+              mkdir -p "$d"
+              base64 -d < /seed/hs_ed25519_secret_key_b64 > "$d/hs_ed25519_secret_key"
+              base64 -d < /seed/hs_ed25519_public_key_b64 > "$d/hs_ed25519_public_key"
+              cp /seed/hostname "$d/hostname"
+              chmod 0700 "$d"; chmod 0600 "$d"/hs_ed25519_* "$d/hostname"
+              chown -R 100:100 "$d"
+              echo "restored $(cat "$d/hostname")"
+          securityContext:
+            runAsUser: 0
+          volumeMounts:
+            - {name: keys, mountPath: /var/lib/tor}
+            - {name: identity, mountPath: /seed, readOnly: true}
       containers:
         - name: tor
           image: docker.io/osminogin/tor-simple
@@ -49,6 +85,9 @@ spec:
         - name: config
           configMap:
             name: tor-config
+        - name: identity
+          secret:
+            secretName: tor-identity
   volumeClaimTemplates:
     - metadata:
         name: keys
