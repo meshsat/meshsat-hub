@@ -282,6 +282,12 @@ type Store interface {
 
 	// Dead man's switch configs (persisted so every replica and every pod
 	// restart sees the same state).
+	// Geofences (MESHSAT-1119). Tenant-scoped throughout: a fence polygon is
+	// the area a customer operates in.
+	SaveGeofence(ctx context.Context, tenantID string, f *Geofence) error
+	ListGeofences(ctx context.Context, tenantID string) ([]Geofence, error)
+	DeleteGeofence(ctx context.Context, tenantID string, id string) error
+
 	SaveDeadmanConfig(ctx context.Context, tenantID string, c *DeadmanConfig) error
 	GetDeadmanConfig(ctx context.Context, tenantID string, deviceIMEI string) (*DeadmanConfig, error)
 	ListDeadmanConfigs(ctx context.Context) ([]DeadmanConfig, error)
@@ -886,6 +892,26 @@ var ReservedTenantIDs = map[string]bool{"bridge": true, "hub": true, "broadcast"
 
 // ErrReservedTenantID is returned by CreateTenant for a reserved word.
 var ErrReservedTenantID = errors.New("store: reserved tenant id")
+
+// GeoPoint is one vertex of a geofence polygon.
+type GeoPoint struct {
+	Lat float64 `json:"lat"`
+	Lon float64 `json:"lon"`
+}
+
+// Geofence is a persisted geofence. The geo package owns the geometry and the
+// trigger semantics; this is only what goes in the table.
+type Geofence struct {
+	ID        string     `json:"id"`
+	TenantID  string     `json:"tenant_id"`
+	Name      string     `json:"name"`
+	Polygon   []GeoPoint `json:"polygon"`
+	Trigger   string     `json:"trigger"`  // enter, exit, both
+	ChainID   string     `json:"chain_id"` // escalation chain to raise
+	Enabled   bool       `json:"enabled"`
+	CreatedAt time.Time  `json:"created_at"`
+	UpdatedAt time.Time  `json:"updated_at"`
+}
 
 // DeadmanConfig is the persisted dead man's switch state for one device.
 type DeadmanConfig struct {

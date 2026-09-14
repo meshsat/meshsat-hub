@@ -713,4 +713,31 @@ ALTER TABLE tenants ADD COLUMN IF NOT EXISTS audit_retention_days INTEGER NOT NU
 ALTER TABLE tenants ADD COLUMN IF NOT EXISTS ratelimit_daily_cap INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE tenants ADD COLUMN IF NOT EXISTS ratelimit_monthly_cap INTEGER NOT NULL DEFAULT 0;
 `},
+	// v22: geofences get a table (MESHSAT-1119).
+	//
+	// They never had one. The engine was built in main.go, handed to the API
+	// handler and never shown a position: a fence could be created, listed and
+	// deleted, it was never compared against anything, and it vanished at the
+	// next rollout. A top-level nav entry and a form asking which escalation
+	// chain to trigger, in front of nothing.
+	//
+	// PRIMARY KEY (tenant_id, id), not id alone. That is the lesson from
+	// webhook_configs, whose id IS the key: two tenants naming a fence
+	// "perimeter" must be two rows, and an upsert must never reach across a
+	// tenant boundary.
+	{Version: 22, Name: "geofences", SQL: `
+CREATE TABLE IF NOT EXISTS geofences (
+	id VARCHAR(64) NOT NULL,
+	tenant_id VARCHAR(64) NOT NULL DEFAULT 'default',
+	name VARCHAR(255) NOT NULL DEFAULT '',
+	polygon JSONB NOT NULL DEFAULT '[]'::jsonb,
+	trigger_mode VARCHAR(16) NOT NULL DEFAULT 'both',
+	chain_id VARCHAR(64) NOT NULL DEFAULT '',
+	enabled BOOLEAN NOT NULL DEFAULT TRUE,
+	created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+	updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+	PRIMARY KEY (tenant_id, id)
+);
+CREATE INDEX IF NOT EXISTS idx_geofences_tenant ON geofences (tenant_id);
+`},
 }

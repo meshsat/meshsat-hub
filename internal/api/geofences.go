@@ -58,13 +58,22 @@ func (h *GeofenceHandler) CreateFence(w http.ResponseWriter, r *http.Request) {
 	}
 	if f.ID == "" {
 		b := make([]byte, 8)
-		_, _ = rand.Read(b)
+		if _, err := rand.Read(b); err != nil {
+			writeError(w, http.StatusInternalServerError, "could not generate a geofence id")
+			return
+		}
 		f.ID = "gf-" + hex.EncodeToString(b)
 	}
 	if f.Trigger == "" {
 		f.Trigger = geo.TriggerBoth
 	}
-	h.engine.AddFence(f)
+	// Persisted, not just added to a map (MESHSAT-1119). A fence that exists
+	// only in memory is gone at the next rollout, and the customer has no way
+	// to tell that from the Hub having forgotten it deliberately.
+	if err := h.engine.Save(r.Context(), f); err != nil {
+		writeError(w, http.StatusInternalServerError, "could not save the geofence")
+		return
+	}
 	writeJSON(w, http.StatusCreated, f)
 }
 
@@ -78,6 +87,9 @@ func (h *GeofenceHandler) DeleteFence(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	// Scoped to the caller's tenant. 204 either way: whether another tenant
 	// happens to hold that id is not this caller's business.
-	h.engine.RemoveFence(auth.TenantIDFromContext(r.Context()), id)
+	if _, err := h.engine.Delete(r.Context(), auth.TenantIDFromContext(r.Context()), id); err != nil {
+		writeError(w, http.StatusInternalServerError, "could not delete the geofence")
+		return
+	}
 	w.WriteHeader(http.StatusNoContent)
 }

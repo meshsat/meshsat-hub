@@ -133,3 +133,84 @@ func TestDeleteFenceCannotReachAnotherTenant(t *testing.T) {
 			w.Code)
 	}
 }
+
+// gfStore is enough of the persistence layer for the handler to save through.
+type gfStore struct {
+	rows map[string][]store.Geofence
+}
+
+func (g *gfStore) ListTenants(context.Context) ([]store.Tenant, error) { return nil, nil }
+func (g *gfStore) ListGeofences(_ context.Context, tenantID string) ([]store.Geofence, error) {
+	return g.rows[tenantID], nil
+}
+func (g *gfStore) SaveGeofence(_ context.Context, tenantID string, f *store.Geofence) error {
+	if g.rows == nil {
+		g.rows = map[string][]store.Geofence{}
+	}
+	g.rows[tenantID] = append(g.rows[tenantID], *f)
+	return nil
+}
+func (g *gfStore) DeleteGeofence(_ context.Context, tenantID, id string) error {
+	kept := g.rows[tenantID][:0]
+	for _, f := range g.rows[tenantID] {
+		if f.ID != id {
+			kept = append(kept, f)
+		}
+	}
+	g.rows[tenantID] = kept
+	return nil
+}
+
+// Creating a fence has to WRITE it, not just arm it in memory (MESHSAT-1119).
+// A fence that exists only in a map is gone at the next rollout, and the
+// customer cannot tell that from the Hub having forgotten it on purpose.
+func TestCreateFencePersistsIt(t *testing.T) {
+	st := &gfStore{}
+	e := geo.NewEngine()
+	e.SetStore(st)
+	h := NewGeofenceHandler(e)
+
+	r, w := gfRequest("POST", "/api/geofences", gfBody, gfOther, nil)
+	h.CreateFence(w, r)
+	if w.Code != http.StatusCreated {
+		t.Fatalf("create: %d %s", w.Code, w.Body.String())
+	}
+
+	rows, _ := st.ListGeofences(context.Background(), gfOther)
+	if len(rows) != 1 {
+		t.Fatalf("the database has %d fences after a create, want 1", len(rows))
+	}
+	if rows[0].TenantID != gfOther {
+		t.Errorf("the stored row belongs to %q, want %q", rows[0].TenantID, gfOther)
+	}
+	if len(rows[0].Polygon) != 3 {
+		t.Errorf("the stored polygon has %d vertices, want 3", len(rows[0].Polygon))
+	}
+}
+
+// And deleting removes the row, or the fence returns at the next restart.
+func TestDeleteFenceRemovesTheRow(t *testing.T) {
+	st := &gfStore{}
+	e := geo.NewEngine()
+	e.SetStore(st)
+	h := NewGeofenceHandler(e)
+
+	r, w := gfRequest("POST", "/api/geofences", gfBody, gfOther, nil)
+	h.CreateFence(w, r)
+	if w.Code != http.StatusCreated {
+		t.Fatalf("create: %d", w.Code)
+	}
+	var created geo.Fence
+	_ = json.Unmarshal(w.Body.Bytes(), &created)
+
+	r, w = gfRequest("DELETE", "/api/geofences/"+created.ID, "", gfOther,
+		map[string]string{"id": created.ID})
+	h.DeleteFence(w, r)
+	if w.Code != http.StatusNoContent {
+		t.Fatalf("delete: %d %s", w.Code, w.Body.String())
+	}
+	rows, _ := st.ListGeofences(context.Background(), gfOther)
+	if len(rows) != 0 {
+		t.Errorf("the row survived the delete: %v", rows)
+	}
+}

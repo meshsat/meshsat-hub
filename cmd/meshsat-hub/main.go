@@ -502,10 +502,24 @@ func main() {
 		}
 	}
 
+	// Geofence engine (MESHSAT-1119). Built HERE, before the position
+	// subscriber, because the subscriber is what evaluates positions against
+	// fences and it starts consuming the moment Start returns. Built further
+	// down, as it was, every position arriving during startup would have been
+	// stored without being checked against a fence.
+	geoEngine := geo.NewEngine()
+	geoEngine.SetStore(dataStore)
+	// Fences were never written down before this, so they vanished at every
+	// rollout. Load what the database has.
+	if err := geoEngine.LoadAll(context.Background()); err != nil {
+		slog.Error("geofence: could not load fences from the database", "error", err)
+	}
+
 	// Position subscriber: stores MQTT position updates to the database.
 	var posSub *position.Subscriber
 	if msgBus.IsConnected() {
 		posSub = position.NewSubscriber(msgBus, dataStore, tenants)
+		posSub.SetGeofence(geoEngine)
 		if err := posSub.Start(); err != nil {
 			slog.Error("position: failed to start subscriber", "error", err)
 		}
@@ -730,6 +744,35 @@ func main() {
 	}
 	escEngine := escalation.New(dataStore, escNotifier)
 	leaderSingletons.Add("escalation-loop", escEngine.Start)
+
+	// A geofence crossing raises the fence's escalation chain (MESHSAT-1119).
+	// This is the half that never existed: Fence.ChainID has been on the struct
+	// and in the create form since geofencing was written, and nothing ever
+	// read it, so the alert a customer configured could not arrive.
+	//
+	// A fence with no chain stores its crossing and pages nobody, which is a
+	// legitimate configuration -- a boundary somebody wants on the map and in
+	// the log without a phone ringing at 3am.
+	geoEngine.OnEvent(func(ctx context.Context, ev geo.FenceEvent) {
+		if ev.ChainID == "" {
+			slog.Info("geofence: crossing with no escalation chain, not paging",
+				"tenant", ev.TenantID, "fence", ev.FenceName, "device", ev.DeviceIMEI,
+				"type", ev.EventType)
+			return
+		}
+		alert := &store.Alert{
+			TenantID:   ev.TenantID,
+			ChainID:    ev.ChainID,
+			DeviceIMEI: ev.DeviceIMEI,
+			Type:       "geofence",
+			Detail: fmt.Sprintf("%s %s %s at %.5f, %.5f",
+				ev.DeviceIMEI, ev.EventType+"ed", ev.FenceName, ev.Lat, ev.Lon),
+		}
+		if err := escEngine.Trigger(ctx, ev.TenantID, alert); err != nil {
+			slog.Error("geofence: could not raise the escalation chain",
+				"tenant", ev.TenantID, "fence", ev.FenceName, "chain", ev.ChainID, "error", err)
+		}
+	})
 
 	// Alert rules evaluator (configurable alerting engine, MESHSAT-313).
 	alertEval := alerting.New(dataStore, &escalationAdapter{engine: escEngine}, 60*time.Second)
@@ -1383,6 +1426,7 @@ func main() {
 	// receiving every message its old webhooks were subscribed to until the next
 	// restart (MESHSAT-1118).
 	tenantEvict.Register(webhookDispatcher)
+	tenantEvict.Register(geoEngine)
 	// A plan change or an operator override must apply now, not at the end of
 	// the resolver's 30 s TTL.
 	tenantEvict.Register(sendCaps)
@@ -2415,12 +2459,6 @@ func main() {
 	r.Get("/api/tor/onion", torHandler.GetOnion)
 
 	// Geofence engine + API
-	geoEngine := geo.NewEngine()
-	// Registered here rather than beside the other caches, because the engine is
-	// built further down than the Evictor. Registration is only read when an
-	// eviction happens, so order does not matter as long as it is before the
-	// first purge.
-	tenantEvict.Register(geoEngine)
 	geoHandler := api.NewGeofenceHandler(geoEngine)
 	r.Get("/api/geofences", geoHandler.ListFences)
 	r.Post("/api/geofences", geoHandler.CreateFence)

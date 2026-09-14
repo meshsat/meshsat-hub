@@ -179,6 +179,11 @@ var postAlterMigrations = []string{
 	// MESHSAT-910: single-writer claims + persisted dead man's switch
 	`CREATE TABLE IF NOT EXISTS dispatch_claims (key TEXT PRIMARY KEY, claimed_at TEXT NOT NULL DEFAULT (datetime('now')))`,
 	`CREATE TABLE IF NOT EXISTS deadman_configs (device_imei TEXT NOT NULL, tenant_id TEXT NOT NULL DEFAULT 'default', chain_id TEXT NOT NULL DEFAULT '', interval_sec INTEGER NOT NULL DEFAULT 3600, grace_sec INTEGER NOT NULL DEFAULT 600, enabled INTEGER NOT NULL DEFAULT 1, snoozed_until TEXT NOT NULL DEFAULT '', alerted INTEGER NOT NULL DEFAULT 0, updated_at TEXT NOT NULL DEFAULT (datetime('now')), PRIMARY KEY (device_imei, tenant_id))`,
+	// MESHSAT-1119. CREATE TABLE IF NOT EXISTS is idempotent, so this is safe
+	// in any slice; the key is (tenant_id, id) so two tenants may name a fence
+	// the same thing.
+	`CREATE TABLE IF NOT EXISTS geofences (id TEXT NOT NULL, tenant_id TEXT NOT NULL DEFAULT 'default', name TEXT NOT NULL DEFAULT '', polygon TEXT NOT NULL DEFAULT '[]', trigger_mode TEXT NOT NULL DEFAULT 'both', chain_id TEXT NOT NULL DEFAULT '', enabled INTEGER NOT NULL DEFAULT 1, created_at TEXT NOT NULL DEFAULT (datetime('now')), updated_at TEXT NOT NULL DEFAULT (datetime('now')), PRIMARY KEY (tenant_id, id))`,
+	`CREATE INDEX IF NOT EXISTS idx_geofences_tenant ON geofences (tenant_id)`,
 	`CREATE TABLE IF NOT EXISTS api_keys (
 		id TEXT PRIMARY KEY,
 		key_hash TEXT NOT NULL UNIQUE,
