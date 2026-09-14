@@ -28,7 +28,12 @@ spec:
       containers:
         - name: tor
           image: docker.io/osminogin/tor-simple
-          args: ["-f", "/etc/tor/torrc"]
+          # No command or args override. The image already runs tor against
+          # /etc/tor/torrc, which is where the ConfigMap is mounted, so there is
+          # nothing to say. The first version passed args ["-f", "/etc/tor/torrc"]
+          # and the container would not start at all: the image has no ENTRYPOINT,
+          # so args REPLACED the command and "-f" became the executable
+          # ("exec: \"-f\": executable file not found in $PATH").
           ports:
             - {name: or, containerPort: 9050, protocol: TCP}
           resources:
