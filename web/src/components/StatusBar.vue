@@ -83,11 +83,13 @@ onUnmounted(() => {
 
 <template>
   <div class="flex items-center gap-1.5 text-[9px]">
-    <!-- Cluster health -->
-    <span class="inline-flex items-center gap-1 font-medium" :class="clusterColor">
+    <!-- Cluster health. Links to the public status page: somebody looking at a
+         red badge wants to know whether it is them or us (MESHSAT-1134). -->
+    <a href="https://status.meshsat.net" target="_blank" rel="noopener" title="Service status"
+       class="inline-flex items-center gap-1 font-medium hover:underline" :class="clusterColor">
       <span class="w-1.5 h-1.5 rounded-full" :class="clusterColor.replace('text-', 'bg-')"></span>
       HUB
-    </span>
+    </a>
 
     <span class="hidden md:block w-px h-4 bg-gray-700/50" />
 
