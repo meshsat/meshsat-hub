@@ -489,6 +489,13 @@ func (m *mockStore) AdvanceAlert(context.Context, string, *store.Alert, time.Tim
 }
 
 // --- Geofences (MESHSAT-1119) ---
+// Email PGP contacts (MESHSAT-1123).
+func (m *mockStore) SaveEmailContact(context.Context, string, string, string) error { return nil }
+func (m *mockStore) ListEmailContacts(context.Context, string) ([]store.EmailContact, error) {
+	return nil, nil
+}
+func (m *mockStore) DeleteEmailContact(context.Context, string, string) error { return nil }
+
 func (m *mockStore) SaveGeofence(context.Context, string, *store.Geofence) error { return nil }
 func (m *mockStore) ListGeofences(context.Context, string) ([]store.Geofence, error) {
 	return nil, nil

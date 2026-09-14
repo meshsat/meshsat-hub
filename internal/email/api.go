@@ -107,13 +107,23 @@ func (h *APIHandler) AddContact(w http.ResponseWriter, r *http.Request) {
 	if gw == nil {
 		return
 	}
+	// Parse FIRST, so an unusable key is refused before it is stored. Persisting
+	// a key that cannot be read would be worse than refusing it: the load path
+	// skips it and the recipient silently falls back to cleartext.
 	if err := gw.KeyRing.AddContact(req.Email, req.ArmoredKey); err != nil {
 		slog.Error("email: add contact key failed", "email", req.Email, "error", err)
 		api.WriteError(w, http.StatusBadRequest, "invalid PGP key")
 		return
 	}
 
-	slog.Info("email: contact key added", "tenant", hubauth.TenantIDFromContext(r.Context()), "email", req.Email)
+	tid := hubauth.TenantIDFromContext(r.Context())
+	if err := h.pool.PersistContact(r.Context(), tid, req.Email, req.ArmoredKey); err != nil {
+		slog.Error("email: storing the contact key failed", "tenant", tid, "email", req.Email, "error", err)
+		api.WriteError(w, http.StatusInternalServerError, "could not store the key")
+		return
+	}
+
+	slog.Info("email: contact key added", "tenant", tid, "email", req.Email)
 	api.WriteJSON(w, http.StatusCreated, map[string]string{"status": "ok", "email": req.Email})
 }
 
@@ -135,6 +145,12 @@ func (h *APIHandler) DeleteContact(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	gw.KeyRing.RemoveContact(email)
+	tid := hubauth.TenantIDFromContext(r.Context())
+	if err := h.pool.ForgetContact(r.Context(), tid, email); err != nil {
+		slog.Error("email: removing the stored contact key failed", "tenant", tid, "email", email, "error", err)
+		api.WriteError(w, http.StatusInternalServerError, "could not remove the key")
+		return
+	}
 	w.WriteHeader(http.StatusNoContent)
 }
 
