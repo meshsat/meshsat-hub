@@ -329,28 +329,29 @@ test:
   tags: [docker]
   script:
     # -timeout is EXPLICIT because Go's default is 10 minutes PER PACKAGE and this
-    # suite runs close to it on a contended runner (MESHSAT-1088's pipeline).
+    # suite has run close to it on a contended runner (MESHSAT-1088's pipeline).
     #
-    # Measured: `test` and `test:postgres` are queued together, and a runner with
-    # `concurrent = 2` can take BOTH. Each one's `go test ./...` then parallelises
-    # across packages over all 16 cores, so the host is oversubscribed roughly
-    # twofold and the Argon2id-heavy store conformance tests -- deliberately
-    # expensive, by design -- run out of budget. Same commit, same tests:
-    #
-    #   both jobs on runner01  -> 748s and 792s, both killed at the 10m default
-    #   split across 02 and 03 -> 233s and 173s, green
-    #
-    # Locally the two slowest packages take 40s and 55s, so nothing here is hung;
-    # the default was simply too tight to survive sharing a host. A genuine hang
-    # still fails the job, just later, which is the right trade: a false red
-    # teaches people to retry pipelines without reading them.
+    # What the time actually goes to, measured from the JUnit report of job
+    # 519612 (2026-09-15): the job took 408 s, of which the sqlite store
+    # conformance suite was 262 s, and a dozen unrelated tests sat on a ~20 s
+    # plateau. NOT Argon2 -- the whole suite hashes about eight passwords. Every
+    # one of those tests opens a fresh SQLite file and runs all 25 migrations,
+    # and on the runners' overlay filesystem the fsyncs of that cost 14-20 s per
+    # test (1-3 s locally). HUB_SQLITE_TEST_FAST=1 turns durability off for
+    # test databases (internal/store/sqlite DSN); GOMAXPROCS and -p stop two
+    # co-scheduled jobs (`concurrent = 2`) from oversubscribing 16 cores twofold.
+    # A genuine hang still fails the job, just later, which is the right trade:
+    # a false red teaches people to retry pipelines without reading them.
     #
     # gotestsum wraps `go test -json` and writes a JUnit report, so a failure is
     # a named test in the pipeline's Tests tab instead of a line somewhere in a
     # 25-minute log. `--format testname` keeps the raw log readable too; the
     # full go test output of a FAILED test is still printed by gotestsum.
     - go install gotest.tools/gotestsum@v1.13.0
-    - gotestsum --junitfile report.xml --format testname -- -count=1 -timeout 25m ./...
+    - gotestsum --junitfile report.xml --format testname -- -p 4 -count=1 -timeout 25m ./...
+  variables:
+    HUB_SQLITE_TEST_FAST: "1"
+    GOMAXPROCS: "8"
   artifacts:
     when: always
     reports:
@@ -371,12 +372,14 @@ test:postgres:
     POSTGRES_HOST_AUTH_METHOD: trust
     POSTGRES_DB: meshsat_test
     HUB_TEST_POSTGRES_DSN: "postgres://postgres@pg:5432/meshsat_test?sslmode=disable"
+    HUB_SQLITE_TEST_FAST: "1"
+    GOMAXPROCS: "8"
   script:
     # Same reasoning as the `test` job above: explicit budget, not the 10m default.
-    # This job is the one that hit it first, because the store conformance suite is
-    # where the password hashing lives.
+    # This job is the one that hit it first, because the store conformance suite
+    # opens the most fresh databases.
     - go install gotest.tools/gotestsum@v1.13.0
-    - gotestsum --junitfile report.xml --format testname -- -count=1 -timeout 25m ./internal/store/...
+    - gotestsum --junitfile report.xml --format testname -- -p 4 -count=1 -timeout 25m ./internal/store/...
   artifacts:
     when: always
     reports:
