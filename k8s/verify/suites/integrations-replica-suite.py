@@ -48,10 +48,22 @@ def purge(t):
 
 
 def pods():
-    return subprocess.run(
-        NS + ["get", "pods", "-l", "app.kubernetes.io/name=hub", "-o",
-              "jsonpath={range .items[*]}{.metadata.name}{'\\n'}{end}"],
-        capture_output=True, text=True).stdout.split()
+    """Only replicas that are Running, Ready and not terminating: during a
+    rollout the label also matches the pod on its way out, which answers '?'
+    and turns a healthy roll into a false failure."""
+    out = subprocess.run(NS + ["get", "pods", "-l", "app.kubernetes.io/name=hub", "-o", "json"],
+                         capture_output=True, text=True).stdout
+    try:
+        items = json.loads(out)["items"]
+    except (ValueError, KeyError):
+        return []
+    live = []
+    for it in items:
+        if it["status"].get("phase") != "Running" or it["metadata"].get("deletionTimestamp"):
+            continue
+        if all(c.get("ready") for c in it["status"].get("containerStatuses", [])):
+            live.append(it["metadata"]["name"])
+    return live
 
 
 def configured_on(pod, key, feature="notifications"):
