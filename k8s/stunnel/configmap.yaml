@@ -1,7 +1,7 @@
 # deploy/stunnel/reticulum.conf translated for the cluster: TLS termination with
 # bridge client certificate verification, forwarding raw HDLC to the Hub's
 # Reticulum TCP listener. Same bridge CA as NATS (Secret meshsat-bridge-ca).
-# Certificate renewals need a rollout restart (stunnel reads files at start).
+# stunnel reads the files at start; Reloader rolls it on a Secret change (MESHSAT-1150).
 apiVersion: v1
 kind: ConfigMap
 metadata:

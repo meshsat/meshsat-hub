@@ -21,6 +21,10 @@ metadata:
   namespace: meshsat-tak
   labels:
     app.kubernetes.io/name: tak-operator
+  annotations:
+    # Reloader (MESHSAT-1150): the operator reads TAK_OTS_IMAGE and its
+    # credentials once at start; a ConfigMap or Secret change now recreates it.
+    reloader.stakater.com/auto: "true"
 spec:
   replicas: 1
   strategy:

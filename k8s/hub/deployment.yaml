@@ -10,6 +10,13 @@ metadata:
   namespace: meshsat-hub
   labels:
     app.kubernetes.io/name: hub
+  annotations:
+    # Reloader (infra repo k8s/_core/reloader, MESHSAT-1150): a change to any
+    # Secret or ConfigMap this pod references -- the ExternalSecret refreshing
+    # after a rotation in OpenBao, an edit to the ConfigMap -- becomes an
+    # ordinary RollingUpdate under the PDB. Env is read once at start; before
+    # this the pods kept the old value until somebody ran rollout restart.
+    reloader.stakater.com/auto: "true"
 spec:
   replicas: 2
   # Three eligible workers and two replicas, so a surge pod has a node to land

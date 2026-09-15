@@ -52,8 +52,8 @@ data:
   # from the members of HUB_OIDC_ADMIN_GROUP in the identity provider, so adding
   # a platform admin there is all it takes to start receiving these -- no edit
   # here, no redeploy. Set it only to send somewhere else instead, such as a
-  # shared alias or a ticket queue, and remember that a ConfigMap change needs
-  # `kubectl -n meshsat-hub rollout restart deploy/hub` to reach a running pod.
+  # shared alias or a ticket queue. A ConfigMap change rolls the Deployment by
+  # itself (Reloader annotation on deployment.yaml, MESHSAT-1150).
   # HUB_ADMIN_NOTIFY_EMAIL: ""
   # The owner's MeshSat ID attaches to the migrated `default` tenant at first login
   # instead of creating a new one (MR 16); everyone else gets their own tenant.
