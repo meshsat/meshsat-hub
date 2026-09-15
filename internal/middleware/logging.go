@@ -28,6 +28,10 @@ func (sr *statusRecorder) Hijack() (net.Conn, *bufio.ReadWriter, error) {
 	return nil, nil, http.ErrNotSupported
 }
 
+// Unwrap lets http.ResponseController reach the server's writer through the
+// recorder (see metrics.statusWriter.Unwrap).
+func (sr *statusRecorder) Unwrap() http.ResponseWriter { return sr.ResponseWriter }
+
 // Flush keeps streaming responses working through the recorder.
 func (sr *statusRecorder) Flush() {
 	if f, ok := sr.ResponseWriter.(http.Flusher); ok {

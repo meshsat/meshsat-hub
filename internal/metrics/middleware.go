@@ -34,6 +34,12 @@ func (w *statusWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
 	return nil, nil, http.ErrNotSupported
 }
 
+// Unwrap lets http.ResponseController reach the server's writer, so a
+// handler that waits longer than the server's WriteTimeout (an out-of-band
+// command over SMS, MESHSAT-1164) can extend its own deadline instead of
+// having the connection cut under it with no response.
+func (w *statusWriter) Unwrap() http.ResponseWriter { return w.ResponseWriter }
+
 // Flush keeps streaming responses working through the wrapper.
 func (w *statusWriter) Flush() {
 	if f, ok := w.ResponseWriter.(http.Flusher); ok {
