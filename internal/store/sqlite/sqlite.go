@@ -7,6 +7,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"os"
 	"strings"
 	"time"
 
@@ -27,13 +28,28 @@ type DB struct {
 // New opens a SQLite database at the given path.
 // slowQueryThreshold controls slow query logging (0 = disabled).
 func New(path string, slowQueryThreshold time.Duration) (*DB, error) {
-	dsn := fmt.Sprintf("file:%s?_journal_mode=WAL&_busy_timeout=5000&_foreign_keys=ON&_synchronous=NORMAL", path)
-	conn, err := sql.Open("sqlite", dsn)
+	conn, err := sql.Open("sqlite", DSN(path))
 	if err != nil {
 		return nil, fmt.Errorf("sqlite open: %w", err)
 	}
 	conn.SetMaxOpenConns(1) // SQLite write serialization
 	return &DB{db: dbwrap.NewObservedDB(conn, "sqlite", slowQueryThreshold), rawDB: conn}, nil
+}
+
+// DSN is the connection string New opens. Production is WAL with
+// synchronous=NORMAL. With HUB_SQLITE_TEST_FAST=1 in the environment -- set
+// only by the CI test jobs and the store conformance suite -- durability is
+// switched off: every test opens a fresh file and runs all migrations, and
+// on the shared runners' overlay filesystem the fsyncs of that cost 14-20 s
+// per test (locally 1-3 s), which is where the "Argon2-heavy conformance
+// suite" folklore in the CI file came from. Nothing in production sets it.
+func DSN(path string) string {
+	sync := "NORMAL"
+	journal := "WAL"
+	if os.Getenv("HUB_SQLITE_TEST_FAST") == "1" {
+		sync, journal = "OFF", "MEMORY"
+	}
+	return fmt.Sprintf("file:%s?_journal_mode=%s&_busy_timeout=5000&_foreign_keys=ON&_synchronous=%s", path, journal, sync)
 }
 
 func (d *DB) Close() error { return d.db.Close() }
