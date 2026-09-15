@@ -81,7 +81,7 @@ func (s *Scheduler) tick(ctx context.Context) {
 		} else {
 			slog.Info("scheduler: sent", "id", m.ID, "imei", m.DeviceIMEI)
 		}
-		if updateErr := s.store.UpdateMessageStatus(ctx, "", m.ID, status, errMsg); updateErr != nil {
+		if updateErr := s.store.UpdateMessageStatus(ctx, m.TenantID, m.ID, status, errMsg); updateErr != nil {
 			slog.Error("scheduler: update status failed", "id", m.ID, "error", updateErr)
 		}
 	}

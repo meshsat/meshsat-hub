@@ -186,13 +186,17 @@ func (d *DB) ListScheduledMessages(ctx context.Context, before time.Time, limit 
 			m.ScheduledAt = utc(scheduledAt.Time)
 		}
 		m.CreatedAt = utc(m.CreatedAt)
+		m.TenantID = tenantID
 		msgs = append(msgs, m)
 	}
 	return msgs, rows.Err()
 }
 
-func (d *DB) UpdateMessageStatus(ctx context.Context, _ string, id string, status string, errMsg string) error {
-	_, err := d.db.ExecContext(ctx, "UPDATE messages SET status=$1, error=$2 WHERE id=$3", status, errMsg, id)
+func (d *DB) UpdateMessageStatus(ctx context.Context, tenantID string, id string, status string, errMsg string) error {
+	// The tenant used to be ignored here (`_ string`), so any caller holding a
+	// message id could rewrite another tenant's row. Found by the scoping
+	// ratchet (MESHSAT-1149).
+	_, err := d.db.ExecContext(ctx, "UPDATE messages SET status=$1, error=$2 WHERE id=$3 AND tenant_id=$4", status, errMsg, id, tenantID)
 	return err
 }
 

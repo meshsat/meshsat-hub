@@ -647,6 +647,11 @@ type Message struct {
 	Lon         float64   `json:"lon,omitempty"`
 	ScheduledAt time.Time `json:"scheduled_at,omitempty"`
 	CreatedAt   time.Time `json:"created_at"`
+	// TenantID is set on rows read by platform-wide jobs (ListScheduledMessages),
+	// which have no tenant of their own and must hand the row's tenant back to
+	// the store when they update it (MESHSAT-1149). Tenant-scoped reads leave
+	// it empty: the caller already knows.
+	TenantID string `json:"tenant_id,omitempty"`
 }
 
 // WebhookConfig defines an outbound webhook target.
