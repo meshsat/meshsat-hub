@@ -51,10 +51,6 @@ def hub(path, method="GET", body=None, token=None, opener=None, tenant="default"
     except urllib.error.HTTPError as e:
         return e.code, e.read().decode()[:300]
 
-def akshell(code):
-    return subprocess.run(CTX[:3]+["--context","notrf01","-n","omoikane","exec","-i","deploy/auth-worker","--","ak","shell","-c",code],
-                          capture_output=True, text=True).stdout
-
 results=[]
 def check(n, ok, d=""):
     results.append((n,ok)); print(("  PASS  " if ok else "  FAIL  ")+n+(("   "+d) if d else ""))
