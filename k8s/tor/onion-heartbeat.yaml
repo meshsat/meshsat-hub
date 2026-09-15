@@ -1,17 +1,24 @@
-# The .onion as a row on status.meshsat.net (MESHSAT-1134).
+# The .onion row on status.meshsat.net: a Tor CLIENT that fetches the Hub's
+# /healthz through the Tor network every ten minutes and beats the
+# `tor-onion` HEARTBEAT monitor when it gets a 200. Pod Running, the hostname
+# file present and "Bootstrapped 100%" on the hidden service all say nothing
+# about introduction points; only a fetch through the network does.
 #
-# Nothing cheaper than a fetch THROUGH the Tor network is honest here: pod
-# Running, the hostname file, "Bootstrapped 100%" and /api/tor/onion were all
-# green through the fsGroup outage (see deployment.yaml). So every ten minutes
-# this Job starts a throwaway Tor client, fetches the Hub's /healthz over the
-# hidden service, and only then beats a Kener HEARTBEAT monitor. Silence for
-# 25 min shows DEGRADED on the page, 45 min DOWN.
+# A Deployment, not a CronJob (2026-09-15). The CronJob version bootstrapped a
+# fresh Tor from nothing every run: consensus, descriptors, new guards, then a
+# cold rendezvous, all inside a 7-minute deadline whose expiry deleted the
+# pod and its log. Half the runs failed and none of them left a trace to
+# read. This client bootstraps once and keeps its state (consensus, guards,
+# cached HS descriptors) for as long as the pod lives, so each probe is only
+# the rendezvous, retried with a bounded curl timeout, and a failure is
+# logged with Tor's own notices beside it.
 #
-# One container, deliberately: a tor sidecar never exits, so a two-container
-# Job would never complete. The image ships tor, sh and curl (checked
-# 2026-09-14) and runs as uid 100; torrc and DataDirectory live in a /tmp emptyDir.
-apiVersion: batch/v1
-kind: CronJob
+# tor needs its torrc and DataDirectory under /tmp: it refuses -f /dev/null,
+# a root-owned emptyDir, and the image torrc's log path on a read-only root.
+# --defaults-torrc points at an empty file so nothing from the image's own
+# torrc (DataDirectory /var/lib/tor, which this uid cannot create) leaks in.
+apiVersion: apps/v1
+kind: Deployment
 metadata:
   name: onion-heartbeat
   namespace: meshsat-hub
@@ -19,74 +26,84 @@ metadata:
     app.kubernetes.io/name: tor
     app.kubernetes.io/component: onion-heartbeat
 spec:
-  schedule: "*/10 * * * *"
-  concurrencyPolicy: Forbid
-  successfulJobsHistoryLimit: 1
-  failedJobsHistoryLimit: 3
-  jobTemplate:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: onion-heartbeat
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: onion-heartbeat
     spec:
-      backoffLimit: 0
-      activeDeadlineSeconds: 420
-      template:
-        metadata:
-          labels:
-            app.kubernetes.io/name: onion-heartbeat
-        spec:
-          restartPolicy: Never
-          # Control-plane tier, beside tor-0 (see deployment.yaml for why).
-          nodeSelector:
-            node-role.kubernetes.io/control-plane: ""
-          tolerations:
-            - {key: node-role.kubernetes.io/control-plane, operator: Exists, effect: NoSchedule}
-          securityContext:
-            runAsNonRoot: true
-            runAsUser: 100
-            runAsGroup: 101
-            seccompProfile: {type: RuntimeDefault}
-          containers:
-            - name: probe
-              # osminogin/tor-simple, pinned (tor 0.4.9.12)
-              image: docker.io/osminogin/tor-simple@sha256:6ad8d9f6880c0c0f0fc1fbe453c4ae0904d901924fb8a797f60d7d1475db1c89
-              command: ["/bin/sh", "-ec"]
-              args:
-                - |
-                  # Not the image's torrc: it logs to /var/log/tor, which does not exist
-                  # on a read-only root, so tor exited before bootstrapping (and --quiet
-                  # hid it). tor also refuses -f /dev/null ("Unable to open configuration
-                  # file"), so the three lines it needs are written to the writable /tmp.
-                  # tor refuses a DataDirectory it does not own, and an emptyDir mounts
-                  # root-owned; a subdirectory made here is owned by uid 100.
-                  mkdir -p /tmp/tor && chmod 700 /tmp/tor
-                  printf 'SocksPort 127.0.0.1:9050\nDataDirectory /tmp/tor\nLog notice stderr\n' > /tmp/torrc
-                  tor -f /tmp/torrc &
-                  code=000
-                  # Bootstrap plus descriptor fetch is 20-90 s on a good day; keep trying
-                  # inside the Job's own deadline rather than trusting one attempt.
-                  for i in $(seq 1 40); do
-                    sleep 5
-                    code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 45 \
-                      --socks5-hostname 127.0.0.1:9050 "http://${ONION}/healthz" 2>/dev/null) || code=000
-                    [ "$code" = "200" ] && break
-                  done
-                  if [ "$code" = "200" ]; then
-                    curl -fsS --max-time 20 -o /dev/null "https://status.meshsat.net/ext/heartbeat/tor-onion/${HEARTBEAT_SECRET}" && echo "onion reachable, heartbeat sent"
+      nodeSelector:
+        node-role.kubernetes.io/control-plane: ""
+      tolerations:
+        - {key: node-role.kubernetes.io/control-plane, operator: Exists, effect: NoSchedule}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 100
+        runAsGroup: 101
+        seccompProfile: {type: RuntimeDefault}
+      containers:
+        - name: probe
+          image: docker.io/osminogin/tor-simple@sha256:6ad8d9f6880c0c0f0fc1fbe453c4ae0904d901924fb8a797f60d7d1475db1c89
+          command: ["/bin/sh", "-ec"]
+          args:
+            - |
+              mkdir -p /tmp/tor && chmod 700 /tmp/tor
+              : > /tmp/torrc-defaults
+              printf 'SocksPort 127.0.0.1:9050\nDataDirectory /tmp/tor\nLog notice stderr\n' > /tmp/torrc
+              tor --defaults-torrc /tmp/torrc-defaults -f /tmp/torrc &
+              TOR=$!
+              probe() {
+                # Up to six rendezvous attempts, 60 s each: a cold descriptor
+                # fetch plus rendezvous is normally 5-20 s; six misses in a row
+                # is a real outage, not a slow circuit.
+                for i in 1 2 3 4 5 6; do
+                  code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 60 \
+                    --socks5-hostname 127.0.0.1:9050 "http://${ONION}/healthz" 2>/dev/null) || code=000
+                  [ "$code" = "200" ] && return 0
+                  echo "probe: attempt $i got HTTP $code" >&2
+                  sleep 10
+                done
+                return 1
+              }
+              # First probe waits for the bootstrap; the loop then beats every
+              # PERIOD seconds measured from the start of each probe.
+              sleep 15
+              while kill -0 "$TOR" 2>/dev/null; do
+                start=$(date +%s)
+                if probe; then
+                  if curl -fsS --max-time 20 -o /dev/null "https://status.meshsat.net/ext/heartbeat/tor-onion/${HEARTBEAT_SECRET}"; then
+                    echo "$(date -u +%FT%TZ) onion reachable, heartbeat sent"
                   else
-                    echo "onion NOT reachable through Tor (last HTTP $code); no heartbeat" >&2
-                    exit 1
+                    echo "$(date -u +%FT%TZ) onion reachable but the heartbeat POST failed" >&2
                   fi
-              env:
-                - name: ONION
-                  valueFrom: {secretKeyRef: {name: tor-identity, key: hostname}}
-                - name: HEARTBEAT_SECRET
-                  valueFrom: {secretKeyRef: {name: tor-identity, key: onion_heartbeat_secret}}
-              securityContext:
-                allowPrivilegeEscalation: false
-                readOnlyRootFilesystem: true
-                capabilities: {drop: ["ALL"]}
-              resources:
-                requests: {cpu: 50m, memory: 64Mi}
-                limits: {memory: 256Mi}
-              volumeMounts:
-                - {name: tmp, mountPath: /tmp}
-          volumes:
-            - {name: tmp, emptyDir: {}}
+                else
+                  echo "$(date -u +%FT%TZ) onion NOT reachable through Tor after 6 attempts; no heartbeat" >&2
+                fi
+                elapsed=$(( $(date +%s) - start ))
+                [ "$elapsed" -lt "${PERIOD}" ] && sleep $(( PERIOD - elapsed ))
+              done
+              echo "tor exited; restarting the pod" >&2
+              exit 1
+          env:
+            - name: PERIOD
+              value: "600"
+            - name: ONION
+              valueFrom: {secretKeyRef: {name: tor-identity, key: hostname}}
+            - name: HEARTBEAT_SECRET
+              valueFrom: {secretKeyRef: {name: tor-identity, key: onion_heartbeat_secret}}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: ["ALL"]}
+          resources:
+            requests: {cpu: 20m, memory: 64Mi}
+            limits: {memory: 256Mi}
+          volumeMounts:
+            - {name: tmp, mountPath: /tmp}
+      volumes:
+        - {name: tmp, emptyDir: {}}
