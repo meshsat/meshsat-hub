@@ -307,6 +307,9 @@ func (m *mockStore) UpdateBridge(context.Context, string, string, store.BridgeUp
 func (m *mockStore) DeleteBridge(context.Context, string, string) error          { return nil }
 func (m *mockStore) SetBridgeOnline(context.Context, string, string, bool) error { return nil }
 func (m *mockStore) TouchBridgeLastSeen(context.Context, string, string) error   { return nil }
+func (m *mockStore) RecordBridgeHealth(context.Context, string, string, string, string, time.Time) error {
+	return nil
+}
 func (m *mockStore) SetBridgeLastReport(context.Context, string, string, string, time.Time) error {
 	return nil
 }

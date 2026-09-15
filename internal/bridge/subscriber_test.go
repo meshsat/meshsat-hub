@@ -79,6 +79,12 @@ func (m *mockStore) TouchBridgeLastSeen(_ context.Context, _ string, bridgeID st
 	return nil
 }
 
+func (m *mockStore) RecordBridgeHealth(ctx context.Context, tenantID string, bridgeID string, health string, _ string, _ time.Time) error {
+	_ = m.SetBridgeHealth(ctx, tenantID, bridgeID, health)
+	_ = m.TouchBridgeLastSeen(ctx, tenantID, bridgeID)
+	return m.SetBridgeOnline(ctx, tenantID, bridgeID, true)
+}
+
 func (m *mockStore) SetBridgeLastReport(context.Context, string, string, string, time.Time) error {
 	return nil
 }

@@ -197,6 +197,15 @@ func (d *DB) MarkStaleBridgesOffline(ctx context.Context, timeout time.Duration)
 	return res.RowsAffected()
 }
 
+func (d *DB) RecordBridgeHealth(ctx context.Context, tenantID string, bridgeID string, health string, bearer string, at time.Time) error {
+	_, err := d.db.ExecContext(ctx,
+		`UPDATE bridges SET last_health=$1, last_seen=now(), last_report_bearer=$2, last_report_at=$3,
+		        online=TRUE, updated_at=now()
+		 WHERE bridge_id=$4 AND tenant_id=$5`,
+		defaultJSON(health, "{}"), bearer, at.UTC(), bridgeID, tenantID)
+	return err
+}
+
 func (d *DB) SetBridgeHealth(ctx context.Context, tenantID string, bridgeID string, health string) error {
 	_, err := d.db.ExecContext(ctx,
 		"UPDATE bridges SET last_health=$1, updated_at=now() WHERE bridge_id=$2 AND tenant_id=$3",

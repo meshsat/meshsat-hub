@@ -402,22 +402,13 @@ func (s *Subscriber) handleBridgeHealth(topic string, payload []byte) {
 	ctx := context.Background()
 	tenantID := s.tenants.ForBridgeTopic(context.Background(), bridgeID, bridgeTopicTenant(topic))
 
-	if err := s.store.SetBridgeHealth(ctx, tenantID, bridgeID, string(payload)); err != nil {
-		slog.Debug("bridge: failed to set health", "error", err, "bridge", bridgeID)
-	}
-
-	if err := s.store.TouchBridgeLastSeen(ctx, tenantID, bridgeID); err != nil {
-		slog.Debug("bridge: failed to touch last_seen", "error", err, "bridge", bridgeID)
-	}
-	if err := s.store.SetBridgeLastReport(ctx, tenantID, bridgeID, "mqtt", time.Now().UTC()); err != nil {
-		slog.Debug("bridge: failed to set last report", "error", err, "bridge", bridgeID)
-	}
-
-	// A bridge sending health is unambiguously alive. Re-set online=true in
-	// case the reaper marked it offline (e.g. after Hub/NATS restart where
-	// the retained birth was treated as stale but health keeps flowing).
-	if err := s.store.SetBridgeOnline(ctx, tenantID, bridgeID, true); err != nil {
-		slog.Debug("bridge: failed to re-set online from health", "error", err, "bridge", bridgeID)
+	// One statement for the whole report: health, last_seen, last report
+	// (bearer, time) and online=true, because a bridge sending health is
+	// unambiguously alive even if the reaper marked it offline. This was four
+	// UPDATEs of the same row, and with both replicas processing every report
+	// they queued behind each other's synchronous commits (MESHSAT-1155).
+	if err := s.store.RecordBridgeHealth(ctx, tenantID, bridgeID, string(payload), "mqtt", time.Now().UTC()); err != nil {
+		slog.Debug("bridge: failed to record health", "error", err, "bridge", bridgeID)
 	}
 
 	// Refresh Reticulum route TTL on each health report so routes stay alive
