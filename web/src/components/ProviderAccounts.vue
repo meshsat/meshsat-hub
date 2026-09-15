@@ -144,7 +144,12 @@ async function copy(text) {
             <label :for="`${a.provider}-${f.key}`" class="block text-xs text-gray-400 mb-1">
               {{ f.label }}<span v-if="f.required" class="text-ms-error"> *</span>
             </label>
-            <input :id="`${a.provider}-${f.key}`" v-model="drafts[a.provider][f.key]" :type="f.secret ? 'password' : 'text'"
+            <!-- A PEM block pasted into a single-line input loses its newlines and can never parse; multiline fields get a textarea. -->
+            <textarea v-if="f.multiline" :id="`${a.provider}-${f.key}`" v-model="drafts[a.provider][f.key]" rows="5" spellcheck="false"
+              :placeholder="f.secret && a.values[f.key] ? `stored (${a.values[f.key]}), leave empty to keep` : (f.default || '-----BEGIN ...')"
+              autocomplete="off"
+              class="w-full px-3 py-1.5 bg-ms-well border border-ms-border rounded text-xs font-mono text-ms-text placeholder-ms-muted focus:outline-none focus:border-brand-primary"></textarea>
+            <input v-else :id="`${a.provider}-${f.key}`" v-model="drafts[a.provider][f.key]" :type="f.secret ? 'password' : 'text'"
               :placeholder="f.secret && a.values[f.key] ? `stored (${a.values[f.key]}), leave empty to keep` : (f.generate ? 'generated when empty' : f.default || '')"
               autocomplete="off"
               class="w-full px-3 py-1.5 bg-ms-well border border-ms-border rounded text-sm text-ms-text placeholder-ms-muted focus:outline-none focus:border-brand-primary" />

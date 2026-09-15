@@ -49,6 +49,10 @@ type Capability struct {
 	// Any ONE of them is enough -- notifications are delivered by Apprise or by
 	// ntfy, and a tenant with either is configured.
 	Providers []string `json:"providers"`
+	// Requires, when set, names account fields that must be non-empty on top
+	// of the account existing: the Cloudloop MQTT feed is part of the Cloudloop
+	// account, and an account with only an API key does not have it.
+	Requires []string `json:"-"`
 	// Configured is the whole point: does an account this tenant can use exist.
 	Configured bool `json:"configured"`
 	// Platform is true when what satisfies it is the operator's own account
@@ -101,6 +105,13 @@ var featureCapabilities = []Capability{
 		Reason:    "APRS-IS requires an amateur radio licence. Nothing is transmitted until you add your own callsign and passcode under Settings → Integrations — the passcode is derived from your callsign, not a password you choose.",
 	},
 	{
+		Feature:   "cloudloop_mqtt",
+		Label:     "Cloudloop MQTT feed",
+		Providers: []string{integrations.ProviderCloudloop},
+		Requires:  []string{"account_id", "mqtt_broker_url", "mqtt_ca_pem", "mqtt_client_cert_pem", "mqtt_client_key_pem"},
+		Reason:    "Satellite messages arrive by webhook only. To receive them over Cloudloop's MQTT feed as well, add the broker, your account id and the three certificate blocks to your Cloudloop account under Settings → Integrations.",
+	},
+	{
 		Feature:   "tak",
 		Label:     "TAK",
 		Providers: []string{integrations.ProviderTAK},
@@ -131,6 +142,15 @@ func (h *CapabilitiesHandler) resolve(ctx context.Context, tenantID string, c Ca
 			return c, err
 		}
 		if a != nil {
+			complete := true
+			for _, k := range c.Requires {
+				if a.Get(k) == "" {
+					complete = false
+				}
+			}
+			if !complete {
+				continue
+			}
 			c.Configured = true
 			c.Platform = a.Platform
 			c.Reason = ""

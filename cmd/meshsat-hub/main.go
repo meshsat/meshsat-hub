@@ -1428,6 +1428,15 @@ func main() {
 		})
 	}
 
+	// Tenants' own Cloudloop MQTT feeds (MESHSAT-1151): one mutual-TLS
+	// connection per tenant that filled in the MQTT fields of its Cloudloop
+	// account, reconciled every 30 s on the leader (the same reason as the
+	// platform feed above: one session per client id at the broker). The
+	// platform feed stays the environment's and belongs to the default tenant.
+	leaderSingletons.Add("cloudloop-mqtt-tenants", func(sctx context.Context) {
+		cloudloop.NewMQTTPool(providerAccounts, clHandler.ProcessLingoMO).Run(sctx, 30*time.Second)
+	})
+
 	r := chi.NewRouter()
 	r.Use(middleware.Recoverer)
 	// middleware.RealIP was removed (chi v5.3.0 deprecates it as spoofable —
