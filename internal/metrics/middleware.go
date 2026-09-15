@@ -1,7 +1,9 @@
 package metrics
 
 import (
+	"bufio"
 	"fmt"
+	"net"
 	"net/http"
 	"time"
 
@@ -17,6 +19,26 @@ type statusWriter struct {
 func (w *statusWriter) WriteHeader(code int) {
 	w.code = code
 	w.ResponseWriter.WriteHeader(code)
+}
+
+// Hijack lets a WebSocket upgrade through the wrapper. Embedding the
+// http.ResponseWriter INTERFACE promotes only its three methods, so every
+// upgrade under this middleware answered 500 "response does not implement
+// http.Hijacker": the relay's first live run (MESHSAT-612) and, it turns
+// out, the dashboard's own /api/ws since this middleware was added.
+func (w *statusWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
+	if h, ok := w.ResponseWriter.(http.Hijacker); ok {
+		w.code = http.StatusSwitchingProtocols
+		return h.Hijack()
+	}
+	return nil, nil, http.ErrNotSupported
+}
+
+// Flush keeps streaming responses working through the wrapper.
+func (w *statusWriter) Flush() {
+	if f, ok := w.ResponseWriter.(http.Flusher); ok {
+		f.Flush()
+	}
 }
 
 // ChiMiddleware records HTTP request duration, count, and active connections
