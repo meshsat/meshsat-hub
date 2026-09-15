@@ -12,8 +12,10 @@
 set -euo pipefail
 
 NS=(--context notrf01 -n meshsat-hub)
-cd "$(dirname "$0")/.."
-git fetch -q origin main
+if [ "${VERIFY_IN_CLUSTER:-0}" != "1" ]; then
+  cd "$(dirname "$0")/../../.."
+  git fetch -q origin main
+fi
 
 # Only the 64 hex characters. The pin line carries a trailing comment, and a
 # naive cut captures it -- which broke the first version of this check while a
@@ -22,11 +24,22 @@ git fetch -q origin main
 # its output outgrows a pipe buffer, and under pipefail that is exit 141 -- the
 # trap scripts/check-pipefail-sigpipe.sh exists to catch, and it caught this
 # very line in pipeline 54000. `sed -n 1p` reads to EOF.
-want=$(git show origin/main:k8s/kustomization.yaml \
-       | grep 'digest:' | sed -n 's/.*sha256:\([0-9a-f]\{64\}\).*/\1/p' | sed -n 1p)
-have=$(kubectl "${NS[@]}" get deploy hub \
-       -o jsonpath='{.spec.template.spec.containers[0].image}' \
-       | sed -n 's/.*@sha256:\([0-9a-f]\{64\}\).*/\1/p')
+if [ "${VERIFY_IN_CLUSTER:-0}" = "1" ]; then
+  # Inside the cluster there is no git checkout. The pin is what Argo applied
+  # to the Deployment; "deployed" is what every hub pod actually pulled
+  # (imageID), the comparison that catches a pod still on the previous digest.
+  want=$(kubectl "${NS[@]}" get deploy hub -o jsonpath='{.spec.template.spec.containers[0].image}' \
+         | sed -n 's/.*@sha256:\([0-9a-f]\{64\}\).*/\1/p')
+  have=$(kubectl "${NS[@]}" get pods -l app.kubernetes.io/name=hub \
+         -o jsonpath='{range .items[*]}{.status.containerStatuses[?(@.name=="hub")].imageID}{"\n"}{end}' \
+         | sed -n 's/.*sha256:\([0-9a-f]\{64\}\).*/\1/p' | sort -u | tr '\n' ' ' | sed 's/ $//')
+else
+  want=$(git show origin/main:k8s/kustomization.yaml \
+         | grep 'digest:' | sed -n 's/.*sha256:\([0-9a-f]\{64\}\).*/\1/p' | sed -n 1p)
+  have=$(kubectl "${NS[@]}" get deploy hub \
+         -o jsonpath='{.spec.template.spec.containers[0].image}' \
+         | sed -n 's/.*@sha256:\([0-9a-f]\{64\}\).*/\1/p')
+fi
 
 echo "pinned:   ${want:-<none>}"
 echo "deployed: ${have:-<none>}"

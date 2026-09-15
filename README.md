@@ -2,7 +2,7 @@
 
 Self-hosted management platform for satellite-connected field devices. Ingests messages from Iridium constellations, provides a web dashboard with live mapping, and bridges traffic to TAK, APRS-IS, webhooks, and push notifications. Designed for search-and-rescue, remote monitoring, and off-grid communications where reliability matters more than features.
 
-Runs as a single Docker Compose stack or an active-active cluster with MariaDB Galera synchronous replication across geographically distributed sites.
+Runs as a single Docker Compose stack on one server, or on Kubernetes with PostgreSQL and NATS, which is how the hosted service at hub.meshsat.net runs it.
 
 **Current version: v1.7** -- Fleet management UI, full observability stack, mTLS bridge authentication, Reticulum transport relay.
 
@@ -77,13 +77,15 @@ Vue 3 SPA with 21 views: dashboard with KPI sparklines, devices, messages, full-
 
 ## Deployment
 
-Three deployment tiers. See [docs/deployment.md](docs/deployment.md) for complete step-by-step guides.
+The operator's guide is [docs.meshsat.net/hub/self-hosting](https://docs.meshsat.net/hub/self-hosting);
+[docs/deployment.md](docs/deployment.md) holds the notes for the hosted deployment.
 
-| Tier | Mode | Database | Message Bus | Use Case |
-|------|------|----------|-------------|----------|
-| 1 | `standalone` | SQLite | Mosquitto | Single server, development, edge |
-| 2 | `cluster` | MariaDB Galera | NATS + leaf nodes | Production HA, multi-site, mTLS |
-| 3 | `kubernetes` | MariaDB Galera | NATS StatefulSet | Cloud-native, auto-scaling |
+| Shape | Mode | Database | Message Bus | Use Case |
+|-------|------|----------|-------------|----------|
+| One server | `standalone` | SQLite | Mosquitto | a team, a region, an exercise |
+| Kubernetes | `kubernetes` | PostgreSQL (CloudNativePG) | NATS (MQTT + WebSocket mTLS) | replicas, more than one site; what hub.meshsat.net runs |
+
+The two-host MariaDB Galera cluster tier was retired on 2026-09-08.
 
 ### Standalone (quickstart)
 
@@ -97,46 +99,39 @@ docker compose -f docker-compose.prod.yml up -d
 curl https://your-domain.com/healthz
 ```
 
-### Cluster
+### Kubernetes
 
-Two or more hosts with MariaDB Galera (synchronous replication), NATS (cross-site MQTT via leaf nodes), Redis (shared rate limits), and HAProxy (SNI passthrough for mTLS). Includes garbd arbitrator for 3-voter quorum.
-
-```bash
-cp .env.cluster.example .env   # on each node, fill in IPs
-# Follow the 7-step guide in docs/deployment.md
-```
-
-Templates provided:
-- `.env.standalone.example` -- standalone configuration
-- `.env.cluster.example` -- cluster configuration (no hardcoded IPs)
-- `deploy/haproxy/haproxy.cfg.example` -- HAProxy SNI passthrough for mTLS
-- `k8s/nats/configmap.yaml` -- NATS with mTLS WebSocket (the production config)
+The kustomize tree in `k8s/` is what the hosted service runs from: `kubectl kustomize k8s/ |
+kubeconform -strict -ignore-missing-schemas` is the check CI runs. Read `k8s/CONVENTIONS.md`
+first; `k8s/nats/configmap.yaml` is the NATS configuration with mTLS WebSocket for bridges.
 
 ## Architecture
 
 ```
-                    Internet
-                       |
-              +--------+--------+
-              |                 |
-        VPS (HAProxy)    VPS (HAProxy)
-        SNI passthrough  SNI passthrough
-              |                 |
-       +------+------+  +------+------+
-       |   Node A    |  |   Node B    |
-       |  nginx:8451 |  |  nginx:8451 |
-       |  Hub:6070   |  |  Hub:6070   |
-       |  NATS:1883  |  |  NATS:1883  |
-       |       :9443 |  |       :9443 |  <-- mTLS WebSocket
-       |  Redis      |  |  Redis      |
-       |  MariaDB  <==>  |  MariaDB   |  <-- Galera sync replication
-       |  garbd      |  |             |
-       +------+------+  +------+------+
-              |                 |
-              +-- NATS leaf ----+         <-- Cross-site MQTT routing
+                         Internet
+                            |
+          +-----------------+-----------------+
+          |                 |                 |
+    VPS (HAProxy)     VPS (HAProxy)     VPS (HAProxy)     three edges, SNI routing,
+          |                 |                 |           TLS passthrough for MQTT
+          +-----------------+-----------------+
+                            |
+                 edge relay (hostNetwork DaemonSet)
+                            |
+        +-------------------+-------------------+
+        |                   |                   |
+   ingress-nginx      NATS :9443            stunnel :4243
+   (hub, auth)        MQTT over WebSocket,  Reticulum TLS
+        |             mutual TLS                |
+   Hub x2 (Deployment, Lease election) ---- NATS :1883 (in-cluster MQTT)
+        |
+   PostgreSQL (CloudNativePG, 3 instances) + KeyDB
 ```
 
-Each Hub instance is stateless. MariaDB Galera provides synchronous multi-master replication with a third-node arbitrator (garbd) for quorum. NATS handles cross-site MQTT topic replication via leaf nodes (hub/spoke topology). Redis provides distributed rate limiting and deduplication. Leader election (via NATS or Kubernetes Lease API) ensures singleton tasks run on exactly one node.
+Each Hub replica is stateless. Both subscribe to every topic; anything that must happen once
+(a dispatch, an SOS event, a satellite send) is claimed in the database, and singleton jobs run
+on the holder of a Kubernetes Lease. On one server the same binary runs with SQLite and
+Mosquitto and no election.
 
 ## Configuration
 
@@ -144,13 +139,13 @@ Hub reads `config.yaml` (path: `HUB_CONFIG_FILE`) with environment variable over
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `HUB_MODE` | `standalone` | `standalone`, `cluster`, `kubernetes` |
+| `HUB_MODE` | `standalone` | `standalone` or `kubernetes` |
 | `HUB_PORT` | `6070` | HTTP listen port |
 | `HUB_AUTH_TOKEN` | -- | Static bearer token |
-| `HUB_DATABASE_URL` | -- | MariaDB DSN (cluster/k8s) |
-| `HUB_REDIS_URL` | -- | Redis URL (cluster/k8s) |
+| `HUB_DATABASE_URL` | -- | PostgreSQL DSN (kubernetes) |
+| `HUB_REDIS_URL` | -- | Redis/KeyDB URL (kubernetes) |
 | `HUB_MQTT_BROKER_URL` | `tcp://mqtt:1883` | MQTT broker |
-| `HUB_MQTT_CLIENT_ID` | `meshsat-hub` | **Must be unique per node in cluster** |
+| `HUB_MQTT_CLIENT_ID` | `meshsat-hub` | **Must be unique per replica** (the pod name on Kubernetes) |
 | `HUB_ROCKBLOCK_SECRET` | -- | RockBLOCK webhook HMAC secret |
 | `HUB_CLOUDLOOP_API_KEY` | -- | Cloudloop REST API key (Iridium MT) |
 | `HUB_BRIDGE_OFFLINE_TIMEOUT` | `300` | Seconds before marking bridge offline |
@@ -158,7 +153,7 @@ Hub reads `config.yaml` (path: `HUB_CONFIG_FILE`) with environment variable over
 | `HUB_LOG_LEVEL` | `info` | `debug`, `info`, `warn`, `error` |
 | `HUB_LOG_FORMAT` | `json` | `json` or `text` |
 
-See `.env.standalone.example` and `.env.cluster.example` for the complete list.
+See `.env.standalone.example` and [docs.meshsat.net/reference/hub-configuration](https://docs.meshsat.net/reference/hub-configuration) for the complete list.
 
 ## Development
 
@@ -203,25 +198,20 @@ meshsat-hub/
 |   +-- protocol/               Wire format: birth/death/health/command structs
 |   +-- ratelimit/              Per-device rate limiting (memory + Redis)
 |   +-- rockblock/              RockBLOCK MO webhook handler + audit
-|   +-- store/                  Store interface + SQLite + MariaDB (Galera) impls
+|   +-- store/                  Store interface + SQLite + PostgreSQL impls + conformance suite
 |   |   +-- dbwrap/             DB query instrumentation (timing, slow query, pool stats)
 |   +-- tak/                    TAK/CoT gateway
 |   +-- webhook/                Outbound webhook dispatcher
 |   +-- wireguard/              WireGuard peer management + auto-provisioning
 +-- web/                        Vue 3 SPA source (21 views)
 +-- deploy/
-|   +-- ansible/                Playbooks: bootstrap, deploy, recover, infra
-|   +-- galera/                 Galera compose, entrypoint, garbd Dockerfile
-|   +-- haproxy/                HAProxy SNI passthrough template
 |   +-- grafana/                3 Grafana dashboards + provisioning
-|   +-- k8s/                    Kubernetes manifests
-|   +-- helm/meshsat-hub/       Helm chart
 +-- test/integration/           End-to-end tests (embedded MQTT)
 +-- web/e2e/                    Playwright browser tests
 +-- test/e2e/                   Post-deploy smoke tests
-+-- scripts/                    Galera watchdog, health check, migration
++-- scripts/                    CI gates and the SQLite -> Postgres migration
 +-- docs/
-|   +-- deployment.md           Tier 1/2/3 deployment guide
+|   +-- deployment.md           Notes for the hosted deployment
 |   +-- ROADMAP.md              Version history + planned work
 |   +-- SECURITY_AUDIT.md       SAST/SCA/OWASP findings
 +-- docker-compose.yml          Development
@@ -236,24 +226,22 @@ meshsat-hub/
 ## CI/CD Pipeline
 
 ```
-lint --> security --> test --> build --> package --> pre-deploy --> deploy --> verify --> owasp
+lint --> security --> test + test:postgres --> build --> package --> trivy --> bump_k8s_pin
 ```
 
 | Stage | Description |
 |-------|-------------|
-| lint | golangci-lint + swagger validation |
-| security | gosec (SAST, blocks on HIGH) + govulncheck (known CVEs) |
-| test | `go test ./...` (42 packages) |
+| lint | golangci-lint, swagger, the pipefail gate, the committed web dist |
+| security | gosec (SAST, blocks on HIGH) + govulncheck (known CVEs); OWASP ZAP weekly |
+| test | `go test ./...` with JUnit reports; `test:postgres` against a real server; `test:race` nightly |
 | build | `CGO_ENABLED=0 go build` |
-| package | Docker multi-stage build + push to GHCR |
-| pre-deploy | Galera health gate (cluster_size, wsrep_ready, .env validation) |
-| deploy | Rolling deploy to both DMZ nodes (--no-deps) |
-| verify | Post-deploy healthz + readyz + Galera cluster verification |
-| owasp | Automated OWASP ZAP scan (non-blocking) |
+| package | Docker multi-stage build + push to GHCR, then a Trivy scan |
+| deploy | `bump_k8s_pin` writes the image digest into `k8s/kustomization.yaml`; Argo CD rolls it |
 
 ## Documentation
 
-- [Deployment Guide](docs/deployment.md) -- Tier 1/2/3 setup with templates
+- [Self-hosting guide](https://docs.meshsat.net/hub/self-hosting) -- running your own, one server or Kubernetes
+- [Deployment notes](docs/deployment.md) -- the hosted deployment
 - [Roadmap](docs/ROADMAP.md) -- Version history and planned work
 - [Security Audit](docs/SECURITY_AUDIT.md) -- SAST, SCA, and OWASP scan results
 

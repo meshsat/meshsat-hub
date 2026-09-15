@@ -495,6 +495,28 @@ package:stunnel:
 # trivy:ots is the authoritative gate. The tak-operator config pins the image by
 # digest; bump_k8s_pin does not manage it.
 # -----------------------------------------------------------------------------
+# PACKAGE:VERIFY — the nightly verification runner for the k8s tree
+# (k8s/verify/Dockerfile). Tag = the kubectl version it carries; pinned in
+# k8s/kustomization.yaml.
+# -----------------------------------------------------------------------------
+package:verify:
+  stage: package
+  tags: [docker]
+  image: docker:28
+  needs: []
+  before_script:
+    - echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GHCR_USER" --password-stdin
+  script:
+    - docker build -t ghcr.io/meshsat/meshsat-hub-verify:v1.36.3 -f k8s/verify/Dockerfile k8s/verify
+    - docker push ghcr.io/meshsat/meshsat-hub-verify:v1.36.3
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "schedule"
+      when: never
+    - if: $CI_COMMIT_BRANCH == "main"
+      changes:
+        - k8s/verify/Dockerfile
+
+# -----------------------------------------------------------------------------
 .ots-image:
   variables:
     OTS_IMAGE: "ghcr.io/meshsat/meshsat-hub-ots"

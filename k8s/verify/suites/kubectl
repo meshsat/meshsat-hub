@@ -1,0 +1,19 @@
+#!/bin/sh
+# In-cluster shim for the suites (MESHSAT-1153). They were written on the
+# Claude runner and say `kubectl --context notrf01 ...`; inside the cluster
+# there is exactly one cluster and the ServiceAccount's own credentials, so
+# the context flag is dropped. A context that is NOT this cluster (the NL
+# one, used for one Prometheus read) is refused with exit 3 so the suite can
+# skip that check rather than report a false failure.
+ctx=""; n=$#; skip=0
+while [ "$n" -gt 0 ]; do
+  a="$1"; shift; n=$((n-1))
+  if [ "$skip" = 1 ]; then ctx="$a"; skip=0; continue; fi
+  if [ "$a" = "--context" ]; then skip=1; continue; fi
+  set -- "$@" "$a"
+done
+if [ -n "$ctx" ] && [ "$ctx" != "notrf01" ]; then
+  echo "verify: no access to cluster context $ctx from inside notrf01" >&2
+  exit 3
+fi
+exec /usr/local/bin/kubectl "$@"

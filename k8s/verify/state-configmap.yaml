@@ -1,0 +1,12 @@
+# Facts the nightly verification checks that are not readable from the
+# cluster. RESTORE_DRILL_LAST is written by hand when docs/restore-drill.md is
+# run; the job fails once it is older than 100 days (MESHSAT-1152).
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: hub-verify-state
+  namespace: meshsat-hub
+  labels:
+    app.kubernetes.io/name: hub-verify
+data:
+  RESTORE_DRILL_LAST: ""
