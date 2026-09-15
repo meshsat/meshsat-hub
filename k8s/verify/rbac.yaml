@@ -2,8 +2,8 @@
 # Hub's and the database's state the way they do from the runner: exec into a
 # Hub pod (printenv, wget against localhost), exec psql in the CNPG primary,
 # read the Hub's logs, and for the .onion probe create and delete one throwaway
-# pod. journey-suite also execs `ak shell` in the identity provider to
-# approve and purge its own probe account. Nothing here may create a Secret,
+# pod. journey-suite talks to the identity provider over its REST API with the
+# Hub's own token and needs no exec there. Nothing here may create a Secret,
 # patch a Deployment or read another namespace's Secrets.
 apiVersion: v1
 kind: ServiceAccount
@@ -75,36 +75,6 @@ kind: RoleBinding
 metadata:
   name: hub-verify
   namespace: meshsat-hub-db
-roleRef:
-  apiGroup: rbac.authorization.k8s.io
-  kind: Role
-  name: hub-verify
-subjects:
-  - kind: ServiceAccount
-    name: hub-verify
-    namespace: meshsat-hub
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: Role
-metadata:
-  name: hub-verify
-  namespace: omoikane
-rules:
-  - apiGroups: [""]
-    resources: ["pods"]
-    verbs: ["get", "list"]
-  - apiGroups: [""]
-    resources: ["pods/exec"]
-    verbs: ["create"]
-  - apiGroups: ["apps"]
-    resources: ["deployments"]
-    verbs: ["get"]
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: RoleBinding
-metadata:
-  name: hub-verify
-  namespace: omoikane
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role
