@@ -121,6 +121,10 @@ s, created = ak("/core/users/", "POST", {
         "signup_ip": "203.0.113.7",
         "terms_accepted_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         "email_verified": True,
+        # The Hub approves a probe without mailing it (its address is a
+        # catch-all that lands in the operator's inbox) and the pending-signup
+        # notice does not list it.
+        "verification_probe": True,
     },
 })
 check("the pending account was created", s in (200, 201), f"{s} {str(created)[:160]}")

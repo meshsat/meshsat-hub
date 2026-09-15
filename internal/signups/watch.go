@@ -168,6 +168,11 @@ func (w *Watcher) Once(ctx context.Context) {
 	var actionable []authentik.PendingUser
 	unverified := 0
 	for _, u := range pending {
+		// The nightly verification job's own probe account is approved and
+		// purged by the job itself within a minute; it is not work for anyone.
+		if u.Probe {
+			continue
+		}
 		// An unverified enrolment cannot be approved -- ak.Approve refuses it
 		// with ErrEmailNotVerified -- so naming it as work to do would be
 		// telling the operator to do something the system forbids.
