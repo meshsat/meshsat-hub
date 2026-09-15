@@ -678,13 +678,15 @@ func (d *DB) ListScheduledMessages(ctx context.Context, before time.Time, limit 
 		m.Compressed = compressed != 0
 		m.ScheduledAt, _ = time.Parse(time.DateTime, scheduledAt)
 		m.CreatedAt, _ = time.Parse(time.DateTime, createdAt)
+		m.TenantID = tenantID
 		msgs = append(msgs, m)
 	}
 	return msgs, nil
 }
 
-func (d *DB) UpdateMessageStatus(ctx context.Context, _ string, id string, status string, errMsg string) error {
-	_, err := d.db.ExecContext(ctx, "UPDATE messages SET status=?, error=? WHERE id=?", status, errMsg, id)
+func (d *DB) UpdateMessageStatus(ctx context.Context, tenantID string, id string, status string, errMsg string) error {
+	// Tenant was ignored here until MESHSAT-1149; see the postgres twin.
+	_, err := d.db.ExecContext(ctx, "UPDATE messages SET status=?, error=? WHERE id=? AND tenant_id=?", status, errMsg, id, tenantID)
 	return err
 }
 

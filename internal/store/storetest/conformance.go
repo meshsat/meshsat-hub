@@ -125,6 +125,17 @@ func testMessages(t *testing.T, db store.Store) {
 	if got.Status != "delivered" {
 		t.Errorf("status: %q", got.Status)
 	}
+	// Another tenant holding the id must not be able to rewrite the row. The
+	// attacker is the DEFAULT tenant on purpose: the implementations used to
+	// ignore the tenant argument entirely (MESHSAT-1149), and a regression of
+	// that shape collapses onto the default tenant.
+	if err := db.UpdateMessageStatus(ctx, store.DefaultTenantID, msg.ID, "failed", "cross-tenant write"); err != nil {
+		t.Fatalf("cross-tenant update status: %v", err)
+	}
+	got, _ = db.GetMessage(ctx, tenant, msg.ID)
+	if got.Status != "delivered" {
+		t.Errorf("UpdateMessageStatus with another tenant's id changed the row: status=%q (the tenant argument is being ignored)", got.Status)
+	}
 
 	// Scheduled messages are returned by ListScheduledMessages once due.
 	sched := &store.Message{DeviceIMEI: "300234063904190", Direction: "mt", Channel: "iridium", Text: "later", Status: "scheduled", ScheduledAt: time.Now().Add(-time.Minute)}
@@ -139,6 +150,11 @@ func testMessages(t *testing.T, db store.Store) {
 	for _, m := range due {
 		if m.ID == sched.ID {
 			found = true
+			// The scheduler has no tenant of its own; the row must say whose
+			// it is so the status update can be tenant-scoped (MESHSAT-1149).
+			if m.TenantID != tenant {
+				t.Errorf("ListScheduledMessages returned tenant %q for a %q row", m.TenantID, tenant)
+			}
 		}
 	}
 	if !found {
