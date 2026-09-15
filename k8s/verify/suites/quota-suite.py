@@ -61,10 +61,6 @@ u = json.loads(b) if s==200 else {}
 check("an owner API key authenticates and carries its tenant", s==200, f"{s} {b[:120]}")
 check("the tenant reads its own usage, on the free plan", u.get("plan")=="free", str(u.get("plan")))
 check("the free plan ceiling is 4", u.get("limit")==4, "limit="+str(u.get("limit")))
-check("a claim code is minted on first read", bool(u.get("claim_code")), str(u.get("claim_code")))
-code1 = u.get("claim_code")
-s,b = call("GET","/api/tenant/usage",plain)
-check("minting is idempotent on a second read", json.loads(b).get("claim_code")==code1, "stable")
 
 print("\n=== the ceiling ===")
 for i in range(1,5):

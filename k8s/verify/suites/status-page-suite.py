@@ -65,19 +65,34 @@ for tag in COMPONENTS:
     title = m.group(1).decode() if m else ""
     check(f"component {tag}: badge present and Operational", st == 200 and title.endswith(": Operational"), title)
 
-print("=== 3. admin surface: reachable from the allow-listed runner ===")
-for path, want in (("/manage/app/monitors", (200, 302)), ("/account/signin", (200,)), ("/api/v4/monitors", (401,))):
-    st, _, _ = get(ip, path)
-    check(f"{path} answers {want} from whitelisted_ip", st in want, f"HTTP {st}")
+IN_CLUSTER = os.environ.get("VERIFY_IN_CLUSTER") == "1"
+if IN_CLUSTER:
+    # The cluster's egress address is NOT in whitelisted_ip, so from here the
+    # admin surface must give NO response at all: this vantage is the stranger,
+    # and the ssh hop to a VPS below is neither available nor needed.
+    print("=== 3. admin surface: silent-dropped from the cluster, which is not allow-listed ===")
+    for path in ("/manage/app/monitors", "/account/signin", "/api/v4/monitors"):
+        st, _, _ = get(ip, path)
+        check(f"{path} gets no response from a stranger (this cluster)", st == 0, f"HTTP {st}")
+    st, _, _ = get(ip, "/")
+    check("/ still answers the stranger", st == 200, f"HTTP {st}")
+    print("=== 4. (skipped in-cluster: the VPS vantage needs ssh from the runner) ===")
+    codes = {}
+else:
+    print("=== 3. admin surface: reachable from the allow-listed runner ===")
+    for path, want in (("/manage/app/monitors", (200, 302)), ("/account/signin", (200,)), ("/api/v4/monitors", (401,))):
+        st, _, _ = get(ip, path)
+        check(f"{path} answers {want} from whitelisted_ip", st in want, f"HTTP {st}")
 
-print("=== 4. admin surface: silent-dropped from a non-allow-listed vantage (NO VPS via CH edge) ===")
+print("=== 4. admin surface: silent-dropped from a non-allow-listed vantage (NO VPS via CH edge) ===") if not IN_CLUSTER else None
 cmd = ["ssh", "-i", "/home/claude-runner/.ssh/one_key", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", "kyriakosp@185.125.171.172",
        "for p in /manage/app/monitors /account/signin /api/v4/monitors; do curl -s -m 8 --resolve status.meshsat.net:443:185.44.82.32 -o /dev/null -w \"$p %{http_code}\\n\" https://status.meshsat.net$p; done; curl -s -m 8 --resolve status.meshsat.net:443:185.44.82.32 -o /dev/null -w \"/ %{http_code}\\n\" https://status.meshsat.net/"]
-out = subprocess.run(cmd, capture_output=True, text=True, timeout=90).stdout
-codes = dict(l.split() for l in out.splitlines() if " " in l)
-for p in ("/manage/app/monitors", "/account/signin", "/api/v4/monitors"):
-    check(f"{p} gets no response from a stranger", codes.get(p) == "000", codes.get(p, "no output"))
-check("/ still answers the stranger", codes.get("/") == "200", codes.get("/", "no output"))
+if not IN_CLUSTER:
+    out = subprocess.run(cmd, capture_output=True, text=True, timeout=90).stdout
+    codes = dict(l.split() for l in out.splitlines() if " " in l)
+    for p in ("/manage/app/monitors", "/account/signin", "/api/v4/monitors"):
+        check(f"{p} gets no response from a stranger", codes.get(p) == "000", codes.get(p, "no output"))
+    check("/ still answers the stranger", codes.get("/") == "200", codes.get("/", "no output"))
 
 print("=== 5. the page is drawn from Prometheus, and Prometheus agrees ===")
 q = "min(probe_success{job=\"meshsat-edge\"})"

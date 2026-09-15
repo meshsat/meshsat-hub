@@ -31,7 +31,7 @@ T = "t-caps-probe"
 
 # Every feature the table claims to cover. A drift here means the UI is asking
 # about something the API stopped answering.
-WANT = {"notifications", "email", "ota", "wireguard", "aprs", "tak"}
+WANT = {"notifications", "email", "ota", "wireguard", "aprs", "tak", "cloudloop_mqtt"}
 
 
 def sql(q):

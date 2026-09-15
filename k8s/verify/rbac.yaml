@@ -33,6 +33,12 @@ rules:
   - apiGroups: [""]
     resources: ["pods/log"]
     verbs: ["get"]
+  # position-dedup-suite publishes through the real broker with the Hub's own
+  # MQTT credentials; this is the ONLY Secret the job may read.
+  - apiGroups: [""]
+    resources: ["secrets"]
+    resourceNames: ["nats-secrets"]
+    verbs: ["get"]
   - apiGroups: ["apps"]
     resources: ["deployments", "statefulsets"]
     verbs: ["get", "list"]
