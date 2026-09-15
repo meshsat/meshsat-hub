@@ -64,11 +64,13 @@ def main():
     check("UNREACHABLE" not in status and status != "",
           "the Hub can reach it in-cluster: %s" % (status[:60] or "empty"))
 
-    print("2. the Hub was built with the relay configured")
-    logs = kubectl("logs", "deploy/hub", "--tail=400")
-    check("apprise: platform notification backend enabled" in logs,
-          "the Hub logged the platform relay at startup "
-          "(before this it logged nothing, because there was nothing)")
+    print("2. the Hub is configured with the platform relay")
+    # Read the configuration, not the startup log line: the line is real but
+    # it scrolls out of `--tail=400` on a pod that has been up for a day, and
+    # manual run 10 (2026-09-15) failed on exactly that with nothing wrong.
+    url = kubectl("get", "cm", "hub-config", "-o", "jsonpath={.data.HUB_APPRISE_URL}")
+    check(url.strip() != "",
+          "hub-config carries HUB_APPRISE_URL (%s)" % (url.strip()[:40] or "empty"))
 
     print("3. a notification actually reaches the relay")
     # json:// posts to an ordinary HTTP endpoint. Pointing it at the Hub's own
