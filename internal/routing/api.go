@@ -5,8 +5,8 @@ import (
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/meshsat/meshsat-hub/internal/api"
 	"github.com/meshsat/meshsat-hub/internal/auth"
+	"github.com/meshsat/meshsat-hub/internal/httpjson"
 	"github.com/meshsat/meshsat-hub/internal/store"
 )
 
@@ -33,13 +33,13 @@ func (h *APIHandler) ListRoutes(w http.ResponseWriter, r *http.Request) {
 	routes, err := h.store.ListRoutes(r.Context(), tid)
 	if err != nil {
 		slog.Error("routing: list failed", "error", err)
-		api.WriteError(w, http.StatusInternalServerError, "failed to list routes")
+		httpjson.WriteError(w, http.StatusInternalServerError, "failed to list routes")
 		return
 	}
 	if routes == nil {
 		routes = []store.Route{}
 	}
-	api.WriteJSON(w, http.StatusOK, routes)
+	httpjson.WriteJSON(w, http.StatusOK, routes)
 }
 
 // GetRoute returns a single route.
@@ -56,10 +56,10 @@ func (h *APIHandler) GetRoute(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	route, err := h.store.GetRoute(r.Context(), tid, id)
 	if err != nil {
-		api.WriteError(w, http.StatusNotFound, "route not found")
+		httpjson.WriteError(w, http.StatusNotFound, "route not found")
 		return
 	}
-	api.WriteJSON(w, http.StatusOK, route)
+	httpjson.WriteJSON(w, http.StatusOK, route)
 }
 
 type createRouteRequest struct {
@@ -85,13 +85,13 @@ func (h *APIHandler) CreateRoute(w http.ResponseWriter, r *http.Request) {
 	tid := auth.TenantIDFromContext(r.Context())
 
 	var req createRouteRequest
-	if err := api.ReadJSON(w, r, &req); err != nil {
-		api.WriteError(w, http.StatusBadRequest, err.Error())
+	if err := httpjson.ReadJSON(w, r, &req); err != nil {
+		httpjson.WriteError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 
 	if req.SourceType == "" || req.DestinationType == "" {
-		api.WriteError(w, http.StatusBadRequest, "source_type and destination_type required")
+		httpjson.WriteError(w, http.StatusBadRequest, "source_type and destination_type required")
 		return
 	}
 
@@ -111,12 +111,12 @@ func (h *APIHandler) CreateRoute(w http.ResponseWriter, r *http.Request) {
 
 	if err := h.store.CreateRoute(r.Context(), tid, route); err != nil {
 		slog.Error("routing: create failed", "error", err)
-		api.WriteError(w, http.StatusInternalServerError, "failed to create route")
+		httpjson.WriteError(w, http.StatusInternalServerError, "failed to create route")
 		return
 	}
 
 	h.engine.InvalidateCache()
-	api.WriteJSON(w, http.StatusCreated, route)
+	httpjson.WriteJSON(w, http.StatusCreated, route)
 }
 
 // UpdateRoute updates an existing routing rule.
@@ -137,13 +137,13 @@ func (h *APIHandler) UpdateRoute(w http.ResponseWriter, r *http.Request) {
 
 	existing, err := h.store.GetRoute(r.Context(), tid, id)
 	if err != nil {
-		api.WriteError(w, http.StatusNotFound, "route not found")
+		httpjson.WriteError(w, http.StatusNotFound, "route not found")
 		return
 	}
 
 	var req createRouteRequest
-	if err := api.ReadJSON(w, r, &req); err != nil {
-		api.WriteError(w, http.StatusBadRequest, err.Error())
+	if err := httpjson.ReadJSON(w, r, &req); err != nil {
+		httpjson.WriteError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 
@@ -164,12 +164,12 @@ func (h *APIHandler) UpdateRoute(w http.ResponseWriter, r *http.Request) {
 
 	if err := h.store.UpdateRoute(r.Context(), tid, existing); err != nil {
 		slog.Error("routing: update failed", "error", err)
-		api.WriteError(w, http.StatusInternalServerError, "failed to update route")
+		httpjson.WriteError(w, http.StatusInternalServerError, "failed to update route")
 		return
 	}
 
 	h.engine.InvalidateCache()
-	api.WriteJSON(w, http.StatusOK, existing)
+	httpjson.WriteJSON(w, http.StatusOK, existing)
 }
 
 // DeleteRoute removes a routing rule.
@@ -186,7 +186,7 @@ func (h *APIHandler) DeleteRoute(w http.ResponseWriter, r *http.Request) {
 
 	if err := h.store.DeleteRoute(r.Context(), tid, id); err != nil {
 		slog.Error("routing: delete failed", "error", err)
-		api.WriteError(w, http.StatusInternalServerError, "failed to delete route")
+		httpjson.WriteError(w, http.StatusInternalServerError, "failed to delete route")
 		return
 	}
 
@@ -221,15 +221,15 @@ func (h *APIHandler) TestRoutes(w http.ResponseWriter, r *http.Request) {
 	tid := auth.TenantIDFromContext(r.Context())
 
 	var req testRouteRequest
-	if err := api.ReadJSON(w, r, &req); err != nil {
-		api.WriteError(w, http.StatusBadRequest, err.Error())
+	if err := httpjson.ReadJSON(w, r, &req); err != nil {
+		httpjson.WriteError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 
 	routes, err := h.store.ListRoutes(r.Context(), tid)
 	if err != nil {
 		slog.Error("routing: test failed", "error", err)
-		api.WriteError(w, http.StatusInternalServerError, "failed to list routes")
+		httpjson.WriteError(w, http.StatusInternalServerError, "failed to list routes")
 		return
 	}
 
@@ -251,5 +251,5 @@ func (h *APIHandler) TestRoutes(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 
-	api.WriteJSON(w, http.StatusOK, results)
+	httpjson.WriteJSON(w, http.StatusOK, results)
 }
