@@ -623,6 +623,9 @@ func main() {
 	var bridgeSub *bridge.Subscriber
 	var hembReassemblyBuf *protocol.HeMBReassemblyBuffer
 	bridgeSub = bridge.NewSubscriber(msgBus, dataStore, tenants)
+	// Health-report row writes are leader-only (MESHSAT-1155); the Noop
+	// elector in standalone mode answers true.
+	bridgeSub.SetLeader(leaderElector)
 
 	// HeMB reassembly: decode bonded RLNC-coded symbols from bridges.
 	hembReassemblyBuf = protocol.NewHeMBReassemblyBuffer(nil) // deliverFn set via subscriber handler
