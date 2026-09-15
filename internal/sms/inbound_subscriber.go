@@ -3,7 +3,7 @@ package sms
 import (
 	"context"
 	"encoding/json"
-	"fmt"
+	"errors"
 	"log/slog"
 	"time"
 
@@ -106,8 +106,12 @@ func (s *InboundSubscriber) handleInbound(topic string, payload []byte) {
 		sender = deviceID
 	}
 
+	// The id is a digest of what came off the wire, so the two replicas that
+	// both receive this message insert one row between them (the second
+	// insert is store.ErrDuplicate). A clock-derived id stored every inbound
+	// SMS twice (MESHSAT-1120).
 	m := &store.Message{
-		ID:         fmt.Sprintf("sms-mqtt-%d", time.Now().UnixNano()),
+		ID:         "sms-" + hubmqtt.MessageDigest(topic, payload),
 		DeviceIMEI: sender,
 		Direction:  "mo",
 		Channel:    "sms",
@@ -124,6 +128,10 @@ func (s *InboundSubscriber) handleInbound(topic string, payload []byte) {
 	defer cancel()
 
 	if err := s.store.InsertMessage(ctx, s.tenantFor(ctx, topic, deviceID), m); err != nil {
+		if errors.Is(err, store.ErrDuplicate) {
+			slog.Debug("sms: inbound MQTT SMS already persisted by another replica", "id", m.ID)
+			return
+		}
 		slog.Warn("sms: failed to persist inbound MQTT SMS", "error", err, "device", deviceID)
 		return
 	}

@@ -19,7 +19,7 @@ package store
 
 // UnscopedByDesign lists every Store method that legitimately takes no tenant,
 // with the reason. Keyed by method name.
-var UnscopedByDesign = map[string]string{
+var UnscopedByDesign = map[string]string{ // #nosec G101 -- method names and the reasons they see every tenant, not credentials
 	// Lifecycle and plumbing: no rows involved.
 	"Migrate": "schema management, no tenant rows",
 	"Close":   "connection lifecycle",
@@ -96,7 +96,7 @@ var UnscopedByDesign = map[string]string{
 // platform-admin billing surfaces), because its key is a credential or a
 // unique id that was itself read from a tenant-scoped row, or because the
 // filter is supplied by its callers (the query helpers).
-var UnfilteredByDesign = map[string]string{
+var UnfilteredByDesign = map[string]string{ // #nosec G101 -- function names and reasons, not credentials
 	// Query helpers: the WHERE clause, tenant filter included, is the caller's.
 	"queryBridges":     "helper; every caller passes its own WHERE, ListBridges passes tenant_id",
 	"queryCredentials": "helper; every caller passes its own WHERE, ListCredentials passes tenant_id",

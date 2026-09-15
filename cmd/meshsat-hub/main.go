@@ -439,6 +439,7 @@ func main() {
 	mtSender.SetDeviceResolver(thingResolver)
 	mtSender.SetCostRecorder(&costRecorderAdapter{store: dataStore})
 	mtSender.SetCostPerMessage(0.05) // Iridium default
+	mtSender.SetClaimer(dataStore)   // one send per request across replicas (MESHSAT-1120)
 	if err := mtSender.Start(); err != nil {
 		slog.Error("failed to start MT sender", "error", err)
 	}
@@ -1963,6 +1964,7 @@ func main() {
 		webhookRoute(integrations.ProviderTwilio, "webhook_token", "/api/webhook/sms", smsWebhook.ServeHTTP)
 		smsSub := sms.NewSubscriber(smsPlatform, msgBus)
 		smsSub.SetClientPool(smsPool)
+		smsSub.SetClaimer(dataStore) // one text per request across replicas (MESHSAT-1120)
 		if err := smsSub.Start(); err != nil {
 			slog.Error("sms: failed to start outbound subscriber", "error", err)
 		} else {
