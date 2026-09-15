@@ -99,6 +99,13 @@ protocol's Bearer tokens keep working unchanged.
   bridge id (ids that are not DNS names get no SAN and cannot serve). A bridge re-issues its
   certificate on the Fleet page once; phones need nothing new, `ClientAuth` was always there.
 - Frames are at most 64 KiB, so both ends chunk the TLS stream at 32 KiB per frame.
+- **Where the bridge end gets the Hub CA:** `GET /api/relay/ca` (public, PEM, no credentials)
+  over HTTPS, so the Hub's public certificate vouches for it. A bridge must **not** put the Hub
+  CA into its Hub connection's CA field: that field is the root store for the MQTT broker,
+  which carries a public (Let's Encrypt) certificate, and a bridge given the Hub CA there can no
+  longer verify the broker (found live on 2026-09-15: MQTT down for six minutes on a kit). The
+  Bridge's relay client fetches the CA at start and retries until the Hub answers. Phones
+  receive `ca_pem` with their certificate and keep it beside it, not in the MQTT root store.
 
 ## How the two ends meet
 

@@ -1801,8 +1801,15 @@ func main() {
 		slog.Warn("relay: bus subscription failed; tunnels will not join on this replica", "error", err)
 	}
 	relayHandler := api.NewRelayHandler(dataStore, tenants, wsRelay)
+	if bridgeCA != nil {
+		relayHandler.SetCA(bridgeCA.CACertPEM())
+	}
 	r.Get("/api/relay/serve", hubmw.WebhookRateLimit(http.HandlerFunc(relayHandler.Serve), 60).ServeHTTP)
 	r.Get("/api/relay/connect/{bridge_id}", hubmw.WebhookRateLimit(http.HandlerFunc(relayHandler.Connect), 60).ServeHTTP)
+	// The bridge CA, public, for the Bridge relay client (MESHSAT-613): a
+	// kit must not carry it in its Hub connection (that is the broker's
+	// root store), so it asks here.
+	r.Get("/api/relay/ca", hubmw.WebhookRateLimit(http.HandlerFunc(relayHandler.CA), 60).ServeHTTP)
 
 	// Webhook endpoints — rate limited to 60 requests/minute per source IP.
 	//
