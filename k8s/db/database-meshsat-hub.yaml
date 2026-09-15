@@ -1,0 +1,21 @@
+# The Hub's own database, declared so the extension it wants is declared with
+# it (CNPG >= 1.25 manages databases and their extensions). The database
+# already exists from bootstrap; `ensure: present` adopts it. Reclaim policy
+# retain: deleting this manifest must never drop the production database.
+apiVersion: postgresql.cnpg.io/v1
+kind: Database
+metadata:
+  name: meshsat-hub
+  namespace: meshsat-hub-db
+  labels:
+    app.kubernetes.io/name: meshsat-hub
+spec:
+  name: meshsat_hub
+  owner: meshsat
+  cluster:
+    name: meshsat-hub-main
+  databaseReclaimPolicy: retain
+  extensions:
+    # Requires shared_preload_libraries on the Cluster (cluster-meshsat-hub-main.yaml).
+    - name: pg_stat_statements
+      ensure: present

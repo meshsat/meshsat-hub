@@ -5,6 +5,7 @@ import (
 	"context"
 	"database/sql"
 	"log/slog"
+	"strings"
 	"time"
 
 	"github.com/meshsat/meshsat-hub/internal/observability"
@@ -80,7 +81,7 @@ func (o *ObservedDB) ExecContext(ctx context.Context, query string, args ...any)
 		result, e = o.inner.ExecContext(ctx, query, args...)
 		return e
 	})
-	o.record("exec", start, err)
+	o.record("exec", query, start, err)
 	return result, err
 }
 
@@ -92,14 +93,14 @@ func (o *ObservedDB) QueryContext(ctx context.Context, query string, args ...any
 		rows, e = o.inner.QueryContext(ctx, query, args...)
 		return e
 	})
-	o.record("query", start, err)
+	o.record("query", query, start, err)
 	return rows, err
 }
 
 func (o *ObservedDB) QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row {
 	start := time.Now()
 	row := o.inner.QueryRowContext(ctx, query, args...)
-	o.record("queryrow", start, nil)
+	o.record("queryrow", query, start, nil)
 	return row
 }
 
@@ -120,7 +121,19 @@ func (o *ObservedDB) Inner() SQLDB {
 	return o.inner
 }
 
-func (o *ObservedDB) record(operation string, start time.Time, err error) {
+// statementLabel is the SQL text collapsed to one line and cut to 80 bytes:
+// enough to name the statement in a log line, never the arguments (those are
+// bound separately and never pass through here). Prometheus keeps its
+// low-cardinality labels; the statement goes to the log only (MESHSAT-1155).
+func statementLabel(query string) string {
+	q := strings.Join(strings.Fields(query), " ")
+	if len(q) > 80 {
+		q = q[:80] + "..."
+	}
+	return q
+}
+
+func (o *ObservedDB) record(operation, query string, start time.Time, err error) {
 	elapsed := time.Since(start)
 	status := "ok"
 	if err != nil {
@@ -137,6 +150,7 @@ func (o *ObservedDB) record(operation string, start time.Time, err error) {
 			"store", o.storeName,
 			"operation", operation,
 			"duration_ms", elapsed.Milliseconds(),
+			"statement", statementLabel(query),
 		)
 	}
 }
