@@ -167,6 +167,15 @@ var deviceSuffixHeads = map[string]bool{
 // reservedSecond are second segments that are neither devices nor tenants.
 var reservedSecond = map[string]bool{"hub": true, "broadcast": true, "bridge": true, "relay": true}
 
+// IsHubTopic reports whether topic is one of the Hub's own families
+// (meshsat/hub/..., broadcast, bridge, relay) rather than a device topic. A
+// wildcard filter such as meshsat/+/sms/inbound matches meshsat/hub/sms/inbound
+// too; consumers that only want devices use this to ignore the rest quietly.
+func IsHubTopic(topic string) bool {
+	parts := strings.Split(topic, "/")
+	return len(parts) >= 2 && parts[0] == "meshsat" && reservedSecond[parts[1]]
+}
+
 // WebSocket relay topics (MESHSAT-612): {namespace}/relay/{bridge}/{client}/{up|down}.
 // A rendezvous between the replica holding the bridge socket and the one
 // holding the client socket; never retained, never stored. Both ids come from

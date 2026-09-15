@@ -73,6 +73,12 @@ func (s *InboundSubscriber) Start() error {
 }
 
 func (s *InboundSubscriber) handleInbound(topic string, payload []byte) {
+	// meshsat/+/sms/inbound also matches meshsat/hub/sms/inbound, where the
+	// Twilio webhook republishes every inbound text for the routing engine;
+	// that is not an Android device and warned on every SMS (MESHSAT-1164).
+	if hubmqtt.IsHubTopic(topic) {
+		return
+	}
 	deviceID := hubmqtt.ExtractDeviceID(topic)
 	if deviceID == "" {
 		slog.Warn("sms: inbound MQTT message with no device ID", "topic", topic)
