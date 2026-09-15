@@ -95,7 +95,19 @@ def main():
     print()
 
     failures = 0
-    for run in range(1, RUNS + 1):
+    run = 0
+    retried = 0
+    while run < RUNS:
+        run += 1
+        # Re-list every run: a Reloader or Argo roll during the suite swaps a pod
+        # out, and asking the old one answers '?' about nothing.
+        ps = pods()
+        if len(ps) < 2:
+            print(f"  run {run}: fewer than two ready replicas right now ({ps}); waiting for the roll")
+            time.sleep(15); run -= 1; retried += 1
+            if retried > 8:
+                print("FAIL  the deployment never settled on two ready replicas"); return 1
+            continue
         t = f"t-replica-{run}"
         purge(t)
         sql(f"INSERT INTO tenants (id,slug,name,plan,status,created_at,updated_at) "
@@ -130,12 +142,19 @@ def main():
 
         time.sleep(1.5)
         seen = {p: configured_on(p, key) for p in ps}
+        purge(t)
         if all(v is True for v in seen.values()):
             print(f"  run {run}: PASS  both replicas agree 1.5s after the write")
-        else:
-            print(f"  run {run}: FAIL  {seen}")
-            failures += 1
-        purge(t)
+            continue
+        gone = [p for p, v in seen.items() if v == "?" and p not in pods()]
+        if gone and retried < 8:
+            # The pod left mid-run (a rollout), so this run proved nothing
+            # either way; do it again against the pods that exist now.
+            print(f"  run {run}: RETRY  {gone} left during the run (rollout); repeating")
+            retried += 1; run -= 1
+            continue
+        print(f"  run {run}: FAIL  {seen}")
+        failures += 1
 
     print()
     print(f"{RUNS - failures}/{RUNS} runs passed")
