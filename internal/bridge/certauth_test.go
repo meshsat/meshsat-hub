@@ -211,3 +211,44 @@ func TestCACertPEM(t *testing.T) {
 		t.Error("CACertPEM() should return the same PEM passed at construction")
 	}
 }
+
+
+// A relay tunnel runs TLS between two bridges with the Hub CA as the only
+// root: the serving bridge presents its certificate as a SERVER under its own
+// id, the phone presents its certificate as a client (MESHSAT-612/613).
+func TestIssuedCertificateServesARelayUnderItsOwnID(t *testing.T) {
+	ca, _, _, err := NewSelfSignedCA("test-ca")
+	if err != nil {
+		t.Fatal(err)
+	}
+	bridgePEM, _, err := ca.IssueBridgeCert("kit-a", 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	block, _ := pem.Decode(bridgePEM)
+	cert, err := x509.ParseCertificate(block.Bytes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pool := x509.NewCertPool()
+	pool.AddCert(ca.caCert)
+	if _, err := cert.Verify(x509.VerifyOptions{Roots: pool, DNSName: "kit-a", KeyUsages: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth}}); err != nil {
+		t.Fatalf("as a server for kit-a: %v", err)
+	}
+	if _, err := cert.Verify(x509.VerifyOptions{Roots: pool, DNSName: "kit-b", KeyUsages: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth}}); err == nil {
+		t.Fatal("verified as a server for another bridge's id")
+	}
+	if _, err := cert.Verify(x509.VerifyOptions{Roots: pool, KeyUsages: []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth}}); err != nil {
+		t.Fatalf("as a client (what NATS checks): %v", err)
+	}
+	// An id that is not a DNS name still gets a client certificate, without a SAN.
+	oddPEM, _, err := ca.IssueBridgeCert("kit_1", 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b2, _ := pem.Decode(oddPEM)
+	odd, _ := x509.ParseCertificate(b2.Bytes)
+	if len(odd.DNSNames) != 0 {
+		t.Fatalf("SAN on an id that is not a DNS name: %v", odd.DNSNames)
+	}
+}

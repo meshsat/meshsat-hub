@@ -134,9 +134,17 @@ func (ca *CertAuthority) IssueBridgeCert(bridgeID string, validDays int) (certPE
 		NotBefore: time.Now().Add(-5 * time.Minute), // slight clock skew tolerance
 		NotAfter:  time.Now().Add(time.Duration(validDays) * 24 * time.Hour),
 		KeyUsage:  x509.KeyUsageDigitalSignature,
+		// ClientAuth is what NATS verifies. ServerAuth plus a DNS SAN naming the
+		// bridge is what the WebSocket relay needs (MESHSAT-612/613): inside a
+		// relay tunnel the bridge is the TLS SERVER, presenting this certificate
+		// to a phone that verifies it against the Hub CA with ServerName = the
+		// bridge id. Certificates issued before 2026-09-15 carry neither, so a
+		// bridge re-issues its certificate before it can serve a relay.
 		ExtKeyUsage: []x509.ExtKeyUsage{
 			x509.ExtKeyUsageClientAuth,
+			x509.ExtKeyUsageServerAuth,
 		},
+		DNSNames: relaySANs(bridgeID),
 	}
 
 	certDER, err := x509.CreateCertificate(rand.Reader, template, ca.caCert, &clientKey.PublicKey, ca.caKey)
@@ -153,6 +161,23 @@ func (ca *CertAuthority) IssueBridgeCert(bridgeID string, validDays int) (certPE
 	keyPEM = pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: keyDER})
 
 	return certPEM, keyPEM, nil
+}
+
+// relaySANs returns the DNS SAN a relay client verifies the bridge under: the
+// bridge id itself when it is a valid DNS name (letters, digits, '-', '.'),
+// which is every id the Fleet page creates. An id with another character
+// gets no SAN and cannot serve a relay; the CN still identifies it to NATS.
+func relaySANs(bridgeID string) []string {
+	if bridgeID == "" || len(bridgeID) > 253 {
+		return nil
+	}
+	for _, r := range bridgeID {
+		ok := r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || r == '-' || r == '.'
+		if !ok {
+			return nil
+		}
+	}
+	return []string{bridgeID}
 }
 
 // VerifyBridgeCert verifies that a certificate was issued by this CA and returns
