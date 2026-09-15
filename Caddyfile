@@ -1,7 +1,7 @@
 # MeshSat Hub — Caddy reverse proxy with automatic TLS
-# Replace hub.meshsat.io with your actual domain
+# Replace hub.example.com with your actual domain
 
-hub.meshsat.io {
+hub.example.com {
 	# API and webhook endpoints
 	reverse_proxy /api/* hub:6070
 	reverse_proxy /healthz hub:6070

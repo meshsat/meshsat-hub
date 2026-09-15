@@ -51,7 +51,7 @@ cp .env.standalone.example .env
 nano .env   # set HUB_AUTH_TOKEN, CADDY_DOMAIN, CADDY_EMAIL
 
 # 3. Set your domain in the Caddyfile
-sed -i "s/hub.meshsat.io/$(grep CADDY_DOMAIN .env | cut -d= -f2)/" Caddyfile
+sed -i "s/hub.example.com/$(grep CADDY_DOMAIN .env | cut -d= -f2)/" Caddyfile
 
 # 4. Start
 docker compose -f docker-compose.prod.yml up -d
@@ -127,18 +127,20 @@ Lease API; message dispatch is protected by database claims, not by the leader.
 |----------|-------------|
 | `HUB_AUTH_TOKEN` | API authentication token |
 
-### Cluster-only variables
+### Kubernetes-only variables
 
 | Variable | Description |
 |----------|-------------|
-| `HUB_MODE` | `standalone` (default), `cluster`, `kubernetes` |
-| `HUB_DATABASE_URL` | MariaDB connection string |
-| `HUB_REDIS_URL` | Redis connection string |
-| `HUB_NATS_URL` | NATS MQTT adapter URL |
-| `HUB_MQTT_CLIENT_ID` | **Must be unique per node** |
-| `WSREP_CLUSTER_ADDRESS` | Galera cluster address (all node IPs) |
-| `WSREP_NODE_ADDRESS` | This node's private IP |
-| `SITE_NAME` | Unique node identifier |
+| `HUB_MODE` | `standalone` (default) or `kubernetes` |
+| `HUB_DB_DRIVER` | `sqlite` (default) or `postgres`; sniffed from `HUB_DATABASE_URL` when unset |
+| `HUB_DATABASE_URL` | PostgreSQL DSN |
+| `HUB_REDIS_URL` | Redis/KeyDB connection string (dedup, rate limits) |
+| `HUB_MQTT_BROKER_URL` | the NATS MQTT listener, `tcp://nats:1883` in-cluster |
+| `HUB_MQTT_CLIENT_ID` | **Must carry the pod name**, or two replicas evict each other at the broker |
+
+The Galera-era variables (`WSREP_*`, `SITE_NAME`, `HUB_NATS_URL`) are gone with the cluster tier.
+The customer-facing guide for running your own Hub is
+[docs.meshsat.net/hub/self-hosting](https://docs.meshsat.net/hub/self-hosting).
 
 ### Optional features
 
@@ -286,7 +288,6 @@ curl -X POST https://hub.example.com/api/backup/import \
 |-------|-----|
 | `readyz` returns 503 / mqtt unhealthy | Check `docker logs meshsat-nats` |
 | MQTT connect/disconnect flapping | Duplicate `HUB_MQTT_CLIENT_ID` — must be unique per node |
-| Galera `cluster_size < 3` | Check garbd: `docker logs meshsat-garbd` |
 | `WSREP_CLUSTER_ADDRESS=gcomm://` in .env | **Critical** — restore full address immediately |
 | NATS leaf `Loop detected` | Only one side should have `remotes` in leafnodes config |
 | Bridges show "offline" despite health flowing | Deploy latest Hub (health messages now re-set online) |

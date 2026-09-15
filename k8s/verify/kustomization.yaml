@@ -1,0 +1,26 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - rbac.yaml
+  - externalsecret.yaml
+  - state-configmap.yaml
+  - cronjob.yaml
+
+# The suites travel as a ConfigMap: the same files a person runs from the
+# runner, mounted at /suites. A hashed name means a changed suite rolls the
+# CronJob's template.
+configMapGenerator:
+  - name: hub-verify-suites
+    files:
+      - suites/run.sh
+      - suites/kubectl
+      - suites/deployed-is-pinned.sh
+      - suites/capabilities-suite.py
+      - suites/position-dedup-suite.py
+      - suites/integrations-replica-suite.py
+      - suites/quota-suite.py
+      - suites/notify-e2e.py
+      - suites/journey-suite.py
+      - suites/onion-e2e.sh
+      - suites/status-page-suite.py

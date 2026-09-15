@@ -76,3 +76,11 @@ python3 scratchpad/stripe-live-check.py
 `scratchpad/.stripe-test-key`, which is gitignored and does not exist. Note its
 docstring claims it refuses to run against a live key and **it does not** — the
 check is computed and only printed. Implement that before pointing it anywhere.
+
+## Moved to k8s/verify/suites (MESHSAT-1153)
+
+The nine read-only production suites (deployed-is-pinned, capabilities,
+position-dedup, integrations-replica, quota, notify-e2e, journey, onion-e2e,
+status-page) live in `k8s/verify/suites/` now: the same files run nightly from
+the `hub-verify` CronJob inside the cluster and by hand from here. What stays
+in this directory moves money or issues documents and is run by a person.
