@@ -1,7 +1,9 @@
 package middleware
 
 import (
+	"bufio"
 	"log/slog"
+	"net"
 	"net/http"
 	"strings"
 	"time"
@@ -14,6 +16,23 @@ type statusRecorder struct {
 	http.ResponseWriter
 	code  int
 	bytes int
+}
+
+// Hijack lets a WebSocket upgrade through the recorder; see the same method
+// on metrics.statusWriter for why an embedded interface is not enough.
+func (sr *statusRecorder) Hijack() (net.Conn, *bufio.ReadWriter, error) {
+	if h, ok := sr.ResponseWriter.(http.Hijacker); ok {
+		sr.code = http.StatusSwitchingProtocols
+		return h.Hijack()
+	}
+	return nil, nil, http.ErrNotSupported
+}
+
+// Flush keeps streaming responses working through the recorder.
+func (sr *statusRecorder) Flush() {
+	if f, ok := sr.ResponseWriter.(http.Flusher); ok {
+		f.Flush()
+	}
 }
 
 func (sr *statusRecorder) WriteHeader(code int) {
