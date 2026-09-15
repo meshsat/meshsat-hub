@@ -310,6 +310,12 @@ func isExempt(path string) bool {
 	switch {
 	case strings.HasPrefix(path, "/api/webhook/"): // all inbound webhooks are auth-exempt
 		return true
+	case strings.HasPrefix(path, "/api/relay/"):
+		// The WebSocket relay (MESHSAT-612): both ends are bridges and
+		// authenticate with HTTP Basic against their own MQTT credentials in
+		// internal/api/relay.go, which also pins the tenant. A bridge has no
+		// user, JWT or API key to give the middleware.
+		return true
 	case isProvisionClaim(path): // QR provision claim — nonce IS the auth (MESHSAT-414)
 		return true
 	case isTAKEnrolClaim(path): // TAK enrolment claim — nonce IS the auth (MESHSAT-1040)

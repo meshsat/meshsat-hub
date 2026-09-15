@@ -165,7 +165,47 @@ var deviceSuffixHeads = map[string]bool{
 }
 
 // reservedSecond are second segments that are neither devices nor tenants.
-var reservedSecond = map[string]bool{"hub": true, "broadcast": true, "bridge": true}
+var reservedSecond = map[string]bool{"hub": true, "broadcast": true, "bridge": true, "relay": true}
+
+// WebSocket relay topics (MESHSAT-612): {namespace}/relay/{bridge}/{client}/{up|down}.
+// A rendezvous between the replica holding the bridge socket and the one
+// holding the client socket; never retained, never stored. Both ids come from
+// authenticated callers but are still percent-encoded: a "+" in either would
+// take the publishing replica off the bus (MESHSAT-1022).
+
+// RelayTopic builds the topic for one direction of one tunnel.
+func RelayTopic(tenantID, bridgeID, clientID, dir string) string {
+	return Namespace(tenantID) + "/relay/" + EncodeSegment(bridgeID) + "/" + EncodeSegment(clientID) + "/" + dir
+}
+
+// RelayFilters returns the two subscription filters (legacy and tenant
+// shape) that see every tunnel's traffic in one direction.
+func RelayFilters(dir string) []string {
+	return []string{"meshsat/relay/+/+/" + dir, "meshsat/+/relay/+/+/" + dir}
+}
+
+// ParseRelayTopic splits a relay topic of either shape. ok is false for
+// anything else, including a direction other than up or down.
+func ParseRelayTopic(topic string) (tenantID, bridgeID, clientID, dir string, ok bool) {
+	parts := strings.Split(topic, "/")
+	if len(parts) < 5 || parts[0] != "meshsat" {
+		return "", "", "", "", false
+	}
+	switch {
+	case len(parts) == 5 && parts[1] == "relay":
+		tenantID = DefaultTenant
+		parts = parts[2:]
+	case len(parts) == 6 && parts[2] == "relay" && !reservedSecond[parts[1]] && parts[1] != "":
+		tenantID = parts[1]
+		parts = parts[3:]
+	default:
+		return "", "", "", "", false
+	}
+	if parts[2] != "up" && parts[2] != "down" || parts[0] == "" || parts[1] == "" {
+		return "", "", "", "", false
+	}
+	return tenantID, DecodeSegment(parts[0]), DecodeSegment(parts[1]), parts[2], true
+}
 
 // Namespace returns the topic root for a tenant: "meshsat" for the default
 // tenant, "meshsat/{tenant}" otherwise. Bridges receive it as
