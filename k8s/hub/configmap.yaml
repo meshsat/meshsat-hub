@@ -9,6 +9,10 @@ metadata:
   labels:
     app.kubernetes.io/name: hub
 data:
+  # Not read by the Hub. Changing this value is the Reloader drill (MESHSAT-1150):
+  # a ConfigMap edit must roll the Deployment by itself, under the PDB, with no
+  # hand-run rollout restart. Bump the date to re-run the drill.
+  RELOADER_CANARY: "2026-09-15"
   HUB_PORT: "6070"
   HUB_MODE: "kubernetes"
   HUB_DB_DRIVER: "postgres"
