@@ -8,8 +8,13 @@ resources:
   - cronjob.yaml
 
 # The suites travel as a ConfigMap: the same files a person runs from the
-# runner, mounted at /suites. A hashed name means a changed suite rolls the
-# CronJob's template.
+# runner, mounted at /suites. No name-suffix hash: kustomize does not rewrite
+# the reference inside a CronJob's pod template (the first manual Job sat in
+# ContainerCreating on "configmap hub-verify-suites not found"), and a Job
+# mounts whatever the ConfigMap holds when it starts, so a hash buys nothing.
+generatorOptions:
+  disableNameSuffixHash: true
+
 configMapGenerator:
   - name: hub-verify-suites
     files:
