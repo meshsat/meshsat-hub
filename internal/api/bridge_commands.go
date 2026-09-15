@@ -2,6 +2,7 @@ package api
 
 import (
 	"encoding/json"
+	"log/slog"
 	"net/http"
 	"strings"
 	"time"
@@ -44,6 +45,11 @@ type commandResponse struct {
 	Error     string          `json:"error,omitempty"`
 	LatencyMs int64           `json:"latency_ms"`
 }
+
+// commandWriteBudget is how long a command request may hold its connection:
+// the longest out-of-band reply wait a tenant may configure (HUB_OOB_TIMEOUT_MAX,
+// 60 min) plus room to write the response.
+const commandWriteBudget = 61 * time.Minute
 
 // SendCommand sends a command to a bridge and waits for the response.
 // @Summary Send command to bridge
@@ -98,6 +104,17 @@ func (h *BridgeCommandHandler) SendCommand(w http.ResponseWriter, r *http.Reques
 		Cmd:          req.Cmd,
 		TargetDevice: req.TargetDevice,
 		Payload:      req.Payload,
+	}
+
+	// The server's WriteTimeout is 15 s, sized for the API; a command over a
+	// bearer waits for a kit (42 s measured over SMS, minutes over satellite),
+	// and a reply that arrives after the deadline was written to a connection
+	// the server had already cut, so the caller saw a 502 with no response
+	// and no request log line (MESHSAT-1164, mgmt_log at 21 s). Extend the
+	// deadline for this request only; the wrappers in the chain implement
+	// Unwrap so the controller reaches the real writer.
+	if err := http.NewResponseController(w).SetWriteDeadline(time.Now().Add(commandWriteBudget)); err != nil {
+		slog.Warn("command: cannot extend the write deadline; a slow bearer reply will be lost", "error", err)
 	}
 
 	start := time.Now()
