@@ -259,6 +259,28 @@ var (
 		Name: "meshsat_hub_custody_pending",
 		Help: "Number of pending DTN custody offers awaiting acknowledgement.",
 	})
+
+	// RelaySessions is the number of WebSocket relay sockets this replica
+	// holds, by end (MESHSAT-612). Not the Reticulum relay: that is
+	// meshsat_hub_relay_packets_total.
+	RelaySessions = promauto.NewGaugeVec(prometheus.GaugeOpts{
+		Name: "meshsat_hub_relay_sessions",
+		Help: "WebSocket relay sockets held by this replica, by role (bridge, client).",
+	}, []string{"role"})
+
+	// RelayFrames counts relay frames accepted from a socket, by direction
+	// (up: client towards bridge, down: bridge towards client).
+	RelayFrames = promauto.NewCounterVec(prometheus.CounterOpts{
+		Name: "meshsat_hub_relay_frames_total",
+		Help: "WebSocket relay frames accepted from a socket, by direction.",
+	}, []string{"direction"})
+
+	// RelayRejected counts relay connects and frames refused, by reason
+	// (auth, tenant, budget, frame, envelope, upgrade).
+	RelayRejected = promauto.NewCounterVec(prometheus.CounterOpts{
+		Name: "meshsat_hub_relay_rejected_total",
+		Help: "WebSocket relay connects and frames refused, by reason.",
+	}, []string{"reason"})
 )
 
 // SetBuildInfo sets the build info metric labels. Call once at startup.

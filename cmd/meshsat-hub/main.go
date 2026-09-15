@@ -72,6 +72,7 @@ import (
 	"github.com/meshsat/meshsat-hub/internal/quota"
 	"github.com/meshsat/meshsat-hub/internal/ratelimit"
 	"github.com/meshsat/meshsat-hub/internal/refunds"
+	"github.com/meshsat/meshsat-hub/internal/relay"
 	"github.com/meshsat/meshsat-hub/internal/reticulum"
 	"github.com/meshsat/meshsat-hub/internal/rock7"
 	"github.com/meshsat/meshsat-hub/internal/rockblock"
@@ -143,6 +144,7 @@ func (a *escalationAdapter) Trigger(ctx context.Context, tenantID, chainID, devi
 // @license.url  https://www.apache.org/licenses/LICENSE-2.0
 // @host         localhost:6070
 // @BasePath     /
+// @securityDefinitions.basic BasicAuth
 // @securityDefinitions.apikey BearerAuth
 // @in header
 // @name Authorization
@@ -1780,6 +1782,25 @@ func main() {
 			})
 		}
 	}
+	// WebSocket relay (MESHSAT-612): the Hub side of the fallback path for a
+	// bridge nobody can reach directly. Both ends are bridges of one tenant
+	// and authenticate with their MQTT credentials in api.RelayHandler; the
+	// routes are auth-exempt in internal/auth for that reason. The join is a
+	// rendezvous over the bus (docs/relay.md), so every replica subscribes.
+	var relayBudget relay.Budget = relay.NewMemoryBudget()
+	if cfg.Mode == "cluster" || cfg.Mode == "kubernetes" {
+		if redisOpts, err := redis.ParseURL(cfg.RedisURL); err == nil {
+			relayBudget = relay.NewRedisBudget(redis.NewClient(redisOpts))
+		}
+	}
+	wsRelay := relay.New(msgBus, relayBudget, relay.Options{})
+	if err := wsRelay.Start(); err != nil {
+		slog.Warn("relay: bus subscription failed; tunnels will not join on this replica", "error", err)
+	}
+	relayHandler := api.NewRelayHandler(dataStore, tenants, wsRelay)
+	r.Get("/api/relay/serve", hubmw.WebhookRateLimit(http.HandlerFunc(relayHandler.Serve), 60).ServeHTTP)
+	r.Get("/api/relay/connect/{bridge_id}", hubmw.WebhookRateLimit(http.HandlerFunc(relayHandler.Connect), 60).ServeHTTP)
+
 	// Webhook endpoints — rate limited to 60 requests/minute per source IP.
 	//
 	// Each tenant configures its provider console with its own path, whose last
