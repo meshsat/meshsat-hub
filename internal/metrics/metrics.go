@@ -112,6 +112,22 @@ var (
 		Help: "Total HeMB generations successfully decoded.",
 	}, []string{"bridge_id"})
 
+	// CloudloopMQTTConnected is 1 while a tenant's own Cloudloop MQTT feed is
+	// connected on the leader (MESHSAT-1151). The platform feed from the
+	// environment reports under the default tenant.
+	CloudloopMQTTConnected = promauto.NewGaugeVec(prometheus.GaugeOpts{
+		Name: "meshsat_hub_cloudloop_mqtt_connected",
+		Help: "1 while the tenant's Cloudloop MQTT feed is connected, else 0.",
+	}, []string{"tenant"})
+	CloudloopMQTTMessages = promauto.NewCounterVec(prometheus.CounterOpts{
+		Name: "meshsat_hub_cloudloop_mqtt_messages_total",
+		Help: "LingoMO messages received over a tenant's Cloudloop MQTT feed.",
+	}, []string{"tenant"})
+	CloudloopMQTTConnectFailures = promauto.NewCounterVec(prometheus.CounterOpts{
+		Name: "meshsat_hub_cloudloop_mqtt_connect_failures_total",
+		Help: "Failed attempts to bring up a tenant's Cloudloop MQTT feed (bad certificate, unreachable broker).",
+	}, []string{"tenant"})
+
 	// HeMBSymbolsReceived counts individual RLNC-coded symbols received.
 	HeMBSymbolsReceived = promauto.NewCounterVec(prometheus.CounterOpts{
 		Name: "meshsat_hub_hemb_symbols_received_total",

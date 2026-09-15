@@ -11,9 +11,12 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"crypto/subtle"
+	"crypto/tls"
+	"crypto/x509"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"encoding/pem"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -86,7 +89,22 @@ type Field struct {
 	// cluster with a database, a broker and a metadata service all reachable by
 	// name (MESHSAT-1121, found by gosec as a G704 taint).
 	URL bool `json:"url,omitempty"`
+	// Multiline renders as a textarea and raises the size cap: a PEM block
+	// pasted into a single-line input loses its newlines and can never parse.
+	Multiline bool `json:"multiline,omitempty"`
+	// PEM values are checked on save: the block must decode, and a field
+	// ending in client_cert_pem must pair with its client_key_pem
+	// (tls.X509KeyPair), so a bad paste is a 400 here rather than a connect
+	// loop in a log the customer cannot read (MESHSAT-1151).
+	PEM bool `json:"pem,omitempty"`
 }
+
+// maxFieldLen is the size cap for a single-line field; multiline fields
+// (certificate chains) may be maxMultilineLen.
+const (
+	maxFieldLen     = 4096
+	maxMultilineLen = 65536
+)
 
 // Spec describes a provider.
 type Spec struct {
@@ -104,8 +122,16 @@ var Specs = []Spec{
 		Fields: []Field{
 			{Key: "api_url", Label: "API URL", Default: "https://api.cloudloop.com", URL: true},
 			{Key: "api_key", Label: "API key", Secret: true, Required: true},
-			{Key: "account_id", Label: "Account ID", Hint: "Used for the Cloudloop MQTT topic; optional."},
+			{Key: "account_id", Label: "Account ID", Hint: "Your Cloudloop account id; needed for the MQTT feed below, optional otherwise."},
 			{Key: "webhook_token", Label: "Webhook token", Secret: true, Generate: true, Hint: "The last segment of this tenant's webhook URL. Generated when left empty."},
+			// The MQTT feed (MESHSAT-1151): Cloudloop can push LingoMO messages
+			// over mutual-TLS MQTT instead of, or as well as, the webhook. The
+			// Hub subscribes to lingo/{account_id}/+/MO with the certificate
+			// below, one connection per tenant, on the leader replica.
+			{Key: "mqtt_broker_url", Label: "MQTT broker", Hint: "leave empty to use the webhook only; Cloudloop's broker is ssl://<host>:8883 -- the feed needs the account id and all three PEM blocks below"},
+			{Key: "mqtt_ca_pem", Label: "MQTT broker CA (PEM)", Multiline: true, PEM: true, Hint: "the authority that signed the broker's certificate"},
+			{Key: "mqtt_client_cert_pem", Label: "MQTT client certificate (PEM)", Multiline: true, PEM: true, Hint: "the certificate Cloudloop issued for this account"},
+			{Key: "mqtt_client_key_pem", Label: "MQTT client key (PEM)", Multiline: true, PEM: true, Secret: true, Hint: "the private key for that certificate; stored encrypted and never shown again"},
 		}},
 	{Provider: ProviderTwilio, Label: "Twilio (SMS)", Description: "Outbound SMS, escalation SMS and the inbound SMS webhook.",
 		Webhook: "/api/webhook/sms",
@@ -171,9 +197,9 @@ var Specs = []Spec{
 			{Key: "host", Label: "Host", Required: true, Hint: "hostname or address of the CoT listener, without a port"},
 			{Key: "port", Label: "Port", Required: true, Default: "8089", Hint: "the TLS CoT port, 8089 on a stock TAK server"},
 			{Key: "server_name", Label: "Certificate name", Hint: "leave empty unless your server's certificate names something other than the host above; empty verifies the chain and skips the name check"},
-			{Key: "ca_pem", Label: "Server CA (PEM)", Required: true, Hint: "the authority that signed your server's certificate"},
-			{Key: "client_cert_pem", Label: "Client certificate (PEM)", Required: true, Hint: "the certificate your server accepts from this Hub"},
-			{Key: "client_key_pem", Label: "Client key (PEM)", Secret: true, Required: true, Hint: "the private key for that certificate; stored encrypted and never shown again"},
+			{Key: "ca_pem", Label: "Server CA (PEM)", Required: true, Multiline: true, PEM: true, Hint: "the authority that signed your server's certificate"},
+			{Key: "client_cert_pem", Label: "Client certificate (PEM)", Required: true, Multiline: true, PEM: true, Hint: "the certificate your server accepts from this Hub"},
+			{Key: "client_key_pem", Label: "Client key (PEM)", Secret: true, Required: true, Multiline: true, PEM: true, Hint: "the private key for that certificate; stored encrypted and never shown again"},
 		}},
 	// APRS-IS (MESHSAT-1121). The callsign is the tenant's own amateur licence,
 	// so `callsign` and `passcode` are both Required: a half-filled account must
@@ -506,7 +532,11 @@ func (s *Service) Set(ctx context.Context, tenantID, provider string, fields map
 			return nil, fmt.Errorf("unknown field %q for %s", k, provider)
 		}
 		v = strings.TrimSpace(v)
-		if len(v) > 4096 {
+		limit := maxFieldLen
+		if f.Multiline {
+			limit = maxMultilineLen
+		}
+		if len(v) > limit {
 			return nil, fmt.Errorf("field %q too long", k)
 		}
 		if v == "" {
@@ -530,6 +560,9 @@ func (s *Service) Set(ctx context.Context, tenantID, provider string, fields map
 		if f.Required && merged[f.Key] == "" {
 			return nil, fmt.Errorf("%s is required", f.Label)
 		}
+	}
+	if err := validatePEM(spec, merged); err != nil {
+		return nil, err
 	}
 	// Every URL the Hub will make outbound requests to, checked BEFORE it is
 	// stored. A tenant choosing a URL the Hub then fetches is a request-forgery
@@ -729,4 +762,40 @@ func WebhookSecretField(provider string) string {
 		return "webhook_secret"
 	}
 	return ""
+}
+
+// validatePEM checks every PEM-marked field that is set: the block must
+// decode, a CA field must hold at least one certificate, and a client
+// certificate must pair with the key stored beside it (the key field is the
+// same name with "cert" replaced by "key"). A certificate and key that do not
+// belong together would otherwise fail only at connect time, inside a retry
+// loop, in a log the customer cannot read.
+func validatePEM(spec Spec, merged map[string]string) error {
+	for _, f := range spec.Fields {
+		if !f.PEM {
+			continue
+		}
+		v := merged[f.Key]
+		if v == "" {
+			continue
+		}
+		block, _ := pem.Decode([]byte(v))
+		if block == nil {
+			return fmt.Errorf("%s is not a PEM block (paste the whole -----BEGIN ... -----END block, newlines included)", f.Label)
+		}
+		if strings.HasSuffix(f.Key, "ca_pem") {
+			if pool := x509.NewCertPool(); !pool.AppendCertsFromPEM([]byte(v)) {
+				return fmt.Errorf("%s holds no certificate", f.Label)
+			}
+		}
+		if strings.HasSuffix(f.Key, "client_cert_pem") {
+			keyField := strings.TrimSuffix(f.Key, "client_cert_pem") + "client_key_pem"
+			if key := merged[keyField]; key != "" {
+				if _, err := tls.X509KeyPair([]byte(v), []byte(key)); err != nil {
+					return fmt.Errorf("%s and its key do not go together: %v", f.Label, err)
+				}
+			}
+		}
+	}
+	return nil
 }
