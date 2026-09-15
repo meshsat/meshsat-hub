@@ -50,21 +50,37 @@ func scopedByArgument(m *ast.FuncType, structsWithTenant map[string]bool) bool {
 	return false
 }
 
+// parseNonTestFiles parses every non-test .go file in dir (parser.ParseDir is
+// deprecated; this is the same walk without the package grouping).
+func parseNonTestFiles(t *testing.T, dir string) []*ast.File {
+	t.Helper()
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fset := token.NewFileSet()
+	var files []*ast.File
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".go") || strings.HasSuffix(e.Name(), "_test.go") {
+			continue
+		}
+		f, err := parser.ParseFile(fset, filepath.Join(dir, e.Name()), nil, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		files = append(files, f)
+	}
+	return files
+}
+
 // storeInterfaceMethods parses store.go and returns the Store interface's
 // methods, plus the set of struct types in this package that carry TenantID.
 func storeInterfaceMethods(t *testing.T) (map[string]*ast.FuncType, map[string]bool) {
 	t.Helper()
-	fset := token.NewFileSet()
-	pkgs, err := parser.ParseDir(fset, ".", func(fi os.FileInfo) bool {
-		return !strings.HasSuffix(fi.Name(), "_test.go")
-	}, 0)
-	if err != nil {
-		t.Fatal(err)
-	}
 	structsWithTenant := map[string]bool{}
 	methods := map[string]*ast.FuncType{}
-	for _, pkg := range pkgs {
-		for _, f := range pkg.Files {
+	{
+		for _, f := range parseNonTestFiles(t, ".") {
 			for _, d := range f.Decls {
 				gd, ok := d.(*ast.GenDecl)
 				if !ok || gd.Tok != token.TYPE {
@@ -202,13 +218,6 @@ type funcLiterals struct {
 // string literals inside each function body, keyed by function.
 func implementationLiterals(t *testing.T, dir, pkgName string) ([]string, []funcLiterals) {
 	t.Helper()
-	fset := token.NewFileSet()
-	pkgs, err := parser.ParseDir(fset, dir, func(fi os.FileInfo) bool {
-		return !strings.HasSuffix(fi.Name(), "_test.go")
-	}, 0)
-	if err != nil {
-		t.Fatal(err)
-	}
 	var top []string
 	var funcs []funcLiterals
 	unquote := func(l *ast.BasicLit) string {
@@ -218,8 +227,8 @@ func implementationLiterals(t *testing.T, dir, pkgName string) ([]string, []func
 		}
 		return s
 	}
-	for _, pkg := range pkgs {
-		for _, f := range pkg.Files {
+	{
+		for _, f := range parseNonTestFiles(t, dir) {
 			for _, d := range f.Decls {
 				switch dd := d.(type) {
 				case *ast.GenDecl:
