@@ -33,6 +33,20 @@ func natsSubject(topic string) string {
 
 // NATSPermissions returns the publish and subscribe allow lists for a bridge
 // whose tenant namespace is ns ("meshsat" or "meshsat/{tenant}").
+//
+// Every subject a bridge may use lies inside its own tenant's namespace, with
+// exactly these exceptions (MESHSAT-1033):
+//
+//   - meshsat.hub.> is granted to NO bridge. It is the Hub's internal bus and
+//     carries every tenant's inbound SMS (sender, recipient, text), APRS-IS
+//     traffic, out-of-band command replies and tenant lifecycle events. It used
+//     to be on every bridge's subscribe list, so any customer who registered a
+//     bridge could read all of it. No kit or phone subscribes there.
+//   - meshsat.broadcast.> only for a bridge of the PLATFORM tenant. It carries
+//     the operator's TAK picture (the OTS poller's markers), which is the
+//     platform's data, not a customer's. The platform's kits and phones use it;
+//     a customer gets TAK through its own hosted TAK server instead.
+//   - $MQTT.sub.> is nats-server's delivery subject for QoS 1 subscriptions.
 func NATSPermissions(ns, bridgeID string) (publish, subscribe []string) {
 	n := natsSubject(ns)
 	own := n + ".bridge." + bridgeID + ".>"
@@ -44,11 +58,16 @@ func NATSPermissions(ns, bridgeID string) (publish, subscribe []string) {
 	subscribe = []string{
 		own,
 		n + ".*.mt.>", n + ".*.config.>",
-		"meshsat.broadcast.>", "meshsat.hub.>",
-		"$MQTT.sub.>", // nats-server's own subject for QoS 1 MQTT subscriptions
 	}
+	if ns == platformNamespace {
+		subscribe = append(subscribe, "meshsat.broadcast.>")
+	}
+	subscribe = append(subscribe, "$MQTT.sub.>")
 	return publish, subscribe
 }
+
+// platformNamespace is the topic root of the default (platform) tenant.
+const platformNamespace = "meshsat"
 
 func quoteList(items []string) string {
 	q := make([]string, len(items))
