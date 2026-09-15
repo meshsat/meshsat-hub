@@ -929,7 +929,11 @@ func Load() (Config, error) {
 	// OOB defaults then overrides. HUB_OOB_ENCRYPT is deliberately absent: frames
 	// are always sealed (MESHSAT-1121).
 	cfg.OOBMaxPerHour = 20
-	cfg.OOBSMSTimeout = 60 * time.Second
+	// 120 s, not 60: a measured SMS round trip Hub -> Twilio -> kit modem ->
+	// Twilio -> Hub was 42 s on 2026-09-15 (MESHSAT-1164), and a kit that is
+	// busy with the modem adds tens of seconds more. Tenants may still set
+	// their own within the bounds below.
+	cfg.OOBSMSTimeout = 120 * time.Second
 	cfg.OOBSatTimeout = 10 * time.Minute
 	cfg.OOBMaxPerHourMin = 1
 	cfg.OOBMaxPerHourMax = 240

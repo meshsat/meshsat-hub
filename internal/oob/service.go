@@ -68,7 +68,15 @@ type Service struct {
 	pending    map[string]chan Reply // bridge|counterLo16 -> waiter
 	sent       map[string][]time.Time
 	now        func() time.Time
+
+	bus      Bus    // replies are announced to the other replicas (fanout.go)
+	instance string // this replica, so it ignores its own announcements
 }
+
+// replySegments is the pending channel's depth: one reply may arrive as
+// several SMS segments (seq/total), all of which must fit without blocking
+// the webhook that carries them.
+const replySegments = 32
 
 // Options tunes the service.
 //
@@ -88,7 +96,8 @@ func New(s Store, masterKey []byte, auditSvc *audit.Service, opts Options) *Serv
 		opts.MaxPerHour = 20
 	}
 	return &Service{store: s, masterKey: masterKey, audit: auditSvc, maxPerHour: opts.MaxPerHour,
-		transports: map[string]Transport{}, pending: map[string]chan Reply{}, sent: map[string][]time.Time{}, now: time.Now}
+		transports: map[string]Transport{}, pending: map[string]chan Reply{}, sent: map[string][]time.Time{}, now: time.Now,
+		instance: newInstanceID()}
 }
 
 // Policy is one tenant's out-of-band command policy. A zero field means "use
@@ -338,7 +347,7 @@ func (s *Service) Send(ctx context.Context, tenantID, bridgeID, bearer, cmdName 
 
 	var ch chan Reply
 	if !noReply {
-		ch = make(chan Reply, 4)
+		ch = make(chan Reply, replySegments)
 		s.mu.Lock()
 		s.pending[pendingKey(bridgeID, counter)] = ch
 		s.mu.Unlock()
@@ -372,14 +381,59 @@ func (s *Service) Send(ctx context.Context, tenantID, bridgeID, bearer, cmdName 
 	if dl, ok := ctx.Deadline(); ok && time.Until(dl) < timeout {
 		timeout = time.Until(dl)
 	}
-	select {
-	case r := <-ch:
-		return &r, nil
-	case <-time.After(timeout):
-		return nil, fmt.Errorf("%w (%s, %s)", ErrTimeout, bearer, timeout)
-	case <-ctx.Done():
-		return nil, ctx.Err()
+	// A reply may arrive as several segments (seq/total, one SMS each); the
+	// caller gets ONE reply with the bodies joined in sequence order, not
+	// whichever segment happened to land first (MESHSAT-1164: a STATUS-NET
+	// reply came back as "-36", the tail of its second segment).
+	deadline := time.After(timeout)
+	segments := map[byte]Reply{}
+	for {
+		select {
+		case r := <-ch:
+			if r.Total <= 1 {
+				return &r, nil
+			}
+			segments[r.Seq] = r
+			if whole, ok := assemble(segments, r.Total); ok {
+				return whole, nil
+			}
+		case <-deadline:
+			if len(segments) > 0 {
+				return nil, fmt.Errorf("%w (%s, %s: %d of %d segments arrived)", ErrTimeout, bearer, timeout, len(segments), firstTotal(segments))
+			}
+			return nil, fmt.Errorf("%w (%s, %s)", ErrTimeout, bearer, timeout)
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
 	}
+}
+
+// assemble joins the segments of one reply once every sequence number from
+// 1 to total is present. The result carries the last segment's RC (the kit
+// writes the outcome once, on the last one) and the joined body.
+func assemble(segments map[byte]Reply, total byte) (*Reply, bool) {
+	if total == 0 || len(segments) < int(total) {
+		return nil, false
+	}
+	var body []byte
+	for i := byte(1); i <= total; i++ {
+		seg, ok := segments[i]
+		if !ok {
+			return nil, false
+		}
+		body = append(body, seg.Body...)
+	}
+	last := segments[total]
+	last.Body = string(body)
+	last.Seq = total
+	return &last, true
+}
+
+func firstTotal(segments map[byte]Reply) byte {
+	for _, s := range segments {
+		return s.Total
+	}
+	return 0
 }
 
 // HandleInbound classifies text that arrived over bearer from origin (the
@@ -435,15 +489,10 @@ func (s *Service) HandleInbound(ctx context.Context, bearer, origin, text string
 		r := Reply{Bearer: bearer, RC: ra.RC, Result: ra.RC.String(), Body: string(ra.Body), Counter: uint32(ra.ReqCounterLo), Seq: ra.Seq, Total: ra.Total, Received: s.now().UTC()}
 		s.log(ctx, p.TenantID, "oob_reply", origin, fmt.Sprintf("bridge=%s bearer=%s req_counter=%d rc=%s seq=%d/%d body=%q", p.BridgeID, bearer, ra.ReqCounterLo, ra.RC, ra.Seq, ra.Total, ra.Body))
 		slog.Info("oob: reply", "bridge", p.BridgeID, "bearer", bearer, "rc", ra.RC.String(), "req_counter", ra.ReqCounterLo, "body", string(ra.Body))
-		s.mu.Lock()
-		ch := s.pending[pendingKey(p.BridgeID, uint32(ra.ReqCounterLo))]
-		s.mu.Unlock()
-		if ch != nil {
-			select {
-			case ch <- r:
-			default:
-			}
-		}
+		// Local waiter first, then every other replica: the command may have
+		// been sent from the other pod (MESHSAT-1164).
+		s.deliver(p.BridgeID, r)
+		s.announce(p.TenantID, p.BridgeID, r)
 		return true
 	}
 	slog.Warn("oob: frame failed authentication for every candidate peer", "peer_id", h.PeerID, "bearer", bearer, "origin", origin)
