@@ -28,6 +28,12 @@ rules:
     resources: ["pods"]
     verbs: ["get", "list", "watch", "create", "delete"]
   - apiGroups: [""]
+    # notify-e2e reads HUB_APPRISE_URL from the Hub's ConfigMap (not a Secret);
+    # nothing else, by name.
+    resources: ["configmaps"]
+    resourceNames: ["hub-config"]
+    verbs: ["get"]
+  - apiGroups: [""]
     resources: ["pods/exec"]
     verbs: ["create"]
   - apiGroups: [""]
