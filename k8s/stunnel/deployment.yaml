@@ -5,6 +5,11 @@ metadata:
   namespace: meshsat-hub
   labels:
     app.kubernetes.io/name: stunnel
+  annotations:
+    # Reloader (MESHSAT-1150): stunnel reads the certificate files at start,
+    # so a renewed meshsat-net-tls or bridge CA now rolls it instead of
+    # waiting for a hand-run rollout restart.
+    reloader.stakater.com/auto: "true"
 spec:
   replicas: 2
   strategy:

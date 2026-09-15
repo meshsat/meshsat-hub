@@ -31,17 +31,14 @@ data:
   # loader reads it from disk. Same two-commit shape as the CVE fix below, for the
   # same reason: the pin is what decides whether a fix reaches a tenant.
   #
-  # ⚠ A REPIN IS NOT ENOUGH ON ITS OWN. The Deployment takes this ConfigMap
-  # through `envFrom`, cmd/tak-operator/main.go reads TAK_OTS_IMAGE once at
-  # startup into the Reconciler, and there is no reloader annotation -- so Argo
-  # updating this file leaves the RUNNING operator creating instances from the
-  # old image, silently. After this merges:
-  #
-  #     kubectl --context notrf01 -n meshsat-tak rollout restart deploy/tak-operator
-  #
-  # and check the new pod's startup line reports the digest below as ots_image.
-  # This is the same trap that left the Hub running 121 minutes with the correct
-  # Secret and the wrong Stripe key.
+  # The Deployment takes this ConfigMap through `envFrom` and
+  # cmd/tak-operator/main.go reads TAK_OTS_IMAGE once at startup, so until
+  # MESHSAT-1150 a repin left the RUNNING operator creating instances from the
+  # old image, silently, until somebody ran rollout restart (the same trap that
+  # left the Hub 121 minutes on the wrong Stripe key). The Deployment now
+  # carries the Reloader annotation: Argo updating this file recreates the
+  # operator. Still check the new pod's startup line reports the digest below
+  # as ots_image.
   TAK_OTS_IMAGE: "ghcr.io/meshsat/meshsat-hub-ots@sha256:1f1c23a0a6f1447f6f35d974477b74ce8a3a68c9cd31cc561a8b6dc0445641b3"
   # In the pod because OpenTAKServer's socketio client connects to RabbitMQ as
   # `guest` with no credentials, and guest is loopback-only. Spike S5 settled

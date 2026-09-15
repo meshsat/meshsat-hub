@@ -87,7 +87,7 @@ has its own `kustomization.yaml`. A service dir contains, as applicable: `deploy
 - Exception: `meshsat-bridge-ca` has `refreshInterval: "0"` (seeded once from
   `nats/bridge_ca_crt`) because the Hub patches it at runtime.
 - TLS: `meshsat-net-tls` from `k8s/shared/wildcard-meshsat-net-tls` (NL cert-manager PushSecret;
-  self-renewing). Consumers: both Ingresses, NATS (reloaded), stunnel (rollout restart).
+  self-renewing). Consumers: both Ingresses, NATS (reloaded), stunnel (rolled by Reloader).
 
 ## Database (CNPG)
 

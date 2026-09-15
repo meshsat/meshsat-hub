@@ -192,9 +192,8 @@ Two more things worth keeping:
 ## Certificates
 
 - `meshsat-net-tls` renews end to end (Let's Encrypt → NL cert-manager → OpenBao → ES).
-  NATS reloads via the config-reloader sidecar; **stunnel needs
-  `kubectl -n meshsat-hub rollout restart deploy/stunnel`** after a renewal (add a cron or
-  Reloader annotation later).
+  NATS reloads via the config-reloader sidecar; stunnel is rolled by Reloader
+  (`reloader.stakater.com/auto` on its Deployment, MESHSAT-1150) when the Secret changes.
 - Bridge CA: Secret `meshsat-bridge-ca`, seeded once by ESO, kept current by the Hub
   (`HUB_BRIDGE_CA_SECRET_NAME`; readiness info probe `bridge_ca_export`).
 
