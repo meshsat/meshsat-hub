@@ -20,6 +20,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net/url"
 	"sort"
 	"strings"
 	"sync"
@@ -97,6 +98,11 @@ type Field struct {
 	// (tls.X509KeyPair), so a bad paste is a 400 here rather than a connect
 	// loop in a log the customer cannot read (MESHSAT-1151).
 	PEM bool `json:"pem,omitempty"`
+	// Broker marks an MQTT broker address (ssl://host:port) the Hub will dial
+	// for this tenant. The same request-forgery concern as URL, with the
+	// scheme set an MQTT client accepts: the host must resolve to a public
+	// address, so a tenant cannot point the Hub at nats:1883 or the database.
+	Broker bool `json:"broker,omitempty"`
 }
 
 // maxFieldLen is the size cap for a single-line field; multiline fields
@@ -128,7 +134,7 @@ var Specs = []Spec{
 			// over mutual-TLS MQTT instead of, or as well as, the webhook. The
 			// Hub subscribes to lingo/{account_id}/+/MO with the certificate
 			// below, one connection per tenant, on the leader replica.
-			{Key: "mqtt_broker_url", Label: "MQTT broker", Hint: "leave empty to use the webhook only; Cloudloop's broker is ssl://<host>:8883 -- the feed needs the account id and all three PEM blocks below"},
+			{Key: "mqtt_broker_url", Label: "MQTT broker", Broker: true, Hint: "leave empty to use the webhook only; Cloudloop's broker is ssl://<host>:8883 -- the feed needs the account id and all three PEM blocks below"},
 			{Key: "mqtt_ca_pem", Label: "MQTT broker CA (PEM)", Multiline: true, PEM: true, Hint: "the authority that signed the broker's certificate"},
 			{Key: "mqtt_client_cert_pem", Label: "MQTT client certificate (PEM)", Multiline: true, PEM: true, Hint: "the certificate Cloudloop issued for this account"},
 			{Key: "mqtt_client_key_pem", Label: "MQTT client key (PEM)", Multiline: true, PEM: true, Secret: true, Hint: "the private key for that certificate; stored encrypted and never shown again"},
@@ -564,6 +570,11 @@ func (s *Service) Set(ctx context.Context, tenantID, provider string, fields map
 	if err := validatePEM(spec, merged); err != nil {
 		return nil, err
 	}
+	if !s.noURLCheck {
+		if err := validateBrokers(spec, merged); err != nil {
+			return nil, err
+		}
+	}
 	// Every URL the Hub will make outbound requests to, checked BEFORE it is
 	// stored. A tenant choosing a URL the Hub then fetches is a request-forgery
 	// primitive: the Hub sits in a cluster with a database, a broker, an object
@@ -795,6 +806,30 @@ func validatePEM(spec Spec, merged map[string]string) error {
 					return fmt.Errorf("%s and its key do not go together: %v", f.Label, err)
 				}
 			}
+		}
+	}
+	return nil
+}
+
+// validateBrokers applies the public-address guard to Broker fields. MQTT
+// brokers are ssl://, tls://, mqtts:// or tcp://; the check itself is
+// netguard's, run on the host with an https scheme it understands.
+func validateBrokers(spec Spec, merged map[string]string) error {
+	for _, f := range spec.Fields {
+		if !f.Broker || merged[f.Key] == "" {
+			continue
+		}
+		u, err := url.Parse(strings.TrimSpace(merged[f.Key]))
+		if err != nil || u.Host == "" {
+			return fmt.Errorf("%s must look like ssl://host:8883", f.Label)
+		}
+		switch u.Scheme {
+		case "ssl", "tls", "mqtts", "tcp":
+		default:
+			return fmt.Errorf("%s: scheme %q is not an MQTT scheme (ssl://, tls://, mqtts://, tcp://)", f.Label, u.Scheme)
+		}
+		if err := netguard.ValidatePublicURL("https://" + u.Host); err != nil {
+			return fmt.Errorf("%s: %v", f.Label, err)
 		}
 	}
 	return nil

@@ -155,7 +155,10 @@ u = (page.get("results") or [{}])[0]
 check("the account is now ACTIVE", u.get("is_active") is True, str(u.get("is_active")))
 groups = [g.get("name") for g in (u.get("groups_obj") or [])] or u.get("groups", [])
 check("it left meshsat-pending", "meshsat-pending" not in json.dumps(groups), json.dumps(groups)[:120])
-logs = sh(CTX+["logs","deploy/hub","--since=3m","--all-containers"])
+# BOTH replicas: the approval landed on whichever pod the ingress picked, and
+# `logs deploy/hub` reads one pod at random (it passed by luck on the first
+# in-cluster run and failed on the second).
+logs = sh(CTX+["logs","-l","app.kubernetes.io/name=hub","--since=3m","--all-containers","--prefix"])
 check("the approval email was sent", "signup approved" in logs,
       "logged" if "signup approved" in logs else "no 'signup approved' line in the last 3 minutes")
 
