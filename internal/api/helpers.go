@@ -1,18 +1,22 @@
 package api
 
 import (
-	"encoding/json"
 	"net/http"
+
+	"github.com/meshsat/meshsat-hub/internal/httpjson"
 )
 
+// The JSON helpers live in internal/httpjson so that packages carrying field
+// traffic (internal/email, internal/routing) can use them without importing
+// this package and, through it, the subscription ceiling. These wrappers exist
+// so no handler in this package changed (MESHSAT-992).
+
 func writeJSON(w http.ResponseWriter, status int, v interface{}) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(v)
+	httpjson.WriteJSON(w, status, v)
 }
 
 func writeError(w http.ResponseWriter, status int, msg string) {
-	writeJSON(w, status, map[string]string{"error": msg})
+	httpjson.WriteError(w, status, msg)
 }
 
 // WriteJSON is the exported version of writeJSON for use by other packages.

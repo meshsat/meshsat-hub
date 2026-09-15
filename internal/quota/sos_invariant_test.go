@@ -181,12 +181,20 @@ func TestSOSSurvivesTheQuota(t *testing.T) {
 // subscription ceiling at all, so the next handler somebody adds cannot
 // quietly acquire one.
 //
-// It reads direct imports and source text rather than the transitive
-// dependency graph on purpose: some of these packages reach internal/api for
-// its JSON helpers, which drags in the whole handler set including this
-// package. A transitive check would go permanently red for a reason that has
-// nothing to do with the invariant, and a permanently red test is a deleted
-// test.
+// It checks three things, each catching what the others cannot:
+//
+//   - direct imports, so a handler that imports this package is named;
+//   - source text, so a call through some interface or alias is named too;
+//   - the TRANSITIVE dependency graph (`go list -deps`), so a package that
+//     acquires the ceiling through an intermediary is named with the
+//     intermediary that brought it in.
+//
+// The third check used to be impossible: internal/email and internal/routing
+// reached internal/api for its JSON helpers, which dragged in the whole
+// handler set including this package. Those helpers live in internal/httpjson
+// now, which imports nothing under the module (MESHSAT-992). If the graph
+// check goes red, something re-introduced such a path: move the shared code
+// out of internal/api rather than loosening this test.
 //
 // internal/bridge is in the list even though it does gate one registration --
 // a birth for a device nobody has seen. It asks through its own one-method
@@ -213,6 +221,10 @@ func TestQuotaIsNotOnAnyIngestPath(t *testing.T) {
 	}
 	const why = "\nA subscription ceiling must never sit on a path that carries field traffic: " +
 		"it would let a lapsed plan drop an SOS. Keep the check on registration only."
+
+	if _, err := exec.LookPath("go"); err != nil {
+		t.Skip("go is not on PATH; the import and dependency checks need `go list`")
+	}
 
 	for _, pkg := range ingest {
 		dir := "../" + pkg
@@ -249,4 +261,73 @@ func TestQuotaIsNotOnAnyIngestPath(t *testing.T) {
 			}
 		}
 	}
+
+	// The dependency graph: no ingest package may reach this one through any
+	// number of intermediaries. The message names the first package on the
+	// path that brought the ceiling in, which is where the fix goes.
+	const module = "github.com/meshsat/meshsat-hub/"
+	for _, pkg := range ingest {
+		target := module + "internal/" + pkg
+		deps, err := transitiveDeps(target)
+		if err != nil {
+			t.Fatalf("go list -deps %s: %v", pkg, err)
+		}
+		if _, hit := deps[self]; !hit {
+			continue
+		}
+		// Of the target's DIRECT imports, which ones themselves depend on the
+		// ceiling? Each of those is an offending path.
+		var via []string
+		for _, imp := range directImports(t, target) {
+			if imp == self {
+				via = append(via, imp)
+				continue
+			}
+			if !strings.HasPrefix(imp, module) {
+				continue
+			}
+			sub, err := transitiveDeps(imp)
+			if err != nil {
+				t.Fatalf("go list -deps %s: %v", imp, err)
+			}
+			if _, ok := sub[self]; ok {
+				via = append(via, imp+" -> ... -> "+self)
+			}
+		}
+		t.Errorf("internal/%s transitively depends on internal/quota via:\n  %s"+why,
+			pkg, strings.Join(via, "\n  "))
+	}
+}
+
+// transitiveDeps returns every package importPath depends on, as a set.
+// go is on the path in CI and on every developer machine; if it is not, the
+// caller skips rather than fabricating a pass.
+func transitiveDeps(importPath string) (map[string]struct{}, error) {
+	out, err := exec.Command("go", "list", "-deps", "-f", "{{.ImportPath}}", importPath).Output()
+	if err != nil {
+		return nil, err
+	}
+	set := map[string]struct{}{}
+	for _, line := range strings.Split(string(out), "\n") {
+		if line = strings.TrimSpace(line); line != "" {
+			set[line] = struct{}{}
+		}
+	}
+	return set, nil
+}
+
+// directImports returns the packages importPath imports directly.
+func directImports(t *testing.T, importPath string) []string {
+	t.Helper()
+	out, err := exec.Command("go", "list", "-f", "{{join .Imports \"\\n\"}}", importPath).Output()
+	if err != nil {
+		t.Fatalf("go list %s: %v", importPath, err)
+	}
+	var imps []string
+	for _, line := range strings.Split(string(out), "\n") {
+		if line = strings.TrimSpace(line); line != "" {
+			imps = append(imps, line)
+		}
+	}
+	return imps
 }

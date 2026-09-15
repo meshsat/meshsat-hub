@@ -5,8 +5,8 @@ import (
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/meshsat/meshsat-hub/internal/api"
 	hubauth "github.com/meshsat/meshsat-hub/internal/auth"
+	"github.com/meshsat/meshsat-hub/internal/httpjson"
 )
 
 // APIHandler provides REST endpoints for PGP key management and email testing.
@@ -33,7 +33,7 @@ func (h *APIHandler) gatewayFor(w http.ResponseWriter, r *http.Request) *Gateway
 	tid := hubauth.TenantIDFromContext(r.Context())
 	gw := h.pool.ForTenant(r.Context(), tid)
 	if gw == nil {
-		api.WriteError(w, http.StatusServiceUnavailable,
+		httpjson.WriteError(w, http.StatusServiceUnavailable,
 			"no email gateway configured for this tenant (Integrations page)")
 		return nil
 	}
@@ -73,7 +73,7 @@ func (h *APIHandler) ListContacts(w http.ResponseWriter, r *http.Request) {
 	if infos == nil {
 		infos = []ContactInfo{}
 	}
-	api.WriteJSON(w, http.StatusOK, infos)
+	httpjson.WriteJSON(w, http.StatusOK, infos)
 }
 
 type addContactRequest struct {
@@ -93,13 +93,13 @@ type addContactRequest struct {
 //	@Router       /api/email/keys [post]
 func (h *APIHandler) AddContact(w http.ResponseWriter, r *http.Request) {
 	var req addContactRequest
-	if err := api.ReadJSON(w, r, &req); err != nil {
-		api.WriteError(w, http.StatusBadRequest, err.Error())
+	if err := httpjson.ReadJSON(w, r, &req); err != nil {
+		httpjson.WriteError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 
 	if req.Email == "" || req.ArmoredKey == "" {
-		api.WriteError(w, http.StatusBadRequest, "email and armored_key required")
+		httpjson.WriteError(w, http.StatusBadRequest, "email and armored_key required")
 		return
 	}
 
@@ -112,19 +112,19 @@ func (h *APIHandler) AddContact(w http.ResponseWriter, r *http.Request) {
 	// skips it and the recipient silently falls back to cleartext.
 	if err := gw.KeyRing.AddContact(req.Email, req.ArmoredKey); err != nil {
 		slog.Error("email: add contact key failed", "email", req.Email, "error", err)
-		api.WriteError(w, http.StatusBadRequest, "invalid PGP key")
+		httpjson.WriteError(w, http.StatusBadRequest, "invalid PGP key")
 		return
 	}
 
 	tid := hubauth.TenantIDFromContext(r.Context())
 	if err := h.pool.PersistContact(r.Context(), tid, req.Email, req.ArmoredKey); err != nil {
 		slog.Error("email: storing the contact key failed", "tenant", tid, "email", req.Email, "error", err)
-		api.WriteError(w, http.StatusInternalServerError, "could not store the key")
+		httpjson.WriteError(w, http.StatusInternalServerError, "could not store the key")
 		return
 	}
 
 	slog.Info("email: contact key added", "tenant", tid, "email", req.Email)
-	api.WriteJSON(w, http.StatusCreated, map[string]string{"status": "ok", "email": req.Email})
+	httpjson.WriteJSON(w, http.StatusCreated, map[string]string{"status": "ok", "email": req.Email})
 }
 
 // DeleteContact removes a recipient's PGP public key.
@@ -137,7 +137,7 @@ func (h *APIHandler) AddContact(w http.ResponseWriter, r *http.Request) {
 func (h *APIHandler) DeleteContact(w http.ResponseWriter, r *http.Request) {
 	email := chi.URLParam(r, "email")
 	if email == "" {
-		api.WriteError(w, http.StatusBadRequest, "missing email")
+		httpjson.WriteError(w, http.StatusBadRequest, "missing email")
 		return
 	}
 	gw := h.gatewayFor(w, r)
@@ -148,7 +148,7 @@ func (h *APIHandler) DeleteContact(w http.ResponseWriter, r *http.Request) {
 	tid := hubauth.TenantIDFromContext(r.Context())
 	if err := h.pool.ForgetContact(r.Context(), tid, email); err != nil {
 		slog.Error("email: removing the stored contact key failed", "tenant", tid, "email", email, "error", err)
-		api.WriteError(w, http.StatusInternalServerError, "could not remove the key")
+		httpjson.WriteError(w, http.StatusInternalServerError, "could not remove the key")
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -167,13 +167,13 @@ func (h *APIHandler) DeleteContact(w http.ResponseWriter, r *http.Request) {
 //	@Router       /api/email/test [post]
 func (h *APIHandler) TestSend(w http.ResponseWriter, r *http.Request) {
 	var req testEmailRequest
-	if err := api.ReadJSON(w, r, &req); err != nil {
-		api.WriteError(w, http.StatusBadRequest, err.Error())
+	if err := httpjson.ReadJSON(w, r, &req); err != nil {
+		httpjson.WriteError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 
 	if req.To == "" {
-		api.WriteError(w, http.StatusBadRequest, "to is required")
+		httpjson.WriteError(w, http.StatusBadRequest, "to is required")
 		return
 	}
 
@@ -192,12 +192,12 @@ func (h *APIHandler) TestSend(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := gw.Client.Send(req.To, subject, msgBody); err != nil {
-		api.WriteError(w, http.StatusInternalServerError, "send failed: "+err.Error())
+		httpjson.WriteError(w, http.StatusInternalServerError, "send failed: "+err.Error())
 		return
 	}
 
 	encrypted := gw.KeyRing.GetContact(req.To) != nil
-	api.WriteJSON(w, http.StatusOK, map[string]interface{}{
+	httpjson.WriteJSON(w, http.StatusOK, map[string]interface{}{
 		"status":    "sent",
 		"to":        req.To,
 		"encrypted": encrypted,
