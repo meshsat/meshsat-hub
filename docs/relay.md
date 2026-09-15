@@ -81,6 +81,25 @@ A client whose bridge is not connected anywhere is not told so: its frames are p
 nobody picks them up. It learns by the absence of replies inside its own protocol. A presence
 signal is the Bridge's to add if it wants one (MESHSAT-613).
 
+## Inside the tunnel
+
+The Hub carries bytes. What the two ends put in them is **TLS, with the Hub CA as the only
+root**, and inside the TLS stream plain HTTP/1.1 to the bridge's own API, so the pair
+protocol's Bearer tokens keep working unchanged.
+
+- The **bridge end is the TLS server** of every tunnel: it presents its Hub-issued
+  certificate and requires the client's Hub-issued certificate (`RequireAndVerifyClientCert`,
+  roots = Hub CA). Its relay client turns every client id into one `net.Conn` and serves the
+  API router over `tls.NewListener`.
+- The **client end** (a phone) presents its Hub-issued certificate and verifies the server
+  against the Hub CA with `ServerName` = the bridge id it connected to. It exposes the tunnel
+  as a local port, so its HTTP stack does TLS the normal way against `https://127.0.0.1:<port>`.
+- **Certificates issued before 2026-09-15 cannot serve a relay**: they carried only
+  `ClientAuth` and no SAN. `IssueBridgeCert` now adds `ServerAuth` and a DNS SAN equal to the
+  bridge id (ids that are not DNS names get no SAN and cannot serve). A bridge re-issues its
+  certificate on the Fleet page once; phones need nothing new, `ClientAuth` was always there.
+- Frames are at most 64 KiB, so both ends chunk the TLS stream at 32 KiB per frame.
+
 ## How the two ends meet
 
 Three Hub replicas sit behind round-robin, so the two ends of a tunnel land on different pods.
