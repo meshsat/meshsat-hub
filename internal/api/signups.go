@@ -109,7 +109,7 @@ func (h *SignupHandler) Approve(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "role must be owner, operator or viewer")
 		return
 	}
-	signupIP, email, name, err := h.ak.Approve(r.Context(), pk, req.Role)
+	signupIP, email, name, probe, err := h.ak.Approve(r.Context(), pk, req.Role)
 	if err != nil {
 		// A refusal is not an upstream fault: it means the pk does not name a
 		// MeshSat signup waiting for a decision. Say so as a 409, so an operator
@@ -127,12 +127,16 @@ func (h *SignupHandler) Approve(w http.ResponseWriter, r *http.Request) {
 		}
 		return
 	}
-	if h.mail != nil && email != "" {
+	// A verification probe (the nightly job's own account, attribute
+	// verification_probe) is approved like anyone else but not written to:
+	// its address is a catch-all that lands in the operator's inbox, and five
+	// of these arrived there on the day the job was built.
+	if h.mail != nil && email != "" && !probe {
 		msg := mail.Approved(name, h.hubURL)
 		mail.SendOrLog(r.Context(), h.mail, email, msg, "signup approved")
 	}
 	h.log(r, "signup_approved", email, "role="+req.Role+" ip="+signupIP)
-	slog.Info("signup approved", "email", email, "role", req.Role, "signup_ip", signupIP)
+	slog.Info("signup approved", "email", email, "role", req.Role, "signup_ip", signupIP, "probe", probe)
 	writeJSON(w, http.StatusOK, map[string]any{
 		"email": email, "role": req.Role, "signup_ip": signupIP,
 		"next": "their first sign-in creates their tenant",

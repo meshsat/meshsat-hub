@@ -59,7 +59,7 @@ func pendingUser() map[string]any {
 
 func TestApprove_HappyPathActivatesAndMovesGroup(t *testing.T) {
 	c, f := newFake(t, pendingUser())
-	ip, email, name, err := c.Approve(context.Background(), 7, "owner")
+	ip, email, name, _, err := c.Approve(context.Background(), 7, "owner")
 	if err != nil {
 		t.Fatalf("approve: %v", err)
 	}
@@ -94,7 +94,7 @@ func TestApprove_RefusesAnAccountThatIsNotAPendingSignup(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			c, f := newFake(t, tc.user)
-			if _, _, _, err := c.Approve(context.Background(), 7, "owner"); !errors.Is(err, ErrNotPending) {
+			if _, _, _, _, err := c.Approve(context.Background(), 7, "owner"); !errors.Is(err, ErrNotPending) {
 				t.Fatalf("err = %v, want ErrNotPending", err)
 			}
 			if len(f.patches) != 0 {
@@ -108,7 +108,7 @@ func TestApprove_RefusesUnverifiedEmail(t *testing.T) {
 	u := pendingUser()
 	u["attributes"] = map[string]any{"email_verified": false}
 	c, f := newFake(t, u)
-	if _, _, _, err := c.Approve(context.Background(), 7, "owner"); !errors.Is(err, ErrEmailNotVerified) {
+	if _, _, _, _, err := c.Approve(context.Background(), 7, "owner"); !errors.Is(err, ErrEmailNotVerified) {
 		t.Fatalf("err = %v, want ErrEmailNotVerified", err)
 	}
 	if len(f.patches) != 0 {
@@ -162,5 +162,26 @@ func TestRejectReturnsWhoItWasSoTheyCanBeTold(t *testing.T) {
 	}
 	if f.deletes != 1 {
 		t.Errorf("deletes = %d, want exactly 1", f.deletes)
+	}
+}
+
+// The nightly verification job walks the approval path with its own account,
+// marked verification_probe. Approve must say so, because the Hub mails an
+// approved customer and a probe's address is a catch-all that lands in the
+// operator's inbox (MESHSAT-1153).
+func TestApprove_ReportsAVerificationProbe(t *testing.T) {
+	u := pendingUser()
+	u["attributes"] = map[string]any{"email_verified": true, "signup_ip": "203.0.113.9", "verification_probe": true}
+	c, _ := newFake(t, u)
+	_, _, _, probe, err := c.Approve(context.Background(), 7, "owner")
+	if err != nil {
+		t.Fatalf("approve: %v", err)
+	}
+	if !probe {
+		t.Fatal("a verification_probe account was approved without being reported as a probe")
+	}
+	c2, _ := newFake(t, pendingUser())
+	if _, _, _, probe, err := c2.Approve(context.Background(), 7, "owner"); err != nil || probe {
+		t.Fatalf("an ordinary signup was reported as a probe (probe=%v err=%v)", probe, err)
 	}
 }

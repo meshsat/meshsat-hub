@@ -431,3 +431,25 @@ func TestRunStopsOnContextCancel(t *testing.T) {
 		t.Error("Run did not do a pass before waiting for its first tick")
 	}
 }
+
+// The nightly verification job's probe account is approved and purged by the
+// job itself; it must not be announced to the operators as a request waiting.
+func TestAVerificationProbeIsNotReportedAsWork(t *testing.T) {
+	probe := pendingUser(1, "journey-0a1b2c3d", true)
+	probe.Probe = true
+	r := newRig(t, probe)
+	r.w.Once(context.Background())
+	if len(r.mailer.sent) != 0 {
+		t.Fatalf("emailed the operators about a verification probe: %d emails", len(r.mailer.sent))
+	}
+	// A real request beside it is still announced, and the probe is not listed.
+	r.ak.users = append(r.ak.users, pendingUser(2, "thomas", true))
+	r.clock = r.clock.Add(time.Minute)
+	r.w.Once(context.Background())
+	if len(r.mailer.sent) != 1 {
+		t.Fatalf("the real request beside the probe was not announced: %d emails", len(r.mailer.sent))
+	}
+	if body := r.mailer.sent[0].msg.Text; strings.Contains(body, "journey-0a1b2c3d") {
+		t.Fatalf("the notice lists the probe:\n%s", body)
+	}
+}
