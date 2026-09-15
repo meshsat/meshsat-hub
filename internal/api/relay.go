@@ -26,6 +26,7 @@ type RelayHandler struct {
 	store   store.Store
 	tenants *tenancy.Resolver
 	relay   *relay.Relay
+	caPEM   []byte // the bridge CA, served at GET /api/relay/ca (relay_ca.go)
 }
 
 // NewRelayHandler wires the relay to the store that holds bridge credentials.
