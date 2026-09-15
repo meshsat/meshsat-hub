@@ -191,6 +191,13 @@ type Store interface {
 	// SetBridgeLastReport records the bearer and time of the latest report
 	// from the bridge (MESHSAT-964).
 	SetBridgeLastReport(ctx context.Context, tenantID string, bridgeID string, bearer string, at time.Time) error
+	// RecordBridgeHealth is what a health report does to the row, in ONE
+	// statement: last_health, last_seen, last_report (bearer, at), online.
+	// It used to be four UPDATEs of the same row per report, from both
+	// replicas, under synchronous replication; pg_stat_statements showed
+	// them as the only slow statements on the platform, up to 1.4 s of
+	// row-lock waiting behind each other (MESHSAT-1155).
+	RecordBridgeHealth(ctx context.Context, tenantID string, bridgeID string, health string, bearer string, at time.Time) error
 
 	// OOB management pairings (MESHSAT-964 C).
 	UpsertOOBPeer(ctx context.Context, p *OOBPeer) error

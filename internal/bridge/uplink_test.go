@@ -23,6 +23,10 @@ func (f *fakeUplinkStore) SetBridgeHealth(_ context.Context, _ string, id string
 	f.health[id] = h
 	return nil
 }
+func (f *fakeUplinkStore) RecordBridgeHealth(context.Context, string, string, string, string, time.Time) error {
+	return nil
+}
+
 func (f *fakeUplinkStore) TouchBridgeLastSeen(context.Context, string, string) error {
 	f.lastSeen++
 	return nil

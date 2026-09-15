@@ -53,6 +53,7 @@ func Run(t *testing.T, open Opener) {
 		{"Geofences", testGeofences},
 		{"PositionInsertIsIdempotent", testPositionInsertIsIdempotent},
 		{"BridgeOfflineTimeout", testBridgeOfflineTimeout},
+		{"BridgeHealthIsOneStatement", testBridgeHealth},
 		{"BridgeOfflineTimeoutWithNoTenantRow", testBridgeOfflineTimeoutWithNoTenantRow},
 	}
 	for _, s := range suites {

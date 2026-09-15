@@ -197,6 +197,15 @@ func (d *DB) MarkStaleBridgesOffline(ctx context.Context, timeout time.Duration)
 	return res.RowsAffected()
 }
 
+func (d *DB) RecordBridgeHealth(ctx context.Context, tenantID string, bridgeID string, health string, bearer string, at time.Time) error {
+	_, err := d.db.ExecContext(ctx,
+		`UPDATE bridges SET last_health=?, last_seen=datetime('now'), last_report_bearer=?, last_report_at=?,
+		        online=1, updated_at=datetime('now')
+		 WHERE bridge_id=? AND tenant_id=?`,
+		health, bearer, at.UTC().Format(time.DateTime), bridgeID, tenantID)
+	return err
+}
+
 func (d *DB) SetBridgeHealth(ctx context.Context, tenantID string, bridgeID string, health string) error {
 	_, err := d.db.ExecContext(ctx,
 		"UPDATE bridges SET last_health=?, updated_at=datetime('now') WHERE bridge_id=? AND tenant_id=?",
