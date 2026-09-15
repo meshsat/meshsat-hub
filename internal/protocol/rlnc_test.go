@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto/rand"
 	"crypto/sha256"
+	"errors"
 	"testing"
 )
 
@@ -160,20 +161,64 @@ func TestRLNCEncodeDecodeRoundTrip(t *testing.T) {
 		}
 	}
 
-	// Decode using just the first K packets.
+	// Feed EVERY packet, not the first K. Coefficients are random GF(256)
+	// bytes, so exactly K of them form a singular matrix about once in 250
+	// runs (each pivot has a 1/256 chance of vanishing), and this test used to
+	// fail on CI at that rate with "rank deficient" -- a flake that taught
+	// people to retry pipelines. With N=5 rows for K=3 unknowns the elimination
+	// skips the dependent rows and the failure probability is ~1e-7, which is
+	// the redundancy the codec exists to provide. The dependent-rows case is
+	// covered deterministically by TestRLNCDependentPacketsAreRankDeficient.
 	gen := NewRLNCGeneration(1, 3, maxLen)
-	for _, pkt := range packets[:3] {
+	for _, pkt := range packets {
 		gen.AddPacket(pkt)
 	}
 
 	decoded, err := gen.TryDecode()
 	if err != nil {
-		t.Fatalf("TryDecode: %v", err)
+		t.Fatalf("TryDecode with all %d packets: %v", len(packets), err)
 	}
 
 	for i, seg := range decoded {
 		if !bytes.Equal(seg, segments[i]) {
 			t.Fatalf("segment %d mismatch after decode", i)
+		}
+	}
+}
+
+// TestRLNCDependentPacketsAreRankDeficient pins the behaviour the round-trip
+// test used to trip over by chance: K packets whose coefficient rows are
+// linearly dependent must be reported as not decodable, and one more
+// independent packet must make the same generation decodable.
+func TestRLNCDependentPacketsAreRankDeficient(t *testing.T) {
+	segments := [][]byte{{1, 2, 3, 4}, {5, 6, 7, 8}, {9, 10, 11, 12}}
+	k := len(segments)
+	mk := func(coeffs []byte) *RLNCCodedPacket {
+		payload := make([]byte, 4)
+		for j, c := range coeffs {
+			for b := range payload {
+				payload[b] = GFAdd(payload[b], GFMul(c, segments[j][b]))
+			}
+		}
+		return &RLNCCodedPacket{K: uint8(k), Coefficients: coeffs, Payload: payload}
+	}
+
+	gen := NewRLNCGeneration(7, k, 4)
+	gen.AddPacket(mk([]byte{1, 2, 3}))
+	gen.AddPacket(mk([]byte{2, 4, 6})) // 2 x row 0 in GF(256): dependent
+	gen.AddPacket(mk([]byte{0, 0, 1}))
+	if _, err := gen.TryDecode(); !errors.Is(err, ErrRLNCNotDecodable) {
+		t.Fatalf("three packets with a dependent row decoded: err=%v", err)
+	}
+
+	gen.AddPacket(mk([]byte{0, 1, 0}))
+	decoded, err := gen.TryDecode()
+	if err != nil {
+		t.Fatalf("a fourth, independent packet should make the generation decodable: %v", err)
+	}
+	for i, seg := range decoded {
+		if !bytes.Equal(seg, segments[i]) {
+			t.Fatalf("segment %d: got %v, want %v", i, seg, segments[i])
 		}
 	}
 }

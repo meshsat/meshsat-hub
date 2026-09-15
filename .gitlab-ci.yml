@@ -344,7 +344,18 @@ test:
     # the default was simply too tight to survive sharing a host. A genuine hang
     # still fails the job, just later, which is the right trade: a false red
     # teaches people to retry pipelines without reading them.
-    - go test -v -count=1 -timeout 25m ./...
+    #
+    # gotestsum wraps `go test -json` and writes a JUnit report, so a failure is
+    # a named test in the pipeline's Tests tab instead of a line somewhere in a
+    # 25-minute log. `--format testname` keeps the raw log readable too; the
+    # full go test output of a FAILED test is still printed by gotestsum.
+    - go install gotest.tools/gotestsum@v1.13.0
+    - gotestsum --junitfile report.xml --format testname -- -count=1 -timeout 25m ./...
+  artifacts:
+    when: always
+    reports:
+      junit: report.xml
+    expire_in: 2 weeks
 
 # Postgres store tests against a real server (MESHSAT-903). The unit job above
 # skips them when HUB_TEST_POSTGRES_DSN is unset; this job provides it through a
@@ -364,7 +375,48 @@ test:postgres:
     # Same reasoning as the `test` job above: explicit budget, not the 10m default.
     # This job is the one that hit it first, because the store conformance suite is
     # where the password hashing lives.
-    - go test -v -count=1 -timeout 25m ./internal/store/...
+    - go install gotest.tools/gotestsum@v1.13.0
+    - gotestsum --junitfile report.xml --format testname -- -count=1 -timeout 25m ./internal/store/...
+  artifacts:
+    when: always
+    reports:
+      junit: report.xml
+    expire_in: 2 weeks
+
+# -----------------------------------------------------------------------------
+# TEST:RACE — the race detector, nightly.
+#
+# Critical rule 7 is CGO_ENABLED=0 for everything that ships, and the race
+# detector needs cgo, so the push pipeline never runs it. Three data races sat
+# in internal/webhook's tests undetected because of that (found by hand,
+# 2026-09-14). This job turns cgo on for the TEST BINARY ONLY -- nothing built
+# here is packaged -- and runs on the nightly schedule (RACE_RUN=1) or by hand
+# on main. It is slow (the detector is 2-10x) and the runners are shared, which
+# is why it is not on every push. A red run here is a real bug: read it, do not
+# retry it.
+# -----------------------------------------------------------------------------
+test:race:
+  stage: test
+  image: golang:1.25-alpine
+  tags: [docker]
+  needs: []
+  variables:
+    CGO_ENABLED: "1"
+  before_script:
+    - apk add --no-cache gcc musl-dev
+    - go install gotest.tools/gotestsum@v1.13.0
+  script:
+    - gotestsum --junitfile report.xml --format testname -- -race -count=1 -timeout 45m ./internal/... ./cmd/...
+  artifacts:
+    when: always
+    reports:
+      junit: report.xml
+    expire_in: 2 weeks
+  rules:
+    - if: $RACE_RUN == "1"
+    - if: $CI_COMMIT_BRANCH == "main"
+      when: manual
+      allow_failure: true
 
 # -----------------------------------------------------------------------------
 # BUILD — compile Go binary
@@ -407,6 +459,11 @@ package:
       docker push ${MESHSAT_HUB_IMAGE}:latest
       echo "Pushed ${MESHSAT_HUB_IMAGE}:${CI_COMMIT_SHORT_SHA}"
   rules:
+    # A scheduled pipeline (nightly race run, weekly ZAP) is not a release: it
+    # must not rebuild and re-push the image, and `latest` must keep pointing at
+    # what the last merge built. bump_k8s_pin already refuses schedules.
+    - if: $CI_PIPELINE_SOURCE == "schedule"
+      when: never
     - if: $CI_COMMIT_BRANCH == "main"
 
 # -----------------------------------------------------------------------------

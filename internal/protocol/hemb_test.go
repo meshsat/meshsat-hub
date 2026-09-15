@@ -72,6 +72,65 @@ func TestHeMBEncodeDecodeRoundtrip(t *testing.T) {
 	}
 }
 
+// TestHembEncodeGenerationIsDeterministicForAFixedReader covers the encoder
+// the bonder actually uses (hembEncodeGeneration), which had no test of its
+// own: the same source and the same coefficient bytes must produce identical
+// symbols, an all-zero coefficient row must be repaired rather than emitted as
+// a zero symbol, and the symbols must decode back to the source. The reader is
+// a fixed byte sequence, so this cannot flake the way random coefficients can.
+func TestHembEncodeGenerationIsDeterministicForAFixedReader(t *testing.T) {
+	segments := [][]byte{[]byte("alpha"), []byte("br"), []byte("charlie")}
+	k, n := len(segments), 5
+	// Row 0 is all zeros on purpose; the encoder must turn it into {1,0,0}.
+	coeffBytes := []byte{
+		0, 0, 0,
+		0, 1, 0,
+		0, 0, 1,
+		3, 7, 11,
+		200, 13, 99,
+	}
+
+	first, err := hembEncodeGeneration(9, segments, n, bytes.NewReader(coeffBytes))
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := hembEncodeGeneration(9, segments, n, bytes.NewReader(coeffBytes))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(first) != n || len(second) != n {
+		t.Fatalf("want %d symbols, got %d and %d", n, len(first), len(second))
+	}
+	for i := range first {
+		if !bytes.Equal(first[i].Coefficients, second[i].Coefficients) || !bytes.Equal(first[i].Data, second[i].Data) {
+			t.Fatalf("symbol %d differs between two runs with the same reader", i)
+		}
+		if first[i].GenID != 9 || first[i].K != k || first[i].SymbolIndex != i {
+			t.Fatalf("symbol %d metadata: %+v", i, first[i])
+		}
+	}
+	if !bytes.Equal(first[0].Coefficients, []byte{1, 0, 0}) {
+		t.Fatalf("all-zero coefficient row was not repaired: %v", first[0].Coefficients)
+	}
+
+	decoded, err := HeMBTryDecode(first, k)
+	if err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	for i, seg := range decoded {
+		want := make([]byte, len("charlie"))
+		copy(want, segments[i])
+		if !bytes.Equal(seg, want) {
+			t.Fatalf("segment %d: got %q, want %q", i, seg, want)
+		}
+	}
+
+	// A reader that runs dry is an error, not a partial generation.
+	if _, err := hembEncodeGeneration(9, segments, n, bytes.NewReader(coeffBytes[:4])); err == nil {
+		t.Fatal("expected an error from a short reader")
+	}
+}
+
 func TestHeMBCRC8(t *testing.T) {
 	data := []byte{0x48, 0x4D, 0x00, 0x01, 0x02, 0x03, 0x04}
 	crc := hembCRC8(data)
