@@ -20,6 +20,13 @@ import (
 
 // MTSendRequest is the JSON payload expected on meshsat/+/mt/send topics.
 type MTSendRequest struct {
+	// RequestID, when the publisher sets one, is what makes this request
+	// distinct from an identical one sent later: the Hub runs two replicas
+	// and both receive every mt/send, so exactly one of them may act on it
+	// (MESHSAT-1120). Without it the request is identified by a digest of
+	// the topic and payload, and a byte-identical request inside the claim
+	// window (24 h) is treated as the same request.
+	RequestID  string `json:"request_id,omitempty"`
 	Text       string `json:"text"`
 	Channel    string `json:"channel,omitempty"`
 	Priority   int    `json:"priority,omitempty"`
@@ -69,7 +76,14 @@ type CostEntry struct {
 }
 
 // Sender listens on MQTT for MT send requests and forwards them via Cloudloop.
+// Claimer is the once-only claim every replica consults before a side
+// effect that must happen exactly once across the deployment.
+type Claimer interface {
+	ClaimOnce(ctx context.Context, key string) (bool, error)
+}
+
 type Sender struct {
+	claimer Claimer           // nil = single replica, no claim
 	tenants *tenancy.Resolver // nil = default namespace
 	client  *Client           // platform client (used when no pool is set)
 	pool    *ClientPool       // per-tenant clients (MESHSAT-977)
@@ -124,6 +138,37 @@ func (s *Sender) SetDeviceResolver(r DeviceResolver) {
 // SetClientPool makes sends use the owning tenant's Cloudloop account.
 func (s *Sender) SetClientPool(p *ClientPool) { s.pool = p }
 
+// SetClaimer makes handleMTSend act on each mt/send request on exactly one
+// replica. Both replicas subscribe to the topic (plain Subscribe, no queue
+// group), and before this every request published on the bus was sent to
+// Cloudloop TWICE and billed to the tenant twice (MESHSAT-1120).
+func (s *Sender) SetClaimer(c Claimer) { s.claimer = c }
+
+// claimRequest returns false when another replica already owns this request.
+// A claim that cannot be recorded is treated as not won: at-most-once is the
+// right failure mode for a satellite send that costs the tenant money, and a
+// database outage already stops the routing engine's dispatch claims.
+func (s *Sender) claimRequest(kind, topic string, payload []byte, requestID string) bool {
+	if s.claimer == nil {
+		return true
+	}
+	key := requestID
+	if key == "" {
+		key = hubmqtt.MessageDigest(topic, payload)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	won, err := s.claimer.ClaimOnce(ctx, kind+":"+key)
+	if err != nil {
+		slog.Error("cloudloop: could not claim MT request, not sending (another replica may)", "topic", topic, "error", err)
+		return false
+	}
+	if !won {
+		slog.Debug("cloudloop: MT request already taken by another replica", "topic", topic)
+	}
+	return won
+}
+
 // clientFor returns the client for a device's tenant (nil = no account).
 func (s *Sender) clientFor(imei string) (*Client, string) {
 	tenant := s.tenantOf(imei)
@@ -172,6 +217,9 @@ func (s *Sender) handleMTSend(topic string, payload []byte) {
 	if err := json.Unmarshal(payload, &req); err != nil {
 		slog.Warn("cloudloop: invalid MT send request", "error", err, "device", deviceID)
 		s.publishStatus(deviceID, "", "failed", "invalid request: "+err.Error())
+		return
+	}
+	if !s.claimRequest("mtsend", topic, payload, req.RequestID) {
 		return
 	}
 

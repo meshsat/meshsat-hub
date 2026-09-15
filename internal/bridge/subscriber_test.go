@@ -32,6 +32,18 @@ type mockStore struct {
 	createDeviceCalls int
 	bridgeOwner       map[string]string // bridge -> registered owner
 	knownTenants      map[string]bool   // tenants GetTenant will admit exist
+	claims            map[string]bool   // ClaimOnce keys already taken (shared between "replicas")
+}
+
+func (m *mockStore) ClaimOnce(_ context.Context, key string) (bool, error) {
+	if m.claims == nil {
+		m.claims = map[string]bool{}
+	}
+	if m.claims[key] {
+		return false, nil
+	}
+	m.claims[key] = true
+	return true, nil
 }
 
 func newMockStore() *mockStore {

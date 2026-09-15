@@ -580,6 +580,23 @@ func (s *Subscriber) handleHeMBSymbol(topic string, payload []byte) {
 	// Generation fully decoded — re-publish the reassembled payload to the
 	// bridge's MO decoded topic so it flows through the standard pipeline
 	// (persistence, WebSocket broadcast, routing, etc.).
+	// Both replicas reassemble every generation (the buffer is in-memory and
+	// per-process), so without a claim the decoded payload is published twice
+	// and every mo/decoded consumer sees it twice (MESHSAT-1120). The key is
+	// what both replicas computed identically: the stream and generation.
+	if s.store != nil {
+		claimCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		won, err := s.store.ClaimOnce(claimCtx, fmt.Sprintf("hemb:%s:%d:%d", bridgeID, streamID, sym.GenID))
+		cancel()
+		if err != nil {
+			// Fail open: a duplicated message is a nuisance, a lost one is gone.
+			slog.Warn("hemb: claim failed, publishing anyway", "bridge", bridgeID, "gen", sym.GenID, "error", err)
+		} else if !won {
+			slog.Debug("hemb: generation already published by another replica", "bridge", bridgeID, "gen", sym.GenID)
+			return
+		}
+	}
+
 	moTopic := protocol.TopicDeviceMessage(bridgeID)
 	if err := s.mqtt.Publish(moTopic, 1, false, decoded); err != nil {
 		slog.Error("hemb: failed to publish reassembled payload",
