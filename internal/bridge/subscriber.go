@@ -49,7 +49,26 @@ type Subscriber struct {
 	caCertPool         *x509.CertPool // bridge CA for birth signature verification
 	birthSignatureMode string         // "warn" (default) or "enforce"
 	hembReassembler    HeMBReassembler
-	quota              QuotaChecker // nil = no subscription ceiling
+	quota              QuotaChecker  // nil = no subscription ceiling
+	leader             LeaderChecker // nil = every replica writes health reports
+}
+
+// LeaderChecker is the one question this package asks the leader election:
+// whether this replica holds the Lease. Declared here so the package does
+// not import internal/leader for a single method.
+type LeaderChecker interface {
+	IsLeader() bool
+}
+
+// SetLeader makes the health-report row write a leader-only action
+// (MESHSAT-1155). Both replicas receive every health report; with both
+// writing, two updates to the same bridges row queued behind each other's
+// synchronous commits and were the only slow statements on the platform.
+// A report is idempotent and the next one is minutes away, so a report that
+// lands during a leadership handover is simply the next one's job. The
+// in-memory work (the Reticulum route refresh) still runs on every replica.
+func (s *Subscriber) SetLeader(l LeaderChecker) {
+	s.leader = l
 }
 
 // NewSubscriber creates a new bridge MQTT subscriber.
@@ -407,8 +426,10 @@ func (s *Subscriber) handleBridgeHealth(topic string, payload []byte) {
 	// unambiguously alive even if the reaper marked it offline. This was four
 	// UPDATEs of the same row, and with both replicas processing every report
 	// they queued behind each other's synchronous commits (MESHSAT-1155).
-	if err := s.store.RecordBridgeHealth(ctx, tenantID, bridgeID, string(payload), "mqtt", time.Now().UTC()); err != nil {
-		slog.Debug("bridge: failed to record health", "error", err, "bridge", bridgeID)
+	if s.leader == nil || s.leader.IsLeader() {
+		if err := s.store.RecordBridgeHealth(ctx, tenantID, bridgeID, string(payload), "mqtt", time.Now().UTC()); err != nil {
+			slog.Debug("bridge: failed to record health", "error", err, "bridge", bridgeID)
+		}
 	}
 
 	// Refresh Reticulum route TTL on each health report so routes stay alive

@@ -384,6 +384,42 @@ func TestHandleBridgeHealth(t *testing.T) {
 	}
 }
 
+type fixedLeader bool
+
+func (f fixedLeader) IsLeader() bool { return bool(f) }
+
+// Only the Lease holder writes the health report to the store; the other
+// replica still refreshes its own in-memory Reticulum route (MESHSAT-1155).
+func TestHandleBridgeHealth_OnlyTheLeaderWritesTheRow(t *testing.T) {
+	health := protocol.BridgeHealth{Protocol: protocol.ProtocolVersion, BridgeID: "mule01", UptimeSec: 1, Timestamp: time.Now()}
+	payload, _ := json.Marshal(health)
+	for _, tc := range []struct {
+		name    string
+		leader  bool
+		written bool
+	}{{"follower", false, false}, {"leader", true, true}} {
+		t.Run(tc.name, func(t *testing.T) {
+			ms := newMockStore()
+			mb := newMockBus()
+			rr := newMockRetRouter()
+			ms.bridges["mule01"] = &store.Bridge{BridgeID: "mule01", ReticulumHash: "aabbccdd11223344"}
+			sub := NewSubscriber(mb, ms, nil)
+			sub.SetReticulumRouter(rr)
+			sub.SetLeader(fixedLeader(tc.leader))
+			if err := sub.Start(); err != nil {
+				t.Fatal(err)
+			}
+			mb.deliver("meshsat/bridge/mule01/health", payload)
+			if _, ok := ms.bridgeHealth["mule01"]; ok != tc.written {
+				t.Fatalf("health written=%v, want %v", ok, tc.written)
+			}
+			if rr.refreshed["aabbccdd11223344"] == 0 {
+				t.Fatal("the route refresh is per replica and must run either way")
+			}
+		})
+	}
+}
+
 func TestHandleBridgeHealth_SetsOnline(t *testing.T) {
 	ms := newMockStore()
 	mb := newMockBus()
