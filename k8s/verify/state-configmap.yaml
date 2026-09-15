@@ -9,4 +9,4 @@ metadata:
   labels:
     app.kubernetes.io/name: hub-verify
 data:
-  RESTORE_DRILL_LAST: ""
+  RESTORE_DRILL_LAST: "2026-09-15"

@@ -1,12 +1,12 @@
 # Restoring the Hub's database from backup
 
-The Hub's database has never been restored from a backup. This document is how
-to find out whether it can be, and it is written to be followed rather than
-read: every step names what to expect and what it means if you get something
-else.
+This document is how to find out whether the Hub's database can be restored
+from its backup, and it is written to be followed rather than read: every step
+names what to expect and what it means if you get something else. It was first
+run for real on 2026-09-15 (log at the end); the nightly verification job fails
+once the last drill is older than 100 days, so it gets run again.
 
-Do not treat a green backup as a proven backup. `k8s/NOTES.md` has asked for
-this drill since the cutover and it has never been run.
+Do not treat a green backup as a proven backup: the drill below is what proves it.
 
 ## Why this one matters more than most
 
@@ -193,3 +193,22 @@ while the old primary is still running.
   backups were not restorable through it until ModSecurity and proxy buffering
   were turned off on that vhost. That fix is in the NL infrastructure repo. At
   12 MB this database is nowhere near the threshold, but it will not always be.
+
+## Recording a drill
+
+After a green drill, write the date into `k8s/verify/state-configmap.yaml`
+(`RESTORE_DRILL_LAST`) and add a row below. The `hub-verify` CronJob reads that
+ConfigMap every night and fails when the date is more than 100 days old
+(MESHSAT-1152), which is the reminder to do this again.
+
+One thing the row-count step will show that is NOT a failure:
+`pg_stat_user_tables.n_live_tup` is planner statistics, and a restored cluster
+starts with none, so most tables read 0 there until autovacuum has analysed
+them. Compare `count(*)` on the must-match tables instead; that is what the log
+below records.
+
+## Drill log
+
+| date | backup restored | time to healthy | schema | must-match tables | sealed keys | documents | result |
+|---|---|---|---|---|---|---|---|
+| 2026-09-15 | daily 2026-09-14 02:45 UTC + WAL, via `meshsat-hub-drill` (1 instance, control-plane tier) | 3 min 50 s | 25 = 25 | tenants 4, receipts 1, refunds 1, users 3, devices 2, bridges 3, system_config 14, credentials 1: all equal | 6 of 6 sha256 identical (`bridge_ca_cert` + the five `_enc` rows); `HUB_CONFIG_WRAP_KEY` confirmed present in OpenBao | receipts `issued` 1, max `MSH2026-0001`, refunds with credit note 1: equal | **PASS**; scratch cluster and PVC deleted, production pods untouched |
