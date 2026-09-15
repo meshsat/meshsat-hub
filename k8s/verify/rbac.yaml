@@ -12,6 +12,11 @@ metadata:
   namespace: meshsat-hub
   labels:
     app.kubernetes.io/name: hub-verify
+# The verify image is a private GHCR package like the Hub's; the same pull
+# secret (platform/registry-externalsecret.yaml) is the only way to fetch it.
+# The first manual Job sat in ImagePullBackOff without this.
+imagePullSecrets:
+  - name: registry-meshsat
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
