@@ -1,167 +1,89 @@
-# MeshSat Hub — Deployment Guide
+# MeshSat Hub — Hosted deployment notes
 
-MeshSat Hub supports three deployment tiers. Pick the one that matches your environment.
+These are the operator's notes for the **hosted** MeshSat Hub at `hub.meshsat.net`. They describe
+one cluster, one identity provider and one object store, and they name them.
 
-| Tier | Mode | What you get | Use case |
-|------|------|-------------|----------|
-| **Tier 1** | Standalone | SQLite + Mosquitto + Caddy on a single host | Dev, lab, single VPS, edge |
-| **Tier 2** | Cluster | Retired 2026-09-08 (was MariaDB Galera + NATS + Redis across 2 hosts) | — |
-| **Tier 3** | Kubernetes | kustomize tree `k8s/` (CNPG Postgres, NATS, Redis, stunnel, edge relay), Argo CD | **Production** (notrf01cl01k8s) |
-
----
-
-## Tier 1: Standalone
-
-A single Docker Compose stack with automatic TLS. Everything runs on one host.
-
-### Prerequisites
-
-- Linux host with Docker Engine 24+ and Compose v2
-- 1 vCPU, 512MB RAM, 5GB disk (minimum)
-- Public IP + domain name (for Let's Encrypt TLS)
-- Ports 80 and 443 available
-
-### Architecture
-
-```
-Internet
-  |
-  v
-Caddy (:80/:443, auto-TLS)
-  |
-  +-- /api/*    --> Hub (:6070)
-  +-- /mqtt     --> Mosquitto (:9001 WS)
-  +-- /*        --> Hub (Vue SPA)
-
-Field bridges:
-  +-- MQTT TCP  --> Mosquitto (:6071)
-  +-- MQTT WS   --> Mosquitto (:6072)
-  +-- Tor       --> .onion:80 (Hub), .onion:1883 (MQTT)
-```
-
-### Setup
-
-```bash
-# 1. Clone
-git clone https://github.com/meshsat/meshsat-hub.git
-cd meshsat-hub
-
-# 2. Configure
-cp .env.standalone.example .env
-nano .env   # set HUB_AUTH_TOKEN, CADDY_DOMAIN, CADDY_EMAIL
-
-# 3. Set your domain in the Caddyfile
-sed -i "s/hub.example.com/$(grep CADDY_DOMAIN .env | cut -d= -f2)/" Caddyfile
-
-# 4. Start
-docker compose -f docker-compose.prod.yml up -d
-
-# 5. Verify
-curl https://your-domain.com/healthz   # {"status":"ok"}
-curl https://your-domain.com/readyz    # {"status":"ok","checks":{"mqtt":{"status":"ok"}}}
-```
-
-### Data
-
-- SQLite database: `hub-data` Docker volume (`/data/hub.db` inside container)
-- MQTT persistence: `mqtt-data` Docker volume
-- Tor keys: `tor-keys` Docker volume (back up to preserve .onion address)
-
-### Optional profiles
-
-```bash
-# Enable TAK/CoT server
-docker compose -f docker-compose.prod.yml --profile tak up -d
-
-# Enable Prometheus monitoring
-docker compose -f docker-compose.prod.yml --profile monitoring up -d
-
-# Enable multi-channel notifications (Apprise)
-docker compose -f docker-compose.prod.yml --profile notifications up -d
-```
+If you want to run your own Hub, this is not the page: the customer-facing guide is
+[docs.meshsat.net/hub/self-hosting](https://docs.meshsat.net/hub/self-hosting). It covers the
+single-host Compose stack, the Kubernetes tree, sizing, and every setting an operator owns. The
+Hub is Apache 2.0 and a self-hosted one is a first-class deployment.
 
 ---
 
-## Tier 2: Cluster (retired)
+## The hosted cluster
 
-The two-host MariaDB Galera + NATS + Redis compose deployment ran on `nllei01dmz01` and
-`grskg01dmz01` until 2026-09-08 and was retired with the move to Kubernetes (MESHSAT-864).
-Its compose file, Galera entrypoint, health gate and Ansible playbooks were removed from the
-repository in MR 23; the `cluster` mode still exists for a single Postgres + NATS + Redis
-compose deployment, but nothing in this repository deploys it.
-
-## Tier 3: Kubernetes (production)
-
-The Hub runs on `notrf01cl01k8s` from the kustomize tree in `k8s/` (synced by the Argo CD
-Application `meshsat-hub`): CloudNativePG cluster `meshsat-hub-main` (3 instances, barman
-backups to S3), NATS StatefulSet (MQTT :1883 in-cluster, WebSocket+mTLS :9443 for bridges),
-Redis, the stunnel Deployment for the Reticulum leg, a hostNetwork edge-relay DaemonSet that
-the VPS HAProxy nodes reach, ExternalSecrets from OpenBao, and the Hub Deployment
-(`HUB_MODE=kubernetes`, `HUB_DB_DRIVER=postgres`, OIDC login against the shared authentik).
-Conventions in `k8s/CONVENTIONS.md`, bootstrap and hand-applied state in `k8s/NOTES.md`,
-operator tooling under `k8s/scripts/`.
+The Hub runs on `notrf01cl01k8s` from the kustomize tree in `k8s/`, synced by the Argo CD
+Application `meshsat-hub`. Every merge to main builds an image, the `bump_k8s_pin` CI job
+rewrites its digest into `k8s/kustomization.yaml` with `[skip ci]`, and Argo rolls the
+Deployment. Argo has `selfHeal` on and **prune off**: a manifest that stops existing is not
+deleted from the cluster, so removing a workload is a merge plus a hand `kubectl delete`.
 
 ```bash
 kubectl kustomize k8s/ | kubeconform -strict -ignore-missing-schemas   # what CI checks
-kubectl --context notrf01 -n meshsat-hub get pods                       # hub, nats-0, redis-0, stunnel, meshsat-edge-relay
+kubectl --context notrf01 -n meshsat-hub get pods
+kubectl --context notrf01 -n meshsat-hub logs deploy/hub | sed -n 1p    # the commit it was built from
 ```
 
 | Resource | Kind | Replicas | Purpose |
 |----------|------|----------|---------|
-| hub | Deployment | 1 | API + SPA (`Recreate`; claims + Lease election make 2 safe once proven) |
-| meshsat-hub-main | CNPG Cluster | 3 | Postgres, synchronous replication, daily backup |
-| nats | StatefulSet | 1 | MQTT + WebSocket mTLS bus, JetStream |
-| redis | StatefulSet | 1 | Dedup + rate limit |
+| hub | Deployment | 2 | API + SPA; RollingUpdate surge 1, PDB minAvailable 1, no volume |
+| meshsat-hub-main | CNPG Cluster | 3 | Postgres, synchronous replica, daily barman backup to S3 |
+| nats | StatefulSet | 3 | MQTT + WebSocket mTLS bus, JetStream |
+| redis (KeyDB) | StatefulSet | 2 | Dedup, rate limits, multi-master |
 | stunnel | Deployment | 1 | Reticulum TLS termination |
-| meshsat-edge-relay | DaemonSet | workers | TCP relay :9443/:4243 for the VPS edge |
+| meshsat-edge-relay | DaemonSet | workers | hostNetwork haproxy :8443/:9443/:4243 for the VPS edge |
+| hub-verify | CronJob | nightly | in-cluster verification suites (see below) |
 | hub.meshsat.net / auth.meshsat.net | Ingress | -- | ingress-nginx, wildcard cert from OpenBao |
 
-Leader election for singleton services (OTS poller, reapers, retention) uses the Kubernetes
-Lease API; message dispatch is protected by database claims, not by the leader.
+Single-owner work (reapers, retention, the receipt and refund drainers, the OTS poller) runs on
+the holder of a Kubernetes Lease; message dispatch and every other side effect are protected by
+database claims (`store.ClaimOnce`), not by the leader, so both replicas process every message
+and exactly one acts on it.
 
-## Configuration Reference
+**Traffic** arrives through three VPS HAProxy edges (Norway, Switzerland, Texas), which target
+the three workers' mesh addresses on the edge relay's host ports. Editing the edge is
+`k8s/scripts/edge/patch-haproxy.py`, applied by hand with a backup and `haproxy -c` first.
 
-### Required variables (all tiers)
+**Identity** is the shared authentik in namespace `omoikane`, Brand meshsat.net, bootstrapped by
+`k8s/scripts/authentik/run-bootstrap.sh`. Enrollment is an approval, not a self-service signup.
+
+**Secrets** come from OpenBao through ExternalSecrets (`ci-no/apps/meshsat-hub/*`). Stakater
+Reloader watches the Hub's ConfigMap and Secret and rolls the Deployment when either changes;
+`RELOADER_CANARY` in `k8s/hub/configmap.yaml` exists only to drill that. A rotated secret needs
+no `rollout restart`.
+
+**Storage** is node-local only (openebs local-hostpath). Redundancy comes from each service
+replicating itself. The audit archive and the map basemap live in the object store at
+`nl-s3.nuclearlighters.net`, bucket `cnpg-meshsat-hub`, beside the database backups.
+
+Conventions in `k8s/CONVENTIONS.md`; bootstrap and hand-applied state in `k8s/NOTES.md`;
+operator tooling under `k8s/scripts/`.
+
+## Configuration reference
+
+Configuration is a YAML file (`HUB_CONFIG_FILE`) with `HUB_*` environment overrides. In the
+hosted cluster the values are the ConfigMap `hub-config` and the Secret `hub-secrets`. Every
+setting that describes a **tenant's** behaviour is in the UI, not here; the environment holds
+platform values and the defaults a tenant inherits (`internal/config/classification.go` maps
+every field to its owner and the test fails the build on an unclassified one).
 
 | Variable | Description |
 |----------|-------------|
-| `HUB_AUTH_TOKEN` | API authentication token |
-
-### Kubernetes-only variables
-
-| Variable | Description |
-|----------|-------------|
-| `HUB_MODE` | `standalone` (default) or `kubernetes` |
-| `HUB_DB_DRIVER` | `sqlite` (default) or `postgres`; sniffed from `HUB_DATABASE_URL` when unset |
-| `HUB_DATABASE_URL` | PostgreSQL DSN |
-| `HUB_REDIS_URL` | Redis/KeyDB connection string (dedup, rate limits) |
+| `HUB_MODE` | `kubernetes` here (`standalone` is the default for a single host) |
+| `HUB_DB_DRIVER` | `postgres` (sniffed from `HUB_DATABASE_URL` when unset) |
+| `HUB_DATABASE_URL` | the CNPG `-rw` service, `sslmode=require` |
+| `HUB_REDIS_URL` | KeyDB, Service still named `redis` |
 | `HUB_MQTT_BROKER_URL` | the NATS MQTT listener, `tcp://nats:1883` in-cluster |
-| `HUB_MQTT_CLIENT_ID` | **Must carry the pod name**, or two replicas evict each other at the broker |
+| `HUB_MQTT_CLIENT_ID` | **must carry the pod name**, or two replicas evict each other at the broker |
+| `HUB_OIDC_ISSUER_URL` | the authentik provider; its presence selects `oidc` auth mode |
+| `HUB_METRICS_TOKEN` | bearer token guarding `/metrics`; the PodMonitor carries it |
+| `HUB_PLAN_<TIER>_DEVICES` | device+bridge ceiling per plan (`free` 4, `crew` 24, `fleet` 100, -1 unlimited) |
+| `HUB_SMTP_RELAY`, `HUB_MAIL_FROM` | transactional mail via `nllei01smtp-dkim01:2525`, sent as `billing@meshsat.net` |
+| `HUB_STRIPE_*` | three separate secrets: API key, webhook signing secret, path secret |
+| `HUB_TOR_ONION` | the published `.onion`, derived from the key in `k8s/tor`'s volume |
 
-The Galera-era variables (`WSREP_*`, `SITE_NAME`, `HUB_NATS_URL`) are gone with the cluster tier.
-The customer-facing guide for running your own Hub is
-[docs.meshsat.net/hub/self-hosting](https://docs.meshsat.net/hub/self-hosting).
-
-### Optional features
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `HUB_APRSIS_ENABLED` | `false` | APRS-IS IGate |
-| `HUB_WG_ENABLED` | `false` | WireGuard peer management |
-| `HUB_PPROF_ENABLED` | `false` | pprof debug endpoints |
-| `HUB_BRIDGE_OFFLINE_TIMEOUT` | `300` | Seconds before marking bridge offline |
-| `HUB_AUDIT_RETENTION_DAYS` | `90` | Days to keep audit entries |
-| `HUB_OTEL_ENDPOINT` | (empty) | OpenTelemetry OTLP endpoint |
-
-### Resource sizing
-
-| Tier | CPU | RAM | Disk | Devices |
-|------|-----|-----|------|---------|
-| Standalone | 1 vCPU | 512MB | 5GB | 1-50 |
-| Cluster (per host) | 2 vCPU | 2GB | 20GB | 50-500 |
-| Kubernetes (total) | 4 vCPU | 4GB | 50GB | 500+ |
-
----
+The full list, with defaults, is `config.example.yaml`. `internal/config` refuses the literal
+string `<no value>`, which External Secrets renders for a key missing from OpenBao.
 
 ## Map basemap (self-hosted)
 
@@ -205,92 +127,74 @@ Attribution: map data (c) OpenStreetMap contributors (ODbL), basemap tiles by
 Protomaps, label fonts Noto Sans under the SIL Open Font License. The
 attribution control on the map carries the first two.
 
----
+## mTLS bridge authentication
 
-## mTLS Bridge Authentication
-
-Bridges connect to the Hub via MQTT-over-WebSocket with mutual TLS (mTLS). The Hub acts as a Certificate Authority, issuing ECDSA P-256 client certificates to each bridge.
-
-### How it works
+Bridges connect over MQTT-over-WebSocket with mutual TLS. The Hub is the certificate authority
+and issues ECDSA P-256 client certificates (90 days) per bridge; NATS terminates TLS and
+verifies the certificate against the Hub's bridge CA.
 
 ```
 Bridge (field device)
   |
-  | wss://mqtt.example.com:443/mqtt  (client cert + key)
+  | wss://mqtt-hub.meshsat.net/mqtt  (client cert + key)
   v
-HAProxy (VPS/edge, port 443)
-  | SNI peek: mqtt.example.com → TCP passthrough (no TLS termination)
+VPS HAProxy :443, TCP mode, SNI peek, no TLS termination
   v
-NATS (:9443, TLS + verify: true)
-  | TLS handshake: server cert (*.example.com) + client cert verification
-  | Client cert CN = bridge_id, signed by Hub CA
+edge relay on a worker (hostNetwork :9443)
   v
-MQTT session established over WebSocket
+NATS websocket :9443, tls { verify: true, ca_file: bridge CA }
+  | client cert CN = bridge_id, signed by the Hub CA
+  v
+MQTT session
 ```
 
-### Onboarding a bridge
+Onboarding is the Fleet page: add the bridge, generate credentials (shown once), issue the
+certificate (shown once), paste URL, credentials and PEM into the bridge's Hub Connection
+settings. The same three steps exist as `POST /api/bridges/{id}/credentials` and
+`/certificate`. The bridge must **not** be given the bridge CA as its root store, or it can no
+longer verify the server's Let's Encrypt certificate. The production NATS config is
+`k8s/nats/configmap.yaml`; one NATS user per bridge is rendered by the Hub into the Secret
+`meshsat-nats-auth`, and every user needs a permissions block or the server panics on reload.
+
+## Backup and restore
+
+The database is backed up by CNPG's barman plugin to `s3://cnpg-meshsat-hub` (daily base backup,
+continuous WAL archiving). What is alerted on is the **age** of the last successful backup, not
+the success flag of the last attempt; a failed Backup object wedges the slot until it is deleted,
+and the hourly CronJob in `k8s/db/backup-unwedge.yaml` does that.
+
+**The restore has been drilled.** `docs/restore-drill.md` is the procedure and its log; the
+nightly verification fails when the last recorded drill is older than the policy allows, so the
+drill cannot quietly lapse. The tenant-level export (`GET /api/tenant/export`) and the
+platform backup endpoints below are application-level and do not replace it.
 
 ```bash
-# 1. Generate MQTT credentials (password shown once)
-curl -X POST -H "Authorization: Bearer $TOKEN" \
-  https://hub.example.com/api/bridges/my-bridge/credentials
-
-# 2. Issue TLS certificate (cert + key shown once, 90-day expiry)
-curl -X POST -H "Authorization: Bearer $TOKEN" \
-  https://hub.example.com/api/bridges/my-bridge/certificate
-
-# 3. Configure the bridge with the URL, credentials, and cert
-#    (via bridge API at http://bridge-ip:6050/api/routing/hub)
+curl -o backup.zip https://hub.meshsat.net/api/backup/export -H "Authorization: Bearer $TOKEN"
+curl -X POST https://hub.meshsat.net/api/backup/diff   -H "Content-Type: application/zip" --data-binary @backup.zip
+curl -X POST https://hub.meshsat.net/api/backup/import -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/zip" --data-binary @backup.zip
 ```
 
-### NATS mTLS configuration
+## What watches it
 
-The production NATS config is `k8s/nats/configmap.yaml`; for a compose deployment start from `nats.conf` and add the section below. The key section:
-
-```
-websocket {
-  port: 9443
-  tls {
-    cert_file: /etc/nats/certs/server.crt    # your domain cert
-    key_file: /etc/nats/certs/server.key     # your domain key
-    ca_file: /etc/nats/certs/bridge-ca.crt   # Hub CA (auto-exported)
-    verify: true                              # require client cert
-  }
-}
-```
-
-The Hub automatically exports its bridge CA certificate to the shared `nats-certs` Docker volume when `HUB_BRIDGE_CA_CERT_EXPORT_PATH` is set.
-
----
-
-## Backup and Restore
-
-```bash
-# Export
-curl -o backup.zip https://hub.example.com/api/backup/export \
-  -H "Authorization: Bearer $HUB_AUTH_TOKEN"
-
-# Preview changes before import
-curl -X POST https://hub.example.com/api/backup/diff \
-  -H "Content-Type: application/zip" --data-binary @backup.zip
-
-# Import
-curl -X POST https://hub.example.com/api/backup/import \
-  -H "Authorization: Bearer $HUB_AUTH_TOKEN" \
-  -H "Content-Type: application/zip" --data-binary @backup.zip
-```
-
----
+- Alert rules live in the NL infrastructure repo (`k8s/namespaces/monitoring/meshsat-hub-alerts.tf`):
+  per-edge probes, bus disconnection, payment attribution, backup age, dependency degradation.
+- `k8s/verify/` runs nine suites inside the cluster every night (journey, replicas, quota,
+  status page, position dedup, capabilities, restore-drill age, and more). PASS beats the
+  `verify` heartbeat monitor on status.meshsat.net; FAIL posts to the `alrt-meshsat-status`
+  ntfy topic. A manual run is `kubectl -n meshsat-hub create job --from=cronjob/hub-verify hub-verify-manual-N`.
+- `test:race` runs the race detector nightly in CI (schedule id 11); the regular jobs cannot,
+  because production builds are `CGO_ENABLED=0`.
 
 ## Troubleshooting
 
-| Issue | Fix |
-|-------|-----|
-| `readyz` returns 503 / mqtt unhealthy | Check `docker logs meshsat-nats` |
-| MQTT connect/disconnect flapping | Duplicate `HUB_MQTT_CLIENT_ID` — must be unique per node |
-| `WSREP_CLUSTER_ADDRESS=gcomm://` in .env | **Critical** — restore full address immediately |
-| NATS leaf `Loop detected` | Only one side should have `remotes` in leafnodes config |
-| Bridges show "offline" despite health flowing | Deploy latest Hub (health messages now re-set online) |
-| Fleet page shows "MQTT: Not set" | Deploy latest Hub (credential columns now included in queries) |
-| mTLS handshake timeout | Check NATS certs are mounted and readable |
-| TLS cert expired | Renew and restart nginx + NATS |
+| Symptom | Where to look |
+|---------|---------------|
+| `readyz` 503, mqtt unhealthy | `kubectl -n meshsat-hub logs nats-0`; the Hub keeps serving and alerts (`MeshSatHubBusDisconnected`) rather than dropping out of the Service |
+| MQTT connect/disconnect flapping | duplicate `HUB_MQTT_CLIENT_ID`: it must carry the pod name |
+| a replica reconnecting every 30 s after an SMS | a `+` in a topic segment; every builder must go through `hubmqtt.EncodeSegment` (MESHSAT-1022) |
+| bridge shows offline while health flows | the reaper and stale-birth detection in `internal/bridge`; check `last_seen` and the tenant's `bridge_offline_timeout` |
+| mTLS handshake timeout | `nats-certs` mounted and readable; the bridge presents a Hub-issued cert, system roots for the server side |
+| certificate expired | reissue from the Fleet page; NATS reloads its auth on SIGHUP from the reloader sidecar |
+| 1 in 3 requests vanish with no HTTP response | a VPS edge whose IPsec tunnels are down silent-drops; probe each A record separately |
+| a Secret changed and nothing happened | Reloader should have rolled `hub`; check its log for `Changes detected in 'hub-secrets'` |
+| "slow query detected" in the log | the line carries `statement`; `pg_stat_statements` is loaded on the cluster for the full picture (MESHSAT-1155) |
