@@ -96,3 +96,14 @@ func TestPEMFieldsRenderMultiline(t *testing.T) {
 		}
 	}
 }
+
+// The broker address is dialled by the Hub from inside the cluster, so it
+// gets the same public-address guard as a webhook URL, with MQTT schemes.
+func TestBrokerFieldRefusesInternalAddresses(t *testing.T) {
+	svc, ctx := newSvc(t) // URL check ON
+	for _, bad := range []string{"ssl://nats:1883", "ssl://10.0.0.5:8883", "http://mqtt.example.net:8883", "ssl://localhost:8883", "mqtt.example.net:8883"} {
+		if _, err := svc.Set(ctx, "t-b", ProviderCloudloop, map[string]string{"api_key": "k", "mqtt_broker_url": bad}); err == nil {
+			t.Errorf("broker %q was accepted", bad)
+		}
+	}
+}
