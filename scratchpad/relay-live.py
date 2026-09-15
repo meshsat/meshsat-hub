@@ -136,8 +136,11 @@ def main():
         time.sleep(3)
         logs = subprocess.run(["kubectl", "--context", "notrf01", "-n", "meshsat-hub", "logs", "-l", "app.kubernetes.io/name=hub",
                                "--prefix", "--since=5m", "--tail=2000"], capture_output=True, text=True).stdout
-        serving = sorted({l.split("]")[0].split("/")[-1] for l in logs.splitlines() if "relay: bridge serving" in l and KIT in l})
-        connected = sorted({l.split("]")[0].split("/")[-1] for l in logs.splitlines() if "relay: client connected" in l and PHONE in l})
+        # --prefix lines look like "[pod/hub-abc/hub] {...}": the pod is the
+        # second segment, the third is the container (always "hub").
+        pod = lambda l: l.split("]")[0].split("/")[1]
+        serving = sorted({pod(l) for l in logs.splitlines() if "relay: bridge serving" in l and KIT in l})
+        connected = sorted({pod(l) for l in logs.splitlines() if "relay: client connected" in l and PHONE in l})
         print(f"   bridge sockets landed on {serving}; client sockets on {connected}")
         check("both replicas took part (the rendezvous crossed the bus at least once)",
               len(set(serving) | set(connected)) >= 2 and (serving != connected or len(serving) > 1),

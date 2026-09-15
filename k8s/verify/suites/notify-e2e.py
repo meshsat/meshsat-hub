@@ -90,6 +90,7 @@ def main():
     _ = before
 
     print("4. a tenant with no relay of its own fails LOUDLY, not silently")
+    logs = kubectl("logs", "deploy/hub", "--tail=400")
     # Proven by the unit tests (internal/apprise); asserted here only as the
     # behaviour the production binary was built with.
     check("errNoAppriseAccount" not in logs,
