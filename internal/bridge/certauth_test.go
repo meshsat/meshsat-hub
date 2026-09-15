@@ -212,7 +212,6 @@ func TestCACertPEM(t *testing.T) {
 	}
 }
 
-
 // A relay tunnel runs TLS between two bridges with the Hub CA as the only
 // root: the serving bridge presents its certificate as a SERVER under its own
 // id, the phone presents its certificate as a client (MESHSAT-612/613).
