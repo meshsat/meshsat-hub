@@ -209,6 +209,15 @@ data:
   # messaging us first, which is exactly the booth's shape. Changing the kit list
   # above means rebuilding meshsat_booth_kits, whose items are fixed in the
   # template rather than variable.
+  # SMS is a SHARED bearer: kit OOB replies and satellite traffic arrive on the
+  # same number. The booth therefore claims a message only from somebody already
+  # in a conversation, or one whose WHOLE text is this word -- everything else
+  # falls through to the pipeline untouched. Empty disables the SMS bearer.
+  #
+  # The stand needs this because Meta restricted the WABA again on 2026-09-16,
+  # six days before TTC: WhatsApp cannot deliver a single message while that
+  # stands, and SMS needs no Meta approval at all.
+  HUB_BOOTH_SMS_KEYWORD: "MESHSAT"
   HUB_BOOTH_CONTENT_MENU: "HX0d6710337e5ff9e5b9ed1d6496f2372c"
   HUB_BOOTH_CONTENT_OPTIN: "HXc80c6bc6e7b71cff01935143d9dc5a7e"
   HUB_BOOTH_CONTENT_KITS: "HX5d7051b39bf8001239620c0334c080e4"

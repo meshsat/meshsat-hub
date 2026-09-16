@@ -74,7 +74,10 @@ var testTemplates = Templates{Menu: "HXmenu", OptIn: "HXoptin", Kits: "HXkits"}
 
 func newSvc(st *fakeSvcStore, v *fakeVisitor, k *fakeKits) *Service {
 	e := New(st, DefaultPolicy(testKits), nil)
-	return NewService(e, st, v, k, testTemplates)
+	s := NewService(e, st, k, testTemplates)
+	s.RegisterVisitor("whatsapp", v)
+	s.RegisterVisitor("sms", v)
+	return s
 }
 
 func drive(t *testing.T, s *Service) {
@@ -216,5 +219,88 @@ func TestUnrelatedMeshTextIsNotForwarded(t *testing.T) {
 	}
 	if len(v.texts) != 0 {
 		t.Fatalf("unrelated mesh text was sent to a visitor: %v", v.texts)
+	}
+}
+
+// The stand runs on SMS too (MESHSAT-1175), because Meta restricted the WABA
+// six days before the booth. Same engine, same gate; only the rendering differs.
+func TestSMSUsesNumberedTextNotContentTemplates(t *testing.T) {
+	st, v, k := newSvcStore(), &fakeVisitor{}, &fakeKits{}
+	s := newSvc(st, v, k)
+
+	if err := s.OnInbound(context.Background(), tenant, who, "sms", OptSendMessage, ""); err != nil {
+		t.Fatalf("inbound: %v", err)
+	}
+	if len(v.contents) != 0 {
+		t.Fatalf("SMS was sent a Content template, which it cannot render: %v", v.contents)
+	}
+	last := v.texts[len(v.texts)-1].body
+	if !strings.Contains(last, "1.") || !strings.Contains(last, "2.") {
+		t.Errorf("the SMS menu is not numbered, so there is nothing to reply with: %q", last)
+	}
+}
+
+// A full SMS relay, driven the way a visitor actually would: by typing digits.
+func TestSMSVisitorCanRelayByTypingNumbers(t *testing.T) {
+	st, v, k := newSvcStore(), &fakeVisitor{}, &fakeKits{}
+	s := newSvc(st, v, k)
+	ctx := context.Background()
+
+	for _, typed := range []string{"2", "1", "2"} { // send a message -> I agree -> Parallax
+		if err := s.OnInbound(ctx, tenant, who, "sms", "", typed); err != nil {
+			t.Fatalf("typed %q: %v", typed, err)
+		}
+	}
+	if err := s.OnInbound(ctx, tenant, who, "sms", "", "hello from sms"); err != nil {
+		t.Fatalf("message: %v", err)
+	}
+	if len(k.sent) != 1 {
+		t.Fatalf("kit received %d messages, want 1 -- the numeric menu did not drive the flow", len(k.sent))
+	}
+	if !strings.HasSuffix(k.sent[0], " hello from sms") {
+		t.Errorf("wrong body relayed: %q", k.sent[0])
+	}
+}
+
+// The reply goes back on the bearer the conversation started on.
+func TestReplyGoesBackOnTheOriginatingBearer(t *testing.T) {
+	st, v, k := newSvcStore(), &fakeVisitor{}, &fakeKits{}
+	s := newSvc(st, v, k)
+	ctx := context.Background()
+	for _, typed := range []string{"2", "1", "2"} {
+		_ = s.OnInbound(ctx, tenant, who, "sms", "", typed)
+	}
+	_ = s.OnInbound(ctx, tenant, who, "sms", "", "hello from sms")
+
+	var ref string
+	for r := range st.relays {
+		ref = r
+	}
+	if st.relays[ref].Channel != "sms" {
+		t.Fatalf("the relay recorded channel %q, want sms", st.relays[ref].Channel)
+	}
+	before := len(v.texts)
+	if err := s.OnMeshReply(ctx, tenant, "nllei01parallax01", "", "#"+ref+" got it"); err != nil {
+		t.Fatalf("mesh reply: %v", err)
+	}
+	if len(v.texts) != before+1 {
+		t.Fatal("the reply was not delivered")
+	}
+}
+
+// A digit typed while we are waiting for the MESSAGE is the message, not a menu
+// choice -- otherwise a visitor could never send "1".
+func TestADigitIsNotAMenuChoiceWhileAwaitingText(t *testing.T) {
+	st, v, k := newSvcStore(), &fakeVisitor{}, &fakeKits{}
+	s := newSvc(st, v, k)
+	ctx := context.Background()
+	for _, typed := range []string{"2", "1", "2"} {
+		_ = s.OnInbound(ctx, tenant, who, "sms", "", typed)
+	}
+	if err := s.OnInbound(ctx, tenant, who, "sms", "", "1"); err != nil {
+		t.Fatalf("message: %v", err)
+	}
+	if len(k.sent) != 1 || !strings.HasSuffix(k.sent[0], " 1") {
+		t.Fatalf("a visitor could not send the message \"1\": %v", k.sent)
 	}
 }

@@ -21,15 +21,16 @@ import (
 // stays free of the sms client and the full store, and remains testable on its
 // own -- it is the piece that decides what goes on the air.
 
-// whatsappVisitor delivers to the visitor's phone over the WhatsApp bearer.
-type whatsappVisitor struct{ c *sms.Client }
+// channelVisitor delivers to the visitor's phone on one bearer. The client
+// carries the channel, so the same type serves WhatsApp and SMS.
+type channelVisitor struct{ c *sms.Client }
 
-func (w whatsappVisitor) SendText(ctx context.Context, to, body string) error {
+func (w channelVisitor) SendText(ctx context.Context, to, body string) error {
 	_, err := w.c.Send(ctx, to, body)
 	return err
 }
 
-func (w whatsappVisitor) SendContent(ctx context.Context, to, sid, vars string) error {
+func (w channelVisitor) SendContent(ctx context.Context, to, sid, vars string) error {
 	_, err := w.c.SendContent(ctx, to, sid, vars)
 	return err
 }
@@ -57,19 +58,60 @@ func (k smsKitSender) SendToKit(ctx context.Context, tenantID, bridgeID, body st
 	return err
 }
 
-// boothInbound adapts the booth service to the webhook's hook.
+// boothInbound adapts the booth service to the webhook's hook, and decides
+// whether a message belongs to the stand at all.
 //
-// It always reports the message as taken. Everything arriving on the WhatsApp
-// bearer while the booth is enabled is stand conversation, and letting an
-// unrecognised message fall through to the message pipeline would persist a
-// visitor's chatter into a tenant's history and run it through routing.
-type boothInbound struct{ svc *booth.Service }
+// dedicated is the whole difference between the two bearers. WhatsApp is the
+// booth's own: everything on it is stand conversation, and letting a message
+// fall through would persist a visitor's chatter into a tenant's history.
+//
+// SMS is NOT. It carries kit OOB replies, satellite traffic and whatever else
+// the platform number receives, so claiming everything would break live paths.
+// There the booth takes a message only when the sender is already in a
+// conversation, or is opening one with the keyword.
+type boothInbound struct {
+	svc       *booth.Service
+	dedicated bool
+	store     store.Store // session lookup, non-dedicated bearers only
+	keyword   string
+}
 
 func (b boothInbound) HandleInbound(ctx context.Context, tenantID, sender, channel, choice, text string) (bool, error) {
 	if tenantID == "" {
 		tenantID = store.DefaultTenantID
 	}
+	if !b.dedicated {
+		claim, err := b.claims(ctx, tenantID, sender, channel, text)
+		if err != nil || !claim {
+			// An error here means "not ours": the alternative is swallowing a
+			// kit's OOB reply because a session lookup failed.
+			if err != nil {
+				slog.Warn("booth: claim check failed, leaving the message to the pipeline",
+					"sender", sender, "error", err)
+			}
+			return false, nil
+		}
+	}
 	return true, b.svc.OnInbound(ctx, tenantID, sender, channel, choice, text)
+}
+
+// claims reports whether this message is stand conversation on a shared bearer.
+func (b boothInbound) claims(ctx context.Context, tenantID, sender, channel, text string) (bool, error) {
+	if b.store != nil {
+		sess, err := b.store.GetBoothSession(ctx, tenantID, sender, channel)
+		if err != nil {
+			return false, err
+		}
+		if sess != nil {
+			return true, nil // already talking to the stand
+		}
+	}
+	if b.keyword == "" {
+		return false, nil
+	}
+	// The opening keyword, matched on the whole trimmed message so an ordinary
+	// text that merely mentions it is not hijacked into the menu.
+	return strings.EqualFold(strings.TrimSpace(text), b.keyword), nil
 }
 
 // parseBoothKits reads HUB_BOOTH_KITS, "<bridge_id>:<label>[:<mesh_dest>]",

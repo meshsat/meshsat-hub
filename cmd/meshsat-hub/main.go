@@ -2027,56 +2027,76 @@ func main() {
 			return h
 		}
 		// SMS Reticulum interface deferred to MESHSAT-404
+		smsWebhook := newTwilioWebhook("sms")
 		webhookRoute(integrations.ProviderTwilio, "webhook_token", "/api/webhook/sms",
-			newTwilioWebhook("sms").ServeHTTP)
+			smsWebhook.ServeHTTP)
 
-		// The WhatsApp bearer (MESHSAT-1175). Deliberately behind its own flag
-		// and its own route: nothing may be load-bearing on WhatsApp -- Meta
-		// auto-restricted the WABA on the day it was created -- so turning it
-		// off has to be a config change that cannot disturb SMS.
+		// The WhatsApp bearer (MESHSAT-1175). Behind its own flag and its own
+		// route: nothing may be load-bearing on WhatsApp -- Meta restricted this
+		// WABA on the day it was created and did it again on 2026-09-16 -- so
+		// turning it off must be a config change that cannot disturb SMS.
+		var waWebhook *sms.WebhookHandler
 		if cfg.WhatsAppEnabled {
-			waWebhook := newTwilioWebhook("whatsapp")
-
-			// The scripted stand flow (MESHSAT-1175). Wired ONLY to the WhatsApp
-			// handler: the booth menu has no business intercepting a satellite
-			// kit's SMS, and it takes every message it sees.
-			if cfg.BoothEnabled {
-				kits, err := parseBoothKits(cfg.BoothKits)
-				if err != nil {
-					// Fatal rather than degraded. A booth with no allowlist would
-					// either refuse everything or, worse, invite somebody to fix
-					// it by widening the destination check.
-					slog.Error("booth: bad HUB_BOOTH_KITS", "error", err)
-					os.Exit(1)
-				}
-				waClient := sms.NewClientWithAPIKey(cfg.SMSAccountSID, cfg.SMSAPIKeySID, cfg.SMSAuthToken, cfg.SMSFromNumber)
-				waClient.SetChannel("whatsapp")
-				boothSvc := booth.NewService(
-					booth.New(dataStore, booth.DefaultPolicy(kits), bridgeOnline(dataStore)),
-					dataStore,
-					whatsappVisitor{c: waClient},
-					smsKitSender{store: dataStore, c: smsPlatform},
-					booth.Templates{
-						Menu:  cfg.BoothContentMenu,
-						OptIn: cfg.BoothContentOptIn,
-						Kits:  cfg.BoothContentKits,
-					},
-				)
-				waWebhook.SetBooth(boothInbound{svc: boothSvc})
-				// The return leg: a kit's mesh text comes back on
-				// meshsat/{device}/mo/decoded with bridge_id in the payload.
-				if err := startBoothMeshReplies(msgBus, boothSvc, kits); err != nil {
-					slog.Error("booth: could not subscribe for mesh replies", "error", err)
-					os.Exit(1)
-				}
-				slog.Info("booth: stand flow enabled", "kits", len(kits))
-			}
-
+			waWebhook = newTwilioWebhook("whatsapp")
 			webhookRoute(integrations.ProviderTwilio, "webhook_token", "/api/webhook/whatsapp",
 				waWebhook.ServeHTTP)
 			r.Post("/api/webhook/whatsapp/status",
 				sms.NewStatusHandler("whatsapp", cfg.SMSInboundAuthToken, cfg.SMSWebhookSecret).ServeHTTP)
 			slog.Info("whatsapp: bearer enabled", "from", cfg.SMSFromNumber)
+		}
+
+		// The scripted stand flow, on BOTH bearers (MESHSAT-1175).
+		//
+		// It has to survive WhatsApp being switched off: Meta restricted the
+		// WABA again on 2026-09-16 with the booth six days away, and the stand
+		// needs something that works whatever Meta decides. The menu, gate,
+		// allowlist, quotas, relay and return leg are all bearer-agnostic --
+		// only the rendering differs, tappable rows against a numbered list.
+		if cfg.BoothEnabled {
+			kits, err := parseBoothKits(cfg.BoothKits)
+			if err != nil {
+				// Fatal rather than degraded. A booth with no allowlist would
+				// either refuse everything or invite somebody to fix it by
+				// widening the destination check.
+				slog.Error("booth: bad HUB_BOOTH_KITS", "error", err)
+				os.Exit(1)
+			}
+			boothSvc := booth.NewService(
+				booth.New(dataStore, booth.DefaultPolicy(kits), bridgeOnline(dataStore)),
+				dataStore,
+				smsKitSender{store: dataStore, c: smsPlatform},
+				booth.Templates{
+					Menu:  cfg.BoothContentMenu,
+					OptIn: cfg.BoothContentOptIn,
+					Kits:  cfg.BoothContentKits,
+				},
+			)
+			boothSvc.RegisterVisitor("sms", channelVisitor{c: smsPlatform})
+
+			// SMS is NOT a dedicated booth bearer. It carries kit OOB replies
+			// and satellite traffic, so the booth may claim a message only from
+			// somebody already in a conversation, or one opening with the
+			// keyword. Everything else falls through to the pipeline untouched.
+			smsWebhook.SetBooth(boothInbound{
+				svc: boothSvc, store: dataStore, keyword: cfg.BoothSMSKeyword,
+			})
+
+			if waWebhook != nil {
+				// WhatsApp IS dedicated: everything on it is stand conversation.
+				waClient := sms.NewClientWithAPIKey(cfg.SMSAccountSID, cfg.SMSAPIKeySID, cfg.SMSAuthToken, cfg.SMSFromNumber)
+				waClient.SetChannel("whatsapp")
+				boothSvc.RegisterVisitor("whatsapp", channelVisitor{c: waClient})
+				waWebhook.SetBooth(boothInbound{svc: boothSvc, dedicated: true})
+			}
+
+			// The return leg: a kit's mesh text comes back on
+			// meshsat/{device}/mo/decoded with bridge_id in the payload.
+			if err := startBoothMeshReplies(msgBus, boothSvc, kits); err != nil {
+				slog.Error("booth: could not subscribe for mesh replies", "error", err)
+				os.Exit(1)
+			}
+			slog.Info("booth: stand flow enabled",
+				"kits", len(kits), "sms_keyword", cfg.BoothSMSKeyword, "whatsapp", waWebhook != nil)
 		}
 		smsSub := sms.NewSubscriber(smsPlatform, msgBus)
 		smsSub.SetClientPool(smsPool)

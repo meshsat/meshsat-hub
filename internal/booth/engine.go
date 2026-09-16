@@ -19,6 +19,7 @@ import (
 	"crypto/rand"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -181,7 +182,49 @@ func (e *Engine) Handle(ctx context.Context, tenantID, sender, channel, choice, 
 	return reply, nil
 }
 
+// optionsFor returns the option set the visitor was last shown, which is what
+// a typed "1" or "2" has to be resolved against.
+func (e *Engine) optionsFor(state string) []Option {
+	switch {
+	case state == StateAwaitingOptIn:
+		return []Option{{ID: OptOptInYes}, {ID: OptOptInNo}}
+	case state == StateAwaitingKit:
+		return e.kitOptions()
+	case strings.HasPrefix(state, StateAwaitingText):
+		return nil // we asked for a message, not a choice
+	default:
+		return e.menuOptions()
+	}
+}
+
+// numericChoice maps a typed digit onto the option it selects.
+//
+// SMS has no tappable rows, so the menu becomes "reply 1 or 2" and the reply is
+// a number. It is resolved against the options for the CURRENT state, never
+// parsed as a destination -- the same property that holds on WhatsApp: the
+// visitor picks an index into an allowlist, never an address.
+//
+// Nothing is resolved while we are awaiting a message, or "1" as the text a
+// visitor wants to send would be swallowed as a menu choice.
+func (e *Engine) numericChoice(state, text string) string {
+	opts := e.optionsFor(state)
+	if len(opts) == 0 {
+		return ""
+	}
+	n, err := strconv.Atoi(strings.TrimSpace(text))
+	if err != nil || n < 1 || n > len(opts) {
+		return ""
+	}
+	return opts[n-1].ID
+}
+
 func (e *Engine) step(ctx context.Context, sess *store.BoothSession, choice, text string) (*Reply, string, error) {
+	// A bearer without tappable options sends the choice as text.
+	if choice == "" {
+		if c := e.numericChoice(sess.State, text); c != "" {
+			choice, text = c, ""
+		}
+	}
 	switch {
 	// A tap on a menu row is honoured from any state. Somebody who wanders off
 	// mid-flow and taps the menu again should get the menu, not a complaint.

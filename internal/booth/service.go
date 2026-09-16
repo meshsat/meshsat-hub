@@ -47,17 +47,31 @@ type Templates struct {
 }
 
 // Service is the booth flow, wired.
+//
+// visitors is per bearer, because the stand runs on both at once: WhatsApp when
+// Meta allows it, SMS always. A conversation is answered on the bearer it
+// started on, which the relay row records.
 type Service struct {
 	engine    *Engine
 	store     ServiceStore
-	visitor   VisitorSender
+	visitors  map[string]VisitorSender
 	kits      KitSender
 	templates Templates
 }
 
-func NewService(e *Engine, s ServiceStore, v VisitorSender, k KitSender, t Templates) *Service {
-	return &Service{engine: e, store: s, visitor: v, kits: k, templates: t}
+func NewService(e *Engine, s ServiceStore, k KitSender, t Templates) *Service {
+	return &Service{engine: e, store: s, visitors: map[string]VisitorSender{}, kits: k, templates: t}
 }
+
+// RegisterVisitor attaches the sender for one bearer ("whatsapp", "sms").
+func (s *Service) RegisterVisitor(channel string, v VisitorSender) {
+	s.visitors[channel] = v
+}
+
+// visitorFor returns the sender for a bearer, or nil when that bearer is not
+// enabled -- which is a real state: WhatsApp can be switched off entirely while
+// SMS keeps the stand running.
+func (s *Service) visitorFor(channel string) VisitorSender { return s.visitors[channel] }
 
 // OnInbound handles one message from a visitor.
 func (s *Service) OnInbound(ctx context.Context, tenantID, sender, channel, choice, text string) error {
@@ -92,14 +106,14 @@ func (s *Service) OnInbound(ctx context.Context, tenantID, sender, channel, choi
 					"ref", reply.Relay.Ref, "error", cerr)
 			}
 			slog.Error("booth: relay to kit failed", "bridge", reply.Relay.BridgeID, "error", err)
-			return s.visitor.SendText(ctx, sender,
+			return s.sendOn(ctx, channel, sender,
 				"That did not get through to the kit. Nothing was sent -- try again in a moment.")
 		}
 		slog.Info("booth: relayed", "ref", reply.Relay.Ref, "bridge", reply.Relay.BridgeID,
 			"sender", sender, "bearer", channel, "len", len(reply.Relay.Body), "at", time.Now().UTC())
 	}
 
-	return s.deliver(ctx, sender, reply)
+	return s.deliver(ctx, sender, channel, reply)
 }
 
 // OnMeshReply handles one message coming back off a kit's mesh.
@@ -111,7 +125,10 @@ func (s *Service) OnMeshReply(ctx context.Context, tenantID, bridgeID, meshDest,
 
 	switch {
 	case res.Relay != nil:
-		if err := s.visitor.SendText(ctx, res.Relay.Sender, res.Body); err != nil {
+		// Delivered on whichever bearer the visitor started on: the relay row
+		// records it, so an SMS conversation is answered by SMS and a WhatsApp
+		// one by WhatsApp, without the mesh side knowing either exists.
+		if err := s.sendOn(ctx, res.Relay.Channel, res.Relay.Sender, res.Body); err != nil {
 			// Do NOT close on a send failure: the conversation is still the
 			// right one, and closing would strand the reply with no way back.
 			return err
@@ -134,25 +151,46 @@ func (s *Service) OnMeshReply(ctx context.Context, tenantID, bridgeID, meshDest,
 	}
 }
 
+// sendOn delivers plain text on one bearer. The visitor senders are registered
+// per channel so the booth can serve both at once (MESHSAT-1175).
+func (s *Service) sendOn(ctx context.Context, channel, to, body string) error {
+	v := s.visitorFor(channel)
+	if v == nil {
+		return fmt.Errorf("booth: no sender for channel %q", channel)
+	}
+	return v.SendText(ctx, to, body)
+}
+
 // deliver turns a Reply into a message. Options mean an interactive template;
 // plain text is used when there is nothing to tap.
-func (s *Service) deliver(ctx context.Context, to string, r *Reply) error {
-	if len(r.Options) == 0 {
-		return s.visitor.SendText(ctx, to, r.Text)
+func (s *Service) deliver(ctx context.Context, to, channel string, r *Reply) error {
+	v := s.visitorFor(channel)
+	if v == nil {
+		return fmt.Errorf("booth: no sender for channel %q", channel)
 	}
-	sid := s.templateFor(r.Options)
+	if len(r.Options) == 0 {
+		return v.SendText(ctx, to, r.Text)
+	}
+	// Only WhatsApp has tappable rows. On SMS the same option set renders as a
+	// numbered list and the visitor replies with a digit, which the engine
+	// resolves against the options for their current state.
+	sid := ""
+	if channel == "whatsapp" {
+		sid = s.templateFor(r.Options)
+	}
 	if sid == "" {
-		// No template matches this option set. Falling back to text keeps the
-		// visitor moving rather than leaving them with a dead end, and the log
-		// says which set was unmatched so it can be added.
-		slog.Warn("booth: no content template for this option set", "options", optionIDs(r.Options))
-		return s.visitor.SendText(ctx, to, r.Text+"\n\n"+renderOptionsAsText(r.Options))
+		if channel == "whatsapp" {
+			// A WhatsApp option set with no template is a gap worth seeing; the
+			// text fallback keeps the visitor moving rather than dead-ending.
+			slog.Warn("booth: no content template for this option set", "options", optionIDs(r.Options))
+		}
+		return v.SendText(ctx, to, r.Text+"\n\n"+renderOptionsAsText(r.Options))
 	}
 	vars, err := json.Marshal(map[string]string{"1": r.Text})
 	if err != nil {
 		return err
 	}
-	return s.visitor.SendContent(ctx, to, sid, string(vars))
+	return v.SendContent(ctx, to, sid, string(vars))
 }
 
 // templateFor picks the Content resource whose fixed items match this option
