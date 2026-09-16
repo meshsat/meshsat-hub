@@ -102,8 +102,12 @@ func TestNoRelayWithoutOptIn(t *testing.T) {
 	if r.Relay != nil {
 		t.Fatal("a relay was produced before any opt-in")
 	}
-	if !strings.Contains(r.Text, "transmitted over radio") {
-		t.Errorf("expected the consent prompt, got %q", r.Text)
+	// Assert on the OPTIONS, not the prose: the consent screen is identified by
+	// offering a yes and a no, which is what makes it consent. Matching wording
+	// made this test fail when the copy was shortened to fit one SMS segment.
+	ids := optionIDs(r.Options)
+	if len(ids) != 2 || ids[0] != OptOptInYes || ids[1] != OptOptInNo {
+		t.Errorf("expected the consent prompt (yes/no), got options %v and text %q", ids, r.Text)
 	}
 }
 
