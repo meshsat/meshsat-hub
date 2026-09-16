@@ -134,7 +134,28 @@ func (c *Client) SendContent(ctx context.Context, to, contentSid, contentVars st
 	return c.post(ctx, form)
 }
 
+// statusCallbackURL is where Twilio should report what became of a message.
+//
+// It is set per message rather than on the phone number, because a number has
+// no SMS status field -- its status_callback is the VOICE one -- and a
+// Messaging Service would be a second place to keep in step with this code.
+//
+// Without it, a carrier drop is invisible: Twilio accepts the send, answers
+// "queued", and the Hub logs a success for a message nobody ever received.
+// That is how a 200-character prompt went missing at the stand while every log
+// line said it had been sent (MESHSAT-1175).
+func (c *Client) statusCallbackURL() string {
+	base := strings.TrimSuffix(publicBaseURL, "/")
+	if base == "" {
+		return ""
+	}
+	return base + "/api/webhook/" + c.channelName() + "/status"
+}
+
 func (c *Client) post(ctx context.Context, form url.Values) (*SendResult, error) {
+	if cb := c.statusCallbackURL(); cb != "" && form.Get("StatusCallback") == "" {
+		form.Set("StatusCallback", cb)
+	}
 
 	apiURL := fmt.Sprintf("%s/Messages.json", c.apiURL)
 	req, err := http.NewRequestWithContext(ctx, "POST", apiURL, strings.NewReader(form.Encode()))
