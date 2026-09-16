@@ -10,6 +10,14 @@ spec:
     app.kubernetes.io/name: hub
   ports:
     - {name: http, port: 6070, targetPort: http}
+    # The Tor hidden service's OWN listener (MESHSAT-1169). Same routes as 6070;
+    # a separate port because that is the only thing an anonymous onion client
+    # does not get to choose. tor forwards raw TCP, so on one shared port a
+    # request off the onion is indistinguishable from one that really passed
+    # ingress-nginx -- and its X-Forwarded-For was believed, because the tor pod
+    # is inside HUB_TRUSTED_PROXIES like every other pod. Nothing but the tor pod
+    # may reach this port; the NetworkPolicy is what enforces that.
+    - {name: onion, port: 6079, targetPort: onion}
     - {name: reticulum, port: 4242, targetPort: reticulum}
     # The hosted TAK front (MESHSAT-1037). The edge relay forwards to this from
     # its own hostPort; phones terminate TLS here, not at the edge, because the

@@ -174,7 +174,23 @@ data:
   # the edge relay DaemonSet (mesh), and the three VPS HAProxies. Anything not
   # listed is treated as the client, so this list is what makes a per-IP limit
   # mean a per-client limit rather than a per-ingress-pod one.
+  #
+  # This list names the whole pod network, which means it also named the tor
+  # pod, and the hidden service forwards raw TCP -- so an anonymous onion client
+  # arrived from a trusted peer carrying its own X-Forwarded-For and picked its
+  # own rate-limit key, or a named victim's (MESHSAT-1169). The fix is not to
+  # narrow this list: ingress-nginx pods have no stable address to narrow it to,
+  # and a list of pod IPs would be wrong after the next rollout. Instead the
+  # onion has its own listener (HUB_ONION_PORT) and the Hub keys that channel
+  # separately, and who may reach 6070 is settled by NetworkPolicy rather than
+  # by arithmetic on this line.
   HUB_TRUSTED_PROXIES: "10.2.0.0/16,10.255.0.0/16,185.44.82.32/32,185.125.171.172/32,185.121.169.27/32"
+  # The Tor-only HTTP listener. Same routes as 6070, but requests arriving here
+  # are keyed as one "onion" client for rate limiting instead of believing a
+  # forwarding header that, on this path, the anonymous client wrote itself.
+  # Tor users therefore share a budget, which is inherent: the hidden service
+  # offers no per-client identity to key on. Set to 0 to stop serving the onion.
+  HUB_ONION_PORT: "6079"
   # Per-client budget on the unauthenticated auth endpoints. The OIDC callback
   # makes an outbound token exchange against authentik on every call, so this
   # is what stops an anonymous caller pointing our fan-out at our own IdP.

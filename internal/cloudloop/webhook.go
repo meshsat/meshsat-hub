@@ -26,6 +26,7 @@ import (
 	"github.com/meshsat/meshsat-hub/internal/deadman"
 	"github.com/meshsat/meshsat-hub/internal/dedup"
 	"github.com/meshsat/meshsat-hub/internal/fragment"
+	hubmw "github.com/meshsat/meshsat-hub/internal/middleware"
 	hubmqtt "github.com/meshsat/meshsat-hub/internal/mqtt"
 	"github.com/meshsat/meshsat-hub/internal/msvqsc"
 	"github.com/meshsat/meshsat-hub/internal/protocol"
@@ -663,8 +664,18 @@ func (h *WebhookHandler) isAllowedIP(r *http.Request) bool {
 	}
 
 	ip := directIP
-	// Only trust X-Forwarded-For if direct connection is from a trusted proxy.
-	if fwd := r.Header.Get("X-Forwarded-For"); fwd != "" && isTrustedProxy(directIP) {
+	// Only trust X-Forwarded-For if direct connection is from a trusted proxy,
+	// and never on the onion: tor forwards raw TCP from a pod address that
+	// trustedProxyNets counts as a proxy, so an anonymous client could present
+	// any provider address it liked and satisfy this allowlist (MESHSAT-1169).
+	//
+	// This is moot while HUB_CLOUDLOOP_WEBHOOK_ALLOWED_IPS is "*", which is a
+	// settled decision -- Cloudloop publishes no egress range and a guessed
+	// allowlist silently drops satellite traffic that can be an SOS. It is
+	// written down anyway so that narrowing the allowlist later means what
+	// whoever narrows it will assume it means.
+	if fwd := r.Header.Get("X-Forwarded-For"); fwd != "" && isTrustedProxy(directIP) &&
+		hubmw.ChannelOf(r) != hubmw.ChannelOnion {
 		ip = strings.TrimSpace(strings.Split(fwd, ",")[0])
 	}
 

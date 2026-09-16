@@ -2955,6 +2955,42 @@ func main() {
 			os.Exit(1)
 		}
 	}()
+
+	// The Tor hidden service gets its OWN listener, serving the same routes.
+	//
+	// This is what makes the channel knowable. tor forwards raw TCP to whatever
+	// HiddenServicePort names, so a request off the onion arrives with the tor
+	// pod as its peer -- which is inside HUB_TRUSTED_PROXIES, because that list
+	// names the pod network -- carrying headers the anonymous client wrote. On
+	// one shared port there is nothing to tell that apart from a request that
+	// really did pass ingress-nginx, and X-Forwarded-For was believed either
+	// way, so an onion client chose its own rate-limit key and could spend a
+	// named victim's (MESHSAT-1169).
+	//
+	// A marker header would not fix it: whoever can reach the port can set the
+	// header. The port itself is the only thing the client does not choose, so
+	// the port is what carries the meaning. Reaching it is restricted to the tor
+	// pod by NetworkPolicy; nothing else routes to it.
+	var onionSrv *http.Server
+	if cfg.OnionPort > 0 && cfg.OnionPort != cfg.Port {
+		onionSrv = &http.Server{
+			Addr:              fmt.Sprintf(":%d", cfg.OnionPort),
+			Handler:           hubmw.WithChannel(r, hubmw.ChannelOnion),
+			ReadHeaderTimeout: 10 * time.Second,
+			ReadTimeout:       15 * time.Second,
+			WriteTimeout:      15 * time.Second,
+			IdleTimeout:       60 * time.Second,
+		}
+		go func() {
+			slog.Info("listening for onion traffic", "addr", onionSrv.Addr)
+			if err := onionSrv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+				// Not fatal: the onion is a secondary path, and taking the Hub
+				// down because it could not bind would turn a Tor problem into
+				// an outage on the path customers actually use.
+				slog.Error("onion server error", "error", err)
+			}
+		}()
+	}
 	// Migrations ran and the listener is up: startup is complete. The startup
 	// probe no longer depends on any dependency probe from here on.
 	checker.MarkStarted()
@@ -2974,6 +3010,11 @@ func main() {
 
 	if err := srv.Shutdown(shutdownCtx); err != nil {
 		slog.Error("shutdown error", "error", err)
+	}
+	if onionSrv != nil {
+		if err := onionSrv.Shutdown(shutdownCtx); err != nil {
+			slog.Error("onion shutdown error", "error", err)
+		}
 	}
 	close(touchCh) // drain remaining API key last_used updates
 	if aprsisClient != nil {

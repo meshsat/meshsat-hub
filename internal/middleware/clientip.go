@@ -29,6 +29,22 @@ import (
 // which is wrong-but-safe: it over-groups rather than letting a header forge
 // the key.
 func ClientIP(r *http.Request) string {
+	// Tor offers no client identity to key on. Every visitor arrives from the
+	// same pod, and that pod is inside HUB_TRUSTED_PROXIES because the list
+	// names the pod network -- so the branch below would read an
+	// X-Forwarded-For the anonymous client wrote itself. That let an onion
+	// client mint a fresh budget per request, defeating the login, auth,
+	// webhook and relay limiters at once, and let it spend a NAMED VICTIM's
+	// budget by sending that person's address (MESHSAT-1169).
+	//
+	// So the onion gets one key of its own. Tor users consequently share a
+	// bucket, which is inherent rather than a shortcut: there is no per-client
+	// identity on this path. A shared budget is a bounded failure; a forgeable
+	// key is an unbounded one.
+	if ChannelOf(r) == ChannelOnion {
+		return OnionClientKey
+	}
+
 	remote := hostOnly(r.RemoteAddr)
 	trusted := trustedProxies()
 	if len(trusted) == 0 || !inAny(remote, trusted) {
@@ -52,6 +68,14 @@ func ClientIP(r *http.Request) string {
 	}
 	return remote
 }
+
+// OnionClientKey is the rate-limit key every Tor request shares.
+//
+// It is deliberately not an address: it cannot collide with a real client's IP,
+// and it is the honest thing for an audit entry to record for a Tor request --
+// the tor pod's address would name our own infrastructure as the actor, and any
+// forwarded address would be the client's own claim.
+const OnionClientKey = "onion"
 
 func hostOnly(addr string) string {
 	if addr == "" {

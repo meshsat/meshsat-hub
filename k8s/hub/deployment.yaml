@@ -78,6 +78,9 @@ spec:
           ports:
             - name: http
               containerPort: 6070
+            # The Tor-only listener (MESHSAT-1169). See k8s/hub/service.yaml.
+            - name: onion
+              containerPort: 6079
             - name: reticulum
               containerPort: 4242
             # The hosted TAK front (MESHSAT-1037): one TLS listener for every
