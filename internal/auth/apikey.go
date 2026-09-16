@@ -70,13 +70,13 @@ func APIKeyMiddleware(validate APIKeyValidator) func(http.Handler) http.Handler 
 			user, tenantID, err := validate(r.Context(), hash)
 			if err != nil {
 				slog.Debug("auth: API key validation failed", "error", err)
-				writeAuthError(w, "invalid API key")
+				writeAuthError(w, r, denyInvalidAPIKey)
 				return
 			}
 
 			// Check expiry.
 			if !user.ExpiresAt.IsZero() && time.Now().After(user.ExpiresAt) {
-				writeAuthError(w, "API key expired")
+				writeAuthError(w, r, denyAPIKeyExpired)
 				return
 			}
 

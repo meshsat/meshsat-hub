@@ -6,6 +6,8 @@ import (
 	"os"
 	"strings"
 	"sync"
+
+	hubauth "github.com/meshsat/meshsat-hub/internal/auth"
 )
 
 // ClientIP returns the address a rate limiter should key on.
@@ -128,4 +130,28 @@ func trustedProxies() []*net.IPNet {
 		}
 	})
 	return trustedNets
+}
+
+// ClientIPContext computes the client address once, as early in the chain as
+// possible, and hands it to internal/auth through the request context.
+//
+// Two reasons it is a separate middleware rather than a call at each use site.
+// First, ClientIP walks X-Forwarded-For against the trusted-proxy list on every
+// call, and the refusal paths, the rate limiters and the audit writer all want
+// the same answer for the same request. Second, and the point here: the auth
+// middleware needs it to report a refused request, and internal/auth cannot
+// call this package -- the import already points the other way. Copying
+// ClientIP over there is exactly how the two wrong answers documented above
+// came to exist, so the one implementation stays here and the answer travels.
+//
+// It also records the arrival channel under a key internal/auth can read, for
+// the same reason: the channel is established by which listener accepted the
+// connection, so it is trustworthy, and a refusal on the onion is a different
+// event from a refusal at the edge.
+func ClientIPContext(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ctx := hubauth.WithClientIP(r.Context(), ClientIP(r))
+		ctx = hubauth.WithChannelLabel(ctx, string(ChannelOf(r)))
+		next.ServeHTTP(w, r.WithContext(ctx))
+	})
 }
