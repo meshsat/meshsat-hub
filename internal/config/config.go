@@ -342,6 +342,11 @@ type Config struct {
 	BoothContentMenu  string `yaml:"booth_content_menu"`
 	BoothContentOptIn string `yaml:"booth_content_optin"`
 	BoothContentKits  string `yaml:"booth_content_kits"`
+	// BoothSMSKeyword opens a stand conversation on SMS, which is a SHARED
+	// bearer -- kit OOB replies and satellite traffic arrive on the same number,
+	// so the booth claims a message only from somebody already in a conversation
+	// or one whose whole text is this word. Empty disables the SMS bearer.
+	BoothSMSKeyword string `yaml:"booth_sms_keyword"`
 	// SMSInboundAuthToken is the Twilio ACCOUNT auth token, used only to verify
 	// X-Twilio-Signature on inbound webhooks. It is not SMSAuthToken: when
 	// SMSAPIKeySID is set, that field carries the API Key Secret and is used for
@@ -1028,6 +1033,9 @@ func Load() (Config, error) {
 	}
 	if v := os.Getenv("HUB_BOOTH_KITS"); v != "" {
 		cfg.BoothKits = v
+	}
+	if v := os.Getenv("HUB_BOOTH_SMS_KEYWORD"); v != "" {
+		cfg.BoothSMSKeyword = v
 	}
 	if v := os.Getenv("HUB_BOOTH_CONTENT_MENU"); v != "" {
 		cfg.BoothContentMenu = v
