@@ -959,7 +959,10 @@ type BoothSession struct {
 // that did not send the original. In-memory state here would route correctly
 // about half the time and the failure would look like the mesh losing messages.
 //
-// Ref is the short token carried in the mesh text ("[#A7] ..."). ClosedAt nil
+// Ref is the short token carried in the mesh text ("#A7 ...", bare and at
+// the start). The Bridge's SanitizeSMSText rewrites [ ] { } | \ ^ ~ on
+// anything a kit sends to a plaintext peer, so a bracketed token survives
+// inbound and is mangled coming back (MESHSAT-1178). ClosedAt nil
 // means the conversation is still open, which is what makes the fallback
 // possible: a reply with no ref can still be routed when its (bridge, node) has
 // exactly one open conversation. Two open, and the Hub asks rather than guesses.

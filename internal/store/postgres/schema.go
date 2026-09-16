@@ -840,7 +840,9 @@ CREATE INDEX IF NOT EXISTS idx_email_contacts_tenant ON email_contacts (tenant_i
 	// not send the original. A Go map would route correctly about half the time
 	// and look haunted.
 	//
-	// ref is the short token carried in the mesh text ("[#A7] ..."). closed_at
+	// ref is the short token carried in the mesh text ("#A7 ...", bare and
+	// at the start): the Bridge rewrites brackets on egress to a plaintext
+	// peer, so a bracketed token would not survive the return leg. closed_at
 	// being NULL is what "conversation still open" means, and the partial index
 	// is what makes the single-open-conversation fallback a cheap lookup rather
 	// than a scan: a reply with no ref routes when its (bridge, node) has
