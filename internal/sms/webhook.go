@@ -130,15 +130,6 @@ func (h *WebhookHandler) channelName() string {
 	return h.channel
 }
 
-// addrPrefix is what Twilio puts in front of an address on this channel.
-// WhatsApp addresses are "whatsapp:+3197...", SMS addresses are bare.
-func (h *WebhookHandler) addrPrefix() string {
-	if h.channelName() == "whatsapp" {
-		return "whatsapp:"
-	}
-	return ""
-}
-
 // stripAddr takes Twilio's channel prefix off an address.
 //
 // The bare E.164 is what the rest of the Hub uses as the device id, and it has

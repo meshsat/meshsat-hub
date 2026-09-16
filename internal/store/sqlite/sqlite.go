@@ -207,6 +207,12 @@ var postAlterMigrations = []string{
 	// address is only unique within a tenant.
 	`CREATE TABLE IF NOT EXISTS email_contacts (tenant_id TEXT NOT NULL DEFAULT 'default', email TEXT NOT NULL, armored_key TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL DEFAULT (datetime('now')), updated_at TEXT NOT NULL DEFAULT (datetime('now')), PRIMARY KEY (tenant_id, email))`,
 	`CREATE INDEX IF NOT EXISTS idx_email_contacts_tenant ON email_contacts (tenant_id)`,
+	// TTC booth flow (MESHSAT-1175); mirrors postgres migration 26.
+	`CREATE TABLE IF NOT EXISTS booth_sessions (tenant_id TEXT NOT NULL DEFAULT 'default', sender TEXT NOT NULL, channel TEXT NOT NULL, state TEXT NOT NULL DEFAULT 'menu', opted_in_at TEXT, created_at TEXT NOT NULL DEFAULT (datetime('now')), updated_at TEXT NOT NULL DEFAULT (datetime('now')), PRIMARY KEY (tenant_id, sender, channel))`,
+	`CREATE TABLE IF NOT EXISTS booth_relays (tenant_id TEXT NOT NULL DEFAULT 'default', ref TEXT NOT NULL, sender TEXT NOT NULL, channel TEXT NOT NULL, bridge_id TEXT NOT NULL, mesh_dest TEXT NOT NULL DEFAULT '', body TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL DEFAULT (datetime('now')), expires_at TEXT NOT NULL, closed_at TEXT, PRIMARY KEY (tenant_id, ref))`,
+	`CREATE INDEX IF NOT EXISTS idx_booth_relays_open ON booth_relays (tenant_id, bridge_id, mesh_dest) WHERE closed_at IS NULL`,
+	`CREATE INDEX IF NOT EXISTS idx_booth_relays_sender ON booth_relays (tenant_id, sender, created_at)`,
+	`CREATE INDEX IF NOT EXISTS idx_booth_relays_created ON booth_relays (tenant_id, created_at)`,
 	`CREATE TABLE IF NOT EXISTS api_keys (
 		id TEXT PRIMARY KEY,
 		key_hash TEXT NOT NULL UNIQUE,

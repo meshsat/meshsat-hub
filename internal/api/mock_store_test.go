@@ -757,3 +757,25 @@ func (m *mockStore) UpdateTAKUser(_ context.Context, _ string, u *store.TAKUser)
 }
 
 func (m *mockStore) DeleteTAKUser(context.Context, string, string) error { return nil }
+
+// Booth relay (MESHSAT-1175). Stubs: these handlers do not touch the booth
+// tables, and the behaviour that matters is covered by the store conformance
+// suite against both real dialects.
+func (m *mockStore) GetBoothSession(context.Context, string, string, string) (*store.BoothSession, error) {
+	return nil, nil
+}
+func (m *mockStore) SaveBoothSession(context.Context, *store.BoothSession) error { return nil }
+func (m *mockStore) CreateBoothRelay(context.Context, *store.BoothRelay) error   { return nil }
+func (m *mockStore) GetBoothRelayByRef(context.Context, string, string) (*store.BoothRelay, error) {
+	return nil, nil
+}
+func (m *mockStore) OpenBoothRelaysFor(context.Context, string, string, string) ([]store.BoothRelay, error) {
+	return nil, nil
+}
+func (m *mockStore) CloseBoothRelay(context.Context, string, string) error { return nil }
+func (m *mockStore) CountBoothRelaysBySender(context.Context, string, string, time.Time) (int, error) {
+	return 0, nil
+}
+func (m *mockStore) CountBoothRelays(context.Context, string, time.Time) (int, error) {
+	return 0, nil
+}
