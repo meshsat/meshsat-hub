@@ -832,4 +832,48 @@ CREATE TABLE IF NOT EXISTS email_contacts (
 );
 CREATE INDEX IF NOT EXISTS idx_email_contacts_tenant ON email_contacts (tenant_id);
 `},
+	// The TTC booth flow (MESHSAT-1175). Two tables, both tenant-keyed.
+	//
+	// booth_relays is the RETURN LEG's correlation, and it is in the database
+	// rather than in a map on purpose: both Hub replicas process every message,
+	// so the reply coming back off the mesh routinely lands on the pod that did
+	// not send the original. A Go map would route correctly about half the time
+	// and look haunted.
+	//
+	// ref is the short token carried in the mesh text ("[#A7] ..."). closed_at
+	// being NULL is what "conversation still open" means, and the partial index
+	// is what makes the single-open-conversation fallback a cheap lookup rather
+	// than a scan: a reply with no ref routes when its (bridge, node) has
+	// exactly one open row.
+	{Version: 26, Name: "booth relay sessions", SQL: `
+CREATE TABLE IF NOT EXISTS booth_sessions (
+	tenant_id   VARCHAR(64) NOT NULL,
+	sender      VARCHAR(64) NOT NULL,
+	channel     VARCHAR(16) NOT NULL,
+	state       VARCHAR(32) NOT NULL DEFAULT 'menu',
+	opted_in_at TIMESTAMPTZ,
+	created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+	updated_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+	PRIMARY KEY (tenant_id, sender, channel)
+);
+CREATE TABLE IF NOT EXISTS booth_relays (
+	tenant_id  VARCHAR(64) NOT NULL,
+	ref        VARCHAR(16) NOT NULL,
+	sender     VARCHAR(64) NOT NULL,
+	channel    VARCHAR(16) NOT NULL,
+	bridge_id  VARCHAR(64) NOT NULL,
+	mesh_dest  VARCHAR(64) NOT NULL DEFAULT '',
+	body       TEXT NOT NULL DEFAULT '',
+	created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+	expires_at TIMESTAMPTZ NOT NULL,
+	closed_at  TIMESTAMPTZ,
+	PRIMARY KEY (tenant_id, ref)
+);
+CREATE INDEX IF NOT EXISTS idx_booth_relays_open
+	ON booth_relays (tenant_id, bridge_id, mesh_dest) WHERE closed_at IS NULL;
+CREATE INDEX IF NOT EXISTS idx_booth_relays_sender
+	ON booth_relays (tenant_id, sender, created_at);
+CREATE INDEX IF NOT EXISTS idx_booth_relays_created
+	ON booth_relays (tenant_id, created_at);
+`},
 }

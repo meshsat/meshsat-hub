@@ -294,6 +294,17 @@ type Store interface {
 	// Email PGP contacts (MESHSAT-1123). Tenant-scoped: a correspondent's
 	// public key belongs to the tenant that vouched for it, and an address is
 	// only unique within a tenant.
+	// TTC booth flow (MESHSAT-1175). See the BoothRelay type for why the
+	// correlation lives here rather than in memory.
+	GetBoothSession(ctx context.Context, tenantID, sender, channel string) (*BoothSession, error)
+	SaveBoothSession(ctx context.Context, s *BoothSession) error
+	CreateBoothRelay(ctx context.Context, r *BoothRelay) error
+	GetBoothRelayByRef(ctx context.Context, tenantID, ref string) (*BoothRelay, error)
+	OpenBoothRelaysFor(ctx context.Context, tenantID, bridgeID, meshDest string) ([]BoothRelay, error)
+	CloseBoothRelay(ctx context.Context, tenantID, ref string) error
+	CountBoothRelaysBySender(ctx context.Context, tenantID, sender string, since time.Time) (int, error)
+	CountBoothRelays(ctx context.Context, tenantID string, since time.Time) (int, error)
+
 	SaveEmailContact(ctx context.Context, tenantID, email, armoredKey string) error
 	ListEmailContacts(ctx context.Context, tenantID string) ([]EmailContact, error)
 	DeleteEmailContact(ctx context.Context, tenantID, email string) error
@@ -924,6 +935,45 @@ var ErrReservedTenantID = errors.New("store: reserved tenant id")
 type GeoPoint struct {
 	Lat float64 `json:"lat"`
 	Lon float64 `json:"lon"`
+}
+
+// BoothSession is one visitor's position in the scripted booth menu.
+//
+// Keyed by (tenant, sender, channel) so the same phone number reaching us on
+// WhatsApp and on SMS is two conversations, not one confused one.
+type BoothSession struct {
+	TenantID  string
+	Sender    string
+	Channel   string
+	State     string
+	OptedInAt *time.Time
+	CreatedAt time.Time
+	UpdatedAt time.Time
+}
+
+// BoothRelay is one message a visitor put on the mesh, and the correlation that
+// lets the reply find its way back to them.
+//
+// This is in the database and not in a map because both Hub replicas process
+// every message: the reply coming back off the mesh routinely arrives at the pod
+// that did not send the original. In-memory state here would route correctly
+// about half the time and the failure would look like the mesh losing messages.
+//
+// Ref is the short token carried in the mesh text ("[#A7] ..."). ClosedAt nil
+// means the conversation is still open, which is what makes the fallback
+// possible: a reply with no ref can still be routed when its (bridge, node) has
+// exactly one open conversation. Two open, and the Hub asks rather than guesses.
+type BoothRelay struct {
+	TenantID  string
+	Ref       string
+	Sender    string
+	Channel   string
+	BridgeID  string
+	MeshDest  string
+	Body      string
+	CreatedAt time.Time
+	ExpiresAt time.Time
+	ClosedAt  *time.Time
 }
 
 // EmailContact is a correspondent's PGP public key, as stored.
