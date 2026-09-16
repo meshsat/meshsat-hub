@@ -793,3 +793,11 @@ func (m *mockStore) CountBoothSendsTo(context.Context, string, string, time.Time
 	return 0, nil
 }
 func (m *mockStore) CountBoothSends(context.Context, string, time.Time) (int, error) { return 0, nil }
+
+func (m *mockStore) RecordMeshNode(context.Context, string, string, string, time.Time) error {
+	return nil
+}
+
+func (m *mockStore) MeshNodesSeenSince(context.Context, string, string, time.Time) ([]store.MeshNode, error) {
+	return nil, nil
+}

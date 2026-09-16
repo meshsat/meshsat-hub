@@ -347,6 +347,12 @@ type Config struct {
 	// so the booth claims a message only from somebody already in a conversation
 	// or one whose whole text is this word. Empty disables the SMS bearer.
 	BoothSMSKeyword string `yaml:"booth_sms_keyword"`
+	// BoothMeshWindow is how recently a node must have been HEARD behind a kit
+	// for the stand to call that mesh live (MESHSAT-1181). Presence is only
+	// observable when a node transmits, so this window governs a positive
+	// signal: outside it the Hub says "no recent evidence", never "empty", and
+	// the kit is still offered. Zero disables the check entirely.
+	BoothMeshWindow time.Duration `yaml:"booth_mesh_window"`
 	// SMSInboundAuthToken is the Twilio ACCOUNT auth token, used only to verify
 	// X-Twilio-Signature on inbound webhooks. It is not SMSAuthToken: when
 	// SMSAPIKeySID is set, that field carries the API Key Secret and is used for
@@ -472,6 +478,9 @@ func Defaults() Config {
 		RateLimitBurst:        10,
 		RateLimitRefillPerMin: 1.0,
 		RateLimitDailyCap:     100,
+		// A node heard in the last half hour is good evidence someone is there;
+		// much longer and "live" stops meaning anything at a stand (MESHSAT-1181).
+		BoothMeshWindow:       30 * time.Minute,
 		ReticulumIdentityFile: "data/reticulum_identity.json",
 		ReticulumAppName:      "meshsat.hub",
 		ReticulumTCPEnabled:   true,
@@ -1036,6 +1045,14 @@ func Load() (Config, error) {
 	}
 	if v := os.Getenv("HUB_BOOTH_SMS_KEYWORD"); v != "" {
 		cfg.BoothSMSKeyword = v
+	}
+	if v := os.Getenv("HUB_BOOTH_MESH_WINDOW"); v != "" {
+		if d, err := time.ParseDuration(v); err == nil {
+			cfg.BoothMeshWindow = d
+		} else {
+			slog.Warn("config: HUB_BOOTH_MESH_WINDOW is not a duration, keeping the default",
+				"value", v, "error", err)
+		}
 	}
 	if v := os.Getenv("HUB_BOOTH_CONTENT_MENU"); v != "" {
 		cfg.BoothContentMenu = v

@@ -312,6 +312,10 @@ type Store interface {
 	RecordBoothSend(ctx context.Context, tenantID, id, recipient, channel, kind string) error
 	CountBoothSendsTo(ctx context.Context, tenantID, recipient string, since time.Time) (int, error)
 	CountBoothSends(ctx context.Context, tenantID string, since time.Time) (int, error)
+	// Mesh presence (MESHSAT-1181): which nodes have been heard behind which
+	// bridge. See the MeshNode type for what this can and cannot prove.
+	RecordMeshNode(ctx context.Context, tenantID, bridgeID, nodeID string, heardAt time.Time) error
+	MeshNodesSeenSince(ctx context.Context, tenantID, bridgeID string, since time.Time) ([]MeshNode, error)
 
 	SaveEmailContact(ctx context.Context, tenantID, email, armoredKey string) error
 	ListEmailContacts(ctx context.Context, tenantID string) ([]EmailContact, error)
@@ -943,6 +947,29 @@ var ErrReservedTenantID = errors.New("store: reserved tenant id")
 type GeoPoint struct {
 	Lat float64 `json:"lat"`
 	Lon float64 `json:"lon"`
+}
+
+// MeshNode is one Meshtastic node the Hub has HEARD behind one bridge.
+//
+// It exists because the Hub could not previously answer "is anything reachable
+// behind this kit?" (MESHSAT-1181). Bridge liveness is a cellular fact and says
+// nothing about radio: a kit can be perfectly online with an empty mesh, and a
+// booth visitor who picks it gets silence.
+//
+// Read the asymmetry carefully, because the whole design turns on it. A row
+// here is PROOF a node transmitted behind that bridge at LastHeard. The ABSENCE
+// of a row proves nothing at all -- a node that is present and quiet is
+// indistinguishable from one that is not there. Only mo/decoded carries a
+// bridge_id, so a node becomes visible when a human sends text through it and
+// not before; at the start of a show day the table is legitimately empty while
+// both meshes are fine. Anything built on this must therefore treat presence as
+// a positive signal to act on and silence as "unknown", never as "empty".
+type MeshNode struct {
+	TenantID   string
+	BridgeID   string
+	NodeID     string
+	FirstHeard time.Time
+	LastHeard  time.Time
 }
 
 // BoothSession is one visitor's position in the scripted booth menu.

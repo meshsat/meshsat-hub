@@ -28,6 +28,7 @@ func Run(t *testing.T, open Opener) {
 	}{
 		{"BoothRelay", testBoothRelay},
 		{"BoothSpendAndExpiry", testBoothSpendAndExpiry},
+		{"MeshPresence", testMeshPresence},
 		{"Devices", testDevices},
 		{"Messages", testMessages},
 		{"MessageDuplicateIsNoOp", testMessageDuplicate},

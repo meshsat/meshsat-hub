@@ -217,6 +217,9 @@ var postAlterMigrations = []string{
 	`CREATE TABLE IF NOT EXISTS booth_sends (tenant_id TEXT NOT NULL DEFAULT 'default', id TEXT NOT NULL, recipient TEXT NOT NULL, channel TEXT NOT NULL, kind TEXT NOT NULL DEFAULT 'visitor', created_at TEXT NOT NULL DEFAULT (datetime('now')), PRIMARY KEY (tenant_id, id))`,
 	`CREATE INDEX IF NOT EXISTS idx_booth_sends_recipient ON booth_sends (tenant_id, recipient, created_at)`,
 	`CREATE INDEX IF NOT EXISTS idx_booth_sends_created ON booth_sends (tenant_id, created_at)`,
+	// Mesh node presence (MESHSAT-1181); mirrors postgres migration 28.
+	`CREATE TABLE IF NOT EXISTS mesh_nodes (tenant_id TEXT NOT NULL DEFAULT 'default', bridge_id TEXT NOT NULL, node_id TEXT NOT NULL, first_heard TEXT NOT NULL DEFAULT (datetime('now')), last_heard TEXT NOT NULL DEFAULT (datetime('now')), PRIMARY KEY (tenant_id, bridge_id, node_id))`,
+	`CREATE INDEX IF NOT EXISTS idx_mesh_nodes_recent ON mesh_nodes (tenant_id, bridge_id, last_heard)`,
 	`CREATE TABLE IF NOT EXISTS api_keys (
 		id TEXT PRIMARY KEY,
 		key_hash TEXT NOT NULL UNIQUE,

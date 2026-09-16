@@ -263,6 +263,7 @@ var Classification = map[string]Class{
 	"booth_content_optin":     ClassPlatform,
 	"booth_content_kits":      ClassPlatform,
 	"booth_sms_keyword":       ClassPlatform,
+	"booth_mesh_window":       ClassPlatform,
 	"pprof_enabled":           ClassPlatform,
 	"public_url":              ClassPlatform,
 	"redis_url":               ClassPlatform,

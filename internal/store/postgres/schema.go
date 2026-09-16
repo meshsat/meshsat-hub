@@ -903,4 +903,24 @@ CREATE INDEX IF NOT EXISTS idx_booth_sends_recipient
 CREATE INDEX IF NOT EXISTS idx_booth_sends_created
 	ON booth_sends (tenant_id, created_at);
 `},
+	// MESHSAT-1181. The Hub had no way to answer "is a node reachable behind
+	// this kit?". Bridge liveness is cellular and says nothing about radio, so
+	// the booth menu offered meshes that could not answer.
+	//
+	// Keyed (tenant_id, bridge_id, node_id) rather than on the node alone: one
+	// node in range of two kits is two true facts, not a row that flips between
+	// them. first_heard is kept because it costs nothing and answers "is this
+	// the node that has been here all day, or a visitor's?".
+	{Version: 28, Name: "mesh node presence", SQL: `
+CREATE TABLE IF NOT EXISTS mesh_nodes (
+	tenant_id   VARCHAR(64) NOT NULL,
+	bridge_id   VARCHAR(64) NOT NULL,
+	node_id     VARCHAR(64) NOT NULL,
+	first_heard TIMESTAMPTZ NOT NULL DEFAULT now(),
+	last_heard  TIMESTAMPTZ NOT NULL DEFAULT now(),
+	PRIMARY KEY (tenant_id, bridge_id, node_id)
+);
+CREATE INDEX IF NOT EXISTS idx_mesh_nodes_recent
+	ON mesh_nodes (tenant_id, bridge_id, last_heard);
+`},
 }
