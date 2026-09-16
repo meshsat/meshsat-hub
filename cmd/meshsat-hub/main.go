@@ -1993,31 +1993,53 @@ func main() {
 
 	// SMS gateway (optional — inbound webhook + outbound subscriber + send API)
 	if cfg.SMSEnabled {
-		smsWebhook := sms.NewWebhookHandler(msgBus, cfg.SMSWebhookSecret)
+		sms.SetPublicBaseURL(cfg.PublicURL)
 		// Twilio signs inbound requests with the ACCOUNT auth token, not with
 		// the API Key Secret that cfg.SMSAuthToken carries when API key auth is
 		// in use above. Without one of these two the handler refuses every
 		// request rather than accepting unsigned ones (MESHSAT-1168).
-		smsWebhook.SetInboundAuthToken(cfg.SMSInboundAuthToken)
-		sms.SetPublicBaseURL(cfg.PublicURL)
 		if cfg.SMSInboundAuthToken == "" && cfg.SMSWebhookSecret == "" {
 			slog.Warn("sms: inbound webhook has no credential configured; every inbound message will be refused",
 				"set", "HUB_SMS_INBOUND_AUTH_TOKEN")
 		}
-		smsWebhook.SetTenants(tenants)
-		smsWebhook.SetAccounts(providerAccounts)
-		smsWebhook.SetOOB(oobSvc)
-		smsWebhook.SetStore(dataStore)
-		smsWebhook.SetKeyStore(keyStore)
-		// [MESHSAT-446] Wire full pipeline (parity with Rock7/Cloudloop)
-		smsWebhook.SetDedup(dedupTracker)
-		smsWebhook.SetReassembler(reassembler)
-		smsWebhook.SetMSVQSC(msvqscDecoder)
-		smsWebhook.SetDeadman(deadmanMonitor)
-		smsWebhook.SetAudit(auditSvc)
-		smsWebhook.SetHeMBReassembler(hembReassemblyBuf)
+		// One wiring for both bearers. WhatsApp and SMS arrive from the same
+		// Twilio account in the same form shape and go down the same pipeline;
+		// only the channel differs (MESHSAT-1175). Building them from one
+		// closure is what stops the two drifting apart the first time somebody
+		// adds a dependency to the SMS handler and forgets the other.
+		newTwilioWebhook := func(channel string) *sms.WebhookHandler {
+			h := sms.NewWebhookHandler(msgBus, cfg.SMSWebhookSecret)
+			h.SetChannel(channel)
+			h.SetInboundAuthToken(cfg.SMSInboundAuthToken)
+			h.SetTenants(tenants)
+			h.SetAccounts(providerAccounts)
+			h.SetOOB(oobSvc)
+			h.SetStore(dataStore)
+			h.SetKeyStore(keyStore)
+			// [MESHSAT-446] Wire full pipeline (parity with Rock7/Cloudloop)
+			h.SetDedup(dedupTracker)
+			h.SetReassembler(reassembler)
+			h.SetMSVQSC(msvqscDecoder)
+			h.SetDeadman(deadmanMonitor)
+			h.SetAudit(auditSvc)
+			h.SetHeMBReassembler(hembReassemblyBuf)
+			return h
+		}
 		// SMS Reticulum interface deferred to MESHSAT-404
-		webhookRoute(integrations.ProviderTwilio, "webhook_token", "/api/webhook/sms", smsWebhook.ServeHTTP)
+		webhookRoute(integrations.ProviderTwilio, "webhook_token", "/api/webhook/sms",
+			newTwilioWebhook("sms").ServeHTTP)
+
+		// The WhatsApp bearer (MESHSAT-1175). Deliberately behind its own flag
+		// and its own route: nothing may be load-bearing on WhatsApp -- Meta
+		// auto-restricted the WABA on the day it was created -- so turning it
+		// off has to be a config change that cannot disturb SMS.
+		if cfg.WhatsAppEnabled {
+			webhookRoute(integrations.ProviderTwilio, "webhook_token", "/api/webhook/whatsapp",
+				newTwilioWebhook("whatsapp").ServeHTTP)
+			r.Post("/api/webhook/whatsapp/status",
+				sms.NewStatusHandler("whatsapp", cfg.SMSInboundAuthToken, cfg.SMSWebhookSecret).ServeHTTP)
+			slog.Info("whatsapp: bearer enabled", "from", cfg.SMSFromNumber)
+		}
 		smsSub := sms.NewSubscriber(smsPlatform, msgBus)
 		smsSub.SetClientPool(smsPool)
 		smsSub.SetClaimer(dataStore) // one text per request across replicas (MESHSAT-1120)
