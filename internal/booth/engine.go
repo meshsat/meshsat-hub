@@ -81,7 +81,12 @@ func DefaultPolicy(kits []Kit) Policy {
 		PerSenderWindow: 10 * time.Minute,
 		Global:          60,
 		GlobalWindow:    time.Hour,
-		RelayTTL:        30 * time.Minute,
+		// Short, because a kit serves one conversation at a time (MESHSAT-1178):
+		// the TTL is the backstop for a reply that never comes, not the length of
+		// an exchange. A conversation is normally closed the moment the reply is
+		// delivered. Thirty minutes here would hold a kit hostage for half an
+		// hour because one visitor wandered off.
+		RelayTTL: 5 * time.Minute,
 	}
 }
 
@@ -128,6 +133,7 @@ type Store interface {
 	SaveBoothSession(ctx context.Context, s *store.BoothSession) error
 	CountBoothRelaysBySender(ctx context.Context, tenantID, sender string, since time.Time) (int, error)
 	CountBoothRelays(ctx context.Context, tenantID string, since time.Time) (int, error)
+	OpenBoothRelaysFor(ctx context.Context, tenantID, bridgeID, meshDest string) ([]store.BoothRelay, error)
 }
 
 // Engine runs the scripted flow.
@@ -273,6 +279,31 @@ func (e *Engine) relay(ctx context.Context, sess *store.BoothSession, text strin
 	if total >= e.policy.Global {
 		return &Reply{Text: "The stand is busy and the mesh is at its limit for this hour. Try again shortly.",
 			Options: e.menuOptions()}, StateMenu, nil
+	}
+
+	// One conversation per kit at a time.
+	//
+	// The T-Deck operator replies in plain text and will not retype a reference
+	// (MESHSAT-1178). The return leg refuses to guess between two open
+	// conversations, so without this a busy kit produces an ambiguity prompt on
+	// the device mid-demo -- safe, but it reads as a malfunction to anyone
+	// watching. Serialising means the ambiguity essentially never arises and the
+	// operator never has to type anything. Two kits still means two concurrent
+	// visitors.
+	open, err := e.store.OpenBoothRelaysFor(ctx, sess.TenantID, kit.BridgeID, kit.MeshDest)
+	if err != nil {
+		return nil, "", err
+	}
+	for _, o := range open {
+		// A visitor is never blocked by their own open conversation; that is
+		// them continuing, not a collision.
+		if o.Sender == sess.Sender {
+			continue
+		}
+		return &Reply{
+			Text:    fmt.Sprintf("%s is mid-conversation with someone else. Pick the other mesh, or try again in a moment.", kit.Label),
+			Options: e.kitOptions(),
+		}, StateAwaitingKit, nil
 	}
 
 	ref, err := newRef()

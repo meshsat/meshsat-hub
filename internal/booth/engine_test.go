@@ -14,11 +14,17 @@ type fakeStore struct {
 	sess      map[string]*store.BoothSession
 	perSender int
 	global    int
+	open      map[string][]store.BoothRelay // bridge id -> open conversations
 	saveCalls int
 	lastSaved *store.BoothSession
 }
 
-func newFake() *fakeStore { return &fakeStore{sess: map[string]*store.BoothSession{}} }
+func newFake() *fakeStore {
+	return &fakeStore{
+		sess: map[string]*store.BoothSession{},
+		open: map[string][]store.BoothRelay{},
+	}
+}
 
 func (f *fakeStore) key(t, s, c string) string { return t + "|" + s + "|" + c }
 
@@ -48,6 +54,10 @@ func (f *fakeStore) CountBoothRelaysBySender(context.Context, string, string, ti
 }
 func (f *fakeStore) CountBoothRelays(context.Context, string, time.Time) (int, error) {
 	return f.global, nil
+}
+
+func (f *fakeStore) OpenBoothRelaysFor(_ context.Context, _, bridgeID, _ string) ([]store.BoothRelay, error) {
+	return f.open[bridgeID], nil
 }
 
 var testKits = []Kit{
@@ -305,5 +315,58 @@ func TestNoKitsConfiguredIsAnError(t *testing.T) {
 	e := New(newFake(), DefaultPolicy(nil), nil)
 	if _, err := e.Handle(context.Background(), tenant, who, ch, OptSendMessage, ""); err == nil {
 		t.Fatal("an engine with no destinations accepted a message")
+	}
+}
+
+// One conversation per kit at a time (MESHSAT-1178). The T-Deck operator replies
+// in plain text and will not retype a reference, so a busy kit would produce an
+// ambiguity prompt on the device mid-demo. Serialising removes the situation.
+func TestKitTakesOneConversationAtATime(t *testing.T) {
+	f := newFake()
+	f.open["nllei01parallax01"] = []store.BoothRelay{
+		{Ref: "B2", Sender: "+31699999999", BridgeID: "nllei01parallax01"},
+	}
+	e := newEngine(f, nil)
+	walk(t, e, f)
+
+	r, err := e.Handle(context.Background(), tenant, who, ch, "", "hello")
+	if err != nil {
+		t.Fatalf("handle: %v", err)
+	}
+	if r.Relay != nil {
+		t.Fatal("a second visitor was let onto a kit that was mid-conversation")
+	}
+	if !strings.Contains(r.Text, "mid-conversation") {
+		t.Errorf("the visitor was not told why: %q", r.Text)
+	}
+	if len(r.Options) == 0 {
+		t.Error("the visitor was not offered the other mesh")
+	}
+}
+
+// A visitor is not blocked by their OWN open conversation -- that is them
+// continuing, not a collision.
+func TestOwnOpenConversationDoesNotBlock(t *testing.T) {
+	f := newFake()
+	f.open["nllei01parallax01"] = []store.BoothRelay{
+		{Ref: "A7", Sender: who, BridgeID: "nllei01parallax01"},
+	}
+	e := newEngine(f, nil)
+	walk(t, e, f)
+
+	r, err := e.Handle(context.Background(), tenant, who, ch, "", "following up")
+	if err != nil {
+		t.Fatalf("handle: %v", err)
+	}
+	if r.Relay == nil {
+		t.Fatal("a visitor was blocked by their own open conversation")
+	}
+}
+
+// The TTL is a backstop for a reply that never comes, not the length of an
+// exchange. Long TTLs hold a serialised kit hostage.
+func TestRelayTTLIsShort(t *testing.T) {
+	if ttl := DefaultPolicy(testKits).RelayTTL; ttl > 10*time.Minute {
+		t.Errorf("RelayTTL is %s; with one conversation per kit that blocks the kit for that long", ttl)
 	}
 }
