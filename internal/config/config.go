@@ -21,7 +21,12 @@ type Config struct {
 	RedisURL    string `yaml:"redis_url"`    // Redis URL (cluster/k8s only)
 	NATSUrl     string `yaml:"nats_url"`     // External NATS URL (cluster/k8s only)
 
-	Port                    int    `yaml:"port"`
+	Port int `yaml:"port"`
+	// OnionPort is a SECOND HTTP listener serving the same routes, dedicated to
+	// the Tor hidden service. It exists so the Hub can tell which path a request
+	// took without trusting a header: tor forwards raw TCP, so on that path
+	// every header is the anonymous client's own (MESHSAT-1169). 0 disables it.
+	OnionPort               int    `yaml:"onion_port"`
 	MQTTBrokerURL           string `yaml:"mqtt_broker_url"`
 	MQTTClientID            string `yaml:"mqtt_client_id"`
 	MQTTTLSCert             string `yaml:"mqtt_tls_cert"` // Client certificate PEM for mutual TLS
@@ -521,6 +526,11 @@ func Load() (Config, error) {
 	if v := os.Getenv("HUB_PORT"); v != "" {
 		if p, err := strconv.Atoi(v); err == nil {
 			cfg.Port = p
+		}
+	}
+	if v := os.Getenv("HUB_ONION_PORT"); v != "" {
+		if p, err := strconv.Atoi(v); err == nil {
+			cfg.OnionPort = p
 		}
 	}
 	if v := os.Getenv("HUB_MQTT_BROKER_URL"); v != "" {

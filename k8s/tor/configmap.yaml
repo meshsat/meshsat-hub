@@ -13,7 +13,18 @@ data:
     HiddenServiceVersion 3
     # The Hub's API, and the MQTT broker for bridges that reach the Hub over Tor
     # instead of paying for satellite airtime.
-    HiddenServicePort 80 hub:6070
+    #
+    # 6079, not 6070: the Hub serves the same routes on a second listener that
+    # exists only for this, so it can tell an onion request from one that came
+    # through the edge (MESHSAT-1169). tor forwards raw TCP, so everything else
+    # about the request -- including X-Forwarded-For -- is written by the
+    # anonymous client, while the peer address is the tor pod, which the Hub
+    # trusts as a proxy because the trusted list names the pod network. On the
+    # shared port those two facts together let a Tor client choose its own
+    # rate-limit key, and choose a real person's. The port is the one thing the
+    # client does not choose, so the port is what carries the meaning; a marker
+    # header would only move the question to who else can reach the port.
+    HiddenServicePort 80 hub:6079
     HiddenServicePort 1883 nats:1883
     # No SOCKS port: this instance exists to PUBLISH a service, not to give
     # anything in the cluster an outbound anonymising proxy.
