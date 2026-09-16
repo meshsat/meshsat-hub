@@ -9,3 +9,4 @@ resources:
   - servicemonitor-nats.yaml
   - podmonitor-postgres.yaml
   - podmonitor-postgres-tak.yaml
+  - prometheusrule-security.yaml
