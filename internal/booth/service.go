@@ -33,6 +33,9 @@ type ServiceStore interface {
 	ReturnStore
 	CreateBoothRelay(ctx context.Context, r *store.BoothRelay) error
 	CloseBoothRelay(ctx context.Context, tenantID, ref string) error
+	// ClaimOnce records key atomically; exactly one caller across all replicas
+	// gets true. See OnMeshReply for why the return leg needs it.
+	ClaimOnce(ctx context.Context, key string) (bool, error)
 }
 
 // Templates are the Twilio Content SIDs for the interactive messages.
@@ -117,10 +120,35 @@ func (s *Service) OnInbound(ctx context.Context, tenantID, sender, channel, choi
 }
 
 // OnMeshReply handles one message coming back off a kit's mesh.
-func (s *Service) OnMeshReply(ctx context.Context, tenantID, bridgeID, meshDest, text string) error {
+//
+// claimKey identifies the WIRE message and must be derived from it, not from a
+// clock or a counter: both Hub replicas subscribe to mo/decoded and both receive
+// every mesh reply, so without a once-only claim both resolve the same
+// conversation and both send -- which is exactly what happened on the first
+// working round trip, and the visitor got the reply twice.
+//
+// The claim is taken BEFORE the send rather than after. At-most-once is the
+// right choice here: the alternative leaves a window where both replicas have
+// resolved and neither has claimed, and a duplicate SMS costs money and reads as
+// a fault to whoever is watching the stand.
+func (s *Service) OnMeshReply(ctx context.Context, tenantID, bridgeID, meshDest, text, claimKey string) error {
 	res, err := Resolve(ctx, s.store, tenantID, bridgeID, meshDest, text)
 	if err != nil {
 		return err
+	}
+	// Claim only once there is something to do, so ordinary mesh chatter does
+	// not fill the claim table with keys for messages nobody acts on.
+	if res.Relay != nil || res.Ambiguous {
+		won, err := s.store.ClaimOnce(ctx, "booth-reply:"+tenantID+":"+claimKey)
+		if err != nil {
+			return err
+		}
+		if !won {
+			// The other replica has it. Not an error, and not worth a warning:
+			// this is the normal path for one of the two pods on every reply.
+			slog.Debug("booth: mesh reply claimed by the other replica", "bridge", bridgeID)
+			return nil
+		}
 	}
 
 	switch {

@@ -198,7 +198,11 @@ func startBoothMeshReplies(msgBus bus.MessageBus, svc *booth.Service, kits []boo
 		// answer it. With one conversation per kit that is unambiguous.
 		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 		defer cancel()
-		if err := svc.OnMeshReply(ctx, store.DefaultTenantID, m.BridgeID, meshDest, m.Text); err != nil {
+		// The claim key comes off the WIRE -- a digest of topic and payload --
+		// so both replicas compute the same key for the same mesh reply and
+		// exactly one of them delivers it (MESHSAT-1175).
+		claimKey := hubmqtt.FallbackMessageID(topic, payload)
+		if err := svc.OnMeshReply(ctx, store.DefaultTenantID, m.BridgeID, meshDest, m.Text, claimKey); err != nil {
 			slog.Error("booth: mesh reply failed", "bridge", m.BridgeID, "device", m.DeviceID, "error", err)
 		}
 	}
