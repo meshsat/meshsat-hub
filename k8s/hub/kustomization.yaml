@@ -10,3 +10,4 @@ resources:
   - ingress.yaml
   - svc-authentik-upstream.yaml
   - ingress-auth.yaml
+  - networkpolicy.yaml
