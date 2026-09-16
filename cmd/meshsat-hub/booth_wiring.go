@@ -203,7 +203,16 @@ func startBoothMeshReplies(msgBus bus.MessageBus, svc *booth.Service, kits []boo
 		}
 	}
 
-	for _, filter := range hubmqtt.DualFilters(hubmqtt.TopicMODecoded("+")) {
+	// The filter is written literally, NOT built with TopicMODecoded("+").
+	//
+	// That builder runs the device id through EncodeSegment, which percent-
+	// encodes "+" to "%2B" precisely so a phone number cannot be read as a
+	// wildcard (Critical Rule 18). Passing "+" as the id therefore subscribes to
+	// a device LITERALLY NAMED "+" -- meshsat/%2B/mo/decoded -- which matches
+	// nothing, silently. That is what broke the first booth return leg: the
+	// forward path worked, the kit replied, the Hub received it on the routing
+	// path, and the booth subscriber never saw a single message.
+	for _, filter := range hubmqtt.DualFilters("meshsat/+/mo/decoded") {
 		if err := msgBus.Subscribe(filter, 1, handler); err != nil {
 			return fmt.Errorf("booth: subscribe %s: %w", filter, err)
 		}

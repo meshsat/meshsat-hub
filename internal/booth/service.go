@@ -145,8 +145,13 @@ func (s *Service) OnMeshReply(ctx context.Context, tenantID, bridgeID, meshDest,
 		return s.kits.SendToKit(ctx, tenantID, bridgeID, AmbiguityPrompt(res.Candidates))
 
 	default:
-		// Not part of any conversation. Normal: the mesh carries other traffic.
-		slog.Debug("booth: mesh message matched no conversation", "bridge", bridgeID)
+		// Reached only for a kit that IS on the stand allowlist -- the caller
+		// drops everything else before this -- so it means a booth kit produced
+		// mesh text that matched no conversation. Usually ordinary mesh chatter,
+		// but it is also what a broken return leg looks like, and at Debug the
+		// first one of those was invisible for an entire test round. Info.
+		slog.Info("booth: mesh text matched no open conversation",
+			"bridge", bridgeID, "mesh_dest", meshDest, "len", len(text))
 		return nil
 	}
 }
