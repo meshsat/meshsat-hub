@@ -330,6 +330,18 @@ type Config struct {
 	// auth token as SMS. Off by default -- nothing may be load-bearing on
 	// WhatsApp, and a Meta restriction must be survivable by setting this false.
 	WhatsAppEnabled bool `yaml:"whatsapp_enabled"`
+	// The TTC booth flow (MESHSAT-1175). Off by default: it intercepts every
+	// inbound WhatsApp message, so it must never switch itself on.
+	BoothEnabled bool `yaml:"booth_enabled"`
+	// BoothKits is the destination ALLOWLIST, "<bridge_id>:<label>[:<mesh_dest>]"
+	// comma separated. A kit not named here is unreachable from the stand.
+	BoothKits string `yaml:"booth_kits"`
+	// Twilio Content SIDs for the interactive messages. Created out of band and
+	// never submitted to Meta, so they are only deliverable inside the 24h
+	// window a visitor opens by messaging us first.
+	BoothContentMenu  string `yaml:"booth_content_menu"`
+	BoothContentOptIn string `yaml:"booth_content_optin"`
+	BoothContentKits  string `yaml:"booth_content_kits"`
 	// SMSInboundAuthToken is the Twilio ACCOUNT auth token, used only to verify
 	// X-Twilio-Signature on inbound webhooks. It is not SMSAuthToken: when
 	// SMSAPIKeySID is set, that field carries the API Key Secret and is used for
@@ -1010,6 +1022,21 @@ func Load() (Config, error) {
 	}
 	if v := os.Getenv("HUB_SMS_FROM_NUMBER"); v != "" {
 		cfg.SMSFromNumber = v
+	}
+	if v := os.Getenv("HUB_BOOTH_ENABLED"); v != "" {
+		cfg.BoothEnabled = strings.EqualFold(v, "true") || v == "1"
+	}
+	if v := os.Getenv("HUB_BOOTH_KITS"); v != "" {
+		cfg.BoothKits = v
+	}
+	if v := os.Getenv("HUB_BOOTH_CONTENT_MENU"); v != "" {
+		cfg.BoothContentMenu = v
+	}
+	if v := os.Getenv("HUB_BOOTH_CONTENT_OPTIN"); v != "" {
+		cfg.BoothContentOptIn = v
+	}
+	if v := os.Getenv("HUB_BOOTH_CONTENT_KITS"); v != "" {
+		cfg.BoothContentKits = v
 	}
 	if v := os.Getenv("HUB_WHATSAPP_ENABLED"); v != "" {
 		cfg.WhatsAppEnabled = strings.EqualFold(v, "true") || v == "1"

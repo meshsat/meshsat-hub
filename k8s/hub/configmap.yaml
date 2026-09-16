@@ -191,6 +191,27 @@ data:
   # Tor users therefore share a budget, which is inherent: the hidden service
   # offers no per-client identity to key on. Set to 0 to stop serving the onion.
   HUB_ONION_PORT: "6079"
+
+  # --- WhatsApp bearer and the TTC stand flow (MESHSAT-1175) ---
+  # Same Twilio account and the same account auth token as SMS; only the channel
+  # differs. Nothing may be load-bearing on this: Meta auto-restricted the WABA
+  # on the day it was created, so both switches below have to be survivable.
+  HUB_WHATSAPP_ENABLED: "true"
+  HUB_BOOTH_ENABLED: "true"
+  # The destination ALLOWLIST, "<bridge_id>:<label>[:<mesh_dest>]". A kit not
+  # named here cannot be reached from the stand, and nothing a visitor types can
+  # add one. Empty mesh_dest means the kit's default channel, which is also how
+  # the return-leg conversation is keyed.
+  HUB_BOOTH_KITS: "nllei01tesseract01:Tesseract,nllei01parallax01:Parallax"
+  # Twilio Content SIDs for the interactive list and buttons. Created out of
+  # band on 2026-09-16 and deliberately NEVER submitted to Meta: an unapproved
+  # template is deliverable only inside the 24h window a visitor opens by
+  # messaging us first, which is exactly the booth's shape. Changing the kit list
+  # above means rebuilding meshsat_booth_kits, whose items are fixed in the
+  # template rather than variable.
+  HUB_BOOTH_CONTENT_MENU: "HX0d6710337e5ff9e5b9ed1d6496f2372c"
+  HUB_BOOTH_CONTENT_OPTIN: "HXc80c6bc6e7b71cff01935143d9dc5a7e"
+  HUB_BOOTH_CONTENT_KITS: "HX5d7051b39bf8001239620c0334c080e4"
   # Per-client budget on the unauthenticated auth endpoints. The OIDC callback
   # makes an outbound token exchange against authentik on every call, so this
   # is what stops an anonymous caller pointing our fan-out at our own IdP.

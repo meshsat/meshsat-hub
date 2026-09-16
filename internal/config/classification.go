@@ -253,7 +253,15 @@ var Classification = map[string]Class{
 	// The dedicated Tor listener. The deployment's own topology, not a tenant's
 	// choice: it is how the Hub tells an onion request apart from an edge one
 	// (MESHSAT-1169).
-	"onion_port":              ClassPlatform,
+	"onion_port": ClassPlatform,
+	// The TTC stand flow. The deployment's own: a one-off demonstration on the
+	// platform's WhatsApp sender and its own kits, not a tenant feature
+	// (MESHSAT-1175). booth_kits is the destination ALLOWLIST.
+	"booth_enabled":           ClassPlatform,
+	"booth_kits":              ClassPlatform,
+	"booth_content_menu":      ClassPlatform,
+	"booth_content_optin":     ClassPlatform,
+	"booth_content_kits":      ClassPlatform,
 	"pprof_enabled":           ClassPlatform,
 	"public_url":              ClassPlatform,
 	"redis_url":               ClassPlatform,
