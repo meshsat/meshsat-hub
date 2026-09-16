@@ -1,0 +1,84 @@
+# Confine the Hub's non-public listeners (MESHSAT-1192).
+#
+# k8s/hub/service.yaml says of port 6079: "Nothing but the tor pod may reach
+# this port; the NetworkPolicy is what enforces that", and k8s/hub/configmap.yaml
+# repeats it. There was no NetworkPolicy. Verified live: the whole namespace had
+# none, and `kubectl get netpol -A` returned nothing at all cluster-wide -- the
+# only policies anywhere were tor-confine (which restricts tor's egress, not the
+# Hub's ingress) and the one in meshsat-tak, whose own header says "The first
+# network policy in this tree. Every other namespace here relies on the cluster
+# being private."
+#
+# What that cost, concretely. Port 6079 serves the SAME router as 6070 -- the
+# entire API. It exists so an onion request is distinguishable from an edge one,
+# because tor forwards raw TCP and the client writes its own X-Forwarded-For; the
+# separate port is what stops a Tor client choosing its own rate-limit key, and
+# a named victim's (MESHSAT-1169). Any pod in the cluster could reach 6079
+# directly and spend, or exhaust, the shared onion bucket that the login, auth,
+# webhook and relay limiters all key on for that channel. Port 4242 is the raw
+# Reticulum HDLC listener, whose frame reader grows its buffer without bound if
+# a client sends one HDLC flag and never a second.
+#
+# STAGE 1 of 2, deliberately.
+#
+# This policy leaves 6070 and 8089 reachable from anywhere, exactly as they were,
+# and restricts only the two ports that were never meant to be reachable at all.
+# It therefore cannot break the path customer traffic arrives on, which is the
+# whole reason for splitting it: Cilium has no audit mode, so a policy is live
+# the moment it is applied, and 6070 carries the public API, the kubelet's three
+# probes and the Prometheus scrape. Stage 2 narrows 6070 to ingress-nginx, the
+# node (probes and the hostNetwork edge relay), Prometheus and hub-verify, after
+# this one has soaked and the flow inventory below has been re-read.
+#
+# The allow-list was built from OBSERVED flows (hubble observe --to-pod
+# meshsat-hub/, both hub nodes) and not from reading the manifests: ingress-nginx
+# -> 6070, reserved:host -> 6070 and 8089, monitoring/prometheus -> 6070. Note
+# what observation could NOT show: no tor -> 6079 and no stunnel -> 4242 flow
+# appeared in the window, because the onion and the Reticulum interface were
+# simply idle. Those paths are allowed here on the strength of the manifests
+# rather than the traffic -- silence is not evidence that a path is unused, and
+# writing a policy from a quiet hour is how you discover a dependency at 03:00.
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: hub-confine
+  namespace: meshsat-hub
+  labels:
+    app.kubernetes.io/name: hub
+    app.kubernetes.io/part-of: meshsat-hub
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: hub
+  # INGRESS ONLY. Cilium enforces per direction, so omitting `egress` leaves the
+  # Hub's outbound unrestricted -- Stripe, Twilio, Cloudloop, the S3 audit
+  # archive, SMTP, every tenant's webhook target. Egress belongs in its own
+  # change with its own verification; bundling it here would mean one policy
+  # that can break revenue, delivery and backups at once.
+  ingress:
+    # The public API, the kubelet's probes, the hostNetwork edge relay's TAK
+    # front, the Prometheus scrape, hub-verify. Unchanged from today on purpose:
+    # `all` is every entity, so this is the pre-policy behaviour, written down.
+    - fromEntities:
+        - all
+      toPorts:
+        - ports:
+            - {port: "6070", protocol: TCP}
+            - {port: "8089", protocol: TCP}
+    # The onion listener. This is the line the two comments already promised.
+    - fromEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: meshsat-hub
+            app.kubernetes.io/name: tor
+      toPorts:
+        - ports:
+            - {port: "6079", protocol: TCP}
+    # Reticulum HDLC, which only ever arrives through stunnel's client-certificate
+    # check. Reaching 4242 directly skips that check entirely.
+    - fromEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: meshsat-hub
+            app.kubernetes.io/name: stunnel
+      toPorts:
+        - ports:
+            - {port: "4242", protocol: TCP}
