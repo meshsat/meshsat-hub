@@ -135,7 +135,11 @@ var Classification = map[string]Class{
 	// inbound signature. This entry is the platform tenant's copy of it.
 	"sms_inbound_auth_token": ClassTenantDone,
 	"sms_webhook_secret":     ClassTenantDone,
-	"sos_chain_id":           ClassTenantDone,
+	// The WhatsApp bearer, on the platform's own Twilio account and WABA. Same
+	// shape as sms_enabled: tenant-owned in principle, and the env value is the
+	// platform account's (MESHSAT-1175).
+	"whatsapp_enabled": ClassTenantDone,
+	"sos_chain_id":     ClassTenantDone,
 
 	// --- commercial: Commercial: the operator's lever. (17)
 	"invoiceninja_country_id": ClassCommercial,

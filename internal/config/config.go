@@ -325,6 +325,11 @@ type Config struct {
 	SMSAPIKeySID     string `yaml:"sms_api_key_sid"`    // Twilio API Key SID (SK...) — if set, uses API key auth
 	SMSFromNumber    string `yaml:"sms_from_number"`    // E.164 sender number
 	SMSWebhookSecret string `yaml:"sms_webhook_secret"` // HMAC secret for a custom relay's X-Signature
+	// WhatsAppEnabled turns on the WhatsApp bearer: a second inbound webhook and
+	// a status callback, both on the same Twilio account and the same account
+	// auth token as SMS. Off by default -- nothing may be load-bearing on
+	// WhatsApp, and a Meta restriction must be survivable by setting this false.
+	WhatsAppEnabled bool `yaml:"whatsapp_enabled"`
 	// SMSInboundAuthToken is the Twilio ACCOUNT auth token, used only to verify
 	// X-Twilio-Signature on inbound webhooks. It is not SMSAuthToken: when
 	// SMSAPIKeySID is set, that field carries the API Key Secret and is used for
@@ -1005,6 +1010,9 @@ func Load() (Config, error) {
 	}
 	if v := os.Getenv("HUB_SMS_FROM_NUMBER"); v != "" {
 		cfg.SMSFromNumber = v
+	}
+	if v := os.Getenv("HUB_WHATSAPP_ENABLED"); v != "" {
+		cfg.WhatsAppEnabled = strings.EqualFold(v, "true") || v == "1"
 	}
 	if v := os.Getenv("HUB_SMS_INBOUND_AUTH_TOKEN"); v != "" {
 		cfg.SMSInboundAuthToken = v
