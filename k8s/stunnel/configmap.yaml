@@ -26,3 +26,30 @@ data:
     CAfile = /etc/stunnel/bridge-ca/ca.crt
     verify = 2
     verifyChain = yes
+
+    # The MQTT broker as reached through the Tor hidden service (MESHSAT-1170).
+    #
+    # The onion used to publish nats:1883 directly, and that listener has no tls
+    # block at all -- no server certificate, no client certificate, a password in
+    # a plaintext CONNECT packet. The websocket listener serving the SAME clients
+    # at the edge requires TLS *and* verifies a client certificate against this
+    # same bridge CA, so the onion was the weak twin of a path we had already got
+    # right. What was reachable there includes the `meshsat` account, whose
+    # permissions are publish and subscribe on ">" -- every subject, every
+    # tenant, including the Hub's internal bus.
+    #
+    # nats-server takes only one mqtt listener, so it cannot offer a second,
+    # TLS-enabled one for Tor while keeping 1883 plaintext for the Hub itself
+    # in-cluster. Terminating here is the same shape the Reticulum leg above
+    # already uses, with the same CA and the same verify settings.
+    #
+    # Clients must now present a bridge client certificate. That is the point:
+    # the plaintext path was the finding.
+    [onion-mqtt]
+    accept = 0.0.0.0:1883
+    connect = nats.meshsat-hub.svc.cluster.local:1883
+    cert = /etc/stunnel/tls/tls.crt
+    key = /etc/stunnel/tls/tls.key
+    CAfile = /etc/stunnel/bridge-ca/ca.crt
+    verify = 2
+    verifyChain = yes

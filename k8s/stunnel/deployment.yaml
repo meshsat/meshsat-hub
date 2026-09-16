@@ -50,6 +50,8 @@ spec:
           ports:
             - name: reticulum
               containerPort: 4243
+            - name: onion-mqtt
+              containerPort: 1883
           readinessProbe:
             tcpSocket: {port: reticulum}
             periodSeconds: 10

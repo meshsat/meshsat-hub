@@ -10,3 +10,7 @@ spec:
     app.kubernetes.io/name: stunnel
   ports:
     - {name: reticulum, port: 4243, targetPort: reticulum}
+    # Reached only by the tor pod: this is where HiddenServicePort 1883 points,
+    # so the onion's MQTT path terminates TLS and verifies a client certificate
+    # instead of handing Tor a plaintext broker port (MESHSAT-1170).
+    - {name: onion-mqtt, port: 1883, targetPort: onion-mqtt}

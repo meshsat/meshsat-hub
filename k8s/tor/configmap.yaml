@@ -25,7 +25,14 @@ data:
     # client does not choose, so the port is what carries the meaning; a marker
     # header would only move the question to who else can reach the port.
     HiddenServicePort 80 hub:6079
-    HiddenServicePort 1883 nats:1883
+    # MQTT goes through stunnel, not straight at the broker (MESHSAT-1170). The
+    # broker's own 1883 has no tls block -- no server certificate, no client
+    # certificate, the password in a plaintext CONNECT -- while the websocket
+    # listener serving the same clients at the edge requires TLS and verifies a
+    # client certificate against the bridge CA. stunnel gives the onion the same
+    # two factors, because nats-server cannot offer a second MQTT listener while
+    # keeping the plaintext one for the Hub's own in-cluster connection.
+    HiddenServicePort 1883 stunnel:1883
     # No SOCKS port: this instance exists to PUBLISH a service, not to give
     # anything in the cluster an outbound anonymising proxy.
     SocksPort 0
