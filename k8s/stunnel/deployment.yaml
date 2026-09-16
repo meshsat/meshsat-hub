@@ -47,6 +47,16 @@ spec:
       containers:
         - name: stunnel
           image: ghcr.io/meshsat/meshsat-hub-stunnel
+          # PodSecurity `restricted` minimum (MESHSAT-1191). Deliberately NOT
+          # readOnlyRootFilesystem: `restricted` does not require it, and this
+          # image has not been checked for what it writes at runtime. Harden
+          # what is known, not what is hoped.
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+            seccompProfile:
+              type: RuntimeDefault
           ports:
             - name: reticulum
               containerPort: 4243
