@@ -327,8 +327,7 @@ func (s *Service) sayBudgetReached(ctx context.Context, tenantID, sender, channe
 	if err != nil || !won {
 		return err
 	}
-	return s.send(ctx, tenantID, channel, sender, "visitor",
-		"That is all the messages the stand can send today. Come and say hello at the table instead.")
+	return s.send(ctx, tenantID, channel, sender, "visitor", budgetReachedText)
 }
 
 // send is the one place a message leaves the booth. Everything it sends is
@@ -369,8 +368,7 @@ func (s *Service) SweepExpired(ctx context.Context, tenantID string) error {
 		if err != nil || !ok {
 			continue
 		}
-		body := fmt.Sprintf("No answer came back for #%s. Nobody was listening on that mesh just now -- "+
-			"try the other one, or come to the table.", r.Ref)
+		body := fmt.Sprintf(expiredTextFmt, r.Ref)
 		if err := s.send(ctx, tenantID, r.Channel, r.Sender, "visitor", body); err != nil {
 			slog.Error("booth: could not tell a visitor their relay expired", "ref", r.Ref, "error", err)
 		}

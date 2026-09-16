@@ -438,4 +438,9 @@ const (
 	// consent prompt below was silently lost at 200 characters. There is a test.
 	aboutText = "MeshSat bridges mesh radio and satellite, so a message still gets out when the usual networks cannot."
 	optInText = "Your message goes out over real radio and prints at the stand. We keep your number only to send the reply back. Continue?"
+
+	// Sent by the Service rather than the state machine, and held to the same
+	// limit for the same reason: they go to the same phones over the same bearer.
+	expiredTextFmt    = "No answer came back for #%s. Nobody was listening on that mesh just now -- try the other one, or come to the table."
+	budgetReachedText = "That is all the messages the stand can send today. Come and say hello at the table instead."
 )
