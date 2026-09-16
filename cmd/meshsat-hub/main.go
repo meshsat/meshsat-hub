@@ -1994,6 +1994,16 @@ func main() {
 	// SMS gateway (optional — inbound webhook + outbound subscriber + send API)
 	if cfg.SMSEnabled {
 		smsWebhook := sms.NewWebhookHandler(msgBus, cfg.SMSWebhookSecret)
+		// Twilio signs inbound requests with the ACCOUNT auth token, not with
+		// the API Key Secret that cfg.SMSAuthToken carries when API key auth is
+		// in use above. Without one of these two the handler refuses every
+		// request rather than accepting unsigned ones (MESHSAT-1168).
+		smsWebhook.SetInboundAuthToken(cfg.SMSInboundAuthToken)
+		sms.SetPublicBaseURL(cfg.PublicURL)
+		if cfg.SMSInboundAuthToken == "" && cfg.SMSWebhookSecret == "" {
+			slog.Warn("sms: inbound webhook has no credential configured; every inbound message will be refused",
+				"set", "HUB_SMS_INBOUND_AUTH_TOKEN")
+		}
 		smsWebhook.SetTenants(tenants)
 		smsWebhook.SetAccounts(providerAccounts)
 		smsWebhook.SetOOB(oobSvc)

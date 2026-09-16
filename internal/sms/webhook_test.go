@@ -36,18 +36,14 @@ func (m *mockBus) PublishJSON(topic string, qos byte, retained bool, v any) erro
 func TestWebhook_ValidInbound(t *testing.T) {
 	mb := &mockBus{}
 	h := NewWebhookHandler(mb, "")
+	// Inbound SMS is authenticated since MESHSAT-1168, so a pipeline test has
+	// to present a real credential like a real delivery does.
+	h.SetInboundAuthToken(testAuthToken)
 
-	form := url.Values{
-		"From":       {"+31612345678"},
-		"To":         {"+31698765432"},
-		"Body":       {"Hello from phone"},
-		"MessageSid": {"SM999"},
-	}
+	form := inboundForm()
 
-	req := httptest.NewRequest(http.MethodPost, "/api/webhook/sms", strings.NewReader(form.Encode()))
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	w := httptest.NewRecorder()
-	h.ServeHTTP(w, req)
+	h.ServeHTTP(w, signedRequest(t, form))
 
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
@@ -101,12 +97,11 @@ func TestWebhook_ValidInbound(t *testing.T) {
 
 func TestWebhook_MissingFrom(t *testing.T) {
 	h := NewWebhookHandler(&mockBus{}, "")
+	h.SetInboundAuthToken(testAuthToken)
 
 	form := url.Values{"Body": {"test"}}
-	req := httptest.NewRequest(http.MethodPost, "/api/webhook/sms", strings.NewReader(form.Encode()))
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	w := httptest.NewRecorder()
-	h.ServeHTTP(w, req)
+	h.ServeHTTP(w, signedRequest(t, form))
 
 	if w.Code != http.StatusBadRequest {
 		t.Errorf("expected 400, got %d", w.Code)
@@ -115,12 +110,11 @@ func TestWebhook_MissingFrom(t *testing.T) {
 
 func TestWebhook_MissingBody(t *testing.T) {
 	h := NewWebhookHandler(&mockBus{}, "")
+	h.SetInboundAuthToken(testAuthToken)
 
 	form := url.Values{"From": {"+1"}}
-	req := httptest.NewRequest(http.MethodPost, "/api/webhook/sms", strings.NewReader(form.Encode()))
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	w := httptest.NewRecorder()
-	h.ServeHTTP(w, req)
+	h.ServeHTTP(w, signedRequest(t, form))
 
 	if w.Code != http.StatusBadRequest {
 		t.Errorf("expected 400, got %d", w.Code)
