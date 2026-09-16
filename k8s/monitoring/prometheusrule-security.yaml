@@ -1,0 +1,200 @@
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: meshsat-hub-security
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/name: meshsat-hub
+    release: monitoring          # kube-prometheus-stack discovery label
+    environment: production
+    managed-by: argocd
+spec:
+  groups:
+    # ---------------------------------------------------------------------
+    # The Hub's first security alerts (MESHSAT-1190).
+    #
+    # Before these, the cluster's entire PrometheusRule inventory was OOM,
+    # ingress, cilium, NFS, argo and pod-restart: availability and nothing
+    # else. A credential-stuffing run against hub.meshsat.net would have
+    # produced no page, no email and no dashboard movement -- and, until the
+    # commit that added meshsat_hub_auth_failures_total, no metric to write
+    # this against either.
+    #
+    # NONE of these carry `tier: "1"`. That label plus severity=critical is
+    # what routes an alert to the pager at 192.168.181.111:9106, i.e. wakes a
+    # person. These thresholds have never been observed against real traffic,
+    # and the first MeshSat page this estate ever sent was an engineer's own
+    # probe. They go to the n8n receiver until the numbers have been watched
+    # for a while; promoting one to tier 1 is a separate, deliberate edit.
+    # ---------------------------------------------------------------------
+    - name: meshsat-hub-authentication
+      rules:
+        - alert: HubAuthFailureSpike
+          # Baseline is ~0. 24h of production ingress logs showed 4 401s in
+          # total, all from one operator session, against 4378 requests.
+          expr: sum by (reason, channel) (increase(meshsat_hub_auth_failures_total{job="hub"}[10m])) > 20
+          for: 5m
+          labels:
+            severity: warning
+            service: meshsat-hub
+          annotations:
+            summary: "Hub: {{ $value | printf \"%.0f\" }} authentication failures in 10m ({{ $labels.reason }}, {{ $labels.channel }})"
+            description: >-
+              Someone is trying credentials against hub.meshsat.net faster than any
+              real client does. reason={{ $labels.reason }} channel={{ $labels.channel }}.
+              Look at the `auth: request refused` log lines for the source addresses;
+              on channel=onion there is no per-client address by construction, so the
+              answer there is a budget, not a block.
+        - alert: HubAuthFailureFlood
+          expr: sum by (reason, channel) (increase(meshsat_hub_auth_failures_total{job="hub"}[10m])) > 200
+          for: 2m
+          labels:
+            severity: critical
+            service: meshsat-hub
+          annotations:
+            summary: "Hub: sustained credential attack ({{ $labels.reason }}, {{ $labels.channel }})"
+            description: >-
+              Over 200 authentication failures in 10 minutes. If the source is a single
+              address the edge CrowdSec bouncer should already be banning it -- check
+              `cscli decisions list` on the three VPS. If it is distributed, per-IP
+              controls cannot see it and the answer is a per-account lockout.
+        - alert: HubAuthorizationDenialSpike
+          # A 401 is somebody trying to get in; a 403 is somebody already
+          # inside reaching for something they are not entitled to. That is a
+          # different event and usually a more serious one.
+          expr: sum by (requirement, channel) (increase(meshsat_hub_authz_denials_total{job="hub"}[15m])) > 20
+          for: 5m
+          labels:
+            severity: warning
+            service: meshsat-hub
+          annotations:
+            summary: "Hub: authenticated caller repeatedly denied ({{ $labels.requirement }})"
+            description: >-
+              An authenticated principal is being refused for want of authority, 20+
+              times in 15 minutes, requirement={{ $labels.requirement }}. Either a
+              client is mis-scoped after the role floors landed (MESHSAT-1189), or a
+              credential is being used to probe for privilege. The `auth: request
+              denied` log lines carry actor and tenant.
+        - alert: HubPlatformAdminDenials
+          # Any attempt to reach the platform axis from a tenant credential is
+          # worth looking at on its own, whatever the rate.
+          expr: sum(increase(meshsat_hub_authz_denials_total{job="hub", requirement="platform_admin"}[30m])) > 3
+          for: 5m
+          labels:
+            severity: warning
+            service: meshsat-hub
+          annotations:
+            summary: "Hub: repeated attempts to reach platform-admin routes"
+            description: >-
+              A tenant credential has been refused a platform-admin route more than
+              three times in half an hour. These routes read across tenants, rotate
+              cluster-wide credentials, or dump process memory.
+
+    - name: meshsat-hub-abuse
+      rules:
+        - alert: HubRelayAuthRejections
+          expr: sum(increase(meshsat_hub_relay_rejected_total{job="hub", reason="auth"}[15m])) > 15
+          for: 5m
+          labels:
+            severity: warning
+            service: meshsat-hub
+          annotations:
+            summary: "Hub: WebSocket relay refusing credentials repeatedly"
+            description: >-
+              Bridge relay credentials are being refused. Each attempt costs a bcrypt
+              verification, so this is both a guessing signal and a CPU cost. A bridge
+              that has legitimately lost its credential re-provisions; it does not retry.
+        - alert: HubRelayTenantRejections
+          # reason="tenant" means an authenticated bridge asked for a bridge in
+          # a tenant that is not its own. There is no legitimate way to do that
+          # by accident.
+          expr: sum(increase(meshsat_hub_relay_rejected_total{job="hub", reason="tenant"}[1h])) > 0
+          for: 1m
+          labels:
+            severity: warning
+            service: meshsat-hub
+          annotations:
+            summary: "Hub: a bridge asked for another tenant's bridge"
+            description: >-
+              An authenticated bridge requested a relay target outside its own tenant.
+              The request was refused at the query layer. This is not something a
+              correctly configured kit does.
+        - alert: HubWebhookUnexpectedSource
+          # The counter's own comment says the control is observation only and
+          # "this counter is the whole of it". Until now nothing observed it.
+          expr: sum by (provider) (increase(meshsat_hub_webhook_unexpected_source_total{job="hub"}[1h])) > 0
+          for: 5m
+          labels:
+            severity: warning
+            service: meshsat-hub
+          annotations:
+            summary: "Hub: {{ $labels.provider }} webhook from an unexpected source"
+            description: >-
+              A provider webhook was accepted from outside the expected source range.
+              It was NOT rejected -- this path deliberately never gates on source,
+              because a wrong guess about someone else's infrastructure silently drops
+              a satellite message, and on this path that can be an SOS. Confirm the
+              provider changed its egress rather than that somebody found the URL.
+        - alert: HubRateLimitSaturation
+          expr: sum by (type) (increase(meshsat_hub_ratelimit_violations_total{job="hub"}[15m])) > 50
+          for: 10m
+          labels:
+            severity: warning
+            service: meshsat-hub
+          annotations:
+            summary: "Hub: rate limit saturated ({{ $labels.type }})"
+            description: >-
+              Sustained rate-limit violations. Either a tenant is hitting its plan
+              ceiling and should be told, or something is looping. Note this limiter
+              is on the send path, so violations cost the tenant nothing but do mean
+              messages are not going out.
+
+    - name: meshsat-hub-integrity
+      rules:
+        - alert: HubReplicaDown
+          expr: sum(up{job="hub", namespace="meshsat-hub"}) < 2
+          for: 10m
+          labels:
+            severity: warning
+            service: meshsat-hub
+          annotations:
+            summary: "Hub: fewer than two replicas scraping"
+            description: >-
+              The Hub runs two replicas and both process every message. One being
+              gone is not an outage, but it halves capacity and it is the state in
+              which cross-replica bugs stop being visible.
+        - alert: HubAllReplicasDown
+          expr: sum(up{job="hub", namespace="meshsat-hub"}) == 0
+          for: 3m
+          labels:
+            severity: critical
+            service: meshsat-hub
+          annotations:
+            summary: "Hub: no replica is scraping"
+            description: >-
+              Neither Hub replica is answering the metrics scrape. Check the pods
+              before the edge: a dead VPS edge silent-drops, which looks like this
+              from outside but not from here.
+        - alert: HubDependencyDown
+          expr: min by (dependency) (meshsat_hub_dependency_up{job="hub"}) == 0
+          for: 10m
+          labels:
+            severity: warning
+            service: meshsat-hub
+          annotations:
+            summary: "Hub: dependency {{ $labels.dependency }} is down"
+            description: >-
+              A dependency the Hub declares in /readyz has been down for ten minutes.
+              dependency=mqtt means the bus, which carries position, SOS and every
+              device message.
+        - alert: HubPaymentsUnattributed
+          expr: sum by (kind) (increase(meshsat_hub_payments_unattributed_total{job="hub"}[1h])) > 0
+          for: 5m
+          labels:
+            severity: warning
+            service: meshsat-hub
+          annotations:
+            summary: "Hub: a payment could not be attributed ({{ $labels.kind }})"
+            description: >-
+              Money arrived that could not be matched to a tenant. Park it and look;
+              a document must never be issued on a guess.

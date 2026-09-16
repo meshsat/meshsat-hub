@@ -331,6 +331,21 @@ func init() {
 	// increase(meshsat_hub_auth_failures_total[5m]) > N has nothing to
 	// evaluate until the first failure of that exact kind ever happens, which
 	// is precisely the moment you want the alert to already exist.
+	// Verified empty in production on 2026-09-17: relay_rejected_total,
+	// ratelimit_violations_total and webhook_unexpected_source_total had NO
+	// series at all, so an alert on any of them could never have fired. The
+	// webhook one is the sharper case -- its own comment says "the control is
+	// observation only, and this counter is the whole of it", and the
+	// observation was itself unobservable (MESHSAT-1190).
+	for _, reason := range []string{"auth", "budget", "envelope", "frame", "tenant", "upgrade"} {
+		RelayRejected.WithLabelValues(reason)
+	}
+	for _, kind := range []string{"daily_cap", "monthly_cap", "throttled"} {
+		RatelimitViolations.WithLabelValues(kind)
+	}
+	for _, provider := range []string{"cloudloop", "globalstar", "rockblock", "sms", "stripe"} {
+		WebhookUnexpectedSourceTotal.WithLabelValues(provider)
+	}
 	for _, ch := range []string{"internet", "onion"} {
 		for _, reason := range []string{
 			"missing_credential", "invalid_token", "invalid_claims",
