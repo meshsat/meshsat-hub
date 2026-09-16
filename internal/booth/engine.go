@@ -416,8 +416,10 @@ func newRef() (string, error) {
 
 const (
 	welcomeText = "Welcome to MeshSat. What would you like to do?"
-	aboutText   = "MeshSat keeps people connected when the network is not: an open-source bridge between mesh radio and satellite. " +
-		"The kits on this stand are real ones, and the message you send goes out over real radio."
-	optInText = "Your message will be transmitted over radio and printed at this stand. " +
-		"Your phone number is kept only to route the reply back to you, and is deleted after the event. Continue?"
+	// Every string here is sent as ONE SMS. Keep each under 160 GSM-7 characters
+	// INCLUDING the numbered options appended on the SMS bearer -- a two-segment
+	// message is not reliably delivered from this number (MESHSAT-1175), and the
+	// consent prompt below was silently lost at 200 characters. There is a test.
+	aboutText = "MeshSat bridges mesh radio and satellite, so a message still gets out when the usual networks cannot."
+	optInText = "Your message goes out over real radio and prints at the stand. We keep your number only to send the reply back. Continue?"
 )
