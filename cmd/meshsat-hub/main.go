@@ -1765,15 +1765,23 @@ func main() {
 		slog.Info("basemap: serving /basemap/", "object", h.Describe(), "local", h.HasLocal())
 	}
 
-	// pprof profiling endpoints (opt-in, behind auth).
+	// pprof profiling endpoints (opt-in, PLATFORM ADMIN only).
+	//
+	// "behind auth" is not enough here and the comment used to say only that. A
+	// heap or goroutine dump of this process carries access tokens, refresh
+	// tokens, webhook secrets and message plaintext, for every tenant at once.
+	// That is not a thing a tenant owner may take, so the gate is the platform
+	// axis, not the role axis (MESHSAT-1189). /debug/ is separately excluded
+	// from the single-page-app exemption heuristic in internal/auth, so these
+	// are authenticated even when pprof is off.
 	if cfg.PprofEnabled {
-		slog.Warn("pprof endpoints enabled at /debug/pprof/ — ensure auth is configured")
-		r.HandleFunc("/debug/pprof/", pprof.Index)
-		r.HandleFunc("/debug/pprof/cmdline", pprof.Cmdline)
-		r.HandleFunc("/debug/pprof/profile", pprof.Profile)
-		r.HandleFunc("/debug/pprof/symbol", pprof.Symbol)
-		r.HandleFunc("/debug/pprof/trace", pprof.Trace)
-		r.HandleFunc("/debug/pprof/{profile}", func(w http.ResponseWriter, req *http.Request) {
+		slog.Warn("pprof endpoints enabled at /debug/pprof/ — platform-admin only")
+		r.With(hubauth.RequirePlatformAdmin()).HandleFunc("/debug/pprof/", pprof.Index)
+		r.With(hubauth.RequirePlatformAdmin()).HandleFunc("/debug/pprof/cmdline", pprof.Cmdline)
+		r.With(hubauth.RequirePlatformAdmin()).HandleFunc("/debug/pprof/profile", pprof.Profile)
+		r.With(hubauth.RequirePlatformAdmin()).HandleFunc("/debug/pprof/symbol", pprof.Symbol)
+		r.With(hubauth.RequirePlatformAdmin()).HandleFunc("/debug/pprof/trace", pprof.Trace)
+		r.With(hubauth.RequirePlatformAdmin()).HandleFunc("/debug/pprof/{profile}", func(w http.ResponseWriter, req *http.Request) {
 			pprof.Handler(chi.URLParam(req, "profile")).ServeHTTP(w, req)
 		})
 	}
@@ -2464,13 +2472,16 @@ func main() {
 	bridgeHandler.SetNATSAuth(natsAuth)
 	bridgeHandler.SetQuota(quotaChecker)
 	r.Get("/api/bridges", bridgeHandler.ListBridges)
-	r.Post("/api/bridges", bridgeHandler.CreateBridge)
+	r.With(hubauth.RequireRole(hubauth.RoleOperator)).Post("/api/bridges", bridgeHandler.CreateBridge)
 	r.Get("/api/bridges/{id}", bridgeHandler.GetBridge)
-	r.Put("/api/bridges/{id}", bridgeHandler.UpdateBridge)
-	r.Delete("/api/bridges/{id}", bridgeHandler.DeleteBridge)
+	r.With(hubauth.RequireRole(hubauth.RoleOperator)).Put("/api/bridges/{id}", bridgeHandler.UpdateBridge)
+	// Owner-only: deleting a bridge revokes its broker identity and orphans
+	// every kit provisioned from it. A viewer is a read role (MESHSAT-1189).
+	r.With(hubauth.RequireRole(hubauth.RoleOwner)).Delete("/api/bridges/{id}", bridgeHandler.DeleteBridge)
 	if bridgeCommander != nil {
 		bridgeCmdHandler := api.NewBridgeCommandHandler(dataStore, bridgeCommander)
-		r.Post("/api/bridges/{id}/command", bridgeCmdHandler.SendCommand)
+		// Operator: this transmits a command to a field bridge (MESHSAT-1189).
+		r.With(hubauth.RequireRole(hubauth.RoleOperator)).Post("/api/bridges/{id}/command", bridgeCmdHandler.SendCommand)
 	}
 	// Out-of-band pairing (MESHSAT-964 C); owners only.
 	oobAPI := api.NewBridgeOOBHandler(dataStore, oobSvc, bridgeCommander)
@@ -2497,8 +2508,13 @@ func main() {
 	// One-step bridge provisioning with QR code (MESHSAT-414)
 	provisionHandler := api.NewBridgeProvisionHandler(dataStore, bridgeCA, directoryTrustAnchor)
 	provisionHandler.SetNATSAuth(natsAuth)
-	r.Post("/api/bridges/{id}/provision", provisionHandler.Provision)
-	r.Post("/api/bridges/{id}/provision/qr", provisionHandler.ProvisionQR)
+	// Owner-only (MESHSAT-1189). MESHSAT-1171 gated GenerateCredentials and
+	// IssueCertificate for exactly this reason and missed these two, which hand
+	// out STRICTLY MORE: the bundle carries the plaintext MQTT password AND the
+	// client PRIVATE KEY, as the comment in Provision itself says. Any
+	// authenticated viewer of a tenant could mint a full bridge identity.
+	r.With(hubauth.RequireRole(hubauth.RoleOwner)).Post("/api/bridges/{id}/provision", provisionHandler.Provision)
+	r.With(hubauth.RequireRole(hubauth.RoleOwner)).Post("/api/bridges/{id}/provision/qr", provisionHandler.ProvisionQR)
 
 	// Directory REST — tenant-scoped contacts + signed snapshot
 	// [MESHSAT-538]. Opens a dedicated *sql.DB connection on the
@@ -2528,10 +2544,10 @@ func main() {
 				}
 				directoryHandler := api.NewDirectoryHandler(directorySQLStore, directoryTrustAnchor)
 				r.Get("/api/v1/directory/contacts", directoryHandler.ListContacts)
-				r.Post("/api/v1/directory/contacts", directoryHandler.CreateContact)
+				r.With(hubauth.RequireRole(hubauth.RoleOperator)).Post("/api/v1/directory/contacts", directoryHandler.CreateContact)
 				r.Get("/api/v1/directory/contacts/{id}", directoryHandler.GetContact)
-				r.Put("/api/v1/directory/contacts/{id}", directoryHandler.UpdateContact)
-				r.Delete("/api/v1/directory/contacts/{id}", directoryHandler.DeleteContact)
+				r.With(hubauth.RequireRole(hubauth.RoleOperator)).Put("/api/v1/directory/contacts/{id}", directoryHandler.UpdateContact)
+				r.With(hubauth.RequireRole(hubauth.RoleOperator)).Delete("/api/v1/directory/contacts/{id}", directoryHandler.DeleteContact)
 				// NOTE: group + policy CRUD handlers will land in a
 				// follow-up story. The Store layer already supports
 				// them; the REST surface is deferred until a consuming
@@ -2541,8 +2557,8 @@ func main() {
 				// the snapshot endpoint below.
 				r.Get("/api/v1/directory/snapshot", directoryHandler.GetSnapshot)
 				// vCard 4.0 / CSV import + export [MESHSAT-541]
-				r.Post("/api/v1/directory/import/vcard", directoryHandler.ImportVCard)
-				r.Post("/api/v1/directory/import/csv", directoryHandler.ImportCSV)
+				r.With(hubauth.RequireRole(hubauth.RoleOperator)).Post("/api/v1/directory/import/vcard", directoryHandler.ImportVCard)
+				r.With(hubauth.RequireRole(hubauth.RoleOperator)).Post("/api/v1/directory/import/csv", directoryHandler.ImportCSV)
 				r.Get("/api/v1/directory/export/vcard", directoryHandler.ExportVCard)
 				slog.Info("directory REST registered")
 			}
@@ -2552,10 +2568,10 @@ func main() {
 	// HeMB bond group management (MESHSAT-487)
 	bondGroupHandler := api.NewBondGroupHandler(dataStore, msgBus)
 	r.Get("/api/bridges/{bridgeID}/bond-groups", bondGroupHandler.ListBondGroups)
-	r.Post("/api/bridges/{bridgeID}/bond-groups", bondGroupHandler.CreateBondGroup)
+	r.With(hubauth.RequireRole(hubauth.RoleOperator)).Post("/api/bridges/{bridgeID}/bond-groups", bondGroupHandler.CreateBondGroup)
 	r.Get("/api/bridges/{bridgeID}/bond-groups/{groupID}", bondGroupHandler.GetBondGroup)
-	r.Put("/api/bridges/{bridgeID}/bond-groups/{groupID}", bondGroupHandler.UpdateBondGroup)
-	r.Delete("/api/bridges/{bridgeID}/bond-groups/{groupID}", bondGroupHandler.DeleteBondGroup)
+	r.With(hubauth.RequireRole(hubauth.RoleOperator)).Put("/api/bridges/{bridgeID}/bond-groups/{groupID}", bondGroupHandler.UpdateBondGroup)
+	r.With(hubauth.RequireRole(hubauth.RoleOperator)).Delete("/api/bridges/{bridgeID}/bond-groups/{groupID}", bondGroupHandler.DeleteBondGroup)
 
 	// HeMB reassembly stats (MESHSAT-489)
 	if hembReassemblyBuf != nil {
@@ -2582,37 +2598,46 @@ func main() {
 	deviceHandler := api.NewDeviceHandler(dataStore)
 	deviceHandler.SetQuota(quotaChecker)
 	r.Get("/api/devices", deviceHandler.ListDevices)
-	r.Post("/api/devices", deviceHandler.CreateDevice)
+	r.With(hubauth.RequireRole(hubauth.RoleOperator)).Post("/api/devices", deviceHandler.CreateDevice)
 	r.Get("/api/devices/{imei}", deviceHandler.GetDevice)
-	r.Put("/api/devices/{imei}", deviceHandler.UpdateDevice)
-	r.Delete("/api/devices/{imei}", deviceHandler.DeleteDevice)
+	r.With(hubauth.RequireRole(hubauth.RoleOperator)).Put("/api/devices/{imei}", deviceHandler.UpdateDevice)
+	// Owner-only: destructive, and a device row is what resolves a satellite
+	// IMEI to a tenant (MESHSAT-1189).
+	r.With(hubauth.RequireRole(hubauth.RoleOwner)).Delete("/api/devices/{imei}", deviceHandler.DeleteDevice)
 
 	// Device groups API (MESHSAT-311)
 	groupHandler := api.NewDeviceGroupHandler(dataStore)
 	r.Get("/api/device-groups", groupHandler.ListGroups)
-	r.Post("/api/device-groups", groupHandler.CreateGroup)
+	r.With(hubauth.RequireRole(hubauth.RoleOperator)).Post("/api/device-groups", groupHandler.CreateGroup)
 	r.Get("/api/device-groups/{id}", groupHandler.GetGroup)
-	r.Put("/api/device-groups/{id}", groupHandler.UpdateGroup)
-	r.Delete("/api/device-groups/{id}", groupHandler.DeleteGroup)
-	r.Post("/api/device-groups/{id}/members", groupHandler.AddMember)
-	r.Delete("/api/device-groups/{id}/members/{imei}", groupHandler.RemoveMember)
+	r.With(hubauth.RequireRole(hubauth.RoleOperator)).Put("/api/device-groups/{id}", groupHandler.UpdateGroup)
+	r.With(hubauth.RequireRole(hubauth.RoleOperator)).Delete("/api/device-groups/{id}", groupHandler.DeleteGroup)
+	r.With(hubauth.RequireRole(hubauth.RoleOperator)).Post("/api/device-groups/{id}/members", groupHandler.AddMember)
+	r.With(hubauth.RequireRole(hubauth.RoleOperator)).Delete("/api/device-groups/{id}/members/{imei}", groupHandler.RemoveMember)
 	r.Get("/api/device-groups/{id}/devices", groupHandler.ListDevices)
 
 	// Device config versioning
 	configHandler := api.NewDeviceConfigHandler(dataStore)
 	r.Get("/api/devices/{imei}/config", configHandler.GetLatest)
-	r.Put("/api/devices/{imei}/config", configHandler.CreateVersion)
+	// Operator floor (MESHSAT-1189): this pushes configuration to a field device.
+	r.With(hubauth.RequireRole(hubauth.RoleOperator)).Put("/api/devices/{imei}/config", configHandler.CreateVersion)
 	r.Get("/api/devices/{imei}/config/history", configHandler.ListVersions)
 	r.Get("/api/devices/{imei}/config/{version}", configHandler.GetVersion)
 
 	// Device encryption key management
 	deviceKeyHandler := api.NewDeviceKeyHandler(dataStore, keyStore, bridgeCommander)
-	r.Post("/api/devices/{imei}/keys", deviceKeyHandler.CreateKey)
-	r.Post("/api/devices/{imei}/keys/import", deviceKeyHandler.ImportKey)
+	// Owner-only for every route that mints, imports, moves or destroys key
+	// material (MESHSAT-1189): CreateKey returns the plaintext AES-256 key_hex
+	// and rotate/distribute push a key_rotate to every bridge of the tenant.
+	// ListKeys stays viewer-readable: ListDeviceKeys does not select key_hex,
+	// so it returns the hash and the mode, which is metadata about a key and
+	// not the key.
+	r.With(hubauth.RequireRole(hubauth.RoleOwner)).Post("/api/devices/{imei}/keys", deviceKeyHandler.CreateKey)
+	r.With(hubauth.RequireRole(hubauth.RoleOwner)).Post("/api/devices/{imei}/keys/import", deviceKeyHandler.ImportKey)
 	r.Get("/api/devices/{imei}/keys", deviceKeyHandler.ListKeys)
-	r.Delete("/api/devices/{imei}/keys/{id}", deviceKeyHandler.DeleteKey)
-	r.Post("/api/devices/{imei}/keys/rotate", deviceKeyHandler.RotateAndDistribute)
-	r.Post("/api/devices/{imei}/keys/distribute", deviceKeyHandler.DistributeKey)
+	r.With(hubauth.RequireRole(hubauth.RoleOwner)).Delete("/api/devices/{imei}/keys/{id}", deviceKeyHandler.DeleteKey)
+	r.With(hubauth.RequireRole(hubauth.RoleOwner)).Post("/api/devices/{imei}/keys/rotate", deviceKeyHandler.RotateAndDistribute)
+	r.With(hubauth.RequireRole(hubauth.RoleOwner)).Post("/api/devices/{imei}/keys/distribute", deviceKeyHandler.DistributeKey)
 
 	// Channel key rotation — Hub generates + distributes to all bridges [MESHSAT-447]
 	channelKeyHandler := api.NewChannelKeyHandler(dataStore, keyStore, bridgeCommander)
@@ -2628,12 +2653,16 @@ func main() {
 	sendHandler.SetSMSPool(smsPool)
 	sendHandler.SetRock7Pool(rock7Pool)
 	sendHandler.SetIMTSender(mtSender)
-	r.Post("/api/devices/{imei}/send", sendHandler.SendMessage)
+	// Operator-only (MESHSAT-1189). Every route below spends the TENANT'S OWN
+	// airtime or SMS credit on a destination taken from the request, so a read
+	// role must not reach them. Operator, not owner: sending is the day job of
+	// an operator, and the per-device budget in internal/ratelimit still caps it.
+	r.With(hubauth.RequireRole(hubauth.RoleOperator)).Post("/api/devices/{imei}/send", sendHandler.SendMessage)
 	// Explicit provider routes fail loudly on protocol mismatch [MESHSAT-750].
 	// chi gives static segments precedence over {imei}, so these coexist.
-	r.Post("/api/devices/rock7/{imei}/send", sendHandler.SendMessageRock7)
-	r.Post("/api/devices/cloudloop/{imei}/send", sendHandler.SendMessageCloudloop)
-	r.Post("/api/sms/send", sendHandler.SendSMS)
+	r.With(hubauth.RequireRole(hubauth.RoleOperator)).Post("/api/devices/rock7/{imei}/send", sendHandler.SendMessageRock7)
+	r.With(hubauth.RequireRole(hubauth.RoleOperator)).Post("/api/devices/cloudloop/{imei}/send", sendHandler.SendMessageCloudloop)
+	r.With(hubauth.RequireRole(hubauth.RoleOperator)).Post("/api/sms/send", sendHandler.SendSMS)
 
 	// Message history API
 	messageHandler := api.NewMessageHandler(dataStore)
@@ -2707,34 +2736,44 @@ func main() {
 	notifHandler := api.NewNotificationHandler(dataStore)
 	r.Get("/api/notifications/prefs", notifHandler.ListPrefs)
 	r.Get("/api/notifications/prefs/{device_imei}", notifHandler.GetPref)
-	r.Put("/api/notifications/prefs/{device_imei}", notifHandler.SavePref)
-	r.Delete("/api/notifications/prefs/{device_imei}", notifHandler.DeletePref)
+	// Operator-only (MESHSAT-1189): a pref is a list of Apprise destination URLs,
+	// so writing one redirects where this tenant's alerts -- including an SOS --
+	// are delivered. Reads stay viewer.
+	r.With(hubauth.RequireRole(hubauth.RoleOperator)).Put("/api/notifications/prefs/{device_imei}", notifHandler.SavePref)
+	r.With(hubauth.RequireRole(hubauth.RoleOperator)).Delete("/api/notifications/prefs/{device_imei}", notifHandler.DeletePref)
 
 	// Escalation chains and alerts
 	escHandler := api.NewEscalationHandler(dataStore, escEngine)
 	r.Get("/api/escalation/chains", escHandler.ListChains)
-	r.Post("/api/escalation/chains", escHandler.CreateChain)
+	// Operator floor (MESHSAT-1189): a chain is who gets paged, and in what order.
+	r.With(hubauth.RequireRole(hubauth.RoleOperator)).Post("/api/escalation/chains", escHandler.CreateChain)
 	r.Get("/api/escalation/chains/{id}", escHandler.GetChain)
-	r.Delete("/api/escalation/chains/{id}", escHandler.DeleteChain)
+	r.With(hubauth.RequireRole(hubauth.RoleOperator)).Delete("/api/escalation/chains/{id}", escHandler.DeleteChain)
 	r.Get("/api/alerts", escHandler.ListAlerts)
-	r.Post("/api/alerts", escHandler.TriggerAlert)
+	// Operator-only (MESHSAT-1189): TriggerAlert runs the tenant's escalation
+	// chain with caller-supplied detail text, i.e. it pages a real person.
+	r.With(hubauth.RequireRole(hubauth.RoleOperator)).Post("/api/alerts", escHandler.TriggerAlert)
 	r.Get("/api/alerts/{id}", escHandler.GetAlert)
-	r.Post("/api/alerts/{id}/ack", escHandler.AcknowledgeAlert)
+	r.With(hubauth.RequireRole(hubauth.RoleOperator)).Post("/api/alerts/{id}/ack", escHandler.AcknowledgeAlert)
 
 	// Alert rules (configurable alerting engine, MESHSAT-313)
 	alertRuleHandler := api.NewAlertRuleHandler(dataStore)
 	r.Get("/api/alert-rules", alertRuleHandler.ListAlertRules)
-	r.Post("/api/alert-rules", alertRuleHandler.CreateAlertRule)
+	// Operator floor on every write below (MESHSAT-1189): an alert rule decides
+	// when a person is told something is wrong.
+	r.With(hubauth.RequireRole(hubauth.RoleOperator)).Post("/api/alert-rules", alertRuleHandler.CreateAlertRule)
 	r.Get("/api/alert-rules/{id}", alertRuleHandler.GetAlertRule)
-	r.Put("/api/alert-rules/{id}", alertRuleHandler.UpdateAlertRule)
-	r.Delete("/api/alert-rules/{id}", alertRuleHandler.DeleteAlertRule)
+	r.With(hubauth.RequireRole(hubauth.RoleOperator)).Put("/api/alert-rules/{id}", alertRuleHandler.UpdateAlertRule)
+	r.With(hubauth.RequireRole(hubauth.RoleOperator)).Delete("/api/alert-rules/{id}", alertRuleHandler.DeleteAlertRule)
 
 	// Dead man's switch API
 	deadmanHandler := api.NewDeadmanHandler(deadmanMonitor)
 	r.Get("/api/deadman", deadmanHandler.ListConfigs)
-	r.Put("/api/deadman/{imei}", deadmanHandler.Configure)
-	r.Delete("/api/deadman/{imei}", deadmanHandler.Delete)
-	r.Post("/api/deadman/{imei}/snooze", deadmanHandler.Snooze)
+	// Operator floor (MESHSAT-1189): the dead man's switch is a safety function.
+	// Disabling or snoozing one is not a read.
+	r.With(hubauth.RequireRole(hubauth.RoleOperator)).Put("/api/deadman/{imei}", deadmanHandler.Configure)
+	r.With(hubauth.RequireRole(hubauth.RoleOperator)).Delete("/api/deadman/{imei}", deadmanHandler.Delete)
+	r.With(hubauth.RequireRole(hubauth.RoleOperator)).Post("/api/deadman/{imei}/snooze", deadmanHandler.Snooze)
 
 	// Audit log (owner-only)
 	auditHandler := api.NewAuditHandler(auditSvc)
@@ -2853,8 +2892,8 @@ func main() {
 	geoHandler.SetCooldownPolicy(cfg.GeofenceCooldownSec, cfg.GeofenceCooldownMin, cfg.GeofenceCooldownMax)
 	r.Get("/api/geofences/policy", geoHandler.Policy)
 	r.Get("/api/geofences", geoHandler.ListFences)
-	r.Post("/api/geofences", geoHandler.CreateFence)
-	r.Delete("/api/geofences/{id}", geoHandler.DeleteFence)
+	r.With(hubauth.RequireRole(hubauth.RoleOperator)).Post("/api/geofences", geoHandler.CreateFence)
+	r.With(hubauth.RequireRole(hubauth.RoleOperator)).Delete("/api/geofences/{id}", geoHandler.DeleteFence)
 
 	// hawkBit OTA management (optional)
 	// hawkBit OTA, per tenant (MESHSAT-1121). hawkBit is multi-tenant ITSELF --
@@ -2948,11 +2987,15 @@ func main() {
 	}
 	routeAPIHandler := routing.NewAPIHandler(dataStore, routeEngine)
 	r.Get("/api/routes", routeAPIHandler.ListRoutes)
-	r.Post("/api/routes/test", routeAPIHandler.TestRoutes)
-	r.Post("/api/routes", routeAPIHandler.CreateRoute)
+	r.With(hubauth.RequireRole(hubauth.RoleOperator)).Post("/api/routes/test", routeAPIHandler.TestRoutes)
+	// OWNER, not operator (MESHSAT-1189): a routing rule turns an inbound message
+	// into an outbound one on a bearer the tenant pays for, and the route engine
+	// has no rate limiter of its own -- the device budget sits on the API send
+	// path, not here. Creating a rule is therefore a standing spend decision.
+	r.With(hubauth.RequireRole(hubauth.RoleOwner)).Post("/api/routes", routeAPIHandler.CreateRoute)
 	r.Get("/api/routes/{id}", routeAPIHandler.GetRoute)
-	r.Put("/api/routes/{id}", routeAPIHandler.UpdateRoute)
-	r.Delete("/api/routes/{id}", routeAPIHandler.DeleteRoute)
+	r.With(hubauth.RequireRole(hubauth.RoleOwner)).Put("/api/routes/{id}", routeAPIHandler.UpdateRoute)
+	r.With(hubauth.RequireRole(hubauth.RoleOwner)).Delete("/api/routes/{id}", routeAPIHandler.DeleteRoute)
 
 	// IPoUGRS tunnel (experimental — IP-over-satellite)
 	ipougrsConfig := ipougrs.DefaultConfig()
@@ -2963,11 +3006,11 @@ func main() {
 	// Message templates (MESHSAT-312)
 	templateHandler := api.NewMessageTemplateHandler(dataStore)
 	r.Get("/api/message-templates", templateHandler.ListTemplates)
-	r.Post("/api/message-templates", templateHandler.CreateTemplate)
+	r.With(hubauth.RequireRole(hubauth.RoleOperator)).Post("/api/message-templates", templateHandler.CreateTemplate)
 	r.Get("/api/message-templates/{id}", templateHandler.GetTemplate)
-	r.Put("/api/message-templates/{id}", templateHandler.UpdateTemplate)
-	r.Delete("/api/message-templates/{id}", templateHandler.DeleteTemplate)
-	r.Post("/api/message-templates/{id}/render", templateHandler.RenderTemplate)
+	r.With(hubauth.RequireRole(hubauth.RoleOperator)).Put("/api/message-templates/{id}", templateHandler.UpdateTemplate)
+	r.With(hubauth.RequireRole(hubauth.RoleOperator)).Delete("/api/message-templates/{id}", templateHandler.DeleteTemplate)
+	r.With(hubauth.RequireRole(hubauth.RoleOperator)).Post("/api/message-templates/{id}/render", templateHandler.RenderTemplate)
 
 	// Sensor payload codec registry
 	codecRegistry := codec.NewRegistry()
