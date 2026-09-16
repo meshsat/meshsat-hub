@@ -1,0 +1,79 @@
+# What the tor pod may talk to (MESHSAT-1171).
+#
+# Until this existed, the two HiddenServicePort lines in the torrc were the
+# ENTIRE isolation story for an internet-facing daemon: a config file, one typo
+# deep. The pod itself had unrestricted egress to everything in the cluster --
+# the Hub's non-ingress ports, NATS 4222/6222/8222, KeyDB, both Postgres
+# clusters, hawkbit, wg-easy, the Kubernetes API -- while running an unpinned
+# upstream image and holding the hidden service's private key.
+#
+# Cilium rather than the core NetworkPolicy API, for the same reason as
+# k8s/tak/networkpolicy.yaml: it is the CNI here, and `toEntities` says "the
+# internet" directly.
+#
+# ⚠ The one rule that cannot be tightened: tor MUST reach the world. A hidden
+# service is published by making OUTBOUND connections to introduction and
+# rendezvous points, so `toEntities: world` is not a leftover hole, it is the
+# daemon working. What this policy actually buys is that a compromised tor
+# cannot then turn INWARD: everything in the cluster is denied except the two
+# ports the torrc is allowed to publish, plus DNS.
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: tor-confine
+  namespace: meshsat-hub
+  labels:
+    app.kubernetes.io/name: tor
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: tor
+  # Nothing in the cluster has any reason to open a connection TO tor. Clients
+  # never connect inbound to a hidden service -- the rendezvous is built from
+  # tor's own outbound circuits -- and the pod has no probes. An empty list is
+  # Cilium's default-deny: it puts the endpoint under ingress enforcement with
+  # no rule permitting anything.
+  ingress: []
+  egress:
+    # DNS. L3/L4 only and deliberately so: an L7 `rules: dns:` block needs
+    # Cilium's DNS proxy, and where that is not enabled the pod loses DNS
+    # entirely rather than gaining visibility.
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: kube-system
+            k8s-app: kube-dns
+      toPorts:
+        - ports:
+            - port: "53"
+              protocol: UDP
+            - port: "53"
+              protocol: TCP
+    # The Hub's Tor-only HTTP listener. Not 6070: that is the edge's port, and
+    # the whole point of MESHSAT-1169 is that the two are not the same thing.
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: meshsat-hub
+            app.kubernetes.io/name: hub
+      toPorts:
+        - ports:
+            - port: "6079"
+              protocol: TCP
+    # MQTT, via the stunnel leg that verifies a client certificate. Not
+    # nats:1883 directly -- that listener is plaintext and stays in-cluster
+    # (MESHSAT-1170).
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: meshsat-hub
+            app.kubernetes.io/name: stunnel
+      toPorts:
+        - ports:
+            - port: "1883"
+              protocol: TCP
+    # The Tor network. See the warning above: this is the daemon's function.
+    - toEntities:
+        - world
+  # Everything else is denied by omission: NATS directly, KeyDB, both Postgres
+  # clusters, hawkbit, wg-easy, the Kubernetes API and every other pod. Cilium
+  # DROPS rather than rejects, so a denial here shows up as a stall, not a
+  # refusal -- if something in this namespace starts hanging after this lands,
+  # look here before looking at the workload.

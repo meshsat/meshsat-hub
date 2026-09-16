@@ -21,6 +21,11 @@ spec:
         node-role.kubernetes.io/control-plane: ""
       tolerations:
         - {key: node-role.kubernetes.io/control-plane, operator: Exists, effect: NoSchedule}
+      # This pod holds the hidden service's private key, so it does not get the
+      # namespace's default ServiceAccount token thrown in by default
+      # (MESHSAT-1171). tor talks to the Tor network and to two ports; it has no
+      # business holding a credential for the Kubernetes API.
+      automountServiceAccountToken: false
       # NO fsGroup HERE, DELIBERATELY, and it is not an oversight to be tidied up.
       #
       # fsGroup: 100 was the obvious way to give uid 100 its volume, and it broke
@@ -88,7 +93,14 @@ spec:
             - {name: identity, mountPath: /seed, readOnly: true}
       containers:
         - name: tor
-          image: docker.io/osminogin/tor-simple
+          # Pinned by digest (MESHSAT-1171). This was an unpinned, untagged
+          # upstream reference -- so the pod holding the onion's private key
+          # would take whatever :latest resolved to on the next pull, from a
+          # third party, with no review. The digest below is the image that has
+          # been serving the onion; the heartbeat pod beside this one was
+          # already digest-pinned, so this was an inconsistency rather than a
+          # house style.
+          image: docker.io/osminogin/tor-simple@sha256:6ad8d9f6880c0c0f0fc1fbe453c4ae0904d901924fb8a797f60d7d1475db1c89
           # No command or args override. The image already runs tor against
           # /etc/tor/torrc, which is where the ConfigMap is mounted, so there is
           # nothing to say. The first version passed args ["-f", "/etc/tor/torrc"]

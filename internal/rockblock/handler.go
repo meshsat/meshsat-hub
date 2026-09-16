@@ -556,8 +556,27 @@ func (h *Handler) verifySignature(r *http.Request) bool {
 	}
 
 	// Check X-Hub-Signature header (HMAC-SHA256).
+	//
+	// ⚠ This MAC covers the `data` field ONLY. imei, momsn and transmit_time are
+	// not bound, so a captured signature can be replayed under a DIFFERENT IMEI
+	// and file one device's message against another -- across tenants, since the
+	// IMEI is what resolves the tenant (MESHSAT-1171).
+	//
+	// It is deliberately not fixed in place. Binding the other fields changes
+	// what every sender must compute, and this is a satellite MO path: a sender
+	// we have not accounted for would stop being able to deliver, and an MO
+	// message can be an SOS. The real sender is unaffected either way -- Ground
+	// Control signs with the JWT above and never reaches this arm -- and
+	// exploiting this one first requires CAPTURING a valid signature off a TLS
+	// connection to hub.meshsat.net, so the exposure is narrow.
+	//
+	// So it is instrumented instead: this warns on every use, and the fix lands
+	// once the logs say whether anything actually sends this way. If nothing
+	// does for a reasonable window, retire the arm rather than binding it.
 	headerSig := r.Header.Get("X-Hub-Signature")
 	if headerSig != "" {
+		slog.Warn("rockblock: authenticated on the legacy shared-secret arm, whose MAC binds only `data`",
+			"imei", r.FormValue("imei"), "momsn", r.FormValue("momsn"), "remote", r.RemoteAddr)
 		mac := hmac.New(sha256.New, []byte(h.secret))
 		mac.Write([]byte(r.FormValue("data")))
 		expected := hex.EncodeToString(mac.Sum(nil))
