@@ -60,6 +60,14 @@ func (c *Client) SetAPIURL(url string) {
 	c.apiURL = url
 }
 
+// channelName is the bearer this client sends on, for logging.
+func (c *Client) channelName() string {
+	if c.channel == "" {
+		return "sms"
+	}
+	return c.channel
+}
+
 // SetChannel selects the bearer this client sends on: "" / "sms" for SMS,
 // "whatsapp" for WhatsApp.
 //
@@ -96,6 +104,37 @@ func (c *Client) Send(ctx context.Context, to, body string) (*SendResult, error)
 		"From": {c.addr(c.fromNumber)},
 		"Body": {body},
 	}
+	return c.post(ctx, form)
+}
+
+// SendContent sends a Twilio Content template, which is how WhatsApp carries an
+// interactive list or buttons. contentVars is the JSON Twilio expects in
+// ContentVariables, e.g. {"1":"Welcome..."}.
+//
+// A Content resource is NOT submitted to Meta. That matters: an unapproved
+// template can only be sent inside the 24h window a visitor opened by messaging
+// us first, which is exactly the booth's shape. Outside that window Twilio will
+// refuse it, and the refusal arrives on the status callback as failed rather
+// than as an error here.
+func (c *Client) SendContent(ctx context.Context, to, contentSid, contentVars string) (*SendResult, error) {
+	if to == "" {
+		return nil, fmt.Errorf("sms: empty recipient number")
+	}
+	if contentSid == "" {
+		return nil, fmt.Errorf("sms: empty content sid")
+	}
+	form := url.Values{
+		"To":         {c.addr(to)},
+		"From":       {c.addr(c.fromNumber)},
+		"ContentSid": {contentSid},
+	}
+	if contentVars != "" {
+		form.Set("ContentVariables", contentVars)
+	}
+	return c.post(ctx, form)
+}
+
+func (c *Client) post(ctx context.Context, form url.Values) (*SendResult, error) {
 
 	apiURL := fmt.Sprintf("%s/Messages.json", c.apiURL)
 	req, err := http.NewRequestWithContext(ctx, "POST", apiURL, strings.NewReader(form.Encode()))
@@ -128,7 +167,8 @@ func (c *Client) Send(ctx context.Context, to, body string) (*SendResult, error)
 		return nil, fmt.Errorf("sms: parse response: %w", err)
 	}
 
-	slog.Info("sms: message sent", "to", to, "sid", result.SID, "status", result.Status)
+	slog.Info("message sent", "channel", c.channelName(),
+		"to", form.Get("To"), "sid", result.SID, "status", result.Status)
 	return &SendResult{SID: result.SID, Status: result.Status}, nil
 }
 

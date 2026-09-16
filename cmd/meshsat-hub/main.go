@@ -37,6 +37,7 @@ import (
 	"github.com/meshsat/meshsat-hub/internal/authentik"
 	"github.com/meshsat/meshsat-hub/internal/backup"
 	"github.com/meshsat/meshsat-hub/internal/billing"
+	"github.com/meshsat/meshsat-hub/internal/booth"
 	"github.com/meshsat/meshsat-hub/internal/bridge"
 	"github.com/meshsat/meshsat-hub/internal/bus"
 	"github.com/meshsat/meshsat-hub/internal/bus/paho"
@@ -2034,8 +2035,45 @@ func main() {
 		// auto-restricted the WABA on the day it was created -- so turning it
 		// off has to be a config change that cannot disturb SMS.
 		if cfg.WhatsAppEnabled {
+			waWebhook := newTwilioWebhook("whatsapp")
+
+			// The scripted stand flow (MESHSAT-1175). Wired ONLY to the WhatsApp
+			// handler: the booth menu has no business intercepting a satellite
+			// kit's SMS, and it takes every message it sees.
+			if cfg.BoothEnabled {
+				kits, err := parseBoothKits(cfg.BoothKits)
+				if err != nil {
+					// Fatal rather than degraded. A booth with no allowlist would
+					// either refuse everything or, worse, invite somebody to fix
+					// it by widening the destination check.
+					slog.Error("booth: bad HUB_BOOTH_KITS", "error", err)
+					os.Exit(1)
+				}
+				waClient := sms.NewClientWithAPIKey(cfg.SMSAccountSID, cfg.SMSAPIKeySID, cfg.SMSAuthToken, cfg.SMSFromNumber)
+				waClient.SetChannel("whatsapp")
+				boothSvc := booth.NewService(
+					booth.New(dataStore, booth.DefaultPolicy(kits), bridgeOnline(dataStore)),
+					dataStore,
+					whatsappVisitor{c: waClient},
+					smsKitSender{store: dataStore, c: smsPlatform},
+					booth.Templates{
+						Menu:  cfg.BoothContentMenu,
+						OptIn: cfg.BoothContentOptIn,
+						Kits:  cfg.BoothContentKits,
+					},
+				)
+				waWebhook.SetBooth(boothInbound{svc: boothSvc})
+				// The return leg: a kit's mesh text comes back on
+				// meshsat/{device}/mo/decoded with bridge_id in the payload.
+				if err := startBoothMeshReplies(msgBus, boothSvc, kits); err != nil {
+					slog.Error("booth: could not subscribe for mesh replies", "error", err)
+					os.Exit(1)
+				}
+				slog.Info("booth: stand flow enabled", "kits", len(kits))
+			}
+
 			webhookRoute(integrations.ProviderTwilio, "webhook_token", "/api/webhook/whatsapp",
-				newTwilioWebhook("whatsapp").ServeHTTP)
+				waWebhook.ServeHTTP)
 			r.Post("/api/webhook/whatsapp/status",
 				sms.NewStatusHandler("whatsapp", cfg.SMSInboundAuthToken, cfg.SMSWebhookSecret).ServeHTTP)
 			slog.Info("whatsapp: bearer enabled", "from", cfg.SMSFromNumber)

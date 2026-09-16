@@ -75,7 +75,8 @@ type WebhookHandler struct {
 	tenants          *tenancy.Resolver // device → tenant for topic namespaces; nil = default tenant
 	mqtt             bus.MessageBus
 	secret           string                // platform custom-relay HMAC secret (default tenant)
-	channel          string                // "sms" (default) or "whatsapp" (MESHSAT-1173)
+	channel          string                // "sms" (default) or "whatsapp" (MESHSAT-1175)
+	booth            BoothHandler          // scripted stand flow, WhatsApp only
 	inboundAuthToken string                // platform Twilio ACCOUNT auth token, for X-Twilio-Signature
 	accounts         *integrations.Service // per-tenant webhook tokens/secrets (MESHSAT-977)
 	oob              OOBClassifier         // management frames (MESHSAT-964)
@@ -144,6 +145,16 @@ func stripAddr(addr string) string {
 	}
 	return addr
 }
+
+// BoothHandler is the scripted stand flow (MESHSAT-1175). It returns true when
+// it has taken the message, in which case nothing else sees it.
+type BoothHandler interface {
+	HandleInbound(ctx context.Context, tenantID, sender, channel, choice, text string) (bool, error)
+}
+
+// SetBooth attaches the booth flow. Only wired on the WhatsApp handler: the
+// stand's menu has no business intercepting a satellite kit's SMS.
+func (h *WebhookHandler) SetBooth(b BoothHandler) { h.booth = b }
 
 // SetOOB attaches the out-of-band classifier.
 func (h *WebhookHandler) SetOOB(c OOBClassifier) { h.oob = c }
@@ -531,6 +542,37 @@ func (h *WebhookHandler) processPlaintextSMS(r *http.Request, w http.ResponseWri
 	from, to, body, messageSID string) {
 
 	msgID := smsMessageID(messageSID)
+	// The booth flow takes the message before the pipeline, for the same reason
+	// the OOB classifier does: a visitor tapping a menu is not traffic, and
+	// persisting it or running it through routing would put stand chatter into
+	// a tenant's message history.
+	//
+	// The tapped option arrives in ButtonPayload (quick reply) or ListId (list
+	// picker); typed text arrives as the body. Both come from Twilio, on a
+	// request whose signature has already been verified above.
+	if h.booth != nil {
+		choice := r.FormValue("ButtonPayload")
+		if choice == "" {
+			choice = r.FormValue("ListId")
+		}
+		taken, err := h.booth.HandleInbound(r.Context(), tenancy.FromContext(r.Context()),
+			from, h.channelName(), choice, body)
+		if err != nil {
+			slog.Error("booth: inbound failed", "error", err, "from", from)
+			// Answer 200 anyway: a non-2xx makes Twilio retry, and retrying a
+			// menu tap would replay whatever side effect already happened.
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			_ = json.NewEncoder(w).Encode(map[string]string{"status": "booth_error", "id": msgID})
+			return
+		}
+		if taken {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			_ = json.NewEncoder(w).Encode(map[string]string{"status": "booth", "id": msgID})
+			return
+		}
+	}
 	// An OOB management frame is a reply to a command the Hub sent; it never
 	// enters the message pipeline (no persistence, no routes).
 	if h.oob != nil && h.oob.HandleInbound(r.Context(), "sms", from, body) {
