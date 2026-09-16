@@ -319,7 +319,12 @@ type Config struct {
 	SMSAuthToken     string `yaml:"sms_auth_token"`     // Twilio Auth Token (or API Key Secret)
 	SMSAPIKeySID     string `yaml:"sms_api_key_sid"`    // Twilio API Key SID (SK...) — if set, uses API key auth
 	SMSFromNumber    string `yaml:"sms_from_number"`    // E.164 sender number
-	SMSWebhookSecret string `yaml:"sms_webhook_secret"` // HMAC secret for inbound webhook verification
+	SMSWebhookSecret string `yaml:"sms_webhook_secret"` // HMAC secret for a custom relay's X-Signature
+	// SMSInboundAuthToken is the Twilio ACCOUNT auth token, used only to verify
+	// X-Twilio-Signature on inbound webhooks. It is not SMSAuthToken: when
+	// SMSAPIKeySID is set, that field carries the API Key Secret and is used for
+	// SENDING, while Twilio still signs inbound requests with the account token.
+	SMSInboundAuthToken string `yaml:"sms_inbound_auth_token"`
 
 	// Reticulum identity
 	ReticulumIdentityFile string `yaml:"reticulum_identity_file"` // Path to persist Hub's Reticulum identity keypair (default: data/reticulum_identity.json)
@@ -990,6 +995,9 @@ func Load() (Config, error) {
 	}
 	if v := os.Getenv("HUB_SMS_FROM_NUMBER"); v != "" {
 		cfg.SMSFromNumber = v
+	}
+	if v := os.Getenv("HUB_SMS_INBOUND_AUTH_TOKEN"); v != "" {
+		cfg.SMSInboundAuthToken = v
 	}
 	if v := os.Getenv("HUB_SMS_WEBHOOK_SECRET"); v != "" {
 		cfg.SMSWebhookSecret = v

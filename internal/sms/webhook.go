@@ -71,20 +71,21 @@ type reticulumReceiver interface {
 // [MESHSAT-446] Now matches Rock7/Cloudloop pipeline: dedup, fragment
 // reassembly, SMAZ2/MSVQ-SC compression, Reticulum relay, bridge uplink.
 type WebhookHandler struct {
-	tenants         *tenancy.Resolver // device → tenant for topic namespaces; nil = default tenant
-	mqtt            bus.MessageBus
-	secret          string                // platform webhook validation secret (default tenant)
-	accounts        *integrations.Service // per-tenant webhook tokens/secrets (MESHSAT-977)
-	oob             OOBClassifier         // management frames (MESHSAT-964)
-	store           store.Store
-	keyStore        *hubcrypto.KeyStore
-	dedup           dedup.Dedup
-	reassembler     *fragment.Reassembler
-	msvqsc          *msvqsc.Decoder
-	retIface        reticulumReceiver
-	deadman         *deadman.Monitor
-	audit           *audit.Service
-	hembReassembler hembReassemblerIface
+	tenants          *tenancy.Resolver // device → tenant for topic namespaces; nil = default tenant
+	mqtt             bus.MessageBus
+	secret           string                // platform custom-relay HMAC secret (default tenant)
+	inboundAuthToken string                // platform Twilio ACCOUNT auth token, for X-Twilio-Signature
+	accounts         *integrations.Service // per-tenant webhook tokens/secrets (MESHSAT-977)
+	oob              OOBClassifier         // management frames (MESHSAT-964)
+	store            store.Store
+	keyStore         *hubcrypto.KeyStore
+	dedup            dedup.Dedup
+	reassembler      *fragment.Reassembler
+	msvqsc           *msvqsc.Decoder
+	retIface         reticulumReceiver
+	deadman          *deadman.Monitor
+	audit            *audit.Service
+	hembReassembler  hembReassemblerIface
 }
 
 // hembReassemblerIface allows the SMS handler to feed HeMB symbols into the
@@ -103,6 +104,14 @@ func NewWebhookHandler(mqtt bus.MessageBus, secret string) *WebhookHandler {
 type OOBClassifier interface {
 	HandleInbound(ctx context.Context, bearer, origin, text string) bool
 }
+
+// SetInboundAuthToken attaches the platform Twilio ACCOUNT auth token used to
+// validate X-Twilio-Signature on inbound requests.
+//
+// It is separate from the sending credential on purpose: with API key auth in
+// use, cfg.SMSAuthToken holds the API Key Secret, which Twilio does not sign
+// with. See internal/sms/twilio_signature.go.
+func (h *WebhookHandler) SetInboundAuthToken(t string) { h.inboundAuthToken = t }
 
 // SetOOB attaches the out-of-band classifier.
 func (h *WebhookHandler) SetOOB(c OOBClassifier) { h.oob = c }
@@ -181,8 +190,10 @@ func (h *WebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// inbound SMS was persisted into the platform tenant.
 	tokenTenant := webhookroute.TenantID(r.Context())
 	secret := h.secret
+	authToken := h.inboundAuthToken
 	if res, ok := webhookroute.FromContext(r.Context()); ok && res.Account != nil && !res.Account.Platform {
 		secret = res.Account.Get("webhook_secret")
+		authToken = res.Account.Get("auth_token")
 	}
 	if tok := r.URL.Query().Get("token"); tokenTenant == "" && tok != "" && h.accounts != nil {
 		tenant, acct, err := h.accounts.LookupByToken(r.Context(), integrations.ProviderTwilio, "webhook_token", tok)
@@ -197,6 +208,7 @@ func (h *WebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		tokenTenant = tenant
 		if !acct.Platform {
 			secret = acct.Get("webhook_secret")
+			authToken = acct.Get("auth_token")
 		}
 	}
 	ctx := r.Context()
@@ -205,14 +217,44 @@ func (h *WebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		r = r.WithContext(ctx)
 	}
 
-	// Verify signature if secret is configured.
-	if secret != "" {
+	// Authenticate the caller. This handler feeds dedup, fragment reassembly,
+	// the dead man's switch, the OOB command service and the audit log, so an
+	// unauthenticated POST here is message injection into a safety path.
+	//
+	// Two accepted proofs, in order of preference:
+	//
+	//  1. X-Twilio-Signature, verified against the account's AUTH TOKEN using
+	//     Twilio's own scheme. This is what a real Twilio delivery carries.
+	//  2. X-Signature, the HMAC-SHA256 of From+Body that a custom relay
+	//     presents (see the provider field hint in internal/integrations). It
+	//     is kept for the relays that already use it, and it is weaker: it
+	//     covers neither To nor MessageSid and carries no timestamp, so it is
+	//     replayable. Prefer a Twilio auth token wherever there is one.
+	//
+	// With neither configured the request is REFUSED, matching every sibling
+	// webhook (internal/email/webhook.go, internal/globalstar/handler.go).
+	// Skipping the check instead is how this endpoint accepted forged messages
+	// from anyone (MESHSAT-1168).
+	switch {
+	case authToken != "":
 		sig := r.Header.Get("X-Twilio-Signature")
 		if sig == "" {
-			sig = r.Header.Get("X-Signature")
+			slog.Warn("sms: missing X-Twilio-Signature", "tenant", tokenTenant)
+			http.Error(w, `{"error":"unauthorized"}`, http.StatusUnauthorized)
+			return
+		}
+		if !validateTwilioSignature(authToken, r, sig) {
+			slog.Warn("sms: twilio signature verification failed", "tenant", tokenTenant)
+			http.Error(w, `{"error":"unauthorized"}`, http.StatusUnauthorized)
+			return
+		}
+	case secret != "":
+		sig := r.Header.Get("X-Signature")
+		if sig == "" {
+			sig = r.Header.Get("X-Twilio-Signature")
 		}
 		if sig == "" {
-			slog.Warn("sms: missing signature header")
+			slog.Warn("sms: missing signature header", "tenant", tokenTenant)
 			http.Error(w, `{"error":"unauthorized"}`, http.StatusUnauthorized)
 			return
 		}
@@ -220,10 +262,14 @@ func (h *WebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		mac.Write([]byte(r.FormValue("From") + r.FormValue("Body")))
 		expected := hex.EncodeToString(mac.Sum(nil))
 		if !hmac.Equal([]byte(sig), []byte(expected)) {
-			slog.Warn("sms: signature verification failed")
+			slog.Warn("sms: signature verification failed", "tenant", tokenTenant)
 			http.Error(w, `{"error":"unauthorized"}`, http.StatusUnauthorized)
 			return
 		}
+	default:
+		slog.Warn("sms: no inbound credential configured, rejecting request", "tenant", tokenTenant)
+		http.Error(w, `{"error":"webhook authentication not configured"}`, http.StatusForbidden)
+		return
 	}
 
 	from := r.FormValue("From")

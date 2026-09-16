@@ -24,14 +24,15 @@ func (f *fakeClassifier) HandleInbound(_ context.Context, bearer, origin, text s
 func TestWebhook_OOBFrameClassifiedBeforePipeline(t *testing.T) {
 	bus := &mockBus{}
 	h := NewWebhookHandler(bus, "")
+	// Inbound SMS is authenticated since MESHSAT-1168. An OOB frame is a bridge
+	// management command, so it is the last thing that should arrive unsigned.
+	h.SetInboundAuthToken(testAuthToken)
 	cl := &fakeClassifier{match: true}
 	h.SetOOB(cl)
 	post := func(body string) *httptest.ResponseRecorder {
 		form := url.Values{"From": {"+31653618463"}, "To": {"+3197010258258"}, "Body": {body}, "MessageSid": {"SM1"}}
-		req := httptest.NewRequest(http.MethodPost, "/api/webhook/sms", strings.NewReader(form.Encode()))
-		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 		rr := httptest.NewRecorder()
-		h.ServeHTTP(rr, req)
+		h.ServeHTTP(rr, signedRequest(t, form))
 		return rr
 	}
 	rr := post("MS:9W899JR000002098WTQ26XJ7V4DYYXQ28AEY1BVR")

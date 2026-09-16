@@ -104,7 +104,7 @@ var Classification = map[string]Class{
 	"aprsis_passcode": ClassTenantDone,
 	"aprsis_server":   ClassTenantDone,
 
-	// --- tenant-done: Tenant-owned and already in the UI; env is the platform default. (25)
+	// --- tenant-done: Tenant-owned and already in the UI; env is the platform default. (26)
 	"audit_retention_days":      ClassTenantDone,
 	"bridge_offline_timeout":    ClassTenantDone,
 	"cloudloop_account_id":      ClassTenantDone,
@@ -128,8 +128,14 @@ var Classification = map[string]Class{
 	"sms_auth_token":            ClassTenantDone,
 	"sms_enabled":               ClassTenantDone,
 	"sms_from_number":           ClassTenantDone,
-	"sms_webhook_secret":        ClassTenantDone,
-	"sos_chain_id":              ClassTenantDone,
+	// The platform account's Twilio ACCOUNT auth token, used only to verify
+	// X-Twilio-Signature on the inbound webhook (MESHSAT-1168). Tenant-owned and
+	// already in the UI: it is the Twilio provider's existing "auth_token" field
+	// in internal/integrations, whose hint has always said it validates the
+	// inbound signature. This entry is the platform tenant's copy of it.
+	"sms_inbound_auth_token": ClassTenantDone,
+	"sms_webhook_secret":     ClassTenantDone,
+	"sos_chain_id":           ClassTenantDone,
 
 	// --- commercial: Commercial: the operator's lever. (17)
 	"invoiceninja_country_id": ClassCommercial,
