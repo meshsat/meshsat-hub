@@ -1129,3 +1129,17 @@ func (m *mockStore) CountBoothRelaysBySender(context.Context, string, string, ti
 func (m *mockStore) CountBoothRelays(context.Context, string, time.Time) (int, error) {
 	return 0, nil
 }
+
+// Booth spend ledger and expiry (MESHSAT-1175). Stubs: these handlers do not
+// touch the booth tables; the behaviour is covered by the store conformance
+// suite against both dialects.
+func (m *mockStore) ExpiredOpenBoothRelays(context.Context, string, time.Time) ([]store.BoothRelay, error) {
+	return nil, nil
+}
+func (m *mockStore) RecordBoothSend(context.Context, string, string, string, string, string) error {
+	return nil
+}
+func (m *mockStore) CountBoothSendsTo(context.Context, string, string, time.Time) (int, error) {
+	return 0, nil
+}
+func (m *mockStore) CountBoothSends(context.Context, string, time.Time) (int, error) { return 0, nil }

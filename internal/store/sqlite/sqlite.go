@@ -213,6 +213,10 @@ var postAlterMigrations = []string{
 	`CREATE INDEX IF NOT EXISTS idx_booth_relays_open ON booth_relays (tenant_id, bridge_id, mesh_dest) WHERE closed_at IS NULL`,
 	`CREATE INDEX IF NOT EXISTS idx_booth_relays_sender ON booth_relays (tenant_id, sender, created_at)`,
 	`CREATE INDEX IF NOT EXISTS idx_booth_relays_created ON booth_relays (tenant_id, created_at)`,
+	// Booth send ledger (MESHSAT-1175); mirrors postgres migration 27.
+	`CREATE TABLE IF NOT EXISTS booth_sends (tenant_id TEXT NOT NULL DEFAULT 'default', id TEXT NOT NULL, recipient TEXT NOT NULL, channel TEXT NOT NULL, kind TEXT NOT NULL DEFAULT 'visitor', created_at TEXT NOT NULL DEFAULT (datetime('now')), PRIMARY KEY (tenant_id, id))`,
+	`CREATE INDEX IF NOT EXISTS idx_booth_sends_recipient ON booth_sends (tenant_id, recipient, created_at)`,
+	`CREATE INDEX IF NOT EXISTS idx_booth_sends_created ON booth_sends (tenant_id, created_at)`,
 	`CREATE TABLE IF NOT EXISTS api_keys (
 		id TEXT PRIMARY KEY,
 		key_hash TEXT NOT NULL UNIQUE,

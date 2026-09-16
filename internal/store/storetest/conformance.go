@@ -27,6 +27,7 @@ func Run(t *testing.T, open Opener) {
 		fn   func(t *testing.T, s store.Store)
 	}{
 		{"BoothRelay", testBoothRelay},
+		{"BoothSpendAndExpiry", testBoothSpendAndExpiry},
 		{"Devices", testDevices},
 		{"Messages", testMessages},
 		{"MessageDuplicateIsNoOp", testMessageDuplicate},

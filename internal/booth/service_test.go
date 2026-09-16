@@ -44,9 +44,12 @@ func (k *fakeKits) SendToKit(_ context.Context, _, bridgeID, body string) error 
 // fakeSvcStore is the engine's fake plus the relay rows.
 type fakeSvcStore struct {
 	*fakeStore
-	relays map[string]*store.BoothRelay
-	closed []string
-	claims map[string]bool
+	relays       map[string]*store.BoothRelay
+	closed       []string
+	claims       map[string]bool
+	sends        []string
+	extraSends   int
+	extraSendsTo int
 }
 
 func newSvcStore() *fakeSvcStore {
@@ -69,6 +72,35 @@ func (f *fakeSvcStore) CloseBoothRelay(_ context.Context, _, ref string) error {
 }
 func (f *fakeSvcStore) GetBoothRelayByRef(_ context.Context, _, ref string) (*store.BoothRelay, error) {
 	return f.relays[ref], nil
+}
+
+func (f *fakeSvcStore) ExpiredOpenBoothRelays(_ context.Context, _ string, now time.Time) ([]store.BoothRelay, error) {
+	var out []store.BoothRelay
+	for _, r := range f.relays {
+		if r.ClosedAt == nil && !r.ExpiresAt.IsZero() && !r.ExpiresAt.After(now) {
+			out = append(out, *r)
+		}
+	}
+	return out, nil
+}
+
+func (f *fakeSvcStore) RecordBoothSend(_ context.Context, _, id, recipient, channel, kind string) error {
+	f.sends = append(f.sends, recipient)
+	return nil
+}
+
+func (f *fakeSvcStore) CountBoothSendsTo(_ context.Context, _, recipient string, _ time.Time) (int, error) {
+	n := 0
+	for _, r := range f.sends {
+		if r == recipient {
+			n++
+		}
+	}
+	return n + f.extraSendsTo, nil
+}
+
+func (f *fakeSvcStore) CountBoothSends(_ context.Context, _ string, _ time.Time) (int, error) {
+	return len(f.sends) + f.extraSends, nil
 }
 
 func (f *fakeSvcStore) ClaimOnce(_ context.Context, key string) (bool, error) {
@@ -375,5 +407,79 @@ func TestASecondDistinctReplyStillDelivers(t *testing.T) {
 	}
 	if got := len(v.texts) - before; got != 2 {
 		t.Fatalf("delivered %d of 2 distinct replies", got)
+	}
+}
+
+// The spend ceiling counts MESSAGES, not relays: someone who texts the keyword
+// and walks the menu without ever relaying still costs four messages, and the
+// relay quotas never see them. With a sub-USD-100 balance that is an open tap.
+func TestPerVisitorMessageBudgetStops(t *testing.T) {
+	st, v, k := newSvcStore(), &fakeVisitor{}, &fakeKits{}
+	st.extraSendsTo = 30 // already at the per-visitor ceiling
+	s := newSvc(st, v, k)
+
+	if err := s.OnInbound(context.Background(), tenant, who, "sms", "", "MESHSAT"); err != nil {
+		t.Fatalf("inbound: %v", err)
+	}
+	if len(v.texts) != 1 {
+		t.Fatalf("sent %d messages at the ceiling, want exactly 1 (the notice)", len(v.texts))
+	}
+	if !strings.Contains(v.texts[0].body, "all the messages") {
+		t.Errorf("the visitor was not told why it went quiet: %q", v.texts[0].body)
+	}
+	// And it must not keep saying it -- the notice costs a message too.
+	_ = s.OnInbound(context.Background(), tenant, who, "sms", "", "MESHSAT")
+	if len(v.texts) != 1 {
+		t.Errorf("the budget notice repeated: %d messages sent", len(v.texts))
+	}
+}
+
+func TestGlobalMessageBudgetStops(t *testing.T) {
+	st, v, k := newSvcStore(), &fakeVisitor{}, &fakeKits{}
+	st.extraSends = 250
+	s := newSvc(st, v, k)
+
+	if err := s.OnInbound(context.Background(), tenant, who, "sms", "", "MESHSAT"); err != nil {
+		t.Fatalf("inbound: %v", err)
+	}
+	if len(k.sent) != 0 {
+		t.Fatal("a kit was contacted after the global budget was spent")
+	}
+}
+
+// A relay nobody answers must not leave the visitor watching a silent phone.
+// The kit is online, so the gate let it through; the mesh behind it was empty.
+func TestExpiredRelayTellsTheVisitorAndFreesTheKit(t *testing.T) {
+	st, v, k := newSvcStore(), &fakeVisitor{}, &fakeKits{}
+	s := newSvc(st, v, k)
+	ctx := context.Background()
+	drive(t, s)
+	if err := s.OnInbound(ctx, tenant, who, ch, "", "hello mesh"); err != nil {
+		t.Fatalf("send: %v", err)
+	}
+	var ref string
+	for r := range st.relays {
+		ref = r
+	}
+	st.relays[ref].ExpiresAt = time.Now().Add(-time.Minute) // nobody answered
+
+	before := len(v.texts)
+	if err := s.SweepExpired(ctx, tenant); err != nil {
+		t.Fatalf("sweep: %v", err)
+	}
+	if len(v.texts) != before+1 {
+		t.Fatalf("the visitor was not told their message went unanswered")
+	}
+	if !strings.Contains(v.texts[len(v.texts)-1].body, ref) {
+		t.Errorf("the notice does not name the reference: %q", v.texts[len(v.texts)-1].body)
+	}
+	if st.relays[ref].ClosedAt == nil {
+		t.Error("the expired relay was not closed, so the kit stays blocked")
+	}
+	// Sweeping again must not tell them twice.
+	n := len(v.texts)
+	_ = s.SweepExpired(ctx, tenant)
+	if len(v.texts) != n {
+		t.Error("the expiry notice repeated on the next sweep")
 	}
 }

@@ -878,4 +878,29 @@ CREATE INDEX IF NOT EXISTS idx_booth_relays_sender
 CREATE INDEX IF NOT EXISTS idx_booth_relays_created
 	ON booth_relays (tenant_id, created_at);
 `},
+	// Every message the booth sends, so spend has a ceiling (MESHSAT-1175).
+	//
+	// The relay quotas count RELAYS, which is not what costs money: a visitor who
+	// texts the keyword and browses the menu without ever relaying still sends
+	// four messages and hits no limit at all. At NL rates a full visitor run is
+	// about EUR 0.80 and the account holds under 100 USD, so an afternoon of
+	// curiosity could empty it.
+	//
+	// A ledger rather than a counter column, matching booth_relays: counting rows
+	// cannot drift from what was actually sent, and a window is just a WHERE.
+	{Version: 27, Name: "booth send ledger", SQL: `
+CREATE TABLE IF NOT EXISTS booth_sends (
+	tenant_id  VARCHAR(64) NOT NULL,
+	id         VARCHAR(32) NOT NULL,
+	recipient  VARCHAR(64) NOT NULL,
+	channel    VARCHAR(16) NOT NULL,
+	kind       VARCHAR(16) NOT NULL DEFAULT 'visitor',
+	created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+	PRIMARY KEY (tenant_id, id)
+);
+CREATE INDEX IF NOT EXISTS idx_booth_sends_recipient
+	ON booth_sends (tenant_id, recipient, created_at);
+CREATE INDEX IF NOT EXISTS idx_booth_sends_created
+	ON booth_sends (tenant_id, created_at);
+`},
 }
