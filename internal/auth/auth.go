@@ -125,9 +125,7 @@ func TenantMiddleware(enforce bool) func(http.Handler) http.Handler {
 			// 4. Default fallback.
 			if tenantID == "" {
 				if enforce {
-					w.Header().Set("Content-Type", "application/json")
-					w.WriteHeader(http.StatusForbidden)
-					_, _ = fmt.Fprintf(w, `{"error":"tenant context required"}`)
+					writeTenantBlocked(w, r, denyTenantRequired)
 					return
 				}
 				tenantID = "default"
@@ -143,10 +141,10 @@ func TenantMiddleware(enforce bool) func(http.Handler) http.Handler {
 					// lock every tenant out of a running system.
 					slog.Warn("tenant status lookup failed", "tenant", tenantID, "error", err)
 				case st == "suspended":
-					writeTenantBlocked(w, "tenant suspended")
+					writeTenantBlocked(w, r, denyTenantSuspended)
 					return
 				case st == "deleted":
-					writeTenantBlocked(w, "tenant deleted")
+					writeTenantBlocked(w, r, denyTenantDeleted)
 					return
 				}
 			}
@@ -155,12 +153,6 @@ func TenantMiddleware(enforce bool) func(http.Handler) http.Handler {
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
 	}
-}
-
-func writeTenantBlocked(w http.ResponseWriter, msg string) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusForbidden)
-	_, _ = fmt.Fprintf(w, `{"error":%q}`, msg)
 }
 
 // Config holds authentication configuration.
@@ -234,7 +226,7 @@ func localMiddleware(jwtSecret []byte, legacyToken string) func(http.Handler) ht
 
 			provided := extractBearer(r)
 			if provided == "" {
-				writeAuthError(w, "missing Authorization header")
+				writeAuthError(w, r, denyMissingCredential)
 				return
 			}
 
@@ -249,7 +241,7 @@ func localMiddleware(jwtSecret []byte, legacyToken string) func(http.Handler) ht
 			// Try local JWT
 			claims, err := sm.VerifyAccessToken(provided)
 			if err != nil {
-				writeAuthError(w, "invalid token")
+				writeAuthError(w, r, denyInvalidToken)
 				return
 			}
 
@@ -436,11 +428,11 @@ func tokenMiddleware(token string) func(http.Handler) http.Handler {
 
 			provided := extractBearer(r)
 			if provided == "" {
-				writeAuthError(w, "missing Authorization header")
+				writeAuthError(w, r, denyMissingCredential)
 				return
 			}
 			if subtle.ConstantTimeCompare([]byte(provided), []byte(token)) != 1 {
-				writeAuthError(w, "invalid token")
+				writeAuthError(w, r, denyInvalidToken)
 				return
 			}
 
@@ -481,7 +473,7 @@ func jwtMiddleware(provider *JWKSProvider, issuerURL, audience string) func(http
 
 			tokenStr := extractBearer(r)
 			if tokenStr == "" {
-				writeAuthError(w, "missing Authorization header")
+				writeAuthError(w, r, denyMissingCredential)
 				return
 			}
 
@@ -495,13 +487,13 @@ func jwtMiddleware(provider *JWKSProvider, issuerURL, audience string) func(http
 			})
 			if err != nil {
 				slog.Debug("auth: JWT validation failed", "error", err)
-				writeAuthError(w, "invalid token")
+				writeAuthError(w, r, denyInvalidToken)
 				return
 			}
 
 			claims, ok := token.Claims.(jwt.MapClaims)
 			if !ok {
-				writeAuthError(w, "invalid token claims")
+				writeAuthError(w, r, denyInvalidClaims)
 				return
 			}
 
@@ -509,7 +501,7 @@ func jwtMiddleware(provider *JWKSProvider, issuerURL, audience string) func(http
 				iss, _ := claims["iss"].(string)
 				if iss == "" || !IssuerMatches(iss, provider.ExpectedIssuer()) {
 					slog.Debug("auth: JWT issuer mismatch", "iss", iss, "expected", provider.ExpectedIssuer())
-					writeAuthError(w, "invalid token")
+					writeAuthError(w, r, denyInvalidToken)
 					return
 				}
 			}
@@ -561,12 +553,6 @@ func extractBearer(r *http.Request) string {
 	return ""
 }
 
-func writeAuthError(w http.ResponseWriter, msg string) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusUnauthorized)
-	_, _ = fmt.Fprintf(w, `{"error":"%s"}`, msg)
-}
-
 // OIDCHTTPClient returns the HTTP client for provider calls, with SPKI pinning
 // when configured.
 func OIDCHTTPClient(cfg Config) *http.Client {
@@ -599,7 +585,7 @@ func sessionOrProviderMiddleware(sm *SessionManager, legacyToken string, provide
 			}
 			provided := extractBearer(r)
 			if provided == "" {
-				writeAuthError(w, "missing Authorization header")
+				writeAuthError(w, r, denyMissingCredential)
 				return
 			}
 			if legacyToken != "" && subtle.ConstantTimeCompare([]byte(provided), []byte(legacyToken)) == 1 {
@@ -617,7 +603,7 @@ func sessionOrProviderMiddleware(sm *SessionManager, legacyToken string, provide
 				return
 			}
 			if resolver == nil {
-				writeAuthError(w, "invalid token")
+				writeAuthError(w, r, denyInvalidToken)
 				return
 			}
 			// Provider bearer: verify with the JWKS, then replace the claim-derived
@@ -625,12 +611,12 @@ func sessionOrProviderMiddleware(sm *SessionManager, legacyToken string, provide
 			providerMW(http.HandlerFunc(func(w2 http.ResponseWriter, r2 *http.Request) {
 				claimUser := FromContext(r2.Context())
 				if claimUser == nil {
-					writeAuthError(w2, "invalid token")
+					writeAuthError(w2, r, denyInvalidToken)
 					return
 				}
 				local, err := resolver.ResolveSubject(r2.Context(), provider.ExpectedIssuer(), claimUser.ID)
 				if err != nil || local == nil {
-					writeAuthError(w2, "unknown subject")
+					writeAuthError(w2, r, denyUnknownSubject)
 					return
 				}
 				ctx := context.WithValue(r2.Context(), UserContextKey, local)
@@ -650,9 +636,7 @@ func RequirePlatformAdmin() func(http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			u := FromContext(r.Context())
 			if u == nil || !u.PlatformAdmin {
-				w.Header().Set("Content-Type", "application/json")
-				w.WriteHeader(http.StatusForbidden)
-				_, _ = fmt.Fprint(w, `{"error":"platform administrator required"}`)
+				writeAuthzDenial(w, r, "platform_admin", "platform administrator required")
 				return
 			}
 			next.ServeHTTP(w, r)

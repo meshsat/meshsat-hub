@@ -288,6 +288,30 @@ func SetBuildInfo(version, mode, goVersion string) {
 	BuildInfo.WithLabelValues(version, mode, goVersion).Set(1)
 }
 
+// AuthFailuresTotal counts rejected AUTHENTICATION attempts -- the 401s the
+// auth middleware writes before routing, labelled by a stable reason and by
+// the channel the request arrived on ("internet" or "onion").
+//
+// These were invisible. hubauth.Middleware is registered outside both
+// metrics.ChiMiddleware and the request logger, and it short-circuits, so a
+// rejected request incremented no counter, wrote no log line and left no audit
+// row: credential stuffing against any /api/* route was a silent event, and
+// the reasons were logged at Debug while production runs at info (MESHSAT-1190).
+var AuthFailuresTotal = promauto.NewCounterVec(prometheus.CounterOpts{
+	Name: "meshsat_hub_auth_failures_total",
+	Help: "Rejected authentication attempts, by reason and arrival channel.",
+}, []string{"reason", "channel"})
+
+// AuthzDenialsTotal counts rejected AUTHORISATION attempts -- the 403s from
+// RequireRole, RequirePlatformAdmin and the tenant gate. Separate from
+// AuthFailuresTotal on purpose: a spike in 401s is somebody trying to get in,
+// a spike in 403s is somebody already inside reaching for something else, and
+// the two want different responses.
+var AuthzDenialsTotal = promauto.NewCounterVec(prometheus.CounterOpts{
+	Name: "meshsat_hub_authz_denials_total",
+	Help: "Rejected authorisation attempts, by requirement and arrival channel.",
+}, []string{"requirement", "channel"})
+
 // Handler returns the Prometheus metrics HTTP handler.
 func Handler() http.Handler {
 	return promhttp.Handler()
@@ -302,5 +326,23 @@ func Handler() http.Handler {
 func init() {
 	for _, kind := range []string{"payment", "lifecycle"} {
 		PaymentsUnattributedTotal.WithLabelValues(kind)
+	}
+	// Same reasoning for the security counters: an alert written as
+	// increase(meshsat_hub_auth_failures_total[5m]) > N has nothing to
+	// evaluate until the first failure of that exact kind ever happens, which
+	// is precisely the moment you want the alert to already exist.
+	for _, ch := range []string{"internet", "onion"} {
+		for _, reason := range []string{
+			"missing_credential", "invalid_token", "invalid_claims",
+			"unknown_subject", "invalid_api_key", "api_key_expired",
+		} {
+			AuthFailuresTotal.WithLabelValues(reason, ch)
+		}
+		for _, req := range []string{
+			"viewer", "operator", "owner", "platform_admin",
+			"tenant_required", "tenant_suspended", "tenant_deleted",
+		} {
+			AuthzDenialsTotal.WithLabelValues(req, ch)
+		}
 	}
 }

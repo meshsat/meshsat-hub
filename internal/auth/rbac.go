@@ -44,9 +44,11 @@ func RequireRole(minRole string) func(http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			user := FromContext(r.Context())
 			if !RoleAtLeast(user, minRole) {
-				w.Header().Set("Content-Type", "application/json")
-				w.WriteHeader(http.StatusForbidden)
-				_, _ = fmt.Fprintf(w, `{"error":"insufficient role, requires %s"}`, minRole)
+				// The requirement, not the caller's role, is the metric label:
+				// a cardinality of three, and it answers "what is being
+				// reached for" rather than "who was refused" (MESHSAT-1190).
+				writeAuthzDenial(w, r, minRole,
+					fmt.Sprintf("insufficient role, requires %s", minRole))
 				return
 			}
 			next.ServeHTTP(w, r)

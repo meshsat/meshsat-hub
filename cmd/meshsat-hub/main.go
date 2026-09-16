@@ -1472,6 +1472,12 @@ func main() {
 	r.Use(hubmw.MaxBodySize(10 << 20)) // 10MB global request body limit (webhook handlers override).
 	r.Use(api.SecurityHeaders)
 	r.Use(api.WSTokenFromQuery) // Copy ?token= query param to Authorization header for WebSocket clients.
+	// Resolve the client address ONCE, before anything that refuses a request
+	// or keys a budget on it, and put it where internal/auth can read it.
+	// hubauth cannot call hubmw.ClientIP (the import points the other way), and
+	// without this a refused request has no address to report but the ingress
+	// pod's -- which is what made every existing log line useless (MESHSAT-1190).
+	r.Use(hubmw.ClientIPContext)
 
 	// Bounded worker for async API key last_used updates (avoids unbounded goroutines).
 	touchCh := make(chan string, 64)
