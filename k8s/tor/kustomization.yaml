@@ -5,3 +5,4 @@ resources:
   - configmap.yaml
   - externalsecret.yaml
   - onion-heartbeat.yaml
+  - networkpolicy.yaml

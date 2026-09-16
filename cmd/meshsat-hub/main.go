@@ -2355,8 +2355,14 @@ func main() {
 	// Bridge MQTT authentication API
 	bridgeAuthHandler := api.NewBridgeAuthHandler(dataStore, bridgeCA)
 	bridgeAuthHandler.SetNATSAuth(natsAuth)
-	r.Post("/api/bridges/{id}/credentials", bridgeAuthHandler.GenerateCredentials)
-	r.Post("/api/bridges/{id}/certificate", bridgeAuthHandler.IssueCertificate)
+	// Owner-only, like every other route that mints a credential (MESHSAT-1171).
+	// These two had no role gate at all, so any authenticated VIEWER of a tenant
+	// could mint that tenant's MQTT password and a 90-day client certificate --
+	// which is a bridge identity on the broker, not a read of one. The rotation
+	// routes a few lines above were already owner-gated; these are the same kind
+	// of act and were simply missed.
+	r.With(hubauth.RequireRole(hubauth.RoleOwner)).Post("/api/bridges/{id}/credentials", bridgeAuthHandler.GenerateCredentials)
+	r.With(hubauth.RequireRole(hubauth.RoleOwner)).Post("/api/bridges/{id}/certificate", bridgeAuthHandler.IssueCertificate)
 	// PLATFORM ADMIN ONLY (MESHSAT-1116): ListBridgesWithCredentials takes no
 	// tenant and this re-renders the cluster-wide meshsat-nats-auth Secret.
 	r.With(hubauth.RequirePlatformAdmin()).Post("/api/bridges/acl/regenerate", bridgeAuthHandler.RegenerateACL)

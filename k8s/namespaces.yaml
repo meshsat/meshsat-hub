@@ -1,9 +1,28 @@
+# PodSecurity is AUDITED and WARNED at `baseline` here, and deliberately NOT
+# enforced (MESHSAT-1171).
+#
+# The namespace had no pod-security labels at all, which meant nothing noticed
+# what its pods were allowed to do -- including tor, an internet-facing daemon
+# holding the onion's private key. Enforcing is the obvious next move and it is
+# the wrong one to make blind: this namespace legitimately runs two workloads
+# that `baseline` forbids. The edge relay is a hostNetwork DaemonSet, because
+# Cilium's NodePort does not answer traffic arriving through the xfrm tunnels,
+# and wg-easy needs CAP_NET_ADMIN to manage a WireGuard interface. Enforcing
+# baseline would evict the path every customer's traffic arrives on.
+#
+# So: surface the violations first, read them, exempt those two deliberately,
+# then enforce. Turning the profile on before the workloads have been checked
+# against it is the mistake that broke four containers in MESHSAT-1035.
 apiVersion: v1
 kind: Namespace
 metadata:
   name: meshsat-hub
   labels:
     app.kubernetes.io/part-of: meshsat-hub
+    pod-security.kubernetes.io/audit: baseline
+    pod-security.kubernetes.io/audit-version: latest
+    pod-security.kubernetes.io/warn: baseline
+    pod-security.kubernetes.io/warn-version: latest
 ---
 apiVersion: v1
 kind: Namespace
