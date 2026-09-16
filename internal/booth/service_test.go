@@ -46,6 +46,7 @@ type fakeSvcStore struct {
 	*fakeStore
 	relays map[string]*store.BoothRelay
 	closed []string
+	claims map[string]bool
 }
 
 func newSvcStore() *fakeSvcStore {
@@ -68,6 +69,17 @@ func (f *fakeSvcStore) CloseBoothRelay(_ context.Context, _, ref string) error {
 }
 func (f *fakeSvcStore) GetBoothRelayByRef(_ context.Context, _, ref string) (*store.BoothRelay, error) {
 	return f.relays[ref], nil
+}
+
+func (f *fakeSvcStore) ClaimOnce(_ context.Context, key string) (bool, error) {
+	if f.claims == nil {
+		f.claims = map[string]bool{}
+	}
+	if f.claims[key] {
+		return false, nil // somebody already has it
+	}
+	f.claims[key] = true
+	return true, nil
 }
 
 var testTemplates = Templates{Menu: "HXmenu", OptIn: "HXoptin", Kits: "HXkits"}
@@ -190,7 +202,7 @@ func TestReturnLegDeliversAndClosesTheConversation(t *testing.T) {
 	}
 
 	before := len(v.texts)
-	if err := s.OnMeshReply(context.Background(), tenant, "nllei01parallax01", "", "#"+ref+" got it"); err != nil {
+	if err := s.OnMeshReply(context.Background(), tenant, "nllei01parallax01", "", "#"+ref+" got it", "wire-1"); err != nil {
 		t.Fatalf("mesh reply: %v", err)
 	}
 	if len(v.texts) != before+1 {
@@ -214,7 +226,7 @@ func TestUnrelatedMeshTextIsNotForwarded(t *testing.T) {
 	st, v, k := newSvcStore(), &fakeVisitor{}, &fakeKits{}
 	s := newSvc(st, v, k)
 
-	if err := s.OnMeshReply(context.Background(), tenant, "nllei01parallax01", "", "random chatter"); err != nil {
+	if err := s.OnMeshReply(context.Background(), tenant, "nllei01parallax01", "", "random chatter", "wire-2"); err != nil {
 		t.Fatalf("mesh reply: %v", err)
 	}
 	if len(v.texts) != 0 {
@@ -280,7 +292,7 @@ func TestReplyGoesBackOnTheOriginatingBearer(t *testing.T) {
 		t.Fatalf("the relay recorded channel %q, want sms", st.relays[ref].Channel)
 	}
 	before := len(v.texts)
-	if err := s.OnMeshReply(ctx, tenant, "nllei01parallax01", "", "#"+ref+" got it"); err != nil {
+	if err := s.OnMeshReply(ctx, tenant, "nllei01parallax01", "", "#"+ref+" got it", "wire-1"); err != nil {
 		t.Fatalf("mesh reply: %v", err)
 	}
 	if len(v.texts) != before+1 {
@@ -302,5 +314,66 @@ func TestADigitIsNotAMenuChoiceWhileAwaitingText(t *testing.T) {
 	}
 	if len(k.sent) != 1 || !strings.HasSuffix(k.sent[0], " 1") {
 		t.Fatalf("a visitor could not send the message \"1\": %v", k.sent)
+	}
+}
+
+// Both replicas receive every mesh reply, so without a once-only claim both
+// resolve the same conversation and both send. That is not theory: the first
+// working round trip delivered the reply to the visitor's phone TWICE.
+func TestReplyIsDeliveredOnceAcrossReplicas(t *testing.T) {
+	st, v, k := newSvcStore(), &fakeVisitor{}, &fakeKits{}
+	// Two services over ONE store, which is what two pods actually are.
+	a := newSvc(st, v, k)
+	b := newSvc(st, v, k)
+
+	ctx := context.Background()
+	drive(t, a)
+	if err := a.OnInbound(ctx, tenant, who, ch, "", "hello mesh"); err != nil {
+		t.Fatalf("send: %v", err)
+	}
+	var ref string
+	for r := range st.relays {
+		ref = r
+	}
+
+	before := len(v.texts)
+	// The same wire message reaches both replicas, so both compute the same key.
+	const wireKey = "mo-samedigest"
+	if err := a.OnMeshReply(ctx, tenant, "nllei01parallax01", "", "#"+ref+" got it", wireKey); err != nil {
+		t.Fatalf("replica a: %v", err)
+	}
+	if err := b.OnMeshReply(ctx, tenant, "nllei01parallax01", "", "#"+ref+" got it", wireKey); err != nil {
+		t.Fatalf("replica b: %v", err)
+	}
+
+	if got := len(v.texts) - before; got != 1 {
+		t.Fatalf("the visitor received the reply %d times, want exactly 1", got)
+	}
+}
+
+// A different mesh reply is a different key, so a genuine second message is
+// still delivered -- the claim must not swallow the conversation.
+func TestASecondDistinctReplyStillDelivers(t *testing.T) {
+	st, v, k := newSvcStore(), &fakeVisitor{}, &fakeKits{}
+	s := newSvc(st, v, k)
+	ctx := context.Background()
+	drive(t, s)
+	_ = s.OnInbound(ctx, tenant, who, ch, "", "hello mesh")
+	var ref string
+	for r := range st.relays {
+		ref = r
+	}
+
+	before := len(v.texts)
+	if err := s.OnMeshReply(ctx, tenant, "nllei01parallax01", "", "#"+ref+" first", "wire-a"); err != nil {
+		t.Fatalf("first: %v", err)
+	}
+	// Re-open, because the first reply closed the conversation.
+	st.relays[ref].ClosedAt = nil
+	if err := s.OnMeshReply(ctx, tenant, "nllei01parallax01", "", "#"+ref+" second", "wire-b"); err != nil {
+		t.Fatalf("second: %v", err)
+	}
+	if got := len(v.texts) - before; got != 2 {
+		t.Fatalf("delivered %d of 2 distinct replies", got)
 	}
 }
