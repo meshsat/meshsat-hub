@@ -2040,6 +2040,16 @@ func main() {
 		smsWebhook := newTwilioWebhook("sms")
 		webhookRoute(integrations.ProviderTwilio, "webhook_token", "/api/webhook/sms",
 			smsWebhook.ServeHTTP)
+		// Delivery receipts for what we SEND on SMS.
+		//
+		// Without this the Hub cannot tell a delivered message from one the
+		// carrier dropped: Twilio accepts the send, answers "queued", and the
+		// log records a success. That is exactly how a two-segment prompt went
+		// missing at the stand with every log line claiming it was sent
+		// (MESHSAT-1175). The client attaches the matching StatusCallback to
+		// every outbound message.
+		r.Post("/api/webhook/sms/status",
+			sms.NewStatusHandler("sms", cfg.SMSInboundAuthToken, cfg.SMSWebhookSecret).ServeHTTP)
 
 		// The WhatsApp bearer (MESHSAT-1175). Behind its own flag and its own
 		// route: nothing may be load-bearing on WhatsApp -- Meta restricted this

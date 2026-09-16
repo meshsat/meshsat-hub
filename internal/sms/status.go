@@ -30,6 +30,7 @@ func NewStatusHandler(channel, authToken, secret string) *StatusHandler {
 // @Success      204
 // @Failure      401  {object}  map[string]string
 // @Failure      403  {object}  map[string]string
+// @Router       /api/webhook/sms/status [post]
 // @Router       /api/webhook/whatsapp/status [post]
 func (h *StatusHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
