@@ -7,6 +7,8 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/rs/xid"
+
 	"github.com/meshsat/meshsat-hub/internal/store"
 )
 
@@ -33,6 +35,10 @@ type ServiceStore interface {
 	ReturnStore
 	CreateBoothRelay(ctx context.Context, r *store.BoothRelay) error
 	CloseBoothRelay(ctx context.Context, tenantID, ref string) error
+	ExpiredOpenBoothRelays(ctx context.Context, tenantID string, now time.Time) ([]store.BoothRelay, error)
+	RecordBoothSend(ctx context.Context, tenantID, id, recipient, channel, kind string) error
+	CountBoothSendsTo(ctx context.Context, tenantID, recipient string, since time.Time) (int, error)
+	CountBoothSends(ctx context.Context, tenantID string, since time.Time) (int, error)
 	// ClaimOnce records key atomically; exactly one caller across all replicas
 	// gets true. See OnMeshReply for why the return leg needs it.
 	ClaimOnce(ctx context.Context, key string) (bool, error)
@@ -78,6 +84,20 @@ func (s *Service) visitorFor(channel string) VisitorSender { return s.visitors[c
 
 // OnInbound handles one message from a visitor.
 func (s *Service) OnInbound(ctx context.Context, tenantID, sender, channel, choice, text string) error {
+	// The spend ceiling, checked before anything is generated.
+	//
+	// It counts MESSAGES, not relays: somebody who texts the keyword and walks
+	// the menu without ever relaying still costs four messages, and the relay
+	// quotas never see them. With a sub-USD-100 balance an afternoon of
+	// curiosity could empty the account, so this is a hard stop rather than a
+	// nudge. The visitor is told once and then it goes quiet -- the telling
+	// itself costs a message, so it must not repeat.
+	if ok, err := s.withinBudget(ctx, tenantID, sender, channel); err != nil {
+		return err
+	} else if !ok {
+		return s.sayBudgetReached(ctx, tenantID, sender, channel)
+	}
+
 	reply, err := s.engine.Handle(ctx, tenantID, sender, channel, choice, text)
 	if err != nil {
 		return err
@@ -109,14 +129,18 @@ func (s *Service) OnInbound(ctx context.Context, tenantID, sender, channel, choi
 					"ref", reply.Relay.Ref, "error", cerr)
 			}
 			slog.Error("booth: relay to kit failed", "bridge", reply.Relay.BridgeID, "error", err)
-			return s.sendOn(ctx, channel, sender,
+			return s.sendOn(ctx, tenantID, channel, sender,
 				"That did not get through to the kit. Nothing was sent -- try again in a moment.")
+		}
+		if err := s.store.RecordBoothSend(ctx, tenantID, xid.New().String(),
+			reply.Relay.BridgeID, channel, "kit"); err != nil {
+			slog.Warn("booth: could not record the kit send against the budget", "error", err)
 		}
 		slog.Info("booth: relayed", "ref", reply.Relay.Ref, "bridge", reply.Relay.BridgeID,
 			"sender", sender, "bearer", channel, "len", len(reply.Relay.Body), "at", time.Now().UTC())
 	}
 
-	return s.deliver(ctx, sender, channel, reply)
+	return s.deliver(ctx, tenantID, sender, channel, reply)
 }
 
 // OnMeshReply handles one message coming back off a kit's mesh.
@@ -156,7 +180,7 @@ func (s *Service) OnMeshReply(ctx context.Context, tenantID, bridgeID, meshDest,
 		// Delivered on whichever bearer the visitor started on: the relay row
 		// records it, so an SMS conversation is answered by SMS and a WhatsApp
 		// one by WhatsApp, without the mesh side knowing either exists.
-		if err := s.sendOn(ctx, res.Relay.Channel, res.Relay.Sender, res.Body); err != nil {
+		if err := s.sendOn(ctx, tenantID, res.Relay.Channel, res.Relay.Sender, res.Body); err != nil {
 			// Do NOT close on a send failure: the conversation is still the
 			// right one, and closing would strand the reply with no way back.
 			return err
@@ -186,23 +210,25 @@ func (s *Service) OnMeshReply(ctx context.Context, tenantID, bridgeID, meshDest,
 
 // sendOn delivers plain text on one bearer. The visitor senders are registered
 // per channel so the booth can serve both at once (MESHSAT-1175).
-func (s *Service) sendOn(ctx context.Context, channel, to, body string) error {
-	v := s.visitorFor(channel)
-	if v == nil {
-		return fmt.Errorf("booth: no sender for channel %q", channel)
-	}
-	return v.SendText(ctx, to, body)
+func (s *Service) sendOn(ctx context.Context, tenantID, channel, to, body string) error {
+	return s.send(ctx, tenantID, channel, to, "visitor", body)
 }
 
 // deliver turns a Reply into a message. Options mean an interactive template;
 // plain text is used when there is nothing to tap.
-func (s *Service) deliver(ctx context.Context, to, channel string, r *Reply) error {
+func (s *Service) deliver(ctx context.Context, tenantID, to, channel string, r *Reply) error {
 	v := s.visitorFor(channel)
 	if v == nil {
 		return fmt.Errorf("booth: no sender for channel %q", channel)
 	}
+	rec := func() error {
+		return s.store.RecordBoothSend(ctx, tenantID, xid.New().String(), to, channel, "visitor")
+	}
 	if len(r.Options) == 0 {
-		return v.SendText(ctx, to, r.Text)
+		if err := v.SendText(ctx, to, r.Text); err != nil {
+			return err
+		}
+		return rec()
 	}
 	// Only WhatsApp has tappable rows. On SMS the same option set renders as a
 	// numbered list and the visitor replies with a digit, which the engine
@@ -217,13 +243,19 @@ func (s *Service) deliver(ctx context.Context, to, channel string, r *Reply) err
 			// text fallback keeps the visitor moving rather than dead-ending.
 			slog.Warn("booth: no content template for this option set", "options", optionIDs(r.Options))
 		}
-		return v.SendText(ctx, to, r.Text+"\n\n"+renderOptionsAsText(r.Options))
+		if err := v.SendText(ctx, to, r.Text+"\n\n"+renderOptionsAsText(r.Options)); err != nil {
+			return err
+		}
+		return rec()
 	}
 	vars, err := json.Marshal(map[string]string{"1": r.Text})
 	if err != nil {
 		return err
 	}
-	return v.SendContent(ctx, to, sid, string(vars))
+	if err := v.SendContent(ctx, to, sid, string(vars)); err != nil {
+		return err
+	}
+	return rec()
 }
 
 // templateFor picks the Content resource whose fixed items match this option
@@ -258,4 +290,91 @@ func renderOptionsAsText(opts []Option) string {
 		b = append(b, []byte(fmt.Sprintf("%d. %s\n", i+1, o.Label))...)
 	}
 	return string(b)
+}
+
+// withinBudget reports whether another message may be sent.
+func (s *Service) withinBudget(ctx context.Context, tenantID, recipient, channel string) (bool, error) {
+	p := s.engine.policy
+	now := s.engine.now()
+	if p.PerRecipient > 0 {
+		n, err := s.store.CountBoothSendsTo(ctx, tenantID, recipient, now.Add(-p.PerRecipientWindow))
+		if err != nil {
+			return false, err
+		}
+		if n >= p.PerRecipient {
+			slog.Warn("booth: per-visitor message budget reached", "recipient", recipient, "sent", n)
+			return false, nil
+		}
+	}
+	if p.GlobalMessages > 0 {
+		n, err := s.store.CountBoothSends(ctx, tenantID, now.Add(-p.GlobalWindowMsgs))
+		if err != nil {
+			return false, err
+		}
+		if n >= p.GlobalMessages {
+			slog.Warn("booth: global message budget reached", "sent", n, "cap", p.GlobalMessages)
+			return false, nil
+		}
+	}
+	return true, nil
+}
+
+// sayBudgetReached tells the visitor once, then stays quiet. Claimed across
+// replicas and across repeats, because the notice costs a message too.
+func (s *Service) sayBudgetReached(ctx context.Context, tenantID, sender, channel string) error {
+	key := "booth-budget:" + tenantID + ":" + sender + ":" + s.engine.now().UTC().Format("2006-01-02")
+	won, err := s.store.ClaimOnce(ctx, key)
+	if err != nil || !won {
+		return err
+	}
+	return s.send(ctx, tenantID, channel, sender, "visitor",
+		"That is all the messages the stand can send today. Come and say hello at the table instead.")
+}
+
+// send is the one place a message leaves the booth. Everything it sends is
+// recorded, so the budget counts what was actually put on a bearer.
+func (s *Service) send(ctx context.Context, tenantID, channel, to, kind, body string) error {
+	v := s.visitorFor(channel)
+	if v == nil {
+		return fmt.Errorf("booth: no sender for channel %q", channel)
+	}
+	if err := v.SendText(ctx, to, body); err != nil {
+		return err
+	}
+	return s.store.RecordBoothSend(ctx, tenantID, xid.New().String(), to, channel, kind)
+}
+
+// SweepExpired tells visitors whose reply never came, and frees the kit.
+//
+// Without this a visitor watches a silent phone: the kit is online, so the gate
+// let the message through, but nothing on that mesh was listening. Silence is
+// the worst answer a stand can give, and it is indistinguishable from a bug.
+func (s *Service) SweepExpired(ctx context.Context, tenantID string) error {
+	expired, err := s.store.ExpiredOpenBoothRelays(ctx, tenantID, s.engine.now())
+	if err != nil {
+		return err
+	}
+	for _, r := range expired {
+		// Close first: the kit is freed whether or not the visitor can be told,
+		// and closing is what stops this relay being swept again.
+		if err := s.store.CloseBoothRelay(ctx, tenantID, r.Ref); err != nil {
+			slog.Error("booth: could not close an expired relay", "ref", r.Ref, "error", err)
+			continue
+		}
+		won, err := s.store.ClaimOnce(ctx, "booth-expired:"+tenantID+":"+r.Ref)
+		if err != nil || !won {
+			continue
+		}
+		ok, err := s.withinBudget(ctx, tenantID, r.Sender, r.Channel)
+		if err != nil || !ok {
+			continue
+		}
+		body := fmt.Sprintf("No answer came back for #%s. Nobody was listening on that mesh just now -- "+
+			"try the other one, or come to the table.", r.Ref)
+		if err := s.send(ctx, tenantID, r.Channel, r.Sender, "visitor", body); err != nil {
+			slog.Error("booth: could not tell a visitor their relay expired", "ref", r.Ref, "error", err)
+		}
+		slog.Info("booth: relay expired unanswered", "ref", r.Ref, "bridge", r.BridgeID)
+	}
+	return nil
 }

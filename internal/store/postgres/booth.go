@@ -154,3 +154,44 @@ func scanBoothRelays(rows *sql.Rows) ([]store.BoothRelay, error) {
 	}
 	return out, rows.Err()
 }
+
+// ExpiredOpenBoothRelays finds conversations whose reply never arrived, so the
+// visitor can be told instead of left with silence (MESHSAT-1175).
+func (d *DB) ExpiredOpenBoothRelays(ctx context.Context, tenantID string, now time.Time) ([]store.BoothRelay, error) {
+	rows, err := d.db.QueryContext(ctx,
+		`SELECT tenant_id, ref, sender, channel, bridge_id, mesh_dest, body,
+		        created_at, expires_at, closed_at
+		 FROM booth_relays
+		 WHERE tenant_id = $1 AND closed_at IS NULL AND expires_at <= $2
+		 ORDER BY created_at`, tenantID, now)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+	return scanBoothRelays(rows)
+}
+
+func (d *DB) RecordBoothSend(ctx context.Context, tenantID, id, recipient, channel, kind string) error {
+	_, err := d.db.ExecContext(ctx,
+		`INSERT INTO booth_sends (tenant_id, id, recipient, channel, kind)
+		 VALUES ($1, $2, $3, $4, $5) ON CONFLICT DO NOTHING`,
+		tenantID, id, recipient, channel, kind)
+	return err
+}
+
+func (d *DB) CountBoothSendsTo(ctx context.Context, tenantID, recipient string, since time.Time) (int, error) {
+	var n int
+	err := d.db.QueryRowContext(ctx,
+		`SELECT count(*) FROM booth_sends
+		 WHERE tenant_id = $1 AND recipient = $2 AND created_at >= $3`,
+		tenantID, recipient, since).Scan(&n)
+	return n, err
+}
+
+func (d *DB) CountBoothSends(ctx context.Context, tenantID string, since time.Time) (int, error) {
+	var n int
+	err := d.db.QueryRowContext(ctx,
+		`SELECT count(*) FROM booth_sends WHERE tenant_id = $1 AND created_at >= $2`,
+		tenantID, since).Scan(&n)
+	return n, err
+}

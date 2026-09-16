@@ -304,6 +304,14 @@ type Store interface {
 	CloseBoothRelay(ctx context.Context, tenantID, ref string) error
 	CountBoothRelaysBySender(ctx context.Context, tenantID, sender string, since time.Time) (int, error)
 	CountBoothRelays(ctx context.Context, tenantID string, since time.Time) (int, error)
+	// ExpiredOpenBoothRelays are conversations whose reply never came. The booth
+	// tells the visitor rather than leaving them watching a silent phone.
+	ExpiredOpenBoothRelays(ctx context.Context, tenantID string, now time.Time) ([]BoothRelay, error)
+	// The send ledger: every message the booth puts on a bearer, so spend has a
+	// ceiling. Counts rows, so the budget cannot drift from what was sent.
+	RecordBoothSend(ctx context.Context, tenantID, id, recipient, channel, kind string) error
+	CountBoothSendsTo(ctx context.Context, tenantID, recipient string, since time.Time) (int, error)
+	CountBoothSends(ctx context.Context, tenantID string, since time.Time) (int, error)
 
 	SaveEmailContact(ctx context.Context, tenantID, email, armoredKey string) error
 	ListEmailContacts(ctx context.Context, tenantID string) ([]EmailContact, error)

@@ -2,6 +2,7 @@ package storetest
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
@@ -149,5 +150,68 @@ func testBoothRelay(t *testing.T, db store.Store) {
 	}
 	if open, err = db.OpenBoothRelaysFor(ctx, mine, kit, "!deadbeef"); err != nil || len(open) != 0 {
 		t.Errorf("an expired conversation counted as open: %d (err %v)", len(open), err)
+	}
+}
+
+// MESHSAT-1175: the spend ledger and the expiry sweep, both dialects.
+func testBoothSpendAndExpiry(t *testing.T, db store.Store) {
+	ctx := context.Background()
+	const mine, theirs, kit = "t_spend_mine", "t_spend_theirs", "nllei01parallax01"
+
+	for i, who := range []string{"+31600000001", "+31600000001", "+31600000002"} {
+		if err := db.RecordBoothSend(ctx, mine, fmt.Sprintf("s%d", i), who, "sms", "visitor"); err != nil {
+			t.Fatalf("record send: %v", err)
+		}
+	}
+	if err := db.RecordBoothSend(ctx, theirs, "s9", "+31600000001", "sms", "visitor"); err != nil {
+		t.Fatalf("record other tenant: %v", err)
+	}
+
+	since := time.Now().Add(-time.Hour)
+	if n, err := db.CountBoothSendsTo(ctx, mine, "+31600000001", since); err != nil || n != 2 {
+		t.Errorf("per-recipient count = %d (err %v), want 2", n, err)
+	}
+	if n, err := db.CountBoothSends(ctx, mine, since); err != nil || n != 3 {
+		t.Errorf("global count = %d (err %v), want 3", n, err)
+	}
+	// Another tenant's spending must not consume this tenant's budget.
+	if n, err := db.CountBoothSends(ctx, theirs, since); err != nil || n != 1 {
+		t.Errorf("other tenant count = %d (err %v), want 1", n, err)
+	}
+	// Recording the same id twice must not double-charge the budget.
+	if err := db.RecordBoothSend(ctx, mine, "s0", "+31600000001", "sms", "visitor"); err != nil {
+		t.Fatalf("replay: %v", err)
+	}
+	if n, _ := db.CountBoothSends(ctx, mine, since); n != 3 {
+		t.Errorf("a replayed send id was counted twice: %d", n)
+	}
+
+	// An unanswered relay turns up in the sweep; an answered one does not.
+	past := time.Now().Add(-time.Minute)
+	if err := db.CreateBoothRelay(ctx, &store.BoothRelay{
+		TenantID: mine, Ref: "EX", Sender: "+31600000003", Channel: "sms",
+		BridgeID: kit, ExpiresAt: past,
+	}); err != nil {
+		t.Fatalf("create expired: %v", err)
+	}
+	if err := db.CreateBoothRelay(ctx, &store.BoothRelay{
+		TenantID: mine, Ref: "OK", Sender: "+31600000004", Channel: "sms",
+		BridgeID: kit, ExpiresAt: time.Now().Add(time.Hour),
+	}); err != nil {
+		t.Fatalf("create live: %v", err)
+	}
+	got, err := db.ExpiredOpenBoothRelays(ctx, mine, time.Now())
+	if err != nil {
+		t.Fatalf("expired: %v", err)
+	}
+	if len(got) != 1 || got[0].Ref != "EX" {
+		t.Fatalf("expired sweep returned %d rows %v, want just EX", len(got), got)
+	}
+	// Closing it takes it out of the sweep, so a visitor is told once.
+	if err := db.CloseBoothRelay(ctx, mine, "EX"); err != nil {
+		t.Fatalf("close: %v", err)
+	}
+	if got, _ = db.ExpiredOpenBoothRelays(ctx, mine, time.Now()); len(got) != 0 {
+		t.Errorf("a closed relay still appears in the sweep: %v", got)
 	}
 }

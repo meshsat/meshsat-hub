@@ -156,3 +156,42 @@ func scanBoothRelays(rows *sql.Rows) ([]store.BoothRelay, error) {
 	}
 	return out, rows.Err()
 }
+
+// See the Postgres twin.
+func (d *DB) ExpiredOpenBoothRelays(ctx context.Context, tenantID string, now time.Time) ([]store.BoothRelay, error) {
+	rows, err := d.db.QueryContext(ctx,
+		`SELECT tenant_id, ref, sender, channel, bridge_id, mesh_dest, body,
+		        created_at, expires_at, closed_at
+		 FROM booth_relays
+		 WHERE tenant_id = ? AND closed_at IS NULL AND expires_at <= ?
+		 ORDER BY created_at`, tenantID, boothTime(now))
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+	return scanBoothRelays(rows)
+}
+
+func (d *DB) RecordBoothSend(ctx context.Context, tenantID, id, recipient, channel, kind string) error {
+	_, err := d.db.ExecContext(ctx,
+		`INSERT OR IGNORE INTO booth_sends (tenant_id, id, recipient, channel, kind)
+		 VALUES (?, ?, ?, ?, ?)`, tenantID, id, recipient, channel, kind)
+	return err
+}
+
+func (d *DB) CountBoothSendsTo(ctx context.Context, tenantID, recipient string, since time.Time) (int, error) {
+	var n int
+	err := d.db.QueryRowContext(ctx,
+		`SELECT count(*) FROM booth_sends
+		 WHERE tenant_id = ? AND recipient = ? AND created_at >= ?`,
+		tenantID, recipient, boothTime(since)).Scan(&n)
+	return n, err
+}
+
+func (d *DB) CountBoothSends(ctx context.Context, tenantID string, since time.Time) (int, error) {
+	var n int
+	err := d.db.QueryRowContext(ctx,
+		`SELECT count(*) FROM booth_sends WHERE tenant_id = ? AND created_at >= ?`,
+		tenantID, boothTime(since)).Scan(&n)
+	return n, err
+}

@@ -2095,6 +2095,25 @@ func main() {
 				slog.Error("booth: could not subscribe for mesh replies", "error", err)
 				os.Exit(1)
 			}
+			// A relay nobody answers is closed and the visitor told, rather than
+			// left watching a silent phone. Runs on both replicas; the work is
+			// claimed once per relay so only one of them speaks.
+			go func() {
+				t := time.NewTicker(30 * time.Second)
+				defer t.Stop()
+				for {
+					select {
+					case <-ctx.Done():
+						return
+					case <-t.C:
+						sctx, cancel := context.WithTimeout(ctx, 20*time.Second)
+						if err := boothSvc.SweepExpired(sctx, store.DefaultTenantID); err != nil {
+							slog.Error("booth: expiry sweep failed", "error", err)
+						}
+						cancel()
+					}
+				}
+			}()
 			slog.Info("booth: stand flow enabled",
 				"kits", len(kits), "sms_keyword", cfg.BoothSMSKeyword, "whatsapp", waWebhook != nil)
 		}

@@ -61,6 +61,14 @@ type Policy struct {
 	GlobalWindow time.Duration
 	// RelayTTL is how long a conversation stays open for a reply.
 	RelayTTL time.Duration
+	// The spend ceiling. The quotas above count RELAYS, which is not what costs
+	// money: a visitor who texts the keyword and browses the menu without ever
+	// relaying still sends four messages and hits no limit at all. These count
+	// MESSAGES, which is what the carrier actually bills.
+	PerRecipient       int
+	PerRecipientWindow time.Duration
+	GlobalMessages     int
+	GlobalWindowMsgs   time.Duration
 }
 
 // Kit is one allowlisted destination.
@@ -88,6 +96,14 @@ func DefaultPolicy(kits []Kit) Policy {
 		// delivered. Thirty minutes here would hold a kit hostage for half an
 		// hour because one visitor wandered off.
 		RelayTTL: 5 * time.Minute,
+		// Sized against the account rather than picked round: at NL rates a full
+		// visitor run is about 7 messages and USD 0.80, and the balance is under
+		// USD 100. 250 a day across two days is roughly USD 57, which leaves
+		// headroom; 30 per visitor is about four complete runs.
+		PerRecipient:       30,
+		PerRecipientWindow: 24 * time.Hour,
+		GlobalMessages:     250,
+		GlobalWindowMsgs:   24 * time.Hour,
 	}
 }
 
