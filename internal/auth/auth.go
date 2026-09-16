@@ -339,8 +339,17 @@ func isExempt(path string) bool {
 	case path == "/api/auth/login",
 		path == "/api/auth/refresh",
 		path == "/api/auth/config",
+		path == "/api/auth/logout",
 		path == "/api/auth/oidc/login",
 		path == "/api/auth/oidc/callback":
+		// Logout was NOT in this list, while the comment at its registration in
+		// main.go said it was exempt (MESHSAT-1189). The effect was that logging
+		// out required a live access token: once the 15-minute token had
+		// expired, the refresh token -- good for seven days -- could no longer
+		// be revoked by its owner. The handler was changed in the same commit to
+		// revoke by the refresh token it is PRESENTED, because exempting the
+		// route on its own would have cleared the cookie and revoked nothing,
+		// which reports success while the credential stays valid for a week.
 		return true
 	case strings.HasPrefix(path, "/api/"):
 		return false

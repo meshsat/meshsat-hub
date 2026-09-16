@@ -299,8 +299,45 @@ func (h *LoginHandler) Refresh(w http.ResponseWriter, r *http.Request) {
 // @Success      200  {object}  map[string]string
 // @Router       /api/auth/logout [post]
 func (h *LoginHandler) Logout(w http.ResponseWriter, r *http.Request) {
-	user := hubauth.FromContext(r.Context())
-	if user != nil {
+	// Revoke by the REFRESH TOKEN the caller presents, not by the access token
+	// in context (MESHSAT-1189).
+	//
+	// This route is auth-exempt, because the thing being revoked outlives the
+	// thing that used to authorise the revocation: an access token lasts 15
+	// minutes and a refresh token seven days, so keying logout on the access
+	// token meant that after fifteen minutes a user could no longer end their
+	// own session. Clearing the cookie without revoking would be worse than
+	// failing -- it reports success while the credential stays valid for a week.
+	//
+	// So: resolve the presented refresh token, and revoke every refresh token
+	// of the user it belongs to. That keeps "log out everywhere" working for an
+	// expired session, and an unauthenticated caller with no valid refresh
+	// token revokes nothing, which is the correct outcome and not an error
+	// worth telling them apart with.
+	var refreshToken string
+	if cookie, err := r.Cookie("meshsat_refresh"); err == nil {
+		refreshToken = cookie.Value
+	}
+	if refreshToken == "" {
+		var req struct {
+			RefreshToken string `json:"refresh_token"`
+		}
+		if err := readJSON(w, r, &req, 1024); err == nil {
+			refreshToken = req.RefreshToken
+		}
+	}
+	if refreshToken != "" {
+		tokenHash := hubauth.HashRefreshToken(refreshToken)
+		if rt, err := h.store.GetRefreshToken(r.Context(), tokenHash); err == nil && rt != nil {
+			_ = h.store.DeleteRefreshTokensByUser(r.Context(), rt.TenantID, rt.UserID)
+		} else {
+			// Unknown or already-rotated token: still drop exactly this one.
+			_ = h.store.DeleteRefreshToken(r.Context(), tokenHash)
+		}
+	}
+	// A still-valid access token also identifies the session to end, which
+	// covers a client that holds the refresh token nowhere we can read.
+	if user := hubauth.FromContext(r.Context()); user != nil {
 		tenantID := hubauth.TenantIDFromContext(r.Context())
 		_ = h.store.DeleteRefreshTokensByUser(r.Context(), tenantID, user.ID)
 	}
