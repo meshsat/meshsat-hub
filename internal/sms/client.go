@@ -20,6 +20,7 @@ type Client struct {
 	accountSID string
 	authToken  string
 	fromNumber string
+	channel    string // "" or "sms" for SMS; "whatsapp" for the WhatsApp bearer
 	apiURL     string // overridable for tests
 	httpClient *http.Client
 }
@@ -59,7 +60,29 @@ func (c *Client) SetAPIURL(url string) {
 	c.apiURL = url
 }
 
-// Send sends an SMS message to the given phone number.
+// SetChannel selects the bearer this client sends on: "" / "sms" for SMS,
+// "whatsapp" for WhatsApp.
+//
+// Twilio sends both through the same /Messages.json endpoint on the same
+// account; a WhatsApp send is the same request with "whatsapp:" in front of
+// both To and From. So this is a decoration on the existing client rather than
+// a second one, which is also what keeps the credential handling, timeouts,
+// error mapping and status parsing identical across the two bearers.
+func (c *Client) SetChannel(ch string) { c.channel = ch }
+
+// addr applies the channel prefix Twilio expects on an address.
+//
+// Callers pass bare E.164 throughout, because that is the Hub's device id
+// (MESHSAT-1173); the prefix exists only on the wire to Twilio and is added
+// here, at the last possible moment, and stripped on the way back in.
+func (c *Client) addr(a string) string {
+	if c.channel == "whatsapp" && !strings.HasPrefix(a, "whatsapp:") {
+		return "whatsapp:" + a
+	}
+	return a
+}
+
+// Send sends a message to the given phone number on this client's channel.
 func (c *Client) Send(ctx context.Context, to, body string) (*SendResult, error) {
 	if to == "" {
 		return nil, fmt.Errorf("sms: empty recipient number")
@@ -69,8 +92,8 @@ func (c *Client) Send(ctx context.Context, to, body string) (*SendResult, error)
 	}
 
 	form := url.Values{
-		"To":   {to},
-		"From": {c.fromNumber},
+		"To":   {c.addr(to)},
+		"From": {c.addr(c.fromNumber)},
 		"Body": {body},
 	}
 

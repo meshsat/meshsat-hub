@@ -15,6 +15,7 @@ import (
 	"github.com/rs/xid"
 	"log/slog"
 	"net/http"
+	"strings"
 	"time"
 	"unicode/utf8"
 
@@ -74,6 +75,7 @@ type WebhookHandler struct {
 	tenants          *tenancy.Resolver // device → tenant for topic namespaces; nil = default tenant
 	mqtt             bus.MessageBus
 	secret           string                // platform custom-relay HMAC secret (default tenant)
+	channel          string                // "sms" (default) or "whatsapp" (MESHSAT-1173)
 	inboundAuthToken string                // platform Twilio ACCOUNT auth token, for X-Twilio-Signature
 	accounts         *integrations.Service // per-tenant webhook tokens/secrets (MESHSAT-977)
 	oob              OOBClassifier         // management frames (MESHSAT-964)
@@ -112,6 +114,45 @@ type OOBClassifier interface {
 // use, cfg.SMSAuthToken holds the API Key Secret, which Twilio does not sign
 // with. See internal/sms/twilio_signature.go.
 func (h *WebhookHandler) SetInboundAuthToken(t string) { h.inboundAuthToken = t }
+
+// SetChannel names the bearer this handler serves: "sms" (the default) or
+// "whatsapp". Twilio delivers both in the same form shape on the same account,
+// so the pipeline is shared and only three things differ -- the channel recorded
+// on every message, the "whatsapp:" prefix Twilio puts on From and To, and
+// whether a body may be a binary payload (see ServeHTTP).
+func (h *WebhookHandler) SetChannel(c string) { h.channel = c }
+
+// channelName is the bearer recorded on everything this handler emits.
+func (h *WebhookHandler) channelName() string {
+	if h.channel == "" {
+		return "sms"
+	}
+	return h.channel
+}
+
+// addrPrefix is what Twilio puts in front of an address on this channel.
+// WhatsApp addresses are "whatsapp:+3197...", SMS addresses are bare.
+func (h *WebhookHandler) addrPrefix() string {
+	if h.channelName() == "whatsapp" {
+		return "whatsapp:"
+	}
+	return ""
+}
+
+// stripAddr takes Twilio's channel prefix off an address.
+//
+// The bare E.164 is what the rest of the Hub uses as the device id, and it has
+// to stay that way: "+" is already an MQTT wildcard that EncodeSegment has to
+// percent-encode (Critical Rule 18), and "whatsapp:+31..." would put a colon in
+// a topic segment on top of it. Keeping the prefix out of the id also means one
+// person reachable on two bearers is ONE device with two channels, rather than
+// two devices that never reconcile.
+func stripAddr(addr string) string {
+	if i := strings.IndexByte(addr, ':'); i >= 0 {
+		return addr[i+1:]
+	}
+	return addr
+}
 
 // SetOOB attaches the out-of-band classifier.
 func (h *WebhookHandler) SetOOB(c OOBClassifier) { h.oob = c }
@@ -272,8 +313,10 @@ func (h *WebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	from := r.FormValue("From")
-	to := r.FormValue("To")
+	// Twilio addresses WhatsApp as "whatsapp:+3197...". Strip it here, once, so
+	// everything downstream sees the same bare E.164 it sees for SMS.
+	from := stripAddr(r.FormValue("From"))
+	to := stripAddr(r.FormValue("To"))
 	body := r.FormValue("Body")
 	messageSID := r.FormValue("MessageSid")
 
@@ -286,13 +329,19 @@ func (h *WebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// assurance. The URL the message arrived at is the assertion of tenancy
 	// here, and the Twilio signature above is what makes it trustworthy.
 
-	slog.Info("sms: inbound received", "from", from, "to", to, "sid", messageSID, "len", len(body))
+	slog.Info("inbound received", "channel", h.channelName(),
+		"from", from, "to", to, "sid", messageSID, "len", len(body))
 
 	// SMS payloads can be plaintext or base64-encoded binary.
 	// Try base64 decode first — if it succeeds, treat as binary pipeline.
 	// If it fails, treat as plaintext SMS (legacy path).
+	// ...but only on SMS. WhatsApp is the last mile to a CONNECTED person, not a
+	// device transport, so nothing legitimately sends it a fragmented binary
+	// payload -- while plenty of ordinary replies decode as valid base64 by
+	// accident. "1234" and "test" both do. Running that detection on a menu
+	// reply would route a visitor's tap into the binary pipeline and lose it.
 	rawBytes, b64Err := base64.StdEncoding.DecodeString(body)
-	isBinary := b64Err == nil && len(rawBytes) > 0
+	isBinary := h.channelName() == "sms" && b64Err == nil && len(rawBytes) > 0
 
 	if isBinary {
 		h.processBinaryPipeline(r, w, from, to, messageSID, rawBytes)
@@ -355,7 +404,7 @@ func (h *WebhookHandler) processBinaryPipeline(r *http.Request, w http.ResponseW
 	h.publish(hubmqtt.TopicMORawFor(h.tenantOf(r.Context(), from), from), 1, false, RawSMS{
 		From:      from,
 		Raw:       rawB64,
-		Channel:   "sms",
+		Channel:   h.channelName(),
 		Timestamp: time.Now().UTC().Format(time.RFC3339),
 	})
 
@@ -428,7 +477,7 @@ func (h *WebhookHandler) processBinaryPipeline(r *http.Request, w http.ResponseW
 		Body:        text,
 		Text:        text,
 		MessageSID:  messageSID,
-		Channel:     "sms",
+		Channel:     h.channelName(),
 		Compressed:  compressed,
 		Compression: compressionType,
 		Encrypted:   encrypted,
@@ -448,7 +497,7 @@ func (h *WebhookHandler) processBinaryPipeline(r *http.Request, w http.ResponseW
 			ID:         msgID,
 			DeviceIMEI: from,
 			Direction:  "mo",
-			Channel:    "sms",
+			Channel:    h.channelName(),
 			Text:       text,
 			RawHex:     rawB64,
 			Compressed: compressed,
@@ -506,7 +555,7 @@ func (h *WebhookHandler) processPlaintextSMS(r *http.Request, w http.ResponseWri
 		Body:       body,
 		Text:       body,
 		MessageSID: messageSID,
-		Channel:    "sms",
+		Channel:    h.channelName(),
 		Timestamp:  time.Now().UTC().Format(time.RFC3339),
 	}
 
@@ -527,7 +576,7 @@ func (h *WebhookHandler) processPlaintextSMS(r *http.Request, w http.ResponseWri
 			ID:         msgID,
 			DeviceIMEI: from,
 			Direction:  "mo",
-			Channel:    "sms",
+			Channel:    h.channelName(),
 			Text:       body,
 			Status:     "received",
 		}
