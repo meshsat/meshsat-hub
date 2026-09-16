@@ -185,6 +185,28 @@ func TestEveryBoothMessageFitsOneSMS(t *testing.T) {
 	t.Run("budget reached", func(t *testing.T) {
 		check(t, "budget reached", budgetReachedText)
 	})
+
+	// Mesh presence (MESHSAT-1181) adds text to the two busiest screens: the
+	// picker grows a marker per kit, and a quiet kit gets its own prompt. The
+	// picker is measured with EVERY kit marked, which is the longest it gets.
+	t.Run("mesh picker, all live", func(t *testing.T) {
+		f := newFake()
+		e := newEngine(f, nil)
+		e.SetMeshLive(func(context.Context, string, string) bool { return true })
+		_, _ = e.Handle(ctx, tenant, who, "sms", OptSendMessage, "")
+		r, _ := e.Handle(ctx, tenant, who, "sms", OptOptInYes, "")
+		check(t, "mesh picker, all live", rendered(r))
+	})
+
+	t.Run("quiet kit prompt", func(t *testing.T) {
+		f := newFake()
+		e := newEngine(f, nil)
+		e.SetMeshLive(func(context.Context, string, string) bool { return false })
+		_, _ = e.Handle(ctx, tenant, who, "sms", OptSendMessage, "")
+		_, _ = e.Handle(ctx, tenant, who, "sms", OptOptInYes, "")
+		r, _ := e.Handle(ctx, tenant, who, "sms", kitOptPrefix+"nllei01parallax01", "")
+		check(t, "quiet kit prompt", rendered(r))
+	})
 }
 
 // A message that is exactly at the cap must still be one segment, and one

@@ -140,6 +140,16 @@ type Relay struct {
 // silently goes nowhere is worse than being told to try the other one.
 type OnlineFunc func(ctx context.Context, bridgeID string) bool
 
+// MeshLiveFunc reports whether a node has been HEARD behind a kit recently
+// (MESHSAT-1181). It answers a different question from OnlineFunc: that one is
+// about the Pi's cellular link, this one is about radio.
+//
+// Its silence is not a negative. Presence is only observable when a node
+// transmits, so "false" means "no recent evidence", never "empty" -- at the
+// start of a show day it is false for every kit while both meshes are fine.
+// Nothing here may therefore refuse a kit on a false; it may only say so.
+type MeshLiveFunc func(ctx context.Context, tenantID, bridgeID string) bool
+
 // Store is the slice of the Hub's store this package needs.
 //
 // Narrow on purpose: the engine is the piece that decides what goes on the air,
@@ -155,10 +165,11 @@ type Store interface {
 
 // Engine runs the scripted flow.
 type Engine struct {
-	store  Store
-	policy Policy
-	online OnlineFunc
-	now    func() time.Time
+	store    Store
+	policy   Policy
+	online   OnlineFunc
+	meshLive MeshLiveFunc
+	now      func() time.Time
 }
 
 // New builds an engine. online may be nil, in which case every kit is treated
@@ -166,6 +177,10 @@ type Engine struct {
 func New(s Store, p Policy, online OnlineFunc) *Engine {
 	return &Engine{store: s, policy: p, online: online, now: time.Now}
 }
+
+// SetMeshLive attaches the radio-side check. Left unset, the flow behaves
+// exactly as it did before mesh presence existed: every kit is offered plainly.
+func (e *Engine) SetMeshLive(f MeshLiveFunc) { e.meshLive = f }
 
 var errNoKits = errors.New("booth: no destinations configured")
 
@@ -254,7 +269,7 @@ func (e *Engine) step(ctx context.Context, sess *store.BoothSession, choice, tex
 				{ID: OptOptInNo, Label: "No thanks"},
 			}}, StateAwaitingOptIn, nil
 		}
-		return e.kitPrompt(), StateAwaitingKit, nil
+		return e.kitPrompt(ctx, sess.TenantID), StateAwaitingKit, nil
 
 	case choice == OptOptInNo:
 		return &Reply{Text: "No problem. Nothing has been sent.", Options: e.menuOptions()}, StateMenu, nil
@@ -264,22 +279,31 @@ func (e *Engine) step(ctx context.Context, sess *store.BoothSession, choice, tex
 		// store never lets a later save clear it.
 		now := e.now().UTC()
 		sess.OptedInAt = &now
-		return e.kitPrompt(), StateAwaitingKit, nil
+		return e.kitPrompt(ctx, sess.TenantID), StateAwaitingKit, nil
 
 	case strings.HasPrefix(choice, kitOptPrefix):
 		kit, ok := e.kitByID(strings.TrimPrefix(choice, kitOptPrefix))
 		if !ok {
-			return e.kitPrompt(), StateAwaitingKit, nil
+			return e.kitPrompt(ctx, sess.TenantID), StateAwaitingKit, nil
 		}
 		if e.online != nil && !e.online(ctx, kit.BridgeID) {
 			return &Reply{
 				Text:    fmt.Sprintf("%s is offline right now, so nothing would arrive. Try the other one.", kit.Label),
-				Options: e.kitOptions(),
+				Options: e.kitOptionsFor(ctx, sess.TenantID),
 			}, StateAwaitingKit, nil
 		}
 		// The chosen kit is carried IN the persisted state, not in memory: the
 		// visitor's next message routinely lands on the other replica, and a
 		// destination held in a field on this process would be gone by then.
+		//
+		// The kit is online, so the message WILL reach it. Whether anything on
+		// its mesh hears it is a separate question the Hub can only answer when
+		// a node has spoken recently, so when it has not, say so here rather
+		// than let the visitor discover it as silence (MESHSAT-1181).
+		if e.meshLive != nil && !e.meshLive(ctx, sess.TenantID, kit.BridgeID) {
+			return &Reply{Text: fmt.Sprintf(quietKitTextFmt, kit.Label, e.policy.MaxRunes)},
+				StateAwaitingText + ":" + kit.BridgeID, nil
+		}
 		return &Reply{Text: fmt.Sprintf("Type your message for %s. Up to %d characters.",
 			kit.Label, e.policy.MaxRunes)}, StateAwaitingText + ":" + kit.BridgeID, nil
 
@@ -310,7 +334,7 @@ func (e *Engine) relay(ctx context.Context, sess *store.BoothSession, text strin
 	// message, so a typed message can never redirect itself.
 	kit, ok := e.kitForSession(sess)
 	if !ok {
-		return e.kitPrompt(), StateAwaitingKit, nil
+		return e.kitPrompt(ctx, sess.TenantID), StateAwaitingKit, nil
 	}
 
 	body := strings.TrimSpace(text)
@@ -361,7 +385,7 @@ func (e *Engine) relay(ctx context.Context, sess *store.BoothSession, text strin
 		}
 		return &Reply{
 			Text:    fmt.Sprintf("%s is mid-conversation with someone else. Pick the other mesh, or try again in a moment.", kit.Label),
-			Options: e.kitOptions(),
+			Options: e.kitOptionsFor(ctx, sess.TenantID),
 		}, StateAwaitingKit, nil
 	}
 
@@ -386,6 +410,15 @@ func (e *Engine) menuOptions() []Option {
 	}
 }
 
+// kitOptions is the RESOLUTION set: the ids and the order a typed "1" or "2" is
+// matched against.
+//
+// It must never depend on anything that changes between two of a visitor's
+// messages. Presence does exactly that, and both replicas re-derive this set
+// independently, so ordering kits by liveness would mean a node going quiet
+// between the menu and the reply silently changes which mesh "1" selects. The
+// live/quiet distinction is therefore a LABEL, applied in kitOptionsFor below,
+// and never a reordering.
 func (e *Engine) kitOptions() []Option {
 	out := make([]Option, 0, len(e.policy.Kits))
 	for _, k := range e.policy.Kits {
@@ -394,8 +427,26 @@ func (e *Engine) kitOptions() []Option {
 	return out
 }
 
-func (e *Engine) kitPrompt() *Reply {
-	return &Reply{Text: "Which mesh should it go to?", Options: e.kitOptions()}
+// kitOptionsFor is the DISPLAY set: the same options in the same order, with a
+// marker on any kit we have positive recent evidence for.
+//
+// Only a live kit is marked. A quiet one is left plain rather than labelled
+// dead, because silence is not evidence of an empty mesh -- see MeshLiveFunc.
+func (e *Engine) kitOptionsFor(ctx context.Context, tenantID string) []Option {
+	opts := e.kitOptions()
+	if e.meshLive == nil {
+		return opts
+	}
+	for i, k := range e.policy.Kits {
+		if e.meshLive(ctx, tenantID, k.BridgeID) {
+			opts[i].Label = k.Label + kitLiveSuffix
+		}
+	}
+	return opts
+}
+
+func (e *Engine) kitPrompt(ctx context.Context, tenantID string) *Reply {
+	return &Reply{Text: kitPromptText, Options: e.kitOptionsFor(ctx, tenantID)}
 }
 
 func (e *Engine) kitByID(bridgeID string) (Kit, bool) {
@@ -443,4 +494,12 @@ const (
 	// limit for the same reason: they go to the same phones over the same bearer.
 	expiredTextFmt    = "No answer came back for #%s. Nobody was listening on that mesh just now -- try the other one, or come to the table."
 	budgetReachedText = "That is all the messages the stand can send today. Come and say hello at the table instead."
+
+	// Mesh presence (MESHSAT-1181). The suffix marks a mesh we have POSITIVE
+	// recent evidence for; an unmarked one is unknown, not dead, so there is
+	// deliberately no "quiet" or "empty" label to sit beside it.
+	kitPromptText   = "Which mesh should it go to? A live one has someone listening right now."
+	kitLiveSuffix   = " (live)"
+	quietKitTextFmt = "Nobody has spoken on %s for a while, so it may not answer. " +
+		"Type your message anyway, up to %d characters."
 )

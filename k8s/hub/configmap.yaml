@@ -218,6 +218,12 @@ data:
   # six days before TTC: WhatsApp cannot deliver a single message while that
   # stands, and SMS needs no Meta approval at all.
   HUB_BOOTH_SMS_KEYWORD: "MESHSAT"
+  # How recently a node must have been HEARD behind a kit for the stand to call
+  # that mesh live (MESHSAT-1181). Presence is only observable when a node
+  # transmits, so this governs a POSITIVE signal: outside the window the Hub
+  # says "no recent evidence" and still offers the kit, it never says "empty".
+  # Set to 0 to stop asking the question at all.
+  HUB_BOOTH_MESH_WINDOW: "30m"
   HUB_BOOTH_CONTENT_MENU: "HX0d6710337e5ff9e5b9ed1d6496f2372c"
   HUB_BOOTH_CONTENT_OPTIN: "HXc80c6bc6e7b71cff01935143d9dc5a7e"
   HUB_BOOTH_CONTENT_KITS: "HX5d7051b39bf8001239620c0334c080e4"

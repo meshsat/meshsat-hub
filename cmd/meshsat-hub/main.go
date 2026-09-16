@@ -59,6 +59,7 @@ import (
 	"github.com/meshsat/meshsat-hub/internal/ipougrs"
 	"github.com/meshsat/meshsat-hub/internal/leader"
 	"github.com/meshsat/meshsat-hub/internal/mail"
+	"github.com/meshsat/meshsat-hub/internal/mesh"
 	hubmessage "github.com/meshsat/meshsat-hub/internal/message"
 	"github.com/meshsat/meshsat-hub/internal/metrics"
 	hubmw "github.com/meshsat/meshsat-hub/internal/middleware"
@@ -617,6 +618,15 @@ func main() {
 	msgSub := hubmessage.NewSubscriber(msgBus, dataStore, tenants)
 	if err := msgSub.Start(); err != nil {
 		slog.Error("message: failed to start subscriber", "error", err)
+	}
+
+	// Mesh presence: notes which nodes have been heard behind which bridge
+	// (MESHSAT-1181). It runs whether or not the booth does, because "has
+	// anything been heard on this mesh" is a question the fleet views want
+	// too, and because it is only an upsert of an observation.
+	meshPresence := mesh.NewRecorder(msgBus, dataStore, tenants)
+	if err := meshPresence.Start(); err != nil {
+		slog.Error("mesh: failed to start the presence recorder", "error", err)
 	}
 
 	// Bridge lifecycle subscriber: auto-provisions bridges and devices from MQTT birth/death/health.
@@ -2061,8 +2071,16 @@ func main() {
 				slog.Error("booth: bad HUB_BOOTH_KITS", "error", err)
 				os.Exit(1)
 			}
+			// The radio-side check (MESHSAT-1181). bridgeOnline above answers
+			// whether the Pi is on the network; this answers whether anything
+			// on its mesh has been heard lately. They are different failures
+			// and the visitor is told about them differently.
+			boothEngine := booth.New(dataStore, booth.DefaultPolicy(kits), bridgeOnline(dataStore))
+			if cfg.BoothMeshWindow > 0 {
+				boothEngine.SetMeshLive(mesh.LiveFunc(dataStore, cfg.BoothMeshWindow))
+			}
 			boothSvc := booth.NewService(
-				booth.New(dataStore, booth.DefaultPolicy(kits), bridgeOnline(dataStore)),
+				boothEngine,
 				dataStore,
 				smsKitSender{store: dataStore, c: smsPlatform},
 				booth.Templates{
