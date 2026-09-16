@@ -1,5 +1,12 @@
-# PodSecurity is AUDITED and WARNED at `baseline` here, and deliberately NOT
-# enforced (MESHSAT-1171).
+# PodSecurity is AUDITED and WARNED at `restricted` here, and deliberately NOT
+# enforced (MESHSAT-1171, raised from baseline to restricted in MESHSAT-1191).
+#
+# Raising the bar before raising enforcement is the whole point of the staging
+# this comment already describes: `baseline` says nothing about a container
+# that keeps the default capability set, allows setuid escalation, has a
+# writable root filesystem or runs without a seccomp profile -- which is the
+# state every workload here was in. `restricted` names all four, so the audit
+# annotations now report the real gap rather than a flattering subset.
 #
 # The namespace had no pod-security labels at all, which meant nothing noticed
 # what its pods were allowed to do -- including tor, an internet-facing daemon
@@ -19,17 +26,30 @@ metadata:
   name: meshsat-hub
   labels:
     app.kubernetes.io/part-of: meshsat-hub
-    pod-security.kubernetes.io/audit: baseline
+    pod-security.kubernetes.io/audit: restricted
     pod-security.kubernetes.io/audit-version: latest
-    pod-security.kubernetes.io/warn: baseline
+    pod-security.kubernetes.io/warn: restricted
     pod-security.kubernetes.io/warn-version: latest
 ---
+# The Hub's own CNPG cluster. It had NO pod-security labels at all, so nothing
+# reported what the database pods were allowed to do -- while meshsat-tak-db,
+# the same operator holding less important data, enforces baseline and audits
+# restricted (MESHSAT-1191).
+#
+# Audit and warn only, no enforcement, for the reason written on meshsat-tak-db:
+# CNPG's pods have not been checked against either profile on this cluster, and
+# enforcing untested would block a pod recreation on the cluster that holds the
+# gapless invoice series and every tenant's data. Read the annotations first.
 apiVersion: v1
 kind: Namespace
 metadata:
   name: meshsat-hub-db
   labels:
     app.kubernetes.io/part-of: meshsat-hub
+    pod-security.kubernetes.io/audit: restricted
+    pod-security.kubernetes.io/audit-version: latest
+    pod-security.kubernetes.io/warn: restricted
+    pod-security.kubernetes.io/warn-version: latest
 ---
 # Hosted per-tenant TAK (MESHSAT-1035). One OpenTAKServer per customer lives
 # here, created by the tak-operator rather than by a commit.
