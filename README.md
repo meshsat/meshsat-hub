@@ -244,6 +244,7 @@ lint --> security --> test + test:postgres --> build --> package --> trivy --> b
 - [Deployment notes](docs/deployment.md) -- the hosted deployment
 - [Roadmap](docs/ROADMAP.md) -- Version history and planned work
 - [Security Audit](docs/SECURITY_AUDIT.md) -- SAST, SCA, and OWASP scan results
+- [The stand flow](docs/booth.md) -- the scripted visitor flow over SMS and WhatsApp, its spend ceiling and its mesh-presence checks
 
 ## Related Projects
 
