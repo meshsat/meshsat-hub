@@ -2,6 +2,7 @@ package booth
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -172,6 +173,17 @@ func TestEveryBoothMessageFitsOneSMS(t *testing.T) {
 	// same 160-character discipline because the kit relays it by SMS.
 	t.Run("ambiguity prompt", func(t *testing.T) {
 		check(t, "ambiguity prompt", AmbiguityPrompt(2))
+	})
+
+	// The Service speaks to visitors too, on paths the state machine never
+	// reaches: a sweep of a relay nobody answered, and the day's spend ceiling.
+	// Same phones, same bearer, same limit -- and no menu option would have
+	// walked the loop above into either one.
+	t.Run("expiry notice", func(t *testing.T) {
+		check(t, "expiry notice", fmt.Sprintf(expiredTextFmt, "A7"))
+	})
+	t.Run("budget reached", func(t *testing.T) {
+		check(t, "budget reached", budgetReachedText)
 	})
 }
 
