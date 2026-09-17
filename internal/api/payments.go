@@ -5,7 +5,6 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
-	"strconv"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -77,11 +76,7 @@ func (h *PaymentsHandler) ListUnmatched(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	limit := 50
-	if v := r.URL.Query().Get("limit"); v != "" {
-		if n, err := strconv.Atoi(v); err == nil && n > 0 && n <= 500 {
-			limit = n
-		}
-	}
+	limit = parseLimit(r, limit, maxListLimit)
 	// Unmatched payments are recorded against the platform tenant, and they
 	// are rare, so a bounded scan with the filter in Go beats a new index.
 	// The scan window is wider than the page so a burst of other events on
@@ -121,11 +116,7 @@ func (h *PaymentsHandler) ListBlockedReceipts(w http.ResponseWriter, r *http.Req
 		return
 	}
 	limit := 100
-	if v := r.URL.Query().Get("limit"); v != "" {
-		if n, err := strconv.Atoi(v); err == nil && n > 0 {
-			limit = n
-		}
-	}
+	limit = parseLimit(r, limit, maxListLimit)
 	out, err := h.store.ListReceiptsByStatus(r.Context(), store.ReceiptBlocked, limit)
 	if err != nil {
 		slog.Error("payments: list blocked receipts", "error", err)

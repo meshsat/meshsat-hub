@@ -1572,6 +1572,7 @@ func main() {
 		authCfg.Provider = hubauth.NewJWKSProvider(cfg.OIDCIssuerURL, hubauth.OIDCHTTPClient(authCfg))
 		sessionMgr = hubauth.NewSessionManager(jwtSecret, "meshsat-hub")
 		loginHandler = api.NewLoginHandler(dataStore, sessionMgr, auditSvc)
+		loginHandler.SetSecureCookies(strings.HasPrefix(cfg.PublicURL, "https://"))
 		if cfg.OIDCClientID != "" && cfg.OIDCClientSecret != "" && cfg.OIDCRedirectURI != "" {
 			oidcClient = &hubauth.OIDCClient{
 				Provider:     authCfg.Provider,
@@ -2268,6 +2269,7 @@ func main() {
 		if loginHandler == nil {
 			sessionMgr = hubauth.NewSessionManager(jwtSecret, "meshsat-hub")
 			loginHandler = api.NewLoginHandler(dataStore, sessionMgr, auditSvc)
+			loginHandler.SetSecureCookies(strings.HasPrefix(cfg.PublicURL, "https://"))
 		}
 		if localLogin {
 			r.Post("/api/auth/login", authRate(loginHandler.Login))
@@ -2282,6 +2284,7 @@ func main() {
 
 		// User management (owner-only)
 		userHandler := api.NewUserHandler(dataStore)
+		userHandler.SetAudit(auditSvc)
 		r.Route("/api/users", func(r chi.Router) {
 			r.Use(hubauth.RequireRole(hubauth.RoleOwner))
 			r.Get("/", userHandler.ListUsers)
@@ -2459,6 +2462,7 @@ func main() {
 
 	// API key management (owner-only)
 	apiKeyHandler := api.NewAPIKeyHandler(dataStore)
+	apiKeyHandler.SetAudit(auditSvc)
 	r.Route("/api/auth/keys", func(r chi.Router) {
 		r.Use(hubauth.RequireRole(hubauth.RoleOwner))
 		r.Post("/", apiKeyHandler.CreateKey)

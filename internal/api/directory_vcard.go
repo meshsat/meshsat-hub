@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"strconv"
 	"strings"
 
 	"github.com/meshsat/meshsat-hub/internal/auth"
@@ -178,11 +177,7 @@ func (h *DirectoryHandler) importContacts(w http.ResponseWriter, r *http.Request
 func (h *DirectoryHandler) ExportVCard(w http.ResponseWriter, r *http.Request) {
 	tid := auth.TenantIDFromContext(r.Context())
 	limit := 10000
-	if v := r.URL.Query().Get("limit"); v != "" {
-		if n, err := strconv.Atoi(v); err == nil && n > 0 {
-			limit = n
-		}
-	}
+	limit = parseLimit(r, limit, maxListLimit)
 	contacts, err := h.store.ListContacts(r.Context(), tid)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())

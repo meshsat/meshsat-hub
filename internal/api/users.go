@@ -3,6 +3,8 @@ package api
 import (
 	"crypto/rand"
 	"encoding/hex"
+	"fmt"
+	"github.com/meshsat/meshsat-hub/internal/audit"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -16,11 +18,33 @@ import (
 // UserHandler provides owner-only CRUD for local user accounts.
 type UserHandler struct {
 	store store.Store
+	audit *audit.Service
 }
 
 // NewUserHandler creates a user management handler.
 func NewUserHandler(s store.Store) *UserHandler {
 	return &UserHandler{store: s}
+}
+
+// SetAudit makes every change to a local account an audit event: creation,
+// role change, password change, enable/disable, deletion (ASVS V16).
+func (h *UserHandler) SetAudit(a *audit.Service) { h.audit = a }
+
+func (h *UserHandler) auditLog(r *http.Request, action, detail string) {
+	if h.audit == nil {
+		return
+	}
+	actor := "unknown"
+	if u := hubauth.FromContext(r.Context()); u != nil {
+		if u.Email != "" {
+			actor = u.Email
+		} else if u.ID != "" {
+			actor = u.ID
+		}
+	}
+	if err := h.audit.Log(r.Context(), hubauth.TenantIDFromContext(r.Context()), action, actor, detail, clientIPFromRequest(r)); err != nil {
+		slog.Warn("audit: failed to log "+action, "error", err)
+	}
 }
 
 type createUserRequest struct {
@@ -123,6 +147,7 @@ func (h *UserHandler) CreateUser(w http.ResponseWriter, r *http.Request) {
 	}
 
 	slog.Info("auth: user created", "email", req.Email, "role", role, "id", id)
+	h.auditLog(r, "user_created", fmt.Sprintf("id=%s email=%s role=%s", id, req.Email, role))
 	writeJSON(w, http.StatusCreated, toUserResponse(user))
 }
 
@@ -197,6 +222,7 @@ func (h *UserHandler) UpdateUser(w http.ResponseWriter, r *http.Request) {
 	if req.Name != "" {
 		user.Name = req.Name
 	}
+	previousRole, previousEnabled := user.Role, user.Enabled
 	if req.Role != "" {
 		if req.Role != "viewer" && req.Role != "operator" && req.Role != "owner" {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "role must be viewer, operator, or owner"})
@@ -228,6 +254,15 @@ func (h *UserHandler) UpdateUser(w http.ResponseWriter, r *http.Request) {
 	}
 
 	slog.Info("auth: user updated", "id", id, "role", user.Role, "enabled", user.Enabled)
+	if user.Role != previousRole {
+		h.auditLog(r, "user_role_changed", fmt.Sprintf("id=%s email=%s from=%s to=%s", id, user.Email, previousRole, user.Role))
+	}
+	if user.Enabled != previousEnabled {
+		h.auditLog(r, "user_enabled_changed", fmt.Sprintf("id=%s email=%s enabled=%t", id, user.Email, user.Enabled))
+	}
+	if req.Password != "" {
+		h.auditLog(r, "user_password_changed", fmt.Sprintf("id=%s email=%s", id, user.Email))
+	}
 	writeJSON(w, http.StatusOK, toUserResponse(user))
 }
 
@@ -256,6 +291,7 @@ func (h *UserHandler) DeleteUser(w http.ResponseWriter, r *http.Request) {
 	}
 
 	slog.Info("auth: user deleted", "id", id)
+	h.auditLog(r, "user_deleted", "id="+id)
 	w.WriteHeader(http.StatusNoContent)
 }
 

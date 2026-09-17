@@ -539,6 +539,13 @@ func (h *OIDCHandler) createTenantFor(ctx context.Context, email, name string, l
 	if err := h.store.CreateTenant(ctx, t); err != nil {
 		return nil, err
 	}
+	// A tenant's birth is recorded in ITS OWN chain, as the first entry, so a
+	// tenant's audit log starts with how and for whom it came to exist.
+	if h.login != nil && h.login.audit != nil {
+		if err := h.login.audit.Log(ctx, t.ID, "tenant_created", email, fmt.Sprintf("slug=%s name=%q plan=%s country=%s", slug, displayName, t.Plan, t.BillingCountry), ""); err != nil {
+			slog.Warn("audit: failed to log tenant_created", "error", err)
+		}
+	}
 	return t, nil
 }
 

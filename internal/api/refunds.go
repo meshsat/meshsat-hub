@@ -177,11 +177,7 @@ func (h *RefundsHandler) ListRefunds(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	limit := 100
-	if v := r.URL.Query().Get("limit"); v != "" {
-		if n, err := strconv.Atoi(v); err == nil && n > 0 {
-			limit = n
-		}
-	}
+	limit = parseLimit(r, limit, maxListLimit)
 	out, err := h.store.ListRefundsByStatus(r.Context(), status, limit)
 	if err != nil {
 		slog.Error("refunds: listing refunds failed", "status", status, "error", err)

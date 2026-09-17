@@ -3,7 +3,6 @@ package api
 import (
 	"log/slog"
 	"net/http"
-	"strconv"
 	"time"
 
 	"github.com/meshsat/meshsat-hub/internal/auth"
@@ -36,11 +35,7 @@ func (h *CostsHandler) ListCosts(w http.ResponseWriter, r *http.Request) {
 	device := r.URL.Query().Get("device")
 
 	limit := 100
-	if l := r.URL.Query().Get("limit"); l != "" {
-		if n, err := strconv.Atoi(l); err == nil && n > 0 {
-			limit = n
-		}
-	}
+	limit = parseLimit(r, limit, maxListLimit)
 
 	var from, to time.Time
 	if f := r.URL.Query().Get("from"); f != "" {

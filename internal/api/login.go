@@ -21,6 +21,12 @@ type LoginHandler struct {
 	store    store.Store
 	sessions *hubauth.SessionManager
 	audit    *audit.Service
+	// secureCookies is decided by configuration (the public URL scheme), not
+	// by a request header: X-Forwarded-Proto is set by whatever sits in front
+	// of the Hub, and a cookie's Secure flag must not depend on that being
+	// the ingress rather than a client. Default true; only a plain-http
+	// development URL turns it off.
+	secureCookies bool
 
 	// Per-IP rate limiting for login attempts.
 	// Map of IP → (attempts, window_start). Reset after window expires.
@@ -38,12 +44,13 @@ type loginAttempt struct {
 // NewLoginHandler creates a login handler with per-IP rate limiting.
 func NewLoginHandler(s store.Store, sm *hubauth.SessionManager, auditSvc *audit.Service) *LoginHandler {
 	return &LoginHandler{
-		store:      s,
-		sessions:   sm,
-		audit:      auditSvc,
-		ipAttempts: make(map[string]*loginAttempt),
-		maxPerIP:   5,
-		windowDur:  15 * time.Minute,
+		secureCookies: true,
+		store:         s,
+		sessions:      sm,
+		audit:         auditSvc,
+		ipAttempts:    make(map[string]*loginAttempt),
+		maxPerIP:      5,
+		windowDur:     15 * time.Minute,
 	}
 }
 
@@ -188,7 +195,7 @@ func (h *LoginHandler) issueSession(w http.ResponseWriter, r *http.Request, user
 		Path:     "/api/auth",
 		MaxAge:   int(hubauth.RefreshTokenTTL.Seconds()),
 		HttpOnly: true,
-		Secure:   r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https",
+		Secure:   h.secureCookies,
 		SameSite: http.SameSiteStrictMode,
 	})
 	return loginResponse{
@@ -280,7 +287,7 @@ func (h *LoginHandler) Refresh(w http.ResponseWriter, r *http.Request) {
 		Path:     "/api/auth",
 		MaxAge:   int(hubauth.RefreshTokenTTL.Seconds()),
 		HttpOnly: true,
-		Secure:   r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https",
+		Secure:   h.secureCookies,
 		SameSite: http.SameSiteStrictMode,
 	})
 
@@ -396,6 +403,9 @@ func (h *LoginHandler) recordIPAttempt(ip string) {
 		a.count++
 	}
 }
+
+// SetSecureCookies is called by main from the configured public URL.
+func (h *LoginHandler) SetSecureCookies(secure bool) { h.secureCookies = secure }
 
 func (h *LoginHandler) auditLog(r *http.Request, action, email, ip string) {
 	if h.audit == nil {
