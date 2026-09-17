@@ -66,6 +66,12 @@ spec:
             # and CAP_NET_RAW and nothing else, and NoNewPrivs stops a setuid
             # binary inside the container reaching for more. It was set true
             # while diagnosing the capability problem and stayed by accident.
+            # seccompProfile added 2026-09-17 (MESHSAT-1204). Orthogonal to the
+            # capability argument above: RuntimeDefault filters syscalls and leaves
+            # NET_ADMIN/NET_RAW and uid 0 exactly as they are, so it buys syscall
+            # confinement without re-opening a decision that was measured.
+            seccompProfile:
+              type: RuntimeDefault
             runAsUser: 0
             capabilities:
               add: [NET_ADMIN, NET_RAW]

@@ -36,10 +36,23 @@ metadata:
 # the same operator holding less important data, enforces baseline and audits
 # restricted (MESHSAT-1191).
 #
-# Audit and warn only, no enforcement, for the reason written on meshsat-tak-db:
-# CNPG's pods have not been checked against either profile on this cluster, and
-# enforcing untested would block a pod recreation on the cluster that holds the
-# gapless invoice series and every tenant's data. Read the annotations first.
+# ENFORCING restricted since 2026-09-17 (MESHSAT-1204). The previous comment here
+# withheld enforcement because "CNPG's pods have not been checked against either
+# profile on this cluster" -- so it was checked. A live pod spec from
+# meshsat-hub-main-1 was replayed through a server-side dry-run in this namespace
+# and PASSES restricted outright: the operator already sets runAsNonRoot, runAsUser
+# 26, drop ALL, privileged false, readOnlyRootFilesystem true and seccompProfile
+# RuntimeDefault on every container, plus fsGroup 26 on the pod.
+#
+# So the profile this namespace was afraid to enforce was one the operator had been
+# satisfying all along, and the caution cost nothing but the guarantee. Enforcement
+# is now what keeps it true: a future operator upgrade that quietly drops
+# readOnlyRootFilesystem is refused at admission instead of noticed in an audit.
+#
+# ⚠ Re-run the probe before any CNPG operator MAJOR upgrade. Enforcement turns a
+# regression in the operator's pod spec into a pod that cannot be created, on the
+# cluster that holds the gapless invoice series. The check is one command:
+# take a live pod, strip nodeName/tolerations/priority, `create --dry-run=server`.
 apiVersion: v1
 kind: Namespace
 metadata:
@@ -48,6 +61,8 @@ metadata:
     app.kubernetes.io/part-of: meshsat-hub
     pod-security.kubernetes.io/audit: restricted
     pod-security.kubernetes.io/audit-version: latest
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/enforce-version: latest
     pod-security.kubernetes.io/warn: restricted
     pod-security.kubernetes.io/warn-version: latest
 ---

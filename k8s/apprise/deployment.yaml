@@ -60,8 +60,14 @@ spec:
           # volume, no ingress and no credentials of its own, reachable only
           # in-cluster. The hardening would have bought very little and cost a
           # service that does not start.
+          # seccompProfile added 2026-09-17 (MESHSAT-1204). It is independent of the
+          # capability question above: RuntimeDefault filters syscalls and does not
+          # touch the useradd that drop: [ALL] breaks, so this is available without
+          # re-opening a decision that was already measured.
           securityContext:
             allowPrivilegeEscalation: false
+            seccompProfile:
+              type: RuntimeDefault
           readinessProbe:
             httpGet: {path: /status, port: 8000}
             initialDelaySeconds: 10
