@@ -287,6 +287,18 @@ func main() {
 
 	// Audit service (tamper-evident hash chain).
 	auditSvc := audit.New(dataStore)
+	// Every use of the break-glass token (HUB_AUTH_TOKEN) gets an audit row.
+	// It grants platform-admin over every tenant and was, until MESHSAT-1195,
+	// the ONLY credential whose use produced no metric, no log line and no
+	// audit entry -- so a leaked token was indistinguishable from the nightly
+	// verification job. Recorded under the platform tenant because that is
+	// whose account the authority belongs to; the counter and the log line are
+	// emitted by internal/auth regardless of whether this sink is installed.
+	hubauth.SetBreakGlassAudit(func(ctx context.Context, action, actor, detail, ip string) {
+		if err := auditSvc.Log(ctx, store.DefaultTenantID, action, actor, detail, ip); err != nil {
+			slog.Warn("audit: break-glass use not recorded", "action", action, "error", err)
+		}
+	})
 	// Audit log retention runs on the leader only (registered below once the
 	// elector exists).
 	auditRetentionCfg := audit.RetentionConfig{

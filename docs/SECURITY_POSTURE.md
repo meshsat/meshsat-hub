@@ -43,7 +43,7 @@ assessment rather than implying a per-requirement audit that has not happened.
 | V3 | Web Frontend Security | 1.0 | 1.0 | **measured.** CSP with `script-src 'self'`, `object-src 'none'`, `frame-ancestors 'none'`; HSTS preload; XFO, nosniff, Referrer-Policy, Permissions-Policy, COOP, CORP all present on the live response. No CORS configured, which for a bearer-token API is correct. No CSP reporting. |
 | V4 | API & Web Service | 0.0 | 0.5 | **measured.** Was: 250 routes, 137 ungated, 45 of them state-changing. Now every mutating route carries a role floor, enforced by a build-time ratchet, and a viewer key returns 403 on each in production. Still 0.5: there is no rate limit on any *authenticated* route, and none on the two unauthenticated capability URLs. |
 | V5 | File Handling | 1.0 | 1.0 | **read.** `assetKey` validates extension, segment count and each segment; backup import guards zip-slip via a cleaned-path prefix check; export uses `os.OpenRoot`. Zip-bomb entry/size limits absent, platform-admin only. |
-| V6 | Authentication | 0.0 | **0.0** | **measured. The largest remaining gap.** `HUB_AUTH_TOKEN` is a static, never-expiring, non-revocable bearer granting `PlatformAdmin: true` on every route in every auth mode, and it is present in the production secret. Not addressed this round because retiring it breaks `hub-verify` and possibly operator tooling; staged plan in MESHSAT-1189. |
+| V6 | Authentication | 0.0 | **0.5** | **measured.** `HUB_AUTH_TOKEN` is a static, never-expiring bearer granting `PlatformAdmin: true` in every auth mode, present in the production secret. Not deleted: every consumer needs the platform axis and an API key cannot carry it, so removing this would mean weakening that guarantee (MESHSAT-1195). Now **monitored** instead — counted, logged with the resolved client IP, written to the audit chain, refused on the onion channel indistinguishably from a wrong token, and alerted on. 0.5 for compensating controls, not 1.0: still static, still non-expiring, still rotated only by redeploy. |
 | V7 | Session Management | 0.5 | 0.5 | **read + measured.** 15-minute HS256 access tokens, rotated single-use refresh tokens stored SHA-256 hashed, `SameSite=Strict`. Fixed: logout was not auth-exempt, so an expired session could not revoke its own 7-day refresh token — and exempting it alone would have cleared the cookie while revoking nothing. Still open: no access-token revocation, and the refresh cookie's `Secure` flag derives from a client-influenceable header. |
 | V8 | Authorization | 0.5 | **1.0** | **measured.** `internal/store/scoping.go` is a two-sided ratchet failing the build for any store method or SQL statement that loses its tenant, with 54/74 written-down exemptions; no IDOR found. Now joined by `internal/auth/routefloor.go`, the same shape for route authorisation. Residual, tracked: `internal/crypto.KeyStore` is keyed by IMEI with no tenant dimension (durable rows are scoped; the process cache is not), and `api_keys.device_imei` is stored as if it were a scope and never read. |
 | V9 | Self-contained Tokens | 1.0 | 1.0 | **read.** Algorithm allowlist, `exp` required, audience and issuer checked, `kid` required with a single JWKS refresh, OKP and symmetric keys rejected, EC points verified on-curve, 1 MB response caps. Claims are discarded and role/tenant re-read from the Hub's own tables. |
@@ -56,7 +56,7 @@ assessment rather than implying a per-requirement audit that has not happened.
 | V16 | Security Logging & Error Handling | 0.0 | **1.0** | **measured.** Was: a 401 produced no metric, no log line and no audit row, because auth is registered outside metrics and logging and short-circuits; rejection reasons were logged at Debug while production runs at info. Now every refusal increments a labelled counter and emits a `Warn` line with the correctly-resolved client IP — proven 0 → 6 on real production 401s, and `ip=45.138.52.48` rather than the ingress pod. |
 | V17 | WebRTC | — | — | Not applicable. |
 
-**ASVS L2: 11.0 / 16 = 69% → 13.0 / 16 = 81%**
+**ASVS L2: 11.0 / 16 = 69% → 13.5 / 16 = 84%**
 
 ---
 
@@ -90,6 +90,7 @@ Scored separately because ASVS V16 covers whether events are *recorded*, not whe
 | Alert rules of any kind | **zero** in the repo and none security-related in the cluster | 12 rules in 3 groups, loaded, `health=ok` |
 | Series existence | three counters alerts would target had **no series at all**, so those alerts could never fire | materialised at startup |
 | Client IP in logs | the ingress pod's address on every line | resolved through the trusted-proxy walk |
+| Break-glass token use | no metric, no log, no audit row — indistinguishable from the nightly job | counted, logged, audited per use; refused over Tor; alerted |
 | Log-based alerting | Loki + promtail + a ruler exist; nothing wired, and `loki-0` is not ready | unchanged — still open |
 | Audit hash chain | does not cover `created_at`/`id`/`tenant_id`; tolerates truncation at both ends; forks across the two replicas | unchanged — still open |
 
@@ -101,18 +102,21 @@ Scored separately because ASVS V16 covers whether events are *recorded*, not whe
 
 | Instrument | Before | After |
 |---|:---:|:---:|
-| OWASP ASVS 5.0 L2 | 69% | **81%** |
+| OWASP ASVS 5.0 L2 | 69% | **84%** |
 | CIS Kubernetes ch. 5 | 42% | **58%** |
 | Detection & response | ~10% | **~70%** |
 
 The programme's targets were ASVS ≥ 95%, CIS ≥ 90% and detection ≥ 90%. **None is met**, and the
-gap is not cosmetic: V6 is still a zero because a static platform-admin bearer is live, and both CIS
-scores are capped at 0.5 because nothing is *enforced* — the pod-security profile audits and the
-network policies are per-workload allow-lists rather than default-deny.
+gap is not cosmetic. V6 is a half rather than a zero only because the static platform-admin bearer is
+now monitored — it is still static and still non-expiring. Both CIS scores are capped at 0.5 because
+nothing is *enforced*: the pod-security profile audits, and the network policies are per-workload
+allow-lists rather than default-deny.
 
 ## Open, in the order they should be closed
 
-1. **`HUB_AUTH_TOKEN`** — static, non-expiring, non-revocable platform admin. Blocks V6 entirely.
+1. **`HUB_AUTH_TOKEN`** — now monitored (MESHSAT-1195) but still static, non-expiring and rotated
+   only by redeploy. Closing V6 means either an expiring platform credential, which requires letting
+   an API key carry the platform flag, or removing the need for the platform axis from the tooling.
 2. **PodSecurity enforcement** and the five third-party workloads; the tor initContainer running as
    uid 0 on an unpinned `busybox:latest` while handling the onion private key.
 3. **Default-deny** network policy, plus egress, plus `meshsat-hub-db`.

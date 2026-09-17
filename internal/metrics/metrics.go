@@ -312,6 +312,18 @@ var AuthzDenialsTotal = promauto.NewCounterVec(prometheus.CounterOpts{
 	Help: "Rejected authorisation attempts, by requirement and arrival channel.",
 }, []string{"requirement", "channel"})
 
+// BreakGlassUseTotal counts uses of the static HUB_AUTH_TOKEN, which grants
+// platform-admin over every tenant. Until MESHSAT-1195 the most privileged
+// credential in the system was the only one whose use produced no metric, no
+// log line and no audit row, so a leaked token was indistinguishable from the
+// nightly verification job. "refused_onion" is a use rejected because it
+// arrived on the hidden service, where there is no client identity to
+// attribute it to.
+var BreakGlassUseTotal = promauto.NewCounterVec(prometheus.CounterOpts{
+	Name: "meshsat_hub_breakglass_use_total",
+	Help: "Uses of the static platform-admin token, by outcome.",
+}, []string{"outcome"})
+
 // Handler returns the Prometheus metrics HTTP handler.
 func Handler() http.Handler {
 	return promhttp.Handler()
@@ -345,6 +357,9 @@ func init() {
 	}
 	for _, provider := range []string{"cloudloop", "globalstar", "rockblock", "sms", "stripe"} {
 		WebhookUnexpectedSourceTotal.WithLabelValues(provider)
+	}
+	for _, outcome := range []string{"accepted", "refused_onion"} {
+		BreakGlassUseTotal.WithLabelValues(outcome)
 	}
 	for _, ch := range []string{"internet", "onion"} {
 		for _, reason := range []string{
