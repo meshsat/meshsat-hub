@@ -34,7 +34,13 @@ data:
   # {"platform_admin": true}, which only a platform admin may do -- and cut them
   # over. The Hub REFUSES TO BOOT if this is false and neither OIDC nor a JWT
   # signing key is configured, rather than quietly serving unauthenticated.
-  HUB_LEGACY_TOKEN_ENABLED: "true"
+  # FLIPPED 2026-09-17 (MESHSAT-1209). Every consumer verified on a replacement
+  # first: the nightly's journey-suite on HUB_VERIFY_ADMIN_KEY, the CI variable
+  # HUB_E2E_TOKEN rotated to an owner-scoped key, the scratchpad probes given an
+  # adminkey() helper. The static bearer is now refused at every acceptance
+  # point; the value stays in OpenBao and the pod env only until the
+  # ExternalSecret is trimmed, but the Hub no longer honours it.
+  HUB_LEGACY_TOKEN_ENABLED: "false"
   HUB_OIDC_ISSUER_URL: "https://auth.meshsat.net/application/o/meshsat-hub/"
   HUB_OIDC_REDIRECT_URI: "https://hub.meshsat.net/api/auth/oidc/callback"
   HUB_OIDC_SCOPES: "openid profile email meshsat"  # meshsat = groups claim (bootstrap-meshsat.py ScopeMapping)

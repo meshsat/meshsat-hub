@@ -117,7 +117,15 @@ for dev in (DEV_A, DEV_B):
         f"VALUES ('{dev}','dup probe','probe','{T}',now(),now());")
 
 # A publisher pod, because nothing in the cluster ships an MQTT client.
+#
+# It MUST carry the hub-verify label (MESHSAT-1205). Since nats-confine went in,
+# nats:1883 admits only named sources, and hub-verify is one of them -- but this
+# pod is not the CronJob pod, it is a throwaway `kubectl run`, and an unlabelled
+# throwaway is nobody as far as the policy is concerned. The symptom was
+# "PUBLISH FAILED: Error: Bad file descriptor" on the first nightly after the
+# policy landed; the two nightlies before it passed because they predated it.
 subprocess.run(["kubectl"] + NS + ["run", PUB, "--image=docker.io/eclipse-mosquitto",
+                                   "--labels=app.kubernetes.io/name=hub-verify",
                                    "--restart=Never", "--command", "--", "sleep", "900"],
                capture_output=True, text=True)
 subprocess.run(["kubectl"] + NS + ["wait", "--for=condition=Ready", f"pod/{PUB}",
