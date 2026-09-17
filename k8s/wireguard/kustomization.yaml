@@ -5,3 +5,4 @@ resources:
   - service.yaml
   - configmap.yaml
   - externalsecret.yaml
+  - networkpolicy.yaml

@@ -1,0 +1,22 @@
+# onion-heartbeat is a pure CLIENT: it fetches the .onion through Tor and posts a
+# heartbeat outward. Hubble observed no inbound connection to it at all over a
+# 3000-flow window -- only replies to its own requests, which conntrack allows --
+# and it declares no probes of any kind, so nothing legitimately dials it.
+#
+# `ingress: []` is therefore not an empty rule but the tightest one available: it
+# selects the pod, which switches it to default-deny for ingress, and then permits
+# nothing. If this pod ever needs to be reachable, that is a design change and it
+# should fail loudly here rather than quietly work.
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: onion-heartbeat-confine
+  namespace: meshsat-hub
+  labels:
+    app.kubernetes.io/name: onion-heartbeat
+    app.kubernetes.io/part-of: meshsat-hub
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: onion-heartbeat
+  ingress: []
