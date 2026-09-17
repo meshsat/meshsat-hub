@@ -21,11 +21,34 @@ spec:
   replicas: 2
   # Three eligible workers and two replicas, so a surge pod has a node to land
   # on and the roll keeps both replicas serving.
+  # maxSurge 1 -> 0, maxUnavailable 0 -> 1 (MESHSAT-1206, 2026-09-17). The old
+  # pair could not complete a rollout on this cluster and had silently stopped
+  # deploying: podAntiAffinity is `required` on kubernetes.io/hostname, there are
+  # exactly three worker nodes, and the two live replicas sit on dmz01 and dmz06 --
+  # so the surge pod can only go to dmz02, which had 199Mi of memory headroom
+  # against this pod's 256Mi request because omoikane fills it (6144Mi daemon,
+  # 2560Mi litellm, 72 pods). The scheduler's verdict was exactly that:
+  # "1 Insufficient memory, 2 node(s) didn't match pod anti-affinity rules,
+  # 3 node(s) had untolerated taint(s)", and the new ReplicaSet sat Pending while
+  # the old one kept serving. A deployment that cannot roll is a deployment that
+  # cannot ship a security fix.
+  #
+  # Surging needs a FOURTH placement for a 2-replica, 3-node, required-anti-affinity
+  # workload, and this cluster does not have one to spare. Recreating in place needs
+  # none: terminate one replica, its node frees, the new pod lands there.
+  #
+  # The cost is a window at ONE replica during a rollout, which the PDB
+  # (minAvailable: 1) already permits, and which the three VPS edges tolerate since
+  # any single replica serves the whole site. That is a deliberate trade of a brief
+  # single-replica window for the ability to deploy at all. The alternative --
+  # relaxing anti-affinity to `preferred` -- would let both replicas land on one
+  # node and STAY there, turning a transient window into a permanent single point
+  # of failure. Rejected for that reason.
   strategy:
     type: RollingUpdate
     rollingUpdate:
-      maxSurge: 1
-      maxUnavailable: 0
+      maxSurge: 0
+      maxUnavailable: 1
   selector:
     matchLabels:
       app.kubernetes.io/name: hub
