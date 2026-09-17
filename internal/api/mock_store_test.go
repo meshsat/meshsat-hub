@@ -151,6 +151,15 @@ func (m *mockStore) ListPositionsRange(_ context.Context, _ string, _ string, _,
 }
 
 func (m *mockStore) InsertAuditEntry(context.Context, string, *store.AuditEntry) error { return nil }
+func (m *mockStore) AppendAuditEntry(_ context.Context, _ string, build func(*store.AuditEntry) (*store.AuditEntry, error)) error {
+	e, err := build(m.auditEntry)
+	if err != nil {
+		return err
+	}
+	m.auditEntry = e
+	m.auditEntries = append([]store.AuditEntry{*e}, m.auditEntries...)
+	return nil
+}
 func (m *mockStore) ListAuditEntries(_ context.Context, _ string, _ int) ([]store.AuditEntry, error) {
 	return m.auditEntries, m.auditErr
 }

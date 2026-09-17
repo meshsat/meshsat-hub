@@ -939,4 +939,27 @@ CREATE INDEX IF NOT EXISTS idx_mesh_nodes_recent
 	{Version: 29, Name: "api key platform admin", SQL: `
 ALTER TABLE api_keys ADD COLUMN IF NOT EXISTS platform_admin BOOLEAN NOT NULL DEFAULT false;
 `},
+	// 30 -- the audit chain's two structural gaps (MESHSAT-1215, posture item 6).
+	//
+	// hash_version: the v1 digest bound action|actor|detail|ip|prev_hash only, so
+	// a row could be moved to another tenant or back-dated and still verify. v2
+	// also binds tenant_id, id and created_at. The formula change would
+	// invalidate every existing row, and the obvious remedy -- a verifier that
+	// falls back to v1 when v2 fails -- is itself the bypass (an edited row is
+	// simply recomputed the old way). So the version is STORED per row: existing
+	// rows keep 1 and verify with v1, new rows are 2, and a 1 after a 2 is a
+	// break. DEFAULT 1 is what makes the 231 rows already in production honest
+	// about what they were hashed with.
+	//
+	// The unique index refuses a fork. Appends are serialised by an advisory
+	// lock per tenant (AppendAuditEntry), which is what stops two replicas
+	// reading the same latest row; the index is the backstop that turns any
+	// write that gets past that lock -- a future code path, a hand INSERT --
+	// into a loud error instead of two children of one parent that a chain walk
+	// cannot both accept. Production was checked to have no such pair before
+	// this was written, so the CREATE cannot fail on history.
+	{Version: 30, Name: "audit hash version and fork guard", SQL: `
+ALTER TABLE audit_log ADD COLUMN IF NOT EXISTS hash_version INTEGER NOT NULL DEFAULT 1;
+CREATE UNIQUE INDEX IF NOT EXISTS uq_audit_log_chain ON audit_log (tenant_id, prev_hash);
+`},
 }

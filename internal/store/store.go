@@ -82,6 +82,14 @@ type Store interface {
 
 	// Audit log
 	InsertAuditEntry(ctx context.Context, tenantID string, a *AuditEntry) error
+	// AppendAuditEntry extends a tenant's chain atomically: the latest entry is
+	// read, build derives the next one from it, and the row is written, all
+	// under a store-side lock held for the tenant. Two replicas appending at
+	// once therefore serialise instead of both chaining onto the same
+	// predecessor, which a process-local mutex could never prevent. build is
+	// given nil when the chain is empty and must fill ID and CreatedAt; the
+	// unique index on (tenant_id, prev_hash) refuses a fork that gets past it.
+	AppendAuditEntry(ctx context.Context, tenantID string, build func(prev *AuditEntry) (*AuditEntry, error)) error
 	ListAuditEntries(ctx context.Context, tenantID string, limit int) ([]AuditEntry, error)
 	GetLatestAuditEntry(ctx context.Context, tenantID string) (*AuditEntry, error)
 	ListAuditEntriesBefore(ctx context.Context, tenantID string, before time.Time, limit int) ([]AuditEntry, error)
@@ -725,14 +733,21 @@ type Position struct {
 
 // AuditEntry records a security-relevant action with hash-chain tamper evidence.
 type AuditEntry struct {
-	ID        string    `json:"id"`
-	Action    string    `json:"action"`
-	Actor     string    `json:"actor"`
-	Detail    string    `json:"detail,omitempty"`
-	IP        string    `json:"ip,omitempty"`
-	PrevHash  string    `json:"prev_hash"` // SHA-256 hash of the previous entry
-	Hash      string    `json:"hash"`      // SHA-256 of (action|actor|detail|ip|prev_hash)
-	CreatedAt time.Time `json:"created_at"`
+	ID       string `json:"id"`
+	Action   string `json:"action"`
+	Actor    string `json:"actor"`
+	Detail   string `json:"detail,omitempty"`
+	IP       string `json:"ip,omitempty"`
+	PrevHash string `json:"prev_hash"` // SHA-256 hash of the previous entry
+	Hash     string `json:"hash"`      // digest of the entry; which fields it binds is HashVersion's business
+	// HashVersion names the digest Hash was computed with. 1 is the original
+	// formula over action|actor|detail|ip|prev_hash, which lets a row be moved
+	// between tenants or back-dated without breaking the chain; 2 also binds
+	// tenant_id, id and created_at. Rows written before migration 30 carry 1
+	// and stay valid; every row written since is 2, and a verifier never
+	// accepts a 1 that follows a 2 (that would be a downgrade, not history).
+	HashVersion int       `json:"hash_version"`
+	CreatedAt   time.Time `json:"created_at"`
 }
 
 // DeviceConfig represents a versioned configuration snapshot for a field device.

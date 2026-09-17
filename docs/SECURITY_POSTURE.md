@@ -43,7 +43,7 @@ assessment rather than implying a per-requirement audit that has not happened.
 | V3 | Web Frontend Security | 1.0 | 1.0 | **measured.** CSP with `script-src 'self'`, `object-src 'none'`, `frame-ancestors 'none'`; HSTS preload; XFO, nosniff, Referrer-Policy, Permissions-Policy, COOP, CORP all present on the live response. No CORS configured, which for a bearer-token API is correct. No CSP reporting. The Hub scored 1.0 here throughout — but **`auth.meshsat.net`, the identity provider, sent no CSP at all** until MESHSAT-1198, which is a reminder that scoring one host does not score the login path it depends on. Now fixed, with `'unsafe-inline'` as a named residual. |
 | V4 | API & Web Service | 0.0 | 0.5 | **measured.** Was: 250 routes, 137 ungated, 45 of them state-changing. Now every mutating route carries a role floor, enforced by a build-time ratchet, and a viewer key returns 403 on each in production. Still 0.5: there is no rate limit on any *authenticated* route, and none on the two unauthenticated capability URLs. |
 | V5 | File Handling | 1.0 | 1.0 | **read.** `assetKey` validates extension, segment count and each segment; backup import guards zip-slip via a cleaned-path prefix check; export uses `os.OpenRoot`. Zip-bomb entry/size limits absent, platform-admin only. |
-| V6 | Authentication | 0.0 | **0.5** | **measured.** `HUB_AUTH_TOKEN` is a static, never-expiring bearer granting `PlatformAdmin: true` in every auth mode, present in the production secret. Not deleted: every consumer needs the platform axis and an API key cannot carry it, so removing this would mean weakening that guarantee (MESHSAT-1195). Now **monitored** instead — counted, logged with the resolved client IP, written to the audit chain, refused on the onion channel indistinguishably from a wrong token, and alerted on. 0.5 for compensating controls, not 1.0: still static, still non-expiring, still rotated only by redeploy. |
+| V6 | Authentication | 0.0 | **1.0** | **measured.** Was: `HUB_AUTH_TOKEN`, a static, never-expiring, non-revocable bearer granting `PlatformAdmin: true` in every auth mode, present in the production secret and read by five operator scripts and the nightly. Now **retired**: API keys can carry the platform axis (migration 29, gated so only an existing platform admin can mint one), every consumer was cut over to a keyed credential with an expiry, and `HUB_LEGACY_TOKEN_ENABLED=false` clears the token at config load. Proven, not reasoned: the exact production token gets `401 invalid_token` on both replicas, the same answer a random string gets, while the replacement key answers 200; the nightly passed 22/22 on the new key. The env var is still mounted (to be trimmed from the ExternalSecret) but nothing reads it. |
 | V7 | Session Management | 0.5 | 0.5 | **read + measured.** 15-minute HS256 access tokens, rotated single-use refresh tokens stored SHA-256 hashed, `SameSite=Strict`. Fixed: logout was not auth-exempt, so an expired session could not revoke its own 7-day refresh token — and exempting it alone would have cleared the cookie while revoking nothing. Still open: no access-token revocation, and the refresh cookie's `Secure` flag derives from a client-influenceable header. |
 | V8 | Authorization | 0.5 | **1.0** | **measured.** `internal/store/scoping.go` is a two-sided ratchet failing the build for any store method or SQL statement that loses its tenant, with 54/74 written-down exemptions; no IDOR found. Now joined by `internal/auth/routefloor.go`, the same shape for route authorisation. Residual, tracked: `internal/crypto.KeyStore` is keyed by IMEI with no tenant dimension (durable rows are scoped; the process cache is not), and `api_keys.device_imei` is stored as if it were a scope and never read. |
 | V9 | Self-contained Tokens | 1.0 | 1.0 | **read.** Algorithm allowlist, `exp` required, audience and issuer checked, `kid` required with a single JWKS refresh, OKP and symmetric keys rejected, EC points verified on-curve, 1 MB response caps. Claims are discarded and role/tenant re-read from the Hub's own tables. |
@@ -56,7 +56,7 @@ assessment rather than implying a per-requirement audit that has not happened.
 | V16 | Security Logging & Error Handling | 0.0 | **1.0** | **measured.** Was: a 401 produced no metric, no log line and no audit row, because auth is registered outside metrics and logging and short-circuits; rejection reasons were logged at Debug while production runs at info. Now every refusal increments a labelled counter and emits a `Warn` line with the correctly-resolved client IP — proven 0 → 6 on real production 401s, and `ip=45.138.52.48` rather than the ingress pod. |
 | V17 | WebRTC | — | — | Not applicable. |
 
-**ASVS L2: 11.0 / 16 = 69% → 14.0 / 16 = 88%**
+**ASVS L2: 11.0 / 16 = 69% → 15.0 / 16 = 94%**
 
 ---
 
@@ -92,7 +92,7 @@ Scored separately because ASVS V16 covers whether events are *recorded*, not whe
 | Client IP in logs | the ingress pod's address on every line | resolved through the trusted-proxy walk |
 | Break-glass token use | no metric, no log, no audit row — indistinguishable from the nightly job | counted, logged, audited per use; refused over Tor; alerted |
 | Log-based alerting | Loki + promtail + a ruler exist; nothing wired, and `loki-0` is not ready | unchanged — still open |
-| Audit hash chain | does not cover `created_at`/`id`/`tenant_id`; tolerates truncation at both ends; forks across the two replicas | unchanged — still open |
+| Audit hash chain | does not cover `created_at`/`id`/`tenant_id`; tolerates truncation at both ends; forks across the two replicas | v2 digest binds tenant, id and a microsecond timestamp; appends serialised by a per-tenant advisory lock; a fork is refused by a unique index; a legacy-formula row after the cut-over is a break. Head truncation is still accepted by design (retention). MESHSAT-1215 |
 
 **Detection: ~10% → ~70%**
 
@@ -102,13 +102,14 @@ Scored separately because ASVS V16 covers whether events are *recorded*, not whe
 
 | Instrument | Before | After |
 |---|:---:|:---:|
-| OWASP ASVS 5.0 L2 | 69% | **88%** |
+| OWASP ASVS 5.0 L2 | 69% | **94%** |
 | CIS Kubernetes ch. 5 | 42% | **75%** |
 | Detection & response | ~10% | **~70%** |
 
-The programme's targets were ASVS ≥ 95%, CIS ≥ 90% and detection ≥ 90%. **None is met**, and the
-gap is not cosmetic. V6 is a half rather than a zero only because the static platform-admin bearer is
-now monitored — it is still static and still non-expiring.
+The programme's targets were ASVS ≥ 95%, CIS ≥ 90% and detection ≥ 90%. ASVS is one row short of
+its target and the other two are not met; the gap is not cosmetic. The static platform-admin bearer
+is gone (V6 → 1.0, proven refused in production); what holds ASVS at 94% is the four rows scored by
+reading rather than by measurement (V1, V2, V7, V12), each still 0.5.
 
 The CIS caps have moved: **network policy is now enforced** with default-deny ingress and a
 per-workload allow-list on every pod (5.3 → 1.0), and the general policies are in place (5.7 → 1.0).
@@ -126,21 +127,16 @@ effect is nothing is worse than an absent one, because this scorecard counts it.
 
 ## Open, in the order they should be closed
 
-1. **`HUB_AUTH_TOKEN`** — the blocker is now REMOVED, the last step is operational (MESHSAT-1209).
-   The reason this could not be closed was that "an API key cannot carry the platform flag", so the
-   static token was the only thing that could hold `PlatformAdmin`. An API key can now carry it —
-   revocably, with an expiry and a rotation period, which is precisely what the token lacks — and
-   `HUB_LEGACY_TOKEN_ENABLED` is the off switch, declared in the ConfigMap at its default of `true`
-   so retiring the token is one edit and an Argo sync rather than a rebuild.
-   **The gate is the change, not the column:** `POST /api/auth/keys` is open to any tenant owner, so
-   the flag is refused unless the caller already holds it, held by two tests that a tenant owner and
-   an unidentified caller are both 403'd *and* that nothing is persisted — both proven to fail with
-   the gate removed. The switch also refuses to boot if clearing the token would leave no
-   authentication configured, rather than quietly serving a paying SaaS unauthenticated.
-   **V6 stays 0.5 deliberately**: the token still exists and is still static. What is gone is the
-   argument that it cannot be replaced. Closing it means minting a platform-admin key for each of
-   the five operator scripts that read it from the pod env, cutting them over, then flipping the
-   switch — an owner decision, because that tooling is run by hand.
+1. ~~**`HUB_AUTH_TOKEN`**~~ — **CLOSED 2026-09-17 (MESHSAT-1209).** The two halves in order:
+   API keys gained the platform axis (migration 29; `POST /api/auth/keys` refuses the flag unless the
+   caller already holds it, held by tests proven to fail with the gate removed), a platform-admin
+   key was minted for the nightly and the five operator scripts were cut over to
+   `HUB_VERIFY_ADMIN_KEY`; then `HUB_LEGACY_TOKEN_ENABLED` was flipped to `false` in the ConfigMap.
+   The switch clears the token at the end of config load and refuses to boot if that would leave no
+   authentication configured. Verified on both replicas after the roll: the production token is
+   refused with `401 invalid_token`, indistinguishable from a random string, and the nightly passed
+   22/22 on the new key. **V6 → 1.0.** Left: trim `HUB_AUTH_TOKEN` from the ExternalSecret and
+   OpenBao, which is housekeeping — nothing reads it any more.
 2. **PodSecurity enforcement on `meshsat-hub`** — blocked architecturally, see above; the namespace
    split is the work. `meshsat-hub-db` now enforces `restricted` and every container in both
    namespaces has been cut to the capabilities it actually needs (MESHSAT-1204). Still open in this
@@ -178,19 +174,22 @@ effect is nothing is worse than an absent one, because this scorecard counts it.
      Added host-scoped on all three edges (`is_failclosed_path` matches on path alone, so widening it
      would have changed every other vhost), below the SPOE lines, with the satellite webhook paths
      deliberately excluded for the same SOS reason.
-6. **Audit chain** integrity and the missing events across the whole credential surface.
-   Measured while scoping it 2026-09-17, because the obvious fix is a trap: `ComputeHash` covers
-   `action|actor|detail|ip|prev_hash` only, so an entry can be moved between tenants or
-   back-dated without breaking the chain. `tenant_id` is free to add (`Log` already takes it) and
-   `id` is app-generated in `InsertAuditEntry`, but `created_at` is a database default and is not
-   available at hash time. **The trap:** changing the formula invalidates every existing entry, so
-   the natural remedy is for `VerifyChain` to fall back to the legacy formula — and that fallback
-   is itself the bypass, since an attacker who edits a row can simply recompute it the legacy way
-   and be accepted. A correct fix therefore needs a stored hash-version column, i.e. a migration,
-   plus a database-side lock or a unique constraint on `(tenant_id, prev_hash)` for the separate
-   cross-replica fork (`s.mu` is a process-local mutex and both replicas write). Not attempted
-   half-way: a partially-covered digest that still reports "verified" is worse than a 0.5 that is
-   written down.
+6. ~~**Audit chain**~~ — **CLOSED 2026-09-17 (MESHSAT-1215), the full fix, not the trap.** The
+   trap, for the record: `ComputeHash` bound `action|actor|detail|ip|prev_hash` only, so a row
+   could be moved between tenants or back-dated and still verify; a verifier that falls back to the
+   legacy formula when the new one fails is itself the bypass. What shipped instead: migration 30
+   stores `hash_version` per row (existing rows keep 1 and verify with the old formula; every new
+   row is 2), the v2 digest binds `tenant_id`, `id` and `created_at` with each field
+   length-prefixed, `id` and `created_at` are fixed in `Log()` before hashing, and `created_at` is
+   written monotonic per tenant so replica clock skew cannot reorder the chain. A version-1 row
+   appearing after a version-2 row is a break. The cross-replica fork is closed twice: appends run
+   in one transaction under `pg_advisory_xact_lock` per tenant, and a unique index on
+   `(tenant_id, prev_hash)` refuses any second child that gets past it (production was checked to
+   have no such pair first). Held by tests where back-dating, re-identifying and re-homing a row
+   each break a v2 chain **and, as the negative control, none of them break a v1 chain** — the
+   control is what proves v2 adds the coverage rather than the test asserting it. Still open under
+   this heading: the missing audit events across the credential surface (API key create/delete,
+   password change, role change, tenant create, backup export/import).
 7. ~~**MESHSAT-1032**~~ — **CLOSED.** The mechanism was removed by the move to per-tenant hosted
    TAK; this round added the tests that hold it and audited every other `DualFilters` consumer,
    which is where a second instance of the same shape would have been. Outstanding in
