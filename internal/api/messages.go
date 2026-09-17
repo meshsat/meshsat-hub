@@ -2,7 +2,6 @@ package api
 
 import (
 	"net/http"
-	"strconv"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -32,11 +31,7 @@ func NewMessageHandler(s store.Store) *MessageHandler {
 func (h *MessageHandler) ListMessages(w http.ResponseWriter, r *http.Request) {
 	device := r.URL.Query().Get("device")
 	limit := 100
-	if l := r.URL.Query().Get("limit"); l != "" {
-		if n, err := strconv.Atoi(l); err == nil && n > 0 {
-			limit = n
-		}
-	}
+	limit = parseLimit(r, limit, maxListLimit)
 
 	tid := auth.TenantIDFromContext(r.Context())
 	msgs, err := h.store.ListMessages(r.Context(), tid, device, limit)

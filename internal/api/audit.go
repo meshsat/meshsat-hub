@@ -3,7 +3,6 @@ package api
 import (
 	"log/slog"
 	"net/http"
-	"strconv"
 	"time"
 
 	"github.com/meshsat/meshsat-hub/internal/audit"
@@ -32,11 +31,7 @@ func (h *AuditHandler) ListEntries(w http.ResponseWriter, r *http.Request) {
 	tid := auth.TenantIDFromContext(r.Context())
 
 	limit := 100
-	if l := r.URL.Query().Get("limit"); l != "" {
-		if parsed, err := strconv.Atoi(l); err == nil && parsed > 0 {
-			limit = parsed
-		}
-	}
+	limit = parseLimit(r, limit, maxListLimit)
 
 	entries, err := h.audit.Store().ListAuditEntries(r.Context(), tid, limit)
 	if err != nil {

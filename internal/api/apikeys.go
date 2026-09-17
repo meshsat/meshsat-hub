@@ -1,6 +1,8 @@
 package api
 
 import (
+	"fmt"
+	"github.com/meshsat/meshsat-hub/internal/audit"
 	"log/slog"
 	"net/http"
 	"time"
@@ -13,11 +15,34 @@ import (
 // APIKeyHandler handles API key management endpoints.
 type APIKeyHandler struct {
 	store store.Store
+	audit *audit.Service
 }
 
 // NewAPIKeyHandler returns a new API key handler.
 func NewAPIKeyHandler(s store.Store) *APIKeyHandler {
 	return &APIKeyHandler{store: s}
+}
+
+// SetAudit makes key creation and deletion audit events. A credential that
+// can be minted and revoked without a trace is a credential whose history
+// nobody can reconstruct (ASVS V16; posture item 6).
+func (h *APIKeyHandler) SetAudit(a *audit.Service) { h.audit = a }
+
+func (h *APIKeyHandler) auditLog(r *http.Request, action, detail string) {
+	if h.audit == nil {
+		return
+	}
+	actor := "unknown"
+	if u := auth.FromContext(r.Context()); u != nil {
+		if u.Email != "" {
+			actor = u.Email
+		} else if u.ID != "" {
+			actor = u.ID
+		}
+	}
+	if err := h.audit.Log(r.Context(), auth.TenantIDFromContext(r.Context()), action, actor, detail, clientIPFromRequest(r)); err != nil {
+		slog.Warn("audit: failed to log "+action, "error", err)
+	}
 }
 
 type createKeyRequest struct {
@@ -128,6 +153,8 @@ func (h *APIKeyHandler) CreateKey(w http.ResponseWriter, r *http.Request) {
 	if !key.ExpiresAt.IsZero() {
 		resp.ExpiresAt = &key.ExpiresAt
 	}
+	// The prefix identifies the key without being the key.
+	h.auditLog(r, "api_key_created", fmt.Sprintf("id=%s prefix=%s role=%s platform_admin=%t label=%q", key.ID, prefix, req.Role, key.PlatformAdmin, req.Label))
 
 	writeJSON(w, http.StatusCreated, resp)
 }
@@ -173,5 +200,6 @@ func (h *APIKeyHandler) DeleteKey(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "failed to delete key")
 		return
 	}
+	h.auditLog(r, "api_key_deleted", "id="+id)
 	w.WriteHeader(http.StatusNoContent)
 }
