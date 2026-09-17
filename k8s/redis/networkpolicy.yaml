@@ -1,0 +1,47 @@
+# KeyDB holds the Hub's session and cache state, and until now ANY pod in the
+# cluster could open 6379 on it. The password is the only thing that stood between
+# an unrelated workload and the Hub's session store (MESHSAT-1205).
+#
+# Built from flows Hubble actually observed rather than from the architecture
+# diagram. Over a 400-flow window the only ingress to keydb was:
+#   meshsat-hub/hub   -> :6379   (the application)
+#   meshsat-hub/keydb -> :6379   (active-replica multi-master peering)
+# and keydb's own ephemeral ports carrying the replication stream back, which
+# conntrack allows as replies to a connection this policy already permits.
+#
+# Nothing else. No Prometheus (there is no keydb ServiceMonitor or PodMonitor) and
+# no host entity, because the readiness probe is an `exec` of keydb-cli inside the
+# container and never crosses the network. Both were checked rather than added
+# "just in case" -- an allow rule nothing uses is a hole nobody is watching.
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: keydb-confine
+  namespace: meshsat-hub
+  labels:
+    app.kubernetes.io/name: keydb
+    app.kubernetes.io/part-of: meshsat-hub
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: keydb
+  ingress:
+    # The application.
+    - fromEndpoints:
+        - matchLabels:
+            app.kubernetes.io/name: hub
+            io.kubernetes.pod.namespace: meshsat-hub
+      toPorts:
+        - ports:
+            - port: '6379'
+              protocol: TCP
+    # The peer. multiMaster + activeReplica means BOTH instances dial each other
+    # on 6379, so this is not redundant with the rule above.
+    - fromEndpoints:
+        - matchLabels:
+            app.kubernetes.io/name: keydb
+            io.kubernetes.pod.namespace: meshsat-hub
+      toPorts:
+        - ports:
+            - port: '6379'
+              protocol: TCP
