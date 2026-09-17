@@ -1,0 +1,116 @@
+# Confine the broker's listeners (MESHSAT-1194).
+#
+# nats.conf exposes five listeners and, before this, EVERY pod in the cluster
+# could reach all of them. Two of those are the ones that matter:
+#
+#   cluster { listen: 0.0.0.0:6222 }   -- no `authorization` block and no TLS.
+#     A route connection is how a NATS server JOINS the cluster. Any pod able to
+#     reach 6222 could attempt to become a peer of the JetStream cluster that
+#     carries every tenant's positions, telemetry, MO traffic and SOS events.
+#     The per-bridge permission model is enforced on CLIENT connections; a route
+#     is not a client and is not bound by it.
+#
+#   http_port: 8222                    -- no auth of any kind.
+#     /varz, /connz, /subsz and /routez: server config, every connected client,
+#     and the subject space. That is a map of the tenant namespace, readable by
+#     anything in the cluster.
+#
+# Also reachable and also unnecessary: plaintext MQTT on 1883 (no server cert,
+# no client cert, password in the CONNECT packet -- which is precisely why the
+# onion path was put behind stunnel in MESHSAT-1170) and core NATS on 4222.
+#
+# WHY A POLICY AND NOT ROUTE AUTHENTICATION. Adding an `authorization` block to
+# the cluster stanza is the more complete fix and it belongs in its own change,
+# staged in two phases: first put credentials in the route URLs while the
+# listener still accepts anonymous routes, then require them. Doing it in one
+# step means that during the rolling restart a re-configured pod refuses routes
+# from a not-yet-restarted one, and a three-node JetStream cluster that
+# partitions mid-roll takes the SOS pipeline with it. This policy removes the
+# reachability today at a fraction of that risk; the credentials remain worth
+# adding as defence in depth.
+#
+# INGRESS ONLY. Cilium enforces per direction, so the broker's own egress --
+# including the routes it dials to its peers -- is untouched.
+#
+# The allow-list is built from OBSERVED flows (hubble observe --to-pod
+# meshsat-hub/nats across all three nats nodes): nats->6222, host and
+# kube-apiserver->8222, remote-node->9443 and ->8222, prometheus->7777,
+# hub->1883. Two paths are allowed WITHOUT having been observed, because the
+# window was quiet rather than because they are unused: stunnel->1883, which is
+# the onion's MQTT leg, and hub-verify, whose suites publish to the bus
+# nightly. Writing a policy from a quiet hour is how a dependency is discovered
+# at 03:00.
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: nats-confine
+  namespace: meshsat-hub
+  labels:
+    app.kubernetes.io/name: nats
+    app.kubernetes.io/part-of: meshsat-hub
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: nats
+  ingress:
+    # Peers. The route mesh, plus the monitoring port the peers read from each
+    # other. This is the rule that makes 6222 a cluster-internal port.
+    - fromEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: meshsat-hub
+            app.kubernetes.io/name: nats
+      toPorts:
+        - ports:
+            - {port: "6222", protocol: TCP}
+            - {port: "4222", protocol: TCP}
+            - {port: "8222", protocol: TCP}
+            - {port: "1883", protocol: TCP}
+    # The node: the kubelet's probes on 8222, and the hostNetwork edge relay,
+    # which forwards bridge MQTT-over-WebSocket to 9443 and health-checks 8222.
+    # `host` as well as `remote-node` because the relay is a DaemonSet and may
+    # land on the same node as a broker.
+    - fromEntities:
+        - host
+        - remote-node
+      toPorts:
+        - ports:
+            - {port: "9443", protocol: TCP}
+            - {port: "8222", protocol: TCP}
+    # Scrapes: the prometheus exporter sidecar, and /varz for the dashboards.
+    - fromEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: monitoring
+            app.kubernetes.io/name: prometheus
+      toPorts:
+        - ports:
+            - {port: "7777", protocol: TCP}
+            - {port: "8222", protocol: TCP}
+    # The Hub itself, over plaintext MQTT in-cluster.
+    - fromEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: meshsat-hub
+            app.kubernetes.io/name: hub
+      toPorts:
+        - ports:
+            - {port: "1883", protocol: TCP}
+            - {port: "4222", protocol: TCP}
+    # stunnel fronts 1883 for the onion, adding the client-certificate check the
+    # broker's own 1883 does not have.
+    - fromEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: meshsat-hub
+            app.kubernetes.io/name: stunnel
+      toPorts:
+        - ports:
+            - {port: "1883", protocol: TCP}
+    # The nightly verification suites publish to the bus to prove dedup and
+    # cross-replica behaviour.
+    - fromEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: meshsat-hub
+            app.kubernetes.io/name: hub-verify
+      toPorts:
+        - ports:
+            - {port: "1883", protocol: TCP}
+            - {port: "4222", protocol: TCP}
+            - {port: "8222", protocol: TCP}
