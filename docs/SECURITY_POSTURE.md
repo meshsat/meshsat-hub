@@ -133,6 +133,18 @@ allow-lists rather than default-deny.
 5. **Edge**: ingress-nginx ModSecurity is `DetectionOnly` and emitted zero audit records in 24 h; the
    VPS fail-closed WAF scope is `/auth/` and misses the Hub's actual `/api/auth/` login path.
 6. **Audit chain** integrity and the missing events across the whole credential surface.
+   Measured while scoping it 2026-09-17, because the obvious fix is a trap: `ComputeHash` covers
+   `action|actor|detail|ip|prev_hash` only, so an entry can be moved between tenants or
+   back-dated without breaking the chain. `tenant_id` is free to add (`Log` already takes it) and
+   `id` is app-generated in `InsertAuditEntry`, but `created_at` is a database default and is not
+   available at hash time. **The trap:** changing the formula invalidates every existing entry, so
+   the natural remedy is for `VerifyChain` to fall back to the legacy formula — and that fallback
+   is itself the bypass, since an attacker who edits a row can simply recompute it the legacy way
+   and be accepted. A correct fix therefore needs a stored hash-version column, i.e. a migration,
+   plus a database-side lock or a unique constraint on `(tenant_id, prev_hash)` for the separate
+   cross-replica fork (`s.mu` is a process-local mutex and both replicas write). Not attempted
+   half-way: a partially-covered digest that still reports "verified" is worse than a 0.5 that is
+   written down.
 7. ~~**MESHSAT-1032**~~ — **CLOSED.** The mechanism was removed by the move to per-tenant hosted
    TAK; this round added the tests that hold it and audited every other `DualFilters` consumer,
    which is where a second instance of the same shape would have been. Outstanding in
