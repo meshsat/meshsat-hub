@@ -7,7 +7,6 @@ package auth
 
 import (
 	"context"
-	"crypto/subtle"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -230,10 +229,9 @@ func localMiddleware(jwtSecret []byte, legacyToken string) func(http.Handler) ht
 				return
 			}
 
-			// Try legacy static token first (backward compat during migration)
-			if legacyToken != "" && subtle.ConstantTimeCompare([]byte(provided), []byte(legacyToken)) == 1 {
-				user := &User{ID: "token-user", Name: "API Token", Roles: []string{"admin"}, PlatformAdmin: true}
-				ctx := context.WithValue(r.Context(), UserContextKey, user)
+			// Break-glass static token. Counted, logged and audited, and
+			// refused on the onion channel -- see internal/auth/breakglass.go.
+			if ctx, ok := tryBreakGlass(w, r, provided, legacyToken); ok {
 				next.ServeHTTP(w, r.WithContext(ctx))
 				return
 			}
@@ -431,13 +429,16 @@ func tokenMiddleware(token string) func(http.Handler) http.Handler {
 				writeAuthError(w, r, denyMissingCredential)
 				return
 			}
-			if subtle.ConstantTimeCompare([]byte(provided), []byte(token)) != 1 {
+			// mode=token: the static token is the ONLY credential, so the
+			// same observability applies. tryBreakGlass also refuses it on the
+			// onion channel, and a refusal there falls through to this
+			// invalid-credential path -- identical to a wrong token, so the
+			// hidden service cannot be used to confirm a guess.
+			ctx, ok := tryBreakGlass(w, r, provided, token)
+			if !ok {
 				writeAuthError(w, r, denyInvalidToken)
 				return
 			}
-
-			user := &User{ID: "token-user", Name: "API Token", Roles: []string{"admin"}, PlatformAdmin: true}
-			ctx := context.WithValue(r.Context(), UserContextKey, user)
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
 	}
@@ -588,9 +589,8 @@ func sessionOrProviderMiddleware(sm *SessionManager, legacyToken string, provide
 				writeAuthError(w, r, denyMissingCredential)
 				return
 			}
-			if legacyToken != "" && subtle.ConstantTimeCompare([]byte(provided), []byte(legacyToken)) == 1 {
-				user := &User{ID: "token-user", Name: "API Token", Roles: []string{"admin"}, PlatformAdmin: true}
-				next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), UserContextKey, user)))
+			if ctx, ok := tryBreakGlass(w, r, provided, legacyToken); ok {
+				next.ServeHTTP(w, r.WithContext(ctx))
 				return
 			}
 			if claims, err := sm.VerifyAccessToken(provided); err == nil {

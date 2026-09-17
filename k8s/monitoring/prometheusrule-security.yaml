@@ -90,6 +90,41 @@ spec:
               three times in half an hour. These routes read across tenants, rotate
               cluster-wide credentials, or dump process memory.
 
+        - alert: HubBreakGlassUsedOverTor
+          # Guessing a 64-character token is not feasible, so a hit here means
+          # the static platform-admin token has LEAKED and somebody is trying it
+          # from behind Tor. The request was refused -- the value of this alert
+          # is that it says the credential is out, which nothing else would.
+          expr: sum(increase(meshsat_hub_breakglass_use_total{job="hub", outcome="refused_onion"}[1h])) > 0
+          for: 1m
+          labels:
+            severity: critical
+            service: meshsat-hub
+          annotations:
+            summary: "Hub: the break-glass platform-admin token was presented over Tor"
+            description: >-
+              HUB_AUTH_TOKEN grants platform-admin over every tenant. It is refused on
+              the onion channel by design, so this firing does not mean a breach
+              succeeded -- it means the token is known to somebody who is choosing to
+              use it anonymously. Treat it as a leaked credential: rotate
+              HUB_AUTH_TOKEN in OpenBao, redeploy, and read the `breakglass_used`
+              audit rows for edge uses around the same window.
+        - alert: HubBreakGlassUseUnusual
+          # Legitimate use is the nightly journey suite plus occasional operator
+          # tooling. Ten in an hour is not that.
+          expr: sum(increase(meshsat_hub_breakglass_use_total{job="hub", outcome="accepted"}[1h])) > 10
+          for: 10m
+          labels:
+            severity: warning
+            service: meshsat-hub
+          annotations:
+            summary: "Hub: unusual volume of break-glass token use"
+            description: >-
+              The static platform-admin token is being used more than the nightly
+              verification and occasional operator scripts account for. Every use has
+              a `breakglass_used` audit row carrying the method, path and client
+              address.
+
     - name: meshsat-hub-abuse
       rules:
         - alert: HubRelayAuthRejections
