@@ -735,7 +735,7 @@ bump_k8s_pin:
   cache: []
   variables:
     GIT_STRATEGY: none
-    PIN_REMOTE: "git@nllei01gitlab01.nuclearlighters.net:products/cubeos/meshsat-hub.git"
+    PIN_REMOTE: "git@nllei01gitlab01.nuclearlighters.net:products/meshsat/meshsat-hub.git"
   needs:
     - job: trivy
       artifacts: false
@@ -863,5 +863,5 @@ changelog:notify-website:
   variables:
     CHANGELOG_RUN: "1"
   trigger:
-    project: products/cubeos/meshsat-website
+    project: products/meshsat/meshsat-website
     branch: main
