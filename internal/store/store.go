@@ -1167,7 +1167,12 @@ type APIKey struct {
 	LastUsed     time.Time `json:"last_used,omitempty"`
 	ExpiresAt    time.Time `json:"expires_at,omitempty"`
 	RotationDays int       `json:"rotation_days,omitempty"` // auto-rotation period (0=disabled)
-	CreatedAt    time.Time `json:"created_at"`
+	// PlatformAdmin lets this key act across tenants, the axis that until
+	// MESHSAT-1209 only the static HUB_AUTH_TOKEN could carry. Settable ONLY by a
+	// caller who already holds it -- see internal/api/apikeys.go. Unlike that token
+	// a key with this flag is revocable and can expire, which is the entire point.
+	PlatformAdmin bool      `json:"platform_admin,omitempty"`
+	CreatedAt     time.Time `json:"created_at"`
 }
 
 // AlertRule defines a configurable condition that triggers an escalation chain.

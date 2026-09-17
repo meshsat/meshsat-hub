@@ -168,8 +168,8 @@ func (d *DB) CreateAPIKey(ctx context.Context, tenantID string, k *store.APIKey)
 		k.ID = fmt.Sprintf("key-%d", time.Now().UnixNano())
 	}
 	_, err := d.db.ExecContext(ctx,
-		"INSERT INTO api_keys (id, key_hash, key_prefix, role, label, device_imei, expires_at, tenant_id) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)",
-		k.ID, k.KeyHash, k.KeyPrefix, k.Role, k.Label, k.DeviceIMEI, sentinelTime(k.ExpiresAt), tenantID)
+		"INSERT INTO api_keys (id, key_hash, key_prefix, role, label, device_imei, expires_at, tenant_id, platform_admin) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)",
+		k.ID, k.KeyHash, k.KeyPrefix, k.Role, k.Label, k.DeviceIMEI, sentinelTime(k.ExpiresAt), tenantID, k.PlatformAdmin)
 	return err
 }
 
@@ -177,8 +177,8 @@ func (d *DB) GetAPIKeyByHash(ctx context.Context, keyHash string) (*store.APIKey
 	var k store.APIKey
 	var tenantID string
 	err := d.db.QueryRowContext(ctx,
-		"SELECT id, key_hash, key_prefix, role, label, device_imei, last_used, expires_at, created_at, tenant_id FROM api_keys WHERE key_hash = $1", keyHash,
-	).Scan(&k.ID, &k.KeyHash, &k.KeyPrefix, &k.Role, &k.Label, &k.DeviceIMEI, &k.LastUsed, &k.ExpiresAt, &k.CreatedAt, &tenantID)
+		"SELECT id, key_hash, key_prefix, role, label, device_imei, last_used, expires_at, created_at, tenant_id, platform_admin FROM api_keys WHERE key_hash = $1", keyHash,
+	).Scan(&k.ID, &k.KeyHash, &k.KeyPrefix, &k.Role, &k.Label, &k.DeviceIMEI, &k.LastUsed, &k.ExpiresAt, &k.CreatedAt, &tenantID, &k.PlatformAdmin)
 	if err != nil {
 		return nil, "", err
 	}

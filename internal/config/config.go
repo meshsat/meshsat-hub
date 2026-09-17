@@ -1242,6 +1242,44 @@ func Load() (Config, error) {
 		cfg.WGPassword = v
 	}
 
+	// MESHSAT-1209: the off switch for the static break-glass bearer.
+	//
+	// HUB_AUTH_TOKEN is the one credential that never expires, cannot be revoked
+	// and is rotated only by redeploy, and it grants PlatformAdmin in every auth
+	// mode. Now that an API key can carry that axis -- revocably, with an expiry --
+	// the token is replaceable, and this is the switch that retires it without a
+	// code change or a rebuild.
+	//
+	// Default TRUE deliberately: flipping it is an operational decision, because
+	// the remaining consumers are hand-run operator scripts that read the token out
+	// of the pod env. Setting it false clears AuthToken, and because tryBreakGlass
+	// returns false on an empty token that disables every acceptance point at once
+	// -- there is no second path to keep in step.
+	//
+	// ⚠ MUST STAY AT THE END OF Load(). It reads cfg.OIDCIssuerURL and
+	// cfg.JWTSigningKey, which are populated by env blocks above; placed next to
+	// the HUB_AUTH_TOKEN block where it logically belongs it saw them empty and
+	// refused to boot a correctly-configured Hub. TestLegacyTokenSwitch asserts the
+	// happy path as well as the guard for exactly that reason.
+	//
+	// ⚠ It refuses to boot rather than silently leaving the Hub unauthenticated:
+	// authMode falls back to "token" when AuthToken is the only credential and then
+	// to "none", so clearing it on an install with no OIDC and no JWT key would
+	// take a public, paying SaaS to open access. That is a loud failure by design.
+	if v := os.Getenv("HUB_LEGACY_TOKEN_ENABLED"); v != "" {
+		enabled, err := strconv.ParseBool(v)
+		if err != nil {
+			return cfg, fmt.Errorf("HUB_LEGACY_TOKEN_ENABLED must be a boolean, got %q", v)
+		}
+		if !enabled {
+			if cfg.OIDCIssuerURL == "" && cfg.JWTSigningKey == "" {
+				return cfg, fmt.Errorf("HUB_LEGACY_TOKEN_ENABLED=false would leave no authentication " +
+					"configured: set HUB_OIDC_ISSUER_URL or HUB_JWT_SIGNING_KEY first")
+			}
+			cfg.AuthToken = ""
+		}
+	}
+
 	return cfg, nil
 }
 

@@ -25,6 +25,10 @@ type createKeyRequest struct {
 	Role       string `json:"role"`
 	DeviceIMEI string `json:"device_imei,omitempty"`
 	ExpiresIn  string `json:"expires_in,omitempty"` // Go duration string, e.g. "720h"
+	// PlatformAdmin requests the cross-tenant axis (MESHSAT-1209). Refused unless
+	// the CALLER already holds it — see CreateKey. This route is open to any
+	// tenant owner, so an ungated field here would be a cross-tenant escalation.
+	PlatformAdmin bool `json:"platform_admin,omitempty"`
 }
 
 type createKeyResponse struct {
@@ -66,6 +70,22 @@ func (h *APIKeyHandler) CreateKey(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// ⚠ THE GATE (MESHSAT-1209). POST /api/auth/keys is gated at RequireRole(owner),
+	// so ANY tenant owner reaches this handler. Without the check below, a customer's
+	// owner could mint themselves a key carrying PlatformAdmin and act across every
+	// tenant — the same shape as the ungated provision route that handed a viewer a
+	// bridge private key. Only a caller who ALREADY holds the axis may pass it on.
+	//
+	// 403 rather than silently dropping the field: a caller who asked for platform
+	// admin and got an ordinary key would believe they hold authority they do not,
+	// and would find out at the first cross-tenant call.
+	if req.PlatformAdmin {
+		if u := auth.FromContext(r.Context()); u == nil || !u.PlatformAdmin {
+			writeError(w, http.StatusForbidden, "platform_admin keys may only be created by a platform administrator")
+			return
+		}
+	}
+
 	plaintext, hash, prefix, err := auth.GenerateAPIKey()
 	if err != nil {
 		slog.Error("api key generation failed", "error", err)
@@ -74,11 +94,12 @@ func (h *APIKeyHandler) CreateKey(w http.ResponseWriter, r *http.Request) {
 	}
 
 	key := &store.APIKey{
-		KeyHash:    hash,
-		KeyPrefix:  prefix,
-		Role:       req.Role,
-		Label:      req.Label,
-		DeviceIMEI: req.DeviceIMEI,
+		KeyHash:       hash,
+		KeyPrefix:     prefix,
+		Role:          req.Role,
+		Label:         req.Label,
+		DeviceIMEI:    req.DeviceIMEI,
+		PlatformAdmin: req.PlatformAdmin,
 	}
 
 	if req.ExpiresIn != "" {

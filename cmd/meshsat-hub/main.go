@@ -1512,11 +1512,18 @@ func main() {
 		default:
 		}
 		user := &hubauth.User{
-			ID:        "apikey:" + k.ID,
-			Name:      k.Label,
-			Roles:     []string{k.Role},
-			TenantID:  "", // will be set from tenantID below
-			ExpiresAt: k.ExpiresAt,
+			ID:       "apikey:" + k.ID,
+			Name:     k.Label,
+			Roles:    []string{k.Role},
+			TenantID: "", // will be set from tenantID below
+			// MESHSAT-1209: a key may carry the platform axis. Until this, the only
+			// thing that could was the static HUB_AUTH_TOKEN — never-expiring and
+			// non-revocable — so every piece of platform tooling had to hold it.
+			// A key with this flag is the same authority with an expiry and a
+			// revocation path. It is false for every existing key (column default)
+			// and only a caller who ALREADY holds PlatformAdmin can set it.
+			PlatformAdmin: k.PlatformAdmin,
+			ExpiresAt:     k.ExpiresAt,
 		}
 		return user, tenantID, nil
 	}

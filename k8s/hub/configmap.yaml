@@ -23,6 +23,18 @@ data:
   HUB_MQTT_CLIENT_ID: "meshsat-hub"
   # --- identity: authentik at auth.meshsat.net (MESHSAT-936); issuer exactly as discovery reports it ---
   HUB_AUTH_MODE: "oidc"
+  # MESHSAT-1209: the off switch for the static HUB_AUTH_TOKEN break-glass bearer.
+  # Declared here at its DEFAULT so the switch is discoverable and retiring the
+  # token is a one-line edit plus an Argo sync, not a code change.
+  #
+  # Before flipping to "false": the remaining consumers are hand-run operator
+  # scripts that read the token out of the pod env (stripe-suite.py,
+  # refund-suite.py, vat-suite.py, donation-check.py, stripe-live-check.py).
+  # Mint each a platform-admin API key first -- POST /api/auth/keys with
+  # {"platform_admin": true}, which only a platform admin may do -- and cut them
+  # over. The Hub REFUSES TO BOOT if this is false and neither OIDC nor a JWT
+  # signing key is configured, rather than quietly serving unauthenticated.
+  HUB_LEGACY_TOKEN_ENABLED: "true"
   HUB_OIDC_ISSUER_URL: "https://auth.meshsat.net/application/o/meshsat-hub/"
   HUB_OIDC_REDIRECT_URI: "https://hub.meshsat.net/api/auth/oidc/callback"
   HUB_OIDC_SCOPES: "openid profile email meshsat"  # meshsat = groups claim (bootstrap-meshsat.py ScopeMapping)
