@@ -62,9 +62,6 @@ misconfigurations:
   - id: KSV118
     paths:
       - apprise/deployment.yaml
-      - nats/statefulset.yaml
-      - platform/edge-relay.yaml
-      - redis/keydb-statefulset.yaml
       - tor/deployment.yaml
       - wireguard/statefulset.yaml
     statement: >-
