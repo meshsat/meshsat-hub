@@ -13,7 +13,7 @@ cluster-drill.yaml                    # throwaway 1-instance CNPG cluster for th
 The two helpers that run containers on the operator host (a temporary MariaDB that imports
 the dump, pgloader over a `kubectl port-forward`, and the per-table count / sha256
 verification) live outside git in the CubeOS local scripts dir
-(`~/gitlab/products/cubeos/scripts/meshsat-hub-rehearsal/{load-postgres.sh,verify-counts.sh}`),
+(`~/gitlab/products/meshsat/scripts/meshsat-hub-rehearsal/{load-postgres.sh,verify-counts.sh}`),
 because this repo's pre-commit rule forbids `docker run` in committed files. They take
 `<dump.sql.gz> <rw-service>` and need `PGPASSWORD_MESHSAT` (OpenBao cnpg/meshsat_password).
 

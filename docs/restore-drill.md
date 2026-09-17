@@ -110,7 +110,7 @@ tables that must match exactly are the ones nobody writes to casually:
 **2. The crown jewels.** `system_config` holds key material that cannot be
 regenerated without re-onboarding every bridge: lose these and every field
 device's certificate has to be reissued. `verify-counts.sh` in
-`~/gitlab/products/cubeos/scripts/meshsat-hub-rehearsal/` already computes
+`~/gitlab/products/meshsat/scripts/meshsat-hub-rehearsal/` already computes
 exactly this comparison; the same thing by hand is:
 
 ```bash
