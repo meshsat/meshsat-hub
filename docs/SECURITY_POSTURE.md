@@ -148,8 +148,24 @@ effect is nothing is worse than an absent one, because this scorecard counts it.
    path in the HDLC reader that motivated it is fixed. One target so far — the parsers in
    `internal/codec`, `internal/fragment`, `internal/protocol` and `internal/wire` are still
    uncovered.
-5. **Edge**: ingress-nginx ModSecurity is `DetectionOnly` and emitted zero audit records in 24 h; the
-   VPS fail-closed WAF scope is `/auth/` and misses the Hub's actual `/api/auth/` login path.
+5. ~~**Edge**~~ — **BOTH CLOSED 2026-09-17.**
+   - **ingress-nginx CRS now enforces** (MESHSAT-1207). The "zero audit records in 24 h" was checked
+     before being trusted, because it reads identically to a WAF that evaluates nothing: a harmless
+     `?q=<script>` produced CRS 941100/941110/941160/941390 plus the 949110 anomaly rule and a JSON
+     audit record, and across a full 24 h on both controllers those were the *only* matches —
+     legitimate traffic scores nothing. Verified after the flip: XSS and SQLi in a query string, and
+     a CRS-triggering form body, all return **403**; clean traffic 200; both controllers reloaded
+     with zero errors. **`/api/webhook/` is held in `DetectionOnly` permanently** — the same payload
+     that gets 403 elsewhere returns the app's own 401/404 there. That prefix is where a satellite MO
+     message arrives, the sender is a ground station that cannot interpret a 403, and nothing may
+     throttle or hide an SOS.
+   - **The VPS fail-closed arm now covers the Hub's real login path** (MESHSAT-1208). It was `/auth/`
+     (authentik) and `/billing` — both omoikane's — while the Hub logs in at `/api/auth/`, so a
+     CrowdSec/SPOE outage let credential traffic through unevaluated on the one hostname taking
+     money. The rate-limit ACLs already covered `/api/auth/`, and that asymmetry is what hid it.
+     Added host-scoped on all three edges (`is_failclosed_path` matches on path alone, so widening it
+     would have changed every other vhost), below the SPOE lines, with the satellite webhook paths
+     deliberately excluded for the same SOS reason.
 6. **Audit chain** integrity and the missing events across the whole credential surface.
    Measured while scoping it 2026-09-17, because the obvious fix is a trap: `ComputeHash` covers
    `action|actor|detail|ip|prev_hash` only, so an entry can be moved between tenants or
