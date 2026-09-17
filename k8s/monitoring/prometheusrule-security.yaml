@@ -29,24 +29,43 @@ spec:
     # ---------------------------------------------------------------------
     - name: meshsat-hub-authentication
       rules:
-        - alert: HubAuthFailureSpike
-          # Baseline is ~0. 24h of production ingress logs showed 4 401s in
-          # total, all from one operator session, against 4378 requests.
-          expr: sum by (reason, channel) (increase(meshsat_hub_auth_failures_total{job="hub"}[10m])) > 20
+        # WHY missing_credential IS EXCLUDED FROM THESE TWO.
+        #
+        # The Hub's auth middleware runs BEFORE chi's routing, so a request for
+        # a path that does not exist is refused for want of a credential rather
+        # than answered with a 404. Verified: GET /wp-admin/admin-ajax.php on
+        # hub.meshsat.net returns 401 {"error":"missing Authorization header"}.
+        # Every vulnerability scanner probe therefore lands in
+        # meshsat_hub_auth_failures_total{reason="missing_credential"}.
+        #
+        # This was not theory. The first firing of these alerts, within hours of
+        # them going live, was the estate's OWN weekly nuclei scan from
+        # nllei01sec01 and grskg01sec01 (45.138.52.48 and 91.211.213.72),
+        # rate-limited to 30/s: 1767 missing_credential in an hour, against 9
+        # invalid_token. Paths included /wp-admin/admin-ajax.php,
+        # /ONVIF/media.cgi and assorted WordPress plugin probes.
+        #
+        # So "no credential" conflates an adversary with a crawler and with our
+        # own scanners, and cannot be a clean attack signal here. Presenting a
+        # credential that FAILS is a different act: nobody does that by
+        # accident. The spike and flood alerts key on those reasons only, which
+        # is why their thresholds can stay low and mean something.
+        - alert: HubCredentialAttack
+          expr: sum by (reason, channel) (increase(meshsat_hub_auth_failures_total{job="hub", reason!="missing_credential"}[10m])) > 20
           for: 5m
           labels:
             severity: warning
             service: meshsat-hub
           annotations:
-            summary: "Hub: {{ $value | printf \"%.0f\" }} authentication failures in 10m ({{ $labels.reason }}, {{ $labels.channel }})"
+            summary: "Hub: {{ $value | printf \"%.0f\" }} rejected credentials in 10m ({{ $labels.reason }}, {{ $labels.channel }})"
             description: >-
-              Someone is trying credentials against hub.meshsat.net faster than any
-              real client does. reason={{ $labels.reason }} channel={{ $labels.channel }}.
-              Look at the `auth: request refused` log lines for the source addresses;
-              on channel=onion there is no per-client address by construction, so the
+              Someone is presenting credentials that fail, faster than any real client
+              does. reason={{ $labels.reason }} channel={{ $labels.channel }}. Look at
+              the `auth: request refused` log lines for the source addresses; on
+              channel=onion there is no per-client address by construction, so the
               answer there is a budget, not a block.
-        - alert: HubAuthFailureFlood
-          expr: sum by (reason, channel) (increase(meshsat_hub_auth_failures_total{job="hub"}[10m])) > 200
+        - alert: HubCredentialAttackSustained
+          expr: sum by (reason, channel) (increase(meshsat_hub_auth_failures_total{job="hub", reason!="missing_credential"}[10m])) > 200
           for: 2m
           labels:
             severity: critical
@@ -54,10 +73,29 @@ spec:
           annotations:
             summary: "Hub: sustained credential attack ({{ $labels.reason }}, {{ $labels.channel }})"
             description: >-
-              Over 200 authentication failures in 10 minutes. If the source is a single
+              Over 200 rejected credentials in 10 minutes. If the source is a single
               address the edge CrowdSec bouncer should already be banning it -- check
               `cscli decisions list` on the three VPS. If it is distributed, per-IP
               controls cannot see it and the answer is a per-account lockout.
+        - alert: HubUnauthenticatedProbeStorm
+          # Deliberately an order of magnitude above the estate's own weekly
+          # scan (~300 per 10 minutes reaching the Hub), and deliberately only a
+          # warning: this counts scanner noise as well as anything real, for the
+          # reason written above. It is worth knowing about a probe storm; it is
+          # not worth treating one as a break-in.
+          expr: sum(increase(meshsat_hub_auth_failures_total{job="hub", reason="missing_credential"}[10m])) > 3000
+          for: 10m
+          labels:
+            severity: warning
+            service: meshsat-hub
+          annotations:
+            summary: "Hub: unauthenticated probe storm ({{ $value | printf \"%.0f\" }} in 10m)"
+            description: >-
+              A large volume of requests with no credential at all. Because auth runs
+              before routing, this counts every probe for a path that does not exist,
+              so the estate's own weekly scan shows up here too -- check whether
+              nllei01sec01 or grskg01sec01 is mid-run before treating it as hostile.
+              The `auth: request refused` log lines carry the source addresses.
         - alert: HubAuthorizationDenialSpike
           # A 401 is somebody trying to get in; a 403 is somebody already
           # inside reaching for something they are not entitled to. That is a
