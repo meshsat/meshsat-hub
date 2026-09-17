@@ -7,3 +7,4 @@ resources:
   - tls-externalsecret.yaml
   - rbac.yaml
   - edge-relay.yaml
+  - default-deny.yaml

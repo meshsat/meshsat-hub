@@ -1,0 +1,46 @@
+# DEFAULT-DENY INGRESS (MESHSAT-1205). The last step of CIS 5.3's ingress half.
+#
+# Every workload in meshsat-hub now carries its own allow-list, each built from
+# flows Hubble observed. That makes the namespace safe TODAY, but only by
+# remembering: the next workload someone adds is reachable by every pod in the
+# cluster until a policy is written for it, and nothing fails to remind them.
+# This inverts that default.
+#
+# HOW IT IS SAFE, and why it is not redundant. Cilium policy is an additive
+# allow-list: selecting an endpoint with any ingress rule switches that endpoint
+# to default-deny for ingress, and the permitted set is the UNION of every
+# policy that selects it. An `endpointSelector: {}` with `ingress: []` therefore
+# selects every pod in the namespace and contributes nothing to that union -- so
+# workloads with an explicit allow keep exactly what they had, and a workload
+# with no policy of its own gets nothing instead of everything.
+#
+# It is deployed AFTER the per-workload policies, not with them, precisely so
+# that ordering can never leave a pod selected-but-unallowed.
+#
+# ⚠ INGRESS ONLY. Egress is deliberately absent: it carries the CNPG WAL archive
+# to nl-s3, the satellite provider callbacks, Twilio, Stripe and the Tor circuit,
+# and an egress default-deny that is even slightly wrong stops the backups rather
+# than the attacker. That is its own change, with its own drill.
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: default-deny-ingress
+  namespace: meshsat-hub
+  labels:
+    app.kubernetes.io/part-of: meshsat-hub
+spec:
+  endpointSelector: {}
+  ingress: []
+---
+# Same for the database namespace. postgres-confine already carries the allows;
+# this is what protects whatever lands here next.
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: default-deny-ingress
+  namespace: meshsat-hub-db
+  labels:
+    app.kubernetes.io/part-of: meshsat-hub
+spec:
+  endpointSelector: {}
+  ingress: []
