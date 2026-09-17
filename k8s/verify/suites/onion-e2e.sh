@@ -32,9 +32,24 @@ spec:
   nodeSelector: {node-role.kubernetes.io/control-plane: ""}
   tolerations:
     - {key: node-role.kubernetes.io/control-plane, operator: Exists, effect: NoSchedule}
+  # Restricted profile (MESHSAT-1204): Kyverno ENFORCES it in this namespace and
+  # refused this pod on the first nightly after the flip. Both images run as
+  # uid 100 by themselves (tor-simple: the tor user, curl: curl_user); declared
+  # so the profile can see it, with the rest of the profile spelled out.
+  securityContext:
+    runAsNonRoot: true
+    seccompProfile: {type: RuntimeDefault}
   containers:
-    - {name: torclient, image: "docker.io/osminogin/tor-simple"}
-    - {name: probe, image: "docker.io/curlimages/curl", command: ["sh","-c","sleep 900"]}
+    - name: torclient
+      image: "docker.io/osminogin/tor-simple"
+      securityContext: &restricted
+        runAsUser: 100
+        allowPrivilegeEscalation: false
+        capabilities: {drop: ["ALL"]}
+    - name: probe
+      image: "docker.io/curlimages/curl"
+      command: ["sh","-c","sleep 900"]
+      securityContext: *restricted
 YAML
 
 kubectl "${NS[@]}" wait --for=condition=Ready "pod/$POD" --timeout=180s >/dev/null
