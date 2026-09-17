@@ -39,7 +39,7 @@ assessment rather than implying a per-requirement audit that has not happened.
 | # | Chapter | Before | After | Basis for the verdict |
 |---|---|:---:|:---:|---|
 | V1 | Encoding & Injection | 0.5 | 0.5 | **read.** Every query parameterised; four `fmt.Sprintf` statements interpolate only closed-switch column names. No shell anywhere; `os/exec` is argv-form and platform-admin gated. Still open: CSV export does not neutralise formula injection (`internal/api/csv.go`), and ~99 handlers return raw driver error text to authenticated callers. |
-| V2 | Validation & Business Logic | 0.5 | 0.5 | **read.** `readJSON` enforces a 1 MB cap, `DisallowUnknownFields` and single-value decoding — and is bypassed by six handlers, two without unknown-field rejection. `?limit=` is unbounded on eight list endpoints. Unchanged this round. |
+| V2 | Validation & Business Logic | 0.5 | 0.5 | **read.** `readJSON` enforces a 1 MB cap, `DisallowUnknownFields` and single-value decoding — and is bypassed by six handlers, two without unknown-field rejection. `?limit=` is unbounded on eight list endpoints. **Fixed this round (MESHSAT-1202):** the Reticulum HDLC reassembly buffer grew without bound — a peer that sent one delimiter and never a second one chose the Hub's memory usage, reachable from the internet with any bridge-CA client certificate. Now capped at 16 KiB against a ~1002-byte theoretical maximum frame, with a regression test and a fuzz target both proven to fail without the fix. **Still 0.5**, because the `readJSON` bypasses and the unbounded `?limit=` are untouched, and `iface_tcp.go` still has no connection cap and still broadcasts every outbound frame to every client. |
 | V3 | Web Frontend Security | 1.0 | 1.0 | **measured.** CSP with `script-src 'self'`, `object-src 'none'`, `frame-ancestors 'none'`; HSTS preload; XFO, nosniff, Referrer-Policy, Permissions-Policy, COOP, CORP all present on the live response. No CORS configured, which for a bearer-token API is correct. No CSP reporting. The Hub scored 1.0 here throughout — but **`auth.meshsat.net`, the identity provider, sent no CSP at all** until MESHSAT-1198, which is a reminder that scoring one host does not score the login path it depends on. Now fixed, with `'unsafe-inline'` as a named residual. |
 | V4 | API & Web Service | 0.0 | 0.5 | **measured.** Was: 250 routes, 137 ungated, 45 of them state-changing. Now every mutating route carries a role floor, enforced by a build-time ratchet, and a viewer key returns 403 on each in production. Still 0.5: there is no rate limit on any *authenticated* route, and none on the two unauthenticated capability URLs. |
 | V5 | File Handling | 1.0 | 1.0 | **read.** `assetKey` validates extension, segment count and each segment; backup import guards zip-slip via a cleaned-path prefix check; export uses `os.OpenRoot`. Zip-bomb entry/size limits absent, platform-admin only. |
@@ -49,7 +49,7 @@ assessment rather than implying a per-requirement audit that has not happened.
 | V9 | Self-contained Tokens | 1.0 | 1.0 | **read.** Algorithm allowlist, `exp` required, audience and issuer checked, `kid` required with a single JWKS refresh, OKP and symmetric keys rejected, EC points verified on-curve, 1 MB response caps. Claims are discarded and role/tenant re-read from the Hub's own tables. |
 | V10 | OAuth & OIDC | 1.0 | 1.0 | **read.** PKCE S256, HMAC-signed state cookie with its own expiry, nonce checked against the ID token, open-redirect guard, `email_verified` required before provisioning, SPKI pinning with a rotation backup pin. |
 | V11 | Cryptography | 1.0 | 1.0 | **read.** AES-256-GCM with a 12-byte random nonce, bcrypt cost 10, five long-lived keys sealed under `HUB_CONFIG_WRAP_KEY` with a preflight that refuses to boot rather than regenerate. No forward secrecy on the satellite path, documented with a cost argument in `docs/ENCRYPTION.md`. |
-| V12 | Secure Communication | 0.5 | 0.5 | **measured.** TLS 1.2/1.3 at the edge; NATS websocket and stunnel both verify client certificates against the bridge CA. Improved: every NATS listener — including the cluster route port, which has no authorization block and no TLS — and the Postgres cluster are no longer reachable from arbitrary pods. Not 1.0: in-cluster MQTT is still plaintext within the allowed set, and NATS route authentication is still absent — contained now rather than fixed. |
+| V12 | Secure Communication | 0.5 | 0.5 | **measured.** TLS 1.2/1.3 at the edge; NATS websocket and stunnel both verify client certificates against the bridge CA. Improved: every NATS listener — including the cluster route port, which has no authorization block and no TLS — and the Postgres cluster are no longer reachable from arbitrary pods. Not 1.0: in-cluster MQTT is still plaintext within the allowed set, and NATS route authentication is still absent — contained now rather than fixed. Separately, the client-certificate control on the two TLS-passthrough endpoints is now **asserted nightly from two external vantages** (MESHSAT-1200) — it had not been checked since 2026-08-04. |
 | V13 | Configuration | 1.0 | 1.0 | **read.** Every secret an ExternalSecret from OpenBao; no secret values committed; `"changeme"` appears only as a value to reject. An IMEI and a Cloudloop thingId sit in a ConfigMap — sensitive, not secret. |
 | V14 | Data Protection | 0.5 | 0.5 | **read.** Tenant export, redaction on export, audit retention bounded 30–3650 days and tenant-selectable. Open and filed: the TAK CoT gateway forwards **every** tenant's positions, SOS and message text to the platform OpenTAKServer with no tenant filter (MESHSAT-1032) — latent only until the first customer device. |
 | V15 | Secure Coding & Architecture | 1.0 | 1.0 | **read.** Invariants held by tests that are declared not to be weakened (SOS survives quota; quota is on no ingest path; refunds are on no ingest path). Ratchets rather than review as the enforcement mechanism. |
@@ -124,18 +124,31 @@ allow-lists rather than default-deny.
    what makes the *next* workload safe by default instead of by remembering.
 4. **CI gates nothing** — `.gitlab-ci.yml` says so outright. `owasp:baseline` cannot fail
    (`allow_failure` + `|| true` + `-I`), never loads its own ruleset (`GIT_STRATEGY: none`), and runs
-   unauthenticated against a Hub that 401s everything. No SBOM, no signing, no secret detection, no
-   IaC scanning, no fuzzing — the last notable because the codebase parses untrusted binary and the
-   HDLC reader has a proven unbounded-growth path.
+   unauthenticated against a Hub that 401s everything. No SBOM, no signing, no secret detection and no
+   IaC scanning. **Fuzzing now exists** (MESHSAT-1202): a nightly `test:fuzz` job, seeded corpora
+   running in the ordinary `test` job so a known-bad input blocks a push, and the unbounded-growth
+   path in the HDLC reader that motivated it is fixed. One target so far — the parsers in
+   `internal/codec`, `internal/fragment`, `internal/protocol` and `internal/wire` are still
+   uncovered.
 5. **Edge**: ingress-nginx ModSecurity is `DetectionOnly` and emitted zero audit records in 24 h; the
    VPS fail-closed WAF scope is `/auth/` and misses the Hub's actual `/api/auth/` login path.
 6. **Audit chain** integrity and the missing events across the whole credential surface.
 7. **MESHSAT-1032** — cross-tenant TAK forwarding, latent until the first customer device.
-8. **Scanner truth** — the MQTT and Reticulum assertion scripts on both scanners still target the
-   DMZ decommissioned on 2026-09-08, so the two endpoints where a client certificate is the *only*
-   control have not been asserted since before the migration.
-9. **`Onion-Location`** — the hidden service is otherwise discoverable only via an authenticated API
-   call.
+8. ~~**Scanner truth**~~ — **CLOSED 2026-09-17 (MESHSAT-1200)**, and the reality was worse than
+   this entry stated. The scripts did point at the DMZ decommissioned on 2026-09-08, but they had
+   not been *executed at all* since **2026-08-04**: `weekly-scan.sh` runs the extended sweep under
+   `timeout 1800`, and phase E alone spends that budget (20 nikto hosts x `-maxtime 90s` = 1800 s
+   exactly), so phases F, J, **H (mTLS)**, I and K were cut off every night on both scanners. The
+   phase that reports "coverage UNKNOWN" cannot report its own absence, so the daily mail simply
+   stopped mentioning mTLS and read clean. Fixed by moving phase H ahead of the enrichment phases
+   (**assertions before enrichment**), raising the ceiling to 5400 s, repointing at notrf01, and
+   probing **each A record separately** so a silently-dropping edge is named instead of averaging
+   into weather one run in three. Both rigs now assert: NL 27 + 15 PASS, GR 22 + 16 PASS, zero FAIL,
+   zero UNREACHABLE — **the first mTLS results grskg01sec01 has ever produced**. Inversion-tested
+   both directions (`PUB_HOST=get.cubeos.app` -> 6 FAIL; `MQTT_PORT=443` -> 6 FAIL). A plaintext
+   broker password hardcoded in a world-readable script was retired with the test that needed it.
+9. ~~**`Onion-Location`**~~ — **CLOSED**. Served by all three VPS edges for `hub.meshsat.net`
+   non-API paths, so a Tor Browser user is offered the hidden service automatically.
 
 ## What measurement caught
 
