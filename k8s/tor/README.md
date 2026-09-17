@@ -72,8 +72,33 @@ deploy and went off on an unrelated commit, which is the worst way to find it.
 `seed-identity` runs as root and sets ownership and modes directly, which is
 deterministic and needs nothing from the kubelet.
 
-To rotate the address deliberately: delete the PVC *and* the OpenBao entry, let
+To rotate to a RANDOM new address: delete the PVC *and* the OpenBao entry, let
 Tor generate a fresh key, then store the new one the same way.
+
+To install a KNOWN key instead -- a vanity address, or a rollback -- do NOT
+delete the OpenBao entry, because the restore path is what installs it. The
+order is load-bearing (done for real in MESHSAT-1193):
+
+1. Back the current identity up to another OpenBao path first. It is the only
+   copy that is not on one node's disk.
+2. Write the new `HS_ED25519_*_B64` and `HOSTNAME` into
+   `ci-no/apps/meshsat-hub/tor`, carrying `ONION_HEARTBEAT_SECRET` across
+   unchanged -- that is the status-page credential, not part of the identity,
+   and replacing it silently breaks the monitor.
+3. Force the ExternalSecret to resync (`kubectl annotate es tor-identity
+   force-sync=$(date +%s) --overwrite`) and CONFIRM the Secret carries the new
+   hostname. The refreshInterval is 1h, so without this the next step restores
+   the OLD key and the change looks like it worked.
+4. Only now clear the key files on the volume and delete `tor-0`, so
+   `seed-identity` takes the restore branch.
+5. Update `HUB_TOR_ONION` and merge.
+6. Verify against the NEW address, not the config value: `onion-heartbeat`
+   fetches whatever `tor-identity/hostname` says, so a green heartbeat after
+   the roll is proof the new identity is actually serving.
+
+The trap worth naming: updating OpenBao and the ConfigMap alone changes nothing,
+because `seed-identity` never overwrites a key that is already on the volume.
+Every symptom says success and the old address keeps answering.
 
 ## Bootstrapping takes minutes, and that is normal
 

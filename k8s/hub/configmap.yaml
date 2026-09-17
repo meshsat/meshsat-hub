@@ -147,7 +147,22 @@ data:
   # It reaches BOTH consumers: /api/tor/onion and the Reticulum Tor interface,
   # which already read this variable. If the key volume is ever lost this value
   # changes and every published reference to it breaks.
-  HUB_TOR_ONION: "ynyj72hfs4k5wwrmphxyu5lf4mpgzcrrjzap4ntfx7bmnxwpjdps2bid.onion"
+  #
+  # Rotated 2026-09-17 to a VANITY address with a recognisable prefix
+  # (MESHSAT-1193). The previous identity was ynyj72hfs4k5wwrmphxyu5lf4mpgzcrr
+  # jzap4ntfx7bmnxwpjdps2bid.onion, preserved in OpenBao at
+  # ci-no/apps/meshsat-hub/tor-legacy-ynyj72hf so the change is reversible.
+  #
+  # Rotating cost nothing at the time because NOTHING published the old address:
+  # it appeared only in this file, there was no Onion-Location header, and the
+  # only way to learn it was an authenticated GET /api/tor/onion. That will not
+  # be true twice -- once this value is on meshsat.net and in kit configs, it is
+  # permanent, so treat the next rotation as breaking.
+  #
+  # The prefix is a usability aid and NOT a security control: an attacker can
+  # generate a "meshsat"-prefixed lookalike for the same ~$0.09 of compute, so
+  # all 56 characters remain the only identifier that means anything.
+  HUB_TOR_ONION: "meshsatgwdjt62kkm3q2tat2x6clg2367lzjqrv5j2oj4ojyx76bbbqd.onion"
   HUB_APRSIS_ENABLED: "false"
   # The platform's own wg-easy, deployed in k8s/wireguard (MESHSAT-1121). It was
   # "false" with no server anywhere in the estate, so Network was a nav entry in

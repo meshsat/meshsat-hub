@@ -3,6 +3,15 @@ kind: StatefulSet
 metadata:
   name: tor
   namespace: meshsat-hub
+  annotations:
+    # Both of these read the identity ONCE, at pod start: tor from the volume
+    # that seed-identity seeds, and onion-heartbeat from the tor-identity Secret
+    # into its ONION env var. So rotating the key without rolling them leaves
+    # the heartbeat probing an address that no longer exists and the status page
+    # going DEGRADED for a change that actually succeeded -- which is exactly
+    # what happened on the MESHSAT-1193 rotation and had to be fixed by hand.
+    # Reloader turns a Secret change into an ordinary roll (MESHSAT-1193).
+    reloader.stakater.com/auto: "true"
   labels:
     app.kubernetes.io/name: tor
 spec:
