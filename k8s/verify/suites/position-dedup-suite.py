@@ -124,9 +124,22 @@ for dev in (DEV_A, DEV_B):
 # throwaway is nobody as far as the policy is concerned. The symptom was
 # "PUBLISH FAILED: Error: Bad file descriptor" on the first nightly after the
 # policy landed; the two nightlies before it passed because they predated it.
+#
+# And it MUST satisfy the restricted Pod Security profile (MESHSAT-1204): Kyverno
+# ENFORCES it in this namespace, so a bare `kubectl run` -- root, no seccomp, all
+# capabilities -- is refused at admission. The mosquitto image ships a
+# mosquitto user (1883:1883); nothing here needs more than that.
+PUB_OVERRIDES = json.dumps({"spec": {
+    "securityContext": {"runAsNonRoot": True, "runAsUser": 1883, "runAsGroup": 1883,
+                        "seccompProfile": {"type": "RuntimeDefault"}},
+    "containers": [{"name": PUB, "image": "docker.io/eclipse-mosquitto",
+                    "command": ["sleep", "900"],
+                    "securityContext": {"allowPrivilegeEscalation": False,
+                                        "capabilities": {"drop": ["ALL"]}}}]}})
 subprocess.run(["kubectl"] + NS + ["run", PUB, "--image=docker.io/eclipse-mosquitto",
                                    "--labels=app.kubernetes.io/name=hub-verify",
-                                   "--restart=Never", "--command", "--", "sleep", "900"],
+                                   "--restart=Never", f"--overrides={PUB_OVERRIDES}",
+                                   "--command", "--", "sleep", "900"],
                capture_output=True, text=True)
 subprocess.run(["kubectl"] + NS + ["wait", "--for=condition=Ready", f"pod/{PUB}",
                                    "--timeout=120s"], capture_output=True, text=True)
