@@ -51,12 +51,12 @@ assessment rather than implying a per-requirement audit that has not happened.
 | V11 | Cryptography | 1.0 | 1.0 | **read.** AES-256-GCM with a 12-byte random nonce, bcrypt cost 10, five long-lived keys sealed under `HUB_CONFIG_WRAP_KEY` with a preflight that refuses to boot rather than regenerate. No forward secrecy on the satellite path, documented with a cost argument in `docs/ENCRYPTION.md`. |
 | V12 | Secure Communication | 0.5 | 0.5 | **measured.** TLS 1.2/1.3 at the edge; NATS websocket and stunnel both verify client certificates against the bridge CA. Improved: every NATS listener — including the cluster route port, which has no authorization block and no TLS — and the Postgres cluster are no longer reachable from arbitrary pods. Not 1.0: in-cluster MQTT is still plaintext within the allowed set, and NATS route authentication is still absent — contained now rather than fixed. Separately, the client-certificate control on the two TLS-passthrough endpoints is now **asserted nightly from two external vantages** (MESHSAT-1200) — it had not been checked since 2026-08-04. |
 | V13 | Configuration | 1.0 | 1.0 | **read.** Every secret an ExternalSecret from OpenBao; no secret values committed; `"changeme"` appears only as a value to reject. An IMEI and a Cloudloop thingId sit in a ConfigMap — sensitive, not secret. |
-| V14 | Data Protection | 0.5 | 0.5 | **read.** Tenant export, redaction on export, audit retention bounded 30–3650 days and tenant-selectable. Open and filed: the TAK CoT gateway forwards **every** tenant's positions, SOS and message text to the platform OpenTAKServer with no tenant filter (MESHSAT-1032) — latent only until the first customer device. |
+| V14 | Data Protection | 0.5 | **1.0** | **measured.** Tenant export, redaction on export, audit retention bounded 30–3650 days and tenant-selectable. The cross-tenant TAK leak (MESHSAT-1032) is closed: the platform-wide CoT gateway is gone, replaced by a per-tenant forwarder that resolves the tenant off the topic and reaches only that tenant's upstreams, and the unscoped `/api/tak/federation/peers` route and TAK Operations page no longer exist. Now held by three tests using `DefaultTenantID` as the victim, proven by reintroducing the bug in production code. Every other `DualFilters` consumer was audited for the same shape: sos, position, message and mesh all resolve through `tenancy.Resolver`, which is stronger than topic parsing because the store is authoritative. Residual, other repo: the privacy page has not been checked against what the Hub actually does with location data. |
 | V15 | Secure Coding & Architecture | 1.0 | 1.0 | **read.** Invariants held by tests that are declared not to be weakened (SOS survives quota; quota is on no ingest path; refunds are on no ingest path). Ratchets rather than review as the enforcement mechanism. |
 | V16 | Security Logging & Error Handling | 0.0 | **1.0** | **measured.** Was: a 401 produced no metric, no log line and no audit row, because auth is registered outside metrics and logging and short-circuits; rejection reasons were logged at Debug while production runs at info. Now every refusal increments a labelled counter and emits a `Warn` line with the correctly-resolved client IP — proven 0 → 6 on real production 401s, and `ip=45.138.52.48` rather than the ingress pod. |
 | V17 | WebRTC | — | — | Not applicable. |
 
-**ASVS L2: 11.0 / 16 = 69% → 13.5 / 16 = 84%**
+**ASVS L2: 11.0 / 16 = 69% → 14.0 / 16 = 88%**
 
 ---
 
@@ -102,7 +102,7 @@ Scored separately because ASVS V16 covers whether events are *recorded*, not whe
 
 | Instrument | Before | After |
 |---|:---:|:---:|
-| OWASP ASVS 5.0 L2 | 69% | **84%** |
+| OWASP ASVS 5.0 L2 | 69% | **88%** |
 | CIS Kubernetes ch. 5 | 42% | **58%** |
 | Detection & response | ~10% | **~70%** |
 
@@ -133,7 +133,11 @@ allow-lists rather than default-deny.
 5. **Edge**: ingress-nginx ModSecurity is `DetectionOnly` and emitted zero audit records in 24 h; the
    VPS fail-closed WAF scope is `/auth/` and misses the Hub's actual `/api/auth/` login path.
 6. **Audit chain** integrity and the missing events across the whole credential surface.
-7. **MESHSAT-1032** — cross-tenant TAK forwarding, latent until the first customer device.
+7. ~~**MESHSAT-1032**~~ — **CLOSED.** The mechanism was removed by the move to per-tenant hosted
+   TAK; this round added the tests that hold it and audited every other `DualFilters` consumer,
+   which is where a second instance of the same shape would have been. Outstanding in
+   `meshsat-website`: the privacy page has not been checked against what the Hub does with
+   location data.
 8. ~~**Scanner truth**~~ — **CLOSED 2026-09-17 (MESHSAT-1200)**, and the reality was worse than
    this entry stated. The scripts did point at the DMZ decommissioned on 2026-09-08, but they had
    not been *executed at all* since **2026-08-04**: `weekly-scan.sh` runs the extended sweep under
