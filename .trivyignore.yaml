@@ -8,12 +8,16 @@
 # does. Measured 2026-09-17 on the live cluster (MESHSAT security programme).
 misconfigurations:
   - id: AVD-KSV-0109
-    paths: ["hub/configmap.yaml"]
+    paths: ["hub/configmap.yaml", "nats/configmap.yaml"]
     statement: >-
       Keys matched on their NAMES: HUB_BRIDGE_CA_SECRET_NAME and
       HUB_NATS_AUTH_SECRET_NAME name the Secret objects to read, HUB_LEGACY_TOKEN_ENABLED
-      is a boolean, HUB_OIDC_PASSWORD_CHANGE_URL is a URL. No secret VALUE lives in the
-      ConfigMap; every secret is an ExternalSecret from OpenBao.
+      is a boolean, HUB_OIDC_PASSWORD_CHANGE_URL is a URL; in the NATS config the
+      `password:` line under cluster.authorization holds `$NATS_ROUTE_PASSWORD`, a
+      reference the server resolves from the pod env at start. No secret VALUE lives
+      in a ConfigMap; every secret is an ExternalSecret from OpenBao. (This entry was
+      added by the gate refusing the NATS change -- the gate reads key names, and
+      that is the right default.)
   - id: AVD-KSV-0108
     paths: ["hub/svc-authentik-upstream.yaml"]
     statement: >-
