@@ -7,7 +7,7 @@ about: clicking the verification link, a platform admin approving, and the
 FIRST SIGN-IN creating the tenant. This walks it against production and cleans
 up after itself.
 """
-import http.cookiejar, json, re, subprocess, sys, time, urllib.request, urllib.error, urllib.parse, uuid
+import http.cookiejar, json, os, re, subprocess, sys, time, urllib.request, urllib.error, urllib.parse, uuid
 
 AUTH = "https://auth.meshsat.net"
 HUB  = "https://hub.meshsat.net"
@@ -21,7 +21,23 @@ def sh(c): return subprocess.run(c, capture_output=True, text=True).stdout.strip
 def sql(q): return sh(DB+[q])
 POD = [l.split("/")[1] for l in sh(CTX+["get","pods","-o","name"]).splitlines() if l.startswith("pod/hub-")][0]
 def env(v): return sh(CTX+["exec",POD,"--","printenv",v])
-AK_TOKEN, HUB_TOKEN = env("HUB_AUTHENTIK_TOKEN"), env("HUB_AUTH_TOKEN")
+AK_TOKEN = env("HUB_AUTHENTIK_TOKEN")
+
+# MESHSAT-1209: this suite's own platform-admin API key, from its Secret, in
+# preference to reading the Hub pod's HUB_AUTH_TOKEN over `kubectl exec`.
+#
+# Two things wrong with the old way. The token is static, never expires and
+# cannot be revoked, so the nightly was the reason it had to keep existing at
+# all; and fetching it meant `exec` into a Hub pod, which is a capability
+# equivalent to reading every Hub secret and was granted to this CronJob for
+# exactly one printenv. The key is revocable, carries an expiry, and arrives as
+# an ordinary env var.
+#
+# The fallback stays only while HUB_LEGACY_TOKEN_ENABLED is still true. Once the
+# token is retired the fallback resolves to an empty string and the admin checks
+# below fail loudly rather than skipping — which is the correct behaviour for a
+# suite whose job is to notice things.
+HUB_TOKEN = os.environ.get("HUB_VERIFY_ADMIN_KEY") or env("HUB_AUTH_TOKEN")
 
 def ak(path, method="GET", body=None):
     data = json.dumps(body).encode() if body else None

@@ -74,6 +74,16 @@ def podenv(v):
     return sh(*CTX, "exec", pod(), "--", "printenv", v)
 
 
+# MESHSAT-1209: prefer a platform-admin API key over the Hub pod's static token.
+# HUB_AUTH_TOKEN is being retired (HUB_LEGACY_TOKEN_ENABLED); export
+# HUB_VERIFY_ADMIN_KEY, which OpenBao holds at ci-no/apps/meshsat-hub/verify, or
+# mint your own with POST /api/auth/keys {"platform_admin": true}. Remember
+# X-Tenant-ID: a platform credential carries no tenant of its own and every admin
+# call 403s with requirement="tenant_required" without it.
+def adminkey():
+    return os.environ.get("HUB_VERIFY_ADMIN_KEY") or podenv("HUB_AUTH_TOKEN")
+
+
 # --- Stripe ---------------------------------------------------------------
 
 KEY = ""
@@ -152,7 +162,7 @@ def main():
     if not KEY:
         return fail_setup("no scratchpad/.stripe-test-key")
 
-    admin = podenv("HUB_AUTH_TOKEN")
+    admin = adminkey()
     if not admin:
         return fail_setup("the Hub pod has no HUB_AUTH_TOKEN")
 
