@@ -33,6 +33,17 @@ data:
       listen: 0.0.0.0:6222
       no_advertise: true
       connect_retries: 120
+      # Routes authenticate (posture V12, MESHSAT-1204): a peer must present
+      # this credential to join the cluster, and the server presents it when
+      # dialling the routes below (route URLs without userinfo use the cluster
+      # authorization credentials). The network policy already confines :6222
+      # to nats pods; this is the second layer for the day that policy is not
+      # what it is believed to be. $NATS_ROUTE_PASSWORD comes from the pod env.
+      authorization {
+        user: route
+        password: $NATS_ROUTE_PASSWORD
+        timeout: 2
+      }
       routes: [
         nats-route://nats-0.nats-headless.meshsat-hub.svc.cluster.local:6222
         nats-route://nats-1.nats-headless.meshsat-hub.svc.cluster.local:6222
