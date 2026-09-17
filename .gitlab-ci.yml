@@ -116,38 +116,79 @@ swagger:
 # -----------------------------------------------------------------------------
 # OWASP ZAP baseline scan of the public Hub URLs (MESHSAT-979, successor of the
 # compose-era owasp job): weekly schedule (OWASP_RUN=1) or manual on main.
-# Passive baseline only; findings are triaged into docs/SECURITY_AUDIT.md.
+#
+# This job could not fail, and did not use its own ruleset (MESHSAT-1197). Four
+# things had to be true at once for it to report anything, and none was:
+#
+#   allow_failure: true    -- a failure was cosmetic
+#   || true                -- and the exit code was discarded before that
+#   GIT_STRATEGY: none     -- so test/owasp/zap-baseline.conf was not even
+#                             CHECKED OUT, and its FAIL rules (missing CSP,
+#                             X-Powered-By, missing Permissions-Policy) governed
+#                             nothing. docs/SECURITY_AUDIT.md claimed they did.
+#   tags: [multiarch]      -- the permanently-loaded GPU-host runner, which the
+#                             estate's own rule says never to route jobs to
+#
+# `-I` is NOT one of the defects and is kept deliberately: with a config file
+# that declares FAIL rules, -I means "a WARN does not fail the job, a declared
+# FAIL does", which is exactly the wanted behaviour. Removing it would fail the
+# job on every informational finding instead.
+#
+# allow_failure is set PER RULE, which matters more than it looks. `build` has
+# no `needs:`, so it waits for the whole security stage -- and a `when: manual`
+# job with allow_failure: false is a BLOCKING manual job in GitLab. Making this
+# non-optional on the main branch would leave every pipeline parked at the
+# security stage waiting for somebody to click it, halting all deploys. So the
+# weekly scheduled run is blocking (a red weekly scan is a real signal, and
+# `package` refuses scheduled pipelines anyway, so it cannot block a release),
+# while the manual-on-main variant stays optional.
+#
+# Still passive and still unauthenticated: the Hub 401s every /api/* route
+# before routing, so this covers the SPA, the headers and the unauthenticated
+# surface only. test/owasp/owasp-scan.sh is the authenticated five-phase
+# scanner and is still manual-only -- wiring it up is tracked separately.
 # -----------------------------------------------------------------------------
 owasp:baseline:
   stage: security
   image:
     name: ghcr.io/zaproxy/zaproxy:stable
     entrypoint: [""]
-  tags: [multiarch]
+  tags: [docker]
   needs: []
-  allow_failure: true
   variables:
-    GIT_STRATEGY: none
     ZAP_TARGETS: "https://hub.meshsat.net https://auth.meshsat.net"
   script:
     - mkdir -p /zap/wrk "$CI_PROJECT_DIR/zap"
+    # The ruleset has to be INSIDE /zap/wrk: zap-baseline.py resolves -c
+    # relative to its own working directory inside the container.
+    - cp test/owasp/zap-baseline.conf /zap/wrk/zap-baseline.conf
     - cd /zap/wrk
     - |
+      rc=0
       for t in $ZAP_TARGETS; do
         n=$(echo "$t" | sed 's|https://||')
         echo "== ZAP baseline: $t"
-        zap-baseline.py -t "$t" -r "zap-$n.html" -J "zap-$n.json" -I -m 5 || true
+        # No `|| true`: the exit code is the result. 1 = a rule marked FAIL in
+        # zap-baseline.conf matched. Every target is scanned even if an earlier
+        # one fails, so one bad host does not hide the others.
+        zap-baseline.py -t "$t" -c zap-baseline.conf -r "zap-$n.html" -J "zap-$n.json" -I -m 5 || rc=$?
       done
-    - cp /zap/wrk/zap-* "$CI_PROJECT_DIR/zap/" || true
-    - ls -la "$CI_PROJECT_DIR/zap/"
+      cp /zap/wrk/zap-* "$CI_PROJECT_DIR/zap/" 2>/dev/null || true
+      ls -la "$CI_PROJECT_DIR/zap/"
+      if [ "$rc" -ne 0 ]; then
+        echo "ZAP reported at least one FAIL-level finding; see the artifacts in zap/"
+      fi
+      exit "$rc"
   artifacts:
     paths: [zap/]
     expire_in: 90 days
     when: always
   rules:
     - if: $OWASP_RUN == "1"
+      allow_failure: false
     - if: $CI_COMMIT_BRANCH == "main"
       when: manual
+      allow_failure: true
 
 # -----------------------------------------------------------------------------
 # KUBECONFORM — the k8s/ kustomize tree must render and validate (MESHSAT-930).
