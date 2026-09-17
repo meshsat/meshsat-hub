@@ -51,6 +51,24 @@ spec:
       containers:
         - name: keydb
           image: docker.io/eqalpha/keydb
+          # Safe to drop ALL, checked rather than assumed (MESHSAT-1204). The
+          # command below `exec keydb-server` DIRECTLY, bypassing the image's
+          # entrypoint, so the su-exec privilege drop that eqalpha/keydb normally
+          # performs never runs here -- which is why the live process is uid 0 and
+          # why removing CAP_SETUID/SETGID costs nothing. Port 6379 is above 1024,
+          # so NET_BIND_SERVICE is not needed either.
+          #
+          # runAsNonRoot is deliberately NOT set: /data was created root-owned and
+          # holds the appendonly file. Moving it would need fsGroup, and fsGroup on
+          # this cluster has its own history -- the kubelet's recursive chmod is what
+          # broke tor's 0700 key directory. A capability drop is available today;
+          # the uid change is a data-ownership migration, filed separately.
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
+            seccompProfile:
+              type: RuntimeDefault
           command:
             - sh
             - -c

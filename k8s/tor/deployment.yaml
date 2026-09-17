@@ -95,8 +95,27 @@ spec:
               find /var/lib/tor -type d -exec chmod 0700 {} \;
               find /var/lib/tor -type f -exec chmod 0600 {} \;
               ls -ldn "$d"
+          # Capabilities dropped to the three this script actually needs, checked
+          # against what it does rather than set to [ALL] and hoped (MESHSAT-1204).
+          # It runs `chown -R 100:100` and `chmod` over /var/lib/tor, so:
+          #   CHOWN        - the chown itself
+          #   FOWNER       - chmod on files it does not own
+          #   DAC_OVERRIDE - traverse and read the 0700 directory it created on a
+          #                  PREVIOUS start, now owned by uid 100. Without it, uid 0
+          #                  is checked like any other user and the `find` fails.
+          # A plain drop: [ALL] here would work on a FRESH volume and then break on
+          # the first restart, which is the worst possible failure shape for the
+          # thing that holds the hidden service's identity -- and per the
+          # crashlooping-pod rule it would have looked like an unrelated regression.
+          # runAsUser 0 stays: it must assert ownership the kubelet will not.
           securityContext:
             runAsUser: 0
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
+              add: [CHOWN, DAC_OVERRIDE, FOWNER]
+            seccompProfile:
+              type: RuntimeDefault
           volumeMounts:
             - {name: keys, mountPath: /var/lib/tor}
             - {name: identity, mountPath: /seed, readOnly: true}
@@ -124,6 +143,10 @@ spec:
           securityContext:
             allowPrivilegeEscalation: false
             capabilities: {drop: [ALL]}
+            # seccompProfile was the one restricted requirement this container still
+            # missed; every capability was already gone (MESHSAT-1204).
+            seccompProfile:
+              type: RuntimeDefault
           volumeMounts:
             - {name: keys, mountPath: /var/lib/tor}
             - {name: config, mountPath: /etc/tor/torrc, subPath: torrc, readOnly: true}

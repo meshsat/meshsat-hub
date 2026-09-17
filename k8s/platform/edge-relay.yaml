@@ -85,6 +85,21 @@ spec:
       containers:
         - name: haproxy
           image: docker.io/library/haproxy
+          # hostNetwork and the three hostPorts are load-bearing and stay: Cilium's
+          # NodePort does not answer traffic arriving through the xfrm tunnels, which
+          # is why this relay exists at all. Everything ELSE goes (MESHSAT-1204).
+          #
+          # Checked, not assumed: haproxy binds :9443, :4243 and :9089 -- all above
+          # 1024, so no NET_BIND_SERVICE -- and the embedded config declares no
+          # `user`, `group` or `chroot`, so no SETUID/SETGID/SYS_CHROOT either. No
+          # `usesrc`/transparent binding, so no NET_RAW. That leaves nothing for the
+          # capability set to do, and this is the front door for every Hub request.
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
+            seccompProfile:
+              type: RuntimeDefault
           args: ["-f", "/usr/local/etc/haproxy/haproxy.cfg"]
           ports:
             - containerPort: 9443

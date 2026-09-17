@@ -24,6 +24,13 @@ spec:
         - {key: node-role.kubernetes.io/control-plane, operator: Exists, effect: NoSchedule}
       securityContext:
         fsGroup: 1000
+        # Declared, not imposed (MESHSAT-1204). `id` in the live pod reports
+        # uid=1000(hawkbit) gid=101(hawkbit_group) -- the image already does the right
+        # thing, it simply never said so, which is why PSA counted it as a violation.
+        runAsNonRoot: true
+        runAsUser: 1000
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - name: hawkbit
           # Pinned to the digest that was running when this was fixed. It was
@@ -31,6 +38,14 @@ spec:
           # arrive silently on any pod replacement: the image moves, the
           # bundled H2 moves with it, and nothing in this file changed.
           image: docker.io/hawkbit/hawkbit-update-server@sha256:9120fb1d7687b9ec8e9ee006b54b10a75f6f941788fbd23942e9808fe42a2e07
+          # Java binds 8080, above 1024, so no NET_BIND_SERVICE is needed and ALL
+          # can go. readOnlyRootFilesystem is NOT set: the JVM writes to /tmp.
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
+            seccompProfile:
+              type: RuntimeDefault
           env:
             # Postgres on the shared CNPG cluster (MESHSAT-1131), not the bundled
             # H2. H2 was one file on a node-local volume with no backup, and its
