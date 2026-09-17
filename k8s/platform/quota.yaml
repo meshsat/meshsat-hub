@@ -1,0 +1,58 @@
+# ResourceQuota and LimitRange for meshsat-hub (MESHSAT-1206). CIS 5.7 wanted
+# these and meshsat-tak next door has had both since 2026-09-11; this namespace
+# had neither, so a runaway workload here was bounded only by the node.
+#
+# ── SIZED FROM MEASURED USAGE, WITH ROOM, NOT TUNED TIGHT ──
+# The point is a blast-radius ceiling, not efficiency. Measured 2026-09-17 across
+# the 21 live pods: requests cpu 1600m / memory 2624Mi, limits memory 10240Mi,
+# 10 PVCs, 26 containers all of which already declare requests. Every ceiling
+# below is several times that, so this cannot reject today's workloads and still
+# stops a namespace-wide runaway.
+#
+# ⚠ THE ORDERING HAZARD, and why both objects live in ONE file. A ResourceQuota
+# that sets requests.cpu/requests.memory makes a request MANDATORY: a pod that
+# declares none is refused outright. The LimitRange is what supplies the default
+# for such a pod. Split across two files they could land in either order and a
+# request-less pod created in between would be rejected; together they cannot.
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: meshsat-hub
+  namespace: meshsat-hub
+  labels:
+    app.kubernetes.io/part-of: meshsat-hub
+spec:
+  hard:
+    requests.cpu: "8"          # measured 1600m
+    requests.memory: 16Gi      # measured 2624Mi
+    limits.memory: 48Gi        # measured 10240Mi
+    pods: "60"                 # measured 21
+    count/persistentvolumeclaims: "20"   # measured 10; local-hostpath, so these pin to nodes
+    count/services: "30"
+    count/secrets: "120"       # ExternalSecrets materialise into this count
+    count/configmaps: "80"
+    count/deployments.apps: "20"
+    count/statefulsets.apps: "20"
+---
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: meshsat-hub
+  namespace: meshsat-hub
+  labels:
+    app.kubernetes.io/part-of: meshsat-hub
+spec:
+  limits:
+    - type: Container
+      # Only ever applied to a container that declares nothing itself.
+      defaultRequest:
+        cpu: 50m
+        memory: 64Mi
+      default:
+        memory: 1Gi
+      # 4Gi, chosen against the measured maximum rather than picked: the largest
+      # limit in the namespace is hawkbit at 1536Mi (a JVM), so a ceiling below
+      # ~2Gi would refuse to recreate a pod that runs fine today -- and it would
+      # fail at admission on a rollout, looking like an unrelated regression.
+      max:
+        memory: 4Gi

@@ -20,6 +20,12 @@ spec:
         node-role.kubernetes.io/control-plane: ""
       tolerations:
         - {key: node-role.kubernetes.io/control-plane, operator: Exists, effect: NoSchedule}
+      # No Kubernetes API access is needed or wanted here (MESHSAT-1206). Checked
+      # before disabling: this pod runs as the `default` ServiceAccount and that
+      # account has NO RoleBinding or ClusterRoleBinding anywhere, so the token
+      # buys nothing -- it is purely a mounted credential waiting to be read by
+      # whatever else ends up in the container.
+      automountServiceAccountToken: false
       containers:
         - name: apprise
           image: docker.io/caronc/apprise

@@ -8,3 +8,4 @@ resources:
   - rbac.yaml
   - edge-relay.yaml
   - default-deny.yaml
+  - quota.yaml
