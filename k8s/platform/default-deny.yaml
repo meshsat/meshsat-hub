@@ -7,12 +7,20 @@
 # This inverts that default.
 #
 # HOW IT IS SAFE, and why it is not redundant. Cilium policy is an additive
-# allow-list: selecting an endpoint with any ingress rule switches that endpoint
-# to default-deny for ingress, and the permitted set is the UNION of every
-# policy that selects it. An `endpointSelector: {}` with `ingress: []` therefore
-# selects every pod in the namespace and contributes nothing to that union -- so
-# workloads with an explicit allow keep exactly what they had, and a workload
-# with no policy of its own gets nothing instead of everything.
+# allow-list: the permitted set for an endpoint is the UNION of every policy that
+# selects it. This policy selects every pod and contributes nothing to that
+# union, so workloads with an explicit allow keep exactly what they had, and a
+# workload with no policy of its own gets nothing instead of everything.
+#
+# ⚠ `ingress: []` DOES NOT DO THIS -- it is a silent no-op, and it was written
+# that way first. Cilium enables default-deny for a direction only when the
+# policy has RULES in that direction, and an empty list is not a rule. Measured:
+# with `endpointSelector: {}` + `ingress: []` applied in both namespaces, a
+# brand-new pod carrying no policy of its own was still REACHABLE from an
+# unrelated pod. The explicit `enableDefaultDeny` field (Cilium 1.14+, this
+# cluster runs 1.20) is what actually turns it on without needing a rule to
+# carry it. A policy whose effect is nothing is worse than no policy, because the
+# scorecard counts it.
 #
 # It is deployed AFTER the per-workload policies, not with them, precisely so
 # that ordering can never leave a pod selected-but-unallowed.
@@ -30,7 +38,14 @@ metadata:
     app.kubernetes.io/part-of: meshsat-hub
 spec:
   endpointSelector: {}
+  # BOTH fields are required, for different reasons. The CRD's anyOf schema
+  # refuses a spec with no rule section at all ("spec.ingress: Required value"),
+  # so the empty list is what makes the object valid; `enableDefaultDeny` is what
+  # makes it do anything.
   ingress: []
+  enableDefaultDeny:
+    ingress: true
+    egress: false
 ---
 # Same for the database namespace. postgres-confine already carries the allows;
 # this is what protects whatever lands here next.
@@ -43,4 +58,11 @@ metadata:
     app.kubernetes.io/part-of: meshsat-hub
 spec:
   endpointSelector: {}
+  # BOTH fields are required, for different reasons. The CRD's anyOf schema
+  # refuses a spec with no rule section at all ("spec.ingress: Required value"),
+  # so the empty list is what makes the object valid; `enableDefaultDeny` is what
+  # makes it do anything.
   ingress: []
+  enableDefaultDeny:
+    ingress: true
+    egress: false
