@@ -80,6 +80,12 @@ spec:
       dnsPolicy: ClusterFirstWithHostNet
       serviceAccountName: meshsat-hub
       automountServiceAccountToken: false
+      # haproxy already ran as its image user (99:99, measured on the pod);
+      # declaring it is what lets the restricted profile see it (MESHSAT-1204).
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 99
+        runAsGroup: 99
       nodeSelector:
         node-role.kubernetes.io/worker: ""
       containers:

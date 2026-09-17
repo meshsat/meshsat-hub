@@ -71,10 +71,10 @@ repository and are **unassessed** here.
 | 5.2 | Pod Security Standards | 0.0 | 0.5 | **measured.** Was: container `securityContext` empty on hub/stunnel/basemap and absent entirely on nats/keydb/edge-relay; namespace audited at `baseline`; `meshsat-hub-db` unlabelled. Now (MESHSAT-1204): **`meshsat-hub-db` ENFORCES restricted** — a live CNPG pod spec was replayed through a dry-run and passes outright, so the profile the namespace was afraid to enforce was one the operator had satisfied all along. hawkbit is fully restricted-compliant (the image already ran as uid 1000 and never declared it). keydb, all three nats containers and **the edge relay — the front door for every Hub request, previously running the full root capability set** — now drop ALL with seccompProfile and `allowPrivilegeEscalation: false`; tor has seccomp on both containers and its key-seeding initContainer is cut to `drop: [ALL], add: [CHOWN, DAC_OVERRIDE, FOWNER]`. 7 violating workloads → 6, and every remaining violation is either measured-and-documented as required by its image (apprise's startup `useradd`, wg-easy's iptables) or architecturally required. **Still 0.5, not 1.0, and the barrier is architectural rather than effort:** `enforce` on `meshsat-hub` is impossible while `meshsat-edge-relay` (hostNetwork + hostPorts) and `wg-easy` (NET_ADMIN) live in it — PSA `baseline` forbids both and exemptions are cluster-wide, not per-workload. The path to 1.0 is moving those two into their own `privileged`-labelled namespace. |
 | 5.3 | Network Policies & CNI | 0.0 | **1.0** | **measured.** Was: zero NetworkPolicies cluster-wide while two manifests claimed one enforced tor-only access to 6079. Now every workload in both namespaces is covered by an allow-list built from flows Hubble observed, and **default-deny ingress is on and proven** (MESHSAT-1205). The per-workload flips were each drilled: hawkbit — the OTA server, which decides what firmware a field device installs — stunnel and wg-easy all went REACHABLE → BLOCKED from an unrelated pod, while hub→hawkbit, basemap through the ingress, Reticulum mTLS, keydb peer replication and the onion heartbeat all kept working. **Two default-deny attempts before this one were silent no-ops** (`ingress: []`, then the same plus `enableDefaultDeny`), each caught only because the test creates a pod with a label no policy mentions and dials it; a plain Kubernetes NetworkPolicy with `policyTypes: [Ingress]` is what actually denies, and the union with the Cilium allows was verified against `basemap` before going namespace-wide. **Written, dated exception: egress is deliberately not default-denied.** It carries the CNPG WAL archive to nl-s3, the satellite provider callbacks, Twilio, Stripe and the Tor circuit, and an egress policy that is even slightly wrong stops the backups rather than the attacker. That is its own change with its own drill. |
 | 5.4 | Secrets Management | 1.0 | 1.0 | **read.** Every secret an `ExternalSecret` against the OpenBao `ClusterSecretStore`, `creationPolicy: Owner`, `deletionPolicy: Retain`. The one committed plain `Secret` carries an env-var placeholder, not a value. |
-| 5.5 | Extensible Admission Control | 0.0 | 0.0 | **read.** No image-provenance or signature admission. Images are digest-pinned in `kustomization.yaml` — which is pinning, not verification — and three (`busybox`, `apprise`, `wg-easy`) resolve to `:latest`, including the initContainer that handles the onion private key as uid 0. |
+| 5.5 | Extensible Admission Control | 0.0 | **0.5** | **measured.** Was: no admission control beyond PSA; no image provenance. Now (MESHSAT-1204/1216): Kyverno 1.19.1 is the admission engine (notrf01 !60/!62) with the project's own Pod Security policies at the **restricted** profile — 17 ClusterPolicies, Audit-only, `failurePolicy: Ignore`, background scan and reports controller on. The first PolicyReports were read within a minute and every failure in `meshsat-hub` is attributable: `meshsat-hub-db` has **zero**; edge-relay (hostNetwork), wg-easy (NET_ADMIN/NET_RAW), tor (key-seeding init) and apprise (startup `useradd`) are measured exceptions still to be written down as such; nats and keydb turned out to run as uid 0 with root-owned data, which is a fix (own push, rolling drill), not an exception. Image provenance: every image built since MESHSAT-1216 is cosign-signed by digest with a CycloneDX attestation, verifiable with the committed `cosign.pub`; the currently pinned image was signed the same way as the rehearsal. Not 1.0 because nothing is *enforced* yet and no `verifyImages` policy checks the signature at admission — both are the next two commits, in that order. |
 | 5.7 | General Policies | 0.5 | **1.0** | **measured.** Was: no `ResourceQuota` or `LimitRange` on `meshsat-hub` while `meshsat-tak` had both, and `automountServiceAccountToken` unset on hawkbit, wg-easy and apprise. Now (MESHSAT-1206) both objects exist, sized from measured usage with room rather than tuned tight — the 21 live pods request 1600m CPU / 2624Mi against ceilings of 8 CPU / 16Gi — and the two are kept in ONE file because a quota that sets `requests.*` makes a request mandatory while the LimitRange is what supplies the default, so a split could land in an order that refuses a request-less pod. `LimitRange.max` is 4Gi, chosen against the measured maximum (hawkbit's JVM at 1536Mi) so it cannot refuse to recreate a pod that runs today. The three SA tokens are off, each checked first: all three run as `default`, which has no RoleBinding or ClusterRoleBinding anywhere, so the token bought nothing and was only a mounted credential. PDBs already present. |
 
-**CIS ch. 5: 2.5 / 6 = 42% → 4.5 / 6 = 75%**
+**CIS ch. 5: 2.5 / 6 = 42% → 5.0 / 6 = 83%**
 
 ---
 
@@ -103,7 +103,7 @@ Scored separately because ASVS V16 covers whether events are *recorded*, not whe
 | Instrument | Before | After |
 |---|:---:|:---:|
 | OWASP ASVS 5.0 L2 | 69% | **94%** |
-| CIS Kubernetes ch. 5 | 42% | **75%** |
+| CIS Kubernetes ch. 5 | 42% | **83%** |
 | Detection & response | ~10% | **~70%** |
 
 The programme's targets were ASVS ≥ 95%, CIS ≥ 90% and detection ≥ 90%. ASVS is one row short of
@@ -148,14 +148,26 @@ effect is nothing is worse than an absent one, because this scorecard counts it.
    satellite provider callbacks, Twilio, Stripe and the Tor circuit, so an egress policy that is
    slightly wrong stops the backups rather than the attacker. It needs its own observation window
    and its own drill.
-4. **CI gates nothing** — `.gitlab-ci.yml` says so outright. `owasp:baseline` cannot fail
-   (`allow_failure` + `|| true` + `-I`), never loads its own ruleset (`GIT_STRATEGY: none`), and runs
-   unauthenticated against a Hub that 401s everything. No SBOM, no signing, no secret detection and no
-   IaC scanning. **Fuzzing now exists** (MESHSAT-1202): a nightly `test:fuzz` job, seeded corpora
-   running in the ordinary `test` job so a known-bad input blocks a push, and the unbounded-growth
-   path in the HDLC reader that motivated it is fixed. One target so far — the parsers in
-   `internal/codec`, `internal/fragment`, `internal/protocol` and `internal/wire` are still
-   uncovered.
+4. ~~**CI gates nothing**~~ — **CLOSED 2026-09-18 (MESHSAT-1216), measured on its first run.** What
+   gates a push to `main` now, in order: `go mod verify`; **gitleaks** over the working tree and the
+   push's commits (allow-list by test-fixture PATH only, each with its reason — it found one real
+   committed credential on introduction, the E2E probe's password, now generated per run);
+   **trivy config** over `k8s/` and the shipped Dockerfiles at HIGH/CRITICAL (27 findings measured:
+   nine third-party containers without a read-only root are listed *per file* as deploy-then-harden
+   debt so a new container without it still fails; the hostNetwork relay and wg-easy's capabilities
+   are architectural; two were false positives on key names; the Dockerfiles gained `USER 65532`);
+   then the existing lint / gosec / govulncheck / test / trivy-image chain; then **cosign** signs the
+   pushed image *by digest* and attests a CycloneDX SBOM to it, verifying both with the committed
+   `cosign.pub` before `bump_k8s_pin` — which now *needs* `sign`, so an unsigned image is never
+   pinned. Proven, not reasoned: pipeline 54657 ran every new job green (gitleaks 15 s, IaC 42 s,
+   sign 28 s); the newly pinned digest verifies **from outside CI** with the committed key and its
+   attestation carries 124 components; a freshly generated wrong key is refused (`accepted
+   signatures do not match threshold`). Two lessons paid for by rehearsal rather than a red
+   pipeline: the official cosign image is distroless (no shell for GitLab), so the release binary is
+   fetched checksum-pinned; cosign 3 refuses `--tlog-upload=false` and wants a signing config with
+   no transparency log. Still open under this heading: `owasp:baseline` cannot fail as written
+   (MESHSAT-1197), and a Kyverno `verifyImages` policy so the *cluster* checks the signature at
+   admission (CIS 5.5). Fuzzing exists since MESHSAT-1202 (nightly `test:fuzz`, one target).
 5. ~~**Edge**~~ — **BOTH CLOSED 2026-09-17.**
    - **ingress-nginx CRS now enforces** (MESHSAT-1207). The "zero audit records in 24 h" was checked
      before being trusted, because it reads identically to a WAF that evaluates nothing: a harmless

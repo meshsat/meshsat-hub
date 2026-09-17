@@ -33,6 +33,19 @@ spec:
     spec:
       serviceAccountName: meshsat-hub
       automountServiceAccountToken: false
+      # Non-root since 2026-09-18 (MESHSAT-1204). Measured first: all three
+      # containers ran as uid 0, /data was 0:0 0777 with /data/jetstream 0:0 0700,
+      # 8.7 MB in total. The image has no non-root user in /etc/passwd, so the
+      # uid is numeric; fsGroup 1000 makes the kubelet chown the PVC to :1000
+      # and add g+rwX (+setgid on dirs) on every mount, which is what lets a
+      # store created by root keep working. The reloader signals the server, so
+      # both must share the uid. Secret volumes keep their default 0644 and are
+      # group-readable to fsGroup.
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
       shareProcessNamespace: true
       priorityClassName: meshsat-hub-critical
       nodeSelector:
@@ -50,8 +63,8 @@ spec:
         - name: nats
           image: docker.io/library/nats
           # nats-server binds 1883/4222/8222/9443, all above 1024, so no
-          # NET_BIND_SERVICE and ALL can go (MESHSAT-1204). runAsNonRoot not set:
-          # the JetStream store under /data is root-owned, same migration as keydb.
+          # NET_BIND_SERVICE and ALL can go (MESHSAT-1204). The uid is set at pod
+          # level together with fsGroup, see above.
           securityContext:
             allowPrivilegeEscalation: false
             capabilities:
