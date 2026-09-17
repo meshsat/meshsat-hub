@@ -69,12 +69,12 @@ repository and are **unassessed** here.
 |---|---|:---:|:---:|---|
 | 5.1 | RBAC & Service Accounts | 1.0 | 1.0 | **read.** Namespaced Roles only — no ClusterRole, no ClusterRoleBinding, no `cluster-admin` anywhere in the tree, stated as a rule in `k8s/tak-operator/rbac.yaml`. The Hub's own Role is two leases verbs plus `secrets get/patch` narrowed by `resourceNames`. Caveat: `hub-verify` holds `pods/exec` into Hub pods, which is effectively equivalent to reading every Hub secret. |
 | 5.2 | Pod Security Standards | 0.0 | 0.5 | **measured.** Was: container `securityContext` empty on hub/stunnel/basemap and absent entirely on nats/keydb/edge-relay; namespace audited at `baseline`; `meshsat-hub-db` unlabelled. Now (MESHSAT-1204): **`meshsat-hub-db` ENFORCES restricted** — a live CNPG pod spec was replayed through a dry-run and passes outright, so the profile the namespace was afraid to enforce was one the operator had satisfied all along. hawkbit is fully restricted-compliant (the image already ran as uid 1000 and never declared it). keydb, all three nats containers and **the edge relay — the front door for every Hub request, previously running the full root capability set** — now drop ALL with seccompProfile and `allowPrivilegeEscalation: false`; tor has seccomp on both containers and its key-seeding initContainer is cut to `drop: [ALL], add: [CHOWN, DAC_OVERRIDE, FOWNER]`. 7 violating workloads → 6, and every remaining violation is either measured-and-documented as required by its image (apprise's startup `useradd`, wg-easy's iptables) or architecturally required. **Still 0.5, not 1.0, and the barrier is architectural rather than effort:** `enforce` on `meshsat-hub` is impossible while `meshsat-edge-relay` (hostNetwork + hostPorts) and `wg-easy` (NET_ADMIN) live in it — PSA `baseline` forbids both and exemptions are cluster-wide, not per-workload. The path to 1.0 is moving those two into their own `privileged`-labelled namespace. |
-| 5.3 | Network Policies & CNI | 0.0 | 0.5 | **measured.** Was: zero NetworkPolicies cluster-wide, while two manifests claimed one enforced tor-only access to port 6079. Now confined, each proven by a before/after connection test from an unrelated pod: the Hub's onion and Reticulum ports (tor-only, stunnel-only), all five NATS listeners including the unauthenticated cluster route port, and the **Postgres cluster** — 5432, 8000 and 9187 were all reachable from any pod. Still 0.5 and not 1.0: no default-deny anywhere, egress deliberately untouched (it carries the WAL archive), and keydb, stunnel, basemap, apprise, hawkbit, wg-easy and the edge relay remain uncovered. |
+| 5.3 | Network Policies & CNI | 0.0 | **1.0** | **measured.** Was: zero NetworkPolicies cluster-wide while two manifests claimed one enforced tor-only access to 6079. Now every workload in both namespaces is covered by an allow-list built from flows Hubble observed, and **default-deny ingress is on and proven** (MESHSAT-1205). The per-workload flips were each drilled: hawkbit — the OTA server, which decides what firmware a field device installs — stunnel and wg-easy all went REACHABLE → BLOCKED from an unrelated pod, while hub→hawkbit, basemap through the ingress, Reticulum mTLS, keydb peer replication and the onion heartbeat all kept working. **Two default-deny attempts before this one were silent no-ops** (`ingress: []`, then the same plus `enableDefaultDeny`), each caught only because the test creates a pod with a label no policy mentions and dials it; a plain Kubernetes NetworkPolicy with `policyTypes: [Ingress]` is what actually denies, and the union with the Cilium allows was verified against `basemap` before going namespace-wide. **Written, dated exception: egress is deliberately not default-denied.** It carries the CNPG WAL archive to nl-s3, the satellite provider callbacks, Twilio, Stripe and the Tor circuit, and an egress policy that is even slightly wrong stops the backups rather than the attacker. That is its own change with its own drill. |
 | 5.4 | Secrets Management | 1.0 | 1.0 | **read.** Every secret an `ExternalSecret` against the OpenBao `ClusterSecretStore`, `creationPolicy: Owner`, `deletionPolicy: Retain`. The one committed plain `Secret` carries an env-var placeholder, not a value. |
 | 5.5 | Extensible Admission Control | 0.0 | 0.0 | **read.** No image-provenance or signature admission. Images are digest-pinned in `kustomization.yaml` — which is pinning, not verification — and three (`busybox`, `apprise`, `wg-easy`) resolve to `:latest`, including the initContainer that handles the onion private key as uid 0. |
-| 5.7 | General Policies | 0.5 | 0.5 | **read.** No `ResourceQuota` or `LimitRange` on `meshsat-hub` (`meshsat-tak` has both). `automountServiceAccountToken` unset on hawkbit, wg-easy and apprise, so they run with the default SA token mounted. PDBs present on the five workloads that matter. |
+| 5.7 | General Policies | 0.5 | **1.0** | **measured.** Was: no `ResourceQuota` or `LimitRange` on `meshsat-hub` while `meshsat-tak` had both, and `automountServiceAccountToken` unset on hawkbit, wg-easy and apprise. Now (MESHSAT-1206) both objects exist, sized from measured usage with room rather than tuned tight — the 21 live pods request 1600m CPU / 2624Mi against ceilings of 8 CPU / 16Gi — and the two are kept in ONE file because a quota that sets `requests.*` makes a request mandatory while the LimitRange is what supplies the default, so a split could land in an order that refuses a request-less pod. `LimitRange.max` is 4Gi, chosen against the measured maximum (hawkbit's JVM at 1536Mi) so it cannot refuse to recreate a pod that runs today. The three SA tokens are off, each checked first: all three run as `default`, which has no RoleBinding or ClusterRoleBinding anywhere, so the token bought nothing and was only a mounted credential. PDBs already present. |
 
-**CIS ch. 5: 2.5 / 6 = 42% → 3.5 / 6 = 58%**
+**CIS ch. 5: 2.5 / 6 = 42% → 4.5 / 6 = 75%**
 
 ---
 
@@ -103,25 +103,43 @@ Scored separately because ASVS V16 covers whether events are *recorded*, not whe
 | Instrument | Before | After |
 |---|:---:|:---:|
 | OWASP ASVS 5.0 L2 | 69% | **88%** |
-| CIS Kubernetes ch. 5 | 42% | **58%** |
+| CIS Kubernetes ch. 5 | 42% | **75%** |
 | Detection & response | ~10% | **~70%** |
 
 The programme's targets were ASVS ≥ 95%, CIS ≥ 90% and detection ≥ 90%. **None is met**, and the
 gap is not cosmetic. V6 is a half rather than a zero only because the static platform-admin bearer is
-now monitored — it is still static and still non-expiring. Both CIS scores are capped at 0.5 because
-nothing is *enforced*: the pod-security profile audits, and the network policies are per-workload
-allow-lists rather than default-deny.
+now monitored — it is still static and still non-expiring.
+
+The CIS caps have moved: **network policy is now enforced** with default-deny ingress and a
+per-workload allow-list on every pod (5.3 → 1.0), and the general policies are in place (5.7 → 1.0).
+**5.2 remains 0.5, and the barrier there is architectural rather than effort**: `enforce` on
+`meshsat-hub` is impossible while `meshsat-edge-relay` (hostNetwork + hostPorts) and `wg-easy`
+(NET_ADMIN) live in it, because PSA `baseline` forbids both and PSA exemptions are cluster-wide by
+namespace/user/runtimeClass, never per-workload. The path to 1.0 is moving those two into their own
+`privileged`-labelled namespace — a real change to the ingress path for every Hub request.
+
+One pattern is worth stating on its own, because it recurred three times in one day: **a control is
+not shipped until something has been observed to FAIL because of it.** The scanner phase that could
+not fail, the alert whose label set could never match, and *two* default-deny policies that were
+silent no-ops were all found the same way — by writing the negative test first. A control whose
+effect is nothing is worse than an absent one, because this scorecard counts it.
 
 ## Open, in the order they should be closed
 
 1. **`HUB_AUTH_TOKEN`** — now monitored (MESHSAT-1195) but still static, non-expiring and rotated
    only by redeploy. Closing V6 means either an expiring platform credential, which requires letting
    an API key carry the platform flag, or removing the need for the platform axis from the tooling.
-2. **PodSecurity enforcement** and the five third-party workloads; the tor initContainer running as
-   uid 0 on an unpinned `busybox:latest` while handling the onion private key.
-3. **Default-deny** network policy, plus egress. The highest-value targets are now confined
-   individually — Hub non-public ports, every NATS listener, and Postgres — but a default-deny is
-   what makes the *next* workload safe by default instead of by remembering.
+2. **PodSecurity enforcement on `meshsat-hub`** — blocked architecturally, see above; the namespace
+   split is the work. `meshsat-hub-db` now enforces `restricted` and every container in both
+   namespaces has been cut to the capabilities it actually needs (MESHSAT-1204). Still open in this
+   area: the tor initContainer runs on an **unpinned `busybox:latest`** while handling the onion
+   private key — its capabilities are now minimal but the image is still a moving target.
+3. ~~**Default-deny** network policy~~ — **CLOSED for ingress** (MESHSAT-1205). Every workload is
+   covered and default-deny is on and proven against a pod carrying a label no policy mentions.
+   **Egress remains, deliberately and dated:** it carries the CNPG WAL archive to nl-s3, the
+   satellite provider callbacks, Twilio, Stripe and the Tor circuit, so an egress policy that is
+   slightly wrong stops the backups rather than the attacker. It needs its own observation window
+   and its own drill.
 4. **CI gates nothing** — `.gitlab-ci.yml` says so outright. `owasp:baseline` cannot fail
    (`allow_failure` + `|| true` + `-I`), never loads its own ruleset (`GIT_STRATEGY: none`), and runs
    unauthenticated against a Hub that 401s everything. No SBOM, no signing, no secret detection and no
