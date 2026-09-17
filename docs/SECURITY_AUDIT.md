@@ -1,3 +1,13 @@
+> **SUPERSEDED 2026-09-17.** This document is dated 2026-03-18, describes a `v0.2` product on
+> Docker Compose with MariaDB, and contains at least four claims contradicted by the CI
+> configuration it cites (the ZAP scan it describes cannot fail, never loads its own ruleset, and
+> runs unauthenticated). One issue it lists as open — MESHSAT-158, unbounded goroutines in the API
+> key middleware — was fixed and the document not updated.
+>
+> Read it as history. The current assessment is **`docs/SECURITY_POSTURE.md`**, with the threat
+> boundaries in the per-area rules under `.claude/rules/` and the live findings in YouTrack
+> MESHSAT-1189 through MESHSAT-1194.
+
 # MeshSat Hub — Security Audit Report
 
 _Version: v0.2 (multi-tenant device management)_
