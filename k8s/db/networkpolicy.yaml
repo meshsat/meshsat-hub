@@ -1,0 +1,99 @@
+# Confine the Hub's Postgres cluster (MESHSAT-1199).
+#
+# meshsat-hub-db had no NetworkPolicy and no pod-security labels at all, while
+# meshsat-tak-db -- the same operator, holding a customer's TAK data -- at least
+# audits `restricted`. This namespace holds every tenant's devices, messages,
+# positions, credentials and the gapless invoice series, and 5432 was reachable
+# from any pod in the cluster. Credentials are still required, but "you also
+# need the password" is the last line of defence, not the only one it should
+# have.
+#
+# INGRESS ONLY, and that is load-bearing here rather than merely cautious.
+# CNPG's egress is how the WAL archive reaches nl-s3 and how an instance
+# rejoins; an egress rule written from a quiet window would be a backup that
+# stops working silently, which is the one failure this estate has already paid
+# for (CNPGBackupStale, and the 36 hours without an off-node copy that
+# db/backup-unwedge.yaml exists because of).
+#
+# Built from observed flows (hubble observe --to-namespace meshsat-hub-db,
+# across all three instance nodes):
+#
+#   reserved:host,kube-apiserver -> 8000   160   kubelet probes + API access
+#   meshsat-hub-db/postgresql    -> 8000   132   instance-to-instance status
+#   meshsat-hub-db/postgresql    -> 5432    73   streaming replication
+#   meshsat-hub/hub              -> 5432    62   the Hub
+#   monitoring/prometheus        -> 9187    50   the postgres exporter
+#   meshsat-hub/hawkbit          -> 5432    36   hawkBit shares this cluster
+#
+# That last one is the reason to observe rather than reason: hawkBit having its
+# own database would have been a fair assumption and a broken one.
+#
+# Two sources are allowed WITHOUT having been observed. The CNPG operator in
+# cnpg-system reconciles instances and its traffic did not appear in the window
+# (much of the control path is via the API server, which did); denying it would
+# break failover at the worst possible moment. And hub-verify, whose nightly
+# suites reach the database. Silence in a sampling window is not evidence that a
+# path is unused.
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: postgres-confine
+  namespace: meshsat-hub-db
+  labels:
+    app.kubernetes.io/name: meshsat-hub
+    app.kubernetes.io/part-of: meshsat-hub
+spec:
+  endpointSelector:
+    matchLabels:
+      cnpg.io/cluster: meshsat-hub-main
+  ingress:
+    # The cluster talking to itself: streaming replication on 5432 and the
+    # instance-status endpoint on 8000. Without this, replication stops and the
+    # cluster loses its synchronous replica.
+    - fromEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: meshsat-hub-db
+            cnpg.io/cluster: meshsat-hub-main
+      toPorts:
+        - ports:
+            - {port: "5432", protocol: TCP}
+            - {port: "8000", protocol: TCP}
+    # The kubelet's probes and the API server, both of which arrive as the node.
+    - fromEntities:
+        - host
+        - remote-node
+        - kube-apiserver
+      toPorts:
+        - ports:
+            - {port: "8000", protocol: TCP}
+    # The operator: failover, switchover, backups, and every reconcile.
+    - fromEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: cnpg-system
+            app.kubernetes.io/name: cloudnative-pg
+      toPorts:
+        - ports:
+            - {port: "8000", protocol: TCP}
+            - {port: "5432", protocol: TCP}
+    # The two clients that legitimately hold credentials for this cluster.
+    - fromEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: meshsat-hub
+            app.kubernetes.io/name: hub
+        - matchLabels:
+            io.kubernetes.pod.namespace: meshsat-hub
+            app.kubernetes.io/name: hawkbit
+        - matchLabels:
+            io.kubernetes.pod.namespace: meshsat-hub
+            app.kubernetes.io/name: hub-verify
+      toPorts:
+        - ports:
+            - {port: "5432", protocol: TCP}
+    # The exporter scrape.
+    - fromEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: monitoring
+            app.kubernetes.io/name: prometheus
+      toPorts:
+        - ports:
+            - {port: "9187", protocol: TCP}

@@ -7,3 +7,4 @@ resources:
   - database-meshsat-hub.yaml
   - scheduledbackup.yaml
   - backup-unwedge.yaml
+  - networkpolicy.yaml
