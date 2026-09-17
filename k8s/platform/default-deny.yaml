@@ -1,68 +1,68 @@
 # DEFAULT-DENY INGRESS (MESHSAT-1205). The last step of CIS 5.3's ingress half.
 #
-# Every workload in meshsat-hub now carries its own allow-list, each built from
-# flows Hubble observed. That makes the namespace safe TODAY, but only by
-# remembering: the next workload someone adds is reachable by every pod in the
-# cluster until a policy is written for it, and nothing fails to remind them.
-# This inverts that default.
+# Every workload in meshsat-hub carries its own CiliumNetworkPolicy allow-list,
+# each built from flows Hubble observed. That makes the namespace safe TODAY, but
+# only by remembering: the next workload added is reachable by every pod in the
+# cluster until someone writes a policy for it, and nothing fails to remind them.
+# This inverts the default.
 #
-# HOW IT IS SAFE, and why it is not redundant. Cilium policy is an additive
-# allow-list: the permitted set for an endpoint is the UNION of every policy that
-# selects it. This policy selects every pod and contributes nothing to that
-# union, so workloads with an explicit allow keep exactly what they had, and a
-# workload with no policy of its own gets nothing instead of everything.
+# ── WHY THIS IS A KUBERNETES NetworkPolicy AND NOT A CiliumNetworkPolicy ──
 #
-# ⚠ `ingress: []` DOES NOT DO THIS -- it is a silent no-op, and it was written
-# that way first. Cilium enables default-deny for a direction only when the
-# policy has RULES in that direction, and an empty list is not a rule. Measured:
-# with `endpointSelector: {}` + `ingress: []` applied in both namespaces, a
-# brand-new pod carrying no policy of its own was still REACHABLE from an
-# unrelated pod. The explicit `enableDefaultDeny` field (Cilium 1.14+, this
-# cluster runs 1.20) is what actually turns it on without needing a rule to
-# carry it. A policy whose effect is nothing is worse than no policy, because the
-# scorecard counts it.
+# Two CiliumNetworkPolicy attempts at this were shipped and BOTH did nothing.
+# Measured each time by creating a pod with a label no policy mentions and dialling
+# it from an unrelated pod:
 #
-# It is deployed AFTER the per-workload policies, not with them, precisely so
-# that ordering can never leave a pod selected-but-unallowed.
+#   1. endpointSelector: {} + ingress: []            -> newcomer REACHABLE
+#   2. the same + enableDefaultDeny: {ingress: true} -> newcomer REACHABLE
+#
+# Cilium turns on default-deny for a direction only when the policy carries RULES
+# in that direction, and an empty list is not a rule; `enableDefaultDeny` does not
+# rescue it, and the CRD's anyOf schema simultaneously REFUSES a spec with no rule
+# section at all ("spec.ingress: Required value"). The plain Kubernetes
+# NetworkPolicy says the same thing unambiguously, because `policyTypes` names the
+# direction explicitly instead of inferring it:
+#
+#   3. podSelector: {} + policyTypes: [Ingress]      -> newcomer BLOCKED
+#
+# A policy whose effect is nothing is worse than no policy, because the scorecard
+# counts it. Same shape as a scanner phase that cannot fail and an alert whose
+# labels can never match.
+#
+# ── AND WHY IT DOES NOT BREAK THE WORKLOADS IT SELECTS ──
+#
+# Also measured, not assumed, because the whole namespace depends on it: Cilium
+# feeds Kubernetes NetworkPolicies and CiliumNetworkPolicies into ONE policy
+# repository and the permitted set is the UNION. Tested by pointing this exact
+# construct at `basemap` alone while its CiliumNetworkPolicy allow stayed in
+# place -- basemap continued to serve HTTP 200 through the ingress on every
+# request. So a workload with an explicit allow keeps exactly what it had.
 #
 # ⚠ INGRESS ONLY. Egress is deliberately absent: it carries the CNPG WAL archive
 # to nl-s3, the satellite provider callbacks, Twilio, Stripe and the Tor circuit,
 # and an egress default-deny that is even slightly wrong stops the backups rather
 # than the attacker. That is its own change, with its own drill.
-apiVersion: cilium.io/v2
-kind: CiliumNetworkPolicy
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
 metadata:
   name: default-deny-ingress
   namespace: meshsat-hub
   labels:
     app.kubernetes.io/part-of: meshsat-hub
 spec:
-  endpointSelector: {}
-  # BOTH fields are required, for different reasons. The CRD's anyOf schema
-  # refuses a spec with no rule section at all ("spec.ingress: Required value"),
-  # so the empty list is what makes the object valid; `enableDefaultDeny` is what
-  # makes it do anything.
-  ingress: []
-  enableDefaultDeny:
-    ingress: true
-    egress: false
+  podSelector: {}
+  policyTypes:
+    - Ingress
 ---
 # Same for the database namespace. postgres-confine already carries the allows;
 # this is what protects whatever lands here next.
-apiVersion: cilium.io/v2
-kind: CiliumNetworkPolicy
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
 metadata:
   name: default-deny-ingress
   namespace: meshsat-hub-db
   labels:
     app.kubernetes.io/part-of: meshsat-hub
 spec:
-  endpointSelector: {}
-  # BOTH fields are required, for different reasons. The CRD's anyOf schema
-  # refuses a spec with no rule section at all ("spec.ingress: Required value"),
-  # so the empty list is what makes the object valid; `enableDefaultDeny` is what
-  # makes it do anything.
-  ingress: []
-  enableDefaultDeny:
-    ingress: true
-    egress: false
+  podSelector: {}
+  policyTypes:
+    - Ingress
