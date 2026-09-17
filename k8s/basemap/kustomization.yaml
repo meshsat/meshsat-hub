@@ -5,3 +5,4 @@ resources:
   - statefulset.yaml
   - service.yaml
   - pdb.yaml
+  - networkpolicy.yaml

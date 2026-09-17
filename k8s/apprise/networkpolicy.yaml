@@ -1,0 +1,40 @@
+# apprise is the alert relay. Observed: hub -> :8000 and the kubelet's httpGet
+# readiness probe. Nothing else reaches it and nothing else should.
+# Built from flows Hubble actually observed (MESHSAT-1205), not from the
+# architecture diagram. Traffic arriving through the hostNetwork edge relay is
+# SNAT'd to the node's cilium_host address, so it presents as `reserved:host` /
+# `reserved:remote-node` rather than as an ingress-nginx endpoint -- the same
+# Cilium SNAT behaviour that once attributed every client to six internal
+# addresses. That is why these rules say `fromEntities` and not `fromEndpoints`.
+# The kubelet's probe comes from the same place, which is why the service port is
+# opened to `host` even where nothing else needs it.
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: apprise-confine
+  namespace: meshsat-hub
+  labels:
+    app.kubernetes.io/name: apprise
+    app.kubernetes.io/part-of: meshsat-hub
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: apprise
+  ingress:
+    # The Hub itself.
+    - fromEndpoints:
+        - matchLabels:
+            app.kubernetes.io/name: hub
+            io.kubernetes.pod.namespace: meshsat-hub
+      toPorts:
+        - ports:
+            - port: '8000'
+              protocol: TCP
+    # The edge relay (hostNetwork, SNAT'd to cilium_host) and the kubelet probe.
+    - fromEntities:
+        - host
+        - remote-node
+      toPorts:
+        - ports:
+            - port: '8000'
+              protocol: TCP

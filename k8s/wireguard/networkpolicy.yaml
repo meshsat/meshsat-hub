@@ -1,0 +1,31 @@
+# wg-easy's web UI on :51821. The WireGuard data plane is UDP/51820 on the host
+# network and is not an endpoint this policy governs.
+# Built from flows Hubble actually observed (MESHSAT-1205), not from the
+# architecture diagram. Traffic arriving through the hostNetwork edge relay is
+# SNAT'd to the node's cilium_host address, so it presents as `reserved:host` /
+# `reserved:remote-node` rather than as an ingress-nginx endpoint -- the same
+# Cilium SNAT behaviour that once attributed every client to six internal
+# addresses. That is why these rules say `fromEntities` and not `fromEndpoints`.
+# The kubelet's probe comes from the same place, which is why the service port is
+# opened to `host` even where nothing else needs it.
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: wg-easy-confine
+  namespace: meshsat-hub
+  labels:
+    app.kubernetes.io/name: wg-easy
+    app.kubernetes.io/part-of: meshsat-hub
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: wg-easy
+  ingress:
+    # The edge relay (hostNetwork, SNAT'd to cilium_host) and the kubelet probe.
+    - fromEntities:
+        - host
+        - remote-node
+      toPorts:
+        - ports:
+            - port: '51821'
+              protocol: TCP

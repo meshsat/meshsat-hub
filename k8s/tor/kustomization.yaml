@@ -6,3 +6,4 @@ resources:
   - externalsecret.yaml
   - onion-heartbeat.yaml
   - networkpolicy.yaml
+  - onion-heartbeat-networkpolicy.yaml
