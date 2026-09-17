@@ -1,0 +1,18 @@
+# gitleaks configuration -- the CI secret gate (job `gitleaks`).
+#
+# Extends the default ruleset. The allowlist below is by PATH and every entry is
+# a place that holds test fixtures by design; nothing in it is a credential. A
+# real secret anywhere else fails the pipeline. Add to this list only with a
+# reason on the line, and never a non-test path.
+[extend]
+useDefault = true
+
+[allowlist]
+description = "test fixtures, not credentials"
+paths = [
+  # Go unit tests: fake API keys ("secret-key-123456"), key prefixes and the
+  # zero-filled PEM shapes the sealed-config tests are built from.
+  '''internal/.*_test\.go$''',
+  # The store conformance harness shared by the sqlite and postgres tests.
+  '''internal/store/storetest/.*\.go$''',
+]

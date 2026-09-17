@@ -21,6 +21,11 @@ COPY --from=builder /meshsat-hub /usr/local/bin/meshsat-hub
 COPY --from=builder /tak-operator /usr/local/bin/tak-operator
 COPY assets/msvqsc/ /data/msvqsc/
 
+# The same uid the k8s manifest already runs the container as (runAsUser
+# 65532). Declared here too so the image is non-root wherever it runs, and so
+# the IaC gate (trivy DS002) can see it.
+USER 65532:65532
+
 EXPOSE 6070
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
     CMD wget -qO- http://localhost:6070/healthz || exit 1

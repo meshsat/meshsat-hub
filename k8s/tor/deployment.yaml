@@ -67,7 +67,10 @@ spec:
         # and ownership matter as much as the bytes: 0700 dir, 0600 files, uid
         # 100 which is `tor` in this image.
         - name: seed-identity
-          image: docker.io/busybox
+          # Pinned to the digest that was running on 2026-09-17 (read off the
+          # pod, not the registry): this container handles the onion private
+          # key, and ":latest" meant whatever Docker Hub served on restart.
+          image: docker.io/library/busybox@sha256:dc2d74b28e4cf8984fa52af1f39bc7c3d9c73760b41a74d629f5d11b1ab28616
           command:
             - sh
             - -c

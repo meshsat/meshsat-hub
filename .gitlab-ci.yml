@@ -29,7 +29,74 @@ lint:
     # Pinned: @latest (v2.13.1+) requires Go >= 1.26, image is golang:1.25 (MESHSAT-712)
     - go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.11.3
   script:
+    # go.sum is the module allow-list; a module that no longer matches it is a
+    # substituted dependency, not a build to trust.
+    - go mod verify
     - golangci-lint run ./...
+
+# -----------------------------------------------------------------------------
+# GITLEAKS — no credential reaches main.
+#
+# The working tree and the commits of this push are scanned; a hit fails the
+# pipeline. `.gitleaks.toml` allow-lists the test-fixture paths BY PATH, each
+# with its reason -- there is no per-rule or per-string escape hatch, so a real
+# secret pasted into a non-test file has nowhere to hide. The one committed
+# credential this found on introduction (the E2E probe's password in the
+# nightly suite) was made per-run instead of allow-listed.
+# -----------------------------------------------------------------------------
+gitleaks:
+  stage: lint
+  tags: [docker]
+  image:
+    name: zricethezav/gitleaks:v8.24.0
+    entrypoint: [""]
+  variables:
+    GIT_DEPTH: "50"
+  script:
+    - gitleaks dir . --no-banner --redact --exit-code 1
+    - gitleaks git . --no-banner --redact --exit-code 1 --log-opts="-n 25"
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "schedule"
+      when: never
+    - when: on_success
+
+# -----------------------------------------------------------------------------
+# IAC — the manifests are scanned like the image is.
+#
+# trivy config over k8s/ and the shipped Dockerfiles, HIGH and CRITICAL fail
+# the job. `.trivyignore.yaml` carries the accepted findings scoped to the files
+# they were measured on, each with the reason: architectural ones (the
+# hostNetwork relay), measured ones (wg-easy's capabilities) and the
+# deploy-then-harden backlog (read-only root on third-party images), listed per
+# file so a NEW container without the flag still fails here.
+# -----------------------------------------------------------------------------
+iac:trivy-config:
+  stage: lint
+  tags: [docker]
+  image:
+    name: aquasec/trivy:0.58.2
+    entrypoint: [""]
+  variables:
+    TRIVY_CACHE_DIR: .trivycache
+  cache:
+    key: trivy-db
+    paths:
+      - .trivycache/
+  script:
+    - trivy config --severity HIGH,CRITICAL --ignorefile .trivyignore.yaml --exit-code 1 k8s
+    # The Dockerfiles that ship, staged alone so nothing else in the tree is
+    # parsed as a config file by accident.
+    - mkdir -p .iac-dockerfiles && cp Dockerfile Dockerfile.sim .iac-dockerfiles/
+    - trivy config --severity HIGH,CRITICAL --ignorefile .trivyignore.yaml --exit-code 1 .iac-dockerfiles
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "schedule"
+      when: never
+    - changes:
+        - k8s/**/*
+        - Dockerfile
+        - Dockerfile.sim
+        - .trivyignore.yaml
+        - .gitlab-ci.yml
 
 # -----------------------------------------------------------------------------
 # SHELL — no early-exiting pipe reader inside a script that sets pipefail.
@@ -544,6 +611,13 @@ package:
       docker push ${MESHSAT_HUB_IMAGE}:${CI_COMMIT_SHORT_SHA}
       docker push ${MESHSAT_HUB_IMAGE}:latest
       echo "Pushed ${MESHSAT_HUB_IMAGE}:${CI_COMMIT_SHORT_SHA}"
+      # The digest is what gets signed and what gets pinned; a tag can be
+      # re-pointed, a digest cannot.
+      docker inspect --format='{{index .RepoDigests 0}}' "${MESHSAT_HUB_IMAGE}:${CI_COMMIT_SHORT_SHA}" > image-digest.txt
+      cat image-digest.txt
+  artifacts:
+    paths: [image-digest.txt]
+    expire_in: 1 week
   rules:
     # A scheduled pipeline (nightly race run, weekly ZAP) is not a release: it
     # must not rebuild and re-push the image, and `latest` must keep pointing at
@@ -709,11 +783,69 @@ trivy:
       - .trivycache/
   script:
     - IMAGE="${MESHSAT_HUB_IMAGE}:${CI_COMMIT_SHORT_SHA}"
+    # SBOM (CycloneDX) of exactly this image; attested to the image by `sign`.
+    - trivy image --format cyclonedx --quiet --output sbom.cdx.json "$IMAGE"
     # Full census, informational.
     - trivy image --scanners vuln --quiet --format table --severity CRITICAL,HIGH "$IMAGE" || true
     # The gate: its exit status is the job's.
     - trivy image --scanners vuln --quiet --ignore-unfixed --severity CRITICAL,HIGH --exit-code 1 "$IMAGE"
     - echo "no fixable CRITICAL/HIGH CVEs in $IMAGE"
+  artifacts:
+    paths: [sbom.cdx.json]
+    expire_in: 1 year
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "schedule"
+      when: never
+    - if: $CI_COMMIT_BRANCH == "main"
+
+# -----------------------------------------------------------------------------
+# SIGN — the image is signed by digest and its SBOM attested to it.
+#
+# cosign with a key pair: the private key and its password are the protected
+# project variables COSIGN_PRIVATE_KEY and COSIGN_PASSWORD (source of truth:
+# OpenBao secret/ci-no/apps/meshsat-hub/cosign); the public key is committed
+# as cosign.pub so anyone -- and, next, a Kyverno verifyImages policy on the
+# cluster -- can check what is running against what CI built. bump_k8s_pin
+# needs this job: an unsigned image is never pinned. The verify at the end is
+# the self-check that the signature reads back with the committed public key.
+#
+# Two things learnt by rehearsing this against ghcr before it ran here:
+#   - the official cosign image is distroless (no shell), so GitLab cannot run
+#     a script in it; the release binary is fetched and checksum-pinned instead.
+#   - cosign 3 refuses --tlog-upload=false; "no transparency log" is a signing
+#     config with no Rekor and no TSA. There is no Rekor reachable from this
+#     GitLab and the public one is not where this estate's digests belong.
+#     Verification correspondingly ignores the (absent) tlog entry.
+# The signature and attestation land as OCI referrers next to the image.
+# -----------------------------------------------------------------------------
+sign:
+  stage: package
+  tags: [docker]
+  image: alpine:3.21
+  needs:
+    - job: package
+      artifacts: true
+    - job: trivy
+      artifacts: true
+  variables:
+    COSIGN_VERSION: "v3.1.2"
+    COSIGN_SHA256: "f7622ed3cf22e55e1ae6377c080979ff77a22da9981c11df222a2e444991e7cf"
+    COSIGN_YES: "true"
+  before_script:
+    - apk add --no-cache curl
+    - curl -sSfL -o /usr/local/bin/cosign "https://github.com/sigstore/cosign/releases/download/${COSIGN_VERSION}/cosign-linux-amd64"
+    - echo "${COSIGN_SHA256}  /usr/local/bin/cosign" | sha256sum -c -
+    - chmod +x /usr/local/bin/cosign
+    - cosign version
+  script:
+    - DIGEST="$(cat image-digest.txt)"
+    - echo "$GHCR_TOKEN" | cosign login ghcr.io -u "$GHCR_USER" --password-stdin
+    - cosign signing-config create --no-default-fulcio --no-default-oidc --no-default-rekor --no-default-tsa --out no-tlog.json
+    - cosign sign --key env://COSIGN_PRIVATE_KEY --signing-config no-tlog.json "$DIGEST"
+    - cosign attest --key env://COSIGN_PRIVATE_KEY --signing-config no-tlog.json --type cyclonedx --predicate sbom.cdx.json "$DIGEST"
+    - cosign verify --key cosign.pub --insecure-ignore-tlog=true "$DIGEST" > /dev/null
+    - cosign verify-attestation --key cosign.pub --insecure-ignore-tlog=true --type cyclonedx "$DIGEST" > /dev/null
+    - echo "signed and attested $DIGEST"
   rules:
     - if: $CI_PIPELINE_SOURCE == "schedule"
       when: never
@@ -737,7 +869,7 @@ bump_k8s_pin:
     GIT_STRATEGY: none
     PIN_REMOTE: "git@nllei01gitlab01.nuclearlighters.net:products/meshsat/meshsat-hub.git"
   needs:
-    - job: trivy
+    - job: sign
       artifacts: false
   rules:
     - if: $CI_PIPELINE_SOURCE == "schedule"
