@@ -126,9 +126,21 @@ effect is nothing is worse than an absent one, because this scorecard counts it.
 
 ## Open, in the order they should be closed
 
-1. **`HUB_AUTH_TOKEN`** — now monitored (MESHSAT-1195) but still static, non-expiring and rotated
-   only by redeploy. Closing V6 means either an expiring platform credential, which requires letting
-   an API key carry the platform flag, or removing the need for the platform axis from the tooling.
+1. **`HUB_AUTH_TOKEN`** — the blocker is now REMOVED, the last step is operational (MESHSAT-1209).
+   The reason this could not be closed was that "an API key cannot carry the platform flag", so the
+   static token was the only thing that could hold `PlatformAdmin`. An API key can now carry it —
+   revocably, with an expiry and a rotation period, which is precisely what the token lacks — and
+   `HUB_LEGACY_TOKEN_ENABLED` is the off switch, declared in the ConfigMap at its default of `true`
+   so retiring the token is one edit and an Argo sync rather than a rebuild.
+   **The gate is the change, not the column:** `POST /api/auth/keys` is open to any tenant owner, so
+   the flag is refused unless the caller already holds it, held by two tests that a tenant owner and
+   an unidentified caller are both 403'd *and* that nothing is persisted — both proven to fail with
+   the gate removed. The switch also refuses to boot if clearing the token would leave no
+   authentication configured, rather than quietly serving a paying SaaS unauthenticated.
+   **V6 stays 0.5 deliberately**: the token still exists and is still static. What is gone is the
+   argument that it cannot be replaced. Closing it means minting a platform-admin key for each of
+   the five operator scripts that read it from the pod env, cutting them over, then flipping the
+   switch — an owner decision, because that tooling is run by hand.
 2. **PodSecurity enforcement on `meshsat-hub`** — blocked architecturally, see above; the namespace
    split is the work. `meshsat-hub-db` now enforces `restricted` and every container in both
    namespaces has been cut to the capabilities it actually needs (MESHSAT-1204). Still open in this

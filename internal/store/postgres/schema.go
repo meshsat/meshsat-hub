@@ -923,4 +923,20 @@ CREATE TABLE IF NOT EXISTS mesh_nodes (
 CREATE INDEX IF NOT EXISTS idx_mesh_nodes_recent
 	ON mesh_nodes (tenant_id, bridge_id, last_heard);
 `},
+
+	// MESHSAT-1209: an API key may now carry the platform axis.
+	//
+	// Until this, PlatformAdmin: true could ONLY come from the static
+	// HUB_AUTH_TOKEN -- never-expiring, non-revocable, rotated only by redeploy --
+	// which is why V6 of the posture scorecard could not move. api_keys already
+	// has expires_at and rotation_days, so a key with this flag is the same
+	// authority with a revocation path and a clock.
+	//
+	// DEFAULT false, and the column alone grants nothing: the handler refuses to
+	// SET it unless the caller already holds PlatformAdmin, because
+	// POST /api/auth/keys is open to any tenant owner. The column is the easy
+	// half; the gate is the change.
+	{Version: 29, Name: "api key platform admin", SQL: `
+ALTER TABLE api_keys ADD COLUMN IF NOT EXISTS platform_admin BOOLEAN NOT NULL DEFAULT false;
+`},
 }

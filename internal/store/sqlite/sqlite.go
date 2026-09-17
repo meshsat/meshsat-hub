@@ -230,7 +230,8 @@ var postAlterMigrations = []string{
 		last_used TEXT NOT NULL DEFAULT '',
 		expires_at TEXT NOT NULL DEFAULT '',
 		created_at TEXT NOT NULL DEFAULT (datetime('now')),
-		tenant_id TEXT NOT NULL DEFAULT 'default'
+		tenant_id TEXT NOT NULL DEFAULT 'default',
+		platform_admin INTEGER NOT NULL DEFAULT 0
 	)`,
 	`CREATE INDEX IF NOT EXISTS idx_api_keys_hash ON api_keys(key_hash)`,
 	`CREATE INDEX IF NOT EXISTS idx_api_keys_tenant ON api_keys(tenant_id)`,
@@ -549,6 +550,9 @@ var lateAlterMigrations = []string{
 	`ALTER TABLE messages ADD COLUMN scheduled_at TEXT NOT NULL DEFAULT ''`,
 	// MESHSAT-315: API key rotation
 	`ALTER TABLE api_keys ADD COLUMN rotation_days INTEGER NOT NULL DEFAULT 0`,
+	// MESHSAT-1209: the platform axis on a key. INTEGER because sqlite has no
+	// boolean; 0/1 maps to the Go bool in the scan below.
+	`ALTER TABLE api_keys ADD COLUMN platform_admin INTEGER NOT NULL DEFAULT 0`,
 }
 
 // --- Devices ---
@@ -1074,9 +1078,9 @@ func (d *DB) CreateAPIKey(ctx context.Context, tenantID string, k *store.APIKey)
 		expiresAt = k.ExpiresAt.UTC().Format(time.DateTime)
 	}
 	_, err := d.db.ExecContext(ctx,
-		`INSERT INTO api_keys (id, key_hash, key_prefix, role, label, device_imei, expires_at, tenant_id)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-		k.ID, k.KeyHash, k.KeyPrefix, k.Role, k.Label, k.DeviceIMEI, expiresAt, tenantID)
+		`INSERT INTO api_keys (id, key_hash, key_prefix, role, label, device_imei, expires_at, tenant_id, platform_admin)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		k.ID, k.KeyHash, k.KeyPrefix, k.Role, k.Label, k.DeviceIMEI, expiresAt, tenantID, k.PlatformAdmin)
 	return err
 }
 
@@ -1084,9 +1088,9 @@ func (d *DB) GetAPIKeyByHash(ctx context.Context, keyHash string) (*store.APIKey
 	var k store.APIKey
 	var tenantID, lastUsed, expiresAt, createdAt string
 	err := d.db.QueryRowContext(ctx,
-		"SELECT id, key_hash, key_prefix, role, label, device_imei, last_used, expires_at, created_at, tenant_id FROM api_keys WHERE key_hash=?",
+		"SELECT id, key_hash, key_prefix, role, label, device_imei, last_used, expires_at, created_at, tenant_id, platform_admin FROM api_keys WHERE key_hash=?",
 		keyHash,
-	).Scan(&k.ID, &k.KeyHash, &k.KeyPrefix, &k.Role, &k.Label, &k.DeviceIMEI, &lastUsed, &expiresAt, &createdAt, &tenantID)
+	).Scan(&k.ID, &k.KeyHash, &k.KeyPrefix, &k.Role, &k.Label, &k.DeviceIMEI, &lastUsed, &expiresAt, &createdAt, &tenantID, &k.PlatformAdmin)
 	if err != nil {
 		return nil, "", err
 	}
