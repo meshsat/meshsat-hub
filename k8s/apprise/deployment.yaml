@@ -28,7 +28,8 @@ spec:
       automountServiceAccountToken: false
       containers:
         - name: apprise
-          image: docker.io/caronc/apprise
+          # Digest of the image running on 2026-09-17; bump deliberately.
+          image: docker.io/caronc/apprise@sha256:c5ea17408c10fd84c8fdb05a421114a1a677b16343c274bf9b1a55701b530829
           ports:
             - {name: http, containerPort: 8000, protocol: TCP}
           env:

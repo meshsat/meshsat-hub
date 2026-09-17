@@ -6,6 +6,7 @@ meshsat-pending, with signup_ip and terms_accepted_at stamped, and that a
 disposable address is refused. Cleans the probe account up afterwards.
 """
 import http.cookiejar, json, re, subprocess, sys, time, urllib.request, urllib.parse, uuid
+PW = "Probe-" + uuid.uuid4().hex[:16] + "-A1"  # per run, never committed
 
 BASE = "https://auth.meshsat.net"
 FLOW = "meshsat-enrollment"
@@ -95,7 +96,7 @@ def clear_captcha(f):
 print("=== 1. a disposable address is refused at stage one ===")
 f = Flow(); clear_captcha(f)
 s, r = f.post({"username":"probe-disposable","name":"Probe Disposable",
-               "email":"probe@mailinator.com","password":"Str0ng-Passw0rd-2026","password_repeat":"Str0ng-Passw0rd-2026"})
+               "email":"probe@mailinator.com","password":PW,"password_repeat":PW})
 errs = json.dumps(r.get("response_errors", r))
 check("mailinator.com is refused", "email" in errs.lower() or r.get("response_errors") is not None, errs[:160])
 
@@ -106,7 +107,7 @@ check("the captcha stands in front of enrollment", REAL_SITE is not None,
       "bound" if REAL_SITE else "NO CAPTCHA STAGE FOUND")
 check("stage 1 is the account prompt", st.get("component")=="ak-stage-prompt", st.get("component"))
 s, r = f.post({"username":probe,"name":"E2E Probe","email":email,
-               "password":"Str0ng-Passw0rd-2026","password_repeat":"Str0ng-Passw0rd-2026"})
+               "password":PW,"password_repeat":PW})
 check("stage 1 accepted", s==200 and not r.get("response_errors"), json.dumps(r.get("response_errors",""))[:160])
 print("   stage 2 component:", r.get("component"), "| fields:",
       [x.get("field_key") for x in r.get("fields",[])])

@@ -1,0 +1,74 @@
+# trivy misconfiguration ignores for the `iac:trivy-config` gate.
+#
+# Every entry is scoped to the FILES it was measured on; a new manifest with the
+# same defect is not covered and fails the gate. Paths are relative to the scan
+# root the job passes: `k8s` for the manifests (so "apprise/deployment.yaml",
+# not "k8s/apprise/..."), `.` for the Dockerfiles. Each statement is the reason
+# the finding is accepted, and the finding stays accepted only while the reason
+# does. Measured 2026-09-17 on the live cluster (MESHSAT security programme).
+misconfigurations:
+  - id: AVD-KSV-0109
+    paths: ["hub/configmap.yaml"]
+    statement: >-
+      Keys matched on their NAMES: HUB_BRIDGE_CA_SECRET_NAME and
+      HUB_NATS_AUTH_SECRET_NAME name the Secret objects to read, HUB_LEGACY_TOKEN_ENABLED
+      is a boolean, HUB_OIDC_PASSWORD_CHANGE_URL is a URL. No secret VALUE lives in the
+      ConfigMap; every secret is an ExternalSecret from OpenBao.
+  - id: AVD-KSV-0108
+    paths: ["hub/svc-authentik-upstream.yaml"]
+    statement: >-
+      ExternalName Service pointing at authentik.omoikane.svc.cluster.local -- a
+      cluster-internal DNS alias, not an external IP.
+  - id: KSV009
+    paths: ["platform/edge-relay.yaml"]
+    statement: >-
+      The edge relay is the front door: a hostNetwork DaemonSet, because Cilium's
+      NodePort does not answer traffic arriving through the VPS xfrm tunnels. Architectural;
+      the path to removing it is a namespace of its own (posture CIS 5.2).
+  - id: KSV024
+    paths: ["platform/edge-relay.yaml"]
+    statement: Host ports 8443/9443/4243 are the relay's published surface; see KSV009.
+  - id: KSV056
+    paths: ["tak-operator/rbac.yaml"]
+    statement: >-
+      The TAK operator creates and deletes the per-tenant hosted-TAK Services; managing
+      Services in its own namespace is its job. Namespaced Role, no ClusterRole.
+  - id: KSV119
+    paths: ["wireguard/statefulset.yaml"]
+    statement: wg-easy's iptables rules need NET_RAW next to NET_ADMIN; measured with the image, not assumed.
+  - id: KSV053
+    paths: ["verify/rbac.yaml"]
+    statement: >-
+      The nightly verifier execs into pods for checks that have no API. Known and listed
+      in the posture as an open item (narrow to authenticated API calls where one exists);
+      accepted until then, not forgotten.
+  - id: KSV014
+    paths:
+      - apprise/deployment.yaml
+      - basemap/statefulset.yaml
+      - hawkbit/statefulset.yaml
+      - nats/statefulset.yaml
+      - platform/edge-relay.yaml
+      - redis/keydb-statefulset.yaml
+      - stunnel/deployment.yaml
+      - tor/deployment.yaml
+      - wireguard/statefulset.yaml
+    statement: >-
+      readOnlyRootFilesystem on third-party images is deploy-then-harden work: each image
+      must be run with the flag and its writable paths measured before the flag lands
+      (four containers failed in one issue when hardened before they had ever run). Listed
+      per file so the next hardened container drops off this list and any NEW container
+      without the flag fails the gate. The hub container itself already runs read-only.
+  - id: KSV118
+    paths:
+      - apprise/deployment.yaml
+      - nats/statefulset.yaml
+      - platform/edge-relay.yaml
+      - redis/keydb-statefulset.yaml
+      - tor/deployment.yaml
+      - wireguard/statefulset.yaml
+    statement: >-
+      Pod-level securityContext left at default on workloads whose CONTAINERS each carry
+      an explicit one (drop ALL, no privilege escalation, seccomp). Tor must never get an
+      fsGroup (the kubelet's recursive chmod breaks its key directory). Cosmetic at pod
+      level; tracked with KSV014 above.

@@ -15,7 +15,10 @@ FLOW = "meshsat-enrollment"
 CTX  = ["kubectl","--context","notrf01","-n","meshsat-hub"]
 DB   = ["kubectl","--context","notrf01","-n","meshsat-hub-db","exec","meshsat-hub-main-1","--",
         "psql","-U","postgres","-d","meshsat_hub","-t","-A","-F|","-c"]
-PASSWORD = "Str0ng-Passw0rd-2026"
+# Per run, never committed: the probe account is created and deleted inside
+# this run, so nothing needs to know the value beforehand. Shape satisfies the
+# enrollment password policy (upper, lower, digits, symbol).
+PASSWORD = "Probe-" + uuid.uuid4().hex[:16] + "-A1"
 
 def sh(c): return subprocess.run(c, capture_output=True, text=True).stdout.strip()
 def sql(q): return sh(DB+[q])
