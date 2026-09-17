@@ -2,6 +2,8 @@ package postgres
 
 import (
 	"context"
+	"database/sql"
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -16,10 +18,14 @@ import (
 
 // --- Audit log ---
 
-const auditColumns = "id, action, actor, detail, ip, prev_hash, hash, created_at"
+const auditColumns = "id, action, actor, detail, ip, prev_hash, hash, hash_version, created_at"
+
+// latestAuditEntrySQL is the chain's notion of "latest": created_at is written
+// monotonic per tenant by the audit service, so this is unambiguous.
+const latestAuditEntrySQL = "SELECT " + auditColumns + " FROM audit_log WHERE tenant_id=$1 ORDER BY created_at DESC LIMIT 1"
 
 func scanAuditEntry(sc interface{ Scan(...any) error }, a *store.AuditEntry) error {
-	if err := sc.Scan(&a.ID, &a.Action, &a.Actor, &a.Detail, &a.IP, &a.PrevHash, &a.Hash, &a.CreatedAt); err != nil {
+	if err := sc.Scan(&a.ID, &a.Action, &a.Actor, &a.Detail, &a.IP, &a.PrevHash, &a.Hash, &a.HashVersion, &a.CreatedAt); err != nil {
 		return err
 	}
 	a.CreatedAt = utc(a.CreatedAt)
@@ -27,13 +33,57 @@ func scanAuditEntry(sc interface{ Scan(...any) error }, a *store.AuditEntry) err
 }
 
 func (d *DB) InsertAuditEntry(ctx context.Context, tenantID string, a *store.AuditEntry) error {
+	return insertAuditEntry(ctx, d.db, tenantID, a)
+}
+
+// insertAuditEntry writes one row on whatever handle it is given (the pool,
+// or the transaction AppendAuditEntry holds the tenant lock in).
+func insertAuditEntry(ctx context.Context, x interface {
+	ExecContext(context.Context, string, ...any) (sql.Result, error)
+}, tenantID string, a *store.AuditEntry) error {
 	if a.ID == "" {
 		a.ID = fmt.Sprintf("aud-%d", time.Now().UnixNano())
 	}
-	_, err := d.db.ExecContext(ctx,
-		"INSERT INTO audit_log (id, action, actor, detail, ip, prev_hash, hash, tenant_id) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)",
-		a.ID, a.Action, a.Actor, a.Detail, a.IP, a.PrevHash, a.Hash, tenantID)
+	if a.CreatedAt.IsZero() {
+		a.CreatedAt = time.Now().UTC().Truncate(time.Microsecond)
+	}
+	_, err := x.ExecContext(ctx,
+		"INSERT INTO audit_log (id, action, actor, detail, ip, prev_hash, hash, hash_version, created_at, tenant_id) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)",
+		a.ID, a.Action, a.Actor, a.Detail, a.IP, a.PrevHash, a.Hash, a.HashVersion, a.CreatedAt.UTC(), tenantID)
 	return err
+}
+
+// AppendAuditEntry chains one entry onto a tenant's log under a transaction-
+// scoped advisory lock keyed by the tenant, so the two Hub replicas append in
+// turn instead of both reading the same latest row. The lock is released with
+// the transaction, committed or not; there is nothing to leak.
+func (d *DB) AppendAuditEntry(ctx context.Context, tenantID string, build func(prev *store.AuditEntry) (*store.AuditEntry, error)) error {
+	tx, err := d.rawDB.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin audit append: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	if _, err := tx.ExecContext(ctx, "SELECT pg_advisory_xact_lock(hashtext($1))", "audit:"+tenantID); err != nil {
+		return fmt.Errorf("lock audit chain: %w", err)
+	}
+	var prev *store.AuditEntry
+	var latest store.AuditEntry
+	switch err := scanAuditEntry(tx.QueryRowContext(ctx, latestAuditEntrySQL, tenantID), &latest); {
+	case err == nil:
+		prev = &latest
+	case errors.Is(err, sql.ErrNoRows):
+	default:
+		return fmt.Errorf("get latest audit entry: %w", err)
+	}
+	entry, err := build(prev)
+	if err != nil {
+		return err
+	}
+	if err := insertAuditEntry(ctx, tx, tenantID, entry); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 func (d *DB) ListAuditEntries(ctx context.Context, tenantID string, limit int) ([]store.AuditEntry, error) {
@@ -63,8 +113,7 @@ func (d *DB) ListAuditEntries(ctx context.Context, tenantID string, limit int) (
 
 func (d *DB) GetLatestAuditEntry(ctx context.Context, tenantID string) (*store.AuditEntry, error) {
 	var a store.AuditEntry
-	row := d.db.QueryRowContext(ctx,
-		"SELECT "+auditColumns+" FROM audit_log WHERE tenant_id=$1 ORDER BY created_at DESC LIMIT 1", tenantID)
+	row := d.db.QueryRowContext(ctx, latestAuditEntrySQL, tenantID)
 	if err := scanAuditEntry(row, &a); err != nil {
 		return nil, err
 	}

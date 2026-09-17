@@ -190,8 +190,18 @@ func TestAuditLog(t *testing.T) {
 	db := testDB(t)
 	ctx := context.Background()
 
-	_ = db.InsertAuditEntry(ctx, testTenant, &store.AuditEntry{Action: "login", Actor: "admin", IP: "1.2.3.4"})
-	_ = db.InsertAuditEntry(ctx, testTenant, &store.AuditEntry{Action: "device.create", Actor: "admin", Detail: "IMEI=300234063904190"})
+	// Rows are a CHAIN: the store refuses two children of one parent (unique
+	// (tenant_id, prev_hash)), so the second row must link onto the first.
+	first := &store.AuditEntry{Action: "login", Actor: "admin", IP: "1.2.3.4", Hash: "h1"}
+	if err := db.InsertAuditEntry(ctx, testTenant, first); err != nil {
+		t.Fatalf("insert 1: %v", err)
+	}
+	if err := db.InsertAuditEntry(ctx, testTenant, &store.AuditEntry{Action: "device.create", Actor: "admin", Detail: "IMEI=300234063904190", PrevHash: first.Hash, Hash: "h2"}); err != nil {
+		t.Fatalf("insert 2: %v", err)
+	}
+	if err := db.InsertAuditEntry(ctx, testTenant, &store.AuditEntry{Action: "fork", PrevHash: first.Hash, Hash: "h3"}); err == nil {
+		t.Fatal("a second child of the same parent was accepted")
+	}
 
 	entries, err := db.ListAuditEntries(ctx, testTenant, 10)
 	if err != nil {

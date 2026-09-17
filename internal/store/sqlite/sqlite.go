@@ -6,6 +6,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -171,6 +172,7 @@ var alterMigrations = []string{
 	`ALTER TABLE audit_log ADD COLUMN tenant_id TEXT NOT NULL DEFAULT 'default'`,
 	`ALTER TABLE audit_log ADD COLUMN prev_hash TEXT NOT NULL DEFAULT ''`,
 	`ALTER TABLE audit_log ADD COLUMN hash TEXT NOT NULL DEFAULT ''`,
+	`ALTER TABLE audit_log ADD COLUMN hash_version INTEGER NOT NULL DEFAULT 1`,
 	// v0.4: extended position fields
 	`ALTER TABLE positions ADD COLUMN speed REAL NOT NULL DEFAULT 0`,
 	`ALTER TABLE positions ADD COLUMN heading REAL NOT NULL DEFAULT 0`,
@@ -252,6 +254,8 @@ var postAlterMigrations = []string{
 	`CREATE INDEX IF NOT EXISTS idx_webhook_configs_tenant ON webhook_configs(tenant_id)`,
 	`CREATE INDEX IF NOT EXISTS idx_positions_tenant ON positions(tenant_id, device_imei)`,
 	`CREATE INDEX IF NOT EXISTS idx_audit_log_tenant ON audit_log(tenant_id)`,
+	// A chain has one child per parent; see postgres migration 30.
+	`CREATE UNIQUE INDEX IF NOT EXISTS uq_audit_log_chain ON audit_log(tenant_id, prev_hash)`,
 	`CREATE INDEX IF NOT EXISTS idx_delivery_logs_tenant ON delivery_logs(tenant_id)`,
 	// Escalation chains (v0.3)
 	`CREATE TABLE IF NOT EXISTS escalation_chains (
@@ -907,18 +911,84 @@ func (d *DB) ListPositionsRange(ctx context.Context, tenantID string, deviceIMEI
 
 // --- Audit log ---
 
+// auditTimeLayout is how audit_log.created_at is written since hash_version
+// 2: microseconds, because the timestamp is now inside the digest and must
+// come back exactly as it went in. It sorts and compares correctly against
+// the second-precision DateTime text older rows (and the retention cut-off)
+// use, since the first 19 characters are the same layout.
+const auditTimeLayout = "2006-01-02 15:04:05.000000"
+
+const auditColumns = "id, action, actor, detail, ip, prev_hash, hash, hash_version, created_at"
+
+func parseAuditTime(s string) time.Time {
+	for _, layout := range []string{auditTimeLayout, time.DateTime, time.RFC3339Nano} {
+		if t, err := time.Parse(layout, s); err == nil {
+			return t
+		}
+	}
+	return time.Time{}
+}
+
+func scanAuditEntry(sc interface{ Scan(...any) error }, a *store.AuditEntry) error {
+	var createdAt string
+	if err := sc.Scan(&a.ID, &a.Action, &a.Actor, &a.Detail, &a.IP, &a.PrevHash, &a.Hash, &a.HashVersion, &createdAt); err != nil {
+		return err
+	}
+	a.CreatedAt = parseAuditTime(createdAt)
+	return nil
+}
+
 func (d *DB) InsertAuditEntry(ctx context.Context, tenantID string, a *store.AuditEntry) error {
+	return insertAuditEntry(ctx, d.db, tenantID, a)
+}
+
+func insertAuditEntry(ctx context.Context, x interface {
+	ExecContext(context.Context, string, ...any) (sql.Result, error)
+}, tenantID string, a *store.AuditEntry) error {
 	if a.ID == "" {
 		a.ID = fmt.Sprintf("aud-%d", time.Now().UnixNano())
 	}
-	_, err := d.db.ExecContext(ctx,
-		"INSERT INTO audit_log (id, action, actor, detail, ip, prev_hash, hash, tenant_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-		a.ID, a.Action, a.Actor, a.Detail, a.IP, a.PrevHash, a.Hash, tenantID)
+	if a.CreatedAt.IsZero() {
+		a.CreatedAt = time.Now().UTC().Truncate(time.Microsecond)
+	}
+	_, err := x.ExecContext(ctx,
+		"INSERT INTO audit_log (id, action, actor, detail, ip, prev_hash, hash, hash_version, created_at, tenant_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+		a.ID, a.Action, a.Actor, a.Detail, a.IP, a.PrevHash, a.Hash, a.HashVersion, a.CreatedAt.UTC().Format(auditTimeLayout), tenantID)
 	return err
 }
 
+// AppendAuditEntry reads the latest entry and writes the next one in a single
+// transaction. SQLite has one writer at a time, so the transaction is the
+// lock; the audit service's mutex keeps this process's callers off each other.
+func (d *DB) AppendAuditEntry(ctx context.Context, tenantID string, build func(prev *store.AuditEntry) (*store.AuditEntry, error)) error {
+	tx, err := d.rawDB.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin audit append: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	var prev *store.AuditEntry
+	var latest store.AuditEntry
+	switch err := scanAuditEntry(tx.QueryRowContext(ctx,
+		"SELECT "+auditColumns+" FROM audit_log WHERE tenant_id=? ORDER BY rowid DESC LIMIT 1", tenantID), &latest); {
+	case err == nil:
+		prev = &latest
+	case errors.Is(err, sql.ErrNoRows):
+	default:
+		return fmt.Errorf("get latest audit entry: %w", err)
+	}
+	entry, err := build(prev)
+	if err != nil {
+		return err
+	}
+	if err := insertAuditEntry(ctx, tx, tenantID, entry); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
 func (d *DB) ListAuditEntries(ctx context.Context, tenantID string, limit int) ([]store.AuditEntry, error) {
-	query := "SELECT id, action, actor, detail, ip, prev_hash, hash, created_at FROM audit_log WHERE tenant_id=? ORDER BY rowid DESC"
+	query := "SELECT " + auditColumns + " FROM audit_log WHERE tenant_id=? ORDER BY rowid DESC"
 	args := []interface{}{tenantID}
 	if limit > 0 {
 		query += fmt.Sprintf(" LIMIT %d", limit)
@@ -931,32 +1001,28 @@ func (d *DB) ListAuditEntries(ctx context.Context, tenantID string, limit int) (
 	var entries []store.AuditEntry
 	for rows.Next() {
 		var a store.AuditEntry
-		var createdAt string
-		if err := rows.Scan(&a.ID, &a.Action, &a.Actor, &a.Detail, &a.IP, &a.PrevHash, &a.Hash, &createdAt); err != nil {
+		if err := scanAuditEntry(rows, &a); err != nil {
 			return nil, err
 		}
-		a.CreatedAt, _ = time.Parse(time.DateTime, createdAt)
 		entries = append(entries, a)
 	}
-	return entries, nil
+	return entries, rows.Err()
 }
 
 func (d *DB) GetLatestAuditEntry(ctx context.Context, tenantID string) (*store.AuditEntry, error) {
 	var a store.AuditEntry
-	var createdAt string
-	err := d.db.QueryRowContext(ctx,
-		"SELECT id, action, actor, detail, ip, prev_hash, hash, created_at FROM audit_log WHERE tenant_id=? ORDER BY rowid DESC LIMIT 1",
+	err := scanAuditEntry(d.db.QueryRowContext(ctx,
+		"SELECT "+auditColumns+" FROM audit_log WHERE tenant_id=? ORDER BY rowid DESC LIMIT 1",
 		tenantID,
-	).Scan(&a.ID, &a.Action, &a.Actor, &a.Detail, &a.IP, &a.PrevHash, &a.Hash, &createdAt)
+	), &a)
 	if err != nil {
 		return nil, err
 	}
-	a.CreatedAt, _ = time.Parse(time.DateTime, createdAt)
 	return &a, nil
 }
 
 func (d *DB) ListAuditEntriesBefore(ctx context.Context, tenantID string, before time.Time, limit int) ([]store.AuditEntry, error) {
-	q := "SELECT id, action, actor, detail, ip, prev_hash, hash, created_at FROM audit_log WHERE tenant_id=? AND created_at < ?"
+	q := "SELECT " + auditColumns + " FROM audit_log WHERE tenant_id=? AND created_at < ?"
 	args := []any{tenantID, before.UTC().Format(time.DateTime)}
 	if limit > 0 {
 		q += " LIMIT ?"
@@ -970,11 +1036,9 @@ func (d *DB) ListAuditEntriesBefore(ctx context.Context, tenantID string, before
 	var entries []store.AuditEntry
 	for rows.Next() {
 		var a store.AuditEntry
-		var createdAt string
-		if err := rows.Scan(&a.ID, &a.Action, &a.Actor, &a.Detail, &a.IP, &a.PrevHash, &a.Hash, &createdAt); err != nil {
+		if err := scanAuditEntry(rows, &a); err != nil {
 			return nil, err
 		}
-		a.CreatedAt, _ = time.Parse(time.DateTime, createdAt)
 		entries = append(entries, a)
 	}
 	return entries, rows.Err()
