@@ -104,6 +104,16 @@ def podenv(v):
     return sh(*CTX, "exec", pod(), "--", "printenv", v)
 
 
+# MESHSAT-1209: prefer a platform-admin API key over the Hub pod's static token.
+# HUB_AUTH_TOKEN is being retired (HUB_LEGACY_TOKEN_ENABLED); export
+# HUB_VERIFY_ADMIN_KEY, which OpenBao holds at ci-no/apps/meshsat-hub/verify, or
+# mint your own with POST /api/auth/keys {"platform_admin": true}. Remember
+# X-Tenant-ID: a platform credential carries no tenant of its own and every admin
+# call 403s with requirement="tenant_required" without it.
+def adminkey():
+    return os.environ.get("HUB_VERIFY_ADMIN_KEY") or podenv("HUB_AUTH_TOKEN")
+
+
 KEY = podenv("HUB_STRIPE_SECRET_KEY")
 
 
@@ -204,7 +214,7 @@ def main():
         print("the Hub has no HUB_STRIPE_SECRET_KEY yet", file=sys.stderr)
         return 2
     global WHSEC, PATHSEC
-    admin = podenv("HUB_AUTH_TOKEN")
+    admin = adminkey()
     WHSEC, PATHSEC = podenv("HUB_STRIPE_WEBHOOK_SECRET"), podenv("HUB_STRIPE_PATH_SECRET")
     prices = podenv("HUB_STRIPE_PRICES")
     price = prices.split("=")[0].strip() if prices else ""

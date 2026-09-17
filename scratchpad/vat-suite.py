@@ -12,6 +12,7 @@ invoices and its counter is at 1, so the first real customer receipt is still
 MSH2026-0001; the last check re-asserts that.
 """
 import hashlib, hmac, json, secrets, subprocess, sys, time, urllib.request, urllib.error
+import os
 
 DB  = ["kubectl","--context","notrf01","-n","meshsat-hub-db","exec","meshsat-hub-main-1","--",
        "psql","-U","postgres","-d","meshsat_hub","-t","-A","-F|","-c"]
@@ -28,7 +29,7 @@ def pods(): return [l.split("/")[1] for l in sh(CTX+["get","pods","-o","name"]).
 def env(v):
     return sh(CTX+["exec",pods()[0],"--","printenv",v])
 
-TOK   = env("HUB_AUTH_TOKEN")
+TOK   = os.environ.get("HUB_VERIFY_ADMIN_KEY") or env("HUB_AUTH_TOKEN")
 KOFI  = env("HUB_KOFI_WEBHOOK_SECRET")
 VTOK  = env("HUB_KOFI_VERIFICATION_TOKEN")
 
