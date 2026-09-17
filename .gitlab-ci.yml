@@ -463,6 +463,48 @@ test:race:
       allow_failure: true
 
 # -----------------------------------------------------------------------------
+# FUZZ — the parsers that eat untrusted binary off an internet-reachable port
+# (MESHSAT-1202). Nightly, like test:race, because fuzzing is time-boxed work
+# rather than a pass/fail gate on a push.
+#
+# `go test -fuzz` runs ONE target per invocation, so each is listed explicitly
+# rather than discovered — a loop over a glob would silently fuzz only the first
+# match and report success. The seed corpus of every target still runs on every
+# ordinary `test` job, so a known-bad input is a push-blocking failure even
+# though the exploration is nightly.
+#
+# A crash writes its input to testdata/fuzz/<Target>/; that file is the
+# artifact worth keeping, so it is collected on failure and becomes a
+# permanent seed once committed.
+# -----------------------------------------------------------------------------
+test:fuzz:
+  stage: test
+  image: golang:1.25-alpine
+  tags: [docker]
+  needs: []
+  script:
+    - |
+      rc=0
+      for t in \
+        "./internal/reticulum FuzzHDLCFrameReader" \
+      ; do
+        set -- $t
+        echo "== fuzzing $2 in $1 for ${FUZZTIME:-120s}"
+        go test "$1" -run "^$" -fuzz "^$2\$" -fuzztime "${FUZZTIME:-120s}" || rc=$?
+      done
+      exit $rc
+  artifacts:
+    when: on_failure
+    paths:
+      - internal/**/testdata/fuzz/
+    expire_in: 90 days
+  rules:
+    - if: $FUZZ_RUN == "1"
+    - if: $CI_COMMIT_BRANCH == "main"
+      when: manual
+      allow_failure: true
+
+# -----------------------------------------------------------------------------
 # BUILD — compile Go binary
 # -----------------------------------------------------------------------------
 build:
