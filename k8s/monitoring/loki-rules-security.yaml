@@ -51,7 +51,7 @@ data:
                 wrong for legitimate traffic.
           - alert: NATSAuthorizationViolations
             expr: >-
-              sum(count_over_time({namespace="meshsat-hub", container="nats"} |= "Authorization Violation" [10m])) > 5
+              sum(count_over_time({namespace="meshsat-hub", container="nats"} |~ "Authorization Violation|Authentication Failure|authentication error" [10m])) > 5
             for: 2m
             labels:
               severity: warning
@@ -63,7 +63,10 @@ data:
                 revoked credential, a scripted client, or (as on 2026-09-18) the
                 cluster's own members after a bad route configuration, in which case
                 the JetStream meta leader is also gone and the Hub has lost its bus.
-                Check routez/jsz on every member first.
+                Check routez/jsz on every member first. Three spellings are counted
+                because the rejecting member logs "Authentication Failure" and
+                "authentication error" while only the rejected member logs "Route
+                Error 'Authorization Violation'" (666/666/665 lines in the incident).
           - alert: KyvernoAdmissionRefusals
             expr: >-
               sum(count_over_time({namespace="kyverno"} |= "blocked due to the following policies" [15m])) > 3
