@@ -5,6 +5,7 @@ resources:
   - externalsecret.yaml
   - bridge-ca-externalsecret.yaml
   - auth-secret.yaml
+  - routes-certificate.yaml
   - statefulset.yaml
   - pdb.yaml
   - service.yaml
