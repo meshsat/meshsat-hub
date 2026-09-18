@@ -44,6 +44,18 @@ data:
         password: $NATS_ROUTE_PASSWORD
         timeout: 2
       }
+      # Routes speak TLS to each other with certificates from the cluster's
+      # internal CA (posture V12, cert-manager ClusterIssuer meshsat-internal-ca,
+      # Certificate nats-routes in this namespace); verify: true makes a peer
+      # present a certificate signed by that CA as well as the credential
+      # above. cert-manager rotates the leaf; the reloader watches the files.
+      tls {
+        cert_file: /etc/nats/routes-tls/tls.crt
+        key_file: /etc/nats/routes-tls/tls.key
+        ca_file: /etc/nats/routes-tls/ca.crt
+        verify: true
+        timeout: 5
+      }
       routes: [
         nats-route://nats-0.nats-headless.meshsat-hub.svc.cluster.local:6222
         nats-route://nats-1.nats-headless.meshsat-hub.svc.cluster.local:6222
