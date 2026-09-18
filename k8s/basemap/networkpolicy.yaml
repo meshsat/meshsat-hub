@@ -1,13 +1,12 @@
-# basemap serves map tiles to the dashboard through ingress. Observed: only the
-# relay/probe path on :8080 -- no pod in the cluster talks to it directly.
-# Built from flows Hubble actually observed (MESHSAT-1205), not from the
-# architecture diagram. Traffic arriving through the hostNetwork edge relay is
-# SNAT'd to the node's cilium_host address, so it presents as `reserved:host` /
-# `reserved:remote-node` rather than as an ingress-nginx endpoint -- the same
-# Cilium SNAT behaviour that once attributed every client to six internal
-# addresses. That is why these rules say `fromEntities` and not `fromEndpoints`.
-# The kubelet's probe comes from the same place, which is why the service port is
-# opened to `host` even where nothing else needs it.
+# basemap serves the deep Europe archive to the dashboard through ingress: the
+# Ingress routes /basemap/local.pmtiles (Exact) to this Service, so the caller
+# is an ingress-nginx controller pod, a normal Cilium endpoint and not the
+# hostNetwork edge relay. The first version of this policy was built from flows
+# Hubble observed (MESHSAT-1205) in a window where nobody zoomed a map past
+# zoom 11, so that flow was never seen; it admitted only host/remote-node, and
+# with default-deny-ingress every deep-zoom request hung until ingress-nginx
+# gave up with a 504 -- a slow map with no streets or names (MESHSAT-1229).
+# The kubelet's probe comes from the node, which is why `host` stays.
 apiVersion: cilium.io/v2
 kind: CiliumNetworkPolicy
 metadata:
@@ -21,10 +20,30 @@ spec:
     matchLabels:
       app.kubernetes.io/name: basemap
   ingress:
-    # The edge relay (hostNetwork, SNAT'd to cilium_host) and the kubelet probe.
+    # The kubelet probe, and anything the hostNetwork edge relay SNATs.
     - fromEntities:
         - host
         - remote-node
+      toPorts:
+        - ports:
+            - port: '8080'
+              protocol: TCP
+    # The browser's range requests, proxied by ingress-nginx.
+    - fromEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: ingress-nginx
+            app.kubernetes.io/name: ingress-nginx
+            app.kubernetes.io/component: controller
+      toPorts:
+        - ports:
+            - port: '8080'
+              protocol: TCP
+    # A cold replica's init container copies the 38 GB archive from a peer
+    # through the Service (PEER_URL); without this it falls back to the public
+    # planet build, which rate limits a second pull to about a day.
+    - fromEndpoints:
+        - matchLabels:
+            app.kubernetes.io/name: basemap
       toPorts:
         - ports:
             - port: '8080'
