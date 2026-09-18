@@ -128,6 +128,7 @@ spec:
             - {name: bridge-ca, mountPath: /etc/nats/bridge-ca, readOnly: true}
             - {name: auth, mountPath: /etc/nats/auth, readOnly: true}
             - {name: routes, mountPath: /etc/nats/routes, readOnly: true}
+            - {name: routes-tls, mountPath: /etc/nats/routes-tls, readOnly: true}
             - {name: pid, mountPath: /var/run/nats}
             - {name: data, mountPath: /data}
         - name: reloader
@@ -154,6 +155,12 @@ spec:
             - /etc/nats/auth/users.conf
             - -config
             - /etc/nats/routes/routes.conf
+            - -config
+            - /etc/nats/routes-tls/tls.crt
+            - -config
+            - /etc/nats/routes-tls/tls.key
+            - -config
+            - /etc/nats/routes-tls/ca.crt
           resources:
             requests: {memory: 16Mi, cpu: 10m}
             limits: {memory: 64Mi}
@@ -163,6 +170,7 @@ spec:
             - {name: bridge-ca, mountPath: /etc/nats/bridge-ca, readOnly: true}
             - {name: auth, mountPath: /etc/nats/auth, readOnly: true}
             - {name: routes, mountPath: /etc/nats/routes, readOnly: true}
+            - {name: routes-tls, mountPath: /etc/nats/routes-tls, readOnly: true}
             - {name: pid, mountPath: /var/run/nats}
         - name: exporter
           image: docker.io/natsio/prometheus-nats-exporter
@@ -191,6 +199,8 @@ spec:
           secret: {secretName: meshsat-nats-auth}
         - name: routes
           secret: {secretName: nats-secrets, items: [{key: routes.conf, path: routes.conf}]}
+        - name: routes-tls
+          secret: {secretName: nats-routes-tls}
         - name: pid
           emptyDir: {}
   persistentVolumeClaimRetentionPolicy:

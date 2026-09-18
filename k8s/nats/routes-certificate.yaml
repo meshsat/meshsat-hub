@@ -1,0 +1,24 @@
+# Route (cluster) port TLS for the NATS members (MESHSAT-1194, posture V12).
+# Issued by the cluster's internal CA (cert-manager ClusterIssuer
+# meshsat-internal-ca); the same certificate serves every member because the
+# SAN covers the headless Service's pod names by wildcard. cert-manager
+# rotates it (90 days, renewed at 60), and the nats config reloader picks the
+# new files up.
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: nats-routes
+  namespace: meshsat-hub
+  labels:
+    app.kubernetes.io/name: nats
+spec:
+  secretName: nats-routes-tls
+  duration: 2160h
+  renewBefore: 720h
+  privateKey: {algorithm: ECDSA, size: 256}
+  usages: [server auth, client auth]
+  dnsNames:
+    - "*.nats-headless.meshsat-hub.svc.cluster.local"
+    - "*.nats-headless.meshsat-hub.svc"
+    - nats-headless.meshsat-hub.svc.cluster.local
+  issuerRef: {name: meshsat-internal-ca, kind: ClusterIssuer, group: cert-manager.io}

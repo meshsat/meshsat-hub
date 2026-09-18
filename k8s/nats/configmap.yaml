@@ -46,6 +46,23 @@ data:
         password: $NATS_ROUTE_PASSWORD
         timeout: 2
       }
+      # Routes also speak TLS, with the certificate cert-manager issues from the
+      # cluster's internal CA (Certificate nats-routes, secret nats-routes-tls;
+      # ClusterIssuer meshsat-internal-ca). verify: true makes a peer present a
+      # certificate from that CA as well as the credential above. Reproduced
+      # offline before this second attempt: three members rolled plain -> TLS
+      # one at a time re-form all routes within a second of the last restart
+      # and re-elect the meta leader within six; while a member is on the other
+      # side of the roll it is isolated (no route can be mixed), which is the
+      # ~20 s per member the kits' outboxes cover. cert-manager rotates the
+      # leaf; the reloader watches the three files.
+      tls {
+        cert_file: /etc/nats/routes-tls/tls.crt
+        key_file: /etc/nats/routes-tls/tls.key
+        ca_file: /etc/nats/routes-tls/ca.crt
+        verify: true
+        timeout: 5
+      }
       include "routes/routes.conf"
     }
 
