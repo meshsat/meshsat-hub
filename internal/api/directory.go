@@ -47,7 +47,7 @@ func (h *DirectoryHandler) ListContacts(w http.ResponseWriter, r *http.Request) 
 	tid := auth.TenantIDFromContext(r.Context())
 	contacts, err := h.store.ListContacts(r.Context(), tid)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		writeInternalError(w, err, "")
 		return
 	}
 	if kind := r.URL.Query().Get("kind"); kind != "" {
@@ -72,7 +72,7 @@ func (h *DirectoryHandler) GetContact(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	c, err := h.store.GetContact(r.Context(), tid, id)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		writeInternalError(w, err, "")
 		return
 	}
 	if c == nil {
@@ -108,7 +108,7 @@ func (h *DirectoryHandler) CreateContact(w http.ResponseWriter, r *http.Request)
 	body.CreatedAt = time.Time{} // let the store stamp these
 	body.UpdatedAt = time.Time{}
 	if err := h.store.PutContact(r.Context(), &body); err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		writeInternalError(w, err, "")
 		return
 	}
 	_, _ = h.store.BumpVersion(r.Context(), body.TenantID)
@@ -148,7 +148,7 @@ func (h *DirectoryHandler) UpdateContact(w http.ResponseWriter, r *http.Request)
 	body.CreatedAt = existing.CreatedAt // preserve
 	body.UpdatedAt = time.Time{}        // store re-stamps
 	if err := h.store.PutContact(r.Context(), &body); err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		writeInternalError(w, err, "")
 		return
 	}
 	_, _ = h.store.BumpVersion(r.Context(), tid)
@@ -172,7 +172,7 @@ func (h *DirectoryHandler) DeleteContact(w http.ResponseWriter, r *http.Request)
 			writeError(w, http.StatusNotFound, "contact not found")
 			return
 		}
-		writeError(w, http.StatusInternalServerError, err.Error())
+		writeInternalError(w, err, "")
 		return
 	}
 	_, _ = h.store.BumpVersion(r.Context(), tid)
@@ -205,7 +205,7 @@ func (h *DirectoryHandler) GetSnapshot(w http.ResponseWriter, r *http.Request) {
 	since := r.URL.Query().Get("since")
 	snap, err := h.store.Snapshot(r.Context(), tid)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		writeInternalError(w, err, "")
 		return
 	}
 	if since != "" {

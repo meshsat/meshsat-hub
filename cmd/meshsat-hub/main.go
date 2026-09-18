@@ -1771,6 +1771,10 @@ func main() {
 	r.Use(hubauth.TenantMiddleware(cfg.TenantEnforce))
 	r.Use(metrics.ChiMiddleware)
 	r.Use(hubmw.Logging) // Structured HTTP request logging (runs last to see auth context).
+	// Per-principal request budget on everything authenticated (ASVS V4). Inside
+	// the logger and the metrics middleware, so a 429 is counted and logged like
+	// any other answer. Requests with no principal pass untouched.
+	r.Use(hubauth.PrincipalRateLimit(cfg.APIRateLimitPerMin))
 
 	r.Get("/healthz", health.LivezHandler)
 	r.Get("/readyz", checker.ReadyzHandler)
@@ -2027,14 +2031,16 @@ func main() {
 	// QR provision claim — unauthenticated (nonce IS the auth, single-use, 30min TTL).
 	provisionClaimHandler := api.NewBridgeProvisionHandler(dataStore, bridgeCA, directoryTrustAnchor)
 	provisionClaimHandler.SetNATSAuth(natsAuth)
-	r.Get("/api/bridges/{id}/provision/{nonce}", provisionClaimHandler.ClaimProvision)
+	// Both capability URLs carry the per-IP auth-surface budget: the nonce is
+	// the credential, so a guess is a login attempt (MESHSAT-1219).
+	r.Get("/api/bridges/{id}/provision/{nonce}", hubmw.WebhookRateLimit(http.HandlerFunc(provisionClaimHandler.ClaimProvision), cfg.AuthRateLimitPerMin).ServeHTTP)
 
 	// TAK enrolment claim — unauthenticated for the same reason (MESHSAT-1040):
 	// the caller is a TAK client on a phone with no Hub account, so the claim id
 	// and nonce ARE the credential. Single-use, fifteen minutes, one refusal
 	// string for every failure. Exempted in internal/auth by isTAKEnrolClaim; the
 	// route existing is not enough on its own.
-	r.Get("/api/tak/enroll/{claimID}/{nonce}", takHandler.Claim)
+	r.Get("/api/tak/enroll/{claimID}/{nonce}", hubmw.WebhookRateLimit(http.HandlerFunc(takHandler.Claim), cfg.AuthRateLimitPerMin).ServeHTTP)
 
 	// SMS gateway (optional — inbound webhook + outbound subscriber + send API)
 	if cfg.SMSEnabled {
@@ -2465,7 +2471,8 @@ func main() {
 	apiKeyHandler.SetAudit(auditSvc)
 	r.Route("/api/auth/keys", func(r chi.Router) {
 		r.Use(hubauth.RequireRole(hubauth.RoleOwner))
-		r.Post("/", apiKeyHandler.CreateKey)
+		// Minting is bounded per IP like the login surface: a key is a credential.
+		r.Post("/", hubmw.WebhookRateLimit(http.HandlerFunc(apiKeyHandler.CreateKey), cfg.AuthRateLimitPerMin).ServeHTTP)
 		r.Get("/", apiKeyHandler.ListKeys)
 		r.Delete("/{id}", apiKeyHandler.DeleteKey)
 	})

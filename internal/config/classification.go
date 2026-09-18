@@ -186,6 +186,7 @@ var Classification = map[string]Class{
 	"audit_retention_min_days":       ClassPlatform,
 	"auth_mode":                      ClassPlatform,
 	"auth_rate_limit_per_min":        ClassPlatform,
+	"api_rate_limit_per_min":         ClassPlatform,
 	"auth_token":                     ClassPlatform,
 	"authentik_token":                ClassPlatform,
 	"authentik_url":                  ClassPlatform,

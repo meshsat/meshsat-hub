@@ -36,7 +36,7 @@ func (h *MessageHandler) ListMessages(w http.ResponseWriter, r *http.Request) {
 	tid := auth.TenantIDFromContext(r.Context())
 	msgs, err := h.store.ListMessages(r.Context(), tid, device, limit)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		writeInternalError(w, err, "")
 		return
 	}
 	if msgs == nil {

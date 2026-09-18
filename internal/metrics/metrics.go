@@ -302,6 +302,23 @@ var AuthFailuresTotal = promauto.NewCounterVec(prometheus.CounterOpts{
 	Help: "Rejected authentication attempts, by reason and arrival channel.",
 }, []string{"reason", "channel"})
 
+// RateLimitTripsTotal counts requests refused with 429 by a request budget,
+// labelled by which budget: "principal" (the per-user / per-API-key budget on
+// authenticated routes), "auth" (the per-IP budget on the unauthenticated auth
+// surface and the capability URLs) and "apikey_failures" (invalid API keys
+// from one address cut off before the database). A budget that never trips is
+// not proven; one that trips is a signal worth an alert.
+var RateLimitTripsTotal = promauto.NewCounterVec(prometheus.CounterOpts{
+	Name: "meshsat_hub_rate_limit_trips_total",
+	Help: "Requests refused with 429 by a request budget, by budget.",
+}, []string{"limiter"})
+
+func init() {
+	for _, l := range []string{"principal", "auth", "apikey_failures"} {
+		RateLimitTripsTotal.WithLabelValues(l)
+	}
+}
+
 // AuthzDenialsTotal counts rejected AUTHORISATION attempts -- the 403s from
 // RequireRole, RequirePlatformAdmin and the tenant gate. Separate from
 // AuthFailuresTotal on purpose: a spike in 401s is somebody trying to get in,

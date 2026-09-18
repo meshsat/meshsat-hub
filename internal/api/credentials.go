@@ -125,7 +125,7 @@ func (h *CredentialHandler) Upload(w http.ResponseWriter, r *http.Request) {
 	bundleJSON := bundle.toJSON()
 	encrypted, err := crypto.Encrypt(h.masterKey, bundleJSON)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "encrypt: "+err.Error())
+		writeInternalError(w, err, "encrypt")
 		return
 	}
 
@@ -149,7 +149,7 @@ func (h *CredentialHandler) Upload(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := h.store.CreateCredential(r.Context(), tid, cred); err != nil {
-		writeError(w, http.StatusInternalServerError, "store: "+err.Error())
+		writeInternalError(w, err, "store")
 		return
 	}
 
@@ -180,7 +180,7 @@ func (h *CredentialHandler) List(w http.ResponseWriter, r *http.Request) {
 	tid := auth.TenantIDFromContext(r.Context())
 	creds, err := h.store.ListCredentials(r.Context(), tid)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		writeInternalError(w, err, "")
 		return
 	}
 	// Strip encrypted data
@@ -248,7 +248,7 @@ func (h *CredentialHandler) ListExpiring(w http.ResponseWriter, r *http.Request)
 	before := time.Now().AddDate(0, 0, days)
 	creds, err := h.store.ListExpiringCredentials(r.Context(), before)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		writeInternalError(w, err, "")
 		return
 	}
 	for i := range creds {
@@ -298,7 +298,7 @@ func (h *CredentialHandler) Distribute(w http.ResponseWriter, r *http.Request) {
 	case "all":
 		bridges, err := h.store.ListBridges(r.Context(), tid)
 		if err != nil {
-			writeError(w, http.StatusInternalServerError, err.Error())
+			writeInternalError(w, err, "")
 			return
 		}
 		for _, b := range bridges {

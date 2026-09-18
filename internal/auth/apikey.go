@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"github.com/meshsat/meshsat-hub/internal/metrics"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -66,10 +67,19 @@ func APIKeyMiddleware(validate APIKeyValidator) func(http.Handler) http.Handler 
 				return
 			}
 
+			ip := clientIPOrUnknown(r)
+			if apiKeyFailureExceeded(ip) {
+				// Past the invalid-key budget: refuse without touching the
+				// database, with the same answer a wrong key gets.
+				metrics.RateLimitTripsTotal.WithLabelValues("apikey_failures").Inc()
+				writeAuthError(w, r, denyInvalidAPIKey)
+				return
+			}
 			hash := HashAPIKey(token)
 			user, tenantID, err := validate(r.Context(), hash)
 			if err != nil {
 				slog.Debug("auth: API key validation failed", "error", err)
+				recordAPIKeyFailure(ip)
 				writeAuthError(w, r, denyInvalidAPIKey)
 				return
 			}

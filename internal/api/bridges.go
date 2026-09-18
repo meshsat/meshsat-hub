@@ -95,7 +95,7 @@ func (h *BridgeHandler) CreateBridge(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := h.store.CreateOrUpdateBridge(r.Context(), tid, b); err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		writeInternalError(w, err, "")
 		return
 	}
 
@@ -114,7 +114,7 @@ func (h *BridgeHandler) ListBridges(w http.ResponseWriter, r *http.Request) {
 	tid := auth.TenantIDFromContext(r.Context())
 	bridges, err := h.store.ListBridges(r.Context(), tid)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		writeInternalError(w, err, "")
 		return
 	}
 	if bridges == nil {
@@ -171,7 +171,7 @@ func (h *BridgeHandler) UpdateBridge(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := h.store.UpdateBridge(r.Context(), tid, id, req); err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		writeInternalError(w, err, "")
 		return
 	}
 	updated, _ := h.store.GetBridge(r.Context(), tid, id)
@@ -196,7 +196,7 @@ func (h *BridgeHandler) DeleteBridge(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := h.store.DeleteBridge(r.Context(), tid, id); err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		writeInternalError(w, err, "")
 		return
 	}
 	if h.natsAuth != nil {

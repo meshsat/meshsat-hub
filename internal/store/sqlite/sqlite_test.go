@@ -487,3 +487,21 @@ func TestDeviceConfigTenantIsolation(t *testing.T) {
 		t.Errorf("tenant-a should not see tenant-b configs, got %d", len(configs))
 	}
 }
+
+// MESHSAT-1219 (ASVS V1): AggregateCosts builds its GROUP BY expression from a
+// closed switch. An unknown group key must fall back to the default, never
+// reach the SQL text.
+func TestAggregateCostsUnknownGroupByFallsBackToDevice(t *testing.T) {
+	db := testDB(t)
+	ctx := context.Background()
+	for _, g := range []string{"device", "month", "day", "interface", "device_imei; DROP TABLE cost_ledger; --", "1=1"} {
+		if _, err := db.AggregateCosts(ctx, testTenant, time.Time{}, time.Time{}, g); err != nil {
+			t.Fatalf("groupBy %q: %v", g, err)
+		}
+	}
+	// The table still exists and the store still answers: the injection went
+	// nowhere.
+	if _, err := db.AggregateCosts(ctx, testTenant, time.Time{}, time.Time{}, "device"); err != nil {
+		t.Fatalf("after the attempts: %v", err)
+	}
+}

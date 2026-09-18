@@ -1,6 +1,7 @@
 package api
 
 import (
+	"log/slog"
 	"net/http"
 
 	"github.com/meshsat/meshsat-hub/internal/httpjson"
@@ -17,6 +18,15 @@ func writeJSON(w http.ResponseWriter, status int, v interface{}) {
 
 func writeError(w http.ResponseWriter, status int, msg string) {
 	httpjson.WriteError(w, status, msg)
+}
+
+// writeInternalError answers a 500 with an opaque message and logs the cause.
+// Driver and library error text names tables, columns, hosts and file paths;
+// it belongs in the log next to the request id, not in a response an
+// authenticated stranger can read (ASVS V1, MESHSAT-1219).
+func writeInternalError(w http.ResponseWriter, err error, what string) {
+	slog.Error("internal error", "what", what, "error", err)
+	httpjson.WriteError(w, http.StatusInternalServerError, "internal error")
 }
 
 // WriteJSON is the exported version of writeJSON for use by other packages.

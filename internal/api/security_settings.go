@@ -118,7 +118,7 @@ func (h *SecuritySettingsHandler) RotateServicePasswords(w http.ResponseWriter, 
 	content += "HUB_REDIS_URL=redis://:" + newRedis + "@redis:6379/0\n"
 
 	if err := os.WriteFile(serviceEnvFile, []byte(content), 0600); err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to write secrets: "+err.Error())
+		writeInternalError(w, err, "failed to write secrets")
 		return
 	}
 

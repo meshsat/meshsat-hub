@@ -47,7 +47,7 @@ func (h *DeviceHandler) ListDevices(w http.ResponseWriter, r *http.Request) {
 	tid := auth.TenantIDFromContext(r.Context())
 	devices, err := h.store.ListDevices(r.Context(), tid)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		writeInternalError(w, err, "")
 		return
 	}
 	if devices == nil {
@@ -199,7 +199,7 @@ func (h *DeviceHandler) UpdateDevice(w http.ResponseWriter, r *http.Request) {
 	existing.Type = req.Type
 	existing.Notes = req.Notes
 	if err := h.store.UpdateDevice(r.Context(), tid, existing); err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		writeInternalError(w, err, "")
 		return
 	}
 	updated, _ := h.store.GetDevice(r.Context(), tid, imei)
@@ -232,7 +232,7 @@ func (h *DeviceHandler) DeleteDevice(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := h.store.DeleteDevice(r.Context(), tid, imei); err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		writeInternalError(w, err, "")
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
