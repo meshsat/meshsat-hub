@@ -24,7 +24,6 @@
    * resolves prefers-color-scheme: dark and renders on the card instead of
    * punching a hole in it. */
   color-scheme: dark;
-  --ak-global--background-image: none;
   --ak-flow-background-image-color: #040406;
   --ms-scrim: linear-gradient(135deg, rgba(4,4,6,0.86) 0%, rgba(4,4,6,0.76) 45%, rgba(4,4,6,0.68) 100%);
   --pf-global--FontFamily--sans-serif: 'IBM Plex Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
@@ -61,6 +60,17 @@
   --pf-c-form-control--focus--BorderBottomColor: #F25C05;
 }
 
+/* No flow background of authentik's own. authentik 2026.8 paints the Brand's
+ * default flow background on body::before from this variable, and sets it
+ * twice AFTER this sheet: a <style data-id="flow-css"> :root rule later in
+ * <head>, which wins on source order, and an inline style on <body> from the
+ * flow executor. A plain `none` here lost to both, so the stock photograph
+ * filled the screen on every load until the flow rendered over it
+ * (MESHSAT-1223). !important outranks both. */
+:root, :host, body {
+  --ak-global--background-image: none !important;
+}
+
 /* ---------------------------------------------------------------------------
  * The ground: meshsat.net's hero photography, same four frames, same pace.
  *
@@ -71,9 +81,9 @@
  * The dot grid that used to be here is gone: a grid over a photograph is noise.
  *
  * Why the odd two-layer shape. authentik renders this flow inside a shadow
- * root and, with --ak-global--background-image: none, there is no
- * .pf-c-background-image element at all -- div.pf-c-login is the only
- * full-viewport hook on the page. That leaves ::before and ::after, two layers
+ * root and there is no .pf-c-background-image element at all -- its own
+ * background is body::before, switched off above -- so div.pf-c-login is the
+ * only full-viewport hook on the page. That leaves ::before and ::after, two layers
  * for four photographs, so each layer carries two and swaps its own
  * background-image on a step-end track while it is sitting at zero opacity.
  * The visible result is a plain crossfade; only the bookkeeping is folded.

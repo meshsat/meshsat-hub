@@ -718,6 +718,12 @@ brand.default = False
 brand.branding_title = "MeshSat Hub"
 brand.branding_logo = "https://meshsat.net/images/logo.svg"
 brand.branding_favicon = "https://meshsat.net/favicon.svg"
+# Left at its default this is authentik's stock flow_background.jpg (1 MB of
+# someone else's mountainside), which every flow page prefetches and paints on
+# body::before until our CSS covers it (MESHSAT-1223). The CSS keeps it off
+# screen; this makes the prefetch the slideshow's first frame, which the page
+# loads anyway, and gives the legacy-browser executor (flow-sfe) a MeshSat photograph.
+brand.branding_default_flow_background = "https://meshsat.net/images/hero/field-comms.webp"
 if MESHSAT_CSS:
     brand.branding_custom_css = MESHSAT_CSS
 brand.flow_authentication = authn
