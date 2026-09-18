@@ -10,3 +10,4 @@ resources:
   - podmonitor-postgres.yaml
   - podmonitor-postgres-tak.yaml
   - prometheusrule-security.yaml
+  - loki-rules-security.yaml

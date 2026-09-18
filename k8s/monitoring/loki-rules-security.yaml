@@ -1,0 +1,81 @@
+# Log-based security alerts, evaluated by the Loki ruler (MESHSAT-1190 follow-up,
+# posture "detection"). Loki's rules sidecar picks up any ConfigMap in its
+# namespace carrying the `loki_rule` label; Argo may manage objects here because
+# the AppProject allows every namespace, the same way the PrometheusRule lives
+# in `monitoring`.
+#
+# These are the signals that exist only as log lines -- checked to be present
+# in Loki on 2026-09-18 before a single rule was written: ingress-nginx's
+# ModSecurity "Access denied", nats-server's "Authorization Violation", and
+# Kyverno's admission refusals. The Hub's own refusals are already a metric
+# (meshsat_hub_auth_failures_total) and alert from the PrometheusRule.
+#
+# Like the PrometheusRule: none of these carries `tier: "1"`; they go to the
+# n8n receiver until the thresholds have been watched against real traffic.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: meshsat-hub-loki-rules
+  namespace: logging
+  labels:
+    loki_rule: ""
+    app.kubernetes.io/name: meshsat-hub
+    managed-by: argocd
+  annotations:
+    # Loki runs with auth_enabled=false, so every rule belongs to the implicit
+    # tenant "fake" and the ruler reads /rules/fake/. The sidecar puts a
+    # ConfigMap's files at /rules/<key> unless told otherwise -- this is the
+    # "otherwise" (the ruler API answered "unable to read rule dir /rules/fake"
+    # before it).
+    k8s-sidecar-target-directory: /rules/fake
+data:
+  meshsat-hub-security.yaml: |
+    groups:
+      - name: meshsat-hub-log-signals
+        interval: 1m
+        rules:
+          - alert: IngressWAFBlockBurst
+            expr: >-
+              sum(count_over_time({namespace="ingress-nginx"} |= "ModSecurity" |= "Access denied" [15m])) > 50
+            for: 5m
+            labels:
+              severity: warning
+              service: meshsat-hub
+            annotations:
+              summary: "ingress-nginx: ModSecurity is blocking a burst of requests"
+              description: >-
+                More than fifty CRS blocks in fifteen minutes at the in-cluster WAF
+                (MESHSAT-1207). The edge already blocks most scanning; this is what got
+                through it. Read the client addresses in the ingress log; a single
+                source is a scan, many sources is either a campaign or a rule that is
+                wrong for legitimate traffic.
+          - alert: NATSAuthorizationViolations
+            expr: >-
+              sum(count_over_time({namespace="meshsat-hub", container="nats"} |= "Authorization Violation" [10m])) > 5
+            for: 2m
+            labels:
+              severity: warning
+              service: meshsat-hub
+            annotations:
+              summary: "NATS: authorization violations on the broker"
+              description: >-
+                Something is presenting bad credentials to NATS -- a bridge with a
+                revoked credential, a scripted client, or (as on 2026-09-18) the
+                cluster's own members after a bad route configuration, in which case
+                the JetStream meta leader is also gone and the Hub has lost its bus.
+                Check routez/jsz on every member first.
+          - alert: KyvernoAdmissionRefusals
+            expr: >-
+              sum(count_over_time({namespace="kyverno"} |= "blocked due to the following policies" [15m])) > 3
+            for: 1m
+            labels:
+              severity: warning
+              service: meshsat-hub
+            annotations:
+              summary: "Kyverno refused pods at admission"
+              description: >-
+                More than three admission refusals in fifteen minutes. Under Enforce in
+                the MeshSat namespaces (MESHSAT-1204) a refusal means a workload or a
+                nightly probe no longer satisfies the restricted profile, or an image is
+                unsigned -- a deploy is silently not happening. The log line names the
+                pod and the policy.
