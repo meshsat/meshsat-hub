@@ -254,6 +254,9 @@ effect is nothing is worse than an absent one, because this scorecard counts it.
     and our CSS lost the cascade to authentik's own `flow-css`; fixed in the same issue. The edge
     WAF's own Turnstile CAPTCHA was never affected: `http-response` rules do not reach responses
     HAProxy generates itself (`http-request return`), proven on HAProxy 2.8 in a throwaway container.
+    Disclosed publicly as status.meshsat.net incident 11 (Sign-in, degraded, with the window, the
+    cause and what was not affected). It is the first incident on that page written by a person:
+    no monitor could see this outage, because every probe of the page still answered 200.
 
 ## What measurement caught
 
