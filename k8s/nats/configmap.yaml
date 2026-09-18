@@ -33,16 +33,20 @@ data:
       listen: 0.0.0.0:6222
       no_advertise: true
       connect_retries: 120
-      # Route authorization was tried on 2026-09-18 (MESHSAT-1194) and taken out
-      # again the same night: with it, members refused each other's route
-      # CONNECTs ("Authorization Violation"), the cluster split three ways and
-      # JetStream lost its meta leader. Being reproduced offline before any
-      # retry. The network policy confines :6222 to nats pods meanwhile.
-      routes: [
-        nats-route://nats-0.nats-headless.meshsat-hub.svc.cluster.local:6222
-        nats-route://nats-1.nats-headless.meshsat-hub.svc.cluster.local:6222
-        nats-route://nats-2.nats-headless.meshsat-hub.svc.cluster.local:6222
-      ]
+      # Routes authenticate (posture V12, MESHSAT-1194). Second attempt, after
+      # the first split the cluster on 2026-09-18 and was reproduced offline:
+      # nats-server 2.14 applies this block to INBOUND routes only; an outbound
+      # route carries whatever userinfo its URL has, and a bare URL carries
+      # none. So the route list lives in routes.conf, rendered by the
+      # ExternalSecret with route:<password>@ in each URL, and is included
+      # here. The password never enters this ConfigMap. Rollback is deleting
+      # this block and inlining bare URLs; the reloader applies it in ~20 s.
+      authorization {
+        user: route
+        password: $NATS_ROUTE_PASSWORD
+        timeout: 2
+      }
+      include "routes/routes.conf"
     }
 
     # Users and permissions live in the Secret meshsat-nats-auth (users.conf),
