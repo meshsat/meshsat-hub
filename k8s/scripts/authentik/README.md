@@ -8,7 +8,7 @@ through `ak shell` on the worker pod; nothing touches the omoikane Brand or flow
 |---|---|
 | `run-bootstrap.sh` | wrapper: `bootstrap`, `approve <email> <role>`, `reject <email>` |
 | `bootstrap-meshsat.py` | idempotent: groups, `meshsat` scope mapping, OIDC provider + application, enrollment + authentication flows, Brand `meshsat.net`, signup notification (webhook to n8n + operator email) |
-| `meshsat-login.css` | `Brand.branding_custom_css` (dark MeshSat tokens, IBM Plex from meshsat.net/fonts) |
+| `meshsat-login.css` | `Brand.branding_custom_css` (dark MeshSat tokens, IBM Plex from meshsat.net/fonts, the meshsat.net hero slideshow; switches off authentik's own flow background with `!important`, because authentik sets it after this sheet — MESHSAT-1223) |
 | `approve-meshsat-user.py` | activates a pending user, sets the role group, mails the activation notice; or deletes a rejected request |
 
 ## Flow
@@ -39,6 +39,12 @@ claim of the `meshsat` scope (Hub requests `openid profile email meshsat`).
   reports issuer `https://auth.meshsat.net/application/o/meshsat-hub/` (Hub `HUB_OIDC_ISSUER_URL`).
 - `https://auth.meshsat.net/if/flow/meshsat-enrollment/` renders the MeshSat brand;
   `https://auth.omoikane.coach/if/flow/default-authentication-flow/` is unchanged.
+- **In a real browser, not with curl** (headless Chromium via Playwright on the runner): the
+  enrollment page shows the Turnstile widget with zero `securitypolicyviolation` events, and
+  `getComputedStyle(document.body, '::before').backgroundImage` is `none` from first paint. The
+  CAPTCHA runs in a `blob:` iframe, so the edge CSP for this host (VPS HAProxy, `is_meshsat_auth`)
+  must keep `blob:` in `frame-src`; a header check cannot see it break (MESHSAT-1223: 25 h with no
+  possible sign-up).
 - OpenBao `ci-no/apps/meshsat-hub/hub` has the real `HUB_OIDC_CLIENT_ID/SECRET`; the Hub
   ExternalSecret refreshes within 1h (or `kubectl -n meshsat-hub annotate es hub-secrets force-sync=$(date +%s)`).
 - Token index (2026.8.0 btree bug, omoikane `k8s/auth/NOTES.md`): `\d authentik_providers_oauth2_accesstoken` shows `USING hash (token)`.
