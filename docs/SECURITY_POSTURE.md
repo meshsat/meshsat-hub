@@ -40,7 +40,7 @@ assessment rather than implying a per-requirement audit that has not happened.
 |---|---|:---:|:---:|---|
 | V1 | Encoding & Injection | 0.5 | **1.0** | **read.** Every query parameterised; four `fmt.Sprintf` statements interpolate only closed-switch column names. No shell anywhere; `os/exec` is argv-form and platform-admin gated. Still open: CSV export does not neutralise formula injection (`internal/api/csv.go`), and ~99 handlers return raw driver error text to authenticated callers. **2026-09-18 (MESHSAT-1219):** the 39 handlers that echoed `err.Error()` with a 500 now answer "internal error" and log the cause; CSV cells are neutralised; the four interpolated-SQL sites take identifiers from closed switches and the `GROUP BY` builder is held by a test that feeds it injection strings. Moved to 1.0. |
 | V2 | Validation & Business Logic | 0.5 | **1.0** | **read.** `readJSON` enforces a 1 MB cap, `DisallowUnknownFields` and single-value decoding — and is bypassed by six handlers, two without unknown-field rejection. `?limit=` is unbounded on eight list endpoints. **Fixed this round (MESHSAT-1202):** the Reticulum HDLC reassembly buffer grew without bound — a peer that sent one delimiter and never a second one chose the Hub's memory usage, reachable from the internet with any bridge-CA client certificate. Now capped at 16 KiB against a ~1002-byte theoretical maximum frame, with a regression test and a fuzz target both proven to fail without the fix. **Still 0.5**, because the `readJSON` bypasses and the unbounded `?limit=` are untouched, and `iface_tcp.go` still has no connection cap and still broadcasts every outbound frame to every client. **2026-09-18 (MESHSAT-1218):** `?limit=` is one bounded parser (max 500) at every list endpoint — proven with `?limit=999999` returning the tenant's 192 rows, not the table; CSV exports neutralise formula cells; `readJSON` bypasses are at zero. Moved to 1.0. |
-| V3 | Web Frontend Security | 1.0 | 1.0 | **measured.** CSP with `script-src 'self'`, `object-src 'none'`, `frame-ancestors 'none'`; HSTS preload; XFO, nosniff, Referrer-Policy, Permissions-Policy, COOP, CORP all present on the live response. No CORS configured, which for a bearer-token API is correct. No CSP reporting. The Hub scored 1.0 here throughout — but **`auth.meshsat.net`, the identity provider, sent no CSP at all** until MESHSAT-1198, which is a reminder that scoring one host does not score the login path it depends on. Now fixed, with `'unsafe-inline'` as a named residual. |
+| V3 | Web Frontend Security | 1.0 | 1.0 | **measured.** CSP with `script-src 'self'`, `object-src 'none'`, `frame-ancestors 'none'`; HSTS preload; XFO, nosniff, Referrer-Policy, Permissions-Policy, COOP, CORP all present on the live response. No CORS configured, which for a bearer-token API is correct. No CSP reporting. The Hub scored 1.0 here throughout — but **`auth.meshsat.net`, the identity provider, sent no CSP at all** until MESHSAT-1198, which is a reminder that scoring one host does not score the login path it depends on. Now fixed, with `'unsafe-inline'` as a named residual. **2026-09-18 (MESHSAT-1223):** that first policy broke the page it protected. authentik 2026.8 frames the Turnstile widget from a `blob:` URL, `frame-src` did not allow it, and the enrollment CAPTCHA rendered blank: no account could be created from 2026-09-17 ~12:00Z to 2026-09-18 13:07Z (item 12). `frame-src` now includes `blob:`, and every auth.meshsat.net flow plus all 30 Hub routes, logged in as the test tenant, were loaded in headless Chromium with zero violations. Score unchanged: the policy was the right control; its verification was not. |
 | V4 | API & Web Service | 0.0 | **1.0** | **measured.** Was: 250 routes, 137 ungated, 45 of them state-changing. Now every mutating route carries a role floor, enforced by a build-time ratchet, and a viewer key returns 403 on each in production. Still 0.5: there is no rate limit on any *authenticated* route, and none on the two unauthenticated capability URLs. **2026-09-18 (MESHSAT-1219):** every authenticated route now carries a per-principal budget (600/min per user or API key), the two capability URLs and key minting the per-IP auth budget, and invalid API keys from one address stop reaching the database after twenty failures a minute. Proven in production: the 601st request from one key in a minute is answered 429 while another principal gets 200; a webhook path (no principal) is never 429; forty guesses at a TAK enrolment nonce give 30 answers and then 429. Trips are counted (`meshsat_hub_rate_limit_trips_total`) and alerted. Moved to 1.0. |
 | V5 | File Handling | 1.0 | 1.0 | **read.** `assetKey` validates extension, segment count and each segment; backup import guards zip-slip via a cleaned-path prefix check; export uses `os.OpenRoot`. Zip-bomb entry/size limits absent, platform-admin only. |
 | V6 | Authentication | 0.0 | **1.0** | **measured.** Was: `HUB_AUTH_TOKEN`, a static, never-expiring, non-revocable bearer granting `PlatformAdmin: true` in every auth mode, present in the production secret and read by five operator scripts and the nightly. Now **retired**: API keys can carry the platform axis (migration 29, gated so only an existing platform admin can mint one), every consumer was cut over to a keyed credential with an expiry, and `HUB_LEGACY_TOKEN_ENABLED=false` clears the token at config load. Proven, not reasoned: the exact production token gets `401 invalid_token` on both replicas, the same answer a random string gets, while the replacement key answers 200; the nightly passed 22/22 on the new key. The env var is still mounted (to be trimmed from the ExternalSecret) but nothing reads it. |
@@ -230,7 +230,8 @@ effect is nothing is worse than an absent one, because this scorecard counts it.
    non-API paths, so a Tor Browser user is offered the hidden service automatically.
 
 10. ~~**NATS route port**~~ — **CLOSED 2026-09-18 (MESHSAT-1194), on the second attempt.** See V12.
-    The first attempt is the programme's one production incident: 01:16–01:30Z, the three members
+    The first attempt is the first of the programme's two production incidents (the second is
+    item 12): 01:16–01:30Z, the three members
     refused each other, JetStream had no leader and one Hub replica had no bus for 14 minutes; the
     kits reconnected within seconds and their outboxes held every message. Root cause proven
     offline, not inferred: nats-server 2.14 applies `cluster.authorization` to inbound routes only.
@@ -240,6 +241,19 @@ effect is nothing is worse than an absent one, because this scorecard counts it.
     Found on the way and filed as MESHSAT-1220: the broker logs a websocket TLS handshake error
     every four seconds from the edge relay's health checks, which open TLS without a client
     certificate — 20k lines a day that no rule matches and that would hide a real handshake fault.
+12. ~~**Sign-up blocked by the auth.meshsat.net CSP**~~ — **CLOSED 2026-09-18 (MESHSAT-1223).** The
+    programme's second production incident, found by the owner, not by a check. The MESHSAT-1198
+    policy went live on the three edges at 11:59–12:00Z on 2026-09-17 with `frame-src 'self'
+    https://challenges.cloudflare.com`; authentik 2026.8 renders the Turnstile widget inside a
+    `blob:` iframe, so the enrollment CAPTCHA was a blank box and the flow could not be completed
+    until `blob:` was added at 13:07Z the next day. Impact, measured: no account was created in the
+    window, and the edge logs show two outside loads of the enrollment page during it (a Google
+    Cloud address, and desktop Chrome at 11:56Z on 2026-09-18, consistent with the owner's own
+    report). The same page also showed
+    authentik's stock background for the first ~0.3 s of every load, because the Brand never set one
+    and our CSS lost the cascade to authentik's own `flow-css`; fixed in the same issue. The edge
+    WAF's own Turnstile CAPTCHA was never affected: `http-response` rules do not reach responses
+    HAProxy generates itself (`http-request return`), proven on HAProxy 2.8 in a throwaway container.
 
 ## What measurement caught
 
@@ -260,6 +274,13 @@ argument for the evidence standard at the top:
   own outbound routes carried no credential, because that is not where nats-server reads it from,
   and the cluster split the moment a second roll made them reconnect. A negative test against one
   side of a connection says nothing about the other side.
+
+- **A CSP verified with curl blocked every sign-up for 25 hours** (item 12). Each directive had
+  been derived from what the pages load, and the headers were confirmed on every edge, but no
+  browser had executed the enrollment flow under the policy; authentik renders its stages from
+  JSON, so the `blob:` frame appears nowhere in the HTML a header check reads. A policy is verified
+  by loading the pages it covers in a browser and listening for `securitypolicyviolation`, not by
+  reading it back. The runner has Playwright and Chromium for exactly this.
 
 And one the other way: the onion key rotation left `onion-heartbeat` probing a dead address, because
 it reads the hostname once at pod start and carried no reloader annotation. The change had worked;
