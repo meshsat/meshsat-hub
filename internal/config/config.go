@@ -218,6 +218,11 @@ type Config struct {
 	// authentik on every call, so this is what stops an anonymous caller
 	// aiming our fan-out at our own identity provider.
 	AuthRateLimitPerMin int `yaml:"auth_rate_limit_per_min"`
+	// APIRateLimitPerMin budgets authenticated requests per principal (user or
+	// API key) per minute (ASVS V4, MESHSAT-1219). 0 disables it. Requests
+	// without a principal -- webhooks, health, capability URLs -- are never
+	// counted against it.
+	APIRateLimitPerMin int `yaml:"api_rate_limit_per_min"`
 
 	// TrustedProxies are the CIDRs whose X-Forwarded-For we believe, used to
 	// resolve the real client IP for rate limiting. Empty means trust none and
@@ -505,6 +510,7 @@ func Defaults() Config {
 		ShutdownDrainSeconds:    0,
 		OTelServiceName:         "meshsat-hub",
 		AuthRateLimitPerMin:     30,
+		APIRateLimitPerMin:      600,
 		StripeTimeout:           20 * time.Second,
 		MailFrom:                "billing@meshsat.net",
 		MailFromName:            "MeshSat Hub",
@@ -757,6 +763,11 @@ func Load() (Config, error) {
 	if v := os.Getenv("HUB_AUTH_RATE_LIMIT_PER_MIN"); v != "" {
 		if n, err := strconv.Atoi(v); err == nil && n > 0 {
 			cfg.AuthRateLimitPerMin = n
+		}
+	}
+	if v := os.Getenv("HUB_API_RATE_LIMIT_PER_MIN"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			cfg.APIRateLimitPerMin = n
 		}
 	}
 	if v := os.Getenv("HUB_TRUSTED_PROXIES"); v != "" {

@@ -264,6 +264,10 @@ data:
   # makes an outbound token exchange against authentik on every call, so this
   # is what stops an anonymous caller pointing our fan-out at our own IdP.
   HUB_AUTH_RATE_LIMIT_PER_MIN: "30"
+  # Per-principal budget on every authenticated route (ASVS V4, MESHSAT-1219):
+  # 600/min per user or API key. Webhooks, health and the capability URLs carry
+  # no principal and are never counted against it. 0 disables.
+  HUB_API_RATE_LIMIT_PER_MIN: "600"
 
   # --- tenant-owned operational settings (MESHSAT-1117) ---
   # How long a bridge may go quiet before the Hub calls it offline. This stays

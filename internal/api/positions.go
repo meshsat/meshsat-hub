@@ -94,7 +94,7 @@ func (h *PositionHandler) ListPositions(w http.ResponseWriter, r *http.Request) 
 	tid := auth.TenantIDFromContext(r.Context())
 	positions, total, err := h.store.ListPositionsRange(r.Context(), tid, imei, from, to, limit, offset)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		writeInternalError(w, err, "")
 		return
 	}
 	if positions == nil {
@@ -189,7 +189,7 @@ func (h *PositionHandler) AllLatestPositions(w http.ResponseWriter, r *http.Requ
 	tid := auth.TenantIDFromContext(r.Context())
 	devices, err := h.store.ListDevices(r.Context(), tid)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		writeInternalError(w, err, "")
 		return
 	}
 

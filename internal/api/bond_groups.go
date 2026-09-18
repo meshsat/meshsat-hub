@@ -58,7 +58,7 @@ func (h *BondGroupHandler) ListBondGroups(w http.ResponseWriter, r *http.Request
 
 	groups, err := h.store.GetBondGroups(r.Context(), tid, bridgeID)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		writeInternalError(w, err, "")
 		return
 	}
 	if groups == nil {
@@ -117,7 +117,7 @@ func (h *BondGroupHandler) CreateBondGroup(w http.ResponseWriter, r *http.Reques
 	}
 
 	if err := h.store.CreateBondGroup(r.Context(), tid, bridgeID, g); err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		writeInternalError(w, err, "")
 		return
 	}
 
@@ -199,7 +199,7 @@ func (h *BondGroupHandler) UpdateBondGroup(w http.ResponseWriter, r *http.Reques
 	}
 
 	if err := h.store.UpdateBondGroup(r.Context(), tid, bridgeID, g); err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		writeInternalError(w, err, "")
 		return
 	}
 
@@ -228,7 +228,7 @@ func (h *BondGroupHandler) DeleteBondGroup(w http.ResponseWriter, r *http.Reques
 	}
 
 	if err := h.store.DeleteBondGroup(r.Context(), tid, bridgeID, groupID); err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		writeInternalError(w, err, "")
 		return
 	}
 

@@ -132,7 +132,7 @@ func (h *BridgeCommandHandler) SendCommand(w http.ResponseWriter, r *http.Reques
 			writeError(w, http.StatusGatewayTimeout, err.Error())
 			return
 		}
-		writeError(w, http.StatusInternalServerError, err.Error())
+		writeInternalError(w, err, "")
 		return
 	}
 

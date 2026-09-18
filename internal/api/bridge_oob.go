@@ -139,7 +139,7 @@ func (h *BridgeOOBHandler) Pair(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if _, err := h.oob.Pair(r.Context(), tid, bridgeID, key, role, req.Phone, req.SatIMEI); err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		writeInternalError(w, err, "")
 		return
 	}
 	p, _ := h.oob.Peer(r.Context(), tid, bridgeID)
@@ -191,7 +191,7 @@ func (h *BridgeOOBHandler) Provision(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if _, err := h.oob.Pair(r.Context(), tid, bridgeID, key, oob.RoleIssuer, req.Phone, req.SatIMEI); err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		writeInternalError(w, err, "")
 		return
 	}
 	p, _ := h.oob.Peer(r.Context(), tid, bridgeID)
@@ -213,7 +213,7 @@ func (h *BridgeOOBHandler) Unpair(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := h.oob.Unpair(r.Context(), tid, bridgeID); err != nil && !errors.Is(err, oob.ErrNotPaired) {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		writeInternalError(w, err, "")
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)

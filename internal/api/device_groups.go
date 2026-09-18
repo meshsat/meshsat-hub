@@ -31,7 +31,7 @@ func (h *DeviceGroupHandler) ListGroups(w http.ResponseWriter, r *http.Request) 
 	tid := auth.TenantIDFromContext(r.Context())
 	groups, err := h.store.ListDeviceGroups(r.Context(), tid)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		writeInternalError(w, err, "")
 		return
 	}
 	if groups == nil {
@@ -67,7 +67,7 @@ func (h *DeviceGroupHandler) CreateGroup(w http.ResponseWriter, r *http.Request)
 
 	tid := auth.TenantIDFromContext(r.Context())
 	if err := h.store.CreateDeviceGroup(r.Context(), tid, &g); err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		writeInternalError(w, err, "")
 		return
 	}
 	created, _ := h.store.GetDeviceGroup(r.Context(), tid, g.ID)
@@ -130,7 +130,7 @@ func (h *DeviceGroupHandler) UpdateGroup(w http.ResponseWriter, r *http.Request)
 		existing.Color = req.Color
 	}
 	if err := h.store.UpdateDeviceGroup(r.Context(), tid, existing); err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		writeInternalError(w, err, "")
 		return
 	}
 	updated, _ := h.store.GetDeviceGroup(r.Context(), tid, id)
@@ -153,7 +153,7 @@ func (h *DeviceGroupHandler) DeleteGroup(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	if err := h.store.DeleteDeviceGroup(r.Context(), tid, id); err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		writeInternalError(w, err, "")
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -193,7 +193,7 @@ func (h *DeviceGroupHandler) AddMember(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := h.store.AddDeviceToGroup(r.Context(), tid, groupID, req.IMEI); err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		writeInternalError(w, err, "")
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
@@ -213,7 +213,7 @@ func (h *DeviceGroupHandler) RemoveMember(w http.ResponseWriter, r *http.Request
 	tid := auth.TenantIDFromContext(r.Context())
 
 	if err := h.store.RemoveDeviceFromGroup(r.Context(), tid, groupID, imei); err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		writeInternalError(w, err, "")
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -239,7 +239,7 @@ func (h *DeviceGroupHandler) ListDevices(w http.ResponseWriter, r *http.Request)
 
 	devices, err := h.store.ListDevicesInGroup(r.Context(), tid, groupID)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		writeInternalError(w, err, "")
 		return
 	}
 	if devices == nil {

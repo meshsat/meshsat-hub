@@ -180,7 +180,7 @@ func (h *DirectoryHandler) ExportVCard(w http.ResponseWriter, r *http.Request) {
 	limit = parseLimit(r, limit, maxListLimit)
 	contacts, err := h.store.ListContacts(r.Context(), tid)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		writeInternalError(w, err, "")
 		return
 	}
 	if len(contacts) > limit {
@@ -189,7 +189,7 @@ func (h *DirectoryHandler) ExportVCard(w http.ResponseWriter, r *http.Request) {
 
 	var buf bytes.Buffer
 	if err := directory.WriteVCards(&buf, contacts); err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		writeInternalError(w, err, "")
 		return
 	}
 	w.Header().Set("Content-Type", "text/vcard; charset=utf-8")
