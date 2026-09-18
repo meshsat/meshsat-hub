@@ -49,7 +49,7 @@ assessment rather than implying a per-requirement audit that has not happened.
 | V9 | Self-contained Tokens | 1.0 | 1.0 | **read.** Algorithm allowlist, `exp` required, audience and issuer checked, `kid` required with a single JWKS refresh, OKP and symmetric keys rejected, EC points verified on-curve, 1 MB response caps. Claims are discarded and role/tenant re-read from the Hub's own tables. |
 | V10 | OAuth & OIDC | 1.0 | 1.0 | **read.** PKCE S256, HMAC-signed state cookie with its own expiry, nonce checked against the ID token, open-redirect guard, `email_verified` required before provisioning, SPKI pinning with a rotation backup pin. |
 | V11 | Cryptography | 1.0 | 1.0 | **read.** AES-256-GCM with a 12-byte random nonce, bcrypt cost 10, five long-lived keys sealed under `HUB_CONFIG_WRAP_KEY` with a preflight that refuses to boot rather than regenerate. No forward secrecy on the satellite path, documented with a cost argument in `docs/ENCRYPTION.md`. |
-| V12 | Secure Communication | 0.5 | 0.5 | **measured.** **2026-09-18, withdrawn the same night:** route authorization (`cluster.authorization`) was added, measured as working, and then split the cluster three ways once route TLS rolled on top of it — members refused each other's CONNECTs and JetStream lost its leader for ~14 min (MESHSAT-1194 incident note). It was taken out; the network policy that confines :6222 to nats pods is the control in force. An internal CA now exists (cert-manager ClusterIssuer `meshsat-internal-ca`) and the route certificate is issued; the retry waits for an offline three-node reproduction. Stays 0.5, and honestly so. TLS 1.2/1.3 at the edge; NATS websocket and stunnel both verify client certificates against the bridge CA. Improved: every NATS listener — including the cluster route port, which has no authorization block and no TLS — and the Postgres cluster are no longer reachable from arbitrary pods. Not 1.0: in-cluster MQTT is still plaintext within the allowed set, and NATS route authentication is still absent — contained now rather than fixed. Separately, the client-certificate control on the two TLS-passthrough endpoints is now **asserted nightly from two external vantages** (MESHSAT-1200) — it had not been checked since 2026-08-04. |
+| V12 | Secure Communication | 0.5 | **1.0** | **measured.** TLS 1.2/1.3 at the edge; NATS websocket and stunnel verify client certificates against the bridge CA, asserted nightly from two external vantages (MESHSAT-1200). The cluster route port, which had no authorization and no TLS, now has both (MESHSAT-1194, 2026-09-18): routes authenticate with a credential rendered into the route URLs by the ExternalSecret and speak TLS with `verify: true` on certificates from the internal CA (cert-manager ClusterIssuer `meshsat-internal-ca`, rotated at 60 of 90 days), inside a policy that admits only nats pods to :6222. The first attempt split the cluster for 14 minutes: `cluster.authorization` guards INBOUND routes only and a bare route URL carries no credential, which was reproduced offline in three containers before the retry, as was the plain-to-TLS roll (routes re-form within a second of the last restart, meta leader within six). Proven in production by the three-signal drill on every member (routes 8/8/8, one agreed meta leader, both Hub replicas on the bus, `tls_required=true tls_verify=true` in varz) and by an unauthenticated CONNECT on the route port answered `-ERR 'Authorization Violation'`. What remains plaintext is the Hub's own MQTT session to `nats:1883` inside the allow-list — an in-cluster hop between two policy-confined pods, recorded here rather than scored. |
 | V13 | Configuration | 1.0 | 1.0 | **read.** Every secret an ExternalSecret from OpenBao; no secret values committed; `"changeme"` appears only as a value to reject. An IMEI and a Cloudloop thingId sit in a ConfigMap — sensitive, not secret. |
 | V14 | Data Protection | 0.5 | **1.0** | **measured.** Tenant export, redaction on export, audit retention bounded 30–3650 days and tenant-selectable. The cross-tenant TAK leak (MESHSAT-1032) is closed: the platform-wide CoT gateway is gone, replaced by a per-tenant forwarder that resolves the tenant off the topic and reaches only that tenant's upstreams, and the unscoped `/api/tak/federation/peers` route and TAK Operations page no longer exist. Now held by three tests using `DefaultTenantID` as the victim, proven by reintroducing the bug in production code. Every other `DualFilters` consumer was audited for the same shape: sos, position, message and mesh all resolve through `tenancy.Resolver`, which is stronger than topic parsing because the store is authoritative. Residual, other repo: the privacy page has not been checked against what the Hub actually does with location data. |
 | V15 | Secure Coding & Architecture | 1.0 | 1.0 | **read.** Invariants held by tests that are declared not to be weakened (SOS survives quota; quota is on no ingest path; refunds are on no ingest path). Ratchets rather than review as the enforcement mechanism. |
@@ -91,11 +91,11 @@ Scored separately because ASVS V16 covers whether events are *recorded*, not whe
 | Series existence | three counters alerts would target had **no series at all**, so those alerts could never fire | materialised at startup |
 | Client IP in logs | the ingress pod's address on every line | resolved through the trusted-proxy walk |
 | Break-glass token use | no metric, no log, no audit row — indistinguishable from the nightly job | counted, logged, audited per use; refused over Tor; alerted |
-| Log-based alerting | Loki + promtail + a ruler exist; nothing wired, and `loki-0` is not ready | unchanged — still open |
+| Log-based alerting | Loki + promtail + a ruler exist; nothing wired, and `loki-0` is not ready | ruler wired to Alertmanager (notrf01 !67), three log rules loaded from this repo (WAF block burst, broker auth failures, admission refusals), **proven end to end**: the route-TLS roll's transient refusals fired `NATSAuthorizationViolations`, the ruler posted it with zero errors and Alertmanager showed it active on the `webhook-n8n` receiver at 02:28Z. The rule counts both sides of a refusal, checked against the incident's own lines in Loki (MESHSAT-1190) |
 | Image provenance | none — a re-tagged or foreign image would run | signed by digest in CI, verified at admission, unsigned refused (MESHSAT-1204/1216) |
 | Audit hash chain | does not cover `created_at`/`id`/`tenant_id`; tolerates truncation at both ends; forks across the two replicas | v2 digest binds tenant, id and a microsecond timestamp; appends serialised by a per-tenant advisory lock; a fork is refused by a unique index; a legacy-formula row after the cut-over is a break. Head truncation is still accepted by design (retention). MESHSAT-1215 |
 
-**Detection: ~10% → ~70%**
+**Detection: ~10% → ~90%**
 
 ---
 
@@ -103,14 +103,17 @@ Scored separately because ASVS V16 covers whether events are *recorded*, not whe
 
 | Instrument | Before | After |
 |---|:---:|:---:|
-| OWASP ASVS 5.0 L2 | 69% | **97%** |
+| OWASP ASVS 5.0 L2 | 69% | **100%** |
 | CIS Kubernetes ch. 5 | 42% | **100%** |
-| Detection & response | ~10% | **~70%** |
+| Detection & response | ~10% | **~90%** |
 
-The programme's targets were ASVS ≥ 95%, CIS ≥ 90% and detection ≥ 90%. ASVS is one row short of
-its target and the other two are not met; the gap is not cosmetic. The static platform-admin bearer
-is gone (V6 → 1.0, proven refused in production); what holds ASVS at 94% is the four rows scored by
-reading rather than by measurement (V1, V2, V7, V12), each still 0.5.
+The programme's targets were ASVS ≥ 95%, CIS ≥ 90% and detection ≥ 90%. All three are met, and every
+chapter row is now scored by measurement rather than by reading. The last row to move was V12, and it
+moved only after its first attempt had caused an outage and been withdrawn: the retry was reproduced
+offline before it touched production, which is the standard this document asks for. What keeps
+detection at ~90% rather than 100% is coverage, not wiring: the log signals cover the WAF, the broker
+and admission, not yet the edge HAProxy logs on the three VPS, and the ZAP authenticated run has not
+had its first scheduled observation (MESHSAT-1197).
 
 The CIS caps have moved: **network policy is now enforced** with default-deny ingress and a
 per-workload allow-list on every pod (5.3 → 1.0), and the general policies are in place (5.7 → 1.0).
@@ -140,9 +143,9 @@ effect is nothing is worse than an absent one, because this scorecard counts it.
    OpenBao, which is housekeeping — nothing reads it any more.
 2. **PodSecurity enforcement on `meshsat-hub`** — blocked architecturally, see above; the namespace
    split is the work. `meshsat-hub-db` now enforces `restricted` and every container in both
-   namespaces has been cut to the capabilities it actually needs (MESHSAT-1204). Still open in this
-   area: the tor initContainer runs on an **unpinned `busybox:latest`** while handling the onion
-   private key — its capabilities are now minimal but the image is still a moving target.
+   namespaces has been cut to the capabilities it actually needs (MESHSAT-1204). The tor initContainer
+   that handles the onion private key is now digest-pinned and minimal (MESHSAT-1216); nothing in
+   this area is unpinned any more.
 3. ~~**Default-deny** network policy~~ — **CLOSED for ingress** (MESHSAT-1205). Every workload is
    covered and default-deny is on and proven against a pod carrying a label no policy mentions.
    **Egress remains, deliberately and dated:** it carries the CNPG WAL archive to nl-s3, the
@@ -166,9 +169,10 @@ effect is nothing is worse than an absent one, because this scorecard counts it.
    signatures do not match threshold`). Two lessons paid for by rehearsal rather than a red
    pipeline: the official cosign image is distroless (no shell for GitLab), so the release binary is
    fetched checksum-pinned; cosign 3 refuses `--tlog-upload=false` and wants a signing config with
-   no transparency log. Still open under this heading: `owasp:baseline` cannot fail as written
-   (MESHSAT-1197), and a Kyverno `verifyImages` policy so the *cluster* checks the signature at
-   admission (CIS 5.5). Fuzzing exists since MESHSAT-1202 (nightly `test:fuzz`, one target).
+   no transparency log. Since then the *cluster* checks the signature at admission too — Kyverno `verifyImages` in
+   Enforce, which refused an unsigned image on its first day (CIS 5.5 → 1.0). Still open under this
+   heading: the authenticated `owasp:baseline` is in place and its first scheduled run is observed
+   on Sunday (MESHSAT-1197). Fuzzing exists since MESHSAT-1202 (nightly `test:fuzz`, one target).
 5. ~~**Edge**~~ — **BOTH CLOSED 2026-09-17.**
    - **ingress-nginx CRS now enforces** (MESHSAT-1207). The "zero audit records in 24 h" was checked
      before being trusted, because it reads identically to a WAF that evaluates nothing: a harmless
@@ -200,9 +204,10 @@ effect is nothing is worse than an absent one, because this scorecard counts it.
    `(tenant_id, prev_hash)` refuses any second child that gets past it (production was checked to
    have no such pair first). Held by tests where back-dating, re-identifying and re-homing a row
    each break a v2 chain **and, as the negative control, none of them break a v1 chain** — the
-   control is what proves v2 adds the coverage rather than the test asserting it. Still open under
-   this heading: the missing audit events across the credential surface (API key create/delete,
-   password change, role change, tenant create, backup export/import).
+   control is what proves v2 adds the coverage rather than the test asserting it. The credential surface
+   now writes the events that were missing — API key created/deleted, user created, role changed,
+   enabled/disabled, password changed, user deleted, tenant created. Still open: platform backup
+   export/import are not audited.
 7. ~~**MESHSAT-1032**~~ — **CLOSED.** The mechanism was removed by the move to per-tenant hosted
    TAK; this round added the tests that hold it and audited every other `DualFilters` consumer,
    which is where a second instance of the same shape would have been. Outstanding in
@@ -224,6 +229,18 @@ effect is nothing is worse than an absent one, because this scorecard counts it.
 9. ~~**`Onion-Location`**~~ — **CLOSED**. Served by all three VPS edges for `hub.meshsat.net`
    non-API paths, so a Tor Browser user is offered the hidden service automatically.
 
+10. ~~**NATS route port**~~ — **CLOSED 2026-09-18 (MESHSAT-1194), on the second attempt.** See V12.
+    The first attempt is the programme's one production incident: 01:16–01:30Z, the three members
+    refused each other, JetStream had no leader and one Hub replica had no bus for 14 minutes; the
+    kits reconnected within seconds and their outboxes held every message. Root cause proven
+    offline, not inferred: nats-server 2.14 applies `cluster.authorization` to inbound routes only.
+    The retry carries the credential in the route URLs, rendered by the ExternalSecret so it never
+    enters the ConfigMap, and route TLS rolled separately with the same drill.
+11. ~~**Log-based alerting**~~ — **CLOSED 2026-09-18 (MESHSAT-1190).** See the detection table.
+    Found on the way and filed as MESHSAT-1220: the broker logs a websocket TLS handshake error
+    every four seconds from the edge relay's health checks, which open TLS without a client
+    certificate — 20k lines a day that no rule matches and that would hide a real handshake fault.
+
 ## What measurement caught
 
 Three findings survived only because something was run rather than reasoned about, which is the
@@ -237,6 +254,12 @@ argument for the evidence standard at the top:
 - **36 `govulncheck` advisories were a local artifact.** They came from the runner's Go 1.25.0; the
   deployed binary reports `go1.25.14` and CI's gate passes. Reported as a production finding, they
   would have been wrong.
+
+- **Route authorization measured as working was not routes authenticating.** The route port's INFO
+  advertised `auth_required` and a probe was refused, so the control was called shipped. The members'
+  own outbound routes carried no credential, because that is not where nats-server reads it from,
+  and the cluster split the moment a second roll made them reconnect. A negative test against one
+  side of a connection says nothing about the other side.
 
 And one the other way: the onion key rotation left `onion-heartbeat` probing a dead address, because
 it reads the hostname once at pod start and carried no reloader annotation. The change had worked;
