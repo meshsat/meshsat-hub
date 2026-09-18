@@ -1,6 +1,6 @@
 # MeshSat Hub — security posture
 
-_Assessed 2026-09-16 / 17. Instrument for the hardening programme MESHSAT-1189 → 1194._
+_Assessed 2026-09-16 / 17. Instrument for the hardening programme MESHSAT-1189 → 1194. Incident record kept current to 2026-09-18 (item 13)._
 
 ## What this document is, and what it is not
 
@@ -69,7 +69,7 @@ repository and are **unassessed** here.
 |---|---|:---:|:---:|---|
 | 5.1 | RBAC & Service Accounts | 1.0 | 1.0 | **read.** Namespaced Roles only — no ClusterRole, no ClusterRoleBinding, no `cluster-admin` anywhere in the tree, stated as a rule in `k8s/tak-operator/rbac.yaml`. The Hub's own Role is two leases verbs plus `secrets get/patch` narrowed by `resourceNames`. Caveat: `hub-verify` holds `pods/exec` into Hub pods, which is effectively equivalent to reading every Hub secret. |
 | 5.2 | Pod Security Standards | 0.0 | **1.0** | **measured, enforced.** Was: container `securityContext` empty on hub/stunnel/basemap and absent on nats/keydb/edge-relay; namespace audited at `baseline`; `meshsat-hub-db` unlabelled. Now: `meshsat-hub-db` enforces `restricted` through PSA (a live CNPG pod replayed through a dry-run passes outright), and **Kyverno enforces the restricted profile per workload** in `meshsat-hub`, `meshsat-hub-db`, `meshsat-tak` and `meshsat-tak-db` (notrf01 !62/!63, MESHSAT-1204) — which is what PSA could not do, because PSA is namespace-wide and `meshsat-edge-relay` (hostNetwork) and `wg-easy` (NET_ADMIN) live in that namespace. Every container was first cut to what it needs (drop ALL, no privilege escalation, seccomp), nats/keydb/edge-relay were switched to declared non-root users with a rolling drill, and the four remaining exceptions — edge-relay (hostNetwork/hostPorts), wg-easy (NET_ADMIN/NET_RAW as root), tor (key-seeding init with CHOWN/DAC_OVERRIDE/FOWNER), apprise (startup `useradd`) — are each **measured on the pod and excluded by label for exactly that workload**, so a new pod with the same defect is refused. Proven the right way round on 2026-09-18: a bare root pod in `meshsat-hub` is refused at admission naming the policies, a compliant one is admitted, the same bare pod in `default` is only audited; and the first nightly under Enforce refused two of the nightly's own throwaway pods (the MQTT publisher and the onion probe) until they were made compliant — the control found real violations before an attacker did. Remaining debt, written down per file in `.trivyignore.yaml`: read-only root filesystems on nine third-party containers. |
-| 5.3 | Network Policies & CNI | 0.0 | **1.0** | **measured.** Was: zero NetworkPolicies cluster-wide while two manifests claimed one enforced tor-only access to 6079. Now every workload in both namespaces is covered by an allow-list built from flows Hubble observed, and **default-deny ingress is on and proven** (MESHSAT-1205). The per-workload flips were each drilled: hawkbit — the OTA server, which decides what firmware a field device installs — stunnel and wg-easy all went REACHABLE → BLOCKED from an unrelated pod, while hub→hawkbit, basemap through the ingress, Reticulum mTLS, keydb peer replication and the onion heartbeat all kept working. **Two default-deny attempts before this one were silent no-ops** (`ingress: []`, then the same plus `enableDefaultDeny`), each caught only because the test creates a pod with a label no policy mentions and dials it; a plain Kubernetes NetworkPolicy with `policyTypes: [Ingress]` is what actually denies, and the union with the Cilium allows was verified against `basemap` before going namespace-wide. **Written, dated exception: egress is deliberately not default-denied.** It carries the CNPG WAL archive to nl-s3, the satellite provider callbacks, Twilio, Stripe and the Tor circuit, and an egress policy that is even slightly wrong stops the backups rather than the attacker. That is its own change with its own drill. |
+| 5.3 | Network Policies & CNI | 0.0 | **1.0** | **measured.** Was: zero NetworkPolicies cluster-wide while two manifests claimed one enforced tor-only access to 6079. Now every workload in both namespaces is covered by an allow-list built from flows Hubble observed, and **default-deny ingress is on and proven** (MESHSAT-1205). The per-workload flips were each drilled: hawkbit — the OTA server, which decides what firmware a field device installs — stunnel and wg-easy all went REACHABLE → BLOCKED from an unrelated pod, while hub→hawkbit, basemap through the ingress, Reticulum mTLS, keydb peer replication and the onion heartbeat all kept working. **Two default-deny attempts before this one were silent no-ops** (`ingress: []`, then the same plus `enableDefaultDeny`), each caught only because the test creates a pod with a label no policy mentions and dials it; a plain Kubernetes NetworkPolicy with `policyTypes: [Ingress]` is what actually denies, and the union with the Cilium allows was verified against `basemap` before going namespace-wide. **Written, dated exception: egress is deliberately not default-denied.** It carries the CNPG WAL archive to nl-s3, the satellite provider callbacks, Twilio, Stripe and the Tor circuit, and an egress policy that is even slightly wrong stops the backups rather than the attacker. That is its own change with its own drill. **Two corrections, 2026-09-18.** (a) `basemap-confine` admitted only `host`/`remote-node`, but the Ingress routes `/basemap/local.pmtiles` to the basemap Service from the ingress-nginx controller pod, a normal endpoint; the deep map hung for ~25 h until 24d6c48 added that peer (item 13, MESHSAT-1229). The drill's "basemap through the ingress" check above therefore never exercised the basemap pods: that flow was blocked from the moment the policy applied. (b) `onion-heartbeat-confine` (`ingress: []`) is rejected by Cilium as invalid and enforces nothing; the pod is ingress-denied by `default-deny-ingress` alone, so there is no exposure, but it is not the per-workload policy this row counts (MESHSAT-1230, open). |
 | 5.4 | Secrets Management | 1.0 | 1.0 | **read.** Every secret an `ExternalSecret` against the OpenBao `ClusterSecretStore`, `creationPolicy: Owner`, `deletionPolicy: Retain`. The one committed plain `Secret` carries an env-var placeholder, not a value. |
 | 5.5 | Extensible Admission Control | 0.0 | **1.0** | **measured, enforced.** Was: no admission control beyond PSA; no image provenance. Now: Kyverno 1.19.1 is the admission engine with the project's Pod Security policies at the restricted profile **enforced** in the four MeshSat namespaces (5.2), and **image provenance is checked at admission** (notrf01 !64/!65, MESHSAT-1204): every `ghcr.io/meshsat/meshsat-hub` pod must carry a cosign signature by the CI signing key (`cosign.pub`, MESHSAT-1216), verified as a sigstore bundle with no transparency log. Proven the right way round on 2026-09-18: a pod using a pre-signing digest of the very same image is **refused at admission** (`no matching signatures found`), the signed image is admitted (`verify-images: pass`), and the nightly's own unsigned image is outside the match so the nightly keeps running. Three things were learnt by measuring rather than assuming, each written into the module: the verifier ignores the engine-wide pull secret and needs the rule-level `imageRegistryCredentials`; the cosign-3 bundle format verifies (CI needs no change); and a `meshsat-hub*` glob had matched the nightly image. `failurePolicy` stays `Ignore`, so a dead engine admits rather than refuses. |
 | 5.7 | General Policies | 0.5 | **1.0** | **measured.** Was: no `ResourceQuota` or `LimitRange` on `meshsat-hub` while `meshsat-tak` had both, and `automountServiceAccountToken` unset on hawkbit, wg-easy and apprise. Now (MESHSAT-1206) both objects exist, sized from measured usage with room rather than tuned tight — the 21 live pods request 1600m CPU / 2624Mi against ceilings of 8 CPU / 16Gi — and the two are kept in ONE file because a quota that sets `requests.*` makes a request mandatory while the LimitRange is what supplies the default, so a split could land in an order that refuses a request-less pod. `LimitRange.max` is 4Gi, chosen against the measured maximum (hawkbit's JVM at 1536Mi) so it cannot refuse to recreate a pod that runs today. The three SA tokens are off, each checked first: all three run as `default`, which has no RoleBinding or ClusterRoleBinding anywhere, so the token bought nothing and was only a mounted credential. PDBs already present. |
@@ -230,8 +230,8 @@ effect is nothing is worse than an absent one, because this scorecard counts it.
    non-API paths, so a Tor Browser user is offered the hidden service automatically.
 
 10. ~~**NATS route port**~~ — **CLOSED 2026-09-18 (MESHSAT-1194), on the second attempt.** See V12.
-    The first attempt is the first of the programme's two production incidents (the second is
-    item 12): 01:16–01:30Z, the three members
+    The first attempt is the first of the programme's three production incidents (items 12 and
+    13 are the others): 01:16–01:30Z, the three members
     refused each other, JetStream had no leader and one Hub replica had no bus for 14 minutes; the
     kits reconnected within seconds and their outboxes held every message. Root cause proven
     offline, not inferred: nats-server 2.14 applies `cluster.authorization` to inbound routes only.
@@ -257,10 +257,23 @@ effect is nothing is worse than an absent one, because this scorecard counts it.
     Disclosed publicly as status.meshsat.net incident 11 (Sign-in, degraded, with the window, the
     cause and what was not affected). It is the first incident on that page written by a person:
     no monitor could see this outage, because every probe of the page still answered 200.
+13. ~~**Deep map blocked by the basemap NetworkPolicy**~~ — **CLOSED 2026-09-18 (MESHSAT-1229).** The
+    programme's third production incident, a degradation, and again found by the owner rather than
+    by a check. `basemap-confine` (MESHSAT-1205) went live at ~17:50Z on 2026-09-17, built from
+    Hubble flows seen in a window where nobody zoomed a map past zoom 11, and admitted only
+    `host`/`remote-node` on 8080. The caller of `/basemap/local.pmtiles` is the ingress-nginx
+    controller pod, so every request hung until ingress-nginx gave up (`upstream timed out (110)`,
+    504 after ~30 s, or no reply). Effect on the map: the SPA's `HEAD` probe of the archive delayed
+    the first paint by up to 30 s, and nothing past zoom 11 drew (street geometry lives at z13, names
+    at z15). The world archive, glyphs and sprites come through the Hub and were unaffected. A cold
+    basemap replica could not have copied its 38 GB archive from its peer either. Fixed in 24d6c48
+    (ingress-nginx controller pods and basemap peers admitted on 8080) and proven through each of
+    the three edge addresses: `HEAD` 200 and ranges at 0 and 20 GB answered 206 in 0.08-1.2 s
+    against 30 s hangs before. No data or security impact. Not posted to status.meshsat.net.
 
 ## What measurement caught
 
-Three findings survived only because something was run rather than reasoned about, which is the
+These findings survived only because something was run rather than reasoned about, which is the
 argument for the evidence standard at the top:
 
 - **`nats:6222` looked contained.** Connecting through the `nats` Service fails — but only because
@@ -284,6 +297,15 @@ argument for the evidence standard at the top:
   JSON, so the `blob:` frame appears nowhere in the HTML a header check reads. A policy is verified
   by loading the pages it covers in a browser and listening for `securitypolicyviolation`, not by
   reading it back. The runner has Playwright and Chromium for exactly this.
+
+- **A network policy built from observed flows blocked a flow nobody exercised** (item 13). Hubble
+  shows the traffic that happened in the window, not the journeys the product needs. The Ingress
+  sends `/basemap/local.pmtiles` from the ingress-nginx pod, and only a map zoomed past 11 makes
+  that request. A deny rule is verified by driving every user journey through it: sign-up, login,
+  the map at z15, the booth relay, the webhooks. After any policy change, request every Ingress path
+  in the namespace through each edge address, and count a 30 s hang as a failure.
+- **A policy the cluster rejects looks the same as one it enforces** until you read `VALID`.
+  `onion-heartbeat-confine` has been `VALID=False` since the day it was applied (MESHSAT-1230).
 
 And one the other way: the onion key rotation left `onion-heartbeat` probing a dead address, because
 it reads the hostname once at pod start and carried no reloader annotation. The change had worked;

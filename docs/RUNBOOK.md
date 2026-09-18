@@ -144,6 +144,24 @@ docker exec meshsat-mariadb mariadb -u root -p... -e "SHOW STATUS LIKE 'wsrep_cl
 # WARNING: The non-bootstrapped node will lose any writes that happened during split-brain
 ```
 
+### 7. The map loads slowly, or shows no streets or street names when zoomed in
+
+The map reads two PMTiles archives. The world archive (`/basemap/basemap.pmtiles`, zoom 0-11)
+comes through the Hub from the object store. The deep Europe archive (`/basemap/local.pmtiles`,
+street geometry from zoom 13, names from 15) comes from the `basemap` StatefulSet, and the
+Ingress routes it there from the ingress-nginx controller pod. If the deep archive does not
+answer, the SPA's `HEAD` probe delays the first paint by up to 30 s, and nothing past zoom 11
+draws. Probe each edge address separately:
+```bash
+for ip in $(getent ahostsv4 hub.meshsat.net | awk '{print $1}' | sort -u); do
+  curl -s -o /dev/null --resolve hub.meshsat.net:443:$ip -H 'Range: bytes=0-16383' --max-time 30 \
+    -w "$ip %{http_code} %{time_total}s\n" https://hub.meshsat.net/basemap/local.pmtiles
+done
+# Expect 206 in about a second. A 504 or a 30 s hang: check the basemap pods are Ready, then
+# `kubectl -n ingress-nginx logs <controller> | grep local.pmtiles` for "upstream timed out (110)",
+# which means a NetworkPolicy is dropping ingress-nginx -> basemap:8080 (MESHSAT-1229).
+```
+
 ---
 
 ## Health Checks
