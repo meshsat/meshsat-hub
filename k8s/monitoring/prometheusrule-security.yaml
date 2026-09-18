@@ -208,6 +208,23 @@ spec:
               because a wrong guess about someone else's infrastructure silently drops
               a satellite message, and on this path that can be an SOS. Confirm the
               provider changed its egress rather than that somebody found the URL.
+        - alert: HubRequestBudgetTripping
+          expr: sum by (limiter) (increase(meshsat_hub_rate_limit_trips_total{job="hub"}[15m])) > 20
+          for: 5m
+          labels:
+            severity: warning
+            service: meshsat-hub
+          annotations:
+            summary: "Hub: a request budget is refusing traffic ({{ $labels.limiter }})"
+            description: >-
+              More than twenty 429s in fifteen minutes from one budget
+              (MESHSAT-1219). "principal": one user or API key is looping or being
+              scripted -- the log line names it. "auth": one address is hammering
+              the login surface, a capability URL or key minting. "apikey_failures":
+              one address keeps presenting invalid API keys and is being cut off
+              before the database. Webhooks and health carry no budget, so an SOS
+              path can never be the source of this alert.
+
         - alert: HubRateLimitSaturation
           expr: sum by (type) (increase(meshsat_hub_ratelimit_violations_total{job="hub"}[15m])) > 50
           for: 10m
