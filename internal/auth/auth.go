@@ -373,14 +373,32 @@ func isExempt(path string) bool {
 
 // isProvisionClaim matches GET /api/bridges/{id}/provision/{nonce} —
 // the nonce acts as a single-use bearer token, no auth header needed.
+//
+// The last segment must look like a nonce the Hub issues (16 random bytes, hex).
+// POST /api/bridges/{id}/provision/qr has the same shape, and matching any segment
+// there exempted the owner's own QR request from authentication, so the owner-only
+// gate saw no user and every caller got 403 (MESHSAT-1238).
 func isProvisionClaim(path string) bool {
-	// Pattern: /api/bridges/SOMETHING/provision/SOMETHING
 	if !strings.HasPrefix(path, "/api/bridges/") {
 		return false
 	}
 	parts := strings.Split(path, "/")
 	// /api/bridges/{id}/provision/{nonce} = 6 parts (empty, api, bridges, id, provision, nonce)
-	return len(parts) == 6 && parts[4] == "provision"
+	return len(parts) == 6 && parts[4] == "provision" && isProvisionNonce(parts[5])
+}
+
+// isProvisionNonce reports whether s has the form of a provisioning nonce:
+// 32 lowercase hex characters.
+func isProvisionNonce(s string) bool {
+	if len(s) != 32 {
+		return false
+	}
+	for _, c := range s {
+		if (c < '0' || c > '9') && (c < 'a' || c > 'f') {
+			return false
+		}
+	}
+	return true
 }
 
 // isTAKEnrolClaim matches GET /api/tak/enroll/{claimID}/{nonce} — the thing doing

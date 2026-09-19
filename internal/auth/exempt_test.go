@@ -32,7 +32,11 @@ func TestIsExempt(t *testing.T) {
 		{"/api/auth/login", true, ""},
 		{"/api/auth/config", true, ""},
 		{"/api/auth/oidc/callback", true, ""},
-		{"/api/bridges/b1/provision/nonce123", true, "the nonce is the auth"},
+		{"/api/bridges/b1/provision/0123456789abcdef0123456789abcdef", true, "the nonce is the auth"},
+		{"/api/bridges/b1/provision/qr", false, "the owner asking for a QR is not a claim (MESHSAT-1238)"},
+		{"/api/bridges/b1/provision/nonce123", false, "not a nonce the Hub issues"},
+		{"/api/bridges/b1/provision/0123456789ABCDEF0123456789ABCDEF", false, "issued nonces are lowercase hex"},
+		{"/api/bridges/b1/provision", false, "the owner's bundle request"},
 		{"/api/tak/enroll/0123456789abcdef0123456789abcdef/fedcba9876543210fedcba9876543210",
 			true, "a TAK client on a phone has no account; the nonce is the auth"},
 
