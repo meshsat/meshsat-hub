@@ -220,6 +220,9 @@ type Store interface {
 	SetOOBReplayWindow(ctx context.Context, tenantID string, bridgeID string, high int64, window int64) error
 	SetBridgeHealth(ctx context.Context, tenantID string, bridgeID string, health string) error
 	AssociateDeviceWithBridge(ctx context.Context, tenantID string, imei string, bridgeID string) error
+	// DeviceBridgeID answers which bridge owns a modem: "" when none does or
+	// the device is unknown (MESHSAT-1246, the MO receipt).
+	DeviceBridgeID(ctx context.Context, tenantID string, imei string) (string, error)
 	MarkStaleBridgesOffline(ctx context.Context, timeout time.Duration) (int64, error)
 
 	// Bridge MQTT credentials

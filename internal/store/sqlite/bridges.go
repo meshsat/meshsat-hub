@@ -3,6 +3,7 @@ package sqlite
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"time"
 
@@ -217,6 +218,16 @@ func (d *DB) AssociateDeviceWithBridge(ctx context.Context, tenantID string, ime
 	_, err := d.db.ExecContext(ctx,
 		"UPDATE devices SET bridge_id=? WHERE imei=? AND tenant_id=?", bridgeID, imei, tenantID)
 	return err
+}
+
+func (d *DB) DeviceBridgeID(ctx context.Context, tenantID string, imei string) (string, error) {
+	var id string
+	err := d.db.QueryRowContext(ctx,
+		"SELECT COALESCE(bridge_id, '') FROM devices WHERE imei=? AND tenant_id=?", imei, tenantID).Scan(&id)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", nil
+	}
+	return id, err
 }
 
 func (d *DB) SetBridgeCredentials(ctx context.Context, tenantID, bridgeID, username, passwordHash string) error {
