@@ -335,6 +335,10 @@ func (m *mockStore) SetOOBReplayWindow(context.Context, string, string, int64, i
 	return nil
 }
 func (m *mockStore) SetBridgeHealth(context.Context, string, string, string) error { return nil }
+func (m *mockStore) DeviceBridgeID(context.Context, string, string) (string, error) {
+	return "", nil
+}
+
 func (m *mockStore) AssociateDeviceWithBridge(context.Context, string, string, string) error {
 	return nil
 }

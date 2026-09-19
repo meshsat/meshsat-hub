@@ -93,6 +93,10 @@ func (m *mockStore) MarkStaleBridgesOffline(_ context.Context, _ time.Duration) 
 	return 0, nil
 }
 
+func (m *mockStore) DeviceBridgeID(_ context.Context, _ string, imei string) (string, error) {
+	return m.deviceBridgeMap[imei], nil
+}
+
 func (m *mockStore) AssociateDeviceWithBridge(_ context.Context, _ string, imei string, bridgeID string) error {
 	m.deviceBridgeMap[imei] = bridgeID
 	return nil
