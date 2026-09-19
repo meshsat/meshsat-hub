@@ -96,6 +96,20 @@ func testDevices(t *testing.T, db store.Store) {
 	if all[0].LastSeen.IsZero() || time.Since(all[0].LastSeen) > time.Minute {
 		t.Errorf("last_seen not touched: %v", all[0].LastSeen)
 	}
+	// Which bridge owns the modem: none until a birth names it, then that
+	// bridge; an unknown modem answers "" without an error (MESHSAT-1246).
+	if id, err := db.DeviceBridgeID(ctx, tenant, d.IMEI); err != nil || id != "" {
+		t.Errorf("bridge before association: %q %v", id, err)
+	}
+	if err := db.AssociateDeviceWithBridge(ctx, tenant, d.IMEI, "kit-a"); err != nil {
+		t.Fatalf("associate: %v", err)
+	}
+	if id, err := db.DeviceBridgeID(ctx, tenant, d.IMEI); err != nil || id != "kit-a" {
+		t.Errorf("bridge after association: %q %v", id, err)
+	}
+	if id, err := db.DeviceBridgeID(ctx, tenant, "300234069999999"); err != nil || id != "" {
+		t.Errorf("unknown modem: %q %v", id, err)
+	}
 	if err := db.DeleteDevice(ctx, tenant, d.IMEI); err != nil {
 		t.Fatalf("delete: %v", err)
 	}

@@ -3,6 +3,7 @@ package postgres
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"time"
 
@@ -217,6 +218,16 @@ func (d *DB) AssociateDeviceWithBridge(ctx context.Context, tenantID string, ime
 	_, err := d.db.ExecContext(ctx,
 		"UPDATE devices SET bridge_id=$1 WHERE imei=$2 AND tenant_id=$3", bridgeID, imei, tenantID)
 	return err
+}
+
+func (d *DB) DeviceBridgeID(ctx context.Context, tenantID string, imei string) (string, error) {
+	var id string
+	err := d.db.QueryRowContext(ctx,
+		"SELECT COALESCE(bridge_id, '') FROM devices WHERE imei=$1 AND tenant_id=$2", imei, tenantID).Scan(&id)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", nil
+	}
+	return id, err
 }
 
 // --- Bridge MQTT credentials ---

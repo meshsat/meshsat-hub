@@ -97,6 +97,7 @@ type Handler struct {
 	hembReassembler interface{ AddRawFrame([]byte) ([]byte, error) }
 	store           interface {
 		InsertMessage(ctx context.Context, tenantID string, m *store.Message) error
+		DeviceBridgeID(ctx context.Context, tenantID string, imei string) (string, error)
 		SetBridgeOnline(ctx context.Context, tenantID string, bridgeID string, online bool) error
 		SetBridgeHealth(ctx context.Context, tenantID string, bridgeID string, health string) error
 		TouchBridgeLastSeen(ctx context.Context, tenantID string, bridgeID string) error
@@ -142,6 +143,7 @@ func (h *Handler) SetMSVQSC(d *msvqsc.Decoder) {
 // SetStore attaches a store for persisting MO messages and bridge state.
 func (h *Handler) SetStore(s interface {
 	InsertMessage(ctx context.Context, tenantID string, m *store.Message) error
+	DeviceBridgeID(ctx context.Context, tenantID string, imei string) (string, error)
 	SetBridgeOnline(ctx context.Context, tenantID string, bridgeID string, online bool) error
 	SetBridgeHealth(ctx context.Context, tenantID string, bridgeID string, health string) error
 	TouchBridgeLastSeen(ctx context.Context, tenantID string, bridgeID string) error
@@ -291,6 +293,11 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, `{"error":"invalid hex data"}`, http.StatusBadRequest)
 		return
 	}
+
+	// Tell the modem's bridge the Hub has this MO, before the duplicate check so
+	// a retransmission confirms again: a receipt lost while the phone was
+	// offline is not lost for good (MESHSAT-1246).
+	h.ackToBridge(ctx, imei, momsn)
 
 	// Dedup: check if this message has already been processed.
 	// Key: imei:momsn:sha256(data) — covers retransmissions from Ground Control.
@@ -531,6 +538,37 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	_ = json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+}
+
+// MOAck is the Hub's receipt for one MO, sent to the bridge that owns the modem
+// (MESHSAT-1246). The phone matches it to the message it sent by IMEI and MOMSN,
+// which +SBDIX reported to it for the same session, and shows a second tick.
+type MOAck struct {
+	IMEI       string `json:"imei"`
+	MOMSN      int    `json:"momsn"`
+	Bearer     string `json:"bearer"`
+	ReceivedAt string `json:"received_at"`
+}
+
+// ackToBridge publishes the receipt for an MO on the owning bridge's own topic.
+// The device row says which bridge owns the modem (set from the bridge's birth);
+// a modem no bridge owns gets no receipt, and a failed lookup only costs the
+// tick: nothing here stands between the MO and its processing.
+func (h *Handler) ackToBridge(ctx context.Context, imei string, momsn int) {
+	if h.store == nil || imei == "" {
+		return
+	}
+	tenantID := h.tenantOf(ctx, imei)
+	bridgeID, err := h.store.DeviceBridgeID(ctx, tenantID, imei)
+	if err != nil || bridgeID == "" {
+		return
+	}
+	h.publish(hubmqtt.TopicBridgeMOAckFor(tenantID, bridgeID), 1, false, MOAck{
+		IMEI:       imei,
+		MOMSN:      momsn,
+		Bearer:     "sbd",
+		ReceivedAt: time.Now().UTC().Format(time.RFC3339),
+	})
 }
 
 // handleBridgeSatUplink hands a bridge uplink frame (magic 0x4D53) to the

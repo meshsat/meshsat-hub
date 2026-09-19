@@ -253,6 +253,13 @@ func TopicPositionFor(tenantID, deviceID string) string {
 	return DeviceTopic(tenantID, deviceID, "position")
 }
 func TopicSOSFor(tenantID, deviceID string) string { return DeviceTopic(tenantID, deviceID, "sos") }
+
+// TopicBridgeMOAckFor is where the Hub tells a bridge it has an MO from one of
+// the bridge's modems (MESHSAT-1246). It sits under the bridge's own topic
+// root, which that bridge's NATS user may already subscribe to.
+func TopicBridgeMOAckFor(tenantID, bridgeID string) string {
+	return BridgeTopic(tenantID, bridgeID, "mo/ack")
+}
 func TopicConfigCurrentFor(tenantID, deviceID string) string {
 	return DeviceTopic(tenantID, deviceID, "config/current")
 }
