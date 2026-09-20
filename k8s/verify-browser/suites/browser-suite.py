@@ -46,11 +46,32 @@ window.addEventListener('securitypolicyviolation', function (e) {
 });
 """
 
+# The deep basemap, which is the other ~25 h regression the owner found and no
+# check did (MESHSAT-1229): `basemap-confine` admitted only host/remote-node, but
+# the Ingress routes /basemap/local.pmtiles from the ingress-nginx POD, so every
+# deep-zoom tile request hung and the map lost its streets past zoom 11. It is
+# checked here rather than with a plain curl because a hang, not an error, is how
+# it failed -- and because MapLibre reads these archives by HTTP range request,
+# which is exactly what the fetch below does.
+#
+# PMTiles v3 header: 127 bytes, magic "PMTiles" at 0, version at 7, min zoom at
+# 100 and max zoom at 101. Asserting max zoom proves the DEEP archive is the one
+# answering, not the world archive standing in for it (MESHSAT-1221 AC9).
+ARCHIVES = [
+    ("world basemap", "/basemap/basemap.pmtiles", None),
+    ("deep basemap (z15)", "/basemap/local.pmtiles", 15),
+]
+
 PAGES = [
     ("auth root",        f"{AUTH}/",                      False),
     ("auth enrollment",  f"{AUTH}/if/flow/{FLOW}/",       True),
     ("hub SPA shell",    f"{HUB}/",                       False),
-    ("hub login",        f"{HUB}/login",                  False),
+    # The SPA is hash-routed, so the login route is "/#/login". This said
+    # "/login" until 2026-09-20, which only ever worked because the server
+    # answered every unknown path with the app shell -- the soft-404 defect
+    # MESHSAT-1185 fixed the same day. The moment unknown paths began 404ing,
+    # this check went red, which is the nightly doing its job.
+    ("hub login",        f"{HUB}/#/login",                False),
 ]
 
 failures, notes = [], []
@@ -128,6 +149,41 @@ def check(page, name, url, expect_turnstile):
     notes.append(f"{name}: HTTP {status}, 0 CSP violations")
 
 
+def check_basemap(page, name, path, want_maxzoom):
+    """Range-request a PMTiles header the way MapLibre does, and read it."""
+    res = page.evaluate(
+        """async (path) => {
+             const t0 = performance.now();
+             try {
+               const r = await fetch(path, {headers: {Range: 'bytes=0-16383'}});
+               const b = new Uint8Array(await r.arrayBuffer());
+               return {status: r.status, len: b.length, ms: performance.now() - t0,
+                       magic: String.fromCharCode(...b.slice(0, 7)),
+                       version: b[7], minzoom: b[100], maxzoom: b[101]};
+             } catch (e) {
+               return {error: String(e), ms: performance.now() - t0};
+             }
+           }""",
+        HUB + path,
+    )
+    if res.get("error"):
+        failures.append(f"{name}: {path} failed: {res['error']} after {res['ms']:.0f}ms")
+        return
+    if res["status"] != 206:
+        failures.append(f"{name}: {path} answered {res['status']}, want 206 (range request)")
+        return
+    if res["magic"] != "PMTiles":
+        failures.append(f"{name}: {path} is not a PMTiles archive (magic {res['magic']!r}) -- something else is answering")
+        return
+    if want_maxzoom is not None and res["maxzoom"] != want_maxzoom:
+        failures.append(
+            f"{name}: max zoom is {res['maxzoom']}, want {want_maxzoom}. The deep archive is "
+            f"not the one answering, so the map has no streets past the world archive"
+        )
+        return
+    notes.append(f"{name}: HTTP 206, PMTiles v{res['version']}, zoom {res['minzoom']}-{res['maxzoom']}, {res['ms']:.0f}ms")
+
+
 def main():
     with sync_playwright() as p:
         browser = p.chromium.launch(
@@ -135,6 +191,17 @@ def main():
         )
         ctx = browser.new_context(ignore_https_errors=False)
         ctx.add_init_script(INIT)
+        # The basemap first: it needs no page, only a same-origin fetch, and it
+        # is the check most likely to hang.
+        probe = ctx.new_page()
+        probe.goto(HUB + "/", wait_until="domcontentloaded", timeout=60_000)
+        for name, path, want in ARCHIVES:
+            try:
+                check_basemap(probe, name, path, want)
+            except Exception as e:
+                failures.append(f"{name}: {type(e).__name__}: {str(e)[:160]}")
+        probe.close()
+
         for name, url, ts in PAGES:
             page = ctx.new_page()
             try:
