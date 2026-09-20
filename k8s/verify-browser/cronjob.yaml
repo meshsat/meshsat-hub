@@ -39,6 +39,12 @@ spec:
             app.kubernetes.io/name: hub-browser-verify
         spec:
           restartPolicy: Never
+          # The image is in the private GHCR org, and this Job runs on the
+          # `default` ServiceAccount (it needs no API access at all, unlike
+          # hub-verify, whose SA carries pods/exec). default has no
+          # imagePullSecrets, so the pull secret is named here.
+          imagePullSecrets:
+            - name: registry-meshsat
           # Control-plane tier like the other jobs: the workers are committed.
           nodeSelector:
             node-role.kubernetes.io/control-plane: ""
