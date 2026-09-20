@@ -82,20 +82,23 @@ type reticulumReceiver interface {
 }
 
 type Handler struct {
-	tenants         *tenancy.Resolver // device → tenant for topic namespaces; nil = default tenant
-	mqtt            bus.MessageBus
-	secret          string                // platform webhook secret (default tenant)
-	accounts        *integrations.Service // per-tenant webhook secrets (MESHSAT-977)
-	oob             OOBClassifier         // management frames (MESHSAT-964)
-	audit           *audit.Service
-	dedup           dedup.Dedup
-	reassembler     *fragment.Reassembler
-	keyStore        *hubcrypto.KeyStore
-	deadman         *deadman.Monitor
-	msvqsc          *msvqsc.Decoder
-	retIface        reticulumReceiver
-	hembReassembler interface{ AddRawFrame([]byte) ([]byte, error) }
-	store           interface {
+	tenants *tenancy.Resolver // device → tenant for topic namespaces; nil = default tenant
+	mqtt    bus.MessageBus
+	secret  string // platform webhook secret (default tenant)
+	// requireSignature refuses an unsigned delivery on the per-tenant
+	// capability path too (MESHSAT-1247). Off by default: see ServeHTTP.
+	requireSignature bool
+	accounts         *integrations.Service // per-tenant webhook secrets (MESHSAT-977)
+	oob              OOBClassifier         // management frames (MESHSAT-964)
+	audit            *audit.Service
+	dedup            dedup.Dedup
+	reassembler      *fragment.Reassembler
+	keyStore         *hubcrypto.KeyStore
+	deadman          *deadman.Monitor
+	msvqsc           *msvqsc.Decoder
+	retIface         reticulumReceiver
+	hembReassembler  interface{ AddRawFrame([]byte) ([]byte, error) }
+	store            interface {
 		InsertMessage(ctx context.Context, tenantID string, m *store.Message) error
 		DeviceBridgeID(ctx context.Context, tenantID string, imei string) (string, error)
 		SetBridgeOnline(ctx context.Context, tenantID string, bridgeID string, online bool) error
@@ -111,6 +114,11 @@ func NewHandler(mqtt bus.MessageBus, secret string) *Handler {
 }
 
 // SetAudit attaches an audit service for logging message_received events.
+// SetRequireSignature makes an unsigned delivery on the per-tenant capability
+// path a 401 as well. A signature that IS present is always verified, with or
+// without this. [MESHSAT-1247]
+func (h *Handler) SetRequireSignature(v bool) { h.requireSignature = v }
+
 func (h *Handler) SetAudit(a *audit.Service) {
 	h.audit = a
 }
@@ -242,25 +250,61 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// A Ground Control signature is checked wherever it appears, on the
+	// per-tenant capability path as well as the platform one. The path secret
+	// authenticates the CALLER; the signature is the only thing that ties a
+	// delivery to the modem that sent it, and the two are not the same claim —
+	// a capability URL travels through consoles, logs and tickets. Before this,
+	// a signature presented on the tenant path was not looked at, so a forged
+	// token rode in behind a known URL exactly as a real one did.
+	// [MESHSAT-1247]
+	signed := false
+	if r.FormValue("JWT") != "" {
+		if err := verifyGroundControlJWT(r); err != nil {
+			slog.Warn("rockblock: Ground Control signature rejected",
+				"error", err, "tenant", tokenTenant, "imei", r.FormValue("imei"), "remote", r.RemoteAddr)
+			http.Error(w, `{"error":"unauthorized"}`, http.StatusUnauthorized)
+			return
+		}
+		signed = true
+	}
+
 	// Legacy platform path: fail closed. Rock7's portal cannot sign, which is
 	// why the per-tenant path exists — the platform account has one too. An
 	// unauthenticated write reachable from the internet is not an acceptable
 	// fallback for a portal limitation, so with no secret configured this
 	// refuses rather than accepting. [MESHSAT-975, was MESHSAT-446]
 	if tokenTenant == "" {
-		// A delivery signed by Ground Control authenticates itself and needs
-		// no secret of ours. Only a request with no signature at all falls
-		// back to the shared secret, and with neither this refuses.
-		if r.FormValue("JWT") == "" && h.secret == "" {
-			slog.Warn("rockblock: request is neither signed nor accompanied by a secret, refusing", "remote", r.RemoteAddr)
-			http.Error(w, `{"error":"unauthorized"}`, http.StatusForbidden)
-			return
+		// A delivery signed by Ground Control authenticated itself above and
+		// needs no secret of ours. Only a request with no signature at all
+		// falls back to the shared secret, and with neither this refuses.
+		if !signed {
+			if h.secret == "" {
+				slog.Warn("rockblock: request is neither signed nor accompanied by a secret, refusing", "remote", r.RemoteAddr)
+				http.Error(w, `{"error":"unauthorized"}`, http.StatusForbidden)
+				return
+			}
+			if !h.verifySignature(r) {
+				slog.Warn("rockblock: signature verification failed")
+				http.Error(w, `{"error":"unauthorized"}`, http.StatusUnauthorized)
+				return
+			}
 		}
-		if !h.verifySignature(r) {
-			slog.Warn("rockblock: signature verification failed")
+	} else if !signed {
+		// The capability path carrying no signature at all. Ground Control
+		// signs every delivery it makes, so this is either a provider that
+		// does not or somebody who has the URL. Refusing by default would drop
+		// a real MO, and an MO can be an SOS, so it is a switch rather than a
+		// decision taken here — off by default, and loud either way.
+		// [MESHSAT-1247]
+		if h.requireSignature {
+			slog.Warn("rockblock: unsigned delivery refused on the capability path (HUB_ROCKBLOCK_REQUIRE_SIGNATURE=true)",
+				"tenant", tokenTenant, "imei", r.FormValue("imei"), "remote", r.RemoteAddr)
 			http.Error(w, `{"error":"unauthorized"}`, http.StatusUnauthorized)
 			return
 		}
+		slog.Warn("rockblock: unsigned delivery accepted, the path secret is its only credential",
+			"tenant", tokenTenant, "imei", r.FormValue("imei"), "remote", r.RemoteAddr)
 	}
 
 	imei := r.FormValue("imei")

@@ -1337,6 +1337,16 @@ func main() {
 
 	// RockBLOCK webhook handler.
 	rbHandler := rockblock.NewHandler(msgBus, cfg.RockBLOCKSecret)
+	// Stated at startup either way, so the log says which of the two postures
+	// this deployment is running rather than leaving it to be inferred from a
+	// ConfigMap (MESHSAT-1247).
+	rbHandler.SetRequireSignature(cfg.RockBLOCKRequireSignature)
+	if cfg.RockBLOCKRequireSignature {
+		slog.Info("rockblock: unsigned deliveries are refused on every path (HUB_ROCKBLOCK_REQUIRE_SIGNATURE=true)")
+	} else {
+		slog.Info("rockblock: a signature is verified wherever present; an unsigned delivery on the per-tenant capability path is accepted on its path secret alone",
+			"tighten_with", "HUB_ROCKBLOCK_REQUIRE_SIGNATURE=true")
+	}
 	rbHandler.SetTenants(tenants)
 	rbHandler.SetAccounts(providerAccounts)
 	rbHandler.SetAudit(auditSvc)
