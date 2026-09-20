@@ -111,7 +111,6 @@ data:
   HUB_RATELIMIT_DAILY_CAP: "100"
   HUB_RATELIMIT_REFILL_PER_MIN: "1"
   HUB_SMS_ENABLED: "true"
-  HUB_CLOUDLOOP_DEVICE_MAP: "300258060902280:OVdRorbmlwqkNBpaVOXnJYPZvxaXpzjL:imt"
   HUB_CLOUDLOOP_MQTT_BROKER: "ssl://mqtt.cloudloop.com:8883"
   # "*" is only honoured together with HUB_CLOUDLOOP_WEBHOOK_TOKEN (ExternalSecret, ?token= in the Cloudloop console URL); without it the webhook rejects every request (MESHSAT-971).
   # Researched 2026-09-09. Cloudloop publishes no egress addresses anywhere in
