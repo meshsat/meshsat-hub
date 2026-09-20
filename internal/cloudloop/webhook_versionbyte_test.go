@@ -57,3 +57,36 @@ func TestWebhook_AVersionPrefixedMessageIsNotParkedAsAFragment(t *testing.T) {
 		t.Error("a version-prefixed payload the Hub could not decrypt or decompress must be marked opaque")
 	}
 }
+
+// Two different IMT messages from one modem are two messages. IMT has no MOMSN,
+// so under the SBD id scheme both were "mo-<imei>-0": the second was taken for
+// a redelivery of the first, never stored and never routed.
+func TestWebhook_TwoIMTMessagesFromOneModemAreTwoMessages(t *testing.T) {
+	const imei = "300000000000001"
+	b := &ackBus{}
+	h := NewWebhookHandler(b)
+
+	ids := map[string]bool{}
+	for _, lingoID := range []string{"00000000-0000-4000-8000-00000000000a", "00000000-0000-4000-8000-00000000000b"} {
+		mo := &LingoMO{
+			ID:       lingoID,
+			Identity: LingoIdentity{ThingID: "thing-test-1", Hardware: &LingoHardware{IMEI: imei}},
+			IMT:      &LingoIMT{CMID: "0000000000001", Topic: "IMT_TOPIC_RAW", MessageID: json.Number("1")},
+			Message:  base64.StdEncoding.EncodeToString([]byte("hello " + lingoID[len(lingoID)-1:])),
+		}
+		h.ProcessLingoMO(context.Background(), mo)
+		var out WebhookMOMessage
+		if err := json.Unmarshal(b.msgs["meshsat/"+imei+"/mo/decoded"], &out); err != nil {
+			t.Fatal(err)
+		}
+		if ids[out.ID] {
+			t.Fatalf("second IMT message reused the id %q: routing and the store will treat it as a duplicate", out.ID)
+		}
+		ids[out.ID] = true
+	}
+
+	// SBD keeps the provider-independent scheme.
+	if got := moMessageID("300000000000009", 223, "cloudloop_sbd", "some-uuid", ""); got != "mo-300000000000009-223" {
+		t.Errorf("SBD id = %q, want mo-300000000000009-223 (must match rockblock.sbdMessageID)", got)
+	}
+}
