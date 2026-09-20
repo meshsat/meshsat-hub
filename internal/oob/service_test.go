@@ -87,7 +87,7 @@ func waitForSend(t *testing.T, tr *fakeTransport) string {
 func TestSendAndReplyRoundTrip(t *testing.T) {
 	svc, tr, key := newService(t)
 	ctx := context.Background()
-	peerID, err := svc.Pair(ctx, "t1", "tesseract", key, RoleImporter, "+31653618463", "")
+	peerID, err := svc.Pair(ctx, "t1", "tesseract", key, RoleImporter, "+31600000001", "")
 	if err != nil || peerID != 38091 {
 		t.Fatalf("pair: %d %v", peerID, err)
 	}
@@ -118,7 +118,7 @@ func TestSendAndReplyRoundTrip(t *testing.T) {
 	reply := Frame{Enc: true, Reply: true, PeerID: req.PeerID, Counter: 9, Cmd: req.Cmd,
 		Args: EncodeReplyArgs(ReplyArgs{RC: RCOK, ReqCounterLo: uint16(req.Counter), Seq: 1, Total: 1, Body: []byte("u17h b98A q0")})}
 	rw, _ := Seal(reply, key, RoleIssuer)
-	if !svc.HandleInbound(ctx, BearerSMS, "+31653618463", "junk before "+Encode(rw)) {
+	if !svc.HandleInbound(ctx, BearerSMS, "+31600000001", "junk before "+Encode(rw)) {
 		t.Fatalf("reply not classified as a frame")
 	}
 	if err := <-errs; err != nil {
@@ -129,17 +129,17 @@ func TestSendAndReplyRoundTrip(t *testing.T) {
 		t.Fatalf("reply: %+v", r)
 	}
 	// The same reply again is a replay and must be dropped (still classified).
-	if !svc.HandleInbound(ctx, BearerSMS, "+31653618463", Encode(rw)) {
+	if !svc.HandleInbound(ctx, BearerSMS, "+31600000001", Encode(rw)) {
 		t.Fatalf("replay not classified")
 	}
 	// Plain text is not a frame.
-	if svc.HandleInbound(ctx, BearerSMS, "+31653618463", "hello from tesseract") {
+	if svc.HandleInbound(ctx, BearerSMS, "+31600000001", "hello from tesseract") {
 		t.Fatalf("plain text classified as frame")
 	}
 	// A frame under an unknown key is dropped silently but classified.
 	other := make([]byte, 32)
 	ow, _ := Seal(Frame{Reply: true, PeerID: 38091, Counter: 10, Cmd: CmdPing, Args: EncodeReplyArgs(ReplyArgs{RC: RCOK, ReqCounterLo: 1, Seq: 1, Total: 1})}, other, RoleIssuer)
-	if !svc.HandleInbound(ctx, BearerSMS, "+31653618463", Encode(ow)) {
+	if !svc.HandleInbound(ctx, BearerSMS, "+31600000001", Encode(ow)) {
 		t.Fatalf("foreign frame not classified")
 	}
 }
@@ -214,7 +214,7 @@ func TestFramesAreAlwaysSealedEvenWithNoOptionsAtAll(t *testing.T) {
 	svc.RegisterTransport(BearerSMS, tr)
 
 	ctx := context.Background()
-	if _, err := svc.Pair(ctx, "t1", "tesseract", vectorKey, RoleImporter, "+31653618463", ""); err != nil {
+	if _, err := svc.Pair(ctx, "t1", "tesseract", vectorKey, RoleImporter, "+31600000001", ""); err != nil {
 		t.Fatalf("pair: %v", err)
 	}
 	// No kit is listening, so Send returns "no reply" -- the frame still left,

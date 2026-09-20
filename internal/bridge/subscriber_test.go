@@ -284,7 +284,7 @@ func TestHandleBridgeBirth(t *testing.T) {
 		TenantID: "default",
 		Location: &protocol.Location{Lat: 52.5, Lon: 13.4, Alt: 35},
 		Interfaces: []protocol.InterfaceInfo{
-			{Name: "iridium_0", Type: "iridium_imt", Status: "online", IMEI: "300258060902280"},
+			{Name: "iridium_0", Type: "iridium_imt", Status: "online", IMEI: "300000000000002"},
 			{Name: "mesh_0", Type: "meshtastic", Status: "online"},
 		},
 		Capabilities: []string{"sbd", "imt", "meshtastic"},
@@ -327,8 +327,8 @@ func TestHandleBridgeBirth(t *testing.T) {
 	}
 
 	// Verify IMEI device associated.
-	if bridgeID, ok := ms.deviceBridgeMap["300258060902280"]; !ok || bridgeID != "mule01" {
-		t.Error("IMEI 300258060902280 should be associated with mule01")
+	if bridgeID, ok := ms.deviceBridgeMap["300000000000002"]; !ok || bridgeID != "mule01" {
+		t.Error("IMEI 300000000000002 should be associated with mule01")
 	}
 
 	// Non-IMEI interface should not be in device map.
@@ -467,7 +467,7 @@ func TestHandleDeviceBirth_AutoProvision(t *testing.T) {
 		BridgeID:  "mule01",
 		Type:      "iridium_imt",
 		Label:     "RockBLOCK 9704",
-		IMEI:      "300258060902280",
+		IMEI:      "300000000000002",
 		Timestamp: time.Now(),
 	}
 	payload, _ := json.Marshal(birth)
@@ -477,7 +477,7 @@ func TestHandleDeviceBirth_AutoProvision(t *testing.T) {
 	if ms.createDeviceCalls != 1 {
 		t.Errorf("createDevice calls = %d, want 1", ms.createDeviceCalls)
 	}
-	d, ok := ms.devices["300258060902280"]
+	d, ok := ms.devices["300000000000002"]
 	if !ok {
 		t.Fatal("device not auto-provisioned")
 	}
@@ -489,14 +489,14 @@ func TestHandleDeviceBirth_AutoProvision(t *testing.T) {
 	}
 
 	// Device should be associated with bridge.
-	if bridgeID := ms.deviceBridgeMap["300258060902280"]; bridgeID != "mule01" {
+	if bridgeID := ms.deviceBridgeMap["300000000000002"]; bridgeID != "mule01" {
 		t.Errorf("device bridge = %q, want %q", bridgeID, "mule01")
 	}
 }
 
 func TestHandleDeviceBirth_ExistingDevice(t *testing.T) {
 	ms := newMockStore()
-	ms.devices["300258060902280"] = &store.Device{IMEI: "300258060902280", Label: "Existing"}
+	ms.devices["300000000000002"] = &store.Device{IMEI: "300000000000002", Label: "Existing"}
 
 	mb := newMockBus()
 	sub := NewSubscriber(mb, ms, nil)
@@ -509,7 +509,7 @@ func TestHandleDeviceBirth_ExistingDevice(t *testing.T) {
 		DeviceID:  "iridium_0",
 		BridgeID:  "mule01",
 		Type:      "iridium_imt",
-		IMEI:      "300258060902280",
+		IMEI:      "300000000000002",
 		Timestamp: time.Now(),
 	}
 	payload, _ := json.Marshal(birth)
@@ -521,7 +521,7 @@ func TestHandleDeviceBirth_ExistingDevice(t *testing.T) {
 	}
 
 	// But should still associate.
-	if bridgeID := ms.deviceBridgeMap["300258060902280"]; bridgeID != "mule01" {
+	if bridgeID := ms.deviceBridgeMap["300000000000002"]; bridgeID != "mule01" {
 		t.Errorf("device bridge = %q, want %q", bridgeID, "mule01")
 	}
 }

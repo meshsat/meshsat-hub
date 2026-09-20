@@ -16,7 +16,7 @@ import (
 )
 
 func postMO(h *WebhookHandler, url string, header map[string]string) *httptest.ResponseRecorder {
-	body, _ := json.Marshal(newTestLingoMO("300258060902280", "hello"))
+	body, _ := json.Marshal(newTestLingoMO("300000000000002", "hello"))
 	req := httptest.NewRequest(http.MethodPost, url, bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	for k, v := range header {
@@ -66,7 +66,7 @@ func TestWebhookHandler_PersistsInDeviceTenant(t *testing.T) {
 	if err := db.Migrate(ctx); err != nil {
 		t.Fatalf("migrate: %v", err)
 	}
-	const imei = "300258060902280"
+	const imei = "300000000000002"
 	if err := db.CreateDevice(ctx, "tenant-b", &store.Device{IMEI: imei, Label: "b-device"}); err != nil {
 		t.Fatalf("create device: %v", err)
 	}

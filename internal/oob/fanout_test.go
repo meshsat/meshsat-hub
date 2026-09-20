@@ -46,7 +46,7 @@ func (b *fakeBus) Publish(topic string, _ byte, _ bool, payload []byte) error {
 func pairAndSend(t *testing.T, svc *Service, tr *fakeTransport, key []byte, cmd string) (Frame, chan *Reply, chan error) {
 	t.Helper()
 	ctx := context.Background()
-	if _, err := svc.Pair(ctx, "t1", "tesseract", key, RoleImporter, "+31653618463", ""); err != nil {
+	if _, err := svc.Pair(ctx, "t1", "tesseract", key, RoleImporter, "+31600000001", ""); err != nil {
 		t.Fatal(err)
 	}
 	done := make(chan *Reply, 1)
@@ -92,7 +92,7 @@ func TestAReplyOnTheOtherReplicaResolvesTheWaiter(t *testing.T) {
 	}
 	req, done, errs := pairAndSend(t, a, tr, key, "mgmt_ping")
 
-	if !b.HandleInbound(context.Background(), BearerSMS, "+31653618463", kitReply(t, key, req, 9, 1, 1, "u17h b98A q0")) {
+	if !b.HandleInbound(context.Background(), BearerSMS, "+31600000001", kitReply(t, key, req, 9, 1, 1, "u17h b98A q0")) {
 		t.Fatal("reply not classified on replica B")
 	}
 	if err := <-errs; err != nil {
@@ -112,7 +112,7 @@ func TestWithoutTheBusAReplyOnTheOtherReplicaIsLost(t *testing.T) {
 	tr.timeout = 300 * time.Millisecond
 	b := New(a.store, a.masterKey, nil, Options{MaxPerHour: 3})
 	req, done, errs := pairAndSend(t, a, tr, key, "mgmt_ping")
-	b.HandleInbound(context.Background(), BearerSMS, "+31653618463", kitReply(t, key, req, 9, 1, 1, "ok"))
+	b.HandleInbound(context.Background(), BearerSMS, "+31600000001", kitReply(t, key, req, 9, 1, 1, "ok"))
 	if err := <-errs; err == nil {
 		t.Fatal("a reply on an unconnected replica resolved a waiter elsewhere; the test rig is wrong")
 	}
@@ -131,13 +131,13 @@ func TestSegmentsAreAssembledAcrossReplicasInOrder(t *testing.T) {
 	req, done, errs := pairAndSend(t, a, tr, key, "mgmt_status")
 	ctx := context.Background()
 	// Second segment first, on the other replica; then the first, locally.
-	b.HandleInbound(ctx, BearerSMS, "+31653618463", kitReply(t, key, req, 10, 2, 2, " rssi -36"))
+	b.HandleInbound(ctx, BearerSMS, "+31600000001", kitReply(t, key, req, 10, 2, 2, " rssi -36"))
 	select {
 	case err := <-errs:
 		t.Fatalf("Send returned on a partial reply: %v", err)
 	case <-time.After(100 * time.Millisecond):
 	}
-	a.HandleInbound(ctx, BearerSMS, "+31653618463", kitReply(t, key, req, 11, 1, 2, "u5h b100A q0 wU"))
+	a.HandleInbound(ctx, BearerSMS, "+31600000001", kitReply(t, key, req, 11, 1, 2, "u5h b100A q0 wU"))
 	if err := <-errs; err != nil {
 		t.Fatal(err)
 	}
@@ -152,7 +152,7 @@ func TestAPartialReplyTimesOutNamingTheMissingSegments(t *testing.T) {
 	a, tr, key := newService(t)
 	tr.timeout = 300 * time.Millisecond
 	req, done, errs := pairAndSend(t, a, tr, key, "mgmt_status")
-	a.HandleInbound(context.Background(), BearerSMS, "+31653618463", kitReply(t, key, req, 10, 1, 3, "part one"))
+	a.HandleInbound(context.Background(), BearerSMS, "+31600000001", kitReply(t, key, req, 10, 1, 3, "part one"))
 	err := <-errs
 	<-done
 	if err == nil || !contains(err.Error(), "1 of 3 segments") {
@@ -168,13 +168,13 @@ func TestAReplicaIgnoresItsOwnAnnouncement(t *testing.T) {
 	_ = a.SetBus(shared)
 	req, done, errs := pairAndSend(t, a, tr, key, "mgmt_status")
 	ctx := context.Background()
-	a.HandleInbound(ctx, BearerSMS, "+31653618463", kitReply(t, key, req, 10, 1, 2, "one"))
+	a.HandleInbound(ctx, BearerSMS, "+31600000001", kitReply(t, key, req, 10, 1, 2, "one"))
 	select {
 	case err := <-errs:
 		t.Fatalf("a single segment echoed back through the bus completed the reply: %v", err)
 	case <-time.After(100 * time.Millisecond):
 	}
-	a.HandleInbound(ctx, BearerSMS, "+31653618463", kitReply(t, key, req, 11, 2, 2, " two"))
+	a.HandleInbound(ctx, BearerSMS, "+31600000001", kitReply(t, key, req, 11, 2, 2, " two"))
 	if err := <-errs; err != nil {
 		t.Fatal(err)
 	}

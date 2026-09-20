@@ -34,8 +34,8 @@ func TestThingResolver_Register(t *testing.T) {
 		t.Error("expected isIMT=false for SBD device")
 	}
 
-	r.Register(store.DefaultTenantID, "300258060902280", "XyZ9704ThingId00000000000000AB", true)
-	thingID, isIMT = r.Resolve(store.DefaultTenantID, "300258060902280")
+	r.Register(store.DefaultTenantID, "300000000000002", "XyZ9704ThingId00000000000000AB", true)
+	thingID, isIMT = r.Resolve(store.DefaultTenantID, "300000000000002")
 	if thingID != "XyZ9704ThingId00000000000000AB" {
 		t.Errorf("expected registered thingID, got %s", thingID)
 	}
@@ -94,7 +94,7 @@ func TestThingResolver_LearnFromMO_IMT(t *testing.T) {
 		Identity: LingoIdentity{
 			ThingID: "ImtThingId123456789012345678AB",
 			Hardware: &LingoHardware{
-				IMEI: "300258060902280",
+				IMEI: "300000000000002",
 				Type: "HARDWARE_TYPE_IRIDIUM_CERTUS",
 			},
 		},
@@ -106,7 +106,7 @@ func TestThingResolver_LearnFromMO_IMT(t *testing.T) {
 
 	r.LearnFromMO(store.DefaultTenantID, mo)
 
-	thingID, isIMT := r.Resolve(store.DefaultTenantID, "300258060902280")
+	thingID, isIMT := r.Resolve(store.DefaultTenantID, "300000000000002")
 	if thingID != "ImtThingId123456789012345678AB" {
 		t.Errorf("expected learned thingID, got %s", thingID)
 	}
@@ -238,7 +238,7 @@ func TestListThings_Success(t *testing.T) {
 		{
 			ID:               "ThingXYZ98765432109876543210BC",
 			SupportsP6:       true,
-			SubscriberCertus: json.RawMessage(`{"id":"sub-certus-001","imei":"300258060902280"}`),
+			SubscriberCertus: json.RawMessage(`{"id":"sub-certus-001","imei":"300000000000002"}`),
 		},
 		{
 			ID:          "ThingNoIMEI000000000000000000",
@@ -304,7 +304,7 @@ func TestThingResolver_RefreshFromAPI(t *testing.T) {
 		{
 			ID:               "ThingIMT00000000000000000000CD",
 			SupportsP6:       true,
-			SubscriberCertus: json.RawMessage(`{"id":"sub-certus-001","imei":"300258060902280"}`),
+			SubscriberCertus: json.RawMessage(`{"id":"sub-certus-001","imei":"300000000000002"}`),
 		},
 	}
 
@@ -335,7 +335,7 @@ func TestThingResolver_RefreshFromAPI(t *testing.T) {
 	}
 
 	// IMT/Certus device.
-	thingID, isIMT = r.Resolve(store.DefaultTenantID, "300258060902280")
+	thingID, isIMT = r.Resolve(store.DefaultTenantID, "300000000000002")
 	if thingID != "ThingIMT00000000000000000000CD" {
 		t.Errorf("expected IMT thingID, got %s", thingID)
 	}

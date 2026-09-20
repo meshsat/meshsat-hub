@@ -30,7 +30,7 @@ func TestWebhook_OOBFrameClassifiedBeforePipeline(t *testing.T) {
 	cl := &fakeClassifier{match: true}
 	h.SetOOB(cl)
 	post := func(body string) *httptest.ResponseRecorder {
-		form := url.Values{"From": {"+31653618463"}, "To": {"+3197010258258"}, "Body": {body}, "MessageSid": {"SM1"}}
+		form := url.Values{"From": {"+31600000001"}, "To": {"+3197000000001"}, "Body": {body}, "MessageSid": {"SM1"}}
 		rr := httptest.NewRecorder()
 		h.ServeHTTP(rr, signedRequest(t, form))
 		return rr
@@ -39,7 +39,7 @@ func TestWebhook_OOBFrameClassifiedBeforePipeline(t *testing.T) {
 	if rr.Code != http.StatusOK || !strings.Contains(rr.Body.String(), "oob_frame") {
 		t.Fatalf("frame: %d %s", rr.Code, rr.Body.String())
 	}
-	if len(cl.calls) != 1 || !strings.HasPrefix(cl.calls[0], "sms|+31653618463|MS:") {
+	if len(cl.calls) != 1 || !strings.HasPrefix(cl.calls[0], "sms|+31600000001|MS:") {
 		t.Fatalf("classifier calls: %v", cl.calls)
 	}
 	if n := len(bus.published); n != 0 {

@@ -55,7 +55,7 @@ func TestHandler_MOReceiptGoesToTheOwningBridge(t *testing.T) {
 	if err := db.Migrate(ctx); err != nil {
 		t.Fatal(err)
 	}
-	const owned, loose = "300434067943980", "300234065000077"
+	const owned, loose = "300000000000003", "300234065000077"
 	for _, imei := range []string{owned, loose} {
 		if err := db.CreateDevice(ctx, store.DefaultTenantID, &store.Device{IMEI: imei, Label: imei}); err != nil {
 			t.Fatal(err)

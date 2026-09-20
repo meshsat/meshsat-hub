@@ -291,7 +291,7 @@ func TestCreateDeviceSaysWhoseTheIMEIIs(t *testing.T) {
 			req, rec := newTestRequest(http.MethodPost, "/api/devices", nil)
 			req.Body = http.NoBody
 			req = req.WithContext(req.Context())
-			req.Body = io.NopCloser(strings.NewReader(`{"imei":"300434067943980"}`))
+			req.Body = io.NopCloser(strings.NewReader(`{"imei":"300000000000003"}`))
 			req.Header.Set("Content-Type", "application/json")
 			h.CreateDevice(rec, req)
 			if rec.Code != tc.wantCode {

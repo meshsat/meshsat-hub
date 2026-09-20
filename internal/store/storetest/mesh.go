@@ -16,9 +16,9 @@ func testMeshPresence(t *testing.T, db store.Store) {
 	const (
 		mine     = "t_mesh_mine"
 		theirs   = "t_mesh_theirs"
-		kitA     = "nllei01parallax01"
-		kitB     = "nllei01tesseract01"
-		nodeOne  = "!a1b3c2ec"
+		kitA     = "bridge-kit-a"
+		kitB     = "bridge-kit-b"
+		nodeOne  = "!0a0b0c0d"
 		nodeTwo  = "!a1b3c3a4"
 		nodeRoam = "!f0ccc009"
 	)

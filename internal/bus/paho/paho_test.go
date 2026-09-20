@@ -259,11 +259,11 @@ func TestPublishRefusesWildcardTopic(t *testing.T) {
 	fc := &fakeClient{}
 	b := &Bus{inner: fc}
 	b.connected.Store(true) // these cases are about a CONNECTED bus
-	err := b.Publish("meshsat/+31653618463/mo/decoded", 1, false, []byte("{}"))
+	err := b.Publish("meshsat/+31600000001/mo/decoded", 1, false, []byte("{}"))
 	if !errors.Is(err, hubmqtt.ErrWildcardTopic) {
 		t.Fatalf("err = %v, want ErrWildcardTopic", err)
 	}
-	if err := b.Publish("meshsat/%2B31653618463/mo/decoded", 1, false, []byte("{}")); err != nil {
+	if err := b.Publish("meshsat/%2B31600000001/mo/decoded", 1, false, []byte("{}")); err != nil {
 		t.Fatalf("encoded topic refused: %v", err)
 	}
 }

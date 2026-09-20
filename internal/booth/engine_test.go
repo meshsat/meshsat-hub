@@ -61,8 +61,8 @@ func (f *fakeStore) OpenBoothRelaysFor(_ context.Context, _, bridgeID, _ string)
 }
 
 var testKits = []Kit{
-	{BridgeID: "nllei01tesseract01", Label: "Tesseract"},
-	{BridgeID: "nllei01parallax01", Label: "Parallax"},
+	{BridgeID: "bridge-kit-b", Label: "Tesseract"},
+	{BridgeID: "bridge-kit-a", Label: "Parallax"},
 }
 
 func newEngine(f *fakeStore, online OnlineFunc) *Engine {
@@ -85,7 +85,7 @@ func walk(t *testing.T, e *Engine, f *fakeStore) {
 	if _, err := e.Handle(ctx, tenant, who, ch, OptOptInYes, ""); err != nil {
 		t.Fatalf("optin: %v", err)
 	}
-	if _, err := e.Handle(ctx, tenant, who, ch, kitOptPrefix+"nllei01parallax01", ""); err != nil {
+	if _, err := e.Handle(ctx, tenant, who, ch, kitOptPrefix+"bridge-kit-a", ""); err != nil {
 		t.Fatalf("pick kit: %v", err)
 	}
 }
@@ -118,7 +118,7 @@ func TestConsentIsRecheckedAtTransmission(t *testing.T) {
 	f := newFake()
 	f.sess[f.key(tenant, who, ch)] = &store.BoothSession{
 		TenantID: tenant, Sender: who, Channel: ch,
-		State: StateAwaitingText + ":nllei01parallax01", // in place, but never consented
+		State: StateAwaitingText + ":bridge-kit-a", // in place, but never consented
 	}
 	e := newEngine(f, nil)
 	r, err := e.Handle(context.Background(), tenant, who, ch, "", "hello")
@@ -142,7 +142,7 @@ func TestHappyPathProducesARelay(t *testing.T) {
 	if r.Relay == nil {
 		t.Fatal("no relay produced on the happy path")
 	}
-	if r.Relay.BridgeID != "nllei01parallax01" {
+	if r.Relay.BridgeID != "bridge-kit-a" {
 		t.Errorf("relay went to %q, want the kit that was chosen", r.Relay.BridgeID)
 	}
 	if r.Relay.Body != "hello from the booth" {
@@ -164,10 +164,10 @@ func TestTypedTextCannotRedirectTheRelay(t *testing.T) {
 	walk(t, e, f) // chose parallax
 
 	for _, attempt := range []string{
-		"kit:nllei01tesseract01",
-		"send to nllei01tesseract01",
-		"@nllei01tesseract01 hello",
-		"#A7 nllei01tesseract01",
+		"kit:bridge-kit-b",
+		"send to bridge-kit-b",
+		"@bridge-kit-b hello",
+		"#A7 bridge-kit-b",
 	} {
 		r, err := e.Handle(context.Background(), tenant, who, ch, "", attempt)
 		if err != nil {
@@ -176,11 +176,11 @@ func TestTypedTextCannotRedirectTheRelay(t *testing.T) {
 		if r.Relay == nil {
 			continue // refused for another reason, fine
 		}
-		if r.Relay.BridgeID != "nllei01parallax01" {
+		if r.Relay.BridgeID != "bridge-kit-a" {
 			t.Fatalf("text %q redirected the relay to %q", attempt, r.Relay.BridgeID)
 		}
 		// re-arm for the next attempt
-		f.sess[f.key(tenant, who, ch)].State = StateAwaitingText + ":nllei01parallax01"
+		f.sess[f.key(tenant, who, ch)].State = StateAwaitingText + ":bridge-kit-a"
 	}
 }
 
@@ -251,7 +251,7 @@ func TestOfflineKitIsRefusedNotQueued(t *testing.T) {
 	ctx := context.Background()
 	_, _ = e.Handle(ctx, tenant, who, ch, OptSendMessage, "")
 	_, _ = e.Handle(ctx, tenant, who, ch, OptOptInYes, "")
-	r, err := e.Handle(ctx, tenant, who, ch, kitOptPrefix+"nllei01parallax01", "")
+	r, err := e.Handle(ctx, tenant, who, ch, kitOptPrefix+"bridge-kit-a", "")
 	if err != nil {
 		t.Fatalf("handle: %v", err)
 	}
@@ -327,8 +327,8 @@ func TestNoKitsConfiguredIsAnError(t *testing.T) {
 // ambiguity prompt on the device mid-demo. Serialising removes the situation.
 func TestKitTakesOneConversationAtATime(t *testing.T) {
 	f := newFake()
-	f.open["nllei01parallax01"] = []store.BoothRelay{
-		{Ref: "B2", Sender: "+31699999999", BridgeID: "nllei01parallax01"},
+	f.open["bridge-kit-a"] = []store.BoothRelay{
+		{Ref: "B2", Sender: "+31699999999", BridgeID: "bridge-kit-a"},
 	}
 	e := newEngine(f, nil)
 	walk(t, e, f)
@@ -352,8 +352,8 @@ func TestKitTakesOneConversationAtATime(t *testing.T) {
 // continuing, not a collision.
 func TestOwnOpenConversationDoesNotBlock(t *testing.T) {
 	f := newFake()
-	f.open["nllei01parallax01"] = []store.BoothRelay{
-		{Ref: "A7", Sender: who, BridgeID: "nllei01parallax01"},
+	f.open["bridge-kit-a"] = []store.BoothRelay{
+		{Ref: "A7", Sender: who, BridgeID: "bridge-kit-a"},
 	}
 	e := newEngine(f, nil)
 	walk(t, e, f)

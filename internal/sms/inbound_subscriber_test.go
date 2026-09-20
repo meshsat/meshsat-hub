@@ -90,7 +90,7 @@ func TestInboundSubscriber_HandleInbound_InvalidJSON(t *testing.T) {
 func TestInboundMQTTPayload_Serialization(t *testing.T) {
 	p := InboundMQTTPayload{
 		From:      "+31612345678",
-		To:        "+3197010258258",
+		To:        "+3197000000001",
 		Body:      "Test message",
 		Timestamp: "2026-03-20T10:30:00Z",
 	}

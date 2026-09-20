@@ -44,7 +44,7 @@ func TestSOSOverPlainTextSMSEscalates(t *testing.T) {
 	}
 	rb := &recordingBus{}
 	d := NewDetector(rb, nil, st, nil, "")
-	const phone = "+31653618463"
+	const phone = "+31600000001"
 	payload := []byte(`{"id":"sms-in-SM1","channel":"sms","text":"SOS tent collapsed","body":"SOS tent collapsed"}`)
 
 	d.handleMODecoded(hubmqtt.TopicMODecodedFor("default", phone), payload)

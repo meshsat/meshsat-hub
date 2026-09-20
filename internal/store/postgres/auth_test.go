@@ -413,7 +413,7 @@ func TestRoutes(t *testing.T) {
 	db := testDB(t)
 	ctx := context.Background()
 
-	r := &store.Route{Name: "zeta", SourceType: "iridium", DestinationType: "sms", Filter: "sos", Senders: "+31653618463,+31653207829", Enabled: true}
+	r := &store.Route{Name: "zeta", SourceType: "iridium", DestinationType: "sms", Filter: "sos", Senders: "+31600000001,+31600000002", Enabled: true}
 	mustNoErr(t, db.CreateRoute(ctx, "t1", r), "CreateRoute")
 	if got, err := db.GetRoute(ctx, "t1", r.ID); err != nil || got.Senders != r.Senders {
 		t.Fatalf("GetRoute senders round trip: %+v %v", got, err)

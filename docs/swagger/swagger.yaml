@@ -1882,7 +1882,7 @@ definitions:
   internal_api.rotateDistributeRequest:
     properties:
       address:
-        description: e.g. "+31653618463", "!abcd1234"
+        description: e.g. "+31600000001", "!abcd1234"
         type: string
       bridge_ids:
         description: target bridges to push key to

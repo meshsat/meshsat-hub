@@ -17,7 +17,7 @@ func TestOOBPeerCRUD(t *testing.T) {
 	if err := db.Migrate(ctx); err != nil {
 		t.Fatal(err)
 	}
-	p := &store.OOBPeer{TenantID: "t1", BridgeID: "tesseract", PeerID: 38091, KeyEnc: []byte("enc"), LocalRole: 1, Phone: "+31653618463", SatIMEI: "300234065000001", Enabled: true}
+	p := &store.OOBPeer{TenantID: "t1", BridgeID: "tesseract", PeerID: 38091, KeyEnc: []byte("enc"), LocalRole: 1, Phone: "+31600000001", SatIMEI: "300234065000001", Enabled: true}
 	if err := db.UpsertOOBPeer(ctx, p); err != nil {
 		t.Fatalf("upsert: %v", err)
 	}
