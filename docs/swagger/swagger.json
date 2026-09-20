@@ -13,6 +13,587 @@
     "host": "localhost:6070",
     "basePath": "/",
     "paths": {
+        "/api/admin/payments/unmatched": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "admin"
+                ],
+                "summary": "Payments that matched no tenant",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "default": 50,
+                        "description": "Max results",
+                        "name": "limit",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/internal_api.unmatchedPaymentResponse"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/admin/receipts/blocked": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "admin"
+                ],
+                "summary": "Receipts a person has to look at",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "default": 100,
+                        "description": "Max results",
+                        "name": "limit",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/github_com_meshsat_meshsat-hub_internal_store.Receipt"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/admin/receipts/{id}/refund": {
+            "post": {
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "admin"
+                ],
+                "summary": "Record a refund against a payment",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Receipt ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Refund",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.recordRefundRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_meshsat_meshsat-hub_internal_store.Refund"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/admin/receipts/{id}/requeue": {
+            "post": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "admin"
+                ],
+                "summary": "Retry a blocked receipt",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Receipt ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/admin/refunds": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "admin"
+                ],
+                "summary": "Refunds by state",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "default": "pending",
+                        "description": "pending, issued or blocked",
+                        "name": "status",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "default": 100,
+                        "description": "Max results",
+                        "name": "limit",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/github_com_meshsat_meshsat-hub_internal_store.Refund"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/admin/refunds/{id}": {
+            "delete": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "admin"
+                ],
+                "summary": "Withdraw a refund that has no credit note yet",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Refund ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/admin/refunds/{id}/requeue": {
+            "post": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "admin"
+                ],
+                "summary": "Retry a blocked refund",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Refund ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/admin/signups": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "admin"
+                ],
+                "summary": "List pending beta requests",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "503": {
+                        "description": "Service Unavailable",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/admin/signups/{id}/approve": {
+            "post": {
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "admin"
+                ],
+                "summary": "Approve a beta request",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "authentik user pk",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "role to grant",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.approveRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/admin/signups/{id}/reject": {
+            "post": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "admin"
+                ],
+                "summary": "Reject a beta request",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "authentik user pk",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/admin/tenants": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "admin"
+                ],
+                "summary": "List all tenants",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/internal_api.tenantResponse"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/admin/tenants/{id}": {
+            "put": {
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "admin"
+                ],
+                "summary": "Update a tenant",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Tenant ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Fields to change",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.adminUpdateTenantRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.tenantResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "admin"
+                ],
+                "summary": "Close a tenant",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "tenant id",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/admin/tenants/{id}/usage": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "admin"
+                ],
+                "summary": "Devices and bridges used by a tenant",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "tenant id",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.usageResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/admin/vat/threshold": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "admin"
+                ],
+                "summary": "Progress toward the EU VAT threshold",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.vatThresholdResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/api/alert-rules": {
             "get": {
                 "produces": [
@@ -466,6 +1047,25 @@
                 }
             }
         },
+        "/api/auth/config": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "auth"
+                ],
+                "summary": "Login methods available on this Hub",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.authConfigResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/api/auth/keys": {
             "get": {
                 "produces": [
@@ -725,6 +1325,65 @@
                 }
             }
         },
+        "/api/auth/oidc/callback": {
+            "get": {
+                "tags": [
+                    "auth"
+                ],
+                "summary": "OIDC callback",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Authorization code",
+                        "name": "code",
+                        "in": "query",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "State",
+                        "name": "state",
+                        "in": "query",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "302": {
+                        "description": "Found"
+                    }
+                }
+            }
+        },
+        "/api/auth/oidc/login": {
+            "get": {
+                "tags": [
+                    "auth"
+                ],
+                "summary": "Redirect to the identity provider",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Same-origin path to return to after login",
+                        "name": "next",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "302": {
+                        "description": "Found"
+                    },
+                    "503": {
+                        "description": "Service Unavailable",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/auth/refresh": {
             "post": {
                 "consumes": [
@@ -943,6 +1602,15 @@
                             }
                         }
                     },
+                    "402": {
+                        "description": "device ceiling of the tenant's plan reached",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
                     "409": {
                         "description": "Conflict",
                         "schema": {
@@ -966,14 +1634,14 @@
         },
         "/api/bridges/acl/regenerate": {
             "post": {
-                "description": "Reads all bridges with credentials and generates Mosquitto password and ACL files.",
+                "description": "Counts the bridges with credentials and asks the NATS auth syncer to re-render the meshsat-nats-auth Secret. Outside Kubernetes the count is reported and nothing is written.",
                 "produces": [
                     "application/json"
                 ],
                 "tags": [
                     "bridges"
                 ],
-                "summary": "Regenerate Mosquitto ACL files",
+                "summary": "Re-render NATS bridge users and permissions",
                 "responses": {
                     "200": {
                         "description": "OK",
@@ -1457,7 +2125,7 @@
         },
         "/api/bridges/{id}/command": {
             "post": {
-                "description": "Sends a command to a field bridge via MQTT and waits for the response. Supported commands: ping, flush_burst, send_text, send_mt, config_update, reboot.",
+                "description": "Sends a command to a field bridge and waits for the response. Over MQTT: ping, flush_burst, send_text, send_mt, config_update, reboot, mgmt_*. With via sms|imt|sbd (or automatically while the bridge is MQTT-offline and paired): mgmt_ping, mgmt_status, mgmt_log, mgmt_reset, mgmt_bearer, mgmt_restart, reboot as sealed OOB frames.",
                 "consumes": [
                     "application/json"
                 ],
@@ -1626,6 +2294,161 @@
                 }
             }
         },
+        "/api/bridges/{id}/oob": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "bridges"
+                ],
+                "summary": "Out-of-band pairing state of a bridge",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Bridge ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.oobStatus"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            },
+            "post": {
+                "description": "Stores the 32-byte management key from the kit's key bundle (mgmt entry) and the kit's bearer addresses. The Hub takes the importer role unless local_role is \"issuer\".",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "bridges"
+                ],
+                "summary": "Pair the Hub with a bridge for out-of-band commands",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Bridge ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "key and addresses",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.oobPairRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.oobStatus"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "tags": [
+                    "bridges"
+                ],
+                "summary": "Remove the out-of-band pairing of a bridge",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Bridge ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    }
+                }
+            }
+        },
+        "/api/bridges/{id}/oob/provision": {
+            "post": {
+                "description": "The Hub becomes the issuer of the key. The bridge must register the peer \"hub\" on this key_rotate (bridge-side support tracked on MESHSAT-964); the key is returned once for a manual import.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "bridges"
+                ],
+                "summary": "Generate a management key and push it to the bridge over MQTT",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Bridge ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "bearer addresses",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.oobProvisionRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.oobStatus"
+                        }
+                    },
+                    "409": {
+                        "description": "bridge offline",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/bridges/{id}/provision": {
             "post": {
                 "produces": [
@@ -1688,193 +2511,32 @@
                 }
             }
         },
-        "/api/bridges/{id}/provision/{nonce}": {
+        "/api/capabilities": {
             "get": {
                 "produces": [
                     "application/json"
                 ],
                 "tags": [
-                    "bridges"
+                    "tenant"
                 ],
-                "summary": "Claim provisioning bundle (no auth, nonce-authenticated)",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Bridge ID",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "type": "string",
-                        "description": "Single-use provisioning nonce",
-                        "name": "nonce",
-                        "in": "path",
-                        "required": true
-                    }
-                ],
+                "summary": "Which features are usable by this tenant",
                 "responses": {
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/internal_api.ProvisionBundle"
-                        }
-                    },
-                    "404": {
-                        "description": "Invalid or expired nonce",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": {
-                                "type": "string"
-                            }
-                        }
-                    }
-                }
-            }
-        },
-        "/api/cluster/actions": {
-            "get": {
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "cluster"
-                ],
-                "summary": "List available remediation actions",
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": {
-                                "type": "array",
-                                "items": {
-                                    "$ref": "#/definitions/internal_cluster.RemediationAction"
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        },
-        "/api/cluster/actions/{id}": {
-            "post": {
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "cluster"
-                ],
-                "summary": "Execute a remediation action",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Action ID",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": {
-                                "type": "string"
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/internal_api.Capability"
                             }
                         }
                     },
-                    "400": {
-                        "description": "Bad Request",
+                    "500": {
+                        "description": "Internal Server Error",
                         "schema": {
                             "type": "object",
                             "additionalProperties": {
                                 "type": "string"
                             }
-                        }
-                    }
-                }
-            }
-        },
-        "/api/cluster/node": {
-            "get": {
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "cluster"
-                ],
-                "summary": "Get local node Galera status",
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/internal_cluster.NodeStatus"
-                        }
-                    }
-                }
-            }
-        },
-        "/api/cluster/peers": {
-            "put": {
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "cluster"
-                ],
-                "summary": "Update cluster peer list",
-                "parameters": [
-                    {
-                        "description": "Peer URLs",
-                        "name": "body",
-                        "in": "body",
-                        "required": true,
-                        "schema": {
-                            "type": "object"
-                        }
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": {
-                                "type": "string"
-                            }
-                        }
-                    },
-                    "400": {
-                        "description": "Bad Request",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": {
-                                "type": "string"
-                            }
-                        }
-                    }
-                }
-            }
-        },
-        "/api/cluster/status": {
-            "get": {
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "cluster"
-                ],
-                "summary": "Get aggregated cluster status",
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/internal_cluster.ClusterStatus"
                         }
                     }
                 }
@@ -2887,6 +3549,15 @@
                             }
                         }
                     },
+                    "402": {
+                        "description": "device ceiling of the tenant's plan reached",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
                     "409": {
                         "description": "Conflict",
                         "schema": {
@@ -3839,6 +4510,47 @@
                 }
             }
         },
+        "/api/donate": {
+            "post": {
+                "description": "Creates a Stripe Checkout session for a one-off donation with no tenant. Unauthenticated and rate limited. Grants no plan.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "billing"
+                ],
+                "summary": "Donate without an account",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.checkoutResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "503": {
+                        "description": "Service Unavailable",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/email/keys": {
             "get": {
                 "produces": [
@@ -4182,6 +4894,25 @@
                         "description": "Created",
                         "schema": {
                             "$ref": "#/definitions/github_com_meshsat_meshsat-hub_internal_geo.Fence"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/geofences/policy": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "geofences"
+                ],
+                "summary": "Geofence platform policy",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.geofencePolicy"
                         }
                     }
                 }
@@ -5578,6 +6309,118 @@
                 }
             }
         },
+        "/api/relay/ca": {
+            "get": {
+                "description": "The PEM-encoded CA that issues bridge certificates. Both ends of a relay tunnel verify each other against it.",
+                "produces": [
+                    "application/x-pem-file"
+                ],
+                "tags": [
+                    "relay"
+                ],
+                "summary": "Bridge CA certificate for the relay",
+                "responses": {
+                    "200": {
+                        "description": "PEM",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "404": {
+                        "description": "no bridge CA on this Hub",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/relay/connect/{bridge_id}": {
+            "get": {
+                "security": [
+                    {
+                        "BasicAuth": []
+                    }
+                ],
+                "description": "The caller is itself a bridge of the tenant (an Android device is a bridge of type android) and authenticates with its own MQTT credentials; its bridge id is the client id on the other end, never a parameter. The target must belong to the same tenant. Bare binary frames, 100 per minute per client.",
+                "tags": [
+                    "relay"
+                ],
+                "summary": "Open a tunnel to one of your tenant's bridges (WebSocket)",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "the bridge to reach",
+                        "name": "bridge_id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "101": {
+                        "description": "switching protocols"
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "403": {
+                        "description": "not a bridge of your tenant",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "429": {
+                        "description": "budget exhausted for this minute",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/relay/serve": {
+            "get": {
+                "security": [
+                    {
+                        "BasicAuth": []
+                    }
+                ],
+                "description": "The bridge opens one outbound WebSocket and every client of it is multiplexed through the envelope [0x01][len][client_id][payload]. HTTP Basic with the bridge's own MQTT credentials. Binary frames only; the Hub never reads the payload.",
+                "tags": [
+                    "relay"
+                ],
+                "summary": "Serve this bridge's clients through the Hub (WebSocket)",
+                "responses": {
+                    "101": {
+                        "description": "switching protocols"
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/reticulum/identity": {
             "get": {
                 "description": "Returns the Hub's Reticulum destination hash and public key. Private key is never exposed.",
@@ -5917,59 +6760,6 @@
                         }
                     }
                 }
-            },
-            "put": {
-                "description": "Saves the MQTT URL shown to bridges during onboarding.",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "settings"
-                ],
-                "summary": "Set MQTT public URL",
-                "parameters": [
-                    {
-                        "description": "MQTT URL",
-                        "name": "body",
-                        "in": "body",
-                        "required": true,
-                        "schema": {
-                            "type": "object"
-                        }
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": {
-                                "type": "string"
-                            }
-                        }
-                    },
-                    "400": {
-                        "description": "Bad Request",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": {
-                                "type": "string"
-                            }
-                        }
-                    },
-                    "500": {
-                        "description": "Internal Server Error",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": {
-                                "type": "string"
-                            }
-                        }
-                    }
-                }
             }
         },
         "/api/settings/security": {
@@ -6076,21 +6866,936 @@
                 }
             }
         },
-        "/api/tak/federation/peers": {
+        "/api/tak/enroll/{claimID}/{nonce}": {
+            "get": {
+                "produces": [
+                    "application/zip"
+                ],
+                "tags": [
+                    "tak"
+                ],
+                "summary": "Claim a TAK enrolment package",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "claim id",
+                        "name": "claimID",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "one-time nonce",
+                        "name": "nonce",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "atak (default) or itak",
+                        "name": "client",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "the data package",
+                        "schema": {
+                            "type": "file"
+                        }
+                    },
+                    "202": {
+                        "description": "not signed yet, retry",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "410": {
+                        "description": "Gone",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/tenant": {
             "get": {
                 "produces": [
                     "application/json"
                 ],
                 "tags": [
-                    "tak"
+                    "tenant"
                 ],
-                "summary": "TAK federation peers",
+                "summary": "Current tenant",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.tenantResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            },
+            "put": {
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "tenant"
+                ],
+                "summary": "Rename current tenant",
+                "parameters": [
+                    {
+                        "description": "New name",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.updateTenantRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.tenantResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "description": "Blocks access immediately and destroys the data after the grace period. Owner only. Reversible until then.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "tenant"
+                ],
+                "summary": "Close this tenant",
                 "responses": {
                     "200": {
                         "description": "OK",
                         "schema": {
                             "type": "object",
                             "additionalProperties": true
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/tenant/billing/checkout": {
+            "post": {
+                "description": "Creates a Stripe Checkout session bound to this tenant and returns the URL to send the customer to.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "billing"
+                ],
+                "summary": "Start a subscription",
+                "parameters": [
+                    {
+                        "description": "the plan to buy",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.checkoutRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.checkoutResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "503": {
+                        "description": "Service Unavailable",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/tenant/billing/donate": {
+            "post": {
+                "description": "Creates a Stripe Checkout session for a one-off donation bound to this tenant. Grants no plan.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "billing"
+                ],
+                "summary": "Donate",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.checkoutResponse"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "503": {
+                        "description": "Service Unavailable",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/tenant/billing/portal": {
+            "post": {
+                "description": "Returns a URL to Stripe's customer portal, where the customer can cancel, change card or read past invoices.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "billing"
+                ],
+                "summary": "Manage billing",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.checkoutResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "503": {
+                        "description": "Service Unavailable",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/tenant/export": {
+            "get": {
+                "description": "A ZIP with one JSON file per table and a manifest. Owner only.",
+                "produces": [
+                    "application/zip"
+                ],
+                "tags": [
+                    "tenant"
+                ],
+                "summary": "Export everything this tenant owns",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "file"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/tenant/integrations": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "tenant"
+                ],
+                "summary": "List the tenant's provider accounts",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/internal_api.providerAccountView"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/tenant/integrations/{provider}": {
+            "put": {
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "tenant"
+                ],
+                "summary": "Set the tenant's provider account",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "cloudloop|twilio|rock7|rockblock|globalstar",
+                        "name": "provider",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "field values",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.putProviderAccountRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "tags": [
+                    "tenant"
+                ],
+                "summary": "Delete the tenant's provider account",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "provider",
+                        "name": "provider",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    }
+                }
+            }
+        },
+        "/api/tenant/integrations/{provider}/test": {
+            "post": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "tenant"
+                ],
+                "summary": "Test the tenant's provider account",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "provider",
+                        "name": "provider",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/tenant/invites": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "tenant"
+                ],
+                "summary": "List tenant invites",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/internal_api.inviteResponse"
+                            }
+                        }
+                    }
+                }
+            },
+            "post": {
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "tenant"
+                ],
+                "summary": "Invite a user into the tenant",
+                "parameters": [
+                    {
+                        "description": "Invite",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.createInviteRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.inviteResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/tenant/invites/{id}": {
+            "delete": {
+                "tags": [
+                    "tenant"
+                ],
+                "summary": "Revoke a tenant invite",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Invite ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    }
+                }
+            }
+        },
+        "/api/tenant/tak": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "tenant"
+                ],
+                "summary": "Hosted TAK status",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.takStatusResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            },
+            "post": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "tenant"
+                ],
+                "summary": "Turn hosted TAK on",
+                "responses": {
+                    "200": {
+                        "description": "already on",
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.takStatusResponse"
+                        }
+                    },
+                    "202": {
+                        "description": "being built",
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.takStatusResponse"
+                        }
+                    },
+                    "503": {
+                        "description": "Service Unavailable",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/tenant/tak/users": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "tenant"
+                ],
+                "summary": "List TAK accounts",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/internal_api.takUserResponse"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            },
+            "post": {
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "tenant"
+                ],
+                "summary": "Add a TAK account",
+                "parameters": [
+                    {
+                        "description": "Account",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.addTAKUserRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "already there",
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.takUserResponse"
+                        }
+                    },
+                    "202": {
+                        "description": "being created",
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.takUserResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "402": {
+                        "description": "plan ceiling reached",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "refused by the instance",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/tenant/tak/users/{username}": {
+            "delete": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "tenant"
+                ],
+                "summary": "Remove a TAK account",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Account",
+                        "name": "username",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "removed",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "202": {
+                        "description": "being removed",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Unprocessable Entity",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/tenant/tak/users/{username}/enrollment": {
+            "post": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "tenant"
+                ],
+                "summary": "Mint a one-time TAK enrolment package link",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "TAK username",
+                        "name": "username",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.enrolmentResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "503": {
+                        "description": "Service Unavailable",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/tenant/tak/users/{username}/enrollment/qr": {
+            "post": {
+                "produces": [
+                    "image/png"
+                ],
+                "tags": [
+                    "tenant"
+                ],
+                "summary": "Mint a one-time TAK enrolment as a QR code",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "TAK username",
+                        "name": "username",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "integer",
+                        "description": "QR size in pixels (default 512)",
+                        "name": "size",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "atak (default) or itak",
+                        "name": "client",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "file"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/tenant/usage": {
+            "get": {
+                "description": "The ceiling applies to registering new devices only. Everything already registered keeps working, keeps reporting, and keeps its SOS path, whatever the plan says.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "tenant"
+                ],
+                "summary": "Devices and bridges used against the plan's ceiling",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.usageResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
                         }
                     }
                 }
@@ -6764,6 +8469,24 @@
                                 "type": "string"
                             }
                         }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
                     }
                 }
             }
@@ -6872,6 +8595,123 @@
                     },
                     "401": {
                         "description": "Unauthorized",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/webhook/sms/status": {
+            "post": {
+                "description": "Twilio posts outbound message status transitions here",
+                "consumes": [
+                    "application/x-www-form-urlencoded"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "webhook"
+                ],
+                "summary": "Receive a Twilio delivery receipt",
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/webhook/stripe/{secret}": {
+            "post": {
+                "description": "Applies subscription, invoice and refund events. The path secret identifies the endpoint; the Stripe-Signature header authenticates the caller and is the only thing trusted.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "text/plain"
+                ],
+                "tags": [
+                    "webhooks"
+                ],
+                "summary": "Stripe payment webhook",
+                "responses": {
+                    "200": {
+                        "description": "applied, or acknowledged and ignored",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "400": {
+                        "description": "the signature does not verify",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "500": {
+                        "description": "a store failure; Stripe will retry",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "503": {
+                        "description": "billing is not configured",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/webhook/whatsapp/status": {
+            "post": {
+                "description": "Twilio posts outbound message status transitions here",
+                "consumes": [
+                    "application/x-www-form-urlencoded"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "webhook"
+                ],
+                "summary": "Receive a Twilio delivery receipt",
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
                         "schema": {
                             "type": "object",
                             "additionalProperties": {
@@ -7150,7 +8990,7 @@
         },
         "/api/ws": {
             "get": {
-                "description": "Real-time stream of messages, positions, and alerts. Pass token via ?token= query param or Authorization header.",
+                "description": "Real-time stream of this tenant's messages, positions and alerts. Browsers pass the token as the Sec-WebSocket-Protocol \"bearer, \u003ctoken\u003e\"; other clients may use the Authorization header or ?token=.",
                 "tags": [
                     "websocket"
                 ],
@@ -7164,6 +9004,196 @@
                     }
                 ],
                 "responses": {}
+            }
+        },
+        "/basemap/assets/{path}": {
+            "get": {
+                "description": "Streams the self-hosted map font ranges and sprite sheets. Public map data, no authentication.",
+                "tags": [
+                    "map"
+                ],
+                "summary": "Basemap glyph and sprite assets",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Relative asset path, e.g. fonts/Noto Sans Regular/0-255.pbf",
+                        "name": "path",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Asset",
+                        "schema": {
+                            "type": "file"
+                        }
+                    },
+                    "404": {
+                        "description": "Unknown or malformed asset path",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/basemap/basemap.pmtiles": {
+            "get": {
+                "description": "Streams the self-hosted PMTiles basemap, forwarding HTTP range requests. Public map data, no authentication.",
+                "produces": [
+                    "application/octet-stream"
+                ],
+                "tags": [
+                    "map"
+                ],
+                "summary": "Vector basemap archive",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Byte range, e.g. bytes=0-16383",
+                        "name": "Range",
+                        "in": "header"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Whole archive",
+                        "schema": {
+                            "type": "file"
+                        }
+                    },
+                    "206": {
+                        "description": "Requested byte range",
+                        "schema": {
+                            "type": "file"
+                        }
+                    },
+                    "404": {
+                        "description": "Basemap object missing from the store",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "502": {
+                        "description": "Object store unreachable",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/basemap/local.pmtiles": {
+            "get": {
+                "description": "Streams the deeper PMTiles archive for the area the fleet operates in, forwarding HTTP range requests. Public map data, no authentication.",
+                "produces": [
+                    "application/octet-stream"
+                ],
+                "tags": [
+                    "map"
+                ],
+                "summary": "Local vector basemap archive",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Byte range, e.g. bytes=0-16383",
+                        "name": "Range",
+                        "in": "header"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Whole archive",
+                        "schema": {
+                            "type": "file"
+                        }
+                    },
+                    "206": {
+                        "description": "Requested byte range",
+                        "schema": {
+                            "type": "file"
+                        }
+                    },
+                    "404": {
+                        "description": "No local archive configured",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/donate": {
+            "get": {
+                "description": "Creates a Stripe Checkout session for an anonymous donation and redirects to it. For linking from a static page.",
+                "tags": [
+                    "billing"
+                ],
+                "summary": "Donate without an account",
+                "responses": {
+                    "303": {
+                        "description": "redirect to Stripe Checkout"
+                    },
+                    "503": {
+                        "description": "donations are not available",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                }
+            }
+        },
+        "/donate/cancelled": {
+            "get": {
+                "description": "The page Stripe returns an anonymous giver to after they abandon a donation.",
+                "produces": [
+                    "text/html"
+                ],
+                "tags": [
+                    "billing"
+                ],
+                "summary": "Donation cancelled",
+                "responses": {
+                    "200": {
+                        "description": "cancelled page",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                }
+            }
+        },
+        "/donate/thanks": {
+            "get": {
+                "description": "The page Stripe returns an anonymous giver to after a successful donation.",
+                "produces": [
+                    "text/html"
+                ],
+                "tags": [
+                    "billing"
+                ],
+                "summary": "Donation complete",
+                "responses": {
+                    "200": {
+                        "description": "thank-you page",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                }
             }
         },
         "/healthz": {
@@ -7256,6 +9286,10 @@
                 },
                 "name": {
                     "type": "string"
+                },
+                "platform_admin": {
+                    "description": "may act across tenants (X-Tenant-ID)",
+                    "type": "boolean"
                 },
                 "roles": {
                     "type": "array",
@@ -7694,6 +9728,10 @@
                     "description": "escalation chain to trigger",
                     "type": "string"
                 },
+                "cooldown_sec": {
+                    "description": "CooldownSec suppresses repeat events for the same device and this fence\nafter one fires. 0 means the platform default. See Engine.cooldown.",
+                    "type": "integer"
+                },
                 "enabled": {
                     "type": "boolean"
                 },
@@ -7727,12 +9765,11 @@
             "type": "object",
             "properties": {
                 "lat": {
-                    "type": "number",
-                    "format": "float64"
+                    "description": "The JSON names are lower case on purpose: geofence polygons are read\nand written by the SPA, which sends {\"lat\",\"lon\"} on create. Without\nthe tags the API answered {\"Lat\",\"Lon\"} and the map drew nothing\n(MESHSAT-967).",
+                    "type": "number"
                 },
                 "lon": {
-                    "type": "number",
-                    "format": "float64"
+                    "type": "number"
                 }
             }
         },
@@ -7748,6 +9785,51 @@
                 "TriggerExit",
                 "TriggerBoth"
             ]
+        },
+        "github_com_meshsat_meshsat-hub_internal_integrations.Field": {
+            "type": "object",
+            "properties": {
+                "broker": {
+                    "description": "Broker marks an MQTT broker address (ssl://host:port) the Hub will dial\nfor this tenant. The same request-forgery concern as URL, with the\nscheme set an MQTT client accepts: the host must resolve to a public\naddress, so a tenant cannot point the Hub at nats:1883 or the database.",
+                    "type": "boolean"
+                },
+                "default": {
+                    "type": "string"
+                },
+                "generate": {
+                    "description": "filled with a random token when left empty",
+                    "type": "boolean"
+                },
+                "hint": {
+                    "type": "string"
+                },
+                "key": {
+                    "type": "string"
+                },
+                "label": {
+                    "type": "string"
+                },
+                "multiline": {
+                    "description": "Multiline renders as a textarea and raises the size cap: a PEM block\npasted into a single-line input loses its newlines and can never parse.",
+                    "type": "boolean"
+                },
+                "pem": {
+                    "description": "PEM values are checked on save: the block must decode, and a field\nending in client_cert_pem must pair with its client_key_pem\n(tls.X509KeyPair), so a bad paste is a 400 here rather than a connect\nloop in a log the customer cannot read (MESHSAT-1151).",
+                    "type": "boolean"
+                },
+                "required": {
+                    "description": "must be present to count as configured",
+                    "type": "boolean"
+                },
+                "secret": {
+                    "description": "write-only, masked on read",
+                    "type": "boolean"
+                },
+                "url": {
+                    "description": "URL marks a field the Hub will make outbound requests to. Those are\nvalidated against internal/netguard on save, because a tenant choosing a\nURL the Hub then fetches is a request-forgery primitive: the Hub sits in a\ncluster with a database, a broker and a metadata service all reachable by\nname (MESHSAT-1121, found by gosec as a G704 taint).",
+                    "type": "boolean"
+                }
+            }
         },
         "github_com_meshsat_meshsat-hub_internal_protocol.HeMBReassemblyStats": {
             "type": "object",
@@ -7852,6 +9934,10 @@
                 },
                 "last_used": {
                     "type": "string"
+                },
+                "platform_admin": {
+                    "description": "PlatformAdmin lets this key act across tenants, the axis that until\nMESHSAT-1209 only the static HUB_AUTH_TOKEN could carry. Settable ONLY by a\ncaller who already holds it -- see internal/api/apikeys.go. Unlike that token\na key with this flag is revocable and can expire, which is the entire point.",
+                    "type": "boolean"
                 },
                 "role": {
                     "description": "\"viewer\", \"operator\", \"owner\"",
@@ -7974,8 +10060,12 @@
                     "type": "string"
                 },
                 "hash": {
-                    "description": "SHA-256 of (action|actor|detail|ip|prev_hash)",
+                    "description": "digest of the entry; which fields it binds is HashVersion's business",
                     "type": "string"
+                },
+                "hash_version": {
+                    "description": "HashVersion names the digest Hash was computed with. 1 is the original\nformula over action|actor|detail|ip|prev_hash, which lets a row be moved\nbetween tenants or back-dated without breaking the chain; 2 also binds\ntenant_id, id and created_at. Rows written before migration 30 carry 1\nand stay valid; every row written since is 2, and a verifier never\naccepts a 1 that follows a 2 (that would be a downgrade, not history).",
+                    "type": "integer"
                 },
                 "id": {
                     "type": "string"
@@ -8057,6 +10147,13 @@
                 },
                 "last_health": {
                     "description": "JSON",
+                    "type": "string"
+                },
+                "last_report_at": {
+                    "type": "string"
+                },
+                "last_report_bearer": {
+                    "description": "Last report received over any bearer (mqtt, sms, sbd, imt, globalstar)\nand when: uplink frames while MQTT is down keep these current (MESHSAT-964).",
                     "type": "string"
                 },
                 "last_seen": {
@@ -8434,6 +10531,10 @@
                     "description": "\"received\", \"queued\", \"sent\", \"delivered\", \"failed\", \"scheduled\"",
                     "type": "string"
                 },
+                "tenant_id": {
+                    "description": "TenantID is set on rows read by platform-wide jobs (ListScheduledMessages),\nwhich have no tenant of their own and must hand the row's tenant back to\nthe store when they update it (MESHSAT-1149). Tenant-scoped reads leave\nit empty: the caller already knows.",
+                    "type": "string"
+                },
                 "text": {
                     "type": "string"
                 }
@@ -8543,6 +10644,153 @@
                 }
             }
         },
+        "github_com_meshsat_meshsat-hub_internal_store.Receipt": {
+            "type": "object",
+            "properties": {
+                "amount_cents": {
+                    "description": "AmountCents is the gross amount in the smallest unit of Currency. Money\nis never a float here: the payload's decimal string is parsed to an\ninteger and stays one all the way to the invoice line.",
+                    "type": "integer"
+                },
+                "attempts": {
+                    "type": "integer"
+                },
+                "country": {
+                    "description": "Country is where the buyer was, ISO 3166-1 alpha-2, copied from the\ntenant when the payment was recorded and frozen there. It decides the VAT\ntreatment (internal/vat), and it is frozen rather than re-read because a\ncustomer who moves next year must not change the VAT on a document that\nwas already issued.",
+                    "type": "string"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "currency": {
+                    "type": "string"
+                },
+                "delivery_key": {
+                    "description": "DeliveryKey is the idempotency token, unique across the table. It is the\npayment provider's delivery id when there is one, and a derived key when\nthere is not -- an absent id must not become a blank that collides with\nevery other blank, nor a hole that lets a replay through.",
+                    "type": "string"
+                },
+                "email": {
+                    "description": "Email and Name are who the document goes to and what the customer is\ncalled on it.",
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "invoice_number": {
+                    "type": "string"
+                },
+                "invoice_ref": {
+                    "type": "string"
+                },
+                "issued_at": {
+                    "type": "string"
+                },
+                "last_error": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "next_attempt_at": {
+                    "type": "string"
+                },
+                "paid_at": {
+                    "type": "string"
+                },
+                "payment_ref": {
+                    "description": "PaymentRef is the provider's payment reference (a Stripe payment\nintent), learned AFTER the receipt is written and only so a refund can\nfind it again.\n\nIt exists because the refund event no longer carries the invoice: Stripe\nremoved charge.invoice, and neither the charge nor the payment intent\nlinks back to one. Without this a refunded subscription matched no\nreceipt, so no credit note was issued and the sale stayed in the books\nat full value with its VAT declared.",
+                    "type": "string"
+                },
+                "plan": {
+                    "description": "Plan and TierName describe what was bought, for the invoice line.",
+                    "type": "string"
+                },
+                "status": {
+                    "description": "ReceiptPending, ReceiptIssued, ReceiptBlocked",
+                    "type": "string"
+                },
+                "tenant_id": {
+                    "description": "TenantID is who the payment was for. Present so the row is\ntenant-scoped: an offboarding export carries it and a purge destroys it,\nthe same as every other table with this column. The invoice itself stays\nin the billing system, where it is kept under a legal retention duty\nrather than the tenant's instruction.",
+                    "type": "string"
+                },
+                "tier_name": {
+                    "type": "string"
+                },
+                "transaction_id": {
+                    "description": "TransactionID is the provider's transaction reference, for a human\nreconciling a bank line against a document.",
+                    "type": "string"
+                },
+                "updated_at": {
+                    "type": "string"
+                }
+            }
+        },
+        "github_com_meshsat_meshsat-hub_internal_store.Refund": {
+            "type": "object",
+            "properties": {
+                "amount_cents": {
+                    "description": "AmountCents is the GROSS amount given back, in the smallest unit of\nCurrency. It may be less than the payment, and never more -- the handler\nrefuses that rather than crediting money nobody paid.",
+                    "type": "integer"
+                },
+                "attempts": {
+                    "type": "integer"
+                },
+                "country": {
+                    "description": "Country is copied from the receipt and frozen, for the same reason the\nreceipt freezes it: the credit note must reverse the VAT the invoice\ncharged, whatever the customer's address says today.",
+                    "type": "string"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "credit_number": {
+                    "type": "string"
+                },
+                "credit_ref": {
+                    "type": "string"
+                },
+                "currency": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "issued_at": {
+                    "type": "string"
+                },
+                "last_error": {
+                    "type": "string"
+                },
+                "next_attempt_at": {
+                    "type": "string"
+                },
+                "reason": {
+                    "description": "Reason is why the money went back, in an operator's words. It goes on the\naudit line and is not shown to the customer.",
+                    "type": "string"
+                },
+                "receipt_id": {
+                    "description": "ReceiptID is the payment being reversed. UNIQUE: one refund per payment.\nA partial refund is still one refund; recording a second one against the\nsame payment is refused rather than allowed to double-credit.",
+                    "type": "string"
+                },
+                "refunded_at": {
+                    "description": "RefundedAt is when the money actually went back, which dates the credit\nnote. It is the operator's figure, not the moment this row was written.",
+                    "type": "string"
+                },
+                "requested_by": {
+                    "description": "RequestedBy names the operator who recorded it. An action on somebody\nelse's money with no name attached is only half a record.",
+                    "type": "string"
+                },
+                "status": {
+                    "description": "RefundPending, RefundIssued, RefundBlocked",
+                    "type": "string"
+                },
+                "tenant_id": {
+                    "description": "TenantID is whose payment was given back. Tenant-scoped like the receipt\nit reverses, so export and purge pick it up.",
+                    "type": "string"
+                },
+                "updated_at": {
+                    "type": "string"
+                }
+            }
+        },
         "github_com_meshsat_meshsat-hub_internal_store.Route": {
             "type": "object",
             "properties": {
@@ -8564,10 +10812,44 @@
                 "name": {
                     "type": "string"
                 },
+                "senders": {
+                    "description": "Senders restricts the route to messages whose origin (device IMEI or\nphone number) is in this comma-separated list; empty = any sender\n(MESHSAT-964). \"*\" matches everyone.",
+                    "type": "string"
+                },
                 "source_type": {
                     "type": "string"
                 },
                 "updated_at": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_api.Capability": {
+            "type": "object",
+            "properties": {
+                "configured": {
+                    "description": "Configured is the whole point: does an account this tenant can use exist.",
+                    "type": "boolean"
+                },
+                "feature": {
+                    "type": "string"
+                },
+                "label": {
+                    "type": "string"
+                },
+                "platform": {
+                    "description": "Platform is true when what satisfies it is the operator's own account\nrather than one this tenant entered. Only ever true for the default\ntenant -- integrations.ForTenant returns nil for everybody else, which is\nthe guarantee this field depends on.",
+                    "type": "boolean"
+                },
+                "providers": {
+                    "description": "Providers are the integrations providers that can satisfy this feature.\nAny ONE of them is enough -- notifications are delivered by Apprise or by\nntfy, and a tenant with either is configured.",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "reason": {
+                    "description": "Reason is shown to the customer when Configured is false. It says what\nwill silently not happen, because \"unavailable\" on its own reads as a\nfault in the Hub rather than as something they can fix.",
                     "type": "string"
                 }
             }
@@ -8641,6 +10923,10 @@
                     "description": "wss://mqtt-hub.meshsat.net/mqtt",
                     "type": "string"
                 },
+                "mqtt_topic_prefix": {
+                    "description": "\"meshsat\" (default tenant) or \"meshsat/{tenant}\"; bridge publishes {prefix}/bridge/{id}/... and {prefix}/{device}/...",
+                    "type": "string"
+                },
                 "pass": {
                     "description": "MQTT password (shared NATS auth password)",
                     "type": "string"
@@ -8666,12 +10952,20 @@
                     "description": "passwords were auto-generated",
                     "type": "boolean"
                 },
+                "nats_leaf_applicable": {
+                    "description": "false on a single-site deployment",
+                    "type": "boolean"
+                },
                 "nats_leaf_auth": {
                     "description": "NATS leafnode has token",
                     "type": "boolean"
                 },
                 "nats_mqtt_auth": {
                     "description": "NATS MQTT has password configured",
+                    "type": "boolean"
+                },
+                "platform_managed": {
+                    "description": "kubernetes: secrets come from the platform (OpenBao/ExternalSecrets)",
                     "type": "boolean"
                 },
                 "redis_auth": {
@@ -8701,6 +10995,98 @@
             "properties": {
                 "bridges_configured": {
                     "type": "integer"
+                }
+            }
+        },
+        "internal_api.addTAKUserRequest": {
+            "type": "object",
+            "properties": {
+                "callsign": {
+                    "type": "string"
+                },
+                "username": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_api.adminUpdateTenantRequest": {
+            "type": "object",
+            "properties": {
+                "name": {
+                    "type": "string"
+                },
+                "plan": {
+                    "type": "string"
+                },
+                "plan_expires_at": {
+                    "description": "PlanExpiresAt sets or clears when the plan lapses back to free. A\npointer, so the three cases stay distinguishable: absent leaves it\nalone, \"\" clears it, and a date sets it. Nothing anywhere could write\nthis field before, so an operator-set plan on a tenant that still\ncarried an expiry lapsed back to free on its own, and fixing it\nmeant going into the database by hand (MESHSAT-989).",
+                    "type": "string"
+                },
+                "ratelimit_daily_cap": {
+                    "description": "RatelimitDailyCap and RatelimitMonthlyCap override this tenant's\nper-device send budget above whatever its plan gives (MESHSAT-1117\ntranche 2c). PLATFORM ADMIN ONLY, which is why they live on this request\nand not on updateTenantRequest: a send budget is a commercial lever, and\nletting a tenant owner raise their own would make it free.\n\nPointers, like PlanExpiresAt: absent leaves it alone, 0 removes the\noverride and returns the tenant to its plan.",
+                    "type": "integer"
+                },
+                "ratelimit_monthly_cap": {
+                    "type": "integer"
+                },
+                "status": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_api.approveRequest": {
+            "type": "object",
+            "properties": {
+                "role": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_api.authConfigResponse": {
+            "type": "object",
+            "properties": {
+                "community_url": {
+                    "type": "string"
+                },
+                "mfa_setup_url": {
+                    "type": "string"
+                },
+                "modes": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "oidc_login_url": {
+                    "type": "string"
+                },
+                "password_change_url": {
+                    "description": "PasswordChangeURL and MFASetupURL are the self-service flows a signed-in\ncustomer can reach. authentik's settings page is closed to `external`\nusers, so without these there is no route to either from anywhere.",
+                    "type": "string"
+                },
+                "recovery_url": {
+                    "description": "RecoveryURL is the identity provider's password reset flow. It has\nexisted and been bound to the brand since MESHSAT-978, but nothing in the\nHub linked to it, so the only way to reach it was to already be on\nauthentik's own sign-in page and notice the link there.",
+                    "type": "string"
+                },
+                "signup_url": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_api.billingState": {
+            "type": "object",
+            "properties": {
+                "donatable": {
+                    "description": "Donatable is true when a donation price is configured. A donation is a\nseparate thing from a plan: it grants no tier and, having no\ncounter-performance, carries no VAT (internal/vat.ForDonation).",
+                    "type": "boolean"
+                },
+                "manageable": {
+                    "description": "Manageable is true once there is a Stripe customer behind this tenant,\nwhich is what the portal needs.",
+                    "type": "boolean"
+                },
+                "provider": {
+                    "description": "Provider is \"stripe\" when checkout starts in the Hub, \"external\" when the\nonly route to pay is a link somebody else hosts (upgrade_url, which a\nself-hoster may set), and empty when nothing is configured.",
+                    "type": "string"
                 }
             }
         },
@@ -8767,6 +11153,22 @@
                 }
             }
         },
+        "internal_api.checkoutRequest": {
+            "type": "object",
+            "properties": {
+                "plan": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_api.checkoutResponse": {
+            "type": "object",
+            "properties": {
+                "url": {
+                    "type": "string"
+                }
+            }
+        },
         "internal_api.commandRequest": {
             "type": "object",
             "properties": {
@@ -8781,12 +11183,20 @@
                 },
                 "target_device": {
                     "type": "string"
+                },
+                "via": {
+                    "description": "Via selects the leg: \"\" (MQTT while online, else the out-of-band\nbearer the bridge is paired for), \"mqtt\", \"sms\", \"imt\" or \"sbd\"\n(MESHSAT-964). Out-of-band legs carry mgmt_ping, mgmt_status,\nmgmt_log, mgmt_reset, mgmt_bearer, mgmt_restart and reboot.",
+                    "type": "string"
                 }
             }
         },
         "internal_api.commandResponse": {
             "type": "object",
             "properties": {
+                "bearer": {
+                    "description": "Bearer is the leg the command went out on — \"mqtt\", \"sms\", \"imt\" or\n\"sbd\". With via unset the commander picks it, so this is the only\nplace the caller learns what was chosen (MESHSAT-964 AC6).",
+                    "type": "string"
+                },
                 "error": {
                     "type": "string"
                 },
@@ -8865,6 +11275,17 @@
                 }
             }
         },
+        "internal_api.createInviteRequest": {
+            "type": "object",
+            "properties": {
+                "email": {
+                    "type": "string"
+                },
+                "role": {
+                    "type": "string"
+                }
+            }
+        },
         "internal_api.createKeyRequest": {
             "type": "object",
             "properties": {
@@ -8877,6 +11298,10 @@
                 },
                 "label": {
                     "type": "string"
+                },
+                "platform_admin": {
+                    "description": "PlatformAdmin requests the cross-tenant axis (MESHSAT-1209). Refused unless\nthe CALLER already holds it — see CreateKey. This route is open to any\ntenant owner, so an ungated field here would be a cross-tenant escalation.",
+                    "type": "boolean"
                 },
                 "role": {
                     "type": "string"
@@ -9029,6 +11454,41 @@
                 }
             }
         },
+        "internal_api.enrolmentResponse": {
+            "type": "object",
+            "properties": {
+                "expires_at": {
+                    "description": "ExpiresAt is when the claim stops working.",
+                    "type": "string"
+                },
+                "itak_url": {
+                    "description": "ITAKURL is the SAME enrolment, fetching the iTAK package instead. iTAK reads\na flat archive with no manifest, so the ATAK package does not import into it\nat all -- and a claim is single use, so a customer who tries the wrong one on\nan iPhone burns the enrolment (MESHSAT-1084).\n\nReturned as a field rather than left for the UI to build, so the shape of a\nclaim URL is decided in exactly one place. Both point at the same claim: using\neither one spends it.",
+                    "type": "string"
+                },
+                "url": {
+                    "description": "URL is what the QR encodes and what a phone fetches. ABSOLUTE, because the\nthing that follows it is a handset that has no idea which host this came\nfrom. It carries the claim id and the nonce, which together are the only\ncredential -- so it is a secret, and it is shown once.",
+                    "type": "string"
+                },
+                "username": {
+                    "description": "Username is the account the package will authenticate as.",
+                    "type": "string"
+                }
+            }
+        },
+        "internal_api.geofencePolicy": {
+            "type": "object",
+            "properties": {
+                "cooldown_default": {
+                    "type": "integer"
+                },
+                "cooldown_max": {
+                    "type": "integer"
+                },
+                "cooldown_min": {
+                    "type": "integer"
+                }
+            }
+        },
         "internal_api.importDeviceKeyRequest": {
             "type": "object",
             "properties": {
@@ -9038,6 +11498,29 @@
                 },
                 "mode": {
                     "description": "\"decrypt\" or \"passthrough\"",
+                    "type": "string"
+                }
+            }
+        },
+        "internal_api.inviteResponse": {
+            "type": "object",
+            "properties": {
+                "accepted_at": {
+                    "type": "string"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "email": {
+                    "type": "string"
+                },
+                "expires_at": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "role": {
                     "type": "string"
                 }
             }
@@ -9071,6 +11554,74 @@
                 }
             }
         },
+        "internal_api.oobPairRequest": {
+            "type": "object",
+            "properties": {
+                "key_hex": {
+                    "description": "64 hex chars: the mgmt key from the kit's bundle",
+                    "type": "string"
+                },
+                "local_role": {
+                    "description": "\"importer\" (default: the kit issued the key) or \"issuer\"",
+                    "type": "string"
+                },
+                "phone": {
+                    "description": "the kit's SIM, E.164",
+                    "type": "string"
+                },
+                "sat_imei": {
+                    "description": "the kit's Iridium modem IMEI",
+                    "type": "string"
+                }
+            }
+        },
+        "internal_api.oobProvisionRequest": {
+            "type": "object",
+            "properties": {
+                "phone": {
+                    "type": "string"
+                },
+                "sat_imei": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_api.oobStatus": {
+            "type": "object",
+            "properties": {
+                "bearers": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "key_hex": {
+                    "description": "only on provision: shown once",
+                    "type": "string"
+                },
+                "local_role": {
+                    "type": "string"
+                },
+                "paired": {
+                    "type": "boolean"
+                },
+                "peer_id": {
+                    "type": "integer"
+                },
+                "phone": {
+                    "type": "string"
+                },
+                "rx_high": {
+                    "type": "integer"
+                },
+                "sat_imei": {
+                    "type": "string"
+                },
+                "tx_counter": {
+                    "type": "integer"
+                }
+            }
+        },
         "internal_api.paginatedPositions": {
             "type": "object",
             "properties": {
@@ -9088,6 +11639,79 @@
                 },
                 "total": {
                     "type": "integer"
+                }
+            }
+        },
+        "internal_api.providerAccountView": {
+            "type": "object",
+            "properties": {
+                "configured": {
+                    "type": "boolean"
+                },
+                "description": {
+                    "type": "string"
+                },
+                "fields": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/github_com_meshsat_meshsat-hub_internal_integrations.Field"
+                    }
+                },
+                "label": {
+                    "type": "string"
+                },
+                "platform": {
+                    "description": "the default tenant's environment account",
+                    "type": "boolean"
+                },
+                "provider": {
+                    "type": "string"
+                },
+                "updated_at": {
+                    "type": "string"
+                },
+                "values": {
+                    "description": "masked",
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "string"
+                    }
+                },
+                "webhook": {
+                    "description": "inbound path the tenant configures at the provider",
+                    "type": "string"
+                },
+                "webhook_path": {
+                    "description": "relative; the SPA prefixes its origin",
+                    "type": "string"
+                }
+            }
+        },
+        "internal_api.putProviderAccountRequest": {
+            "type": "object",
+            "properties": {
+                "values": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "string"
+                    }
+                }
+            }
+        },
+        "internal_api.recordRefundRequest": {
+            "type": "object",
+            "properties": {
+                "amount_cents": {
+                    "description": "AmountCents is what actually went back, in minor units. Omitted or zero\nmeans the whole payment.",
+                    "type": "integer"
+                },
+                "reason": {
+                    "description": "Reason is why, in the operator's words. It reaches the audit line, never\nthe customer.",
+                    "type": "string"
+                },
+                "refunded_at": {
+                    "description": "RefundedAt is when the money went back, RFC 3339. It dates the credit\nnote. Omitted means now.",
+                    "type": "string"
                 }
             }
         },
@@ -9307,6 +11931,161 @@
                 }
             }
         },
+        "internal_api.takStatusResponse": {
+            "type": "object",
+            "properties": {
+                "enabled": {
+                    "description": "Enabled is whether this tenant has a server at all.",
+                    "type": "boolean"
+                },
+                "limit": {
+                    "description": "-1 when the plan has no ceiling",
+                    "type": "integer"
+                },
+                "phase": {
+                    "description": "Phase is the operator's own word for where it has got to: Provisioning,\nReady, Failed and so on.",
+                    "type": "string"
+                },
+                "plan": {
+                    "type": "string"
+                },
+                "port": {
+                    "description": "Port is the public TAK SSL port. There is deliberately no host here: the\ninstance's address is an in-cluster service name that no phone can reach,\nand publishing it would tell a customer something both useless and internal.\nA phone is configured from its enrollment package, not from this.",
+                    "type": "integer"
+                },
+                "remaining": {
+                    "description": "-1 when unlimited",
+                    "type": "integer"
+                },
+                "users": {
+                    "description": "Users is the account meter.",
+                    "type": "integer"
+                }
+            }
+        },
+        "internal_api.takUserResponse": {
+            "type": "object",
+            "properties": {
+                "active": {
+                    "type": "boolean"
+                },
+                "callsign": {
+                    "type": "string"
+                },
+                "cert_serial": {
+                    "description": "CertSerial is present once a phone has enrolled. The enrollment token hash\nis never here: store.TAKUser marks it json:\"-\" and it is in\nstore.RedactedInExport for the same reason.",
+                    "type": "string"
+                },
+                "username": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_api.tenantResponse": {
+            "type": "object",
+            "properties": {
+                "audit_retention_days": {
+                    "description": "AuditRetentionDays is the tenant's own choice in days, 0 meaning the\nplatform default, which AuditRetentionDefault carries.",
+                    "type": "integer"
+                },
+                "audit_retention_default": {
+                    "type": "integer"
+                },
+                "audit_retention_max": {
+                    "type": "integer"
+                },
+                "audit_retention_min": {
+                    "type": "integer"
+                },
+                "bridge_offline_timeout": {
+                    "description": "BridgeOfflineTimeout is the tenant's own choice in seconds, or 0 meaning\n\"use the platform default\" -- which BridgeOfflineTimeoutDefault carries,\nso the UI can show the number that is actually in force instead of\nhardcoding one that can drift from the ConfigMap.",
+                    "type": "integer"
+                },
+                "bridge_offline_timeout_default": {
+                    "type": "integer"
+                },
+                "bridge_offline_timeout_max": {
+                    "type": "integer"
+                },
+                "bridge_offline_timeout_min": {
+                    "type": "integer"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "oob_max_per_hour": {
+                    "description": "Out-of-band command policy: this tenant's own choices, 0 meaning the\nplatform default, with that default and the bounds alongside so the form\nshows the number actually in force (MESHSAT-1121).",
+                    "type": "integer"
+                },
+                "oob_max_per_hour_default": {
+                    "type": "integer"
+                },
+                "oob_max_per_hour_max": {
+                    "type": "integer"
+                },
+                "oob_max_per_hour_min": {
+                    "type": "integer"
+                },
+                "oob_sat_timeout_default": {
+                    "type": "integer"
+                },
+                "oob_sat_timeout_sec": {
+                    "type": "integer"
+                },
+                "oob_sms_timeout_default": {
+                    "type": "integer"
+                },
+                "oob_sms_timeout_sec": {
+                    "type": "integer"
+                },
+                "oob_timeout_max": {
+                    "type": "integer"
+                },
+                "oob_timeout_min": {
+                    "type": "integer"
+                },
+                "owner_user_id": {
+                    "type": "string"
+                },
+                "plan": {
+                    "type": "string"
+                },
+                "purge_grace_days": {
+                    "description": "PurgeGraceDays is how long a closed account can still be recovered. The\nclose dialog quotes it to the customer, and a number the UI hardcoded\nwould be one refactor away from disagreeing with what actually happens.",
+                    "type": "integer"
+                },
+                "slug": {
+                    "type": "string"
+                },
+                "status": {
+                    "type": "string"
+                },
+                "updated_at": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_api.tierResponse": {
+            "type": "object",
+            "properties": {
+                "current": {
+                    "type": "boolean"
+                },
+                "devices": {
+                    "description": "-1 = no ceiling",
+                    "type": "integer"
+                },
+                "plan": {
+                    "type": "string"
+                }
+            }
+        },
         "internal_api.topologyHub": {
             "type": "object",
             "properties": {
@@ -9367,6 +12146,20 @@
                 }
             }
         },
+        "internal_api.unmatchedPaymentResponse": {
+            "type": "object",
+            "properties": {
+                "payment": {
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                },
+                "recorded_at": {
+                    "type": "string"
+                }
+            }
+        },
         "internal_api.updateBondGroupRequest": {
             "type": "object",
             "properties": {
@@ -9395,6 +12188,32 @@
                 }
             }
         },
+        "internal_api.updateTenantRequest": {
+            "type": "object",
+            "properties": {
+                "audit_retention_days": {
+                    "description": "AuditRetentionDays, same pointer semantics: absent leaves it alone,\n0 returns the tenant to the platform default.",
+                    "type": "integer"
+                },
+                "bridge_offline_timeout": {
+                    "description": "BridgeOfflineTimeout is a pointer so the three cases stay\ndistinguishable: absent leaves the setting alone, 0 returns the tenant to\nthe platform default, and a number sets it. A plain int would make every\nname change silently reset the timeout to the default.",
+                    "type": "integer"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "oob_max_per_hour": {
+                    "description": "Out-of-band command policy, same pointer semantics throughout: absent\nleaves it alone, 0 returns the tenant to the platform default. Owner\neditable, unlike the send caps -- these are the tenant's OWN kit on the\ntenant's OWN airtime, not a commercial lever (MESHSAT-1121).",
+                    "type": "integer"
+                },
+                "oob_sat_timeout_sec": {
+                    "type": "integer"
+                },
+                "oob_sms_timeout_sec": {
+                    "type": "integer"
+                }
+            }
+        },
         "internal_api.updateUserRequest": {
             "type": "object",
             "properties": {
@@ -9410,6 +12229,53 @@
                 },
                 "role": {
                     "type": "string"
+                }
+            }
+        },
+        "internal_api.usageResponse": {
+            "type": "object",
+            "properties": {
+                "billing": {
+                    "description": "Billing reports whether this tenant can start a checkout and whether it\nhas anything to manage. The claim code it replaces is gone: a payment is\nbound to a tenant by the metadata on its Checkout session now, not by\nsomebody typing a code into a message box (MESHSAT-1023).",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/internal_api.billingState"
+                        }
+                    ]
+                },
+                "bridges": {
+                    "type": "integer"
+                },
+                "devices": {
+                    "type": "integer"
+                },
+                "limit": {
+                    "description": "-1 when the plan has no ceiling",
+                    "type": "integer"
+                },
+                "over_limit": {
+                    "type": "boolean"
+                },
+                "plan": {
+                    "type": "string"
+                },
+                "remaining": {
+                    "description": "-1 when unlimited; never negative otherwise",
+                    "type": "integer"
+                },
+                "tiers": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/internal_api.tierResponse"
+                    }
+                },
+                "upgrade_url": {
+                    "description": "UpgradeURL is where a person goes to pay, for as long as the old\nprovider is still the one taking money. It is empty once checkout starts\ninside the Hub, and the UI shows a Subscribe button instead.",
+                    "type": "string"
+                },
+                "used": {
+                    "description": "devices + bridges",
+                    "type": "integer"
                 }
             }
         },
@@ -9439,130 +12305,36 @@
                 }
             }
         },
-        "internal_cluster.ClusterStatus": {
+        "internal_api.vatThresholdResponse": {
             "type": "object",
             "properties": {
-                "checked_at": {
+                "by_country": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "integer",
+                        "format": "int64"
+                    }
+                },
+                "cross_border_cents": {
+                    "description": "CrossBorderCents is the gross of issued receipts to EU consumers OUTSIDE\nthe Netherlands this calendar year. Domestic sales are excluded: the\nthreshold is about supplies to other member states, and counting our own\nwould raise a false alarm on the busiest possible month.",
+                    "type": "integer"
+                },
+                "note": {
+                    "description": "Note says in words what the number means, because the person reading it\nat 80% needs to know what to do, not just that a bar is filling.",
                     "type": "string"
                 },
-                "healthy": {
-                    "type": "boolean"
-                },
-                "node_count": {
-                    "type": "integer"
-                },
-                "nodes": {
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/internal_cluster.NodeStatus"
-                    }
-                },
-                "problems": {
-                    "type": "array",
-                    "items": {
-                        "type": "string"
-                    }
-                },
-                "quorum_size": {
-                    "description": "majority = (n/2)+1",
-                    "type": "integer"
-                }
-            }
-        },
-        "internal_cluster.NodeStatus": {
-            "type": "object",
-            "properties": {
-                "cert_deps_distance": {
-                    "description": "avg distance between causal deps",
+                "percent_used": {
                     "type": "number"
                 },
-                "checked_at": {
-                    "description": "Timestamp",
-                    "type": "string"
-                },
-                "cluster_size": {
-                    "description": "Cluster membership",
+                "refunded_cents": {
+                    "description": "RefundedCents is what was given back and therefore never supplied. It is\nalready subtracted from CrossBorderCents; it is reported separately so a\nperson can see why the figure moved down (MESHSAT-1019).",
                     "type": "integer"
                 },
-                "cluster_status": {
-                    "description": "\"Primary\", \"Non-primary\", \"Disconnected\"",
-                    "type": "string"
-                },
-                "connected": {
-                    "description": "wsrep_connected = ON",
-                    "type": "boolean"
-                },
-                "flow_control_paused": {
-                    "description": "0.0-1.0, fraction of time paused",
-                    "type": "number"
-                },
-                "healthy": {
-                    "description": "Health assessment",
-                    "type": "boolean"
-                },
-                "hub_url": {
-                    "type": "string"
-                },
-                "last_committed": {
-                    "description": "Counters",
+                "threshold_cents": {
                     "type": "integer"
                 },
-                "node_address": {
-                    "type": "string"
-                },
-                "node_name": {
-                    "description": "Identity",
-                    "type": "string"
-                },
-                "problems": {
-                    "type": "array",
-                    "items": {
-                        "type": "string"
-                    }
-                },
-                "ready": {
-                    "description": "Node state",
-                    "type": "boolean"
-                },
-                "received": {
-                    "description": "total writesets received",
+                "year": {
                     "type": "integer"
-                },
-                "recv_queue": {
-                    "description": "Performance",
-                    "type": "integer"
-                },
-                "replicated": {
-                    "description": "total writesets replicated (sent)",
-                    "type": "integer"
-                },
-                "send_queue": {
-                    "description": "local send queue size",
-                    "type": "integer"
-                },
-                "state_comment": {
-                    "description": "\"Synced\", \"Donor/Desynced\", \"Joined\", \"Initialized\"",
-                    "type": "string"
-                },
-                "state_uuid": {
-                    "type": "string"
-                }
-            }
-        },
-        "internal_cluster.RemediationAction": {
-            "type": "object",
-            "properties": {
-                "dangerous": {
-                    "type": "boolean"
-                },
-                "description": {
-                    "type": "string"
-                },
-                "id": {
-                    "type": "string"
-                },
-                "name": {
-                    "type": "string"
                 }
             }
         },
@@ -9934,6 +12706,10 @@
                 "name": {
                     "type": "string"
                 },
+                "senders": {
+                    "description": "comma-separated origins; empty = any (MESHSAT-964)",
+                    "type": "string"
+                },
                 "source_type": {
                     "type": "string"
                 }
@@ -10001,6 +12777,10 @@
                 "event": {
                     "type": "string"
                 },
+                "latency_ms": {
+                    "description": "LatencyMS is how long the attempt took. The Delivery Logs table has had a\nLatency column since it was written and nothing ever measured one, so\nevery row rendered \"undefinedms\".",
+                    "type": "integer"
+                },
                 "status_code": {
                     "type": "integer"
                 },
@@ -10067,6 +12847,10 @@
                     "description": "HMAC-SHA256 signing secret",
                     "type": "string"
                 },
+                "tenant_id": {
+                    "description": "TenantID is the tenant that owns this webhook and the ONLY tenant whose\nevents it may receive (MESHSAT-1118). It is set from the caller's session\nin CreateWebhook and is never read from a request body -- see the\noverwrite in handler.go and the test that pins it.",
+                    "type": "string"
+                },
                 "timeout_sec": {
                     "description": "default 10",
                     "type": "integer"
@@ -10087,12 +12871,7 @@
                 1000000,
                 1000000000,
                 60000000000,
-                3600000000000,
-                1,
-                1000,
-                1000000,
-                1000000000,
-                60000000000
+                3600000000000
             ],
             "x-enum-varnames": [
                 "minDuration",
@@ -10102,16 +12881,14 @@
                 "Millisecond",
                 "Second",
                 "Minute",
-                "Hour",
-                "Nanosecond",
-                "Microsecond",
-                "Millisecond",
-                "Second",
-                "Minute"
+                "Hour"
             ]
         }
     },
     "securityDefinitions": {
+        "BasicAuth": {
+            "type": "basic"
+        },
         "BearerAuth": {
             "type": "apiKey",
             "name": "Authorization",
