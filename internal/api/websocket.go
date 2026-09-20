@@ -16,6 +16,10 @@ import (
 // wsUpgrader checks the Origin header against allowed origins.
 // Controlled by HUB_WS_ALLOWED_ORIGINS env var (comma-separated, default: same-origin).
 var wsUpgrader = websocket.Upgrader{
+	// The browser carries its bearer token in Sec-WebSocket-Protocol (see
+	// WSTokenFromQuery). A server that does not echo a selected subprotocol
+	// makes the browser abort the connection, so "bearer" is declared here.
+	Subprotocols: []string{"bearer"},
 	CheckOrigin: func(r *http.Request) bool {
 		allowed := os.Getenv("HUB_WS_ALLOWED_ORIGINS")
 		origin := r.Header.Get("Origin")
@@ -44,19 +48,41 @@ var wsUpgrader = websocket.Upgrader{
 	},
 }
 
-// WSTokenFromQuery is middleware that copies a ?token= query parameter into
-// the Authorization header. This allows browser WebSocket clients (which
-// cannot send custom headers on upgrade) to authenticate via query param.
-// Must be applied BEFORE the auth middleware chain.
+// WSTokenFromQuery is middleware that lets a browser WebSocket client
+// authenticate, since the browser API cannot set an Authorization header on
+// the upgrade request. Must be applied BEFORE the auth middleware chain.
+//
+// Two ways in, and the order matters. `Sec-WebSocket-Protocol: bearer, <token>`
+// is preferred and is what the SPA sends, because it is a HEADER: measured on
+// 2026-09-20, the VPS haproxy logs the full request line including the query
+// string, so a `?token=` upgrade would write a live access token into the edge
+// log on all three edges (the Hub's own logger records only URL.Path, and
+// ingress-nginx logs $uri, so neither of those would have shown it). The query
+// parameter is kept for non-browser clients that can neither set a header nor
+// negotiate a subprotocol. [MESHSAT-1228]
 func WSTokenFromQuery(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("Authorization") == "" {
-			if token := r.URL.Query().Get("token"); token != "" {
+			if token := wsSubprotocolToken(r); token != "" {
+				r.Header.Set("Authorization", "Bearer "+token)
+			} else if token := r.URL.Query().Get("token"); token != "" {
 				r.Header.Set("Authorization", "Bearer "+token)
 			}
 		}
 		next.ServeHTTP(w, r)
 	})
+}
+
+// wsSubprotocolToken reads the token a browser offers as the second entry of
+// `Sec-WebSocket-Protocol: bearer, <token>`. Anything else -- no "bearer"
+// sentinel, or no second value -- returns empty rather than guessing, so a
+// client negotiating some other subprotocol is not mistaken for a credential.
+func wsSubprotocolToken(r *http.Request) string {
+	parts := strings.Split(r.Header.Get("Sec-WebSocket-Protocol"), ",")
+	if len(parts) < 2 || strings.TrimSpace(parts[0]) != "bearer" {
+		return ""
+	}
+	return strings.TrimSpace(parts[1])
 }
 
 // wsWriteTimeout bounds a single frame write. Without it one client that stops
@@ -99,9 +125,10 @@ func NewWSHub() *WSHub {
 
 // HandleWS upgrades an HTTP connection to WebSocket.
 // Authentication is handled by the middleware chain; the WSTokenFromQuery
-// middleware copies ?token= into the Authorization header for browser clients.
+// middleware lifts the token out of `Sec-WebSocket-Protocol: bearer, <token>`
+// (what the SPA sends) or, for non-browser clients, ?token=.
 // @Summary      WebSocket event stream
-// @Description  Real-time stream of this tenant's messages, positions and alerts. Pass token via ?token= query param or Authorization header.
+// @Description  Real-time stream of this tenant's messages, positions and alerts. Browsers pass the token as the Sec-WebSocket-Protocol "bearer, <token>"; other clients may use the Authorization header or ?token=.
 // @Tags         websocket
 // @Param        token query string false "Auth token (JWT or API key)"
 // @Router       /api/ws [get]
