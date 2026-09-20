@@ -2,13 +2,14 @@
 # hub-verify at 03:15, which takes about two minutes, so a slow browser run
 # cannot delay the suite that beats the status-page heartbeat.
 #
-# Why the stock Playwright image and not our own: Playwright does not support
-# Alpine, and the hub-verify image is Alpine. Building a second Debian image
-# to hold a browser we would only ever use unmodified buys nothing, so the
-# suite travels as a ConfigMap and the image stays upstream's. It is outside
-# the Kyverno `verify-meshsat-hub-image` match (ghcr.io/meshsat/meshsat-hub),
-# so it needs no cosign signature -- but Kyverno DOES enforce the restricted
-# profile here, hence runAsNonRoot, drop ALL and RuntimeDefault below.
+# Why its own image and not the hub-verify one: Playwright does not support
+# Alpine, and hub-verify is Alpine. Why not upstream's playwright/python
+# unmodified: it ships the browsers but not the playwright package (see
+# Dockerfile). The suite itself still travels as a ConfigMap, so changing a
+# check is a ConfigMap change and not an image build. This image is outside the
+# Kyverno `verify-meshsat-hub-image` match (ghcr.io/meshsat/meshsat-hub), so it
+# needs no cosign signature -- but Kyverno DOES enforce the restricted profile
+# here, hence runAsNonRoot, drop ALL and RuntimeDefault below.
 apiVersion: batch/v1
 kind: CronJob
 metadata:
@@ -18,6 +19,10 @@ metadata:
     app.kubernetes.io/name: hub-browser-verify
 spec:
   schedule: "45 3 * * *"
+  # Armed only after a manual Job has been seen to pass in-cluster. A nightly
+  # that pushes to the operators' ntfy topic must not have its teething
+  # problems at 03:45 (the first run of this one did page, on 2026-09-20).
+  suspend: true
   timeZone: Europe/Amsterdam
   concurrencyPolicy: Forbid
   successfulJobsHistoryLimit: 2
@@ -51,9 +56,8 @@ spec:
               type: RuntimeDefault
           containers:
             - name: browser-verify
-              image: mcr.microsoft.com/playwright/python
+              image: ghcr.io/meshsat/meshsat-hub-browser-verify
               imagePullPolicy: IfNotPresent
-              command: ["/bin/bash", "/suites/run.sh"]
               envFrom:
                 # Reuses hub-verify's secret for NTFY_* only; nothing here
                 # needs the admin key and nothing here authenticates.
