@@ -608,7 +608,7 @@ func (h *WebhookHandler) processLingoMO(ctx context.Context, mo *LingoMO, remote
 	}
 
 	// Publish decoded message to mo/decoded.
-	msgID := fmt.Sprintf("mo-%s-%d", imei, momsn) // same scheme as rockblock.sbdMessageID
+	msgID := moMessageID(imei, momsn, source, mo.ID, transmitTime)
 	decoded := WebhookMOMessage{
 		ID:               msgID,
 		IMEI:             imei,
@@ -803,4 +803,26 @@ func isBase64Ciphertext(b []byte) bool {
 		return false
 	}
 	return !isPrintable(raw)
+}
+
+// moMessageID is the identity a message is stored, claimed and routed under.
+//
+// SBD keeps "mo-<imei>-<momsn>", the scheme rockblock.sbdMessageID uses, so the
+// same session arriving through both providers is one message. Only SBD has a
+// MOMSN, though: for IMT and cellular LingoMO.MOMSN() answers 0, and with the
+// SBD scheme every message a 9704 ever sends is "mo-<imei>-0". The first one is
+// stored and routed; each later one looks like a redelivery of it, so the insert
+// reports a duplicate at debug level and the routing engine's once-only claim
+// skips it without a word. Seen live on 2026-09-20: a kit's second satellite
+// text reached the Hub and went nowhere. Off SBD the identity is Cloudloop's
+// own message id, which is what makes a genuine redelivery the same message and
+// a new message a new one; the transmit time stands in if that is ever empty.
+func moMessageID(imei string, momsn int, source, lingoID, transmitTime string) string {
+	if bearerOf(source) == "sbd" {
+		return fmt.Sprintf("mo-%s-%d", imei, momsn)
+	}
+	if lingoID != "" {
+		return fmt.Sprintf("mo-%s-%s", imei, lingoID)
+	}
+	return fmt.Sprintf("mo-%s-t%s", imei, transmitTime)
 }
