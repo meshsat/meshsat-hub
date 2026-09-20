@@ -1,0 +1,15 @@
+# hub.meshsat.net is the application, not a marketing surface. Getting an
+# account is an approval, not a self-service signup, so there is nothing here
+# for a search engine to index: every route behind "/" needs a session, and the
+# app is hash-routed, so a crawler following links finds one page.
+#
+# This file exists because the Hub used to answer /robots.txt with the SPA
+# shell. Google treats an unparseable robots.txt as "no rules" and crawled the
+# whole app, and meshsat.net is a DNS-verified DOMAIN property, so the Hub's
+# soft 404s counted against it (MESHSAT-1185). auth.meshsat.net says the same
+# thing for the same reason.
+#
+# Disallowing crawling is not hiding: the Hub is open with owner approval
+# (MESHSAT-995). It keeps an application out of a search index.
+User-agent: *
+Disallow: /

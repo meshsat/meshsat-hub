@@ -3114,14 +3114,26 @@ func main() {
 				api.WriteJSON(w, http.StatusNotFound, map[string]string{"error": "not found"})
 				return
 			}
-			// Try to serve the file; if not found, serve index.html (SPA routing)
-			f, err := distFS.Open(req.URL.Path[1:]) // strip leading /
-			if err != nil {
-				// Serve index.html for SPA client-side routing
-				req.URL.Path = "/"
-			} else {
-				_ = f.Close()
+			// The SPA is hash-routed (`createWebHashHistory`), so every in-app
+			// route is "/#/fleet" and the fragment never reaches the server:
+			// the only path the app itself needs is "/". A path that is not a
+			// real file in the bundle is therefore not an app route either.
+			//
+			// This used to answer any such path with index.html, so every
+			// unknown URL was a 200 carrying the app shell, which is Google's
+			// definition of a soft 404 -- and meshsat.net is a DNS-verified
+			// DOMAIN property, so the Hub's share counted against the whole
+			// domain's totals (MESHSAT-1185). Unknown paths now 404.
+			if req.URL.Path == "/" {
+				fileServer.ServeHTTP(w, req)
+				return
 			}
+			f, err := distFS.Open(strings.TrimPrefix(req.URL.Path, "/"))
+			if err != nil {
+				http.NotFound(w, req)
+				return
+			}
+			_ = f.Close()
 			fileServer.ServeHTTP(w, req)
 		}))
 	}
