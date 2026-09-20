@@ -61,7 +61,7 @@ function actionColor(action) {
     <div v-if="chainStatus" class="rounded-lg p-4 mb-6"
       :class="chainStatus.valid ? 'bg-emerald-900/40 border border-emerald-700' : 'bg-red-900/40 border border-red-700'">
       <span v-if="chainStatus.valid" class="text-emerald-300">
-        Chain verified — {{ chainStatus.verified }} entries, no tampering detected.
+        Chain verified. {{ chainStatus.verified }} entries, no tampering detected.
       </span>
       <span v-else class="text-red-300">
         Chain integrity failure{{ chainStatus.verified ? ` at entry ${chainStatus.verified}` : '' }}.

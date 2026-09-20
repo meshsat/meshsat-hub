@@ -51,7 +51,7 @@ async function fetchBlob(url, opts = {}) {
     if (res.status === 401) {
       auth.logout()
       window.location.hash = '#/login'
-      throw new Error('Session expired — please log in again')
+      throw new Error('Session expired, please log in again')
     }
   }
   if (!res.ok) {

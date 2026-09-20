@@ -258,7 +258,7 @@ onUnmounted(() => {
 
     <!-- Drawing form -->
     <div v-if="showForm" class="bg-tactical-surface rounded-lg border border-amber-700 p-4 mb-4">
-      <h2 class="text-sm font-semibold text-ms-warning uppercase tracking-wider mb-2">Drawing mode — click map to add vertices</h2>
+      <h2 class="text-sm font-semibold text-ms-warning uppercase tracking-wider mb-2">Drawing mode: click the map to add vertices</h2>
       <div class="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-3">
         <input v-model="formName" placeholder="Fence name" class="bg-gray-800 border border-gray-700 rounded px-3 py-2 text-sm">
         <select v-model="formTrigger" class="bg-gray-800 border border-gray-700 rounded px-3 py-2 text-sm">
@@ -272,7 +272,7 @@ onUnmounted(() => {
              chain list cannot be loaded, rather than blocking the form. -->
         <select v-if="chainsLoaded" v-model="formChainId"
           class="bg-gray-800 border border-gray-700 rounded px-3 py-2 text-sm">
-          <option value="">No alert — record crossings only</option>
+          <option value="">No alert, record crossings only</option>
           <option v-for="c in chains" :key="c.id" :value="c.id">{{ c.name || c.id }}</option>
         </select>
         <input v-else v-model="formChainId" placeholder="Escalation chain ID (optional)"
@@ -289,7 +289,7 @@ onUnmounted(() => {
       <p v-if="policy" class="text-xs text-gray-400 -mt-1">
         After a crossing alerts, this fence stays quiet for that device for the cooldown
         ({{ policy.cooldown_default }}s by default, {{ policy.cooldown_min }}&ndash;{{ policy.cooldown_max }}s).
-        The first crossing is never delayed &mdash; this only stops a device sitting on the
+        The first crossing is never delayed. This only stops a device sitting on the
         boundary from alerting repeatedly.
       </p>
       <div class="flex gap-2">

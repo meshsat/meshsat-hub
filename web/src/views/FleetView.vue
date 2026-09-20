@@ -625,7 +625,7 @@ function certExpiryStatus(b) {
               <div v-if="credentialResult && credentialResult.bridge_id === b.bridge_id"
                 class="mt-3 bg-amber-900/20 border border-amber-700/50 rounded-lg p-3">
                 <div class="flex items-center justify-between mb-2">
-                  <span class="text-xs font-semibold text-amber-300">MQTT Credentials — copy now, shown only once</span>
+                  <span class="text-xs font-semibold text-amber-300">MQTT credentials. Copy them now, they are shown only once</span>
                   <button @click.stop="dismissCredentials" class="text-xs text-gray-400 hover:text-gray-200">dismiss</button>
                 </div>
                 <div class="space-y-2 text-xs font-mono">
@@ -654,7 +654,7 @@ function certExpiryStatus(b) {
               <div v-if="certificateResult && certificateResult.bridge_id === b.bridge_id"
                 class="mt-3 bg-amber-900/20 border border-amber-700/50 rounded-lg p-3">
                 <div class="flex items-center justify-between mb-2">
-                  <span class="text-xs font-semibold text-amber-300">TLS Certificate — private key shown only once</span>
+                  <span class="text-xs font-semibold text-amber-300">TLS certificate. The private key is shown only once</span>
                   <button @click.stop="dismissCertificate" class="text-xs text-gray-400 hover:text-gray-200">dismiss</button>
                 </div>
                 <div class="text-xs text-gray-400 mb-2">
@@ -874,7 +874,7 @@ function certExpiryStatus(b) {
 
             <!-- No health data -->
             <div v-if="!parseHealth(b)" class="text-xs text-gray-500 italic mt-2">
-              No health data received yet — bridge has not connected.
+              No health data received yet. The bridge has not connected.
             </div>
           </div>
         </Transition>
@@ -935,7 +935,7 @@ function certExpiryStatus(b) {
         <h3 class="text-lg font-display font-semibold text-brand-primary mb-1">Provision QR Code</h3>
         <p class="text-xs text-gray-400 mb-4">
           Scan with the MeshSat Android app to auto-configure Hub connection.
-          <span class="text-ms-warning">Single-use</span> — credentials are regenerated each time.
+          <span class="text-ms-warning">Single-use</span>: credentials are regenerated each time.
         </p>
         <div class="flex justify-center bg-white rounded-lg p-4 mb-4">
           <img v-if="provisionQRUrl" :src="provisionQRUrl" :alt="'Provision QR for ' + provisionQRBridgeId"

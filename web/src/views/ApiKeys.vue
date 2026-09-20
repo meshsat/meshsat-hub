@@ -81,7 +81,7 @@ function roleBadgeClass(role) {
     <!-- Created key banner (shown once) -->
     <div v-if="createdKey" class="bg-green-900/30 border border-green-700 rounded-lg p-4 mb-4">
       <div class="text-green-300 font-semibold mb-2">API Key Created</div>
-      <div class="text-sm text-gray-300 mb-2">Copy this key now — it won't be shown again:</div>
+      <div class="text-sm text-gray-300 mb-2">Copy this key now. It won't be shown again:</div>
       <code class="block bg-gray-900 text-ms-success px-3 py-2 rounded font-mono text-sm break-all select-all">
         {{ createdKey.key }}
       </code>

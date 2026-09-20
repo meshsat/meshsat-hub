@@ -58,6 +58,15 @@ const checkoutBusy = ref(false)
 // Only the tiers that can actually be bought. custom and beta are operator-set
 // and unlimited, and the server refuses to sell them; offering them here would
 // produce a button that always fails.
+// Plan names are stored lowercase ('crew', 'fleet') but they are proper names,
+// so they are capitalised for display. The button used to carry a Tailwind
+// `capitalize` class instead, which title-cased the whole label and rendered
+// "Subscribe To Crew" (MESHSAT-1252). House style is sentence case.
+function planName(plan) {
+  if (!plan) return ''
+  return plan.charAt(0).toUpperCase() + plan.slice(1)
+}
+
 const buyable = computed(() =>
   (usage.value?.tiers || []).filter((t) => t.plan === 'crew' || t.plan === 'fleet'))
 
@@ -439,8 +448,8 @@ onMounted(load)
           <button v-for="tier in buyable" :key="tier.plan" type="button"
             :disabled="checkoutBusy || tier.current"
             @click="subscribe(tier.plan)"
-            class="px-3 py-1.5 bg-brand-primary hover:bg-brand-accent text-ms-on-primary text-xs font-medium rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed capitalize">
-            {{ tier.current ? tier.plan + ' — current' : 'Subscribe to ' + tier.plan }}
+            class="px-3 py-1.5 bg-brand-primary hover:bg-brand-accent text-ms-on-primary text-xs font-medium rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
+            {{ tier.current ? planName(tier.plan) + ' (current)' : 'Subscribe to ' + planName(tier.plan) }}
           </button>
           <button v-if="usage.billing?.manageable" type="button" :disabled="checkoutBusy"
             @click="manageBilling"
@@ -453,7 +462,7 @@ onMounted(load)
             Donate
           </button>
           <p class="w-full text-[11px] text-ms-muted mt-1">
-            Payment is handled by Stripe. Cancel or change your card whenever you like — your
+            Payment is handled by Stripe. Cancel or change your card whenever you like. Your
             devices keep reporting either way, and an SOS is never affected by billing.
           </p>
           <p v-if="usage.billing?.donatable" class="w-full text-[11px] text-ms-muted">
@@ -495,7 +504,7 @@ onMounted(load)
         <h4 class="text-sm font-medium text-ms-text">Your data</h4>
         <p class="text-[11px] text-ms-muted mt-1 mb-2">
           Take a copy of everything in this account, or close it. Closing blocks access straight away and
-          erases the data after {{ info?.purge_grace_days || 30 }} days &mdash; until then it can be undone by asking us.
+          erases the data after {{ info?.purge_grace_days || 30 }} days. Until then it can be undone by asking us.
         </p>
         <div class="flex flex-wrap gap-2">
           <button @click="exportData" :disabled="exporting"
@@ -513,7 +522,7 @@ onMounted(load)
           <ul class="text-[11px] text-ms-muted mt-1 mb-2 list-disc list-inside space-y-0.5">
             <li>Everyone in the account loses access immediately.</li>
             <li>Devices stop being manageable here. They do not stop transmitting.</li>
-            <li>A paid plan does not cancel itself &mdash; cancel it in Manage billing first, or it keeps charging.</li>
+            <li>A paid plan does not cancel itself. Cancel it in Manage billing first, or it keeps charging.</li>
             <li>After the grace period the data is destroyed and cannot be recovered.</li>
           </ul>
           <label for="close-confirm" class="block text-xs text-ms-muted2 mb-1">
