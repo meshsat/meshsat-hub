@@ -3,10 +3,23 @@
 # 3000-flow window -- only replies to its own requests, which conntrack allows --
 # and it declares no probes of any kind, so nothing legitimately dials it.
 #
-# `ingress: []` is therefore not an empty rule but the tightest one available: it
-# selects the pod, which switches it to default-deny for ingress, and then permits
-# nothing. If this pod ever needs to be reachable, that is a design change and it
-# should fail loudly here rather than quietly work.
+# This said `ingress: []` until 2026-09-20, on the reasoning that an empty list
+# is "the tightest rule available". It is not a rule at all. Cilium rejected the
+# whole policy -- `VALID=False`, "rule must have at least one of Ingress,
+# IngressDeny, Egress, EgressDeny" -- from the moment it was applied, and the
+# CRD says so in as many words: "If omitted or empty, this rule does not apply
+# at ingress." The pod was still ingress-denied, but by the namespace-wide
+# `default-deny-ingress` alone, not by anything here (MESHSAT-1230).
+#
+# `ingress: [{}]` is NOT the fix: an ingress rule with no selectors is an empty
+# match, and reading it as deny-all is a guess about which way Cilium resolves
+# it. `ingressDeny` says it outright -- "Any rule inserted here will be denied
+# regardless of the allowed ingress rules in the 'ingress' field" -- and it
+# makes the policy valid, because a deny rule counts as a rule.
+#
+# Only ingress is named, so egress enforcement stays off for this endpoint and
+# the heartbeat keeps reaching Tor and the status page. Reply traffic to its own
+# requests is conntrack-established and is not subject to ingress policy.
 apiVersion: cilium.io/v2
 kind: CiliumNetworkPolicy
 metadata:
@@ -19,4 +32,6 @@ spec:
   endpointSelector:
     matchLabels:
       app.kubernetes.io/name: onion-heartbeat
-  ingress: []
+  ingressDeny:
+    - fromEntities:
+        - all
