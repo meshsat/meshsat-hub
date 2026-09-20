@@ -8,6 +8,9 @@ definitions:
         type: string
       name:
         type: string
+      platform_admin:
+        description: may act across tenants (X-Tenant-ID)
+        type: boolean
       roles:
         items:
           type: string
@@ -316,6 +319,11 @@ definitions:
       chain_id:
         description: escalation chain to trigger
         type: string
+      cooldown_sec:
+        description: |-
+          CooldownSec suppresses repeat events for the same device and this fence
+          after one fires. 0 means the platform default. See Engine.cooldown.
+        type: integer
       enabled:
         type: boolean
       id:
@@ -337,10 +345,13 @@ definitions:
   github_com_meshsat_meshsat-hub_internal_geo.Point:
     properties:
       lat:
-        format: float64
+        description: |-
+          The JSON names are lower case on purpose: geofence polygons are read
+          and written by the SPA, which sends {"lat","lon"} on create. Without
+          the tags the API answered {"Lat","Lon"} and the map drew nothing
+          (MESHSAT-967).
         type: number
       lon:
-        format: float64
         type: number
     type: object
   github_com_meshsat_meshsat-hub_internal_geo.TriggerMode:
@@ -353,6 +364,53 @@ definitions:
     - TriggerEnter
     - TriggerExit
     - TriggerBoth
+  github_com_meshsat_meshsat-hub_internal_integrations.Field:
+    properties:
+      broker:
+        description: |-
+          Broker marks an MQTT broker address (ssl://host:port) the Hub will dial
+          for this tenant. The same request-forgery concern as URL, with the
+          scheme set an MQTT client accepts: the host must resolve to a public
+          address, so a tenant cannot point the Hub at nats:1883 or the database.
+        type: boolean
+      default:
+        type: string
+      generate:
+        description: filled with a random token when left empty
+        type: boolean
+      hint:
+        type: string
+      key:
+        type: string
+      label:
+        type: string
+      multiline:
+        description: |-
+          Multiline renders as a textarea and raises the size cap: a PEM block
+          pasted into a single-line input loses its newlines and can never parse.
+        type: boolean
+      pem:
+        description: |-
+          PEM values are checked on save: the block must decode, and a field
+          ending in client_cert_pem must pair with its client_key_pem
+          (tls.X509KeyPair), so a bad paste is a 400 here rather than a connect
+          loop in a log the customer cannot read (MESHSAT-1151).
+        type: boolean
+      required:
+        description: must be present to count as configured
+        type: boolean
+      secret:
+        description: write-only, masked on read
+        type: boolean
+      url:
+        description: |-
+          URL marks a field the Hub will make outbound requests to. Those are
+          validated against internal/netguard on save, because a tenant choosing a
+          URL the Hub then fetches is a request-forgery primitive: the Hub sits in a
+          cluster with a database, a broker and a metadata service all reachable by
+          name (MESHSAT-1121, found by gosec as a G704 taint).
+        type: boolean
+    type: object
   github_com_meshsat_meshsat-hub_internal_protocol.HeMBReassemblyStats:
     properties:
       active_streams:
@@ -422,6 +480,13 @@ definitions:
         type: string
       last_used:
         type: string
+      platform_admin:
+        description: |-
+          PlatformAdmin lets this key act across tenants, the axis that until
+          MESHSAT-1209 only the static HUB_AUTH_TOKEN could carry. Settable ONLY by a
+          caller who already holds it -- see internal/api/apikeys.go. Unlike that token
+          a key with this flag is revocable and can expire, which is the entire point.
+        type: boolean
       role:
         description: '"viewer", "operator", "owner"'
         type: string
@@ -506,8 +571,17 @@ definitions:
       detail:
         type: string
       hash:
-        description: SHA-256 of (action|actor|detail|ip|prev_hash)
+        description: digest of the entry; which fields it binds is HashVersion's business
         type: string
+      hash_version:
+        description: |-
+          HashVersion names the digest Hash was computed with. 1 is the original
+          formula over action|actor|detail|ip|prev_hash, which lets a row be moved
+          between tenants or back-dated without breaking the chain; 2 also binds
+          tenant_id, id and created_at. Rows written before migration 30 carry 1
+          and stay valid; every row written since is 2, and a verifier never
+          accepts a 1 that follows a 2 (that would be a downgrade, not history).
+        type: integer
       id:
         type: string
       ip:
@@ -563,6 +637,13 @@ definitions:
         type: string
       last_health:
         description: JSON
+        type: string
+      last_report_at:
+        type: string
+      last_report_bearer:
+        description: |-
+          Last report received over any bearer (mqtt, sms, sbd, imt, globalstar)
+          and when: uplink frames while MQTT is down keep these current (MESHSAT-964).
         type: string
       last_seen:
         type: string
@@ -818,6 +899,13 @@ definitions:
       status:
         description: '"received", "queued", "sent", "delivered", "failed", "scheduled"'
         type: string
+      tenant_id:
+        description: |-
+          TenantID is set on rows read by platform-wide jobs (ListScheduledMessages),
+          which have no tenant of their own and must hand the row's tenant back to
+          the store when they update it (MESHSAT-1149). Tenant-scoped reads leave
+          it empty: the caller already knows.
+        type: string
       text:
         type: string
     type: object
@@ -893,6 +981,156 @@ definitions:
         description: m/s
         type: number
     type: object
+  github_com_meshsat_meshsat-hub_internal_store.Receipt:
+    properties:
+      amount_cents:
+        description: |-
+          AmountCents is the gross amount in the smallest unit of Currency. Money
+          is never a float here: the payload's decimal string is parsed to an
+          integer and stays one all the way to the invoice line.
+        type: integer
+      attempts:
+        type: integer
+      country:
+        description: |-
+          Country is where the buyer was, ISO 3166-1 alpha-2, copied from the
+          tenant when the payment was recorded and frozen there. It decides the VAT
+          treatment (internal/vat), and it is frozen rather than re-read because a
+          customer who moves next year must not change the VAT on a document that
+          was already issued.
+        type: string
+      created_at:
+        type: string
+      currency:
+        type: string
+      delivery_key:
+        description: |-
+          DeliveryKey is the idempotency token, unique across the table. It is the
+          payment provider's delivery id when there is one, and a derived key when
+          there is not -- an absent id must not become a blank that collides with
+          every other blank, nor a hole that lets a replay through.
+        type: string
+      email:
+        description: |-
+          Email and Name are who the document goes to and what the customer is
+          called on it.
+        type: string
+      id:
+        type: string
+      invoice_number:
+        type: string
+      invoice_ref:
+        type: string
+      issued_at:
+        type: string
+      last_error:
+        type: string
+      name:
+        type: string
+      next_attempt_at:
+        type: string
+      paid_at:
+        type: string
+      payment_ref:
+        description: |-
+          PaymentRef is the provider's payment reference (a Stripe payment
+          intent), learned AFTER the receipt is written and only so a refund can
+          find it again.
+
+          It exists because the refund event no longer carries the invoice: Stripe
+          removed charge.invoice, and neither the charge nor the payment intent
+          links back to one. Without this a refunded subscription matched no
+          receipt, so no credit note was issued and the sale stayed in the books
+          at full value with its VAT declared.
+        type: string
+      plan:
+        description: Plan and TierName describe what was bought, for the invoice line.
+        type: string
+      status:
+        description: ReceiptPending, ReceiptIssued, ReceiptBlocked
+        type: string
+      tenant_id:
+        description: |-
+          TenantID is who the payment was for. Present so the row is
+          tenant-scoped: an offboarding export carries it and a purge destroys it,
+          the same as every other table with this column. The invoice itself stays
+          in the billing system, where it is kept under a legal retention duty
+          rather than the tenant's instruction.
+        type: string
+      tier_name:
+        type: string
+      transaction_id:
+        description: |-
+          TransactionID is the provider's transaction reference, for a human
+          reconciling a bank line against a document.
+        type: string
+      updated_at:
+        type: string
+    type: object
+  github_com_meshsat_meshsat-hub_internal_store.Refund:
+    properties:
+      amount_cents:
+        description: |-
+          AmountCents is the GROSS amount given back, in the smallest unit of
+          Currency. It may be less than the payment, and never more -- the handler
+          refuses that rather than crediting money nobody paid.
+        type: integer
+      attempts:
+        type: integer
+      country:
+        description: |-
+          Country is copied from the receipt and frozen, for the same reason the
+          receipt freezes it: the credit note must reverse the VAT the invoice
+          charged, whatever the customer's address says today.
+        type: string
+      created_at:
+        type: string
+      credit_number:
+        type: string
+      credit_ref:
+        type: string
+      currency:
+        type: string
+      id:
+        type: string
+      issued_at:
+        type: string
+      last_error:
+        type: string
+      next_attempt_at:
+        type: string
+      reason:
+        description: |-
+          Reason is why the money went back, in an operator's words. It goes on the
+          audit line and is not shown to the customer.
+        type: string
+      receipt_id:
+        description: |-
+          ReceiptID is the payment being reversed. UNIQUE: one refund per payment.
+          A partial refund is still one refund; recording a second one against the
+          same payment is refused rather than allowed to double-credit.
+        type: string
+      refunded_at:
+        description: |-
+          RefundedAt is when the money actually went back, which dates the credit
+          note. It is the operator's figure, not the moment this row was written.
+        type: string
+      requested_by:
+        description: |-
+          RequestedBy names the operator who recorded it. An action on somebody
+          else's money with no name attached is only half a record.
+        type: string
+      status:
+        description: RefundPending, RefundIssued, RefundBlocked
+        type: string
+      tenant_id:
+        description: |-
+          TenantID is whose payment was given back. Tenant-scoped like the receipt
+          it reverses, so export and purge pick it up.
+        type: string
+      updated_at:
+        type: string
+    type: object
   github_com_meshsat_meshsat-hub_internal_store.Route:
     properties:
       created_at:
@@ -907,9 +1145,47 @@ definitions:
         type: string
       name:
         type: string
+      senders:
+        description: |-
+          Senders restricts the route to messages whose origin (device IMEI or
+          phone number) is in this comma-separated list; empty = any sender
+          (MESHSAT-964). "*" matches everyone.
+        type: string
       source_type:
         type: string
       updated_at:
+        type: string
+    type: object
+  internal_api.Capability:
+    properties:
+      configured:
+        description: 'Configured is the whole point: does an account this tenant can
+          use exist.'
+        type: boolean
+      feature:
+        type: string
+      label:
+        type: string
+      platform:
+        description: |-
+          Platform is true when what satisfies it is the operator's own account
+          rather than one this tenant entered. Only ever true for the default
+          tenant -- integrations.ForTenant returns nil for everybody else, which is
+          the guarantee this field depends on.
+        type: boolean
+      providers:
+        description: |-
+          Providers are the integrations providers that can satisfy this feature.
+          Any ONE of them is enough -- notifications are delivered by Apprise or by
+          ntfy, and a tenant with either is configured.
+        items:
+          type: string
+        type: array
+      reason:
+        description: |-
+          Reason is shown to the customer when Configured is false. It says what
+          will silently not happen, because "unavailable" on its own reads as a
+          fault in the Hub rather than as something they can fix.
         type: string
     type: object
   internal_api.IntegrationStatus:
@@ -961,6 +1237,10 @@ definitions:
       mqtt:
         description: wss://mqtt-hub.meshsat.net/mqtt
         type: string
+      mqtt_topic_prefix:
+        description: '"meshsat" (default tenant) or "meshsat/{tenant}"; bridge publishes
+          {prefix}/bridge/{id}/... and {prefix}/{device}/...'
+        type: string
       pass:
         description: MQTT password (shared NATS auth password)
         type: string
@@ -979,11 +1259,17 @@ definitions:
       auto_generated:
         description: passwords were auto-generated
         type: boolean
+      nats_leaf_applicable:
+        description: false on a single-site deployment
+        type: boolean
       nats_leaf_auth:
         description: NATS leafnode has token
         type: boolean
       nats_mqtt_auth:
         description: NATS MQTT has password configured
+        type: boolean
+      platform_managed:
+        description: 'kubernetes: secrets come from the platform (OpenBao/ExternalSecrets)'
         type: boolean
       redis_auth:
         description: Redis has password
@@ -1004,6 +1290,97 @@ definitions:
     properties:
       bridges_configured:
         type: integer
+    type: object
+  internal_api.addTAKUserRequest:
+    properties:
+      callsign:
+        type: string
+      username:
+        type: string
+    type: object
+  internal_api.adminUpdateTenantRequest:
+    properties:
+      name:
+        type: string
+      plan:
+        type: string
+      plan_expires_at:
+        description: |-
+          PlanExpiresAt sets or clears when the plan lapses back to free. A
+          pointer, so the three cases stay distinguishable: absent leaves it
+          alone, "" clears it, and a date sets it. Nothing anywhere could write
+          this field before, so an operator-set plan on a tenant that still
+          carried an expiry lapsed back to free on its own, and fixing it
+          meant going into the database by hand (MESHSAT-989).
+        type: string
+      ratelimit_daily_cap:
+        description: |-
+          RatelimitDailyCap and RatelimitMonthlyCap override this tenant's
+          per-device send budget above whatever its plan gives (MESHSAT-1117
+          tranche 2c). PLATFORM ADMIN ONLY, which is why they live on this request
+          and not on updateTenantRequest: a send budget is a commercial lever, and
+          letting a tenant owner raise their own would make it free.
+
+          Pointers, like PlanExpiresAt: absent leaves it alone, 0 removes the
+          override and returns the tenant to its plan.
+        type: integer
+      ratelimit_monthly_cap:
+        type: integer
+      status:
+        type: string
+    type: object
+  internal_api.approveRequest:
+    properties:
+      role:
+        type: string
+    type: object
+  internal_api.authConfigResponse:
+    properties:
+      community_url:
+        type: string
+      mfa_setup_url:
+        type: string
+      modes:
+        items:
+          type: string
+        type: array
+      oidc_login_url:
+        type: string
+      password_change_url:
+        description: |-
+          PasswordChangeURL and MFASetupURL are the self-service flows a signed-in
+          customer can reach. authentik's settings page is closed to `external`
+          users, so without these there is no route to either from anywhere.
+        type: string
+      recovery_url:
+        description: |-
+          RecoveryURL is the identity provider's password reset flow. It has
+          existed and been bound to the brand since MESHSAT-978, but nothing in the
+          Hub linked to it, so the only way to reach it was to already be on
+          authentik's own sign-in page and notice the link there.
+        type: string
+      signup_url:
+        type: string
+    type: object
+  internal_api.billingState:
+    properties:
+      donatable:
+        description: |-
+          Donatable is true when a donation price is configured. A donation is a
+          separate thing from a plan: it grants no tier and, having no
+          counter-performance, carries no VAT (internal/vat.ForDonation).
+        type: boolean
+      manageable:
+        description: |-
+          Manageable is true once there is a Stripe customer behind this tenant,
+          which is what the portal needs.
+        type: boolean
+      provider:
+        description: |-
+          Provider is "stripe" when checkout starts in the Hub, "external" when the
+          only route to pay is a link somebody else hosts (upgrade_url, which a
+          self-hoster may set), and empty when nothing is configured.
+        type: string
     type: object
   internal_api.bridgeCreateRequest:
     properties:
@@ -1047,6 +1424,16 @@ definitions:
       version:
         type: integer
     type: object
+  internal_api.checkoutRequest:
+    properties:
+      plan:
+        type: string
+    type: object
+  internal_api.checkoutResponse:
+    properties:
+      url:
+        type: string
+    type: object
   internal_api.commandRequest:
     properties:
       cmd:
@@ -1057,9 +1444,22 @@ definitions:
         type: array
       target_device:
         type: string
+      via:
+        description: |-
+          Via selects the leg: "" (MQTT while online, else the out-of-band
+          bearer the bridge is paired for), "mqtt", "sms", "imt" or "sbd"
+          (MESHSAT-964). Out-of-band legs carry mgmt_ping, mgmt_status,
+          mgmt_log, mgmt_reset, mgmt_bearer, mgmt_restart and reboot.
+        type: string
     type: object
   internal_api.commandResponse:
     properties:
+      bearer:
+        description: |-
+          Bearer is the leg the command went out on — "mqtt", "sms", "imt" or
+          "sbd". With via unset the commander picks it, so this is the only
+          place the caller learns what was chosen (MESHSAT-964 AC6).
+        type: string
       error:
         type: string
       latency_ms:
@@ -1111,6 +1511,13 @@ definitions:
       mode:
         type: string
     type: object
+  internal_api.createInviteRequest:
+    properties:
+      email:
+        type: string
+      role:
+        type: string
+    type: object
   internal_api.createKeyRequest:
     properties:
       device_imei:
@@ -1120,6 +1527,12 @@ definitions:
         type: string
       label:
         type: string
+      platform_admin:
+        description: |-
+          PlatformAdmin requests the cross-tenant axis (MESHSAT-1209). Refused unless
+          the CALLER already holds it — see CreateKey. This route is open to any
+          tenant owner, so an ungated field here would be a cross-tenant escalation.
+        type: boolean
       role:
         type: string
     type: object
@@ -1220,6 +1633,42 @@ definitions:
         description: '"ok" or "error"'
         type: string
     type: object
+  internal_api.enrolmentResponse:
+    properties:
+      expires_at:
+        description: ExpiresAt is when the claim stops working.
+        type: string
+      itak_url:
+        description: |-
+          ITAKURL is the SAME enrolment, fetching the iTAK package instead. iTAK reads
+          a flat archive with no manifest, so the ATAK package does not import into it
+          at all -- and a claim is single use, so a customer who tries the wrong one on
+          an iPhone burns the enrolment (MESHSAT-1084).
+
+          Returned as a field rather than left for the UI to build, so the shape of a
+          claim URL is decided in exactly one place. Both point at the same claim: using
+          either one spends it.
+        type: string
+      url:
+        description: |-
+          URL is what the QR encodes and what a phone fetches. ABSOLUTE, because the
+          thing that follows it is a handset that has no idea which host this came
+          from. It carries the claim id and the nonce, which together are the only
+          credential -- so it is a secret, and it is shown once.
+        type: string
+      username:
+        description: Username is the account the package will authenticate as.
+        type: string
+    type: object
+  internal_api.geofencePolicy:
+    properties:
+      cooldown_default:
+        type: integer
+      cooldown_max:
+        type: integer
+      cooldown_min:
+        type: integer
+    type: object
   internal_api.importDeviceKeyRequest:
     properties:
       key_hex:
@@ -1227,6 +1676,21 @@ definitions:
         type: string
       mode:
         description: '"decrypt" or "passthrough"'
+        type: string
+    type: object
+  internal_api.inviteResponse:
+    properties:
+      accepted_at:
+        type: string
+      created_at:
+        type: string
+      email:
+        type: string
+      expires_at:
+        type: string
+      id:
+        type: string
+      role:
         type: string
     type: object
   internal_api.loginRequest:
@@ -1248,6 +1712,52 @@ definitions:
       token_type:
         type: string
     type: object
+  internal_api.oobPairRequest:
+    properties:
+      key_hex:
+        description: '64 hex chars: the mgmt key from the kit''s bundle'
+        type: string
+      local_role:
+        description: '"importer" (default: the kit issued the key) or "issuer"'
+        type: string
+      phone:
+        description: the kit's SIM, E.164
+        type: string
+      sat_imei:
+        description: the kit's Iridium modem IMEI
+        type: string
+    type: object
+  internal_api.oobProvisionRequest:
+    properties:
+      phone:
+        type: string
+      sat_imei:
+        type: string
+    type: object
+  internal_api.oobStatus:
+    properties:
+      bearers:
+        items:
+          type: string
+        type: array
+      key_hex:
+        description: 'only on provision: shown once'
+        type: string
+      local_role:
+        type: string
+      paired:
+        type: boolean
+      peer_id:
+        type: integer
+      phone:
+        type: string
+      rx_high:
+        type: integer
+      sat_imei:
+        type: string
+      tx_counter:
+        type: integer
+    type: object
   internal_api.paginatedPositions:
     properties:
       limit:
@@ -1260,6 +1770,62 @@ definitions:
         type: array
       total:
         type: integer
+    type: object
+  internal_api.providerAccountView:
+    properties:
+      configured:
+        type: boolean
+      description:
+        type: string
+      fields:
+        items:
+          $ref: '#/definitions/github_com_meshsat_meshsat-hub_internal_integrations.Field'
+        type: array
+      label:
+        type: string
+      platform:
+        description: the default tenant's environment account
+        type: boolean
+      provider:
+        type: string
+      updated_at:
+        type: string
+      values:
+        additionalProperties:
+          type: string
+        description: masked
+        type: object
+      webhook:
+        description: inbound path the tenant configures at the provider
+        type: string
+      webhook_path:
+        description: relative; the SPA prefixes its origin
+        type: string
+    type: object
+  internal_api.putProviderAccountRequest:
+    properties:
+      values:
+        additionalProperties:
+          type: string
+        type: object
+    type: object
+  internal_api.recordRefundRequest:
+    properties:
+      amount_cents:
+        description: |-
+          AmountCents is what actually went back, in minor units. Omitted or zero
+          means the whole payment.
+        type: integer
+      reason:
+        description: |-
+          Reason is why, in the operator's words. It reaches the audit line, never
+          the customer.
+        type: string
+      refunded_at:
+        description: |-
+          RefundedAt is when the money went back, RFC 3339. It dates the credit
+          note. Omitted means now.
+        type: string
     type: object
   internal_api.relayInterfaceInfo:
     properties:
@@ -1405,6 +1971,133 @@ definitions:
       duration_min:
         type: integer
     type: object
+  internal_api.takStatusResponse:
+    properties:
+      enabled:
+        description: Enabled is whether this tenant has a server at all.
+        type: boolean
+      limit:
+        description: -1 when the plan has no ceiling
+        type: integer
+      phase:
+        description: |-
+          Phase is the operator's own word for where it has got to: Provisioning,
+          Ready, Failed and so on.
+        type: string
+      plan:
+        type: string
+      port:
+        description: |-
+          Port is the public TAK SSL port. There is deliberately no host here: the
+          instance's address is an in-cluster service name that no phone can reach,
+          and publishing it would tell a customer something both useless and internal.
+          A phone is configured from its enrollment package, not from this.
+        type: integer
+      remaining:
+        description: -1 when unlimited
+        type: integer
+      users:
+        description: Users is the account meter.
+        type: integer
+    type: object
+  internal_api.takUserResponse:
+    properties:
+      active:
+        type: boolean
+      callsign:
+        type: string
+      cert_serial:
+        description: |-
+          CertSerial is present once a phone has enrolled. The enrollment token hash
+          is never here: store.TAKUser marks it json:"-" and it is in
+          store.RedactedInExport for the same reason.
+        type: string
+      username:
+        type: string
+    type: object
+  internal_api.tenantResponse:
+    properties:
+      audit_retention_days:
+        description: |-
+          AuditRetentionDays is the tenant's own choice in days, 0 meaning the
+          platform default, which AuditRetentionDefault carries.
+        type: integer
+      audit_retention_default:
+        type: integer
+      audit_retention_max:
+        type: integer
+      audit_retention_min:
+        type: integer
+      bridge_offline_timeout:
+        description: |-
+          BridgeOfflineTimeout is the tenant's own choice in seconds, or 0 meaning
+          "use the platform default" -- which BridgeOfflineTimeoutDefault carries,
+          so the UI can show the number that is actually in force instead of
+          hardcoding one that can drift from the ConfigMap.
+        type: integer
+      bridge_offline_timeout_default:
+        type: integer
+      bridge_offline_timeout_max:
+        type: integer
+      bridge_offline_timeout_min:
+        type: integer
+      created_at:
+        type: string
+      id:
+        type: string
+      name:
+        type: string
+      oob_max_per_hour:
+        description: |-
+          Out-of-band command policy: this tenant's own choices, 0 meaning the
+          platform default, with that default and the bounds alongside so the form
+          shows the number actually in force (MESHSAT-1121).
+        type: integer
+      oob_max_per_hour_default:
+        type: integer
+      oob_max_per_hour_max:
+        type: integer
+      oob_max_per_hour_min:
+        type: integer
+      oob_sat_timeout_default:
+        type: integer
+      oob_sat_timeout_sec:
+        type: integer
+      oob_sms_timeout_default:
+        type: integer
+      oob_sms_timeout_sec:
+        type: integer
+      oob_timeout_max:
+        type: integer
+      oob_timeout_min:
+        type: integer
+      owner_user_id:
+        type: string
+      plan:
+        type: string
+      purge_grace_days:
+        description: |-
+          PurgeGraceDays is how long a closed account can still be recovered. The
+          close dialog quotes it to the customer, and a number the UI hardcoded
+          would be one refactor away from disagreeing with what actually happens.
+        type: integer
+      slug:
+        type: string
+      status:
+        type: string
+      updated_at:
+        type: string
+    type: object
+  internal_api.tierResponse:
+    properties:
+      current:
+        type: boolean
+      devices:
+        description: -1 = no ceiling
+        type: integer
+      plan:
+        type: string
+    type: object
   internal_api.topologyHub:
     properties:
       app_name:
@@ -1444,6 +2137,15 @@ definitions:
       type:
         type: string
     type: object
+  internal_api.unmatchedPaymentResponse:
+    properties:
+      payment:
+        items:
+          type: integer
+        type: array
+      recorded_at:
+        type: string
+    type: object
   internal_api.updateBondGroupRequest:
     properties:
       cost_budget:
@@ -1462,6 +2164,34 @@ definitions:
       name:
         type: string
     type: object
+  internal_api.updateTenantRequest:
+    properties:
+      audit_retention_days:
+        description: |-
+          AuditRetentionDays, same pointer semantics: absent leaves it alone,
+          0 returns the tenant to the platform default.
+        type: integer
+      bridge_offline_timeout:
+        description: |-
+          BridgeOfflineTimeout is a pointer so the three cases stay
+          distinguishable: absent leaves the setting alone, 0 returns the tenant to
+          the platform default, and a number sets it. A plain int would make every
+          name change silently reset the timeout to the default.
+        type: integer
+      name:
+        type: string
+      oob_max_per_hour:
+        description: |-
+          Out-of-band command policy, same pointer semantics throughout: absent
+          leaves it alone, 0 returns the tenant to the platform default. Owner
+          editable, unlike the send caps -- these are the tenant's OWN kit on the
+          tenant's OWN airtime, not a commercial lever (MESHSAT-1121).
+        type: integer
+      oob_sat_timeout_sec:
+        type: integer
+      oob_sms_timeout_sec:
+        type: integer
+    type: object
   internal_api.updateUserRequest:
     properties:
       enabled:
@@ -1473,6 +2203,44 @@ definitions:
         type: string
       role:
         type: string
+    type: object
+  internal_api.usageResponse:
+    properties:
+      billing:
+        allOf:
+        - $ref: '#/definitions/internal_api.billingState'
+        description: |-
+          Billing reports whether this tenant can start a checkout and whether it
+          has anything to manage. The claim code it replaces is gone: a payment is
+          bound to a tenant by the metadata on its Checkout session now, not by
+          somebody typing a code into a message box (MESHSAT-1023).
+      bridges:
+        type: integer
+      devices:
+        type: integer
+      limit:
+        description: -1 when the plan has no ceiling
+        type: integer
+      over_limit:
+        type: boolean
+      plan:
+        type: string
+      remaining:
+        description: -1 when unlimited; never negative otherwise
+        type: integer
+      tiers:
+        items:
+          $ref: '#/definitions/internal_api.tierResponse'
+        type: array
+      upgrade_url:
+        description: |-
+          UpgradeURL is where a person goes to pay, for as long as the old
+          provider is still the one taking money. It is empty once checkout starts
+          inside the Hub, and the UI shows a Subscribe button instead.
+        type: string
+      used:
+        description: devices + bridges
+        type: integer
     type: object
   internal_api.userResponse:
     properties:
@@ -1491,94 +2259,37 @@ definitions:
       role:
         type: string
     type: object
-  internal_cluster.ClusterStatus:
+  internal_api.vatThresholdResponse:
     properties:
-      checked_at:
+      by_country:
+        additionalProperties:
+          format: int64
+          type: integer
+        type: object
+      cross_border_cents:
+        description: |-
+          CrossBorderCents is the gross of issued receipts to EU consumers OUTSIDE
+          the Netherlands this calendar year. Domestic sales are excluded: the
+          threshold is about supplies to other member states, and counting our own
+          would raise a false alarm on the busiest possible month.
+        type: integer
+      note:
+        description: |-
+          Note says in words what the number means, because the person reading it
+          at 80% needs to know what to do, not just that a bar is filling.
         type: string
-      healthy:
-        type: boolean
-      node_count:
-        type: integer
-      nodes:
-        items:
-          $ref: '#/definitions/internal_cluster.NodeStatus'
-        type: array
-      problems:
-        items:
-          type: string
-        type: array
-      quorum_size:
-        description: majority = (n/2)+1
-        type: integer
-    type: object
-  internal_cluster.NodeStatus:
-    properties:
-      cert_deps_distance:
-        description: avg distance between causal deps
+      percent_used:
         type: number
-      checked_at:
-        description: Timestamp
-        type: string
-      cluster_size:
-        description: Cluster membership
+      refunded_cents:
+        description: |-
+          RefundedCents is what was given back and therefore never supplied. It is
+          already subtracted from CrossBorderCents; it is reported separately so a
+          person can see why the figure moved down (MESHSAT-1019).
         type: integer
-      cluster_status:
-        description: '"Primary", "Non-primary", "Disconnected"'
-        type: string
-      connected:
-        description: wsrep_connected = ON
-        type: boolean
-      flow_control_paused:
-        description: 0.0-1.0, fraction of time paused
-        type: number
-      healthy:
-        description: Health assessment
-        type: boolean
-      hub_url:
-        type: string
-      last_committed:
-        description: Counters
+      threshold_cents:
         type: integer
-      node_address:
-        type: string
-      node_name:
-        description: Identity
-        type: string
-      problems:
-        items:
-          type: string
-        type: array
-      ready:
-        description: Node state
-        type: boolean
-      received:
-        description: total writesets received
+      year:
         type: integer
-      recv_queue:
-        description: Performance
-        type: integer
-      replicated:
-        description: total writesets replicated (sent)
-        type: integer
-      send_queue:
-        description: local send queue size
-        type: integer
-      state_comment:
-        description: '"Synced", "Donor/Desynced", "Joined", "Initialized"'
-        type: string
-      state_uuid:
-        type: string
-    type: object
-  internal_cluster.RemediationAction:
-    properties:
-      dangerous:
-        type: boolean
-      description:
-        type: string
-      id:
-        type: string
-      name:
-        type: string
     type: object
   internal_codec.CodecInfo:
     properties:
@@ -1828,6 +2539,9 @@ definitions:
         type: string
       name:
         type: string
+      senders:
+        description: comma-separated origins; empty = any (MESHSAT-964)
+        type: string
       source_type:
         type: string
     type: object
@@ -1872,6 +2586,12 @@ definitions:
         type: string
       event:
         type: string
+      latency_ms:
+        description: |-
+          LatencyMS is how long the attempt took. The Delivery Logs table has had a
+          Latency column since it was written and nothing ever measured one, so
+          every row rendered "undefinedms".
+        type: integer
       status_code:
         type: integer
       timestamp:
@@ -1922,6 +2642,13 @@ definitions:
       secret:
         description: HMAC-SHA256 signing secret
         type: string
+      tenant_id:
+        description: |-
+          TenantID is the tenant that owns this webhook and the ONLY tenant whose
+          events it may receive (MESHSAT-1118). It is set from the caller's session
+          in CreateWebhook and is never read from a request body -- see the
+          overwrite in handler.go and the test that pins it.
+        type: string
       timeout_sec:
         description: default 10
         type: integer
@@ -1938,11 +2665,6 @@ definitions:
     - 1000000000
     - 60000000000
     - 3600000000000
-    - 1
-    - 1000
-    - 1000000
-    - 1000000000
-    - 60000000000
     format: int64
     type: integer
     x-enum-varnames:
@@ -1954,11 +2676,6 @@ definitions:
     - Second
     - Minute
     - Hour
-    - Nanosecond
-    - Microsecond
-    - Millisecond
-    - Second
-    - Minute
 host: localhost:6070
 info:
   contact: {}
@@ -1971,6 +2688,385 @@ info:
   title: MeshSat Hub API
   version: "1.1"
 paths:
+  /api/admin/payments/unmatched:
+    get:
+      parameters:
+      - default: 50
+        description: Max results
+        in: query
+        name: limit
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/internal_api.unmatchedPaymentResponse'
+            type: array
+      summary: Payments that matched no tenant
+      tags:
+      - admin
+  /api/admin/receipts/{id}/refund:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Receipt ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Refund
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/internal_api.recordRefundRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/github_com_meshsat_meshsat-hub_internal_store.Refund'
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "409":
+          description: Conflict
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Record a refund against a payment
+      tags:
+      - admin
+  /api/admin/receipts/{id}/requeue:
+    post:
+      parameters:
+      - description: Receipt ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Retry a blocked receipt
+      tags:
+      - admin
+  /api/admin/receipts/blocked:
+    get:
+      parameters:
+      - default: 100
+        description: Max results
+        in: query
+        name: limit
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/github_com_meshsat_meshsat-hub_internal_store.Receipt'
+            type: array
+      summary: Receipts a person has to look at
+      tags:
+      - admin
+  /api/admin/refunds:
+    get:
+      parameters:
+      - default: pending
+        description: pending, issued or blocked
+        in: query
+        name: status
+        type: string
+      - default: 100
+        description: Max results
+        in: query
+        name: limit
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/github_com_meshsat_meshsat-hub_internal_store.Refund'
+            type: array
+      summary: Refunds by state
+      tags:
+      - admin
+  /api/admin/refunds/{id}:
+    delete:
+      parameters:
+      - description: Refund ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "204":
+          description: No Content
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Withdraw a refund that has no credit note yet
+      tags:
+      - admin
+  /api/admin/refunds/{id}/requeue:
+    post:
+      parameters:
+      - description: Refund ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Retry a blocked refund
+      tags:
+      - admin
+  /api/admin/signups:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "503":
+          description: Service Unavailable
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: List pending beta requests
+      tags:
+      - admin
+  /api/admin/signups/{id}/approve:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: authentik user pk
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: role to grant
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/internal_api.approveRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Approve a beta request
+      tags:
+      - admin
+  /api/admin/signups/{id}/reject:
+    post:
+      parameters:
+      - description: authentik user pk
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Reject a beta request
+      tags:
+      - admin
+  /api/admin/tenants:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/internal_api.tenantResponse'
+            type: array
+      summary: List all tenants
+      tags:
+      - admin
+  /api/admin/tenants/{id}:
+    delete:
+      parameters:
+      - description: tenant id
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Close a tenant
+      tags:
+      - admin
+    put:
+      consumes:
+      - application/json
+      parameters:
+      - description: Tenant ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Fields to change
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/internal_api.adminUpdateTenantRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_api.tenantResponse'
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Update a tenant
+      tags:
+      - admin
+  /api/admin/tenants/{id}/usage:
+    get:
+      parameters:
+      - description: tenant id
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_api.usageResponse'
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Devices and bridges used by a tenant
+      tags:
+      - admin
+  /api/admin/vat/threshold:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_api.vatThresholdResponse'
+      summary: Progress toward the EU VAT threshold
+      tags:
+      - admin
   /api/alert-rules:
     get:
       produces:
@@ -2267,6 +3363,18 @@ paths:
       summary: Verify audit chain integrity
       tags:
       - audit
+  /api/auth/config:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_api.authConfigResponse'
+      summary: Login methods available on this Hub
+      tags:
+      - auth
   /api/auth/keys:
     get:
       produces:
@@ -2436,6 +3544,44 @@ paths:
       summary: Get current user
       tags:
       - auth
+  /api/auth/oidc/callback:
+    get:
+      parameters:
+      - description: Authorization code
+        in: query
+        name: code
+        required: true
+        type: string
+      - description: State
+        in: query
+        name: state
+        required: true
+        type: string
+      responses:
+        "302":
+          description: Found
+      summary: OIDC callback
+      tags:
+      - auth
+  /api/auth/oidc/login:
+    get:
+      parameters:
+      - description: Same-origin path to return to after login
+        in: query
+        name: next
+        type: string
+      responses:
+        "302":
+          description: Found
+        "503":
+          description: Service Unavailable
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Redirect to the identity provider
+      tags:
+      - auth
   /api/auth/refresh:
     post:
       consumes:
@@ -2574,6 +3720,12 @@ paths:
             $ref: '#/definitions/github_com_meshsat_meshsat-hub_internal_store.Bridge'
         "400":
           description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "402":
+          description: device ceiling of the tenant's plan reached
           schema:
             additionalProperties:
               type: string
@@ -2903,9 +4055,11 @@ paths:
     post:
       consumes:
       - application/json
-      description: 'Sends a command to a field bridge via MQTT and waits for the response.
-        Supported commands: ping, flush_burst, send_text, send_mt, config_update,
-        reboot.'
+      description: 'Sends a command to a field bridge and waits for the response.
+        Over MQTT: ping, flush_burst, send_text, send_mt, config_update, reboot, mgmt_*.
+        With via sms|imt|sbd (or automatically while the bridge is MQTT-offline and
+        paired): mgmt_ping, mgmt_status, mgmt_log, mgmt_reset, mgmt_bearer, mgmt_restart,
+        reboot as sealed OOB frames.'
       parameters:
       - description: Bridge ID
         in: path
@@ -3016,6 +4170,112 @@ paths:
       summary: Rotate bridge MQTT credentials
       tags:
       - bridges
+  /api/bridges/{id}/oob:
+    delete:
+      parameters:
+      - description: Bridge ID
+        in: path
+        name: id
+        required: true
+        type: string
+      responses:
+        "204":
+          description: No Content
+      summary: Remove the out-of-band pairing of a bridge
+      tags:
+      - bridges
+    get:
+      parameters:
+      - description: Bridge ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_api.oobStatus'
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Out-of-band pairing state of a bridge
+      tags:
+      - bridges
+    post:
+      consumes:
+      - application/json
+      description: Stores the 32-byte management key from the kit's key bundle (mgmt
+        entry) and the kit's bearer addresses. The Hub takes the importer role unless
+        local_role is "issuer".
+      parameters:
+      - description: Bridge ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: key and addresses
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/internal_api.oobPairRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_api.oobStatus'
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Pair the Hub with a bridge for out-of-band commands
+      tags:
+      - bridges
+  /api/bridges/{id}/oob/provision:
+    post:
+      consumes:
+      - application/json
+      description: The Hub becomes the issuer of the key. The bridge must register
+        the peer "hub" on this key_rotate (bridge-side support tracked on MESHSAT-964);
+        the key is returned once for a manual import.
+      parameters:
+      - description: Bridge ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: bearer addresses
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/internal_api.oobProvisionRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_api.oobStatus'
+        "409":
+          description: bridge offline
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Generate a management key and push it to the bridge over MQTT
+      tags:
+      - bridges
   /api/bridges/{id}/provision:
     post:
       parameters:
@@ -3032,35 +4292,6 @@ paths:
           schema:
             $ref: '#/definitions/internal_api.ProvisionBundle'
       summary: One-step bridge provisioning
-      tags:
-      - bridges
-  /api/bridges/{id}/provision/{nonce}:
-    get:
-      parameters:
-      - description: Bridge ID
-        in: path
-        name: id
-        required: true
-        type: string
-      - description: Single-use provisioning nonce
-        in: path
-        name: nonce
-        required: true
-        type: string
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/internal_api.ProvisionBundle'
-        "404":
-          description: Invalid or expired nonce
-          schema:
-            additionalProperties:
-              type: string
-            type: object
-      summary: Claim provisioning bundle (no auth, nonce-authenticated)
       tags:
       - bridges
   /api/bridges/{id}/provision/qr:
@@ -3087,8 +4318,9 @@ paths:
       - bridges
   /api/bridges/acl/regenerate:
     post:
-      description: Reads all bridges with credentials and generates Mosquitto password
-        and ACL files.
+      description: Counts the bridges with credentials and asks the NATS auth syncer
+        to re-render the meshsat-nats-auth Secret. Outside Kubernetes the count is
+        reported and nothing is written.
       produces:
       - application/json
       responses:
@@ -3102,10 +4334,10 @@ paths:
             additionalProperties:
               type: string
             type: object
-      summary: Regenerate Mosquitto ACL files
+      summary: Re-render NATS bridge users and permissions
       tags:
       - bridges
-  /api/cluster/actions:
+  /api/capabilities:
     get:
       produces:
       - application/json
@@ -3113,93 +4345,18 @@ paths:
         "200":
           description: OK
           schema:
-            additionalProperties:
-              items:
-                $ref: '#/definitions/internal_cluster.RemediationAction'
-              type: array
-            type: object
-      summary: List available remediation actions
-      tags:
-      - cluster
-  /api/cluster/actions/{id}:
-    post:
-      parameters:
-      - description: Action ID
-        in: path
-        name: id
-        required: true
-        type: string
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
+            items:
+              $ref: '#/definitions/internal_api.Capability'
+            type: array
+        "500":
+          description: Internal Server Error
           schema:
             additionalProperties:
               type: string
             type: object
-        "400":
-          description: Bad Request
-          schema:
-            additionalProperties:
-              type: string
-            type: object
-      summary: Execute a remediation action
+      summary: Which features are usable by this tenant
       tags:
-      - cluster
-  /api/cluster/node:
-    get:
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/internal_cluster.NodeStatus'
-      summary: Get local node Galera status
-      tags:
-      - cluster
-  /api/cluster/peers:
-    put:
-      consumes:
-      - application/json
-      parameters:
-      - description: Peer URLs
-        in: body
-        name: body
-        required: true
-        schema:
-          type: object
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            additionalProperties:
-              type: string
-            type: object
-        "400":
-          description: Bad Request
-          schema:
-            additionalProperties:
-              type: string
-            type: object
-      summary: Update cluster peer list
-      tags:
-      - cluster
-  /api/cluster/status:
-    get:
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/internal_cluster.ClusterStatus'
-      summary: Get aggregated cluster status
-      tags:
-      - cluster
+      - tenant
   /api/codecs:
     get:
       produces:
@@ -3867,6 +5024,12 @@ paths:
             additionalProperties:
               type: string
             type: object
+        "402":
+          description: device ceiling of the tenant's plan reached
+          schema:
+            additionalProperties:
+              type: string
+            type: object
         "409":
           description: Conflict
           schema:
@@ -4501,6 +5664,34 @@ paths:
       summary: Send MT message via Rock7 (explicit provider route)
       tags:
       - devices
+  /api/donate:
+    post:
+      consumes:
+      - application/json
+      description: Creates a Stripe Checkout session for a one-off donation with no
+        tenant. Unauthenticated and rate limited. Grants no plan.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_api.checkoutResponse'
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "503":
+          description: Service Unavailable
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Donate without an account
+      tags:
+      - billing
   /api/email/keys:
     get:
       produces:
@@ -4738,6 +5929,18 @@ paths:
         "204":
           description: No Content
       summary: Delete geofence
+      tags:
+      - geofences
+  /api/geofences/policy:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_api.geofencePolicy'
+      summary: Geofence platform policy
       tags:
       - geofences
   /api/hemb/stats:
@@ -5639,6 +6842,84 @@ paths:
       summary: Set rate limit override for device
       tags:
       - ratelimit
+  /api/relay/ca:
+    get:
+      description: The PEM-encoded CA that issues bridge certificates. Both ends of
+        a relay tunnel verify each other against it.
+      produces:
+      - application/x-pem-file
+      responses:
+        "200":
+          description: PEM
+          schema:
+            type: string
+        "404":
+          description: no bridge CA on this Hub
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Bridge CA certificate for the relay
+      tags:
+      - relay
+  /api/relay/connect/{bridge_id}:
+    get:
+      description: The caller is itself a bridge of the tenant (an Android device
+        is a bridge of type android) and authenticates with its own MQTT credentials;
+        its bridge id is the client id on the other end, never a parameter. The target
+        must belong to the same tenant. Bare binary frames, 100 per minute per client.
+      parameters:
+      - description: the bridge to reach
+        in: path
+        name: bridge_id
+        required: true
+        type: string
+      responses:
+        "101":
+          description: switching protocols
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "403":
+          description: not a bridge of your tenant
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "429":
+          description: budget exhausted for this minute
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BasicAuth: []
+      summary: Open a tunnel to one of your tenant's bridges (WebSocket)
+      tags:
+      - relay
+  /api/relay/serve:
+    get:
+      description: The bridge opens one outbound WebSocket and every client of it
+        is multiplexed through the envelope [0x01][len][client_id][payload]. HTTP
+        Basic with the bridge's own MQTT credentials. Binary frames only; the Hub
+        never reads the payload.
+      responses:
+        "101":
+          description: switching protocols
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BasicAuth: []
+      summary: Serve this bridge's clients through the Hub (WebSocket)
+      tags:
+      - relay
   /api/reticulum/identity:
     get:
       description: Returns the Hub's Reticulum destination hash and public key. Private
@@ -5865,41 +7146,6 @@ paths:
       summary: Get MQTT public URL
       tags:
       - settings
-    put:
-      consumes:
-      - application/json
-      description: Saves the MQTT URL shown to bridges during onboarding.
-      parameters:
-      - description: MQTT URL
-        in: body
-        name: body
-        required: true
-        schema:
-          type: object
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            additionalProperties:
-              type: string
-            type: object
-        "400":
-          description: Bad Request
-          schema:
-            additionalProperties:
-              type: string
-            type: object
-        "500":
-          description: Internal Server Error
-          schema:
-            additionalProperties:
-              type: string
-            type: object
-      summary: Set MQTT public URL
-      tags:
-      - settings
   /api/settings/security:
     get:
       description: Shows which internal services have authentication configured.
@@ -5969,8 +7215,55 @@ paths:
       summary: Send SMS message
       tags:
       - sms
-  /api/tak/federation/peers:
+  /api/tak/enroll/{claimID}/{nonce}:
     get:
+      parameters:
+      - description: claim id
+        in: path
+        name: claimID
+        required: true
+        type: string
+      - description: one-time nonce
+        in: path
+        name: nonce
+        required: true
+        type: string
+      - description: atak (default) or itak
+        in: query
+        name: client
+        type: string
+      produces:
+      - application/zip
+      responses:
+        "200":
+          description: the data package
+          schema:
+            type: file
+        "202":
+          description: not signed yet, retry
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "410":
+          description: Gone
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Claim a TAK enrolment package
+      tags:
+      - tak
+  /api/tenant:
+    delete:
+      description: Blocks access immediately and destroys the data after the grace
+        period. Owner only. Reversible until then.
       produces:
       - application/json
       responses:
@@ -5979,9 +7272,567 @@ paths:
           schema:
             additionalProperties: true
             type: object
-      summary: TAK federation peers
+        "403":
+          description: Forbidden
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Close this tenant
       tags:
-      - tak
+      - tenant
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_api.tenantResponse'
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Current tenant
+      tags:
+      - tenant
+    put:
+      consumes:
+      - application/json
+      parameters:
+      - description: New name
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/internal_api.updateTenantRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_api.tenantResponse'
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Rename current tenant
+      tags:
+      - tenant
+  /api/tenant/billing/checkout:
+    post:
+      consumes:
+      - application/json
+      description: Creates a Stripe Checkout session bound to this tenant and returns
+        the URL to send the customer to.
+      parameters:
+      - description: the plan to buy
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/internal_api.checkoutRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_api.checkoutResponse'
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "503":
+          description: Service Unavailable
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Start a subscription
+      tags:
+      - billing
+  /api/tenant/billing/donate:
+    post:
+      description: Creates a Stripe Checkout session for a one-off donation bound
+        to this tenant. Grants no plan.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_api.checkoutResponse'
+        "403":
+          description: Forbidden
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "503":
+          description: Service Unavailable
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Donate
+      tags:
+      - billing
+  /api/tenant/billing/portal:
+    post:
+      description: Returns a URL to Stripe's customer portal, where the customer can
+        cancel, change card or read past invoices.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_api.checkoutResponse'
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "503":
+          description: Service Unavailable
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Manage billing
+      tags:
+      - billing
+  /api/tenant/export:
+    get:
+      description: A ZIP with one JSON file per table and a manifest. Owner only.
+      produces:
+      - application/zip
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: file
+        "403":
+          description: Forbidden
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Export everything this tenant owns
+      tags:
+      - tenant
+  /api/tenant/integrations:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/internal_api.providerAccountView'
+            type: array
+      summary: List the tenant's provider accounts
+      tags:
+      - tenant
+  /api/tenant/integrations/{provider}:
+    delete:
+      parameters:
+      - description: provider
+        in: path
+        name: provider
+        required: true
+        type: string
+      responses:
+        "204":
+          description: No Content
+      summary: Delete the tenant's provider account
+      tags:
+      - tenant
+    put:
+      consumes:
+      - application/json
+      parameters:
+      - description: cloudloop|twilio|rock7|rockblock|globalstar
+        in: path
+        name: provider
+        required: true
+        type: string
+      - description: field values
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/internal_api.putProviderAccountRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Set the tenant's provider account
+      tags:
+      - tenant
+  /api/tenant/integrations/{provider}/test:
+    post:
+      parameters:
+      - description: provider
+        in: path
+        name: provider
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Test the tenant's provider account
+      tags:
+      - tenant
+  /api/tenant/invites:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/internal_api.inviteResponse'
+            type: array
+      summary: List tenant invites
+      tags:
+      - tenant
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Invite
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/internal_api.createInviteRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/internal_api.inviteResponse'
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "409":
+          description: Conflict
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Invite a user into the tenant
+      tags:
+      - tenant
+  /api/tenant/invites/{id}:
+    delete:
+      parameters:
+      - description: Invite ID
+        in: path
+        name: id
+        required: true
+        type: string
+      responses:
+        "204":
+          description: No Content
+      summary: Revoke a tenant invite
+      tags:
+      - tenant
+  /api/tenant/tak:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_api.takStatusResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Hosted TAK status
+      tags:
+      - tenant
+    post:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: already on
+          schema:
+            $ref: '#/definitions/internal_api.takStatusResponse'
+        "202":
+          description: being built
+          schema:
+            $ref: '#/definitions/internal_api.takStatusResponse'
+        "503":
+          description: Service Unavailable
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Turn hosted TAK on
+      tags:
+      - tenant
+  /api/tenant/tak/users:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/internal_api.takUserResponse'
+            type: array
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: List TAK accounts
+      tags:
+      - tenant
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Account
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/internal_api.addTAKUserRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: already there
+          schema:
+            $ref: '#/definitions/internal_api.takUserResponse'
+        "202":
+          description: being created
+          schema:
+            $ref: '#/definitions/internal_api.takUserResponse'
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "402":
+          description: plan ceiling reached
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "409":
+          description: Conflict
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "422":
+          description: refused by the instance
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Add a TAK account
+      tags:
+      - tenant
+  /api/tenant/tak/users/{username}:
+    delete:
+      parameters:
+      - description: Account
+        in: path
+        name: username
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: removed
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "202":
+          description: being removed
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "422":
+          description: Unprocessable Entity
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Remove a TAK account
+      tags:
+      - tenant
+  /api/tenant/tak/users/{username}/enrollment:
+    post:
+      parameters:
+      - description: TAK username
+        in: path
+        name: username
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/internal_api.enrolmentResponse'
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "503":
+          description: Service Unavailable
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Mint a one-time TAK enrolment package link
+      tags:
+      - tenant
+  /api/tenant/tak/users/{username}/enrollment/qr:
+    post:
+      parameters:
+      - description: TAK username
+        in: path
+        name: username
+        required: true
+        type: string
+      - description: QR size in pixels (default 512)
+        in: query
+        name: size
+        type: integer
+      - description: atak (default) or itak
+        in: query
+        name: client
+        type: string
+      produces:
+      - image/png
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: file
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Mint a one-time TAK enrolment as a QR code
+      tags:
+      - tenant
+  /api/tenant/usage:
+    get:
+      description: The ceiling applies to registering new devices only. Everything
+        already registered keeps working, keeps reporting, and keeps its SOS path,
+        whatever the plan says.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_api.usageResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Devices and bridges used against the plan's ceiling
+      tags:
+      - tenant
   /api/tor/onion:
     get:
       description: Returns the Hub's Tor hidden service .onion addresses for HTTP
@@ -6446,6 +8297,18 @@ paths:
             additionalProperties:
               type: string
             type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            additionalProperties:
+              type: string
+            type: object
       summary: Receive inbound email
       tags:
       - webhook
@@ -6522,6 +8385,85 @@ paths:
               type: string
             type: object
       summary: Receive inbound SMS
+      tags:
+      - webhook
+  /api/webhook/sms/status:
+    post:
+      consumes:
+      - application/x-www-form-urlencoded
+      description: Twilio posts outbound message status transitions here
+      produces:
+      - application/json
+      responses:
+        "204":
+          description: No Content
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Receive a Twilio delivery receipt
+      tags:
+      - webhook
+  /api/webhook/stripe/{secret}:
+    post:
+      consumes:
+      - application/json
+      description: Applies subscription, invoice and refund events. The path secret
+        identifies the endpoint; the Stripe-Signature header authenticates the caller
+        and is the only thing trusted.
+      produces:
+      - text/plain
+      responses:
+        "200":
+          description: applied, or acknowledged and ignored
+          schema:
+            type: string
+        "400":
+          description: the signature does not verify
+          schema:
+            type: string
+        "500":
+          description: a store failure; Stripe will retry
+          schema:
+            type: string
+        "503":
+          description: billing is not configured
+          schema:
+            type: string
+      summary: Stripe payment webhook
+      tags:
+      - webhooks
+  /api/webhook/whatsapp/status:
+    post:
+      consumes:
+      - application/x-www-form-urlencoded
+      description: Twilio posts outbound message status transitions here
+      produces:
+      - application/json
+      responses:
+        "204":
+          description: No Content
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Receive a Twilio delivery receipt
       tags:
       - webhook
   /api/webhooks:
@@ -6698,8 +8640,9 @@ paths:
       - wireguard
   /api/ws:
     get:
-      description: Real-time stream of messages, positions, and alerts. Pass token
-        via ?token= query param or Authorization header.
+      description: Real-time stream of this tenant's messages, positions and alerts.
+        Browsers pass the token as the Sec-WebSocket-Protocol "bearer, <token>"; other
+        clients may use the Authorization header or ?token=.
       parameters:
       - description: Auth token (JWT or API key)
         in: query
@@ -6709,6 +8652,136 @@ paths:
       summary: WebSocket event stream
       tags:
       - websocket
+  /basemap/assets/{path}:
+    get:
+      description: Streams the self-hosted map font ranges and sprite sheets. Public
+        map data, no authentication.
+      parameters:
+      - description: Relative asset path, e.g. fonts/Noto Sans Regular/0-255.pbf
+        in: path
+        name: path
+        required: true
+        type: string
+      responses:
+        "200":
+          description: Asset
+          schema:
+            type: file
+        "404":
+          description: Unknown or malformed asset path
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Basemap glyph and sprite assets
+      tags:
+      - map
+  /basemap/basemap.pmtiles:
+    get:
+      description: Streams the self-hosted PMTiles basemap, forwarding HTTP range
+        requests. Public map data, no authentication.
+      parameters:
+      - description: Byte range, e.g. bytes=0-16383
+        in: header
+        name: Range
+        type: string
+      produces:
+      - application/octet-stream
+      responses:
+        "200":
+          description: Whole archive
+          schema:
+            type: file
+        "206":
+          description: Requested byte range
+          schema:
+            type: file
+        "404":
+          description: Basemap object missing from the store
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "502":
+          description: Object store unreachable
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Vector basemap archive
+      tags:
+      - map
+  /basemap/local.pmtiles:
+    get:
+      description: Streams the deeper PMTiles archive for the area the fleet operates
+        in, forwarding HTTP range requests. Public map data, no authentication.
+      parameters:
+      - description: Byte range, e.g. bytes=0-16383
+        in: header
+        name: Range
+        type: string
+      produces:
+      - application/octet-stream
+      responses:
+        "200":
+          description: Whole archive
+          schema:
+            type: file
+        "206":
+          description: Requested byte range
+          schema:
+            type: file
+        "404":
+          description: No local archive configured
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Local vector basemap archive
+      tags:
+      - map
+  /donate:
+    get:
+      description: Creates a Stripe Checkout session for an anonymous donation and
+        redirects to it. For linking from a static page.
+      responses:
+        "303":
+          description: redirect to Stripe Checkout
+        "503":
+          description: donations are not available
+          schema:
+            type: string
+      summary: Donate without an account
+      tags:
+      - billing
+  /donate/cancelled:
+    get:
+      description: The page Stripe returns an anonymous giver to after they abandon
+        a donation.
+      produces:
+      - text/html
+      responses:
+        "200":
+          description: cancelled page
+          schema:
+            type: string
+      summary: Donation cancelled
+      tags:
+      - billing
+  /donate/thanks:
+    get:
+      description: The page Stripe returns an anonymous giver to after a successful
+        donation.
+      produces:
+      - text/html
+      responses:
+        "200":
+          description: thank-you page
+          schema:
+            type: string
+      summary: Donation complete
+      tags:
+      - billing
   /healthz:
     get:
       produces:
@@ -6759,6 +8832,8 @@ paths:
       tags:
       - health
 securityDefinitions:
+  BasicAuth:
+    type: basic
   BearerAuth:
     in: header
     name: Authorization
