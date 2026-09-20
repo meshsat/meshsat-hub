@@ -48,6 +48,20 @@ data:
         default_backend nats_ws
     # Health: the NATS monitor endpoint on :8222 (same Service), not a TCP poke at
     # the TLS listener, which logged a handshake error per check (3 relays x 3s).
+    #
+    # What is LEFT in the broker log, measured 2026-09-20 after the probe fix
+    # above removed the EOF half (MESHSAT-1220): about 8 lines a minute of
+    # `websocket: TLS handshake error ... tls: client didn't provide a
+    # certificate`, ~11.5k a day, in roughly nine streams each on a 60s cycle.
+    # Those are the monitoring TLS probes -- blackbox's `tls_sni_mqtt_hub` by
+    # hostname plus the per-edge variants that exist because a dead VPS once hid
+    # itself for hours behind a round-robin DNS record. Each is exactly one line
+    # per probe per interval, and it is the probe WORKING: it proves the leg
+    # terminates TLS with a valid server certificate.
+    #
+    # Deliberately not "fixed" by issuing the prober a client certificate. That
+    # would put a credential the broker accepts on a monitoring host, to quieten
+    # a log line. Accepted and written down instead.
     backend nats_ws
         option httpchk GET /healthz
         server nats nats-ws.meshsat-hub.svc.cluster.local:9443 resolvers kubedns init-addr none check port 8222 inter 10s
