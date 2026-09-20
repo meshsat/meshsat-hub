@@ -200,3 +200,59 @@ func TestNewSatelliteHandler(t *testing.T) {
 		t.Fatalf("empty filter sent %v", got)
 	}
 }
+
+// Kit to kit over satellite (MESHSAT-1282): the relay forwards the ORIGINAL
+// payload, not the text. The receiving Bridge authenticates the bytes with a
+// key the Hub does not hold, so the "[imei] " prefix the text handler adds, or
+// anything else, makes the message undeliverable.
+func TestSatelliteRelayForwardsTheWireUntouched(t *testing.T) {
+	const kitA, kitB = "300000000000001", "300000000000002"
+	const wire = "AXN5bnRoZXRpYy1jaXBoZXJ0ZXh0LWJhc2U2NA==" // stands for 0x01 + base64 ciphertext; synthetic
+	type sent struct{ tenant, imei, wire string }
+	var got []sent
+	h := NewSatelliteRelayHandler(func(_ context.Context, tenantID, imei, w string) error {
+		got = append(got, sent{tenantID, imei, w})
+		return nil
+	})
+	payload, _ := json.Marshal(map[string]any{"text": "c3ludGhldGljLWNpcGhlcnRleHQ=", "wire": wire, "opaque": true})
+
+	// Both kits listed, as a symmetric pair of routes would: never back to the origin.
+	route := &store.Route{ID: "r1", Name: "kits over satellite", Filter: kitA + ", " + kitB}
+	h(context.Background(), route, kitA, payload)
+	if len(got) != 1 {
+		t.Fatalf("sends = %+v, want exactly one (to kitB)", got)
+	}
+	if got[0].imei != kitB {
+		t.Errorf("relayed to %s, want %s", got[0].imei, kitB)
+	}
+	if got[0].wire != wire {
+		t.Errorf("wire changed in transit:\n got %q\nwant %q", got[0].wire, wire)
+	}
+	if got[0].tenant != store.DefaultTenantID {
+		t.Errorf("tenant = %q", got[0].tenant)
+	}
+
+	// No original payload on the message: nothing is sent, least of all the text.
+	got = nil
+	noWire, _ := json.Marshal(map[string]any{"text": "hello"})
+	h(context.Background(), route, kitA, noWire)
+	if len(got) != 0 {
+		t.Fatalf("relayed without a wire payload: %+v", got)
+	}
+}
+
+// An opaque payload reaches the destinations that can do something with
+// ciphertext, and none that would put it in front of a person or on the air.
+func TestOpaqueDestinations(t *testing.T) {
+	for dest, want := range map[string]bool{
+		DestSatelliteRelay: true, "webhook": true, "mqtt": true, "notification": true,
+		"sms": false, "email": false, "satellite": false, "tak": false, "aprs": false,
+	} {
+		if got := carriesOpaque(dest); got != want {
+			t.Errorf("carriesOpaque(%q) = %v, want %v", dest, got, want)
+		}
+	}
+	if !isRecipientDestination(DestSatelliteRelay) {
+		t.Error("the relay's filter is its recipient list; it must not be read as a message match")
+	}
+}

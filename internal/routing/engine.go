@@ -85,6 +85,7 @@ func (e *Engine) handleMODecoded(topic string, payload []byte) {
 		ID      string `json:"id"`
 		Channel string `json:"channel"`
 		Text    string `json:"text"`
+		Opaque  bool   `json:"opaque"`
 	}
 	if err := json.Unmarshal(payload, &msg); err != nil {
 		return
@@ -133,6 +134,11 @@ func (e *Engine) handleMODecoded(topic string, payload []byte) {
 
 		handler, ok := handlers[route.DestinationType]
 		if !ok {
+			continue
+		}
+		if msg.Opaque && !carriesOpaque(route.DestinationType) {
+			slog.Debug("routing: opaque payload, skipping a destination that shows text",
+				"route", route.Name, "dest", route.DestinationType, "device", deviceID)
 			continue
 		}
 
@@ -191,7 +197,22 @@ func (e *Engine) InvalidateCache() {
 // isRecipientDestination returns true for destination types where the filter
 // field is a recipient address (phone number, email), not a message match condition.
 func isRecipientDestination(destType string) bool {
-	return destType == "sms" || destType == "email" || destType == "satellite"
+	return destType == "sms" || destType == "email" || destType == "satellite" || destType == DestSatelliteRelay
+}
+
+// carriesOpaque reports whether a destination makes sense for a payload the
+// Hub could not read. A relay forwards it untouched, a webhook or MQTT consumer
+// may hold the key, and a notification still tells the operator that a modem
+// transmitted, which is worth knowing even unread. What is left out sends the
+// text itself to a person or onto the air (sms, email, satellite, tak, aprs),
+// and the "text" of an opaque message is some hundreds of characters of base64
+// ciphertext: a paid, multi-segment SMS of noise.
+func carriesOpaque(destType string) bool {
+	switch destType {
+	case DestSatelliteRelay, "webhook", "mqtt", "notification":
+		return true
+	}
+	return false
 }
 
 // satelliteChannels are the message channels the "satellite" source covers.

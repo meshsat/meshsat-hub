@@ -20,6 +20,9 @@ type moDecodedPayload struct {
 	IMEI       string `json:"imei,omitempty"`
 	Text       string `json:"text"`
 	Channel    string `json:"channel"`
+	// Wire is the payload as the modem sent it (base64); see
+	// cloudloop.WebhookMOMessage. Only the relay reads it.
+	Wire string `json:"wire,omitempty"`
 }
 
 // NewSMSHandler creates a routing destination handler that sends SMS via Twilio.
@@ -254,4 +257,52 @@ func formatRoutedSMS(deviceID, text string) string {
 		msg = msg[:157] + "..."
 	}
 	return msg
+}
+
+// DestSatelliteRelay forwards a satellite message to other modems byte for
+// byte. Distinct from "satellite", which sends the decoded TEXT with a sender
+// prefix for a person to read: two field kits that share a key authenticate
+// what arrives, the Hub holds no key for them, and one added character turns a
+// valid message into one the receiving kit drops as unauthenticated.
+const DestSatelliteRelay = "satellite_relay"
+
+// SatelliteRelaySender sends wire (base64) unchanged to one modem.
+type SatelliteRelaySender func(ctx context.Context, tenantID, imei, wireB64 string) error
+
+// NewSatelliteRelayHandler relays the original payload to every IMEI in the
+// route's filter except the one it came from. A route like this should always
+// name its senders: each relayed message is a paid MT, and a relay open to any
+// sender forwards whatever any modem on the account transmits.
+func NewSatelliteRelayHandler(send SatelliteRelaySender) DestinationHandler {
+	return func(ctx context.Context, route *store.Route, deviceID string, payload json.RawMessage) {
+		var msg moDecodedPayload
+		if err := json.Unmarshal(payload, &msg); err != nil {
+			slog.Warn("routing/satellite_relay: unmarshal payload failed", "error", err)
+			return
+		}
+		if msg.Wire == "" {
+			slog.Warn("routing/satellite_relay: message carries no original payload, nothing to relay",
+				"route", route.Name, "device", deviceID, "channel", msg.Channel)
+			return
+		}
+		recipients := parseRecipients(route.Filter)
+		if len(recipients) == 0 {
+			slog.Debug("routing/satellite_relay: no recipients in route filter", "route", route.ID)
+			return
+		}
+		tenantID := tenancy.FromContext(ctx)
+		if tenantID == "" {
+			tenantID = store.DefaultTenantID
+		}
+		for _, imei := range recipients {
+			if imei == deviceID {
+				continue // never back to the origin: that is a paid loop
+			}
+			if err := send(ctx, tenantID, imei, msg.Wire); err != nil {
+				slog.Error("routing/satellite_relay: send failed", "imei", imei, "device", deviceID, "error", err)
+				continue
+			}
+			slog.Info("routing/satellite_relay: relayed", "route", route.Name, "from", deviceID, "to", imei, "wire_b64_len", len(msg.Wire))
+		}
+	}
 }
