@@ -26,33 +26,37 @@ type Config struct {
 	// the Tor hidden service. It exists so the Hub can tell which path a request
 	// took without trusting a header: tor forwards raw TCP, so on that path
 	// every header is the anonymous client's own (MESHSAT-1169). 0 disables it.
-	OnionPort               int    `yaml:"onion_port"`
-	MQTTBrokerURL           string `yaml:"mqtt_broker_url"`
-	MQTTClientID            string `yaml:"mqtt_client_id"`
-	MQTTTLSCert             string `yaml:"mqtt_tls_cert"` // Client certificate PEM for mutual TLS
-	MQTTTLSKey              string `yaml:"mqtt_tls_key"`  // Client private key PEM
-	MQTTLSCA                string `yaml:"mqtt_tls_ca"`   // CA certificate for broker verification
-	RockBLOCKSecret         string `yaml:"rockblock_secret"`
-	CloudloopAPIKey         string `yaml:"cloudloop_api_key"`
-	CloudloopAPIURL         string `yaml:"cloudloop_api_url"`
-	GlobalstarAPIKey        string `yaml:"globalstar_api_key"`
-	GlobalstarAPIURL        string `yaml:"globalstar_api_url"`
-	GlobalstarWebhookSecret string `yaml:"globalstar_webhook_secret"` // HMAC-SHA256 secret for Globalstar MO webhook verification
-	LogLevel                string `yaml:"log_level"`
-	LogFormat               string `yaml:"log_format"`
-	AuthToken               string `yaml:"auth_token"`
-	AuthMode                string `yaml:"auth_mode"`       // "none", "token", "local", "oidc"
-	JWTSigningKey           string `yaml:"jwt_signing_key"` // HMAC-SHA256 key for local auth JWT (min 32 chars)
-	OIDCIssuerURL           string `yaml:"oidc_issuer_url"`
-	OIDCAudience            string `yaml:"oidc_audience"`
-	OIDCClientID            string `yaml:"oidc_client_id"`             // authorization-code flow client id (mode=oidc)
-	OIDCClientSecret        string `yaml:"oidc_client_secret"`         // confidential client secret
-	OIDCRedirectURI         string `yaml:"oidc_redirect_uri"`          // e.g. https://hub.meshsat.net/api/auth/oidc/callback
-	OIDCScopes              string `yaml:"oidc_scopes"`                // default "openid profile email"
-	OIDCGroupsClaim         string `yaml:"oidc_groups_claim"`          // claim carrying group names (default "groups")
-	OIDCAdminGroup          string `yaml:"oidc_admin_group"`           // group granting platform admin (default meshsat-platform-admin)
-	OIDCBootstrapOwnerEmail string `yaml:"oidc_bootstrap_owner_email"` // this account attaches to the default tenant instead of creating one
-	OIDCSignupURL           string `yaml:"oidc_signup_url"`            // "Request beta access" link on the login page (authentik enrollment flow)
+	OnionPort       int    `yaml:"onion_port"`
+	MQTTBrokerURL   string `yaml:"mqtt_broker_url"`
+	MQTTClientID    string `yaml:"mqtt_client_id"`
+	MQTTTLSCert     string `yaml:"mqtt_tls_cert"` // Client certificate PEM for mutual TLS
+	MQTTTLSKey      string `yaml:"mqtt_tls_key"`  // Client private key PEM
+	MQTTLSCA        string `yaml:"mqtt_tls_ca"`   // CA certificate for broker verification
+	RockBLOCKSecret string `yaml:"rockblock_secret"`
+	// RockBLOCKRequireSignature refuses an unsigned MO delivery on the
+	// per-tenant capability path as well as the platform one (MESHSAT-1247).
+	// A signature that IS present is always verified, with or without this.
+	RockBLOCKRequireSignature bool   `yaml:"rockblock_require_signature"`
+	CloudloopAPIKey           string `yaml:"cloudloop_api_key"`
+	CloudloopAPIURL           string `yaml:"cloudloop_api_url"`
+	GlobalstarAPIKey          string `yaml:"globalstar_api_key"`
+	GlobalstarAPIURL          string `yaml:"globalstar_api_url"`
+	GlobalstarWebhookSecret   string `yaml:"globalstar_webhook_secret"` // HMAC-SHA256 secret for Globalstar MO webhook verification
+	LogLevel                  string `yaml:"log_level"`
+	LogFormat                 string `yaml:"log_format"`
+	AuthToken                 string `yaml:"auth_token"`
+	AuthMode                  string `yaml:"auth_mode"`       // "none", "token", "local", "oidc"
+	JWTSigningKey             string `yaml:"jwt_signing_key"` // HMAC-SHA256 key for local auth JWT (min 32 chars)
+	OIDCIssuerURL             string `yaml:"oidc_issuer_url"`
+	OIDCAudience              string `yaml:"oidc_audience"`
+	OIDCClientID              string `yaml:"oidc_client_id"`             // authorization-code flow client id (mode=oidc)
+	OIDCClientSecret          string `yaml:"oidc_client_secret"`         // confidential client secret
+	OIDCRedirectURI           string `yaml:"oidc_redirect_uri"`          // e.g. https://hub.meshsat.net/api/auth/oidc/callback
+	OIDCScopes                string `yaml:"oidc_scopes"`                // default "openid profile email"
+	OIDCGroupsClaim           string `yaml:"oidc_groups_claim"`          // claim carrying group names (default "groups")
+	OIDCAdminGroup            string `yaml:"oidc_admin_group"`           // group granting platform admin (default meshsat-platform-admin)
+	OIDCBootstrapOwnerEmail   string `yaml:"oidc_bootstrap_owner_email"` // this account attaches to the default tenant instead of creating one
+	OIDCSignupURL             string `yaml:"oidc_signup_url"`            // "Request beta access" link on the login page (authentik enrollment flow)
 	// Approving a beta request from inside the Hub (MESHSAT-978). Without a
 	// token the endpoints report themselves unconfigured and the manual
 	// script stays the way to do it.
@@ -578,6 +582,9 @@ func Load() (Config, error) {
 	}
 	if v := os.Getenv("HUB_ROCKBLOCK_SECRET"); v != "" {
 		cfg.RockBLOCKSecret = v
+	}
+	if v := os.Getenv("HUB_ROCKBLOCK_REQUIRE_SIGNATURE"); v != "" {
+		cfg.RockBLOCKRequireSignature = strings.EqualFold(v, "true") || v == "1"
 	}
 	if v := os.Getenv("HUB_CLOUDLOOP_API_KEY"); v != "" {
 		cfg.CloudloopAPIKey = v

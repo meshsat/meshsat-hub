@@ -123,11 +123,17 @@ var Classification = map[string]Class{
 	"rock7_password":            ClassTenantDone,
 	"rock7_username":            ClassTenantDone,
 	"rockblock_secret":          ClassTenantDone,
-	"sms_account_sid":           ClassTenantDone,
-	"sms_api_key_sid":           ClassTenantDone,
-	"sms_auth_token":            ClassTenantDone,
-	"sms_enabled":               ClassTenantDone,
-	"sms_from_number":           ClassTenantDone,
+	// Platform, deliberately, even though the secret beside it is tenant-owned:
+	// this decides whether an UNSIGNED delivery is accepted on a tenant's own
+	// capability path (MESHSAT-1247). A tenant who could turn it off would be
+	// turning off the check that a delivery really came from Ground Control,
+	// which is the platform's posture to set, not the customer's.
+	"rockblock_require_signature": ClassPlatform,
+	"sms_account_sid":             ClassTenantDone,
+	"sms_api_key_sid":             ClassTenantDone,
+	"sms_auth_token":              ClassTenantDone,
+	"sms_enabled":                 ClassTenantDone,
+	"sms_from_number":             ClassTenantDone,
 	// The platform account's Twilio ACCOUNT auth token, used only to verify
 	// X-Twilio-Signature on the inbound webhook (MESHSAT-1168). Tenant-owned and
 	// already in the UI: it is the Twilio provider's existing "auth_token" field
