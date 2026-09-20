@@ -99,6 +99,7 @@ type WebhookHandler struct {
 	oob      OOBClassifier         // management frames (MESHSAT-964)
 	store    interface {
 		InsertMessage(ctx context.Context, tenantID string, m *store.Message) error
+		DeviceBridgeID(ctx context.Context, tenantID string, imei string) (string, error)
 		SetBridgeOnline(ctx context.Context, tenantID string, bridgeID string, online bool) error
 		SetBridgeHealth(ctx context.Context, tenantID string, bridgeID string, health string) error
 		TouchBridgeLastSeen(ctx context.Context, tenantID string, bridgeID string) error
@@ -144,6 +145,7 @@ func (h *WebhookHandler) SetMSVQSC(d *msvqsc.Decoder) {
 // SetStore attaches a store for persisting MO messages and bridge state.
 func (h *WebhookHandler) SetStore(s interface {
 	InsertMessage(ctx context.Context, tenantID string, m *store.Message) error
+	DeviceBridgeID(ctx context.Context, tenantID string, imei string) (string, error)
 	SetBridgeOnline(ctx context.Context, tenantID string, bridgeID string, online bool) error
 	SetBridgeHealth(ctx context.Context, tenantID string, bridgeID string, health string) error
 	TouchBridgeLastSeen(ctx context.Context, tenantID string, bridgeID string) error
@@ -159,6 +161,38 @@ func (h *WebhookHandler) uplinkSink() *bridge.UplinkSink {
 		st = h.store
 	}
 	return bridge.NewUplinkSink(st, h.publish, h.audit, "cloudloop_webhook").SetTenants(h.tenants)
+}
+
+// ackToBridge publishes the receipt for an MO on the owning bridge's own topic,
+// the Cloudloop half of MESHSAT-1246 (MESHSAT-1257). The device row says which
+// bridge owns the modem; a modem no bridge owns gets no receipt, and a failed
+// lookup only costs the tick -- nothing here stands between the MO and its
+// processing.
+//
+// SBD only, and that is the whole design decision. The sender correlates a
+// receipt on "<imei>:<momsn>", where the MOMSN has to be the number the modem
+// itself reported to +SBDIX for that session, and only LingoSBD carries one. An
+// IMT delivery from a 9704 has cmid and messageId instead, which the modem never
+// saw, and `LingoMO.MOMSN()` answers 0 for anything that is not SBD. Zero is a
+// REAL momsn -- it is a modem's first session -- so publishing it would not
+// merely fail to tick, it could tick the wrong message. The Android sender
+// agrees by construction: it only ever calls setSatRef in the 9603 branch, so
+// an IMT message has no reference for a receipt to match.
+func (h *WebhookHandler) ackToBridge(ctx context.Context, imei string, mo *LingoMO) {
+	if h.store == nil || imei == "" || mo == nil || mo.SBD == nil {
+		return
+	}
+	tenantID := h.tenantOf(ctx, imei)
+	bridgeID, err := h.store.DeviceBridgeID(ctx, tenantID, imei)
+	if err != nil || bridgeID == "" {
+		return
+	}
+	h.publish(hubmqtt.TopicBridgeMOAckFor(tenantID, bridgeID), 1, false, hubmqtt.MOAck{
+		IMEI:       imei,
+		MOMSN:      mo.SBD.MOMSN,
+		Bearer:     "sbd",
+		ReceivedAt: time.Now().UTC().Format(time.RFC3339),
+	})
 }
 
 // bearerOf maps a LingoMO source to the bearer name used in fleet state.
@@ -400,6 +434,11 @@ func (h *WebhookHandler) processLingoMO(ctx context.Context, mo *LingoMO, remote
 		slog.Warn("cloudloop: base64 decode failed", "error", err, "imei", imei)
 		return "error_decode"
 	}
+
+	// Tell the modem's bridge the Hub has this MO, before the duplicate check so
+	// a retransmission confirms again: a receipt lost while the phone was
+	// offline is not lost for good (MESHSAT-1246, MESHSAT-1257).
+	h.ackToBridge(ctx, imei, mo)
 
 	// Dedup by LingoMO.ID (UUID from Cloudloop).
 	if h.dedup != nil {

@@ -584,15 +584,10 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
 }
 
-// MOAck is the Hub's receipt for one MO, sent to the bridge that owns the modem
-// (MESHSAT-1246). The phone matches it to the message it sent by IMEI and MOMSN,
-// which +SBDIX reported to it for the same session, and shows a second tick.
-type MOAck struct {
-	IMEI       string `json:"imei"`
-	MOMSN      int    `json:"momsn"`
-	Bearer     string `json:"bearer"`
-	ReceivedAt string `json:"received_at"`
-}
+// MOAck is the receipt this handler sends. The type lives in internal/mqtt
+// beside its topic, because Cloudloop sends the same shape (MESHSAT-1257) and
+// the phone parses one of them.
+type MOAck = hubmqtt.MOAck
 
 // ackToBridge publishes the receipt for an MO on the owning bridge's own topic.
 // The device row says which bridge owns the modem (set from the bridge's birth);
