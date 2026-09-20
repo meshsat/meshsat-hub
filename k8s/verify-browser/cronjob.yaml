@@ -1,0 +1,90 @@
+# Nightly real-browser verification (MESHSAT-1224). 03:45 Amsterdam: after
+# hub-verify at 03:15, which takes about two minutes, so a slow browser run
+# cannot delay the suite that beats the status-page heartbeat.
+#
+# Why the stock Playwright image and not our own: Playwright does not support
+# Alpine, and the hub-verify image is Alpine. Building a second Debian image
+# to hold a browser we would only ever use unmodified buys nothing, so the
+# suite travels as a ConfigMap and the image stays upstream's. It is outside
+# the Kyverno `verify-meshsat-hub-image` match (ghcr.io/meshsat/meshsat-hub),
+# so it needs no cosign signature -- but Kyverno DOES enforce the restricted
+# profile here, hence runAsNonRoot, drop ALL and RuntimeDefault below.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: hub-browser-verify
+  namespace: meshsat-hub
+  labels:
+    app.kubernetes.io/name: hub-browser-verify
+spec:
+  schedule: "45 3 * * *"
+  timeZone: Europe/Amsterdam
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 2
+  failedJobsHistoryLimit: 5
+  startingDeadlineSeconds: 3600
+  jobTemplate:
+    spec:
+      backoffLimit: 0
+      activeDeadlineSeconds: 1800
+      ttlSecondsAfterFinished: 604800
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: hub-browser-verify
+        spec:
+          restartPolicy: Never
+          # Control-plane tier like the other jobs: the workers are committed.
+          nodeSelector:
+            node-role.kubernetes.io/control-plane: ""
+          tolerations:
+            - key: node-role.kubernetes.io/control-plane
+              operator: Exists
+              effect: NoSchedule
+          securityContext:
+            runAsNonRoot: true
+            # pwuser, the unprivileged user the Playwright image ships with and
+            # the owner of its browser cache.
+            runAsUser: 1000
+            runAsGroup: 1000
+            seccompProfile:
+              type: RuntimeDefault
+          containers:
+            - name: browser-verify
+              image: mcr.microsoft.com/playwright/python
+              imagePullPolicy: IfNotPresent
+              command: ["/bin/bash", "/suites/run.sh"]
+              envFrom:
+                # Reuses hub-verify's secret for NTFY_* only; nothing here
+                # needs the admin key and nothing here authenticates.
+                - secretRef:
+                    name: hub-verify-secrets
+              securityContext:
+                allowPrivilegeEscalation: false
+                # Chromium writes its profile and shared memory under $HOME,
+                # which run.sh points at the tmp volume below.
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop: ["ALL"]
+              resources:
+                requests:
+                  cpu: 250m
+                  memory: 512Mi
+                limits:
+                  # Under the namespace LimitRange max of 4Gi. Chromium with
+                  # --disable-dev-shm-usage keeps its shared memory in /tmp,
+                  # so the tmp volume carries it rather than a shm mount.
+                  memory: 2Gi
+              volumeMounts:
+                - name: suites
+                  mountPath: /suites
+                  readOnly: true
+                - name: tmp
+                  mountPath: /tmp
+          volumes:
+            - name: suites
+              configMap:
+                name: hub-browser-verify-suites
+                defaultMode: 0755
+            - name: tmp
+              emptyDir: {}
