@@ -15,6 +15,7 @@ configMapGenerator:
     files:
       - suites/run.sh
       - suites/browser-suite.py
-      # Shipped beside the suite on purpose: the proof that the suite can fail
-      # is part of the suite, and it is run from the runner, not by the Job.
+      # Shipped beside the suite on purpose: the proof that a check can fail is
+      # part of the check, and these are run from the runner, not by the Job.
       - suites/negative-proof.py
+      - suites/basemap-negative.py
