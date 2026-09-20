@@ -18,7 +18,7 @@ func testBoothRelay(t *testing.T, db store.Store) {
 	const (
 		mine   = "t_booth_mine"
 		theirs = "t_booth_theirs"
-		kit    = "nllei01parallax01"
+		kit    = "bridge-kit-a"
 		node   = "!a1b2c3d4"
 	)
 	future := time.Now().Add(30 * time.Minute)
@@ -156,7 +156,7 @@ func testBoothRelay(t *testing.T, db store.Store) {
 // MESHSAT-1175: the spend ledger and the expiry sweep, both dialects.
 func testBoothSpendAndExpiry(t *testing.T, db store.Store) {
 	ctx := context.Background()
-	const mine, theirs, kit = "t_spend_mine", "t_spend_theirs", "nllei01parallax01"
+	const mine, theirs, kit = "t_spend_mine", "t_spend_theirs", "bridge-kit-a"
 
 	for i, who := range []string{"+31600000001", "+31600000001", "+31600000002"} {
 		if err := db.RecordBoothSend(ctx, mine, fmt.Sprintf("s%d", i), who, "sms", "visitor"); err != nil {

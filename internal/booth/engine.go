@@ -73,7 +73,7 @@ type Policy struct {
 
 // Kit is one allowlisted destination.
 type Kit struct {
-	BridgeID string // the Hub's bridge id, e.g. nllei01parallax01
+	BridgeID string // the Hub's bridge id, e.g. bridge-kit-a
 	Label    string // what the visitor sees
 	MeshDest string // node/channel on that kit's mesh; "" means its default
 }

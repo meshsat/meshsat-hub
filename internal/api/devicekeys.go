@@ -248,7 +248,7 @@ func (h *DeviceKeyHandler) DeleteKey(w http.ResponseWriter, r *http.Request) {
 
 type rotateDistributeRequest struct {
 	ChannelType string   `json:"channel_type"` // e.g. "sms", "mesh", "iridium"
-	Address     string   `json:"address"`      // e.g. "+31653618463", "!abcd1234"
+	Address     string   `json:"address"`      // e.g. "+31600000001", "!abcd1234"
 	BridgeIDs   []string `json:"bridge_ids"`   // target bridges to push key to
 }
 

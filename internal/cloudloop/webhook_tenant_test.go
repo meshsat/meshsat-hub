@@ -36,7 +36,7 @@ func TestWebhookHandler_TenantTokens(t *testing.T) {
 			t.Fatalf("create tenant %s: %v", id, err)
 		}
 	}
-	const imeiB = "300258060902280" // registered to tenant-b
+	const imeiB = "300000000000002" // registered to tenant-b
 	if err := db.CreateDevice(ctx, "tenant-b", &store.Device{IMEI: imeiB, Label: "b"}); err != nil {
 		t.Fatalf("device: %v", err)
 	}

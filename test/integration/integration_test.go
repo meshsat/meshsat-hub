@@ -837,7 +837,7 @@ func TestCloudloop_IMT_MO_PublishesToMQTT(t *testing.T) {
 		ReceivedAt: cloudloop.LingoTimestamp{Year: 2026, Month: 3, Day: 27, Hour: 13},
 		Identity: cloudloop.LingoIdentity{
 			AccountID: "acct-e2e",
-			Hardware:  &cloudloop.LingoHardware{ID: "hw-2", Type: "ROCKBLOCK_9704", IMEI: "300258060902280", Serial: "rb9704"},
+			Hardware:  &cloudloop.LingoHardware{ID: "hw-2", Type: "ROCKBLOCK_9704", IMEI: "300000000000002", Serial: "rb9704"},
 			ThingID:   "thing-imt-e2e",
 		},
 		IMT: &cloudloop.LingoIMT{
@@ -872,8 +872,8 @@ func TestCloudloop_IMT_MO_PublishesToMQTT(t *testing.T) {
 	if decoded["source"] != "cloudloop_imt" {
 		t.Errorf("source = %q, want cloudloop_imt", decoded["source"])
 	}
-	if decoded["imei"] != "300258060902280" {
-		t.Errorf("imei = %q, want 300258060902280", decoded["imei"])
+	if decoded["imei"] != "300000000000002" {
+		t.Errorf("imei = %q, want 300000000000002", decoded["imei"])
 	}
 }
 
@@ -909,7 +909,7 @@ func TestCloudloop_DualProtocol_SBDandIMT(t *testing.T) {
 		ReceivedAt: cloudloop.LingoTimestamp{Year: 2026, Month: 3, Day: 27, Hour: 14, Minute: 1},
 		Identity: cloudloop.LingoIdentity{
 			AccountID: "acct",
-			Hardware:  &cloudloop.LingoHardware{IMEI: "300258060902280"},
+			Hardware:  &cloudloop.LingoHardware{IMEI: "300000000000002"},
 			ThingID:   "t-imt",
 		},
 		IMT: &cloudloop.LingoIMT{

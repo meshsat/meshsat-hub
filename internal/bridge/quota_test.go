@@ -42,7 +42,7 @@ func TestDeviceBirth_OverCapDoesNotProvisionButStillProcesses(t *testing.T) {
 		BridgeID:  "mule01",
 		Type:      "iridium_imt",
 		Label:     "RockBLOCK 9704",
-		IMEI:      "300258060902280",
+		IMEI:      "300000000000002",
 		Timestamp: time.Now(),
 	}
 	payload, _ := json.Marshal(birth)
@@ -54,7 +54,7 @@ func TestDeviceBirth_OverCapDoesNotProvisionButStillProcesses(t *testing.T) {
 	if ms.createDeviceCalls != 0 {
 		t.Errorf("createDevice calls = %d, want 0 for a tenant at its ceiling", ms.createDeviceCalls)
 	}
-	if _, ok := ms.devices["300258060902280"]; ok {
+	if _, ok := ms.devices["300000000000002"]; ok {
 		t.Error("a device was registered past the tenant's ceiling")
 	}
 }
@@ -64,7 +64,7 @@ func TestDeviceBirth_OverCapDoesNotProvisionButStillProcesses(t *testing.T) {
 // cap must not stop seeing the kit it already has.
 func TestDeviceBirth_ExistingDeviceIsNotAQuotaQuestion(t *testing.T) {
 	ms := newMockStore()
-	ms.devices["300258060902280"] = &store.Device{IMEI: "300258060902280", Label: "Existing"}
+	ms.devices["300000000000002"] = &store.Device{IMEI: "300000000000002", Label: "Existing"}
 	mb := newMockBus()
 	sub := NewSubscriber(mb, ms, nil)
 	q := &refuseAll{}
@@ -78,7 +78,7 @@ func TestDeviceBirth_ExistingDeviceIsNotAQuotaQuestion(t *testing.T) {
 		DeviceID:  "iridium_0",
 		BridgeID:  "mule01",
 		Type:      "iridium_imt",
-		IMEI:      "300258060902280",
+		IMEI:      "300000000000002",
 		Timestamp: time.Now(),
 	}
 	payload, _ := json.Marshal(birth)
@@ -87,7 +87,7 @@ func TestDeviceBirth_ExistingDeviceIsNotAQuotaQuestion(t *testing.T) {
 	if q.asked != 0 {
 		t.Errorf("quota asked %d times for a device the tenant already owns, want 0", q.asked)
 	}
-	if bridgeID := ms.deviceBridgeMap["300258060902280"]; bridgeID != "mule01" {
+	if bridgeID := ms.deviceBridgeMap["300000000000002"]; bridgeID != "mule01" {
 		t.Errorf("device bridge = %q, want %q -- an over-cap tenant still associates its own kit", bridgeID, "mule01")
 	}
 }

@@ -21,8 +21,8 @@ import (
 // not an empty prefix. The reverse origin must not fire the route.
 func TestPlainTextSMSRelaysKitToKit(t *testing.T) {
 	const (
-		kitA = "+31653618463"
-		kitB = "+31653207829"
+		kitA = "+31600000001"
+		kitB = "+31600000002"
 	)
 	s, err := sqlite.New(":memory:", 0)
 	if err != nil {
@@ -57,7 +57,7 @@ func TestPlainTextSMSRelaysKitToKit(t *testing.T) {
 	})
 
 	publish := func(from, id, text string) {
-		payload, err := json.Marshal(sms.InboundSMS{ID: id, From: from, To: "+3197010258258", Body: text, Text: text, Channel: "sms"})
+		payload, err := json.Marshal(sms.InboundSMS{ID: id, From: from, To: "+3197000000001", Body: text, Text: text, Channel: "sms"})
 		if err != nil {
 			t.Fatal(err)
 		}

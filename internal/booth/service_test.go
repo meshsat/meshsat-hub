@@ -127,7 +127,7 @@ func newSvc(st *fakeSvcStore, v *fakeVisitor, k *fakeKits) *Service {
 func drive(t *testing.T, s *Service) {
 	t.Helper()
 	ctx := context.Background()
-	for _, c := range []string{OptSendMessage, OptOptInYes, kitOptPrefix + "nllei01parallax01"} {
+	for _, c := range []string{OptSendMessage, OptOptInYes, kitOptPrefix + "bridge-kit-a"} {
 		if err := s.OnInbound(ctx, tenant, who, ch, c, ""); err != nil {
 			t.Fatalf("drive %s: %v", c, err)
 		}
@@ -148,7 +148,7 @@ func TestForwardLegRelaysWithABareToken(t *testing.T) {
 		t.Fatalf("kit received %d messages, want 1", len(k.sent))
 	}
 	got := k.sent[0]
-	if !strings.HasPrefix(got, "nllei01parallax01|#") {
+	if !strings.HasPrefix(got, "bridge-kit-a|#") {
 		t.Fatalf("kit payload does not lead with a bare token: %q", got)
 	}
 	if strings.ContainsAny(got, "[]") {
@@ -234,7 +234,7 @@ func TestReturnLegDeliversAndClosesTheConversation(t *testing.T) {
 	}
 
 	before := len(v.texts)
-	if err := s.OnMeshReply(context.Background(), tenant, "nllei01parallax01", "", "#"+ref+" got it", "wire-1"); err != nil {
+	if err := s.OnMeshReply(context.Background(), tenant, "bridge-kit-a", "", "#"+ref+" got it", "wire-1"); err != nil {
 		t.Fatalf("mesh reply: %v", err)
 	}
 	if len(v.texts) != before+1 {
@@ -258,7 +258,7 @@ func TestUnrelatedMeshTextIsNotForwarded(t *testing.T) {
 	st, v, k := newSvcStore(), &fakeVisitor{}, &fakeKits{}
 	s := newSvc(st, v, k)
 
-	if err := s.OnMeshReply(context.Background(), tenant, "nllei01parallax01", "", "random chatter", "wire-2"); err != nil {
+	if err := s.OnMeshReply(context.Background(), tenant, "bridge-kit-a", "", "random chatter", "wire-2"); err != nil {
 		t.Fatalf("mesh reply: %v", err)
 	}
 	if len(v.texts) != 0 {
@@ -324,7 +324,7 @@ func TestReplyGoesBackOnTheOriginatingBearer(t *testing.T) {
 		t.Fatalf("the relay recorded channel %q, want sms", st.relays[ref].Channel)
 	}
 	before := len(v.texts)
-	if err := s.OnMeshReply(ctx, tenant, "nllei01parallax01", "", "#"+ref+" got it", "wire-1"); err != nil {
+	if err := s.OnMeshReply(ctx, tenant, "bridge-kit-a", "", "#"+ref+" got it", "wire-1"); err != nil {
 		t.Fatalf("mesh reply: %v", err)
 	}
 	if len(v.texts) != before+1 {
@@ -371,10 +371,10 @@ func TestReplyIsDeliveredOnceAcrossReplicas(t *testing.T) {
 	before := len(v.texts)
 	// The same wire message reaches both replicas, so both compute the same key.
 	const wireKey = "mo-samedigest"
-	if err := a.OnMeshReply(ctx, tenant, "nllei01parallax01", "", "#"+ref+" got it", wireKey); err != nil {
+	if err := a.OnMeshReply(ctx, tenant, "bridge-kit-a", "", "#"+ref+" got it", wireKey); err != nil {
 		t.Fatalf("replica a: %v", err)
 	}
-	if err := b.OnMeshReply(ctx, tenant, "nllei01parallax01", "", "#"+ref+" got it", wireKey); err != nil {
+	if err := b.OnMeshReply(ctx, tenant, "bridge-kit-a", "", "#"+ref+" got it", wireKey); err != nil {
 		t.Fatalf("replica b: %v", err)
 	}
 
@@ -397,12 +397,12 @@ func TestASecondDistinctReplyStillDelivers(t *testing.T) {
 	}
 
 	before := len(v.texts)
-	if err := s.OnMeshReply(ctx, tenant, "nllei01parallax01", "", "#"+ref+" first", "wire-a"); err != nil {
+	if err := s.OnMeshReply(ctx, tenant, "bridge-kit-a", "", "#"+ref+" first", "wire-a"); err != nil {
 		t.Fatalf("first: %v", err)
 	}
 	// Re-open, because the first reply closed the conversation.
 	st.relays[ref].ClosedAt = nil
-	if err := s.OnMeshReply(ctx, tenant, "nllei01parallax01", "", "#"+ref+" second", "wire-b"); err != nil {
+	if err := s.OnMeshReply(ctx, tenant, "bridge-kit-a", "", "#"+ref+" second", "wire-b"); err != nil {
 		t.Fatalf("second: %v", err)
 	}
 	if got := len(v.texts) - before; got != 2 {

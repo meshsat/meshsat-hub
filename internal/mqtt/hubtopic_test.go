@@ -11,7 +11,7 @@ func TestIsHubTopic(t *testing.T) {
 		"meshsat/relay/kit-a/phone-1/up":         true,
 		"meshsat/android-001/sms/inbound":        false,
 		"meshsat/t-acme/android-001/sms/inbound": false,
-		"meshsat/%2B31653207829/mo/decoded":      false,
+		"meshsat/%2B31600000002/mo/decoded":      false,
 		"meshsat":                                false,
 		"other/hub/sms/inbound":                  false,
 	}

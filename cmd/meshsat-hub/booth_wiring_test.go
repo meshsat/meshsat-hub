@@ -33,7 +33,7 @@ func TestMeshReplyFiltersAreRealWildcards(t *testing.T) {
 
 	// And it must actually match the topic a kit publishes on. The Bridge's
 	// event tap publishes to meshsat/{device_id}/mo/decoded (MESHSAT-1178).
-	const real = "meshsat/!a1b3c2ec/mo/decoded"
+	const real = "meshsat/!0a0b0c0d/mo/decoded"
 	matched := false
 	for _, f := range filters {
 		if mqttFilterMatches(f, real) {
@@ -48,7 +48,7 @@ func TestMeshReplyFiltersAreRealWildcards(t *testing.T) {
 // The encoder is doing its job and must keep doing it: a real device id that
 // contains "+" -- an E.164 number on the SMS paths -- still has to be escaped.
 func TestDeviceIDWildcardIsStillEscapedForRealIDs(t *testing.T) {
-	got := hubmqtt.TopicMODecoded("+31653618463")
+	got := hubmqtt.TopicMODecoded("+31600000001")
 	if strings.Contains(got, "/+31") {
 		t.Errorf("a phone number reached the topic unescaped: %q", got)
 	}

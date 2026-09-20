@@ -87,7 +87,7 @@ func newTestLingoMO(imei, text string) LingoMO {
 func TestWebhookHandler_NoAllowlist_Rejected(t *testing.T) {
 	bus := &mockBus{}
 	h := NewWebhookHandler(bus) // no allowlist
-	mo := newTestLingoMO("300258060902280", "test")
+	mo := newTestLingoMO("300000000000002", "test")
 	body, _ := json.Marshal(mo)
 	req := httptest.NewRequest(http.MethodPost, "/api/webhook/cloudloop", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
@@ -105,7 +105,7 @@ func TestWebhookHandler_BasicMO(t *testing.T) {
 	defer dd.Close()
 	h.SetDedup(dd)
 
-	mo := newTestLingoMO("300258060902280", "Hello from satellite")
+	mo := newTestLingoMO("300000000000002", "Hello from satellite")
 	body, _ := json.Marshal(mo)
 
 	req := httptest.NewRequest(http.MethodPost, "/api/webhook/cloudloop", bytes.NewReader(body))
@@ -133,21 +133,21 @@ func TestWebhookHandler_BasicMO(t *testing.T) {
 	}
 
 	// Check mo/raw topic.
-	if msgs[0].topic != "meshsat/300258060902280/mo/raw" {
-		t.Errorf("topic[0] = %q, want %q", msgs[0].topic, "meshsat/300258060902280/mo/raw")
+	if msgs[0].topic != "meshsat/300000000000002/mo/raw" {
+		t.Errorf("topic[0] = %q, want %q", msgs[0].topic, "meshsat/300000000000002/mo/raw")
 	}
 
 	// Check mo/decoded topic and content.
-	if msgs[1].topic != "meshsat/300258060902280/mo/decoded" {
-		t.Errorf("topic[1] = %q, want %q", msgs[1].topic, "meshsat/300258060902280/mo/decoded")
+	if msgs[1].topic != "meshsat/300000000000002/mo/decoded" {
+		t.Errorf("topic[1] = %q, want %q", msgs[1].topic, "meshsat/300000000000002/mo/decoded")
 	}
 
 	var decoded WebhookMOMessage
 	if err := json.Unmarshal(msgs[1].payload, &decoded); err != nil {
 		t.Fatalf("decode mo/decoded: %v", err)
 	}
-	if decoded.IMEI != "300258060902280" {
-		t.Errorf("decoded.IMEI = %q, want %q", decoded.IMEI, "300258060902280")
+	if decoded.IMEI != "300000000000002" {
+		t.Errorf("decoded.IMEI = %q, want %q", decoded.IMEI, "300000000000002")
 	}
 	if decoded.Text != "Hello from satellite" {
 		t.Errorf("decoded.Text = %q, want %q", decoded.Text, "Hello from satellite")
@@ -164,7 +164,7 @@ func TestWebhookHandler_Dedup(t *testing.T) {
 	defer dd.Close()
 	h.SetDedup(dd)
 
-	mo := newTestLingoMO("300258060902280", "test dedup")
+	mo := newTestLingoMO("300000000000002", "test dedup")
 	body, _ := json.Marshal(mo)
 
 	// First request — should succeed.
@@ -201,11 +201,11 @@ func TestWebhookHandler_PositionExtraction(t *testing.T) {
 		ReceivedAt: LingoTimestamp{Year: 2026, Month: 3, Day: 23, Hour: 12, Minute: 0, Second: 0},
 		Identity: LingoIdentity{
 			AccountID: "acct",
-			Hardware:  &LingoHardware{IMEI: "300258060902280"},
+			Hardware:  &LingoHardware{IMEI: "300000000000002"},
 			ThingID:   "t",
 		},
 		SBD: &LingoSBD{
-			IMEI:      "300258060902280",
+			IMEI:      "300000000000002",
 			MOMSN:     10,
 			SessionAt: LingoTimestamp{Year: 2026, Month: 3, Day: 23, Hour: 12, Minute: 0, Second: 0},
 			Status:    "OK",
@@ -225,7 +225,7 @@ func TestWebhookHandler_PositionExtraction(t *testing.T) {
 		t.Fatalf("expected 3 MQTT messages, got %d", len(msgs))
 	}
 
-	if msgs[2].topic != "meshsat/300258060902280/position" {
+	if msgs[2].topic != "meshsat/300000000000002/position" {
 		t.Errorf("topic[2] = %q, want position topic", msgs[2].topic)
 	}
 
@@ -279,7 +279,7 @@ func TestWebhookHandler_IPAllowlist(t *testing.T) {
 	h := NewWebhookHandler(bus)
 	h.SetAllowedIPs([]string{"10.0.0.1", "10.0.0.2"})
 
-	mo := newTestLingoMO("300258060902280", "blocked")
+	mo := newTestLingoMO("300000000000002", "blocked")
 	body, _ := json.Marshal(mo)
 
 	// Request from disallowed IP.
@@ -421,7 +421,7 @@ func TestWebhookHandler_DualProtocol_SBDandIMT(t *testing.T) {
 	}
 
 	// Send IMT MO (different IMEI to avoid dedup).
-	imtMO := newTestLingoMO("300258060902280", "IMT path")
+	imtMO := newTestLingoMO("300000000000002", "IMT path")
 	imtBody, _ := json.Marshal(imtMO)
 	req2 := httptest.NewRequest(http.MethodPost, "/api/webhook/cloudloop", bytes.NewReader(imtBody))
 	req2.Header.Set("Content-Type", "application/json")

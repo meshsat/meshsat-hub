@@ -52,7 +52,7 @@ func exhaust(t *testing.T, l *DeviceLimiter, tenantID, device string) {
 func TestOneTenantCannotSpendAnothersBudget(t *testing.T) {
 	// One send per day, no refill.
 	l := NewDeviceLimiter(1, 0, 1, 0, nil)
-	const shared = "300434067943980"
+	const shared = "300000000000003"
 
 	// Tenant B burns its own budget for that device id.
 	exhaust(t, l, tenantB, shared)
@@ -68,7 +68,7 @@ func TestOneTenantCannotSpendAnothersBudget(t *testing.T) {
 // The expensive one.
 func TestATenantCannotLiftAnothersSendBudget(t *testing.T) {
 	l := NewDeviceLimiter(1, 0, 1, 0, nil)
-	const victimDevice = "300434067943980"
+	const victimDevice = "300000000000003"
 
 	exhaust(t, l, store.DefaultTenantID, victimDevice)
 
@@ -94,7 +94,7 @@ func TestATenantCannotLiftAnothersSendBudget(t *testing.T) {
 // silently reinstates a limit they had deliberately lifted.
 func TestATenantCannotClearAnothersOverride(t *testing.T) {
 	l := NewDeviceLimiter(1, 0, 1, 0, nil)
-	const device = "300258060902280"
+	const device = "300000000000002"
 
 	exhaust(t, l, store.DefaultTenantID, device)
 	SetOverride(store.DefaultTenantID, device, time.Hour)
@@ -123,7 +123,7 @@ func TestUsageListingShowsOnlyTheTenantsOwnDevices(t *testing.T) {
 // than reporting the owner's real counters.
 func TestUsageDoesNotReportAnotherTenantsCounters(t *testing.T) {
 	l := NewDeviceLimiter(5, 0, 10, 0, nil)
-	const device = "300434067943980"
+	const device = "300000000000003"
 	for i := 0; i < 3; i++ {
 		l.Allow(store.DefaultTenantID, device, false)
 	}
@@ -150,7 +150,7 @@ func TestTheKeyCannotBeForgedByAColonInADeviceID(t *testing.T) {
 // limiter, for a tenant that is not the device's owner, still passes an SOS.
 func TestAnSOSPassesWhateverTheTenant(t *testing.T) {
 	l := NewDeviceLimiter(1, 0, 1, 0, nil)
-	const device = "300434067943980"
+	const device = "300000000000003"
 	exhaust(t, l, store.DefaultTenantID, device)
 
 	if !l.Allow(store.DefaultTenantID, device, true) {
@@ -184,7 +184,7 @@ func asTenant(method, target, body, tenantID, deviceID string) *http.Request {
 func TestTheOverrideEndpointIsScopedToTheCaller(t *testing.T) {
 	l := NewDeviceLimiter(1, 0, 1, 0, nil)
 	h := NewHandler(l)
-	const victimDevice = "300434067943980"
+	const victimDevice = "300000000000003"
 	exhaust(t, l, store.DefaultTenantID, victimDevice)
 
 	w := httptest.NewRecorder()

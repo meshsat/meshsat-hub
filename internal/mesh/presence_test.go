@@ -80,13 +80,13 @@ func newRecorder(t *testing.T) (*Recorder, *fakeBus, *fakeStore) {
 // all: the topic carries only the node.
 func TestAMeshMessageRecordsItsNodeBehindItsBridge(t *testing.T) {
 	_, b, s := newRecorder(t)
-	b.deliver("meshsat/!a1b3c2ec/mo/decoded",
-		[]byte(`{"device_id":"!a1b3c2ec","bridge_id":"nllei01parallax01","text":"hello"}`))
+	b.deliver("meshsat/!0a0b0c0d/mo/decoded",
+		[]byte(`{"device_id":"!0a0b0c0d","bridge_id":"bridge-kit-a","text":"hello"}`))
 
 	if len(s.got) != 1 {
 		t.Fatalf("recorded %d observations, want 1", len(s.got))
 	}
-	if s.got[0].bridgeID != "nllei01parallax01" || s.got[0].nodeID != "!a1b3c2ec" {
+	if s.got[0].bridgeID != "bridge-kit-a" || s.got[0].nodeID != "!0a0b0c0d" {
 		t.Errorf("recorded the wrong pair: %+v", s.got[0])
 	}
 }
@@ -96,8 +96,8 @@ func TestAMeshMessageRecordsItsNodeBehindItsBridge(t *testing.T) {
 // precise lie this table exists to avoid.
 func TestTrafficWithNoBridgeIsNotPresence(t *testing.T) {
 	_, b, s := newRecorder(t)
-	b.deliver("meshsat/%2B31653618463/mo/decoded",
-		[]byte(`{"device_id":"+31653618463","text":"an inbound SMS"}`))
+	b.deliver("meshsat/%2B31600000001/mo/decoded",
+		[]byte(`{"device_id":"+31600000001","text":"an inbound SMS"}`))
 	b.deliver("meshsat/300434063281370/mo/decoded",
 		[]byte(`{"imei":"300434063281370","text":"a satellite message"}`))
 
@@ -109,8 +109,8 @@ func TestTrafficWithNoBridgeIsNotPresence(t *testing.T) {
 // Malformed JSON must not take the subscriber down or write a phantom node.
 func TestGarbageIsIgnored(t *testing.T) {
 	_, b, s := newRecorder(t)
-	b.deliver("meshsat/!a1b3c2ec/mo/decoded", []byte(`{not json`))
-	b.deliver("meshsat/!a1b3c2ec/mo/decoded", []byte(`{"bridge_id":"","device_id":""}`))
+	b.deliver("meshsat/!0a0b0c0d/mo/decoded", []byte(`{not json`))
+	b.deliver("meshsat/!0a0b0c0d/mo/decoded", []byte(`{"bridge_id":"","device_id":""}`))
 	if len(s.got) != 0 {
 		t.Fatalf("recorded something from garbage: %+v", s.got)
 	}
@@ -119,7 +119,7 @@ func TestGarbageIsIgnored(t *testing.T) {
 // When the payload omits device_id, the topic still names the node.
 func TestNodeFallsBackToTheTopic(t *testing.T) {
 	_, b, s := newRecorder(t)
-	b.deliver("meshsat/!a1b3c3a4/mo/decoded", []byte(`{"bridge_id":"nllei01tesseract01","text":"hi"}`))
+	b.deliver("meshsat/!a1b3c3a4/mo/decoded", []byte(`{"bridge_id":"bridge-kit-b","text":"hi"}`))
 	if len(s.got) != 1 || s.got[0].nodeID != "!a1b3c3a4" {
 		t.Fatalf("did not fall back to the topic for the node id: %+v", s.got)
 	}
@@ -131,7 +131,7 @@ func TestNodeFallsBackToTheTopic(t *testing.T) {
 // wrong no that hides a mesh nobody can then use.
 func TestAPresenceLookupFailureLeavesTheMeshAvailable(t *testing.T) {
 	s := &fakeStore{readErr: errors.New("connection refused")}
-	if !LiveFunc(s, 30*time.Minute)(context.Background(), "t1", "nllei01parallax01") {
+	if !LiveFunc(s, 30*time.Minute)(context.Background(), "t1", "bridge-kit-a") {
 		t.Error("a store error hid a mesh from the menu; it must fail open")
 	}
 }
@@ -139,11 +139,11 @@ func TestAPresenceLookupFailureLeavesTheMeshAvailable(t *testing.T) {
 func TestLiveFuncReportsWhatTheStoreSays(t *testing.T) {
 	ctx := context.Background()
 	empty := &fakeStore{}
-	if LiveFunc(empty, 30*time.Minute)(ctx, "t1", "nllei01parallax01") {
+	if LiveFunc(empty, 30*time.Minute)(ctx, "t1", "bridge-kit-a") {
 		t.Error("no heard nodes reported as live")
 	}
-	heard := &fakeStore{nodes: []store.MeshNode{{NodeID: "!a1b3c2ec"}}}
-	if !LiveFunc(heard, 30*time.Minute)(ctx, "t1", "nllei01parallax01") {
+	heard := &fakeStore{nodes: []store.MeshNode{{NodeID: "!0a0b0c0d"}}}
+	if !LiveFunc(heard, 30*time.Minute)(ctx, "t1", "bridge-kit-a") {
 		t.Error("a heard node was not reported as live")
 	}
 }

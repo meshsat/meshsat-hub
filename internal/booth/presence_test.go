@@ -16,7 +16,7 @@ func TestLiveMeshIsMarkedAndQuietOneIsNotCondemned(t *testing.T) {
 	f := newFake()
 	e := newEngine(f, nil)
 	e.SetMeshLive(func(_ context.Context, _, bridgeID string) bool {
-		return bridgeID == "nllei01parallax01"
+		return bridgeID == "bridge-kit-a"
 	})
 
 	_, _ = e.Handle(ctx, tenant, who, ch, OptSendMessage, "")
@@ -29,7 +29,7 @@ func TestLiveMeshIsMarkedAndQuietOneIsNotCondemned(t *testing.T) {
 	}
 	var live, quiet Option
 	for _, o := range r.Options {
-		if strings.Contains(o.ID, "parallax") {
+		if strings.Contains(o.ID, "bridge-kit-a") {
 			live = o
 		} else {
 			quiet = o
@@ -53,7 +53,7 @@ func TestPresenceNeverReordersTheOptions(t *testing.T) {
 		f := newFake()
 		e := newEngine(f, nil)
 		e.SetMeshLive(func(_ context.Context, _, bridgeID string) bool {
-			return live && bridgeID == "nllei01parallax01"
+			return live && bridgeID == "bridge-kit-a"
 		})
 		_, _ = e.Handle(ctx, tenant, who, ch, OptSendMessage, "")
 		r, _ := e.Handle(ctx, tenant, who, ch, OptOptInYes, "")
@@ -85,7 +85,7 @@ func TestAQuietMeshIsStillOfferedAndStillRelays(t *testing.T) {
 
 	_, _ = e.Handle(ctx, tenant, who, ch, OptSendMessage, "")
 	_, _ = e.Handle(ctx, tenant, who, ch, OptOptInYes, "")
-	r, err := e.Handle(ctx, tenant, who, ch, kitOptPrefix+"nllei01parallax01", "")
+	r, err := e.Handle(ctx, tenant, who, ch, kitOptPrefix+"bridge-kit-a", "")
 	if err != nil {
 		t.Fatalf("pick a quiet kit: %v", err)
 	}
@@ -113,7 +113,7 @@ func TestALiveMeshGetsNoWarning(t *testing.T) {
 
 	_, _ = e.Handle(ctx, tenant, who, ch, OptSendMessage, "")
 	_, _ = e.Handle(ctx, tenant, who, ch, OptOptInYes, "")
-	r, _ := e.Handle(ctx, tenant, who, ch, kitOptPrefix+"nllei01parallax01", "")
+	r, _ := e.Handle(ctx, tenant, who, ch, kitOptPrefix+"bridge-kit-a", "")
 	if strings.Contains(strings.ToLower(r.Text), "may not answer") {
 		t.Errorf("a mesh we just heard from was announced as quiet: %q", r.Text)
 	}
@@ -133,7 +133,7 @@ func TestWithoutAPresenceSourceNothingChanges(t *testing.T) {
 			t.Errorf("a marker appeared with no presence source wired: %q", o.Label)
 		}
 	}
-	r, _ = e.Handle(ctx, tenant, who, ch, kitOptPrefix+"nllei01parallax01", "")
+	r, _ = e.Handle(ctx, tenant, who, ch, kitOptPrefix+"bridge-kit-a", "")
 	if strings.Contains(strings.ToLower(r.Text), "may not answer") {
 		t.Errorf("a quiet-mesh warning appeared with no presence source wired: %q", r.Text)
 	}

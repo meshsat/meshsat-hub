@@ -188,10 +188,10 @@ func TestNewSatelliteHandler(t *testing.T) {
 		got = append(got, tenantID+"|"+imei+"|"+text)
 		return nil
 	})
-	route := &store.Route{ID: "r1", Filter: "300434067943980, 300258060902280"}
+	route := &store.Route{ID: "r1", Filter: "300000000000003, 300000000000002"}
 	payload, _ := json.Marshal(map[string]any{"text": "meet at the booth"})
-	h(tenancy.WithTenant(context.Background(), "t1"), route, "300258060902280", payload)
-	if len(got) != 1 || got[0] != "t1|300434067943980|[300258060902280] meet at the booth" {
+	h(tenancy.WithTenant(context.Background(), "t1"), route, "300000000000002", payload)
+	if len(got) != 1 || got[0] != "t1|300000000000003|[300000000000002] meet at the booth" {
 		t.Fatalf("sends = %v", got)
 	}
 	got = nil

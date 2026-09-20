@@ -20,7 +20,7 @@ func TestHubSMSInboundTopicIsIgnoredWithoutAWarning(t *testing.T) {
 	sub := NewInboundSubscriber(mb, nil, "default")
 	_ = sub.Start()
 
-	mb.fire("meshsat/hub/sms/inbound", []byte(`{"from":"+31653207829","body":"hello","timestamp":"2026-09-15T21:30:00Z"}`))
+	mb.fire("meshsat/hub/sms/inbound", []byte(`{"from":"+31600000002","body":"hello","timestamp":"2026-09-15T21:30:00Z"}`))
 	if buf.Len() != 0 {
 		t.Fatalf("the Hub's own topic produced a warning: %s", buf.String())
 	}

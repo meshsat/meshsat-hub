@@ -17,8 +17,8 @@ import (
 // publish on every reconnect, so one SMS from an E.164 number took a Hub
 // replica off the bus for good. Every builder therefore percent-encodes the
 // characters MQTT reserves ("+", "#", "/") plus "%" itself, and the parser
-// decodes them, so consumers keep seeing the ID they know ("+31653618463")
-// while the wire carries "%2B31653618463".
+// decodes them, so consumers keep seeing the ID they know ("+31600000001")
+// while the wire carries "%2B31600000001".
 var (
 	segmentEncoder = strings.NewReplacer("%", "%25", "+", "%2B", "#", "%23", "/", "%2F")
 	segmentDecoder = strings.NewReplacer("%2B", "+", "%23", "#", "%2F", "/", "%25", "%")

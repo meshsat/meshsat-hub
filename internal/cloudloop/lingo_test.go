@@ -21,11 +21,11 @@ func TestLingoMO_ParseSBD(t *testing.T) {
 		"receivedAt": {"year":2026,"month":3,"day":23,"hour":12,"minute":0,"second":0},
 		"identity": {
 			"accountId": "acct-001",
-			"hardware": {"id":"hw-1","type":"ROCKBLOCK","imei":"300258060902280","serial":"1a07ty"},
+			"hardware": {"id":"hw-1","type":"ROCKBLOCK","imei":"300000000000002","serial":"1a07ty"},
 			"thingId": "thing-001"
 		},
 		"sbd": {
-			"imei": "300258060902280",
+			"imei": "300000000000002",
 			"cdrReference": "cdr-ref-001",
 			"momsn": 42,
 			"mtmsn": 0,
@@ -44,8 +44,8 @@ func TestLingoMO_ParseSBD(t *testing.T) {
 	if mo.ID != "abc-123-def" {
 		t.Errorf("ID = %q, want %q", mo.ID, "abc-123-def")
 	}
-	if imei := mo.ExtractIMEI(); imei != "300258060902280" {
-		t.Errorf("ExtractIMEI() = %q, want %q", imei, "300258060902280")
+	if imei := mo.ExtractIMEI(); imei != "300000000000002" {
+		t.Errorf("ExtractIMEI() = %q, want %q", imei, "300000000000002")
 	}
 	if momsn := mo.MOMSN(); momsn != 42 {
 		t.Errorf("MOMSN() = %d, want 42", momsn)

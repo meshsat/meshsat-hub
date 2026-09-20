@@ -78,7 +78,7 @@ func TestBuildersAndFilters(t *testing.T) {
 // by the broker with a dropped connection (MESHSAT-1022). Builders encode
 // the segment, the parser decodes it, consumers see the number unchanged.
 func TestPhoneNumberDeviceIDsAreWildcardSafe(t *testing.T) {
-	const phone = "+31653618463"
+	const phone = "+31600000001"
 	for _, tc := range []struct{ name, topic string }{
 		{"legacy decoded", TopicMODecoded(phone)},
 		{"legacy raw", TopicMORaw(phone)},
@@ -93,10 +93,10 @@ func TestPhoneNumberDeviceIDsAreWildcardSafe(t *testing.T) {
 			t.Errorf("%s: device from %q = %q, want %q", tc.name, tc.topic, got, phone)
 		}
 	}
-	if got, want := TopicMODecodedFor("default", phone), "meshsat/%2B31653618463/mo/decoded"; got != want {
+	if got, want := TopicMODecodedFor("default", phone), "meshsat/%2B31600000001/mo/decoded"; got != want {
 		t.Errorf("wire form = %q, want %q", got, want)
 	}
-	for _, id := range []string{"300234060000002", "+31653618463", "a#b", "x/y", "50%", "%2B"} {
+	for _, id := range []string{"300234060000002", "+31600000001", "a#b", "x/y", "50%", "%2B"} {
 		if got := DecodeSegment(EncodeSegment(id)); got != id {
 			t.Errorf("round trip %q -> %q", id, got)
 		}
@@ -104,7 +104,7 @@ func TestPhoneNumberDeviceIDsAreWildcardSafe(t *testing.T) {
 			t.Errorf("%q: %v", id, err)
 		}
 	}
-	if err := CheckPublishTopic("meshsat/+31653618463/mo/decoded"); err == nil {
+	if err := CheckPublishTopic("meshsat/+31600000001/mo/decoded"); err == nil {
 		t.Error("a raw + in a publish topic must be refused")
 	}
 	if err := CheckPublishTopic("meshsat/#"); err == nil {

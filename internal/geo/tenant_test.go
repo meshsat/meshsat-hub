@@ -129,7 +129,7 @@ func TestCrossingStateIsPerTenant(t *testing.T) {
 	e := NewEngine()
 	e.AddFence(fenceIn(testTenant, "f"))
 	e.AddFence(fenceIn(otherTenant, "f"))
-	const shared = "300434067943980"
+	const shared = "300000000000003"
 
 	if got := e.Evaluate(context.Background(), otherTenant, shared, 0.5, 0.5, time.Time{}); len(got) != 1 {
 		t.Fatalf("the other tenant's entry produced %d events, want 1", len(got))

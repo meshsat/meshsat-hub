@@ -97,14 +97,14 @@ func TestEveryBoothMessageFitsOneSMS(t *testing.T) {
 		{"consent declined", []struct{ choice, text string }{{OptSendMessage, ""}, {OptOptInNo, ""}}},
 		{"mesh picker", []struct{ choice, text string }{{OptSendMessage, ""}, {OptOptInYes, ""}}},
 		{"awaiting text", []struct{ choice, text string }{
-			{OptSendMessage, ""}, {OptOptInYes, ""}, {kitOptPrefix + "nllei01parallax01", ""}}},
+			{OptSendMessage, ""}, {OptOptInYes, ""}, {kitOptPrefix + "bridge-kit-a", ""}}},
 		{"over the length cap", []struct{ choice, text string }{
-			{OptSendMessage, ""}, {OptOptInYes, ""}, {kitOptPrefix + "nllei01parallax01", ""},
+			{OptSendMessage, ""}, {OptOptInYes, ""}, {kitOptPrefix + "bridge-kit-a", ""},
 			{"", strings.Repeat("a", 400)}}},
 		{"empty message", []struct{ choice, text string }{
-			{OptSendMessage, ""}, {OptOptInYes, ""}, {kitOptPrefix + "nllei01parallax01", ""}, {"", "   "}}},
+			{OptSendMessage, ""}, {OptOptInYes, ""}, {kitOptPrefix + "bridge-kit-a", ""}, {"", "   "}}},
 		{"relay confirmation", []struct{ choice, text string }{
-			{OptSendMessage, ""}, {OptOptInYes, ""}, {kitOptPrefix + "nllei01parallax01", ""},
+			{OptSendMessage, ""}, {OptOptInYes, ""}, {kitOptPrefix + "bridge-kit-a", ""},
 			{"", "hello from the stand"}}},
 	}
 
@@ -130,7 +130,7 @@ func TestEveryBoothMessageFitsOneSMS(t *testing.T) {
 		e := newEngine(f, func(context.Context, string) bool { return false })
 		_, _ = e.Handle(ctx, tenant, who, "sms", OptSendMessage, "")
 		_, _ = e.Handle(ctx, tenant, who, "sms", OptOptInYes, "")
-		r, _ := e.Handle(ctx, tenant, who, "sms", kitOptPrefix+"nllei01parallax01", "")
+		r, _ := e.Handle(ctx, tenant, who, "sms", kitOptPrefix+"bridge-kit-a", "")
 		check(t, "kit offline", rendered(r))
 	})
 
@@ -138,7 +138,7 @@ func TestEveryBoothMessageFitsOneSMS(t *testing.T) {
 		f := newFake()
 		f.perSender = 99
 		e := newEngine(f, nil)
-		for _, c := range []string{OptSendMessage, OptOptInYes, kitOptPrefix + "nllei01parallax01"} {
+		for _, c := range []string{OptSendMessage, OptOptInYes, kitOptPrefix + "bridge-kit-a"} {
 			_, _ = e.Handle(ctx, tenant, who, "sms", c, "")
 		}
 		r, _ := e.Handle(ctx, tenant, who, "sms", "", "hello")
@@ -149,7 +149,7 @@ func TestEveryBoothMessageFitsOneSMS(t *testing.T) {
 		f := newFake()
 		f.global = 999
 		e := newEngine(f, nil)
-		for _, c := range []string{OptSendMessage, OptOptInYes, kitOptPrefix + "nllei01parallax01"} {
+		for _, c := range []string{OptSendMessage, OptOptInYes, kitOptPrefix + "bridge-kit-a"} {
 			_, _ = e.Handle(ctx, tenant, who, "sms", c, "")
 		}
 		r, _ := e.Handle(ctx, tenant, who, "sms", "", "hello")
@@ -158,11 +158,11 @@ func TestEveryBoothMessageFitsOneSMS(t *testing.T) {
 
 	t.Run("kit already busy", func(t *testing.T) {
 		f := newFake()
-		f.open["nllei01parallax01"] = []store.BoothRelay{
-			{Ref: "ZZ", Sender: "+31600009999", BridgeID: "nllei01parallax01"},
+		f.open["bridge-kit-a"] = []store.BoothRelay{
+			{Ref: "ZZ", Sender: "+31600009999", BridgeID: "bridge-kit-a"},
 		}
 		e := newEngine(f, nil)
-		for _, c := range []string{OptSendMessage, OptOptInYes, kitOptPrefix + "nllei01parallax01"} {
+		for _, c := range []string{OptSendMessage, OptOptInYes, kitOptPrefix + "bridge-kit-a"} {
 			_, _ = e.Handle(ctx, tenant, who, "sms", c, "")
 		}
 		r, _ := e.Handle(ctx, tenant, who, "sms", "", "hello")
@@ -204,7 +204,7 @@ func TestEveryBoothMessageFitsOneSMS(t *testing.T) {
 		e.SetMeshLive(func(context.Context, string, string) bool { return false })
 		_, _ = e.Handle(ctx, tenant, who, "sms", OptSendMessage, "")
 		_, _ = e.Handle(ctx, tenant, who, "sms", OptOptInYes, "")
-		r, _ := e.Handle(ctx, tenant, who, "sms", kitOptPrefix+"nllei01parallax01", "")
+		r, _ := e.Handle(ctx, tenant, who, "sms", kitOptPrefix+"bridge-kit-a", "")
 		check(t, "quiet kit prompt", rendered(r))
 	})
 }

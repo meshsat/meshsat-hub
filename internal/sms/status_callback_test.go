@@ -36,7 +36,7 @@ func TestEveryOutboundMessageAsksForADeliveryReceipt(t *testing.T) {
 			}))
 			defer srv.Close()
 
-			c := NewClient("ACTEST", "token", "+3197010258258")
+			c := NewClient("ACTEST", "token", "+3197000000001")
 			c.SetAPIURL(srv.URL)
 			c.SetChannel(tc.channel)
 
@@ -75,7 +75,7 @@ func TestNoPublicURLMeansNoCallbackRatherThanABrokenSend(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	c := NewClient("ACTEST", "token", "+3197010258258")
+	c := NewClient("ACTEST", "token", "+3197000000001")
 	c.SetAPIURL(srv.URL)
 	if _, err := c.Send(context.Background(), "+31600000001", "hello"); err != nil {
 		t.Fatalf("send: %v", err)

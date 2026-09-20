@@ -32,7 +32,7 @@ func NewChannelKeyHandler(s store.Store, ks *hubcrypto.KeyStore, cmdr *bridge.Co
 
 type channelKeyRotateRequest struct {
 	ChannelType string   `json:"channel_type"` // "sms", "iridium", "mesh", etc.
-	Address     string   `json:"address"`      // "+31653618463", "!4a20b4e0", etc.
+	Address     string   `json:"address"`      // "+31600000001", "!abcd1234", etc.
 	BridgeIDs   []string `json:"bridge_ids"`   // specific bridges, or empty for all
 }
 

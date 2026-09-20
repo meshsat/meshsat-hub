@@ -28,7 +28,7 @@ func relay(ref, sender, bridge string) store.BoothRelay {
 	}
 }
 
-const kitA = "nllei01parallax01"
+const kitA = "bridge-kit-a"
 
 func TestReplyWithRefRoutesToThatVisitor(t *testing.T) {
 	r := relay("A7", "+31600000001", kitA)
@@ -91,7 +91,7 @@ func TestTwoOpenConversationsAreAmbiguousNotGuessed(t *testing.T) {
 
 // A reference seen on someone else's screen must not route a reply across kits.
 func TestRefFromAnotherKitDoesNotRoute(t *testing.T) {
-	r := relay("A7", "+31600000001", "nllei01tesseract01")
+	r := relay("A7", "+31600000001", "bridge-kit-b")
 	f := &fakeReturn{byRef: map[string]*store.BoothRelay{"A7": &r}}
 
 	got, _ := Resolve(context.Background(), f, tenant, kitA, "!node1", "#A7 wrong kit")
