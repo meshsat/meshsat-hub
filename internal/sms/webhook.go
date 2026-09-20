@@ -410,8 +410,16 @@ func (h *WebhookHandler) processBinaryPipeline(r *http.Request, w http.ResponseW
 		Timestamp: time.Now().UTC().Format(time.RFC3339),
 	})
 
-	// Fragment reassembly: if payload is a fragment, collect and reassemble.
-	if h.reassembler != nil && fragment.IsFragment(rawBytes) {
+	// Fragment reassembly. No sender fragments over SMS: a message has to fit
+	// one segment to be delivered at all from this number, and the Bridge and
+	// Android split with the DTN bundle header, not this 2-byte one. So the MTU
+	// is 0 and nothing is claimed. It used to be IsFragment, under which an
+	// encrypted SMS of 102 bytes or more, whose first byte is a random nonce
+	// byte, had about an even chance of being parked as a fragment and never
+	// read (MESHSAT-1280). The branch stays for the day a sender defines an
+	// SMS frame size; give Claims that size then.
+	const smsFragmentMTU = 0
+	if h.reassembler != nil && h.reassembler.Claims(from, rawBytes, smsFragmentMTU) {
 		reassembled, fragErr := h.reassembler.AddFragment(from, rawBytes)
 		if fragErr != nil {
 			slog.Warn("sms: fragment error", "error", fragErr, "from", from)

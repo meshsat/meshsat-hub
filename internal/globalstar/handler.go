@@ -267,7 +267,8 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// Fragment reassembly: Globalstar uses the same 2-byte Iridium fragment header format.
 	// [fragment_index:4bit | total_fragments:4bit] [message_id:8bit]
 	// 128-byte MTU, fragment payload = 126 bytes.
-	if h.reassembler != nil && fragment.IsFragment(rawBytes) {
+	// Claims, not IsFragment: see fragment.Reassembler.Claims (MESHSAT-1280).
+	if h.reassembler != nil && h.reassembler.Claims(deviceID, rawBytes, MaxPayloadBytes) {
 		reassembled, fragErr := h.reassembler.AddFragment(deviceID, rawBytes)
 		if fragErr != nil {
 			slog.Warn("globalstar: fragment error", "error", fragErr, "device", deviceID, "msg", payload.MessageID)
