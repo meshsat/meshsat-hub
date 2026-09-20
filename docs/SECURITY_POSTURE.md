@@ -171,8 +171,17 @@ effect is nothing is worse than an absent one, because this scorecard counts it.
    fetched checksum-pinned; cosign 3 refuses `--tlog-upload=false` and wants a signing config with
    no transparency log. Since then the *cluster* checks the signature at admission too — Kyverno `verifyImages` in
    Enforce, which refused an unsigned image on its first day (CIS 5.5 → 1.0). Still open under this
-   heading: the authenticated `owasp:baseline` is in place and its first scheduled run is observed
-   on Sunday (MESHSAT-1197). Fuzzing exists since MESHSAT-1202 (nightly `test:fuzz`, one target).
+   heading: the authenticated `owasp:baseline` is in place and runs weekly on **Monday** 04:00
+   Europe/Amsterdam (GitLab pipeline schedule 10, `OWASP_RUN=1`, cron `0 4 * * 1`) -- Monday so a
+   finding arrives when somebody is there to act on it, and clear of the 02:30 race detector, the
+   02:45 database backup and the 03:15 nightly verification. This document said Sunday until
+   2026-09-20 while the cron said Monday, which is the worst version of a documented control: an
+   operator looking on the wrong day cannot tell a mis-stated day from a scan that never fired
+   (MESHSAT-1263). **First observed run: 2026-09-20**, played by hand rather than waiting for the
+   schedule -- job 529267, pipeline 55168, success in 168 s, both targets scanned authenticated,
+   FAIL-NEW 0 on each, ruleset proven loaded by an `IGNORE: 1` verdict that can only come from
+   `zap-baseline.conf` (MESHSAT-1197). The first UNATTENDED run is 2026-09-21T02:03Z.
+   Fuzzing exists since MESHSAT-1202 (nightly `test:fuzz`, one target).
 5. ~~**Edge**~~ — **BOTH CLOSED 2026-09-17.**
    - **ingress-nginx CRS now enforces** (MESHSAT-1207). The "zero audit records in 24 h" was checked
      before being trusted, because it reads identically to a WAF that evaluates nothing: a harmless
