@@ -7,6 +7,7 @@ import Sparkline from '../components/Sparkline.vue'
 import EmptyState from '../components/EmptyState.vue'
 import { useDashboardStore } from '../stores/dashboard'
 import { useAuthStore } from '../stores/auth'
+import { useWebSocket } from '../utils/ws'
 
 const dash = useDashboardStore()
 const auth = useAuthStore()
@@ -28,6 +29,22 @@ const retIdentity = ref(null)
 const retRoutes = ref({ count: 0 })
 const bridgeList = ref([])
 
+// Live events from /api/ws (MESHSAT-1228). The Hub publishes this tenant's
+// mo/decoded, position and sos frames on the socket; rather than merge each
+// frame into a dozen local lists, an event just brings the next poll forward.
+// Coalesced, because a burst of positions should cost one reload and not
+// twenty, and the 30 s poll below stays exactly as it was: the socket makes
+// the page quicker, never more correct, so a replica without it still works.
+const WS_REFRESH_DEBOUNCE_MS = 1500
+let wsRefreshTimer = null
+const { connected: wsConnected } = useWebSocket(() => {
+  if (wsRefreshTimer) return
+  wsRefreshTimer = setTimeout(() => {
+    wsRefreshTimer = null
+    loadAll()
+  }, WS_REFRESH_DEBOUNCE_MS)
+})
+
 onMounted(async () => {
   await loadAll()
   pollTimer = setInterval(loadAll, 30000)
@@ -35,6 +52,7 @@ onMounted(async () => {
 
 onUnmounted(() => {
   if (pollTimer) clearInterval(pollTimer)
+  if (wsRefreshTimer) clearTimeout(wsRefreshTimer)
 })
 
 // Set once /api/credits has answered 404 (MESHSAT-1111). See StatusBar.vue:
@@ -546,7 +564,9 @@ function directionColor(d) {
         </div>
       </div>
 
-      <p class="text-ms-muted text-[10px] mt-4">Auto-refreshes every 30 seconds.</p>
+      <p class="text-ms-muted text-[10px] mt-4">
+        Auto-refreshes every 30 seconds<span v-if="wsConnected">, and immediately on a live event</span>.
+      </p>
     </template>
   </div>
 </template>
