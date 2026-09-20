@@ -19,11 +19,17 @@ FROM mcr.microsoft.com/playwright/python@sha256:678457c4c323b981d8b4befc57b95366
 ARG PLAYWRIGHT_VERSION=1.58.0
 
 # Ubuntu 24.04 marks the system python as externally managed (PEP 668), so the
-# package goes in its own venv rather than fighting that with a flag.
-RUN python3 -m venv /opt/venv \
+# package goes in its own venv rather than fighting that with a flag -- and
+# python3-venv has to come first, because the base image carries a python
+# without ensurepip ("The virtual environment was not created successfully
+# because ensurepip is not available", build 10:16Z 2026-09-20).
+# curl is for run.sh's ntfy push on failure.
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends python3-venv curl \
+ && rm -rf /var/lib/apt/lists/* \
+ && python3 -m venv /opt/venv \
  && /opt/venv/bin/pip install --no-cache-dir "playwright==${PLAYWRIGHT_VERSION}" \
- && apt-get update && apt-get install -y --no-install-recommends curl \
- && rm -rf /var/lib/apt/lists/*
+ && /opt/venv/bin/python -c "import playwright; print('playwright', playwright.__version__)"
 
 ENV PATH=/opt/venv/bin:$PATH \
     PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
