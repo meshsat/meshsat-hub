@@ -726,6 +726,20 @@ brand.branding_favicon = "https://meshsat.net/favicon.svg"
 brand.branding_default_flow_background = "https://meshsat.net/images/hero/field-comms.webp"
 if MESHSAT_CSS:
     brand.branding_custom_css = MESHSAT_CSS
+# Pin the brand to the dark theme (MESHSAT-1225). authentik 2026.8 passes
+# `data-theme=${activeTheme}` to the Turnstile widget explicitly, so the
+# `color-scheme: dark` in meshsat-login.css no longer decides it and a visitor
+# whose OS is in light mode got a white CAPTCHA slab on the dark MeshSat card
+# (measured: mean luminance 168 light vs 48 dark). activeTheme follows the
+# brand, so pinning it here fixes every flow page for every visitor.
+#
+# Both keys, because that is the shape the instance's own default brand already
+# carries and therefore the one this authentik reads. This CANNOT reach
+# omoikane: auth.omoikane.coach resolves to the `authentik-default` brand, a
+# different row, which pins itself to light.
+brand.attributes = dict(brand.attributes or {})
+brand.attributes["settings"] = {**(brand.attributes.get("settings") or {}), "theme": {"base": "dark"}}
+brand.attributes["settings.uiTheme"] = "dark"
 brand.flow_authentication = authn
 if invalidation:
     brand.flow_invalidation = Flow.objects.filter(slug="default-invalidation-flow").first() or invalidation
