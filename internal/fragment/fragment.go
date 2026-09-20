@@ -59,6 +59,56 @@ func IsFragment(data []byte) bool {
 	return fragTotal > 1 && fragIndex < fragTotal
 }
 
+// versionByte is codec.ProtoVersion1, the MeshSat wire-protocol version byte.
+// Spelled out here rather than imported so this package stays a leaf; a test
+// pins the two together.
+const versionByte = 0x01
+
+// Claims reports whether an INBOUND payload should be treated as a fragment of
+// a larger message, which is a much narrower question than IsFragment asks.
+//
+// IsFragment looks at one byte: any payload of 102 bytes or more whose first
+// byte reads as "index < total" passes, which is about half of all possible
+// first bytes. That was survivable while every real message was short. It
+// stopped being so on 2026-09-20, when a kit sent 405 bytes beginning with the
+// protocol version byte 0x01: as a fragment header 0x01 means "fragment 1 of
+// 2", so a whole, valid message was parked to wait for a second half that did
+// not exist, and nothing was logged after that (MESHSAT-1280).
+//
+// A payload is claimed only when the structure agrees with the header:
+//
+//  1. It does not begin with the version byte. The Bridge and Android both
+//     put 0x01 OUTERMOST on everything they send and neither emits this
+//     2-byte header; they fragment with the DTN bundle header instead. The
+//     two encodings collide on that first byte and the version byte wins. The
+//     cost is that an unversioned two-part message cannot start a reassembly,
+//     and no sender in the fleet produces one.
+//  2. A fragment that is not the last one is exactly one MTU long, because
+//     Fragment cuts at MTU and only the tail is short.
+//  3. A last fragment is claimed only if its siblings are already waiting
+//     here. A tail that arrives first is processed as a whole message, which
+//     is wrong but visible; parking it would be wrong and silent.
+//
+// mtu is the bearer's MO frame size. Zero or less means the bearer does not
+// use this scheme at all (IMT carries up to 100 kB in one message) and
+// nothing is ever claimed.
+func (r *Reassembler) Claims(deviceID string, data []byte, mtu int) bool {
+	if mtu <= 0 || !IsFragment(data) || data[0] == versionByte {
+		return false
+	}
+	fragIndex, fragTotal, msgID := DecodeHeader(data[0], data[1])
+	if fragIndex < fragTotal-1 {
+		return len(data) == mtu
+	}
+	if len(data) > mtu {
+		return false
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	pm, ok := r.pending[fmt.Sprintf("%s:%d", deviceID, msgID)]
+	return ok && pm.total == int(fragTotal)
+}
+
 // Fragment splits a message into fragments that fit within the given MTU.
 // Returns nil if the message fits in a single frame (no fragmentation needed).
 // msgID should be a wrapping counter (0-255) per device.

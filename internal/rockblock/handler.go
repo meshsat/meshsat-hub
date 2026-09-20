@@ -421,7 +421,9 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	h.publish(hubmqtt.TopicMORawFor(h.tenantOf(ctx, imei), imei), 1, false, rawMsg)
 
 	// Fragment reassembly: if payload is a fragment, collect and reassemble.
-	if h.reassembler != nil && fragment.IsFragment(rawBytes) {
+	// Claims, not IsFragment: the first byte alone calls half of all long
+	// payloads a fragment, the version byte 0x01 among them (MESHSAT-1280).
+	if h.reassembler != nil && h.reassembler.Claims(imei, rawBytes, fragment.IridiumMO_MTU) {
 		reassembled, fragErr := h.reassembler.AddFragment(imei, rawBytes)
 		if fragErr != nil {
 			slog.Warn("rockblock: fragment error", "error", fragErr, "imei", imei, "momsn", momsn)

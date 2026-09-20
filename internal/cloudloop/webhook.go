@@ -54,6 +54,17 @@ type WebhookMOMessage struct {
 	IridiumLongitude float64 `json:"iridium_longitude,omitempty"`
 	IridiumCEP       float64 `json:"iridium_cep,omitempty"`
 	Source           string  `json:"source"`
+	// Wire is the payload exactly as the modem sent it, base64, version byte
+	// included. RawHex is NOT that: it follows the decode chain (version byte
+	// gone, decrypted when the Hub holds a key). A relay to another modem
+	// needs the original bytes, because the receiving kit authenticates them.
+	Wire string `json:"wire,omitempty"`
+	// Opaque: the sender marked the payload with the protocol version byte,
+	// which the Bridge does only after egress transforms, and the Hub could
+	// neither decrypt nor decompress it. Text is then ciphertext that happens
+	// to be printable (the transforms end in base64), so nothing that shows
+	// text to a person should fire on it. Relays and machine sinks still do.
+	Opaque bool `json:"opaque,omitempty"`
 }
 
 // WebhookRawMessage is the raw MO payload published to mo/raw.
@@ -434,6 +445,8 @@ func (h *WebhookHandler) processLingoMO(ctx context.Context, mo *LingoMO, remote
 		slog.Warn("cloudloop: base64 decode failed", "error", err, "imei", imei)
 		return "error_decode"
 	}
+	// Kept untouched for a satellite-to-satellite relay (see WebhookMOMessage.Wire).
+	wire := mo.Message
 
 	// Tell the modem's bridge the Hub has this MO, before the duplicate check so
 	// a retransmission confirms again: a receipt lost while the phone was
@@ -497,8 +510,17 @@ func (h *WebhookHandler) processLingoMO(ctx context.Context, mo *LingoMO, remote
 	}
 	h.publish(hubmqtt.TopicMORawFor(h.tenantOf(ctx, imei), imei), 1, false, rawMsg)
 
-	// Fragment reassembly.
-	if h.reassembler != nil && fragment.IsFragment(rawBytes) {
+	// Fragment reassembly. Only SBD uses the 2-byte fragment header: an IMT or
+	// cellular message arrives whole, so nothing on those bearers is ever a
+	// fragment, and on SBD the reassembler claims a payload only when its
+	// structure agrees with its first byte (MESHSAT-1280: a kit's 405-byte
+	// IMT message beginning with the version byte 0x01 was parked here as
+	// "fragment 1 of 2" and never processed).
+	fragMTU := 0
+	if bearerOf(source) == "sbd" {
+		fragMTU = fragment.IridiumMO_MTU
+	}
+	if h.reassembler != nil && h.reassembler.Claims(imei, rawBytes, fragMTU) {
 		reassembled, fragErr := h.reassembler.AddFragment(imei, rawBytes)
 		if fragErr != nil {
 			slog.Warn("cloudloop: fragment error", "error", fragErr, "imei", imei, "id", mo.ID)
@@ -516,6 +538,8 @@ func (h *WebhookHandler) processLingoMO(ctx context.Context, mo *LingoMO, remote
 			"imei", imei, "bytes", len(reassembled),
 		)
 		rawBytes = reassembled
+		// The logical message is the reassembled one; no single frame is it.
+		wire = base64.StdEncoding.EncodeToString(reassembled)
 		rawB64 = base64.StdEncoding.EncodeToString(rawBytes)
 	}
 
@@ -549,8 +573,17 @@ func (h *WebhookHandler) processLingoMO(ctx context.Context, mo *LingoMO, remote
 	compressed := false
 	compressionType := ""
 
+	// Opaque: marked with the version byte (the Bridge does that only after
+	// egress transforms), not decrypted here, and what is left is base64 of
+	// binary, which is how those transforms end. Decided BEFORE decompression,
+	// because smaz2 will "decompress" base64 text into printable nonsense and
+	// report success, and that nonsense would be stored and routed as the text.
+	opaque := protoVersion > 0 && !encrypted && isBase64Ciphertext(rawBytes)
+
 	decompressed, err := compress.Decompress(rawBytes)
-	if err == nil && len(decompressed) > 0 && isPrintable(decompressed) {
+	if opaque {
+		text = string(rawBytes)
+	} else if err == nil && len(decompressed) > 0 && isPrintable(decompressed) {
 		text = string(decompressed)
 		compressed = true
 		compressionType = "smaz2"
@@ -591,6 +624,8 @@ func (h *WebhookHandler) processLingoMO(ctx context.Context, mo *LingoMO, remote
 		IridiumLongitude: lon,
 		IridiumCEP:       cep,
 		Source:           source,
+		Wire:             wire,
+		Opaque:           opaque,
 	}
 	h.publish(hubmqtt.TopicMODecodedFor(h.tenantOf(ctx, imei), imei), 1, false, decoded)
 
@@ -754,4 +789,18 @@ func (h *WebhookHandler) tenantOf(ctx context.Context, id string) string {
 		return auth
 	}
 	return h.tenants.ForDeviceTopic(ctx, id, auth)
+}
+
+// isBase64Ciphertext reports whether b is base64 text whose decoded form is
+// binary and at least as long as an AES-GCM nonce plus tag: the tail of the
+// Bridge's smaz2 -> encrypt -> base64 egress chain.
+func isBase64Ciphertext(b []byte) bool {
+	if len(b) < 40 {
+		return false
+	}
+	raw, err := base64.StdEncoding.DecodeString(string(b))
+	if err != nil || len(raw) < hubcrypto.Overhead {
+		return false
+	}
+	return !isPrintable(raw)
 }
