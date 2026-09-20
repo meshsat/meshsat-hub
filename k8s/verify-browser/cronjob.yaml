@@ -19,10 +19,11 @@ metadata:
     app.kubernetes.io/name: hub-browser-verify
 spec:
   schedule: "45 3 * * *"
-  # Armed only after a manual Job has been seen to pass in-cluster. A nightly
-  # that pushes to the operators' ntfy topic must not have its teething
-  # problems at 03:45 (the first run of this one did page, on 2026-09-20).
-  suspend: true
+  # Armed 2026-09-20 after a manual Job was seen to pass in-cluster (5/5 in 6 s,
+  # image v1.58.0). It was shipped suspended because a nightly that pushes to
+  # the operators' ntfy topic must not have its teething problems at 03:45 --
+  # the very first run of this one did page.
+  suspend: false
   timeZone: Europe/Amsterdam
   concurrencyPolicy: Forbid
   successfulJobsHistoryLimit: 2
