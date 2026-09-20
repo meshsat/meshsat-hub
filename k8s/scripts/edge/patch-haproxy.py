@@ -12,6 +12,10 @@ Usage: patch-haproxy.py <phase> <haproxy.cfg> [--out FILE]
                      changes, so the blast radius is MeshSat only. The host also needs
                      `ufw allow 8089/tcp`, and the relay's 9089 hostPort must be live
                      in the cluster FIRST or the edge forwards to nothing.
+  phase = statuscsp: add the Content-Security-Policy for status.meshsat.net
+                     (MESHSAT-1226). Additive and host-keyed: one acl, one set-var
+                     and one conditional set-header. No other hostname's response
+                     changes.
   phase = launch   : PUBLIC LAUNCH (MESHSAT-995). Undoes the retired `registration`
                      gate if a config still carries it, takes the two
                      MeshSat hosts out of Tier 5a, drops the NL+GR geo gate on
@@ -223,6 +227,48 @@ def launch(text):
     return text
 
 
+# status.meshsat.net carried every other security header from this frontend but
+# no Content-Security-Policy (MESHSAT-1226). Kener loads nothing off-origin --
+# checked in a browser, not guessed: every document, script, stylesheet, image
+# and fetch on the status page, two incident pages and the feed came from
+# status.meshsat.net itself. It does use inline scripts and inline styles, so
+# 'unsafe-inline' is named here for the same reason it is on auth: a named
+# residual beats no policy.
+#
+# frame-ancestors 'self' is not a new restriction. This frontend already sends
+# `X-Frame-Options: SAMEORIGIN` for the host and nothing embeds the page
+# (meshsat.net links to it, no iframe anywhere), so the directive only writes
+# down what is already true.
+STATUS_CSP = (
+    "default-src 'self'; script-src 'self' 'unsafe-inline'; "
+    "style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; "
+    "font-src 'self' data:; connect-src 'self'; object-src 'none'; "
+    "base-uri 'self'; form-action 'self'; frame-ancestors 'self'"
+)
+STATUS_ACL = "    acl is_meshsat_status hdr(host) -i status.meshsat.net"
+STATUS_VAR = "    http-request set-var(txn.is_meshsat_status) str(yes) if is_meshsat_status"
+STATUS_HDR = f'    http-response set-header Content-Security-Policy "{STATUS_CSP}" if {{ var(txn.is_meshsat_status) -m str yes }}'
+
+
+def statuscsp(text):
+    """Give status.meshsat.net a CSP, the way auth.meshsat.net has one.
+
+    Idempotent and additive: one acl, one set-var and one conditional
+    set-header, all keyed on the Host, so no other hostname's response can
+    change. Verified in a browser before it was written (MESHSAT-1226).
+    """
+    if STATUS_HDR in text:
+        return text
+    text = ensure_line_after(text, r"^    acl is_meshsat_auth hdr\(host\) -i auth\.meshsat\.net$", STATUS_ACL)
+    text = ensure_line_after(text, r"^    http-request set-var\(txn\.is_meshsat_auth\) str\(yes\) if is_meshsat_auth$", STATUS_VAR)
+    # Placed after the auth CSP so the two read together; both are conditional
+    # on their own host, so relative order between them does not matter.
+    text = ensure_line_after(text, r"^    http-response set-header Content-Security-Policy .* if \{ var\(txn\.is_meshsat_auth\) -m str yes \}$", STATUS_HDR)
+    assert text.count(STATUS_HDR) == 1, "the status CSP must appear exactly once"
+    assert "is_meshsat_auth" in text, "the auth CSP wiring must survive untouched"
+    return text
+
+
 def rollback(text):
     text = replace_backend(text, "meshsat_hub", DMZ_HTTP)
     for name, block in DMZ_TCP.items():
@@ -285,7 +331,7 @@ def main():
     out = sys.argv[sys.argv.index("--out") + 1] if "--out" in sys.argv else None
     orig = open(path).read()
     new = {"auth": add_auth, "cutover": cutover, "rollback": rollback,
-           "launch": launch, "tak": tak}[phase](orig)
+           "launch": launch, "tak": tak, "statuscsp": statuscsp}[phase](orig)
     diff = difflib.unified_diff(orig.splitlines(True), new.splitlines(True), fromfile=path, tofile=f"{path} ({phase})")
     sys.stderr.write("".join(diff))
     if out:
