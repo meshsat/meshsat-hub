@@ -692,6 +692,27 @@ package:verify:
         - k8s/verify/Dockerfile
 
 # -----------------------------------------------------------------------------
+# The browser image for the nightly real-browser check (MESHSAT-1224). Upstream's
+# playwright/python image carries the browsers but not the python package, so we
+# add it here rather than pip-installing at run time on a read-only rootfs.
+package:verify-browser:
+  stage: package
+  tags: [docker]
+  image: docker:28
+  needs: []
+  before_script:
+    - echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GHCR_USER" --password-stdin
+  script:
+    - docker build -t ghcr.io/meshsat/meshsat-hub-browser-verify:v1.58.0 -f k8s/verify-browser/Dockerfile k8s/verify-browser
+    - docker push ghcr.io/meshsat/meshsat-hub-browser-verify:v1.58.0
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "schedule"
+      when: never
+    - if: $CI_COMMIT_BRANCH == "main"
+      changes:
+        - k8s/verify-browser/Dockerfile
+
+# -----------------------------------------------------------------------------
 .ots-image:
   variables:
     OTS_IMAGE: "ghcr.io/meshsat/meshsat-hub-ots"
