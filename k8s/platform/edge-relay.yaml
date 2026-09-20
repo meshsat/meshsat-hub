@@ -27,6 +27,22 @@ data:
     resolvers kubedns
         parse-resolv-conf
         hold valid 10s
+    # Liveness for the kubelet, answered locally. A tcpSocket probe on :9443
+    # was accepted by the frontend below and forwarded straight on to NATS,
+    # which saw a connection carrying no TLS ClientHello and logged
+    # `websocket: TLS handshake error ... EOF` -- once per probe per node, about
+    # 24k lines a day across the three members (MESHSAT-1220).
+    #
+    # Bound to loopback, so this adds no listener to a public-facing node; the
+    # kubelet probes a hostNetwork pod from the node itself, and the probes
+    # below say `host: 127.0.0.1`. It reports on haproxy itself rather than on
+    # a backend, which is the honest signal here: haproxy exits if a bind
+    # fails, and readiness gates nothing operationally because the VPS targets
+    # the host ports directly and no Service selects this DaemonSet.
+    frontend health
+        bind 127.0.0.1:8405
+        mode http
+        monitor-uri /healthz
     frontend mqtt_in
         bind :9443
         default_backend nats_ws
@@ -118,11 +134,15 @@ spec:
             # is the free number that keeps the pairing readable.
             - containerPort: 9089
               hostPort: 9089
+          # Both probes hit haproxy's own loopback monitor (see the config
+          # above). They used to be tcpSocket pokes at :9443 and :4243, which
+          # the relay forwarded to NATS and stunnel and which showed up in
+          # their logs as failed handshakes (MESHSAT-1220).
           readinessProbe:
-            tcpSocket: {port: 9443}
+            httpGet: {host: 127.0.0.1, path: /healthz, port: 8405}
             periodSeconds: 10
           livenessProbe:
-            tcpSocket: {port: 4243}
+            httpGet: {host: 127.0.0.1, path: /healthz, port: 8405}
             initialDelaySeconds: 10
             periodSeconds: 20
           resources:
