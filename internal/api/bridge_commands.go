@@ -43,7 +43,11 @@ type commandResponse struct {
 	Status    string          `json:"status"`
 	Result    json.RawMessage `json:"result,omitempty"`
 	Error     string          `json:"error,omitempty"`
-	LatencyMs int64           `json:"latency_ms"`
+	// Bearer is the leg the command went out on — "mqtt", "sms", "imt" or
+	// "sbd". With via unset the commander picks it, so this is the only
+	// place the caller learns what was chosen (MESHSAT-964 AC6).
+	Bearer    string `json:"bearer,omitempty"`
+	LatencyMs int64  `json:"latency_ms"`
 }
 
 // commandWriteBudget is how long a command request may hold its connection:
@@ -141,6 +145,7 @@ func (h *BridgeCommandHandler) SendCommand(w http.ResponseWriter, r *http.Reques
 		Status:    resp.Status,
 		Result:    resp.Result,
 		Error:     resp.Error,
+		Bearer:    resp.Bearer,
 		LatencyMs: latency,
 	})
 }

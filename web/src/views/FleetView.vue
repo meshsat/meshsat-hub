@@ -35,6 +35,9 @@ const certificateLoading = ref(false)
 // Command state
 const commandLoading = ref({})
 const commandResult = ref({})
+// Which leg to send on, per bridge: '' = let the Hub choose (MQTT while the
+// bridge is online, otherwise the out-of-band bearer it is paired for).
+const commandVia = ref({})
 
 // ACL regeneration
 const aclLoading = ref(false)
@@ -244,11 +247,25 @@ function dismissProvisionQR() {
 }
 
 // --- Commands ---
+// True when this bridge's command buttons will go over MQTT: either MQTT was
+// picked explicitly, or the leg is on Auto and the bridge is online. Anything
+// else is an out-of-band bearer, which carries the mgmt_* commands instead.
+function isMqttLeg(b) {
+  const via = commandVia.value[b.bridge_id] || ''
+  return via === 'mqtt' || (via === '' && b.online)
+}
+
+const BEARER_LABELS = { mqtt: 'MQTT', sms: 'SMS', imt: 'IMT', sbd: 'SBD' }
+function bearerLabel(bearer) {
+  return BEARER_LABELS[bearer] || bearer
+}
+
 async function sendCommand(bridgeId, cmd) {
   commandLoading.value = { ...commandLoading.value, [bridgeId + cmd]: true }
   commandResult.value = { ...commandResult.value, [bridgeId]: null }
   try {
-    const result = await bridges.sendCommand(bridgeId, { cmd })
+    const via = commandVia.value[bridgeId] || ''
+    const result = await bridges.sendCommand(bridgeId, via ? { cmd, via } : { cmd })
     commandResult.value = { ...commandResult.value, [bridgeId]: result }
   } catch (e) {
     commandResult.value = { ...commandResult.value, [bridgeId]: { error: e.message } }
@@ -679,30 +696,69 @@ function certExpiryStatus(b) {
               </div>
             </div>
 
-            <!-- Commands section (online only) -->
-            <div v-if="b.online" class="mb-4 pb-4 border-b border-tactical-border">
-              <h4 class="text-xs text-gray-500 uppercase tracking-wider font-display mb-2">Commands</h4>
+            <!-- Commands. Present whether or not the bridge is on MQTT: a
+                 bridge that has lost its internet is exactly the one worth
+                 commanding, over a sealed out-of-band frame (MESHSAT-964). -->
+            <div class="mb-4 pb-4 border-b border-tactical-border">
+              <div class="flex items-center justify-between mb-2">
+                <h4 class="text-xs text-gray-500 uppercase tracking-wider font-display">Commands</h4>
+                <select v-model="commandVia[b.bridge_id]" @click.stop
+                  class="text-xs bg-gray-800 border border-tactical-border rounded px-2 py-1 text-gray-200">
+                  <option value="">Auto</option>
+                  <option value="mqtt">MQTT</option>
+                  <option value="sms">SMS</option>
+                  <option value="imt">Satellite (IMT)</option>
+                  <option value="sbd">Satellite (SBD)</option>
+                </select>
+              </div>
+              <p v-if="!isMqttLeg(b)" class="text-xs text-gray-500 mb-2">
+                Out of band: the command goes as a sealed frame over the bearer and
+                waits for the bridge to answer on the same one. About a minute over
+                SMS, several over satellite.
+              </p>
               <div class="flex flex-wrap gap-2">
-                <button @click.stop="sendCommand(b.bridge_id, 'ping')" :disabled="commandLoading[b.bridge_id + 'ping']"
-                  class="text-xs px-3 py-1.5 rounded bg-gray-700 hover:bg-gray-600 text-gray-200 transition-colors disabled:opacity-50">
-                  {{ commandLoading[b.bridge_id + 'ping'] ? 'Pinging...' : 'Ping' }}
-                </button>
-                <button @click.stop="sendCommand(b.bridge_id, 'reboot')" :disabled="commandLoading[b.bridge_id + 'reboot']"
-                  class="text-xs px-3 py-1.5 rounded bg-gray-700 hover:bg-gray-600 text-amber-300 transition-colors disabled:opacity-50">
-                  {{ commandLoading[b.bridge_id + 'reboot'] ? 'Rebooting...' : 'Reboot' }}
-                </button>
-                <button @click.stop="sendCommand(b.bridge_id, 'flush_burst')" :disabled="commandLoading[b.bridge_id + 'flush_burst']"
-                  class="text-xs px-3 py-1.5 rounded bg-gray-700 hover:bg-gray-600 text-gray-200 transition-colors disabled:opacity-50">
-                  {{ commandLoading[b.bridge_id + 'flush_burst'] ? 'Flushing...' : 'Flush Burst Queue' }}
-                </button>
+                <template v-if="isMqttLeg(b)">
+                  <button @click.stop="sendCommand(b.bridge_id, 'ping')" :disabled="commandLoading[b.bridge_id + 'ping']"
+                    class="text-xs px-3 py-1.5 rounded bg-gray-700 hover:bg-gray-600 text-gray-200 transition-colors disabled:opacity-50">
+                    {{ commandLoading[b.bridge_id + 'ping'] ? 'Pinging...' : 'Ping' }}
+                  </button>
+                  <button @click.stop="sendCommand(b.bridge_id, 'reboot')" :disabled="commandLoading[b.bridge_id + 'reboot']"
+                    class="text-xs px-3 py-1.5 rounded bg-gray-700 hover:bg-gray-600 text-amber-300 transition-colors disabled:opacity-50">
+                    {{ commandLoading[b.bridge_id + 'reboot'] ? 'Rebooting...' : 'Reboot' }}
+                  </button>
+                  <button @click.stop="sendCommand(b.bridge_id, 'flush_burst')" :disabled="commandLoading[b.bridge_id + 'flush_burst']"
+                    class="text-xs px-3 py-1.5 rounded bg-gray-700 hover:bg-gray-600 text-gray-200 transition-colors disabled:opacity-50">
+                    {{ commandLoading[b.bridge_id + 'flush_burst'] ? 'Flushing...' : 'Flush Burst Queue' }}
+                  </button>
+                </template>
+                <template v-else>
+                  <button @click.stop="sendCommand(b.bridge_id, 'mgmt_ping')" :disabled="commandLoading[b.bridge_id + 'mgmt_ping']"
+                    class="text-xs px-3 py-1.5 rounded bg-gray-700 hover:bg-gray-600 text-gray-200 transition-colors disabled:opacity-50">
+                    {{ commandLoading[b.bridge_id + 'mgmt_ping'] ? 'Pinging...' : 'Ping' }}
+                  </button>
+                  <button @click.stop="sendCommand(b.bridge_id, 'mgmt_status')" :disabled="commandLoading[b.bridge_id + 'mgmt_status']"
+                    class="text-xs px-3 py-1.5 rounded bg-gray-700 hover:bg-gray-600 text-gray-200 transition-colors disabled:opacity-50">
+                    {{ commandLoading[b.bridge_id + 'mgmt_status'] ? 'Asking...' : 'Status' }}
+                  </button>
+                  <button @click.stop="sendCommand(b.bridge_id, 'mgmt_log')" :disabled="commandLoading[b.bridge_id + 'mgmt_log']"
+                    class="text-xs px-3 py-1.5 rounded bg-gray-700 hover:bg-gray-600 text-gray-200 transition-colors disabled:opacity-50">
+                    {{ commandLoading[b.bridge_id + 'mgmt_log'] ? 'Fetching...' : 'Log' }}
+                  </button>
+                </template>
               </div>
               <div v-if="commandResult[b.bridge_id]" class="mt-2 text-xs">
                 <div v-if="commandResult[b.bridge_id].error" class="text-ms-error">
                   Error: {{ commandResult[b.bridge_id].error }}
                 </div>
                 <div v-else class="text-ms-success">
-                  {{ commandResult[b.bridge_id].status }} ({{ commandResult[b.bridge_id].latency_ms }}ms)
+                  {{ commandResult[b.bridge_id].status }}
+                  <span v-if="commandResult[b.bridge_id].bearer" class="text-gray-400">
+                    via {{ bearerLabel(commandResult[b.bridge_id].bearer) }}
+                  </span>
+                  <span class="text-gray-400">({{ commandResult[b.bridge_id].latency_ms }}ms)</span>
                 </div>
+                <pre v-if="commandResult[b.bridge_id].result"
+                  class="mt-1 p-2 rounded bg-gray-900 text-gray-300 font-mono overflow-x-auto whitespace-pre-wrap">{{ commandResult[b.bridge_id].result }}</pre>
               </div>
             </div>
 
