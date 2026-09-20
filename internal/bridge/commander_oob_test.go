@@ -79,3 +79,78 @@ func TestSendCommandVia(t *testing.T) {
 		t.Fatalf("unpaired offline: %v %d", err, len(f.sent))
 	}
 }
+
+// Every answer says which leg carried it (MESHSAT-964 AC6). The bridge does
+// not know the field exists, so the Hub stamps it: "mqtt" on the MQTT path,
+// the bearer ChooseBearer picked on the out-of-band one. Without this the
+// bearer was only ever a string inside the Result blob on the OOB path and
+// absent entirely over MQTT, so the command page could not name it.
+func TestCommandResponseNamesItsBearer(t *testing.T) {
+	// --- out-of-band legs carry the bearer that was chosen, not the one the
+	// reply happened to come back on ---
+	for _, tc := range []struct {
+		name, via, replyBearer, want string
+		phone                        string
+	}{
+		{name: "auto picks sms", via: "", replyBearer: "sms", want: "sms", phone: "+3160"},
+		{name: "forced sbd", via: "sbd", replyBearer: "sbd", want: "sbd", phone: "+3160"},
+		{name: "reply on another bearer does not rewrite it", via: "imt", replyBearer: "sms", want: "imt", phone: "+3160"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := &fakeOOB{
+				peer:  &store.OOBPeer{BridgeID: "tesseract", Phone: tc.phone, SatIMEI: "3002"},
+				reply: &oob.Reply{Bearer: tc.replyBearer, RC: oob.RCOK, Result: "ok", Received: time.Now()},
+			}
+			c := NewCommander(nil, nil)
+			c.SetOOB(f, func(string) bool { return false })
+			resp, err := c.SendCommandVia(context.Background(), "t1", "tesseract", protocol.Command{Cmd: "mgmt_ping"}, tc.via, false)
+			if err != nil {
+				t.Fatalf("send: %v", err)
+			}
+			if resp.Bearer != tc.want {
+				t.Errorf("Bearer = %q, want %q", resp.Bearer, tc.want)
+			}
+		})
+	}
+
+	// --- the MQTT path names itself, even though the bridge sent no bearer ---
+	mb := newMockBus()
+	c := NewCommander(mb, nil)
+	if err := c.Start(); err != nil {
+		t.Fatal(err)
+	}
+	defer c.Stop()
+
+	done := make(chan *protocol.CommandResponse, 1)
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		resp, err := c.SendCommand(ctx, "bridge-01", protocol.Command{Cmd: "ping", RequestID: "req-bearer-1"})
+		if err != nil {
+			t.Errorf("mqtt send: %v", err)
+			done <- nil
+			return
+		}
+		done <- resp
+	}()
+	time.Sleep(50 * time.Millisecond)
+
+	// Exactly what a bridge publishes: no bearer field at all.
+	payload, _ := json.Marshal(&protocol.CommandResponse{
+		Protocol: protocol.ProtocolVersion, RequestID: "req-bearer-1", Cmd: "ping",
+		Status: "ok", Timestamp: time.Now().UTC(),
+	})
+	mb.deliver(protocol.TopicBridgeCmdResp("bridge-01"), payload)
+
+	select {
+	case resp := <-done:
+		if resp == nil {
+			t.Fatal("no response")
+		}
+		if resp.Bearer != ViaMQTT {
+			t.Errorf("MQTT leg: Bearer = %q, want %q", resp.Bearer, ViaMQTT)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("timeout waiting for the MQTT response")
+	}
+}

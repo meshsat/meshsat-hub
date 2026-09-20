@@ -199,7 +199,7 @@ func (c *Commander) SendCommandVia(ctx context.Context, tenantID, bridgeID strin
 		status = reply.RC.String()
 	}
 	result, _ := json.Marshal(map[string]any{"bearer": reply.Bearer, "rc": int(reply.RC), "result": reply.Result, "body": reply.Body, "counter": reply.Counter, "seq": reply.Seq, "total": reply.Total})
-	return &protocol.CommandResponse{Protocol: protocol.ProtocolVersion, RequestID: cmd.RequestID, Cmd: cmd.Cmd, Status: status, Result: result, Timestamp: reply.Received}, nil
+	return &protocol.CommandResponse{Protocol: protocol.ProtocolVersion, RequestID: cmd.RequestID, Cmd: cmd.Cmd, Status: status, Result: result, Timestamp: reply.Received, Bearer: bearer}, nil
 }
 
 // NewCommander creates a new Commander for sending commands to bridges.
@@ -287,6 +287,11 @@ func (c *Commander) SendCommand(ctx context.Context, bridgeID string, cmd protoc
 	case resp, ok := <-respCh:
 		if !ok {
 			return nil, fmt.Errorf("commander: response channel closed")
+		}
+		// The bridge does not know the field exists; stamp the leg we used
+		// so every caller can say how the answer came back (MESHSAT-964).
+		if resp.Bearer == "" {
+			resp.Bearer = ViaMQTT
 		}
 		return resp, nil
 	case <-ctx.Done():

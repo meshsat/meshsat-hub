@@ -325,6 +325,13 @@ type CommandResponse struct {
 	Result    json.RawMessage `json:"result,omitempty"`
 	Error     string          `json:"error,omitempty"`
 	Timestamp time.Time       `json:"timestamp"`
+	// Bearer is the leg the command actually went out on: "mqtt", "sms",
+	// "imt" or "sbd" (MESHSAT-964 AC6). The BRIDGE never sets this — the
+	// Hub's commander fills it in on the way back, because only the Hub
+	// knows which leg it chose. The bearer a reply ARRIVED on is a separate
+	// thing and stays inside Result for the out-of-band legs; the two differ
+	// only if a bridge answers somewhere other than where it was asked.
+	Bearer string `json:"bearer,omitempty"`
 }
 
 // --- CoT type helpers ---
