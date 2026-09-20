@@ -29,7 +29,7 @@ RUN apt-get update \
  && rm -rf /var/lib/apt/lists/* \
  && python3 -m venv /opt/venv \
  && /opt/venv/bin/pip install --no-cache-dir "playwright==${PLAYWRIGHT_VERSION}" \
- && /opt/venv/bin/python -c "import playwright; print('playwright', playwright.__version__)"
+ && /opt/venv/bin/python -c "from playwright.sync_api import sync_playwright; print('playwright import OK')"
 
 ENV PATH=/opt/venv/bin:$PATH \
     PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
