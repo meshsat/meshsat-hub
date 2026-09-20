@@ -47,7 +47,7 @@ const sections = [
   {
     title: 'Connecting things up',
     links: [
-      ['Provider accounts', '/hub/provider-accounts', 'Your own Cloudloop, Rock7 and Twilio — and your webhook URLs'],
+      ['Provider accounts', '/hub/provider-accounts', 'Your own Cloudloop, Rock7 and Twilio, and your webhook URLs'],
       ['Hub API', '/hub/api', 'Doing all of this from a script'],
       ['API keys', '/hub/api-keys', 'Scoped keys, and how to revoke one'],
       ['Your data', '/hub/your-data', 'Export, the audit log, closing the account'],
@@ -83,7 +83,7 @@ const sections = [
           <li v-for="[label, path, blurb] in s.links" :key="path" class="text-[12px] leading-relaxed">
             <a :href="DOCS + path" target="_blank" rel="noopener"
                class="text-brand-primary hover:text-brand-accent font-medium">{{ label }}</a>
-            <span class="text-gray-500"> — {{ blurb }}</span>
+            <span class="text-gray-500">: {{ blurb }}</span>
           </li>
         </ul>
       </div>
@@ -114,7 +114,7 @@ const sections = [
       Something here wrong, or missing?
       <a href="mailto:hello@meshsat.net?subject=MeshSat%20Hub%3A%20documentation"
          class="underline hover:text-ms-text">Tell us</a>
-      — a page nobody can follow is a bug.
+      if a page is one nobody can follow, that is a bug.
     </p>
   </div>
 </template>

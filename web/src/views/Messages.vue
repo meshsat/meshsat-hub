@@ -59,7 +59,7 @@ async function sendMessage() {
   try {
     const result = await messages.send(sendImei.value, sendText.value, sendCompress.value, sendEncrypt.value)
     const flags = [result.compressed && 'SMAZ2', result.encrypted && 'AES-256-GCM'].filter(Boolean).join(' + ') || 'plaintext'
-    success.value = `MT queued — ID: ${result.mt_id || 'pending'} | ${result.original_bytes}B → ${result.wire_bytes}B (${flags})`
+    success.value = `MT queued. ID: ${result.mt_id || 'pending'} | ${result.original_bytes}B → ${result.wire_bytes}B (${flags})`
     sendText.value = ''
     await loadMessages()
   } catch (e) {

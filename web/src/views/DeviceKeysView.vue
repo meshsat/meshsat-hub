@@ -367,7 +367,7 @@ onMounted(async () => {
           Rotate Channel Key
         </button>
         <div v-if="chResult" class="bg-emerald-900/50 border border-emerald-700 rounded p-3 text-sm">
-          <div class="text-emerald-300 font-medium mb-1">Channel key rotated — copy now, shown once</div>
+          <div class="text-emerald-300 font-medium mb-1">Channel key rotated. Copy it now, it is shown once</div>
           <code class="block bg-gray-900 px-3 py-2 rounded font-mono text-emerald-200 break-all select-all text-xs mb-2">{{ chResult.key_hex }}</code>
           <div class="text-xs text-gray-400">
             Type: {{ chResult.channel_type }} &middot; Address: {{ chResult.address }} &middot;

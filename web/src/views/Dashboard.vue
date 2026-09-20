@@ -272,7 +272,7 @@ function directionColor(d) {
         <span class="text-ms-error text-2xl font-bold">SOS</span>
         <div>
           <p class="text-red-200 font-semibold">Active SOS Alert</p>
-          <p class="text-red-300 text-sm">{{ activeAlerts.filter(a => a.type === 'sos').length }} device(s) in distress — immediate action required</p>
+          <p class="text-red-300 text-sm">{{ activeAlerts.filter(a => a.type === 'sos').length }} device(s) in distress. Immediate action required</p>
         </div>
       </div>
 

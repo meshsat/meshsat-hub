@@ -216,13 +216,13 @@ async function copyLink(which = 'url') {
       <div class="text-green-300 font-semibold mb-2">Enrolment for {{ minted.username }}</div>
       <div class="text-sm text-gray-300 mb-3">
         Open this on the phone, once. It works for one download and expires
-        {{ formatUTC(minted.expires_at) }} &mdash; and both links below are the
+        {{ formatUTC(minted.expires_at) }}. Both links below are the
         <strong class="text-gray-100">same</strong> enrolment, so using either one spends it.
       </div>
 
       <div class="mb-3">
         <div class="text-[11px] font-display uppercase tracking-wider text-gray-400 mb-1">
-          Android and Windows &mdash; ATAK, WinTAK
+          Android and Windows: ATAK, WinTAK
         </div>
         <code class="block bg-gray-900 text-ms-success px-3 py-2 rounded font-mono text-xs break-all select-all">
           {{ minted.url }}
@@ -238,7 +238,7 @@ async function copyLink(which = 'url') {
            finding that out on an iPhone cost the enrolment. -->
       <div>
         <div class="text-[11px] font-display uppercase tracking-wider text-gray-400 mb-1">
-          iPhone and iPad &mdash; iTAK
+          iPhone and iPad: iTAK
         </div>
         <code class="block bg-gray-900 text-ms-success px-3 py-2 rounded font-mono text-xs break-all select-all">
           {{ minted.itak_url }}
@@ -282,7 +282,7 @@ async function copyLink(which = 'url') {
       </div>
       <!-- Say what the account will be called BEFORE the server refuses it. -->
       <p v-if="newUsername && sanitised !== newUsername.toLowerCase()" class="text-xs text-ms-warning mt-2">
-        TAK usernames are letters and digits only — this will be created as
+        TAK usernames are letters and digits only, so this will be created as
         <span class="font-mono">{{ sanitised || '(nothing usable)' }}</span>
       </p>
       <p v-if="atCeiling" class="text-xs text-ms-warning mt-2">
