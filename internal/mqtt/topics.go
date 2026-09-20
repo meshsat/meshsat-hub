@@ -254,6 +254,21 @@ func TopicPositionFor(tenantID, deviceID string) string {
 }
 func TopicSOSFor(tenantID, deviceID string) string { return DeviceTopic(tenantID, deviceID, "sos") }
 
+// MOAck is the Hub's receipt for one MO, sent to the bridge that owns the modem
+// (MESHSAT-1246). The phone matches it to the message it sent by IMEI and MOMSN,
+// which +SBDIX reported to it for the same session, and shows a second tick.
+//
+// It lives beside its topic rather than in a provider package because two
+// providers now send it -- Rock7 and Cloudloop (MESHSAT-1257) -- and the phone
+// parses one shape. A second copy of these four fields is a drift waiting to
+// happen.
+type MOAck struct {
+	IMEI       string `json:"imei"`
+	MOMSN      int    `json:"momsn"`
+	Bearer     string `json:"bearer"`
+	ReceivedAt string `json:"received_at"`
+}
+
 // TopicBridgeMOAckFor is where the Hub tells a bridge it has an MO from one of
 // the bridge's modems (MESHSAT-1246). It sits under the bridge's own topic
 // root, which that bridge's NATS user may already subscribe to.
