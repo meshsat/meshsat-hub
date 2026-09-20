@@ -2,6 +2,7 @@ package cloudloop
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"github.com/meshsat/meshsat-hub/internal/tenancy"
@@ -26,8 +27,14 @@ type MTSendRequest struct {
 	// (MESHSAT-1120). Without it the request is identified by a digest of
 	// the topic and payload, and a byte-identical request inside the claim
 	// window (24 h) is treated as the same request.
-	RequestID  string `json:"request_id,omitempty"`
-	Text       string `json:"text"`
+	RequestID string `json:"request_id,omitempty"`
+	Text      string `json:"text"`
+	// WireB64, when set, is the MT payload byte for byte (base64): Text,
+	// Compress and the version byte are all skipped. It exists for relaying one
+	// kit's satellite message to another kit's modem, where the receiving
+	// Bridge authenticates the bytes with a key the Hub does not hold, so
+	// anything the Hub adds or re-encodes makes the message undeliverable.
+	WireB64    string `json:"wire_b64,omitempty"`
 	Channel    string `json:"channel,omitempty"`
 	Priority   int    `json:"priority,omitempty"`
 	Compress   bool   `json:"compress,omitempty"`
@@ -417,15 +424,31 @@ func (s *Sender) SendDirect(imei string, req MTSendRequest) (*SendDirectResult, 
 		return nil, fmt.Errorf("no Cloudloop account configured for tenant %s", tenant)
 	}
 
-	data := []byte(req.Text)
-	if req.Compress {
-		data = compress.Compress(data)
+	var data []byte
+	if req.WireB64 != "" {
+		wire, err := base64.StdEncoding.DecodeString(req.WireB64)
+		if err != nil || len(wire) == 0 {
+			return nil, fmt.Errorf("wire_b64 is not a base64 payload")
+		}
+		data = wire
+	} else {
+		data = []byte(req.Text)
+		if req.Compress {
+			data = compress.Compress(data)
+		}
+		data = codec.PrependVersionByte(data)
 	}
-	data = codec.PrependVersionByte(data)
 
 	mtu := s.mtMTU
 	if isIMT {
 		mtu = imtMTU
+	}
+
+	// A verbatim payload is never cut: the pieces would carry this package's
+	// 2-byte fragment header, which no Bridge reassembles, so the receiving
+	// kit would be billed for frames it then throws away.
+	if req.WireB64 != "" && len(data) > mtu {
+		return nil, fmt.Errorf("verbatim payload is %d bytes, over the %d byte frame of this modem", len(data), mtu)
 	}
 
 	res := &SendDirectResult{ThingID: thingID, IsIMT: isIMT, WireBytes: len(data), Fragments: 1}
