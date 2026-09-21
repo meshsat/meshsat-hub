@@ -2316,6 +2316,8 @@ func main() {
 	tenantHandler := api.NewTenantHandler(dataStore)
 	tenantHandler.SetBridgeOfflineTimeoutPolicy(cfg.BridgeOfflineTimeout,
 		cfg.BridgeOfflineTimeoutMin, cfg.BridgeOfflineTimeoutMax)
+	tenantHandler.SetSendCapPolicy(cfg.RateLimitDailyCap, cfg.RateLimitDailyCapMax,
+		cfg.RateLimitMonthlyCap, cfg.RateLimitMonthlyCapMax)
 	tenantHandler.SetAuditRetentionPolicy(cfg.AuditRetentionDays,
 		cfg.AuditRetentionMinDays, cfg.AuditRetentionMaxDays)
 	tenantHandler.SetOOBPolicy(cfg.OOBMaxPerHour, cfg.OOBMaxPerHourMin, cfg.OOBMaxPerHourMax,

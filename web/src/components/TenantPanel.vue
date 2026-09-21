@@ -21,6 +21,10 @@ const savingTimeout = ref(false)
 // Audit retention (MESHSAT-1117 tranche 2b), same shape as the timeout above.
 const auditDays = ref('')
 const savingAudit = ref(false)
+// Send budget: how many messages the Hub sends to one device per day / month.
+const capDaily = ref('')
+const capMonthly = ref('')
+const savingCaps = ref(false)
 const savingOOB = ref(false)
 const oobMax = ref('')
 const oobSms = ref('')
@@ -113,6 +117,7 @@ async function load() {
     name.value = info.value.name || ''
     bridgeTimeout.value = info.value.bridge_offline_timeout ? String(info.value.bridge_offline_timeout) : ''
     auditDays.value = info.value.audit_retention_days ? String(info.value.audit_retention_days) : ''
+    syncCaps()
     oobMax.value = info.value.oob_max_per_hour ? String(info.value.oob_max_per_hour) : ''
     oobSms.value = info.value.oob_sms_timeout_sec ? String(info.value.oob_sms_timeout_sec) : ''
     oobSat.value = info.value.oob_sat_timeout_sec ? String(info.value.oob_sat_timeout_sec) : ''
@@ -165,6 +170,40 @@ async function saveBridgeTimeout() {
     error.value = e.message || 'Save failed'
   } finally {
     savingTimeout.value = false
+  }
+}
+
+function syncCaps() {
+  capDaily.value = info.value?.ratelimit_daily_cap ? String(info.value.ratelimit_daily_cap) : ''
+  capMonthly.value = info.value?.ratelimit_monthly_cap ? String(info.value.ratelimit_monthly_cap) : ''
+}
+
+const capsUnchanged = () =>
+  capDaily.value.trim() === (info.value?.ratelimit_daily_cap ? String(info.value.ratelimit_daily_cap) : '') &&
+  capMonthly.value.trim() === (info.value?.ratelimit_monthly_cap ? String(info.value.ratelimit_monthly_cap) : '')
+
+// The send budget (owner ruling, 21 Sep 2026). The airtime is this tenant's
+// own carrier account, so the limit on it is this tenant's to set. One save
+// for the pair: they are one decision.
+async function saveSendCaps() {
+  const daily = capDaily.value.trim() === '' ? 0 : Number(capDaily.value.trim())
+  const monthly = capMonthly.value.trim() === '' ? 0 : Number(capMonthly.value.trim())
+  if (![daily, monthly].every(n => Number.isInteger(n) && n >= 0)) {
+    error.value = 'A send limit must be a whole number of messages'
+    return
+  }
+  savingCaps.value = true
+  error.value = ''
+  try {
+    info.value = await tenantApi.update({
+      name: name.value.trim(), ratelimit_daily_cap: daily, ratelimit_monthly_cap: monthly,
+    })
+    syncCaps()
+    toast.success(daily === 0 && monthly === 0 ? 'Using the platform defaults' : 'Send limits saved')
+  } catch (e) {
+    error.value = e.message || 'Save failed'
+  } finally {
+    savingCaps.value = false
   }
 }
 
@@ -352,6 +391,36 @@ onMounted(load)
           Leave empty for the platform default ({{ info?.audit_retention_default }} days).
           Between {{ info?.audit_retention_min }} and {{ info?.audit_retention_max }} days.
           Entries older than this are archived and then removed.
+        </p>
+
+        <!-- Send budget. What the Hub sends to a device goes out over THIS
+             tenant's own Cloudloop, Twilio or Rock7 account, so the limit is a
+             safety net for the tenant's own bill and the tenant sets it. -->
+        <p class="block text-xs text-ms-muted2 mt-4 mb-1">Messages the Hub may send to one device</p>
+        <div class="flex flex-wrap gap-2 items-center">
+          <label for="tenant-cap-daily" class="sr-only">Per day</label>
+          <input id="tenant-cap-daily" v-model="capDaily" type="number" inputmode="numeric"
+            :min="info?.ratelimit_daily_default" :max="info?.ratelimit_daily_max"
+            :placeholder="String(info?.ratelimit_daily_default ?? '')"
+            class="w-28 min-w-0 px-3 py-1.5 bg-ms-well border border-ms-border rounded text-sm text-ms-text focus:outline-none focus:border-brand-primary" />
+          <span class="text-xs text-ms-muted">per day</span>
+          <label for="tenant-cap-monthly" class="sr-only">Per month</label>
+          <input id="tenant-cap-monthly" v-model="capMonthly" type="number" inputmode="numeric"
+            :min="info?.ratelimit_monthly_default || 1" :max="info?.ratelimit_monthly_max"
+            :placeholder="info?.ratelimit_monthly_default ? String(info.ratelimit_monthly_default) : 'no limit'"
+            class="w-28 min-w-0 px-3 py-1.5 bg-ms-well border border-ms-border rounded text-sm text-ms-text focus:outline-none focus:border-brand-primary" />
+          <span class="text-xs text-ms-muted">per month</span>
+          <button @click="saveSendCaps" :disabled="savingCaps || capsUnchanged()"
+            class="px-3 py-1.5 bg-brand-primary hover:bg-brand-accent disabled:opacity-50 text-ms-on-primary text-sm font-medium rounded transition-colors">
+            Save
+          </button>
+        </div>
+        <p class="mt-1 text-xs text-ms-muted">
+          Counted per device. These messages go out over your own satellite and SMS accounts, so this
+          is a guard on your own bill: a stuck script stops here instead of at your carrier.
+          Leave empty for the platform default ({{ info?.ratelimit_daily_default }} per day,
+          {{ info?.ratelimit_monthly_default ? info.ratelimit_monthly_default + ' per month' : 'no monthly limit' }}).
+          Up to {{ info?.ratelimit_daily_max }} per day. An SOS is never counted and never held back.
         </p>
 
         <!-- Out-of-band command policy (MESHSAT-1121). These commands go to this

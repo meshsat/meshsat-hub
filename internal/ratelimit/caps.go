@@ -118,7 +118,8 @@ func (p *PlanCaps) lookup(tenantID string) Caps {
 	}
 
 	daily, monthly := plans.SendCaps(t.Plan, p.floorDaily, p.floorMonthly)
-	// A platform admin's override sits on top of the plan, and is still floored:
+	// The tenant's own number (set by its owner in Settings, or by a platform
+	// admin for them) sits on top of the plan, and is still floored:
 	// an override BELOW the platform default would reduce delivery, which is the
 	// thing this whole design refuses to do.
 	if t.RatelimitDailyCap > daily {

@@ -334,9 +334,12 @@ data:
   # So the way to give a paid tier meaning here is to raise it, e.g.
   #   HUB_PLAN_CREW_DAILY_CAP: "500"
   #   HUB_PLAN_FLEET_DAILY_CAP: "2000"
-  # A single customer can be raised on their own with a platform-admin PUT to
-  # /api/admin/tenants/{id} (ratelimit_daily_cap), which is not owner-editable:
-  # a send budget is a commercial lever and self-service would make it free.
+  # A tenant's OWNER sets their own budget in Settings (ratelimit_daily_cap and
+  # ratelimit_monthly_cap on PUT /api/tenant), since 21 Sep 2026: the airtime is
+  # the tenant's own carrier account, so the limit is a guard on their own bill,
+  # not something the platform sells. Floor = HUB_RATELIMIT_DAILY_CAP, ceiling =
+  # HUB_RATELIMIT_DAILY_CAP_MAX / _MONTHLY_CAP_MAX (100000 / 3000000). A platform
+  # admin can still set it for a customer with PUT /api/admin/tenants/{id}.
 
   # TAK accounts per tier (MESHSAT-1037), a separate meter from devices: a TAK
   # user is a person with a phone and a certificate, a device is a piece of kit,

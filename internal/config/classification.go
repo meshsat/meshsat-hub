@@ -174,8 +174,11 @@ var Classification = map[string]Class{
 	// customer picks inside it.
 	"oob_max_per_hour_min": ClassPlatform,
 	"oob_max_per_hour_max": ClassPlatform,
-	"oob_timeout_min":      ClassPlatform,
-	"oob_timeout_max":      ClassPlatform,
+	// The ceiling on the send budget a tenant owner may give their own devices.
+	"ratelimit_daily_cap_max":   ClassPlatform,
+	"ratelimit_monthly_cap_max": ClassPlatform,
+	"oob_timeout_min":           ClassPlatform,
+	"oob_timeout_max":           ClassPlatform,
 
 	// --- platform: The deployment's own. (98)
 	"AuditArchiveS3AccessKey":        ClassPlatform,
