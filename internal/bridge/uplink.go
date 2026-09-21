@@ -4,7 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/meshsat/meshsat-hub/internal/store"
 	"log/slog"
+	"strings"
 	"time"
 
 	"github.com/meshsat/meshsat-hub/internal/audit"
@@ -60,6 +62,54 @@ func (u *UplinkSink) ownsBridge(ctx context.Context, tenantID, bridgeID string) 
 	return true
 }
 
+// bridgeLister is the optional part of the store that lets the sink recognise a
+// bridge id that arrived cut short.
+type bridgeLister interface {
+	ListBridges(ctx context.Context, tenantID string) ([]*store.Bridge, error)
+}
+
+// resolveBridgeID turns the id inside a frame into a bridge this tenant has.
+//
+// The field kits' encoder cut the id at 16 bytes, so "nllei01tesseract01"
+// arrived as "nllei01tesseract" (2026-09-21). The health update then ran against
+// a bridge that does not exist: zero rows, no error, no log line, and the one
+// time the fallback uplink was exercised for real it changed nothing and said
+// nothing. A frame is tiny and travels over SMS or a satellite modem, so a
+// sender shortening an id is not far-fetched either.
+//
+// An exact match wins. Otherwise, when exactly ONE bridge of the SAME tenant
+// starts with the id, that is the bridge, and the log says so. The tenant comes
+// from the modem or phone that carried the frame, never from the frame, so this
+// cannot reach into another tenant. Anything else is left as it came, with a
+// warning that nothing was updated.
+func (u *UplinkSink) resolveBridgeID(ctx context.Context, tenantID, id, bearer string) string {
+	lister, ok := u.store.(bridgeLister)
+	if !ok || id == "" {
+		return id
+	}
+	bridges, err := lister.ListBridges(ctx, tenantID)
+	if err != nil {
+		return id // the write below still has the ownership check; this only loses the hint
+	}
+	var matches []string
+	for _, b := range bridges {
+		if b.BridgeID == id {
+			return id
+		}
+		if len(id) >= 8 && strings.HasPrefix(b.BridgeID, id) {
+			matches = append(matches, b.BridgeID)
+		}
+	}
+	if len(matches) == 1 {
+		slog.Info("uplink: frame carries a shortened bridge id, matched to the one bridge it fits",
+			"frame_id", id, "bridge_id", matches[0], "bearer", bearer)
+		return matches[0]
+	}
+	slog.Warn("uplink: frame names a bridge this tenant does not have; nothing will be updated",
+		"frame_id", id, "tenant", tenantID, "bearer", bearer, "candidates", len(matches))
+	return id
+}
+
 // NewUplinkSink creates a sink; store and audit may be nil.
 func NewUplinkSink(store UplinkStore, publish UplinkPublisher, auditSvc *audit.Service, actor string) *UplinkSink {
 	return &UplinkSink{store: store, publish: publish, audit: auditSvc, actor: actor, now: time.Now}
@@ -85,7 +135,7 @@ func (u *UplinkSink) Handle(ctx context.Context, tenantID, bearer, origin string
 			slog.Warn("uplink: position decode failed", "error", err, "bearer", bearer, "origin", origin)
 			return true
 		}
-		bridgeID = id
+		bridgeID = u.resolveBridgeID(ctx, tenantID, id, bearer)
 		slog.Info("uplink: bridge position", "bridge_id", bridgeID, "bearer", bearer, "lat", lat, "lon", lon, "alt", alt)
 		u.pub(hubmqtt.TopicPositionFor(tenantID, bridgeID), 1, true, map[string]any{
 			"lat": lat, "lon": lon, "alt": alt,
@@ -99,7 +149,7 @@ func (u *UplinkSink) Handle(ctx context.Context, tenantID, bearer, origin string
 			slog.Warn("uplink: SOS decode failed", "error", err, "bearer", bearer, "origin", origin)
 			return true
 		}
-		bridgeID = id
+		bridgeID = u.resolveBridgeID(ctx, tenantID, id, bearer)
 		slog.Warn("uplink: BRIDGE SOS", "bridge_id", bridgeID, "device_id", deviceID, "bearer", bearer, "lat", lat, "lon", lon, "message", message)
 		u.pub(hubmqtt.TopicSOSFor(tenantID, bridgeID), 1, false, map[string]any{
 			"bridge_id": bridgeID, "device_id": deviceID, "lat": lat, "lon": lon, "message": message,
@@ -135,7 +185,7 @@ func (u *UplinkSink) Handle(ctx context.Context, tenantID, bearer, origin string
 			slog.Warn("uplink: health decode failed", "error", err, "bearer", bearer, "origin", origin)
 			return true
 		}
-		bridgeID = id
+		bridgeID = u.resolveBridgeID(ctx, tenantID, id, bearer)
 		slog.Info("uplink: bridge health", "bridge_id", bridgeID, "bearer", bearer, "uptime", uptimeSec, "cpu", cpuPct, "mem", memPct, "disk", diskPct, "interfaces", len(ifaces))
 		if u.store != nil {
 			list := make([]map[string]any, 0, len(ifaces))
