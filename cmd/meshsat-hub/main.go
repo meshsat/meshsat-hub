@@ -2547,6 +2547,10 @@ func main() {
 			}
 		}
 		bridgeCmdHandler.SetJobs(cmdjobs.New(cmdKV))
+		// The same shared store remembers the commands the Hub stopped waiting
+		// for, so a reply that turns up after its caller was told "timeout" is
+		// logged as late, whichever replica takes it (MESHSAT-1293).
+		oobSvc.SetLateStore(cmdKV)
 		r.With(hubauth.RequireRole(hubauth.RoleOperator)).Get("/api/bridges/{id}/commands/{request_id}", bridgeCmdHandler.GetCommand)
 		// Operator: this transmits a command to a field bridge (MESHSAT-1189).
 		r.With(hubauth.RequireRole(hubauth.RoleOperator)).Post("/api/bridges/{id}/command", bridgeCmdHandler.SendCommand)
