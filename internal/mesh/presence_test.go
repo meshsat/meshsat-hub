@@ -119,8 +119,8 @@ func TestGarbageIsIgnored(t *testing.T) {
 // When the payload omits device_id, the topic still names the node.
 func TestNodeFallsBackToTheTopic(t *testing.T) {
 	_, b, s := newRecorder(t)
-	b.deliver("meshsat/!a1b3c3a4/mo/decoded", []byte(`{"bridge_id":"bridge-kit-b","text":"hi"}`))
-	if len(s.got) != 1 || s.got[0].nodeID != "!a1b3c3a4" {
+	b.deliver("meshsat/!0a0b0c1a/mo/decoded", []byte(`{"bridge_id":"bridge-kit-b","text":"hi"}`))
+	if len(s.got) != 1 || s.got[0].nodeID != "!0a0b0c1a" {
 		t.Fatalf("did not fall back to the topic for the node id: %+v", s.got)
 	}
 }

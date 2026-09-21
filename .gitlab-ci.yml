@@ -165,7 +165,43 @@ bump-pin:test:
         - k8s/kustomization.yaml
 
 # -----------------------------------------------------------------------------
-# SWAGGER — ensure swagger.json is up to date with code annotations
+# IDENTIFIERS — no real device identity in a public repository (MESHSAT-1283)
+#
+# Tests, fixtures and comments used real modem IMEIs, SIM numbers, node ids and
+# kit hostnames as their examples until 21 Sep 2026. The script holds HASHES of
+# the real values, so it does not publish what it guards; it fails on any
+# tracked text file that contains one, outside live configuration (k8s/, this
+# file) and generated output. New hardware: add its hash, the command is in the
+# script's own failure text. Proven to fail by putting a real IMEI back into a
+# test file, bare and inside a topic string.
+# -----------------------------------------------------------------------------
+identifiers:real:
+  stage: lint
+  image: python:3.12-alpine
+  tags: [docker]
+  before_script:
+    - apk add --no-cache git
+  script:
+    - python3 scripts/check-real-identifiers.py
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "schedule"
+      when: never
+    - when: on_success
+
+# -----------------------------------------------------------------------------
+# SWAGGER — the committed spec matches the annotations (MESHSAT-1277)
+#
+# This job used to regenerate the spec into its own workspace, print a line
+# count and exit 0, so it was green whether the committed spec was current or a
+# year stale. By 20 Sep 2026 docs/swagger described 136 paths and the code 180:
+# every endpoint added in twelve days was missing from the spec the binary
+# serves. It now does what web:dist-current does for the frontend bundle:
+# regenerate, then fail on any difference from what is committed.
+#
+# swag is pinned, so a generator upgrade is a deliberate commit and not a
+# surprise red. Its output for unchanged source is byte-identical run to run
+# (checked before writing this); if that ever stops being true the job reds at
+# once, which is the right response.
 # -----------------------------------------------------------------------------
 swagger:
   stage: lint
@@ -178,7 +214,16 @@ swagger:
   script:
     - swag init -g cmd/meshsat-hub/main.go -o docs/swagger --parseDependency --parseInternal
     - rm -f docs/swagger/docs.go
-    - echo "swagger.json generated successfully ($(wc -l < docs/swagger/swagger.json) lines)"
+    - |
+      if ! git diff --quiet -- docs/swagger/swagger.json docs/swagger/swagger.yaml; then
+        echo "the committed OpenAPI spec does not match the annotations in the code:"
+        git diff --stat -- docs/swagger
+        echo ""
+        echo "Regenerate and commit it:  make swagger   (swag v1.16.4)"
+        echo "The binary embeds docs/swagger verbatim, so without this the served spec is stale."
+        exit 1
+      fi
+    - echo "committed spec matches the annotations ($(wc -l < docs/swagger/swagger.json) lines)"
 
 # -----------------------------------------------------------------------------
 # OWASP ZAP baseline scan of the public Hub URLs (MESHSAT-979, successor of the
