@@ -79,6 +79,7 @@ import (
 	"github.com/meshsat/meshsat-hub/internal/rock7"
 	"github.com/meshsat/meshsat-hub/internal/rockblock"
 	"github.com/meshsat/meshsat-hub/internal/routing"
+	"github.com/meshsat/meshsat-hub/internal/satchat"
 	"github.com/meshsat/meshsat-hub/internal/scheduler"
 	"github.com/meshsat/meshsat-hub/internal/sealedconfig"
 	"github.com/meshsat/meshsat-hub/internal/signups"
@@ -3005,7 +3006,7 @@ func main() {
 	// Satellite destination (MESHSAT-964 D): the text goes to a bridge's
 	// modem, IMT through the tenant's Cloudloop account for a 9704, Rock7 MT
 	// for a 9603; the route filter lists the modem IMEIs.
-	routeEngine.RegisterHandler("satellite", routing.NewSatelliteHandler(func(ctx context.Context, tenantID, imei, text string) error {
+	sendSatText := func(ctx context.Context, tenantID, imei, text string) error {
 		if _, imt := thingResolver.Resolve(tenantID, imei); imt {
 			_, err := mtSender.SendDirect(imei, cloudloop.MTSendRequest{Text: text})
 			return err
@@ -3016,7 +3017,37 @@ func main() {
 		}
 		_, err := client.SendMT(ctx, imei, hex.EncodeToString([]byte(text)))
 		return err
-	}))
+	}
+	routeEngine.RegisterHandler("satellite", routing.NewSatelliteHandler(sendSatText))
+
+	// The "*" lane (internal/satchat): a roaming satellite node talks to the
+	// kits' meshes and back. It reuses the booth's kit list and its SMS-to-kit
+	// sender, so there is one answer to "which kits" and to "what is a kit's
+	// number", and the same MT sender the satellite route uses.
+	if cfg.SatChatEnabled {
+		switch {
+		case smsPlatform == nil:
+			slog.Warn("satchat: enabled but the SMS bearer is not configured; the lane is off")
+		case strings.TrimSpace(cfg.SatChatDevices) == "":
+			slog.Warn("satchat: enabled but HUB_SATCHAT_DEVICES is empty; the lane is off")
+		default:
+			boothKits, err := parseBoothKits(cfg.BoothKits)
+			if err != nil || len(boothKits) == 0 {
+				slog.Warn("satchat: enabled but HUB_BOOTH_KITS gives no kits; the lane is off", "error", err)
+				break
+			}
+			laneKits := make([]satchat.Kit, 0, len(boothKits))
+			for _, k := range boothKits {
+				laneKits = append(laneKits, satchat.Kit{BridgeID: k.BridgeID, Label: k.Label})
+			}
+			lane := satchat.New(msgBus, dataStore, tenants, strings.Split(cfg.SatChatDevices, ","), laneKits,
+				smsKitSender{store: dataStore, c: smsPlatform}, sendSatText,
+				satchat.Options{MaxPerHour: cfg.SatChatMaxPerHour})
+			if err := lane.Start(); err != nil {
+				slog.Error("satchat: could not subscribe", "error", err)
+			}
+		}
+	}
 	// Kit to kit over satellite: the original payload, byte for byte, to the
 	// modems in the route's filter. IMT only: a 9603 would need the bytes cut to
 	// 270 and no Bridge reassembles the Hub's fragment header.

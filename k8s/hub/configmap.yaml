@@ -235,6 +235,13 @@ data:
   # add one. Empty mesh_dest means the kit's default channel, which is also how
   # the return-leg conversation is keyed.
   HUB_BOOTH_KITS: "nllei01tesseract01:Tesseract,nllei01parallax01:Parallax"
+  # The "*" lane (MESHSAT-1290): a roaming satellite node (RockBLOCK on a
+  # handheld) talks to the kits' meshes and back, for a stand whose kits have no
+  # sky. Its MO is texted to every kit above as "*K7 text"; a mesh reply that
+  # STARTS with the token goes back to that modem as an MT. "#" stays the
+  # visitor SMS chat, no token stays ordinary traffic. The modems allowed to
+  # open it are HUB_SATCHAT_DEVICES in the secret store. Off = "false".
+  HUB_SATCHAT_ENABLED: "true"
   # Twilio Content SIDs for the interactive list and buttons. Created out of
   # band on 2026-09-16 and deliberately NEVER submitted to Meta: an unapproved
   # template is deliverable only inside the 24h window a visitor opens by

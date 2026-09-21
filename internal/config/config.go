@@ -370,6 +370,19 @@ type Config struct {
 	// signal: outside it the Hub says "no recent evidence", never "empty", and
 	// the kit is still offered. Zero disables the check entirely.
 	BoothMeshWindow time.Duration `yaml:"booth_mesh_window"`
+
+	// SatChatEnabled turns on the "*" lane (internal/satchat): a roaming
+	// satellite node's text goes to every booth kit by SMS as "*K7 text", and a
+	// mesh reply that starts with the token goes back to that node's modem. It
+	// uses the BoothKits list for "which kits" and needs the SMS bearer.
+	SatChatEnabled bool `yaml:"satchat_enabled"`
+	// SatChatDevices lists the IMEIs that may open the lane, comma separated.
+	// An explicit list on purpose: every readable satellite MO from a device
+	// on it becomes one paid SMS per kit, and the nightly canary's must not.
+	// A device identity, so it comes from the secret store, not the ConfigMap.
+	SatChatDevices string `yaml:"satchat_devices"`
+	// SatChatMaxPerHour caps street -> stand messages per replica (default 60).
+	SatChatMaxPerHour int `yaml:"satchat_max_per_hour"`
 	// SMSInboundAuthToken is the Twilio ACCOUNT auth token, used only to verify
 	// X-Twilio-Signature on inbound webhooks. It is not SMSAuthToken: when
 	// SMSAPIKeySID is set, that field carries the API Key Secret and is used for
@@ -1071,6 +1084,17 @@ func Load() (Config, error) {
 	}
 	if v := os.Getenv("HUB_BOOTH_KITS"); v != "" {
 		cfg.BoothKits = v
+	}
+	if v := os.Getenv("HUB_SATCHAT_ENABLED"); v != "" {
+		cfg.SatChatEnabled = strings.EqualFold(v, "true") || v == "1"
+	}
+	if v := os.Getenv("HUB_SATCHAT_DEVICES"); v != "" {
+		cfg.SatChatDevices = v
+	}
+	if v := os.Getenv("HUB_SATCHAT_MAX_PER_HOUR"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			cfg.SatChatMaxPerHour = n
+		}
 	}
 	if v := os.Getenv("HUB_BOOTH_SMS_KEYWORD"); v != "" {
 		cfg.BoothSMSKeyword = v
