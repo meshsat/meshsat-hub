@@ -70,8 +70,8 @@ type bridgeLister interface {
 
 // resolveBridgeID turns the id inside a frame into a bridge this tenant has.
 //
-// The field kits' encoder cut the id at 16 bytes, so "nllei01tesseract01"
-// arrived as "nllei01tesseract" (2026-09-21). The health update then ran against
+// The field kits' encoder cut the id at 16 bytes, so an 18-character id
+// arrived two characters short (2026-09-21). The health update then ran against
 // a bridge that does not exist: zero rows, no error, no log line, and the one
 // time the fallback uplink was exercised for real it changed nothing and said
 // nothing. A frame is tiny and travels over SMS or a satellite modem, so a
