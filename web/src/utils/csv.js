@@ -13,7 +13,11 @@ export function exportCSV(rows, filename, columns) {
     cols.map(c => {
       const val = row[c]
       if (val === null || val === undefined) return ''
-      const str = String(val)
+      let str = String(val)
+      // Message text is written by whoever sent the message, so a cell that
+      // starts with = + - @ (or a tab/CR) would run as a formula when the
+      // file is opened in a spreadsheet (OWASP CSV injection). Neutralise it.
+      if (/^[=+\-@\t\r]/.test(str)) str = "'" + str
       // Quote if contains comma, quote, or newline
       if (str.includes(',') || str.includes('"') || str.includes('\n')) {
         return '"' + str.replace(/"/g, '""') + '"'

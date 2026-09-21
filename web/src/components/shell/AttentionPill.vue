@@ -89,7 +89,7 @@ onUnmounted(() => { document.removeEventListener('mousedown', onDoc); document.r
             <div class="flex items-baseline gap-2">
               <span class="text-[13px] font-semibold" :class="item.kind === 'caution' ? 'text-ms-text' : 'text-ms-error'">{{ item.title }}</span>
               <span class="ms-id text-ms-text2 truncate">{{ item.subject }}</span>
-              <span class="ml-auto text-xs text-ms-muted whitespace-nowrap">{{ timeAgo(item.since) }}</span>
+              <span v-if="item.since" class="ml-auto text-xs text-ms-muted whitespace-nowrap">{{ timeAgo(item.since) }}</span>
             </div>
             <p v-if="item.detail" class="text-xs text-ms-muted mt-0.5 line-clamp-2">{{ item.detail }}</p>
             <div class="flex gap-2 mt-2">

@@ -1,6 +1,6 @@
 <script setup>
 import { ref, onMounted, watch } from 'vue'
-import { costs, devices } from '../api/client'
+import { costs, devices, credits } from '../api/client'
 import EmptyState from '../components/EmptyState.vue'
 
 const entries = ref([])
@@ -15,10 +15,15 @@ const filterTo = ref('')
 const groupBy = ref('device')
 const showSummary = ref(true)
 
+// This account's Iridium credit balance, when it has its own Cloudloop
+// account; a 404 means it has none, and the tile is simply not shown.
+const creditBalance = ref(null)
+
 onMounted(async () => {
   try {
     deviceList.value = await devices.list().catch(() => [])
   } catch { /* ignore */ }
+  credits.get().then((c) => { if (typeof c?.balance === 'number') creditBalance.value = c.balance }).catch(() => {})
   await loadData()
 })
 
@@ -71,7 +76,7 @@ function formatDate(d) {
     <div v-if="error" role="alert" class="ms-alert mb-4">{{ error }}</div>
 
     <!-- Summary cards -->
-    <div class="grid grid-cols-2 sm:grid-cols-3 gap-4 mb-6">
+    <div class="grid grid-cols-2 gap-4 mb-6" :class="creditBalance !== null ? 'sm:grid-cols-4' : 'sm:grid-cols-3'">
       <div class="bg-tactical-surface rounded-lg border border-tactical-border p-4">
         <div class="text-xs text-gray-500 mb-1">Total cost</div>
         <div class="text-2xl font-sans font-bold text-gray-100">${{ totalCost().toFixed(2) }}</div>
@@ -81,10 +86,14 @@ function formatDate(d) {
         <div class="text-2xl font-sans font-bold text-gray-100">{{ totalMessages() }}</div>
       </div>
       <div class="bg-tactical-surface rounded-lg border border-tactical-border p-4">
-        <div class="text-xs text-gray-500 mb-1">Avg / Message</div>
+        <div class="text-xs text-gray-500 mb-1">Average per message</div>
         <div class="text-2xl font-sans font-bold text-gray-100">
           ${{ totalMessages() > 0 ? (totalCost() / totalMessages()).toFixed(3) : '0.00' }}
         </div>
+      </div>
+      <div v-if="creditBalance !== null" class="bg-tactical-surface rounded-lg border border-tactical-border p-4" data-testid="credits">
+        <div class="text-xs text-gray-500 mb-1">Iridium credit balance</div>
+        <div class="text-2xl font-sans font-bold text-gray-100 ms-num">{{ creditBalance.toLocaleString() }}</div>
       </div>
     </div>
 
