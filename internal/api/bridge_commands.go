@@ -97,7 +97,8 @@ const commandWriteBudget = 61 * time.Minute
 // @Failure 400 {object} map[string]string "Unknown command, or arguments the command cannot take"
 // @Failure 404 {object} map[string]string
 // @Failure 409 {object} map[string]string "Bridge is offline"
-// @Failure 504 {object} map[string]string "Timeout waiting for bridge response"
+// @Failure 502 {object} map[string]string "The bearer (Twilio, Cloudloop) refused the frame; the command did not leave"
+// @Failure 504 {object} map[string]string "No reply within the bearer's wait; the command may still reach the bridge until its frame expires"
 // @Router /api/bridges/{id}/command [post]
 func (h *BridgeCommandHandler) SendCommand(w http.ResponseWriter, r *http.Request) {
 	bridgeID := chi.URLParam(r, "id")
@@ -240,6 +241,13 @@ func (h *BridgeCommandHandler) run(ctx context.Context, tid, bridgeID string, cm
 		// a Hub fault in the log.
 		case errors.Is(err, oob.ErrBadArgs) || errors.Is(err, oob.ErrUnknownCmd):
 			return http.StatusBadRequest, nil, err.Error()
+		// The provider refused the frame, so the command never left. Since
+		// MESHSAT-1296 a Cloudloop refusal is an error rather than a "sent", and
+		// its reason is the only useful thing to show; a 500 "internal error"
+		// would hide it.
+		case errors.Is(err, oob.ErrSendFailed):
+			slog.Warn("command: the bearer refused it", "bridge", bridgeID, "cmd", cmd.Cmd, "via", via, "error", err)
+			return http.StatusBadGateway, nil, err.Error()
 		}
 		slog.Error("command: failed", "bridge", bridgeID, "cmd", cmd.Cmd, "via", via, "error", err)
 		return http.StatusInternalServerError, nil, "internal error"

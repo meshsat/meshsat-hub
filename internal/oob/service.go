@@ -71,6 +71,8 @@ type Service struct {
 
 	bus      Bus    // replies are announced to the other replicas (fanout.go)
 	instance string // this replica, so it ignores its own announcements
+
+	late LateStore // commands the Hub stopped waiting for (late.go)
 }
 
 // replySegments is the pending channel's depth: one reply may arrive as
@@ -168,6 +170,9 @@ var (
 	// says which, so the API answers 400 with it instead of a 500 that says
 	// "internal error" and nothing else.
 	ErrBadArgs = errors.New("oob: bad command arguments")
+	// ErrSendFailed wraps a bearer that did not take the frame: Twilio or
+	// Cloudloop refused it, or could not be reached. The command did not leave.
+	ErrSendFailed = errors.New("oob: the bearer did not take the frame")
 )
 
 // Pair stores a management key for a bridge. localRole is the Hub's role:
@@ -340,10 +345,29 @@ func (s *Service) Send(ctx context.Context, tenantID, bridgeID, bearer, cmdName 
 		return nil, errors.New("oob: key exhausted, re-pair the bridge")
 	}
 	counter := uint32(n)
+	// The wait is settled before the frame is sealed because the frame carries
+	// it: the request expires when the Hub stops waiting for the reply, so a
+	// bridge with a set clock never runs a command whose caller has already
+	// been told it failed (MESHSAT-1293). The tenant's own reply timeout when it
+	// set one, else the bearer's default. Satellite and SMS are different orders
+	// of magnitude -- an Iridium MT waits for a satellite pass -- so they are
+	// separate settings, not one number.
+	timeout := t.Timeout()
+	if bearer == BearerSMS && pol.SMSTimeout > 0 {
+		timeout = pol.SMSTimeout
+	} else if bearer != BearerSMS && pol.SatTimeout > 0 {
+		timeout = pol.SatTimeout
+	}
+	if dl, ok := ctx.Deadline(); ok && time.Until(dl) < timeout {
+		timeout = time.Until(dl)
+	}
+	sentAt := s.now().UTC()
+	expires := sentAt.Add(timeout).Truncate(time.Second).Add(time.Second)
 	// Always sealed. The frame still carries the flag because the WIRE format is
 	// shared with the bridge, which reads FlagEnc per frame and must keep being
 	// able to parse an unsealed one it did not originate.
-	f := Frame{Enc: true, NoReply: noReply, PeerID: peerIDOf(p.PeerID), Counter: counter, Cmd: cmd.Code, Args: wireArgs}
+	f := Frame{Enc: true, NoReply: noReply, PeerID: peerIDOf(p.PeerID), Counter: counter, Cmd: cmd.Code, Args: wireArgs,
+		ExpiresAt: uint32(expires.Unix())} // #nosec G115 -- a unix time in seconds fits uint32 until 2106
 	wire, err := Seal(f, key, RoleOf(p.LocalRole))
 	if err != nil {
 		return nil, err
@@ -364,27 +388,19 @@ func (s *Service) Send(ctx context.Context, tenantID, bridgeID, bearer, cmdName 
 	}
 	if err := t.Send(ctx, tenantID, p, text); err != nil {
 		s.log(ctx, tenantID, "oob_send_failed", "system", fmt.Sprintf("bridge=%s bearer=%s cmd=%s counter=%d error=%s", bridgeID, bearer, cmd.Name, counter, err))
-		return nil, fmt.Errorf("oob: send over %s: %w", bearer, err)
+		return nil, fmt.Errorf("%w (%s): %w", ErrSendFailed, bearer, err)
 	}
 	// enc=true stays in the audit line, spelled out rather than dropped: the audit
 	// log is the record of what was actually sent, and "the args were sealed" is a
 	// security property somebody may need to read back years later.
-	s.log(ctx, tenantID, "oob_command_sent", "system", fmt.Sprintf("bridge=%s bearer=%s cmd=%s counter=%d enc=true", bridgeID, bearer, cmd.Name, counter))
-	slog.Info("oob: command sent", "bridge", bridgeID, "bearer", bearer, "cmd", cmd.Name, "counter", counter)
+	s.log(ctx, tenantID, "oob_command_sent", "system", fmt.Sprintf("bridge=%s bearer=%s cmd=%s counter=%d enc=true expires=%s", bridgeID, bearer, cmd.Name, counter, expires.Format(time.RFC3339)))
+	slog.Info("oob: command sent", "bridge", bridgeID, "bearer", bearer, "cmd", cmd.Name, "counter", counter, "expires", expires.Format(time.RFC3339))
 	if noReply {
 		return &Reply{Bearer: bearer, Counter: counter, Result: "sent"}, nil
 	}
-	// The tenant's own reply timeout when it set one, else the bearer's default.
-	// Satellite and SMS are different orders of magnitude -- an Iridium MT waits
-	// for a satellite pass -- so they are separate settings, not one number.
-	timeout := t.Timeout()
-	if bearer == BearerSMS && pol.SMSTimeout > 0 {
-		timeout = pol.SMSTimeout
-	} else if bearer != BearerSMS && pol.SatTimeout > 0 {
-		timeout = pol.SatTimeout
-	}
-	if dl, ok := ctx.Deadline(); ok && time.Until(dl) < timeout {
-		timeout = time.Until(dl)
+	gaveUp := func() {
+		s.recordGaveUp(ctx, tenantID, bridgeID, GaveUp{Counter: counter, Cmd: cmd.Name, Bearer: bearer,
+			SentAt: sentAt, ExpiresAt: expires, GaveUpAt: s.now().UTC()})
 	}
 	// A reply may arrive as several segments (seq/total, one SMS each); the
 	// caller gets ONE reply with the bodies joined in sequence order, not
@@ -403,11 +419,10 @@ func (s *Service) Send(ctx context.Context, tenantID, bridgeID, bearer, cmdName 
 				return whole, nil
 			}
 		case <-deadline:
-			if len(segments) > 0 {
-				return nil, fmt.Errorf("%w (%s, %s: %d of %d segments arrived)", ErrTimeout, bearer, timeout, len(segments), firstTotal(segments))
-			}
-			return nil, fmt.Errorf("%w (%s, %s)", ErrTimeout, bearer, timeout)
+			gaveUp()
+			return nil, timeoutError(bearer, timeout, expires, len(segments), int(firstTotal(segments)))
 		case <-ctx.Done():
+			gaveUp()
 			return nil, ctx.Err()
 		}
 	}
@@ -492,8 +507,22 @@ func (s *Service) HandleInbound(ctx context.Context, bearer, origin, text string
 			return true
 		}
 		r := Reply{Bearer: bearer, RC: ra.RC, Result: ra.RC.String(), Body: string(ra.Body), Counter: uint32(ra.ReqCounterLo), Seq: ra.Seq, Total: ra.Total, Received: s.now().UTC()}
-		s.log(ctx, p.TenantID, "oob_reply", origin, fmt.Sprintf("bridge=%s bearer=%s req_counter=%d rc=%s seq=%d/%d body=%q", p.BridgeID, bearer, ra.ReqCounterLo, ra.RC, ra.Seq, ra.Total, ra.Body))
-		slog.Info("oob: reply", "bridge", p.BridgeID, "bearer", bearer, "rc", ra.RC.String(), "req_counter", ra.ReqCounterLo, "body", string(ra.Body))
+		// A reply to a command the Hub already gave up on is not an ordinary
+		// reply: the command ran after its caller was told it failed. Say so,
+		// with how late, in the log and in the audit trail (MESHSAT-1293).
+		if g := s.gaveUpOn(ctx, p.TenantID, p.BridgeID, uint32(ra.ReqCounterLo)); g != nil {
+			age := r.Received.Sub(g.SentAt).Round(time.Second)
+			afterExpiry := !g.ExpiresAt.IsZero() && r.Received.After(g.ExpiresAt)
+			s.log(ctx, p.TenantID, "oob_reply_late", origin, fmt.Sprintf("bridge=%s bearer=%s req_counter=%d cmd=%s sent_over=%s age=%s after_expiry=%t rc=%s seq=%d/%d body=%q",
+				p.BridgeID, bearer, g.Counter, g.Cmd, g.Bearer, age, afterExpiry, ra.RC, ra.Seq, ra.Total, ra.Body))
+			slog.Warn("oob: LATE reply to a command the Hub had given up on",
+				"bridge", p.BridgeID, "bearer", bearer, "cmd", g.Cmd, "counter", g.Counter, "sent_over", g.Bearer,
+				"age", age.String(), "gave_up", g.GaveUpAt.Format(time.RFC3339), "after_expiry", afterExpiry,
+				"rc", ra.RC.String(), "body", string(ra.Body))
+		} else {
+			s.log(ctx, p.TenantID, "oob_reply", origin, fmt.Sprintf("bridge=%s bearer=%s req_counter=%d rc=%s seq=%d/%d body=%q", p.BridgeID, bearer, ra.ReqCounterLo, ra.RC, ra.Seq, ra.Total, ra.Body))
+			slog.Info("oob: reply", "bridge", p.BridgeID, "bearer", bearer, "rc", ra.RC.String(), "req_counter", ra.ReqCounterLo, "body", string(ra.Body))
+		}
 		// Local waiter first, then every other replica: the command may have
 		// been sent from the other pod (MESHSAT-1164).
 		s.deliver(p.BridgeID, r)

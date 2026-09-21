@@ -4175,8 +4175,16 @@ paths:
             additionalProperties:
               type: string
             type: object
+        "502":
+          description: The bearer (Twilio, Cloudloop) refused the frame; the command
+            did not leave
+          schema:
+            additionalProperties:
+              type: string
+            type: object
         "504":
-          description: Timeout waiting for bridge response
+          description: No reply within the bearer's wait; the command may still reach
+            the bridge until its frame expires
           schema:
             additionalProperties:
               type: string
