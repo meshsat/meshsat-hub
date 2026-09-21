@@ -92,7 +92,7 @@ func (d *DB) queryBridges(ctx context.Context, withSecret bool, where string, ar
 // tenant_id could walk itself into somebody else's fleet and out of its own
 // tenant's quota. Ownership changes through the API, where a human is asking.
 func (d *DB) CreateOrUpdateBridge(ctx context.Context, tenantID string, b *store.Bridge) error {
-	_, err := d.db.ExecContext(ctx,
+	res, err := d.db.ExecContext(ctx,
 		`INSERT INTO bridges (bridge_id, tenant_id, label, hostname, version, mode,
 			location_lat, location_lon, location_alt, capabilities,
 			reticulum_hash, reticulum_pubkey, cot_type, cot_callsign,
@@ -106,12 +106,22 @@ func (d *DB) CreateOrUpdateBridge(ctx context.Context, tenantID string, b *store
 			reticulum_hash=EXCLUDED.reticulum_hash, reticulum_pubkey=EXCLUDED.reticulum_pubkey,
 			cot_type=EXCLUDED.cot_type, cot_callsign=EXCLUDED.cot_callsign,
 			online=EXCLUDED.online, last_birth=EXCLUDED.last_birth, last_health=EXCLUDED.last_health,
-			last_seen=now(), updated_at=now()`,
+			last_seen=now(), updated_at=now()
+		 WHERE bridges.tenant_id = EXCLUDED.tenant_id`,
 		b.BridgeID, tenantID, b.Label, b.Hostname, b.Version, b.Mode,
 		b.LocationLat, b.LocationLon, b.LocationAlt, defaultJSON(b.Capabilities, "[]"),
 		b.ReticulumHash, b.ReticulumPubkey, b.CoTType, b.CoTCallsign,
 		b.Online, defaultJSON(b.LastBirth, "{}"), defaultJSON(b.LastHealth, "{}"))
-	return err
+	if err != nil {
+		return err
+	}
+	// The conflict update is guarded on tenant_id (MESHSAT-1307): without it,
+	// a second tenant naming an existing bridge id rewrote the other tenant's
+	// row. Zero rows now means exactly that, and it is refused.
+	if n, err := res.RowsAffected(); err == nil && n == 0 {
+		return store.ErrOwnedElsewhere
+	}
+	return nil
 }
 
 func (d *DB) GetBridge(ctx context.Context, tenantID string, bridgeID string) (*store.Bridge, error) {

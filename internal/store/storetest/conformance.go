@@ -36,6 +36,7 @@ func Run(t *testing.T, open Opener) {
 		{"Positions", testPositions},
 		{"AuditLog", testAuditLog},
 		{"TenantIsolation", testTenantIsolation},
+		{"BridgeIDCannotCrossTenants", testBridgeIDCannotCrossTenants},
 		{"APIKeys", testAPIKeys},
 		{"APIKeyTenantIsolation", testAPIKeyTenantIsolation},
 		{"DeviceConfigVersioning", testDeviceConfigVersioning},

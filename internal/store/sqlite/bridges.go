@@ -18,7 +18,7 @@ import (
 // tenant_id could walk itself into somebody else's fleet and out of its own
 // tenant's quota. Ownership changes through the API, where a human is asking.
 func (d *DB) CreateOrUpdateBridge(ctx context.Context, tenantID string, b *store.Bridge) error {
-	_, err := d.db.ExecContext(ctx,
+	res, err := d.db.ExecContext(ctx,
 		`INSERT INTO bridges (bridge_id, tenant_id, label, hostname, version, mode,
 			location_lat, location_lon, location_alt, capabilities,
 			reticulum_hash, reticulum_pubkey, cot_type, cot_callsign,
@@ -32,12 +32,20 @@ func (d *DB) CreateOrUpdateBridge(ctx context.Context, tenantID string, b *store
 			reticulum_hash=excluded.reticulum_hash, reticulum_pubkey=excluded.reticulum_pubkey,
 			cot_type=excluded.cot_type, cot_callsign=excluded.cot_callsign,
 			online=excluded.online, last_birth=excluded.last_birth, last_health=excluded.last_health,
-			last_seen=datetime('now'), updated_at=datetime('now')`,
+			last_seen=datetime('now'), updated_at=datetime('now')
+		 WHERE bridges.tenant_id = excluded.tenant_id`,
 		b.BridgeID, tenantID, b.Label, b.Hostname, b.Version, b.Mode,
 		b.LocationLat, b.LocationLon, b.LocationAlt, b.Capabilities,
 		b.ReticulumHash, b.ReticulumPubkey, b.CoTType, b.CoTCallsign,
 		boolToInt(b.Online), b.LastBirth, b.LastHealth)
-	return err
+	if err != nil {
+		return err
+	}
+	// Guarded on tenant_id, as the Postgres store (MESHSAT-1307).
+	if n, err := res.RowsAffected(); err == nil && n == 0 {
+		return store.ErrOwnedElsewhere
+	}
+	return nil
 }
 
 func (d *DB) GetBridge(ctx context.Context, tenantID string, bridgeID string) (*store.Bridge, error) {

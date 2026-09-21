@@ -22,6 +22,12 @@ var ErrNotFound = errors.New("store: not found")
 // IMEI or bridge ID exists in more than one tenant.
 var ErrAmbiguousTenant = errors.New("store: id present in several tenants")
 
+// ErrOwnedElsewhere is returned when a write names a row by an id that another
+// tenant holds (MESHSAT-1307). A bridge id is unique across the platform (it
+// is the bridge's NATS user name), and an upsert on it once rewrote another
+// tenant's bridge.
+var ErrOwnedElsewhere = errors.New("store: id belongs to another tenant")
+
 // ReadinessProber is implemented by stores that can say whether they accept
 // writes right now (Galera wsrep_ready, Postgres not in recovery). Stores
 // without it are probed with Ping.
