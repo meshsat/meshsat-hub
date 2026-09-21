@@ -4124,7 +4124,7 @@ paths:
           schema:
             $ref: '#/definitions/internal_api.commandResponse'
         "400":
-          description: Bad Request
+          description: Unknown command, or arguments the command cannot take
           schema:
             additionalProperties:
               type: string

@@ -2,6 +2,7 @@ package oob
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"sync"
 	"testing"
@@ -152,6 +153,12 @@ func TestSendLimitsAndErrors(t *testing.T) {
 	}
 	if _, err := svc.Pair(ctx, "t1", "tesseract", key, RoleIssuer, "+3160", ""); err != nil {
 		t.Fatal(err)
+	}
+	// A command that needs an argument and gets none is the caller's mistake:
+	// it must be recognisable as such, so the API can answer 400 with the
+	// reason. mgmt_log with no unit came back as a 500 "internal error".
+	if _, err := svc.Send(ctx, "t1", "tesseract", BearerSMS, "mgmt_log", ArgSpec{}, true); !errors.Is(err, ErrBadArgs) || !strings.Contains(err.Error(), "log unit") {
+		t.Fatalf("mgmt_log with no unit: err = %v, want ErrBadArgs naming the log unit", err)
 	}
 	if _, err := svc.Send(ctx, "t1", "tesseract", BearerSMS, "dance", ArgSpec{}, true); err != ErrUnknownCmd {
 		t.Fatalf("unknown cmd: %v", err)
