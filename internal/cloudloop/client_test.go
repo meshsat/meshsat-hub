@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -276,5 +277,24 @@ func TestIMTTopicConstants(t *testing.T) {
 		if topic == "" {
 			t.Error("empty topic constant")
 		}
+	}
+}
+
+// Cloudloop refuses with HTTP 200 and an "error" member. That reply was logged
+// as "sent" and returned as success, so a refused MT looked delivered
+// (MESHSAT-1296). Captured from api.cloudloop.com on 21 Sep 2026 for a send
+// with no thing.
+func TestARefusalInsideA200IsAnError(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"at":1789980885457,"error":"DispatcherInputException"}`))
+	}))
+	defer server.Close()
+	client := NewClient(server.URL, "test-key")
+	if _, err := client.SendSBD(context.Background(), "", []byte{0}); err == nil || !strings.Contains(err.Error(), "DispatcherInputException") {
+		t.Fatalf("SBD: a refusal came back as success: %v", err)
+	}
+	if _, err := client.SendIMT(context.Background(), "thing", []byte{0}, "", ""); err == nil || !strings.Contains(err.Error(), "refused") {
+		t.Fatalf("IMT: a refusal came back as success: %v", err)
 	}
 }

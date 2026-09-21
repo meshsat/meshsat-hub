@@ -214,7 +214,16 @@ func (c *Client) doRequest(req *http.Request, label string) (*MTResponse, error)
 	if err := json.Unmarshal(body, &mtResp); err != nil {
 		return nil, fmt.Errorf("cloudloop: parse %s response: %w", label, err)
 	}
+	// Cloudloop refuses with HTTP 200 and an "error" member, e.g.
+	// {"at":1789980885457,"error":"DispatcherInputException"} for a send with no
+	// thing. That reply used to be logged as "sent" and returned as success, so
+	// every caller believed an MT had left when nothing had: the Reticulum
+	// announce flood logged "SBD MT sent" every ten minutes on both replicas for
+	// a send Cloudloop had refused each time (MESHSAT-1296).
+	if mtResp.Error != "" {
+		return nil, fmt.Errorf("cloudloop: %s refused: %s", label, mtResp.Error)
+	}
 
-	slog.Info("cloudloop: "+label+" sent", "id", mtResp.ID, "status", mtResp.Status)
+	slog.Info("cloudloop: "+label+" accepted", "id", mtResp.ID, "status", mtResp.Status)
 	return &mtResp, nil
 }

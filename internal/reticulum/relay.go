@@ -3,6 +3,7 @@ package reticulum
 import (
 	"context"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"log/slog"
 	"sync"
@@ -164,8 +165,21 @@ func (r *Relay) Forward(ctx context.Context, sourceIface InterfaceType, raw []by
 	return nil
 }
 
+// ErrNoDestination is returned by a point-to-point interface (a satellite MT
+// goes to one modem) asked to send to nobody.
+var ErrNoDestination = errors.New("no destination device: this interface cannot broadcast")
+
+// addressed is implemented by interfaces that can only send to one named
+// device. Flooding skips them.
+type addressed interface{ NeedsDestination() bool }
+
 // Broadcast sends a raw packet to all registered interfaces EXCEPT the source.
 // Used for flooding announces to all transport interfaces (Reticulum spec behavior).
+//
+// Point-to-point interfaces are skipped. A satellite MT needs a modem to go to,
+// and flooding one with an empty destination made a Cloudloop call with no
+// thing every ten minutes on each replica, refused each time and logged as
+// "SBD MT sent" (MESHSAT-1296).
 func (r *Relay) Broadcast(ctx context.Context, sourceIface InterfaceType, raw []byte) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
@@ -173,6 +187,9 @@ func (r *Relay) Broadcast(ctx context.Context, sourceIface InterfaceType, raw []
 	for name, iface := range r.interfaces {
 		if name == sourceIface {
 			continue // don't send back to source
+		}
+		if a, ok := iface.(addressed); ok && a.NeedsDestination() {
+			continue
 		}
 		if !iface.IsAvailable() {
 			continue
