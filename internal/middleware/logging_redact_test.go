@@ -28,3 +28,30 @@ func TestRedactWebhookSecret(t *testing.T) {
 		})
 	}
 }
+
+// A claim path carries its bearer nonce in the last segment. Since a
+// provisioning claim can answer 503 and stay claimable (MESHSAT-1298), a logged
+// claim path is a live token in the log store; it must not be written. The
+// neighbouring routes of the same shape stay readable.
+func TestRedactClaimNonce(t *testing.T) {
+	const n = "54042487dacce0fefb33b76807e2acaa"
+	tests := []struct {
+		name string
+		in   string
+		want string
+	}{
+		{"provisioning claim", "/api/bridges/kit-a/provision/" + n, "/api/bridges/kit-a/provision/{nonce}"},
+		{"tak enrolment claim", "/api/tak/enroll/0123456789abcdef0123456789abcdef/" + n, "/api/tak/enroll/0123456789abcdef0123456789abcdef/{nonce}"},
+		{"qr route readable", "/api/bridges/kit-a/provision/qr", "/api/bridges/kit-a/provision/qr"},
+		{"status route readable", "/api/bridges/kit-a/provision/status", "/api/bridges/kit-a/provision/status"},
+		{"not nonce shaped", "/api/bridges/kit-a/provision/NOTHEX0123456789abcdef0123456789", "/api/bridges/kit-a/provision/NOTHEX0123456789abcdef0123456789"},
+		{"other route untouched", "/api/bridges/kit-a/commands/" + n, "/api/bridges/kit-a/commands/" + n},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := redactClaimNonce(tt.in); got != tt.want {
+				t.Errorf("redactClaimNonce(%q) = %q, want %q", tt.in, got, tt.want)
+			}
+		})
+	}
+}
