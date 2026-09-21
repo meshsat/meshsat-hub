@@ -55,6 +55,12 @@ type cachedProbe struct {
 
 // probeCacheFor bounds how often one credential is tried: the claim endpoint
 // is polled, and every login costs each member a bcrypt comparison.
+//
+// Only a LIVE answer is cached. Each replica has its own cache, and the Fleet
+// page's status poll and the phone's claim land on either one: caching "2 of
+// 3" let a claim on one pod answer 503 up to two seconds after the other pod
+// had shown "Scan now" (seen live, 21 Sep 2026). A member that accepts a
+// credential keeps accepting it, so a positive answer cannot go stale that way.
 const probeCacheFor = 2 * time.Second
 
 // NewCredentialProber returns a prober for hostPort ("host:port").
@@ -115,9 +121,20 @@ func (p *CredentialProber) Check(ctx context.Context, user, pass string) ([]Prob
 			delete(p.cache, k)
 		}
 	}
-	p.cache[key] = cachedProbe{at: time.Now(), results: results}
+	if allAccepted(results) {
+		p.cache[key] = cachedProbe{at: time.Now(), results: results}
+	}
 	p.mu.Unlock()
 	return results, nil
+}
+
+func allAccepted(res []ProbeResult) bool {
+	for _, r := range res {
+		if !r.Accepted {
+			return false
+		}
+	}
+	return len(res) > 0
 }
 
 func (p *CredentialProber) one(ctx context.Context, addr, user, pass string) ProbeResult {
