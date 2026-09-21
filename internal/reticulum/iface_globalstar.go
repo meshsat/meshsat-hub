@@ -47,12 +47,19 @@ func (g *GlobalstarInterface) Send(ctx context.Context, destID string, packet []
 	if g.sender == nil {
 		return fmt.Errorf("globalstar: no sender configured")
 	}
+	if destID == "" {
+		return fmt.Errorf("globalstar: %w", ErrNoDestination)
+	}
 	if len(packet) > g.MTU() {
 		return fmt.Errorf("globalstar: packet %d bytes exceeds MTU %d (message chaining not yet implemented)", len(packet), g.MTU())
 	}
 	slog.Debug("reticulum: sending packet via globalstar", "dest", destID, "size", len(packet))
 	return g.sender.Send(ctx, destID, packet)
 }
+
+// NeedsDestination reports that a Globalstar message goes to one device, so
+// the relay does not flood announces here.
+func (g *GlobalstarInterface) NeedsDestination() bool { return true }
 
 func (g *GlobalstarInterface) IsAvailable() bool {
 	g.mu.RLock()

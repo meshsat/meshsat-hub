@@ -64,6 +64,9 @@ func (i *IridiumInterface) Send(ctx context.Context, destID string, packet []byt
 	if i.sender == nil {
 		return fmt.Errorf("iridium: no sender configured")
 	}
+	if destID == "" {
+		return fmt.Errorf("iridium: %w", ErrNoDestination)
+	}
 	if len(packet) > i.MTU() {
 		return fmt.Errorf("iridium: packet %d bytes exceeds MTU %d", len(packet), i.MTU())
 	}
@@ -75,6 +78,10 @@ func (i *IridiumInterface) Send(ctx context.Context, destID string, packet []byt
 
 	return i.sender.Send(ctx, destID, packet)
 }
+
+// NeedsDestination reports that an Iridium MT goes to one modem: there is no
+// satellite broadcast, so the relay does not flood announces here.
+func (i *IridiumInterface) NeedsDestination() bool { return true }
 
 // IsAvailable returns true if the Iridium backend is operational.
 func (i *IridiumInterface) IsAvailable() bool {
