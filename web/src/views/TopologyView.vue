@@ -67,33 +67,18 @@ const routesByInterface = computed(() => {
   return map
 })
 
+// A cost is a fact, not a fault: paid paths are how satellite works, so the
+// figure takes no alarm colour (ISA-101). Interfaces are named, not hued.
 function costColor(cost) {
-  if (cost === 0) return 'text-ms-success'
-  if (cost <= 0.02) return 'text-ms-warning'
-  return 'text-ms-error'
+  return cost === 0 ? 'text-ms-muted' : 'text-ms-text'
 }
 
-function ifaceColor(iface) {
-  const colors = {
-    // Tinted badge pattern (theme-safe via the colour scales in style.css)
-    mqtt: 'bg-green-900/50 text-green-300 border border-green-700/50',
-    tor: 'bg-purple-900/50 text-purple-300 border border-purple-700/50',
-    wireguard: 'bg-blue-900/50 text-blue-300 border border-blue-700/50',
-    iridium: 'bg-orange-900/50 text-orange-300 border border-orange-700/50',
-    globalstar: 'bg-yellow-900/50 text-yellow-300 border border-yellow-700/50',
-  }
-  return colors[iface] || 'bg-gray-800 text-gray-300 border border-gray-700'
+function ifaceColor() {
+  return 'bg-ms-well text-ms-text2 border border-ms-border'
 }
 
-function ifaceBorderColor(iface) {
-  const colors = {
-    mqtt: 'border-green-600',
-    tor: 'border-purple-600',
-    wireguard: 'border-blue-600',
-    iridium: 'border-orange-600',
-    globalstar: 'border-yellow-600',
-  }
-  return colors[iface] || 'border-gray-600'
+function ifaceBorderColor() {
+  return 'border-ms-border'
 }
 
 function timeSince(iso) {
@@ -114,7 +99,7 @@ function timeSince(iso) {
         <h1 class="ms-h1">Topology</h1>
         <p class="ms-lede">The Hub's Reticulum node, its interfaces, and the nodes it can reach.</p>
       </div>
-      <button @click="loadData" class="text-sm text-brand-primary hover:text-brand-primary">Refresh</button>
+      <button @click="loadData" class="ms-btn-ghost text-xs">Refresh</button>
     </div>
 
     <div v-if="error" role="alert" class="ms-alert mb-4">{{ error }}</div>
@@ -123,16 +108,16 @@ function timeSince(iso) {
 
     <template v-else>
       <!-- Hub Identity Card -->
-      <div class="bg-tactical-surface rounded-lg border border-brand-accent p-4 mb-6">
+      <div class="bg-tactical-surface rounded-lg border border-tactical-border p-4 mb-6">
         <div class="flex items-center gap-3 mb-3">
-          <div class="w-3 h-3 rounded-full bg-brand-primary animate-pulse"></div>
+          <div class="w-2 h-2 rounded-full bg-ms-success"></div>
           <h2 class="ms-h2 text-[15px]">Hub node</h2>
           <span class="text-xs text-gray-500 capitalize">{{ hub.role.replace(/_/g, ' ') || 'Transport node' }}</span>
         </div>
         <div v-if="hub.dest_hash" class="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
           <div>
             <span class="text-gray-400 text-xs">Destination hash</span>
-            <p class="font-mono text-brand-primary break-all">{{ hub.dest_hash }}</p>
+            <p class="font-mono text-ms-text break-all">{{ hub.dest_hash }}</p>
           </div>
           <div>
             <span class="text-gray-400 text-xs">App name</span>
