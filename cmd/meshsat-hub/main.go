@@ -1623,6 +1623,10 @@ func main() {
 	// A suspended or deleted tenant is refused every request. Cached for a
 	// few seconds so this is not a database round trip per call.
 	tenantStatus := tenancy.NewStatusCache(dataStore, 15*time.Second).WithBus(msgBus)
+	// A change announced by the other replica drops this replica's cached send
+	// budget as well, so an owner's new limit is the one in force everywhere at
+	// once and not on whichever pod happened to take the request.
+	tenantStatus.AlsoForget(sendCaps.ForgetTenant)
 	if err := tenantStatus.Subscribe(); err != nil {
 		slog.Warn("tenant status invalidation not subscribed; a change applies elsewhere within the cache TTL", "error", err)
 	}

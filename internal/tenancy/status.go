@@ -41,6 +41,21 @@ type StatusCache struct {
 	mu   sync.Mutex
 	seen map[string]statusEntry
 	bus  bus.MessageBus
+	// alsoForget are other per-replica caches keyed by tenant that must drop
+	// their entry when ANOTHER replica announces a change. See AlsoForget.
+	alsoForget []func(tenantID string)
+}
+
+// AlsoForget registers another tenant-keyed cache to be dropped when a change
+// made on a different replica is announced. The replica that made the change
+// clears its own caches directly; without this, every other replica kept
+// serving the old value until its TTL ran out. Seen live on 21 Sep 2026: an
+// owner changed their send limit, and for up to thirty seconds the answer
+// depended on which pod the next request reached. Call before Subscribe.
+func (c *StatusCache) AlsoForget(f func(tenantID string)) {
+	if c != nil && f != nil {
+		c.alsoForget = append(c.alsoForget, f)
+	}
 }
 
 // WithBus makes changes propagate to the other replicas.
@@ -61,6 +76,9 @@ func (c *StatusCache) Subscribe() error {
 			return
 		}
 		c.forgetLocal(ev.TenantID)
+		for _, f := range c.alsoForget {
+			f(ev.TenantID)
+		}
 		slog.Info("tenant status changed elsewhere", "tenant", ev.TenantID, "status", ev.Status)
 	})
 }

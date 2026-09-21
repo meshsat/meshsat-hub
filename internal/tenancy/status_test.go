@@ -67,3 +67,28 @@ func TestStatusCache_UnknownAndNil(t *testing.T) {
 		t.Errorf("Subscribe on a nil cache: %v", err)
 	}
 }
+
+// A change made on one replica drops the OTHER replica's tenant-keyed caches
+// too, not just its own. Without AlsoForget the second replica kept serving the
+// old send limit until its TTL ran out, so the answer depended on which pod
+// took the request (seen live, 21 Sep 2026).
+func TestAChangeOnOneReplicaDropsTheOthersCaches(t *testing.T) {
+	shared := newLoopBus()
+	var droppedOnB []string
+
+	a := NewStatusCache(nil, time.Minute).WithBus(shared)
+	b := NewStatusCache(nil, time.Minute).WithBus(shared)
+	b.AlsoForget(func(id string) { droppedOnB = append(droppedOnB, id) })
+	if err := a.Subscribe(); err != nil {
+		t.Fatal(err)
+	}
+	if err := b.Subscribe(); err != nil {
+		t.Fatal(err)
+	}
+
+	a.Forget("t_acme") // the owner saved a new limit on replica A
+
+	if len(droppedOnB) == 0 || droppedOnB[0] != "t_acme" {
+		t.Fatalf("replica B was not told to drop its cached budget: %v", droppedOnB)
+	}
+}
