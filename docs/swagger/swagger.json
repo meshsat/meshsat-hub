@@ -6673,12 +6673,12 @@
                         "required": true
                     },
                     {
-                        "description": "Route parameters",
+                        "description": "Fields to change; an absent field is left as it is",
                         "name": "body",
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/internal_routing.createRouteRequest"
+                            "$ref": "#/definitions/internal_routing.updateRouteRequest"
                         }
                     }
                 ],
@@ -12768,6 +12768,29 @@
                     "type": "string"
                 },
                 "route_name": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_routing.updateRouteRequest": {
+            "type": "object",
+            "properties": {
+                "destination_type": {
+                    "type": "string"
+                },
+                "enabled": {
+                    "type": "boolean"
+                },
+                "filter": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "senders": {
+                    "type": "string"
+                },
+                "source_type": {
                     "type": "string"
                 }
             }

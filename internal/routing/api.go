@@ -71,6 +71,24 @@ type createRouteRequest struct {
 	Enabled         *bool  `json:"enabled,omitempty"`
 }
 
+// updateRouteRequest is createRouteRequest with Filter and Senders as POINTERS:
+// absent leaves the field alone, "" clears it. They were plain strings and the
+// handler assigned them unconditionally, so every other field behaved as a
+// partial update while these two were silently blanked by any request that did
+// not repeat them. For a recipient destination the filter IS the recipient list
+// and senders is who may trigger the route: renaming the two kit-to-kit SMS
+// routes on 21 Sep 2026 left them with nobody to send to and open to any
+// sender, and nothing said so. Same rule as the tenant settings: a plain field
+// makes every unrelated save reset the setting.
+type updateRouteRequest struct {
+	Name            string  `json:"name"`
+	SourceType      string  `json:"source_type"`
+	DestinationType string  `json:"destination_type"`
+	Filter          *string `json:"filter,omitempty"`
+	Senders         *string `json:"senders,omitempty"`
+	Enabled         *bool   `json:"enabled,omitempty"`
+}
+
 // CreateRoute creates a new routing rule.
 //
 //	@Summary      Create routing rule
@@ -126,7 +144,7 @@ func (h *APIHandler) CreateRoute(w http.ResponseWriter, r *http.Request) {
 //	@Accept       json
 //	@Produce      json
 //	@Param        id    path  string            true  "Route ID"
-//	@Param        body  body  createRouteRequest  true  "Route parameters"
+//	@Param        body  body  updateRouteRequest  true  "Fields to change; an absent field is left as it is"
 //	@Success      200  {object}  store.Route
 //	@Failure      400  {object}  map[string]string
 //	@Failure      404  {object}  map[string]string
@@ -141,7 +159,7 @@ func (h *APIHandler) UpdateRoute(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var req createRouteRequest
+	var req updateRouteRequest
 	if err := httpjson.ReadJSON(w, r, &req); err != nil {
 		httpjson.WriteError(w, http.StatusBadRequest, err.Error())
 		return
@@ -156,8 +174,12 @@ func (h *APIHandler) UpdateRoute(w http.ResponseWriter, r *http.Request) {
 	if req.DestinationType != "" {
 		existing.DestinationType = req.DestinationType
 	}
-	existing.Filter = req.Filter
-	existing.Senders = req.Senders
+	if req.Filter != nil {
+		existing.Filter = *req.Filter
+	}
+	if req.Senders != nil {
+		existing.Senders = *req.Senders
+	}
 	if req.Enabled != nil {
 		existing.Enabled = *req.Enabled
 	}
