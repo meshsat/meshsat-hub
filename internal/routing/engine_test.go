@@ -103,3 +103,25 @@ func TestDefaultRoutes(t *testing.T) {
 		}
 	}
 }
+
+// A text that belongs to a lane is that lane's to deliver: no route is even
+// looked up for it. The engine here has no store and no tenant resolver, so
+// anything that got past the lane filter would dereference nil; the claimed
+// text returning quietly is the proof it never got that far, and the ordinary
+// text panicking is the proof the filter is what made the difference.
+func TestALaneTextIsNotRouted(t *testing.T) {
+	e := &Engine{handlers: map[string]DestinationHandler{}, cachedRoutes: map[string]routeCache{}}
+	e.SetLaneFilter(func(text string) bool { return len(text) > 0 && text[0] == '*' })
+
+	const topic = "meshsat/%2B31600000001/mo/decoded"
+	e.handleMODecoded(topic, []byte(`{"id":"m1","channel":"sms","text":"*F8 on my way"}`))
+
+	reached := func() (got bool) {
+		defer func() { got = recover() != nil }()
+		e.handleMODecoded(topic, []byte(`{"id":"m2","channel":"sms","text":"plain kit to kit text"}`))
+		return false
+	}()
+	if !reached {
+		t.Fatal("an ordinary text did not reach route evaluation; this test no longer proves anything")
+	}
+}

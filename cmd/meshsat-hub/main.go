@@ -3046,6 +3046,8 @@ func main() {
 			if err := lane.Start(); err != nil {
 				slog.Error("satchat: could not subscribe", "error", err)
 			}
+			// A "*K7 ..." text is the lane's to deliver; no route copies it.
+			routeEngine.SetLaneFilter(satchat.Claims)
 		}
 	}
 	// Kit to kit over satellite: the original payload, byte for byte, to the

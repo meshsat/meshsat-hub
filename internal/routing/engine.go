@@ -30,7 +30,20 @@ type Engine struct {
 	mu              sync.RWMutex
 	cachedRoutes    map[string]routeCache // tenant → routes
 	refreshInterval time.Duration
+	// claimed reports that a text belongs to a lane that handles it itself
+	// (internal/satchat's "*K7 ..."); see SetLaneFilter.
+	claimed func(text string) bool
 }
+
+// SetLaneFilter names the texts no route may touch. A lane that reads the same
+// decoded-message stream and does its own delivery, like the "*" satellite
+// chat, would otherwise have every one of its replies ALSO matched by whatever
+// routes cover that source: a kit's "*K7 on my way" arriving by SMS was copied
+// to the other kit by the kit-to-kit SMS route, as "[+316...] *K7 on my way",
+// and a wildcard route would have sent it wherever it points. The first
+// character picks the lane, and a text that picked one is not ordinary traffic.
+// Call before Start.
+func (e *Engine) SetLaneFilter(f func(text string) bool) { e.claimed = f }
 
 type routeCache struct {
 	routes    []store.Route
@@ -95,6 +108,11 @@ func (e *Engine) handleMODecoded(topic string, payload []byte) {
 	msgID := msg.ID
 	if msgID == "" {
 		msgID = hubmqtt.FallbackMessageID(topic, payload)
+	}
+
+	if e.claimed != nil && e.claimed(msg.Text) {
+		slog.Debug("routing: text belongs to a lane, no route evaluated", "device", deviceID)
+		return
 	}
 
 	sourceType := msg.Channel
