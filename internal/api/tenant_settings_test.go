@@ -384,3 +384,82 @@ func TestRenamingTheTenantLeavesTheAuditRetentionAlone(t *testing.T) {
 			"save -- and shortening retention destroys audit history.", tn.AuditRetentionDays)
 	}
 }
+
+// The send budget is the tenant owner's to set (owner ruling, 21 Sep 2026):
+// every tenant pays its own carrier for the messages the Hub sends to its
+// devices, so a limit on them is a safety net for the tenant's own bill, not
+// something the platform sells. Until then only a platform admin could raise it.
+func TestAnOwnerSetsTheirOwnSendBudget(t *testing.T) {
+	h, st := tsHandler(t)
+	h.SetSendCapPolicy(100, 100000, 0, 3000000)
+	var forgotten []string
+	h.SetStatusInvalidator(func(id string) { forgotten = append(forgotten, id) })
+
+	r, w := tsRequest("PUT", `{"name":"acme","ratelimit_daily_cap":1000,"ratelimit_monthly_cap":20000}`, tsTenant)
+	h.Update(w, r)
+	if w.Code != http.StatusOK {
+		t.Fatalf("an owner raising their own budget was refused: %d %s", w.Code, w.Body.String())
+	}
+	var got tenantResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
+		t.Fatal(err)
+	}
+	if got.RatelimitDailyCap != 1000 || got.RatelimitMonthlyCap != 20000 {
+		t.Errorf("response carries %d / %d, want 1000 / 20000", got.RatelimitDailyCap, got.RatelimitMonthlyCap)
+	}
+	if got.RatelimitDailyDefault != 100 || got.RatelimitDailyMax != 100000 || got.RatelimitMonthlyMax != 3000000 {
+		t.Errorf("the response does not carry the platform default and ceiling: %+v", got)
+	}
+	if st.tenants[tsTenant].RatelimitDailyCap != 1000 {
+		t.Errorf("stored daily cap = %d", st.tenants[tsTenant].RatelimitDailyCap)
+	}
+	if st.tenants[tsOther].RatelimitDailyCap != 0 {
+		t.Errorf("another tenant's budget moved to %d", st.tenants[tsOther].RatelimitDailyCap)
+	}
+	// The limiter caches a budget for 30 s per replica; the change must drop it.
+	if len(forgotten) != 1 || forgotten[0] != tsTenant {
+		t.Errorf("cached budget not dropped for the tenant: %v", forgotten)
+	}
+
+	// A save that does not touch the budget leaves it, and drops no cache.
+	forgotten = nil
+	r, w = tsRequest("PUT", `{"name":"acme renamed"}`, tsTenant)
+	h.Update(w, r)
+	if st.tenants[tsTenant].RatelimitDailyCap != 1000 {
+		t.Errorf("a rename reset the budget to %d", st.tenants[tsTenant].RatelimitDailyCap)
+	}
+	if len(forgotten) != 0 {
+		t.Errorf("a rename dropped the budget cache: %v", forgotten)
+	}
+
+	// 0 returns to the platform default.
+	r, w = tsRequest("PUT", `{"name":"acme","ratelimit_daily_cap":0}`, tsTenant)
+	h.Update(w, r)
+	if w.Code != http.StatusOK || st.tenants[tsTenant].RatelimitDailyCap != 0 {
+		t.Errorf("0 did not clear the budget: %d, stored %d", w.Code, st.tenants[tsTenant].RatelimitDailyCap)
+	}
+}
+
+// Below the platform default is refused rather than accepted and ignored: the
+// limiter never resolves a budget under the default, so storing 50 would show
+// the owner a number that is not the one in force. Above the ceiling is a typo.
+func TestASendBudgetOutsideTheBoundsIsRefused(t *testing.T) {
+	h, st := tsHandler(t)
+	h.SetSendCapPolicy(100, 100000, 0, 3000000)
+	for _, body := range []string{
+		`{"name":"acme","ratelimit_daily_cap":50}`,
+		`{"name":"acme","ratelimit_daily_cap":-1}`,
+		`{"name":"acme","ratelimit_daily_cap":100001}`,
+		`{"name":"acme","ratelimit_monthly_cap":-5}`,
+		`{"name":"acme","ratelimit_monthly_cap":3000001}`,
+	} {
+		r, w := tsRequest("PUT", body, tsTenant)
+		h.Update(w, r)
+		if w.Code != http.StatusBadRequest {
+			t.Errorf("%s -> %d, want 400", body, w.Code)
+		}
+	}
+	if got := st.tenants[tsTenant]; got.RatelimitDailyCap != 0 || got.RatelimitMonthlyCap != 0 {
+		t.Errorf("a refused request still wrote %d / %d", got.RatelimitDailyCap, got.RatelimitMonthlyCap)
+	}
+}

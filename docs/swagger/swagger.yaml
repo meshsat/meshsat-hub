@@ -1315,11 +1315,12 @@ definitions:
         type: string
       ratelimit_daily_cap:
         description: |-
-          RatelimitDailyCap and RatelimitMonthlyCap override this tenant's
-          per-device send budget above whatever its plan gives (MESHSAT-1117
-          tranche 2c). PLATFORM ADMIN ONLY, which is why they live on this request
-          and not on updateTenantRequest: a send budget is a commercial lever, and
-          letting a tenant owner raise their own would make it free.
+          RatelimitDailyCap and RatelimitMonthlyCap set this tenant's per-device
+          send budget (MESHSAT-1117 tranche 2c). Until 21 Sep 2026 this was the
+          only way to set it, on the reasoning that a send budget is a commercial
+          lever. It is not: the meter is devices because the airtime is the
+          tenant's own, so the owner now sets it in Settings, and this stays for
+          an operator helping a customer. No upper bound here.
 
           Pointers, like PlanExpiresAt: absent leaves it alone, 0 removes the
           override and returns the tenant to its plan.
@@ -2081,6 +2082,24 @@ definitions:
           close dialog quotes it to the customer, and a number the UI hardcoded
           would be one refactor away from disagreeing with what actually happens.
         type: integer
+      ratelimit_daily_cap:
+        description: |-
+          The per-device send budget: how many messages the Hub will send to ONE
+          of this tenant's devices per UTC day and per month (SOS is never
+          counted). 0 is "the platform default". The airtime is the tenant's own
+          carrier account, so the owner sets this; the default doubles as the
+          floor, and a monthly default of 0 means no monthly limit.
+        type: integer
+      ratelimit_daily_default:
+        type: integer
+      ratelimit_daily_max:
+        type: integer
+      ratelimit_monthly_cap:
+        type: integer
+      ratelimit_monthly_default:
+        type: integer
+      ratelimit_monthly_max:
+        type: integer
       slug:
         type: string
       status:
@@ -2190,6 +2209,16 @@ definitions:
       oob_sat_timeout_sec:
         type: integer
       oob_sms_timeout_sec:
+        type: integer
+      ratelimit_daily_cap:
+        description: |-
+          RatelimitDailyCap and RatelimitMonthlyCap are this tenant's per-device
+          send budget, set by its owner (owner ruling, 21 Sep 2026: every tenant
+          pays its own carrier for these messages, so the limit on them is the
+          tenant's to choose). Same pointer semantics: absent leaves it alone, 0
+          returns to the platform default.
+        type: integer
+      ratelimit_monthly_cap:
         type: integer
     type: object
   internal_api.updateUserRequest:

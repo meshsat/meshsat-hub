@@ -265,6 +265,14 @@ type Config struct {
 	RateLimitRefillPerMin float64 `yaml:"ratelimit_refill_per_min"` // tokens refilled per minute (default 1)
 	RateLimitDailyCap     int     `yaml:"ratelimit_daily_cap"`      // max sends per device per day (default 100, 0=unlimited)
 	RateLimitMonthlyCap   int     `yaml:"ratelimit_monthly_cap"`    // max sends per device per month (default 0=unlimited)
+	// RateLimitDailyCapMax and RateLimitMonthlyCapMax bound what a tenant owner
+	// may set for their own per-device send budget in Settings. The floor is
+	// RateLimitDailyCap itself (a resolved budget is never below it). The
+	// ceiling is not commercial: the airtime is the tenant's own carrier
+	// account, so the number only has to be high enough to mean "effectively
+	// unlimited" and low enough that a typo is refused.
+	RateLimitDailyCapMax   int `yaml:"ratelimit_daily_cap_max"`
+	RateLimitMonthlyCapMax int `yaml:"ratelimit_monthly_cap_max"`
 
 	// Tenant isolation
 	TenantEnforce bool `yaml:"tenant_enforce"` // If true, requests without tenant context get 403
@@ -1001,12 +1009,15 @@ func Load() (Config, error) {
 	cfg.OOBSatTimeout = 10 * time.Minute
 	cfg.OOBMaxPerHourMin = 1
 	cfg.OOBMaxPerHourMax = 240
+	cfg.RateLimitDailyCapMax = 100000
+	cfg.RateLimitMonthlyCapMax = 3000000
 	cfg.OOBTimeoutMin = 10 * time.Second
 	cfg.OOBTimeoutMax = 60 * time.Minute
 	for _, o := range []struct {
 		env string
 		dst *int
-	}{{"HUB_OOB_MAX_PER_HOUR_MIN", &cfg.OOBMaxPerHourMin}, {"HUB_OOB_MAX_PER_HOUR_MAX", &cfg.OOBMaxPerHourMax}} {
+	}{{"HUB_OOB_MAX_PER_HOUR_MIN", &cfg.OOBMaxPerHourMin}, {"HUB_OOB_MAX_PER_HOUR_MAX", &cfg.OOBMaxPerHourMax},
+		{"HUB_RATELIMIT_DAILY_CAP_MAX", &cfg.RateLimitDailyCapMax}, {"HUB_RATELIMIT_MONTHLY_CAP_MAX", &cfg.RateLimitMonthlyCapMax}} {
 		if v := os.Getenv(o.env); v != "" {
 			if n, err := strconv.Atoi(v); err == nil && n > 0 {
 				*o.dst = n

@@ -35,6 +35,11 @@ type TenantHandler struct {
 	auditRetentionDefault int
 	auditRetentionMin     int
 	auditRetentionMax     int
+	// The per-device send budget a tenant owner may set: the platform default
+	// is also the floor (a resolved budget is never below it), max is a sanity
+	// ceiling. Monthly default 0 means the platform sets no monthly limit.
+	sendCapDailyDefault, sendCapDailyMax     int
+	sendCapMonthlyDefault, sendCapMonthlyMax int
 	// The platform's out-of-band command policy, same shape (MESHSAT-1121).
 	oobMaxPerHourDefault int
 	oobMaxPerHourMin     int
@@ -59,6 +64,13 @@ func (h *TenantHandler) SetBridgeOfflineTimeoutPolicy(def, min, max int) {
 
 // SetAuditRetentionPolicy gives the handler the platform's default retention
 // and the bounds a tenant owner may choose within (MESHSAT-1117).
+// SetSendCapPolicy gives the handler the platform's per-device send budget
+// (which is also the lowest value a tenant may choose) and the ceilings.
+func (h *TenantHandler) SetSendCapPolicy(dailyDefault, dailyMax, monthlyDefault, monthlyMax int) {
+	h.sendCapDailyDefault, h.sendCapDailyMax = dailyDefault, dailyMax
+	h.sendCapMonthlyDefault, h.sendCapMonthlyMax = monthlyDefault, monthlyMax
+}
+
 func (h *TenantHandler) SetAuditRetentionPolicy(def, min, max int) {
 	h.auditRetentionDefault, h.auditRetentionMin, h.auditRetentionMax = def, min, max
 }
@@ -102,6 +114,17 @@ type tenantResponse struct {
 	AuditRetentionDefault int `json:"audit_retention_default"`
 	AuditRetentionMin     int `json:"audit_retention_min"`
 	AuditRetentionMax     int `json:"audit_retention_max"`
+	// The per-device send budget: how many messages the Hub will send to ONE
+	// of this tenant's devices per UTC day and per month (SOS is never
+	// counted). 0 is "the platform default". The airtime is the tenant's own
+	// carrier account, so the owner sets this; the default doubles as the
+	// floor, and a monthly default of 0 means no monthly limit.
+	RatelimitDailyCap       int `json:"ratelimit_daily_cap"`
+	RatelimitDailyDefault   int `json:"ratelimit_daily_default"`
+	RatelimitDailyMax       int `json:"ratelimit_daily_max"`
+	RatelimitMonthlyCap     int `json:"ratelimit_monthly_cap"`
+	RatelimitMonthlyDefault int `json:"ratelimit_monthly_default"`
+	RatelimitMonthlyMax     int `json:"ratelimit_monthly_max"`
 	// Out-of-band command policy: this tenant's own choices, 0 meaning the
 	// platform default, with that default and the bounds alongside so the form
 	// shows the number actually in force (MESHSAT-1121).
@@ -132,6 +155,10 @@ func (h *TenantHandler) toTenantResponse(t *store.Tenant) tenantResponse {
 	r.OOBSatTimeoutDefault = h.oobSatTimeoutDefault
 	r.OOBTimeoutMin = h.oobTimeoutMin
 	r.OOBTimeoutMax = h.oobTimeoutMax
+	r.RatelimitDailyDefault = h.sendCapDailyDefault
+	r.RatelimitDailyMax = h.sendCapDailyMax
+	r.RatelimitMonthlyDefault = h.sendCapMonthlyDefault
+	r.RatelimitMonthlyMax = h.sendCapMonthlyMax
 	return r
 }
 
@@ -142,6 +169,8 @@ func toTenantResponse(t *store.Tenant) tenantResponse {
 		PurgeGraceDays:       int(store.PurgeGrace / (24 * time.Hour)),
 		BridgeOfflineTimeout: t.BridgeOfflineTimeout,
 		AuditRetentionDays:   t.AuditRetentionDays,
+		RatelimitDailyCap:    t.RatelimitDailyCap,
+		RatelimitMonthlyCap:  t.RatelimitMonthlyCap,
 		OOBMaxPerHour:        t.OOBMaxPerHour,
 		OOBSMSTimeoutSec:     t.OOBSMSTimeoutSec,
 		OOBSatTimeoutSec:     t.OOBSatTimeoutSec,
@@ -175,6 +204,13 @@ type updateTenantRequest struct {
 	// AuditRetentionDays, same pointer semantics: absent leaves it alone,
 	// 0 returns the tenant to the platform default.
 	AuditRetentionDays *int `json:"audit_retention_days,omitempty"`
+	// RatelimitDailyCap and RatelimitMonthlyCap are this tenant's per-device
+	// send budget, set by its owner (owner ruling, 21 Sep 2026: every tenant
+	// pays its own carrier for these messages, so the limit on them is the
+	// tenant's to choose). Same pointer semantics: absent leaves it alone, 0
+	// returns to the platform default.
+	RatelimitDailyCap   *int `json:"ratelimit_daily_cap,omitempty"`
+	RatelimitMonthlyCap *int `json:"ratelimit_monthly_cap,omitempty"`
 	// Out-of-band command policy, same pointer semantics throughout: absent
 	// leaves it alone, 0 returns the tenant to the platform default. Owner
 	// editable, unlike the send caps -- these are the tenant's OWN kit on the
@@ -200,11 +236,12 @@ type adminUpdateTenantRequest struct {
 	// carried an expiry lapsed back to free on its own, and fixing it
 	// meant going into the database by hand (MESHSAT-989).
 	PlanExpiresAt *string `json:"plan_expires_at,omitempty"`
-	// RatelimitDailyCap and RatelimitMonthlyCap override this tenant's
-	// per-device send budget above whatever its plan gives (MESHSAT-1117
-	// tranche 2c). PLATFORM ADMIN ONLY, which is why they live on this request
-	// and not on updateTenantRequest: a send budget is a commercial lever, and
-	// letting a tenant owner raise their own would make it free.
+	// RatelimitDailyCap and RatelimitMonthlyCap set this tenant's per-device
+	// send budget (MESHSAT-1117 tranche 2c). Until 21 Sep 2026 this was the
+	// only way to set it, on the reasoning that a send budget is a commercial
+	// lever. It is not: the meter is devices because the airtime is the
+	// tenant's own, so the owner now sets it in Settings, and this stays for
+	// an operator helping a customer. No upper bound here.
 	//
 	// Pointers, like PlanExpiresAt: absent leaves it alone, 0 removes the
 	// override and returns the tenant to its plan.
@@ -309,10 +346,45 @@ func (h *TenantHandler) Update(w http.ResponseWriter, r *http.Request) {
 		}
 		*f.dst = v
 	}
+	// The send budget. 0 is the platform default. Otherwise: not below the
+	// default, because a resolved budget is never below it anyway (ratelimit.
+	// PlanCaps) and accepting 50 only to enforce 100 would be a setting that
+	// lies; and not above the ceiling, which exists to catch a typo, not to
+	// sell anything.
+	capsChanged := false
+	for _, f := range []struct {
+		name       string
+		val        *int
+		dst        *int
+		floor, max int
+	}{
+		{"ratelimit_daily_cap", req.RatelimitDailyCap, &t.RatelimitDailyCap, h.sendCapDailyDefault, h.sendCapDailyMax},
+		{"ratelimit_monthly_cap", req.RatelimitMonthlyCap, &t.RatelimitMonthlyCap, h.sendCapMonthlyDefault, h.sendCapMonthlyMax},
+	} {
+		if f.val == nil {
+			continue
+		}
+		v := *f.val
+		if v != 0 && (v < f.floor || v < 1 || (f.max > 0 && v > f.max)) {
+			writeError(w, http.StatusBadRequest, fmt.Sprintf(
+				"%s must be 0 (platform default) or between %d and %d messages per device",
+				f.name, max(f.floor, 1), f.max))
+			return
+		}
+		if *f.dst != v {
+			capsChanged = true
+		}
+		*f.dst = v
+	}
 	if err := h.store.UpdateTenant(r.Context(), t); err != nil {
 		slog.Error("tenant: update failed", "error", err)
 		writeError(w, http.StatusInternalServerError, "update failed")
 		return
+	}
+	// The limiter caches a tenant's budget for 30 s on each replica; drop it
+	// everywhere so the owner's new number is the one in force now.
+	if capsChanged && h.forget != nil {
+		h.forget(t.ID)
 	}
 	writeJSON(w, http.StatusOK, h.toTenantResponse(t))
 }
