@@ -66,7 +66,7 @@ func Logging(next http.Handler) http.Handler {
 		// Inbound provider webhooks carry the tenant's secret in the last path
 		// segment (MESHSAT-975), so the raw path must never be logged: these
 		// lines go to stdout, the cluster's log store and anyone reading it.
-		p = redactWebhookSecret(p)
+		p = redactClaimNonce(redactWebhookSecret(p))
 
 		start := time.Now()
 		sr := &statusRecorder{ResponseWriter: w, code: http.StatusOK}
@@ -125,4 +125,39 @@ func redactWebhookSecret(p string) string {
 		return p // /api/webhook/cloudloop, or a trailing slash: no secret present
 	}
 	return webhookPrefix + rest[:i] + "/{secret}"
+}
+
+// redactClaimNonce hides the bearer token in the two claim paths that carry
+// one: a provisioning bundle, GET /api/bridges/{id}/provision/{nonce}, which
+// hands out a bridge's MQTT password and client private key, and a TAK
+// enrolment, GET /api/tak/enroll/{claimID}/{nonce}. The nonce IS the
+// credential there. Once the provisioning claim could answer 503 and keep a
+// bundle claimable (MESHSAT-1298), a logged claim path was a live token in the
+// cluster's log store for up to 30 minutes. Only a segment shaped like a nonce
+// (32 lowercase hex) is replaced, so /provision/qr and /provision/status stay
+// readable, and a TAK claim keeps its claim id visible for correlation.
+func redactClaimNonce(p string) string {
+	parts := strings.Split(p, "/")
+	if len(parts) != 6 || parts[1] != "api" || !isHexNonce(parts[5]) {
+		return p
+	}
+	switch {
+	case parts[2] == "bridges" && parts[4] == "provision",
+		parts[2] == "tak" && parts[3] == "enroll":
+		parts[5] = "{nonce}"
+		return strings.Join(parts, "/")
+	}
+	return p
+}
+
+func isHexNonce(s string) bool {
+	if len(s) != 32 {
+		return false
+	}
+	for _, c := range s {
+		if (c < '0' || c > '9') && (c < 'a' || c > 'f') {
+			return false
+		}
+	}
+	return true
 }
