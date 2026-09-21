@@ -215,3 +215,45 @@ func TestABridgeRaisedSOSIsFiledUnderTheBridge(t *testing.T) {
 		}
 	}
 }
+
+// gettingStore is a fakeUplinkStore that also answers GetBridge.
+type gettingStore struct {
+	fakeUplinkStore
+	b *store.Bridge
+}
+
+func (g *gettingStore) GetBridge(context.Context, string, string) (*store.Bridge, error) {
+	return g.b, nil
+}
+
+// A kit that is live over MQTT sends a health frame over IMT every ten minutes
+// only to open a satellite session (Bridge, 21 Sep 2026). That frame must not
+// become its report of record, or the Fleet page flips the kit to "last report
+// over satellite" while MQTT is fine. When MQTT has gone quiet, the frame IS the
+// report.
+func TestASatelliteFrameDoesNotOverrideALiveMQTTReport(t *testing.T) {
+	fixed := time.Date(2026, 9, 21, 10, 50, 0, 0, time.UTC)
+	for _, tc := range []struct {
+		name      string
+		mqttAgo   time.Duration
+		online    bool
+		wantTaken bool
+	}{
+		{"mqtt fresh", 90 * time.Second, true, false},
+		{"mqtt stale", 15 * time.Minute, true, true},
+		{"offline", 90 * time.Second, false, true},
+	} {
+		at := fixed.Add(-tc.mqttAgo)
+		st := &gettingStore{b: &store.Bridge{BridgeID: "kit-alpha", Online: tc.online, LastReportBearer: "mqtt", LastReportAt: &at}}
+		sink := NewUplinkSink(st, func(string, byte, bool, any) {}, nil, "test")
+		sink.now = func() time.Time { return fixed }
+		frame := encodeSatHealth("kit-alpha", 3600, 5, 20, 30, []SatIfaceStatus{{Name: "iridium_imt_0", Online: true, Signal: 3}}, fixed)
+		if !sink.Handle(context.Background(), "t1", "imt", "300000000000009", frame) {
+			t.Fatalf("%s: frame not handled", tc.name)
+		}
+		taken := st.reportB == "imt" && st.health["kit-alpha"] != ""
+		if taken != tc.wantTaken {
+			t.Errorf("%s: frame taken as the report = %v, want %v (bearer %q)", tc.name, taken, tc.wantTaken, st.reportB)
+		}
+	}
+}

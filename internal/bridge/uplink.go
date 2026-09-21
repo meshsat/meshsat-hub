@@ -68,6 +68,38 @@ type bridgeLister interface {
 	ListBridges(ctx context.Context, tenantID string) ([]*store.Bridge, error)
 }
 
+// bridgeGetter is the optional part of the store that lets the sink see how
+// the bridge last reported.
+type bridgeGetter interface {
+	GetBridge(ctx context.Context, tenantID, bridgeID string) (*store.Bridge, error)
+}
+
+// mqttFreshFor is how recent an MQTT report must be for the bridge to count as
+// live over MQTT. Kits send MQTT health every minute or two.
+const mqttFreshFor = 10 * time.Minute
+
+// liveOverMQTT reports whether the bridge is online and reported over MQTT
+// within mqttFreshFor. A satellite or SMS frame from such a bridge is not its
+// report of record. Since 21 Sep 2026 a quiet kit sends a health frame over
+// IMT every ten minutes only to open a session so waiting MTs come down, with
+// MQTT up the whole time. Letting that frame win would show the kit on the
+// Fleet page as reporting over satellite while it is on MQTT, and replace
+// its full MQTT health with the frame's summary. When MQTT is really gone, the
+// last MQTT report ages past mqttFreshFor, and the frame becomes the report,
+// as before. A failed lookup answers "not live", so a frame is never dropped
+// on a database blip.
+func (u *UplinkSink) liveOverMQTT(ctx context.Context, tenantID, bridgeID string) bool {
+	g, ok := u.store.(bridgeGetter)
+	if !ok || bridgeID == "" {
+		return false
+	}
+	b, err := g.GetBridge(ctx, tenantID, bridgeID)
+	if err != nil || b == nil || !b.Online || b.LastReportBearer != "mqtt" || b.LastReportAt == nil {
+		return false
+	}
+	return u.now().Sub(*b.LastReportAt) < mqttFreshFor
+}
+
 // bridgeSelfDevice is the device id a bridge puts in an SOS it raised itself,
 // rather than one relayed from a node on its mesh.
 const bridgeSelfDevice = "bridge"
@@ -219,7 +251,9 @@ func (u *UplinkSink) Handle(ctx context.Context, tenantID, bearer, origin string
 			if !u.ownsBridge(ctx, tenantID, bridgeID) {
 				return true
 			}
-			if err := u.store.SetBridgeHealth(ctx, tenantID, bridgeID, string(healthJSON)); err != nil {
+			if u.liveOverMQTT(ctx, tenantID, bridgeID) {
+				slog.Debug("uplink: health frame from a bridge live over MQTT; its MQTT health stays the report", "bridge_id", bridgeID, "bearer", bearer)
+			} else if err := u.store.SetBridgeHealth(ctx, tenantID, bridgeID, string(healthJSON)); err != nil {
 				slog.Warn("uplink: set health failed", "error", err, "bridge_id", bridgeID)
 			}
 		}
@@ -259,6 +293,9 @@ func (u *UplinkSink) report(ctx context.Context, tenantID, bridgeID, bearer stri
 	}
 	if err := u.store.TouchBridgeLastSeen(ctx, tenantID, bridgeID); err != nil {
 		slog.Debug("uplink: touch last_seen failed", "error", err, "bridge_id", bridgeID)
+	}
+	if u.liveOverMQTT(ctx, tenantID, bridgeID) {
+		return // its MQTT report stays the one on the Fleet page
 	}
 	if err := u.store.SetBridgeLastReport(ctx, tenantID, bridgeID, bearer, ts); err != nil {
 		slog.Debug("uplink: set last report failed", "error", err, "bridge_id", bridgeID)
