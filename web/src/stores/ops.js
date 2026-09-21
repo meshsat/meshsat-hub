@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
-import { bridges as bridgesApi, devices as devicesApi, escalation, deadman as deadmanApi } from '../api/client'
+import { bridges as bridgesApi, devices as devicesApi, escalation, deadman as deadmanApi, ratelimit as ratelimitApi } from '../api/client'
 
 // The operational picture the shell and the overview share: kits, devices,
 // unacknowledged alerts and check-ins. One poll for the whole console instead
@@ -29,6 +29,7 @@ export const useOpsStore = defineStore('ops', () => {
   const devices = ref([])
   const alerts = ref([])
   const checkins = ref([])
+  const budgets = ref([])
   const loadedAt = ref(null)
   const loaded = ref(false)
   const failed = ref(false)
@@ -46,12 +47,14 @@ export const useOpsStore = defineStore('ops', () => {
         devicesApi.list(),
         escalation.listAlerts(true, 50),
         deadmanApi.list(),
+        ratelimitApi.all(),
       ])
       const arr = (i) => (r[i].status === 'fulfilled' && Array.isArray(r[i].value) ? r[i].value : null)
       if (arr(0)) bridges.value = arr(0)
       if (arr(1)) devices.value = arr(1)
       if (arr(2)) alerts.value = arr(2)
       if (arr(3)) checkins.value = arr(3)
+      if (arr(4)) budgets.value = arr(4)
       failed.value = r.every((x) => x.status === 'rejected')
       loadedAt.value = new Date()
       loaded.value = true
@@ -133,6 +136,22 @@ export const useOpsStore = defineStore('ops', () => {
         to: { name: 'deadman' },
       })
     }
+    // A device at its send limit stops sending until the window resets: the
+    // tenant's own guard on its carrier bill working as set, but somebody
+    // should know, because the next message from the field will not go out.
+    for (const b of budgets.value) {
+      if (!b.throttled) continue
+      items.push({
+        key: 'budget:' + b.device_id,
+        priority: 2,
+        kind: 'caution',
+        title: 'Send limit reached',
+        subject: b.device_id,
+        detail: b.daily_cap > 0 ? `${b.daily_sent} of ${b.daily_cap} today` : (b.monthly_cap > 0 ? `${b.monthly_sent} of ${b.monthly_cap} this month` : 'Sending paused'),
+        since: null,
+        to: { name: 'deviceDetail', params: { imei: b.device_id } },
+      })
+    }
     const now = Date.now()
     for (const k of kits.value) {
       if (k.online || !k.lastSeen) continue
@@ -148,7 +167,7 @@ export const useOpsStore = defineStore('ops', () => {
         to: { name: 'fleet' },
       })
     }
-    return items.sort((a, b) => a.priority - b.priority || new Date(b.since) - new Date(a.since))
+    return items.sort((a, b) => a.priority - b.priority || new Date(b.since || 0) - new Date(a.since || 0))
   })
 
   const worst = computed(() => attention.value[0]?.kind || null)
@@ -160,5 +179,5 @@ export const useOpsStore = defineStore('ops', () => {
     await load()
   }
 
-  return { bridges, devices, alerts, checkins, kits, attention, worst, loadedAt, loaded, failed, load, start, stop, nudge, acknowledge }
+  return { bridges, devices, alerts, checkins, budgets, kits, attention, worst, loadedAt, loaded, failed, load, start, stop, nudge, acknowledge }
 })

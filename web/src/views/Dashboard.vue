@@ -1,7 +1,7 @@
 <script setup>
 import { ref, computed, watch, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
-import { messages as messagesApi } from '../api/client'
+import { messages as messagesApi, credits as creditsApi } from '../api/client'
 import { useOpsStore } from '../stores/ops'
 import { useAuthStore } from '../stores/auth'
 import { useToastStore } from '../stores/toast'
@@ -28,8 +28,24 @@ async function loadMessages() {
   } catch { /* the stream is informational; the poll retries */ }
   msgLoaded.value = true
 }
-onMounted(loadMessages)
-watch(() => ops.loadedAt, loadMessages)
+// The Iridium credit balance of this account's own Cloudloop account. Most
+// accounts bring none and /api/credits answers 404 for good: stop asking
+// then (MESHSAT-1111), and show nothing rather than a zero. The figure is
+// stated plainly; a balance is not an alarm.
+const credit = ref(null)
+let creditsUnavailable = false
+async function loadCredits() {
+  if (creditsUnavailable) return
+  try {
+    const c = await creditsApi.get()
+    credit.value = typeof c?.balance === 'number' ? c.balance : null
+  } catch (e) {
+    if (e?.status === 404) creditsUnavailable = true
+  }
+}
+
+onMounted(() => { loadMessages(); loadCredits() })
+watch(() => ops.loadedAt, () => { loadMessages(); loadCredits() })
 
 const kits = computed(() => [...ops.kits].sort((a, b) => Number(b.online) - Number(a.online) || a.name.localeCompare(b.name)))
 const onlineKits = computed(() => kits.value.filter((k) => k.online).length)
@@ -140,7 +156,7 @@ function openKit(k) { router.push({ name: 'fleet', query: { kit: k.id } }) }
           <span class="w-28 shrink-0 text-[13px] font-semibold" :class="item.kind === 'caution' ? 'text-ms-warning' : 'text-ms-error'">{{ item.title }}</span>
           <span class="ms-id text-ms-text">{{ item.subject }}</span>
           <span class="text-[13px] text-ms-muted flex-1 min-w-[12rem] truncate">{{ item.detail }}</span>
-          <span class="text-xs text-ms-muted whitespace-nowrap">{{ ago(item.since) }}</span>
+          <span v-if="item.since" class="text-xs text-ms-muted whitespace-nowrap">{{ ago(item.since) }}</span>
           <div class="flex gap-2">
             <button v-if="item.alertId && canAct" class="ms-btn-primary" :disabled="busy === item.key" @click="ack(item)">
               {{ busy === item.key ? 'Acknowledging' : 'Acknowledge' }}
@@ -290,6 +306,9 @@ function openKit(k) { router.push({ name: 'fleet', query: { kit: k.id } }) }
             <span>24 h ago</span>
             <span class="ms-num">{{ dayTotal }} in the last 24 hours</span>
             <span>now</span>
+          </div>
+          <div v-if="credit !== null" class="mt-2 text-xs text-ms-muted" data-testid="credits">
+            Iridium credit balance <span class="ms-num text-ms-text2">{{ credit.toLocaleString() }}</span>
           </div>
         </div>
         <div v-if="msgLoaded && !stream.length" class="px-4 py-8 text-sm text-ms-muted">No messages yet. They appear here the moment a kit or device sends one.</div>

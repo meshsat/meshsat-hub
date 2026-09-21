@@ -5,6 +5,7 @@ import { messages, devices } from '../api/client'
 import { useAuthStore } from '../stores/auth'
 import { useToastStore } from '../stores/toast'
 import { formatUTC } from '../utils/time'
+import { exportCSV } from '../utils/csv'
 import { bearerOf, bodyOf, ago } from '../utils/paths'
 import Icon from '../components/Icon.vue'
 
@@ -162,6 +163,8 @@ async function sendSMS() {
             <option value="ip">Internet</option>
           </select>
           <button class="ms-btn-ghost" title="Refresh" aria-label="Refresh" @click="loadMessages"><Icon name="refresh" :size="15" /></button>
+          <button class="ms-btn-ghost text-xs" :disabled="!rows.length" title="Download the messages shown as CSV"
+            @click="exportCSV(rows, 'meshsat-messages', ['created_at', 'direction', 'device_imei', 'channel', 'text', 'status', 'error'])">CSV</button>
         </div>
         <!-- Phones: the same log as two-line rows -->
         <ul class="md:hidden divide-y divide-ms-border/70">
