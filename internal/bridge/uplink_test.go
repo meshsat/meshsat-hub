@@ -178,3 +178,40 @@ func TestUplinkRecognisesAShortenedBridgeID(t *testing.T) {
 		t.Error("an exact match lost to a longer id that starts with it")
 	}
 }
+
+// An SOS the bridge raised itself names its device "bridge". The alert, and the
+// page the on-call person reads, must name the kit instead: "[sos] bridge: ..."
+// cannot tell two kits apart (MESHSAT-1294). A node's SOS relayed by the bridge
+// keeps the node's id.
+func TestABridgeRaisedSOSIsFiledUnderTheBridge(t *testing.T) {
+	st := &fakeUplinkStore{}
+	var pubs []pubRec
+	sink := NewUplinkSink(st, func(topic string, _ byte, retained bool, v any) {
+		b, _ := json.Marshal(v)
+		var m map[string]any
+		_ = json.Unmarshal(b, &m)
+		pubs = append(pubs, pubRec{topic: topic, retained: retained, body: m})
+	}, nil, "test")
+	fixed := time.Date(2026, 9, 21, 8, 25, 28, 0, time.UTC)
+	sink.now = func() time.Time { return fixed }
+	ctx := context.Background()
+
+	for _, tc := range []struct{ device, want string }{
+		{"bridge", "kit-alpha"},    // raised on the kit itself
+		{"", "kit-alpha"},          // no device at all
+		{"!0a1b2c3d", "!0a1b2c3d"}, // a mesh node's SOS, relayed
+	} {
+		pubs = nil
+		frame := encodeSatSOS("kit-alpha", tc.device, 0, 0, "SOS - EMERGENCY ALERT", fixed.Add(-4*time.Second))
+		if !sink.Handle(ctx, "t1", "sms", "+3160000", frame) {
+			t.Fatalf("device %q: SOS not handled", tc.device)
+		}
+		if len(pubs) != 2 {
+			t.Fatalf("device %q: publishes %+v", tc.device, pubs)
+		}
+		mo := pubs[1]
+		if mo.body["imei"] != tc.want || !strings.HasSuffix(mo.topic, "/mo/decoded") || mo.body["bridge_id"] != "kit-alpha" {
+			t.Errorf("device %q: filed under %v on %s, want %s", tc.device, mo.body["imei"], mo.topic, tc.want)
+		}
+	}
+}

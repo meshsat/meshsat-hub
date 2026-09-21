@@ -3,6 +3,7 @@ package apprise
 import (
 	"context"
 	"log/slog"
+	"strings"
 	"time"
 
 	"github.com/meshsat/meshsat-hub/internal/integrations"
@@ -81,13 +82,28 @@ type Notifier struct{ pool *ClientPool }
 
 func NewNotifierPool(pool *ClientPool) *Notifier { return &Notifier{pool: pool} }
 
-// Notify delivers to the tenant's own Apprise server.
+// Notify delivers the targets that are Apprise URLs to the tenant's own Apprise
+// server.
 //
-// An unconfigured tenant returns an error rather than nil. The escalation engine
+// Only a "scheme://..." target is Apprise's. The escalation engine hands every
+// backend the whole list, and phone numbers and email addresses have backends
+// of their own; passing them on made Apprise the second recipient of every SMS
+// page's text (MESHSAT-1294). A list without an Apprise URL returns nil.
+//
+// An unconfigured tenant WITH an Apprise URL returns an error rather than nil. The escalation engine
 // logs it, which is the point: this whole class of defect was silence. A tenant
 // saved notification URLs, everything answered 200, and nothing was delivered
 // because no backend existed anywhere (MESHSAT-1121).
 func (n *Notifier) Notify(ctx context.Context, targets []string, subject, body string) error {
+	urls := make([]string, 0, len(targets))
+	for _, t := range targets {
+		if IsURL(t) {
+			urls = append(urls, t)
+		}
+	}
+	if len(urls) == 0 {
+		return nil
+	}
 	tenantID := tenancy.FromContext(ctx)
 	if tenantID == "" {
 		tenantID = store.DefaultTenantID
@@ -96,5 +112,22 @@ func (n *Notifier) Notify(ctx context.Context, targets []string, subject, body s
 	if c == nil {
 		return errNoAppriseAccount
 	}
-	return c.Notify(ctx, targets, subject, body)
+	return c.Notify(ctx, urls, subject, body)
+}
+
+// IsURL reports whether an escalation target is an Apprise URL: a scheme, then
+// "://". Every Apprise service is addressed that way (tgram://, mailto://,
+// slack://, json://, ...).
+func IsURL(target string) bool {
+	i := strings.Index(target, "://")
+	if i <= 0 {
+		return false
+	}
+	for _, r := range target[:i] {
+		ok := r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || r == '+' || r == '-' || r == '.'
+		if !ok {
+			return false
+		}
+	}
+	return true
 }

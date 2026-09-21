@@ -29,7 +29,22 @@ func NewNotifier(client *Client) *Notifier {
 
 // Notify sends an SMS to each phone number target. Non-phone targets are skipped.
 // The subject and body are concatenated into a concise SMS (truncated to 160 chars).
+//
+// A call with no phone number among the targets returns nil before the
+// tenant's account is looked at. Every backend of the escalation engine is
+// handed every target, so a chain of email addresses on a tenant without
+// Twilio is not an SMS failure; logging it as one put "notify failed" on pages
+// that had been delivered by another backend (MESHSAT-1294).
 func (n *Notifier) Notify(ctx context.Context, targets []string, subject, body string) error {
+	phones := make([]string, 0, len(targets))
+	for _, t := range targets {
+		if isPhoneNumber(t) {
+			phones = append(phones, t)
+		}
+	}
+	if len(phones) == 0 {
+		return nil
+	}
 	text := formatSMS(subject, body)
 	var lastErr error
 	sent := 0
@@ -46,10 +61,7 @@ func (n *Notifier) Notify(ctx context.Context, targets []string, subject, body s
 		return fmt.Errorf("sms: no Twilio account configured for this tenant")
 	}
 
-	for _, target := range targets {
-		if !isPhoneNumber(target) {
-			continue
-		}
+	for _, target := range phones {
 		if _, err := client.Send(ctx, target, text); err != nil {
 			slog.Error("sms: escalation notify failed", "to", target, "error", err)
 			lastErr = err
