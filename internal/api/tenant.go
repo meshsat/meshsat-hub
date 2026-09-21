@@ -35,8 +35,8 @@ type TenantHandler struct {
 	auditRetentionDefault int
 	auditRetentionMin     int
 	auditRetentionMax     int
-	// The per-device send budget a tenant owner may set: the platform default
-	// is also the floor (a resolved budget is never below it), max is a sanity
+	// The per-device send budget a tenant owner may set: anything from 1 to
+	// max. The default is what applies when they set nothing; max is a sanity
 	// ceiling. Monthly default 0 means the platform sets no monthly limit.
 	sendCapDailyDefault, sendCapDailyMax     int
 	sendCapMonthlyDefault, sendCapMonthlyMax int
@@ -65,7 +65,7 @@ func (h *TenantHandler) SetBridgeOfflineTimeoutPolicy(def, min, max int) {
 // SetAuditRetentionPolicy gives the handler the platform's default retention
 // and the bounds a tenant owner may choose within (MESHSAT-1117).
 // SetSendCapPolicy gives the handler the platform's per-device send budget
-// (which is also the lowest value a tenant may choose) and the ceilings.
+// (what applies when a tenant sets nothing) and the ceilings.
 func (h *TenantHandler) SetSendCapPolicy(dailyDefault, dailyMax, monthlyDefault, monthlyMax int) {
 	h.sendCapDailyDefault, h.sendCapDailyMax = dailyDefault, dailyMax
 	h.sendCapMonthlyDefault, h.sendCapMonthlyMax = monthlyDefault, monthlyMax
@@ -117,8 +117,8 @@ type tenantResponse struct {
 	// The per-device send budget: how many messages the Hub will send to ONE
 	// of this tenant's devices per UTC day and per month (SOS is never
 	// counted). 0 is "the platform default". The airtime is the tenant's own
-	// carrier account, so the owner sets this; the default doubles as the
-	// floor, and a monthly default of 0 means no monthly limit.
+	// carrier account, so the owner sets this, above or below the default; a
+	// monthly default of 0 means no monthly limit.
 	RatelimitDailyCap       int `json:"ratelimit_daily_cap"`
 	RatelimitDailyDefault   int `json:"ratelimit_daily_default"`
 	RatelimitDailyMax       int `json:"ratelimit_daily_max"`
@@ -346,11 +346,10 @@ func (h *TenantHandler) Update(w http.ResponseWriter, r *http.Request) {
 		}
 		*f.dst = v
 	}
-	// The send budget. 0 is the platform default. Otherwise: not below the
-	// default, because a resolved budget is never below it anyway (ratelimit.
-	// PlanCaps) and accepting 50 only to enforce 100 would be a setting that
-	// lies; and not above the ceiling, which exists to catch a typo, not to
-	// sell anything.
+	// The send budget. 0 is the platform default; anything from 1 up to the
+	// ceiling is the owner's call, below the default included: they pay their
+	// own carrier, so a low number is how they protect their own bill. The
+	// ceiling exists to catch a typo, not to sell anything.
 	capsChanged := false
 	for _, f := range []struct {
 		name       string
@@ -358,8 +357,8 @@ func (h *TenantHandler) Update(w http.ResponseWriter, r *http.Request) {
 		dst        *int
 		floor, max int
 	}{
-		{"ratelimit_daily_cap", req.RatelimitDailyCap, &t.RatelimitDailyCap, h.sendCapDailyDefault, h.sendCapDailyMax},
-		{"ratelimit_monthly_cap", req.RatelimitMonthlyCap, &t.RatelimitMonthlyCap, h.sendCapMonthlyDefault, h.sendCapMonthlyMax},
+		{"ratelimit_daily_cap", req.RatelimitDailyCap, &t.RatelimitDailyCap, 1, h.sendCapDailyMax},
+		{"ratelimit_monthly_cap", req.RatelimitMonthlyCap, &t.RatelimitMonthlyCap, 1, h.sendCapMonthlyMax},
 	} {
 		if f.val == nil {
 			continue
@@ -570,11 +569,9 @@ func (h *TenantHandler) AdminUpdate(w http.ResponseWriter, r *http.Request) {
 			t.PlanExpiresAt = &when
 		}
 	}
-	// The send-budget overrides. Refused if negative; 0 clears. No upper bound
-	// is imposed here on purpose -- this is the platform operator, who is the
-	// one person entitled to decide that a customer gets more airtime, and the
-	// floor in plans.SendCaps already guarantees it can never be LESS than
-	// every other tenant gets.
+	// The send budget, set by an operator for a customer. Refused if negative;
+	// 0 clears. No upper bound here on purpose. The number is honoured as it is,
+	// above or below the platform default: it is the tenant's own airtime.
 	for _, o := range []struct {
 		name string
 		req  *int

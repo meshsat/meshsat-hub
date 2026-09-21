@@ -400,13 +400,13 @@ onMounted(load)
         <div class="flex flex-wrap gap-2 items-center">
           <label for="tenant-cap-daily" class="sr-only">Per day</label>
           <input id="tenant-cap-daily" v-model="capDaily" type="number" inputmode="numeric"
-            :min="info?.ratelimit_daily_default" :max="info?.ratelimit_daily_max"
+            :min="1" :max="info?.ratelimit_daily_max"
             :placeholder="String(info?.ratelimit_daily_default ?? '')"
             class="w-28 min-w-0 px-3 py-1.5 bg-ms-well border border-ms-border rounded text-sm text-ms-text focus:outline-none focus:border-brand-primary" />
           <span class="text-xs text-ms-muted">per day</span>
           <label for="tenant-cap-monthly" class="sr-only">Per month</label>
           <input id="tenant-cap-monthly" v-model="capMonthly" type="number" inputmode="numeric"
-            :min="info?.ratelimit_monthly_default || 1" :max="info?.ratelimit_monthly_max"
+            :min="1" :max="info?.ratelimit_monthly_max"
             :placeholder="info?.ratelimit_monthly_default ? String(info.ratelimit_monthly_default) : 'no limit'"
             class="w-28 min-w-0 px-3 py-1.5 bg-ms-well border border-ms-border rounded text-sm text-ms-text focus:outline-none focus:border-brand-primary" />
           <span class="text-xs text-ms-muted">per month</span>
@@ -420,7 +420,8 @@ onMounted(load)
           is a guard on your own bill: a stuck script stops here instead of at your carrier.
           Leave empty for the platform default ({{ info?.ratelimit_daily_default }} per day,
           {{ info?.ratelimit_monthly_default ? info.ratelimit_monthly_default + ' per month' : 'no monthly limit' }}).
-          Up to {{ info?.ratelimit_daily_max }} per day. An SOS is never counted and never held back.
+          Any number from 1 to {{ info?.ratelimit_daily_max }} per day, higher or lower than the default.
+          An SOS is never counted and never held back.
         </p>
 
         <!-- Out-of-band command policy (MESHSAT-1121). These commands go to this

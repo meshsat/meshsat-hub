@@ -344,8 +344,10 @@ data:
   # A tenant's OWNER sets their own budget in Settings (ratelimit_daily_cap and
   # ratelimit_monthly_cap on PUT /api/tenant), since 21 Sep 2026: the airtime is
   # the tenant's own carrier account, so the limit is a guard on their own bill,
-  # not something the platform sells. Floor = HUB_RATELIMIT_DAILY_CAP, ceiling =
-  # HUB_RATELIMIT_DAILY_CAP_MAX / _MONTHLY_CAP_MAX (100000 / 3000000). A platform
+  # not something the platform sells. Any number from 1 up to
+  # HUB_RATELIMIT_DAILY_CAP_MAX / _MONTHLY_CAP_MAX (100000 / 3000000), BELOW the
+  # default included; the default is only what applies when nothing is set. What
+  # still never goes below it is a PLAN (the lines above). A platform
   # admin can still set it for a customer with PUT /api/admin/tenants/{id}.
 
   # TAK accounts per tier (MESHSAT-1037), a separate meter from devices: a TAK
