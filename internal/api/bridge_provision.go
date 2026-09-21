@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -41,11 +42,62 @@ type ProvisionBundle struct {
 }
 
 // provisionStash holds pre-generated credentials waiting to be claimed.
-// Stored as JSON in system_config with key "provision_stash:{bridge_id}".
+// Stored as JSON in system_config under provisionStashKey(tenant, bridge).
 type provisionStash struct {
 	Nonce     string          `json:"nonce"`
 	Bundle    ProvisionBundle `json:"bundle"`
 	CreatedAt time.Time       `json:"created_at"`
+}
+
+// provisionStashPrefix starts every stash key; the stash reaper sweeps it.
+const provisionStashPrefix = "provision_stash:"
+
+// provisionStashKey names a bridge's stash by its tenant AND its id
+// (MESHSAT-1303). It used to be the id alone, but a bridge id is unique only
+// within a tenant, so two tenants with a bridge of the same name shared one
+// row: one tenant's new QR silently killed the other's. Neither id can contain
+// ':' (bridge ids are [A-Za-z0-9._-]), so the key is unambiguous.
+func provisionStashKey(tenantID, bridgeID string) string {
+	return provisionStashPrefix + tenantID + ":" + bridgeID
+}
+
+// legacyProvisionStashKey is the pre-MESHSAT-1303 key. A claim still reads
+// it, so a QR issued before the change keeps working until it expires;
+// nothing writes it any more and the reaper removes what is left.
+func legacyProvisionStashKey(bridgeID string) string { return provisionStashPrefix + bridgeID }
+
+// findStash returns the stash a claim for (bridgeID, nonce) refers to, and its
+// key. The claim is unauthenticated, so it cannot know the tenant: every
+// tenant's stash for that bridge id is a candidate, and the nonce picks one,
+// compared in constant time. Not found is ("", nil, nil).
+func (h *BridgeProvisionHandler) findStash(ctx context.Context, bridgeID, nonce string) (string, *provisionStash, error) {
+	keys, err := h.store.ListSystemConfigOlderThan(ctx, provisionStashPrefix, time.Now().Add(time.Hour))
+	if err != nil {
+		return "", nil, err
+	}
+	candidates := []string{}
+	for _, k := range keys {
+		if strings.HasSuffix(k, ":"+bridgeID) || k == legacyProvisionStashKey(bridgeID) {
+			candidates = append(candidates, k)
+		}
+	}
+	for _, k := range candidates {
+		raw, err := h.store.GetSystemConfig(ctx, k)
+		if err != nil || raw == "" {
+			continue
+		}
+		var stash provisionStash
+		if err := json.Unmarshal([]byte(raw), &stash); err != nil {
+			continue
+		}
+		if stash.Bundle.BridgeID != bridgeID && stash.Bundle.BridgeID != "" {
+			continue
+		}
+		if subtle.ConstantTimeCompare([]byte(stash.Nonce), []byte(nonce)) == 1 {
+			return k, &stash, nil
+		}
+	}
+	return "", nil, nil
 }
 
 // BridgeProvisionHandler provides QR-based provisioning.
@@ -178,7 +230,7 @@ func (h *BridgeProvisionHandler) generateAndStash(r *http.Request, id, tid strin
 	}
 
 	// Store stash — overwrites any previous (invalidates old QRs).
-	stashKey := "provision_stash:" + id
+	stashKey := provisionStashKey(tid, id)
 	if err := h.store.SetSystemConfig(r.Context(), stashKey, string(stashJSON)); err != nil {
 		return "", fmt.Errorf("store stash: %w", err)
 	}
@@ -210,7 +262,7 @@ func (h *BridgeProvisionHandler) Provision(w http.ResponseWriter, r *http.Reques
 	}
 
 	// For the direct API, return the full bundle immediately.
-	stashKey := "provision_stash:" + id
+	stashKey := provisionStashKey(tid, id)
 	stashJSON, err := h.store.GetSystemConfig(r.Context(), stashKey)
 	if err != nil || stashJSON == "" {
 		writeError(w, http.StatusInternalServerError, "stash not found")
@@ -345,32 +397,23 @@ func (h *BridgeProvisionHandler) ClaimProvision(w http.ResponseWriter, r *http.R
 	id := chi.URLParam(r, "id")
 	nonce := chi.URLParam(r, "nonce")
 
-	stashKey := "provision_stash:" + id
-	stashJSON, err := h.store.GetSystemConfig(r.Context(), stashKey)
-	if err != nil || stashJSON == "" {
-		// Uniform with the nonce-mismatch response below, deliberately. Two
-		// distinguishable 404s let an unauthenticated caller enumerate bridge
-		// IDs and learn which have a provisioning session in flight.
-		// internal/webhookroute answers the same way for the same reason.
+	// Uniform 404 for every miss, deliberately: an unknown bridge, no stash
+	// and a wrong nonce look the same, or an unauthenticated caller could
+	// enumerate bridge ids and learn which have a provisioning session in
+	// flight. internal/webhookroute answers the same way for the same reason.
+	stashKey, found, err := h.findStash(r.Context(), id, nonce)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "provision lookup failed")
+		return
+	}
+	if found == nil {
+		// The expected nonce is never logged, not even a prefix: while the
+		// stash is claimable it IS the credential.
+		slog.Warn("provision claim: no stash matches", "bridge_id", id, "got", nonce[:min(8, len(nonce))]+"...")
 		writeError(w, http.StatusNotFound, provisionClaimRefused)
 		return
 	}
-
-	var stash provisionStash
-	if err := json.Unmarshal([]byte(stashJSON), &stash); err != nil {
-		writeError(w, http.StatusInternalServerError, "corrupt provision data")
-		return
-	}
-
-	// Verify nonce matches.
-	if subtle.ConstantTimeCompare([]byte(stash.Nonce), []byte(nonce)) != 1 {
-		slog.Warn("provision claim: nonce mismatch",
-			"bridge_id", id,
-			"expected", stash.Nonce[:8]+"...",
-			"got", nonce[:min(8, len(nonce))]+"...")
-		writeError(w, http.StatusNotFound, provisionClaimRefused)
-		return
-	}
+	stash := *found
 
 	// Check age — reject if older than 30 minutes.
 	if time.Since(stash.CreatedAt) > ProvisionTTL {
@@ -462,7 +505,7 @@ func (h *BridgeProvisionHandler) ProvisionStatus(w http.ResponseWriter, r *http.
 		writeError(w, http.StatusNotFound, "bridge not found")
 		return
 	}
-	raw, err := h.store.GetSystemConfig(r.Context(), "provision_stash:"+id)
+	raw, err := h.store.GetSystemConfig(r.Context(), provisionStashKey(tid, id))
 	if err != nil || raw == "" {
 		writeJSON(w, http.StatusOK, provisionStatus{State: "none"})
 		return

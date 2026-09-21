@@ -199,6 +199,13 @@ func (h *BridgeHandler) DeleteBridge(w http.ResponseWriter, r *http.Request) {
 		writeInternalError(w, err, "")
 		return
 	}
+	// An unclaimed provisioning bundle goes with the bridge (MESHSAT-1303). It
+	// holds the bridge's plaintext MQTT password and client private key, and it
+	// used to outlive the bridge until the stash reaper's next pass, up to ~90
+	// minutes, riding along in any backup taken meanwhile.
+	if err := h.store.DeleteSystemConfig(r.Context(), provisionStashKey(tid, id)); err != nil {
+		slog.Warn("bridge delete: provisioning stash not removed; the reaper will take it", "bridge_id", id, "error", err)
+	}
 	if h.natsAuth != nil {
 		h.natsAuth.Trigger()
 	}

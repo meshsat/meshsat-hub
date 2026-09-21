@@ -127,7 +127,7 @@ func TestAnExpiredStashIsRefusedAndCleared(t *testing.T) {
 	m, h := provisionFixture(t)
 	nonce := stashOnly(t, h, "b1")
 
-	key := "provision_stash:b1"
+	key := provisionStashKey(store.DefaultTenantID, "b1")
 	var st provisionStash
 	if err := json.Unmarshal([]byte(m.sysConfig[key]), &st); err != nil {
 		t.Fatalf("stash: %v", err)
