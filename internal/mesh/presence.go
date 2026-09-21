@@ -19,6 +19,7 @@ import (
 	"context"
 	"encoding/json"
 	"log/slog"
+	"strings"
 	"time"
 
 	"github.com/meshsat/meshsat-hub/internal/bus"
@@ -65,6 +66,10 @@ func (r *Recorder) handle(topic string, payload []byte) {
 	var m struct {
 		DeviceID string `json:"device_id"`
 		BridgeID string `json:"bridge_id"`
+		// Channel is a bearer name from the Android gateway ("sms", "mesh",
+		// "iridium", ...) and a mesh channel INDEX from the Bridge, so it is
+		// read raw and only a string is given any meaning.
+		Channel json.RawMessage `json:"channel"`
 	}
 	if err := json.Unmarshal(payload, &m); err != nil {
 		return
@@ -80,6 +85,16 @@ func (r *Recorder) handle(topic string, payload []byte) {
 		nodeID = hubmqtt.ExtractDeviceID(topic)
 	}
 	if nodeID == "" {
+		return
+	}
+	// A bridge id alone does not make a message mesh traffic. The Android
+	// gateway puts its bridge id on everything it forwards, so an SMS that
+	// reached the phone by cellular, or a text that came over the satellite
+	// modem, was being recorded as "a node heard on that kit's mesh", under a
+	// phone number or a modem IMEI. Presence is a claim about RADIO
+	// reachability, so it needs a mesh node id, and a bearer that, when named,
+	// is the mesh. Not recording is always safe here: no row proves nothing.
+	if !isMeshNodeID(nodeID) || !isMeshBearer(m.Channel) {
 		return
 	}
 
@@ -111,4 +126,30 @@ func LiveFunc(s store.Store, window time.Duration) func(ctx context.Context, ten
 		}
 		return len(nodes) > 0
 	}
+}
+
+// isMeshNodeID reports whether id is a Meshtastic node id: "!" and eight hex
+// digits, which is what the Bridge publishes ("!%08x") for every mesh packet.
+func isMeshNodeID(id string) bool {
+	if len(id) != 9 || id[0] != '!' {
+		return false
+	}
+	for _, c := range id[1:] {
+		isHex := (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F')
+		if !isHex {
+			return false
+		}
+	}
+	return true
+}
+
+// isMeshBearer accepts an absent channel, a number (the Bridge's mesh channel
+// index) and the string "mesh"; any other string names a bearer that is not
+// the mesh.
+func isMeshBearer(raw json.RawMessage) bool {
+	var name string
+	if len(raw) == 0 || json.Unmarshal(raw, &name) != nil {
+		return true
+	}
+	return name == "" || strings.EqualFold(name, "mesh")
 }
