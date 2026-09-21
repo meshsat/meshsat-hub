@@ -174,8 +174,12 @@ func (h *BridgeCommandHandler) SendCommand(w http.ResponseWriter, r *http.Reques
 	}
 
 	if req.Async && job != nil {
+		// The job outlives the request on purpose, so it must not die with it;
+		// WithoutCancel keeps what the request carries (tenant, trace) and drops
+		// only its cancellation. The budget is what ends it.
+		jobCtx := context.WithoutCancel(r.Context())
 		go func() {
-			ctx, cancel := context.WithTimeout(context.Background(), commandWriteBudget)
+			ctx, cancel := context.WithTimeout(jobCtx, commandWriteBudget)
 			defer cancel()
 			status, body, errText := h.run(ctx, tid, bridgeID, cmd, via, b.Online)
 			if err := h.jobs.Finish(ctx, tid, job, status, body, errText); err != nil {
