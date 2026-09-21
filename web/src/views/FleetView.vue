@@ -255,17 +255,28 @@ function isMqttLeg(b) {
   return via === 'mqtt' || (via === '' && b.online)
 }
 
+// The journal units a kit will return a log for. Mirrors oob.LogUnits in the
+// Hub, which mirrors the bridge's own allowlist; the kit refuses anything else.
+const LOG_UNITS = [
+  'docker', 'meshsat-oob-agent', 'netplan-wpa-wlan0', 'systemd-networkd',
+  'x1202-monitor', 'meshsat-mgmt-keepalive', 'meshsat-p2p-link', 'bluetooth',
+]
+const logUnit = ref({})
+
 const BEARER_LABELS = { mqtt: 'MQTT', sms: 'SMS', imt: 'IMT', sbd: 'SBD' }
 function bearerLabel(bearer) {
   return BEARER_LABELS[bearer] || bearer
 }
 
-async function sendCommand(bridgeId, cmd) {
+async function sendCommand(bridgeId, cmd, payload) {
   commandLoading.value = { ...commandLoading.value, [bridgeId + cmd]: true }
   commandResult.value = { ...commandResult.value, [bridgeId]: null }
   try {
     const via = commandVia.value[bridgeId] || ''
-    const result = await bridges.sendCommand(bridgeId, via ? { cmd, via } : { cmd })
+    const body = { cmd }
+    if (via) body.via = via
+    if (payload) body.payload = payload
+    const result = await bridges.sendCommand(bridgeId, body)
     commandResult.value = { ...commandResult.value, [bridgeId]: result }
   } catch (e) {
     commandResult.value = { ...commandResult.value, [bridgeId]: { error: e.message } }
@@ -740,10 +751,18 @@ function certExpiryStatus(b) {
                     class="text-xs px-3 py-1.5 rounded bg-gray-700 hover:bg-gray-600 text-gray-200 transition-colors disabled:opacity-50">
                     {{ commandLoading[b.bridge_id + 'mgmt_status'] ? 'Asking...' : 'Status' }}
                   </button>
-                  <button @click.stop="sendCommand(b.bridge_id, 'mgmt_log')" :disabled="commandLoading[b.bridge_id + 'mgmt_log']"
-                    class="text-xs px-3 py-1.5 rounded bg-gray-700 hover:bg-gray-600 text-gray-200 transition-colors disabled:opacity-50">
-                    {{ commandLoading[b.bridge_id + 'mgmt_log'] ? 'Fetching...' : 'Log' }}
-                  </button>
+                  <!-- mgmt_log needs a journal unit: without one the Hub refuses it. -->
+                  <span class="inline-flex items-stretch">
+                    <select :value="logUnit[b.bridge_id] || LOG_UNITS[0]" @change="logUnit[b.bridge_id] = $event.target.value" @click.stop aria-label="Log unit"
+                      class="text-xs bg-gray-800 border border-tactical-border rounded-l px-2 py-1 text-gray-200">
+                      <option v-for="u in LOG_UNITS" :key="u" :value="u">{{ u }}</option>
+                    </select>
+                    <button @click.stop="sendCommand(b.bridge_id, 'mgmt_log', { unit: logUnit[b.bridge_id] || LOG_UNITS[0] })"
+                      :disabled="commandLoading[b.bridge_id + 'mgmt_log']"
+                      class="text-xs px-3 py-1.5 rounded-r bg-gray-700 hover:bg-gray-600 text-gray-200 transition-colors disabled:opacity-50">
+                      {{ commandLoading[b.bridge_id + 'mgmt_log'] ? 'Fetching...' : 'Log' }}
+                    </button>
+                  </span>
                 </template>
               </div>
               <div v-if="commandResult[b.bridge_id]" class="mt-2 text-xs">

@@ -163,6 +163,11 @@ var (
 	ErrRateLimit  = errors.New("oob: outbound rate limit reached for this bridge and bearer")
 	ErrTimeout    = errors.New("oob: no reply before the bearer timeout")
 	ErrUnknownCmd = errors.New("oob: unknown command")
+	// ErrBadArgs wraps a complaint about the caller's arguments (an unknown log
+	// unit, a reset with no target). It is the caller's mistake and the message
+	// says which, so the API answers 400 with it instead of a 500 that says
+	// "internal error" and nothing else.
+	ErrBadArgs = errors.New("oob: bad command arguments")
 )
 
 // Pair stores a management key for a bridge. localRole is the Hub's role:
@@ -306,7 +311,7 @@ func (s *Service) Send(ctx context.Context, tenantID, bridgeID, bearer, cmdName 
 	}
 	wireArgs, err := BuildArgs(cmd.Code, args)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("%w: %s", ErrBadArgs, strings.TrimPrefix(err.Error(), "oob: "))
 	}
 	p, err := s.store.GetOOBPeer(ctx, tenantID, bridgeID)
 	if err != nil || p == nil || !p.Enabled {

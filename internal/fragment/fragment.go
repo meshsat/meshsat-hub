@@ -78,11 +78,15 @@ const versionByte = 0x01
 // A payload is claimed only when the structure agrees with the header:
 //
 //  1. It does not begin with the version byte. The Bridge and Android both
-//     put 0x01 OUTERMOST on everything they send and neither emits this
-//     2-byte header; they fragment with the DTN bundle header instead. The
-//     two encodings collide on that first byte and the version byte wins. The
-//     cost is that an unversioned two-part message cannot start a reassembly,
-//     and no sender in the fleet produces one.
+//     put 0x01 OUTERMOST on what they send. The two encodings collide on that
+//     first byte ("version 1" is also "fragment 1 of 2") and the version byte
+//     wins. The cost is real and was accepted knowingly: a genuine TWO-part
+//     message in this format cannot start a reassembly, its halves are read
+//     as two whole messages. The Bridge never emitted this header (it splits
+//     with the DTN bundle header). The Android gateway DID, for a satellite
+//     payload over 340 bytes, until v2.18.15, which refuses such a message
+//     instead; its ledger held no message that long. Three parts and up are
+//     unaffected (first byte 0x02..0x0F).
 //  2. A fragment that is not the last one is exactly one MTU long, because
 //     Fragment cuts at MTU and only the tail is short.
 //  3. A last fragment is claimed only if its siblings are already waiting

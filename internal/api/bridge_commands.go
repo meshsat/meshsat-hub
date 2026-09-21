@@ -2,6 +2,7 @@ package api
 
 import (
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -10,6 +11,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/meshsat/meshsat-hub/internal/auth"
 	"github.com/meshsat/meshsat-hub/internal/bridge"
+	"github.com/meshsat/meshsat-hub/internal/oob"
 	"github.com/meshsat/meshsat-hub/internal/protocol"
 	"github.com/meshsat/meshsat-hub/internal/store"
 )
@@ -64,7 +66,7 @@ const commandWriteBudget = 61 * time.Minute
 // @Param id path string true "Bridge ID"
 // @Param body body commandRequest true "Command to send"
 // @Success 200 {object} commandResponse
-// @Failure 400 {object} map[string]string
+// @Failure 400 {object} map[string]string "Unknown command, or arguments the command cannot take"
 // @Failure 404 {object} map[string]string
 // @Failure 409 {object} map[string]string "Bridge is offline"
 // @Failure 504 {object} map[string]string "Timeout waiting for bridge response"
@@ -134,6 +136,14 @@ func (h *BridgeCommandHandler) SendCommand(w http.ResponseWriter, r *http.Reques
 		// Check if it's a timeout error from the commander.
 		if isTimeoutError(err) {
 			writeError(w, http.StatusGatewayTimeout, err.Error())
+			return
+		}
+		// The caller's own mistake, with a message that says which: an unknown
+		// command, or arguments the command cannot take. These came back as a
+		// 500 "internal error", which told an operator nothing and looked like
+		// a Hub fault in the log.
+		if errors.Is(err, oob.ErrBadArgs) || errors.Is(err, oob.ErrUnknownCmd) {
+			writeError(w, http.StatusBadRequest, err.Error())
 			return
 		}
 		writeInternalError(w, err, "")
