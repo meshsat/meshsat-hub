@@ -9477,21 +9477,6 @@
             "x-enum-comments": {
                 "KindMQTT": "[MESHSAT-538] mirrors bridge-side v45"
             },
-            "x-enum-descriptions": [
-                "",
-                "",
-                "",
-                "",
-                "",
-                "",
-                "",
-                "",
-                "",
-                "",
-                "",
-                "",
-                "[MESHSAT-538] mirrors bridge-side v45"
-            ],
             "x-enum-varnames": [
                 "KindSMS",
                 "KindMeshtastic",
@@ -12451,8 +12436,7 @@
                 "by_country": {
                     "type": "object",
                     "additionalProperties": {
-                        "type": "integer",
-                        "format": "int64"
+                        "type": "integer"
                     }
                 },
                 "cross_border_cents": {
@@ -12971,13 +12955,6 @@
                 "EventSOS": "SOS event",
                 "EventTelemetry": "Telemetry data"
             },
-            "x-enum-descriptions": [
-                "Mobile Originated message received",
-                "SOS event",
-                "Position update",
-                "Telemetry data",
-                "MT delivery status change"
-            ],
             "x-enum-varnames": [
                 "EventMO",
                 "EventSOS",
@@ -13025,7 +13002,6 @@
         },
         "time.Duration": {
             "type": "integer",
-            "format": "int64",
             "enum": [
                 -9223372036854775808,
                 9223372036854775807,
