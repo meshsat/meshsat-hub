@@ -1,6 +1,7 @@
 package api
 
 import (
+	"errors"
 	"github.com/meshsat/meshsat-hub/internal/bridge"
 	"log/slog"
 	"net/http"
@@ -71,9 +72,17 @@ func (h *BridgeHandler) CreateBridge(w http.ResponseWriter, r *http.Request) {
 
 	tid := auth.TenantIDFromContext(r.Context())
 
-	// Check if bridge already exists.
-	if existing, _ := h.store.GetBridge(r.Context(), tid, req.BridgeID); existing != nil {
+	// A bridge id is unique across the platform, not per tenant: it is the
+	// bridge's NATS user name and its legacy topic segment. So the check is
+	// global, and the answer is the same whoever holds the id. It used to look
+	// only inside the caller's tenant, and the upsert below then rewrote another
+	// tenant's bridge row and answered 201 (MESHSAT-1307).
+	switch _, err := h.store.LookupBridgeTenant(r.Context(), req.BridgeID); {
+	case err == nil, errors.Is(err, store.ErrAmbiguousTenant):
 		writeError(w, http.StatusConflict, "bridge already exists")
+		return
+	case !errors.Is(err, store.ErrNotFound):
+		writeInternalError(w, err, "")
 		return
 	}
 
@@ -95,6 +104,10 @@ func (h *BridgeHandler) CreateBridge(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := h.store.CreateOrUpdateBridge(r.Context(), tid, b); err != nil {
+		if errors.Is(err, store.ErrOwnedElsewhere) { // another tenant took the id in between
+			writeError(w, http.StatusConflict, "bridge already exists")
+			return
+		}
 		writeInternalError(w, err, "")
 		return
 	}
