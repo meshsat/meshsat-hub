@@ -3,12 +3,14 @@ package api
 import (
 	"crypto/rand"
 	"encoding/hex"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/meshsat/meshsat-hub/internal/audit"
 	"github.com/meshsat/meshsat-hub/internal/auth"
 	"github.com/meshsat/meshsat-hub/internal/bridge"
 	"github.com/meshsat/meshsat-hub/internal/store"
@@ -19,7 +21,12 @@ import (
 type RotationHandler struct {
 	store     store.Store
 	commander *bridge.Commander
+	audit     *audit.Service // nil = no audit (tests)
 }
+
+// SetAudit makes rotating an API key or a bridge's credentials an audit event
+// (MESHSAT-1308), as creating and deleting a key already are.
+func (h *RotationHandler) SetAudit(a *audit.Service) { h.audit = a }
 
 // NewRotationHandler creates a new rotation API handler.
 func NewRotationHandler(s store.Store, cmdr *bridge.Commander) *RotationHandler {
@@ -92,6 +99,7 @@ func (h *RotationHandler) RotateAPIKey(w http.ResponseWriter, r *http.Request) {
 	}
 
 	slog.Info("api key rotated", "key_id", id, "tenant", tid)
+	auditRequest(h.audit, r, tid, "api_key_rotated", fmt.Sprintf("id=%s expires=%s", id, newExpiry.UTC().Format(time.RFC3339)))
 	writeJSON(w, http.StatusOK, resp)
 }
 
@@ -158,6 +166,7 @@ func (h *RotationHandler) RotateBridgeCredentials(w http.ResponseWriter, r *http
 	}
 
 	slog.Info("bridge credentials rotated", "bridge_id", id, "tenant", tid)
+	auditRequest(h.audit, r, tid, "bridge_credentials_rotated", "bridge="+id)
 	writeJSON(w, http.StatusOK, rotateBridgeCredentialsResponse{
 		BridgeID: id,
 		Username: username,

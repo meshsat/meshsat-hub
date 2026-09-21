@@ -3,6 +3,7 @@ package api
 import (
 	"crypto/rand"
 	"encoding/hex"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"net/url"
@@ -11,6 +12,7 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/meshsat/meshsat-hub/internal/audit"
 	"github.com/meshsat/meshsat-hub/internal/auth"
 	"github.com/meshsat/meshsat-hub/internal/bridge"
 	"github.com/meshsat/meshsat-hub/internal/store"
@@ -24,7 +26,12 @@ type BridgeAuthHandler struct {
 	store    store.Store
 	ca       *bridge.CertAuthority
 	natsAuth bridge.Resyncer // nil outside Kubernetes
+	audit    *audit.Service  // nil = no audit (tests)
 }
+
+// SetAudit makes minting a bridge's MQTT password or client certificate, and
+// changing the platform's MQTT URL or ACL, audit events (MESHSAT-1308).
+func (h *BridgeAuthHandler) SetAudit(a *audit.Service) { h.audit = a }
 
 // SetNATSAuth registers the NATS auth syncer to kick after credential changes.
 func (h *BridgeAuthHandler) SetNATSAuth(r *bridge.NATSAuthSyncer) {
@@ -116,6 +123,7 @@ func (h *BridgeAuthHandler) GenerateCredentials(w http.ResponseWriter, r *http.R
 	}
 
 	h.resyncNATS()
+	auditRequest(h.audit, r, tid, "bridge_credentials_issued", "bridge="+id)
 	writeJSON(w, http.StatusOK, credentialResponse{
 		BridgeID: id,
 		Username: username,
@@ -163,6 +171,7 @@ func (h *BridgeAuthHandler) IssueCertificate(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
+	auditRequest(h.audit, r, tid, "bridge_certificate_issued", fmt.Sprintf("bridge=%s expires=%s", id, expiry.UTC().Format(time.RFC3339)))
 	writeJSON(w, http.StatusOK, certificateResponse{
 		BridgeID: id,
 		CertPEM:  string(certPEM),
@@ -237,6 +246,7 @@ func (h *BridgeAuthHandler) SetMQTTURL(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	slog.Info("mqtt public URL updated", "url", req.MQTTURL)
+	auditRequest(h.audit, r, auth.TenantIDFromContext(r.Context()), "bridge_mqtt_url_set", fmt.Sprintf("url=%q", req.MQTTURL))
 	writeJSON(w, http.StatusOK, map[string]string{"mqtt_url": req.MQTTURL})
 }
 
@@ -258,5 +268,6 @@ func (h *BridgeAuthHandler) RegenerateACL(w http.ResponseWriter, r *http.Request
 	}
 	h.resyncNATS()
 	slog.Info("nats-auth: re-render requested", "bridges", len(bridges), "syncer", h.natsAuth != nil)
+	auditRequest(h.audit, r, auth.TenantIDFromContext(r.Context()), "bridge_acl_regenerated", fmt.Sprintf("bridges=%d", len(bridges)))
 	writeJSON(w, http.StatusOK, aclRegenResponse{BridgesConfigured: len(bridges)})
 }

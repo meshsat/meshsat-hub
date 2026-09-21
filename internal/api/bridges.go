@@ -2,11 +2,14 @@ package api
 
 import (
 	"errors"
+	"fmt"
 	"github.com/meshsat/meshsat-hub/internal/bridge"
 	"log/slog"
 	"net/http"
+	"strings"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/meshsat/meshsat-hub/internal/audit"
 	"github.com/meshsat/meshsat-hub/internal/auth"
 	"github.com/meshsat/meshsat-hub/internal/bus"
 	"github.com/meshsat/meshsat-hub/internal/protocol"
@@ -20,7 +23,12 @@ type BridgeHandler struct {
 	bus      bus.MessageBus
 	natsAuth bridge.Resyncer // nil outside Kubernetes
 	quota    *quota.Checker  // nil = no subscription ceiling
+	audit    *audit.Service  // nil = no audit (tests)
 }
+
+// SetAudit makes bridge creation, change and deletion audit events
+// (MESHSAT-1308).
+func (h *BridgeHandler) SetAudit(a *audit.Service) { h.audit = a }
 
 // SetQuota enables the subscription device ceiling on manual registration.
 func (h *BridgeHandler) SetQuota(q *quota.Checker) {
@@ -79,6 +87,9 @@ func (h *BridgeHandler) CreateBridge(w http.ResponseWriter, r *http.Request) {
 	// tenant's bridge row and answered 201 (MESHSAT-1307).
 	switch _, err := h.store.LookupBridgeTenant(r.Context(), req.BridgeID); {
 	case err == nil, errors.Is(err, store.ErrAmbiguousTenant):
+		// Recorded in the caller's tenant only, and without saying whose the id
+		// is: repeated refusals are how somebody probing for ids shows up.
+		auditRequest(h.audit, r, tid, "bridge_create_refused", fmt.Sprintf("bridge=%s reason=id_in_use", req.BridgeID))
 		writeError(w, http.StatusConflict, "bridge already exists")
 		return
 	case !errors.Is(err, store.ErrNotFound):
@@ -105,6 +116,7 @@ func (h *BridgeHandler) CreateBridge(w http.ResponseWriter, r *http.Request) {
 
 	if err := h.store.CreateOrUpdateBridge(r.Context(), tid, b); err != nil {
 		if errors.Is(err, store.ErrOwnedElsewhere) { // another tenant took the id in between
+			auditRequest(h.audit, r, tid, "bridge_create_refused", fmt.Sprintf("bridge=%s reason=id_in_use", req.BridgeID))
 			writeError(w, http.StatusConflict, "bridge already exists")
 			return
 		}
@@ -113,6 +125,7 @@ func (h *BridgeHandler) CreateBridge(w http.ResponseWriter, r *http.Request) {
 	}
 
 	created, _ := h.store.GetBridge(r.Context(), tid, req.BridgeID)
+	auditRequest(h.audit, r, tid, "bridge_created", fmt.Sprintf("bridge=%s label=%q", b.BridgeID, b.Label))
 	writeJSON(w, http.StatusCreated, created)
 }
 
@@ -187,6 +200,7 @@ func (h *BridgeHandler) UpdateBridge(w http.ResponseWriter, r *http.Request) {
 		writeInternalError(w, err, "")
 		return
 	}
+	auditRequest(h.audit, r, tid, "bridge_updated", fmt.Sprintf("bridge=%s fields=%s", id, bridgeUpdateFields(req)))
 	updated, _ := h.store.GetBridge(r.Context(), tid, id)
 	writeJSON(w, http.StatusOK, updated)
 }
@@ -236,5 +250,23 @@ func (h *BridgeHandler) DeleteBridge(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	auditRequest(h.audit, r, tid, "bridge_deleted", "bridge="+id)
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// bridgeUpdateFields names what an update set, with the new values: a label
+// and a callsign are shown on a map and in the TAK picture, so a change to
+// either is worth reading back.
+func bridgeUpdateFields(u store.BridgeUpdate) string {
+	var parts []string
+	if u.Label != nil {
+		parts = append(parts, fmt.Sprintf("label=%q", *u.Label))
+	}
+	if u.CoTCallsign != nil {
+		parts = append(parts, fmt.Sprintf("cot_callsign=%q", *u.CoTCallsign))
+	}
+	if len(parts) == 0 {
+		return "none"
+	}
+	return strings.Join(parts, ",")
 }

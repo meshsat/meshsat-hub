@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/meshsat/meshsat-hub/internal/audit"
 	"github.com/meshsat/meshsat-hub/internal/auth"
 	"github.com/meshsat/meshsat-hub/internal/bridge"
 	"github.com/meshsat/meshsat-hub/internal/directory"
@@ -107,6 +108,26 @@ type BridgeProvisionHandler struct {
 	trustAnchor *directory.TrustAnchor
 	natsAuth    bridge.Resyncer // nil outside Kubernetes
 	prober      CredentialChecker
+	audit       *audit.Service // nil = no audit (tests)
+}
+
+// SetAudit makes handing out a provisioning bundle (directly, as a QR, or on a
+// claim) an audit event (MESHSAT-1308): each one mints the bridge's password
+// and private key.
+func (h *BridgeProvisionHandler) SetAudit(a *audit.Service) { h.audit = a }
+
+// stashTenant is the tenant a stash key belongs to, for the audit record of an
+// unauthenticated claim. A pre-MESHSAT-1303 key carries none; the bridge's
+// owner stands in.
+func (h *BridgeProvisionHandler) stashTenant(ctx context.Context, key, bridgeID string) string {
+	rest := strings.TrimPrefix(key, provisionStashPrefix)
+	if i := strings.IndexByte(rest, ':'); i > 0 {
+		return rest[:i]
+	}
+	if t, err := h.store.LookupBridgeTenant(ctx, bridgeID); err == nil {
+		return t
+	}
+	return store.DefaultTenantID
 }
 
 // CredentialChecker reports whether every broker member accepts a user and
@@ -288,6 +309,7 @@ func (h *BridgeProvisionHandler) Provision(w http.ResponseWriter, r *http.Reques
 	}
 
 	slog.Info("bridge provisioned (direct)", "bridge_id", id, "nonce", nonce[:8])
+	auditRequest(h.audit, r, tid, "bridge_provision_bundle_issued", "bridge="+id)
 	writeJSON(w, http.StatusOK, stash.Bundle)
 }
 
@@ -352,6 +374,7 @@ func (h *BridgeProvisionHandler) ProvisionQR(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
+	auditRequest(h.audit, r, tid, "bridge_provision_qr_generated", "bridge="+id)
 	slog.Info("provision QR generated",
 		"bridge_id", id,
 		"nonce", nonce[:8]+"...",
@@ -460,6 +483,14 @@ func (h *BridgeProvisionHandler) ClaimProvision(w http.ResponseWriter, r *http.R
 	// Delete the stash — single use.
 	_ = h.store.SetSystemConfig(r.Context(), stashKey, "")
 
+	// The claimer has no Hub account: the record says so, and carries the
+	// client address, which is all there is to know about who scanned.
+	if h.audit != nil {
+		if err := h.audit.Log(r.Context(), h.stashTenant(r.Context(), stashKey, id), "bridge_provision_claimed", "provisioning-claim",
+			fmt.Sprintf("bridge=%s age_sec=%d", id, int(time.Since(stash.CreatedAt).Seconds())), clientIPFromRequest(r)); err != nil {
+			slog.Warn("audit: failed to log bridge_provision_claimed", "error", err)
+		}
+	}
 	slog.Info("provision claimed",
 		"bridge_id", id,
 		"nonce", nonce[:8]+"...",

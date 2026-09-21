@@ -2047,6 +2047,7 @@ func main() {
 	// QR provision claim — unauthenticated (nonce IS the auth, single-use, 30min TTL).
 	provisionClaimHandler := api.NewBridgeProvisionHandler(dataStore, bridgeCA, directoryTrustAnchor)
 	provisionClaimHandler.SetNATSAuth(natsAuth)
+	provisionClaimHandler.SetAudit(auditSvc)
 	// A claim waits until every broker member accepts the bundle's credentials
 	// (MESHSAT-1298): a new password takes up to a minute to reach them all.
 	var provisionProber *bridge.CredentialProber
@@ -2504,6 +2505,7 @@ func main() {
 
 	// Secret rotation (owner-only)
 	rotationHandler := api.NewRotationHandler(dataStore, bridgeCommander)
+	rotationHandler.SetAudit(auditSvc)
 	r.Route("/api/auth/keys/{id}/rotate", func(r chi.Router) {
 		r.Use(hubauth.RequireRole(hubauth.RoleOwner))
 		r.Post("/", rotationHandler.RotateAPIKey)
@@ -2530,6 +2532,7 @@ func main() {
 
 	// Bridge registry API
 	bridgeHandler := api.NewBridgeHandler(dataStore, msgBus)
+	bridgeHandler.SetAudit(auditSvc) // bridge create/change/delete are audited (MESHSAT-1308)
 	bridgeHandler.SetNATSAuth(natsAuth)
 	bridgeHandler.SetQuota(quotaChecker)
 	r.Get("/api/bridges", bridgeHandler.ListBridges)
@@ -2571,6 +2574,7 @@ func main() {
 
 	// Bridge MQTT authentication API
 	bridgeAuthHandler := api.NewBridgeAuthHandler(dataStore, bridgeCA)
+	bridgeAuthHandler.SetAudit(auditSvc)
 	bridgeAuthHandler.SetNATSAuth(natsAuth)
 	// Owner-only, like every other route that mints a credential (MESHSAT-1171).
 	// These two had no role gate at all, so any authenticated VIEWER of a tenant
@@ -2587,6 +2591,7 @@ func main() {
 	// One-step bridge provisioning with QR code (MESHSAT-414)
 	provisionHandler := api.NewBridgeProvisionHandler(dataStore, bridgeCA, directoryTrustAnchor)
 	provisionHandler.SetNATSAuth(natsAuth)
+	provisionHandler.SetAudit(auditSvc)
 	if provisionProber != nil {
 		provisionHandler.SetProber(provisionProber)
 	}
