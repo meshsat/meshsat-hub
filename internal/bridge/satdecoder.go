@@ -49,7 +49,15 @@ var (
 
 // IsBridgeSatUplink checks if data starts with the satellite uplink magic bytes (0x4D 0x53).
 func IsBridgeSatUplink(data []byte) bool {
-	return len(data) >= satHeaderLen && data[0] == satUplinkMagic[0] && data[1] == satUplinkMagic[1]
+	// The version byte is part of the test, not just the magic. An out-of-band
+	// management frame travels as TEXT beginning "MS:", whose first two bytes
+	// are this same magic (0x4D 0x53) followed by ':' (0x3A). Judged on two
+	// bytes, every OOB reply over satellite was taken for an uplink frame,
+	// failed the version check one step later and logged a decode warning
+	// before falling through to the classifier it belonged to (seen on the
+	// first PING over IMT, 2026-09-21). A future uplink version has to be
+	// added here deliberately, which is the right amount of friction.
+	return len(data) >= satHeaderLen && data[0] == satUplinkMagic[0] && data[1] == satUplinkMagic[1] && data[2] == satUplinkVersion
 }
 
 // DecodeSatUplink decodes the header and returns the message type and payload (after header).

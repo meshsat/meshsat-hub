@@ -278,3 +278,16 @@ func TestDecodeSatUplink_BadVersion(t *testing.T) {
 		t.Errorf("expected ErrSatBadVersion, got %v", err)
 	}
 }
+
+// An OOB management frame is text that begins "MS:", the same two bytes as the
+// uplink magic. It is not an uplink frame and must not be announced as a broken
+// one on its way to the classifier that owns it.
+func TestAnOOBTextFrameIsNotAnUplinkFrame(t *testing.T) {
+	if IsBridgeSatUplink([]byte("MS:9W8S9JR0000060NQY2PPDVGA515FFNPD0C05D4R8F010")) {
+		t.Fatal(`an "MS:" text frame was taken for a binary uplink frame`)
+	}
+	ts := time.Date(2026, 9, 21, 5, 0, 0, 0, time.UTC)
+	if !IsBridgeSatUplink(encodeSatHealth("bridge-kit-a", 60, 1, 2, 3, nil, ts)) {
+		t.Fatal("a real uplink frame is no longer recognised")
+	}
+}
