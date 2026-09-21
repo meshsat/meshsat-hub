@@ -383,6 +383,12 @@ type Config struct {
 	SatChatDevices string `yaml:"satchat_devices"`
 	// SatChatMaxPerHour caps street -> stand messages per replica (default 60).
 	SatChatMaxPerHour int `yaml:"satchat_max_per_hour"`
+
+	// ProvisionProbeAddr is where the broker members answer MQTT in-cluster,
+	// as a name that resolves to one address per member ("nats-headless.<ns>.
+	// svc.cluster.local:1883"). A provisioning claim waits until every member
+	// accepts the bundle's credentials (MESHSAT-1298). Empty: no wait.
+	ProvisionProbeAddr string `yaml:"provision_probe_addr"`
 	// SMSInboundAuthToken is the Twilio ACCOUNT auth token, used only to verify
 	// X-Twilio-Signature on inbound webhooks. It is not SMSAuthToken: when
 	// SMSAPIKeySID is set, that field carries the API Key Secret and is used for
@@ -1084,6 +1090,9 @@ func Load() (Config, error) {
 	}
 	if v := os.Getenv("HUB_BOOTH_KITS"); v != "" {
 		cfg.BoothKits = v
+	}
+	if v := os.Getenv("HUB_PROVISION_PROBE_ADDR"); v != "" {
+		cfg.ProvisionProbeAddr = v
 	}
 	if v := os.Getenv("HUB_SATCHAT_ENABLED"); v != "" {
 		cfg.SatChatEnabled = strings.EqualFold(v, "true") || v == "1"

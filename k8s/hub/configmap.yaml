@@ -242,6 +242,12 @@ data:
   # visitor SMS chat, no token stays ordinary traffic. The modems allowed to
   # open it are HUB_SATCHAT_DEVICES in the secret store. Off = "false".
   HUB_SATCHAT_ENABLED: "true"
+  # A provisioning claim waits until every NATS member accepts the bundle's
+  # credentials (MESHSAT-1298): a new password reached the three members 4 to
+  # 53 s after it was generated, and a phone that connected in between was
+  # refused. The headless name resolves to one address per member; the Hub
+  # logs in over the in-cluster MQTT listener, as the bridge will.
+  HUB_PROVISION_PROBE_ADDR: "nats-headless.meshsat-hub.svc.cluster.local:1883"
   # Twilio Content SIDs for the interactive list and buttons. Created out of
   # band on 2026-09-16 and deliberately NEVER submitted to Meta: an unapproved
   # template is deliverable only inside the 24h window a visitor opens by

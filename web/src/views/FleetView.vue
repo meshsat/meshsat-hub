@@ -52,6 +52,18 @@ const showProvisionQR = ref(false)
 const provisionQRUrl = ref('')
 const provisionQRBridgeId = ref('')
 const provisionLoading = ref(false)
+// Whether the QR's credentials work at the broker yet (MESHSAT-1298). A new
+// password reaches the NATS members up to a minute after it is generated, and a
+// phone that scanned sooner was refused with the right password. So the QR
+// stays blurred until every member accepts it.
+const provisionState = ref('')      // pending | live | none | expired | unknown
+const provisionAccepted = ref(0)
+const provisionMembers = ref(0)
+const provisionChecked = ref(false)
+const provisionWaited = ref(0)
+let provisionTimer = null
+const PROVISION_POLL_MS = 2500
+const PROVISION_GIVE_UP_S = 180
 
 // Clipboard feedback
 const copied = ref('')
@@ -68,6 +80,7 @@ onMounted(async () => {
 
 onUnmounted(() => {
   if (pollTimer) clearInterval(pollTimer)
+  stopProvisionWatch()
 })
 
 async function loadBridges() {
@@ -227,6 +240,7 @@ async function provisionWithQR(bridgeId) {
     }
     provisionQRUrl.value = URL.createObjectURL(blob)
     showProvisionQR.value = true
+    watchProvisionLive(bridgeId)
   } catch (e) {
     error.value = 'QR provisioning failed: ' + (e.message || e.toString() || 'Unknown error')
     console.error('QR provisioning error:', e)
@@ -235,7 +249,45 @@ async function provisionWithQR(bridgeId) {
   }
 }
 
+function stopProvisionWatch() {
+  if (provisionTimer) {
+    clearTimeout(provisionTimer)
+    provisionTimer = null
+  }
+}
+
+function watchProvisionLive(bridgeId) {
+  stopProvisionWatch()
+  provisionState.value = 'pending'
+  provisionAccepted.value = 0
+  provisionMembers.value = 0
+  provisionChecked.value = false
+  const started = Date.now()
+  const tick = async () => {
+    provisionWaited.value = Math.round((Date.now() - started) / 1000)
+    try {
+      const s = await bridges.provisionStatus(bridgeId)
+      provisionState.value = s.state
+      provisionAccepted.value = s.accepted || 0
+      provisionMembers.value = s.members || 0
+      provisionChecked.value = !!s.checked
+    } catch (e) {
+      // The status call is a convenience; if it fails, show the QR rather
+      // than hold it back on a check that cannot answer.
+      provisionState.value = 'unknown'
+    }
+    if (provisionState.value !== 'pending' || !showProvisionQR.value) return
+    if (provisionWaited.value >= PROVISION_GIVE_UP_S) {
+      provisionState.value = 'unknown'
+      return
+    }
+    provisionTimer = setTimeout(tick, PROVISION_POLL_MS)
+  }
+  tick()
+}
+
 function dismissProvisionQR() {
+  stopProvisionWatch()
   showProvisionQR.value = false
   if (provisionQRUrl.value) {
     URL.revokeObjectURL(provisionQRUrl.value)
@@ -1044,10 +1096,25 @@ function certExpiryStatus(b) {
           Scan with the MeshSat Android app to auto-configure Hub connection.
           <span class="text-ms-warning">Single-use</span>: credentials are regenerated each time.
         </p>
-        <div class="flex justify-center bg-white rounded-lg p-4 mb-4">
+        <div class="relative flex justify-center bg-white rounded-lg p-4 mb-3">
           <img v-if="provisionQRUrl" :src="provisionQRUrl" :alt="'Provision QR for ' + provisionQRBridgeId"
-            class="w-80 h-80 object-contain" />
+            class="w-80 h-80 object-contain transition"
+            :class="provisionState === 'pending' ? 'blur-md opacity-40 pointer-events-none select-none' : ''" />
+          <div v-if="provisionState === 'pending'" class="absolute inset-0 flex items-center justify-center p-6">
+            <p class="text-sm text-center text-gray-900 font-medium">
+              Waiting for the broker to accept the new credentials<br />
+              <span class="font-mono">{{ provisionAccepted }} of {{ provisionMembers || '?' }}</span> ready, {{ provisionWaited }} s
+            </p>
+          </div>
         </div>
+        <p class="text-xs text-center mb-3" aria-live="polite">
+          <span v-if="provisionState === 'pending'" class="text-ms-warning">Don't scan yet: a scan now would be refused. This takes up to a minute.</span>
+          <span v-else-if="provisionState === 'live' && provisionChecked" class="text-ms-success">Ready: all {{ provisionMembers }} broker members accept it. Scan now.</span>
+          <span v-else-if="provisionState === 'live'" class="text-ms-success">Ready. Scan now.</span>
+          <span v-else-if="provisionState === 'none'" class="text-gray-400">Claimed by the app.</span>
+          <span v-else-if="provisionState === 'expired'" class="text-ms-error">This QR has expired. Close and generate a new one.</span>
+          <span v-else-if="provisionState === 'unknown'" class="text-ms-warning">Could not confirm the broker has it yet. If the app is refused, it retries.</span>
+        </p>
         <div class="text-center text-xs text-gray-500 mb-4">
           Bridge: <span class="text-gray-300 font-mono">{{ provisionQRBridgeId }}</span>
         </div>

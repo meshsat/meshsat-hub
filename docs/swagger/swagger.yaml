@@ -1840,6 +1840,23 @@ definitions:
         description: relative; the SPA prefixes its origin
         type: string
     type: object
+  internal_api.provisionStatus:
+    properties:
+      accepted:
+        description: broker members that accept the credentials
+        type: integer
+      age_sec:
+        type: integer
+      checked:
+        description: false when no prober is configured or it could not run
+        type: boolean
+      members:
+        description: broker members asked
+        type: integer
+      state:
+        description: pending, live, none (claimed or never generated), expired
+        type: string
+    type: object
   internal_api.putProviderAccountRequest:
     properties:
       values:
@@ -4432,6 +4449,30 @@ paths:
           schema:
             type: file
       summary: Generate provisioning QR code
+      tags:
+      - bridges
+  /api/bridges/{id}/provision/status:
+    get:
+      parameters:
+      - description: Bridge ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_api.provisionStatus'
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Whether a provisioning bundle's credentials are live on the broker
       tags:
       - bridges
   /api/bridges/acl/regenerate:

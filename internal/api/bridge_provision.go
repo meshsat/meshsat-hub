@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"crypto/rand"
 	"crypto/subtle"
 	"encoding/hex"
@@ -10,6 +11,7 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"strconv"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -52,7 +54,24 @@ type BridgeProvisionHandler struct {
 	ca          *bridge.CertAuthority
 	trustAnchor *directory.TrustAnchor
 	natsAuth    bridge.Resyncer // nil outside Kubernetes
+	prober      CredentialChecker
 }
+
+// CredentialChecker reports whether every broker member accepts a user and
+// password yet (bridge.CredentialProber).
+type CredentialChecker interface {
+	Live(ctx context.Context, user, pass string) (bool, []bridge.ProbeResult, error)
+}
+
+// SetProber makes a claim wait until the broker accepts the bundle's
+// credentials (MESHSAT-1298). Without one, a bundle is handed out at once, as
+// before.
+func (h *BridgeProvisionHandler) SetProber(p CredentialChecker) { h.prober = p }
+
+// claimRetryAfter is what a client is told to wait when its bundle is not live
+// on the broker yet. The members took 4 to 53 s after a rotation on 21 Sep
+// 2026, so a few polls cover it.
+const claimRetryAfter = 5
 
 // SetNATSAuth registers the NATS auth syncer to kick after provisioning.
 func (h *BridgeProvisionHandler) SetNATSAuth(r *bridge.NATSAuthSyncer) {
@@ -303,6 +322,7 @@ func (h *BridgeProvisionHandler) ProvisionQR(w http.ResponseWriter, r *http.Requ
 // @Param nonce path string true "Single-use provisioning nonce"
 // @Success 200 {object} ProvisionBundle
 // @Failure 404 {object} map[string]string "Invalid or expired nonce"
+// @Failure 503 {object} map[string]interface{} "The broker does not accept the bundle's credentials yet; retry after Retry-After seconds with the same nonce"
 // @Router /api/bridges/{id}/provision/{nonce} [get]
 // provisionClaimRefused is the single answer to every failed claim: unknown
 // bridge, wrong nonce, expired stash. One string, so the response cannot be
@@ -360,6 +380,40 @@ func (h *BridgeProvisionHandler) ClaimProvision(w http.ResponseWriter, r *http.R
 		return
 	}
 
+	// Not before the broker accepts the credentials (MESHSAT-1298). A new
+	// password reaches each NATS member through the kubelet's Secret sync and a
+	// reload, up to a minute after it was generated; a client that connected in
+	// between was refused with the right password, and one that did not retry
+	// stayed offline. So the claim says "not yet" and KEEPS the stash: the same
+	// nonce works a few seconds later. It holds only on an actual refusal from a
+	// member. If the probe itself cannot run, the bundle is handed out as it was
+	// before, because blocking every provisioning on the prober's health would be worse.
+	if h.prober != nil {
+		live, res, err := h.prober.Live(r.Context(), stash.Bundle.Username, stash.Bundle.Password)
+		switch {
+		case err != nil || len(res) == 0:
+			slog.Warn("provision claim: could not check the credentials at the broker; handing the bundle out unchecked",
+				"bridge_id", id, "error", err)
+		case !live:
+			accepted := 0
+			for _, m := range res {
+				if m.Accepted {
+					accepted++
+				}
+			}
+			slog.Info("provision claim held: the broker does not accept these credentials yet",
+				"bridge_id", id, "accepted", accepted, "members", len(res))
+			w.Header().Set("Retry-After", strconv.Itoa(claimRetryAfter))
+			writeJSON(w, http.StatusServiceUnavailable, map[string]any{
+				"error":       "the broker has not accepted these credentials yet; retry",
+				"retry_after": claimRetryAfter,
+				"accepted":    accepted,
+				"members":     len(res),
+			})
+			return
+		}
+	}
+
 	// Delete the stash — single use.
 	_ = h.store.SetSystemConfig(r.Context(), stashKey, "")
 
@@ -376,4 +430,73 @@ func min(a, b int) int {
 		return a
 	}
 	return b
+}
+
+// provisionStatus is what the Fleet page polls after it shows a QR.
+//
+// Counts only: a member's address is the cluster's business, and every
+// tenant's owner can call this.
+type provisionStatus struct {
+	State    string `json:"state"`    // pending, live, none (claimed or never generated), expired
+	Accepted int    `json:"accepted"` // broker members that accept the credentials
+	Members  int    `json:"members"`  // broker members asked
+	Checked  bool   `json:"checked"`  // false when no prober is configured or it could not run
+	AgeSec   int    `json:"age_sec,omitempty"`
+}
+
+// ProvisionStatus reports whether the bridge's unclaimed provisioning bundle
+// works at the broker yet, member by member (MESHSAT-1298). The Fleet page
+// shows the QR only once it does, so the first connect after a scan is not
+// refused.
+// @Summary Whether a provisioning bundle's credentials are live on the broker
+// @Tags bridges
+// @Produce json
+// @Param id path string true "Bridge ID"
+// @Success 200 {object} provisionStatus
+// @Failure 404 {object} map[string]string
+// @Router /api/bridges/{id}/provision/status [get]
+func (h *BridgeProvisionHandler) ProvisionStatus(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	tid := auth.TenantIDFromContext(r.Context())
+	if _, err := h.store.GetBridge(r.Context(), tid, id); err != nil {
+		writeError(w, http.StatusNotFound, "bridge not found")
+		return
+	}
+	raw, err := h.store.GetSystemConfig(r.Context(), "provision_stash:"+id)
+	if err != nil || raw == "" {
+		writeJSON(w, http.StatusOK, provisionStatus{State: "none"})
+		return
+	}
+	var stash provisionStash
+	if err := json.Unmarshal([]byte(raw), &stash); err != nil {
+		writeError(w, http.StatusInternalServerError, "corrupt provision data")
+		return
+	}
+	st := provisionStatus{AgeSec: int(time.Since(stash.CreatedAt).Seconds())}
+	if time.Since(stash.CreatedAt) > ProvisionTTL {
+		st.State = "expired"
+		writeJSON(w, http.StatusOK, st)
+		return
+	}
+	if h.prober == nil {
+		st.State = "live"
+		writeJSON(w, http.StatusOK, st)
+		return
+	}
+	live, res, err := h.prober.Live(r.Context(), stash.Bundle.Username, stash.Bundle.Password)
+	st.Checked, st.Members = err == nil && len(res) > 0, len(res)
+	for _, m := range res {
+		if m.Accepted {
+			st.Accepted++
+		}
+	}
+	switch {
+	case !st.Checked:
+		st.State = "live" // as the claim does: an unchecked bundle is not held
+	case live:
+		st.State = "live"
+	default:
+		st.State = "pending"
+	}
+	writeJSON(w, http.StatusOK, st)
 }
