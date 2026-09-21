@@ -19,7 +19,7 @@ func testMeshPresence(t *testing.T, db store.Store) {
 		kitA     = "bridge-kit-a"
 		kitB     = "bridge-kit-b"
 		nodeOne  = "!0a0b0c0d"
-		nodeTwo  = "!a1b3c3a4"
+		nodeTwo  = "!0a0b0c1a"
 		nodeRoam = "!f0ccc009"
 	)
 	now := time.Now().UTC().Truncate(time.Second)
