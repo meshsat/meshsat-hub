@@ -80,8 +80,9 @@ func TestTheProberNeedsEveryMember(t *testing.T) {
 		t.Fatalf("per member (sorted m1,m2,m3): %+v", res)
 	}
 
+	// No cache flush here, on purpose: a "not yet" is never cached, so the moment
+	// the lagging member reloads, the very next check says live.
 	members["m2"] = fakeMember(t, "new-pass")
-	p.cache = map[string]cachedProbe{} // past the 2 s cache
 	if live, res, _ := p.Live(context.Background(), "kit-a", "new-pass"); !live {
 		t.Fatalf("all members accept, still not live: %+v", res)
 	}
