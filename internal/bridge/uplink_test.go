@@ -3,6 +3,7 @@ package bridge
 import (
 	"context"
 	"encoding/json"
+	"github.com/meshsat/meshsat-hub/internal/store"
 	"strings"
 	"testing"
 	"time"
@@ -114,5 +115,66 @@ func TestUplinkSink_Frames(t *testing.T) {
 	_ = sink.Handle(ctx, "t1", "sms", "+3160000", encodeSatPosition("tesseract", 52.1, 4.3, 12, 1, fixed.Add(48*time.Hour)))
 	if !st.reportAt.Equal(fixed) {
 		t.Errorf("future timestamp not clamped: %v", st.reportAt)
+	}
+}
+
+// listingStore is a fakeUplinkStore that also knows which bridges a tenant has.
+type listingStore struct {
+	fakeUplinkStore
+	byTenant map[string][]string
+}
+
+func (l *listingStore) ListBridges(_ context.Context, tenantID string) ([]*store.Bridge, error) {
+	var out []*store.Bridge
+	for _, id := range l.byTenant[tenantID] {
+		out = append(out, &store.Bridge{BridgeID: id})
+	}
+	return out, nil
+}
+
+// The field kits' encoder cut the bridge id at 16 bytes. The health update then
+// ran against a bridge that does not exist: zero rows, no error, no log line
+// (seen live, 2026-09-21). A shortened id is matched to the ONE bridge of the
+// same tenant it fits, and never to another tenant's.
+func TestUplinkRecognisesAShortenedBridgeID(t *testing.T) {
+	ts := time.Date(2026, 9, 21, 4, 5, 0, 0, time.UTC)
+	frame := func(id string) []byte { return encodeSatHealth(id, 5311, 1, 14, 28, nil, ts) }
+	newSink := func(st *listingStore) *UplinkSink {
+		s := NewUplinkSink(st, func(string, byte, bool, any) {}, nil, "test")
+		s.now = func() time.Time { return ts }
+		return s
+	}
+
+	st := &listingStore{byTenant: map[string][]string{
+		"t1": {"bridge-kit-alpha-01", "bridge-kit-bravo-01"},
+		"t2": {"bridge-kit-alpha-99"},
+	}}
+	newSink(st).Handle(context.Background(), "t1", "sms", "+31600000001", frame("bridge-kit-alpha")) // 16 bytes
+	if _, ok := st.health["bridge-kit-alpha-01"]; !ok {
+		t.Fatalf("the shortened id did not reach the bridge it fits; health written for: %v", st.health)
+	}
+	if _, ok := st.health["bridge-kit-alpha"]; ok {
+		t.Error("health was also written under the shortened id, a bridge that does not exist")
+	}
+
+	// Ambiguous within the tenant: nothing is guessed.
+	amb := &listingStore{byTenant: map[string][]string{"t1": {"bridge-kit-alpha-01", "bridge-kit-alpha-02"}}}
+	newSink(amb).Handle(context.Background(), "t1", "sms", "+31600000001", frame("bridge-kit-alpha"))
+	if _, ok := amb.health["bridge-kit-alpha-01"]; ok {
+		t.Error("an id that fits two bridges was given to one of them")
+	}
+
+	// Another tenant's bridge is never a candidate, however well the id fits.
+	other := &listingStore{byTenant: map[string][]string{"t1": {"something-else"}, "t2": {"bridge-kit-alpha-99"}}}
+	newSink(other).Handle(context.Background(), "t1", "sms", "+31600000001", frame("bridge-kit-alpha"))
+	if _, ok := other.health["bridge-kit-alpha-99"]; ok {
+		t.Fatal("a frame carried by tenant t1 updated tenant t2's bridge")
+	}
+
+	// An exact id is untouched by any of this.
+	exact := &listingStore{byTenant: map[string][]string{"t1": {"bridge-kit-alpha", "bridge-kit-alpha-01"}}}
+	newSink(exact).Handle(context.Background(), "t1", "sms", "+31600000001", frame("bridge-kit-alpha"))
+	if _, ok := exact.health["bridge-kit-alpha"]; !ok {
+		t.Error("an exact match lost to a longer id that starts with it")
 	}
 }
