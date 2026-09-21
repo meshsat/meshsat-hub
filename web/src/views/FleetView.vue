@@ -268,7 +268,19 @@ function bearerLabel(bearer) {
   return BEARER_LABELS[bearer] || bearer
 }
 
-async function sendCommand(bridgeId, cmd, payload) {
+// How long the page keeps asking for an out-of-band answer: the Hub waits up to
+// ten minutes for a satellite pass, so a little longer than that.
+const OOB_POLL_MS = 3000
+const OOB_GIVE_UP_MS = 11 * 60 * 1000
+
+function newRequestId() {
+  return (crypto.randomUUID ? crypto.randomUUID() : String(Date.now()) + Math.random().toString(16).slice(2))
+}
+
+// An out-of-band command runs on the Hub as a job: the POST answers at once and
+// the page polls. A request held open for a minute does not survive the path to
+// the Hub, and what is in front of it re-sends a POST it thinks went unanswered.
+async function sendCommand(bridgeId, cmd, payload, outOfBand = false) {
   commandLoading.value = { ...commandLoading.value, [bridgeId + cmd]: true }
   commandResult.value = { ...commandResult.value, [bridgeId]: null }
   try {
@@ -276,7 +288,24 @@ async function sendCommand(bridgeId, cmd, payload) {
     const body = { cmd }
     if (via) body.via = via
     if (payload) body.payload = payload
-    const result = await bridges.sendCommand(bridgeId, body)
+    if (outOfBand) {
+      body.async = true
+      body.request_id = newRequestId()
+    }
+    let result = await bridges.sendCommand(bridgeId, body)
+    if (result && result.status === 'pending' && result.request_id) {
+      const started = Date.now()
+      const requestId = result.request_id
+      for (;;) {
+        const waited = Date.now() - started
+        commandResult.value = { ...commandResult.value, [bridgeId]: { waiting: Math.round(waited / 1000) } }
+        if (waited > OOB_GIVE_UP_MS) throw new Error('No answer from the bridge yet. The command was sent; it may still arrive.')
+        await new Promise(resolve => setTimeout(resolve, OOB_POLL_MS))
+        const job = await bridges.getCommand(bridgeId, requestId)
+        if (job.state === 'done') { result = job.response; break }
+        if (job.state === 'failed') throw new Error(job.error || 'The command failed')
+      }
+    }
     commandResult.value = { ...commandResult.value, [bridgeId]: result }
   } catch (e) {
     commandResult.value = { ...commandResult.value, [bridgeId]: { error: e.message } }
@@ -743,11 +772,11 @@ function certExpiryStatus(b) {
                   </button>
                 </template>
                 <template v-else>
-                  <button @click.stop="sendCommand(b.bridge_id, 'mgmt_ping')" :disabled="commandLoading[b.bridge_id + 'mgmt_ping']"
+                  <button @click.stop="sendCommand(b.bridge_id, 'mgmt_ping', null, true)" :disabled="commandLoading[b.bridge_id + 'mgmt_ping']"
                     class="text-xs px-3 py-1.5 rounded bg-gray-700 hover:bg-gray-600 text-gray-200 transition-colors disabled:opacity-50">
                     {{ commandLoading[b.bridge_id + 'mgmt_ping'] ? 'Pinging...' : 'Ping' }}
                   </button>
-                  <button @click.stop="sendCommand(b.bridge_id, 'mgmt_status')" :disabled="commandLoading[b.bridge_id + 'mgmt_status']"
+                  <button @click.stop="sendCommand(b.bridge_id, 'mgmt_status', null, true)" :disabled="commandLoading[b.bridge_id + 'mgmt_status']"
                     class="text-xs px-3 py-1.5 rounded bg-gray-700 hover:bg-gray-600 text-gray-200 transition-colors disabled:opacity-50">
                     {{ commandLoading[b.bridge_id + 'mgmt_status'] ? 'Asking...' : 'Status' }}
                   </button>
@@ -757,7 +786,7 @@ function certExpiryStatus(b) {
                       class="text-xs bg-gray-800 border border-tactical-border rounded-l px-2 py-1 text-gray-200">
                       <option v-for="u in LOG_UNITS" :key="u" :value="u">{{ u }}</option>
                     </select>
-                    <button @click.stop="sendCommand(b.bridge_id, 'mgmt_log', { unit: logUnit[b.bridge_id] || LOG_UNITS[0] })"
+                    <button @click.stop="sendCommand(b.bridge_id, 'mgmt_log', { unit: logUnit[b.bridge_id] || LOG_UNITS[0] }, true)"
                       :disabled="commandLoading[b.bridge_id + 'mgmt_log']"
                       class="text-xs px-3 py-1.5 rounded-r bg-gray-700 hover:bg-gray-600 text-gray-200 transition-colors disabled:opacity-50">
                       {{ commandLoading[b.bridge_id + 'mgmt_log'] ? 'Fetching...' : 'Log' }}
@@ -768,6 +797,9 @@ function certExpiryStatus(b) {
               <div v-if="commandResult[b.bridge_id]" class="mt-2 text-xs">
                 <div v-if="commandResult[b.bridge_id].error" class="text-ms-error">
                   Error: {{ commandResult[b.bridge_id].error }}
+                </div>
+                <div v-else-if="commandResult[b.bridge_id].waiting !== undefined" class="text-gray-400">
+                  Sent. Waiting for the bridge to answer: {{ commandResult[b.bridge_id].waiting }} s
                 </div>
                 <div v-else class="text-ms-success">
                   {{ commandResult[b.bridge_id].status }}

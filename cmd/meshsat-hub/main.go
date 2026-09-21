@@ -42,6 +42,7 @@ import (
 	"github.com/meshsat/meshsat-hub/internal/bus"
 	"github.com/meshsat/meshsat-hub/internal/bus/paho"
 	"github.com/meshsat/meshsat-hub/internal/cloudloop"
+	"github.com/meshsat/meshsat-hub/internal/cmdjobs"
 	"github.com/meshsat/meshsat-hub/internal/codec"
 	"github.com/meshsat/meshsat-hub/internal/config"
 	"github.com/meshsat/meshsat-hub/internal/constellation"
@@ -2533,6 +2534,20 @@ func main() {
 	r.With(hubauth.RequireRole(hubauth.RoleOwner)).Delete("/api/bridges/{id}", bridgeHandler.DeleteBridge)
 	if bridgeCommander != nil {
 		bridgeCmdHandler := api.NewBridgeCommandHandler(dataStore, bridgeCommander)
+		// Commands in flight, shared between the replicas: a slow out-of-band
+		// command can then outlive its HTTP request, and a POST the edge re-sends
+		// is handed the job already running instead of sending the command again
+		// (MESHSAT-1279). Same tri-mode choice as dedup and the rate limiter.
+		var cmdKV cmdjobs.KV = cmdjobs.NewMemoryKV()
+		if cfg.Mode == "cluster" || cfg.Mode == "kubernetes" {
+			if opts, err := redis.ParseURL(cfg.RedisURL); err == nil {
+				cmdKV = cmdjobs.RedisKV{Client: redis.NewClient(opts)}
+			} else {
+				slog.Warn("command jobs: invalid redis URL, keeping them in this replica's memory only", "error", err)
+			}
+		}
+		bridgeCmdHandler.SetJobs(cmdjobs.New(cmdKV))
+		r.With(hubauth.RequireRole(hubauth.RoleOperator)).Get("/api/bridges/{id}/commands/{request_id}", bridgeCmdHandler.GetCommand)
 		// Operator: this transmits a command to a field bridge (MESHSAT-1189).
 		r.With(hubauth.RequireRole(hubauth.RoleOperator)).Post("/api/bridges/{id}/command", bridgeCmdHandler.SendCommand)
 	}

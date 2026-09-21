@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"log/slog"
@@ -9,8 +10,10 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/google/uuid"
 	"github.com/meshsat/meshsat-hub/internal/auth"
 	"github.com/meshsat/meshsat-hub/internal/bridge"
+	"github.com/meshsat/meshsat-hub/internal/cmdjobs"
 	"github.com/meshsat/meshsat-hub/internal/oob"
 	"github.com/meshsat/meshsat-hub/internal/protocol"
 	"github.com/meshsat/meshsat-hub/internal/store"
@@ -20,7 +23,14 @@ import (
 type BridgeCommandHandler struct {
 	store     store.Store
 	commander *bridge.Commander
+	jobs      *cmdjobs.Store
 }
+
+// SetJobs gives the handler somewhere shared to keep commands that are in
+// flight, which is what makes a command able to outlive its HTTP request and a
+// re-sent POST harmless (MESHSAT-1279). Without it the endpoint behaves as it
+// always did.
+func (h *BridgeCommandHandler) SetJobs(j *cmdjobs.Store) { h.jobs = j }
 
 // NewBridgeCommandHandler creates a new bridge command API handler.
 func NewBridgeCommandHandler(s store.Store, cmdr *bridge.Commander) *BridgeCommandHandler {
@@ -37,6 +47,23 @@ type commandRequest struct {
 	// (MESHSAT-964). Out-of-band legs carry mgmt_ping, mgmt_status,
 	// mgmt_log, mgmt_reset, mgmt_bearer, mgmt_restart and reboot.
 	Via string `json:"via,omitempty"`
+	// RequestID makes the command idempotent: a second POST with the same id
+	// sends nothing and is handed the first one's job. Optional; without it an
+	// identical out-of-band command inside 90 s is treated the same way.
+	RequestID string `json:"request_id,omitempty"`
+	// Async answers 202 at once with the request id instead of holding the
+	// connection until the bridge replies; poll GET
+	// /api/bridges/{id}/commands/{request_id}. Use it for out-of-band legs: a
+	// reply over SMS can take a minute and over satellite ten, and a request
+	// idle that long does not survive the path in front of the Hub.
+	Async bool `json:"async,omitempty"`
+}
+
+// commandAccepted is the 202 body: the command is running, poll for it.
+type commandAccepted struct {
+	RequestID string `json:"request_id"`
+	Status    string `json:"status"` // "pending"
+	Poll      string `json:"poll"`
 }
 
 // commandResponse is the response body for POST /api/bridges/{id}/command.
@@ -66,6 +93,7 @@ const commandWriteBudget = 61 * time.Minute
 // @Param id path string true "Bridge ID"
 // @Param body body commandRequest true "Command to send"
 // @Success 200 {object} commandResponse
+// @Success 202 {object} commandAccepted "Accepted: async was set, or this is a retry of a command still in flight"
 // @Failure 400 {object} map[string]string "Unknown command, or arguments the command cannot take"
 // @Failure 404 {object} map[string]string
 // @Failure 409 {object} map[string]string "Bridge is offline"
@@ -106,10 +134,56 @@ func (h *BridgeCommandHandler) SendCommand(w http.ResponseWriter, r *http.Reques
 	}
 
 	// Build protocol command.
+	reqID, explicitID := strings.TrimSpace(req.RequestID), true
+	if reqID == "" {
+		reqID, explicitID = uuid.NewString(), false
+	}
+	if len(reqID) > 80 {
+		writeError(w, http.StatusBadRequest, "request_id is too long")
+		return
+	}
 	cmd := protocol.Command{
 		Cmd:          req.Cmd,
+		RequestID:    reqID,
 		TargetDevice: req.TargetDevice,
 		Payload:      req.Payload,
+	}
+
+	// Claim the command before anything is sent. The edge proxy re-sends a POST
+	// it believes went unanswered, and it believes that of any request idle for
+	// 65 s: on 2026-09-20 one SMS ping with no answer went out four times. A
+	// retry, or a double click, is handed the job that is already running. The
+	// fast MQTT leg is claimed only when the caller asks for it with an id.
+	outOfBand := via == "sms" || via == "imt" || via == "sbd" || (via == "" && !b.Online)
+	var job *cmdjobs.Job
+	if h.jobs != nil && (explicitID || outOfBand) {
+		won, current, err := h.jobs.Begin(r.Context(), tid,
+			cmdjobs.Job{RequestID: reqID, BridgeID: bridgeID, Cmd: req.Cmd, Via: via},
+			explicitID, cmdjobs.Fingerprint(bridgeID, req.Cmd, via, req.Payload))
+		switch {
+		case err != nil:
+			// The job store being down must not stop an operator reaching a
+			// kit; it only costs the retry protection.
+			slog.Warn("command: job store unavailable, sending without retry protection", "error", err)
+		case !won && current != nil:
+			h.writeJob(w, bridgeID, current)
+			return
+		case won:
+			job = current
+		}
+	}
+
+	if req.Async && job != nil {
+		go func() {
+			ctx, cancel := context.WithTimeout(context.Background(), commandWriteBudget)
+			defer cancel()
+			status, body, errText := h.run(ctx, tid, bridgeID, cmd, via, b.Online)
+			if err := h.jobs.Finish(ctx, tid, job, status, body, errText); err != nil {
+				slog.Error("command: could not record the outcome", "request_id", job.RequestID, "error", err)
+			}
+		}()
+		h.writeJob(w, bridgeID, job)
+		return
 	}
 
 	// The server's WriteTimeout is 15 s, sized for the API; a command over a
@@ -123,41 +197,102 @@ func (h *BridgeCommandHandler) SendCommand(w http.ResponseWriter, r *http.Reques
 		slog.Warn("command: cannot extend the write deadline; a slow bearer reply will be lost", "error", err)
 	}
 
-	start := time.Now()
-	resp, err := h.commander.SendCommandVia(r.Context(), tid, bridgeID, cmd, via, b.Online)
-	latency := time.Since(start).Milliseconds()
+	// A claimed command is not tied to this connection: if the caller goes
+	// away, the command still completes and its result is there for the retry
+	// or a poll to pick up.
+	ctx := r.Context()
+	if job != nil {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(context.WithoutCancel(r.Context()), commandWriteBudget)
+		defer cancel()
+	}
+	status, body, errText := h.run(ctx, tid, bridgeID, cmd, via, b.Online)
+	if job != nil {
+		if err := h.jobs.Finish(ctx, tid, job, status, body, errText); err != nil {
+			slog.Error("command: could not record the outcome", "request_id", job.RequestID, "error", err)
+		}
+	}
+	if status != http.StatusOK {
+		writeError(w, status, errText)
+		return
+	}
+	writeJSON(w, http.StatusOK, body)
+}
 
+// run sends the command and turns the outcome into what the API answers.
+func (h *BridgeCommandHandler) run(ctx context.Context, tid, bridgeID string, cmd protocol.Command, via string, online bool) (int, *commandResponse, string) {
+	start := time.Now()
+	resp, err := h.commander.SendCommandVia(ctx, tid, bridgeID, cmd, via, online)
+	latency := time.Since(start).Milliseconds()
 	if err != nil {
-		// Distinguish timeout from other errors.
-		if r.Context().Err() != nil {
-			writeError(w, http.StatusGatewayTimeout, "timeout waiting for bridge response")
-			return
-		}
-		// Check if it's a timeout error from the commander.
-		if isTimeoutError(err) {
-			writeError(w, http.StatusGatewayTimeout, err.Error())
-			return
-		}
+		switch {
+		case ctx.Err() != nil:
+			return http.StatusGatewayTimeout, nil, "timeout waiting for bridge response"
+		case isTimeoutError(err):
+			return http.StatusGatewayTimeout, nil, err.Error()
 		// The caller's own mistake, with a message that says which: an unknown
 		// command, or arguments the command cannot take. These came back as a
 		// 500 "internal error", which told an operator nothing and looked like
 		// a Hub fault in the log.
-		if errors.Is(err, oob.ErrBadArgs) || errors.Is(err, oob.ErrUnknownCmd) {
-			writeError(w, http.StatusBadRequest, err.Error())
-			return
+		case errors.Is(err, oob.ErrBadArgs) || errors.Is(err, oob.ErrUnknownCmd):
+			return http.StatusBadRequest, nil, err.Error()
 		}
-		writeInternalError(w, err, "")
-		return
+		slog.Error("command: failed", "bridge", bridgeID, "cmd", cmd.Cmd, "via", via, "error", err)
+		return http.StatusInternalServerError, nil, "internal error"
 	}
-
-	writeJSON(w, http.StatusOK, commandResponse{
+	return http.StatusOK, &commandResponse{
 		RequestID: resp.RequestID,
 		Status:    resp.Status,
 		Result:    resp.Result,
 		Error:     resp.Error,
 		Bearer:    resp.Bearer,
 		LatencyMs: latency,
-	})
+	}, ""
+}
+
+// writeJob answers with a job: its outcome when it has one, else 202.
+func (h *BridgeCommandHandler) writeJob(w http.ResponseWriter, bridgeID string, j *cmdjobs.Job) {
+	switch j.State {
+	case cmdjobs.StateDone:
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write(j.Response)
+	case cmdjobs.StateFailed:
+		writeError(w, j.HTTPStatus, j.Error)
+	default:
+		writeJSON(w, http.StatusAccepted, commandAccepted{
+			RequestID: j.RequestID, Status: cmdjobs.StatePending,
+			Poll: "/api/bridges/" + bridgeID + "/commands/" + j.RequestID,
+		})
+	}
+}
+
+// GetCommand returns a command that was sent with async, or whose POST was cut
+// short, by its request id.
+// @Summary Get the state of a bridge command
+// @Description A command sent with async (or one whose connection was lost) keeps running on the Hub. This returns it: pending, or its outcome. Kept for two hours.
+// @Tags bridges
+// @Produce json
+// @Param id path string true "Bridge ID"
+// @Param request_id path string true "Request id returned by the POST"
+// @Success 200 {object} cmdjobs.Job
+// @Failure 404 {object} map[string]string
+// @Router /api/bridges/{id}/commands/{request_id} [get]
+func (h *BridgeCommandHandler) GetCommand(w http.ResponseWriter, r *http.Request) {
+	if h.jobs == nil {
+		writeError(w, http.StatusNotFound, "command not found")
+		return
+	}
+	j, err := h.jobs.Get(r.Context(), auth.TenantIDFromContext(r.Context()), chi.URLParam(r, "id"), chi.URLParam(r, "request_id"))
+	if err != nil {
+		writeInternalError(w, err, "")
+		return
+	}
+	if j == nil {
+		writeError(w, http.StatusNotFound, "command not found")
+		return
+	}
+	writeJSON(w, http.StatusOK, j)
 }
 
 // isTimeoutError checks if an error message indicates a timeout.

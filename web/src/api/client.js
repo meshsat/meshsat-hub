@@ -264,6 +264,7 @@ export const bridges = {
   provision: (id) => fetchJSON(`/bridges/${id}/provision`, { method: 'POST' }),
   provisionQR: (id, size = 512) => fetchBlob(`/bridges/${id}/provision/qr?size=${size}`, { method: 'POST' }),
   sendCommand: (id, data) => fetchJSON(`/bridges/${id}/command`, { method: 'POST', body: JSON.stringify(data) }),
+  getCommand: (id, requestId) => fetchJSON(`/bridges/${id}/commands/${encodeURIComponent(requestId)}`),
   regenerateACL: () => fetchJSON('/bridges/acl/regenerate', { method: 'POST' }),
   rotateCredentials: (id) => fetchJSON(`/bridges/${id}/credentials/rotate`, { method: 'POST' }),
 }

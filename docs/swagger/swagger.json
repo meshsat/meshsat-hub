@@ -2161,6 +2161,12 @@
                             "$ref": "#/definitions/internal_api.commandResponse"
                         }
                     },
+                    "202": {
+                        "description": "Accepted: async was set, or this is a retry of a command still in flight",
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.commandAccepted"
+                        }
+                    },
                     "400": {
                         "description": "Unknown command, or arguments the command cannot take",
                         "schema": {
@@ -2190,6 +2196,51 @@
                     },
                     "504": {
                         "description": "Timeout waiting for bridge response",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/bridges/{id}/commands/{request_id}": {
+            "get": {
+                "description": "A command sent with async (or one whose connection was lost) keeps running on the Hub. This returns it: pending, or its outcome. Kept for two hours.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "bridges"
+                ],
+                "summary": "Get the state of a bridge command",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Bridge ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Request id returned by the POST",
+                        "name": "request_id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_meshsat_meshsat-hub_internal_cmdjobs.Job"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
                         "schema": {
                             "type": "object",
                             "additionalProperties": {
@@ -9302,6 +9353,46 @@
                 }
             }
         },
+        "github_com_meshsat_meshsat-hub_internal_cmdjobs.Job": {
+            "type": "object",
+            "properties": {
+                "bridge_id": {
+                    "type": "string"
+                },
+                "cmd": {
+                    "type": "string"
+                },
+                "error": {
+                    "type": "string"
+                },
+                "finished_at": {
+                    "type": "string"
+                },
+                "http_status": {
+                    "description": "what a synchronous caller would have been given",
+                    "type": "integer"
+                },
+                "request_id": {
+                    "type": "string"
+                },
+                "response": {
+                    "description": "the command response, when done",
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                },
+                "started_at": {
+                    "type": "string"
+                },
+                "state": {
+                    "type": "string"
+                },
+                "via": {
+                    "type": "string"
+                }
+            }
+        },
         "github_com_meshsat_meshsat-hub_internal_deadman.Config": {
             "type": "object",
             "properties": {
@@ -11169,9 +11260,28 @@
                 }
             }
         },
+        "internal_api.commandAccepted": {
+            "type": "object",
+            "properties": {
+                "poll": {
+                    "type": "string"
+                },
+                "request_id": {
+                    "type": "string"
+                },
+                "status": {
+                    "description": "\"pending\"",
+                    "type": "string"
+                }
+            }
+        },
         "internal_api.commandRequest": {
             "type": "object",
             "properties": {
+                "async": {
+                    "description": "Async answers 202 at once with the request id instead of holding the\nconnection until the bridge replies; poll GET\n/api/bridges/{id}/commands/{request_id}. Use it for out-of-band legs: a\nreply over SMS can take a minute and over satellite ten, and a request\nidle that long does not survive the path in front of the Hub.",
+                    "type": "boolean"
+                },
                 "cmd": {
                     "type": "string"
                 },
@@ -11180,6 +11290,10 @@
                     "items": {
                         "type": "integer"
                     }
+                },
+                "request_id": {
+                    "description": "RequestID makes the command idempotent: a second POST with the same id\nsends nothing and is handed the first one's job. Optional; without it an\nidentical out-of-band command inside 90 s is treated the same way.",
+                    "type": "string"
                 },
                 "target_device": {
                     "type": "string"
