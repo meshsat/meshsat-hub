@@ -30,7 +30,9 @@
 // Everything that reaches the Hub, by any bearer, comes out of its own decode
 // chain as one mo/decoded message. Listening there means a kit's reply is read
 // AFTER decryption and decompression whichever way it travelled, and the
-// webhooks, the routing engine and the "#" chat are not touched at all.
+// webhooks and the "#" chat are not touched at all. The routing engine is told
+// one thing (Claims, through its lane filter): a text that starts with a lane
+// token is this lane's to deliver, so no route also copies it somewhere.
 package satchat
 
 import (
@@ -331,6 +333,14 @@ func (s *Service) withinRate() bool {
 	}
 	s.sent = append(s.sent, now)
 	return true
+}
+
+// Claims reports whether text is a reply on this lane, for the routing engine's
+// lane filter: a text that starts with a well-formed token is this lane's to
+// deliver, and no route should also act on it.
+func Claims(text string) bool {
+	_, _, ok := ParseReply(text)
+	return ok
 }
 
 // ParseReply splits "*K7 on my way" into the token and the text. It tolerates
