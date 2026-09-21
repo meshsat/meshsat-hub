@@ -2594,6 +2594,21 @@ definitions:
       route_name:
         type: string
     type: object
+  internal_routing.updateRouteRequest:
+    properties:
+      destination_type:
+        type: string
+      enabled:
+        type: boolean
+      filter:
+        type: string
+      name:
+        type: string
+      senders:
+        type: string
+      source_type:
+        type: string
+    type: object
   internal_tor.OnionInfo:
     properties:
       available:
@@ -7103,12 +7118,12 @@ paths:
         name: id
         required: true
         type: string
-      - description: Route parameters
+      - description: Fields to change; an absent field is left as it is
         in: body
         name: body
         required: true
         schema:
-          $ref: '#/definitions/internal_routing.createRouteRequest'
+          $ref: '#/definitions/internal_routing.updateRouteRequest'
       produces:
       - application/json
       responses:
