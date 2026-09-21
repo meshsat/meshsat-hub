@@ -34,7 +34,21 @@ func NewNotifierPool(pool *Pool) *Notifier {
 // The context used to be discarded outright (`_ context.Context`), which is why
 // every tenant's alerts left from one address signed with one PGP key: the tenant
 // was sitting in the context and nothing read it (MESHSAT-1121).
+//
+// A call with no email address among the targets returns nil before the
+// tenant's gateway is looked at: every backend is handed every target, and a
+// chain of phone numbers on a tenant without mail is not a mail failure. It
+// was logged as one on every step of a delivered SOS page (MESHSAT-1294).
 func (n *Notifier) Notify(ctx context.Context, targets []string, subject, body string) error {
+	addrs := make([]string, 0, len(targets))
+	for _, t := range targets {
+		if isEmailAddress(t) {
+			addrs = append(addrs, t)
+		}
+	}
+	if len(addrs) == 0 {
+		return nil
+	}
 	var lastErr error
 	sent := 0
 
@@ -54,10 +68,7 @@ func (n *Notifier) Notify(ctx context.Context, targets []string, subject, body s
 		return ErrNoGateway
 	}
 
-	for _, target := range targets {
-		if !isEmailAddress(target) {
-			continue
-		}
+	for _, target := range addrs {
 		if err := client.Send(target, subject, body); err != nil {
 			slog.Error("email: escalation notify failed", "to", target, "error", err)
 			lastErr = err
@@ -74,12 +85,14 @@ func (n *Notifier) Notify(ctx context.Context, targets []string, subject, body s
 
 // isEmailAddress returns true if the target looks like an email address.
 func isEmailAddress(target string) bool {
-	// Must contain @, have text before and after, and not start with common URL schemes.
+	// Must contain @, have text before and after, and not be a URL. Any
+	// "scheme://" target is an Apprise URL even when it carries credentials
+	// ("json://user:pass@host"); listing a few schemes let the others through
+	// as email addresses (MESHSAT-1294).
 	if !strings.Contains(target, "@") {
 		return false
 	}
-	if strings.HasPrefix(target, "http://") || strings.HasPrefix(target, "https://") ||
-		strings.HasPrefix(target, "slack://") || strings.HasPrefix(target, "mailto:") {
+	if strings.Contains(target, "://") || strings.HasPrefix(target, "mailto:") {
 		return false
 	}
 	parts := strings.SplitN(target, "@", 2)

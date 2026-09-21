@@ -68,6 +68,10 @@ type bridgeLister interface {
 	ListBridges(ctx context.Context, tenantID string) ([]*store.Bridge, error)
 }
 
+// bridgeSelfDevice is the device id a bridge puts in an SOS it raised itself,
+// rather than one relayed from a node on its mesh.
+const bridgeSelfDevice = "bridge"
+
 // resolveBridgeID turns the id inside a frame into a bridge this tenant has.
 //
 // The field kits' encoder cut the id at 16 bytes, so an 18-character id
@@ -158,7 +162,12 @@ func (u *UplinkSink) Handle(ctx context.Context, tenantID, bearer, origin string
 		// The SOS detector listens on mo/decoded and raises the escalation
 		// alert on sos=true; the id makes the claim stable across replicas.
 		subject := deviceID
-		if subject == "" {
+		if subject == "" || subject == bridgeSelfDevice {
+			// The bridge raised it itself (its panel or API). The frame then
+			// names the device "bridge", and an alert under that name paged the
+			// on-call person with "[sos] bridge: ..." -- with two kits at a
+			// stand, no way to tell which one (MESHSAT-1294). A mesh node's SOS
+			// relayed by the bridge keeps the node's own id.
 			subject = bridgeID
 		}
 		text := message

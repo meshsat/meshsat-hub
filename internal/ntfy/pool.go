@@ -90,7 +90,26 @@ type Notifier struct{ pool *ClientPool }
 
 func NewNotifierPool(pool *ClientPool) *Notifier { return &Notifier{pool: pool} }
 
+// Notify publishes to the targets that are ntfy topics, on the tenant's own
+// server.
+//
+// It used to publish to EVERY target. The escalation engine hands each backend
+// the whole list, so a chain paging "+31..." on a tenant with ntfy configured
+// published the SOS text to an ntfy topic named after that phone number, and
+// ntfy topics are readable by anyone who knows the name. And on a tenant
+// without ntfy, a chain of phone numbers was logged as an ntfy failure on every
+// step of a page that had been delivered by SMS (MESHSAT-1294). Now only a bare
+// topic name is ntfy's, and a list without one returns nil.
 func (n *Notifier) Notify(ctx context.Context, targets []string, subject, body string) error {
+	topics := make([]string, 0, len(targets))
+	for _, t := range targets {
+		if IsTopic(t) {
+			topics = append(topics, t)
+		}
+	}
+	if len(topics) == 0 {
+		return nil
+	}
 	tenantID := tenancy.FromContext(ctx)
 	if tenantID == "" {
 		tenantID = store.DefaultTenantID
@@ -99,5 +118,21 @@ func (n *Notifier) Notify(ctx context.Context, targets []string, subject, body s
 	if c == nil {
 		return errNoNtfyAccount
 	}
-	return c.Notify(ctx, targets, subject, body)
+	return c.Notify(ctx, topics, subject, body)
+}
+
+// IsTopic reports whether an escalation target is an ntfy topic: a bare name
+// in ntfy's own topic alphabet, which a phone number ("+..."), an email address
+// ("@") and an Apprise URL ("://") can never be.
+func IsTopic(target string) bool {
+	if target == "" || len(target) > 64 {
+		return false
+	}
+	for _, r := range target {
+		ok := r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || r == '-' || r == '_'
+		if !ok {
+			return false
+		}
+	}
+	return true
 }
