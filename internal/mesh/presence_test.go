@@ -147,3 +147,37 @@ func TestLiveFuncReportsWhatTheStoreSays(t *testing.T) {
 		t.Error("a heard node was not reported as live")
 	}
 }
+
+// A bridge id does not make a message mesh traffic. The Android gateway stamps
+// its bridge id on everything it forwards, so an SMS that reached the phone by
+// cellular and a text that came over the satellite modem were both being
+// recorded as nodes heard on that kit's mesh.
+func TestOnlyMeshTrafficIsPresence(t *testing.T) {
+	for _, tc := range []struct {
+		name, topic, body string
+		want              bool
+	}{
+		{"bridge: mesh text on the primary channel (no channel field)", "meshsat/!0a0b0c0d/mo/decoded",
+			`{"device_id":"!0a0b0c0d","bridge_id":"bridge-kit-a","text":"hi"}`, true},
+		{"bridge: mesh text on channel index 2", "meshsat/!0a0b0c0d/mo/decoded",
+			`{"device_id":"!0a0b0c0d","bridge_id":"bridge-kit-a","text":"hi","channel":2}`, true},
+		{"android: mesh-borne, bearer named", "meshsat/!0a0b0c0d/mo/decoded",
+			`{"bridge_id":"phone-1","channel":"mesh","text":"hi"}`, true},
+		{"android: an SMS it forwarded, keyed by the sender's number", "meshsat/%2B31600000001/mo/decoded",
+			`{"imei":"+31600000001","bridge_id":"phone-1","channel":"sms","text":"hi"}`, false},
+		{"android: a satellite text, keyed by the modem", "meshsat/300000000000003/mo/decoded",
+			`{"imei":"300000000000003","bridge_id":"phone-1","channel":"iridium","text":"hi"}`, false},
+		{"android: typed on the phone, keyed by the bridge id", "meshsat/phone-1/mo/decoded",
+			`{"bridge_id":"phone-1","channel":"mqtt","text":"hi"}`, false},
+		{"a node id with a bearer that is not the mesh", "meshsat/!0a0b0c0d/mo/decoded",
+			`{"device_id":"!0a0b0c0d","bridge_id":"phone-1","channel":"aprs","text":"hi"}`, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, b, s := newRecorder(t)
+			b.deliver(tc.topic, []byte(tc.body))
+			if got := len(s.got) == 1; got != tc.want {
+				t.Fatalf("recorded = %v (%+v), want %v", got, s.got, tc.want)
+			}
+		})
+	}
+}
