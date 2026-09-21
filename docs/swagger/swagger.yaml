@@ -2087,8 +2087,8 @@ definitions:
           The per-device send budget: how many messages the Hub will send to ONE
           of this tenant's devices per UTC day and per month (SOS is never
           counted). 0 is "the platform default". The airtime is the tenant's own
-          carrier account, so the owner sets this; the default doubles as the
-          floor, and a monthly default of 0 means no monthly limit.
+          carrier account, so the owner sets this, above or below the default; a
+          monthly default of 0 means no monthly limit.
         type: integer
       ratelimit_daily_default:
         type: integer

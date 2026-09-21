@@ -38,8 +38,10 @@ type tenantLookup interface {
 //
 // # Why the floor is not optional
 //
-// A resolved budget is NEVER below the platform default. `plans.SendCaps`
-// enforces that, and this type does not undo it. The reason is the invariant
+// A PLAN never resolves to a budget below the platform default. `plans.SendCaps`
+// enforces that, and this type does not undo it. (A number the tenant set for
+// itself is a different thing and is honoured as it is; see lookup.) The
+// reason is the invariant
 // that outranks the feature: a lapse drops a tenant's plan back to free, and if
 // a lower plan meant a smaller budget, a lapse would reduce MESSAGE DELIVERY --
 // which is exactly what "the ceiling gates registration and nothing else"
@@ -118,14 +120,17 @@ func (p *PlanCaps) lookup(tenantID string) Caps {
 	}
 
 	daily, monthly := plans.SendCaps(t.Plan, p.floorDaily, p.floorMonthly)
-	// The tenant's own number (set by its owner in Settings, or by a platform
-	// admin for them) sits on top of the plan, and is still floored:
-	// an override BELOW the platform default would reduce delivery, which is the
-	// thing this whole design refuses to do.
-	if t.RatelimitDailyCap > daily {
+	// The tenant's own number, set by its owner in Settings (or by a platform
+	// admin for them), is what is in force, HIGHER OR LOWER than the default.
+	// Owner ruling, 21 Sep 2026: every tenant pays its own carrier for these
+	// messages, so a tenant that wants 20 a day to protect its satellite bill
+	// gets 20 a day. That is a choice somebody made for this tenant, which is
+	// the difference from what the floor above still forbids: a PLAN, or a plan
+	// lapsing, can never take delivery away from anybody. 0 means "not set".
+	if t.RatelimitDailyCap > 0 {
 		daily = t.RatelimitDailyCap
 	}
-	if t.RatelimitMonthlyCap > monthly {
+	if t.RatelimitMonthlyCap > 0 {
 		monthly = t.RatelimitMonthlyCap
 	}
 	return Caps{Daily: daily, Monthly: monthly}

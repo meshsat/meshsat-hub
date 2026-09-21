@@ -121,20 +121,27 @@ func TestALapseReturnsATenantToThePlatformDefaultAndNoLower(t *testing.T) {
 	}
 }
 
-// A platform admin's override raises a single tenant, and is floored too.
-func TestAnAdminOverrideRaisesButNeverLowers(t *testing.T) {
+// A number set for one tenant is the number in force, higher or lower than the
+// platform default (owner ruling, 21 Sep 2026): the tenant pays its own carrier
+// for these messages, so a tenant that wants 5 a day to protect its bill gets 5.
+// What may still never go below the default is a PLAN, which the tests above
+// hold: a lapse is not a choice anybody made.
+func TestATenantsOwnNumberIsHonouredHigherOrLower(t *testing.T) {
 	s := &capStore{tenants: map[string]*store.Tenant{
 		"t_raised":  {ID: "t_raised", Plan: plans.Free, RatelimitDailyCap: 5000},
-		"t_lowered": {ID: "t_lowered", Plan: plans.Free, RatelimitDailyCap: 5},
+		"t_lowered": {ID: "t_lowered", Plan: plans.Free, RatelimitDailyCap: 5, RatelimitMonthlyCap: 50},
+		"t_unset":   {ID: "t_unset", Plan: plans.Free},
 	}}
 	p := NewPlanCaps(s, 100, 2000, time.Minute)
 
-	if got := p.Resolve("t_raised"); got.Daily != 5000 {
-		t.Errorf("the raised tenant resolved to %d/day, want 5000", got.Daily)
+	if got := p.Resolve("t_raised"); got.Daily != 5000 || got.Monthly != 2000 {
+		t.Errorf("the raised tenant resolved to %+v, want 5000/day and the default 2000/month", got)
 	}
-	if got := p.Resolve("t_lowered"); got.Daily != 100 {
-		t.Errorf("an override BELOW the platform default resolved to %d/day, want 100. "+
-			"Nothing in this package may reduce delivery.", got.Daily)
+	if got := p.Resolve("t_lowered"); got.Daily != 5 || got.Monthly != 50 {
+		t.Errorf("a tenant that chose 5/day and 50/month resolved to %+v", got)
+	}
+	if got := p.Resolve("t_unset"); got.Daily != 100 || got.Monthly != 2000 {
+		t.Errorf("a tenant that chose nothing resolved to %+v, want the platform default 100/2000", got)
 	}
 }
 

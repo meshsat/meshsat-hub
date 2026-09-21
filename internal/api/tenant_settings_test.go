@@ -440,14 +440,13 @@ func TestAnOwnerSetsTheirOwnSendBudget(t *testing.T) {
 	}
 }
 
-// Below the platform default is refused rather than accepted and ignored: the
-// limiter never resolves a budget under the default, so storing 50 would show
-// the owner a number that is not the one in force. Above the ceiling is a typo.
+// Below the platform default is ALLOWED (owner ruling, 21 Sep 2026): a tenant
+// pays its own carrier, and a low limit is how it protects its own bill. What
+// is refused is nonsense: a negative number, or one past the typo ceiling.
 func TestASendBudgetOutsideTheBoundsIsRefused(t *testing.T) {
 	h, st := tsHandler(t)
 	h.SetSendCapPolicy(100, 100000, 0, 3000000)
 	for _, body := range []string{
-		`{"name":"acme","ratelimit_daily_cap":50}`,
 		`{"name":"acme","ratelimit_daily_cap":-1}`,
 		`{"name":"acme","ratelimit_daily_cap":100001}`,
 		`{"name":"acme","ratelimit_monthly_cap":-5}`,
@@ -461,5 +460,11 @@ func TestASendBudgetOutsideTheBoundsIsRefused(t *testing.T) {
 	}
 	if got := st.tenants[tsTenant]; got.RatelimitDailyCap != 0 || got.RatelimitMonthlyCap != 0 {
 		t.Errorf("a refused request still wrote %d / %d", got.RatelimitDailyCap, got.RatelimitMonthlyCap)
+	}
+
+	r, w := tsRequest("PUT", `{"name":"acme","ratelimit_daily_cap":20,"ratelimit_monthly_cap":300}`, tsTenant)
+	h.Update(w, r)
+	if w.Code != http.StatusOK || st.tenants[tsTenant].RatelimitDailyCap != 20 || st.tenants[tsTenant].RatelimitMonthlyCap != 300 {
+		t.Errorf("a limit below the platform default was not accepted: %d %s", w.Code, w.Body.String())
 	}
 }

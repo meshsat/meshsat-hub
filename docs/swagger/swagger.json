@@ -12061,7 +12061,7 @@
                     "type": "integer"
                 },
                 "ratelimit_daily_cap": {
-                    "description": "The per-device send budget: how many messages the Hub will send to ONE\nof this tenant's devices per UTC day and per month (SOS is never\ncounted). 0 is \"the platform default\". The airtime is the tenant's own\ncarrier account, so the owner sets this; the default doubles as the\nfloor, and a monthly default of 0 means no monthly limit.",
+                    "description": "The per-device send budget: how many messages the Hub will send to ONE\nof this tenant's devices per UTC day and per month (SOS is never\ncounted). 0 is \"the platform default\". The airtime is the tenant's own\ncarrier account, so the owner sets this, above or below the default; a\nmonthly default of 0 means no monthly limit.",
                     "type": "integer"
                 },
                 "ratelimit_daily_default": {
