@@ -116,7 +116,7 @@ test.describe('Login page', () => {
     }
     await page.fill('#token', AUTH_TOKEN)
     await page.getByRole('button', { name: 'Sign In' }).click()
-    await expect(page.locator('h1:has-text("Dashboard")')).toBeVisible({ timeout: 10000 })
+    await expect(page.locator('h1:has-text("Overview")')).toBeVisible({ timeout: 10000 })
   })
 })
 
@@ -136,10 +136,11 @@ test.describe('Authenticated navigation', () => {
 
   test('dashboard loads with live data', async ({ page }) => {
     await page.goto('/#/')
-    await expect(page.locator('h1:has-text("Dashboard")')).toBeVisible()
-    await expect(page.locator('text=Hub Status')).toBeVisible()
-    // Hub status should show "ok" from live healthz
-    await expect(page.locator('text=ok')).toBeVisible({ timeout: 10000 })
+    await expect(page.locator('h1:has-text("Overview")')).toBeVisible()
+    // The summary line is written from live data: kits, paths, last message.
+    await expect(page.getByTestId('summary')).not.toHaveText('Loading the fleet.', { timeout: 10000 })
+    // Paths matrix, or the first-run steps on an empty account.
+    await expect(page.getByTestId('paths').or(page.getByTestId('first-run'))).toBeVisible({ timeout: 10000 })
   })
 
   test('devices page loads and shows table', async ({ page }) => {
@@ -193,18 +194,18 @@ test.describe('Authenticated navigation', () => {
 
   test('device config page loads', async ({ page }) => {
     await page.goto('/#/device-config')
-    await expect(page.locator('h1:has-text("Device Configuration")')).toBeVisible()
+    await expect(page.locator('h1:has-text("Device configuration")')).toBeVisible()
   })
 
   test('escalation page shows chains and alerts sections', async ({ page }) => {
     await page.goto('/#/escalation')
-    await expect(page.locator('h1:has-text("Escalation")')).toBeVisible()
-    await expect(page.getByRole('heading', { name: 'Escalation Chains' })).toBeVisible()
+    await expect(page.locator('h1:has-text("Alerts")')).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'Escalation chains' })).toBeVisible()
   })
 
   test('escalation chain form toggles', async ({ page }) => {
     await page.goto('/#/escalation')
-    await page.getByRole('button', { name: '+ New Chain' }).click()
+    await page.getByRole('button', { name: 'New chain' }).click()
     await expect(page.locator('input[placeholder="Chain name"]')).toBeVisible()
     await page.getByRole('button', { name: 'Cancel' }).first().click()
     await expect(page.locator('input[placeholder="Chain name"]')).not.toBeVisible()
@@ -212,7 +213,7 @@ test.describe('Authenticated navigation', () => {
 
   test('dead man switch page loads', async ({ page }) => {
     await page.goto('/#/deadman')
-    await expect(page.locator('h1:has-text("Dead Man")')).toBeVisible()
+    await expect(page.locator('h1:has-text("Check-ins")')).toBeVisible()
   })
 
   test('notifications page loads', async ({ page }) => {
@@ -222,13 +223,13 @@ test.describe('Authenticated navigation', () => {
 
   test('webhooks page with delivery logs', async ({ page }) => {
     await page.goto('/#/webhooks')
-    await expect(page.locator('h1:has-text("Outbound Webhooks")')).toBeVisible()
-    await expect(page.getByRole('heading', { name: 'Delivery Logs' })).toBeVisible()
+    await expect(page.locator('h1:has-text("Webhooks")')).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'Delivery log' })).toBeVisible()
   })
 
   test('webhook form toggles', async ({ page }) => {
     await page.goto('/#/webhooks')
-    await page.getByRole('button', { name: '+ New Webhook' }).click()
+    await page.getByRole('button', { name: 'New webhook' }).click()
     await expect(page.locator('input[placeholder="https://example.com/hook"]')).toBeVisible()
     await page.getByRole('button', { name: 'Cancel' }).first().click()
     await expect(page.locator('input[placeholder="https://example.com/hook"]')).not.toBeVisible()
@@ -236,14 +237,14 @@ test.describe('Authenticated navigation', () => {
 
   test('OTA page loads', async ({ page }) => {
     await page.goto('/#/ota')
-    await expect(page.locator('h1:has-text("OTA Updates")')).toBeVisible()
+    await expect(page.locator('h1:has-text("Updates")')).toBeVisible()
   })
 
   test('network page shows constellations and MPTCP', async ({ page }) => {
     await page.goto('/#/network')
     await expect(page.locator('h1:has-text("Network")')).toBeVisible()
-    await expect(page.locator('text=Satellite Constellations')).toBeVisible()
-    await expect(page.locator('text=MPTCP Concentrator')).toBeVisible()
+    await expect(page.locator('text=Satellite constellations')).toBeVisible()
+    await expect(page.locator('text=MPTCP concentrator')).toBeVisible()
     // Should show at least iridium backend from live API
     await expect(page.locator('text=iridium').first()).toBeVisible({ timeout: 10000 })
   })
@@ -251,13 +252,12 @@ test.describe('Authenticated navigation', () => {
   test('settings page shows live status and API reference', async ({ page }) => {
     await page.goto('/#/settings')
     await expect(page.locator('h1:has-text("Settings")')).toBeVisible()
-    await expect(page.locator('text=Health')).toBeVisible()
-    await expect(page.locator('text=API Reference')).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'System health' })).toBeVisible()
   })
 
   test('API keys page loads (admin)', async ({ page }) => {
     await page.goto('/#/api-keys')
-    await expect(page.locator('h1:has-text("API Keys")')).toBeVisible()
+    await expect(page.locator('h1:has-text("API keys")')).toBeVisible()
   })
 
   test('audit page loads (admin)', async ({ page }) => {
@@ -274,9 +274,9 @@ test.describe('Authenticated navigation', () => {
 
   test('user menu and logout', async ({ page }) => {
     await page.goto('/#/')
-    await page.locator('button.rounded-full').click()
+    await page.getByRole('button', { name: 'Account' }).click()
     await expect(page.locator('text=API Token')).toBeVisible()
-    await page.getByRole('button', { name: 'Logout' }).click()
+    await page.getByRole('button', { name: 'Sign out' }).click()
     await expect(page).toHaveURL(/login/)
   })
 })
@@ -524,7 +524,7 @@ test.describe('Untested view interactions', () => {
 
   test('device config page shows version history', async ({ page }) => {
     await page.goto('/#/device-config')
-    await expect(page.locator('h1:has-text("Device Configuration")')).toBeVisible()
+    await expect(page.locator('h1:has-text("Device configuration")')).toBeVisible()
     // Should have device selector
     await expect(page.locator('select').first()).toBeVisible()
   })
@@ -542,7 +542,7 @@ test.describe('Untested view interactions', () => {
 
   test('API keys create and revoke flow', async ({ page }) => {
     await page.goto('/#/api-keys')
-    await expect(page.locator('h1:has-text("API Keys")')).toBeVisible()
+    await expect(page.locator('h1:has-text("API keys")')).toBeVisible()
 
     // Open create form
     await page.getByRole('button', { name: '+ New Key' }).click()

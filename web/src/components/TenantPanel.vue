@@ -330,7 +330,7 @@ onMounted(load)
 
 <template>
   <div v-if="available && auth.isOwner" class="bg-tactical-surface rounded-lg border border-tactical-border p-4" data-testid="tenant-panel">
-    <h2 class="text-sm font-display font-semibold text-ms-text uppercase tracking-wider mb-1">Tenant</h2>
+    <h2 class="text-sm font-sans font-semibold text-ms-text mb-1">Tenant</h2>
     <p class="text-xs text-ms-muted mb-4">
       Your organisation on this Hub. Invited people sign in with their MeshSat ID and land here with the role you choose.
     </p>
@@ -342,7 +342,7 @@ onMounted(load)
           <input id="tenant-name" v-model="name" type="text" maxlength="80"
             class="flex-1 min-w-0 px-3 py-1.5 bg-ms-well border border-ms-border rounded text-sm text-ms-text focus:outline-none focus:border-brand-primary" />
           <button @click="saveName" :disabled="saving || !name.trim() || name.trim() === info?.name"
-            class="px-3 py-1.5 bg-brand-primary hover:bg-brand-accent disabled:opacity-50 text-ms-on-primary text-sm font-medium rounded transition-colors">
+            class="ms-btn">
             Save
           </button>
         </div>
@@ -360,7 +360,7 @@ onMounted(load)
           <span class="text-xs text-ms-muted">seconds of silence</span>
           <button @click="saveBridgeTimeout"
             :disabled="savingTimeout || bridgeTimeout.trim() === (info?.bridge_offline_timeout ? String(info.bridge_offline_timeout) : '')"
-            class="px-3 py-1.5 bg-brand-primary hover:bg-brand-accent disabled:opacity-50 text-ms-on-primary text-sm font-medium rounded transition-colors">
+            class="ms-btn">
             Save
           </button>
         </div>
@@ -383,7 +383,7 @@ onMounted(load)
           <span class="text-xs text-ms-muted">days</span>
           <button @click="saveAuditRetention"
             :disabled="savingAudit || auditDays.trim() === (info?.audit_retention_days ? String(info.audit_retention_days) : '')"
-            class="px-3 py-1.5 bg-brand-primary hover:bg-brand-accent disabled:opacity-50 text-ms-on-primary text-sm font-medium rounded transition-colors">
+            class="ms-btn">
             Save
           </button>
         </div>
@@ -411,7 +411,7 @@ onMounted(load)
             class="w-28 min-w-0 px-3 py-1.5 bg-ms-well border border-ms-border rounded text-sm text-ms-text focus:outline-none focus:border-brand-primary" />
           <span class="text-xs text-ms-muted">per month</span>
           <button @click="saveSendCaps" :disabled="savingCaps || capsUnchanged()"
-            class="px-3 py-1.5 bg-brand-primary hover:bg-brand-accent disabled:opacity-50 text-ms-on-primary text-sm font-medium rounded transition-colors">
+            class="ms-btn">
             Save
           </button>
         </div>
@@ -457,7 +457,7 @@ onMounted(load)
         </div>
         <div class="flex gap-2 items-center mt-2">
           <button @click="saveOOB" :disabled="savingOOB"
-            class="px-3 py-1.5 bg-brand-primary hover:bg-brand-accent disabled:opacity-50 text-ms-on-primary text-sm font-medium rounded transition-colors">
+            class="ms-btn">
             Save
           </button>
         </div>
@@ -485,7 +485,7 @@ onMounted(load)
             <template v-else>{{ usage.used }} / {{ usage.limit }} devices</template>
           </span>
           <a v-if="!billingInHub && usage.upgrade_url" :href="usage.upgrade_url" target="_blank" rel="noopener noreferrer"
-            class="ml-auto px-3 py-1 bg-brand-primary hover:bg-brand-accent text-ms-on-primary text-xs font-medium rounded transition-colors">
+            class="ms-btn-primary ml-auto">
             Support &amp; upgrade
           </a>
         </div>
@@ -518,7 +518,7 @@ onMounted(load)
           <button v-for="tier in buyable" :key="tier.plan" type="button"
             :disabled="checkoutBusy || tier.current"
             @click="subscribe(tier.plan)"
-            class="px-3 py-1.5 bg-brand-primary hover:bg-brand-accent text-ms-on-primary text-xs font-medium rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
+            class="ms-btn">
             {{ tier.current ? planName(tier.plan) + ' (current)' : 'Subscribe to ' + planName(tier.plan) }}
           </button>
           <button v-if="usage.billing?.manageable" type="button" :disabled="checkoutBusy"
@@ -553,7 +553,7 @@ onMounted(load)
             <option value="owner">Owner</option>
           </select>
           <button @click="sendInvite" :disabled="inviting || !inviteEmail.trim()"
-            class="px-3 py-1.5 bg-brand-primary hover:bg-brand-accent disabled:opacity-50 text-ms-on-primary text-sm font-medium rounded transition-colors">
+            class="ms-btn">
             Invite
           </button>
         </div>

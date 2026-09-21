@@ -94,15 +94,20 @@ function chainName(id) {
 </script>
 
 <template>
-  <div>
-    <h1 class="text-2xl font-display font-bold mb-4">Dead Man's Switch</h1>
+  <div class="ms-page">
+    <div class="ms-page-head">
+      <div>
+        <h1 class="ms-h1">Check-ins</h1>
+        <p class="ms-lede">A device watched here must report within its interval. When it misses one, an alert starts its escalation chain.</p>
+      </div>
+    </div>
 
-    <div v-if="error" class="bg-red-900/50 border border-red-700 text-red-200 px-4 py-3 rounded mb-4">{{ error }}</div>
+    <div v-if="error" role="alert" class="ms-alert mb-4">{{ error }}</div>
 
     <div class="flex justify-end mb-4">
       <button @click="newConfig()"
-        class="bg-brand-accent hover:bg-brand-primary text-ms-on-primary px-3 py-1 rounded text-sm transition-colors">
-        {{ editing ? 'Cancel' : '+ Configure Device' }}
+        class="ms-btn-primary">
+        {{ editing ? 'Cancel' : 'Configure a device' }}
       </button>
     </div>
 
@@ -118,7 +123,7 @@ function chainName(id) {
           </select>
         </div>
         <div>
-          <label class="text-xs text-gray-400">Escalation Chain</label>
+          <label class="text-xs text-gray-400">Escalation chain</label>
           <select v-model="form.chain_id"
             class="bg-gray-800 border border-gray-700 px-3 py-2 rounded-lg text-gray-200 w-full focus:outline-none focus:border-brand-primary">
             <option value="">None</option>
@@ -141,7 +146,7 @@ function chainName(id) {
           <input type="checkbox" v-model="form.enabled" class="rounded" /> Enabled
         </label>
         <button @click="saveConfig"
-          class="bg-brand-accent hover:bg-brand-primary text-ms-on-primary px-4 py-2 rounded text-sm transition-colors">Save</button>
+          class="ms-btn-primary">Save</button>
       </div>
     </div>
 
@@ -175,7 +180,7 @@ function chainName(id) {
               <button @click="editConfig(c)"
                 class="bg-gray-700 hover:bg-gray-600 text-gray-200 px-2 py-1 rounded-lg text-xs transition-colors">Edit</button>
               <button @click="deleteConfig(c.device_imei)"
-                class="bg-red-900 hover:bg-red-800 text-red-200 px-2 py-1 rounded-lg text-xs transition-colors">Delete</button>
+                class="ms-btn-danger">Delete</button>
             </td>
           </tr>
         </tbody>

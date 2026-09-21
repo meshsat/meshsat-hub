@@ -1,304 +1,152 @@
 <script setup>
-import { ref, computed, watch } from 'vue'
-import { RouterLink, RouterView, useRouter } from 'vue-router'
+import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
+import { RouterView, useRouter, useRoute } from 'vue-router'
 import { useAuthStore } from './stores/auth'
 import { useThemeStore } from './stores/theme'
+import { titleFor } from './nav'
 import BrandLockup from './components/BrandLockup.vue'
 import ToastContainer from './components/ToastContainer.vue'
-import StatusBar from './components/StatusBar.vue'
+import Icon from './components/Icon.vue'
+import NavRail from './components/shell/NavRail.vue'
+import AttentionPill from './components/shell/AttentionPill.vue'
+import JumpSearch from './components/shell/JumpSearch.vue'
+import OpsLive from './components/shell/OpsLive.vue'
+import { health } from './api/client'
 
 const auth = useAuthStore()
 const theme = useThemeStore()
 const router = useRouter()
-const navOpen = ref(false)
-const userMenuOpen = ref(false)
-const searchQuery = ref('')
-const searchOpen = ref(false)
-const mobileSearchQuery = ref('')
-const openDropdown = ref(null)
-let dropdownTimer = null
+const route = useRoute()
 
-// Close mobile nav on route change
-watch(() => router.currentRoute.value.path, () => { navOpen.value = false; openDropdown.value = null })
-
-function isGroupActive(group) {
-  const path = router.currentRoute.value.path
-  return group.items.some(item => item.to === path || (item.to !== '/' && path.startsWith(item.to)))
+// The rail's collapsed state is a per-viewer convenience; storage may be
+// unavailable (private window), and the rail works without it.
+const COLLAPSE_KEY = 'meshsat-rail-collapsed'
+function readCollapsed() { try { return localStorage.getItem(COLLAPSE_KEY) === '1' } catch { return false } }
+const collapsed = ref(readCollapsed())
+function toggleRail() {
+  collapsed.value = !collapsed.value
+  try { localStorage.setItem(COLLAPSE_KEY, collapsed.value ? '1' : '0') } catch { /* per-viewer only */ }
 }
 
-function showDropdown(label) {
-  clearTimeout(dropdownTimer)
-  openDropdown.value = label
-}
+const drawerOpen = ref(false)
+const accountOpen = ref(false)
+const accountRoot = ref(null)
+watch(() => route.fullPath, () => { drawerOpen.value = false; accountOpen.value = false })
 
-function hideDropdown() {
-  dropdownTimer = setTimeout(() => { openDropdown.value = null }, 150)
-}
+// Browser tab title follows the page, so a row of Hub tabs can be told apart.
+watch(() => route.name, (n) => {
+  const t = titleFor(n)
+  document.title = t ? `${t} · MeshSat Hub` : 'MeshSat Hub'
+}, { immediate: true })
 
-function cancelHide() {
-  clearTimeout(dropdownTimer)
+// Hub health: quiet when ready, coloured only when it is not (ISA-101).
+// Links to the public status page, because somebody looking at a red dot
+// wants to know whether it is them or us (MESHSAT-1134).
+const hubState = ref('unknown')
+const utc = ref('')
+let healthTimer = null
+let clockTimer = null
+async function pollHealth() {
+  const r = await health.readyz()
+  hubState.value = r?.status === 'ok' ? 'ok' : r?.status === 'error' ? 'down' : 'degraded'
 }
+function tick() { utc.value = new Date().toISOString().slice(11, 16) + 'Z' }
+function onDoc(e) { if (accountOpen.value && accountRoot.value && !accountRoot.value.contains(e.target)) accountOpen.value = false }
+onMounted(() => {
+  tick(); clockTimer = setInterval(tick, 10000)
+  pollHealth(); healthTimer = setInterval(pollHealth, 60000)
+  document.addEventListener('mousedown', onDoc)
+})
+onUnmounted(() => {
+  clearInterval(clockTimer); clearInterval(healthTimer)
+  document.removeEventListener('mousedown', onDoc)
+})
 
-function handleSearch() {
-  if (!searchQuery.value.trim()) return
-  router.push({ path: '/devices', query: { q: searchQuery.value.trim() } })
-  searchQuery.value = ''
-  searchOpen.value = false
-}
-
-function handleMobileSearch() {
-  if (!mobileSearchQuery.value.trim()) return
-  router.push({ path: '/devices', query: { q: mobileSearchQuery.value.trim() } })
-  mobileSearchQuery.value = ''
-  navOpen.value = false
-}
+const bleed = computed(() => !!route.meta.bleed)
 
 function logout() {
   auth.logout()
   router.push({ name: 'login' })
 }
 
-function userInitial() {
-  if (auth.user?.name) return auth.user.name[0].toUpperCase()
-  if (auth.user?.email) return auth.user.email[0].toUpperCase()
-  return 'U'
-}
-
-const navGroups = [
-  { label: 'Operations', items: [
-    { to: '/', label: 'Dashboard' },
-    { to: '/fleet', label: 'Fleet' },
-    { to: '/bond-groups', label: 'Bonding' },
-    { to: '/map', label: 'Map' },
-    { to: '/devices', label: 'Devices' },
-    { to: '/device-groups', label: 'Groups' },
-    { to: '/messages', label: 'Messages' },
-    { to: '/costs', label: 'Costs' },
-  ]},
-  { label: 'Safety', items: [
-    { to: '/escalation', label: 'Escalation' },
-    { to: '/deadman', label: 'Deadman' },
-    { to: '/geofences', label: 'Geofences' },
-    { to: '/notifications', label: 'Notifications' },
-    { to: '/alert-rules', label: 'Alert Rules' },
-  ]},
-  { label: 'Channels', items: [
-    { to: '/email', label: 'Email' },
-    { to: '/routing', label: 'Routing' },
-    { to: '/integrations', label: 'Integrations' },
-    { to: '/webhooks', label: 'Webhooks' },
-    // Per-tenant hosted TAK (MESHSAT-1037). Carries no platformAdmin flag: it is
-    // the customer's own server, not the platform's.
-    { to: '/tak', label: 'TAK' },
-  ]},
-  { label: 'Infrastructure', items: [
-    { to: '/network', label: 'Network' },
-    { to: '/topology', label: 'Topology' },
-    { to: '/ota', label: 'OTA' },
-    { to: '/backup', label: 'Backup' },
-    { to: '/settings', label: 'Settings' },
-  ]},
-]
-
-// Items flagged platformAdmin belong to the platform, not to a tenant, and a
-// customer never sees them. The flag is kept though nothing carries it today:
-// TAK Ops was the last one and went with the platform TAK gateway
-// (MESHSAT-1032), and a per-tenant TAK page is coming (MESHSAT-1037).
-const visibleNavGroups = computed(() => navGroups
-  .map(group => ({ ...group, items: group.items.filter(item => !item.platformAdmin || auth.isPlatformAdmin) }))
-  .filter(group => group.items.length > 0))
+const initial = computed(() => (auth.user?.name || auth.user?.email || 'U')[0].toUpperCase())
+const roleLabel = computed(() => ({ owner: 'Owner', operator: 'Operator', viewer: 'Viewer' }[auth.role] || auth.role))
 </script>
 
 <template>
-  <div class="min-h-screen bg-tactical-bg text-gray-100 relative">
-    <!-- Fullscreen background logo (matches Bridge) -->
-    <div class="fixed inset-0 z-0 flex items-center justify-center pointer-events-none">
-      <img :src="theme.dark ? '/meshsat-mark-dark.png' : '/meshsat-mark-light.png'" alt="" class="w-[120vmin] max-w-none object-contain opacity-[0.04]" />
-    </div>
-
+  <div class="min-h-screen bg-ms-bg text-ms-text">
     <template v-if="auth.isAuthenticated">
-      <header class="sticky top-0 z-50 bg-tactical-surface/95 backdrop-blur border-b border-tactical-border">
-        <div class="flex items-center h-12 px-3 lg:px-5 gap-3">
-          <!-- Brand -->
-          <router-link :to="{ name: 'dashboard' }" class="shrink-0" aria-label="MeshSat Hub home"><BrandLockup /></router-link>
-          <!-- Nav dropdowns (center, flex-1) -->
-          <nav class="hidden md:flex flex-1 items-center mx-2 lg:mx-6 gap-1">
-            <template v-for="group in visibleNavGroups" :key="group.label">
-              <div class="relative" @mouseenter="showDropdown(group.label)" @mouseleave="hideDropdown">
-                <button class="px-3 py-1.5 rounded text-xs font-medium whitespace-nowrap transition-colors flex items-center gap-1"
-                  :class="isGroupActive(group)
-                    ? 'bg-ms-primary/15 text-ms-text'
-                    : openDropdown === group.label
-                      ? 'text-gray-300 bg-white/5'
-                      : 'text-gray-500 hover:text-gray-300 hover:bg-white/5'">
-                  {{ group.label }}
-                  <svg class="w-3 h-3 opacity-50" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
-                </button>
-                <div v-if="openDropdown === group.label"
-                  class="absolute top-full left-0 mt-1 py-1 bg-tactical-surface border border-tactical-border rounded-lg shadow-xl z-50 min-w-[160px]"
-                  @mouseenter="cancelHide" @mouseleave="hideDropdown">
-                  <RouterLink v-for="item in group.items" :key="item.to" :to="item.to"
-                    class="block px-4 py-2 text-xs font-medium transition-colors text-gray-400 hover:text-gray-200 hover:bg-white/5"
-                    active-class="!text-ms-text !bg-ms-primary/15"
-                    @click="openDropdown = null">
-                    {{ item.label }}
-                  </RouterLink>
-                </div>
-              </div>
-            </template>
-            <!-- Admin group (owner-only) -->
-            <div v-if="auth.isOwner" class="relative" @mouseenter="showDropdown('Admin')" @mouseleave="hideDropdown">
-              <button class="px-3 py-1.5 rounded text-xs font-medium whitespace-nowrap transition-colors flex items-center gap-1"
-                :class="['/users', '/api-keys', '/audit', '/credentials'].includes(router.currentRoute.value.path)
-                  ? 'bg-ms-primary/15 text-ms-text'
-                  : openDropdown === 'Admin'
-                    ? 'text-gray-300 bg-white/5'
-                    : 'text-gray-500 hover:text-gray-300 hover:bg-white/5'">
-                Admin
-                <svg class="w-3 h-3 opacity-50" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
-              </button>
-              <div v-if="openDropdown === 'Admin'"
-                class="absolute top-full left-0 mt-1 py-1 bg-tactical-surface border border-tactical-border rounded-lg shadow-xl z-50 min-w-[160px]"
-                @mouseenter="cancelHide" @mouseleave="hideDropdown">
-                <RouterLink to="/users" class="block px-4 py-2 text-xs font-medium transition-colors text-gray-400 hover:text-gray-200 hover:bg-white/5"
-                  active-class="!text-ms-text !bg-ms-primary/15" @click="openDropdown = null">Users</RouterLink>
-                <RouterLink to="/api-keys" class="block px-4 py-2 text-xs font-medium transition-colors text-gray-400 hover:text-gray-200 hover:bg-white/5"
-                  active-class="!text-ms-text !bg-ms-primary/15" @click="openDropdown = null">API Keys</RouterLink>
-                <RouterLink to="/audit" class="block px-4 py-2 text-xs font-medium transition-colors text-gray-400 hover:text-gray-200 hover:bg-white/5"
-                  active-class="!text-ms-text !bg-ms-primary/15" @click="openDropdown = null">Audit</RouterLink>
-                <RouterLink to="/credentials" class="block px-4 py-2 text-xs font-medium transition-colors text-gray-400 hover:text-gray-200 hover:bg-white/5"
-                  active-class="!text-ms-text !bg-ms-primary/15" @click="openDropdown = null">Credentials</RouterLink>
-              </div>
-            </div>
-            <!-- Help: standalone link (matches Bridge) -->
-            <RouterLink to="/help"
-              class="px-3 py-1.5 rounded text-xs font-medium whitespace-nowrap transition-colors text-gray-500 hover:text-gray-300 hover:bg-white/5"
-              active-class="!bg-ms-primary/15 !text-ms-text">Help</RouterLink>
-          </nav>
-          <!-- Right: status bar + controls -->
-          <div class="hidden md:flex items-center gap-3 shrink-0">
-            <StatusBar />
-            <span class="hidden md:block w-px h-4 bg-gray-700/50" />
-            <!-- Search -->
-            <div class="relative">
-              <input v-if="searchOpen" v-model="searchQuery" @keydown.enter="handleSearch" @keydown.escape="searchOpen = false"
-                placeholder="Search devices..." autofocus
-                class="bg-gray-800 border border-gray-700 rounded px-2 py-1 text-xs w-40 focus:outline-none focus:border-brand-primary text-gray-200">
-              <button v-else @click="searchOpen = true" class="text-gray-400 hover:text-gray-200 px-1" title="Search (/)">
-                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
-              </button>
-            </div>
-            <span class="hidden md:block w-px h-4 bg-gray-700/50" />
-            <!-- Theme toggle -->
-            <button @click="theme.toggle()" class="text-gray-400 hover:text-gray-200 px-1" :title="theme.dark ? 'Light mode' : 'Dark mode'">
-              <svg v-if="theme.dark" class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z"/></svg>
-              <svg v-else class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z"/></svg>
-            </button>
-            <!-- User menu -->
-            <div class="relative">
-              <button @click="userMenuOpen = !userMenuOpen"
-                class="w-8 h-8 rounded-full bg-tactical-iridium/30 text-tactical-iridium text-sm font-bold flex items-center justify-center hover:bg-brand-accent transition-colors">
-                {{ userInitial() }}
-              </button>
-              <div v-if="userMenuOpen" @click="userMenuOpen = false"
-                class="absolute right-0 mt-2 w-56 bg-tactical-surface border border-tactical-border rounded-lg shadow-xl z-50 py-2">
-                <div class="px-4 py-2 border-b border-tactical-border">
-                  <div class="text-sm font-medium">{{ auth.user?.name || auth.user?.id || 'User' }}</div>
-                  <div v-if="auth.user?.email" class="text-xs text-gray-400 font-mono">{{ auth.user.email }}</div>
-                  <div class="flex items-center gap-2 mt-1">
-                    <span class="text-xs px-1.5 py-0.5 rounded font-medium"
-                      :class="auth.role === 'owner' ? 'bg-purple-900/50 text-purple-300' : auth.role === 'operator' ? 'bg-brand-primary/15 text-brand-primary' : 'bg-gray-700 text-gray-300'">
-                      {{ auth.role }}
-                    </span>
-                    <span v-if="auth.user?.tenant_id" class="text-xs text-gray-500 font-mono">{{ auth.user.tenant_id }}</span>
-                  </div>
-                </div>
-                <button @click="logout" class="w-full text-left px-4 py-2 text-sm text-gray-400 hover:text-ms-error hover:bg-gray-800/50">
-                  Logout
-                </button>
-              </div>
-            </div>
-          </div>
-          <!-- Mobile hamburger -->
-          <button @click="navOpen = !navOpen" class="md:hidden ml-auto text-gray-400">&#9776;</button>
-        </div>
-      </header>
+      <OpsLive />
+      <a href="#main" class="sr-only focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-[70] ms-btn-primary">Skip to content</a>
 
-      <!-- Mobile nav overlay -->
-      <Transition name="mobile-nav">
-        <div v-if="navOpen" class="md:hidden fixed inset-0 z-40" @click.self="navOpen = false">
-          <div class="absolute inset-0 bg-black/50" />
-          <nav class="absolute left-0 top-0 bottom-0 w-72 bg-tactical-surface border-r border-tactical-border overflow-y-auto tactical-scroll flex flex-col">
-            <!-- Mobile header -->
-            <div class="px-4 py-3 border-b border-tactical-border flex items-center justify-between">
-              <BrandLockup />
-              <button @click="navOpen = false" class="text-gray-400 hover:text-gray-200 text-xl">&times;</button>
-            </div>
+      <!-- Desktop rail -->
+      <aside class="hidden md:block fixed inset-y-0 left-0 z-40">
+        <NavRail :collapsed="collapsed" @toggle="toggleRail" />
+      </aside>
 
-            <!-- Mobile search -->
-            <div class="px-4 py-3 border-b border-tactical-border">
-              <div class="relative">
-                <input v-model="mobileSearchQuery" @keydown.enter="handleMobileSearch"
-                  placeholder="Search devices..."
-                  class="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-200 focus:outline-none focus:border-brand-primary">
-                <svg class="w-4 h-4 text-gray-500 absolute right-3 top-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
-                </svg>
-              </div>
-            </div>
-
-            <!-- Nav groups -->
-            <div class="flex-1 px-2 py-2 space-y-1">
-              <template v-for="group in visibleNavGroups" :key="group.label">
-                <div class="text-xs text-gray-500 uppercase tracking-wider px-3 pt-3 pb-1 font-display">{{ group.label }}</div>
-                <RouterLink v-for="item in group.items" :key="item.to" :to="item.to"
-                  class="block px-3 py-2 rounded text-sm transition-colors text-gray-400 hover:text-gray-200 hover:bg-white/5"
-                  active-class="!bg-ms-primary/15 !text-ms-text">
-                  {{ item.label }}
-                </RouterLink>
-              </template>
-              <template v-if="auth.isOwner">
-                <div class="text-xs text-gray-500 uppercase tracking-wider px-3 pt-3 pb-1 font-display">Admin</div>
-                <RouterLink to="/users" class="block px-3 py-2 rounded text-sm transition-colors text-gray-400 hover:text-gray-200 hover:bg-white/5" active-class="!bg-ms-primary/15 !text-ms-text">Users</RouterLink>
-                <RouterLink to="/api-keys" class="block px-3 py-2 rounded text-sm transition-colors text-gray-400 hover:text-gray-200 hover:bg-white/5" active-class="!bg-ms-primary/15 !text-ms-text">API Keys</RouterLink>
-                <RouterLink to="/audit" class="block px-3 py-2 rounded text-sm transition-colors text-gray-400 hover:text-gray-200 hover:bg-white/5" active-class="!bg-ms-primary/15 !text-ms-text">Audit</RouterLink>
-                <RouterLink to="/credentials" class="block px-3 py-2 rounded text-sm transition-colors text-gray-400 hover:text-gray-200 hover:bg-white/5" active-class="!bg-ms-primary/15 !text-ms-text">Credentials</RouterLink>
-              </template>
-              <div class="border-t border-tactical-border mt-2 pt-2">
-                <RouterLink to="/help" class="block px-3 py-2 rounded text-sm transition-colors text-gray-400 hover:text-gray-200 hover:bg-white/5" active-class="!bg-ms-primary/15 !text-ms-text">Help</RouterLink>
-              </div>
-            </div>
-
-            <!-- Mobile footer: theme + user -->
-            <div class="border-t border-tactical-border px-4 py-3">
-              <div class="flex items-center justify-between mb-3">
-                <span class="text-sm text-gray-400">Theme</span>
-                <button @click="theme.toggle()" class="flex items-center gap-2 text-sm text-gray-300 hover:text-tactical-iridium">
-                  <svg v-if="theme.dark" class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z"/></svg>
-                  <svg v-else class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z"/></svg>
-                  {{ theme.dark ? 'Light' : 'Dark' }}
-                </button>
-              </div>
-              <div v-if="auth.user" class="flex items-center gap-2 mb-2">
-                <div class="w-8 h-8 rounded-full bg-tactical-iridium/30 text-tactical-iridium text-sm font-bold flex items-center justify-center shrink-0">
-                  {{ userInitial() }}
-                </div>
-                <div class="min-w-0">
-                  <div class="text-sm truncate">{{ auth.user?.name || auth.user?.id || 'User' }}</div>
-                  <span class="text-xs px-1.5 py-0.5 rounded font-medium"
-                    :class="auth.role === 'owner' ? 'bg-purple-900/50 text-purple-300' : auth.role === 'operator' ? 'bg-brand-primary/15 text-brand-primary' : 'bg-gray-700 text-gray-300'">
-                    {{ auth.role }}
-                  </span>
-                </div>
-              </div>
-              <button @click="logout()" class="w-full text-left text-sm text-gray-400 hover:text-ms-error py-1">Logout</button>
-            </div>
-          </nav>
+      <!-- Phone drawer -->
+      <Transition name="drawer">
+        <div v-if="drawerOpen" class="md:hidden fixed inset-0 z-50">
+          <div class="scrim absolute inset-0 bg-black/60" @click="drawerOpen = false" />
+          <aside class="panel absolute inset-y-0 left-0 shadow-2xl">
+            <NavRail drawer @close="drawerOpen = false" />
+          </aside>
         </div>
       </Transition>
+
+      <div :class="collapsed ? 'md:pl-14' : 'md:pl-[232px]'">
+        <header class="sticky top-0 z-30 h-12 flex items-center gap-2 sm:gap-3 px-3 sm:px-5 bg-ms-bg/90 backdrop-blur border-b border-ms-border">
+          <button class="md:hidden ms-btn-ghost -ml-1" aria-label="Open menu" @click="drawerOpen = true">
+            <Icon name="menu" />
+          </button>
+          <router-link :to="{ name: 'dashboard' }" class="md:hidden" aria-label="MeshSat Hub overview"><BrandLockup /></router-link>
+
+          <div class="hidden sm:flex flex-1 min-w-0"><JumpSearch /></div>
+          <div class="flex-1 sm:hidden" />
+
+          <AttentionPill />
+
+          <a href="https://status.meshsat.net" target="_blank" rel="noopener"
+            class="hidden lg:inline-flex items-center gap-1.5 h-8 px-2 rounded-md text-[13px] hover:bg-ms-well"
+            :class="hubState === 'ok' || hubState === 'unknown' ? 'text-ms-muted' : hubState === 'down' ? 'text-ms-error' : 'text-ms-warning'"
+            :title="hubState === 'ok' ? 'Hub is ready. Opens the public status page.' : 'Hub is not fully ready. Opens the public status page.'">
+            <span class="w-1.5 h-1.5 rounded-full" :class="hubState === 'ok' ? 'bg-ms-success' : hubState === 'down' ? 'bg-ms-error' : hubState === 'degraded' ? 'bg-ms-warning' : 'bg-ms-muted'" />
+            {{ hubState === 'ok' || hubState === 'unknown' ? 'Hub' : hubState === 'down' ? 'Hub down' : 'Hub degraded' }}
+          </a>
+
+          <span class="hidden lg:inline font-mono text-xs text-ms-muted ms-num" title="Coordinated Universal Time">{{ utc }}</span>
+
+          <button class="ms-btn-ghost" :aria-label="theme.dark ? 'Switch to light theme' : 'Switch to dark theme'" :title="theme.dark ? 'Light theme' : 'Dark theme'" @click="theme.toggle()">
+            <Icon :name="theme.dark ? 'sun' : 'moon'" :size="17" />
+          </button>
+
+          <div ref="accountRoot" class="relative">
+            <button class="w-8 h-8 rounded-full bg-ms-well border border-ms-border text-[13px] font-semibold text-ms-text flex items-center justify-center hover:border-ms-border-light"
+              :aria-expanded="accountOpen" aria-label="Account" @click="accountOpen = !accountOpen">{{ initial }}</button>
+            <div v-if="accountOpen" class="absolute right-0 mt-2 w-64 ms-panel shadow-2xl shadow-black/40 z-50 py-1.5">
+              <div class="px-4 py-2.5 border-b border-ms-border">
+                <div class="text-sm font-medium truncate">{{ auth.user?.name || auth.user?.id || 'Signed in' }}</div>
+                <div v-if="auth.user?.email" class="text-xs text-ms-muted truncate">{{ auth.user.email }}</div>
+                <div class="mt-1.5 text-xs text-ms-muted">
+                  {{ roleLabel }}<template v-if="auth.user?.tenant_id">, account <span class="ms-id text-ms-text2">{{ auth.user.tenant_id }}</span></template>
+                </div>
+              </div>
+              <router-link to="/settings" class="flex items-center gap-2.5 px-4 h-9 text-[13px] text-ms-text2 hover:bg-ms-well"><Icon name="settings" :size="16" class="text-ms-muted" />Settings</router-link>
+              <router-link to="/help" class="flex items-center gap-2.5 px-4 h-9 text-[13px] text-ms-text2 hover:bg-ms-well"><Icon name="help" :size="16" class="text-ms-muted" />Help</router-link>
+              <button class="w-full flex items-center gap-2.5 px-4 h-9 text-[13px] text-ms-text2 hover:bg-ms-well hover:text-ms-error" @click="logout">
+                <Icon name="logout" :size="16" class="text-ms-muted" />Sign out
+              </button>
+            </div>
+          </div>
+        </header>
+
+        <main id="main" tabindex="-1" class="focus:outline-none" :class="bleed ? 'h-[calc(100dvh-3rem)]' : ''">
+          <RouterView />
+        </main>
+      </div>
     </template>
 
-    <main class="relative z-0" :class="auth.isAuthenticated ? 'p-3 sm:p-4 lg:p-5' : ''">
+    <main v-else>
       <RouterView />
     </main>
 
@@ -309,13 +157,9 @@ const visibleNavGroups = computed(() => navGroups
 <style>
 body { margin: 0; }
 
-/* Mobile nav slide */
-.mobile-nav-enter-active nav { transition: transform 0.25s ease-out; }
-.mobile-nav-leave-active nav { transition: transform 0.2s ease-in; }
-.mobile-nav-enter-from nav { transform: translateX(-100%); }
-.mobile-nav-leave-to nav { transform: translateX(-100%); }
-.mobile-nav-enter-active .bg-black\/50 { transition: opacity 0.25s; }
-.mobile-nav-leave-active .bg-black\/50 { transition: opacity 0.2s; }
-.mobile-nav-enter-from .bg-black\/50 { opacity: 0; }
-.mobile-nav-leave-to .bg-black\/50 { opacity: 0; }
+.drawer-enter-active .panel { transition: transform 0.22s ease-out; }
+.drawer-leave-active .panel { transition: transform 0.18s ease-in; }
+.drawer-enter-from .panel, .drawer-leave-to .panel { transform: translateX(-100%); }
+.drawer-enter-active .scrim, .drawer-leave-active .scrim { transition: opacity 0.2s; }
+.drawer-enter-from .scrim, .drawer-leave-to .scrim { opacity: 0; }
 </style>

@@ -98,14 +98,14 @@ async function copy(text) {
 <template>
   <section class="mb-8">
     <div class="mb-3">
-      <h2 class="text-lg font-display font-semibold">Provider accounts</h2>
+      <h2 class="text-lg font-sans font-semibold">Provider accounts</h2>
       <p class="text-gray-400 text-sm mt-1">
         Your own accounts with the services this Hub talks to. Devices in this tenant send and receive through them, and
         the inbound webhooks identify your tenant by the token or secret below. Nothing here is shared with another
         tenant, and nothing is used on your behalf until you fill it in.
       </p>
     </div>
-    <div v-if="error" class="bg-red-900/50 border border-red-700 text-red-200 px-4 py-3 rounded mb-4">{{ error }}</div>
+    <div v-if="error" role="alert" class="ms-alert mb-4">{{ error }}</div>
     <div v-if="loading" class="text-gray-500 text-sm py-6">Loading provider accounts...</div>
     <div v-else class="grid grid-cols-1 lg:grid-cols-2 gap-4">
       <div v-for="a in accounts" :key="a.provider" class="bg-tactical-surface rounded-lg border border-tactical-border p-4">
@@ -119,7 +119,7 @@ async function copy(text) {
             </div>
             <p class="text-xs text-gray-400 mt-1">{{ a.description }}</p>
           </div>
-          <button v-if="auth.isOwner" @click="edit(a)" class="shrink-0 text-xs px-3 py-1.5 rounded bg-brand-primary text-ms-on-primary hover:bg-brand-accent">
+          <button v-if="auth.isOwner" @click="edit(a)" class="ms-btn h-7 text-xs shrink-0">
             {{ open === a.provider ? 'Close' : (a.configured && !a.platform ? 'Edit' : 'Configure') }}
           </button>
         </div>
@@ -159,7 +159,7 @@ async function copy(text) {
             </p>
           </div>
           <div class="flex flex-wrap gap-2 items-center">
-            <button type="submit" :disabled="busy === a.provider" class="px-3 py-1.5 rounded bg-brand-primary text-ms-on-primary text-sm hover:bg-brand-accent disabled:opacity-50">Save</button>
+            <button type="submit" :disabled="busy === a.provider" class="ms-btn-primary">Save</button>
             <button type="button" v-if="a.configured && !a.platform" @click="test(a)" :disabled="busy === a.provider" class="px-3 py-1.5 rounded border border-tactical-border text-sm text-gray-300 hover:border-brand-primary disabled:opacity-50">Test</button>
             <button type="button" v-if="a.configured && !a.platform" @click="remove(a)" :disabled="busy === a.provider" class="px-3 py-1.5 rounded border border-tactical-border text-sm text-ms-error hover:border-ms-error disabled:opacity-50">Remove</button>
             <span v-if="testResult[a.provider]" :class="testResult[a.provider].ok ? 'text-ms-success' : 'text-ms-error'" class="text-xs">

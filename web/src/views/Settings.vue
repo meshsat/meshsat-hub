@@ -129,21 +129,27 @@ function statusDot(ok) {
   return ok ? 'bg-ms-success' : 'bg-ms-error'
 }
 
+// Healthy is the normal state and takes no colour; only a failure does.
 function statusText(ok) {
-  return ok ? 'text-ms-success' : 'text-ms-error'
+  return ok ? 'text-ms-text' : 'text-ms-error'
 }
 </script>
 
 <template>
-  <div class="p-4 lg:p-6 max-w-6xl mx-auto">
-    <h1 class="text-2xl font-display font-bold mb-6">Settings & System Info</h1>
+  <div class="ms-page max-w-6xl">
+    <div class="ms-page-head">
+      <div>
+        <h1 class="ms-h1">Settings</h1>
+        <p class="ms-lede">Your account, plan and limits, and the Hub's own status.</p>
+      </div>
+    </div>
 
     <div v-if="loading" class="text-center text-gray-500 py-16">Loading system status...</div>
 
     <template v-else>
       <!-- Health & Readiness -->
       <div class="bg-tactical-surface rounded-lg border border-tactical-border p-5 mb-6">
-        <h2 class="text-sm font-display font-semibold text-gray-200 uppercase tracking-wider mb-4">System Health</h2>
+        <h2 class="text-sm font-sans font-semibold text-gray-200 mb-4">System health</h2>
         <div class="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-4">
           <div>
             <span class="text-gray-400 text-xs">Liveness</span>
@@ -169,7 +175,7 @@ function statusText(ok) {
             <div v-for="(status, name) in readyz.checks" :key="name" class="flex items-center gap-2" :title="probeDetail(status)">
               <span class="w-2 h-2 rounded-full" :class="statusDot(probeOK(status))"></span>
               <span class="text-sm text-gray-300">{{ name }}</span>
-              <span class="text-[10px] text-gray-500 uppercase">critical</span>
+              <span class="text-[10px] text-gray-500">critical</span>
             </div>
             <div v-for="(status, name) in (readyz.info || {})" :key="'i-' + name" class="flex items-center gap-2" :title="probeDetail(status)">
               <span class="w-2 h-2 rounded-full" :class="probeOK(status) ? 'bg-ms-success' : 'bg-ms-warning'"></span>
@@ -187,7 +193,7 @@ function statusText(ok) {
            issue recorded a customer-tenant user seeing this panel. -->
       <div v-if="authStore.isPlatformAdmin"
            class="bg-tactical-surface rounded-lg border border-tactical-border p-5 mb-6">
-        <h2 class="text-sm font-display font-semibold text-gray-200 uppercase tracking-wider mb-4">Platform</h2>
+        <h2 class="text-sm font-sans font-semibold text-gray-200 mb-4">Platform</h2>
         <div class="space-y-3">
           <div>
             <label class="text-gray-400 text-xs block mb-1">MQTT Public URL</label>
@@ -196,7 +202,7 @@ function statusText(ok) {
               <input v-model="mqttUrl" type="text" placeholder="wss://hub.meshsat.net/mqtt"
                 class="flex-1 bg-gray-800 border border-gray-600 rounded px-3 py-1.5 text-sm text-gray-200 placeholder-gray-500 focus:border-brand-primary focus:outline-none" />
               <button @click="saveMqttUrl" :disabled="mqttUrlSaving || !mqttUrl"
-                class="bg-brand-accent hover:bg-brand-primary disabled:bg-gray-600 text-ms-on-primary text-sm px-4 py-1.5 rounded whitespace-nowrap">
+                class="ms-btn whitespace-nowrap">
                 {{ mqttUrlSaving ? 'Saving...' : 'Save' }}
               </button>
               <span v-if="mqttUrlSaved" class="text-ms-success text-xs">Saved</span>
@@ -206,7 +212,7 @@ function statusText(ok) {
       </div>
 
       <div v-if="accountSecurity.length" class="mb-6 bg-tactical-surface rounded-lg border border-tactical-border p-4">
-        <h2 class="text-sm font-display font-semibold text-ms-text uppercase tracking-wider mb-1">Account security</h2>
+        <h2 class="text-sm font-sans font-semibold text-ms-text mb-1">Account security</h2>
         <p class="text-[11px] text-ms-muted mb-3">
           Your MeshSat ID is held by the identity provider, so these open there and bring you back.
         </p>
@@ -226,7 +232,7 @@ function statusText(ok) {
 
       <!-- Service Security -->
       <div class="bg-tactical-surface rounded-lg border border-tactical-border p-5 mb-6">
-        <h2 class="text-sm font-display font-semibold text-gray-200 uppercase tracking-wider mb-4">Service Security</h2>
+        <h2 class="text-sm font-sans font-semibold text-gray-200 mb-4">Service security</h2>
         <div v-if="securityStatus" class="space-y-3">
           <div class="grid grid-cols-2 sm:grid-cols-4 gap-4">
             <div>
@@ -254,7 +260,7 @@ function statusText(ok) {
               </div>
             </div>
             <div>
-              <span class="text-gray-400 text-xs">Redis Auth</span>
+              <span class="text-gray-400 text-xs">Redis auth</span>
               <div class="flex items-center gap-2 mt-1">
                 <span class="w-2 h-2 rounded-full" :class="statusDot(securityStatus.redis_auth)"></span>
                 <span class="text-sm" :class="statusText(securityStatus.redis_auth)">
@@ -281,7 +287,7 @@ function statusText(ok) {
           <div v-else class="flex items-center gap-3 pt-2 border-t border-gray-700">
             <button @click="rotateServicePasswords" :disabled="rotateLoading"
               class="text-xs px-3 py-1.5 rounded bg-amber-700 hover:bg-amber-600 text-white transition-colors disabled:opacity-50">
-              {{ rotateLoading ? 'Rotating...' : 'Rotate Service Passwords' }}
+              {{ rotateLoading ? 'Rotating...' : 'Rotate service passwords' }}
             </button>
             <span v-if="rotateResult" class="text-xs text-amber-300">{{ rotateResult }}</span>
           </div>
@@ -293,18 +299,18 @@ function statusText(ok) {
       <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-6">
         <!-- Reticulum Identity -->
         <div class="bg-tactical-surface rounded-lg border border-tactical-border p-5">
-          <h2 class="text-sm font-display font-semibold text-gray-200 uppercase tracking-wider mb-3">Reticulum Identity</h2>
+          <h2 class="text-sm font-sans font-semibold text-gray-200 mb-3">Reticulum identity</h2>
           <div v-if="retIdentity" class="space-y-2 text-sm">
             <div>
-              <span class="text-gray-400">Dest Hash</span>
+              <span class="text-gray-400">Destination hash</span>
               <p class="font-mono text-brand-primary text-xs break-all">{{ retIdentity.dest_hash }}</p>
             </div>
             <div>
-              <span class="text-gray-400">App Name</span>
+              <span class="text-gray-400">App name</span>
               <p class="text-gray-300">{{ retIdentity.app_name }}</p>
             </div>
             <div>
-              <span class="text-gray-400">Public Key</span>
+              <span class="text-gray-400">Public key</span>
               <p class="font-mono text-[10px] text-gray-500 break-all">{{ retIdentity.public_key_hex }}</p>
             </div>
           </div>
@@ -313,12 +319,12 @@ function statusText(ok) {
 
         <!-- Tor & WireGuard -->
         <div class="bg-tactical-surface rounded-lg border border-tactical-border p-5">
-          <h2 class="text-sm font-display font-semibold text-gray-200 uppercase tracking-wider mb-3">Network Services</h2>
+          <h2 class="text-sm font-sans font-semibold text-gray-200 mb-3">Network services</h2>
           <div class="space-y-3 text-sm">
             <div class="flex items-center justify-between">
               <div class="flex items-center gap-2">
                 <span class="w-2 h-2 rounded-full" :class="statusDot(torStatus?.available)"></span>
-                <span class="text-gray-300">Tor Hidden Service</span>
+                <span class="text-gray-300">Tor hidden service</span>
               </div>
               <span v-if="torStatus?.available" class="font-mono text-xs text-purple-400 truncate max-w-[200px]">
                 {{ torStatus.http_address }}
@@ -338,7 +344,7 @@ function statusText(ok) {
 
       <!-- Sensor Codecs -->
       <div v-if="codecList.length > 0" class="bg-tactical-surface rounded-lg border border-tactical-border p-5 mb-6">
-        <h2 class="text-sm font-display font-semibold text-gray-200 uppercase tracking-wider mb-3">Sensor Payload Codecs</h2>
+        <h2 class="text-sm font-sans font-semibold text-gray-200 mb-3">Sensor payload codecs</h2>
         <div class="flex flex-wrap gap-2">
           <span v-for="c in codecList" :key="c.name || c"
                 class="bg-gray-700 text-gray-300 text-xs px-2.5 py-1 rounded">
@@ -349,11 +355,11 @@ function statusText(ok) {
 
       <!-- Backup & Data -->
       <div class="bg-tactical-surface rounded-lg border border-tactical-border p-5 mb-6">
-        <h2 class="text-sm font-display font-semibold text-gray-200 uppercase tracking-wider mb-3">Backup & Data</h2>
+        <h2 class="text-sm font-sans font-semibold text-gray-200 mb-3">Backup and data</h2>
         <div class="flex items-center gap-3">
           <button @click="exportBackup" :disabled="exportLoading"
-            class="bg-brand-accent hover:bg-brand-primary disabled:bg-gray-600 text-ms-on-primary text-sm px-4 py-2 rounded">
-            {{ exportLoading ? 'Exporting...' : 'Export Backup' }}
+            class="ms-btn-primary">
+            {{ exportLoading ? 'Exporting...' : 'Export backup' }}
           </button>
           <span v-if="exportResult" class="text-ms-success text-sm">{{ exportResult }}</span>
         </div>
@@ -362,7 +368,7 @@ function statusText(ok) {
 
       <!-- API Documentation -->
       <div class="bg-tactical-surface rounded-lg border border-tactical-border p-5">
-        <h2 class="text-sm font-display font-semibold text-gray-200 uppercase tracking-wider mb-3">API Documentation</h2>
+        <h2 class="text-sm font-sans font-semibold text-gray-200 mb-3">API documentation</h2>
         <div class="space-y-2 text-sm">
           <a href="/api/docs" target="_blank"
              class="inline-flex items-center gap-2 text-brand-primary hover:text-brand-primary">

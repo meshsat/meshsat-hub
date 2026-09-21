@@ -64,17 +64,22 @@ function formatDate(d) {
 }
 
 function roleBadgeClass(role) {
-  if (role === 'owner') return 'bg-purple-900/50 text-purple-300'
-  if (role === 'operator') return 'bg-brand-primary/15 text-brand-primary'
+  if (role === 'owner') return 'bg-ms-well text-ms-text border border-ms-border-light'
+  if (role === 'operator') return 'bg-ms-well text-ms-text2 border border-ms-border'
   return 'bg-gray-700 text-gray-300'
 }
 </script>
 
 <template>
-  <div>
-    <h1 class="text-2xl font-display font-bold mb-4">API Keys</h1>
+  <div class="ms-page">
+    <div class="ms-page-head">
+      <div>
+        <h1 class="ms-h1">API keys</h1>
+        <p class="ms-lede">Keys for scripts and integrations. Each acts with the role you give it.</p>
+      </div>
+    </div>
 
-    <div v-if="error" class="bg-red-900/50 border border-red-700 text-red-200 px-4 py-3 rounded mb-4">
+    <div v-if="error" role="alert" class="ms-alert mb-4">
       {{ error }}
     </div>
 
@@ -90,7 +95,7 @@ function roleBadgeClass(role) {
 
     <!-- Create key form -->
     <div class="bg-tactical-surface rounded-lg p-4 mb-6">
-      <h2 class="text-sm font-display font-semibold text-gray-200 uppercase tracking-wider mb-3">Create New Key</h2>
+      <h2 class="text-sm font-sans font-semibold text-gray-200 mb-3">Create a key</h2>
       <div class="flex flex-wrap gap-2">
         <input v-model="newLabel" placeholder="Label (e.g. CI pipeline)"
           class="bg-gray-800 border border-gray-700 px-3 py-2 rounded-lg text-gray-200 placeholder-gray-500 focus:outline-none focus:border-brand-primary flex-1 min-w-[160px]" />
@@ -110,7 +115,7 @@ function roleBadgeClass(role) {
           <option value="8760h">1 year</option>
         </select>
         <button @click="createKey"
-          class="bg-brand-accent hover:bg-brand-primary text-ms-on-primary px-4 py-2 rounded-lg font-medium transition-colors">
+          class="ms-btn-primary">
           Create
         </button>
       </div>
@@ -121,11 +126,11 @@ function roleBadgeClass(role) {
       <table class="w-full border-collapse text-sm">
         <thead>
           <tr class="border-b border-tactical-border text-left text-gray-500">
-            <th class="px-3 py-2">Key Prefix</th>
+            <th class="px-3 py-2">Key prefix</th>
             <th class="px-3 py-2">Label</th>
             <th class="px-3 py-2">Role</th>
             <th class="px-3 py-2">Device</th>
-            <th class="px-3 py-2">Last Used</th>
+            <th class="px-3 py-2">Last used</th>
             <th class="px-3 py-2">Expires</th>
             <th class="px-3 py-2"></th>
           </tr>
@@ -144,7 +149,7 @@ function roleBadgeClass(role) {
             <td class="px-3 py-2 text-gray-400">{{ formatDate(k.expires_at) }}</td>
             <td class="px-3 py-2 text-right">
               <button @click="revokeKey(k.id, k.key_prefix)"
-                class="bg-red-900 hover:bg-red-800 text-red-200 px-2 py-1 rounded-lg text-xs transition-colors">
+                class="ms-btn-danger">
                 Revoke
               </button>
             </td>

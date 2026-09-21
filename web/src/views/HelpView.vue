@@ -63,9 +63,9 @@ const sections = [
 </script>
 
 <template>
-  <div class="p-4 lg:p-6 max-w-4xl mx-auto">
-    <h1 class="text-2xl font-display font-bold mb-2">Help</h1>
-    <p class="text-sm text-gray-400 mb-6">
+  <div class="ms-page max-w-4xl">
+    <h1 class="ms-h1">Help</h1>
+    <p class="ms-lede mb-5">
       The documentation lives at
       <a :href="DOCS + '/hub/'" target="_blank" rel="noopener"
          class="text-brand-primary hover:text-brand-accent underline">docs.meshsat.net</a>.
@@ -76,7 +76,7 @@ const sections = [
     <div class="space-y-4">
       <div v-for="s in sections" :key="s.title"
            class="bg-tactical-surface rounded-lg border border-tactical-border p-4">
-        <h2 class="text-sm font-display font-semibold text-gray-200 uppercase tracking-wider mb-3">
+        <h2 class="text-sm font-sans font-semibold text-gray-200 mb-3">
           {{ s.title }}
         </h2>
         <ul class="space-y-2">
@@ -92,7 +92,7 @@ const sections = [
            that is running, so it is the only reference guaranteed to match the
            endpoints this Hub actually serves. -->
       <div class="bg-tactical-surface rounded-lg border border-tactical-border p-4">
-        <h2 class="text-sm font-display font-semibold text-gray-200 uppercase tracking-wider mb-2">
+        <h2 class="text-sm font-sans font-semibold text-gray-200 mb-2">
           API reference for this Hub
         </h2>
         <p class="text-[12px] text-gray-500 mb-3">

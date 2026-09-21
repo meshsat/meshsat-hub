@@ -31,9 +31,16 @@ let mapReady = false
 let popup = null
 let drawingPoints = []
 
-const enabledColor = '#2dd4bf'
-const disabledColor = '#6b7280'
-const drawingColor = '#f59e0b'
+// Map colours come from the theme tokens (read at draw time, so they follow
+// the theme): an armed fence in the text colour, a disarmed one muted, and the
+// fence being drawn in Signal Orange, the colour of "you are acting here".
+function token(name) {
+  const v = getComputedStyle(document.documentElement).getPropertyValue(`--ms-${name}`).trim()
+  return v ? `rgb(${v.split(/\s+/).join(',')})` : 'rgb(128,128,128)'
+}
+const enabledColor = token('text')
+const disabledColor = token('muted')
+const drawingColor = token('primary')
 
 function escapeHtml(v) {
   return String(v ?? '').replace(/[&<>"']/g, (c) => (
@@ -75,7 +82,7 @@ function addLayers() {
     type: 'circle',
     source: 'drawing',
     filter: ['==', ['geometry-type'], 'Point'],
-    paint: { 'circle-radius': 5, 'circle-color': drawingColor, 'circle-stroke-color': '#fff', 'circle-stroke-width': 1 },
+    paint: { 'circle-radius': 5, 'circle-color': drawingColor, 'circle-stroke-color': token('bg'), 'circle-stroke-width': 1 },
   })
   map.on('click', 'fence-fill', (e) => {
     const f = e.features?.[0]
@@ -151,6 +158,28 @@ async function loadFences() {
     error.value = e.message
   } finally {
     loading.value = false
+  }
+}
+
+// Both were called from onMounted since MESHSAT-1119 but never written, so
+// the page threw a ReferenceError on every load: the chain picker never got
+// its chains and the cooldown bounds never arrived. A failure here leaves the
+// form usable (typed chain id, platform default cooldown), never blocks it.
+async function loadChains() {
+  try {
+    const c = await escalation.listChains()
+    chains.value = Array.isArray(c) ? c : []
+    chainsLoaded.value = true
+  } catch {
+    chainsLoaded.value = false
+  }
+}
+
+async function loadPolicy() {
+  try {
+    policy.value = await geofences.policy()
+  } catch {
+    policy.value = null
   }
 }
 
@@ -240,16 +269,19 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div class="p-4 lg:p-6">
-    <div class="flex items-center justify-between mb-4">
-      <h1 class="text-2xl font-display font-bold">Geofences</h1>
+  <div class="ms-page">
+    <div class="ms-page-head">
+      <div>
+        <h1 class="ms-h1">Geofences</h1>
+        <p class="ms-lede">Areas on the map. A device that crosses into or out of one raises an alert.</p>
+      </div>
       <button v-if="!showForm" @click="startDrawing"
-        class="bg-brand-accent hover:bg-brand-primary text-ms-on-primary text-sm px-4 py-2 rounded">
-        + Draw Fence
+        class="ms-btn-primary">
+        + Draw fence
       </button>
     </div>
 
-    <div v-if="error" class="bg-red-900/50 border border-red-700 text-red-200 rounded p-3 mb-4">{{ error }}</div>
+    <div v-if="error" role="alert" class="ms-alert mb-4">{{ error }}</div>
 
     <div v-if="basemapMissing"
       class="mb-4 rounded border border-amber-700/50 bg-amber-900/20 text-amber-200 text-xs px-3 py-2">
@@ -258,7 +290,7 @@ onUnmounted(() => {
 
     <!-- Drawing form -->
     <div v-if="showForm" class="bg-tactical-surface rounded-lg border border-amber-700 p-4 mb-4">
-      <h2 class="text-sm font-semibold text-ms-warning uppercase tracking-wider mb-2">Drawing mode: click the map to add vertices</h2>
+      <h2 class="text-sm font-semibold text-ms-warning mb-2">Drawing mode: click the map to add vertices</h2>
       <div class="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-3">
         <input v-model="formName" placeholder="Fence name" class="bg-gray-800 border border-gray-700 rounded px-3 py-2 text-sm">
         <select v-model="formTrigger" class="bg-gray-800 border border-gray-700 rounded px-3 py-2 text-sm">
@@ -297,7 +329,7 @@ onUnmounted(() => {
         <button @click="clearDrawing" class="text-xs text-gray-400 hover:text-gray-200">Clear</button>
         <div class="flex-1"></div>
         <button @click="cancelDrawing" class="text-gray-400 hover:text-gray-300 text-sm px-3 py-1">Cancel</button>
-        <button @click="saveFence" class="bg-brand-accent hover:bg-brand-primary text-ms-on-primary text-sm px-4 py-1 rounded">Save</button>
+        <button @click="saveFence" class="ms-btn-primary">Save</button>
       </div>
     </div>
 
@@ -307,7 +339,7 @@ onUnmounted(() => {
     <!-- Fence list -->
     <div v-if="fenceList.length > 0" class="bg-tactical-surface rounded-lg border border-tactical-border overflow-hidden">
       <div class="px-4 py-3 border-b border-tactical-border">
-        <h2 class="text-sm font-display font-semibold text-gray-200 uppercase tracking-wider">Configured Fences ({{ fenceList.length }})</h2>
+        <h2 class="text-sm font-sans font-semibold text-gray-200">Configured Fences ({{ fenceList.length }})</h2>
       </div>
       <div class="divide-y divide-tactical-border/50">
         <div v-for="f in fenceList" :key="f.id" class="px-4 py-3 flex items-center justify-between">

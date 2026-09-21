@@ -103,15 +103,15 @@ function expiryLabel(c) {
 </script>
 
 <template>
-  <div class="max-w-5xl mx-auto space-y-6">
-    <h1 class="text-2xl font-bold">Credentials</h1>
-    <p class="text-sm text-gray-400">Upload and manage TLS certificates and provider credentials. Distribute to field bridges via MQTT.</p>
+  <div class="ms-page max-w-5xl space-y-6">
+    <h1 class="ms-h1">Credentials</h1>
+    <p class="ms-lede mb-5">Upload and manage TLS certificates and provider credentials. Distribute to field bridges via MQTT.</p>
 
-    <div v-if="error" class="bg-red-900/50 border border-red-700 text-red-300 px-4 py-2 rounded text-sm">{{ error }}</div>
+    <div v-if="error" role="alert" class="ms-alert">{{ error }}</div>
 
     <!-- Expiry warnings -->
     <div v-if="expiring.length > 0" class="bg-amber-900/30 border border-amber-700 rounded-lg p-4">
-      <h3 class="text-sm font-semibold text-amber-300 mb-2">Expiring Certificates (30 days)</h3>
+      <h3 class="text-sm font-semibold text-amber-300 mb-2">Expiring in the next 30 days</h3>
       <div v-for="c in expiring" :key="c.id" class="text-xs text-amber-200 flex gap-2">
         <span class="font-mono">{{ c.name }}</span>
         <span class="px-1.5 rounded" :class="expiryClass(c)">{{ expiryLabel(c) }}</span>
@@ -121,10 +121,10 @@ function expiryLabel(c) {
 
     <!-- Upload section -->
     <div class="bg-gray-800 rounded-lg p-6 border border-gray-700">
-      <h2 class="text-lg font-semibold mb-4">Upload Certificate</h2>
+      <h2 class="text-lg font-semibold mb-4">Upload a certificate</h2>
       <div class="border-2 border-dashed border-gray-600 rounded-lg p-6 text-center">
         <input type="file" ref="fileInput" accept=".zip,.pem,.crt,.key,.cer" @change="onFileSelected" class="hidden">
-        <button @click="$refs.fileInput.click()" class="px-4 py-2 rounded bg-brand-primary text-ms-on-primary hover:bg-brand-accent">
+        <button @click="$refs.fileInput.click()" class="ms-btn-primary">
           Select ZIP or PEM File
         </button>
         <p v-if="uploadFileName" class="text-sm text-gray-400 mt-2">{{ uploadFileName }}</p>
@@ -181,9 +181,9 @@ function expiryLabel(c) {
             <td class="px-4 py-3 text-xs text-gray-400">{{ c.target_scope }}</td>
             <td class="px-4 py-3 text-right space-x-1">
               <button v-if="c.target_scope !== 'hub'" @click="distribute(c.id)"
-                class="px-2 py-1 rounded bg-brand-primary text-xs text-ms-on-primary hover:bg-brand-accent">Distribute</button>
+                class="ms-btn-primary">Distribute</button>
               <button @click="deleteCred(c.id)"
-                class="px-2 py-1 rounded bg-red-900 text-xs text-red-300 hover:bg-red-800">Delete</button>
+                class="ms-btn-danger">Delete</button>
             </td>
           </tr>
           <tr v-if="creds.length === 0">

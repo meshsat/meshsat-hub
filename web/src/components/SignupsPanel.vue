@@ -117,7 +117,7 @@ onMounted(() => { if (auth.user?.platform_admin) load() })
             <option value="viewer">viewer</option>
           </select>
           <button :disabled="busy === s.pk" @click="approve(s)"
-                  class="text-xs px-3 py-1 rounded bg-brand-primary hover:bg-brand-accent text-ms-on-primary disabled:opacity-50">
+                  class="ms-btn-primary">
             {{ busy === s.pk ? 'Working…' : 'Approve' }}
           </button>
           <button :disabled="busy === s.pk" @click="reject(s)"

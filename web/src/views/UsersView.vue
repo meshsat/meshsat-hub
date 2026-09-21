@@ -107,22 +107,27 @@ async function deleteUser() {
 }
 
 function roleBadge(role) {
-  if (role === 'owner') return 'bg-purple-900/50 text-purple-300'
-  if (role === 'operator') return 'bg-brand-primary/15 text-brand-primary'
+  if (role === 'owner') return 'bg-ms-well text-ms-text border border-ms-border-light'
+  if (role === 'operator') return 'bg-ms-well text-ms-text2 border border-ms-border'
   return 'bg-gray-700 text-gray-300'
 }
 </script>
 
 <template>
-  <div>
-    <h1 class="text-2xl font-display font-bold mb-4">User Management</h1>
+  <div class="ms-page">
+    <div class="ms-page-head">
+      <div>
+        <h1 class="ms-h1">Users</h1>
+        <p class="ms-lede">The people in this account and what each of them may do.</p>
+      </div>
+    </div>
 
-    <div v-if="error" class="bg-red-900/50 border border-red-700 text-red-200 px-4 py-3 rounded mb-4">{{ error }}</div>
+    <div v-if="error" role="alert" class="ms-alert mb-4">{{ error }}</div>
 
     <div class="flex justify-end mb-4">
       <button @click="showForm = !showForm"
-        class="bg-brand-accent hover:bg-brand-primary text-ms-on-primary px-3 py-1 rounded text-sm transition-colors">
-        {{ showForm ? 'Cancel' : '+ Invite User' }}
+        class="ms-btn-primary">
+        {{ showForm ? 'Cancel' : 'Invite someone' }}
       </button>
     </div>
 
@@ -156,7 +161,7 @@ function roleBadge(role) {
       </div>
       <div class="flex justify-end">
         <button @click="createUser"
-          class="bg-brand-accent hover:bg-brand-primary text-ms-on-primary px-4 py-2 rounded text-sm transition-colors">Create User</button>
+          class="ms-btn-primary">Create user</button>
       </div>
     </div>
 
@@ -169,7 +174,7 @@ function roleBadge(role) {
             <th class="px-3 py-2">Name</th>
             <th class="px-3 py-2">Role</th>
             <th class="px-3 py-2">Status</th>
-            <th class="px-3 py-2">Last Login</th>
+            <th class="px-3 py-2">Last login</th>
             <th class="px-3 py-2"></th>
           </tr>
         </thead>
@@ -198,7 +203,7 @@ function roleBadge(role) {
             </td>
             <td class="px-3 py-2 text-right">
               <button @click="confirmDeleteUser(u)"
-                class="bg-red-900 hover:bg-red-800 text-red-200 px-2 py-1 rounded-lg text-xs transition-colors">Delete</button>
+                class="ms-btn-danger">Delete</button>
             </td>
           </tr>
           <tr v-if="users.length === 0 && !loading">
@@ -214,7 +219,7 @@ function roleBadge(role) {
     <div v-if="showDeleteConfirm" class="fixed inset-0 z-50 flex items-center justify-center" @click.self="showDeleteConfirm = false">
       <div class="absolute inset-0 bg-black/50" />
       <div class="relative bg-tactical-surface border border-tactical-border rounded-lg p-6 max-w-md mx-4">
-        <h3 class="text-lg font-semibold mb-2">Confirm Delete</h3>
+        <h3 class="text-lg font-semibold mb-2">Delete it?</h3>
         <p class="text-gray-400 text-sm mb-4">
           Delete user <span class="text-gray-200 font-medium">{{ userToDelete?.email }}</span>? This action cannot be undone.
         </p>
@@ -223,7 +228,7 @@ function roleBadge(role) {
         </p>
         <div class="flex justify-end gap-3">
           <button @click="showDeleteConfirm = false" class="px-4 py-2 text-sm text-gray-400 hover:text-gray-200">Cancel</button>
-          <button @click="deleteUser()" class="px-4 py-2 text-sm bg-red-600 hover:bg-red-500 text-white rounded">Delete</button>
+          <button @click="deleteUser()" class="ms-btn-destroy">Delete</button>
         </div>
       </div>
     </div>

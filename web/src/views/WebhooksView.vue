@@ -71,18 +71,23 @@ function statusCodeColor(code) {
 </script>
 
 <template>
-  <div>
-    <h1 class="text-2xl font-display font-bold mb-4">Outbound Webhooks</h1>
+  <div class="ms-page">
+    <div class="ms-page-head">
+      <div>
+        <h1 class="ms-h1">Webhooks</h1>
+        <p class="ms-lede">Device events sent to your own systems over HTTPS as they happen.</p>
+      </div>
+    </div>
 
-    <div v-if="error" class="bg-red-900/50 border border-red-700 text-red-200 px-4 py-3 rounded mb-4">{{ error }}</div>
+    <div v-if="error" role="alert" class="ms-alert mb-4">{{ error }}</div>
 
     <!-- Webhooks -->
     <div class="mb-8">
       <div class="flex items-center justify-between mb-3">
-        <h2 class="text-lg font-semibold uppercase tracking-wider">Webhooks</h2>
+        <h2 class="text-lg font-semibold">Webhooks</h2>
         <button @click="showForm = !showForm"
-          class="bg-brand-accent hover:bg-brand-primary text-ms-on-primary px-3 py-1 rounded text-sm transition-colors">
-          {{ showForm ? 'Cancel' : '+ New Webhook' }}
+          class="ms-btn-primary">
+          {{ showForm ? 'Cancel' : 'New webhook' }}
         </button>
       </div>
 
@@ -104,7 +109,7 @@ function statusCodeColor(code) {
             <input type="checkbox" v-model="form.enabled" class="rounded" /> Active
           </label>
           <button @click="createWebhook"
-            class="bg-brand-accent hover:bg-brand-primary text-ms-on-primary px-4 py-2 rounded text-sm transition-colors">Create</button>
+            class="ms-btn-primary">Create</button>
         </div>
       </div>
 
@@ -131,7 +136,7 @@ function statusCodeColor(code) {
               </td>
               <td class="px-3 py-2 text-right">
                 <button @click="deleteWebhook(h.id)"
-                  class="bg-red-900 hover:bg-red-800 text-red-200 px-2 py-1 rounded-lg text-xs transition-colors">Delete</button>
+                  class="ms-btn-danger">Delete</button>
               </td>
             </tr>
             <tr v-if="hookList.length === 0 && !loading">
@@ -146,7 +151,7 @@ function statusCodeColor(code) {
 
     <!-- Delivery logs -->
     <div>
-      <h2 class="text-lg font-semibold mb-3 uppercase tracking-wider">Delivery Logs</h2>
+      <h2 class="text-lg font-semibold mb-3">Delivery log</h2>
       <div class="overflow-x-auto">
         <table class="w-full border-collapse text-sm">
           <thead>

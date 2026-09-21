@@ -71,25 +71,30 @@ async function importBackup() {
 </script>
 
 <template>
-  <div class="p-4 lg:p-6 max-w-4xl mx-auto">
-    <h1 class="text-2xl font-display font-bold mb-6">Backup & Restore</h1>
+  <div class="ms-page max-w-4xl">
+    <div class="ms-page-head">
+      <div>
+        <h1 class="ms-h1">Backup</h1>
+        <p class="ms-lede">Export this account's configuration and history, or restore from a file.</p>
+      </div>
+    </div>
 
-    <div v-if="error" class="bg-red-900/50 border border-red-700 text-red-200 rounded p-3 mb-4">{{ error }}</div>
+    <div v-if="error" role="alert" class="ms-alert mb-4">{{ error }}</div>
     <div v-if="success" class="bg-emerald-900/50 border border-emerald-700 text-emerald-200 rounded p-3 mb-4">{{ success }}</div>
 
     <!-- Export -->
     <div class="bg-tactical-surface rounded-lg border border-tactical-border p-5 mb-6">
-      <h2 class="text-sm font-display font-semibold text-gray-200 uppercase tracking-wider mb-3">Export</h2>
+      <h2 class="text-sm font-sans font-semibold text-gray-200 mb-3">Export</h2>
       <p class="text-sm text-gray-400 mb-3">Download a full backup of devices, messages, routes, escalation chains, and configuration.</p>
       <button @click="exportBackup" :disabled="exporting"
-        class="bg-brand-accent hover:bg-brand-primary disabled:bg-gray-600 text-ms-on-primary text-sm px-4 py-2 rounded">
-        {{ exporting ? 'Exporting...' : 'Export JSON Backup' }}
+        class="ms-btn-primary">
+        {{ exporting ? 'Exporting...' : 'Export a JSON backup' }}
       </button>
     </div>
 
     <!-- Import -->
     <div class="bg-tactical-surface rounded-lg border border-tactical-border p-5">
-      <h2 class="text-sm font-display font-semibold text-gray-200 uppercase tracking-wider mb-3">Import</h2>
+      <h2 class="text-sm font-sans font-semibold text-gray-200 mb-3">Import</h2>
       <p class="text-sm text-gray-400 mb-3">Upload a backup file to preview changes or merge with current data.</p>
 
       <input type="file" accept=".json" @change="onFileSelect"
@@ -98,7 +103,7 @@ async function importBackup() {
       <div v-if="importFile" class="flex gap-2">
         <button @click="diffBackup" :disabled="diffing"
           class="bg-gray-600 hover:bg-gray-500 text-white text-sm px-4 py-2 rounded">
-          {{ diffing ? 'Comparing...' : 'Preview Diff' }}
+          {{ diffing ? 'Comparing...' : 'Preview changes' }}
         </button>
         <button @click="importBackup" :disabled="importing"
           class="bg-amber-600 hover:bg-amber-500 text-white text-sm px-4 py-2 rounded">
@@ -108,7 +113,7 @@ async function importBackup() {
 
       <!-- Diff Result -->
       <div v-if="diffResult" class="mt-4 bg-tactical-surface rounded p-4">
-        <h3 class="text-sm font-medium text-gray-300 uppercase tracking-wider mb-2">Diff Preview</h3>
+        <h3 class="text-sm font-medium text-gray-300 mb-2">Preview of changes</h3>
         <pre class="text-xs text-gray-400 max-h-64 overflow-y-auto">{{ JSON.stringify(diffResult, null, 2) }}</pre>
       </div>
     </div>

@@ -159,13 +159,13 @@ async function copyLink(which = 'url') {
 </script>
 
 <template>
-  <div>
-    <h1 class="text-2xl font-display font-bold mb-1">TAK</h1>
-    <p class="text-sm text-gray-400 mb-4">
+  <div class="ms-page">
+    <h1 class="ms-h1">TAK</h1>
+    <p class="ms-lede mb-5">
       Your own TAK server. People you add here see your fleet on their ATAK, WinTAK or iTAK.
     </p>
 
-    <div v-if="error" class="bg-red-900/50 border border-red-700 text-red-200 px-4 py-3 rounded mb-4">
+    <div v-if="error" role="alert" class="ms-alert mb-4">
       {{ error }}
     </div>
     <div v-if="notice" class="bg-sky-900/30 border border-sky-700 text-sky-200 px-4 py-3 rounded mb-4 flex justify-between">
@@ -175,7 +175,7 @@ async function copyLink(which = 'url') {
 
     <!-- Not turned on yet -->
     <div v-if="!loading && !enabled" class="bg-tactical-surface rounded-lg border border-tactical-border p-6 mb-6">
-      <h2 class="text-sm font-display font-semibold text-gray-200 uppercase tracking-wider mb-2">
+      <h2 class="text-sm font-sans font-semibold text-gray-200 mb-2">
         TAK is not switched on
       </h2>
       <p class="text-sm text-gray-400 mb-4">
@@ -184,7 +184,7 @@ async function copyLink(which = 'url') {
         on the {{ status?.plan }} plan.
       </p>
       <button @click="enable" :disabled="busy === 'enable'"
-        class="bg-brand-primary hover:bg-brand-accent text-ms-on-primary px-4 py-2 rounded-lg font-medium transition-colors disabled:opacity-50">
+        class="ms-btn-primary">
         {{ busy === 'enable' ? 'Creating…' : 'Switch TAK on' }}
       </button>
     </div>
@@ -192,20 +192,20 @@ async function copyLink(which = 'url') {
     <!-- Status -->
     <div v-if="enabled" class="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-6">
       <div class="bg-tactical-surface rounded-lg border border-tactical-border p-4">
-        <div class="text-xs text-gray-500 uppercase tracking-wider mb-1">Server</div>
-        <div class="text-lg font-display">
-          <span :class="status.phase === 'Ready' ? 'text-ms-success' : 'text-ms-warning'">
+        <div class="text-xs text-gray-500 mb-1">Server</div>
+        <div class="text-lg font-sans">
+          <span :class="status.phase === 'Ready' ? 'text-ms-text' : 'text-ms-warning'">
             {{ status.phase || 'unknown' }}
           </span>
         </div>
       </div>
       <div class="bg-tactical-surface rounded-lg border border-tactical-border p-4">
-        <div class="text-xs text-gray-500 uppercase tracking-wider mb-1">Port</div>
+        <div class="text-xs text-gray-500 mb-1">Port</div>
         <div class="text-lg font-mono">{{ status.port }}</div>
       </div>
       <div class="bg-tactical-surface rounded-lg border border-tactical-border p-4">
-        <div class="text-xs text-gray-500 uppercase tracking-wider mb-1">People</div>
-        <div class="text-lg font-display">
+        <div class="text-xs text-gray-500 mb-1">People</div>
+        <div class="text-lg font-sans">
           {{ status.users }}<span class="text-gray-500 text-sm"> / {{ status.limit === -1 ? '∞' : status.limit }}</span>
         </div>
       </div>
@@ -221,7 +221,7 @@ async function copyLink(which = 'url') {
       </div>
 
       <div class="mb-3">
-        <div class="text-[11px] font-display uppercase tracking-wider text-gray-400 mb-1">
+        <div class="text-[11px] font-sans text-gray-400 mb-1">
           Android and Windows: ATAK, WinTAK
         </div>
         <code class="block bg-gray-900 text-ms-success px-3 py-2 rounded font-mono text-xs break-all select-all">
@@ -237,7 +237,7 @@ async function copyLink(which = 'url') {
            it produced was the ATAK one (MESHSAT-1084); since a claim is single use,
            finding that out on an iPhone cost the enrolment. -->
       <div>
-        <div class="text-[11px] font-display uppercase tracking-wider text-gray-400 mb-1">
+        <div class="text-[11px] font-sans text-gray-400 mb-1">
           iPhone and iPad: iTAK
         </div>
         <code class="block bg-gray-900 text-ms-success px-3 py-2 rounded font-mono text-xs break-all select-all">
@@ -269,14 +269,14 @@ async function copyLink(which = 'url') {
 
     <!-- Add somebody -->
     <div v-if="enabled" class="bg-tactical-surface rounded-lg border border-tactical-border p-4 mb-6">
-      <h2 class="text-sm font-display font-semibold text-gray-200 uppercase tracking-wider mb-3">Add a person</h2>
+      <h2 class="text-sm font-sans font-semibold text-gray-200 mb-3">Add a person</h2>
       <div class="flex flex-wrap gap-2">
         <input v-model="newUsername" placeholder="Username"
           class="bg-gray-800 border border-gray-700 px-3 py-2 rounded-lg text-gray-200 placeholder-gray-500 focus:outline-none focus:border-brand-primary flex-1 min-w-[160px]" />
         <input v-model="newCallsign" placeholder="Callsign (optional)"
           class="bg-gray-800 border border-gray-700 px-3 py-2 rounded-lg text-gray-200 placeholder-gray-500 focus:outline-none focus:border-brand-primary min-w-[160px]" />
         <button @click="addUser" :disabled="busy === 'add' || atCeiling"
-          class="bg-brand-primary hover:bg-brand-accent text-ms-on-primary px-4 py-2 rounded-lg font-medium transition-colors disabled:opacity-50">
+          class="ms-btn-primary">
           {{ busy === 'add' ? 'Adding…' : 'Add' }}
         </button>
       </div>
@@ -315,7 +315,7 @@ async function copyLink(which = 'url') {
             </td>
             <td class="px-3 py-2 text-right whitespace-nowrap">
               <button @click="enrol(u.username)" :disabled="busy === u.username || !u.active"
-                class="bg-brand-primary/15 hover:bg-brand-primary/25 text-brand-primary px-2 py-1 rounded-lg text-xs mr-2 transition-colors disabled:opacity-40">
+                class="ms-btn h-7 text-xs mr-2">
                 Enrol
               </button>
               <button @click="showQR(u.username, 'atak')" :disabled="busy === u.username || !u.active"
@@ -329,7 +329,7 @@ async function copyLink(which = 'url') {
                 QR&nbsp;iTAK
               </button>
               <button @click="removeUser(u.username)" :disabled="busy === u.username"
-                class="bg-red-900 hover:bg-red-800 text-red-200 px-2 py-1 rounded-lg text-xs transition-colors disabled:opacity-40">
+                class="ms-btn-danger">
                 Remove
               </button>
             </td>

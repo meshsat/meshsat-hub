@@ -111,14 +111,19 @@ function formatBytes(bytes) {
 </script>
 
 <template>
-  <div>
-    <h1 class="text-2xl font-display font-bold mb-4">Network</h1>
+  <div class="ms-page">
+    <div class="ms-page-head">
+      <div>
+        <h1 class="ms-h1">Network</h1>
+        <p class="ms-lede">The links the Hub itself uses: satellite constellations and multipath internet.</p>
+      </div>
+    </div>
 
-    <div v-if="error" class="bg-red-900/50 border border-red-700 text-red-200 px-4 py-3 rounded mb-4">{{ error }}</div>
+    <div v-if="error" role="alert" class="ms-alert mb-4">{{ error }}</div>
 
     <!-- Satellite Constellations -->
     <div class="mb-8">
-      <h2 class="text-lg font-semibold mb-3 uppercase tracking-wider">Satellite Constellations</h2>
+      <h2 class="ms-h2 mb-3">Satellite constellations</h2>
       <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
         <div v-for="c in allConstellations" :key="c.key" class="bg-tactical-surface rounded-lg p-4" :class="{ 'opacity-80': !c.active }">
           <div class="flex items-center justify-between mb-2">
@@ -141,20 +146,20 @@ function formatBytes(bytes) {
 
     <!-- MPTCP Concentrator -->
     <div class="mb-8">
-      <h2 class="text-lg font-semibold mb-3 uppercase tracking-wider">MPTCP Concentrator</h2>
+      <h2 class="ms-h2 mb-3">MPTCP concentrator</h2>
 
       <div v-if="mptcpStatus" class="mb-4">
         <!-- Status cards -->
         <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-4">
           <div class="bg-tactical-surface rounded-lg p-4">
             <div class="text-gray-400 text-sm mb-1">Kernel MPTCP</div>
-            <div class="text-lg font-bold" :class="mptcpStatus.available ? 'text-ms-success' : 'text-ms-error'">
-              {{ mptcpStatus.available ? 'Available' : 'Not Available' }}
+            <div class="text-base font-semibold" :class="mptcpStatus.available ? 'text-ms-text' : 'text-ms-warning'">
+              {{ mptcpStatus.available ? 'Available' : 'Not available' }}
             </div>
           </div>
           <div class="bg-tactical-surface rounded-lg p-4">
             <div class="text-gray-400 text-sm mb-1">Status</div>
-            <div class="text-lg font-bold" :class="mptcpStatus.enabled ? 'text-ms-success' : 'text-gray-500'">
+            <div class="text-base font-semibold" :class="mptcpStatus.enabled ? 'text-ms-text' : 'text-ms-muted'">
               {{ mptcpStatus.enabled ? 'Enabled' : 'Disabled' }}
             </div>
           </div>
@@ -181,7 +186,7 @@ function formatBytes(bytes) {
                   <span :class="pathTypeColor(sf.path_type)" class="text-sm font-medium capitalize">{{ sf.path_type }}</span>
                   <span class="text-gray-400 text-xs font-mono">{{ sf.interface }}</span>
                 </div>
-                <span :class="subflowStatusColor(sf.status)" class="text-xs uppercase font-medium">{{ sf.status }}</span>
+                <span :class="subflowStatusColor(sf.status)" class="text-xs font-medium">{{ sf.status }}</span>
               </div>
               <div class="grid grid-cols-3 gap-2 text-xs text-gray-400">
                 <div>

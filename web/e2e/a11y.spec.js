@@ -34,7 +34,7 @@ for (const theme of ['dark', 'light']) {
         localStorage.setItem('auth_user', JSON.stringify({ id: 'token-user', name: 'API Token', roles: ['admin'], tenant_id: 'default' }))
       }, AUTH_TOKEN)
       await page.goto('/#/')
-      await expect(page.locator('h1:has-text("Dashboard")')).toBeVisible({ timeout: 10000 })
+      await expect(page.locator('h1:has-text("Overview")')).toBeVisible({ timeout: 10000 })
       await page.waitForTimeout(500)
       await page.screenshot({ path: `test-results/dashboard-${theme}.png`, fullPage: true })
       expect(await contrastViolations(page)).toEqual([])

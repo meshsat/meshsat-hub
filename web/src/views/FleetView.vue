@@ -1,10 +1,13 @@
 <script setup>
-import { ref, computed, onMounted, onUnmounted } from 'vue'
-import { useRoute } from 'vue-router'
+import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { bridges, tenant } from '../api/client'
-import { timeAgo, formatUptime, formatUTC } from '../utils/time'
-import EmptyState from '../components/EmptyState.vue'
+import { formatUptime, formatUTC } from '../utils/time'
+import { FAMILIES, familyStates, ago } from '../utils/paths'
+import { useAuthStore } from '../stores/auth'
 import UpgradeButton from '../components/UpgradeButton.vue'
+import PathCell from '../components/PathCell.vue'
+import Icon from '../components/Icon.vue'
 
 const loading = ref(true)
 const error = ref('')
@@ -69,14 +72,35 @@ const PROVISION_GIVE_UP_S = 180
 const copied = ref('')
 
 const route = useRoute()
+const router = useRouter()
+const auth = useAuthStore()
 
 onMounted(async () => {
-  // Dashboard first-run link: open the add-bridge form straight away.
+  // Overview first-run link: open the add form straight away.
   if (route.query.add === '1') showAddForm.value = true
+  if (route.query.kit) expandedBridge.value = String(route.query.kit)
   await loadBridges()
+  // Wide screens always show a kit; on a phone the list comes first.
+  if (!expandedBridge.value && bridgeList.value.length && window.matchMedia('(min-width: 1280px)').matches) {
+    expandedBridge.value = bridgeList.value[0].bridge_id
+  }
   loadUsage()
   pollTimer = setInterval(loadBridges, 30000)
 })
+
+// The selected kit lives in the URL, so a kit can be linked to and the jump
+// search can open one.
+watch(() => route.query.kit, (k) => { if (k && k !== expandedBridge.value) expandedBridge.value = String(k) })
+watch(expandedBridge, (id) => {
+  // Only while this page is the one showing: a slow first load that settles
+  // after the user has moved on must not drag the URL back here.
+  if (route.name !== 'fleet' || (route.query.kit || null) === (id || null)) return
+  const query = { ...route.query }
+  if (id) query.kit = id; else delete query.kit
+  router.replace({ name: 'fleet', query })
+})
+
+const selected = computed(() => bridgeList.value.find(b => b.bridge_id === expandedBridge.value) || null)
 
 onUnmounted(() => {
   if (pollTimer) clearInterval(pollTimer)
@@ -114,7 +138,7 @@ async function loadUsage() {
 // --- Add Bridge ---
 async function addBridge() {
   if (!addForm.value.bridge_id.trim()) {
-    addError.value = 'Bridge ID is required'
+    addError.value = 'Give the kit an id.'
     return
   }
   addError.value = ''
@@ -315,7 +339,7 @@ const LOG_UNITS = [
 ]
 const logUnit = ref({})
 
-const BEARER_LABELS = { mqtt: 'MQTT', sms: 'SMS', imt: 'IMT', sbd: 'SBD' }
+const BEARER_LABELS = { mqtt: 'Internet', sms: 'SMS', imt: 'Satellite IMT', sbd: 'Satellite SBD' }
 function bearerLabel(bearer) {
   return BEARER_LABELS[bearer] || bearer
 }
@@ -388,6 +412,67 @@ function dismissOnboarding() {
 }
 
 // --- Helpers ---
+function selectKit(bridgeId) {
+  if (expandedBridge.value === bridgeId) return
+  credentialResult.value = null
+  certificateResult.value = null
+  expandedBridge.value = bridgeId
+}
+
+function confirmReboot(b) {
+  if (!confirm(`Reboot ${kitName(b)}? It drops off for a minute or two.`)) return
+  sendCommand(b.bridge_id, 'reboot')
+}
+
+// CPU, memory and disk as meters that take colour only past a threshold.
+// Android keeps its memory nearly full by design, so a phone's memory figure
+// is shown but never raised as a caution.
+function systemMeters(b) {
+  const h = parseHealth(b) || {}
+  const level = (v) => (v > 90 ? 'alarm' : v > 80 ? 'caution' : 'normal')
+  const phone = (b.mode || '') === 'android'
+  return [
+    { label: 'CPU', value: h.cpu_pct, level: level(h.cpu_pct) },
+    { label: 'Memory', value: h.mem_pct, level: phone ? 'normal' : level(h.mem_pct) },
+    { label: 'Disk', value: h.disk_pct, level: level(h.disk_pct) },
+  ]
+}
+
+function kitName(b) {
+  return b.cot_callsign || b.label || b.hostname || b.bridge_id
+}
+
+// Health carries the live interface states; the birth frame is the fallback
+// for a kit that has announced itself but not yet reported.
+function kitInterfaces(b) {
+  const h = parseHealth(b)
+  if (h?.interfaces?.length) return h.interfaces
+  return parseBirth(b)?.interfaces || []
+}
+
+function kitStates(b) {
+  const st = familyStates(kitInterfaces(b))
+  if (b.online) return st
+  // An offline kit's last report is history: draw what it has, none working.
+  return Object.fromEntries(Object.entries(st).map(([k, v]) => [k, v === 'absent' ? 'absent' : 'down']))
+}
+
+function ifaceState(status) {
+  const s = String(status || '').toLowerCase()
+  if (s === 'online') return 'up'
+  if (/bind|connect|start|init|search/.test(s)) return 'coming'
+  return 'down'
+}
+
+const STATUS_WORDS = { online: 'Working', offline: 'Not working', binding: 'Coming up', error: 'Error', disabled: 'Turned off' }
+function statusWords(s) { return STATUS_WORDS[s] || s || 'Unknown' }
+
+function linkWords(b) {
+  if (b.online) return 'Live'
+  if (b.last_report_at) return `${bearerLabel(b.last_report_bearer || '?')} ${ago(b.last_report_at)}`
+  return b.last_seen && !String(b.last_seen).startsWith('0001-') ? `Seen ${ago(b.last_seen)}` : 'Never connected'
+}
+
 function toggleExpand(bridgeId) {
   expandedBridge.value = expandedBridge.value === bridgeId ? null : bridgeId
   // Clear per-bridge state when collapsing
@@ -451,12 +536,12 @@ function interfaceTypeBadgeColor(type) {
 
 function interfaceTypeLabel(type) {
   const labels = {
-    meshtastic: 'Meshtastic',
+    meshtastic: 'LoRa mesh',
     iridium_sbd: 'Iridium SBD',
     iridium_imt: 'Iridium IMT',
-    cellular: 'Cellular',
+    cellular: 'Cellular and SMS',
     zigbee: 'ZigBee',
-    aprs: 'APRS',
+    aprs: 'APRS radio',
     tcp: 'TCP',
   }
   return labels[type] || type
@@ -497,652 +582,361 @@ function certExpiryStatus(b) {
   const now = new Date()
   const days = Math.floor((exp - now) / 86400000)
   if (days < 0) return { label: 'Expired', color: 'text-ms-error' }
-  if (days < 14) return { label: `${days}d left`, color: 'text-ms-warning' }
-  return { label: `${days}d left`, color: 'text-gray-400' }
+  if (days < 14) return { label: `Expires in ${days} days`, color: 'text-ms-warning' }
+  return { label: `Valid ${days} more days`, color: 'text-ms-text' }
 }
 </script>
 
 <template>
-  <div>
-    <!-- Header -->
-    <div class="flex items-center justify-between mb-4">
+  <div class="ms-page">
+    <div class="ms-page-head">
       <div>
-        <h1 class="text-2xl font-display font-bold">Fleet</h1>
-        <p v-if="!loading && bridgeList.length" class="text-sm text-gray-400 mt-0.5">
-          {{ totalCount }} bridge{{ totalCount !== 1 ? 's' : '' }}, {{ onlineCount }} online<span
-            v-if="usage && usage.limit !== -1"> &middot; {{ usage.used }} / {{ usage.limit }} on the {{ usage.plan }} plan</span>
+        <h1 class="ms-h1">Kits</h1>
+        <p class="ms-lede">
+          <template v-if="loading">Loading kits.</template>
+          <template v-else-if="!bridgeList.length">A kit is a MeshSat gateway: a Pi in a case, or a phone running the Android app.</template>
+          <template v-else>
+            {{ totalCount }} kit{{ totalCount !== 1 ? 's' : '' }}, {{ onlineCount === totalCount ? (totalCount === 1 ? 'connected' : 'all connected') : `${onlineCount} connected` }}.<template
+              v-if="usage && usage.limit !== -1"> {{ usage.used }} of {{ usage.limit }} devices and kits used on the {{ usage.plan }} plan.</template>
+          </template>
         </p>
       </div>
       <div class="flex items-center gap-2">
-        <button @click="regenerateACL" :disabled="aclLoading"
-          class="text-xs px-3 py-1.5 rounded border border-gray-600 text-gray-400 hover:text-gray-200 hover:border-gray-500 transition-colors disabled:opacity-50">
-          {{ aclLoading ? 'Re-rendering...' : 'Re-render NATS users' }}
-        </button>
-        <span v-if="aclResult" class="text-xs text-ms-success">{{ aclResult.bridges_configured }} bridges configured</span>
-        <button @click="showAddForm = !showAddForm" :disabled="atCap && !showAddForm"
-          :title="atCap && !showAddForm ? `The ${usage.plan} plan covers ${usage.limit} devices and bridges together. Your existing kit keeps working; upgrade to add more.` : ''"
-          class="bg-brand-accent hover:bg-brand-primary disabled:opacity-50 disabled:cursor-not-allowed text-ms-on-primary px-3 py-1.5 rounded text-sm font-medium transition-colors">
-          {{ showAddForm ? 'Cancel' : '+ Add Bridge' }}
+        <button v-if="auth.isOwner" class="ms-btn-ghost text-xs" :disabled="aclLoading" :title="'Rewrite the broker\'s user list from the kits registered here. Only needed after a broker restore.'"
+          @click="regenerateACL">{{ aclLoading ? 'Rewriting' : 'Rewrite broker users' }}</button>
+        <span v-if="aclResult" class="text-xs text-ms-muted">{{ aclResult.bridges_configured }} kits written</span>
+        <button v-if="!showAddForm" class="ms-btn-primary" :disabled="atCap" data-testid="add-kit"
+          :title="atCap ? `The ${usage.plan} plan covers ${usage.limit} devices and kits together. Your kits keep working; upgrade to add more.` : ''"
+          @click="showAddForm = true">
+          <Icon name="plus" :size="15" />Add kit
         </button>
         <UpgradeButton v-if="atCap" :usage="usage" />
       </div>
     </div>
 
-    <!-- Error -->
-    <div v-if="error" class="bg-red-900/50 border border-red-700 text-red-200 px-4 py-3 rounded mb-4 flex items-center justify-between">
+    <div v-if="error" role="alert" class="mb-4 flex items-start justify-between gap-4 rounded-lg border border-ms-error/50 bg-ms-error/10 px-4 py-3 text-[13px] text-ms-text">
       <span>{{ error }}</span>
-      <button @click="error = ''" class="text-ms-error hover:text-red-200 text-xs ml-4">dismiss</button>
+      <button class="text-xs text-ms-muted hover:text-ms-text" @click="error = ''">Dismiss</button>
     </div>
 
-    <!-- Add bridge form -->
-    <div v-if="showAddForm" class="bg-tactical-surface rounded-lg border border-tactical-border p-4 mb-4">
-      <h3 class="text-sm font-display font-semibold mb-3">Pre-register Bridge</h3>
-      <p class="text-xs text-gray-400 mb-3">Create a bridge record before it connects. You'll generate credentials in the next step.</p>
-      <div v-if="addError" class="bg-red-900/50 border border-red-700 text-red-200 px-3 py-2 rounded text-xs mb-3">{{ addError }}</div>
-      <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3">
-        <div>
-          <label class="text-xs text-gray-400 mb-1 block">Bridge ID</label>
-          <input v-model="addForm.bridge_id" placeholder="e.g. mule01, bananapi01"
-            class="bg-gray-800 border border-gray-700 px-3 py-2 rounded-lg text-gray-200 w-full placeholder-gray-500 focus:outline-none focus:border-brand-primary text-sm font-mono"
-            @keydown.enter="addBridge" />
-        </div>
-        <div>
-          <label class="text-xs text-gray-400 mb-1 block">Label (optional)</label>
-          <input v-model="addForm.label" placeholder="Human-readable name"
-            class="bg-gray-800 border border-gray-700 px-3 py-2 rounded-lg text-gray-200 w-full placeholder-gray-500 focus:outline-none focus:border-brand-primary text-sm"
-            @keydown.enter="addBridge" />
-        </div>
+    <!-- Add a kit -->
+    <section v-if="showAddForm" class="ms-panel p-5 mb-5" aria-labelledby="add-h">
+      <h2 id="add-h" class="ms-h2">Add a kit</h2>
+      <p class="text-[13px] text-ms-muted mt-1 max-w-[64ch]">Give it a short id; it becomes the kit's name on the broker and cannot be changed later. Next you show a setup QR code, and the kit or the Android app scans it to connect itself.</p>
+      <div v-if="addError" class="mt-3 rounded-md border border-ms-error/50 bg-ms-error/10 px-3 py-2 text-xs text-ms-text">{{ addError }}</div>
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-4 max-w-2xl">
+        <label class="block">
+          <span class="ms-label">Kit id</span>
+          <input v-model="addForm.bridge_id" placeholder="e.g. field-kit-01" class="ms-input w-full mt-1 font-mono" @keydown.enter="addBridge" />
+        </label>
+        <label class="block">
+          <span class="ms-label">Name (optional)</span>
+          <input v-model="addForm.label" placeholder="What your team calls it" class="ms-input w-full mt-1" @keydown.enter="addBridge" />
+        </label>
       </div>
-      <div class="flex justify-end">
-        <button @click="addBridge"
-          class="bg-brand-accent hover:bg-brand-primary text-ms-on-primary px-4 py-2 rounded text-sm transition-colors">
-          Create Bridge
-        </button>
+      <div class="flex gap-2 mt-4">
+        <button class="ms-btn-primary" @click="addBridge">Create kit</button>
+        <button class="ms-btn" @click="showAddForm = false">Cancel</button>
       </div>
+    </section>
+
+    <div v-if="loading" class="text-sm text-ms-muted py-10">Loading kits.</div>
+
+    <div v-else-if="!bridgeList.length" class="ms-panel px-6 py-12 text-center">
+      <Icon name="kits" :size="28" class="mx-auto text-ms-muted" />
+      <h2 class="ms-h2 mt-3">No kits yet</h2>
+      <p class="text-[13px] text-ms-muted mt-1 max-w-[52ch] mx-auto">Add a kit, show its setup QR code, and scan it with the kit or the MeshSat Android app. It appears here the moment it connects.</p>
+      <button class="ms-btn-primary mt-4" @click="showAddForm = true">Add your first kit</button>
     </div>
 
-    <!-- Onboarding banner -->
-    <div v-if="onboardingBridgeId && onboardingStep > 0" class="bg-brand-primary/10 border border-brand-accent/50 rounded-lg p-4 mb-4">
-      <div class="flex items-center justify-between mb-2">
-        <h3 class="text-sm font-display font-semibold text-brand-primary">Onboarding: {{ onboardingBridgeId }}</h3>
-        <button @click="dismissOnboarding" class="text-xs text-gray-400 hover:text-gray-200">dismiss</button>
-      </div>
-      <div class="flex items-center gap-4 text-xs">
-        <div class="flex items-center gap-1.5" :class="onboardingStep >= 1 ? 'text-brand-primary' : 'text-gray-500'">
-          <span class="w-5 h-5 rounded-full border flex items-center justify-center text-[10px] font-bold"
-            :class="onboardingStep > 1 ? 'bg-brand-accent border-brand-accent' : onboardingStep === 1 ? 'border-brand-primary text-brand-primary' : 'border-gray-600'">
-            {{ onboardingStep > 1 ? '\u2713' : '1' }}
-          </span>
-          MQTT Credentials
-        </div>
-        <div class="w-8 border-t border-gray-600" />
-        <div class="flex items-center gap-1.5" :class="onboardingStep >= 2 ? 'text-brand-primary' : 'text-gray-500'">
-          <span class="w-5 h-5 rounded-full border flex items-center justify-center text-[10px] font-bold"
-            :class="onboardingStep > 2 ? 'bg-brand-accent border-brand-accent' : onboardingStep === 2 ? 'border-brand-primary text-brand-primary' : 'border-gray-600'">
-            {{ onboardingStep > 2 ? '\u2713' : '2' }}
-          </span>
-          TLS Certificate
-        </div>
-        <div class="w-8 border-t border-gray-600" />
-        <div class="flex items-center gap-1.5" :class="onboardingStep >= 3 ? 'text-brand-primary' : 'text-gray-500'">
-          <span class="w-5 h-5 rounded-full border flex items-center justify-center text-[10px] font-bold"
-            :class="onboardingStep >= 3 ? 'bg-brand-accent border-brand-accent' : 'border-gray-600'">
-            {{ onboardingStep >= 3 ? '\u2713' : '3' }}
-          </span>
-          Configure Bridge
-        </div>
-      </div>
-      <div v-if="onboardingStep === 1" class="mt-3 text-xs text-gray-300">
-        Expand the bridge card below and click <strong>Generate MQTT Credentials</strong> to get the username and password.
-      </div>
-      <div v-else-if="onboardingStep === 2" class="mt-3 text-xs text-gray-300">
-        Now click <strong>Issue TLS Certificate</strong> to generate the mutual TLS client certificate.
-      </div>
-      <div v-else-if="onboardingStep === 3" class="mt-3 text-xs text-gray-300">
-        Copy the credentials to your bridge's <code class="bg-gray-800 px-1 py-0.5 rounded font-mono text-brand-primary">/cubeos/config/secrets.env</code> and restart the bridge service. It will appear as online once it connects via MQTT.
-      </div>
-    </div>
-
-    <!-- Loading -->
-    <div v-if="loading" class="text-center text-gray-500 py-12">Loading...</div>
-
-    <!-- Empty state -->
-    <EmptyState v-else-if="!bridgeList.length"
-      icon="satellite"
-      title="No bridges registered"
-      message="Click '+ Add Bridge' to pre-register a bridge, or configure MESHSAT_HUB_URL on your bridge to auto-connect." />
-
-    <!-- Bridge cards grid -->
-    <div v-else class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-      <div v-for="b in bridgeList" :key="b.bridge_id">
-        <!-- Card -->
-        <div class="bg-tactical-surface rounded-lg border border-tactical-border p-4 cursor-pointer hover:border-gray-500 transition-colors"
-          :class="{ 'rounded-b-none': expandedBridge === b.bridge_id }"
-          @click="toggleExpand(b.bridge_id)">
-          <!-- Card header -->
-          <div class="flex items-center justify-between mb-3">
-            <div class="flex items-center gap-2 min-w-0">
-              <h3 class="font-display font-semibold text-gray-200 truncate">{{ b.label || b.bridge_id }}</h3>
-              <span class="flex items-center gap-1.5 text-xs font-medium shrink-0"
-                :class="b.online ? 'text-ms-success' : 'text-ms-error'">
-                <span class="w-2 h-2 rounded-full" :class="b.online ? 'bg-ms-success animate-pulse-dot' : 'bg-ms-error'" />
-                {{ b.online ? 'Online' : 'Offline' }}
+    <div v-else class="xl:grid xl:grid-cols-[minmax(0,5fr)_minmax(0,7fr)] xl:gap-5 items-start">
+      <!-- Kit list -->
+      <section class="ms-panel overflow-hidden" :class="selected ? 'hidden xl:block' : ''" aria-label="Kits">
+        <ul role="listbox" aria-label="Kits" class="divide-y divide-ms-border">
+          <li v-for="b in bridgeList" :key="b.bridge_id" role="option" :aria-selected="expandedBridge === b.bridge_id" tabindex="0"
+            class="relative px-4 py-3 cursor-pointer transition-colors"
+            :class="expandedBridge === b.bridge_id ? 'bg-ms-well' : 'hover:bg-ms-well/50'"
+            @click="selectKit(b.bridge_id)" @keydown.enter="selectKit(b.bridge_id)">
+            <span v-if="expandedBridge === b.bridge_id" class="absolute left-0 top-2 bottom-2 w-0.5 rounded-full bg-ms-primary" aria-hidden="true" />
+            <div class="flex items-center gap-2.5 min-w-0">
+              <span class="w-2 h-2 rounded-full shrink-0" :class="b.online ? 'bg-ms-success' : 'border border-ms-warning'" :title="b.online ? 'Connected' : 'Offline'" />
+              <span class="text-[13px] font-medium text-ms-text truncate">{{ kitName(b) }}</span>
+              <span class="ml-auto text-xs whitespace-nowrap" :class="b.online ? 'text-ms-muted' : 'text-ms-warning'">{{ linkWords(b) }}</span>
+            </div>
+            <div class="flex items-center gap-2 mt-1.5 pl-[18px] min-w-0">
+              <span class="ms-id text-ms-muted truncate">{{ b.bridge_id }}</span>
+              <span class="ml-auto flex items-center -mr-1">
+                <PathCell v-for="f in FAMILIES" :key="f.key" :state="kitStates(b)[f.key]" :label="f.long" />
               </span>
             </div>
-            <svg class="w-4 h-4 text-gray-500 shrink-0 transition-transform" :class="expandedBridge === b.bridge_id ? 'rotate-180' : ''"
-              fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
-            </svg>
-          </div>
+          </li>
+        </ul>
+      </section>
 
-          <!-- Bridge meta -->
-          <div class="grid grid-cols-2 gap-x-4 gap-y-1 text-xs mb-3">
-            <div>
-              <span class="text-gray-500">ID</span>
-              <div class="text-gray-300 font-mono truncate">{{ b.bridge_id }}</div>
-            </div>
-            <div>
-              <span class="text-gray-500">Version</span>
-              <div class="text-gray-300 font-mono">{{ b.version || '—' }}</div>
-            </div>
-            <div>
-              <span class="text-gray-500">Last seen</span>
-              <div class="text-gray-300">{{ timeAgo(b.last_seen) }}</div>
-            </div>
-            <div v-if="b.last_report_at" :title="'Latest report from the bridge over any bearer'">
-              <span class="text-gray-500">Last report</span>
-              <div class="text-gray-300">
-                <span class="font-mono text-[10px] px-1 py-0.5 rounded border border-gray-600/40 bg-gray-700/30 text-gray-300 uppercase">{{ b.last_report_bearer || '?' }}</span>
-                {{ timeAgo(b.last_report_at) }}
+      <!-- Selected kit -->
+      <section v-if="selected" class="ms-panel overflow-hidden mt-5 xl:mt-0" aria-labelledby="kit-h" data-testid="kit-detail">
+        <div class="px-5 pt-4 pb-4 border-b border-ms-border">
+          <button class="xl:hidden ms-btn-ghost -ml-2 mb-2 text-xs" @click="expandedBridge = null"><Icon name="collapse" :size="14" />All kits</button>
+          <div class="flex flex-wrap items-start gap-3">
+            <div class="min-w-0 flex-1">
+              <h2 id="kit-h" class="text-lg font-semibold text-ms-text truncate">{{ kitName(selected) }}</h2>
+              <div class="flex flex-wrap items-center gap-x-3 gap-y-1 mt-0.5 text-[13px]">
+                <span class="ms-id text-ms-muted">{{ selected.bridge_id }}</span>
+                <span :class="selected.online ? 'text-ms-text2' : 'text-ms-warning'">{{ selected.online ? 'Connected to the Hub' : `Offline, ${linkWords(selected).toLowerCase()}` }}</span>
               </div>
             </div>
-            <div>
-              <span class="text-gray-500">Hostname</span>
-              <div class="text-gray-300 font-mono truncate">{{ b.hostname || '—' }}</div>
+            <div class="flex gap-2">
+              <button class="ms-btn" @click="openEdit(selected)">Edit</button>
+              <button class="ms-btn hover:!border-ms-error hover:!text-ms-error" @click="confirmDelete(selected)">Delete</button>
             </div>
-          </div>
-
-          <!-- CoT TAK badges -->
-          <div v-if="b.cot_callsign || b.cot_type" class="flex flex-wrap gap-1.5">
-            <span v-if="b.cot_callsign" class="inline-flex items-center gap-1 text-xs px-1.5 py-0.5 rounded border border-blue-600/30 bg-blue-600/10 text-blue-400 font-mono">&#9670; {{ b.cot_callsign }}</span>
-            <span v-if="b.cot_type" class="inline-flex items-center gap-1 text-xs px-1.5 py-0.5 rounded border border-gray-600/30 bg-gray-600/10 text-gray-400">{{ b.cot_type }}</span>
-          </div>
-
-          <!-- Interface badges -->
-          <div v-if="parseBirth(b)?.interfaces?.length" class="flex flex-wrap gap-1.5">
-            <span v-for="iface in parseBirth(b).interfaces" :key="iface.name"
-              class="inline-flex items-center gap-1 text-xs px-1.5 py-0.5 rounded border bg-black/20"
-              :class="interfaceTypeBadgeColor(iface.type)">
-              <span class="w-1.5 h-1.5 rounded-full" :class="interfaceStatusDot(iface.status)" />
-              {{ iface.name }}
-            </span>
           </div>
         </div>
 
-        <!-- Expanded detail panel -->
-        <Transition name="expand">
-          <div v-if="expandedBridge === b.bridge_id"
-            class="bg-tactical-surface rounded-b-lg border border-t-0 border-tactical-border p-4">
+        <!-- Paths -->
+        <div class="px-5 py-4 border-b border-ms-border">
+          <h3 class="ms-h2">Paths</h3>
+          <div v-if="kitInterfaces(selected).length" class="mt-2 -mx-5 overflow-x-auto">
+            <table class="ms-table">
+              <thead><tr><th>Interface</th><th>State</th><th class="hidden sm:table-cell">Signal</th><th class="hidden sm:table-cell">Traffic</th></tr></thead>
+              <tbody>
+                <tr v-for="iface in kitInterfaces(selected)" :key="iface.name">
+                  <td>
+                    <div class="text-[13px] text-ms-text">{{ interfaceTypeLabel(iface.type || birthInterfaceType(selected, iface.name) || iface.name) }}</div>
+                    <div class="ms-id text-ms-muted">{{ iface.name }}</div>
+                  </td>
+                  <td>
+                    <span class="inline-flex items-center gap-2">
+                      <PathCell :state="ifaceState(iface.status)" :label="iface.name" />
+                      <span class="text-[13px]" :class="iface.status === 'error' ? 'text-ms-error' : iface.status === 'online' ? 'text-ms-text' : 'text-ms-muted'">{{ statusWords(iface.status) }}</span>
+                    </span>
+                  </td>
+                  <td class="hidden sm:table-cell text-ms-text2">{{ signalDisplay(iface) }}</td>
+                  <td class="hidden sm:table-cell text-ms-muted">{{ messageDisplay(iface) }}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <p v-else class="text-[13px] text-ms-muted mt-1">The kit has not reported its interfaces yet. They appear after it first connects.</p>
+        </div>
 
-            <!-- Action buttons -->
-            <div class="flex flex-wrap gap-2 mb-4 pb-4 border-b border-tactical-border">
-              <button @click.stop="openEdit(b)"
-                class="text-xs px-3 py-1.5 rounded border border-gray-600 text-gray-300 hover:text-gray-100 hover:border-gray-500 transition-colors">
-                Edit
-              </button>
-              <button @click.stop="confirmDelete(b)"
-                class="text-xs px-3 py-1.5 rounded border border-red-800 text-ms-error hover:text-red-300 hover:border-red-700 hover:bg-red-900/30 transition-colors">
-                Delete Bridge
-              </button>
-            </div>
-
-            <!-- Credentials section -->
-            <div class="mb-4 pb-4 border-b border-tactical-border">
-              <h4 class="text-xs text-gray-500 uppercase tracking-wider font-display mb-2">Credentials</h4>
-              <div class="flex flex-wrap items-center gap-3 mb-2">
-                <div class="text-xs">
-                  <span class="text-gray-500">MQTT:</span>
-                  <span :class="hasCredentials(b) ? 'text-ms-success' : 'text-gray-500'" class="ml-1">
-                    {{ hasCredentials(b) ? 'Configured' : 'Not set' }}
-                  </span>
-                </div>
-                <div class="text-xs">
-                  <span class="text-gray-500">TLS:</span>
-                  <span v-if="hasCertificate(b)" :class="certExpiryStatus(b)?.color" class="ml-1">
-                    {{ certExpiryStatus(b)?.label }}
-                  </span>
-                  <span v-else class="text-gray-500 ml-1">Not issued</span>
-                </div>
-              </div>
-              <div class="flex flex-wrap gap-2">
-                <button @click.stop="generateCredentials(b.bridge_id)" :disabled="credentialLoading"
-                  class="text-xs px-3 py-1.5 rounded bg-gray-700 hover:bg-gray-600 text-gray-200 transition-colors disabled:opacity-50">
-                  {{ credentialLoading ? 'Generating...' : hasCredentials(b) ? 'Rotate MQTT Password' : 'Generate MQTT Credentials' }}
-                </button>
-                <button @click.stop="issueCertificate(b.bridge_id)" :disabled="certificateLoading"
-                  class="text-xs px-3 py-1.5 rounded bg-gray-700 hover:bg-gray-600 text-gray-200 transition-colors disabled:opacity-50">
-                  {{ certificateLoading ? 'Issuing...' : hasCertificate(b) ? 'Reissue TLS Certificate' : 'Issue TLS Certificate' }}
-                </button>
-                <button @click.stop="provisionWithQR(b.bridge_id)" :disabled="provisionLoading"
-                  class="text-xs px-3 py-1.5 rounded bg-brand-accent hover:bg-brand-accent text-ms-on-primary transition-colors disabled:opacity-50"
-                  title="Generate a QR code with MQTT credentials + TLS certificate for one-step provisioning">
-                  {{ provisionLoading ? 'Generating...' : 'Provision QR' }}
-                </button>
-              </div>
-
-              <!-- One-time MQTT credential display -->
-              <div v-if="credentialResult && credentialResult.bridge_id === b.bridge_id"
-                class="mt-3 bg-amber-900/20 border border-amber-700/50 rounded-lg p-3">
-                <div class="flex items-center justify-between mb-2">
-                  <span class="text-xs font-semibold text-amber-300">MQTT credentials. Copy them now, they are shown only once</span>
-                  <button @click.stop="dismissCredentials" class="text-xs text-gray-400 hover:text-gray-200">dismiss</button>
-                </div>
-                <div class="space-y-2 text-xs font-mono">
-                  <div class="flex items-center gap-2">
-                    <span class="text-gray-400 w-16 shrink-0">URL:</span>
-                    <code class="text-gray-200 bg-gray-800 px-2 py-1 rounded flex-1 truncate">{{ credentialResult.mqtt_url }}</code>
-                    <button @click.stop="copyToClipboard(credentialResult.mqtt_url, 'url')"
-                      class="text-brand-primary hover:text-brand-primary shrink-0 text-xs">{{ copied === 'url' ? 'Copied!' : 'Copy' }}</button>
-                  </div>
-                  <div class="flex items-center gap-2">
-                    <span class="text-gray-400 w-16 shrink-0">User:</span>
-                    <code class="text-gray-200 bg-gray-800 px-2 py-1 rounded flex-1 truncate">{{ credentialResult.username }}</code>
-                    <button @click.stop="copyToClipboard(credentialResult.username, 'user')"
-                      class="text-brand-primary hover:text-brand-primary shrink-0 text-xs">{{ copied === 'user' ? 'Copied!' : 'Copy' }}</button>
-                  </div>
-                  <div class="flex items-center gap-2">
-                    <span class="text-gray-400 w-16 shrink-0">Pass:</span>
-                    <code class="text-gray-200 bg-gray-800 px-2 py-1 rounded flex-1 truncate">{{ credentialResult.password }}</code>
-                    <button @click.stop="copyToClipboard(credentialResult.password, 'pass')"
-                      class="text-brand-primary hover:text-brand-primary shrink-0 text-xs">{{ copied === 'pass' ? 'Copied!' : 'Copy' }}</button>
-                  </div>
-                </div>
-              </div>
-
-              <!-- One-time TLS certificate display -->
-              <div v-if="certificateResult && certificateResult.bridge_id === b.bridge_id"
-                class="mt-3 bg-amber-900/20 border border-amber-700/50 rounded-lg p-3">
-                <div class="flex items-center justify-between mb-2">
-                  <span class="text-xs font-semibold text-amber-300">TLS certificate. The private key is shown only once</span>
-                  <button @click.stop="dismissCertificate" class="text-xs text-gray-400 hover:text-gray-200">dismiss</button>
-                </div>
-                <div class="text-xs text-gray-400 mb-2">
-                  Expires: <span class="text-gray-200">{{ formatUTC(certificateResult.expires) }}</span>
-                </div>
-                <div class="flex flex-wrap gap-2">
-                  <button @click.stop="downloadFile(certificateResult.cert_pem, b.bridge_id + '.crt')"
-                    class="text-xs px-2 py-1 rounded bg-gray-700 hover:bg-gray-600 text-gray-200 transition-colors">
-                    Download Certificate (.crt)
-                  </button>
-                  <button @click.stop="downloadFile(certificateResult.key_pem, b.bridge_id + '.key')"
-                    class="text-xs px-2 py-1 rounded bg-gray-700 hover:bg-gray-600 text-gray-200 transition-colors">
-                    Download Private Key (.key)
-                  </button>
-                  <button @click.stop="downloadFile(certificateResult.ca_pem, 'meshsat-hub-ca.crt')"
-                    class="text-xs px-2 py-1 rounded bg-gray-700 hover:bg-gray-600 text-gray-200 transition-colors">
-                    Download CA (.crt)
-                  </button>
-                  <button @click.stop="copyToClipboard(certificateResult.cert_pem + '\n' + certificateResult.key_pem, 'cert')"
-                    class="text-xs text-brand-primary hover:text-brand-primary">{{ copied === 'cert' ? 'Copied!' : 'Copy All' }}</button>
-                </div>
-              </div>
-            </div>
-
-            <!-- Commands. Present whether or not the bridge is on MQTT: a
-                 bridge that has lost its internet is exactly the one worth
-                 commanding, over a sealed out-of-band frame (MESHSAT-964). -->
-            <div class="mb-4 pb-4 border-b border-tactical-border">
-              <div class="flex items-center justify-between mb-2">
-                <h4 class="text-xs text-gray-500 uppercase tracking-wider font-display">Commands</h4>
-                <select v-model="commandVia[b.bridge_id]" @click.stop
-                  class="text-xs bg-gray-800 border border-tactical-border rounded px-2 py-1 text-gray-200">
-                  <option value="">Auto</option>
-                  <option value="mqtt">MQTT</option>
-                  <option value="sms">SMS</option>
-                  <option value="imt">Satellite (IMT)</option>
-                  <option value="sbd">Satellite (SBD)</option>
+        <!-- Commands. Present whether or not the kit is on MQTT: a kit that has
+             lost its internet is exactly the one worth commanding, over a
+             sealed out-of-band frame (MESHSAT-964). -->
+        <div class="px-5 py-4 border-b border-ms-border">
+          <div class="flex flex-wrap items-center justify-between gap-2">
+            <h3 class="ms-h2">Commands</h3>
+            <label class="flex items-center gap-2 text-xs text-ms-muted">
+              Send over
+              <select :value="commandVia[selected.bridge_id] || ''" class="ms-input h-7 text-xs"
+                @change="commandVia[selected.bridge_id] = $event.target.value">
+                <option value="">Best available</option>
+                <option value="mqtt">Internet (MQTT)</option>
+                <option value="sms">SMS</option>
+                <option value="imt">Satellite (IMT)</option>
+                <option value="sbd">Satellite (SBD)</option>
+              </select>
+            </label>
+          </div>
+          <p v-if="!isMqttLeg(selected)" class="text-xs text-ms-muted mt-2 max-w-[64ch]">
+            Out of band: the command travels as a sealed frame and the kit answers on the same bearer. About a minute over SMS, several over satellite. It expires if the kit cannot act on it in time.
+          </p>
+          <div class="flex flex-wrap gap-2 mt-3">
+            <template v-if="isMqttLeg(selected)">
+              <button class="ms-btn" :disabled="commandLoading[selected.bridge_id + 'ping']" @click="sendCommand(selected.bridge_id, 'ping')">
+                {{ commandLoading[selected.bridge_id + 'ping'] ? 'Pinging' : 'Ping' }}</button>
+              <button class="ms-btn" :disabled="commandLoading[selected.bridge_id + 'flush_burst']" @click="sendCommand(selected.bridge_id, 'flush_burst')">
+                {{ commandLoading[selected.bridge_id + 'flush_burst'] ? 'Flushing' : 'Flush burst queue' }}</button>
+              <button class="ms-btn text-ms-warning" :disabled="commandLoading[selected.bridge_id + 'reboot']" @click="confirmReboot(selected)">
+                {{ commandLoading[selected.bridge_id + 'reboot'] ? 'Rebooting' : 'Reboot' }}</button>
+            </template>
+            <template v-else>
+              <button class="ms-btn" :disabled="commandLoading[selected.bridge_id + 'mgmt_ping']" @click="sendCommand(selected.bridge_id, 'mgmt_ping', null, true)">
+                {{ commandLoading[selected.bridge_id + 'mgmt_ping'] ? 'Pinging' : 'Ping' }}</button>
+              <button class="ms-btn" :disabled="commandLoading[selected.bridge_id + 'mgmt_status']" @click="sendCommand(selected.bridge_id, 'mgmt_status', null, true)">
+                {{ commandLoading[selected.bridge_id + 'mgmt_status'] ? 'Asking' : 'Status' }}</button>
+              <!-- mgmt_log needs a journal unit: without one the Hub refuses it. -->
+              <span class="inline-flex">
+                <select :value="logUnit[selected.bridge_id] || LOG_UNITS[0]" aria-label="Log unit" class="ms-input rounded-r-none border-r-0"
+                  @change="logUnit[selected.bridge_id] = $event.target.value">
+                  <option v-for="u in LOG_UNITS" :key="u" :value="u">{{ u }}</option>
                 </select>
-              </div>
-              <p v-if="!isMqttLeg(b)" class="text-xs text-gray-500 mb-2">
-                Out of band: the command goes as a sealed frame over the bearer and
-                waits for the bridge to answer on the same one. About a minute over
-                SMS, several over satellite.
-              </p>
-              <div class="flex flex-wrap gap-2">
-                <template v-if="isMqttLeg(b)">
-                  <button @click.stop="sendCommand(b.bridge_id, 'ping')" :disabled="commandLoading[b.bridge_id + 'ping']"
-                    class="text-xs px-3 py-1.5 rounded bg-gray-700 hover:bg-gray-600 text-gray-200 transition-colors disabled:opacity-50">
-                    {{ commandLoading[b.bridge_id + 'ping'] ? 'Pinging...' : 'Ping' }}
-                  </button>
-                  <button @click.stop="sendCommand(b.bridge_id, 'reboot')" :disabled="commandLoading[b.bridge_id + 'reboot']"
-                    class="text-xs px-3 py-1.5 rounded bg-gray-700 hover:bg-gray-600 text-amber-300 transition-colors disabled:opacity-50">
-                    {{ commandLoading[b.bridge_id + 'reboot'] ? 'Rebooting...' : 'Reboot' }}
-                  </button>
-                  <button @click.stop="sendCommand(b.bridge_id, 'flush_burst')" :disabled="commandLoading[b.bridge_id + 'flush_burst']"
-                    class="text-xs px-3 py-1.5 rounded bg-gray-700 hover:bg-gray-600 text-gray-200 transition-colors disabled:opacity-50">
-                    {{ commandLoading[b.bridge_id + 'flush_burst'] ? 'Flushing...' : 'Flush Burst Queue' }}
-                  </button>
-                </template>
-                <template v-else>
-                  <button @click.stop="sendCommand(b.bridge_id, 'mgmt_ping', null, true)" :disabled="commandLoading[b.bridge_id + 'mgmt_ping']"
-                    class="text-xs px-3 py-1.5 rounded bg-gray-700 hover:bg-gray-600 text-gray-200 transition-colors disabled:opacity-50">
-                    {{ commandLoading[b.bridge_id + 'mgmt_ping'] ? 'Pinging...' : 'Ping' }}
-                  </button>
-                  <button @click.stop="sendCommand(b.bridge_id, 'mgmt_status', null, true)" :disabled="commandLoading[b.bridge_id + 'mgmt_status']"
-                    class="text-xs px-3 py-1.5 rounded bg-gray-700 hover:bg-gray-600 text-gray-200 transition-colors disabled:opacity-50">
-                    {{ commandLoading[b.bridge_id + 'mgmt_status'] ? 'Asking...' : 'Status' }}
-                  </button>
-                  <!-- mgmt_log needs a journal unit: without one the Hub refuses it. -->
-                  <span class="inline-flex items-stretch">
-                    <select :value="logUnit[b.bridge_id] || LOG_UNITS[0]" @change="logUnit[b.bridge_id] = $event.target.value" @click.stop aria-label="Log unit"
-                      class="text-xs bg-gray-800 border border-tactical-border rounded-l px-2 py-1 text-gray-200">
-                      <option v-for="u in LOG_UNITS" :key="u" :value="u">{{ u }}</option>
-                    </select>
-                    <button @click.stop="sendCommand(b.bridge_id, 'mgmt_log', { unit: logUnit[b.bridge_id] || LOG_UNITS[0] }, true)"
-                      :disabled="commandLoading[b.bridge_id + 'mgmt_log']"
-                      class="text-xs px-3 py-1.5 rounded-r bg-gray-700 hover:bg-gray-600 text-gray-200 transition-colors disabled:opacity-50">
-                      {{ commandLoading[b.bridge_id + 'mgmt_log'] ? 'Fetching...' : 'Log' }}
-                    </button>
-                  </span>
-                </template>
-              </div>
-              <div v-if="commandResult[b.bridge_id]" class="mt-2 text-xs">
-                <div v-if="commandResult[b.bridge_id].error" class="text-ms-error">
-                  Error: {{ commandResult[b.bridge_id].error }}
-                </div>
-                <div v-else-if="commandResult[b.bridge_id].waiting !== undefined" class="text-gray-400">
-                  Sent. Waiting for the bridge to answer: {{ commandResult[b.bridge_id].waiting }} s
-                </div>
-                <div v-else class="text-ms-success">
-                  {{ commandResult[b.bridge_id].status }}
-                  <span v-if="commandResult[b.bridge_id].bearer" class="text-gray-400">
-                    via {{ bearerLabel(commandResult[b.bridge_id].bearer) }}
-                  </span>
-                  <span class="text-gray-400">({{ commandResult[b.bridge_id].latency_ms }}ms)</span>
-                </div>
-                <pre v-if="commandResult[b.bridge_id].result"
-                  class="mt-1 p-2 rounded bg-gray-900 text-gray-300 font-mono overflow-x-auto whitespace-pre-wrap">{{ commandResult[b.bridge_id].result }}</pre>
-              </div>
-            </div>
-
-            <!-- System metrics -->
-            <template v-if="parseHealth(b)">
-              <h4 class="text-xs text-gray-500 uppercase tracking-wider font-display mb-2">System</h4>
-              <div class="grid grid-cols-3 gap-3 mb-4">
-                <div>
-                  <div class="flex items-center justify-between text-xs mb-1">
-                    <span class="text-gray-400">CPU</span>
-                    <span class="text-gray-300">{{ parseHealth(b).cpu_pct?.toFixed(1) || 0 }}%</span>
-                  </div>
-                  <div class="w-full bg-gray-700 rounded-full h-1.5">
-                    <div class="h-1.5 rounded-full transition-all"
-                      :class="parseHealth(b).cpu_pct > 80 ? 'bg-ms-error' : parseHealth(b).cpu_pct > 50 ? 'bg-ms-warning' : 'bg-brand-primary'"
-                      :style="{ width: Math.min(parseHealth(b).cpu_pct || 0, 100) + '%' }" />
-                  </div>
-                </div>
-                <div>
-                  <div class="flex items-center justify-between text-xs mb-1">
-                    <span class="text-gray-400">Memory</span>
-                    <span class="text-gray-300">{{ parseHealth(b).mem_pct?.toFixed(1) || 0 }}%</span>
-                  </div>
-                  <div class="w-full bg-gray-700 rounded-full h-1.5">
-                    <div class="h-1.5 rounded-full transition-all"
-                      :class="parseHealth(b).mem_pct > 80 ? 'bg-ms-error' : parseHealth(b).mem_pct > 50 ? 'bg-ms-warning' : 'bg-brand-primary'"
-                      :style="{ width: Math.min(parseHealth(b).mem_pct || 0, 100) + '%' }" />
-                  </div>
-                </div>
-                <div>
-                  <div class="flex items-center justify-between text-xs mb-1">
-                    <span class="text-gray-400">Disk</span>
-                    <span class="text-gray-300">{{ parseHealth(b).disk_pct?.toFixed(1) || 0 }}%</span>
-                  </div>
-                  <div class="w-full bg-gray-700 rounded-full h-1.5">
-                    <div class="h-1.5 rounded-full transition-all"
-                      :class="parseHealth(b).disk_pct > 80 ? 'bg-ms-error' : parseHealth(b).disk_pct > 50 ? 'bg-ms-warning' : 'bg-brand-primary'"
-                      :style="{ width: Math.min(parseHealth(b).disk_pct || 0, 100) + '%' }" />
-                  </div>
-                </div>
-              </div>
-
-              <!-- Uptime -->
-              <div class="text-xs text-gray-400 mb-4">
-                Uptime: <span class="text-gray-300">{{ formatUptime(parseHealth(b).uptime_sec) }}</span>
-              </div>
-
-              <!-- Interface detail table -->
-              <template v-if="parseHealth(b).interfaces?.length">
-                <h4 class="text-xs text-gray-500 uppercase tracking-wider font-display mb-2">Interfaces</h4>
-                <div class="overflow-x-auto mb-4">
-                  <table class="w-full text-xs">
-                    <thead>
-                      <tr class="text-gray-500 border-b border-tactical-border">
-                        <th class="text-left py-1.5 pr-3 font-medium">Interface</th>
-                        <th class="text-left py-1.5 pr-3 font-medium">Type</th>
-                        <th class="text-left py-1.5 pr-3 font-medium">Status</th>
-                        <th class="text-left py-1.5 pr-3 font-medium">Signal</th>
-                        <th class="text-left py-1.5 pr-3 font-medium">Health</th>
-                        <th class="text-left py-1.5 font-medium">Messages</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      <tr v-for="iface in parseHealth(b).interfaces" :key="iface.name"
-                        class="border-b border-tactical-border/50">
-                        <td class="py-1.5 pr-3 font-mono text-gray-300">{{ iface.name }}</td>
-                        <td class="py-1.5 pr-3">
-                          <span :class="interfaceTypeBadgeColor(birthInterfaceType(b, iface.name))">
-                            {{ interfaceTypeLabel(birthInterfaceType(b, iface.name)) }}
-                          </span>
-                        </td>
-                        <td class="py-1.5 pr-3">
-                          <span class="flex items-center gap-1">
-                            <span class="w-1.5 h-1.5 rounded-full" :class="interfaceStatusDot(iface.status)" />
-                            <span :class="iface.status === 'online' ? 'text-ms-success' : iface.status === 'error' ? 'text-ms-error' : 'text-gray-400'">
-                              {{ iface.status }}
-                            </span>
-                          </span>
-                        </td>
-                        <td class="py-1.5 pr-3 text-gray-300">{{ signalDisplay(iface) }}</td>
-                        <td class="py-1.5 pr-3">
-                          <span v-if="iface.health_score > 0"
-                            :class="iface.health_score >= 80 ? 'text-ms-success' : iface.health_score >= 50 ? 'text-ms-warning' : 'text-ms-error'">
-                            {{ iface.health_score }}%
-                          </span>
-                          <span v-else class="text-gray-500">—</span>
-                        </td>
-                        <td class="py-1.5 text-gray-300">{{ messageDisplay(iface) }}</td>
-                      </tr>
-                    </tbody>
-                  </table>
-                </div>
-              </template>
-
-              <!-- Reticulum stats -->
-              <template v-if="parseHealth(b).reticulum">
-                <h4 class="text-xs text-gray-500 uppercase tracking-wider font-display mb-2">Reticulum</h4>
-                <div class="grid grid-cols-3 gap-3 text-xs mb-4">
-                  <div>
-                    <span class="text-gray-500">Routes</span>
-                    <div class="text-gray-300 font-mono">{{ parseHealth(b).reticulum.routes }}</div>
-                  </div>
-                  <div>
-                    <span class="text-gray-500">Links</span>
-                    <div class="text-gray-300 font-mono">{{ parseHealth(b).reticulum.links }}</div>
-                  </div>
-                  <div>
-                    <span class="text-gray-500">Announces relayed</span>
-                    <div class="text-gray-300 font-mono">{{ parseHealth(b).reticulum.announces_relayed }}</div>
-                  </div>
-                </div>
-              </template>
-
-              <!-- HeMB bonding stats -->
-              <template v-if="parseHealth(b).hemb">
-                <h4 class="text-xs text-gray-500 uppercase tracking-wider font-display mb-2">HeMB Bonding</h4>
-                <div class="grid grid-cols-3 gap-3 text-xs mb-4">
-                  <div>
-                    <span class="text-gray-500">Bond Groups</span>
-                    <div class="text-gray-300 font-mono">{{ parseHealth(b).hemb.active_bond_groups }}</div>
-                  </div>
-                  <div>
-                    <span class="text-gray-500">Symbols Tx/Rx</span>
-                    <div class="text-gray-300 font-mono">{{ parseHealth(b).hemb.symbols_sent }}/{{ parseHealth(b).hemb.symbols_received }}</div>
-                  </div>
-                  <div>
-                    <span class="text-gray-500">Decoded/Failed</span>
-                    <div class="font-mono"><span class="text-ms-success">{{ parseHealth(b).hemb.generations_decoded }}</span>/<span class="text-ms-error">{{ parseHealth(b).hemb.generations_failed }}</span></div>
-                  </div>
-                </div>
-              </template>
-
-              <!-- Burst queue -->
-              <template v-if="parseHealth(b).burst_queue">
-                <div class="text-xs text-gray-400 mb-4">
-                  Burst queue: <span class="text-gray-300 font-mono">{{ parseHealth(b).burst_queue.pending }}</span> pending
-                </div>
-              </template>
+                <button class="ms-btn rounded-l-none" :disabled="commandLoading[selected.bridge_id + 'mgmt_log']"
+                  @click="sendCommand(selected.bridge_id, 'mgmt_log', { unit: logUnit[selected.bridge_id] || LOG_UNITS[0] }, true)">
+                  {{ commandLoading[selected.bridge_id + 'mgmt_log'] ? 'Fetching' : 'Log' }}</button>
+              </span>
             </template>
-
-            <!-- CoT info -->
-            <template v-if="b.cot_callsign || b.cot_type">
-              <h4 class="text-xs text-gray-500 uppercase tracking-wider font-display mb-2">CoT</h4>
-              <div class="grid grid-cols-2 gap-3 text-xs mb-4">
-                <div>
-                  <span class="text-gray-500">Callsign</span>
-                  <div class="text-gray-300 font-mono">{{ b.cot_callsign || '—' }}</div>
-                </div>
-                <div>
-                  <span class="text-gray-500">Type</span>
-                  <div class="text-gray-300 font-mono">{{ b.cot_type || '—' }}</div>
-                </div>
-              </div>
-            </template>
-
-            <!-- Location -->
-            <template v-if="b.location_lat && b.location_lon">
-              <div class="text-xs text-gray-400 mb-4">
-                Location: <span class="text-gray-300 font-mono">{{ b.location_lat.toFixed(6) }}, {{ b.location_lon.toFixed(6) }}</span>
-                <span v-if="b.location_alt" class="text-gray-500 ml-1">({{ b.location_alt.toFixed(0) }}m)</span>
-              </div>
-            </template>
-
-            <!-- Bridge meta -->
-            <div class="text-xs text-gray-500 mt-2 pt-2 border-t border-tactical-border/50">
-              Created: {{ formatUTC(b.created_at) }}
-              <span v-if="b.mode" class="ml-3">Mode: {{ b.mode }}</span>
-            </div>
-
-            <!-- No health data -->
-            <div v-if="!parseHealth(b)" class="text-xs text-gray-500 italic mt-2">
-              No health data received yet. The bridge has not connected.
-            </div>
           </div>
-        </Transition>
-      </div>
-    </div>
-
-    <!-- Edit modal -->
-    <div v-if="showEditModal" class="fixed inset-0 z-50 flex items-center justify-center" @click.self="showEditModal = false">
-      <div class="absolute inset-0 bg-black/50" />
-      <div class="relative bg-tactical-surface border border-tactical-border rounded-lg p-6 max-w-md mx-4 w-full">
-        <h3 class="text-lg font-display font-semibold mb-4">Edit Bridge</h3>
-        <div class="space-y-3 mb-4">
-          <div>
-            <label class="text-xs text-gray-400 mb-1 block">Label</label>
-            <input v-model="editForm.label"
-              class="bg-gray-800 border border-gray-700 px-3 py-2 rounded-lg text-gray-200 w-full placeholder-gray-500 focus:outline-none focus:border-brand-primary text-sm"
-              @keydown.enter="saveEdit" />
-          </div>
-          <div>
-            <label class="text-xs text-gray-400 mb-1 block">CoT Callsign</label>
-            <input v-model="editForm.cot_callsign" placeholder="e.g. MESHSAT-01"
-              class="bg-gray-800 border border-gray-700 px-3 py-2 rounded-lg text-gray-200 w-full placeholder-gray-500 focus:outline-none focus:border-brand-primary text-sm font-mono"
-              @keydown.enter="saveEdit" />
+          <div v-if="commandResult[selected.bridge_id]" class="mt-3 text-[13px]" aria-live="polite">
+            <div v-if="commandResult[selected.bridge_id].error" class="text-ms-error">{{ commandResult[selected.bridge_id].error }}</div>
+            <div v-else-if="commandResult[selected.bridge_id].waiting !== undefined" class="text-ms-muted">
+              Sent. Waiting for the kit to answer, {{ commandResult[selected.bridge_id].waiting }} s.
+            </div>
+            <div v-else class="text-ms-text">
+              {{ commandResult[selected.bridge_id].status === 'ok' ? 'Answered' : commandResult[selected.bridge_id].status }}<span
+                v-if="commandResult[selected.bridge_id].bearer" class="text-ms-muted"> over {{ bearerLabel(commandResult[selected.bridge_id].bearer) }}</span><span
+                class="text-ms-muted"> in {{ (commandResult[selected.bridge_id].latency_ms / 1000).toFixed(1) }} s</span>
+            </div>
+            <pre v-if="commandResult[selected.bridge_id].result"
+              class="mt-2 p-3 rounded-md bg-ms-bg border border-ms-border text-xs text-ms-text2 font-mono overflow-x-auto whitespace-pre-wrap">{{ commandResult[selected.bridge_id].result }}</pre>
           </div>
         </div>
-        <div class="flex justify-end gap-3">
-          <button @click="showEditModal = false" class="px-4 py-2 text-sm text-gray-400 hover:text-gray-200">Cancel</button>
-          <button @click="saveEdit" class="px-4 py-2 text-sm bg-brand-accent hover:bg-brand-primary text-ms-on-primary rounded transition-colors">Save</button>
+
+        <!-- Connection -->
+        <div class="px-5 py-4 border-b border-ms-border">
+          <h3 class="ms-h2">Connection</h3>
+          <dl class="grid grid-cols-2 sm:grid-cols-3 gap-x-6 gap-y-3 mt-3 text-[13px]">
+            <div><dt class="ms-label">Broker login</dt><dd class="mt-0.5" :class="hasCredentials(selected) ? 'text-ms-text' : 'text-ms-muted'">{{ hasCredentials(selected) ? 'Issued' : 'Not issued yet' }}</dd></div>
+            <div><dt class="ms-label">Client certificate</dt>
+              <dd class="mt-0.5" :class="hasCertificate(selected) ? certExpiryStatus(selected)?.color : 'text-ms-muted'">{{ hasCertificate(selected) ? certExpiryStatus(selected)?.label : 'Not issued yet' }}</dd></div>
+            <div><dt class="ms-label">Last report</dt><dd class="mt-0.5 text-ms-text">{{ selected.last_report_at ? `${bearerLabel(selected.last_report_bearer || '?')}, ${ago(selected.last_report_at)}` : 'None yet' }}</dd></div>
+          </dl>
+          <div class="flex flex-wrap gap-2 mt-4">
+            <button class="ms-btn-primary" :disabled="provisionLoading" @click="provisionWithQR(selected.bridge_id)"
+              title="A single-use QR code carrying the broker login and certificate. The kit or the Android app scans it and connects.">
+              {{ provisionLoading ? 'Preparing' : 'Show setup QR' }}</button>
+            <button class="ms-btn" :disabled="credentialLoading" @click="generateCredentials(selected.bridge_id)">
+              {{ credentialLoading ? 'Issuing' : hasCredentials(selected) ? 'Rotate broker password' : 'Issue broker login' }}</button>
+            <button class="ms-btn" :disabled="certificateLoading" @click="issueCertificate(selected.bridge_id)">
+              {{ certificateLoading ? 'Issuing' : hasCertificate(selected) ? 'Reissue certificate' : 'Issue certificate' }}</button>
+          </div>
+          <p v-if="onboardingBridgeId === selected.bridge_id && onboardingStep > 0 && !hasCredentials(selected)" class="text-xs text-ms-muted mt-3 max-w-[64ch]">
+            New kit: press <span class="text-ms-text">Show setup QR</span> and scan it with the kit or the Android app. For a kit you set up by hand, issue the login and the certificate instead.
+          </p>
+
+          <!-- One-time broker credentials -->
+          <div v-if="credentialResult && credentialResult.bridge_id === selected.bridge_id" class="mt-4 rounded-lg border border-ms-warning/50 bg-ms-warning/5 p-4">
+            <div class="flex items-center justify-between gap-3 mb-3">
+              <span class="text-[13px] font-medium text-ms-text">Copy these now. The password is shown only once.</span>
+              <button class="text-xs text-ms-muted hover:text-ms-text" @click="dismissCredentials">Dismiss</button>
+            </div>
+            <div class="space-y-2">
+              <div v-for="row in [['URL', credentialResult.mqtt_url, 'url'], ['User', credentialResult.username, 'user'], ['Password', credentialResult.password, 'pass']]" :key="row[2]"
+                class="flex items-center gap-2">
+                <span class="ms-label w-16 shrink-0">{{ row[0] }}</span>
+                <code class="flex-1 min-w-0 truncate rounded-md bg-ms-bg border border-ms-border px-2 py-1 text-xs font-mono text-ms-text">{{ row[1] }}</code>
+                <button class="ms-btn h-7 text-xs" @click="copyToClipboard(row[1], row[2])">{{ copied === row[2] ? 'Copied' : 'Copy' }}</button>
+              </div>
+            </div>
+          </div>
+
+          <!-- One-time certificate -->
+          <div v-if="certificateResult && certificateResult.bridge_id === selected.bridge_id" class="mt-4 rounded-lg border border-ms-warning/50 bg-ms-warning/5 p-4">
+            <div class="flex items-center justify-between gap-3 mb-1">
+              <span class="text-[13px] font-medium text-ms-text">Download the private key now. It is shown only once.</span>
+              <button class="text-xs text-ms-muted hover:text-ms-text" @click="dismissCertificate">Dismiss</button>
+            </div>
+            <p class="text-xs text-ms-muted mb-3">Valid until {{ formatUTC(certificateResult.expires) }}</p>
+            <div class="flex flex-wrap gap-2">
+              <button class="ms-btn h-7 text-xs" @click="downloadFile(certificateResult.cert_pem, selected.bridge_id + '.crt')">Certificate (.crt)</button>
+              <button class="ms-btn h-7 text-xs" @click="downloadFile(certificateResult.key_pem, selected.bridge_id + '.key')">Private key (.key)</button>
+              <button class="ms-btn h-7 text-xs" @click="downloadFile(certificateResult.ca_pem, 'meshsat-hub-ca.crt')">Hub CA (.crt)</button>
+              <button class="ms-btn-ghost h-7 text-xs" @click="copyToClipboard(certificateResult.cert_pem + '\n' + certificateResult.key_pem, 'cert')">{{ copied === 'cert' ? 'Copied' : 'Copy both' }}</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- System -->
+        <div v-if="parseHealth(selected)" class="px-5 py-4 border-b border-ms-border">
+          <div class="flex items-baseline justify-between">
+            <h3 class="ms-h2">System</h3>
+            <span class="text-xs text-ms-muted">Up {{ formatUptime(parseHealth(selected).uptime_sec) }}</span>
+          </div>
+          <div class="grid grid-cols-3 gap-5 mt-3">
+            <div v-for="m in systemMeters(selected)" :key="m.label">
+              <div class="flex items-baseline justify-between text-xs">
+                <span class="text-ms-muted">{{ m.label }}</span>
+                <span class="ms-num" :class="m.level === 'alarm' ? 'text-ms-error' : m.level === 'caution' ? 'text-ms-warning' : 'text-ms-text2'">{{ Math.round(m.value || 0) }}%</span>
+              </div>
+              <div class="h-1 rounded-full bg-ms-border mt-1.5 overflow-hidden">
+                <div class="h-full rounded-full" :class="m.level === 'alarm' ? 'bg-ms-error' : m.level === 'caution' ? 'bg-ms-warning' : 'bg-ms-text2/60'" :style="{ width: Math.min(m.value || 0, 100) + '%' }" />
+              </div>
+            </div>
+          </div>
+          <dl class="grid grid-cols-2 sm:grid-cols-3 gap-x-6 gap-y-3 mt-4 text-[13px]">
+            <div v-if="parseHealth(selected).battery_pct !== undefined"><dt class="ms-label">Battery</dt><dd class="mt-0.5 ms-num" :class="parseHealth(selected).battery_pct < 15 ? 'text-ms-warning' : 'text-ms-text'">{{ Math.round(parseHealth(selected).battery_pct) }}%</dd></div>
+            <div v-if="parseHealth(selected).burst_queue"><dt class="ms-label">Burst queue</dt><dd class="mt-0.5 ms-num text-ms-text">{{ parseHealth(selected).burst_queue.pending }} waiting</dd></div>
+            <div v-if="parseHealth(selected).reticulum"><dt class="ms-label">Reticulum</dt><dd class="mt-0.5 ms-num text-ms-text">{{ parseHealth(selected).reticulum.routes }} routes, {{ parseHealth(selected).reticulum.links }} links</dd></div>
+            <div v-if="parseHealth(selected).hemb"><dt class="ms-label">Bonding</dt><dd class="mt-0.5 ms-num text-ms-text">{{ parseHealth(selected).hemb.active_bond_groups }} groups, {{ parseHealth(selected).hemb.generations_decoded }} decoded, {{ parseHealth(selected).hemb.generations_failed }} failed</dd></div>
+          </dl>
+        </div>
+
+        <!-- Details -->
+        <div class="px-5 py-4">
+          <h3 class="ms-h2">Details</h3>
+          <dl class="grid grid-cols-2 sm:grid-cols-3 gap-x-6 gap-y-3 mt-3 text-[13px]">
+            <div><dt class="ms-label">Software</dt><dd class="mt-0.5 text-ms-text">{{ selected.version || 'Unknown' }}<span v-if="selected.mode" class="text-ms-muted">, {{ selected.mode }}</span></dd></div>
+            <div><dt class="ms-label">Host</dt><dd class="mt-0.5 text-ms-text truncate">{{ selected.hostname || 'Unknown' }}</dd></div>
+            <div v-if="selected.cot_callsign || selected.cot_type"><dt class="ms-label">TAK callsign</dt><dd class="mt-0.5 text-ms-text truncate">{{ selected.cot_callsign || 'None' }} <span v-if="selected.cot_type" class="ms-id text-ms-muted">{{ selected.cot_type }}</span></dd></div>
+            <div v-if="selected.location_lat && selected.location_lon"><dt class="ms-label">Position</dt>
+              <dd class="mt-0.5"><router-link :to="{ name: 'map', query: { focus: selected.bridge_id } }" class="ms-id text-ms-text hover:text-ms-primary">{{ selected.location_lat.toFixed(5) }}, {{ selected.location_lon.toFixed(5) }}</router-link></dd></div>
+            <div><dt class="ms-label">Added</dt><dd class="mt-0.5 text-ms-text">{{ formatUTC(selected.created_at) }}</dd></div>
+          </dl>
+          <p v-if="!parseHealth(selected)" class="text-[13px] text-ms-muted mt-4">No health report yet: the kit has not connected.</p>
+        </div>
+      </section>
+    </div>
+
+    <!-- Edit -->
+    <div v-if="showEditModal" class="fixed inset-0 z-50 flex items-center justify-center p-4" role="dialog" aria-modal="true" aria-labelledby="edit-h" @click.self="showEditModal = false">
+      <div class="absolute inset-0 bg-black/60" @click="showEditModal = false" />
+      <div class="relative ms-panel p-6 w-full max-w-md">
+        <h3 id="edit-h" class="ms-h2 text-base">Edit kit</h3>
+        <div class="space-y-3 mt-4">
+          <label class="block"><span class="ms-label">Name</span>
+            <input v-model="editForm.label" class="ms-input w-full mt-1" @keydown.enter="saveEdit" /></label>
+          <label class="block"><span class="ms-label">TAK callsign</span>
+            <input v-model="editForm.cot_callsign" placeholder="e.g. MESHSAT-01" class="ms-input w-full mt-1 font-mono" @keydown.enter="saveEdit" /></label>
+        </div>
+        <div class="flex justify-end gap-2 mt-6">
+          <button class="ms-btn" @click="showEditModal = false">Cancel</button>
+          <button class="ms-btn-primary" @click="saveEdit">Save</button>
         </div>
       </div>
     </div>
 
-    <!-- Delete confirmation modal -->
-    <div v-if="showDeleteConfirm" class="fixed inset-0 z-50 flex items-center justify-center" @click.self="showDeleteConfirm = false">
-      <div class="absolute inset-0 bg-black/50" />
-      <div class="relative bg-tactical-surface border border-tactical-border rounded-lg p-6 max-w-md mx-4">
-        <h3 class="text-lg font-display font-semibold mb-2">Delete Bridge</h3>
-        <p class="text-gray-400 text-sm mb-2">
-          Permanently remove <span class="text-gray-200 font-medium font-mono">{{ bridgeToDelete?.label || bridgeToDelete?.bridge_id }}</span>?
-        </p>
-        <p class="text-xs text-gray-500 mb-4">
-          This will delete the bridge record, disassociate all linked devices, and revoke MQTT credentials. This action cannot be undone.
-        </p>
-        <div v-if="bridgeToDelete?.online" class="text-ms-warning text-xs mb-4 bg-amber-900/20 border border-amber-700 rounded p-3">
-          Warning: This bridge is currently online. Deleting it will disconnect the active MQTT session.
-        </div>
-        <div class="flex justify-end gap-3">
-          <button @click="showDeleteConfirm = false" class="px-4 py-2 text-sm text-gray-400 hover:text-gray-200">Cancel</button>
-          <button @click="deleteBridge()" class="px-4 py-2 text-sm bg-red-600 hover:bg-red-500 text-white rounded transition-colors">Delete</button>
+    <!-- Delete -->
+    <div v-if="showDeleteConfirm" class="fixed inset-0 z-50 flex items-center justify-center p-4" role="dialog" aria-modal="true" aria-labelledby="del-h" @click.self="showDeleteConfirm = false">
+      <div class="absolute inset-0 bg-black/60" @click="showDeleteConfirm = false" />
+      <div class="relative ms-panel p-6 w-full max-w-md">
+        <h3 id="del-h" class="ms-h2 text-base">Delete {{ bridgeToDelete ? kitName(bridgeToDelete) : 'kit' }}?</h3>
+        <p class="text-[13px] text-ms-muted mt-2">The kit's record goes, its broker login and certificate stop working, and devices linked to it are unlinked. This cannot be undone.</p>
+        <p v-if="bridgeToDelete?.online" class="mt-3 rounded-md border border-ms-warning/50 bg-ms-warning/5 px-3 py-2 text-xs text-ms-text">It is connected right now and will be disconnected.</p>
+        <div class="flex justify-end gap-2 mt-6">
+          <button class="ms-btn" @click="showDeleteConfirm = false">Cancel</button>
+          <button class="inline-flex items-center h-8 px-3 rounded-md text-[13px] font-semibold bg-ms-error text-ms-on-primary hover:opacity-90" @click="deleteBridge()">Delete kit</button>
         </div>
       </div>
     </div>
 
-    <!-- QR Provision Modal -->
-    <div v-if="showProvisionQR" class="fixed inset-0 z-50 flex items-center justify-center" @click.self="dismissProvisionQR">
-      <div class="fixed inset-0 bg-black/60"></div>
-      <div class="relative bg-tactical-card border border-tactical-border rounded-xl p-6 max-w-lg w-full mx-4 shadow-2xl">
-        <h3 class="text-lg font-display font-semibold text-brand-primary mb-1">Provision QR Code</h3>
-        <p class="text-xs text-gray-400 mb-4">
-          Scan with the MeshSat Android app to auto-configure Hub connection.
-          <span class="text-ms-warning">Single-use</span>: credentials are regenerated each time.
-        </p>
-        <div class="relative flex justify-center bg-white rounded-lg p-4 mb-3">
-          <img v-if="provisionQRUrl" :src="provisionQRUrl" :alt="'Provision QR for ' + provisionQRBridgeId"
-            class="w-80 h-80 object-contain transition"
+    <!-- Setup QR -->
+    <div v-if="showProvisionQR" class="fixed inset-0 z-50 flex items-center justify-center p-4" role="dialog" aria-modal="true" aria-labelledby="qr-h" @click.self="dismissProvisionQR">
+      <div class="absolute inset-0 bg-black/70" @click="dismissProvisionQR" />
+      <div class="relative ms-panel p-6 w-full max-w-md">
+        <h3 id="qr-h" class="ms-h2 text-base">Set up {{ provisionQRBridgeId }}</h3>
+        <p class="text-[13px] text-ms-muted mt-1">Scan with the kit or the MeshSat Android app. The code works once; showing it again issues a new login.</p>
+        <div class="relative flex justify-center bg-white rounded-lg p-4 mt-4">
+          <img v-if="provisionQRUrl" :src="provisionQRUrl" :alt="'Setup QR code for ' + provisionQRBridgeId"
+            class="w-72 h-72 object-contain transition"
             :class="provisionState === 'pending' ? 'blur-md opacity-40 pointer-events-none select-none' : ''" />
           <div v-if="provisionState === 'pending'" class="absolute inset-0 flex items-center justify-center p-6">
-            <p class="text-sm text-center text-gray-900 font-medium">
-              Waiting for the broker to accept the new credentials<br />
+            <p class="text-sm text-center text-black font-medium">
+              Waiting for the broker to accept the new login<br />
               <span class="font-mono">{{ provisionAccepted }} of {{ provisionMembers || '?' }}</span> ready, {{ provisionWaited }} s
             </p>
           </div>
         </div>
-        <p class="text-xs text-center mb-3" aria-live="polite">
-          <span v-if="provisionState === 'pending'" class="text-ms-warning">Don't scan yet: a scan now would be refused. This takes up to a minute.</span>
-          <span v-else-if="provisionState === 'live' && provisionChecked" class="text-ms-success">Ready: all {{ provisionMembers }} broker members accept it. Scan now.</span>
-          <span v-else-if="provisionState === 'live'" class="text-ms-success">Ready. Scan now.</span>
-          <span v-else-if="provisionState === 'none'" class="text-gray-400">Claimed by the app.</span>
-          <span v-else-if="provisionState === 'expired'" class="text-ms-error">This QR has expired. Close and generate a new one.</span>
-          <span v-else-if="provisionState === 'unknown'" class="text-ms-warning">Could not confirm the broker has it yet. If the app is refused, it retries.</span>
+        <p class="text-[13px] text-center mt-3 min-h-[1.25rem]" aria-live="polite">
+          <span v-if="provisionState === 'pending'" class="text-ms-warning">Don't scan yet: a scan now would be refused. Up to a minute.</span>
+          <span v-else-if="provisionState === 'live' && provisionChecked" class="text-ms-text">Ready. All {{ provisionMembers }} broker members accept it. Scan now.</span>
+          <span v-else-if="provisionState === 'live'" class="text-ms-text">Ready. Scan now.</span>
+          <span v-else-if="provisionState === 'none'" class="text-ms-muted">Scanned. The kit is connecting.</span>
+          <span v-else-if="provisionState === 'expired'" class="text-ms-error">This code has expired. Close it and show a new one.</span>
+          <span v-else-if="provisionState === 'unknown'" class="text-ms-warning">Could not confirm the broker has it yet. If the app is refused, it retries by itself.</span>
         </p>
-        <div class="text-center text-xs text-gray-500 mb-4">
-          Bridge: <span class="text-gray-300 font-mono">{{ provisionQRBridgeId }}</span>
-        </div>
-        <div class="flex justify-end">
-          <button @click="dismissProvisionQR"
-            class="px-4 py-2 text-sm bg-gray-700 hover:bg-gray-600 text-gray-200 rounded transition-colors">
-            Done
-          </button>
+        <div class="flex justify-end mt-4">
+          <button class="ms-btn" @click="dismissProvisionQR">Done</button>
         </div>
       </div>
     </div>
   </div>
 </template>
-
-<style scoped>
-.expand-enter-active,
-.expand-leave-active {
-  transition: all 0.2s ease;
-  overflow: hidden;
-}
-.expand-enter-from,
-.expand-leave-to {
-  opacity: 0;
-  max-height: 0;
-}
-.expand-enter-to,
-.expand-leave-from {
-  opacity: 1;
-  max-height: 1200px;
-}
-</style>

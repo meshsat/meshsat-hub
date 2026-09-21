@@ -131,7 +131,8 @@ async function loginWithToken() {
   <div class="relative min-h-screen bg-tactical-bg flex items-center justify-center px-4">
     <HeroBackdrop />
     <div class="relative w-full max-w-sm bg-tactical-surface border border-tactical-border rounded-lg shadow-2xl p-6">
-      <h1 class="flex justify-center mb-6"><BrandLockup size="lg" /></h1>
+      <h1 class="flex justify-center"><BrandLockup size="lg" /></h1>
+      <p class="text-[13px] text-ms-muted text-center mt-3 mb-6">Keeping people connected when the network is not.</p>
 
       <!-- Single sign-on (MeshSat ID) when the Hub offers it -->
       <div v-if="hasOIDC" class="space-y-4" data-testid="sso-panel">

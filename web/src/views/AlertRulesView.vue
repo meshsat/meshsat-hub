@@ -117,37 +117,40 @@ function parseHours(params) {
 </script>
 
 <template>
-  <div class="p-4 lg:p-6 max-w-5xl mx-auto">
-    <div class="flex items-center justify-between mb-6">
-      <h1 class="text-2xl font-display font-bold">Alert Rules</h1>
+  <div class="ms-page max-w-5xl">
+    <div class="ms-page-head">
+      <div>
+        <h1 class="ms-h1">Alert rules</h1>
+        <p class="ms-lede">Conditions that raise an alert, such as a low battery, a device gone quiet or a drop in traffic.</p>
+      </div>
       <button @click="showForm ? (showForm = false, resetForm()) : (showForm = true)"
         class="text-sm px-4 py-2 rounded font-medium"
         :class="showForm ? 'text-gray-400 hover:text-gray-300' : 'bg-brand-accent hover:bg-brand-primary text-ms-on-primary'">
-        {{ showForm ? 'Cancel' : '+ New Rule' }}
+        {{ showForm ? 'Cancel' : 'New rule' }}
       </button>
     </div>
 
-    <div v-if="error" class="bg-red-900/50 border border-red-700 text-red-200 px-4 py-3 rounded mb-4 text-sm">{{ error }}</div>
+    <div v-if="error" role="alert" class="ms-alert mb-4">{{ error }}</div>
 
     <!-- Create / Edit form -->
     <div v-if="showForm" class="bg-tactical-surface rounded-lg border border-tactical-border p-4 mb-6">
-      <h2 class="text-sm font-display font-semibold text-gray-200 uppercase tracking-wider mb-3">
-        {{ editingId ? 'Edit Rule' : 'New Alert Rule' }}
+      <h2 class="text-sm font-sans font-semibold text-gray-200 mb-3">
+        {{ editingId ? 'Edit rule' : 'New alert rule' }}
       </h2>
       <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3">
         <input v-model="form.name" placeholder="Rule name" class="bg-gray-800 border border-gray-700 rounded px-3 py-2 text-sm">
         <select v-model="form.condition_type" class="bg-gray-800 border border-gray-700 rounded px-3 py-2 text-sm">
-          <option value="device_not_seen">Device Not Seen</option>
-          <option value="battery_low">Battery Low</option>
-          <option value="geofence_breach">Geofence Breach</option>
-          <option value="message_rate_drop">Message Rate Drop</option>
+          <option value="device_not_seen">Device not seen</option>
+          <option value="battery_low">Battery low</option>
+          <option value="geofence_breach">Geofence breach</option>
+          <option value="message_rate_drop">Message rate drop</option>
         </select>
         <div>
           <label class="block text-xs text-gray-500 mb-1">Threshold (hours)</label>
           <input v-model.number="form.threshold_hours" type="number" min="1" class="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-sm">
         </div>
         <div>
-          <label class="block text-xs text-gray-500 mb-1">Escalation Chain</label>
+          <label class="block text-xs text-gray-500 mb-1">Escalation chain</label>
           <select v-model="form.chain_id" class="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-sm">
             <option value="" disabled>Select chain...</option>
             <option v-for="c in chains" :key="c.id" :value="c.id">{{ c.name }}</option>
@@ -161,7 +164,7 @@ function parseHours(params) {
       </div>
       <div class="flex gap-2">
         <button @click="saveRule" :disabled="!form.name.trim() || !form.chain_id"
-          class="bg-brand-accent hover:bg-brand-primary disabled:bg-gray-600 text-ms-on-primary text-sm px-4 py-2 rounded">
+          class="ms-btn-primary">
           {{ editingId ? 'Update' : 'Create' }}
         </button>
         <button @click="showForm = false; resetForm()" class="text-gray-400 hover:text-gray-300 text-sm px-3 py-2">Cancel</button>
@@ -173,7 +176,7 @@ function parseHours(params) {
     <template v-else>
       <div class="bg-tactical-surface rounded-lg border border-tactical-border overflow-hidden">
         <div class="px-4 py-3 border-b border-tactical-border">
-          <h2 class="text-sm font-display font-semibold text-gray-200 uppercase tracking-wider">Rules ({{ rules.length }})</h2>
+          <h2 class="text-sm font-sans font-semibold text-gray-200">Rules ({{ rules.length }})</h2>
         </div>
         <EmptyState v-if="rules.length === 0" icon="bell" title="No alert rules" message="Create alert rules to get notified when conditions are met." />
         <table v-else class="w-full text-sm">

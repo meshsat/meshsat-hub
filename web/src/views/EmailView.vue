@@ -83,26 +83,29 @@ async function sendTest() {
 </script>
 
 <template>
-  <div class="p-4 lg:p-6 max-w-5xl mx-auto">
-    <div class="flex items-center justify-between mb-6">
-      <h1 class="text-2xl font-display font-bold">Email Gateway</h1>
+  <div class="ms-page max-w-5xl">
+    <div class="ms-page-head">
+      <div>
+        <h1 class="ms-h1">Email</h1>
+        <p class="ms-lede">Send and receive PGP-encrypted email through the Hub.</p>
+      </div>
       <div class="flex gap-2">
         <button v-if="!unavailable" @click="showTest = !showTest" class="text-sm text-brand-primary hover:text-brand-primary px-3 py-2">
-          Test Send
+          Test send
         </button>
         <button v-if="!unavailable" @click="showForm = !showForm"
-          class="bg-brand-accent hover:bg-brand-primary text-ms-on-primary text-sm px-4 py-2 rounded">
-          + Add Contact
+          class="ms-btn-primary">
+          + Add contact
         </button>
       </div>
     </div>
 
-    <div v-if="error" class="bg-red-900/50 border border-red-700 text-red-200 rounded p-3 mb-4">{{ error }}</div>
+    <div v-if="error" role="alert" class="ms-alert mb-4">{{ error }}</div>
     <div v-if="success" class="bg-emerald-900/50 border border-emerald-700 text-emerald-200 rounded p-3 mb-4">{{ success }}</div>
 
     <!-- Test Send Form -->
     <div v-if="showTest" class="bg-tactical-surface rounded-lg border border-tactical-border p-4 mb-4">
-      <h2 class="text-sm font-display font-semibold text-gray-200 uppercase tracking-wider mb-3">Send Test Email</h2>
+      <h2 class="text-sm font-sans font-semibold text-gray-200 mb-3">Send a test email</h2>
       <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3">
         <input v-model="testTo" placeholder="recipient@example.com" class="bg-gray-800 border border-gray-700 rounded px-3 py-2 text-sm">
         <input v-model="testSubject" placeholder="Subject" class="bg-gray-800 border border-gray-700 rounded px-3 py-2 text-sm">
@@ -110,7 +113,7 @@ async function sendTest() {
       <textarea v-model="testBody" rows="3" class="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-sm mb-3"></textarea>
       <div class="flex gap-2">
         <button @click="sendTest" :disabled="testSending"
-          class="bg-brand-accent hover:bg-brand-primary disabled:bg-gray-600 text-ms-on-primary text-sm px-4 py-2 rounded">
+          class="ms-btn-primary">
           {{ testSending ? 'Sending...' : 'Send' }}
         </button>
         <button @click="showTest = false" class="text-gray-400 hover:text-gray-300 text-sm px-3 py-2">Cancel</button>
@@ -119,13 +122,13 @@ async function sendTest() {
 
     <!-- Add Contact Form -->
     <div v-if="showForm" class="bg-tactical-surface rounded-lg border border-tactical-border p-4 mb-4">
-      <h2 class="text-sm font-display font-semibold text-gray-200 uppercase tracking-wider mb-3">Add Email Contact</h2>
+      <h2 class="text-sm font-sans font-semibold text-gray-200 mb-3">Add an email contact</h2>
       <div class="space-y-3">
         <input v-model="formEmail" placeholder="email@example.com" class="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-sm">
         <textarea v-model="formKey" placeholder="PGP public key (armored, optional)" rows="4"
           class="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-sm font-mono text-xs"></textarea>
         <div class="flex gap-2">
-          <button @click="addContact" class="bg-brand-accent hover:bg-brand-primary text-ms-on-primary text-sm px-4 py-2 rounded">Add</button>
+          <button @click="addContact" class="ms-btn-primary">Add</button>
           <button @click="showForm = false" class="text-gray-400 hover:text-gray-300 text-sm px-3 py-2">Cancel</button>
         </div>
       </div>
@@ -136,19 +139,19 @@ async function sendTest() {
     <template v-else>
       <!-- Hub PGP Public Key -->
       <div v-if="publicKey" class="bg-tactical-surface rounded-lg border border-tactical-border p-4 mb-4">
-        <h2 class="text-sm font-display font-semibold text-gray-200 uppercase tracking-wider mb-2">Hub PGP Public Key</h2>
+        <h2 class="text-sm font-sans font-semibold text-gray-200 mb-2">Hub PGP public key</h2>
         <pre class="text-[10px] text-gray-500 font-mono max-h-24 overflow-y-auto">{{ publicKey }}</pre>
       </div>
 
       <!-- Contact List -->
       <div class="bg-tactical-surface rounded-lg border border-tactical-border overflow-hidden">
         <div class="px-4 py-3 border-b border-tactical-border">
-          <h2 class="text-sm font-display font-semibold text-gray-200 uppercase tracking-wider">Contacts ({{ contacts.length }})</h2>
+          <h2 class="text-sm font-sans font-semibold text-gray-200">Contacts ({{ contacts.length }})</h2>
         </div>
         <EmptyState v-if="unavailable" unavailable title="Email gateway is not set up for this account"
                     :message="unavailableReason">
           <router-link to="/settings"
-                       class="text-sm px-3 py-2 rounded bg-brand-primary hover:bg-brand-accent text-ms-on-primary">
+                       class="ms-btn-primary">
             Set up in Integrations
           </router-link>
         </EmptyState>
