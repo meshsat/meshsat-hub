@@ -148,9 +148,9 @@ NATS websocket :9443, tls { verify: true, ca_file: bridge CA }
 MQTT session
 ```
 
-Onboarding is the Fleet page: add the bridge, generate credentials (shown once), issue the
-certificate (shown once), paste URL, credentials and PEM into the bridge's Hub Connection
-settings. The same three steps exist as `POST /api/bridges/{id}/credentials` and
+Onboarding is the Kits page: add the kit, then either show the setup QR (the kit or the
+Android app scans it) or issue the broker login (shown once) and the certificate (shown once)
+and paste URL, credentials and PEM into the bridge's Hub Connection settings. The same three steps exist as `POST /api/bridges/{id}/credentials` and
 `/certificate`. The bridge must **not** be given the bridge CA as its root store, or it can no
 longer verify the server's Let's Encrypt certificate. The production NATS config is
 `k8s/nats/configmap.yaml`; one NATS user per bridge is rendered by the Hub into the Secret
@@ -194,7 +194,7 @@ curl -X POST https://hub.meshsat.net/api/backup/import -H "Authorization: Bearer
 | a replica reconnecting every 30 s after an SMS | a `+` in a topic segment; every builder must go through `hubmqtt.EncodeSegment` (MESHSAT-1022) |
 | bridge shows offline while health flows | the reaper and stale-birth detection in `internal/bridge`; check `last_seen` and the tenant's `bridge_offline_timeout` |
 | mTLS handshake timeout | `nats-certs` mounted and readable; the bridge presents a Hub-issued cert, system roots for the server side |
-| certificate expired | reissue from the Fleet page; NATS reloads its auth on SIGHUP from the reloader sidecar |
+| certificate expired | reissue from the kit's page under Kits; NATS reloads its auth on SIGHUP from the reloader sidecar |
 | 1 in 3 requests vanish with no HTTP response | a VPS edge whose IPsec tunnels are down silent-drops; probe each A record separately |
 | a Secret changed and nothing happened | Reloader should have rolled `hub`; check its log for `Changes detected in 'hub-secrets'` |
 | "slow query detected" in the log | the line carries `statement`; `pg_stat_statements` is loaded on the cluster for the full picture (MESHSAT-1155) |

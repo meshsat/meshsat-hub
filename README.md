@@ -72,8 +72,8 @@ Correlation IDs (xid) on every request. Structured JSON logging with slog. HTTP 
 **Outbound Integration** --
 Configurable outbound webhooks with HMAC-SHA256 signing, retry with exponential backoff, and delivery logging. Apprise (Slack, email, Telegram, SMS via Twilio/Vonage, 90+ services). ntfy self-hosted push notifications.
 
-**Dashboard** --
-Vue 3 SPA with 21 views: dashboard with KPI sparklines, devices, messages, full-width map, fleet management, escalation chains, dead man's switch, geofencing, device config, routing with flow diagram, notifications, webhooks, OTA, users, API keys, audit log, cluster health, network, inline help, and settings. Tactical design system with Tailwind CSS. Grouped dropdown navigation. Compact status bar. Dark theme. Responsive. All timestamps in UTC 24h.
+**Console** --
+Vue 3 SPA, an operations console in the ISA-101 and ISA-18.2 style: a neutral canvas with colour only for abnormal states, an attention button on every page (unacknowledged alerts, missed check-ins, kits that dropped off, acknowledge in place), and jump search. Overview with a per-kit path matrix (which bearers each kit can use right now), full-screen map, messages, kits, devices, alerts and escalation chains, check-ins, geofences, routing, notifications, webhooks, updates, users, API keys, audit log, network, topology, help and settings. Tailwind on the MeshSat brand tokens, dark and light themes, phone layout. All timestamps in UTC.
 
 ## Deployment
 
