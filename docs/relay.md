@@ -18,7 +18,7 @@ crosses the relay is stored, logged beyond a count, or retained on the bus.
 Both ends are bridges of one tenant. An Android device is a bridge of type `android`. Each
 authenticates with the MQTT credentials it already holds, as **HTTP Basic** on the upgrade
 request: username = bridge id, password = the MQTT password shown once when credentials were
-generated (Fleet page, or `POST /api/bridges/{id}/credentials`). The Hub verifies it with bcrypt
+generated (Kits page, or `POST /api/bridges/{id}/credentials`). The Hub verifies it with bcrypt
 against the stored hash. The tenant is the bridge's owner in the store; nothing in the request
 chooses it.
 
@@ -97,7 +97,7 @@ protocol's Bearer tokens keep working unchanged.
 - **Certificates issued before 2026-09-15 cannot serve a relay**: they carried only
   `ClientAuth` and no SAN. `IssueBridgeCert` now adds `ServerAuth` and a DNS SAN equal to the
   bridge id (ids that are not DNS names get no SAN and cannot serve). A bridge re-issues its
-  certificate on the Fleet page once; phones need nothing new, `ClientAuth` was always there.
+  certificate on the Kits page once; phones need nothing new, `ClientAuth` was always there.
 - Frames are at most 64 KiB, so both ends chunk the TLS stream at 32 KiB per frame.
 - **Where the bridge end gets the Hub CA:** `GET /api/relay/ca` (public, PEM, no credentials)
   over HTTPS, so the Hub's public certificate vouches for it. A bridge must **not** put the Hub
