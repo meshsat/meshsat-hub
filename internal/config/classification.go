@@ -277,6 +277,7 @@ var Classification = map[string]Class{
 	"satchat_enabled":         ClassPlatform,
 	"satchat_devices":         ClassPlatform,
 	"satchat_max_per_hour":    ClassPlatform,
+	"provision_probe_addr":    ClassPlatform,
 	"pprof_enabled":           ClassPlatform,
 	"public_url":              ClassPlatform,
 	"redis_url":               ClassPlatform,

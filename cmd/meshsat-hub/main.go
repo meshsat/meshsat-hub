@@ -2047,6 +2047,13 @@ func main() {
 	// QR provision claim — unauthenticated (nonce IS the auth, single-use, 30min TTL).
 	provisionClaimHandler := api.NewBridgeProvisionHandler(dataStore, bridgeCA, directoryTrustAnchor)
 	provisionClaimHandler.SetNATSAuth(natsAuth)
+	// A claim waits until every broker member accepts the bundle's credentials
+	// (MESHSAT-1298): a new password takes up to a minute to reach them all.
+	var provisionProber *bridge.CredentialProber
+	if cfg.ProvisionProbeAddr != "" {
+		provisionProber = bridge.NewCredentialProber(cfg.ProvisionProbeAddr)
+		provisionClaimHandler.SetProber(provisionProber)
+	}
 	// Both capability URLs carry the per-IP auth-surface budget: the nonce is
 	// the credential, so a guess is a login attempt (MESHSAT-1219).
 	r.Get("/api/bridges/{id}/provision/{nonce}", hubmw.WebhookRateLimit(http.HandlerFunc(provisionClaimHandler.ClaimProvision), cfg.AuthRateLimitPerMin).ServeHTTP)
@@ -2580,6 +2587,9 @@ func main() {
 	// One-step bridge provisioning with QR code (MESHSAT-414)
 	provisionHandler := api.NewBridgeProvisionHandler(dataStore, bridgeCA, directoryTrustAnchor)
 	provisionHandler.SetNATSAuth(natsAuth)
+	if provisionProber != nil {
+		provisionHandler.SetProber(provisionProber)
+	}
 	// Owner-only (MESHSAT-1189). MESHSAT-1171 gated GenerateCredentials and
 	// IssueCertificate for exactly this reason and missed these two, which hand
 	// out STRICTLY MORE: the bundle carries the plaintext MQTT password AND the
@@ -2587,6 +2597,9 @@ func main() {
 	// authenticated viewer of a tenant could mint a full bridge identity.
 	r.With(hubauth.RequireRole(hubauth.RoleOwner)).Post("/api/bridges/{id}/provision", provisionHandler.Provision)
 	r.With(hubauth.RequireRole(hubauth.RoleOwner)).Post("/api/bridges/{id}/provision/qr", provisionHandler.ProvisionQR)
+	// Polled by the Fleet page while a QR is up: the QR is shown once the
+	// broker accepts its credentials (MESHSAT-1298). Owner, as the QR itself.
+	r.With(hubauth.RequireRole(hubauth.RoleOwner)).Get("/api/bridges/{id}/provision/status", provisionHandler.ProvisionStatus)
 
 	// Directory REST — tenant-scoped contacts + signed snapshot
 	// [MESHSAT-538]. Opens a dedicated *sql.DB connection on the
