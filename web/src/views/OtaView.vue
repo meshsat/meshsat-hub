@@ -121,23 +121,28 @@ function statusColor(s) {
 </script>
 
 <template>
-  <div>
-    <h1 class="text-2xl font-display font-bold mb-4">OTA Updates</h1>
+  <div class="ms-page">
+    <div class="ms-page-head">
+      <div>
+        <h1 class="ms-h1">Updates</h1>
+        <p class="ms-lede">Firmware and software rollouts to kits, over the air.</p>
+      </div>
+    </div>
 
-    <div v-if="error" class="bg-red-900/50 border border-red-700 text-red-200 px-4 py-3 rounded mb-4">{{ error }}</div>
+    <div v-if="error" role="alert" class="ms-alert mb-4">{{ error }}</div>
 
     <!-- Targets -->
     <div class="mb-8">
       <div class="flex items-center justify-between mb-3">
-        <h2 class="text-lg font-semibold uppercase tracking-wider">Targets</h2>
+        <h2 class="text-lg font-semibold">Targets</h2>
         <div class="flex gap-2">
           <button v-if="!unavailable" @click="showRolloutForm = !showRolloutForm"
-            class="bg-brand-accent hover:bg-brand-primary text-ms-on-primary px-3 py-1 rounded text-sm transition-colors">
-            {{ showRolloutForm ? 'Cancel' : '+ Rollout' }}
+            class="ms-btn-primary">
+            {{ showRolloutForm ? 'Cancel' : 'New rollout' }}
           </button>
           <button v-if="!unavailable" @click="showTargetForm = !showTargetForm"
-            class="bg-brand-accent hover:bg-brand-primary text-ms-on-primary px-3 py-1 rounded text-sm transition-colors">
-            {{ showTargetForm ? 'Cancel' : '+ Target' }}
+            class="ms-btn">
+            {{ showTargetForm ? 'Cancel' : 'Add target' }}
           </button>
         </div>
       </div>
@@ -150,7 +155,7 @@ function statusColor(s) {
           <input v-model="newTarget.name" placeholder="Name (optional)"
             class="bg-gray-800 border border-gray-700 px-3 py-2 rounded-lg text-gray-200 placeholder-gray-500 flex-1 min-w-[200px] focus:outline-none focus:border-brand-primary" />
           <button @click="createTarget"
-            class="bg-brand-accent hover:bg-brand-primary text-ms-on-primary px-4 py-2 rounded transition-colors">Add</button>
+            class="ms-btn-primary">Add</button>
         </div>
       </div>
 
@@ -158,7 +163,7 @@ function statusColor(s) {
       <div v-if="showRolloutForm" class="bg-tactical-surface rounded-lg p-4 mb-4">
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3">
           <div>
-            <label class="text-xs text-gray-400">Rollout Name</label>
+            <label class="text-xs text-gray-400">Rollout name</label>
             <input v-model="newRollout.name" placeholder="v0.3.0 rollout"
               class="bg-gray-800 border border-gray-700 px-3 py-2 rounded-lg text-gray-200 w-full placeholder-gray-500 focus:outline-none focus:border-brand-primary" />
           </div>
@@ -168,7 +173,7 @@ function statusColor(s) {
               class="bg-gray-800 border border-gray-700 px-3 py-2 rounded-lg text-gray-200 w-full focus:outline-none focus:border-brand-primary" />
           </div>
           <div>
-            <label class="text-xs text-gray-400">Target Filter</label>
+            <label class="text-xs text-gray-400">Target filter</label>
             <input v-model="newRollout.targetFilterQuery" placeholder="name==*"
               class="bg-gray-800 border border-gray-700 px-3 py-2 rounded-lg text-gray-200 w-full placeholder-gray-500 focus:outline-none focus:border-brand-primary" />
           </div>
@@ -180,7 +185,7 @@ function statusColor(s) {
         </div>
         <div class="flex justify-end">
           <button @click="createRollout"
-            class="bg-brand-accent hover:bg-brand-primary text-ms-on-primary px-4 py-2 rounded text-sm transition-colors">Create Rollout</button>
+            class="ms-btn-primary">Create rollout</button>
         </div>
       </div>
 
@@ -192,7 +197,7 @@ function statusColor(s) {
               <th class="px-3 py-2">Controller ID</th>
               <th class="px-3 py-2">Name</th>
               <th class="px-3 py-2">Status</th>
-              <th class="px-3 py-2">Last Poll</th>
+              <th class="px-3 py-2">Last poll</th>
               <th class="px-3 py-2"></th>
             </tr>
           </thead>
@@ -202,7 +207,7 @@ function statusColor(s) {
                 <td class="px-3 py-2 font-mono text-xs">{{ t.controllerId }}</td>
                 <td class="px-3 py-2">{{ t.name }}</td>
                 <td class="px-3 py-2">
-                  <span :class="statusColor(t.updateStatus)" class="text-xs uppercase">{{ t.updateStatus || 'registered' }}</span>
+                  <span :class="statusColor(t.updateStatus)" class="text-xs">{{ t.updateStatus || 'registered' }}</span>
                 </td>
                 <td class="px-3 py-2 text-gray-400 text-xs">{{ formatUTC(t.lastControllerRequestAt) }}</td>
                 <td class="px-3 py-2 text-right flex gap-1 justify-end">
@@ -211,7 +216,7 @@ function statusColor(s) {
                     {{ targetActions[t.controllerId] ? 'Hide' : 'Actions' }}
                   </button>
                   <button @click="deleteTarget(t.controllerId)"
-                    class="bg-red-900 hover:bg-red-800 text-red-200 px-2 py-1 rounded-lg text-xs transition-colors">Delete</button>
+                    class="ms-btn-danger">Delete</button>
                 </td>
               </tr>
               <!-- Expanded actions -->
@@ -220,10 +225,10 @@ function statusColor(s) {
                   <div v-if="targetActions[t.controllerId].length === 0" class="text-gray-500 text-xs py-1">No actions</div>
                   <div v-for="a in targetActions[t.controllerId]" :key="a.id" class="flex items-center gap-3 py-1 text-xs">
                     <span class="font-mono text-gray-400">#{{ a.id }}</span>
-                    <span :class="statusColor(a.status)" class="uppercase">{{ a.status }}</span>
+                    <span :class="statusColor(a.status)" class="">{{ a.status }}</span>
                     <span class="text-gray-400">{{ a.type }}</span>
                     <button v-if="a.status === 'running'" @click="cancelAction(t.controllerId, a.id)"
-                      class="bg-red-900 hover:bg-red-800 text-red-200 px-2 py-0.5 rounded text-xs ml-auto transition-colors">Cancel</button>
+                      class="ms-btn-danger ml-auto">Cancel</button>
                   </div>
                 </td>
               </tr>
@@ -233,7 +238,7 @@ function statusColor(s) {
                 <EmptyState v-if="unavailable" unavailable title="OTA firmware is not set up for this account"
                             :message="unavailableReason">
                   <router-link to="/settings"
-                               class="text-sm px-3 py-2 rounded bg-brand-primary hover:bg-brand-accent text-ms-on-primary">
+                               class="ms-btn-primary">
                     Set up in Integrations
                   </router-link>
                 </EmptyState>

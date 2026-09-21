@@ -126,49 +126,47 @@ test.describe('Fleet page — UI elements', () => {
 
   test('fleet page loads with header and buttons', async ({ page }) => {
     await page.goto('/#/fleet')
-    await expect(page.locator('h1:has-text("Fleet")')).toBeVisible()
-    await expect(page.getByRole('button', { name: '+ Add Bridge' })).toBeVisible()
-    await expect(page.getByRole('button', { name: 'Regenerate ACL' })).toBeVisible()
+    await expect(page.locator('h1:has-text("Kits")')).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Add kit' })).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Rewrite broker users' })).toBeVisible()
   })
 
   test('add bridge form toggles', async ({ page }) => {
     await page.goto('/#/fleet')
-    await expect(page.locator('h1:has-text("Fleet")')).toBeVisible()
+    await expect(page.locator('h1:has-text("Kits")')).toBeVisible()
 
     // Open form
-    await page.getByRole('button', { name: '+ Add Bridge' }).click()
-    await expect(page.locator('text=Pre-register Bridge')).toBeVisible()
-    await expect(page.locator('input[placeholder*="mule01"]')).toBeVisible()
-    await expect(page.locator('input[placeholder="Human-readable name"]')).toBeVisible()
+    await page.getByRole('button', { name: 'Add kit' }).click()
+    await expect(page.locator('text=Add a kit')).toBeVisible()
+    await expect(page.locator('input[placeholder*="field-kit-01"]')).toBeVisible()
+    await expect(page.locator('input[placeholder="What your team calls it"]')).toBeVisible()
 
     // Cancel
     await page.getByRole('button', { name: 'Cancel' }).click()
-    await expect(page.locator('text=Pre-register Bridge')).not.toBeVisible()
+    await expect(page.locator('text=Add a kit')).not.toBeVisible()
   })
 
   test('add bridge form rejects empty ID', async ({ page }) => {
     await page.goto('/#/fleet')
-    await page.getByRole('button', { name: '+ Add Bridge' }).click()
-    await page.getByRole('button', { name: 'Create Bridge' }).click()
-    await expect(page.locator('text=Bridge ID is required')).toBeVisible()
+    await page.getByRole('button', { name: 'Add kit' }).click()
+    await page.getByRole('button', { name: 'Create kit' }).click()
+    await expect(page.locator('text=Give the kit an id.')).toBeVisible()
   })
 
   test('full bridge lifecycle via UI', async ({ page }) => {
     const bridgeId = `pw-${Date.now()}`
     await page.goto('/#/fleet')
-    await expect(page.locator('h1:has-text("Fleet")')).toBeVisible()
+    await expect(page.locator('h1:has-text("Kits")')).toBeVisible()
 
     // --- Create bridge ---
-    await page.getByRole('button', { name: '+ Add Bridge' }).click()
-    await page.fill('input[placeholder*="mule01"]', bridgeId)
-    await page.fill('input[placeholder="Human-readable name"]', 'Playwright Bridge')
-    await page.getByRole('button', { name: 'Create Bridge' }).click()
+    await page.getByRole('button', { name: 'Add kit' }).click()
+    await page.fill('input[placeholder*="field-kit-01"]', bridgeId)
+    await page.fill('input[placeholder="What your team calls it"]', 'Playwright Bridge')
+    await page.getByRole('button', { name: 'Create kit' }).click()
 
     // Onboarding banner should appear
-    await expect(page.locator(`text=Onboarding: ${bridgeId}`)).toBeVisible({ timeout: 5000 })
-    await expect(page.getByText('MQTT Credentials').first()).toBeVisible()
-    await expect(page.getByText('TLS Certificate').first()).toBeVisible()
-    await expect(page.getByText('Configure Bridge').first()).toBeVisible()
+    await expect(page.getByTestId('kit-detail')).toBeVisible({ timeout: 5000 })
+    await expect(page.getByRole('button', { name: 'Show setup QR' })).toBeVisible()
 
     // Bridge card should exist with our label
     await expect(page.locator(`text=Playwright Bridge`).first()).toBeVisible()
@@ -177,47 +175,47 @@ test.describe('Fleet page — UI elements', () => {
     await expect(page.locator('text=Credentials').first()).toBeVisible()
 
     // --- Generate MQTT credentials ---
-    await page.getByRole('button', { name: 'Generate MQTT Credentials' }).click()
-    await expect(page.locator('text=MQTT Credentials — copy now, shown only once')).toBeVisible({ timeout: 5000 })
+    await page.getByRole('button', { name: 'Issue broker login' }).click()
+    await expect(page.locator('text=Copy these now. The password is shown only once.')).toBeVisible({ timeout: 5000 })
     // Should show URL, User, Pass fields
-    await expect(page.locator('text=URL:').first()).toBeVisible()
-    await expect(page.locator('text=User:').first()).toBeVisible()
-    await expect(page.locator('text=Pass:').first()).toBeVisible()
+    await expect(page.locator('text=URL').first()).toBeVisible()
+    await expect(page.locator('text=User').first()).toBeVisible()
+    await expect(page.locator('text=Password').first()).toBeVisible()
     // Copy buttons should be present
     const copyButtons = page.locator('button:has-text("Copy")')
     expect(await copyButtons.count()).toBeGreaterThanOrEqual(3)
     // Onboarding should advance to step 2
-    await expect(page.getByRole('button', { name: 'Issue TLS Certificate' })).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Issue certificate' })).toBeVisible()
 
     // Dismiss credentials
-    await page.locator('button:has-text("dismiss")').first().click()
+    await page.locator('button:has-text("Dismiss")').first().click()
 
     // --- Issue TLS certificate ---
-    await page.getByRole('button', { name: 'Issue TLS Certificate' }).click()
-    await expect(page.locator('text=TLS Certificate — private key shown only once')).toBeVisible({ timeout: 5000 })
+    await page.getByRole('button', { name: 'Issue certificate' }).click()
+    await expect(page.locator('text=Download the private key now. It is shown only once.')).toBeVisible({ timeout: 5000 })
     // Download buttons
-    await expect(page.getByRole('button', { name: 'Download Certificate (.crt)' })).toBeVisible()
-    await expect(page.getByRole('button', { name: 'Download Private Key (.key)' })).toBeVisible()
-    await expect(page.getByRole('button', { name: 'Download CA (.crt)' })).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Certificate (.crt)' })).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Private key (.key)' })).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Hub CA (.crt)' })).toBeVisible()
     // Dismiss certificate and onboarding
-    const dismissBtns = page.locator('button:has-text("dismiss")')
+    const dismissBtns = page.locator('button:has-text("Dismiss")')
     for (let i = await dismissBtns.count() - 1; i >= 0; i--) {
       if (await dismissBtns.nth(i).isVisible()) await dismissBtns.nth(i).click()
     }
 
     // --- Edit bridge ---
     await page.getByRole('button', { name: 'Edit' }).first().click()
-    await expect(page.locator('text=Edit Bridge')).toBeVisible()
+    await expect(page.locator('text=Edit kit')).toBeVisible()
     await page.locator('input').nth(0).fill('Edited Label')
     await page.locator('input[placeholder="e.g. MESHSAT-01"]').fill('PW-01')
     await page.getByRole('button', { name: 'Save' }).click()
     await expect(page.locator('text=Edited Label').first()).toBeVisible({ timeout: 5000 })
 
     // --- Delete bridge ---
-    await page.getByRole('button', { name: 'Delete Bridge' }).click()
-    await expect(page.locator('text=Delete Bridge').last()).toBeVisible()
-    await expect(page.locator('text=Permanently remove')).toBeVisible()
-    await expect(page.locator('text=This will delete the bridge record')).toBeVisible()
+    await page.getByRole('button', { name: 'Delete', exact: true }).click()
+    await expect(page.locator('text=Delete kit').last()).toBeVisible()
+    await expect(page.locator('text=cannot be undone')).toBeVisible()
+    await expect(page.locator('text=broker login and certificate stop working')).toBeVisible()
 
     // Confirm delete
     await page.getByRole('button', { name: 'Delete' }).last().click()
@@ -228,32 +226,28 @@ test.describe('Fleet page — UI elements', () => {
 
   test('regenerate ACL button is present and clickable', async ({ page }) => {
     await page.goto('/#/fleet')
-    await expect(page.locator('h1:has-text("Fleet")')).toBeVisible()
-    const btn = page.getByRole('button', { name: 'Regenerate ACL' })
+    await expect(page.locator('h1:has-text("Kits")')).toBeVisible()
+    const btn = page.getByRole('button', { name: 'Rewrite broker users' })
     await expect(btn).toBeVisible()
     await expect(btn).toBeEnabled()
   })
 
   test('existing bridges show correct elements', async ({ page }) => {
     await page.goto('/#/fleet')
-    await expect(page.locator('h1:has-text("Fleet")')).toBeVisible()
+    await expect(page.locator('h1:has-text("Kits")')).toBeVisible()
 
     // Wait for bridges to load
     await page.waitForTimeout(2000)
 
     // Check bridge count text (if bridges exist)
-    const countText = page.locator('text=/\\d+ bridge/')
-    const emptyState = page.locator('text=No bridges registered')
+    const countText = page.locator('text=/\\d+ kits?/')
+    const emptyState = page.locator('text=No kits yet')
     await expect(countText.or(emptyState)).toBeVisible({ timeout: 10000 })
 
-    // If there are bridge cards, verify structure
-    const cards = page.locator('.bg-tactical-surface')
-    const cardCount = await cards.count()
-    if (cardCount > 0) {
-      // First card should have online/offline status
-      await expect(cards.first().locator('text=Online').or(cards.first().locator('text=Offline'))).toBeVisible()
-      // Should have last seen field
-      await expect(cards.first().locator('text=Last seen')).toBeVisible()
+    // If there are kits, the first row names its link state.
+    const rows = page.getByRole('option')
+    if (await rows.count() > 0) {
+      await expect(rows.first()).toContainText(/Live|ago|Never connected/)
     }
   })
 })
@@ -358,7 +352,7 @@ test.describe('QR Provisioning', () => {
       })
 
       await page.goto('/#/fleet')
-      await expect(page.locator('h1:has-text("Fleet")')).toBeVisible()
+      await expect(page.locator('h1:has-text("Kits")')).toBeVisible()
       await page.waitForTimeout(2000)
 
       // Expand the bridge card
@@ -366,13 +360,13 @@ test.describe('QR Provisioning', () => {
       await page.waitForTimeout(500)
 
       // Click Provision QR button
-      const qrButton = page.getByRole('button', { name: 'Provision QR' })
+      const qrButton = page.getByRole('button', { name: 'Show setup QR' })
       await expect(qrButton).toBeVisible()
       await qrButton.click()
 
       // Modal should appear
-      await expect(page.locator('text=Provision QR Code')).toBeVisible({ timeout: 10000 })
-      await expect(page.locator('text=Single-use')).toBeVisible()
+      await expect(page.locator('text=Set up')).toBeVisible({ timeout: 10000 })
+      await expect(page.locator('text=The code works once')).toBeVisible()
       await expect(page.locator(`text=Bridge:`)).toBeVisible()
 
       // QR image should be present and loaded (not broken)
@@ -386,7 +380,7 @@ test.describe('QR Provisioning', () => {
 
       // Done button closes modal
       await page.getByRole('button', { name: 'Done' }).click()
-      await expect(page.locator('text=Provision QR Code')).not.toBeVisible()
+      await expect(page.locator('text=Set up')).not.toBeVisible()
 
       // Cleanup
       await request.delete(`/api/bridges/${bridgeId}`, { headers: API_HEADERS })

@@ -35,20 +35,22 @@ async function verifyChain() {
 }
 
 function actionColor(action) {
-  if (action === 'message_received') return 'text-ms-success'
-  if (action === 'message_sent') return 'text-sky-400'
-  return 'text-gray-300'
+  // Actions are not states: none of them is abnormal, so none takes a hue.
+  return action ? 'text-ms-text2' : 'text-ms-muted'
 }
 </script>
 
 <template>
-  <div class="p-4 lg:p-6 max-w-7xl mx-auto">
-    <div class="flex items-center justify-between mb-6">
-      <h1 class="text-2xl font-display font-bold">Audit Log</h1>
+  <div class="ms-page max-w-7xl">
+    <div class="ms-page-head">
+      <div>
+        <h1 class="ms-h1">Audit log</h1>
+        <p class="ms-lede">Every change and every inbound delivery, kept in a tamper-evident chain.</p>
+      </div>
       <div class="flex gap-2">
         <button @click="verifyChain" :disabled="verifying"
-          class="bg-brand-accent hover:bg-brand-primary disabled:bg-gray-600 text-ms-on-primary text-sm px-4 py-2 rounded">
-          {{ verifying ? 'Verifying...' : 'Verify Chain' }}
+          class="ms-btn-primary">
+          {{ verifying ? 'Verifying...' : 'Verify the chain' }}
         </button>
         <button @click="loadEntries" :disabled="loading"
           class="text-sm text-brand-primary hover:text-brand-primary px-3 py-2">

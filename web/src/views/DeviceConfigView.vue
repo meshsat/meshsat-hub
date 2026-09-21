@@ -90,10 +90,15 @@ async function viewVersion(v) {
 </script>
 
 <template>
-  <div>
-    <h1 class="text-2xl font-display font-bold mb-4">Device Configuration</h1>
+  <div class="ms-page">
+    <div class="ms-page-head">
+      <div>
+        <h1 class="ms-h1">Device configuration</h1>
+        <p class="ms-lede">Versioned configuration for each device.</p>
+      </div>
+    </div>
 
-    <div v-if="error" class="bg-red-900/50 border border-red-700 text-red-200 px-4 py-3 rounded mb-4">{{ error }}</div>
+    <div v-if="error" role="alert" class="ms-alert mb-4">{{ error }}</div>
 
     <!-- Device selector -->
     <div class="flex flex-wrap gap-3 mb-4">
@@ -103,7 +108,7 @@ async function viewVersion(v) {
         <option v-for="d in deviceList" :key="d.imei" :value="d.imei">{{ d.label || d.imei }} ({{ d.imei }})</option>
       </select>
       <button v-if="!editMode && selectedIMEI" @click="startEdit"
-        class="bg-brand-accent hover:bg-brand-primary text-ms-on-primary px-4 py-2 rounded text-sm transition-colors">Edit Config</button>
+        class="ms-btn-primary">Edit configuration</button>
     </div>
 
     <div v-if="selectedIMEI" class="grid grid-cols-1 lg:grid-cols-3 gap-4">
@@ -112,7 +117,7 @@ async function viewVersion(v) {
         <div class="bg-tactical-surface rounded-lg p-4">
           <div class="flex items-center justify-between mb-3">
             <h2 class="text-lg font-semibold">
-              {{ editMode ? 'Edit Configuration' : 'Current Configuration' }}
+              {{ editMode ? 'Edit configuration' : 'Current configuration' }}
             </h2>
             <span v-if="currentConfig" class="text-xs text-gray-400 font-mono">v{{ currentConfig.version }}</span>
           </div>
@@ -126,7 +131,7 @@ async function viewVersion(v) {
               <button @click="editMode = false"
                 class="bg-gray-700 hover:bg-gray-600 text-gray-200 px-4 py-2 rounded text-sm transition-colors">Cancel</button>
               <button @click="saveConfig"
-                class="bg-brand-accent hover:bg-brand-primary text-ms-on-primary px-4 py-2 rounded text-sm transition-colors">Save New Version</button>
+                class="ms-btn-primary">Save as a new version</button>
             </div>
           </div>
 
@@ -145,7 +150,7 @@ async function viewVersion(v) {
       <!-- Version history -->
       <div>
         <div class="bg-tactical-surface rounded-lg p-4">
-          <h2 class="text-lg font-semibold mb-3">Version History</h2>
+          <h2 class="text-lg font-semibold mb-3">Version history</h2>
           <div v-if="history.length === 0" class="text-gray-500 text-sm">No versions</div>
           <div v-for="v in history" :key="v.version"
             @click="viewVersion(v)"

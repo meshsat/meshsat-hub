@@ -182,8 +182,8 @@ test.describe('HeMB — UI elements', () => {
       await page.waitForTimeout(1000)
 
       // Open form
-      await page.getByRole('button', { name: 'New Bond Group' }).click()
-      await expect(page.locator('text=New Bond Group').last()).toBeVisible()
+      await page.getByRole('button', { name: 'New bond group' }).click()
+      await expect(page.locator('text=New bond group').last()).toBeVisible()
 
       // Cancel
       await page.getByRole('button', { name: 'Cancel' }).click()
@@ -203,7 +203,7 @@ test.describe('HeMB — UI elements', () => {
       await page.waitForTimeout(1000)
 
       // Create
-      await page.getByRole('button', { name: 'New Bond Group' }).click()
+      await page.getByRole('button', { name: 'New bond group' }).click()
       await page.locator('input[placeholder*="SBD"]').fill('UI Test Bond')
       await page.locator('input[placeholder*="mesh_0"]').fill('mesh_0, sms_0')
       await page.locator('input[type="number"]').fill('5.00')
@@ -212,14 +212,14 @@ test.describe('HeMB — UI elements', () => {
 
       // Edit
       await page.locator('button[title="Edit"]').first().click()
-      await expect(page.locator('text=Edit Bond Group')).toBeVisible()
+      await expect(page.locator('text=Edit bond group')).toBeVisible()
       await page.locator('input[placeholder*="SBD"]').fill('Edited Bond')
       await page.getByRole('button', { name: 'Save' }).click()
       await expect(page.locator('text=Edited Bond')).toBeVisible({ timeout: 5000 })
 
       // Delete
       await page.locator('button[title="Delete"]').first().click()
-      await expect(page.locator('text=Delete Bond Group')).toBeVisible()
+      await expect(page.locator('text=Delete bond group')).toBeVisible()
       await page.getByRole('button', { name: 'Delete' }).last().click()
       await expect(page.locator('text=Edited Bond')).not.toBeVisible({ timeout: 5000 })
     } finally {

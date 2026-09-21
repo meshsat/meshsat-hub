@@ -54,17 +54,17 @@ function typeBadge(type) {
 </script>
 
 <template>
-  <div class="p-4 lg:p-6 max-w-6xl mx-auto">
+  <div class="ms-page max-w-6xl">
     <div class="mb-6">
-      <h1 class="text-2xl font-display font-bold">Integrations</h1>
-      <p class="text-gray-400 text-sm mt-1">Inbound message channels and webhook endpoints</p>
+      <h1 class="ms-h1">Integrations</h1>
+      <p class="ms-lede mb-5">Inbound message channels and webhook endpoints</p>
     </div>
 
     <ProviderAccounts />
 
-    <h2 class="text-lg font-display font-semibold mb-3">Platform channels</h2>
+    <h2 class="text-lg font-sans font-semibold mb-3">Platform channels</h2>
 
-    <div v-if="error" class="bg-red-900/50 border border-red-700 text-red-200 px-4 py-3 rounded mb-4">{{ error }}</div>
+    <div v-if="error" role="alert" class="ms-alert mb-4">{{ error }}</div>
 
     <div v-if="loading" class="text-center text-gray-500 py-16">Loading integration status...</div>
 
@@ -77,27 +77,23 @@ function typeBadge(type) {
           <div class="flex items-center gap-2.5">
             <span class="w-2.5 h-2.5 rounded-full shrink-0"
               :class="item.enabled ? 'bg-ms-success' : 'bg-gray-600'"></span>
-            <h2 class="text-sm font-display font-semibold text-gray-200">{{ item.name }}</h2>
+            <h2 class="text-sm font-sans font-semibold text-gray-200">{{ item.name }}</h2>
           </div>
           <div class="flex items-center gap-2">
             <!-- MQTT connected badge -->
             <span v-if="item.type === 'mqtt' && item.enabled"
-              class="text-[10px] font-bold uppercase px-1.5 py-0.5 rounded border"
-              :class="item.connected
-                ? 'bg-emerald-900/50 text-emerald-300 border-emerald-700/50'
-                : 'bg-red-900/50 text-red-300 border-red-700/50'">
+              class="text-[10px] font-bold px-1.5 py-0.5 rounded border"
+              :class="item.connected ? 'bg-emerald-900/50 text-emerald-300 border-emerald-700/50' : 'bg-red-900/50 text-red-300 border-red-700/50'">
               {{ item.connected ? 'Connected' : 'Disconnected' }}
             </span>
             <!-- Type badge -->
-            <span class="text-[10px] font-medium uppercase px-1.5 py-0.5 rounded border"
+            <span class="text-[10px] font-medium px-1.5 py-0.5 rounded border"
               :class="typeBadge(item.type)">
               {{ item.type }}
             </span>
             <!-- Enabled badge -->
-            <span class="text-[10px] font-bold uppercase px-1.5 py-0.5 rounded border"
-              :class="item.enabled
-                ? 'bg-emerald-900/50 text-emerald-300 border-emerald-700/50'
-                : 'bg-gray-800 text-gray-500 border-gray-700'">
+            <span class="text-[10px] font-bold px-1.5 py-0.5 rounded border"
+              :class="item.enabled ? 'bg-emerald-900/50 text-emerald-300 border-emerald-700/50' : 'bg-gray-800 text-gray-500 border-gray-700'">
               {{ item.enabled ? 'Enabled' : 'Disabled' }}
             </span>
           </div>
@@ -108,16 +104,14 @@ function typeBadge(type) {
 
         <!-- Webhook URL -->
         <div v-if="item.webhook_url" class="mb-3">
-          <div class="text-[10px] text-gray-500 uppercase tracking-wider mb-1">Endpoint</div>
+          <div class="text-[10px] text-gray-500 mb-1">Endpoint</div>
           <div class="flex items-center gap-2">
             <code class="text-xs font-mono text-brand-primary bg-gray-800/50 px-2 py-1 rounded flex-1 truncate">
               {{ item.webhook_url }}
             </code>
             <button @click="copyURL(item.webhook_url)"
               class="text-xs px-2 py-1 rounded transition-colors shrink-0"
-              :class="copied === item.webhook_url
-                ? 'bg-emerald-900/50 text-emerald-300'
-                : 'bg-gray-700 text-gray-300 hover:bg-gray-600'">
+              :class="copied === item.webhook_url ? 'bg-emerald-900/50 text-emerald-300' : 'bg-gray-700 text-gray-300 hover:bg-gray-600'">
               {{ copied === item.webhook_url ? 'Copied' : 'Copy URL' }}
             </button>
           </div>
@@ -126,17 +120,13 @@ function typeBadge(type) {
 
         <!-- Configuration -->
         <div v-if="item.config && Object.keys(item.config).length > 0" class="mb-3">
-          <div class="text-[10px] text-gray-500 uppercase tracking-wider mb-1.5">Configuration</div>
+          <div class="text-[10px] text-gray-500 mb-1.5">Configuration</div>
           <div class="space-y-1">
             <div v-for="(val, key) in item.config" :key="key"
               class="flex items-center justify-between text-xs">
               <span class="text-gray-400">{{ key.replace(/_/g, ' ') }}</span>
               <span class="font-mono text-gray-300 truncate max-w-[60%] text-right"
-                :class="{
-                  'text-ms-success': val === 'configured',
-                  'text-ms-warning': val === 'not set',
-                  'text-ms-error': val.startsWith && val.startsWith('missing'),
-                }">
+                :class="{ 'text-ms-success': val === 'configured', 'text-ms-warning': val === 'not set', 'text-ms-error': val.startsWith && val.startsWith('missing'), }">
                 {{ val }}
               </span>
             </div>
@@ -145,7 +135,7 @@ function typeBadge(type) {
 
         <!-- Last message -->
         <div v-if="item.last_message" class="mb-3">
-          <div class="text-[10px] text-gray-500 uppercase tracking-wider mb-1">Last Message</div>
+          <div class="text-[10px] text-gray-500 mb-1">Last message</div>
           <span class="text-xs text-gray-300">{{ new Date(item.last_message).toLocaleString() }}</span>
         </div>
 

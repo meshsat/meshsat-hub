@@ -50,7 +50,7 @@ function totalMessages() {
 }
 
 function directionClass(dir) {
-  return dir === 'mo' ? 'bg-brand-primary/15 text-brand-primary' : 'bg-amber-900/50 text-amber-300'
+  return dir === 'mo' ? 'bg-ms-well text-ms-text2 border border-ms-border' : 'bg-amber-900/50 text-amber-300'
 }
 
 function formatDate(d) {
@@ -60,24 +60,29 @@ function formatDate(d) {
 </script>
 
 <template>
-  <div class="p-4 lg:p-6 max-w-6xl mx-auto">
-    <h1 class="text-2xl font-display font-bold mb-6">Cost Tracking</h1>
+  <div class="ms-page max-w-6xl">
+    <div class="ms-page-head">
+      <div>
+        <h1 class="ms-h1">Costs</h1>
+        <p class="ms-lede">What your messages cost on your own provider accounts, per device.</p>
+      </div>
+    </div>
 
-    <div v-if="error" class="bg-red-900/50 border border-red-700 text-red-200 px-4 py-3 rounded mb-4 text-sm">{{ error }}</div>
+    <div v-if="error" role="alert" class="ms-alert mb-4">{{ error }}</div>
 
     <!-- Summary cards -->
     <div class="grid grid-cols-2 sm:grid-cols-3 gap-4 mb-6">
       <div class="bg-tactical-surface rounded-lg border border-tactical-border p-4">
-        <div class="text-xs text-gray-500 uppercase tracking-wider mb-1">Total Cost</div>
-        <div class="text-2xl font-display font-bold text-gray-100">${{ totalCost().toFixed(2) }}</div>
+        <div class="text-xs text-gray-500 mb-1">Total cost</div>
+        <div class="text-2xl font-sans font-bold text-gray-100">${{ totalCost().toFixed(2) }}</div>
       </div>
       <div class="bg-tactical-surface rounded-lg border border-tactical-border p-4">
-        <div class="text-xs text-gray-500 uppercase tracking-wider mb-1">Messages</div>
-        <div class="text-2xl font-display font-bold text-gray-100">{{ totalMessages() }}</div>
+        <div class="text-xs text-gray-500 mb-1">Messages</div>
+        <div class="text-2xl font-sans font-bold text-gray-100">{{ totalMessages() }}</div>
       </div>
       <div class="bg-tactical-surface rounded-lg border border-tactical-border p-4">
-        <div class="text-xs text-gray-500 uppercase tracking-wider mb-1">Avg / Message</div>
-        <div class="text-2xl font-display font-bold text-gray-100">
+        <div class="text-xs text-gray-500 mb-1">Avg / Message</div>
+        <div class="text-2xl font-sans font-bold text-gray-100">
           ${{ totalMessages() > 0 ? (totalCost() / totalMessages()).toFixed(3) : '0.00' }}
         </div>
       </div>
@@ -122,7 +127,7 @@ function formatDate(d) {
       <!-- Summary table -->
       <div v-if="showSummary" class="bg-tactical-surface rounded-lg border border-tactical-border overflow-hidden mb-6">
         <div class="px-4 py-3 border-b border-tactical-border">
-          <h2 class="text-sm font-display font-semibold text-gray-200 uppercase tracking-wider">
+          <h2 class="text-sm font-sans font-semibold text-gray-200">
             Summary by {{ groupBy === 'device' ? 'Device' : 'Month' }} ({{ summary.length }})
           </h2>
         </div>
@@ -132,7 +137,7 @@ function formatDate(d) {
             <tr class="text-left text-xs text-gray-500 border-b border-tactical-border">
               <th class="px-4 py-2">{{ groupBy === 'device' ? 'Device' : 'Month' }}</th>
               <th class="px-4 py-2 text-right">Messages</th>
-              <th class="px-4 py-2 text-right">Total Cost</th>
+              <th class="px-4 py-2 text-right">Total cost</th>
             </tr>
           </thead>
           <tbody>
@@ -148,7 +153,7 @@ function formatDate(d) {
       <!-- Detail table -->
       <div v-if="!showSummary" class="bg-tactical-surface rounded-lg border border-tactical-border overflow-hidden">
         <div class="px-4 py-3 border-b border-tactical-border">
-          <h2 class="text-sm font-display font-semibold text-gray-200 uppercase tracking-wider">Entries ({{ entries.length }})</h2>
+          <h2 class="text-sm font-sans font-semibold text-gray-200">Entries ({{ entries.length }})</h2>
         </div>
         <EmptyState v-if="entries.length === 0" icon="chart" title="No cost entries" message="Cost entries are created when satellite messages are sent." />
         <table v-else class="w-full text-sm">
@@ -166,7 +171,7 @@ function formatDate(d) {
               <td class="px-4 py-2 font-mono text-xs text-gray-300">{{ e.device_imei }}</td>
               <td class="px-4 py-2 text-xs text-gray-400">{{ e.interface_type }}</td>
               <td class="px-4 py-2">
-                <span class="text-xs px-1.5 py-0.5 rounded uppercase" :class="directionClass(e.direction)">{{ e.direction }}</span>
+                <span class="text-xs px-1.5 py-0.5 rounded" :class="directionClass(e.direction)">{{ e.direction }}</span>
               </td>
               <td class="px-4 py-2 text-right text-gray-200">${{ (e.cost_usd || 0).toFixed(3) }}</td>
               <td class="px-4 py-2 text-gray-500 text-xs">{{ formatDate(e.created_at) }}</td>

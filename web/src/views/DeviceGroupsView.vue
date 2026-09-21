@@ -136,15 +136,15 @@ const addImei = ref('')
 </script>
 
 <template>
-  <div class="max-w-5xl mx-auto">
-    <div class="flex items-center justify-between mb-6">
+  <div class="ms-page max-w-5xl">
+    <div class="ms-page-head">
       <div>
-        <h1 class="text-xl font-display font-semibold text-gray-100">Device Groups</h1>
-        <p class="text-sm text-gray-500 mt-1">Organize fleet devices into groups for easier management.</p>
+        <h1 class="ms-h1">Device groups</h1>
+        <p class="ms-lede">Organize fleet devices into groups for easier management.</p>
       </div>
       <button @click="openCreate"
-        class="px-4 py-2 bg-brand-primary text-ms-on-primary text-sm font-medium rounded-lg hover:bg-brand-accent transition-colors">
-        New Group
+        class="ms-btn-primary">
+        New group
       </button>
     </div>
 
@@ -216,8 +216,8 @@ const addImei = ref('')
       <div v-if="showModal" class="fixed inset-0 z-50 flex items-center justify-center p-4" @click.self="showModal = false">
         <div class="absolute inset-0 bg-black/60" @click="showModal = false"></div>
         <div class="relative bg-tactical-surface border border-tactical-border rounded-xl shadow-2xl w-full max-w-md p-6">
-          <h2 class="text-lg font-display font-semibold text-gray-100 mb-4">
-            {{ editingGroup ? 'Edit Group' : 'New Group' }}
+          <h2 class="text-lg font-sans font-semibold text-gray-100 mb-4">
+            {{ editingGroup ? 'Edit group' : 'New group' }}
           </h2>
 
           <div class="space-y-4">
@@ -253,7 +253,7 @@ const addImei = ref('')
               Cancel
             </button>
             <button @click="saveGroup"
-              class="px-4 py-2 bg-brand-primary text-ms-on-primary text-sm font-medium rounded-lg hover:bg-brand-accent transition-colors">
+              class="ms-btn-primary">
               {{ editingGroup ? 'Save' : 'Create' }}
             </button>
           </div>

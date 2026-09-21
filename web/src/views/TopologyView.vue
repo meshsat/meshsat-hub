@@ -108,13 +108,16 @@ function timeSince(iso) {
 </script>
 
 <template>
-  <div class="p-6 max-w-7xl mx-auto">
-    <div class="flex items-center justify-between mb-6">
-      <h1 class="text-2xl font-display font-bold">Reticulum Topology</h1>
+  <div class="ms-page max-w-7xl">
+    <div class="ms-page-head">
+      <div>
+        <h1 class="ms-h1">Topology</h1>
+        <p class="ms-lede">The Hub's Reticulum node, its interfaces, and the nodes it can reach.</p>
+      </div>
       <button @click="loadData" class="text-sm text-brand-primary hover:text-brand-primary">Refresh</button>
     </div>
 
-    <div v-if="error" class="bg-red-900/50 border border-red-700 text-red-200 rounded p-3 mb-4">{{ error }}</div>
+    <div v-if="error" role="alert" class="ms-alert mb-4">{{ error }}</div>
 
     <div v-if="loading" class="text-gray-400 py-16 text-center">Loading network topology...</div>
 
@@ -123,16 +126,16 @@ function timeSince(iso) {
       <div class="bg-tactical-surface rounded-lg border border-brand-accent p-4 mb-6">
         <div class="flex items-center gap-3 mb-3">
           <div class="w-3 h-3 rounded-full bg-brand-primary animate-pulse"></div>
-          <h2 class="text-lg font-semibold uppercase tracking-wider">Hub Node</h2>
-          <span class="text-xs text-gray-500 capitalize">{{ hub.role.replace(/_/g, ' ') || 'Transport Node' }}</span>
+          <h2 class="ms-h2 text-[15px]">Hub node</h2>
+          <span class="text-xs text-gray-500 capitalize">{{ hub.role.replace(/_/g, ' ') || 'Transport node' }}</span>
         </div>
         <div v-if="hub.dest_hash" class="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
           <div>
-            <span class="text-gray-400 text-xs">Destination Hash</span>
+            <span class="text-gray-400 text-xs">Destination hash</span>
             <p class="font-mono text-brand-primary break-all">{{ hub.dest_hash }}</p>
           </div>
           <div>
-            <span class="text-gray-400 text-xs">App Name</span>
+            <span class="text-gray-400 text-xs">App name</span>
             <p class="font-mono">{{ hub.app_name }}</p>
           </div>
         </div>
@@ -142,44 +145,44 @@ function timeSince(iso) {
       <!-- Stats Row -->
       <div class="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-3 mb-6">
         <div class="bg-tactical-surface rounded-lg border border-tactical-border p-4 text-center">
-          <p class="text-2xl font-display font-bold">{{ routeCount }}</p>
-          <p class="text-gray-400 text-xs">Known Nodes</p>
+          <p class="text-2xl font-sans font-semibold ms-num">{{ routeCount }}</p>
+          <p class="text-gray-400 text-xs">Known nodes</p>
         </div>
         <div class="bg-tactical-surface rounded-lg border border-tactical-border p-4 text-center">
-          <p class="text-2xl font-display font-bold text-ms-success">{{ freeRoutes.length }}</p>
-          <p class="text-gray-400 text-xs">Free Paths</p>
+          <p class="text-2xl font-sans font-semibold ms-num">{{ freeRoutes.length }}</p>
+          <p class="text-gray-400 text-xs">Free paths</p>
         </div>
         <div class="bg-tactical-surface rounded-lg border border-tactical-border p-4 text-center">
-          <p class="text-2xl font-display font-bold text-orange-400">{{ paidRoutes.length }}</p>
-          <p class="text-gray-400 text-xs">Paid Paths</p>
+          <p class="text-2xl font-sans font-semibold ms-num">{{ paidRoutes.length }}</p>
+          <p class="text-gray-400 text-xs">Paid paths</p>
         </div>
         <div class="bg-tactical-surface rounded-lg border border-tactical-border p-4 text-center">
-          <p class="text-2xl font-display font-bold text-brand-primary">{{ interfaces.length }}</p>
+          <p class="text-2xl font-sans font-semibold ms-num">{{ interfaces.length }}</p>
           <p class="text-gray-400 text-xs">Interfaces</p>
         </div>
         <div class="bg-tactical-surface rounded-lg border border-tactical-border p-4 text-center">
-          <p class="text-2xl font-display font-bold text-ms-success">{{ relayStats.forwarded || 0 }}</p>
+          <p class="text-2xl font-sans font-semibold ms-num">{{ relayStats.forwarded || 0 }}</p>
           <p class="text-gray-400 text-xs">Forwarded</p>
         </div>
         <div class="bg-tactical-surface rounded-lg border border-tactical-border p-4 text-center">
-          <p class="text-2xl font-display font-bold" :class="(relayStats.dropped || 0) > 0 ? 'text-ms-error' : 'text-gray-500'">
+          <p class="text-2xl font-sans font-semibold ms-num" :class="(relayStats.dropped || 0) > 0 ? 'text-ms-warning' : 'text-ms-text'">
             {{ relayStats.dropped || 0 }}
           </p>
           <p class="text-gray-400 text-xs">Dropped</p>
         </div>
         <div class="bg-tactical-surface rounded-lg border border-tactical-border p-4 text-center">
-          <p class="text-2xl font-display font-bold text-sky-400">{{ pathStats.responses_sent || 0 }}</p>
-          <p class="text-gray-400 text-xs">Path Replies</p>
+          <p class="text-2xl font-sans font-semibold ms-num">{{ pathStats.responses_sent || 0 }}</p>
+          <p class="text-gray-400 text-xs">Path replies</p>
         </div>
         <div class="bg-tactical-surface rounded-lg border border-tactical-border p-4 text-center">
-          <p class="text-2xl font-display font-bold text-purple-400">{{ hintsPublished }}</p>
-          <p class="text-gray-400 text-xs">Hints Sent</p>
+          <p class="text-2xl font-sans font-semibold ms-num">{{ hintsPublished }}</p>
+          <p class="text-gray-400 text-xs">Hints sent</p>
         </div>
       </div>
 
       <!-- Transport Interfaces -->
       <div class="mb-6">
-        <h2 class="text-sm font-display font-semibold text-gray-200 uppercase tracking-wider mb-3">Transport Interfaces</h2>
+        <h2 class="text-sm font-sans font-semibold text-gray-200 mb-3">Transport interfaces</h2>
         <EmptyState v-if="interfaces.length === 0" icon="globe" title="No interfaces"
           message="Reticulum transport interfaces will appear here when registered." />
         <div v-else class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
@@ -213,15 +216,15 @@ function timeSince(iso) {
 
       <!-- Network Topology Visualization -->
       <div v-if="routeList.length > 0" class="mb-6">
-        <h2 class="text-sm font-display font-semibold text-gray-200 uppercase tracking-wider mb-3">Network Map</h2>
+        <h2 class="text-sm font-sans font-semibold text-gray-200 mb-3">Network map</h2>
         <div class="bg-tactical-surface rounded-lg border border-tactical-border p-6">
           <div class="flex items-center justify-center gap-8 flex-wrap">
             <!-- Hub node (center) -->
             <div class="flex flex-col items-center">
-              <div class="w-16 h-16 rounded-full bg-brand-primary/20 border-2 border-brand-primary flex items-center justify-center text-brand-primary font-bold text-xs">
+              <div class="w-16 h-16 rounded-full bg-ms-primary/10 border-2 border-ms-primary flex items-center justify-center text-ms-text font-semibold text-xs">
                 HUB
               </div>
-              <span class="text-xs text-gray-500 mt-1">Transport Node</span>
+              <span class="text-xs text-gray-500 mt-1">Transport node</span>
             </div>
 
             <!-- Interface groups radiating from hub -->
@@ -256,7 +259,7 @@ function timeSince(iso) {
       <!-- Routing Table -->
       <div class="bg-tactical-surface rounded-lg border border-tactical-border overflow-hidden">
         <div class="px-4 py-3 border-b border-tactical-border flex items-center justify-between">
-          <h2 class="text-sm font-display font-semibold text-gray-200 uppercase tracking-wider">Routing Table</h2>
+          <h2 class="text-sm font-sans font-semibold text-gray-200">Routing table</h2>
           <span class="text-xs text-gray-500">{{ routeCount }} entries</span>
         </div>
 
@@ -271,8 +274,8 @@ function timeSince(iso) {
                 <th class="px-4 py-2">Interface</th>
                 <th class="px-4 py-2">Cost</th>
                 <th class="px-4 py-2">Hops</th>
-                <th class="px-4 py-2">Last Seen</th>
-                <th class="px-4 py-2">App Data</th>
+                <th class="px-4 py-2">Last seen</th>
+                <th class="px-4 py-2">App data</th>
               </tr>
             </thead>
             <tbody>
@@ -300,7 +303,7 @@ function timeSince(iso) {
       <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 mt-4">
         <!-- Relay Stats -->
         <div v-if="totalRelayPackets > 0" class="bg-tactical-surface rounded-lg border border-tactical-border p-4">
-          <h2 class="text-sm font-display font-semibold text-gray-200 uppercase tracking-wider mb-3">Relay Statistics</h2>
+          <h2 class="text-sm font-sans font-semibold text-gray-200 mb-3">Relay statistics</h2>
           <div class="grid grid-cols-2 gap-4 text-sm">
             <div class="flex items-center justify-between">
               <span class="text-gray-400">Forwarded</span>
@@ -311,11 +314,11 @@ function timeSince(iso) {
               <span class="text-ms-error font-medium">{{ relayStats.dropped || 0 }}</span>
             </div>
             <div class="flex items-center justify-between">
-              <span class="text-gray-400">No Route</span>
+              <span class="text-gray-400">No route</span>
               <span class="text-ms-warning font-medium">{{ relayStats.no_route || 0 }}</span>
             </div>
             <div class="flex items-center justify-between">
-              <span class="text-gray-400">Rate Limited</span>
+              <span class="text-gray-400">Rate limited</span>
               <span class="text-gray-300 font-medium">{{ relayStats.rate_limited || 0 }}</span>
             </div>
           </div>
@@ -323,7 +326,7 @@ function timeSince(iso) {
 
         <!-- Path Discovery Stats -->
         <div v-if="totalPathOps > 0 || hintsPublished > 0" class="bg-tactical-surface rounded-lg border border-tactical-border p-4">
-          <h2 class="text-sm font-display font-semibold text-gray-200 uppercase tracking-wider mb-3">Path Discovery</h2>
+          <h2 class="text-sm font-sans font-semibold text-gray-200 mb-3">Path discovery</h2>
           <div class="grid grid-cols-2 gap-4 text-sm">
             <div class="flex items-center justify-between">
               <span class="text-gray-400">Requests</span>
@@ -338,7 +341,7 @@ function timeSince(iso) {
               <span class="text-gray-300 font-medium">{{ pathStats.deduplicated || 0 }}</span>
             </div>
             <div class="flex items-center justify-between">
-              <span class="text-gray-400">Hints Published</span>
+              <span class="text-gray-400">Hints published</span>
               <span class="text-purple-400 font-medium">{{ hintsPublished }}</span>
             </div>
           </div>

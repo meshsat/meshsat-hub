@@ -90,8 +90,13 @@ async function deletePref(imei) {
 </script>
 
 <template>
-  <div>
-    <h1 class="text-2xl font-display font-bold mb-4">Notifications</h1>
+  <div class="ms-page">
+    <div class="ms-page-head">
+      <div>
+        <h1 class="ms-h1">Notifications</h1>
+        <p class="ms-lede">Where alerts are pushed besides SMS, through ntfy, Apprise and similar services.</p>
+      </div>
+    </div>
 
     <div v-if="noRelay"
          class="bg-amber-900/50 border border-amber-700/50 text-amber-200 px-4 py-3 rounded mb-4 flex gap-3 items-start">
@@ -106,12 +111,12 @@ async function deletePref(imei) {
       </div>
     </div>
 
-    <div v-if="error" class="bg-red-900/50 border border-red-700 text-red-200 px-4 py-3 rounded mb-4">{{ error }}</div>
+    <div v-if="error" role="alert" class="ms-alert mb-4">{{ error }}</div>
 
     <div class="flex justify-end mb-4">
       <button @click="editing ? (editing = false) : newPref()"
-        class="bg-brand-accent hover:bg-brand-primary text-ms-on-primary px-3 py-1 rounded text-sm transition-colors">
-        {{ editing ? 'Cancel' : '+ Add Preference' }}
+        class="ms-btn-primary">
+        {{ editing ? 'Cancel' : 'Add preference' }}
       </button>
     </div>
 
@@ -142,7 +147,7 @@ async function deletePref(imei) {
           <input type="checkbox" v-model="form.enabled" class="rounded" /> Enabled
         </label>
         <button @click="savePref"
-          class="bg-brand-accent hover:bg-brand-primary text-ms-on-primary px-4 py-2 rounded text-sm transition-colors">Save</button>
+          class="ms-btn-primary">Save</button>
       </div>
     </div>
 
@@ -174,7 +179,7 @@ async function deletePref(imei) {
               <button @click="editPref(p)"
                 class="bg-gray-700 hover:bg-gray-600 text-gray-200 px-2 py-1 rounded-lg text-xs transition-colors">Edit</button>
               <button @click="deletePref(p.device_imei)"
-                class="bg-red-900 hover:bg-red-800 text-red-200 px-2 py-1 rounded-lg text-xs transition-colors">Delete</button>
+                class="ms-btn-danger">Delete</button>
             </td>
           </tr>
         </tbody>

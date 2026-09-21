@@ -4,32 +4,39 @@
 
 /*
  * MeshSat brand tokens as "r g b" triplets (Tailwind adds the alpha).
- * Source: meshsat-website/site/assets/css/main.css (derived from the brand
- * guide: Space Black #040406, Signal Orange #F96118, Off White #F7F7F4).
+ * Source: the brand guide (Space Black #040406, Signal Orange #F96118,
+ * Off White #F7F7F4) and meshsat-website/site/assets/css/main.css.
  * Dark is the default; the theme store removes `.dark` for light.
- * on-primary: white on #F25C05 is ~3.1:1, so dark-theme primary buttons carry
- * near-black text; light-theme primary #C4470A takes white text (AA).
+ *
+ * The console follows ISA-101 high-performance HMI practice: the neutrals are
+ * Space Black lifted in the same hue (no warm browns), so the page is quiet
+ * when everything is normal and colour is spent on states that need a person.
+ * Signal Orange means "you can act here" or "selected"; error is an alarm,
+ * warning a caution (a yellow, kept apart from the orange), success is a live
+ * dot and never a big numeral.
+ * on-primary: Space Black on Signal Orange is 6.6:1; light-theme primary
+ * #C4470A takes white text (AA).
  */
 :root {
-  --ms-bg: 20 18 15;             /* #14120F */
-  --ms-bg2: 26 23 20;            /* #1A1714 */
-  --ms-card: 33 29 25;           /* #211D19 */
-  --ms-text: 242 237 230;        /* #F2EDE6 */
-  --ms-muted: 167 155 139;       /* #A79B8B */
-  --ms-primary: 242 92 5;        /* #F25C05 */
-  --ms-primary-hover: 255 122 46; /* #FF7A2E */
-  --ms-on-primary: 20 18 15;     /* #14120F */
-  --ms-accent: 200 184 154;      /* #C8B89A */
-  --ms-border: 46 40 34;         /* #2E2822 */
-  --ms-border-light: 66 58 49;   /* #423A31 */
-  --ms-success: 79 180 119;      /* #4FB477 */
-  --ms-warning: 224 160 48;      /* #E0A030 */
-  --ms-error: 240 101 90;        /* #F0655A */
-  --ms-grid: 247 247 244;        /* Off White, dot grid */
+  --ms-bg: 4 4 6;                /* #040406 Space Black */
+  --ms-bg2: 9 9 12;              /* #09090C */
+  --ms-card: 15 15 19;           /* #0F0F13 panel */
+  --ms-text: 247 247 244;        /* #F7F7F4 Off White */
+  --ms-muted: 133 133 127;       /* #85857F tertiary text, 5.1:1 on panel */
+  --ms-primary: 249 97 24;       /* #F96118 Signal Orange */
+  --ms-primary-hover: 255 128 66; /* #FF8042 */
+  --ms-on-primary: 4 4 6;        /* Space Black */
+  --ms-accent: 180 180 173;      /* #B4B4AD */
+  --ms-border: 38 38 45;         /* #26262D hairline */
+  --ms-border-light: 58 58 66;   /* #3A3A42 */
+  --ms-success: 93 187 126;      /* #5DBB7E live */
+  --ms-warning: 229 192 75;      /* #E5C04B caution */
+  --ms-error: 242 87 75;         /* #F2574B alarm */
+  --ms-grid: 247 247 244;        /* Off White, dot grid (login only) */
   /* neutral tiers (see tailwind.config.js gray mapping) */
-  --ms-well: 26 23 20;           /* #1A1714 inputs, hover wells */
-  --ms-text2: 222 216 207;       /* #DED8CF body text */
-  --ms-muted2: 196 184 168;      /* #C4B8A8 secondary text */
+  --ms-well: 23 23 28;           /* #17171C inputs, hover wells */
+  --ms-text2: 220 220 214;       /* #DCDCD6 body text */
+  --ms-muted2: 180 180 173;      /* #B4B4AD secondary text */
   /* subsystem/transport colours as text: Tailwind 400 shades on dark */
   --ms-green: 74 222 128;
   --ms-yellow: 250 204 21;
@@ -44,24 +51,24 @@
 }
 
 html:not(.dark) {
-  --ms-bg: 247 245 242;          /* #F7F5F2 */
+  --ms-bg: 247 247 244;          /* #F7F7F4 Off White */
   --ms-bg2: 255 255 255;
   --ms-card: 255 255 255;
-  --ms-text: 26 23 20;           /* #1A1714 */
-  --ms-muted: 92 84 74;          /* #5C544A */
+  --ms-text: 4 4 6;              /* Space Black */
+  --ms-muted: 102 102 106;       /* #66666A */
   --ms-primary: 196 71 10;       /* #C4470A (AA on white) */
   --ms-primary-hover: 160 58 7;  /* #A03A07 */
   --ms-on-primary: 255 255 255;
-  --ms-accent: 122 107 80;       /* #7A6B50 */
-  --ms-border: 227 221 212;      /* #E3DDD4 */
-  --ms-border-light: 210 201 188; /* #D2C9BC */
+  --ms-accent: 69 69 74;         /* #45454A */
+  --ms-border: 227 227 222;      /* #E3E3DE */
+  --ms-border-light: 207 207 200; /* #CFCFC8 */
   --ms-success: 47 125 79;       /* #2F7D4F */
   --ms-warning: 138 90 11;       /* #8A5A0B */
-  --ms-error: 163 42 34;         /* #A32A22 */
+  --ms-error: 179 38 30;         /* #B3261E */
   --ms-grid: 4 4 6;              /* Space Black, dot grid */
-  --ms-well: 239 235 229;        /* #EFEBE5 */
-  --ms-text2: 42 38 34;          /* #2A2622 */
-  --ms-muted2: 74 67 59;         /* #4A433B */
+  --ms-well: 240 240 236;        /* #F0F0EC */
+  --ms-text2: 42 42 46;          /* #2A2A2E */
+  --ms-muted2: 69 69 74;         /* #45454A */
   /* subsystem/transport colours as text: Tailwind 700 shades, AA on white */
   --ms-green: 21 128 61;
   --ms-yellow: 161 98 7;
@@ -80,11 +87,89 @@ html {
   color: rgb(var(--ms-text));
 }
 
-/* Dot grid background (Off White at 3% on dark, Space Black at 3% on light) */
-body {
+/* Dot grid (Off White at 4% on dark, Space Black at 4% on light): the
+   sign-in pages only. Inside the console it was texture competing with data. */
+.ms-dotgrid {
   background-image:
-    radial-gradient(circle, rgb(var(--ms-grid) / 0.03) 1px, transparent 1px);
+    radial-gradient(circle, rgb(var(--ms-grid) / 0.04) 1px, transparent 1px);
   background-size: 24px 24px;
+}
+
+body {
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/*
+ * Console vocabulary. One page header, one section heading, one panel, one
+ * button family, one table: every view speaks the same way so an operator
+ * learns the product once. Sentence case throughout, no tracked capitals.
+ */
+@layer components {
+  /* Page title: the brand display face, used for nothing else but identifiers. */
+  .ms-page { @apply mx-auto w-full max-w-[1440px] px-4 sm:px-6 lg:px-8 py-5 lg:py-7; }
+  .ms-page-head { @apply flex flex-wrap items-end justify-between gap-x-6 gap-y-3 mb-5 lg:mb-6; }
+  .ms-h1 {
+    @apply font-display text-[1.375rem] leading-7 font-medium tracking-[-0.01em] text-ms-text;
+  }
+  .ms-lede { @apply text-sm text-ms-muted mt-1 max-w-[70ch]; }
+  .ms-h2 { @apply font-sans text-sm font-semibold text-ms-text; }
+  .ms-label { @apply text-xs font-medium text-ms-muted; }
+  .ms-panel { @apply bg-ms-card border border-ms-border rounded-[10px]; }
+  .ms-panel-head { @apply flex items-center justify-between gap-3 px-4 h-11 border-b border-ms-border; }
+  .ms-btn {
+    @apply inline-flex items-center justify-center gap-1.5 h-8 px-3 rounded-md text-[13px] font-medium
+      border border-ms-border-light text-ms-text bg-transparent hover:bg-ms-well transition-colors
+      disabled:opacity-40 disabled:cursor-not-allowed;
+  }
+  .ms-btn-primary {
+    @apply inline-flex items-center justify-center gap-1.5 h-8 px-3 rounded-md text-[13px] font-semibold
+      bg-ms-primary hover:bg-ms-primary-hover text-ms-on-primary transition-colors
+      disabled:opacity-40 disabled:cursor-not-allowed;
+  }
+  .ms-btn-ghost {
+    @apply inline-flex items-center justify-center gap-1.5 h-8 px-2 rounded-md text-[13px] font-medium
+      text-ms-muted hover:text-ms-text hover:bg-ms-well transition-colors;
+  }
+  /* Destructive actions are quiet until pointed at: a red button on every
+     row is colour spent on nothing abnormal (ISA-101). */
+  .ms-btn-danger {
+    @apply inline-flex items-center justify-center gap-1 h-7 px-2 rounded-md text-xs font-medium
+      text-ms-muted hover:text-ms-error hover:bg-ms-error/10 transition-colors
+      disabled:opacity-40 disabled:cursor-not-allowed;
+  }
+  .ms-btn-destroy {
+    @apply inline-flex items-center justify-center h-8 px-3 rounded-md text-[13px] font-semibold
+      bg-ms-error text-ms-on-primary hover:opacity-90 transition-opacity disabled:opacity-40;
+  }
+  .ms-alert { @apply rounded-lg border border-ms-error/50 bg-ms-error/10 px-4 py-3 text-[13px] text-ms-text; }
+  .ms-note { @apply rounded-lg border border-ms-border-light bg-ms-well px-4 py-3 text-[13px] text-ms-text; }
+  .ms-chip { @apply inline-flex items-center gap-1 h-5 px-1.5 rounded text-xs font-medium bg-ms-well text-ms-text2 border border-ms-border; }
+  .ms-input {
+    @apply h-8 px-2.5 rounded-md bg-ms-well border border-ms-border text-[13px] text-ms-text
+      placeholder:text-ms-muted focus:outline-none focus:border-ms-primary;
+  }
+  .ms-table { @apply w-full text-[13px]; }
+  .ms-table th { @apply text-left text-xs font-medium text-ms-muted px-4 h-9 border-b border-ms-border whitespace-nowrap; }
+  .ms-table td { @apply px-4 h-11 border-b border-ms-border/60 text-ms-text2; }
+  .ms-table tr:last-child td { @apply border-b-0; }
+  .ms-id { @apply font-mono text-[12px] tracking-tight; }
+  .ms-num { font-variant-numeric: tabular-nums; }
+}
+
+/* Visible keyboard focus everywhere; the mouse never sees it. */
+:focus-visible {
+  outline: 2px solid rgb(var(--ms-primary));
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }
 
 /* Custom scrollbar for panels and lists (matches Bridge) */
@@ -125,7 +210,9 @@ body {
 .maplibregl-map { background: rgb(var(--ms-bg)); font: inherit; }
 .maplibregl-ctrl-attrib, .maplibregl-ctrl-attrib a { color: rgb(var(--ms-muted)); }
 .maplibregl-ctrl-attrib { background: rgb(var(--ms-bg) / 0.8); }
-.maplibregl-ctrl-attrib a { color: rgb(var(--ms-primary)); }
+.maplibregl-ctrl-attrib a { color: rgb(var(--ms-text)); text-decoration: underline; }
+.maplibregl-ctrl-attrib.maplibregl-compact { background: rgb(var(--ms-card)); color: rgb(var(--ms-text2)); }
+.maplibregl-ctrl-attrib.maplibregl-compact .maplibregl-ctrl-attrib-button { filter: var(--ms-map-ctrl-filter, none); }
 .maplibregl-ctrl-group { background: rgb(var(--ms-card)); border: 1px solid rgb(var(--ms-border)); }
 .maplibregl-ctrl-group button + button { border-top: 1px solid rgb(var(--ms-border)); }
 .maplibregl-ctrl-group button span { filter: var(--ms-map-ctrl-filter, none); }

@@ -68,12 +68,14 @@ function timeSince(ts) {
   return `${Math.floor(hr / 24)}d ago`
 }
 
+// A satellite device reports when it has something to say, so a quiet one
+// is not failing: the age is stated plainly and takes no alarm colour. A
+// missed check-in is the alarm, and the Check-ins page raises it.
 function onlineStatus(ts) {
-  if (!ts || ts === '0001-01-01T00:00:00Z') return { label: 'offline', color: 'text-ms-error', dot: 'bg-ms-error' }
+  if (!ts || ts === '0001-01-01T00:00:00Z') return { label: 'Never heard from', color: 'text-ms-muted', dot: 'border border-ms-muted' }
   const age = Date.now() - new Date(ts).getTime()
-  if (age < 3600000) return { label: 'online', color: 'text-ms-success', dot: 'bg-ms-success' }
-  if (age < 86400000) return { label: 'idle', color: 'text-ms-warning', dot: 'bg-ms-warning' }
-  return { label: 'offline', color: 'text-ms-error', dot: 'bg-ms-error' }
+  if (age < 3600000) return { label: `Heard ${timeSince(ts)}`, color: 'text-ms-text2', dot: 'bg-ms-success' }
+  return { label: `Heard ${timeSince(ts)}`, color: 'text-ms-muted', dot: 'border border-ms-muted' }
 }
 
 function budgetPercent(sent, cap) {
@@ -96,54 +98,56 @@ const tabs = [
 </script>
 
 <template>
-  <div class="p-4 lg:p-6 max-w-6xl mx-auto">
+  <div class="ms-page max-w-6xl">
     <div v-if="loading" class="text-center text-gray-500 py-16">Loading device...</div>
     <div v-else-if="error" class="text-center text-ms-error py-16">{{ error }}</div>
 
     <template v-else-if="device">
       <!-- Header -->
-      <div class="flex items-center gap-4 mb-6">
-        <router-link to="/devices" class="text-gray-500 hover:text-gray-300 text-sm">&larr; Devices</router-link>
-        <div class="flex items-center gap-3">
-          <span class="w-3 h-3 rounded-full" :class="onlineStatus(device.last_seen).dot"></span>
-          <h1 class="text-2xl font-display font-bold">{{ device.label || device.imei }}</h1>
+      <router-link to="/devices" class="ms-btn-ghost -ml-2 mb-2 text-xs">Devices</router-link>
+      <div class="ms-page-head">
+        <div>
+          <div class="flex items-center gap-3">
+            <span class="w-2.5 h-2.5 rounded-full" :class="onlineStatus(device.last_seen).dot"></span>
+            <h1 class="ms-h1">{{ device.label || device.imei }}</h1>
+          </div>
+          <p class="ms-lede" :class="onlineStatus(device.last_seen).color">{{ onlineStatus(device.last_seen).label }}</p>
         </div>
-        <span class="text-sm" :class="onlineStatus(device.last_seen).color">{{ onlineStatus(device.last_seen).label }}</span>
       </div>
 
       <!-- Info Cards -->
       <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 mb-6">
         <div class="bg-tactical-surface rounded-lg border border-tactical-border p-3">
-          <div class="text-gray-500 text-[10px] uppercase">IMEI</div>
+          <div class="text-gray-500 text-[10px]">IMEI</div>
           <div class="font-mono text-xs text-gray-300 truncate">{{ device.imei }}</div>
         </div>
         <div class="bg-tactical-surface rounded-lg border border-tactical-border p-3">
-          <div class="text-gray-500 text-[10px] uppercase">Type</div>
+          <div class="text-gray-500 text-[10px]">Type</div>
           <div class="text-sm text-gray-300">{{ device.type || 'unknown' }}</div>
         </div>
         <div class="bg-tactical-surface rounded-lg border border-tactical-border p-3">
-          <div class="text-gray-500 text-[10px] uppercase">Last Seen</div>
+          <div class="text-gray-500 text-[10px]">Last seen</div>
           <div class="text-sm text-gray-300">{{ timeSince(device.last_seen) }}</div>
         </div>
         <div class="bg-tactical-surface rounded-lg border border-tactical-border p-3">
-          <div class="text-gray-500 text-[10px] uppercase">Messages</div>
+          <div class="text-gray-500 text-[10px]">Messages</div>
           <div class="text-sm text-gray-300">{{ msgList.length }}</div>
         </div>
         <div class="bg-tactical-surface rounded-lg border border-tactical-border p-3">
-          <div class="text-gray-500 text-[10px] uppercase">Enc Keys</div>
+          <div class="text-gray-500 text-[10px]">Encryption keys</div>
           <div class="text-sm text-gray-300">{{ keyList.length }}</div>
         </div>
         <div class="bg-tactical-surface rounded-lg border border-tactical-border p-3">
-          <div class="text-gray-500 text-[10px] uppercase">DMS</div>
-          <div class="text-sm" :class="dmsConfig?.enabled ? 'text-ms-success' : 'text-gray-500'">
-            {{ dmsConfig?.enabled ? 'active' : 'off' }}
+          <div class="text-gray-500 text-[10px]">Check-in</div>
+          <div class="text-sm" :class="dmsConfig?.enabled ? 'text-ms-text' : 'text-gray-500'">
+            {{ dmsConfig?.enabled ? 'Watched' : 'Not watched' }}
           </div>
         </div>
       </div>
 
       <!-- Budget Bar -->
       <div v-if="budget && (budget.daily_cap > 0 || budget.monthly_cap > 0)" class="bg-tactical-surface rounded-lg border border-tactical-border p-4 mb-6">
-        <h2 class="text-sm font-display font-semibold text-gray-200 uppercase tracking-wider mb-3">Budget Usage</h2>
+        <h2 class="text-sm font-sans font-semibold text-gray-200 mb-3">Budget usage</h2>
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div v-if="budget.daily_cap > 0">
             <div class="flex justify-between text-xs text-gray-500 mb-1">
@@ -172,7 +176,7 @@ const tabs = [
 
       <!-- WireGuard -->
       <div v-if="wgConfig" class="bg-tactical-surface rounded-lg border border-tactical-border p-4 mb-6">
-        <h2 class="text-sm font-display font-semibold text-gray-200 uppercase tracking-wider mb-2">WireGuard VPN</h2>
+        <h2 class="text-sm font-sans font-semibold text-gray-200 mb-2">WireGuard</h2>
         <div class="flex items-center gap-4 text-sm">
           <span class="text-gray-400">Address:</span>
           <span class="font-mono text-brand-primary">{{ wgConfig.vpn_address || wgConfig.address || 'assigned' }}</span>

@@ -121,15 +121,15 @@ async function deleteGroup() {
 </script>
 
 <template>
-  <div class="max-w-5xl mx-auto">
-    <div class="flex items-center justify-between mb-6">
+  <div class="ms-page max-w-5xl">
+    <div class="ms-page-head">
       <div>
-        <h1 class="text-xl font-display font-semibold text-gray-100">Bond Groups</h1>
-        <p class="text-sm text-gray-500 mt-1">Configure HeMB multi-bearer bonding groups per bridge.</p>
+        <h1 class="ms-h1">Bonding</h1>
+        <p class="ms-lede">Configure HeMB multi-bearer bonding groups per bridge.</p>
       </div>
       <button v-if="selectedBridge" @click="openCreate"
-        class="px-4 py-2 bg-brand-primary text-ms-on-primary text-sm font-medium rounded-lg hover:bg-brand-accent transition-colors">
-        New Bond Group
+        class="ms-btn-primary">
+        New bond group
       </button>
     </div>
 
@@ -147,7 +147,7 @@ async function deleteGroup() {
 
     <!-- HeMB stats banner -->
     <div v-if="stats" class="bg-tactical-surface border border-tactical-border rounded-lg p-3 mb-4 flex gap-6 text-xs">
-      <div><span class="text-gray-500">Active Streams</span> <span class="text-gray-200 font-mono ml-1">{{ stats.active_streams }}</span></div>
+      <div><span class="text-gray-500">Active streams</span> <span class="text-gray-200 font-mono ml-1">{{ stats.active_streams }}</span></div>
       <div><span class="text-gray-500">Decoded</span> <span class="text-ms-success font-mono ml-1">{{ stats.generations_decoded }}</span></div>
       <div><span class="text-gray-500">Pending</span> <span class="text-ms-warning font-mono ml-1">{{ stats.generations_pending }}</span></div>
     </div>
@@ -169,7 +169,7 @@ async function deleteGroup() {
         class="bg-tactical-surface border border-tactical-border rounded-lg p-4">
         <div class="flex items-start justify-between gap-3">
           <div class="flex-1 min-w-0">
-            <h3 class="font-display font-semibold text-gray-200 text-sm">{{ g.label }}</h3>
+            <h3 class="font-sans font-semibold text-gray-200 text-sm">{{ g.label }}</h3>
             <div class="flex flex-wrap gap-1.5 mt-2">
               <span v-for="m in parseMembers(g.members)" :key="m"
                 class="inline-flex items-center px-2 py-0.5 text-xs font-mono rounded bg-cyan-900/40 text-cyan-300 border border-cyan-800/50">
@@ -199,8 +199,8 @@ async function deleteGroup() {
       <div v-if="showModal" class="fixed inset-0 z-50 flex items-center justify-center p-4" @click.self="showModal = false">
         <div class="absolute inset-0 bg-black/60" @click="showModal = false"></div>
         <div class="relative bg-tactical-surface border border-tactical-border rounded-xl shadow-2xl w-full max-w-md p-6">
-          <h2 class="text-lg font-display font-semibold text-gray-100 mb-4">
-            {{ editingGroup ? 'Edit Bond Group' : 'New Bond Group' }}
+          <h2 class="text-lg font-sans font-semibold text-gray-100 mb-4">
+            {{ editingGroup ? 'Edit bond group' : 'New bond group' }}
           </h2>
 
           <div class="space-y-4">
@@ -212,7 +212,7 @@ async function deleteGroup() {
             </div>
 
             <div>
-              <label class="block text-xs font-medium text-gray-400 mb-1">Member Interfaces</label>
+              <label class="block text-xs font-medium text-gray-400 mb-1">Member interfaces</label>
               <input v-model="form.members" type="text"
                 class="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-200 focus:outline-none focus:border-brand-primary"
                 placeholder="e.g. mesh_0, iridium_0, sms_0">
@@ -233,7 +233,7 @@ async function deleteGroup() {
               Cancel
             </button>
             <button @click="saveGroup"
-              class="px-4 py-2 bg-brand-primary text-ms-on-primary text-sm font-medium rounded-lg hover:bg-brand-accent transition-colors">
+              class="ms-btn-primary">
               {{ editingGroup ? 'Save' : 'Create' }}
             </button>
           </div>
@@ -246,7 +246,7 @@ async function deleteGroup() {
       <div v-if="showDeleteConfirm" class="fixed inset-0 z-50 flex items-center justify-center p-4" @click.self="showDeleteConfirm = false">
         <div class="absolute inset-0 bg-black/60" @click="showDeleteConfirm = false"></div>
         <div class="relative bg-tactical-surface border border-tactical-border rounded-xl shadow-2xl w-full max-w-sm p-6">
-          <h2 class="text-lg font-display font-semibold text-gray-100 mb-2">Delete Bond Group</h2>
+          <h2 class="text-lg font-sans font-semibold text-gray-100 mb-2">Delete bond group</h2>
           <p class="text-sm text-gray-400 mb-1">
             Permanently remove <span class="text-gray-200 font-medium">{{ groupToDelete?.label }}</span>?
           </p>
@@ -255,7 +255,7 @@ async function deleteGroup() {
             <button @click="showDeleteConfirm = false"
               class="px-4 py-2 text-sm text-gray-400 hover:text-gray-200 transition-colors">Cancel</button>
             <button @click="deleteGroup"
-              class="px-4 py-2 bg-red-600 hover:bg-red-500 text-white text-sm font-medium rounded-lg transition-colors">Delete</button>
+              class="ms-btn-destroy">Delete</button>
           </div>
         </div>
       </div>

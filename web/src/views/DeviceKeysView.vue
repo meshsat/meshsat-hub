@@ -170,8 +170,13 @@ onMounted(async () => {
 </script>
 
 <template>
-  <div class="max-w-4xl mx-auto">
-    <h1 class="text-2xl font-display font-bold mb-4">Device Encryption Keys</h1>
+  <div class="ms-page max-w-4xl">
+    <div class="ms-page-head">
+      <div>
+        <h1 class="ms-h1">Device encryption keys</h1>
+        <p class="ms-lede">The keys for each device's end-to-end encrypted messages.</p>
+      </div>
+    </div>
 
     <!-- Device selector -->
     <div class="flex items-center gap-4 mb-6">
@@ -184,7 +189,7 @@ onMounted(async () => {
     </div>
 
     <!-- Error banner -->
-    <div v-if="error" class="bg-red-900/50 border border-red-700 text-red-200 px-4 py-2 rounded mb-4 text-sm">
+    <div v-if="error" role="alert" class="ms-alert mb-4">
       {{ error }}
     </div>
 
@@ -213,7 +218,7 @@ onMounted(async () => {
 
     <!-- Key actions row -->
     <div class="bg-tactical-surface border border-tactical-border rounded-lg p-4 mb-6">
-      <h2 class="text-sm font-medium text-gray-300 mb-3">Key Operations</h2>
+      <h2 class="text-sm font-medium text-gray-300 mb-3">Key operations</h2>
       <div class="flex flex-wrap items-end gap-4">
         <div>
           <label class="block text-xs text-gray-500 mb-1">Mode</label>
@@ -223,12 +228,12 @@ onMounted(async () => {
           </select>
         </div>
         <button @click="generateKey" :disabled="!selectedImei"
-          class="px-4 py-2 rounded text-sm font-medium bg-brand-accent text-ms-on-primary hover:bg-brand-accent disabled:opacity-50 disabled:cursor-not-allowed">
-          Generate Key
+          class="ms-btn-primary">
+          Generate key
         </button>
         <button @click="showImport = !showImport"
           class="px-4 py-2 rounded text-sm font-medium bg-gray-700 text-gray-300 hover:bg-gray-600">
-          {{ showImport ? 'Cancel Import' : 'Import Key' }}
+          {{ showImport ? 'Cancel import' : 'Import key' }}
         </button>
         <button @click="showRotate = !showRotate"
           class="px-4 py-2 rounded text-sm font-medium bg-gray-700 text-gray-300 hover:bg-gray-600">
@@ -239,7 +244,7 @@ onMounted(async () => {
 
     <!-- Import key form -->
     <div v-if="showImport" class="bg-tactical-surface border border-tactical-border rounded-lg p-4 mb-6">
-      <h2 class="text-sm font-medium text-gray-300 mb-3">Import Existing Key</h2>
+      <h2 class="text-sm font-medium text-gray-300 mb-3">Import an existing key</h2>
       <div class="space-y-3">
         <input v-model="importHex" placeholder="Hex-encoded AES-256 key (64 hex characters)"
           class="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-sm font-mono">
@@ -252,7 +257,7 @@ onMounted(async () => {
             </select>
           </div>
           <button @click="importKey" :disabled="!importHex.trim() || !selectedImei"
-            class="px-4 py-2 rounded text-sm font-medium bg-brand-accent text-ms-on-primary hover:bg-brand-primary disabled:opacity-50">
+            class="ms-btn-primary">
             Import
           </button>
         </div>
@@ -261,10 +266,10 @@ onMounted(async () => {
 
     <!-- Rotate & distribute form -->
     <div v-if="showRotate" class="bg-tactical-surface border border-tactical-border rounded-lg p-4 mb-6">
-      <h2 class="text-sm font-medium text-gray-300 mb-3">Rotate Key & Distribute to Bridges</h2>
+      <h2 class="text-sm font-medium text-gray-300 mb-3">Rotate the key and send it to kits</h2>
       <div class="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-3">
         <div>
-          <label class="block text-xs text-gray-500 mb-1">Channel Type</label>
+          <label class="block text-xs text-gray-500 mb-1">Channel type</label>
           <select v-model="rotateChannelType" class="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-sm">
             <option value="iridium">Iridium</option>
             <option value="sms">SMS</option>
@@ -281,7 +286,7 @@ onMounted(async () => {
         </div>
       </div>
       <button @click="rotateAndDistribute" :disabled="!selectedImei"
-        class="px-4 py-2 rounded text-sm font-medium bg-brand-accent text-ms-on-primary hover:bg-brand-primary disabled:opacity-50">
+        class="ms-btn-primary">
         Rotate & Distribute
       </button>
       <div v-if="rotateResult" class="mt-3 bg-emerald-900/50 border border-emerald-700 rounded p-3 text-sm">
@@ -317,7 +322,7 @@ onMounted(async () => {
           <tr v-for="(k, i) in keys" :key="k.id" class="border-b border-tactical-border/50 hover:bg-white/[0.02]">
             <td class="px-4 py-2 font-mono text-xs">
               {{ k.key_hash?.slice(0, 16) }}...
-              <span v-if="i === 0" class="ml-1 text-[10px] px-1.5 py-0.5 rounded bg-brand-primary/15 text-brand-primary">active</span>
+              <span v-if="i === 0" class="ml-1 text-[10px] px-1.5 py-0.5 rounded bg-ms-well text-ms-text2 border border-ms-border">active</span>
             </td>
             <td class="px-4 py-2">
               <span class="text-xs px-1.5 py-0.5 rounded"
@@ -336,17 +341,17 @@ onMounted(async () => {
     <!-- Channel Key Rotation -->
     <div class="bg-tactical-surface border border-tactical-border rounded-lg p-4 mt-6">
       <div class="flex items-center justify-between mb-3">
-        <h2 class="text-sm font-medium text-gray-300">Channel Key Rotation</h2>
+        <h2 class="text-sm font-medium text-gray-300">Channel key rotation</h2>
         <button @click="showChannelRotate = !showChannelRotate"
           class="text-xs px-3 py-1.5 rounded bg-gray-700 text-gray-300 hover:bg-gray-600">
-          {{ showChannelRotate ? 'Cancel' : 'Rotate Channel Key' }}
+          {{ showChannelRotate ? 'Cancel' : 'Rotate channel key' }}
         </button>
       </div>
       <p class="text-xs text-gray-500 mb-3">Rotate a shared channel key and push it to all online bridges.</p>
       <div v-if="showChannelRotate" class="space-y-3">
         <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
           <div>
-            <label class="block text-xs text-gray-500 mb-1">Channel Type</label>
+            <label class="block text-xs text-gray-500 mb-1">Channel type</label>
             <select v-model="chChannelType" class="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-sm">
               <option value="iridium">Iridium</option>
               <option value="sms">SMS</option>
@@ -363,8 +368,8 @@ onMounted(async () => {
           </div>
         </div>
         <button @click="rotateChannelKey"
-          class="px-4 py-2 rounded text-sm font-medium bg-brand-accent text-ms-on-primary hover:bg-brand-primary">
-          Rotate Channel Key
+          class="ms-btn-primary">
+          Rotate channel key
         </button>
         <div v-if="chResult" class="bg-emerald-900/50 border border-emerald-700 rounded p-3 text-sm">
           <div class="text-emerald-300 font-medium mb-1">Channel key rotated. Copy it now, it is shown once</div>

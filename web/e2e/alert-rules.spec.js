@@ -113,13 +113,13 @@ test.describe('Alert Rules — UI', () => {
 
   test('alert rules page loads', async ({ page }) => {
     await page.goto('/#/alert-rules')
-    await expect(page.locator('h1:has-text("Alert Rules")')).toBeVisible()
+    await expect(page.locator('h1:has-text("Alert rules")')).toBeVisible()
   })
 
   test('new rule button opens form', async ({ page }) => {
     await page.goto('/#/alert-rules')
-    await expect(page.locator('h1:has-text("Alert Rules")')).toBeVisible()
-    await page.getByRole('button', { name: /New Rule/i }).click()
+    await expect(page.locator('h1:has-text("Alert rules")')).toBeVisible()
+    await page.getByRole('button', { name: /New rule/i }).click()
     await expect(page.locator('input[placeholder="Rule name"]')).toBeVisible()
   })
 })
