@@ -191,7 +191,7 @@ function openKit(k) { router.push({ name: 'fleet', query: { kit: k.id } }) }
         <li class="rounded-lg border border-ms-border p-4">
           <div class="text-xs text-ms-muted">Step 3</div>
           <div class="text-sm font-medium mt-0.5">Decide who hears an SOS</div>
-          <p class="text-xs text-ms-muted mt-1">An escalation chain texts people in order until someone acknowledges.</p>
+          <p class="text-xs text-ms-muted mt-1">An escalation chain notifies people in order until someone acknowledges.</p>
           <router-link to="/escalation" class="ms-btn mt-3">Set up alerts</router-link>
         </li>
       </ol>

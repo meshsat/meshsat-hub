@@ -113,6 +113,27 @@ async function createChain() {
   }
 }
 
+// The docs have always told people to test a chain before they need it;
+// this is the button that makes that possible. It is a real alert on the
+// real chain: step 1 is notified at once and later steps follow on their
+// timers until somebody acknowledges it here.
+const testing = ref('')
+async function testChain(c) {
+  const first = (c.tiers?.[0]?.targets || []).length
+  if (!confirm(`Test "${c.name}" now?\n\nThis is a real alert: step 1 (${first} ${first === 1 ? 'target' : 'targets'}) is notified at once, and the later steps follow unless you acknowledge it on this page.`)) return
+  testing.value = c.id
+  try {
+    const who = auth.user?.name || auth.user?.email || 'an operator'
+    await escalation.triggerAlert({ chain_id: c.id, type: 'custom', detail: `Test of this chain, started from the Hub by ${who}. Acknowledge to stop it.` })
+    toast.success('Test alert started. Acknowledge it below once the notifications arrive.')
+    await Promise.all([loadData(), ops.load()])
+  } catch (e) {
+    toast.error(`Test not started: ${e.message}`)
+  } finally {
+    testing.value = ''
+  }
+}
+
 async function deleteChain(c) {
   if (!confirm(`Delete the chain "${c.name}"? Alerts that use it stop escalating.`)) return
   try {
@@ -136,7 +157,7 @@ function waitWords(sec) {
     <div class="ms-page-head">
       <div>
         <h1 class="ms-h1">Alerts</h1>
-        <p class="ms-lede">An alert works down its escalation chain, texting each step in turn, until someone acknowledges it.</p>
+        <p class="ms-lede">An alert works down its escalation chain, notifying each step in turn, until someone acknowledges it.</p>
       </div>
     </div>
 
@@ -194,7 +215,7 @@ function waitWords(sec) {
       <div class="flex flex-wrap items-center justify-between gap-3 mb-3">
         <div>
           <h2 id="chains-h" class="ms-h2">Escalation chains</h2>
-          <p class="text-xs text-ms-muted mt-0.5">Who is texted, in what order, and how long each step waits.</p>
+          <p class="text-xs text-ms-muted mt-0.5">Who is told, in what order, and how long each step waits.</p>
         </div>
         <button v-if="canAct && !showForm" class="ms-btn-primary" @click="showForm = true"><Icon name="plus" :size="15" />New chain</button>
       </div>
@@ -212,7 +233,7 @@ function waitWords(sec) {
             </div>
             <div class="grid gap-2 sm:grid-cols-[1fr_2fr_7rem_6rem]">
               <label class="block"><span class="ms-label">Name</span><input v-model="tier.name" :placeholder="`tier-${i + 1}`" class="ms-input w-full mt-1" /></label>
-              <label class="block"><span class="ms-label">Phone numbers, comma separated</span><input v-model="tier.targets" placeholder="+31612345678" class="ms-input w-full mt-1 font-mono" /></label>
+              <label class="block"><span class="ms-label">Targets, comma separated</span><input v-model="tier.targets" placeholder="+31612345678, ops@example.com" class="ms-input w-full mt-1 font-mono" /></label>
               <label class="block"><span class="ms-label">Wait (s)</span><input v-model="tier.wait_sec" type="number" min="0" :disabled="i === 0" class="ms-input w-full mt-1"
                 :title="i === 0 ? 'The first step fires at once; its wait is not used.' : 'How long after the previous step this one fires.'" /></label>
               <label class="block"><span class="ms-label">Tries</span><input v-model="tier.max_retries" type="number" min="0" class="ms-input w-full mt-1"
@@ -220,7 +241,7 @@ function waitWords(sec) {
             </div>
           </li>
         </ol>
-        <p class="text-xs text-ms-muted mt-3 max-w-[70ch]">Steps are texted by SMS, so targets are phone numbers in international form. Each later step waits its own time before it fires; acknowledging the alert stops the chain wherever it is.</p>
+        <p class="text-xs text-ms-muted mt-3 max-w-[70ch]">Each target goes by the channel it names: a phone number in international form by SMS on your Twilio account, an email address by email, a URL through Apprise, a single word as an ntfy topic. Each later step waits its own time before it fires; acknowledging the alert stops the chain wherever it is.</p>
         <div class="flex flex-wrap gap-2 mt-4">
           <button class="ms-btn" @click="addTier"><Icon name="plus" :size="14" />Add a step</button>
           <span class="flex-1" />
@@ -230,14 +251,17 @@ function waitWords(sec) {
       </div>
 
       <div v-if="!loading && !chains.length && !showForm" class="ms-panel px-5 py-8 text-[13px] text-ms-muted">
-        No chains yet. Without one, an SOS is recorded but nobody is texted. <button v-if="canAct" class="text-ms-primary hover:underline" @click="showForm = true">Create the first chain</button>.
+        No chains yet. Without one, an SOS is recorded but nobody is told. <button v-if="canAct" class="text-ms-primary hover:underline" @click="showForm = true">Create the first chain</button>.
       </div>
 
       <div class="grid gap-4 lg:grid-cols-2">
         <article v-for="c in chains" :key="c.id" class="ms-panel p-5">
           <div class="flex items-start justify-between gap-3">
             <h3 class="text-sm font-semibold">{{ c.name }}</h3>
-            <button v-if="canAct" class="text-xs text-ms-muted hover:text-ms-error" @click="deleteChain(c)">Delete</button>
+            <div v-if="canAct" class="flex items-center gap-1 -mr-2 -mt-1">
+              <button class="ms-btn-ghost h-7 text-xs" :disabled="testing === c.id" @click="testChain(c)">{{ testing === c.id ? 'Starting' : 'Test this chain' }}</button>
+              <button class="ms-btn-danger" @click="deleteChain(c)">Delete</button>
+            </div>
           </div>
           <ol class="mt-4 relative">
             <li v-for="(tier, i) in c.tiers || []" :key="i" class="relative pl-8 pb-4 last:pb-0">
