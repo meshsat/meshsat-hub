@@ -219,7 +219,7 @@ swagger:
         echo "the committed OpenAPI spec does not match the annotations in the code:"
         git diff --stat -- docs/swagger
         echo ""
-        echo "Regenerate and commit it:  make swagger   (swag v1.16.4)"
+        echo "Regenerate and commit it:  make swagger   (it pins swag v1.16.4; a swag on your PATH may be another version)"
         echo "The binary embeds docs/swagger verbatim, so without this the served spec is stale."
         exit 1
       fi

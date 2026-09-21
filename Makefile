@@ -43,8 +43,14 @@ owasp-full:
 	@echo "Running OWASP full active scan (set HUB_TARGET_URL and HUB_AUTH_TOKEN)..."
 	bash test/owasp/owasp-scan.sh --full
 
+# The generator is PINNED, and run through `go run` so whatever swag happens to be
+# on PATH is never used: the CI `swagger` job fails on any difference from the
+# committed spec, and a different swag version emits a different spec (v1.16.6
+# adds x-enum-descriptions and int64 formats that v1.16.4 does not). Keep this
+# version equal to the one in .gitlab-ci.yml.
+SWAG_VERSION := v1.16.4
 swagger:
-	swag init -g cmd/meshsat-hub/main.go -o docs/swagger --parseDependency --parseInternal
+	go run github.com/swaggo/swag/cmd/swag@$(SWAG_VERSION) init -g cmd/meshsat-hub/main.go -o docs/swagger --parseDependency --parseInternal
 	rm -f docs/swagger/docs.go
 
 build-sim:

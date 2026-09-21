@@ -103,20 +103,6 @@ definitions:
     type: string
     x-enum-comments:
       KindMQTT: '[MESHSAT-538] mirrors bridge-side v45'
-    x-enum-descriptions:
-    - ""
-    - ""
-    - ""
-    - ""
-    - ""
-    - ""
-    - ""
-    - ""
-    - ""
-    - ""
-    - ""
-    - ""
-    - '[MESHSAT-538] mirrors bridge-side v45'
     x-enum-varnames:
     - KindSMS
     - KindMeshtastic
@@ -2343,7 +2329,6 @@ definitions:
     properties:
       by_country:
         additionalProperties:
-          format: int64
           type: integer
         type: object
       cross_border_cents:
@@ -2708,12 +2693,6 @@ definitions:
       EventPosition: Position update
       EventSOS: SOS event
       EventTelemetry: Telemetry data
-    x-enum-descriptions:
-    - Mobile Originated message received
-    - SOS event
-    - Position update
-    - Telemetry data
-    - MT delivery status change
     x-enum-varnames:
     - EventMO
     - EventSOS
@@ -2760,7 +2739,6 @@ definitions:
     - 1000000000
     - 60000000000
     - 3600000000000
-    format: int64
     type: integer
     x-enum-varnames:
     - minDuration
