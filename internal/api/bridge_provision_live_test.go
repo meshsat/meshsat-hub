@@ -97,6 +97,14 @@ func TestProvisionStatusReportsCountsNotAddresses(t *testing.T) {
 		t.Fatalf("no stash: %d %v", code, m)
 	}
 	nonce := stashOnly(t, h, "kit-a")
+	// Unscanned: the broker has not been given the login, so nothing is
+	// pending at it (MESHSAT-1336). The first claim installs it.
+	if code, m, body := status(); code != 200 || m["state"] != "ready" {
+		t.Fatalf("unscanned: %d %s", code, body)
+	}
+	if rr := claimBundle(t, h, "kit-a", nonce); rr.Code != http.StatusServiceUnavailable {
+		t.Fatalf("claim with 2 of 3 members: %d", rr.Code)
+	}
 	code, m, body := status()
 	if code != 200 || m["state"] != "pending" || m["accepted"] != float64(2) || m["members"] != float64(3) {
 		t.Fatalf("pending: %d %s", code, body)

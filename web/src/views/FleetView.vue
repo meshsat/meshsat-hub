@@ -55,18 +55,23 @@ const showProvisionQR = ref(false)
 const provisionQRUrl = ref('')
 const provisionQRBridgeId = ref('')
 const provisionLoading = ref(false)
-// Whether the QR's credentials work at the broker yet (MESHSAT-1298). A new
-// password reaches the NATS members up to a minute after it is generated, and a
-// phone that scanned sooner was refused with the right password. So the QR
-// stays blurred until every member accepts it.
-const provisionState = ref('')      // pending | live | none | expired | unknown
+// Where the QR stands, polled while the dialog is open. `ready` until it is
+// scanned: the kit keeps its current login and the code can be shown for as
+// long as it is valid (MESHSAT-1336; the login used to change the moment the
+// QR was generated, and a connected kit was dropped by the broker whether or
+// not anybody scanned). A scan installs the login, and the broker members take
+// it up over the next minute (MESHSAT-1298): `pending` with a count, then the
+// app's own claim retry finishes and the stash is gone (`none`).
+const provisionState = ref('')      // ready | pending | live | none | expired | unknown
 const provisionAccepted = ref(0)
 const provisionMembers = ref(0)
 const provisionChecked = ref(false)
-const provisionWaited = ref(0)
+const provisionWaited = ref(0)      // seconds since the scan was noticed
 let provisionTimer = null
 const PROVISION_POLL_MS = 2500
-const PROVISION_GIVE_UP_S = 180
+const PROVISION_READY_POLL_MS = 5000
+const PROVISION_GIVE_UP_S = 180     // pending this long: the broker check cannot tell, the app retries anyway
+const PROVISION_CODE_VALID_S = 1800 // ProvisionTTL on the Hub
 
 // Clipboard feedback
 const copied = ref('')
@@ -282,13 +287,14 @@ function stopProvisionWatch() {
 
 function watchProvisionLive(bridgeId) {
   stopProvisionWatch()
-  provisionState.value = 'pending'
+  provisionState.value = 'ready'
   provisionAccepted.value = 0
   provisionMembers.value = 0
   provisionChecked.value = false
-  const started = Date.now()
+  provisionWaited.value = 0
+  const shown = Date.now()
+  let scanned = 0
   const tick = async () => {
-    provisionWaited.value = Math.round((Date.now() - started) / 1000)
     try {
       const s = await bridges.provisionStatus(bridgeId)
       provisionState.value = s.state
@@ -296,16 +302,28 @@ function watchProvisionLive(bridgeId) {
       provisionMembers.value = s.members || 0
       provisionChecked.value = !!s.checked
     } catch (e) {
-      // The status call is a convenience; if it fails, show the QR rather
-      // than hold it back on a check that cannot answer.
+      // The status call is a convenience; if it fails, keep showing the QR
+      // rather than hold it back on a check that cannot answer.
       provisionState.value = 'unknown'
     }
-    if (provisionState.value !== 'pending' || !showProvisionQR.value) return
-    if (provisionWaited.value >= PROVISION_GIVE_UP_S) {
-      provisionState.value = 'unknown'
-      return
+    if (!showProvisionQR.value) return
+    const st = provisionState.value
+    if (st === 'pending') {
+      if (!scanned) scanned = Date.now()
+      provisionWaited.value = Math.round((Date.now() - scanned) / 1000)
+      if (provisionWaited.value >= PROVISION_GIVE_UP_S) {
+        provisionState.value = 'unknown'
+        return
+      }
+      provisionTimer = setTimeout(tick, PROVISION_POLL_MS)
+    } else if (st === 'ready') {
+      if ((Date.now() - shown) / 1000 >= PROVISION_CODE_VALID_S) {
+        provisionState.value = 'expired'
+        return
+      }
+      provisionTimer = setTimeout(tick, PROVISION_READY_POLL_MS)
     }
-    provisionTimer = setTimeout(tick, PROVISION_POLL_MS)
+    // live, none, expired, unknown: settled, stop polling.
   }
   tick()
 }
@@ -425,12 +443,13 @@ function confirmReboot(b) {
 }
 
 // CPU, memory and disk as meters that take colour only past a threshold.
-// Android keeps its memory nearly full by design, so a phone's memory figure
-// is shown but never raised as a caution.
+// A phone OS keeps its memory nearly full by design, so a phone's memory
+// figure is shown but never raised as a caution. MeshSat Android reports
+// mode "android", MeshSat iOS "ios" (MESHSAT-1337).
 function systemMeters(b) {
   const h = parseHealth(b) || {}
   const level = (v) => (v > 90 ? 'alarm' : v > 80 ? 'caution' : 'normal')
-  const phone = (b.mode || '') === 'android'
+  const phone = isPhoneKit(b)
   return [
     { label: 'CPU', value: h.cpu_pct, level: level(h.cpu_pct) },
     { label: 'Memory', value: h.mem_pct, level: phone ? 'normal' : level(h.mem_pct) },
@@ -440,6 +459,12 @@ function systemMeters(b) {
 
 function kitName(b) {
   return b.cot_callsign || b.label || b.hostname || b.bridge_id
+}
+
+// A kit that is a phone running the MeshSat app, on either platform.
+const PHONE_MODES = ['android', 'ios']
+function isPhoneKit(b) {
+  return PHONE_MODES.includes(b?.mode || '')
 }
 
 // Health carries the live interface states; the birth frame is the fallback
@@ -594,7 +619,7 @@ function certExpiryStatus(b) {
         <h1 class="ms-h1">Kits</h1>
         <p class="ms-lede">
           <template v-if="loading">Loading kits.</template>
-          <template v-else-if="!bridgeList.length">A kit is a MeshSat gateway: a Pi in a case, or a phone running the Android app.</template>
+          <template v-else-if="!bridgeList.length">A kit is a MeshSat gateway: a Pi in a case, or a phone running the MeshSat app on Android or iOS.</template>
           <template v-else>
             {{ totalCount }} kit{{ totalCount !== 1 ? 's' : '' }}, {{ onlineCount === totalCount ? (totalCount === 1 ? 'connected' : 'all connected') : `${onlineCount} connected` }}.<template
               v-if="usage && usage.limit !== -1"> {{ usage.used }} of {{ usage.limit }} devices and kits used on the {{ usage.plan }} plan.</template>
@@ -622,7 +647,7 @@ function certExpiryStatus(b) {
     <!-- Add a kit -->
     <section v-if="showAddForm" class="ms-panel p-5 mb-5" aria-labelledby="add-h">
       <h2 id="add-h" class="ms-h2">Add a kit</h2>
-      <p class="text-[13px] text-ms-muted mt-1 max-w-[64ch]">Give it a short id; it becomes the kit's name on the broker and cannot be changed later. Next you show a setup QR code, and the kit or the Android app scans it to connect itself.</p>
+      <p class="text-[13px] text-ms-muted mt-1 max-w-[64ch]">Give it a short id; it becomes the kit's name on the broker and cannot be changed later. Next you show a setup QR code, and the kit or the MeshSat app on Android or iOS scans it to connect itself.</p>
       <div v-if="addError" class="mt-3 rounded-md border border-ms-error/50 bg-ms-error/10 px-3 py-2 text-xs text-ms-text">{{ addError }}</div>
       <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-4 max-w-2xl">
         <label class="block">
@@ -645,7 +670,7 @@ function certExpiryStatus(b) {
     <div v-else-if="!bridgeList.length" class="ms-panel px-6 py-12 text-center">
       <Icon name="kits" :size="28" class="mx-auto text-ms-muted" />
       <h2 class="ms-h2 mt-3">No kits yet</h2>
-      <p class="text-[13px] text-ms-muted mt-1 max-w-[52ch] mx-auto">Add a kit, show its setup QR code, and scan it with the kit or the MeshSat Android app. It appears here the moment it connects.</p>
+      <p class="text-[13px] text-ms-muted mt-1 max-w-[52ch] mx-auto">Add a kit, show its setup QR code, and scan it with the kit or the MeshSat app on Android or iOS. It appears here the moment it connects.</p>
       <button class="ms-btn-primary mt-4" @click="showAddForm = true">Add your first kit</button>
     </div>
 
@@ -792,7 +817,7 @@ function certExpiryStatus(b) {
           </dl>
           <div class="flex flex-wrap gap-2 mt-4">
             <button class="ms-btn-primary" :disabled="provisionLoading" @click="provisionWithQR(selected.bridge_id)"
-              title="A single-use QR code carrying the broker login and certificate. The kit or the Android app scans it and connects.">
+              title="A single-use QR code carrying a new broker login and certificate. The kit or the MeshSat app scans it and connects. Until it is scanned, the kit keeps its current login.">
               {{ provisionLoading ? 'Preparing' : 'Show setup QR' }}</button>
             <button class="ms-btn" :disabled="credentialLoading" @click="generateCredentials(selected.bridge_id)">
               {{ credentialLoading ? 'Issuing' : hasCredentials(selected) ? 'Rotate broker password' : 'Issue broker login' }}</button>
@@ -800,7 +825,7 @@ function certExpiryStatus(b) {
               {{ certificateLoading ? 'Issuing' : hasCertificate(selected) ? 'Reissue certificate' : 'Issue certificate' }}</button>
           </div>
           <p v-if="onboardingBridgeId === selected.bridge_id && onboardingStep > 0 && !hasCredentials(selected)" class="text-xs text-ms-muted mt-3 max-w-[64ch]">
-            New kit: press <span class="text-ms-text">Show setup QR</span> and scan it with the kit or the Android app. For a kit you set up by hand, issue the login and the certificate instead.
+            New kit: press <span class="text-ms-text">Show setup QR</span> and scan it with the kit or the MeshSat app on Android or iOS. For a kit you set up by hand, issue the login and the certificate instead.
           </p>
 
           <!-- One-time broker credentials -->
@@ -913,25 +938,30 @@ function certExpiryStatus(b) {
       <div class="absolute inset-0 bg-black/70" @click="dismissProvisionQR" />
       <div class="relative ms-panel p-6 w-full max-w-md">
         <h3 id="qr-h" class="ms-h2 text-base">Set up {{ provisionQRBridgeId }}</h3>
-        <p class="text-[13px] text-ms-muted mt-1">Scan with the kit or the MeshSat Android app. The code works once; showing it again issues a new login.</p>
+        <p class="text-[13px] text-ms-muted mt-1">Scan with the kit or the MeshSat app on Android or iOS. The code works once and for 30 minutes. Until it is scanned the kit keeps its current login; the scan replaces it.</p>
         <div class="relative flex justify-center bg-white rounded-lg p-4 mt-4">
           <img v-if="provisionQRUrl" :src="provisionQRUrl" :alt="'Setup QR code for ' + provisionQRBridgeId"
             class="w-72 h-72 object-contain transition"
-            :class="provisionState === 'pending' ? 'blur-md opacity-40 pointer-events-none select-none' : ''" />
+            :class="['pending', 'none', 'live', 'expired'].includes(provisionState) ? 'blur-md opacity-40 pointer-events-none select-none' : ''" />
           <div v-if="provisionState === 'pending'" class="absolute inset-0 flex items-center justify-center p-6">
             <p class="text-sm text-center text-black font-medium">
-              Waiting for the broker to accept the new login<br />
+              Scanned. The broker is taking the new login<br />
               <span class="font-mono">{{ provisionAccepted }} of {{ provisionMembers || '?' }}</span> ready, {{ provisionWaited }} s
             </p>
           </div>
+          <div v-else-if="provisionState === 'none' || provisionState === 'live'" class="absolute inset-0 flex items-center justify-center p-6">
+            <p class="text-sm text-center text-black font-medium">Scanned. This code is used.</p>
+          </div>
+          <div v-else-if="provisionState === 'expired'" class="absolute inset-0 flex items-center justify-center p-6">
+            <p class="text-sm text-center text-black font-medium">Expired.</p>
+          </div>
         </div>
         <p class="text-[13px] text-center mt-3 min-h-[1.25rem]" aria-live="polite">
-          <span v-if="provisionState === 'pending'" class="text-ms-warning">Don't scan yet: a scan now would be refused. Up to a minute.</span>
-          <span v-else-if="provisionState === 'live' && provisionChecked" class="text-ms-text">Ready. All {{ provisionMembers }} broker members accept it. Scan now.</span>
-          <span v-else-if="provisionState === 'live'" class="text-ms-text">Ready. Scan now.</span>
-          <span v-else-if="provisionState === 'none'" class="text-ms-muted">Scanned. The kit is connecting.</span>
+          <span v-if="provisionState === 'ready'" class="text-ms-text">Ready. Scan now.</span>
+          <span v-else-if="provisionState === 'pending'" class="text-ms-text">The app keeps retrying by itself; up to a minute.</span>
+          <span v-else-if="provisionState === 'live' || provisionState === 'none'" class="text-ms-muted">The kit is connecting with its new login.</span>
           <span v-else-if="provisionState === 'expired'" class="text-ms-error">This code has expired. Close it and show a new one.</span>
-          <span v-else-if="provisionState === 'unknown'" class="text-ms-warning">Could not confirm the broker has it yet. If the app is refused, it retries by itself.</span>
+          <span v-else-if="provisionState === 'unknown'" class="text-ms-warning">Could not confirm the broker has it. If the app is refused, it retries by itself.</span>
         </p>
         <div class="flex justify-end mt-4">
           <button class="ms-btn" @click="dismissProvisionQR">Done</button>

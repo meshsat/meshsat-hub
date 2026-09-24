@@ -44,10 +44,66 @@ type ProvisionBundle struct {
 
 // provisionStash holds pre-generated credentials waiting to be claimed.
 // Stored as JSON in system_config under provisionStashKey(tenant, bridge).
+//
+// Until MESHSAT-1336 the credentials were written to the bridge row, and so
+// to the broker, the moment the QR was generated. A kit that was connected
+// when its operator opened "Show setup QR" was dropped by the broker's reload
+// about half a minute later and refused on every reconnect with its old
+// password, whether or not anybody ever scanned the code (24 Sep 2026: the
+// first iPhone kit, dismissed QR, kit offline until re-provisioned). So the
+// stash now carries everything the bridge row will need, and the row is
+// written only when the bundle is CLAIMED. A QR nobody scans changes nothing.
 type provisionStash struct {
 	Nonce     string          `json:"nonce"`
 	Bundle    ProvisionBundle `json:"bundle"`
 	CreatedAt time.Time       `json:"created_at"`
+	// PasswordHash is the bcrypt of Bundle.Password, written to the bridge
+	// row on install. Empty on a stash from before MESHSAT-1336, which was
+	// installed at generation and needs nothing.
+	PasswordHash string `json:"password_hash,omitempty"`
+	// Installed is set once the bridge row and the broker carry these
+	// credentials, so a claim that is held on the broker (503, retried with
+	// the same nonce) does not rewrite them on every attempt.
+	Installed bool `json:"installed,omitempty"`
+}
+
+// installStash writes the stash's credentials to the bridge row and asks the
+// broker to load them: the moment the kit's OLD login stops working. Called
+// on the first claim, and by the direct endpoint that hands the bundle out
+// inline. Idempotent: a stash already installed is left alone. A stash from
+// before MESHSAT-1336 (no PasswordHash) was installed when it was generated.
+func (h *BridgeProvisionHandler) installStash(ctx context.Context, key, tid, id string, stash *provisionStash) error {
+	if stash.Installed || stash.PasswordHash == "" {
+		return nil
+	}
+	if err := h.store.SetBridgeCredentials(ctx, tid, id, stash.Bundle.Username, stash.PasswordHash); err != nil {
+		return fmt.Errorf("store credentials: %w", err)
+	}
+	expiry, err := time.Parse(time.RFC3339, stash.Bundle.CertExpires)
+	if err != nil {
+		return fmt.Errorf("stash certificate expiry: %w", err)
+	}
+	if err := h.store.SetBridgeCertificate(ctx, tid, id, stash.Bundle.CertPEM, expiry); err != nil {
+		return fmt.Errorf("store certificate: %w", err)
+	}
+	// NATS MQTT auth: every bridge gets its own NATS user (its bridge ID) whose
+	// bcrypt hash and permissions the Hub renders into the NATS users file
+	// (MESHSAT-864 MR 21). Identity is confirmed by the mTLS certificate CN.
+	if h.natsAuth != nil {
+		h.natsAuth.Trigger()
+	}
+	stash.Installed = true
+	raw, err := json.Marshal(stash)
+	if err != nil {
+		return fmt.Errorf("marshal stash: %w", err)
+	}
+	// The row is written and the broker kicked; failing to record that only
+	// means the next retry writes the same hash and cert again. Not fatal.
+	if err := h.store.SetSystemConfig(ctx, key, string(raw)); err != nil {
+		slog.Warn("provision: credentials installed but the stash could not record it; a retry reinstalls the same ones",
+			"bridge_id", id, "error", err)
+	}
+	return nil
 }
 
 // provisionStashPrefix starts every stash key; the stash reaper sweeps it.
@@ -162,6 +218,9 @@ func NewBridgeProvisionHandler(s store.Store, ca *bridge.CertAuthority, trustAnc
 
 // generateAndStash creates fresh credentials, stores them in a stash keyed
 // by nonce, and returns the nonce. The full bundle is claimed via ClaimProvision.
+//
+// Nothing here touches the bridge row or the broker (MESHSAT-1336): the kit
+// keeps the login it has until installStash runs, on the claim.
 func (h *BridgeProvisionHandler) generateAndStash(r *http.Request, id, tid string) (string, error) {
 	// Generate single-use nonce (16 random bytes = 32 hex chars for security).
 	nonceBytes := make([]byte, 16)
@@ -183,9 +242,6 @@ func (h *BridgeProvisionHandler) generateAndStash(r *http.Request, id, tid strin
 	}
 
 	username := id
-	if err := h.store.SetBridgeCredentials(r.Context(), tid, id, username, string(hash)); err != nil {
-		return "", fmt.Errorf("store credentials: %w", err)
-	}
 
 	mqttURL, _ := h.store.GetSystemConfig(r.Context(), mqttPublicURLKey)
 	if mqttURL == "" {
@@ -205,20 +261,10 @@ func (h *BridgeProvisionHandler) generateAndStash(r *http.Request, id, tid strin
 	}
 
 	expiry := time.Now().Add(90 * 24 * time.Hour)
-	if err := h.store.SetBridgeCertificate(r.Context(), tid, id, string(certPEM), expiry); err != nil {
-		return "", fmt.Errorf("store certificate: %w", err)
-	}
 
 	retTCP := os.Getenv("MESHSAT_RETICULUM_PUBLIC_TCP")
 	if retTCP == "" {
 		retTCP = "reticulum.meshsat.net:443"
-	}
-
-	// NATS MQTT auth: every bridge gets its own NATS user (its bridge ID) whose
-	// bcrypt hash and permissions the Hub renders into the NATS users file
-	// (MESHSAT-864 MR 21). Identity is confirmed by the mTLS certificate CN.
-	if h.natsAuth != nil {
-		h.natsAuth.Trigger()
 	}
 
 	var dirSignPub []byte
@@ -242,7 +288,8 @@ func (h *BridgeProvisionHandler) generateAndStash(r *http.Request, id, tid strin
 			ReticulumTCP:        retTCP,
 			DirectorySigningPub: dirSignPub,
 		},
-		CreatedAt: time.Now(),
+		CreatedAt:    time.Now(),
+		PasswordHash: string(hash),
 	}
 
 	stashJSON, err := json.Marshal(stash)
@@ -293,6 +340,15 @@ func (h *BridgeProvisionHandler) Provision(w http.ResponseWriter, r *http.Reques
 	var stash provisionStash
 	if err := json.Unmarshal([]byte(stashJSON), &stash); err != nil {
 		writeError(w, http.StatusInternalServerError, "corrupt stash")
+		return
+	}
+
+	// The bundle leaves in this response, so the row and the broker take the
+	// new login now; the caller asked for it and is holding it.
+	if err := h.installStash(r.Context(), stashKey, tid, id, &stash); err != nil {
+		slog.Error("bridge provision failed", "bridge_id", id, "error", err)
+		_ = h.store.SetSystemConfig(r.Context(), stashKey, "")
+		writeError(w, http.StatusInternalServerError, "provisioning failed")
 		return
 	}
 
@@ -446,9 +502,19 @@ func (h *BridgeProvisionHandler) ClaimProvision(w http.ResponseWriter, r *http.R
 		return
 	}
 
+	// The scan is the moment the kit's old login gives way to the new one
+	// (MESHSAT-1336): write the row and kick the broker now, once. A stash
+	// that is never claimed never gets here, and the kit keeps working.
+	if err := h.installStash(r.Context(), stashKey, h.stashTenant(r.Context(), stashKey, id), id, &stash); err != nil {
+		slog.Error("provision claim: could not install the credentials; the stash is kept for a retry",
+			"bridge_id", id, "error", err)
+		writeError(w, http.StatusInternalServerError, "provisioning failed")
+		return
+	}
+
 	// Not before the broker accepts the credentials (MESHSAT-1298). A new
 	// password reaches each NATS member through the kubelet's Secret sync and a
-	// reload, up to a minute after it was generated; a client that connected in
+	// reload, up to a minute after it was installed; a client that connected in
 	// between was refused with the right password, and one that did not retry
 	// stayed offline. So the claim says "not yet" and KEEPS the stash: the same
 	// nonce works a few seconds later. It holds only on an actual refusal from a
@@ -511,17 +577,19 @@ func min(a, b int) int {
 // Counts only: a member's address is the cluster's business, and every
 // tenant's owner can call this.
 type provisionStatus struct {
-	State    string `json:"state"`    // pending, live, none (claimed or never generated), expired
+	State    string `json:"state"`    // ready (not scanned yet), pending (scanned, broker loading it), live, none (claimed or never generated), expired
 	Accepted int    `json:"accepted"` // broker members that accept the credentials
 	Members  int    `json:"members"`  // broker members asked
 	Checked  bool   `json:"checked"`  // false when no prober is configured or it could not run
 	AgeSec   int    `json:"age_sec,omitempty"`
 }
 
-// ProvisionStatus reports whether the bridge's unclaimed provisioning bundle
-// works at the broker yet, member by member (MESHSAT-1298). The Fleet page
-// shows the QR only once it does, so the first connect after a scan is not
-// refused.
+// ProvisionStatus reports where the bridge's unclaimed provisioning bundle
+// stands. Until it is scanned it is `ready`: the kit's current login is
+// untouched and there is nothing to ask the broker (MESHSAT-1336). Once a
+// claim has installed it, the broker is asked member by member (MESHSAT-1298)
+// so the Fleet page can show the scan being taken up, and the app's own
+// claim retry is what carries the kit through the reload.
 // @Summary Whether a provisioning bundle's credentials are live on the broker
 // @Tags bridges
 // @Produce json
@@ -549,6 +617,11 @@ func (h *BridgeProvisionHandler) ProvisionStatus(w http.ResponseWriter, r *http.
 	st := provisionStatus{AgeSec: int(time.Since(stash.CreatedAt).Seconds())}
 	if time.Since(stash.CreatedAt) > ProvisionTTL {
 		st.State = "expired"
+		writeJSON(w, http.StatusOK, st)
+		return
+	}
+	if !stash.Installed && stash.PasswordHash != "" {
+		st.State = "ready"
 		writeJSON(w, http.StatusOK, st)
 		return
 	}
