@@ -179,7 +179,7 @@ function openKit(k) { router.push({ name: 'fleet', query: { kit: k.id } }) }
         <li class="rounded-lg border border-ms-border p-4">
           <div class="text-xs text-ms-muted">Step 1</div>
           <div class="text-sm font-medium mt-0.5">Add a kit</div>
-          <p class="text-xs text-ms-muted mt-1">Scan a QR code on the kit or the Android app and it connects itself.</p>
+          <p class="text-xs text-ms-muted mt-1">Scan a QR code on the kit or the MeshSat app on Android or iOS and it connects itself.</p>
           <router-link :to="{ name: 'fleet', query: { add: '1' } }" class="ms-btn-primary mt-3">Add your first kit</router-link>
         </li>
         <li class="rounded-lg border border-ms-border p-4">

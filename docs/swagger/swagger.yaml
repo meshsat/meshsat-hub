@@ -1854,7 +1854,8 @@ definitions:
         description: broker members asked
         type: integer
       state:
-        description: pending, live, none (claimed or never generated), expired
+        description: ready (not scanned yet), pending (scanned, broker loading it),
+          live, none (claimed or never generated), expired
         type: string
     type: object
   internal_api.putProviderAccountRequest:

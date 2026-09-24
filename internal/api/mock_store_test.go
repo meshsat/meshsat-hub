@@ -18,7 +18,9 @@ type mockStore struct {
 
 	bridge        *store.Bridge // what GetBridge returns, when set
 	tenant        *store.Tenant
-	platformAdmin bool // returned by IsPlatformAdmin
+	platformAdmin bool        // returned by IsPlatformAdmin
+	credWrites    []credWrite // every SetBridgeCredentials, in order
+	certWrites    int         // SetBridgeCertificate calls
 
 	// Receipts outbox
 	crossBorder map[string]int64
@@ -343,14 +345,19 @@ func (m *mockStore) AssociateDeviceWithBridge(context.Context, string, string, s
 	return nil
 }
 
-// Bridge MQTT credentials
-func (m *mockStore) SetBridgeCredentials(context.Context, string, string, string, string) error {
+// Bridge MQTT credentials. The writes are recorded: WHEN the bridge row takes
+// a new login is the whole of MESHSAT-1336.
+type credWrite struct{ tenant, bridge, user, hash string }
+
+func (m *mockStore) SetBridgeCredentials(_ context.Context, tenant, bridge, user, hash string) error {
+	m.credWrites = append(m.credWrites, credWrite{tenant, bridge, user, hash})
 	return nil
 }
 func (m *mockStore) GetBridgeCredentials(context.Context, string, string) (*store.BridgeCredentials, error) {
 	return nil, fmt.Errorf("not found")
 }
 func (m *mockStore) SetBridgeCertificate(context.Context, string, string, string, time.Time) error {
+	m.certWrites++
 	return nil
 }
 func (m *mockStore) ListBridgesWithCredentials(context.Context) ([]*store.Bridge, error) {

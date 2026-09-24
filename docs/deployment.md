@@ -149,7 +149,9 @@ MQTT session
 ```
 
 Onboarding is the Kits page: add the kit, then either show the setup QR (the kit or the
-Android app scans it) or issue the broker login (shown once) and the certificate (shown once)
+MeshSat app on Android or iOS scans it; the kit's current login is replaced only when the
+code is scanned, so showing one to a connected kit and closing it changes nothing) or issue
+the broker login (shown once) and the certificate (shown once)
 and paste URL, credentials and PEM into the bridge's Hub Connection settings. The same three steps exist as `POST /api/bridges/{id}/credentials` and
 `/certificate`. The bridge must **not** be given the bridge CA as its root store, or it can no
 longer verify the server's Let's Encrypt certificate. The production NATS config is
