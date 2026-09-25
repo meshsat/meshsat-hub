@@ -117,17 +117,18 @@ func UnmarshalHeMBExtended(b [HeMBExtendedHeaderLen]byte) (HeMBExtendedHeader, e
 	}, nil
 }
 
-// IsHeMBFrame returns true if data starts with a valid HeMB frame header.
+// IsHeMBFrame returns true if data starts with a valid HeMB extended frame
+// header: the "HM" magic and a matching CRC-8. The Hub only ever receives
+// extended headers (see the file comment), and the old compact fallback,
+// "byte 7 is the CRC-8 of bytes 0-6", claimed about one in 256 arbitrary
+// payloads: a Reticulum packet or a ciphertext blob that happened to hit it
+// was swallowed as a HeMB symbol before routing saw it. [MESHSAT-1352]
 func IsHeMBFrame(data []byte) bool {
 	if len(data) >= HeMBExtendedHeaderLen && data[0] == HeMBMagicByte0 && data[1] == HeMBMagicByte1 {
 		var b [HeMBExtendedHeaderLen]byte
 		copy(b[:], data[:HeMBExtendedHeaderLen])
 		_, err := UnmarshalHeMBExtended(b)
 		return err == nil
-	}
-	// Also detect compact headers via CRC-8 validation.
-	if len(data) >= HeMBCompactHeaderLen {
-		return hembCRC8(data[:HeMBCompactHeaderLen-1]) == data[HeMBCompactHeaderLen-1]
 	}
 	return false
 }

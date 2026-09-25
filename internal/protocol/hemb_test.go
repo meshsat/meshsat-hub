@@ -164,6 +164,15 @@ func TestHeMBIsFrame(t *testing.T) {
 	if IsHeMBFrame(ext[:]) {
 		t.Error("invalid magic should not be detected as HeMB")
 	}
+
+	// A payload with no magic whose byte 7 happens to equal the CRC-8 of
+	// bytes 0-6 (one in 256 of anything: a Reticulum packet, a ciphertext)
+	// is not a HeMB frame. The compact fallback used to say it was. [MESHSAT-1352]
+	blob := []byte{0x01, 0x00, 0x5a, 0x11, 0x22, 0x33, 0x44, 0, 0xde, 0xad, 0xbe, 0xef, 0, 0, 0, 0, 0, 0, 0, 0}
+	blob[7] = hembCRC8(blob[:7])
+	if IsHeMBFrame(blob) {
+		t.Error("a CRC-8 coincidence without the HM magic must not be taken for a HeMB frame")
+	}
 }
 
 func TestHeMBReassemblyRoundtrip(t *testing.T) {

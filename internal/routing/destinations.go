@@ -23,6 +23,9 @@ type moDecodedPayload struct {
 	// Wire is the payload as the modem sent it (base64); see
 	// cloudloop.WebhookMOMessage. Only the relay reads it.
 	Wire string `json:"wire,omitempty"`
+	// IMTTopic is the IMT topic the message arrived on; the relay answers
+	// on the same one. [MESHSAT-1352]
+	IMTTopic string `json:"imt_topic,omitempty"`
 }
 
 // NewSMSHandler creates a routing destination handler that sends SMS via Twilio.
@@ -266,8 +269,9 @@ func formatRoutedSMS(deviceID, text string) string {
 // valid message into one the receiving kit drops as unauthenticated.
 const DestSatelliteRelay = "satellite_relay"
 
-// SatelliteRelaySender sends wire (base64) unchanged to one modem.
-type SatelliteRelaySender func(ctx context.Context, tenantID, imei, wireB64 string) error
+// SatelliteRelaySender sends wire (base64) unchanged to one modem, on the
+// IMT topic the message arrived on (empty = the sender's default, RAW).
+type SatelliteRelaySender func(ctx context.Context, tenantID, imei, wireB64, imtTopic string) error
 
 // NewSatelliteRelayHandler relays the original payload to every IMEI in the
 // route's filter except the one it came from. A route like this should always
@@ -298,11 +302,11 @@ func NewSatelliteRelayHandler(send SatelliteRelaySender) DestinationHandler {
 			if imei == deviceID {
 				continue // never back to the origin: that is a paid loop
 			}
-			if err := send(ctx, tenantID, imei, msg.Wire); err != nil {
+			if err := send(ctx, tenantID, imei, msg.Wire, msg.IMTTopic); err != nil {
 				slog.Error("routing/satellite_relay: send failed", "imei", imei, "device", deviceID, "error", err)
 				continue
 			}
-			slog.Info("routing/satellite_relay: relayed", "route", route.Name, "from", deviceID, "to", imei, "wire_b64_len", len(msg.Wire))
+			slog.Info("routing/satellite_relay: relayed", "route", route.Name, "from", deviceID, "to", imei, "topic", msg.IMTTopic, "wire_b64_len", len(msg.Wire))
 		}
 	}
 }

@@ -3094,11 +3094,11 @@ func main() {
 	// Kit to kit over satellite: the original payload, byte for byte, to the
 	// modems in the route's filter. IMT only: a 9603 would need the bytes cut to
 	// 270 and no Bridge reassembles the Hub's fragment header.
-	routeEngine.RegisterHandler(routing.DestSatelliteRelay, routing.NewSatelliteRelayHandler(func(_ context.Context, tenantID, imei, wireB64 string) error {
+	routeEngine.RegisterHandler(routing.DestSatelliteRelay, routing.NewSatelliteRelayHandler(func(_ context.Context, tenantID, imei, wireB64, imtTopic string) error {
 		if _, imt := thingResolver.Resolve(tenantID, imei); !imt {
 			return fmt.Errorf("modem %s is not a known IMT device; register it and let the Hub see one message or a thing listing first", imei)
 		}
-		_, err := mtSender.SendDirect(imei, cloudloop.MTSendRequest{WireB64: wireB64})
+		_, err := mtSender.SendDirect(imei, cloudloop.MTSendRequest{WireB64: wireB64, IMTTopic: imtTopic})
 		return err
 	}))
 	routeEngine.RegisterHandler("webhook", routing.NewWebhookHandler(webhookDispatcher))

@@ -95,10 +95,11 @@ func (e *Engine) handleMODecoded(topic string, payload []byte) {
 
 	// Extract source channel from message.
 	var msg struct {
-		ID      string `json:"id"`
-		Channel string `json:"channel"`
-		Text    string `json:"text"`
-		Opaque  bool   `json:"opaque"`
+		ID       string `json:"id"`
+		Channel  string `json:"channel"`
+		Text     string `json:"text"`
+		Opaque   bool   `json:"opaque"`
+		IMTTopic string `json:"imt_topic"`
 	}
 	if err := json.Unmarshal(payload, &msg); err != nil {
 		return
@@ -133,7 +134,7 @@ func (e *Engine) handleMODecoded(topic string, payload []byte) {
 		if !route.Enabled {
 			continue
 		}
-		if !matchSource(route.SourceType, sourceType) {
+		if !matchSourceTopic(route.SourceType, sourceType, msg.IMTTopic) {
 			continue
 		}
 		// Sender condition (MESHSAT-964): only messages from the listed
@@ -248,6 +249,30 @@ func matchSource(routeSource, msgSource string) bool {
 		return satelliteChannels[strings.ToLower(msgSource)]
 	}
 	return strings.EqualFold(routeSource, msgSource)
+}
+
+// matchSourceTopic extends matchSource with the IMT topic: a route source of
+// the form "<source>:<IMT topic>" (for example "iridium_imt:IMT_TOPIC_RAW")
+// matches only a message that arrived over IMT on that topic, and a bare
+// "iridium_imt" matches any IMT message (the decoded channel is "iridium"
+// for both modem types, so the topic is what tells them apart). A route
+// pinned to a topic never fires on SBD or SMS traffic. [MESHSAT-1352]
+func matchSourceTopic(routeSource, msgSource, imtTopic string) bool {
+	base, topic := routeSource, ""
+	if i := strings.IndexByte(routeSource, ':'); i >= 0 {
+		base, topic = routeSource[:i], routeSource[i+1:]
+	}
+	if strings.EqualFold(base, "iridium_imt") {
+		if imtTopic == "" {
+			return false
+		}
+	} else if !matchSource(base, msgSource) {
+		return false
+	}
+	if topic == "" {
+		return true
+	}
+	return imtTopic != "" && strings.EqualFold(topic, imtTopic)
 }
 
 // matchSenders reports whether the message origin (device IMEI or phone
