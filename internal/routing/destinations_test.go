@@ -208,13 +208,13 @@ func TestNewSatelliteHandler(t *testing.T) {
 func TestSatelliteRelayForwardsTheWireUntouched(t *testing.T) {
 	const kitA, kitB = "300000000000001", "300000000000002"
 	const wire = "AXN5bnRoZXRpYy1jaXBoZXJ0ZXh0LWJhc2U2NA==" // stands for 0x01 + base64 ciphertext; synthetic
-	type sent struct{ tenant, imei, wire string }
+	type sent struct{ tenant, imei, wire, topic string }
 	var got []sent
-	h := NewSatelliteRelayHandler(func(_ context.Context, tenantID, imei, w string) error {
-		got = append(got, sent{tenantID, imei, w})
+	h := NewSatelliteRelayHandler(func(_ context.Context, tenantID, imei, w, topic string) error {
+		got = append(got, sent{tenantID, imei, w, topic})
 		return nil
 	})
-	payload, _ := json.Marshal(map[string]any{"text": "c3ludGhldGljLWNpcGhlcnRleHQ=", "wire": wire, "opaque": true})
+	payload, _ := json.Marshal(map[string]any{"text": "c3ludGhldGljLWNpcGhlcnRleHQ=", "wire": wire, "opaque": true, "imt_topic": "IMT_TOPIC_RAW"})
 
 	// Both kits listed, as a symmetric pair of routes would: never back to the origin.
 	route := &store.Route{ID: "r1", Name: "kits over satellite", Filter: kitA + ", " + kitB}
@@ -230,6 +230,9 @@ func TestSatelliteRelayForwardsTheWireUntouched(t *testing.T) {
 	}
 	if got[0].tenant != store.DefaultTenantID {
 		t.Errorf("tenant = %q", got[0].tenant)
+	}
+	if got[0].topic != "IMT_TOPIC_RAW" {
+		t.Errorf("relayed on topic %q, want the topic it arrived on (a Reticulum packet on RAW must land on RAW)", got[0].topic)
 	}
 
 	// No original payload on the message: nothing is sent, least of all the text.

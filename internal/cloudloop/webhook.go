@@ -65,6 +65,16 @@ type WebhookMOMessage struct {
 	// to be printable (the transforms end in base64), so nothing that shows
 	// text to a person should fire on it. Relays and machine sinks still do.
 	Opaque bool `json:"opaque,omitempty"`
+	// IMTTopic is the Iridium Messaging Transport topic the message arrived
+	// on (IMT_TOPIC_RAW, _PURPLE, ...; empty for SBD and cellular). A relay
+	// to another 9704 answers on the same topic, and a route source may name
+	// it as "iridium_imt:IMT_TOPIC_RAW". [MESHSAT-1352]
+	IMTTopic string `json:"imt_topic,omitempty"`
+	// Reticulum: the payload is a Reticulum packet on the raw IMT topic (a
+	// kit's iridium_imt_0 interface, or CrossTalk's IridiumIMTInterface with
+	// its RNSI header). Text is empty, Opaque is set, and Wire carries the
+	// bytes for the satellite relay. [MESHSAT-1352]
+	Reticulum bool `json:"reticulum,omitempty"`
 }
 
 // WebhookRawMessage is the raw MO payload published to mo/raw.
@@ -486,6 +496,19 @@ func (h *WebhookHandler) processLingoMO(ctx context.Context, mo *LingoMO, remote
 		h.retIface.OnReceive(rawBytes)
 	}
 
+	// A Reticulum packet on the raw IMT topic: what a kit's iridium_imt_0
+	// interface or CrossTalk's IridiumIMTInterface sends. Its first byte is
+	// the RNS flags byte, so it must not go through the version-byte strip
+	// (an announce starts with 0x01, which is ProtoVersion1), decryption or
+	// decompression: those would classify ciphertext-like bytes as text and
+	// route it to people. It is opaque from here on and only relays and
+	// machine sinks see it. [MESHSAT-1352]
+	imtTopic := ""
+	if mo.IMT != nil {
+		imtTopic = mo.IMT.Topic
+	}
+	isReticulum := imtTopic == IMTTopicRaw && looksLikeReticulum(rawBytes)
+
 	rawB64 := base64.StdEncoding.EncodeToString(rawBytes)
 
 	slog.Info("cloudloop: MO received",
@@ -544,20 +567,24 @@ func (h *WebhookHandler) processLingoMO(ctx context.Context, mo *LingoMO, remote
 	}
 
 	// Strip protocol version byte (if present).
-	protoVersion, strippedBytes := codec.StripVersionByte(rawBytes)
-	if protoVersion > 0 {
-		slog.Info("cloudloop: protocol version detected",
-			"imei", imei, "version", protoVersion)
-		rawBytes = strippedBytes
-	}
-	if protoVersion > 0 && protoVersion != codec.ProtoVersion1 {
-		slog.Warn("cloudloop: protocol version mismatch, processing anyway",
-			"imei", imei, "version", protoVersion, "expected", codec.ProtoVersion1)
+	protoVersion := byte(0)
+	if !isReticulum {
+		var strippedBytes []byte
+		protoVersion, strippedBytes = codec.StripVersionByte(rawBytes)
+		if protoVersion > 0 {
+			slog.Info("cloudloop: protocol version detected",
+				"imei", imei, "version", protoVersion)
+			rawBytes = strippedBytes
+		}
+		if protoVersion > 0 && protoVersion != codec.ProtoVersion1 {
+			slog.Warn("cloudloop: protocol version mismatch, processing anyway",
+				"imei", imei, "version", protoVersion, "expected", codec.ProtoVersion1)
+		}
 	}
 
 	// Attempt E2E decryption.
 	encrypted := false
-	if h.keyStore != nil && len(rawBytes) >= hubcrypto.Overhead {
+	if !isReticulum && h.keyStore != nil && len(rawBytes) >= hubcrypto.Overhead {
 		decrypted, err := h.keyStore.DecryptMessage(imei, rawBytes)
 		if err == nil {
 			slog.Info("cloudloop: message decrypted",
@@ -581,7 +608,10 @@ func (h *WebhookHandler) processLingoMO(ctx context.Context, mo *LingoMO, remote
 	opaque := protoVersion > 0 && !encrypted && isBase64Ciphertext(rawBytes)
 
 	decompressed, err := compress.Decompress(rawBytes)
-	if opaque {
+	if isReticulum {
+		opaque = true
+		slog.Info("cloudloop: Reticulum packet on the raw IMT topic", "imei", imei, "bytes", len(rawBytes))
+	} else if opaque {
 		text = string(rawBytes)
 	} else if err == nil && len(decompressed) > 0 && isPrintable(decompressed) {
 		text = string(decompressed)
@@ -626,6 +656,8 @@ func (h *WebhookHandler) processLingoMO(ctx context.Context, mo *LingoMO, remote
 		Source:           source,
 		Wire:             wire,
 		Opaque:           opaque,
+		IMTTopic:         imtTopic,
+		Reticulum:        isReticulum,
 	}
 	h.publish(hubmqtt.TopicMODecodedFor(h.tenantOf(ctx, imei), imei), 1, false, decoded)
 
@@ -825,4 +857,52 @@ func moMessageID(imei string, momsn int, source, lingoID, transmitTime string) s
 		return fmt.Sprintf("mo-%s-%s", imei, lingoID)
 	}
 	return fmt.Sprintf("mo-%s-t%s", imei, transmitTime)
+}
+
+// looksLikeReticulum reports whether raw is plausibly a Reticulum packet:
+// the RNS 1.5.x header shape (19 bytes for HEADER_1, 35 for HEADER_2, hops
+// below 128, an announce with at least the 148-byte signed body, a link
+// request of 64 or 67 bytes), optionally behind CrossTalk's "RNSI\x01" IMT
+// framing. It is only consulted for the raw IMT topic. [MESHSAT-1352]
+func looksLikeReticulum(raw []byte) bool {
+	if len(raw) >= 5 && string(raw[:4]) == "RNSI" && raw[4] == 0x01 {
+		raw = raw[5:]
+	}
+	if len(raw) < 19 {
+		return false
+	}
+	flags := raw[0]
+	headerType := flags >> 6
+	transportType := (flags >> 4) & 0x01
+	packetType := flags & 0x03
+	destType := (flags >> 2) & 0x03
+	// RNS sets HEADER_2 exactly when a transport id is present, and then
+	// the transport type is TRANSPORT; a HEADER_1 packet is BROADCAST.
+	if headerType > 1 || headerType != transportType || raw[1] >= 128 {
+		return false
+	}
+	hdr := 19
+	if headerType == 1 {
+		hdr = 35
+	}
+	if len(raw) < hdr {
+		return false
+	}
+	// The context byte is one of RNS's defined contexts: 0x00-0x0E, or
+	// 0xFA-0xFF for the link contexts. Printable text and base64 never
+	// put such a byte there.
+	if ctxb := raw[hdr-1]; ctxb > 0x0E && ctxb < 0xFA {
+		return false
+	}
+	data := len(raw) - hdr
+	switch packetType {
+	case 0x01: // ANNOUNCE: SINGLE destination, pubkey+name+random+signature at least
+		return destType == 0 && data >= 148
+	case 0x02: // LINKREQUEST
+		return data == 64 || data == 67
+	case 0x03: // PROOF: implicit 64 or explicit 96, or a link proof 99
+		return data == 64 || data == 96 || data == 99
+	default: // DATA
+		return data > 0
+	}
 }

@@ -125,3 +125,33 @@ func TestALaneTextIsNotRouted(t *testing.T) {
 		t.Fatal("an ordinary text did not reach route evaluation; this test no longer proves anything")
 	}
 }
+
+// A route source may pin the IMT topic ("iridium_imt:IMT_TOPIC_RAW"): the
+// kit-to-kit Reticulum relay between two 9704s must never fire on an SBD or
+// SMS message, and a bare "iridium_imt" means any IMT message. [MESHSAT-1352]
+func TestMatchSourceTopic(t *testing.T) {
+	tests := []struct {
+		routeSource, msgSource, topic string
+		want                          bool
+	}{
+		{"iridium_imt:IMT_TOPIC_RAW", "iridium", "IMT_TOPIC_RAW", true},
+		{"iridium_imt:imt_topic_raw", "iridium", "IMT_TOPIC_RAW", true},
+		{"iridium_imt:IMT_TOPIC_RAW", "iridium", "IMT_TOPIC_PURPLE", false},
+		{"iridium_imt:IMT_TOPIC_RAW", "iridium", "", false}, // SBD: no topic
+		{"iridium_imt:IMT_TOPIC_RAW", "sms", "", false},
+		{"iridium_imt", "iridium", "IMT_TOPIC_PURPLE", true},
+		{"iridium_imt", "iridium", "", false},
+		{"satellite:IMT_TOPIC_RAW", "iridium", "IMT_TOPIC_RAW", true},
+		{"satellite:IMT_TOPIC_RAW", "iridium", "", false},
+		{"satellite", "iridium", "", true},
+		{"*", "sms", "", true},
+		{"*:IMT_TOPIC_RAW", "iridium", "IMT_TOPIC_RAW", true},
+		{"*:IMT_TOPIC_RAW", "sms", "", false},
+		{"iridium", "iridium", "IMT_TOPIC_RAW", true},
+	}
+	for _, tt := range tests {
+		if got := matchSourceTopic(tt.routeSource, tt.msgSource, tt.topic); got != tt.want {
+			t.Errorf("matchSourceTopic(%q, %q, %q) = %v, want %v", tt.routeSource, tt.msgSource, tt.topic, got, tt.want)
+		}
+	}
+}
