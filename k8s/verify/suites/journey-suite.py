@@ -251,11 +251,12 @@ if row:
         rows = json.loads(b) if s == 200 else []
     except Exception:
         rows = []
-    row = rows[0] if len(rows) == 1 else {}
-    check("the directory finds the new tenant by its owner's address", s == 200 and len(rows) == 1 and row.get("id") == tid, f"{s} rows={len(rows)}")
+    # NOT `row`: that name is the tenant's SQL row and the teardown splits it.
+    drow = rows[0] if len(rows) == 1 else {}
+    check("the directory finds the new tenant by its owner's address", s == 200 and len(rows) == 1 and drow.get("id") == tid, f"{s} rows={len(rows)}")
     check("the directory row carries owner, counts and the free ceiling",
-          row.get("owner_email") == email and row.get("users") == 1 and row.get("devices") == 0 and row.get("limit") == 4,
-          json.dumps({k: row.get(k) for k in ("owner_email","users","devices","bridges","limit","used")}))
+          drow.get("owner_email") == email and drow.get("users") == 1 and drow.get("devices") == 0 and drow.get("limit") == 4,
+          json.dumps({k: drow.get(k) for k in ("owner_email","users","devices","bridges","limit","used")}))
     s, b = hub(f"/api/admin/tenants/{tid}", token=HUB_TOKEN)
     detail = json.loads(b) if s == 200 else {}
     check("the detail says no support access is granted yet", s == 200 and not (detail.get("support_access") or {}).get("active"), f"{s} {str(detail.get('support_access'))[:120]}")
