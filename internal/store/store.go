@@ -6,7 +6,10 @@ package store
 import (
 	"context"
 	"errors"
+	"fmt"
 	"time"
+
+	"github.com/meshsat/meshsat-hub/internal/vat"
 )
 
 // ErrDuplicate is returned by InsertMessage when a row with the same ID
@@ -966,6 +969,26 @@ var ReservedTenantIDs = map[string]bool{"bridge": true, "hub": true, "broadcast"
 
 // ErrReservedTenantID is returned by CreateTenant for a reserved word.
 var ErrReservedTenantID = errors.New("store: reserved tenant id")
+
+// ErrBillingCountry is returned by CreateTenant and UpdateTenant when
+// Tenant.BillingCountry is neither empty nor an ISO 3166-1 alpha-2 code.
+//
+// The column is VARCHAR(2) in Postgres, so a longer value used to fail there
+// as SQLSTATE 22001 at the bottom of a customer's first sign-in (MESHSAT-1365:
+// "USA" from the enrolment form), while sqlite, which the unit tests run on,
+// enforces no length at all and let the defect through. Both backends now
+// refuse the same way, so the tests see what production sees, and the error
+// names the field.
+var ErrBillingCountry = errors.New("store: billing country must be empty or an ISO 3166-1 alpha-2 code")
+
+// CheckBillingCountry is the guard every tenant writer applies before the
+// row is touched.
+func CheckBillingCountry(t *Tenant) error {
+	if t.BillingCountry == "" || vat.IsAlpha2(t.BillingCountry) {
+		return nil
+	}
+	return fmt.Errorf("%w: %q", ErrBillingCountry, t.BillingCountry)
+}
 
 // GeoPoint is one vertex of a geofence polygon.
 type GeoPoint struct {

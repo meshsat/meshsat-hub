@@ -128,8 +128,12 @@ s, created = ak("/core/users/", "POST", {
     "groups": [pending],
     "attributes": {
         # What the enrolment flow stamps. country is the one that decides
-        # whether Dutch VAT applies to this customer's receipts at all.
-        "country": "NL",
+        # whether Dutch VAT applies to this customer's receipts at all. It is
+        # a NAME, the way a person types it in the form's free-text field, not
+        # a code: with "NL" here this suite passed for two weeks while every
+        # real customer who typed "USA" was refused at first sign-in on the
+        # two-character billing column (MESHSAT-1365).
+        "country": "United States",
         "organisation": "E2E",
         "hardware": "MeshSat field kit",
         "intended_use": "walking the approval workflow end to end",
@@ -156,8 +160,8 @@ u = (page.get("results") or [{}])[0]
 check("it is inactive before approval", not u.get("is_active"))
 check("it is in meshsat-pending",
       "meshsat-pending" in json.dumps(u.get("groups_obj") or u.get("groups") or []))
-check("the country enrolment collects is on the account",
-      (u.get("attributes") or {}).get("country") == "NL",
+check("the country enrolment collects is on the account, as typed",
+      (u.get("attributes") or {}).get("country") == "United States",
       "this is what decides the VAT treatment of every receipt it will ever get")
 
 print("\n=== 3. a platform admin approves through the Hub API ===")
@@ -216,13 +220,15 @@ except urllib.error.HTTPError as e:
 check("the OIDC round trip completed", code in (200,302) and "error" not in final.lower(), f"{code} {final[:110]}")
 
 time.sleep(2)
-row = sql(f"SELECT t.id, t.plan, t.status, u.email, u.role FROM tenants t JOIN users u ON u.tenant_id=t.id WHERE u.email='{email}';")
+row = sql(f"SELECT t.id, t.plan, t.status, u.email, u.role, t.billing_country FROM tenants t JOIN users u ON u.tenant_id=t.id WHERE u.email='{email}';")
 check("a tenant was created for the new account", bool(row), row or "none")
 if row:
     parts = row.split("|")
     check("it is on the FREE plan", parts[1]=="free", parts[1])
     check("the user is its OWNER", parts[4]=="owner", parts[4])
     check("the tenant is active", parts[2]=="active", parts[2])
+    check("the typed country became the ISO code on the tenant", parts[5]=="US",
+          f"billing_country={parts[5]!r} for a customer who typed 'United States' (MESHSAT-1365)")
     check("exactly ONE tenant was created", int(sql("SELECT count(*) FROM tenants;")) == int(before)+1,
           f"{before} -> {sql('SELECT count(*) FROM tenants;')}")
     tid = parts[0]
