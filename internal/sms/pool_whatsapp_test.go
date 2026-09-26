@@ -44,9 +44,9 @@ func TestWhatsAppForTenantUsesTheAccountsWhatsAppSender(t *testing.T) {
 	}
 	// The platform's own Twilio account is what main.go registers from the
 	// environment; without it the default tenant has no account at all.
-	accounts.SetPlatform(integrations.ProviderTwilio, map[string]string{"account_sid": "ACplat", "auth_token": "tok", "from_number": "+3197010258258", "whatsapp_from": "+3197006531641"})
-	platformSMS := NewClient("ACplat", "tok", "+3197010258258")
-	platformWA := NewClient("ACplat", "tok", "+3197006531641")
+	accounts.SetPlatform(integrations.ProviderTwilio, map[string]string{"account_sid": "ACplat", "auth_token": "tok", "from_number": "+31600000010", "whatsapp_from": "+31600000011"})
+	platformSMS := NewClient("ACplat", "tok", "+31600000010")
+	platformWA := NewClient("ACplat", "tok", "+31600000011")
 	platformWA.SetChannel("whatsapp")
 	pool := NewClientPool(platformSMS, accounts)
 	pool.SetPlatformWhatsApp(platformWA)
