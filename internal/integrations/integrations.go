@@ -139,12 +139,17 @@ var Specs = []Spec{
 			{Key: "mqtt_client_cert_pem", Label: "MQTT client certificate (PEM)", Multiline: true, PEM: true, Hint: "the certificate Cloudloop issued for this account"},
 			{Key: "mqtt_client_key_pem", Label: "MQTT client key (PEM)", Multiline: true, PEM: true, Secret: true, Hint: "the private key for that certificate; stored encrypted and never shown again"},
 		}},
-	{Provider: ProviderTwilio, Label: "Twilio (SMS)", Description: "Outbound SMS, escalation SMS and the inbound SMS webhook.",
+	{Provider: ProviderTwilio, Label: "Twilio (SMS and WhatsApp)", Description: "Outbound SMS, escalation SMS, the inbound SMS webhook, and WhatsApp when the account has a WhatsApp sender.",
 		Webhook: "/api/webhook/sms",
 		Fields: []Field{
 			{Key: "account_sid", Label: "Account SID", Required: true},
 			{Key: "auth_token", Label: "Auth token", Secret: true, Required: true, Hint: "Also validates X-Twilio-Signature on the inbound webhook."},
 			{Key: "from_number", Label: "From number", Required: true, Hint: "E.164, e.g. +3197010000000"},
+			// WhatsApp is registered on its own number in Twilio; a send from
+			// a number that is not a WhatsApp sender fails with 63007. Empty
+			// means the SMS number, which is only right while both bearers
+			// share one (MESHSAT-1367).
+			{Key: "whatsapp_from", Label: "WhatsApp sender number", Hint: "E.164 of the WhatsApp Business sender on this account. Leave empty to use the From number, which only works while the same number is registered for WhatsApp."},
 			{Key: "webhook_token", Label: "Webhook token", Secret: true, Generate: true, Hint: "The last segment of this tenant's inbound SMS webhook URL. Generated when left empty."},
 			{Key: "webhook_secret", Label: "Webhook signing secret", Secret: true, Hint: "Optional: HMAC-SHA256 of From+Body presented as X-Signature by a custom relay."},
 		}},

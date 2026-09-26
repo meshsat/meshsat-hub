@@ -419,7 +419,7 @@ func main() {
 	providerAccounts.SetPlatform(integrations.ProviderCloudloop, map[string]string{
 		"api_url": cfg.CloudloopAPIURL, "api_key": cfg.CloudloopAPIKey, "account_id": cfg.CloudloopAccountID, "webhook_token": cfg.CloudloopWebhookToken})
 	providerAccounts.SetPlatform(integrations.ProviderTwilio, map[string]string{
-		"account_sid": cfg.SMSAccountSID, "auth_token": cfg.SMSAuthToken, "from_number": cfg.SMSFromNumber})
+		"account_sid": cfg.SMSAccountSID, "auth_token": cfg.SMSAuthToken, "from_number": cfg.SMSFromNumber, "whatsapp_from": cfg.WhatsAppFrom()})
 	providerAccounts.SetPlatform(integrations.ProviderRock7, map[string]string{"username": cfg.Rock7Username, "password": cfg.Rock7Password})
 	providerAccounts.SetPlatform(integrations.ProviderRockBLOCK, map[string]string{"webhook_secret": cfg.RockBLOCKSecret})
 	providerAccounts.SetPlatform(integrations.ProviderGlobalstar, map[string]string{
@@ -2132,7 +2132,7 @@ func main() {
 				waWebhook.ServeHTTP)
 			r.Post("/api/webhook/whatsapp/status",
 				sms.NewStatusHandler("whatsapp", cfg.SMSInboundAuthToken, cfg.SMSWebhookSecret).ServeHTTP)
-			slog.Info("whatsapp: bearer enabled", "from", cfg.SMSFromNumber)
+			slog.Info("whatsapp: bearer enabled", "from", cfg.WhatsAppFrom())
 		}
 
 		// The scripted stand flow, on BOTH bearers (MESHSAT-1175).
@@ -2181,8 +2181,11 @@ func main() {
 
 			if waWebhook != nil {
 				// WhatsApp IS dedicated: everything on it is stand conversation.
-				waClient := sms.NewClientWithAPIKey(cfg.SMSAccountSID, cfg.SMSAPIKeySID, cfg.SMSAuthToken, cfg.SMSFromNumber)
+				// The WhatsApp sender is its own number since 26 Sep 2026; a send
+				// From the SMS number answers Twilio 63007 (MESHSAT-1367).
+				waClient := sms.NewClientWithAPIKey(cfg.SMSAccountSID, cfg.SMSAPIKeySID, cfg.SMSAuthToken, cfg.WhatsAppFrom())
 				waClient.SetChannel("whatsapp")
+				smsPool.SetPlatformWhatsApp(waClient)
 				boothSvc.RegisterVisitor("whatsapp", channelVisitor{c: waClient})
 				waWebhook.SetBooth(boothInbound{svc: boothSvc, dedicated: true})
 			}
