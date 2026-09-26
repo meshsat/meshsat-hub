@@ -336,12 +336,18 @@ type Config struct {
 	EmailWebhookSecret string `yaml:"email_webhook_secret"`
 
 	// SMS gateway (Twilio)
-	SMSEnabled       bool   `yaml:"sms_enabled"`
-	SMSAccountSID    string `yaml:"sms_account_sid"`    // Twilio Account SID (AC...)
-	SMSAuthToken     string `yaml:"sms_auth_token"`     // Twilio Auth Token (or API Key Secret)
-	SMSAPIKeySID     string `yaml:"sms_api_key_sid"`    // Twilio API Key SID (SK...) — if set, uses API key auth
-	SMSFromNumber    string `yaml:"sms_from_number"`    // E.164 sender number
-	SMSWebhookSecret string `yaml:"sms_webhook_secret"` // HMAC secret for a custom relay's X-Signature
+	SMSEnabled    bool   `yaml:"sms_enabled"`
+	SMSAccountSID string `yaml:"sms_account_sid"` // Twilio Account SID (AC...)
+	SMSAuthToken  string `yaml:"sms_auth_token"`  // Twilio Auth Token (or API Key Secret)
+	SMSAPIKeySID  string `yaml:"sms_api_key_sid"` // Twilio API Key SID (SK...) — if set, uses API key auth
+	SMSFromNumber string `yaml:"sms_from_number"` // E.164 sender number
+	// WhatsAppFromNumber is the platform's WhatsApp Business sender, which
+	// Twilio registers on its own number: a WhatsApp send From the SMS
+	// number fails with 63007 once they differ (MESHSAT-1367). Empty means
+	// the SMS number. A tenant sets its own as whatsapp_from on its Twilio
+	// account.
+	WhatsAppFromNumber string `yaml:"whatsapp_from_number"`
+	SMSWebhookSecret   string `yaml:"sms_webhook_secret"` // HMAC secret for a custom relay's X-Signature
 	// WhatsAppEnabled turns on the WhatsApp bearer: a second inbound webhook and
 	// a status callback, both on the same Twilio account and the same account
 	// auth token as SMS. Off by default -- nothing may be load-bearing on
@@ -1133,6 +1139,9 @@ func Load() (Config, error) {
 	if v := os.Getenv("HUB_BOOTH_CONTENT_KITS"); v != "" {
 		cfg.BoothContentKits = v
 	}
+	if v := os.Getenv("HUB_WHATSAPP_FROM_NUMBER"); v != "" {
+		cfg.WhatsAppFromNumber = v
+	}
 	if v := os.Getenv("HUB_WHATSAPP_ENABLED"); v != "" {
 		cfg.WhatsAppEnabled = strings.EqualFold(v, "true") || v == "1"
 	}
@@ -1410,4 +1419,13 @@ func stripeSecret(name string) string {
 		return ""
 	}
 	return v
+}
+
+// WhatsAppFrom is the platform's WhatsApp sender: its own number when set,
+// else the SMS number (MESHSAT-1367).
+func (c *Config) WhatsAppFrom() string {
+	if c.WhatsAppFromNumber != "" {
+		return c.WhatsAppFromNumber
+	}
+	return c.SMSFromNumber
 }
