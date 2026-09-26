@@ -15,6 +15,7 @@ import (
 	hubauth "github.com/meshsat/meshsat-hub/internal/auth"
 	"github.com/meshsat/meshsat-hub/internal/plans"
 	"github.com/meshsat/meshsat-hub/internal/store"
+	"github.com/meshsat/meshsat-hub/internal/vat"
 )
 
 // OIDC login roles are derived from IdP group membership. The IdP is the
@@ -350,12 +351,18 @@ type buyerLocation struct {
 }
 
 // evidence renders the pair for the record, so the reasoning behind a country
-// survives in a form a person can read a year later.
-func (b buyerLocation) evidence() string {
+// survives in a form a person can read a year later. When the declared text
+// was not recognised as a country the record says so, because the code next
+// to it is then empty and somebody will want to know why.
+func (b buyerLocation) evidence(recognised bool) string {
 	if b.Country == "" && b.SignupIP == "" {
 		return ""
 	}
-	return "declared " + b.Country + ", seen from " + b.SignupIP + " at sign-up"
+	declared := b.Country
+	if !recognised && strings.TrimSpace(b.Country) != "" {
+		declared += " (not recognised as a country, left for a person)"
+	}
+	return "declared " + declared + ", seen from " + b.SignupIP + " at sign-up"
 }
 
 func (h *OIDCHandler) resolveUser(ctx context.Context, issuer, sub, email string, emailVerified bool, name, role string, loc buyerLocation) (*store.LocalUser, string, error) {
@@ -533,9 +540,21 @@ func (h *OIDCHandler) createTenantFor(ctx context.Context, email, name string, l
 		displayName = email
 	}
 	now := time.Now().UTC()
+	// The country is whatever the person typed on the enrolment form. It is
+	// normalised to alpha-2 when it is recognised ("USA", "United States",
+	// "Germany", "de", "Netherlands (NL)") and left EMPTY when it is not, with
+	// the raw text kept in the evidence so a person can settle it. It never
+	// blocks the sign-in: the column is two characters wide and writing the
+	// declared text straight into it refused every customer who typed a name
+	// (MESHSAT-1365).
+	code, recognised := vat.Alpha2(loc.Country)
+	if !recognised && strings.TrimSpace(loc.Country) != "" {
+		slog.Warn("oidc: declared country not recognised, billing country left for a person",
+			"email", email, "declared", loc.Country)
+	}
 	t := &store.Tenant{ID: "t_" + id[:16], Slug: slug, Name: displayName, Plan: plans.Free, Status: "active", CreatedAt: now, UpdatedAt: now,
-		BillingCountry:         strings.ToUpper(strings.TrimSpace(loc.Country)),
-		BillingCountryEvidence: loc.evidence()}
+		BillingCountry:         code,
+		BillingCountryEvidence: loc.evidence(recognised)}
 	if err := h.store.CreateTenant(ctx, t); err != nil {
 		return nil, err
 	}

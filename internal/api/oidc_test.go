@@ -6,6 +6,7 @@ import (
 	"crypto/rsa"
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"math/big"
 	"net/http"
 	"net/http/httptest"
@@ -639,5 +640,69 @@ func TestNoProviderMeansNoSelfServiceLinks(t *testing.T) {
 	_ = json.Unmarshal(rec.Body.Bytes(), &got)
 	if got.PasswordChangeURL != "" || got.MFASetupURL != "" {
 		t.Error("self-service links offered with no identity provider behind them")
+	}
+}
+
+// MESHSAT-1365. The enrolment form's country is free text and the billing
+// column is two characters wide. The first outside customers who tried to sign
+// in had typed "USA" and "United States"; every attempt failed on the column
+// and they concluded their accounts were broken. A declared country is now
+// normalised to alpha-2 and never refuses a sign-in.
+func TestOIDC_ADeclaredCountryNameIsNormalised(t *testing.T) {
+	for i, tc := range []struct{ declared, want string }{
+		{"USA", "US"}, {"United States", "US"}, {"Germany", "DE"}, {"Netherlands (NL)", "NL"}, {"de", "DE"},
+	} {
+		e := newOIDCEnv(t, true)
+		cookie, state := e.startLogin(t, "")
+		sub := fmt.Sprintf("u-country-%d", i)
+		rr := e.callback(t, cookie, state, jwt.MapClaims{
+			"sub": sub, "email": fmt.Sprintf("c%d@example.com", i), "email_verified": true, "name": "Matt",
+			"groups": []string{"meshsat-owner"}, "country": tc.declared, "signup_ip": "203.0.113.9",
+		})
+		if strings.Contains(location(rr), "error=") {
+			t.Fatalf("declared %q: login failed: %s", tc.declared, location(rr))
+		}
+		ident, err := e.store.GetOIDCIdentity(context.Background(), e.idp.srv.URL+"/", sub)
+		if err != nil {
+			t.Fatal(err)
+		}
+		tenant, err := e.store.GetTenant(context.Background(), ident.TenantID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if tenant.BillingCountry != tc.want {
+			t.Errorf("declared %q: billing country = %q, want %q", tc.declared, tenant.BillingCountry, tc.want)
+		}
+		if !strings.Contains(tenant.BillingCountryEvidence, "declared "+tc.declared) {
+			t.Errorf("declared %q: evidence %q does not keep what was typed", tc.declared, tenant.BillingCountryEvidence)
+		}
+	}
+}
+
+// A country nobody recognises is neither a guess nor a refusal: the tenant is
+// created with an empty billing country, which parks its receipts for a
+// person, and the evidence says what was typed and that it was left.
+func TestOIDC_AnUnrecognisedCountryStillProvisions(t *testing.T) {
+	e := newOIDCEnv(t, true)
+	cookie, state := e.startLogin(t, "")
+	rr := e.callback(t, cookie, state, jwt.MapClaims{
+		"sub": "u-mars", "email": "mars@example.com", "email_verified": true,
+		"groups": []string{"meshsat-owner"}, "country": "Mars", "signup_ip": "203.0.113.9",
+	})
+	if strings.Contains(location(rr), "error=") {
+		t.Fatalf("login failed over an unrecognised country: %s", location(rr))
+	}
+	ident, _ := e.store.GetOIDCIdentity(context.Background(), e.idp.srv.URL+"/", "u-mars")
+	tenant, err := e.store.GetTenant(context.Background(), ident.TenantID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if tenant.BillingCountry != "" {
+		t.Errorf("billing country = %q, want empty for an unrecognised country", tenant.BillingCountry)
+	}
+	for _, want := range []string{"declared Mars", "not recognised", "203.0.113.9"} {
+		if !strings.Contains(tenant.BillingCountryEvidence, want) {
+			t.Errorf("evidence %q does not record %q", tenant.BillingCountryEvidence, want)
+		}
 	}
 }

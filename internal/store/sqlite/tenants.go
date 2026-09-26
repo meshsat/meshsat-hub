@@ -39,6 +39,9 @@ func scanTenant(sc interface{ Scan(...any) error }) (store.Tenant, error) {
 }
 
 func (d *DB) CreateTenant(ctx context.Context, t *store.Tenant) error {
+	if err := store.CheckBillingCountry(t); err != nil {
+		return err
+	}
 	if t.ID == "" {
 		t.ID = xid.New().String()
 	}
@@ -99,6 +102,9 @@ func (d *DB) ListTenants(ctx context.Context) ([]store.Tenant, error) {
 }
 
 func (d *DB) UpdateTenant(ctx context.Context, t *store.Tenant) error {
+	if err := store.CheckBillingCountry(t); err != nil {
+		return err
+	}
 	t.UpdatedAt = time.Now().UTC()
 	_, err := d.db.ExecContext(ctx, `UPDATE tenants SET slug=?, name=?, owner_user_id=?, plan=?, status=?, updated_at=?, plan_expires_at=?, kofi_claim_code=?, kofi_payer_email=?, kofi_last_message_id=?, lapse_warned_at=?, billing_country=?, billing_country_evidence=?, stripe_customer_id=?, stripe_subscription_id=?, bridge_offline_timeout=?, audit_retention_days=?, ratelimit_daily_cap=?, ratelimit_monthly_cap=?, oob_max_per_hour=?, oob_sms_timeout_sec=?, oob_sat_timeout_sec=? WHERE id=?`,
 		t.Slug, t.Name, t.OwnerUserID, t.Plan, t.Status, fmtTime(t.UpdatedAt), fmtTimePtr(t.PlanExpiresAt), t.KofiClaimCode, t.KofiPayerEmail, t.KofiLastMessageID, fmtTimePtr(t.LapseWarnedAt), t.BillingCountry, t.BillingCountryEvidence, t.StripeCustomerID, t.StripeSubscriptionID, t.BridgeOfflineTimeout, t.AuditRetentionDays, t.RatelimitDailyCap, t.RatelimitMonthlyCap, t.OOBMaxPerHour, t.OOBSMSTimeoutSec, t.OOBSatTimeoutSec, t.ID)
