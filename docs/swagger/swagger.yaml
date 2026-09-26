@@ -1311,6 +1311,136 @@ definitions:
       username:
         type: string
     type: object
+  internal_api.adminTenantResponse:
+    properties:
+      audit_retention_days:
+        description: |-
+          AuditRetentionDays is the tenant's own choice in days, 0 meaning the
+          platform default, which AuditRetentionDefault carries.
+        type: integer
+      audit_retention_default:
+        type: integer
+      audit_retention_max:
+        type: integer
+      audit_retention_min:
+        type: integer
+      billing_country:
+        type: string
+      billing_country_evidence:
+        type: string
+      bridge_offline_timeout:
+        description: |-
+          BridgeOfflineTimeout is the tenant's own choice in seconds, or 0 meaning
+          "use the platform default" -- which BridgeOfflineTimeoutDefault carries,
+          so the UI can show the number that is actually in force instead of
+          hardcoding one that can drift from the ConfigMap.
+        type: integer
+      bridge_offline_timeout_default:
+        type: integer
+      bridge_offline_timeout_max:
+        type: integer
+      bridge_offline_timeout_min:
+        type: integer
+      bridges:
+        type: integer
+      created_at:
+        type: string
+      deleted_at:
+        type: string
+      devices:
+        type: integer
+      id:
+        type: string
+      lapse_warned_at:
+        type: string
+      limit:
+        type: integer
+      name:
+        type: string
+      oob_max_per_hour:
+        description: |-
+          Out-of-band command policy: this tenant's own choices, 0 meaning the
+          platform default, with that default and the bounds alongside so the form
+          shows the number actually in force (MESHSAT-1121).
+        type: integer
+      oob_max_per_hour_default:
+        type: integer
+      oob_max_per_hour_max:
+        type: integer
+      oob_max_per_hour_min:
+        type: integer
+      oob_sat_timeout_default:
+        type: integer
+      oob_sat_timeout_sec:
+        type: integer
+      oob_sms_timeout_default:
+        type: integer
+      oob_sms_timeout_sec:
+        type: integer
+      oob_timeout_max:
+        type: integer
+      oob_timeout_min:
+        type: integer
+      over_limit:
+        type: boolean
+      owner_email:
+        type: string
+      owner_user_id:
+        type: string
+      plan:
+        type: string
+      plan_expires_at:
+        type: string
+      purge_at:
+        type: string
+      purge_grace_days:
+        description: |-
+          PurgeGraceDays is how long a closed account can still be recovered. The
+          close dialog quotes it to the customer, and a number the UI hardcoded
+          would be one refactor away from disagreeing with what actually happens.
+        type: integer
+      ratelimit_daily_cap:
+        description: |-
+          The per-device send budget: how many messages the Hub will send to ONE
+          of this tenant's devices per UTC day and per month (SOS is never
+          counted). 0 is "the platform default". The airtime is the tenant's own
+          carrier account, so the owner sets this, above or below the default; a
+          monthly default of 0 means no monthly limit.
+        type: integer
+      ratelimit_daily_default:
+        type: integer
+      ratelimit_daily_max:
+        type: integer
+      ratelimit_monthly_cap:
+        type: integer
+      ratelimit_monthly_default:
+        type: integer
+      ratelimit_monthly_max:
+        type: integer
+      slug:
+        type: string
+      status:
+        type: string
+      stripe_customer_id:
+        type: string
+      stripe_subscription_id:
+        type: string
+      support_access:
+        allOf:
+        - $ref: '#/definitions/internal_api.supportAccessResponse'
+        description: |-
+          SupportAccess is the customer's consent for the platform to open this
+          workspace: present on the detail view, nil in the directory.
+      updated_at:
+        type: string
+      used:
+        description: |-
+          Used and Limit mirror internal/quota: devices plus bridges against the
+          plan's ceiling, -1 when the plan has none.
+        type: integer
+      users:
+        type: integer
+    type: object
   internal_api.adminUpdateTenantRequest:
     properties:
       name:
@@ -2022,10 +2152,64 @@ definitions:
         description: E.164 phone number
         type: string
     type: object
+  internal_api.signupDecision:
+    properties:
+      action:
+        type: string
+      actor:
+        type: string
+      created_at:
+        type: string
+      email:
+        type: string
+      id:
+        type: string
+      ip:
+        type: string
+      reason:
+        type: string
+      role:
+        type: string
+      signup_ip:
+        type: string
+    type: object
   internal_api.snoozeRequest:
     properties:
       duration_min:
         type: integer
+    type: object
+  internal_api.supportAccessRequest:
+    properties:
+      duration_minutes:
+        type: integer
+      pin:
+        type: string
+    type: object
+  internal_api.supportAccessResponse:
+    properties:
+      active:
+        description: 'Active is whether a grant is in force now: not revoked, not
+          expired.'
+        type: boolean
+      created_at:
+        type: string
+      created_by_email:
+        type: string
+      expires_at:
+        type: string
+      max_minutes:
+        type: integer
+      min_minutes:
+        description: |-
+          The bounds the form offers, so the UI never hardcodes a number that
+          drifts from the ConfigMap.
+        type: integer
+      used_at:
+        description: UsedAt is when an operator first presented the PIN; empty until
+          then.
+        type: string
+      used_by_email:
+        type: string
     type: object
   internal_api.takStatusResponse:
     properties:
@@ -2373,6 +2557,31 @@ definitions:
         type: integer
       year:
         type: integer
+    type: object
+  internal_api.viewAsRefusal:
+    properties:
+      attempts_left:
+        type: integer
+      code:
+        type: string
+      error:
+        type: string
+    type: object
+  internal_api.viewAsRequest:
+    properties:
+      pin:
+        type: string
+    type: object
+  internal_api.viewAsResponse:
+    properties:
+      expires_at:
+        type: string
+      name:
+        type: string
+      slug:
+        type: string
+      tenant_id:
+        type: string
     type: object
   internal_codec.CodecInfo:
     properties:
@@ -3040,6 +3249,25 @@ paths:
       summary: Reject a beta request
       tags:
       - admin
+  /api/admin/signups/history:
+    get:
+      parameters:
+      - description: max rows (default 100)
+        in: query
+        name: limit
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/internal_api.signupDecision'
+            type: array
+      summary: Decisions taken on account requests
+      tags:
+      - admin
   /api/admin/tenants:
     get:
       produces:
@@ -3079,6 +3307,29 @@ paths:
       summary: Close a tenant
       tags:
       - admin
+    get:
+      parameters:
+      - description: Tenant ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_api.adminTenantResponse'
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Get a tenant (platform administrators only)
+      tags:
+      - admin
     put:
       consumes:
       - application/json
@@ -3116,6 +3367,30 @@ paths:
       summary: Update a tenant
       tags:
       - admin
+  /api/admin/tenants/{id}/audit:
+    get:
+      parameters:
+      - description: Tenant ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: max entries (default 50)
+        in: query
+        name: limit
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/github_com_meshsat_meshsat-hub_internal_store.AuditEntry'
+            type: array
+      summary: A tenant's recent audit entries (platform administrators only)
+      tags:
+      - admin
   /api/admin/tenants/{id}/usage:
     get:
       parameters:
@@ -3144,6 +3419,95 @@ paths:
               type: string
             type: object
       summary: Devices and bridges used by a tenant
+      tags:
+      - admin
+  /api/admin/tenants/{id}/users:
+    get:
+      parameters:
+      - description: Tenant ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/internal_api.userResponse'
+            type: array
+      summary: List a tenant's users (platform administrators only)
+      tags:
+      - admin
+  /api/admin/tenants/{id}/view-as:
+    delete:
+      parameters:
+      - description: Tenant ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/internal_api.viewAsRefusal'
+      summary: Leave a tenant opened as support
+      tags:
+      - admin
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Tenant ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: the PIN the customer granted
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/internal_api.viewAsRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_api.viewAsResponse'
+        "400":
+          description: the platform tenant
+          schema:
+            $ref: '#/definitions/internal_api.viewAsRefusal'
+        "401":
+          description: wrong PIN, with attempts_left
+          schema:
+            $ref: '#/definitions/internal_api.viewAsRefusal'
+        "403":
+          description: no grant, or the grant is locked
+          schema:
+            $ref: '#/definitions/internal_api.viewAsRefusal'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/internal_api.viewAsRefusal'
+        "409":
+          description: the tenant is suspended or closed
+          schema:
+            $ref: '#/definitions/internal_api.viewAsRefusal'
+      summary: Open a tenant as support (needs the customer's PIN)
       tags:
       - admin
   /api/admin/vat/threshold:
@@ -7751,6 +8115,55 @@ paths:
         "204":
           description: No Content
       summary: Revoke a tenant invite
+      tags:
+      - tenant
+  /api/tenant/support-access:
+    delete:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_api.supportAccessResponse'
+      summary: Revoke support access
+      tags:
+      - tenant
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_api.supportAccessResponse'
+      summary: Support access status
+      tags:
+      - tenant
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: PIN (10 to 128 characters) and window in minutes
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/internal_api.supportAccessRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/internal_api.supportAccessResponse'
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Grant support access
       tags:
       - tenant
   /api/tenant/tak:

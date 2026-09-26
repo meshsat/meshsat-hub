@@ -58,6 +58,23 @@ assessment rather than implying a per-requirement audit that has not happened.
 
 **ASVS L2: 11.0 / 16 = 69% → 15.5 / 16 = 97%**
 
+**V8 addendum, 2026-09-26 (MESHSAT-1366): cross-tenant access by a person needs the customer's
+consent and is audited both ways.** Until this date `X-Tenant-ID` from any platform admin was
+honoured unconditionally and silently: a master key over every customer's rows with no audit row
+on either side. Now a signed-in admin's header is honoured only while the tenant's owner has
+granted support access (`support_grants`: PIN of 10+ characters, Argon2id-hashed, window bounded
+by the platform, one active grant per tenant, revocable) AND the PIN has been presented
+(`POST /api/admin/tenants/{id}/view-as`, five wrong PINs lock the grant). The middleware fails
+CLOSED on a lookup error. Start, end, lockout, grant and revoke are written to the tenant's chain
+and mirrored to the platform's. The break-glass token and platform API keys are exempt by
+credential type, because the nightly verify suites and the billing probes run on them and both are
+already counted, logged and audited per use (V6). Held by
+`internal/auth.TestTenantMiddleware_ASessionAdminNeedsTheCustomersConsent` and
+`internal/api.TestViewAs_NeedsTheCustomersPINAndIsAuditedBothWays`; proven on production by the
+journey suite (support grant, wrong PIN refused, right PIN opens, both chains carry the row).
+Every other operator action on a tenant (plan, status, caps, close) is now audited on both chains
+too (`tenant_admin_updated`, `tenant_deleted`).
+
 ---
 
 ## CIS Kubernetes Benchmark, chapter 5 (workload scope)

@@ -39,6 +39,10 @@ const (
 	denyTenantRequired  = "tenant_required"
 	denyTenantSuspended = "tenant_suspended"
 	denyTenantDeleted   = "tenant_deleted"
+	// denySupportAccessRequired: a signed-in platform admin asked for another
+	// tenant's rows without a support-access grant opened for it
+	// (MESHSAT-1366).
+	denySupportAccessRequired = "support_access_required"
 )
 
 // denyMessage maps a reason to the text the client sees. The messages are
@@ -56,6 +60,8 @@ var denyMessage = map[string]string{ // #nosec G101 -- refusal messages shown to
 	denyTenantRequired:  "tenant context required",
 	denyTenantSuspended: "tenant suspended",
 	denyTenantDeleted:   "tenant deleted",
+
+	denySupportAccessRequired: "support access not granted by this tenant",
 }
 
 // clientIPCtxKey carries the rate-limit-safe client address computed by

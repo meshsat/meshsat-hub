@@ -1,6 +1,29 @@
 import { defineStore } from 'pinia'
-import { ref, computed } from 'vue'
-import { authApi } from '../api/client'
+import { ref, computed, watch } from 'vue'
+import { authApi, admin as adminApi } from '../api/client'
+import { useOpsStore } from './ops'
+import { useCapabilitiesStore } from './capabilities'
+
+// The support session a platform admin has opened into a customer's
+// workspace. sessionStorage, never localStorage: it ends with the tab, and a
+// second tab of the same console is not silently inside somebody's account.
+const VIEW_AS_KEY = 'meshsat-view-as'
+function readViewAs() {
+  try {
+    const v = JSON.parse(sessionStorage.getItem(VIEW_AS_KEY) || 'null')
+    if (!v || !v.id || !v.expires_at) return null
+    if (new Date(v.expires_at).getTime() <= Date.now()) return null
+    return v
+  } catch {
+    return null
+  }
+}
+function writeViewAs(v) {
+  try {
+    if (v) sessionStorage.setItem(VIEW_AS_KEY, JSON.stringify(v))
+    else sessionStorage.removeItem(VIEW_AS_KEY)
+  } catch { /* per-tab convenience only */ }
+}
 
 export const useAuthStore = defineStore('auth', () => {
   const token = ref(localStorage.getItem('auth_token') || '')
@@ -8,6 +31,77 @@ export const useAuthStore = defineStore('auth', () => {
 
   const isAuthenticated = computed(() => !!token.value)
   const isPlatformAdmin = computed(() => !!user.value?.platform_admin)
+
+  // View-as (support access). { id, slug, name, expires_at } while a platform
+  // admin is inside a customer's workspace; the API client adds X-Tenant-ID
+  // to every tenant-scoped request while this is set.
+  const viewAs = ref(readViewAs())
+  let viewAsTimer = null
+
+  async function refreshTenantState() {
+    // The whole console is now somebody else's: reload what is cached per
+    // tenant. Failures here are the pages' own business.
+    await Promise.allSettled([useOpsStore().load(), useCapabilitiesStore().load(true)])
+  }
+
+  async function go(to) {
+    const { default: router } = await import('../router')
+    return router.push(to)
+  }
+
+  function armViewAsTimer() {
+    clearTimeout(viewAsTimer)
+    viewAsTimer = null
+    if (!viewAs.value) return
+    const ms = new Date(viewAs.value.expires_at).getTime() - Date.now()
+    // The server has already refused everything past expires_at; the timer
+    // only takes the banner down and puts the admin back where they were.
+    viewAsTimer = setTimeout(() => endViewAs({ expired: true }), Math.max(0, ms))
+  }
+
+  async function startViewAs(tenantRow, pin) {
+    const res = await adminApi.tenants.viewAs(tenantRow.id, pin)
+    viewAs.value = {
+      id: res.tenant_id || tenantRow.id,
+      slug: res.slug || tenantRow.slug || '',
+      name: res.name || tenantRow.name || '',
+      expires_at: res.expires_at,
+    }
+    writeViewAs(viewAs.value)
+    armViewAsTimer()
+    await refreshTenantState()
+    await go({ name: 'dashboard' })
+    return viewAs.value
+  }
+
+  async function endViewAs({ expired = false } = {}) {
+    const current = viewAs.value
+    clearTimeout(viewAsTimer)
+    viewAsTimer = null
+    viewAs.value = null
+    writeViewAs(null)
+    if (!current) return
+    if (!expired) {
+      // Best effort: the grant may already have lapsed server-side, and the
+      // local state is cleared either way.
+      try { await adminApi.tenants.endViewAs(current.id) } catch { /* already over */ }
+    }
+    await refreshTenantState()
+    await go({ name: 'platformTenant', params: { id: current.id } })
+  }
+
+  function clearViewAs() {
+    clearTimeout(viewAsTimer)
+    viewAsTimer = null
+    viewAs.value = null
+    writeViewAs(null)
+  }
+
+  // A view-as session belongs to a platform admin only. If the loaded user
+  // turns out not to be one (a different account signed in on this tab), the
+  // header must go with it.
+  watch(user, (u) => { if (viewAs.value && !u?.platform_admin) clearViewAs() })
+  if (viewAs.value) armViewAsTimer()
 
   // Login methods offered by this Hub: { modes: ['oidc','local',...], oidc_login_url }.
   const authConfig = ref(null)
@@ -75,6 +169,7 @@ export const useAuthStore = defineStore('auth', () => {
     }
     token.value = ''
     user.value = null
+    clearViewAs()
     localStorage.removeItem('auth_token')
     localStorage.removeItem('auth_user')
     localStorage.removeItem('auth_refresh_token')
@@ -131,5 +226,9 @@ export const useAuthStore = defineStore('auth', () => {
     fetchUser()
   }
 
-  return { token, user, isAuthenticated, isPlatformAdmin, role, isOwner, authConfig, fetchAuthConfig, startOIDCLogin, completeOIDC, login, logout, fetchUser, refreshToken }
+  return {
+    token, user, isAuthenticated, isPlatformAdmin, role, isOwner, authConfig,
+    fetchAuthConfig, startOIDCLogin, completeOIDC, login, logout, fetchUser, refreshToken,
+    viewAs, startViewAs, endViewAs, clearViewAs,
+  }
 })

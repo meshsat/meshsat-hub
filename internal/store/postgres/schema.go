@@ -962,4 +962,24 @@ ALTER TABLE api_keys ADD COLUMN IF NOT EXISTS platform_admin BOOLEAN NOT NULL DE
 ALTER TABLE audit_log ADD COLUMN IF NOT EXISTS hash_version INTEGER NOT NULL DEFAULT 1;
 CREATE UNIQUE INDEX IF NOT EXISTS uq_audit_log_chain ON audit_log (tenant_id, prev_hash);
 `},
+	// MESHSAT-1366: a tenant owner's consent window for platform support
+	// access. pin_hash is Argon2id and is in RedactedInExport. Keyed
+	// (tenant_id, id) like every tenant-owned table.
+	{Version: 31, Name: "support grants", SQL: `
+CREATE TABLE IF NOT EXISTS support_grants (
+	tenant_id VARCHAR(64) NOT NULL,
+	id VARCHAR(64) NOT NULL,
+	pin_hash TEXT NOT NULL,
+	created_by_user_id VARCHAR(64) NOT NULL DEFAULT '',
+	created_by_email VARCHAR(255) NOT NULL DEFAULT '',
+	created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+	expires_at TIMESTAMPTZ NOT NULL,
+	used_at TIMESTAMPTZ NULL,
+	used_by_email VARCHAR(255) NOT NULL DEFAULT '',
+	revoked_at TIMESTAMPTZ NULL,
+	failed_attempts INTEGER NOT NULL DEFAULT 0,
+	PRIMARY KEY (tenant_id, id)
+);
+CREATE INDEX IF NOT EXISTS idx_support_grants_tenant ON support_grants (tenant_id, expires_at);
+`},
 }

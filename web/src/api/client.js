@@ -2,15 +2,43 @@ import { useAuthStore } from '../stores/auth'
 
 const BASE = '/api'
 
+// While a platform admin is viewing a customer's workspace (stores/auth
+// viewAs), every tenant-scoped request carries that tenant. The platform's
+// own routes never do: /admin/ is the platform acting as itself, and /auth/
+// is who the caller IS, which a header must not change.
+function tenantHeader(url) {
+  const auth = useAuthStore()
+  const id = auth.viewAs?.id
+  if (!id) return {}
+  if (url.startsWith('/admin/') || url.startsWith('/auth/')) return {}
+  return { 'X-Tenant-ID': id }
+}
+
+// One error shape for every caller: the HTTP status and the parsed body ride
+// on the Error, so a view branches on `status` and `body.code`, never on the
+// wording of a message (MESHSAT-1111, MESHSAT-1121).
+function httpError(res, body) {
+  const e = new Error(body?.error || res.statusText || `HTTP ${res.status}`)
+  e.status = res.status
+  e.body = body || {}
+  e.code = body?.code || ''
+  return e
+}
+
 async function fetchJSON(url, opts = {}) {
   const auth = useAuthStore()
-  const headers = { 'Content-Type': 'application/json', ...opts.headers }
+  const headers = { 'Content-Type': 'application/json', ...tenantHeader(url), ...opts.headers }
   if (auth.token) {
     headers['Authorization'] = `Bearer ${auth.token}`
   }
   let res = await fetch(BASE + url, { ...opts, headers })
   if (res.status === 401) {
-    // Try silent token refresh before logging out
+    // A 401 carrying a code is the endpoint's own answer (a wrong support
+    // PIN, for one) and belongs to the caller as it is: refreshing and
+    // replaying the request would spend a second attempt on the same PIN.
+    const coded = await res.clone().json().catch(() => null)
+    if (coded && coded.code) throw httpError(res, coded)
+    // Otherwise the session is stale: try a silent refresh before logging out.
     const refreshed = await auth.refreshToken()
     if (refreshed) {
       headers['Authorization'] = `Bearer ${auth.token}`
@@ -19,17 +47,15 @@ async function fetchJSON(url, opts = {}) {
     if (res.status === 401) {
       auth.logout()
       window.location.hash = '#/login'
-      throw new Error('Unauthorized')
+      throw httpError(res, { error: 'Unauthorized' })
     }
   }
   if (!res.ok) {
     const err = await res.json().catch(() => ({ error: res.statusText }))
-    const e = new Error(err.error || res.statusText)
     // The status, so a caller can tell "this tenant has no such thing" from
     // "the request failed". Without it every catch block is forced to treat a
     // permanent 404 as a transient error and retry it forever (MESHSAT-1111).
-    e.status = res.status
-    throw e
+    throw httpError(res, err)
   }
   if (res.status === 204) return null
   return res.json()
@@ -37,7 +63,7 @@ async function fetchJSON(url, opts = {}) {
 
 async function fetchBlob(url, opts = {}) {
   const auth = useAuthStore()
-  const headers = { ...opts.headers }
+  const headers = { ...tenantHeader(url), ...opts.headers }
   if (auth.token) {
     headers['Authorization'] = `Bearer ${auth.token}`
   }
@@ -51,12 +77,12 @@ async function fetchBlob(url, opts = {}) {
     if (res.status === 401) {
       auth.logout()
       window.location.hash = '#/login'
-      throw new Error('Session expired, please log in again')
+      throw httpError(res, { error: 'Session expired, please log in again' })
     }
   }
   if (!res.ok) {
     const err = await res.json().catch(() => ({ error: res.statusText || 'Unknown error' }))
-    throw new Error(err.error || res.statusText || `HTTP ${res.status}`)
+    throw httpError(res, err)
   }
   return res.blob()
 }
@@ -338,7 +364,7 @@ export const credentials = {
     form.append('name', name)
     form.append('target_scope', targetScope)
     if (targetBridgeID) form.append('target_bridge_id', targetBridgeID)
-    const headers = {}
+    const headers = { ...tenantHeader('/credentials/upload') }
     if (auth.token) headers['Authorization'] = `Bearer ${auth.token}`
     const res = await fetch(`${BASE}/credentials/upload`, { method: 'POST', body: form, headers })
     if (!res.ok) {
@@ -376,16 +402,72 @@ export const tenant = {
   billingPortal: () => fetchJSON('/tenant/billing/portal', { method: 'POST' }),
   // A one-off gift. Grants no tier: it is support, not a purchase.
   donate: () => fetchJSON('/tenant/billing/donate', { method: 'POST' }),
+  // Support access: the OWNER lets MeshSat support open this workspace for a
+  // time of their choosing, behind a PIN shared out of band. The PIN is stored
+  // hashed; the server never returns it. GET answers 400/404 for the platform
+  // tenant, and the panel hides itself on that.
+  supportAccess: {
+    get: () => fetchJSON('/tenant/support-access'),
+    create: (pin, durationMinutes) => fetchJSON('/tenant/support-access', {
+      method: 'POST', body: JSON.stringify({ pin, duration_minutes: durationMinutes }),
+    }),
+    revoke: () => fetchJSON('/tenant/support-access', { method: 'DELETE' }),
+  },
 }
 
-// Beta requests waiting for a decision (MESHSAT-978). Platform admins only;
-// the endpoints report themselves unavailable when the Hub has no identity
-// provider token, and the panel hides itself on that.
-export const signups = {
-  list: () => fetchJSON('/admin/signups'),
-  approve: (id, role) => fetchJSON(`/admin/signups/${id}/approve`, { method: 'POST', body: JSON.stringify({ role }) }),
-  reject: (id) => fetchJSON(`/admin/signups/${id}/reject`, { method: 'POST' }),
+// The platform's own console (/platform/*), platform admins only. None of
+// these carries X-Tenant-ID: the platform acts as itself here.
+export const admin = {
+  // Account requests waiting for a decision (MESHSAT-978). The endpoints
+  // answer 502/503 when the Hub has no identity provider token; the page
+  // says so from the status, never from the message.
+  signups: {
+    list: () => fetchJSON('/admin/signups'),
+    history: (limit = 100) => fetchJSON(`/admin/signups/history?limit=${limit}`),
+    approve: (id, role) => fetchJSON(`/admin/signups/${id}/approve`, { method: 'POST', body: JSON.stringify({ role }) }),
+    // The reason, when given, is sent to them in the mail; an empty one sends
+    // no body at all rather than an empty string.
+    reject: (id, reason = '') => fetchJSON(`/admin/signups/${id}/reject`,
+      reason ? { method: 'POST', body: JSON.stringify({ reason }) } : { method: 'POST' }),
+  },
+  tenants: {
+    list: (q = '', includeDeleted = false) => {
+      const p = new URLSearchParams()
+      if (q) p.set('q', q)
+      if (includeDeleted) p.set('include_deleted', '1')
+      const qs = p.toString()
+      return fetchJSON(`/admin/tenants${qs ? '?' + qs : ''}`)
+    },
+    get: (id) => fetchJSON(`/admin/tenants/${encodeURIComponent(id)}`),
+    // body: { name?, plan?, status? ('active'|'suspended'), plan_expires_at?
+    // (RFC 3339, or "" to clear), ratelimit_daily_cap?, ratelimit_monthly_cap? }
+    update: (id, body) => fetchJSON(`/admin/tenants/${encodeURIComponent(id)}`, { method: 'PUT', body: JSON.stringify(body) }),
+    close: (id) => fetchJSON(`/admin/tenants/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+    usage: (id) => fetchJSON(`/admin/tenants/${encodeURIComponent(id)}/usage`),
+    users: (id) => fetchJSON(`/admin/tenants/${encodeURIComponent(id)}/users`),
+    audit: (id, limit = 50) => fetchJSON(`/admin/tenants/${encodeURIComponent(id)}/audit?limit=${limit}`),
+    // Opens the tenant's workspace behind the PIN its owner set. Errors carry
+    // a code: not_active (409), support_access_required / support_access_locked
+    // (403), wrong_pin (401, with attempts_left).
+    viewAs: (id, pin) => fetchJSON(`/admin/tenants/${encodeURIComponent(id)}/view-as`, { method: 'POST', body: JSON.stringify({ pin }) }),
+    endViewAs: (id) => fetchJSON(`/admin/tenants/${encodeURIComponent(id)}/view-as`, { method: 'DELETE' }),
+  },
+  billing: {
+    unmatched: (limit = 50) => fetchJSON(`/admin/payments/unmatched?limit=${limit}`),
+    blockedReceipts: (limit = 100) => fetchJSON(`/admin/receipts/blocked?limit=${limit}`),
+    requeueReceipt: (id) => fetchJSON(`/admin/receipts/${encodeURIComponent(id)}/requeue`, { method: 'POST' }),
+    // body: { amount_cents (0 = the whole payment), reason, refunded_at? }
+    recordRefund: (id, body) => fetchJSON(`/admin/receipts/${encodeURIComponent(id)}/refund`, { method: 'POST', body: JSON.stringify(body) }),
+    // status: pending (the default), issued or blocked.
+    refunds: (status = 'pending', limit = 100) => fetchJSON(`/admin/refunds?status=${encodeURIComponent(status)}&limit=${limit}`),
+    requeueRefund: (id) => fetchJSON(`/admin/refunds/${encodeURIComponent(id)}/requeue`, { method: 'POST' }),
+    withdrawRefund: (id) => fetchJSON(`/admin/refunds/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+    vatThreshold: () => fetchJSON('/admin/vat/threshold'),
+  },
 }
+
+// Kept for anything still importing the old name; new code reads admin.signups.
+export const signups = admin.signups
 
 export const settings = {
   getMqttUrl: () => fetchJSON('/settings/mqtt-url'),
@@ -397,6 +479,8 @@ export const settings = {
 export const health = {
   check: () => fetch('/healthz').then(r => r.json()).catch(() => ({ status: 'error' })),
   readyz: () => fetch('/readyz').then(r => r.json()).catch(() => ({ status: 'error' })),
+  // Each probe as {status, latency_ms, detail}; the bare form is a string.
+  readyzVerbose: () => fetch('/readyz?verbose=1').then(r => r.json()).catch(() => ({ status: 'error' })),
 }
 
 

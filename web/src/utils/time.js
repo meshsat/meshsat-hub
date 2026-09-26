@@ -47,3 +47,12 @@ export function formatDateUTC(ts) {
   if (isNaN(d.getTime())) return '—'
   return d.toISOString().substring(0, 10)
 }
+
+// A timestamp for a table cell: the UTC form, or `fallback` for an empty or
+// zero time ("never", "not set"), so a page states the absence in words.
+export function formatWhen(ts, fallback = '') {
+  if (!ts || String(ts).startsWith('0001-')) return fallback
+  const d = new Date(ts)
+  if (isNaN(d.getTime())) return fallback
+  return d.toISOString().replace('T', ' ').substring(0, 19) + ' UTC'
+}

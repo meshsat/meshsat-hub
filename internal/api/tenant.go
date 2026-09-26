@@ -4,9 +4,12 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
+	"github.com/meshsat/meshsat-hub/internal/audit"
 	"log/slog"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -23,6 +26,9 @@ const inviteTTL = 14 * 24 * time.Hour
 // platform-admin view of all tenants (/api/admin/tenants).
 type TenantHandler struct {
 	store store.Store
+	// audit records every operator action on a tenant, on the tenant's own
+	// chain and mirrored to the platform's (MESHSAT-1366).
+	audit *audit.Service
 	// forget drops the cached lifecycle status across the replicas, so a
 	// suspension applies to the next request rather than at the end of a TTL.
 	forget func(tenantID string)
@@ -54,6 +60,9 @@ type TenantHandler struct {
 func NewTenantHandler(s store.Store) *TenantHandler {
 	return &TenantHandler{store: s}
 }
+
+// SetAudit gives the handler the chain every operator action is written to.
+func (h *TenantHandler) SetAudit(a *audit.Service) { h.audit = a }
 
 // SetBridgeOfflineTimeoutPolicy gives the handler the platform's default and
 // the bounds a tenant owner may choose within (MESHSAT-1117). Without it the
@@ -489,16 +498,181 @@ func (h *TenantHandler) DeleteInvite(w http.ResponseWriter, r *http.Request) {
 // @Success      200  {array}  tenantResponse
 // @Router       /api/admin/tenants [get]
 func (h *TenantHandler) AdminList(w http.ResponseWriter, r *http.Request) {
-	items, err := h.store.ListTenants(r.Context())
+	items, err := h.store.ListTenantSummaries(r.Context())
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "list failed")
 		return
 	}
-	out := make([]tenantResponse, 0, len(items))
+	q := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("q")))
+	includeDeleted := r.URL.Query().Get("include_deleted") == "1"
+	out := make([]adminTenantResponse, 0, len(items))
 	for i := range items {
-		out = append(out, toTenantResponse(&items[i]))
+		ts := &items[i]
+		if ts.DeletedAt != nil && !includeDeleted {
+			continue
+		}
+		if q != "" && !strings.Contains(strings.ToLower(ts.ID+" "+ts.Slug+" "+ts.Name+" "+ts.OwnerEmail), q) {
+			continue
+		}
+		out = append(out, h.toAdminTenantResponse(ts, nil))
 	}
 	writeJSON(w, http.StatusOK, out)
+}
+
+// adminTenantResponse is a tenant as the platform directory and the tenant
+// detail page see it (MESHSAT-1366): the owner's own view plus the facts an
+// operator needs and the customer never edits.
+type adminTenantResponse struct {
+	tenantResponse
+	OwnerEmail string `json:"owner_email,omitempty"`
+	Users      int    `json:"users"`
+	Devices    int    `json:"devices"`
+	Bridges    int    `json:"bridges"`
+	// Used and Limit mirror internal/quota: devices plus bridges against the
+	// plan's ceiling, -1 when the plan has none.
+	Used                   int    `json:"used"`
+	Limit                  int    `json:"limit"`
+	OverLimit              bool   `json:"over_limit"`
+	PlanExpiresAt          string `json:"plan_expires_at,omitempty"`
+	BillingCountry         string `json:"billing_country,omitempty"`
+	BillingCountryEvidence string `json:"billing_country_evidence,omitempty"`
+	StripeCustomerID       string `json:"stripe_customer_id,omitempty"`
+	StripeSubscriptionID   string `json:"stripe_subscription_id,omitempty"`
+	DeletedAt              string `json:"deleted_at,omitempty"`
+	PurgeAt                string `json:"purge_at,omitempty"`
+	LapseWarnedAt          string `json:"lapse_warned_at,omitempty"`
+	// SupportAccess is the customer's consent for the platform to open this
+	// workspace: present on the detail view, nil in the directory.
+	SupportAccess *supportAccessResponse `json:"support_access,omitempty"`
+}
+
+func (h *TenantHandler) toAdminTenantResponse(ts *store.TenantSummary, grant *supportAccessResponse) adminTenantResponse {
+	t := &ts.Tenant
+	out := adminTenantResponse{
+		tenantResponse: toTenantResponse(t),
+		OwnerEmail:     ts.OwnerEmail, Users: ts.Users, Devices: ts.Devices, Bridges: ts.Bridges,
+		Used:                   ts.Devices + ts.Bridges,
+		Limit:                  plans.For(t.Plan).Devices,
+		BillingCountry:         t.BillingCountry,
+		BillingCountryEvidence: t.BillingCountryEvidence,
+		StripeCustomerID:       t.StripeCustomerID,
+		StripeSubscriptionID:   t.StripeSubscriptionID,
+		SupportAccess:          grant,
+	}
+	out.OverLimit = out.Limit >= 0 && out.Used > out.Limit
+	if t.PlanExpiresAt != nil {
+		out.PlanExpiresAt = t.PlanExpiresAt.UTC().Format(time.RFC3339)
+	}
+	if t.DeletedAt != nil {
+		out.DeletedAt = t.DeletedAt.UTC().Format(time.RFC3339)
+		out.PurgeAt = t.DeletedAt.Add(store.PurgeGrace).UTC().Format(time.RFC3339)
+	}
+	if t.LapseWarnedAt != nil {
+		out.LapseWarnedAt = t.LapseWarnedAt.UTC().Format(time.RFC3339)
+	}
+	return out
+}
+
+// adminSummary finds one tenant's summary row; the grouped query is the one
+// place the counts and the owner address are computed.
+func (h *TenantHandler) adminSummary(r *http.Request, id string) (*store.TenantSummary, error) {
+	items, err := h.store.ListTenantSummaries(r.Context())
+	if err != nil {
+		return nil, err
+	}
+	for i := range items {
+		if items[i].ID == id {
+			return &items[i], nil
+		}
+	}
+	return nil, store.ErrNotFound
+}
+
+// AdminGet is one tenant with everything the detail page shows.
+//
+//	@Summary      Get a tenant (platform administrators only)
+//	@Tags         admin
+//	@Produce      json
+//	@Param        id   path      string  true  "Tenant ID"
+//	@Success      200  {object}  adminTenantResponse
+//	@Failure      404  {object}  map[string]string
+//	@Router       /api/admin/tenants/{id} [get]
+func (h *TenantHandler) AdminGet(w http.ResponseWriter, r *http.Request) {
+	ts, err := h.adminSummary(r, chi.URLParam(r, "id"))
+	if errors.Is(err, store.ErrNotFound) {
+		writeError(w, http.StatusNotFound, "tenant not found")
+		return
+	}
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "lookup failed")
+		return
+	}
+	grant := supportAccessResponse{}
+	if g, err := h.store.GetActiveSupportGrant(r.Context(), ts.ID); err == nil && g != nil {
+		grant.Active = g.Active(time.Now())
+		grant.ExpiresAt = g.ExpiresAt.UTC().Format(time.RFC3339)
+		grant.CreatedAt = g.CreatedAt.UTC().Format(time.RFC3339)
+		grant.CreatedByEmail = g.CreatedByEmail
+		if g.UsedAt != nil {
+			grant.UsedAt = g.UsedAt.UTC().Format(time.RFC3339)
+			grant.UsedByEmail = g.UsedByEmail
+		}
+	}
+	writeJSON(w, http.StatusOK, h.toAdminTenantResponse(ts, &grant))
+}
+
+// AdminListUsers lists a tenant's users for the platform (the tenant comes
+// from the URL, never from X-Tenant-ID, so no support grant is needed to
+// see WHO is on an account).
+//
+//	@Summary      List a tenant's users (platform administrators only)
+//	@Tags         admin
+//	@Produce      json
+//	@Param        id   path      string  true  "Tenant ID"
+//	@Success      200  {array}   userResponse
+//	@Router       /api/admin/tenants/{id}/users [get]
+func (h *TenantHandler) AdminListUsers(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	if t, err := h.store.GetTenant(r.Context(), id); err != nil || t == nil {
+		writeError(w, http.StatusNotFound, "tenant not found")
+		return
+	}
+	users, err := h.store.ListUsers(r.Context(), id)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to list users")
+		return
+	}
+	resp := make([]userResponse, len(users))
+	for i := range users {
+		resp[i] = toUserResponse(&users[i])
+	}
+	writeJSON(w, http.StatusOK, resp)
+}
+
+// AdminListAudit is the newest entries of a tenant's own audit chain.
+//
+//	@Summary      A tenant's recent audit entries (platform administrators only)
+//	@Tags         admin
+//	@Produce      json
+//	@Param        id     path      string  true   "Tenant ID"
+//	@Param        limit  query     int     false  "max entries (default 50)"
+//	@Success      200    {array}   store.AuditEntry
+//	@Router       /api/admin/tenants/{id}/audit [get]
+func (h *TenantHandler) AdminListAudit(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	if t, err := h.store.GetTenant(r.Context(), id); err != nil || t == nil {
+		writeError(w, http.StatusNotFound, "tenant not found")
+		return
+	}
+	entries, err := h.store.ListAuditEntries(r.Context(), id, parseLimit(r, 50, maxListLimit))
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to list audit entries")
+		return
+	}
+	if entries == nil {
+		entries = []store.AuditEntry{}
+	}
+	writeJSON(w, http.StatusOK, entries)
 }
 
 // AdminUpdate changes a tenant's name, plan or status (platform administrators only).
@@ -524,6 +698,7 @@ func (h *TenantHandler) AdminUpdate(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	before := *t
 	if v := strings.TrimSpace(req.Name); v != "" {
 		if len(v) > 80 {
 			writeError(w, http.StatusBadRequest, "name must be 1-80 characters")
@@ -552,6 +727,12 @@ func (h *TenantHandler) AdminUpdate(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		t.Status = v
+		// Setting a closed account back to active is how it is recovered
+		// inside the grace period; the purge job keys on deleted_at, so the
+		// stamp must go too or the account is destroyed on schedule anyway.
+		if v == store.TenantActive {
+			t.DeletedAt = nil
+		}
 	}
 	if req.PlanExpiresAt != nil {
 		switch v := strings.TrimSpace(*req.PlanExpiresAt); v {
@@ -598,7 +779,38 @@ func (h *TenantHandler) AdminUpdate(w http.ResponseWriter, r *http.Request) {
 	}
 	admin := hubauth.FromContext(r.Context())
 	slog.Info("tenant: updated by platform admin", "tenant", t.ID, "by", admin.ID, "status", t.Status, "plan", t.Plan)
+	if changes := adminTenantChanges(&before, t); changes != "" {
+		logPlatformAction(r, h.audit, t.ID, "tenant_admin_updated", changes)
+	}
 	writeJSON(w, http.StatusOK, toTenantResponse(t))
+}
+
+// adminTenantChanges names what an operator changed, old to new, for the
+// audit row. Nothing changed is an empty string and no row.
+func adminTenantChanges(before, after *store.Tenant) string {
+	var parts []string
+	add := func(name, from, to string) {
+		if from != to {
+			parts = append(parts, name+"="+from+">"+to)
+		}
+	}
+	tstr := func(t *time.Time) string {
+		if t == nil {
+			return "none"
+		}
+		return t.UTC().Format(time.RFC3339)
+	}
+	add("name", before.Name, after.Name)
+	add("plan", before.Plan, after.Plan)
+	add("status", before.Status, after.Status)
+	add("plan_expires_at", tstr(before.PlanExpiresAt), tstr(after.PlanExpiresAt))
+	add("deleted_at", tstr(before.DeletedAt), tstr(after.DeletedAt))
+	add("ratelimit_daily_cap", strconv.Itoa(before.RatelimitDailyCap), strconv.Itoa(after.RatelimitDailyCap))
+	add("ratelimit_monthly_cap", strconv.Itoa(before.RatelimitMonthlyCap), strconv.Itoa(after.RatelimitMonthlyCap))
+	add("oob_max_per_hour", strconv.Itoa(before.OOBMaxPerHour), strconv.Itoa(after.OOBMaxPerHour))
+	add("oob_sms_timeout_sec", strconv.Itoa(before.OOBSMSTimeoutSec), strconv.Itoa(after.OOBSMSTimeoutSec))
+	add("oob_sat_timeout_sec", strconv.Itoa(before.OOBSatTimeoutSec), strconv.Itoa(after.OOBSatTimeoutSec))
+	return strings.Join(parts, " ")
 }
 
 // validEmail is a conservative shape check; the IdP verifies ownership.

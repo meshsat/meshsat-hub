@@ -38,6 +38,13 @@ const routes = [
   { path: '/credentials', name: 'credentials', component: () => import('./views/CredentialsView.vue'), meta: { requiresAuth: true } },
   { path: '/costs', name: 'costs', component: () => import('./views/CostsView.vue'), meta: { requiresAuth: true } },
   { path: '/help', name: 'help', component: () => import('./views/HelpView.vue'), meta: { requiresAuth: true } },
+  // The platform's own console. requiresPlatformAdmin: the API refuses a
+  // customer on every one of these routes too.
+  { path: '/platform/requests', name: 'platformRequests', component: () => import('./views/platform/RequestsView.vue'), meta: { requiresAuth: true, requiresPlatformAdmin: true } },
+  { path: '/platform/tenants', name: 'platformTenants', component: () => import('./views/platform/TenantsView.vue'), meta: { requiresAuth: true, requiresPlatformAdmin: true } },
+  { path: '/platform/tenants/:id', name: 'platformTenant', component: () => import('./views/platform/TenantDetailView.vue'), meta: { requiresAuth: true, requiresPlatformAdmin: true } },
+  { path: '/platform/billing', name: 'platformBilling', component: () => import('./views/platform/BillingView.vue'), meta: { requiresAuth: true, requiresPlatformAdmin: true } },
+  { path: '/platform/system', name: 'platformSystem', component: () => import('./views/platform/SystemView.vue'), meta: { requiresAuth: true, requiresPlatformAdmin: true } },
 ]
 
 const router = createRouter({
@@ -53,8 +60,8 @@ router.beforeEach((to) => {
   if (to.name === 'login' && auth.isAuthenticated) {
     return { name: 'dashboard' }
   }
-  // Platform-only views (TAK Ops, MESHSAT-1032). The API refuses them too;
-  // this keeps a customer from landing on a page of 403s.
+  // Platform-only views (/platform/*). The API refuses them too; this keeps a
+  // customer from landing on a page of 403s.
   if (to.meta.requiresPlatformAdmin && !auth.isPlatformAdmin) {
     return { name: 'dashboard' }
   }

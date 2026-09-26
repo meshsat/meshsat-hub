@@ -156,6 +156,24 @@ var migrations = []string{
 		ip TEXT NOT NULL DEFAULT '',
 		created_at TEXT NOT NULL DEFAULT (datetime('now'))
 	)`,
+	// MESHSAT-1366: a tenant owner's consent window for platform support
+	// access. pin_hash is Argon2id; times are RFC3339 text like the rest of
+	// this schema. Keyed (tenant_id, id).
+	`CREATE TABLE IF NOT EXISTS support_grants (
+		tenant_id TEXT NOT NULL,
+		id TEXT NOT NULL,
+		pin_hash TEXT NOT NULL,
+		created_by_user_id TEXT NOT NULL DEFAULT '',
+		created_by_email TEXT NOT NULL DEFAULT '',
+		created_at TEXT NOT NULL,
+		expires_at TEXT NOT NULL,
+		used_at TEXT NOT NULL DEFAULT '',
+		used_by_email TEXT NOT NULL DEFAULT '',
+		revoked_at TEXT NOT NULL DEFAULT '',
+		failed_attempts INTEGER NOT NULL DEFAULT 0,
+		PRIMARY KEY (tenant_id, id)
+	)`,
+	`CREATE INDEX IF NOT EXISTS idx_support_grants_tenant ON support_grants (tenant_id, expires_at)`,
 }
 
 // alterMigrations add tenant_id to existing tables. These use ALTER TABLE
@@ -990,6 +1008,34 @@ func (d *DB) AppendAuditEntry(ctx context.Context, tenantID string, build func(p
 func (d *DB) ListAuditEntries(ctx context.Context, tenantID string, limit int) ([]store.AuditEntry, error) {
 	query := "SELECT " + auditColumns + " FROM audit_log WHERE tenant_id=? ORDER BY rowid DESC"
 	args := []interface{}{tenantID}
+	if limit > 0 {
+		query += fmt.Sprintf(" LIMIT %d", limit)
+	}
+	rows, err := d.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+	var entries []store.AuditEntry
+	for rows.Next() {
+		var a store.AuditEntry
+		if err := scanAuditEntry(rows, &a); err != nil {
+			return nil, err
+		}
+		entries = append(entries, a)
+	}
+	return entries, rows.Err()
+}
+
+func (d *DB) ListAuditEntriesByAction(ctx context.Context, tenantID string, actions []string, limit int) ([]store.AuditEntry, error) {
+	if len(actions) == 0 {
+		return nil, nil
+	}
+	query := "SELECT " + auditColumns + " FROM audit_log WHERE tenant_id=? AND action IN (?" + strings.Repeat(",?", len(actions)-1) + ") ORDER BY rowid DESC"
+	args := []interface{}{tenantID}
+	for _, a := range actions {
+		args = append(args, a)
+	}
 	if limit > 0 {
 		query += fmt.Sprintf(" LIMIT %d", limit)
 	}

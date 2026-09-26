@@ -102,6 +102,10 @@ type Store interface {
 	ListAuditEntries(ctx context.Context, tenantID string, limit int) ([]AuditEntry, error)
 	GetLatestAuditEntry(ctx context.Context, tenantID string) (*AuditEntry, error)
 	ListAuditEntriesBefore(ctx context.Context, tenantID string, before time.Time, limit int) ([]AuditEntry, error)
+	// ListAuditEntriesByAction returns the newest entries of ONE tenant whose
+	// action is in actions, newest first. It is how the platform reads its
+	// own decisions back (signup approvals and rejections, MESHSAT-1366).
+	ListAuditEntriesByAction(ctx context.Context, tenantID string, actions []string, limit int) ([]AuditEntry, error)
 	DeleteAuditEntriesBefore(ctx context.Context, tenantID string, before time.Time) (int64, error)
 
 	// Device config versioning
@@ -355,6 +359,11 @@ type Store interface {
 	GetTenant(ctx context.Context, id string) (*Tenant, error)
 	GetTenantBySlug(ctx context.Context, slug string) (*Tenant, error)
 	ListTenants(ctx context.Context) ([]Tenant, error)
+	// ListTenantSummaries is ListTenants with what a platform operator's
+	// directory needs beside each row: the owner's address and how many users,
+	// devices and bridges the tenant has. One grouped query, never one query
+	// per tenant (MESHSAT-1366).
+	ListTenantSummaries(ctx context.Context) ([]TenantSummary, error)
 	UpdateTenant(ctx context.Context, t *Tenant) error
 
 	// TenantByStripeCustomer resolves the payment events that carry a customer
@@ -377,6 +386,20 @@ type Store interface {
 	// ExportTenant returns every row the tenant owns, keyed by table, for the
 	// portability half of the same promise.
 	ExportTenant(ctx context.Context, id string) (map[string][]map[string]any, error)
+
+	// Support access (MESHSAT-1366): a tenant's owner grants the platform a
+	// window, with a PIN only they know, in which an operator may open their
+	// workspace. See SupportGrant.
+	CreateSupportGrant(ctx context.Context, tenantID string, g *SupportGrant) error
+	// GetActiveSupportGrant returns the tenant's grant that is neither revoked
+	// nor expired, or ErrNotFound.
+	GetActiveSupportGrant(ctx context.Context, tenantID string) (*SupportGrant, error)
+	// MarkSupportGrantUsed records the first opening: who, and when.
+	MarkSupportGrantUsed(ctx context.Context, tenantID, id, byEmail string, at time.Time) error
+	// BumpSupportGrantFailures counts a wrong PIN and returns the new count.
+	BumpSupportGrantFailures(ctx context.Context, tenantID, id string) (int, error)
+	// RevokeSupportGrant ends a grant early. Idempotent.
+	RevokeSupportGrant(ctx context.Context, tenantID, id string, at time.Time) error
 
 	// Tenant invites: an owner invites an email address into a tenant with a
 	// role; the invite is claimed at the invitee's first login.

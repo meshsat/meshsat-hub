@@ -32,6 +32,13 @@ type User struct {
 	TenantID      string    `json:"tenant_id,omitempty"`
 	PlatformAdmin bool      `json:"platform_admin,omitempty"` // may act across tenants (X-Tenant-ID)
 	ExpiresAt     time.Time `json:"-"`                        // API key expiry (zero = no expiry)
+	// Session is true for a person signed in through the console (a Hub
+	// session token), false for the break-glass token and API keys. It is
+	// what decides whether X-Tenant-ID needs the customer's consent
+	// (MESHSAT-1366): a person opening a customer's workspace does; the
+	// verification suites and billing probes, which run on the platform
+	// credentials and are audited per use, do not.
+	Session bool `json:"-"`
 }
 
 // HasRole returns true if the user has the specified role.
@@ -81,6 +88,19 @@ type TenantStatusLookup func(ctx context.Context, tenantID string) (status strin
 
 var tenantStatus TenantStatusLookup
 
+// SupportGrantLookup reports whether the platform may open a tenant's
+// workspace right now: the tenant's owner granted support access, an
+// operator has presented the PIN, and the window has not expired
+// (MESHSAT-1366). Wired at startup like TenantStatusLookup.
+type SupportGrantLookup func(ctx context.Context, tenantID string) (opened bool, err error)
+
+var supportGrant SupportGrantLookup
+
+// SetSupportGrantLookup wires the consent check. Without one, a signed-in
+// platform admin's X-Tenant-ID is refused for every other tenant: the safe
+// default is no access, not the old unconditional access.
+func SetSupportGrantLookup(f SupportGrantLookup) { supportGrant = f }
+
 // SetTenantStatusLookup wires the status check. Called once at startup.
 func SetTenantStatusLookup(f TenantStatusLookup) { tenantStatus = f }
 
@@ -97,8 +117,34 @@ func TenantMiddleware(enforce bool) func(http.Handler) http.Handler {
 			u := FromContext(r.Context())
 
 			// 1. Platform admins may act on any tenant via X-Tenant-ID.
+			//
+			// A PERSON signed in to the console needs the customer's consent
+			// for that (MESHSAT-1366): a support-access grant the tenant's
+			// owner issued, opened with its PIN, and not yet expired. Until
+			// then the header was an unaudited master key over every
+			// customer's workspace. The break-glass token and platform API
+			// keys are exempt: they are what the verification suites and the
+			// billing probes run on, both are audited per use, and neither
+			// is a person browsing.
 			if u != nil && u.PlatformAdmin {
 				if h := strings.TrimSpace(r.Header.Get("X-Tenant-ID")); h != "" {
+					if u.Session && h != "default" && h != u.TenantID {
+						opened := false
+						if supportGrant != nil {
+							var err error
+							if opened, err = supportGrant(r.Context(), h); err != nil {
+								// Fail CLOSED here, unlike the status lookup
+								// below: a database blip must not open a
+								// customer's workspace to an operator.
+								slog.Warn("support grant lookup failed", "tenant", h, "error", err)
+								opened = false
+							}
+						}
+						if !opened {
+							writeTenantBlocked(w, r, denySupportAccessRequired)
+							return
+						}
+					}
 					tenantID = h
 				}
 			}
@@ -250,6 +296,7 @@ func localMiddleware(jwtSecret []byte, legacyToken string) func(http.Handler) ht
 				Roles:         []string{claims.Role},
 				TenantID:      claims.TenantID,
 				PlatformAdmin: claims.PlatformAdmin,
+				Session:       true,
 			}
 			ctx := context.WithValue(r.Context(), UserContextKey, user)
 			if claims.TenantID != "" {
@@ -612,7 +659,7 @@ func sessionOrProviderMiddleware(sm *SessionManager, legacyToken string, provide
 				return
 			}
 			if claims, err := sm.VerifyAccessToken(provided); err == nil {
-				user := &User{ID: claims.UserID, Email: claims.Email, Name: claims.Name, Roles: []string{claims.Role}, TenantID: claims.TenantID, PlatformAdmin: claims.PlatformAdmin}
+				user := &User{ID: claims.UserID, Email: claims.Email, Name: claims.Name, Roles: []string{claims.Role}, TenantID: claims.TenantID, PlatformAdmin: claims.PlatformAdmin, Session: true}
 				ctx := context.WithValue(r.Context(), UserContextKey, user)
 				if claims.TenantID != "" {
 					ctx = context.WithValue(ctx, TenantContextKey, claims.TenantID)

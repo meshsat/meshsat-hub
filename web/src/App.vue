@@ -11,6 +11,7 @@ import NavRail from './components/shell/NavRail.vue'
 import AttentionPill from './components/shell/AttentionPill.vue'
 import JumpSearch from './components/shell/JumpSearch.vue'
 import OpsLive from './components/shell/OpsLive.vue'
+import ViewAsBanner from './components/platform/ViewAsBanner.vue'
 import { health } from './api/client'
 
 const auth = useAuthStore()
@@ -140,7 +141,8 @@ const roleLabel = computed(() => ({ owner: 'Owner', operator: 'Operator', viewer
           </div>
         </header>
 
-        <main id="main" tabindex="-1" class="focus:outline-none" :class="bleed ? 'h-[calc(100dvh-3rem)]' : ''">
+        <ViewAsBanner />
+        <main id="main" tabindex="-1" class="focus:outline-none" :class="bleed ? (auth.viewAs ? 'h-[calc(100dvh-3rem-2.75rem)]' : 'h-[calc(100dvh-3rem)]') : ''">
           <RouterView />
         </main>
       </div>

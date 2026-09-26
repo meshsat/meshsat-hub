@@ -162,6 +162,33 @@ done
 # which means a NetworkPolicy is dropping ingress-nginx -> basemap:8080 (MESHSAT-1229).
 ```
 
+### 8. Support access and view-as (a customer asks for help inside their workspace)
+
+The platform console (nav group **Platform**, platform admins only) has a Tenants directory and
+a tenant detail page with "Open as this tenant". That button works only after the CUSTOMER has
+granted support access, and it needs their PIN (MESHSAT-1366). There is no operator override:
+a signed-in admin's `X-Tenant-ID` for another tenant is refused by the tenant middleware until a
+grant exists and has been opened with its PIN. The break-glass token and platform API keys keep
+the header (the verify suites and billing probes run on them, and both are audited per use).
+
+1. The customer, as an owner, opens Settings, section **Support access**: types or generates a
+   PIN (10 to 128 characters), picks a window (bounded by `HUB_SUPPORT_ACCESS_MIN_MINUTES`,
+   default 15, and `HUB_SUPPORT_ACCESS_MAX_MINUTES`, default 4320 = 72 h) and clicks Grant.
+   The PIN is stored Argon2id-hashed and never shown again. They tell support the PIN out of band.
+   Their audit log gets `support_access_granted`.
+2. The operator opens Platform > Tenants > the tenant > "Open as this tenant", enters the PIN.
+   Five wrong PINs revoke the grant (`support_access_locked`, both chains); the customer has to
+   grant again. On success the console shows a caution banner with the expiry, every API call
+   carries `X-Tenant-ID`, and BOTH audit chains get `tenant_view_started`; Exit writes
+   `tenant_view_ended`. The window ends at the grant's expiry or when the customer clicks Revoke.
+3. To check state by hand: `GET /api/admin/tenants/{id}` carries `support_access`
+   (`active`, `expires_at`, `used_at`, `used_by_email`); the table is `support_grants`
+   (`pin_hash` is withheld from exports).
+
+Other operator actions on the same page (plan, expiry, send caps, suspend, reactivate, close) need
+no grant, because they are the platform's own decisions; each is written to the tenant's chain as
+`tenant_admin_updated` or `tenant_deleted` and mirrored to the platform chain with `tenant=<id>`.
+
 ---
 
 ## Health Checks

@@ -435,11 +435,17 @@ type Config struct {
 	// it fires (MESHSAT-1119). A fence may set its own; this is the default.
 	// Min/Max bound what an owner may choose: too short and a device on a
 	// boundary pages all night, too long and a real second crossing is silent.
-	GeofenceCooldownSec     int    `yaml:"geofence_cooldown_sec"`      // default 300
-	GeofenceCooldownMin     int    `yaml:"geofence_cooldown_min"`      // lowest a fence may set (default 30)
-	GeofenceCooldownMax     int    `yaml:"geofence_cooldown_max"`      // highest (default 86400)
-	BridgeOfflineTimeoutMin int    `yaml:"bridge_offline_timeout_min"` // lowest a tenant may set (default 60)
-	BridgeOfflineTimeoutMax int    `yaml:"bridge_offline_timeout_max"` // highest a tenant may set (default 86400)
+	GeofenceCooldownSec     int `yaml:"geofence_cooldown_sec"`      // default 300
+	GeofenceCooldownMin     int `yaml:"geofence_cooldown_min"`      // lowest a fence may set (default 30)
+	GeofenceCooldownMax     int `yaml:"geofence_cooldown_max"`      // highest (default 86400)
+	BridgeOfflineTimeoutMin int `yaml:"bridge_offline_timeout_min"` // lowest a tenant may set (default 60)
+	BridgeOfflineTimeoutMax int `yaml:"bridge_offline_timeout_max"` // highest a tenant may set (default 86400)
+	// SupportAccessMinMinutes and Max bound the window a TENANT OWNER may
+	// grant the platform to open their workspace (MESHSAT-1366). Both ends
+	// are harmful: a minute is not enough to help anybody, a month is a
+	// standing back door the customer forgot about.
+	SupportAccessMinMinutes int    `yaml:"support_access_min_minutes"` // default 15
+	SupportAccessMaxMinutes int    `yaml:"support_access_max_minutes"` // default 4320 (72 h)
 	BridgeCACertExportPath  string `yaml:"bridge_ca_cert_export_path"` // path to export bridge CA cert for NATS mTLS (empty=disabled)
 	// BridgeCASecretName is a pre-created Kubernetes Secret (in POD_NAMESPACE)
 	// the Hub keeps equal to its bridge CA certificate for NATS/stunnel mTLS;
@@ -528,6 +534,8 @@ func Defaults() Config {
 		GeofenceCooldownMax:     86400,
 		BridgeOfflineTimeoutMin: 60,
 		BridgeOfflineTimeoutMax: 86400,
+		SupportAccessMinMinutes: 15,
+		SupportAccessMaxMinutes: 4320,
 		DBSlowQueryMS:           100,
 		OIDCScopes:              "openid profile email",
 		OIDCGroupsClaim:         "groups",
@@ -1198,6 +1206,16 @@ func Load() (Config, error) {
 			if n, err := strconv.Atoi(v); err == nil && n >= 0 {
 				*kv.dst = n
 			}
+		}
+	}
+	if v := os.Getenv("HUB_SUPPORT_ACCESS_MIN_MINUTES"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			cfg.SupportAccessMinMinutes = n
+		}
+	}
+	if v := os.Getenv("HUB_SUPPORT_ACCESS_MAX_MINUTES"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			cfg.SupportAccessMaxMinutes = n
 		}
 	}
 	if v := os.Getenv("HUB_BRIDGE_OFFLINE_TIMEOUT_MIN"); v != "" {
