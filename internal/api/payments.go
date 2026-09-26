@@ -168,8 +168,20 @@ func (h *PaymentsHandler) RequeueReceipt(w http.ResponseWriter, r *http.Request)
 // operatorEmail names who did it in the audit trail. An admin action with no
 // name in it is only half a record.
 func operatorEmail(r *http.Request) string {
-	if u := hubauth.FromContext(r.Context()); u != nil && u.Email != "" {
+	u := hubauth.FromContext(r.Context())
+	if u == nil {
+		return "unknown"
+	}
+	// A person has an email. A platform credential has none, and "unknown"
+	// is what a customer then read in "Opened by unknown" on their own
+	// Settings page (MESHSAT-1366): name the credential instead.
+	switch {
+	case u.Email != "":
 		return u.Email
+	case u.Name != "":
+		return u.Name
+	case u.ID != "":
+		return u.ID
 	}
 	return "unknown"
 }
