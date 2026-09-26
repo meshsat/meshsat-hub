@@ -31,6 +31,7 @@ KNOWN = {
     "df999545cc4db83c807454115f9331129ac8de2d807d9ff3f585d0edb102a19d": "a field-kit SIM number",
     "58f41b62ff901c7f783254e7dc35b693c818bb2a940154b209c6dd0faadfc4cc": "a field-kit SIM number",
     "6fbb66bf6af2525d6bdca3622686a6d4b6ae36f67d5c6b2562b84af83c4e47a5": "the platform's SMS number",
+    "af5b25153f2e9322320e7fbaf199ea00208a3c3b9a85d4407c54502528a5672c": "the platform's WhatsApp sender number (MESHSAT-1367)",
     "0c0c316deb6cd85a93325bd1658e861dde982e55c1e4d59f15a6b5048410d013": "the owner's mobile number",
     "270bf6fef2f00c56166763f4d8eb37765e7ed516747a23e18c5bfd05b42b195e": "a real mesh node id",
     "05e7eb0f2400e063257cd78628dd8d7f0bda0f86d2f1842df2fcc1e002ab85da": "a real mesh node id",
