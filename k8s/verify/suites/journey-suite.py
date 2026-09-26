@@ -262,9 +262,17 @@ if row:
     # The operator may not open the workspace without the customer's PIN.
     s, b = hub(f"/api/admin/tenants/{tid}/view-as", "POST", {"pin": "nobody-granted-anything"}, token=HUB_TOKEN)
     check("view-as is refused before the customer grants access", s == 403 and "support_access_required" in b, f"{s} {b[:120]}")
-    # The customer grants, on their own session (the OIDC cookie jar from step 4).
+    # The customer grants, on their own session. The OIDC round trip left the
+    # meshsat_refresh cookie in the jar; the console turns it into an access
+    # token with POST /api/auth/refresh, and so does this.
+    s, b = hub("/api/auth/refresh", "POST", {}, opener=op, tenant=None)
+    try:
+        probe_token = json.loads(b).get("access_token", "") if s == 200 else ""
+    except Exception:
+        probe_token = ""
+    check("the probe's session yields an access token", bool(probe_token), f"{s} {b[:100]}")
     PIN = uuid.uuid4().hex[:12]
-    s, b = hub("/api/tenant/support-access", "POST", {"pin": PIN, "duration_minutes": 30}, opener=op)
+    s, b = hub("/api/tenant/support-access", "POST", {"pin": PIN, "duration_minutes": 30}, token=probe_token, tenant=None)
     check("the owner grants support access for 30 minutes", s == 201 and '"active":true' in b, f"{s} {b[:160]}")
     s, b = hub(f"/api/admin/tenants/{tid}/view-as", "POST", {"pin": "wrong-" + PIN}, token=HUB_TOKEN)
     check("a wrong PIN is refused and counted", s == 401 and '"wrong_pin"' in b and '"attempts_left":4' in b, f"{s} {b[:120]}")
@@ -277,7 +285,7 @@ if row:
     check("the open is mirrored on the platform chain", started_platform == "1", started_platform)
     s, b = hub(f"/api/admin/tenants/{tid}/view-as", "DELETE", token=HUB_TOKEN)
     check("leaving the workspace is recorded", s == 200 and sql(f"SELECT count(*) FROM audit_log WHERE tenant_id='{tid}' AND action='tenant_view_ended';") == "1", f"{s}")
-    s, b = hub("/api/tenant/support-access", "DELETE", opener=op)
+    s, b = hub("/api/tenant/support-access", "DELETE", token=probe_token, tenant=None)
     check("the owner revokes the grant", s == 200 and '"active":false' in b, f"{s} {b[:120]}")
     s, b = hub(f"/api/admin/tenants/{tid}/view-as", "POST", {"pin": PIN}, token=HUB_TOKEN)
     check("after the revoke the right PIN no longer opens anything", s == 403, f"{s} {b[:120]}")
