@@ -519,21 +519,33 @@ The MeshSat team`, greeting(name), amount, doc)
 //
 // It is sent BEFORE the operator can change their mind, so it says nothing that
 // would be false if they later approve a fresh request.
-func Rejected(name string) Message {
+func Rejected(name, reason string) Message {
+	// The reason is the operator's words, when they gave any. It is one line
+	// by the time it gets here (the handler collapses whitespace) and it is
+	// escaped for the HTML half.
+	why := ""
+	if reason != "" {
+		why = "\nThe reason given: " + reason + "\n"
+	}
 	text := fmt.Sprintf(`%s
 
 We are not able to give you a MeshSat Hub account at this time.
-
+%s
 Your request has been closed and the details you gave us have been removed. There
 is no account, and nothing further will happen.
 
 If you think this is a mistake, reply to this message or write to
 hello@meshsat.net and a person will read it. You are welcome to apply again.
 
-The MeshSat team`, greeting(name))
+The MeshSat team`, greeting(name), why)
 
+	whyHTML := ""
+	if reason != "" {
+		whyHTML = para("The reason given: " + esc(reason))
+	}
 	html := para(esc(greeting(name))) +
 		para("We are not able to give you a MeshSat Hub account at this time.") +
+		whyHTML +
 		para("Your request has been closed and the details you gave us have been removed. "+
 			"There is no account, and nothing further will happen.") +
 		note("If you think this is a mistake, reply to this message or write to "+

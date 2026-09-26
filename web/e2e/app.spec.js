@@ -203,6 +203,17 @@ test.describe('Authenticated navigation', () => {
     await expect(page.getByRole('heading', { name: 'Escalation chains' })).toBeVisible()
   })
 
+  test('a non-admin landing on #/platform/tenants is sent to the dashboard', async ({ page }) => {
+    // The seeded user carries no platform_admin flag, so the router guard
+    // sends them to the dashboard before any /admin call is made.
+    const adminCalls = []
+    page.on('request', (r) => { if (r.url().includes('/api/admin/')) adminCalls.push(r.url()) })
+    await page.goto('/#/platform/tenants')
+    await expect(page.locator('h1:has-text("Overview")')).toBeVisible({ timeout: 10000 })
+    expect(new URL(page.url()).hash).toBe('#/')
+    expect(adminCalls).toEqual([])
+  })
+
   test('escalation chain form toggles', async ({ page }) => {
     await page.goto('/#/escalation')
     await page.getByRole('button', { name: 'New chain' }).click()

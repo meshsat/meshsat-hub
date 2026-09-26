@@ -323,6 +323,36 @@
                 }
             }
         },
+        "/api/admin/signups/history": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "admin"
+                ],
+                "summary": "Decisions taken on account requests",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "max rows (default 100)",
+                        "name": "limit",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/internal_api.signupDecision"
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/admin/signups/{id}/approve": {
             "post": {
                 "consumes": [
@@ -436,6 +466,41 @@
             }
         },
         "/api/admin/tenants/{id}": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "admin"
+                ],
+                "summary": "Get a tenant (platform administrators only)",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Tenant ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.adminTenantResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            },
             "put": {
                 "consumes": [
                     "application/json"
@@ -529,6 +594,43 @@
                 }
             }
         },
+        "/api/admin/tenants/{id}/audit": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "admin"
+                ],
+                "summary": "A tenant's recent audit entries (platform administrators only)",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Tenant ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "integer",
+                        "description": "max entries (default 50)",
+                        "name": "limit",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/github_com_meshsat_meshsat-hub_internal_store.AuditEntry"
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/admin/tenants/{id}/usage": {
             "get": {
                 "produces": [
@@ -570,6 +672,142 @@
                             "additionalProperties": {
                                 "type": "string"
                             }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/admin/tenants/{id}/users": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "admin"
+                ],
+                "summary": "List a tenant's users (platform administrators only)",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Tenant ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/internal_api.userResponse"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/admin/tenants/{id}/view-as": {
+            "post": {
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "admin"
+                ],
+                "summary": "Open a tenant as support (needs the customer's PIN)",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Tenant ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "the PIN the customer granted",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.viewAsRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.viewAsResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "the platform tenant",
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.viewAsRefusal"
+                        }
+                    },
+                    "401": {
+                        "description": "wrong PIN, with attempts_left",
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.viewAsRefusal"
+                        }
+                    },
+                    "403": {
+                        "description": "no grant, or the grant is locked",
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.viewAsRefusal"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.viewAsRefusal"
+                        }
+                    },
+                    "409": {
+                        "description": "the tenant is suspended or closed",
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.viewAsRefusal"
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "admin"
+                ],
+                "summary": "Leave a tenant opened as support",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Tenant ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.viewAsRefusal"
                         }
                     }
                 }
@@ -7534,6 +7772,82 @@
                 }
             }
         },
+        "/api/tenant/support-access": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "tenant"
+                ],
+                "summary": "Support access status",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.supportAccessResponse"
+                        }
+                    }
+                }
+            },
+            "post": {
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "tenant"
+                ],
+                "summary": "Grant support access",
+                "parameters": [
+                    {
+                        "description": "PIN (10 to 128 characters) and window in minutes",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.supportAccessRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.supportAccessResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "tenant"
+                ],
+                "summary": "Revoke support access",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.supportAccessResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/api/tenant/tak": {
             "get": {
                 "produces": [
@@ -11131,6 +11445,169 @@
                 }
             }
         },
+        "internal_api.adminTenantResponse": {
+            "type": "object",
+            "properties": {
+                "audit_retention_days": {
+                    "description": "AuditRetentionDays is the tenant's own choice in days, 0 meaning the\nplatform default, which AuditRetentionDefault carries.",
+                    "type": "integer"
+                },
+                "audit_retention_default": {
+                    "type": "integer"
+                },
+                "audit_retention_max": {
+                    "type": "integer"
+                },
+                "audit_retention_min": {
+                    "type": "integer"
+                },
+                "billing_country": {
+                    "type": "string"
+                },
+                "billing_country_evidence": {
+                    "type": "string"
+                },
+                "bridge_offline_timeout": {
+                    "description": "BridgeOfflineTimeout is the tenant's own choice in seconds, or 0 meaning\n\"use the platform default\" -- which BridgeOfflineTimeoutDefault carries,\nso the UI can show the number that is actually in force instead of\nhardcoding one that can drift from the ConfigMap.",
+                    "type": "integer"
+                },
+                "bridge_offline_timeout_default": {
+                    "type": "integer"
+                },
+                "bridge_offline_timeout_max": {
+                    "type": "integer"
+                },
+                "bridge_offline_timeout_min": {
+                    "type": "integer"
+                },
+                "bridges": {
+                    "type": "integer"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "deleted_at": {
+                    "type": "string"
+                },
+                "devices": {
+                    "type": "integer"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "lapse_warned_at": {
+                    "type": "string"
+                },
+                "limit": {
+                    "type": "integer"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "oob_max_per_hour": {
+                    "description": "Out-of-band command policy: this tenant's own choices, 0 meaning the\nplatform default, with that default and the bounds alongside so the form\nshows the number actually in force (MESHSAT-1121).",
+                    "type": "integer"
+                },
+                "oob_max_per_hour_default": {
+                    "type": "integer"
+                },
+                "oob_max_per_hour_max": {
+                    "type": "integer"
+                },
+                "oob_max_per_hour_min": {
+                    "type": "integer"
+                },
+                "oob_sat_timeout_default": {
+                    "type": "integer"
+                },
+                "oob_sat_timeout_sec": {
+                    "type": "integer"
+                },
+                "oob_sms_timeout_default": {
+                    "type": "integer"
+                },
+                "oob_sms_timeout_sec": {
+                    "type": "integer"
+                },
+                "oob_timeout_max": {
+                    "type": "integer"
+                },
+                "oob_timeout_min": {
+                    "type": "integer"
+                },
+                "over_limit": {
+                    "type": "boolean"
+                },
+                "owner_email": {
+                    "type": "string"
+                },
+                "owner_user_id": {
+                    "type": "string"
+                },
+                "plan": {
+                    "type": "string"
+                },
+                "plan_expires_at": {
+                    "type": "string"
+                },
+                "purge_at": {
+                    "type": "string"
+                },
+                "purge_grace_days": {
+                    "description": "PurgeGraceDays is how long a closed account can still be recovered. The\nclose dialog quotes it to the customer, and a number the UI hardcoded\nwould be one refactor away from disagreeing with what actually happens.",
+                    "type": "integer"
+                },
+                "ratelimit_daily_cap": {
+                    "description": "The per-device send budget: how many messages the Hub will send to ONE\nof this tenant's devices per UTC day and per month (SOS is never\ncounted). 0 is \"the platform default\". The airtime is the tenant's own\ncarrier account, so the owner sets this, above or below the default; a\nmonthly default of 0 means no monthly limit.",
+                    "type": "integer"
+                },
+                "ratelimit_daily_default": {
+                    "type": "integer"
+                },
+                "ratelimit_daily_max": {
+                    "type": "integer"
+                },
+                "ratelimit_monthly_cap": {
+                    "type": "integer"
+                },
+                "ratelimit_monthly_default": {
+                    "type": "integer"
+                },
+                "ratelimit_monthly_max": {
+                    "type": "integer"
+                },
+                "slug": {
+                    "type": "string"
+                },
+                "status": {
+                    "type": "string"
+                },
+                "stripe_customer_id": {
+                    "type": "string"
+                },
+                "stripe_subscription_id": {
+                    "type": "string"
+                },
+                "support_access": {
+                    "description": "SupportAccess is the customer's consent for the platform to open this\nworkspace: present on the detail view, nil in the directory.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/internal_api.supportAccessResponse"
+                        }
+                    ]
+                },
+                "updated_at": {
+                    "type": "string"
+                },
+                "used": {
+                    "description": "Used and Limit mirror internal/quota: devices plus bridges against the\nplan's ceiling, -1 when the plan has none.",
+                    "type": "integer"
+                },
+                "users": {
+                    "type": "integer"
+                }
+            }
+        },
         "internal_api.adminUpdateTenantRequest": {
             "type": "object",
             "properties": {
@@ -12092,11 +12569,86 @@
                 }
             }
         },
+        "internal_api.signupDecision": {
+            "type": "object",
+            "properties": {
+                "action": {
+                    "type": "string"
+                },
+                "actor": {
+                    "type": "string"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "email": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "ip": {
+                    "type": "string"
+                },
+                "reason": {
+                    "type": "string"
+                },
+                "role": {
+                    "type": "string"
+                },
+                "signup_ip": {
+                    "type": "string"
+                }
+            }
+        },
         "internal_api.snoozeRequest": {
             "type": "object",
             "properties": {
                 "duration_min": {
                     "type": "integer"
+                }
+            }
+        },
+        "internal_api.supportAccessRequest": {
+            "type": "object",
+            "properties": {
+                "duration_minutes": {
+                    "type": "integer"
+                },
+                "pin": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_api.supportAccessResponse": {
+            "type": "object",
+            "properties": {
+                "active": {
+                    "description": "Active is whether a grant is in force now: not revoked, not expired.",
+                    "type": "boolean"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "created_by_email": {
+                    "type": "string"
+                },
+                "expires_at": {
+                    "type": "string"
+                },
+                "max_minutes": {
+                    "type": "integer"
+                },
+                "min_minutes": {
+                    "description": "The bounds the form offers, so the UI never hardcodes a number that\ndrifts from the ConfigMap.",
+                    "type": "integer"
+                },
+                "used_at": {
+                    "description": "UsedAt is when an operator first presented the PIN; empty until then.",
+                    "type": "string"
+                },
+                "used_by_email": {
+                    "type": "string"
                 }
             }
         },
@@ -12529,6 +13081,45 @@
                 },
                 "year": {
                     "type": "integer"
+                }
+            }
+        },
+        "internal_api.viewAsRefusal": {
+            "type": "object",
+            "properties": {
+                "attempts_left": {
+                    "type": "integer"
+                },
+                "code": {
+                    "type": "string"
+                },
+                "error": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_api.viewAsRequest": {
+            "type": "object",
+            "properties": {
+                "pin": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_api.viewAsResponse": {
+            "type": "object",
+            "properties": {
+                "expires_at": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "slug": {
+                    "type": "string"
+                },
+                "tenant_id": {
+                    "type": "string"
                 }
             }
         },

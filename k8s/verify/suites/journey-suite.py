@@ -172,6 +172,16 @@ check("the listing carries what was collected", '"hardware"' in b and '"terms_ac
       "hardware+terms present" if ('"hardware"' in b and '"terms_accepted_at"' in b) else b[:200])
 s, b = hub(f"/api/admin/signups/{pk}/approve", "POST", {"role":"owner"}, token=HUB_TOKEN)
 check("approve succeeds", s in (200,204), f"{s} {b[:160]}")
+# The decision is history the platform can read back (MESHSAT-1366): the
+# Requests page shows it, so the chain must carry it with an actor.
+s, b = hub("/api/admin/signups/history?limit=20", token=HUB_TOKEN)
+try:
+    hist = json.loads(b) if s == 200 else []
+except Exception:
+    hist = []
+mine = [h for h in hist if h.get("email") == email and h.get("action") == "signup_approved"]
+check("the approval is in the decision history with an actor", s == 200 and mine and mine[0].get("actor"),
+      f"{s} rows={len(hist)} mine={mine[:1]}")
 time.sleep(2)
 s, page = ak(f"/core/users/?search={probe}")
 u = (page.get("results") or [{}])[0]
@@ -235,10 +245,47 @@ if row:
     check("its usage reports the free ceiling", '"limit":4' in (hub(f"/api/admin/tenants/{tid}/usage", token=HUB_TOKEN)[1] or ""),
           hub(f"/api/admin/tenants/{tid}/usage", token=HUB_TOKEN)[1][:120])
 
+    print("\n=== 5. the platform directory and support access (MESHSAT-1366) ===")
+    s, b = hub(f"/api/admin/tenants?q={urllib.parse.quote(email)}", token=HUB_TOKEN)
+    try:
+        rows = json.loads(b) if s == 200 else []
+    except Exception:
+        rows = []
+    row = rows[0] if len(rows) == 1 else {}
+    check("the directory finds the new tenant by its owner's address", s == 200 and len(rows) == 1 and row.get("id") == tid, f"{s} rows={len(rows)}")
+    check("the directory row carries owner, counts and the free ceiling",
+          row.get("owner_email") == email and row.get("users") == 1 and row.get("devices") == 0 and row.get("limit") == 4,
+          json.dumps({k: row.get(k) for k in ("owner_email","users","devices","bridges","limit","used")}))
+    s, b = hub(f"/api/admin/tenants/{tid}", token=HUB_TOKEN)
+    detail = json.loads(b) if s == 200 else {}
+    check("the detail says no support access is granted yet", s == 200 and not (detail.get("support_access") or {}).get("active"), f"{s} {str(detail.get('support_access'))[:120]}")
+    # The operator may not open the workspace without the customer's PIN.
+    s, b = hub(f"/api/admin/tenants/{tid}/view-as", "POST", {"pin": "nobody-granted-anything"}, token=HUB_TOKEN)
+    check("view-as is refused before the customer grants access", s == 403 and "support_access_required" in b, f"{s} {b[:120]}")
+    # The customer grants, on their own session (the OIDC cookie jar from step 4).
+    PIN = uuid.uuid4().hex[:12]
+    s, b = hub("/api/tenant/support-access", "POST", {"pin": PIN, "duration_minutes": 30}, opener=op)
+    check("the owner grants support access for 30 minutes", s == 201 and '"active":true' in b, f"{s} {b[:160]}")
+    s, b = hub(f"/api/admin/tenants/{tid}/view-as", "POST", {"pin": "wrong-" + PIN}, token=HUB_TOKEN)
+    check("a wrong PIN is refused and counted", s == 401 and '"wrong_pin"' in b and '"attempts_left":4' in b, f"{s} {b[:120]}")
+    s, b = hub(f"/api/admin/tenants/{tid}/view-as", "POST", {"pin": PIN}, token=HUB_TOKEN)
+    check("the right PIN opens the workspace", s == 200 and f'"tenant_id":"{tid}"' in b, f"{s} {b[:120]}")
+    time.sleep(1)
+    started_tenant = sql(f"SELECT count(*) FROM audit_log WHERE tenant_id='{tid}' AND action='tenant_view_started';")
+    started_platform = sql(f"SELECT count(*) FROM audit_log WHERE tenant_id='default' AND action='tenant_view_started' AND detail LIKE 'tenant={tid} %';")
+    check("the open is on the customer's chain", started_tenant == "1", started_tenant)
+    check("the open is mirrored on the platform chain", started_platform == "1", started_platform)
+    s, b = hub(f"/api/admin/tenants/{tid}/view-as", "DELETE", token=HUB_TOKEN)
+    check("leaving the workspace is recorded", s == 200 and sql(f"SELECT count(*) FROM audit_log WHERE tenant_id='{tid}' AND action='tenant_view_ended';") == "1", f"{s}")
+    s, b = hub("/api/tenant/support-access", "DELETE", opener=op)
+    check("the owner revokes the grant", s == 200 and '"active":false' in b, f"{s} {b[:120]}")
+    s, b = hub(f"/api/admin/tenants/{tid}/view-as", "POST", {"pin": PIN}, token=HUB_TOKEN)
+    check("after the revoke the right PIN no longer opens anything", s == 403, f"{s} {b[:120]}")
+
 print("\n=== teardown ===")
 tid = (row.split("|")[0] if row else "")
 if tid:
-    for tbl in ("devices","api_keys","credentials","messages","audit_log","users","oidc_identities"):
+    for tbl in ("devices","api_keys","credentials","messages","audit_log","users","oidc_identities","support_grants"):
         col = "tenant_id"
         sql(f"DELETE FROM {tbl} WHERE {col}='{tid}';")
     sql(f"DELETE FROM tenants WHERE id='{tid}';")

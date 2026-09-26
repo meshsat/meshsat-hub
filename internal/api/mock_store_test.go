@@ -821,3 +821,24 @@ func (m *mockStore) RecordMeshNode(context.Context, string, string, string, time
 func (m *mockStore) MeshNodesSeenSince(context.Context, string, string, time.Time) ([]store.MeshNode, error) {
 	return nil, nil
 }
+
+// Support access and the platform directory (MESHSAT-1366).
+func (m *mockStore) ListTenantSummaries(context.Context) ([]store.TenantSummary, error) {
+	return nil, nil
+}
+func (m *mockStore) ListAuditEntriesByAction(context.Context, string, []string, int) ([]store.AuditEntry, error) {
+	return nil, nil
+}
+func (m *mockStore) CreateSupportGrant(context.Context, string, *store.SupportGrant) error {
+	return nil
+}
+func (m *mockStore) GetActiveSupportGrant(context.Context, string) (*store.SupportGrant, error) {
+	return nil, store.ErrNotFound
+}
+func (m *mockStore) MarkSupportGrantUsed(context.Context, string, string, string, time.Time) error {
+	return nil
+}
+func (m *mockStore) BumpSupportGrantFailures(context.Context, string, string) (int, error) {
+	return 0, nil
+}
+func (m *mockStore) RevokeSupportGrant(context.Context, string, string, time.Time) error { return nil }

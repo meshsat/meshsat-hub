@@ -1632,6 +1632,12 @@ func main() {
 		slog.Warn("tenant status invalidation not subscribed; a change applies elsewhere within the cache TTL", "error", err)
 	}
 	hubauth.SetTenantStatusLookup(tenantStatus.Status)
+	// A signed-in operator's X-Tenant-ID needs the customer's consent
+	// (MESHSAT-1366): a support-access grant, opened with its PIN, not yet
+	// expired. Short TTL, because the other replica only sees an open, a
+	// revoke or a lockout when its entry expires.
+	supportGrants := api.NewSupportGrantCache(dataStore, 10*time.Second)
+	hubauth.SetSupportGrantLookup(supportGrants.Opened)
 
 	// Dropping a purged tenant out of every in-memory cache, on every replica
 	// (MESHSAT-1109). Five caches each documented a Forget as "what the purge
@@ -2328,6 +2334,7 @@ func main() {
 	// Tenant self-service (members read, owners manage invites) and the
 	// platform-admin tenant directory (MESHSAT-916, MR 16).
 	tenantHandler := api.NewTenantHandler(dataStore)
+	tenantHandler.SetAudit(auditSvc)
 	tenantHandler.SetBridgeOfflineTimeoutPolicy(cfg.BridgeOfflineTimeout,
 		cfg.BridgeOfflineTimeoutMin, cfg.BridgeOfflineTimeoutMax)
 	tenantHandler.SetSendCapPolicy(cfg.RateLimitDailyCap, cfg.RateLimitDailyCapMax,
@@ -2384,8 +2391,14 @@ func main() {
 	// every role sees those; it reveals no credential, only whether one exists.
 	r.With(hubauth.RequireRole(hubauth.RoleViewer)).
 		Get("/api/capabilities", api.NewCapabilitiesHandler(providerAccounts).List)
+	// Support access (MESHSAT-1366): the owner's consent for the platform to
+	// open this workspace, with a PIN and a window of their choosing.
+	supportAccess := api.NewSupportAccessHandler(dataStore, auditSvc, cfg.SupportAccessMinMinutes, cfg.SupportAccessMaxMinutes, supportGrants.Forget)
 	r.Route("/api/tenant", func(r chi.Router) {
 		r.With(hubauth.RequireRole(hubauth.RoleViewer)).Get("/", tenantHandler.Get)
+		r.With(hubauth.RequireRole(hubauth.RoleOwner)).Get("/support-access", supportAccess.Get)
+		r.With(hubauth.RequireRole(hubauth.RoleOwner)).Post("/support-access", supportAccess.Create)
+		r.With(hubauth.RequireRole(hubauth.RoleOwner)).Delete("/support-access", supportAccess.Revoke)
 		r.With(hubauth.RequireRole(hubauth.RoleViewer)).Get("/usage", usageHandler.Usage)
 		// Paying is an owner's decision, not an operator's.
 		r.With(hubauth.RequireRole(hubauth.RoleOwner)).Post("/billing/checkout", billingHandler.Checkout)
@@ -2452,6 +2465,7 @@ func main() {
 	r.Route("/api/admin/signups", func(r chi.Router) {
 		r.Use(hubauth.RequirePlatformAdmin())
 		r.Get("/", signupHandler.List)
+		r.Get("/history", signupHandler.History)
 		r.Post("/{id}/approve", signupHandler.Approve)
 		r.Post("/{id}/reject", signupHandler.Reject)
 	})
@@ -2484,12 +2498,19 @@ func main() {
 	})
 	// The measurement the flat Dutch rate depends on (MESHSAT-1016).
 	r.With(hubauth.RequirePlatformAdmin()).Get("/api/admin/vat/threshold", paymentsHandler.VATThreshold)
+	viewAs := api.NewViewAsHandler(dataStore, auditSvc, supportGrants.Forget)
 	r.Route("/api/admin/tenants", func(r chi.Router) {
 		r.Use(hubauth.RequirePlatformAdmin())
 		r.Get("/", tenantHandler.AdminList)
+		r.Get("/{id}", tenantHandler.AdminGet)
 		r.Put("/{id}", tenantHandler.AdminUpdate)
 		r.Delete("/{id}", offboarding.AdminDelete)
 		r.Get("/{id}/usage", usageHandler.AdminUsage)
+		r.Get("/{id}/users", tenantHandler.AdminListUsers)
+		r.Get("/{id}/audit", tenantHandler.AdminListAudit)
+		// The PIN check is a login surface: same per-IP budget as the others.
+		r.Post("/{id}/view-as", hubmw.WebhookRateLimit(http.HandlerFunc(viewAs.Start), cfg.AuthRateLimitPerMin).ServeHTTP)
+		r.Delete("/{id}/view-as", viewAs.End)
 	})
 
 	// API key management (owner-only)

@@ -26,6 +26,7 @@ var RedactedInExport = map[string]bool{
 	"device_keys.key_hash":        true,
 	"device_keys.key_hex":         true, // the tenant's own message encryption key
 	"refresh_tokens.token_hash":   true,
+	"support_grants.pin_hash":     true, // the customer's support-access PIN (MESHSAT-1366)
 	"tak_users.enroll_token_hash": true,
 	"tenant_invites.token_hash":   true,
 	"users.password_hash":         true,

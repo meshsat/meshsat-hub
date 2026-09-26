@@ -3,8 +3,9 @@
 // list, so a page is named the same way everywhere.
 //
 // `owner` items are for a tenant's owners (the API refuses the others too);
-// `platformAdmin` items belong to the platform and no customer sees them.
-// Nothing carries platformAdmin today; the flag stays for the next such page.
+// `platformAdmin` items belong to the platform and no customer sees them:
+// the Platform group below (account requests, tenants, billing, the Hub's
+// own settings), routed under /platform/*.
 export const navGroups = [
   { label: 'Now', items: [
     { to: '/', name: 'dashboard', label: 'Overview', icon: 'overview', keywords: 'dashboard home status attention' },
@@ -46,6 +47,12 @@ export const navGroups = [
     { to: '/backup', name: 'backup', label: 'Backup', icon: 'backup', keywords: 'export import restore' },
     { to: '/settings', name: 'settings', label: 'Settings', icon: 'settings', keywords: 'account plan billing tenant limits' },
   ]},
+  { label: 'Platform', items: [
+    { to: '/platform/requests', name: 'platformRequests', label: 'Requests', icon: 'requests', keywords: 'signups account requests approve reject beta', badge: 'signups', platformAdmin: true },
+    { to: '/platform/tenants', name: 'platformTenants', label: 'Tenants', icon: 'tenants', keywords: 'customers accounts support access view as suspend', platformAdmin: true },
+    { to: '/platform/billing', name: 'platformBilling', label: 'Billing', icon: 'billing', keywords: 'receipts refunds vat threshold unattributed payments stripe', platformAdmin: true },
+    { to: '/platform/system', name: 'platformSystem', label: 'Platform', icon: 'platform', keywords: 'mqtt url plan tiers hub health system', platformAdmin: true },
+  ]},
 ]
 
 export function visibleGroups(auth) {
@@ -62,6 +69,7 @@ export const extraTitles = {
   deviceKeys: 'Device keys',
   help: 'Help',
   login: 'Sign in',
+  platformTenant: 'Tenant',
 }
 
 export function titleFor(routeName) {

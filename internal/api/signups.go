@@ -5,6 +5,9 @@ import (
 	"log/slog"
 	"net/http"
 	"strconv"
+	"strings"
+	"time"
+	"unicode/utf8"
 
 	"github.com/go-chi/chi/v5"
 
@@ -161,6 +164,21 @@ func (h *SignupHandler) Reject(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "bad signup id")
 		return
 	}
+	// An optional reason, sent to the person and kept in the audit row. The
+	// body is optional because the old client sent none.
+	reason := ""
+	if r.ContentLength != 0 {
+		var req rejectRequest
+		if err := readJSON(w, r, &req, 4096); err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		reason = strings.Join(strings.Fields(req.Reason), " ")
+		if utf8.RuneCountInString(reason) > rejectReasonMaxLen {
+			writeError(w, http.StatusBadRequest, "reason must be at most 500 characters")
+			return
+		}
+	}
 	email, name, err := h.ak.Reject(r.Context(), pk)
 	if err != nil {
 		// Never echo err.Error() here: it carries the target account's address
@@ -184,10 +202,94 @@ func (h *SignupHandler) Reject(w http.ResponseWriter, r *http.Request) {
 	// an error. The decision has already been made and the account is already
 	// gone; failing the request would tell the operator it had not worked.
 	if h.mail != nil && email != "" {
-		mail.SendOrLog(r.Context(), h.mail, email, mail.Rejected(name), "signup rejected")
+		mail.SendOrLog(r.Context(), h.mail, email, mail.Rejected(name, reason), "signup rejected")
 	}
-	h.log(r, "signup_rejected", email, "")
+	// reason last, because it may contain spaces and "=": a reader takes it
+	// as the rest of the line (parseSignupDetail does).
+	detail := ""
+	if reason != "" {
+		detail = "reason=" + reason
+	}
+	h.log(r, "signup_rejected", email, detail)
 	writeJSON(w, http.StatusOK, map[string]string{"email": email, "status": "rejected"})
+}
+
+type rejectRequest struct {
+	Reason string `json:"reason"`
+}
+
+const rejectReasonMaxLen = 500
+
+// signupDecision is one row of the decision history: what an operator did
+// with a request, read back from the platform's audit chain.
+type signupDecision struct {
+	ID        string `json:"id"`
+	Action    string `json:"action"`
+	Email     string `json:"email"`
+	Role      string `json:"role,omitempty"`
+	SignupIP  string `json:"signup_ip,omitempty"`
+	Reason    string `json:"reason,omitempty"`
+	Actor     string `json:"actor"`
+	IP        string `json:"ip,omitempty"`
+	CreatedAt string `json:"created_at"`
+}
+
+// parseSignupDetail reads the "key=value ..." detail this handler writes.
+// "reason=" takes the rest of the line.
+func parseSignupDetail(detail string) (email, role, ip, reason string) {
+	rest := detail
+	for rest != "" {
+		if strings.HasPrefix(rest, "reason=") {
+			reason = strings.TrimPrefix(rest, "reason=")
+			break
+		}
+		tok := rest
+		if i := strings.IndexByte(rest, ' '); i >= 0 {
+			tok, rest = rest[:i], strings.TrimLeft(rest[i+1:], " ")
+		} else {
+			rest = ""
+		}
+		k, v, _ := strings.Cut(tok, "=")
+		switch k {
+		case "email":
+			email = v
+		case "role":
+			role = v
+		case "ip":
+			ip = v
+		}
+	}
+	return
+}
+
+// History lists the decisions taken on account requests, newest first. It
+// reads the audit chain, so it works without an identity provider and
+// survives the request itself being deleted there.
+//
+//	@Summary      Decisions taken on account requests
+//	@Tags         admin
+//	@Produce      json
+//	@Param        limit  query     int  false  "max rows (default 100)"
+//	@Success      200    {array}   signupDecision
+//	@Router       /api/admin/signups/history [get]
+func (h *SignupHandler) History(w http.ResponseWriter, r *http.Request) {
+	out := []signupDecision{}
+	if h.audit == nil {
+		writeJSON(w, http.StatusOK, out)
+		return
+	}
+	entries, err := h.audit.Store().ListAuditEntriesByAction(r.Context(), store.DefaultTenantID,
+		[]string{"signup_approved", "signup_rejected"}, parseLimit(r, 100, maxListLimit))
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "could not read the decision history")
+		return
+	}
+	for _, e := range entries {
+		email, role, ip, reason := parseSignupDetail(e.Detail)
+		out = append(out, signupDecision{ID: e.ID, Action: e.Action, Email: email, Role: role, SignupIP: ip, Reason: reason,
+			Actor: e.Actor, IP: e.IP, CreatedAt: e.CreatedAt.UTC().Format(time.RFC3339)})
+	}
+	writeJSON(w, http.StatusOK, out)
 }
 
 // SetMailer gives the handler a way to tell somebody they were approved. Until

@@ -107,8 +107,8 @@ func (d *DB) UpdateTenant(ctx context.Context, t *store.Tenant) error {
 		return err
 	}
 	t.UpdatedAt = time.Now().UTC()
-	_, err := d.db.ExecContext(ctx, `UPDATE tenants SET slug = $1, name = $2, owner_user_id = $3, plan = $4, status = $5, updated_at = $6, plan_expires_at = $7, kofi_claim_code = $8, kofi_payer_email = $9, kofi_last_message_id = $10, lapse_warned_at = $11, billing_country = $12, billing_country_evidence = $13, stripe_customer_id = $14, stripe_subscription_id = $15, bridge_offline_timeout = $16, audit_retention_days = $17, ratelimit_daily_cap = $18, ratelimit_monthly_cap = $19, oob_max_per_hour = $20, oob_sms_timeout_sec = $21, oob_sat_timeout_sec = $22 WHERE id = $23`,
-		t.Slug, t.Name, t.OwnerUserID, t.Plan, t.Status, t.UpdatedAt, t.PlanExpiresAt, t.KofiClaimCode, t.KofiPayerEmail, t.KofiLastMessageID, t.LapseWarnedAt, t.BillingCountry, t.BillingCountryEvidence, t.StripeCustomerID, t.StripeSubscriptionID, t.BridgeOfflineTimeout, t.AuditRetentionDays, t.RatelimitDailyCap, t.RatelimitMonthlyCap, t.OOBMaxPerHour, t.OOBSMSTimeoutSec, t.OOBSatTimeoutSec, t.ID)
+	_, err := d.db.ExecContext(ctx, `UPDATE tenants SET slug = $1, name = $2, owner_user_id = $3, plan = $4, status = $5, updated_at = $6, plan_expires_at = $7, kofi_claim_code = $8, kofi_payer_email = $9, kofi_last_message_id = $10, lapse_warned_at = $11, billing_country = $12, billing_country_evidence = $13, stripe_customer_id = $14, stripe_subscription_id = $15, bridge_offline_timeout = $16, audit_retention_days = $17, ratelimit_daily_cap = $18, ratelimit_monthly_cap = $19, oob_max_per_hour = $20, oob_sms_timeout_sec = $21, oob_sat_timeout_sec = $22, deleted_at = $24 WHERE id = $23`,
+		t.Slug, t.Name, t.OwnerUserID, t.Plan, t.Status, t.UpdatedAt, t.PlanExpiresAt, t.KofiClaimCode, t.KofiPayerEmail, t.KofiLastMessageID, t.LapseWarnedAt, t.BillingCountry, t.BillingCountryEvidence, t.StripeCustomerID, t.StripeSubscriptionID, t.BridgeOfflineTimeout, t.AuditRetentionDays, t.RatelimitDailyCap, t.RatelimitMonthlyCap, t.OOBMaxPerHour, t.OOBSMSTimeoutSec, t.OOBSatTimeoutSec, t.ID, t.DeletedAt)
 	return err
 }
 
@@ -217,4 +217,50 @@ func (d *DB) ApplyStripeEvent(ctx context.Context, eventID, tenantID string) (bo
 		return false, err
 	}
 	return n == 1, nil
+}
+
+// ListTenantSummaries is one grouped query: the owner's address and the
+// tenant's row counts beside every tenant, for the platform directory
+// (MESHSAT-1366). The owner address falls back to the first owner-role user
+// for tenants created before owner_user_id was filled.
+func (d *DB) ListTenantSummaries(ctx context.Context) ([]store.TenantSummary, error) {
+	cols := "t." + strings.ReplaceAll(tenantCols, ", ", ", t.")
+	rows, err := d.db.QueryContext(ctx, `SELECT `+cols+`,
+		COALESCE(o.email, (SELECT u2.email FROM users u2 WHERE u2.tenant_id = t.id AND u2.role = 'owner' ORDER BY u2.created_at LIMIT 1), ''),
+		COALESCE(uc.n, 0), COALESCE(dc.n, 0), COALESCE(bc.n, 0)
+		FROM tenants t
+		LEFT JOIN users o ON o.id = t.owner_user_id AND o.tenant_id = t.id
+		LEFT JOIN (SELECT tenant_id, count(*) AS n FROM users GROUP BY tenant_id) uc ON uc.tenant_id = t.id
+		LEFT JOIN (SELECT tenant_id, count(*) AS n FROM devices GROUP BY tenant_id) dc ON dc.tenant_id = t.id
+		LEFT JOIN (SELECT tenant_id, count(*) AS n FROM bridges GROUP BY tenant_id) bc ON bc.tenant_id = t.id
+		ORDER BY t.created_at, t.id`)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+	var out []store.TenantSummary
+	for rows.Next() {
+		var ts store.TenantSummary
+		var del, expires, warned sql.NullTime
+		t := &ts.Tenant
+		if err := rows.Scan(&t.ID, &t.Slug, &t.Name, &t.OwnerUserID, &t.Plan, &t.Status, &t.CreatedAt, &t.UpdatedAt, &del, &expires, &t.KofiClaimCode, &t.KofiPayerEmail, &t.KofiLastMessageID, &warned, &t.BillingCountry, &t.BillingCountryEvidence, &t.StripeCustomerID, &t.StripeSubscriptionID, &t.BridgeOfflineTimeout, &t.AuditRetentionDays, &t.RatelimitDailyCap, &t.RatelimitMonthlyCap, &t.OOBMaxPerHour, &t.OOBSMSTimeoutSec, &t.OOBSatTimeoutSec,
+			&ts.OwnerEmail, &ts.Users, &ts.Devices, &ts.Bridges); err != nil {
+			return nil, err
+		}
+		t.CreatedAt, t.UpdatedAt = utc(t.CreatedAt), utc(t.UpdatedAt)
+		if del.Valid {
+			x := utc(del.Time)
+			t.DeletedAt = &x
+		}
+		if expires.Valid {
+			x := utc(expires.Time)
+			t.PlanExpiresAt = &x
+		}
+		if warned.Valid {
+			x := utc(warned.Time)
+			t.LapseWarnedAt = &x
+		}
+		out = append(out, ts)
+	}
+	return out, rows.Err()
 }

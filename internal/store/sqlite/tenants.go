@@ -106,8 +106,8 @@ func (d *DB) UpdateTenant(ctx context.Context, t *store.Tenant) error {
 		return err
 	}
 	t.UpdatedAt = time.Now().UTC()
-	_, err := d.db.ExecContext(ctx, `UPDATE tenants SET slug=?, name=?, owner_user_id=?, plan=?, status=?, updated_at=?, plan_expires_at=?, kofi_claim_code=?, kofi_payer_email=?, kofi_last_message_id=?, lapse_warned_at=?, billing_country=?, billing_country_evidence=?, stripe_customer_id=?, stripe_subscription_id=?, bridge_offline_timeout=?, audit_retention_days=?, ratelimit_daily_cap=?, ratelimit_monthly_cap=?, oob_max_per_hour=?, oob_sms_timeout_sec=?, oob_sat_timeout_sec=? WHERE id=?`,
-		t.Slug, t.Name, t.OwnerUserID, t.Plan, t.Status, fmtTime(t.UpdatedAt), fmtTimePtr(t.PlanExpiresAt), t.KofiClaimCode, t.KofiPayerEmail, t.KofiLastMessageID, fmtTimePtr(t.LapseWarnedAt), t.BillingCountry, t.BillingCountryEvidence, t.StripeCustomerID, t.StripeSubscriptionID, t.BridgeOfflineTimeout, t.AuditRetentionDays, t.RatelimitDailyCap, t.RatelimitMonthlyCap, t.OOBMaxPerHour, t.OOBSMSTimeoutSec, t.OOBSatTimeoutSec, t.ID)
+	_, err := d.db.ExecContext(ctx, `UPDATE tenants SET slug=?, name=?, owner_user_id=?, plan=?, status=?, updated_at=?, deleted_at=?, plan_expires_at=?, kofi_claim_code=?, kofi_payer_email=?, kofi_last_message_id=?, lapse_warned_at=?, billing_country=?, billing_country_evidence=?, stripe_customer_id=?, stripe_subscription_id=?, bridge_offline_timeout=?, audit_retention_days=?, ratelimit_daily_cap=?, ratelimit_monthly_cap=?, oob_max_per_hour=?, oob_sms_timeout_sec=?, oob_sat_timeout_sec=? WHERE id=?`,
+		t.Slug, t.Name, t.OwnerUserID, t.Plan, t.Status, fmtTime(t.UpdatedAt), fmtTimePtr(t.DeletedAt), fmtTimePtr(t.PlanExpiresAt), t.KofiClaimCode, t.KofiPayerEmail, t.KofiLastMessageID, fmtTimePtr(t.LapseWarnedAt), t.BillingCountry, t.BillingCountryEvidence, t.StripeCustomerID, t.StripeSubscriptionID, t.BridgeOfflineTimeout, t.AuditRetentionDays, t.RatelimitDailyCap, t.RatelimitMonthlyCap, t.OOBMaxPerHour, t.OOBSMSTimeoutSec, t.OOBSatTimeoutSec, t.ID)
 	return err
 }
 
@@ -219,4 +219,50 @@ func (d *DB) ApplyStripeEvent(ctx context.Context, eventID, tenantID string) (bo
 		return false, err
 	}
 	return n == 1, nil
+}
+
+// ListTenantSummaries is one grouped query: the owner's address and the
+// tenant's row counts beside every tenant, for the platform directory
+// (MESHSAT-1366). The owner address falls back to the first owner-role user
+// for tenants created before owner_user_id was filled.
+func (d *DB) ListTenantSummaries(ctx context.Context) ([]store.TenantSummary, error) {
+	cols := "t." + strings.ReplaceAll(tenantCols, ", ", ", t.")
+	rows, err := d.db.QueryContext(ctx, `SELECT `+cols+`,
+		COALESCE(o.email, (SELECT u2.email FROM users u2 WHERE u2.tenant_id = t.id AND u2.role = 'owner' ORDER BY u2.created_at LIMIT 1), ''),
+		COALESCE(uc.n, 0), COALESCE(dc.n, 0), COALESCE(bc.n, 0)
+		FROM tenants t
+		LEFT JOIN users o ON o.id = t.owner_user_id AND o.tenant_id = t.id
+		LEFT JOIN (SELECT tenant_id, count(*) AS n FROM users GROUP BY tenant_id) uc ON uc.tenant_id = t.id
+		LEFT JOIN (SELECT tenant_id, count(*) AS n FROM devices GROUP BY tenant_id) dc ON dc.tenant_id = t.id
+		LEFT JOIN (SELECT tenant_id, count(*) AS n FROM bridges GROUP BY tenant_id) bc ON bc.tenant_id = t.id
+		ORDER BY t.created_at, t.id`)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+	var out []store.TenantSummary
+	for rows.Next() {
+		var ts store.TenantSummary
+		var created, updated, deleted, expires, warned string
+		t := &ts.Tenant
+		if err := rows.Scan(&t.ID, &t.Slug, &t.Name, &t.OwnerUserID, &t.Plan, &t.Status, &created, &updated, &deleted, &expires, &t.KofiClaimCode, &t.KofiPayerEmail, &t.KofiLastMessageID, &warned, &t.BillingCountry, &t.BillingCountryEvidence, &t.StripeCustomerID, &t.StripeSubscriptionID, &t.BridgeOfflineTimeout, &t.AuditRetentionDays, &t.RatelimitDailyCap, &t.RatelimitMonthlyCap, &t.OOBMaxPerHour, &t.OOBSMSTimeoutSec, &t.OOBSatTimeoutSec,
+			&ts.OwnerEmail, &ts.Users, &ts.Devices, &ts.Bridges); err != nil {
+			return nil, err
+		}
+		t.CreatedAt, t.UpdatedAt = parseTime(created), parseTime(updated)
+		if deleted != "" {
+			x := parseTime(deleted)
+			t.DeletedAt = &x
+		}
+		if expires != "" {
+			x := parseTime(expires)
+			t.PlanExpiresAt = &x
+		}
+		if warned != "" {
+			x := parseTime(warned)
+			t.LapseWarnedAt = &x
+		}
+		out = append(out, ts)
+	}
+	return out, rows.Err()
 }

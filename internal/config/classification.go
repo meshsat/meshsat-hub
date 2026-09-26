@@ -211,6 +211,8 @@ var Classification = map[string]Class{
 	"bridge_ca_secret_name":          ClassPlatform,
 	"bridge_offline_timeout_max":     ClassPlatform,
 	"bridge_offline_timeout_min":     ClassPlatform,
+	"support_access_max_minutes":     ClassPlatform,
+	"support_access_min_minutes":     ClassPlatform,
 	"cloudloop_mqtt_broker":          ClassPlatform,
 	"cloudloop_mqtt_ca_cert":         ClassPlatform,
 	"cloudloop_mqtt_cert":            ClassPlatform,

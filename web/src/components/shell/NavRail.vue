@@ -3,6 +3,7 @@ import { computed } from 'vue'
 import { RouterLink, useRoute } from 'vue-router'
 import { useAuthStore } from '../../stores/auth'
 import { useOpsStore } from '../../stores/ops'
+import { usePlatformStore } from '../../stores/platform'
 import { visibleGroups } from '../../nav'
 import BrandLockup from '../BrandLockup.vue'
 import Icon from '../Icon.vue'
@@ -16,6 +17,7 @@ const emit = defineEmits(['toggle', 'close'])
 
 const auth = useAuthStore()
 const ops = useOpsStore()
+const platform = usePlatformStore()
 const route = useRoute()
 const groups = computed(() => visibleGroups(auth))
 const narrow = computed(() => props.collapsed && !props.drawer)
@@ -27,10 +29,20 @@ function isActive(item) {
 }
 
 // Unacknowledged alerts on the Alerts entry: the one count worth carrying on
-// every page, because it is the one that means somebody may be waiting.
+// every page, because it is the one that means somebody may be waiting. The
+// platform's Requests entry carries the number of people waiting for an
+// account: work, not an alarm, so it takes no colour (ISA-18.2).
 function badgeFor(item) {
   if (item.badge === 'alerts') return ops.alerts.length || 0
+  if (item.badge === 'signups') return platform.pendingSignups || 0
   return 0
+}
+function badgeClass(item) {
+  return item.badge === 'alerts' ? 'bg-ms-error text-ms-on-primary' : 'bg-ms-well border border-ms-border-light text-ms-text'
+}
+function badgeLabel(item) {
+  const n = badgeFor(item)
+  return item.badge === 'alerts' ? `${n} unacknowledged` : `${n} waiting`
 }
 </script>
 
@@ -64,9 +76,9 @@ function badgeFor(item) {
           <span v-if="isActive(item)" class="absolute left-0 top-1.5 bottom-1.5 w-0.5 rounded-full bg-ms-primary" aria-hidden="true" />
           <Icon :name="item.icon" :size="17" :class="isActive(item) ? 'text-ms-text' : 'text-ms-muted group-hover:text-ms-text'" />
           <span v-if="!narrow" class="truncate">{{ item.label }}</span>
-          <span v-if="badgeFor(item)" class="ms-num text-[11px] font-semibold leading-none rounded-full bg-ms-error text-ms-on-primary"
-            :class="narrow ? 'absolute top-0.5 right-0.5 min-w-[16px] h-4 px-1 flex items-center justify-center' : 'ml-auto min-w-[18px] h-[18px] px-1.5 flex items-center justify-center'"
-            :aria-label="`${badgeFor(item)} unacknowledged`">{{ badgeFor(item) }}</span>
+          <span v-if="badgeFor(item)" class="ms-num text-[11px] font-semibold leading-none rounded-full"
+            :class="[badgeClass(item), narrow ? 'absolute top-0.5 right-0.5 min-w-[16px] h-4 px-1 flex items-center justify-center' : 'ml-auto min-w-[18px] h-[18px] px-1.5 flex items-center justify-center']"
+            :aria-label="badgeLabel(item)">{{ badgeFor(item) }}</span>
         </RouterLink>
       </div>
     </div>

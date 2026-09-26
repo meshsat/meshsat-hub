@@ -143,6 +143,37 @@ func (d *DB) ListAuditEntriesBefore(ctx context.Context, tenantID string, before
 	return entries, rows.Err()
 }
 
+func (d *DB) ListAuditEntriesByAction(ctx context.Context, tenantID string, actions []string, limit int) ([]store.AuditEntry, error) {
+	if len(actions) == 0 {
+		return nil, nil
+	}
+	args := []any{tenantID}
+	ph := make([]string, 0, len(actions))
+	for _, a := range actions {
+		args = append(args, a)
+		ph = append(ph, "$"+strconv.Itoa(len(args)))
+	}
+	q := "SELECT " + auditColumns + " FROM audit_log WHERE tenant_id=$1 AND action IN (" + strings.Join(ph, ",") + ") ORDER BY created_at DESC"
+	if limit > 0 {
+		args = append(args, limit)
+		q += " LIMIT $" + strconv.Itoa(len(args))
+	}
+	rows, err := d.db.QueryContext(ctx, q, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+	var entries []store.AuditEntry
+	for rows.Next() {
+		var a store.AuditEntry
+		if err := scanAuditEntry(rows, &a); err != nil {
+			return nil, err
+		}
+		entries = append(entries, a)
+	}
+	return entries, rows.Err()
+}
+
 func (d *DB) DeleteAuditEntriesBefore(ctx context.Context, tenantID string, before time.Time) (int64, error) {
 	res, err := d.db.ExecContext(ctx,
 		"DELETE FROM audit_log WHERE tenant_id=$1 AND created_at < $2",

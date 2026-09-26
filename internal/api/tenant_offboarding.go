@@ -171,4 +171,11 @@ func (h *TenantOffboardingHandler) logAudit(r *http.Request, tenantID, action, d
 	if err := h.audit.Log(r.Context(), tenantID, action, actor, detail, clientIPFromRequest(r)); err != nil {
 		slog.Warn("audit: failed to log "+action, "error", err)
 	}
+	// A platform operator closing a CUSTOMER's account is also platform
+	// history (MESHSAT-1366). An owner closing their own is not.
+	if u := hubauth.FromContext(r.Context()); u != nil && u.PlatformAdmin && tenantID != store.DefaultTenantID {
+		if err := h.audit.Log(r.Context(), store.DefaultTenantID, action, actor, "tenant="+tenantID+" "+detail, clientIPFromRequest(r)); err != nil {
+			slog.Warn("audit: failed to mirror "+action+" to the platform chain", "error", err)
+		}
+	}
 }

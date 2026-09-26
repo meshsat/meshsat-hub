@@ -58,6 +58,12 @@ const P = {
   filter: ['M4 5h16l-6 7.5V19l-4 2v-8.5L4 5z'],
   layers: ['M12 3 3 8l9 5 9-5-9-5z', 'M3 13l9 5 9-5'],
   target: ['M12 20a8 8 0 1 0 0-16 8 8 0 0 0 0 16z', 'M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z'],
+  // Platform group: an inbox with a waiting card, a row of buildings, a
+  // document with a total line, and a server with its status lamp.
+  requests: ['M4 13h4l1.5 2.5h5L16 13h4', 'M4 13V19h16v-6', 'M7 9h10', 'M9 5h6'],
+  tenants: ['M3 20h18', 'M4 20V8l5-3v15', 'M9 20V11l6-2v11', 'M15 20V13l5-1.5V20', 'M6 11h.01', 'M6 14h.01', 'M12 14h.01'],
+  billing: ['M6 3h9l4 4v14H6z', 'M15 3v4h4', 'M9 11h6', 'M9 14h6', 'M9 17h3'],
+  platform: ['M4 5h16v6H4z', 'M4 13h16v6H4z', 'M7 8h.01', 'M7 16h.01', 'M11 8h6', 'M11 16h6'],
 }
 </script>
 
