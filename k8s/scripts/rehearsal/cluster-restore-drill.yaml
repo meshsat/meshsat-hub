@@ -81,3 +81,49 @@ spec:
             key: SECRET_ACCESS_KEY
         wal:
           compression: gzip
+---
+# The drill's own allow-list, applied and deleted with the drill (MESHSAT-1410).
+#
+# meshsat-hub-db has carried a default-deny-ingress NetworkPolicy since
+# MESHSAT-1205 (after the first drill), and postgres-confine selects only
+# meshsat-hub-main. Without this, the drill's instance is unreachable from the
+# CNPG operator on 8000, so the cluster never reports Ready and the drill looks
+# like a restore failure when it is a policy one. Same operator/kubelet rules as
+# postgres-confine; deliberately NO Hub, hawkBit or hub-verify client: nothing
+# but `kubectl exec` should ever talk to a restored copy of production.
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: meshsat-hub-drill-confine
+  namespace: meshsat-hub-db
+  labels:
+    app.kubernetes.io/name: meshsat-hub-drill
+    app.kubernetes.io/part-of: meshsat-hub
+spec:
+  endpointSelector:
+    matchLabels:
+      cnpg.io/cluster: meshsat-hub-drill
+  ingress:
+    - fromEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: meshsat-hub-db
+            cnpg.io/cluster: meshsat-hub-drill
+      toPorts:
+        - ports:
+            - {port: "5432", protocol: TCP}
+            - {port: "8000", protocol: TCP}
+    - fromEntities:
+        - host
+        - remote-node
+        - kube-apiserver
+      toPorts:
+        - ports:
+            - {port: "8000", protocol: TCP}
+    - fromEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: cnpg-system
+            app.kubernetes.io/name: cloudnative-pg
+      toPorts:
+        - ports:
+            - {port: "8000", protocol: TCP}
+            - {port: "5432", protocol: TCP}

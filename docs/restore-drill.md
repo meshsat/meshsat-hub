@@ -164,7 +164,7 @@ $DRILL "select max(version) from schema_migrations"   # expect the same as live
 ## Tear down
 
 ```bash
-kubectl --context notrf01 -n meshsat-hub-db delete cluster meshsat-hub-drill
+kubectl --context notrf01 delete -f k8s/scripts/rehearsal/cluster-restore-drill.yaml   # the Cluster and its allow policy
 kubectl --context notrf01 -n meshsat-hub-db get pvc | grep drill    # expect nothing
 ```
 
@@ -215,3 +215,4 @@ below records.
 | date | backup restored | time to healthy | schema | must-match tables | sealed keys | documents | result |
 |---|---|---|---|---|---|---|---|
 | 2026-09-15 | daily 2026-09-14 02:45 UTC + WAL, via `meshsat-hub-drill` (1 instance, control-plane tier) | 3 min 50 s | 25 = 25 | tenants 4, receipts 1, refunds 1, users 3, devices 2, bridges 3, system_config 14, credentials 1: all equal | 6 of 6 sha256 identical (`bridge_ca_cert` + the five `_enc` rows); `HUB_CONFIG_WRAP_KEY` confirmed present in OpenBao | receipts `issued` 1, max `MSH2026-0001`, refunds with credit note 1: equal | **PASS**; scratch cluster and PVC deleted, production pods untouched |
+| 2026-09-29 | daily 2026-09-29 02:45 UTC + WAL to the latest segment (audit_log newest row and count equal to live), from Hetzner **through the backup gateway** for the first time (MESHSAT-1410); `meshsat-hub-drill`, 1 instance, with its own allow policy (the namespace is default-deny since MESHSAT-1205) | 2 min 16 s | 31 = 31 | tenants 6, receipts 1, refunds 1, users 4, devices 5, bridges 4, system_config 14, credentials 1: all equal | 6 of 6 sha256 identical; `HUB_CONFIG_WRAP_KEY` confirmed present in OpenBao | receipts `issued` 1, max `MSH2026-0001`, refunds with credit note 1: equal | **PASS**; drill cluster, policy and PVC deleted, production untouched |
