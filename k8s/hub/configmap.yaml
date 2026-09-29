@@ -88,7 +88,12 @@ data:
   HUB_NATS_AUTH_SECRET_NAME: "meshsat-nats-auth"  # rendered NATS users/permissions (internal/bridge/natsauth.go)
   HUB_RETICULUM_TCP_ENABLED: "true"
   HUB_RETICULUM_TCP_ADDR: ":4242"
-  HUB_AUDIT_ARCHIVE_S3_ENDPOINT: "https://nl-s3.nuclearlighters.net"
+  # The estate's backup gateway (rclone crypt -> Hetzner Object Storage), the
+  # same endpoint the CNPG barman backups use. nl-s3 was retired on 2026-09-25
+  # and this line still named it, so the map answered 502 for four days
+  # (MESHSAT-1410). In-cluster only, plain http, path-style; the namespace must
+  # stay in backup_gateway_allowed_namespaces in the notrf01 infra repo.
+  HUB_AUDIT_ARCHIVE_S3_ENDPOINT: "http://backup-gateway.backup-gateway.svc.cluster.local:8080"
   HUB_AUDIT_ARCHIVE_S3_BUCKET: "cnpg-meshsat-hub"
   HUB_AUDIT_ARCHIVE_S3_PREFIX: "hub-audit"
   # Self-hosted vector basemap (MESHSAT-967): the archive and its glyph and

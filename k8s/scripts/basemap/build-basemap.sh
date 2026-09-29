@@ -37,6 +37,9 @@
 # Credentials: AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY of the bucket, e.g.
 #   export AWS_ACCESS_KEY_ID=$(kubectl -n meshsat-hub get secret hub-secrets \
 #     -o jsonpath='{.data.HUB_AUDIT_ARCHIVE_S3_ACCESS_KEY}' | base64 -d)
+# The bucket sits behind the in-cluster backup gateway (MESHSAT-1410), so run
+#   kubectl -n backup-gateway port-forward svc/backup-gateway 8080:8080
+# alongside; the default endpoint below is that port-forward.
 set -euo pipefail
 
 BUILD="${1:-$(date -u -d yesterday +%Y%m%d)}"
@@ -44,7 +47,7 @@ MAXZOOM="${2:-11}"
 # A bbox, or @file for a GeoJSON polygon set (one archive, several countries).
 BBOX="${3:--180,-85.05,180,85.05}"
 NAME="${4:-world}"
-ENDPOINT="${S3_ENDPOINT:-https://nl-s3.nuclearlighters.net}"
+ENDPOINT="${S3_ENDPOINT:-http://127.0.0.1:8080}"
 BUCKET="${S3_BUCKET:-cnpg-meshsat-hub}"
 PREFIX="${S3_PREFIX:-basemap}"
 PMTILES="${PMTILES:-pmtiles}"
