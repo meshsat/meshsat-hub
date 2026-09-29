@@ -30,10 +30,11 @@ Things Argo CD cannot do by itself, in the order they happen. Keep this current.
    `hub-secrets` needs all `hub` keys present (placeholders above).
 2. CNPG `meshsat-hub-main` 3/3 on dmz03/04/05: `kubectl -n meshsat-hub-db get cluster`.
 3. First `ScheduledBackup` landed: `kubectl -n meshsat-hub-db get backups.postgresql.cnpg.io`.
-4. **Restore drill**: apply a throwaway `Cluster meshsat-hub-drill` with
-   `bootstrap.recovery.source` = `meshsat-hub-main` via `externalClusters` +
-   `barmanObjectStore` (same bucket, `serverName: meshsat-hub-main`), compare
-   `select count(*)` per table with live, then delete it.
+4. **Restore drill**: follow `docs/restore-drill.md` with
+   `k8s/scripts/rehearsal/cluster-restore-drill.yaml` (the throwaway `meshsat-hub-drill` plus its
+   own CiliumNetworkPolicy, because `meshsat-hub-db` is default-deny), compare with live, then
+   `kubectl delete -f` the same file. Passed 2026-09-15 (nl-s3) and 2026-09-29 (Hetzner through the
+   backup gateway, MESHSAT-1410); the drill log is at the end of the doc.
 5. `kubectl get pv -o json | jq '.items[].spec.nodeAffinity'` shows no Hub PV on dmz06.
 6. From a VPS: `openssl s_client -connect 10.255.4.11:9443 -servername mqtt-hub.meshsat.net`
    asks for a client certificate; `:4243` likewise.
