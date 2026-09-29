@@ -38,7 +38,7 @@
 # request. So a workload with an explicit allow keeps exactly what it had.
 #
 # ⚠ INGRESS ONLY. Egress is deliberately absent: it carries the CNPG WAL archive
-# to nl-s3, the satellite provider callbacks, Twilio, Stripe and the Tor circuit,
+# to the backup gateway, the satellite provider callbacks, Twilio, Stripe and the Tor circuit,
 # and an egress default-deny that is even slightly wrong stops the backups rather
 # than the attacker. That is its own change, with its own drill.
 apiVersion: networking.k8s.io/v1

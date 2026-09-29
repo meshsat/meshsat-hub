@@ -11,9 +11,9 @@
 # away mid-drill. Delete it yourself when the drill is done.
 #
 # Read docs/restore-drill.md before running this. In particular: check that
-# nl-s3 is accepting writes and that `lastSuccessfulBackup` on the live cluster
-# is recent, because a restore proves nothing about a backup that was never
-# taken.
+# the backup gateway is accepting writes and that `lastSuccessfulBackup` on the
+# live cluster is recent, because a restore proves nothing about a backup that
+# was never taken.
 apiVersion: postgresql.cnpg.io/v1
 kind: Cluster
 metadata:
@@ -67,7 +67,11 @@ spec:
         # drill fails with "no backup found" against a bucket that has one.
         serverName: meshsat-hub-main
         destinationPath: s3://cnpg-meshsat-hub
-        endpointURL: https://nl-s3.nuclearlighters.net
+        # The same endpoint the live cluster writes to: the in-cluster crypt
+        # gateway to Hetzner (IFRNLLEI01PRD-2850). nl-s3 is retired and its name
+        # no longer resolves (MESHSAT-1410). cnpg-barman-creds holds the
+        # gateway's key pair, and meshsat-hub-db is admitted by its policy.
+        endpointURL: http://backup-gateway.backup-gateway.svc.cluster.local:8080
         s3Credentials:
           accessKeyId:
             name: cnpg-barman-creds

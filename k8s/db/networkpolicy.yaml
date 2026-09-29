@@ -9,7 +9,7 @@
 # have.
 #
 # INGRESS ONLY, and that is load-bearing here rather than merely cautious.
-# CNPG's egress is how the WAL archive reaches nl-s3 and how an instance
+# CNPG's egress is how the WAL archive reaches the backup gateway and how an instance
 # rejoins; an egress rule written from a quiet window would be a backup that
 # stops working silently, which is the one failure this estate has already paid
 # for (CNPGBackupStale, and the 36 hours without an off-node copy that
