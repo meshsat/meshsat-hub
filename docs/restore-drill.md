@@ -43,12 +43,13 @@ $K get cluster meshsat-hub-main -o jsonpath='{"last:  "}{.status.lastSuccessfulB
 $K get backups
 ```
 
-**The usual cause of both looking wrong is not the database.** The bucket lives
-on NL SeaweedFS, which is a different site reached over the wire — notrf01 has
-no local backup target. When that fills up, `barman-cloud-wal-archive` fails
-with `PutObject ... (InternalError) (reached max retries: 4)` and every
-collection in the estate stops accepting writes at once. That is what happened
-on 2026-09-11 (IFRNLLEI01PRD-2831). Check for it before blaming CNPG:
+**The usual cause of both looking wrong is not the database.** Since 2026-09-23
+the bucket lives on Hetzner Object Storage behind the estate's in-cluster crypt
+gateway (`backup-gateway.backup-gateway.svc:8080`, IFRNLLEI01PRD-2850); before
+that it was NL SeaweedFS (nl-s3), which filled up four times and is now retired.
+A gateway that is down, OOMKilled or refusing the namespace makes
+`barman-cloud-wal-archive` fail for every consumer at once. Check for it before
+blaming CNPG:
 
 ```bash
 kubectl --context notrf01 -n meshsat-hub-db logs meshsat-hub-main-1 -c postgres --tail=200 \
@@ -185,14 +186,16 @@ while the old primary is still running.
 - **Retention is 14 days and has never been exercised.** The cluster was
   bootstrapped on 2026-09-08, so nothing has aged out yet. The first expiry will
   be the first time that code path runs here.
-- **The bucket is at another site.** notrf01 has no local backup target; if NL
-  SeaweedFS is down or full, both the backups and the restores are unavailable
-  at once. There is a documented estate incident of exactly this.
-- **The S3 gateway has truncated a restore before.** The NL `seaweedfs-s3` vhost
-  once cut a 2 GB base tar at exactly 512 MiB with a clean EOF, and production
-  backups were not restorable through it until ModSecurity and proxy buffering
-  were turned off on that vhost. That fix is in the NL infrastructure repo. At
-  12 MB this database is nowhere near the threshold, but it will not always be.
+- **Everything goes through one gateway.** Backups and restores both pass the
+  in-cluster crypt gateway; if it is down, or its crypt key is lost, both are
+  unavailable at once. The crypt key is escrowed in OpenBao and Vaultwarden, and
+  losing it loses every backup.
+- **Nothing before 2026-09-23 exists.** The history was copied from nl-s3 to the
+  gateway the night of the move and nl-s3 was retired on 2026-09-25, so the
+  oldest recoverability point is whatever the gateway holds.
+- **The gateway was OOMKilled once by bulk copies** (8 parallel transfers,
+  2026-09-25), which truncated a download; its limit is now 4Gi. Keep restores
+  and bulk copies to a few transfers.
 
 ## Recording a drill
 

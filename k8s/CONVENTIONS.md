@@ -93,8 +93,9 @@ has its own `kustomization.yaml`. A service dir contains, as applicable: `deploy
 
 - `meshsat-hub-main-rw.meshsat-hub-db.svc:5432`, database `meshsat_hub`, role `meshsat`,
   `sslmode=require`. 3 instances, `synchronous_commit on`, 1 sync replica, 10Gi
-  `local-hostpath-retain` per instance, barman to `s3://cnpg-meshsat-hub` on
-  `nl-s3.nuclearlighters.net`, retention 14d, daily base backup 02:45 (6-field cron).
+  `local-hostpath-retain` per instance, barman to `s3://cnpg-meshsat-hub` through
+  the backup gateway (`http://backup-gateway.backup-gateway.svc.cluster.local:8080`, rclone crypt to Hetzner
+  Object Storage, since 2026-09-23), retention 14d, daily base backup 02:45 (6-field cron).
 - Restore drill before cutover: throwaway `Cluster` with `bootstrap.recovery` from the bucket,
   row counts against live, delete (NOTES.md).
 

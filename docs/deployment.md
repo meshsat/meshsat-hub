@@ -53,8 +53,12 @@ Reloader watches the Hub's ConfigMap and Secret and rolls the Deployment when ei
 no `rollout restart`.
 
 **Storage** is node-local only (openebs local-hostpath). Redundancy comes from each service
-replicating itself. The audit archive and the map basemap live in the object store at
-`nl-s3.nuclearlighters.net`, bucket `cnpg-meshsat-hub`, beside the database backups.
+replicating itself. The audit archive and the map basemap live in bucket `cnpg-meshsat-hub`, beside the
+database backups, behind the estate's backup gateway
+(`http://backup-gateway.backup-gateway.svc.cluster.local:8080`, rclone crypt to Hetzner Object
+Storage). The gateway is in-cluster only and admits a namespace only if it is listed in
+`backup_gateway_allowed_namespaces` in the notrf01 infra repo; `meshsat-hub` was missing
+from it, and the map answered 502 for four days after nl-s3 was retired (MESHSAT-1410).
 
 Conventions in `k8s/CONVENTIONS.md`; bootstrap and hand-applied state in `k8s/NOTES.md`;
 operator tooling under `k8s/scripts/`.
