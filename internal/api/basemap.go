@@ -199,7 +199,16 @@ func (h *BasemapHandler) stream(w http.ResponseWriter, r *http.Request, key, con
 	w.Header().Set("Content-Type", contentType)
 	w.Header().Set("Accept-Ranges", "bytes")
 	w.Header().Set("Cache-Control", "public, max-age="+strconv.Itoa(h.maxAge))
-	w.WriteHeader(resp.StatusCode)
+	// The estate's backup gateway (rclone serve s3) answers a satisfied Range
+	// with 200 plus a Content-Range and only the slice as the body. Passed on
+	// verbatim that is a full-object status on a partial body, which a cache
+	// or a strict client may store as the whole archive; answer 206, which is
+	// what the body is (MESHSAT-1410).
+	status := resp.StatusCode
+	if byteRange != "" && status == http.StatusOK && resp.Header.Get("Content-Range") != "" {
+		status = http.StatusPartialContent
+	}
+	w.WriteHeader(status)
 	if r.Method == http.MethodHead {
 		return
 	}

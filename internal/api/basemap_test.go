@@ -51,6 +51,34 @@ func TestBasemapForwardsRangeAndCaches(t *testing.T) {
 	}
 }
 
+// The backup gateway (rclone serve s3) answers a satisfied Range with 200 and
+// a Content-Range; the client must still see 206 for the slice (MESHSAT-1410),
+// and a plain 200 without a Range must stay a 200.
+func TestBasemapPartialBodyFromA200IsA206(t *testing.T) {
+	h, done := basemapFixture(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Range") != "" {
+			w.Header().Set("Content-Range", "bytes 0-3/900")
+		}
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("tile"))
+	})
+	defer done()
+
+	req := httptest.NewRequest(http.MethodGet, "/basemap/basemap.pmtiles", nil)
+	req.Header.Set("Range", "bytes=0-3")
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusPartialContent || rec.Header().Get("Content-Range") != "bytes 0-3/900" || rec.Body.String() != "tile" {
+		t.Fatalf("ranged: status %d content-range %q body %q", rec.Code, rec.Header().Get("Content-Range"), rec.Body.String())
+	}
+
+	rec = httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/basemap/basemap.pmtiles", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("unranged: status %d, want 200", rec.Code)
+	}
+}
+
 func TestBasemapRejectsMalformedRange(t *testing.T) {
 	reached := false
 	h, done := basemapFixture(t, func(w http.ResponseWriter, _ *http.Request) {

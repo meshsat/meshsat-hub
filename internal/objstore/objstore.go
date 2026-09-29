@@ -26,7 +26,7 @@ const EmptyPayloadHash = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca49599
 
 // Config describes one bucket on one endpoint.
 type Config struct {
-	Endpoint  string // https://nl-s3.nuclearlighters.net
+	Endpoint  string // http://backup-gateway.backup-gateway.svc.cluster.local:8080
 	Bucket    string
 	Region    string        // "us-east-1" unless the endpoint cares
 	AccessKey string        // never logged
