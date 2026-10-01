@@ -82,3 +82,66 @@ func TestValidatePublicURLRefusesInternalNames(t *testing.T) {
 	}
 	_ = context.Background()
 }
+
+// A setting that is a bare host rather than a URL gets the same answer a URL
+// naming that host would (MESHSAT-1460): the address of a tenant's own TAK server
+// is dialled as raw TLS, so it never had a scheme and never reached the URL check.
+func TestValidatePublicHostRefusesInternalAddresses(t *testing.T) {
+	for _, bad := range []string{
+		"",
+		"localhost",
+		"tak-becf7d519c.meshsat-tak.svc",
+		"meshsat-hub-main-rw.meshsat-hub-db.svc.cluster.local",
+		"nats.internal",
+		"127.0.0.1",
+		"10.2.5.119",
+		"192.168.1.10",
+		"169.254.169.254",
+		"100.64.0.9",
+		"::1",
+		"[::1]",
+		"fd00::1",
+		// More than a host: refused rather than interpreted.
+		"tak.example.net:8089",
+		"https://tak.example.net",
+		"tak.example.net/path",
+		"user@tak.example.net",
+		"tak.example.net evil",
+	} {
+		if err := ValidatePublicHost(bad); err == nil {
+			t.Errorf("%q was accepted as a public host", bad)
+		}
+	}
+}
+
+// A public address literal passes with no lookup, so the test needs no DNS.
+func TestValidatePublicHostAcceptsAPublicAddress(t *testing.T) {
+	for _, good := range []string{"93.184.216.34", " 93.184.216.34 ", "2606:2800:220:1:248:1893:25c8:1946"} {
+		if err := ValidatePublicHost(good); err != nil {
+			t.Errorf("%q was refused: %v", good, err)
+		}
+	}
+}
+
+// DialControl is the hook itself, for a dialer that is not HTTP.
+func TestDialControlRefusesWhatTheClientRefuses(t *testing.T) {
+	for addr, wantErr := range map[string]bool{
+		"127.0.0.1:8089":       true,
+		"10.2.5.119:8089":      true,
+		"169.254.169.254:80":   true,
+		"[::1]:8089":           true,
+		"not-an-address:8089":  true, // Control is handed a resolved literal
+		"no-port":              true,
+		"93.184.216.34:8089":   false,
+		"[2606:2800::1]:8089":  false,
+		"100.64.0.1:8089":      true,
+		"198.18.0.1:8089":      true,
+		"192.0.2.1:8089":       false, // documentation range: not ours, so not refused
+		"[2002:c000:201::]:80": true,
+	} {
+		err := DialControl("tcp", addr, nil)
+		if (err != nil) != wantErr {
+			t.Errorf("DialControl(%q) = %v, want refused=%v", addr, err, wantErr)
+		}
+	}
+}

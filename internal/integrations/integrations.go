@@ -103,6 +103,11 @@ type Field struct {
 	// scheme set an MQTT client accepts: the host must resolve to a public
 	// address, so a tenant cannot point the Hub at nats:1883 or the database.
 	Broker bool `json:"broker,omitempty"`
+	// Host marks a bare host name or address the Hub will dial for this tenant
+	// (a tenant's own TAK server, which is raw TLS and so has no URL). The same
+	// request-forgery concern as URL: it must resolve to a public address
+	// (MESHSAT-1460).
+	Host bool `json:"host,omitempty"`
 }
 
 // maxFieldLen is the size cap for a single-line field; multiline fields
@@ -205,7 +210,7 @@ var Specs = []Spec{
 	// its address does not.
 	{Provider: ProviderTAK, Label: "Your own TAK server", Description: "Forward this tenant's positions, SOS and telemetry as Cursor-on-Target to a TAK server you run. Mutual TLS: the Hub presents the client certificate below and verifies your server against the CA you give it.",
 		Fields: []Field{
-			{Key: "host", Label: "Host", Required: true, Hint: "hostname or address of the CoT listener, without a port"},
+			{Key: "host", Label: "Host", Required: true, Host: true, Hint: "hostname or address of the CoT listener, without a port"},
 			{Key: "port", Label: "Port", Required: true, Default: "8089", Hint: "the TLS CoT port, 8089 on a stock TAK server"},
 			{Key: "server_name", Label: "Certificate name", Hint: "leave empty unless your server's certificate names something other than the host above; empty verifies the chain and skips the name check"},
 			{Key: "ca_pem", Label: "Server CA (PEM)", Required: true, Multiline: true, PEM: true, Hint: "the authority that signed your server's certificate"},
@@ -579,6 +584,9 @@ func (s *Service) Set(ctx context.Context, tenantID, provider string, fields map
 		if err := validateBrokers(spec, merged); err != nil {
 			return nil, err
 		}
+		if err := validateHosts(spec, merged); err != nil {
+			return nil, err
+		}
 	}
 	// Every URL the Hub will make outbound requests to, checked BEFORE it is
 	// stored. A tenant choosing a URL the Hub then fetches is a request-forgery
@@ -811,6 +819,28 @@ func validatePEM(spec Spec, merged map[string]string) error {
 					return fmt.Errorf("%s and its key do not go together: %v", f.Label, err)
 				}
 			}
+		}
+	}
+	return nil
+}
+
+// validateHosts refuses a Host field that names an internal address.
+//
+// A tenant's own TAK server is dialled as raw TLS, so its address was never a
+// URL and never went through the URL check: a tenant could point the Hub at
+// meshsat-hub-main-rw.meshsat-hub-db.svc or 10.x and the Hub would open a TLS
+// connection to it with its own network identity. The dial is guarded as well
+// (takhosted sets takfront.Tenant.DialControl), because a name that resolves
+// publicly when it is saved can resolve somewhere else an hour later; this is
+// the half that tells the customer while they are looking at the form
+// (MESHSAT-1460).
+func validateHosts(spec Spec, merged map[string]string) error {
+	for _, f := range spec.Fields {
+		if !f.Host || merged[f.Key] == "" {
+			continue
+		}
+		if err := netguard.ValidatePublicHost(merged[f.Key]); err != nil {
+			return fmt.Errorf("%s: %v", f.Label, err)
 		}
 	}
 	return nil
