@@ -3,12 +3,11 @@ package takhosted
 import (
 	"context"
 	"encoding/json"
-	"errors"
-	"fmt"
 	"log/slog"
 	"net"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/meshsat/meshsat-hub/internal/bus"
@@ -29,13 +28,30 @@ import (
 // forwarding the same position would put every device on the map twice. So it is
 // registered with leaderSingletons and only the lease holder runs it.
 //
-// # The loop guard is not optional
+// # Subscribed once, gated on the run
 //
-// The OTS poller mirrors TAK markers back into the devices table as type "tak",
-// and those markers include the ones this forwarder just sent. Forwarding them
-// again would build a loop that grows with every cycle. Two independent guards
-// stop it: a device whose type is an artefact type is never forwarded, and a UID
-// carrying the Hub's own marker prefix is never forwarded either.
+// The bus has no unsubscribe, and Run is called again on every acquisition of the
+// lease. Subscribing inside Run therefore left one more handler behind each time,
+// bound to a context that had been cancelled: a replica that lost the lease
+// logged a failure for every position it could no longer forward (MESHSAT-1457),
+// and one that lost it and won it back wrote every position twice, the second
+// copy through the stale handler and the new run's connection. So the handlers
+// are installed once for the life of the process, and each reads the current run
+// from an atomic pointer: nil when this replica does not hold the lease, in which
+// case the message is simply not this replica's to forward.
+//
+// # Nothing here blocks the bus
+//
+// See link.go. A handler hands its message to the dispatcher and returns.
+//
+// # The loop guard
+//
+// A marker this forwarder draws must never be forwarded again. Two independent
+// guards hold that: a UID carrying the Hub's own marker prefix is never
+// forwarded, and neither is a device row of an artefact type. The poller that
+// used to mirror TAK markers into the devices table is gone (MESHSAT-1032), so
+// nothing creates such rows today; the guards stay, because the return path is
+// being rebuilt and they are what makes that safe.
 type Forwarder struct {
 	bus   bus.MessageBus
 	store store.Store
@@ -55,18 +71,49 @@ type Forwarder struct {
 	// staleSec is how long a forwarded position stays current on an ATAK map.
 	staleSec int
 
-	mu    sync.Mutex
-	conns map[string]*upstreamConn
+	// subscribed is the filters already installed on the bus. Guarded by subMu.
+	subMu      sync.Mutex
+	subscribed map[string]bool
+
+	// cur is the run the handlers feed, nil while this replica is not the leader.
+	cur atomic.Pointer[run]
 }
 
-// upstreamConn is one open CoT connection to a tenant's server.
-//
-// Held open rather than dialled per position: every connection forks a process in
-// OpenTAKServer, and a kit reporting every few minutes would otherwise fork one
-// each time.
-type upstreamConn struct {
-	conn net.Conn
-	last time.Time
+// run is one tenure as leader: the queue the handlers feed and the links it
+// opened. Nothing in it outlives the lease.
+type run struct {
+	ctx    context.Context
+	intake chan inbound
+
+	mu    sync.Mutex
+	links map[string]*link
+	wg    sync.WaitGroup
+}
+
+// inbound is one bus message waiting for the dispatcher.
+type inbound struct {
+	topic   string
+	payload []byte
+}
+
+// intakeQueue bounds what the handlers may have waiting for the dispatcher. The
+// dispatcher reads the store, so it can fall behind a burst; a handler never
+// waits for it.
+const intakeQueue = 1024
+
+// forwardFilters are the legacy shapes of what is forwarded. Written out rather
+// than built with hubmqtt.TopicPosition("+"): since MESHSAT-1022 every builder
+// runs its id through EncodeSegment, because a phone number is a device id and
+// starts with the MQTT wildcard. So "+" is precisely what those builders encode,
+// and TopicPosition("+") returns "meshsat/%2B/position": a filter matching a
+// device literally named "+" and nothing else. It subscribes without error, Run
+// logs that it is forwarding, and not one position ever arrives. Every other
+// subscriber in the Hub spells its wildcard filter out for the same reason -- see
+// internal/position/subscriber.go, internal/sos/detector.go and
+// internal/aprsis/subscriber.go. Do not "tidy" these back into the builders.
+var forwardFilters = []string{
+	"meshsat/+/position",
+	"meshsat/+/sos",
 }
 
 // hubMarkerPrefixes are the UIDs the Hub itself publishes. A marker carrying one
@@ -80,10 +127,14 @@ const DefaultStaleSec = 120
 
 // idleUpstream closes a tenant's connection after this long with nothing to send,
 // so a tenant with no active kit does not hold a process open in its own server.
+//
+// Held open in between rather than dialled per position: every connection forks a
+// process in OpenTAKServer, and a kit reporting every few minutes would otherwise
+// fork one each time.
 const idleUpstream = 15 * time.Minute
 
-// NewForwarder wires one up. dial is normally takfront.Server.DialTenant and
-// tenant is normally DirectoryRefresher.TenantByID.
+// NewForwarder wires one up. dial is normally takfront.DialUpstream and upstreams
+// is normally Upstreams.For.
 func NewForwarder(
 	b bus.MessageBus,
 	s store.Store,
@@ -96,71 +147,115 @@ func NewForwarder(
 	}
 	return &Forwarder{
 		bus: b, store: s, dial: dial, upstreams: upstreams, log: log,
-		staleSec: DefaultStaleSec,
-		conns:    map[string]*upstreamConn{},
+		staleSec:   DefaultStaleSec,
+		subscribed: map[string]bool{},
 	}
 }
 
-// Run subscribes and forwards until ctx is done. Registered with
-// leaderSingletons, so only the lease holder is here.
+// Run forwards until ctx is done. Registered with leaderSingletons, so only the
+// lease holder is here, and it is called again each time the lease is acquired.
 func (f *Forwarder) Run(ctx context.Context) {
 	if f.bus == nil || !f.bus.IsConnected() {
 		f.log.Warn("takhosted: no message bus, device positions will not reach any TAK server")
 		return
 	}
 
-	// DualFilters, or only the default tenant is ever seen: meshsat/+/position
-	// does not match meshsat/{tenant}/{device}/position, and every other tenant's
-	// kit would be silently absent from its own map.
-	//
-	// The filters are written out rather than built with hubmqtt.TopicPosition("+").
-	// Since MESHSAT-1022 every builder runs its id through EncodeSegment, because a
-	// phone number is a device id and starts with the MQTT wildcard. So "+" is
-	// precisely what those builders encode, and TopicPosition("+") returns
-	// "meshsat/%2B/position": a filter matching a device literally named "+" and
-	// nothing else. It subscribes without error, this function logs that it is
-	// forwarding, and not one position ever arrives. Every other subscriber in the
-	// Hub spells its wildcard filter out for the same reason -- see
-	// internal/position/subscriber.go, internal/sos/detector.go and
-	// internal/aprsis/subscriber.go. Do not "tidy" these back into the builders.
-	for _, legacy := range []string{
-		"meshsat/+/position",
-		"meshsat/+/sos",
-	} {
-		for _, filter := range hubmqtt.DualFilters(legacy) {
-			fl := filter
-			if err := f.bus.Subscribe(fl, 0, func(topic string, payload []byte) {
-				f.onPosition(ctx, topic, payload)
-			}); err != nil {
-				f.log.Warn("takhosted: could not subscribe for TAK forwarding", "filter", fl, "error", err)
-			}
-		}
-	}
+	r := &run{ctx: ctx, intake: make(chan inbound, intakeQueue), links: map[string]*link{}}
+	// The run is published BEFORE the filters are installed, so what the broker
+	// delivers the moment a filter lands -- retained positions -- has somewhere
+	// to go.
+	f.cur.Store(r)
+	f.subscribe()
 	f.log.Info("takhosted: forwarding device positions to tenant TAK servers")
+
+	r.wg.Add(1)
+	go func() {
+		defer r.wg.Done()
+		f.dispatch(r)
+	}()
 
 	t := time.NewTicker(time.Minute)
 	defer t.Stop()
 	for {
 		select {
 		case <-ctx.Done():
-			f.closeAll()
+			// Handlers stop feeding this run first, then its links are closed and
+			// waited for, so nothing of this tenure is still writing when the next
+			// leader starts.
+			f.cur.CompareAndSwap(r, nil)
+			r.closeAll()
+			r.wg.Wait()
 			return
 		case <-t.C:
-			f.reapIdle()
+			r.reapIdle(f.log)
 		}
 	}
 }
 
-// onPosition forwards one position to its own tenant's server.
-func (f *Forwarder) onPosition(ctx context.Context, topic string, payload []byte) {
+// subscribe installs each filter that is not installed yet.
+//
+// Once per filter for the life of the process, not once per Run: see the type's
+// comment. A filter that failed is tried again on the next acquisition.
+//
+// DualFilters, or only the default tenant is ever seen: meshsat/+/position does
+// not match meshsat/{tenant}/{device}/position, and every other tenant's kit
+// would be silently absent from its own map.
+func (f *Forwarder) subscribe() {
+	f.subMu.Lock()
+	defer f.subMu.Unlock()
+	for _, legacy := range forwardFilters {
+		for _, filter := range hubmqtt.DualFilters(legacy) {
+			if f.subscribed[filter] {
+				continue
+			}
+			if err := f.bus.Subscribe(filter, 0, f.receive); err != nil {
+				f.log.Warn("takhosted: could not subscribe for TAK forwarding", "filter", filter, "error", err)
+				continue
+			}
+			f.subscribed[filter] = true
+		}
+	}
+}
+
+// receive is what the bus calls. It runs on the bus's inbound goroutine, so it
+// does nothing but hand the message over: no store read, no dial, no write.
+func (f *Forwarder) receive(topic string, payload []byte) {
+	r := f.cur.Load()
+	if r == nil {
+		// Not the leader. The message is the leader's to forward.
+		return
+	}
+	// Copied: the handler returns before the dispatcher reads it.
+	m := inbound{topic: topic, payload: append([]byte(nil), payload...)}
+	select {
+	case r.intake <- m:
+	default:
+		intakeDropped.Inc()
+	}
+}
+
+// dispatch turns queued messages into events until the run ends.
+func (f *Forwarder) dispatch(r *run) {
+	for {
+		select {
+		case <-r.ctx.Done():
+			return
+		case m := <-r.intake:
+			f.onPosition(r, m.topic, m.payload)
+		}
+	}
+}
+
+// onPosition forwards one position to its own tenant's servers.
+func (f *Forwarder) onPosition(r *run, topic string, payload []byte) {
+	ctx := r.ctx
 	tenantID, deviceID, _, ok := hubmqtt.ParseDeviceTopic(topic)
 	if !ok {
 		f.log.Debug("takhosted: unparseable device topic, not forwarded", "topic", topic)
 		return
 	}
 	if isHubMarkerUID(deviceID) {
-		// Our own marker, mirrored back by the OTS poller. Forwarding it is the
-		// loop.
+		// Our own marker. Forwarding it is the loop.
 		return
 	}
 
@@ -183,7 +278,7 @@ func (f *Forwarder) onPosition(ctx context.Context, topic string, payload []byte
 	}
 
 	// The device's own type decides whether it is forwardable at all. An artefact
-	// row -- a marker the poller mirrored -- must never be sent back.
+	// row -- a marker an integration mirrored -- must never be sent back.
 	if f.isArtefact(ctx, tenantID, deviceID) {
 		return
 	}
@@ -202,141 +297,134 @@ func (f *Forwarder) onPosition(ctx context.Context, topic string, payload []byte
 		f.log.Warn("takhosted: could not render CoT", "device", deviceID, "error", err)
 		return
 	}
+	line := append(xml, '\n')
 
-	// Every upstream is attempted, and one failing must not stop the others: a
+	// Every upstream gets it, and one failing must not stop the others: a
 	// customer's own server being unreachable is no reason to keep their kit off
-	// their hosted map, nor the reverse.
+	// their hosted map, nor the reverse. Each has its own link, so they cannot
+	// even wait for one another.
 	for _, up := range ups {
 		if up == nil {
 			continue
 		}
-		if err := f.send(ctx, tenantID, up, xml); err != nil {
-			f.log.Warn("takhosted: forwarding a position failed",
-				"tenant", tenantID, "upstream", up.Upstream, "kind", up.Label, "error", err)
-		}
+		f.enqueue(r, tenantID, up, line)
 	}
 }
 
-// send writes one CoT event to the tenant's server, dialling on first use and
-// redialling once if the held connection has gone.
-func (f *Forwarder) send(ctx context.Context, tenantID string, tenant *takfront.Tenant, xml []byte) error {
-	payload := append(append([]byte{}, xml...), '\n')
-
-	// Keyed by tenant AND upstream address: a tenant can now have more than one
+// enqueue hands one event to the link for one upstream, making the link on first
+// use. It never waits: a full queue loses its oldest event, and that is counted.
+func (f *Forwarder) enqueue(r *run, tenantID string, up *takfront.Tenant, line []byte) {
+	// Keyed by tenant AND upstream address: a tenant can have more than one
 	// server, and keying by tenant alone would make two upstreams share one
 	// connection and send each position to whichever was dialled first.
-	key := upstreamKey(tenantID, tenant)
+	key := upstreamKey(tenantID, up)
 
-	for attempt := 0; attempt < 2; attempt++ {
-		c, err := f.connFor(ctx, key, tenant)
-		if err != nil {
-			return err
-		}
-		_ = c.conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
-		if _, err := c.conn.Write(payload); err != nil {
-			// The upstream went away: drop it and try once more with a fresh one.
-			f.drop(key)
-			if attempt == 1 {
-				forwardsFailed.WithLabelValues(kindOf(tenant), reasonWrite).Inc()
-				return fmt.Errorf("write to %s: %w", tenant.Upstream, err)
-			}
-			continue
-		}
-		f.mu.Lock()
-		c.last = time.Now()
-		f.mu.Unlock()
-		return nil
+	// Held across the send on purpose: the send cannot block, and holding it is
+	// what stops an event landing in the queue of a link the reaper has just
+	// removed.
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.ctx.Err() != nil {
+		return
 	}
-	return errors.New("takhosted: could not write to the tenant's TAK server")
+	l, ok := r.links[key]
+	if !ok {
+		l = newLink(r.ctx, f, key, tenantID)
+		r.links[key] = l
+		r.wg.Add(1)
+		go func() {
+			defer r.wg.Done()
+			l.loop()
+		}()
+	}
+	j := job{up: up, payload: line}
+	select {
+	case l.q <- j:
+		return
+	default:
+	}
+	// Full: this upstream is not keeping up. The OLDEST waiting event is the one
+	// to lose, because a position is worth only its freshness. Nothing else puts
+	// into this queue while r.mu is held, so after taking one out there is room;
+	// if the link emptied it in between, there is room anyway.
+	select {
+	case <-l.q:
+	default:
+	}
+	select {
+	case l.q <- j:
+	default:
+	}
+	forwardsFailed.WithLabelValues(kindOf(up), reasonQueue).Inc()
 }
 
-// upstreamKey identifies one connection: a tenant can have several upstreams now,
-// so the tenant alone is not enough. Keyed on the address rather than the label,
-// because the address is what a connection actually goes to.
+// upstreamKey identifies one link: a tenant can have several upstreams, so the
+// tenant alone is not enough. Keyed on the address rather than the label, because
+// the address is what a connection actually goes to.
 func upstreamKey(tenantID string, t *takfront.Tenant) string {
 	return tenantID + "|" + t.Upstream
 }
 
-func (f *Forwarder) connFor(ctx context.Context, key string, tenant *takfront.Tenant) (*upstreamConn, error) {
-	f.mu.Lock()
-	if c, ok := f.conns[key]; ok {
-		f.mu.Unlock()
-		return c, nil
-	}
-	f.mu.Unlock()
-
-	conn, err := f.dial(ctx, tenant)
-	if err != nil {
-		forwardsFailed.WithLabelValues(kindOf(tenant), reasonDial).Inc()
-		return nil, fmt.Errorf("dial %s: %w", tenant.Upstream, err)
-	}
-	// A successful dial is not a working connection (MESHSAT-1066). Under TLS 1.3
-	// the server receives our certificate after it has finished its own handshake,
-	// so it refuses us on a connection we already believe is open. Find that out
-	// HERE: before the connection is cached, and before the log below claims it
-	// opened.
-	if why := upstreamRejected(conn); why != nil {
-		_ = conn.Close()
-		forwardsFailed.WithLabelValues(kindOf(tenant), reasonRefused).Inc()
-		return nil, fmt.Errorf("%s refused this Hub: %w", tenant.Upstream, why)
-	}
-	c := &upstreamConn{conn: conn, last: time.Now()}
-
-	f.mu.Lock()
-	// Another goroutine may have dialled while this one was waiting.
-	if existing, ok := f.conns[key]; ok {
-		f.mu.Unlock()
-		_ = conn.Close()
-		return existing, nil
-	}
-	f.conns[key] = c
-	f.mu.Unlock()
-	// The tenant and the address, not the key: a reader wants to know whose server
-	// this is and where it is, and the key is an implementation detail.
-	f.log.Info("takhosted: opened a CoT connection to a tenant's TAK server",
-		"tenant", tenant.TenantID, "upstream", tenant.Upstream, "kind", tenant.Label)
-	return c, nil
-}
-
-func (f *Forwarder) drop(key string) {
-	f.mu.Lock()
-	c, ok := f.conns[key]
-	delete(f.conns, key)
-	f.mu.Unlock()
-	if ok {
-		_ = c.conn.Close()
-	}
-}
-
-func (f *Forwarder) reapIdle() {
+// reapIdle closes the links that have had nothing to send for idleUpstream.
+func (r *run) reapIdle(log *slog.Logger) {
 	cutoff := time.Now().Add(-idleUpstream)
-	f.mu.Lock()
-	var stale []string
-	for id, c := range f.conns {
-		if c.last.Before(cutoff) {
-			stale = append(stale, id)
+	var stale []*link
+	r.mu.Lock()
+	for key, l := range r.links {
+		if l.idleSince().Before(cutoff) && len(l.q) == 0 {
+			delete(r.links, key)
+			stale = append(stale, l)
 		}
 	}
-	f.mu.Unlock()
-	for _, id := range stale {
-		f.log.Info("takhosted: closing an idle CoT connection", "tenant", id)
-		f.drop(id)
+	r.mu.Unlock()
+	for _, l := range stale {
+		log.Info("takhosted: closing an idle CoT connection", "tenant", l.key)
+		l.close()
 	}
 }
 
-func (f *Forwarder) closeAll() {
-	f.mu.Lock()
-	conns := f.conns
-	f.conns = map[string]*upstreamConn{}
-	f.mu.Unlock()
-	for _, c := range conns {
-		_ = c.conn.Close()
+// forget closes every link of one tenant.
+func (r *run) forget(tenantID string) {
+	var gone []*link
+	r.mu.Lock()
+	for key, l := range r.links {
+		if l.tenantID == tenantID {
+			delete(r.links, key)
+			gone = append(gone, l)
+		}
+	}
+	r.mu.Unlock()
+	for _, l := range gone {
+		l.close()
+	}
+}
+
+func (r *run) closeAll() {
+	r.mu.Lock()
+	links := r.links
+	r.links = map[string]*link{}
+	r.mu.Unlock()
+	for _, l := range links {
+		l.close()
+	}
+}
+
+// ForgetTenant satisfies tenancy.TenantForgetter: a tenant that has been purged
+// or closed must not keep a connection open to its TAK server, nor one to a
+// server whose settings have just been removed (MESHSAT-1460). The link is made
+// again on the tenant's next event, from whatever its upstreams are by then.
+func (f *Forwarder) ForgetTenant(tenantID string) {
+	if f == nil {
+		return
+	}
+	if r := f.cur.Load(); r != nil {
+		r.forget(tenantID)
 	}
 }
 
 // isArtefact reports whether this device row is one an integration made rather
-// than something a customer registered. Those are mirrored TAK markers, and
-// sending them back is the loop this guards against.
+// than something a customer registered. Those are mirrored markers, and sending
+// them back is the loop this guards against.
 func (f *Forwarder) isArtefact(ctx context.Context, tenantID, deviceID string) bool {
 	if f.store == nil {
 		return false

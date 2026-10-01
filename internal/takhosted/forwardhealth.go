@@ -50,11 +50,22 @@ const (
 	reasonDial = "dial"
 	// reasonWrite is a connection that was accepted and then failed under a write.
 	reasonWrite = "write"
+	// reasonQueue is an upstream that is not keeping up: its link already had a
+	// full queue waiting, so the event was dropped rather than made to wait.
+	reasonQueue = "queue"
 )
+
+// intakeDropped counts bus messages the forwarder could not take because its
+// dispatcher had fallen behind. No kind label: at that point the message has not
+// been matched to an upstream yet.
+var intakeDropped = promauto.NewCounter(prometheus.CounterOpts{
+	Name: "meshsat_hub_takhosted_intake_dropped_total",
+	Help: "Bus messages the TAK forwarder dropped because its dispatcher was behind.",
+})
 
 func init() {
 	for _, kind := range []string{kindHosted, kindExternal} {
-		for _, reason := range []string{reasonRefused, reasonDial, reasonWrite} {
+		for _, reason := range []string{reasonRefused, reasonDial, reasonWrite, reasonQueue} {
 			forwardsFailed.WithLabelValues(kind, reason)
 		}
 	}
