@@ -18,6 +18,7 @@ suites=(
   deployed-is-pinned.sh
   capabilities-suite.py
   position-dedup-suite.py
+  tak-export-suite.py
   integrations-replica-suite.py
   quota-suite.py
   notify-e2e.py
