@@ -16,7 +16,13 @@ RUN CGO_ENABLED=0 go build -ldflags "-s -w -X main.version=${VERSION}" -o /meshs
 RUN CGO_ENABLED=0 go build -ldflags "-s -w -X main.version=${VERSION}" -o /tak-operator ./cmd/tak-operator/
 
 FROM alpine:3.21
-RUN apk add --no-cache ca-certificates tzdata
+# `apk upgrade` first, so the image carries the fixes Alpine has published since
+# the alpine:3.21 tag was last built. Without it the image ships whatever
+# packages the base was cut with, and the day a CVE is fixed in the repository
+# the trivy gate fails every deploy until Docker Hub rebuilds the tag: that is
+# what happened on 2026-10-01 with libcrypto3 and libssl3 (CVE-2026-75804,
+# CVE-2026-84782, fixed in 3.3.7-r2 while the base still had 3.3.7-r1).
+RUN apk upgrade --no-cache && apk add --no-cache ca-certificates tzdata
 COPY --from=builder /meshsat-hub /usr/local/bin/meshsat-hub
 COPY --from=builder /tak-operator /usr/local/bin/tak-operator
 COPY assets/msvqsc/ /data/msvqsc/
