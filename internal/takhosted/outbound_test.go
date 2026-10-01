@@ -23,6 +23,15 @@ import (
 type fakeBus struct {
 	mu   sync.Mutex
 	subs map[string][]bus.MessageHandler
+	pubs []published
+}
+
+// published is one thing the Hub published, as the broker would have received it.
+type published struct {
+	topic    string
+	qos      byte
+	retained bool
+	payload  string
 }
 
 func newFakeBus() *fakeBus { return &fakeBus{subs: map[string][]bus.MessageHandler{}} }
@@ -30,8 +39,34 @@ func newFakeBus() *fakeBus { return &fakeBus{subs: map[string][]bus.MessageHandl
 func (b *fakeBus) Connect() error                            { return nil }
 func (b *fakeBus) IsConnected() bool                         { return true }
 func (b *fakeBus) Disconnect()                               {}
-func (b *fakeBus) Publish(string, byte, bool, []byte) error  { return nil }
 func (b *fakeBus) PublishJSON(string, byte, bool, any) error { return nil }
+
+func (b *fakeBus) Publish(topic string, qos byte, retained bool, payload []byte) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.pubs = append(b.pubs, published{topic: topic, qos: qos, retained: retained, payload: string(payload)})
+	return nil
+}
+
+// publishedOn returns what was published on one topic.
+func (b *fakeBus) publishedOn(topic string) []published {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	var out []published
+	for _, p := range b.pubs {
+		if p.topic == topic {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
+// allPublished returns everything published, in order.
+func (b *fakeBus) allPublished() []published {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return append([]published{}, b.pubs...)
+}
 
 func (b *fakeBus) Subscribe(filter string, _ byte, h bus.MessageHandler) error {
 	b.mu.Lock()
@@ -46,20 +81,22 @@ func (b *fakeBus) QueueSubscribe(filter string, q byte, _ string, h bus.MessageH
 
 // deliver sends a payload to every handler whose filter matches, the way a broker
 // would. Only the wildcard shapes this package subscribes to are handled.
+//
+// The handlers are called with the lock released: a handler may publish, and the
+// broker does not hold its own lock across a delivery either.
 func (b *fakeBus) deliver(topic string, payload []byte) int {
 	b.mu.Lock()
-	defer b.mu.Unlock()
-	n := 0
-	for filter, hs := range b.subs {
-		if !filterMatches(filter, topic) {
-			continue
-		}
-		for _, h := range hs {
-			h(topic, payload)
-			n++
+	var hs []bus.MessageHandler
+	for filter, list := range b.subs {
+		if filterMatches(filter, topic) {
+			hs = append(hs, list...)
 		}
 	}
-	return n
+	b.mu.Unlock()
+	for _, h := range hs {
+		h(topic, payload)
+	}
+	return len(hs)
 }
 
 // filterMatches is MQTT single-level wildcard matching, enough for these filters.
@@ -81,7 +118,61 @@ func filterMatches(filter, topic string) bool {
 type capturedOTS struct {
 	mu    sync.Mutex
 	lines []string
+	hello []string
+	all   []string // every line, in the order it arrived
+	conns []net.Conn
 	addr  string
+	// greet, when set, is written to a connection the moment it is accepted,
+	// before the Hub has said anything.
+	greet string
+}
+
+// isHubControl reports whether a line is the Hub's own hello or ping rather than
+// an event it forwarded. They are on every connection since MESHSAT-1461, and a
+// test counting forwarded events is not counting them.
+func isHubControl(line string) bool {
+	return strings.Contains(line, `uid="`+hubUIDPrefix)
+}
+
+// send writes to every connection the Hub has open to this server, as a TAK
+// server delivering traffic would.
+func (c *capturedOTS) send(t *testing.T, s string) {
+	t.Helper()
+	c.mu.Lock()
+	conns := append([]net.Conn{}, c.conns...)
+	c.mu.Unlock()
+	if len(conns) == 0 {
+		t.Fatal("the Hub has no connection open to this TAK server to send on")
+	}
+	for _, conn := range conns {
+		if _, err := conn.Write([]byte(s)); err != nil {
+			t.Logf("send to a closed connection: %v", err)
+		}
+	}
+}
+
+// connected waits until the Hub has a connection open to this server and has
+// introduced itself on it.
+func (c *capturedOTS) connected(t *testing.T) {
+	t.Helper()
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		c.mu.Lock()
+		n := len(c.hello)
+		c.mu.Unlock()
+		if n > 0 {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatal("the Hub never connected to this TAK server and introduced itself")
+}
+
+// hellos returns the Hub's own hello and ping lines this server has received.
+func (c *capturedOTS) hellos() []string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return append([]string{}, c.hello...)
 }
 
 func newCapturedOTS(t *testing.T) *capturedOTS {
@@ -99,12 +190,26 @@ func newCapturedOTS(t *testing.T) *capturedOTS {
 			if err != nil {
 				return
 			}
+			c.mu.Lock()
+			c.conns = append(c.conns, conn)
+			greet := c.greet
+			c.mu.Unlock()
+			if greet != "" {
+				_, _ = conn.Write([]byte(greet))
+			}
 			go func() {
 				defer func() { _ = conn.Close() }()
 				sc := bufio.NewScanner(conn)
+				sc.Buffer(make([]byte, 64<<10), 256<<10)
 				for sc.Scan() {
+					line := sc.Text()
 					c.mu.Lock()
-					c.lines = append(c.lines, sc.Text())
+					c.all = append(c.all, line)
+					if isHubControl(line) {
+						c.hello = append(c.hello, line)
+					} else {
+						c.lines = append(c.lines, line)
+					}
 					c.mu.Unlock()
 				}
 			}()

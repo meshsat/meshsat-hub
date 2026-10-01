@@ -43,9 +43,10 @@ func natsSubject(topic string) string {
 //     to be on every bridge's subscribe list, so any customer who registered a
 //     bridge could read all of it. No kit or phone subscribes there.
 //   - meshsat.broadcast.> only for a bridge of the PLATFORM tenant. It carries
-//     the operator's TAK picture (the OTS poller's markers), which is the
-//     platform's data, not a customer's. The platform's kits and phones use it;
-//     a customer gets TAK through its own hosted TAK server instead.
+//     the platform tenant's own TAK picture, which is the platform's data, not a
+//     customer's. A customer's bridge gets ITS tenant's TAK traffic on
+//     meshsat.{tenant}.broadcast.tak.cot.in and one level below it, named
+//     exactly (MESHSAT-1461): inside its own namespace, so not an exception.
 //   - $MQTT.sub.> is nats-server's delivery subject for QoS 1 subscriptions.
 func NATSPermissions(ns, bridgeID string) (publish, subscribe []string) {
 	n := natsSubject(ns)
@@ -61,6 +62,13 @@ func NATSPermissions(ns, bridgeID string) (publish, subscribe []string) {
 	}
 	if ns == platformNamespace {
 		subscribe = append(subscribe, "meshsat.broadcast.>")
+	} else {
+		// A customer's own TAK traffic, delivered by the Hub (MESHSAT-1461):
+		// events from its TAK servers, and events its other clients exported
+		// (one more segment, the sender). Named exactly, not n.broadcast.>, so a
+		// family added under broadcast later is not readable by every customer
+		// bridge by default.
+		subscribe = append(subscribe, n+".broadcast.tak.cot.in", n+".broadcast.tak.cot.in.*")
 	}
 	subscribe = append(subscribe, "$MQTT.sub.>")
 	return publish, subscribe

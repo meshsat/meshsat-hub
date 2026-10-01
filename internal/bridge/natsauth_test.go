@@ -31,8 +31,10 @@ func TestRenderNATSUsers(t *testing.T) {
 		// but never meshsat.hub.> (MESHSAT-1033).
 		`subscribe: { allow: ["meshsat.bridge.kit-a.>", "meshsat.*.mt.>", "meshsat.*.config.>", "meshsat.broadcast.>", "$MQTT.sub.>"]`,
 		`{ user: "kit-b", password: "$2a$10$hashB", permissions: { publish: { allow: ["meshsat.t_x.bridge.kit-b.>", "meshsat.t_x.*.position"`,
-		// A customer-tenant bridge gets neither broadcast nor hub.
-		`{ user: "kit-b", password: "$2a$10$hashB", permissions: { publish: { allow: ["meshsat.t_x.bridge.kit-b.>", "meshsat.t_x.*.position", "meshsat.t_x.*.telemetry", "meshsat.t_x.*.sos", "meshsat.t_x.*.health", "meshsat.t_x.*.signal", "meshsat.t_x.*.mo.>", "meshsat.t_x.*.status.>", "meshsat.t_x.*.sms.>", "meshsat.t_x.*.config.current"] }, subscribe: { allow: ["meshsat.t_x.bridge.kit-b.>", "meshsat.t_x.*.mt.>", "meshsat.t_x.*.config.>", "$MQTT.sub.>"] } }`,
+		// A customer-tenant bridge gets neither the platform's broadcast nor hub.
+		// What it does get is its OWN tenant's TAK traffic, named exactly
+		// (MESHSAT-1461).
+		`{ user: "kit-b", password: "$2a$10$hashB", permissions: { publish: { allow: ["meshsat.t_x.bridge.kit-b.>", "meshsat.t_x.*.position", "meshsat.t_x.*.telemetry", "meshsat.t_x.*.sos", "meshsat.t_x.*.health", "meshsat.t_x.*.signal", "meshsat.t_x.*.mo.>", "meshsat.t_x.*.status.>", "meshsat.t_x.*.sms.>", "meshsat.t_x.*.config.current"] }, subscribe: { allow: ["meshsat.t_x.bridge.kit-b.>", "meshsat.t_x.*.mt.>", "meshsat.t_x.*.config.>", "meshsat.t_x.broadcast.tak.cot.in", "meshsat.t_x.broadcast.tak.cot.in.*", "$MQTT.sub.>"] } }`,
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("missing %q in:\n%s", want, out)
@@ -162,6 +164,50 @@ func TestABridgeMayExportCoTOnItsOwnSubtreeAndNowhereElse(t *testing.T) {
 		// itself should stay.
 		if !anyMatches(pub, subject(c.tenant, "mo")) {
 			t.Logf("%s: the mo.> grant no longer reaches a bridge-shaped export topic", c.ns)
+		}
+	}
+}
+
+// The return path (MESHSAT-1461): a bridge may read its OWN tenant's TAK
+// broadcast, both topics, and nobody else's.
+func TestABridgeMaySubscribeOnlyItsOwnTenantsTAKBroadcast(t *testing.T) {
+	subject := func(topic string) string { return strings.ReplaceAll(topic, "/", ".") }
+
+	_, cust := NATSPermissions("meshsat/t_x", "b1")
+	_, plat := NATSPermissions("meshsat", "kit-a")
+
+	for _, own := range []string{
+		subject(hubmqtt.TopicTAKBroadcastFor("t_x")),
+		subject(hubmqtt.TopicTAKBroadcastFromFor("t_x", "b2")),
+	} {
+		if !anyMatches(cust, own) {
+			t.Errorf("a customer bridge may not subscribe to its own tenant's %s", own)
+		}
+		if anyMatches(plat, own) {
+			t.Errorf("a PLATFORM bridge may subscribe to a customer's %s", own)
+		}
+	}
+	for _, platforms := range []string{
+		subject(hubmqtt.TopicTAKBroadcastFor(hubmqtt.DefaultTenant)),
+		subject(hubmqtt.TopicTAKBroadcastFromFor(hubmqtt.DefaultTenant, "kit-b")),
+	} {
+		if !anyMatches(plat, platforms) {
+			t.Errorf("a platform bridge may not subscribe to the platform's %s", platforms)
+		}
+		if anyMatches(cust, platforms) {
+			t.Errorf("a CUSTOMER bridge may subscribe to the platform's %s", platforms)
+		}
+	}
+	// Another customer's, and anything else under its own broadcast.
+	for _, no := range []string{
+		subject(hubmqtt.TopicTAKBroadcastFor("t_y")),
+		subject(hubmqtt.TopicTAKBroadcastFromFor("t_y", "b1")),
+		"meshsat.t_x.broadcast.something.else",
+		"meshsat.t_x.broadcast.tak.cot.in.b2.deeper",
+		"meshsat.t_x.broadcast.tak.cot.out",
+	} {
+		if anyMatches(cust, no) {
+			t.Errorf("a customer bridge may subscribe to %s", no)
 		}
 	}
 }

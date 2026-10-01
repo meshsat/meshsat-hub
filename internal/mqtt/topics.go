@@ -319,6 +319,29 @@ func ParseTAKCotOut(topic string) (tenantID, bridgeID string, ok bool) {
 	return tenantID, bridgeID, true
 }
 
+// The return path (MESHSAT-1461): what the Hub delivers to a tenant's kits and
+// apps. Two topics, in the tenant's own namespace:
+//
+//	{ns}/broadcast/tak/cot/in            an event from one of the tenant's TAK servers
+//	{ns}/broadcast/tak/cot/in/{sender}   an event another of the tenant's clients exported
+//
+// The sender is in the TOPIC of a client's event so that the client which sent it
+// can drop it without parsing anything, and correctly: a kit exports events for
+// mesh nodes other than itself, so "is this UID mine" does not answer "did I send
+// this". For the default tenant the first is the historical
+// meshsat/broadcast/tak/cot/in, which every client already subscribes to.
+
+// TopicTAKBroadcastFor is where the Hub delivers an event from a TAK server.
+func TopicTAKBroadcastFor(tenantID string) string {
+	return Namespace(tenantID) + "/broadcast/tak/cot/in"
+}
+
+// TopicTAKBroadcastFromFor is where the Hub delivers an event that one of the
+// tenant's own clients exported, naming that client.
+func TopicTAKBroadcastFromFor(tenantID, senderBridgeID string) string {
+	return TopicTAKBroadcastFor(tenantID) + "/" + EncodeSegment(senderBridgeID)
+}
+
 // DualFilters returns the subscription filters for both topic shapes of a
 // legacy filter: "meshsat/+/mo/decoded" -> itself and "meshsat/+/+/mo/decoded";
 // "meshsat/bridge/+/birth" -> itself and "meshsat/+/bridge/+/birth".

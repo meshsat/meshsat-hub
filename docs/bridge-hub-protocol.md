@@ -90,6 +90,44 @@ needs no TAK server of its own and no address for one.
 The topic clients first shipped with, `meshsat/{id}/tak/cot/out`, was never
 accepted by the broker and is not consumed.
 
+### TAK Delivery Topics (Hub 2026-10, MESHSAT-1461)
+
+| Topic | QoS | Retained | Publisher | Description |
+|-------|-----|----------|-----------|-------------|
+| `meshsat/broadcast/tak/cot/in` | 0 | No | Hub | One event from one of the tenant's TAK servers |
+| `meshsat/broadcast/tak/cot/in/{sender_bridge_id}` | 0 | No | Hub | One event another bridge of the tenant exported |
+
+What the Hub hands back to a tenant's bridges. Subscribe to both: the exact
+topic and one level below it (`.../in/+`).
+
+- **From a TAK server.** While a tenant has a bridge online, the Hub holds a
+  connection to each of the tenant's TAK servers and delivers what they send:
+  the phones on the tenant's TAK map, their chat, their markers.
+- **From the tenant's other bridges.** Every event a bridge exports is also
+  delivered to the tenant's other bridges, whether or not the tenant has a TAK
+  server. The sender's bridge id is the last topic segment (percent-encoded
+  like every id). **Drop the message whose last segment is your own bridge
+  id.** Compare the topic, not the event's `uid`: a kit exports events for
+  mesh nodes other than itself.
+- **Payload:** exactly one `<event>` on one line, re-written by the Hub, at
+  most 64 KiB from a server and 16 KiB from a bridge.
+- **QoS 0 and never retained.** A position is true for a minute or two;
+  nothing is queued for a bridge that was offline and nothing is kept for the
+  next one to subscribe.
+- **Do not export what you receive here.** The Hub has already sent it
+  everywhere it goes.
+- **Not delivered:** keepalives and protocol negotiation, the Hub's own
+  markers (`meshsat-device-...`, `meshsat-bridge-...`, `meshsat-hub-...`), an
+  echo of what the Hub itself wrote in the last minute, a second copy of an
+  event already delivered, and anything `tak.Sanitize` refuses.
+- **The Hub on a TAK server.** On each connection the Hub first sends an event
+  with `uid="meshsat-hub-{tenant}"` and callsign "MeshSat Hub". A TAK server
+  sends a connection nothing until it has said who it is; the event is not a
+  position type, so TAK clients do not draw it.
+
+For a tenant other than the default one, both topics sit under the tenant's
+root: `meshsat/{tenant_id}/broadcast/tak/cot/in` and `.../in/{sender}`.
+
 ### Tenant Namespaces (Hub 2026-09, MESHSAT-864)
 
 The tables above show the **default tenant** shape. Every other tenant owns the

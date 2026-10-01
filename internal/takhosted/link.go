@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/meshsat/meshsat-hub/internal/tak"
 	"github.com/meshsat/meshsat-hub/internal/takfront"
 )
 
@@ -56,6 +57,15 @@ const (
 	linkBackoffMax = 5 * time.Minute
 )
 
+// A connection silent for linkPingAfter is pinged, checked every linkPingCheck. A
+// minute: well inside what a NAT or a server's own idle timer allows, and rare
+// enough to cost a server nothing. Variables only so a test need not wait a
+// minute; nothing else assigns them.
+var (
+	linkPingAfter = time.Minute
+	linkPingCheck = 15 * time.Second
+)
+
 // errBackingOff is why an event was dropped without a dial.
 var errBackingOff = errors.New("takhosted: not redialling yet")
 
@@ -72,32 +82,47 @@ type link struct {
 	f        *Forwarder
 	key      string
 	tenantID string
+	r        *run
 	q        chan job
-	urgent   chan job // emergencies; emptied before q
+	urgent   chan job      // emergencies; emptied before q
+	wake     chan struct{} // connect now, with nothing to send
 	ctx      context.Context
 	cancel   context.CancelFunc
 
-	mu       sync.Mutex
-	conn     net.Conn
-	last     time.Time // the last successful write, or when the link was made
-	fails    int
-	nextDial time.Time
+	mu        sync.Mutex
+	conn      net.Conn
+	up        *takfront.Tenant // this upstream as it was last resolved
+	last      time.Time        // the last event written, or when the link was made
+	lastWrite time.Time        // the last write of any kind, for pacing keepalives
+	fails     int
+	nextDial  time.Time
 }
 
-func newLink(parent context.Context, f *Forwarder, key, tenantID string) *link {
-	ctx, cancel := context.WithCancel(parent)
+func newLink(r *run, f *Forwarder, key, tenantID string) *link {
+	ctx, cancel := context.WithCancel(r.ctx)
 	return &link{
-		f: f, key: key, tenantID: tenantID,
+		f: f, r: r, key: key, tenantID: tenantID,
 		q:      make(chan job, linkQueue),
 		urgent: make(chan job, linkUrgentQueue),
+		wake:   make(chan struct{}, 1),
 		ctx:    ctx, cancel: cancel,
 		last: time.Now(),
 	}
 }
 
+// setUp records this upstream as it was just resolved, so a dial made with
+// nothing to send presents the certificate the tenant has now.
+func (l *link) setUp(up *takfront.Tenant) {
+	l.mu.Lock()
+	l.up = up
+	l.mu.Unlock()
+}
+
 // loop writes what is queued until the link is closed.
 func (l *link) loop() {
 	defer l.closeConn()
+	tick := time.NewTicker(linkPingCheck)
+	defer tick.Stop()
 	for {
 		// An emergency that is waiting goes before anything else that is.
 		select {
@@ -113,8 +138,47 @@ func (l *link) loop() {
 			l.deliver(j)
 		case j := <-l.q:
 			l.deliver(j)
+		case <-l.wake:
+			l.connect()
+		case <-tick.C:
+			l.keepalive()
 		}
 	}
+}
+
+// connect opens the connection with nothing to send, so that what the tenant's
+// server has to say can be heard while the tenant's own clients are quiet.
+func (l *link) connect() {
+	l.mu.Lock()
+	up := l.up
+	l.mu.Unlock()
+	if up == nil {
+		return
+	}
+	if _, err := l.connFor(up); err != nil && !errors.Is(err, errBackingOff) && l.ctx.Err() == nil {
+		l.f.log.Warn("takhosted: could not reach a tenant's TAK server",
+			"tenant", l.tenantID, "upstream", up.Upstream, "kind", up.Label, "error", err)
+	}
+}
+
+// keepalive writes a ping on a connection that has been silent for
+// linkPingAfter. It is how a peer that has gone without closing is noticed: the
+// reader would wait on it for ever, and the write fails instead.
+func (l *link) keepalive() {
+	l.mu.Lock()
+	conn, idle := l.conn, time.Since(l.lastWrite)
+	l.mu.Unlock()
+	if conn == nil || idle < linkPingAfter {
+		return
+	}
+	_ = conn.SetWriteDeadline(time.Now().Add(linkWriteTimeout))
+	if _, err := conn.Write(hubPing(time.Now())); err != nil {
+		l.dropConn(conn)
+		return
+	}
+	l.mu.Lock()
+	l.lastWrite = time.Now()
+	l.mu.Unlock()
 }
 
 // deliver writes one event, dialling on first use and redialling once if the held
@@ -146,6 +210,7 @@ func (l *link) deliver(j job) {
 		}
 		l.mu.Lock()
 		l.last = time.Now()
+		l.lastWrite = l.last
 		l.mu.Unlock()
 		return
 	}
@@ -179,11 +244,21 @@ func (l *link) connFor(up *takfront.Tenant) (net.Conn, error) {
 	// so it refuses us on a connection we already believe is open. Find that out
 	// HERE: before the connection is kept, and before the log below claims it
 	// opened.
-	if why := upstreamRejected(conn); why != nil {
+	first, why := upstreamRejected(conn)
+	if why != nil {
 		_ = conn.Close()
 		forwardsFailed.WithLabelValues(kindOf(up), reasonRefused).Inc()
 		l.failed()
 		return nil, fmt.Errorf("%s refused this Hub: %w", up.Upstream, why)
+	}
+	// Say who this is before anything else is written; see hello.go for why a
+	// server needs that before it will send anything back.
+	_ = conn.SetWriteDeadline(time.Now().Add(linkWriteTimeout))
+	if _, err := conn.Write(hubHello(l.tenantID, time.Now())); err != nil {
+		_ = conn.Close()
+		forwardsFailed.WithLabelValues(kindOf(up), reasonWrite).Inc()
+		l.failed()
+		return nil, fmt.Errorf("write to %s: %w", up.Upstream, err)
 	}
 
 	l.mu.Lock()
@@ -196,12 +271,74 @@ func (l *link) connFor(up *takfront.Tenant) (net.Conn, error) {
 	l.conn = conn
 	l.fails = 0
 	l.nextDial = time.Time{}
+	l.lastWrite = time.Now()
 	l.mu.Unlock()
 	// The tenant and the address, not the key: a reader wants to know whose server
 	// this is and where it is, and the key is an implementation detail.
 	l.f.log.Info("takhosted: opened a CoT connection to a tenant's TAK server",
 		"tenant", up.TenantID, "upstream", up.Upstream, "kind", up.Label)
+
+	// What the server sends back is read by a goroutine of its own, for as long
+	// as this connection lives. Counted in the run's wait group; adding to it
+	// here is safe because this runs on the link's own goroutine, which the group
+	// is already waiting for.
+	l.r.wg.Add(1)
+	go func() {
+		defer l.r.wg.Done()
+		l.read(conn, up, first)
+	}()
 	return conn, nil
+}
+
+// read takes what the server sends on one connection, until that connection
+// ends. first is what the dial probe had already read.
+//
+// A plain conn.Read in a loop with no deadline (rule 15). It is unblocked by the
+// connection being closed, which is what closeConn, close and a failed write all
+// do.
+func (l *link) read(conn net.Conn, up *takfront.Tenant, first []byte) {
+	defer l.dropConn(conn)
+	framer := tak.NewFramer(tak.UpstreamLimits.MaxBytes)
+	take := func(p []byte) bool {
+		frames, err := framer.Feed(p)
+		for _, frame := range frames {
+			l.f.onUpstream(l.r, l.tenantID, up, frame)
+		}
+		if err != nil {
+			// The stream has lost its meaning: not CoT XML, or an event with no
+			// end. Closing is the only way back to a known state.
+			forwardsFailed.WithLabelValues(kindOf(up), reasonStream).Inc()
+			if l.ctx.Err() == nil {
+				l.f.log.Warn("takhosted: closing a TAK server connection whose stream could not be read",
+					"tenant", l.tenantID, "upstream", up.Upstream, "kind", up.Label, "error", err)
+			}
+			return false
+		}
+		return true
+	}
+	if len(first) > 0 && !take(first) {
+		return
+	}
+	buf := make([]byte, 32<<10)
+	for {
+		n, err := conn.Read(buf)
+		if n > 0 && !take(buf[:n]) {
+			return
+		}
+		if err != nil {
+			return
+		}
+	}
+}
+
+// dropConn closes one connection and forgets it if it is still the link's.
+func (l *link) dropConn(conn net.Conn) {
+	l.mu.Lock()
+	if l.conn == conn {
+		l.conn = nil
+	}
+	l.mu.Unlock()
+	_ = conn.Close()
 }
 
 // failed records a failure and sets when the next dial may be made.

@@ -117,9 +117,9 @@ type mtlsOTS struct {
 }
 
 // newMTLSOTS starts a TLS listener requiring a client certificate signed by
-// trusts. It reads and discards and never writes, which is what a real
-// OpenTAKServer does on this socket -- and is what makes silence the healthy
-// signal the probe relies on.
+// trusts. It reads and never writes first, which is what a real OpenTAKServer
+// does to a connection that has not spoken -- and is what makes silence the
+// healthy signal the probe relies on.
 func newMTLSOTS(t *testing.T, own, trusts *mtlsCA) *mtlsOTS {
 	t.Helper()
 	s := &mtlsOTS{}
@@ -297,10 +297,12 @@ func TestAServerThatTrustsOurCertificateStillReceivesCoT(t *testing.T) {
 		t.Fatalf("nothing was subscribed to %s", topic)
 	}
 
+	// The Hub's own hello arrives first (MESHSAT-1461), so wait for the position
+	// rather than for the first bytes.
 	deadline := time.Now().Add(5 * time.Second)
 	var got []string
 	for time.Now().Before(deadline) {
-		if got = ots.received(); len(got) > 0 {
+		if got = ots.received(); strings.Contains(strings.Join(got, ""), "meshsat-device-300434") {
 			break
 		}
 		time.Sleep(20 * time.Millisecond)
@@ -361,7 +363,7 @@ func TestAnIdleConnectionIsHealthyNotRejected(t *testing.T) {
 	}
 	defer func() { _ = c.Close() }()
 
-	if why := upstreamRejected(c); why != nil {
+	if _, why := upstreamRejected(c); why != nil {
 		t.Errorf("an idle, healthy connection was rejected: %v", why)
 	}
 }
@@ -387,7 +389,7 @@ func TestAPeerThatHangsUpIsRejected(t *testing.T) {
 	}
 	defer func() { _ = c.Close() }()
 
-	if why := upstreamRejected(c); why == nil {
+	if _, why := upstreamRejected(c); why == nil {
 		t.Error("a peer that closed the connection immediately was treated as healthy, " +
 			"so its tenant's positions would go nowhere in silence")
 	}

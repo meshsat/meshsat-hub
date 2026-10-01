@@ -175,3 +175,35 @@ func TestTAKCotOutTopics(t *testing.T) {
 		}
 	}
 }
+
+func TestTAKBroadcastTopics(t *testing.T) {
+	// The default tenant keeps the historical topic every client subscribes to.
+	if got := TopicTAKBroadcastFor(DefaultTenant); got != "meshsat/broadcast/tak/cot/in" {
+		t.Errorf("default tenant: %q", got)
+	}
+	if got := TopicTAKBroadcastFor("t_x"); got != "meshsat/t_x/broadcast/tak/cot/in" {
+		t.Errorf("tenant: %q", got)
+	}
+	if got := TopicTAKBroadcastFromFor("t_x", "ios+1"); got != "meshsat/t_x/broadcast/tak/cot/in/ios%2B1" {
+		t.Errorf("from, encoded: %q", got)
+	}
+	// Neither shape may be read as a device topic or a bridge topic by the
+	// subscribers that listen on wildcards.
+	for _, topic := range []string{
+		TopicTAKBroadcastFor(DefaultTenant), TopicTAKBroadcastFor("t_x"),
+		TopicTAKBroadcastFromFor(DefaultTenant, "kit1"), TopicTAKBroadcastFromFor("t_x", "kit1"),
+	} {
+		if _, _, _, ok := ParseDeviceTopic(topic); ok {
+			t.Errorf("%s parses as a device topic", topic)
+		}
+		if _, _, _, ok := ParseBridgeTopic(topic); ok {
+			t.Errorf("%s parses as a bridge topic", topic)
+		}
+		if _, _, ok := ParseTAKCotOut(topic); ok {
+			t.Errorf("%s parses as an export topic", topic)
+		}
+		if err := CheckPublishTopic(topic); err != nil {
+			t.Errorf("%s is refused as a publish topic: %v", topic, err)
+		}
+	}
+}
