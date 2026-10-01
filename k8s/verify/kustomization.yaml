@@ -23,6 +23,7 @@ configMapGenerator:
       - suites/deployed-is-pinned.sh
       - suites/capabilities-suite.py
       - suites/position-dedup-suite.py
+      - suites/tak-export-suite.py
       - suites/integrations-replica-suite.py
       - suites/quota-suite.py
       - suites/notify-e2e.py
