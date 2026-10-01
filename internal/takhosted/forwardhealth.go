@@ -54,6 +54,9 @@ const (
 	// reasonQueue is an upstream that is not keeping up: its link already had a
 	// full queue waiting, so the event was dropped rather than made to wait.
 	reasonQueue = "queue"
+	// reasonStream is a connection closed because what the server sent on it
+	// could not be read as CoT XML.
+	reasonStream = "stream"
 )
 
 // intakeDropped counts bus messages the forwarder could not take because its
@@ -64,14 +67,19 @@ var intakeDropped = promauto.NewCounter(prometheus.CounterOpts{
 	Help: "Bus messages the TAK forwarder dropped because its dispatcher was behind.",
 })
 
-// cotTotal counts the CoT that kits and apps export to the Hub, by what became of
-// it (MESHSAT-1458). No tenant and no sender label, for the reason given above.
-// result is "forwarded", "nowhere" (accepted, and the tenant has no TAK server),
-// or why it was dropped: one of the fixed results in cot_ingest.go or a
-// tak.Refused reason.
+// cotTotal counts the CoT that reaches the Hub from outside, by where it came from
+// and what became of it. No tenant and no sender label, for the reason given
+// above.
+//
+// source "client" is what kits and apps export (MESHSAT-1458): result is
+// "forwarded", "nowhere" (accepted, and the tenant has no TAK server), or why it
+// was dropped. source "upstream" is what a tenant's TAK server sends back
+// (MESHSAT-1461): result is "delivered" (handed to the tenant's clients) or why
+// it was dropped. The reasons are the fixed results in cot_ingest.go and
+// fanout.go, or a tak.Refused reason.
 var cotTotal = promauto.NewCounterVec(prometheus.CounterOpts{
 	Name: "meshsat_hub_takhosted_cot_total",
-	Help: "CoT events exported to the Hub by kits and apps, by source and by what became of them.",
+	Help: "CoT events reaching the Hub from kits and apps (client) or from a tenant's TAK server (upstream), by what became of them.",
 }, []string{"source", "result"})
 
 func init() {
@@ -85,8 +93,15 @@ func init() {
 	} {
 		cotTotal.WithLabelValues(sourceClient, result)
 	}
+	for _, result := range []string{
+		cotDelivered, cotEcho, cotRateLimited, cotDuplicate, cotControl, cotHubUID, cotError,
+		tak.ReasonSize, tak.ReasonEncoding, tak.ReasonMarkup, tak.ReasonStructure,
+		tak.ReasonNamespace, tak.ReasonLimits, tak.ReasonFields, tak.ReasonStale,
+	} {
+		cotTotal.WithLabelValues(sourceUpstream, result)
+	}
 	for _, kind := range []string{kindHosted, kindExternal} {
-		for _, reason := range []string{reasonRefused, reasonDial, reasonWrite, reasonQueue} {
+		for _, reason := range []string{reasonRefused, reasonDial, reasonWrite, reasonQueue, reasonStream} {
 			forwardsFailed.WithLabelValues(kind, reason)
 		}
 	}
@@ -133,18 +148,17 @@ const dialProbeWindow = 500 * time.Millisecond
 //
 // # Why a bounded read is the right probe
 //
-// This socket carries CoT one way and nothing reads it, so there is normally
-// nothing to read. That makes silence the healthy answer and anything else the
-// server telling us why it is finished with us.
+// The Hub has written nothing yet when this runs, and a TAK server says nothing
+// to a client that has not spoken. That makes silence the healthy answer, and an
+// error the server telling us why it is finished with us.
 //
 // Rule 15 is satisfied and not bent: this is a raw conn.Read with a deadline,
 // used exactly once, not SetReadDeadline around a bufio.Scanner in a loop.
 // internal/reticulum/iface_tcp.go is the existing precedent for the permitted
 // form.
 //
-// It reads at most one byte and drops it. Nothing reads this connection today, so
-// the return stream is already discarded; this changes nothing a tenant's server
-// can observe.
+// Whatever it does read is returned, not dropped: since MESHSAT-1461 the return
+// stream is read, and those bytes are its beginning.
 //
 // # When the window is too short
 //
@@ -153,28 +167,29 @@ const dialProbeWindow = 500 * time.Millisecond
 // runs again on a connection whose alert has certainly arrived. The failure is
 // then reported one position late rather than never. Late is recoverable; silent
 // is what this fixes.
-func upstreamRejected(c net.Conn) error {
+func upstreamRejected(c net.Conn) (first []byte, why error) {
 	if err := c.SetReadDeadline(time.Now().Add(dialProbeWindow)); err != nil {
 		// A connection that cannot take a deadline cannot be probed. Forwarding is
 		// the more useful failure mode than refusing to try.
-		return nil
+		return nil, nil
 	}
 	defer func() { _ = c.SetReadDeadline(time.Time{}) }()
 
-	var one [1]byte
-	switch _, err := c.Read(one[:]); {
+	buf := make([]byte, 4096)
+	switch n, err := c.Read(buf); {
 	case err == nil:
-		// The server sent something. Unexpected on this socket, but it is alive and
-		// talking, which is the opposite of the problem being looked for.
-		return nil
+		// The server sent something. It is alive and talking, which is the
+		// opposite of the problem being looked for -- and what it said is the
+		// start of its stream, so it is handed back rather than dropped.
+		return buf[:n], nil
 	case isTimeout(err):
-		return nil
+		return nil, nil
 	case errors.Is(err, io.EOF), errors.Is(err, net.ErrClosed):
-		return fmt.Errorf("it closed the connection without sending anything: %w", err)
+		return nil, fmt.Errorf("it closed the connection without sending anything: %w", err)
 	default:
 		// The interesting case, and the one with a message worth showing somebody:
 		// "remote error: tls: certificate required".
-		return err
+		return nil, err
 	}
 }
 

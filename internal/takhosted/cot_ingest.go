@@ -166,12 +166,23 @@ func (f *Forwarder) onCot(r *run, tenantID, bridgeID string, payload []byte) {
 		r.suppress.mark(tenantID, meta.UID, meta.Stale, now)
 	}
 
+	// To the tenant's other clients, whether or not the tenant has a TAK server:
+	// a server would not send this back down the Hub's connection, so the Hub is
+	// the only thing that can show two of a tenant's kits to each other
+	// (MESHSAT-1461). The sender is in the topic; a client drops its own.
+	if err := f.deliver(hubmqtt.TopicTAKBroadcastFromFor(tenantID, bridgeID), line); err != nil {
+		f.log.Debug("takhosted: could not deliver an exported event to the tenant's other clients",
+			"tenant", tenantID, "error", err)
+	}
+
 	ups := f.upstreams(ctx, tenantID)
 	if len(ups) == 0 {
 		cotTotal.WithLabelValues(sourceClient, cotNowhere).Inc()
 		return
 	}
-	line = append(line, '\n')
+	// Remembered, so a server that sends this back is not delivering news.
+	r.sent.add(tenantID, meta.UID, meta.Time, now)
+	line = append(append([]byte(nil), line...), '\n')
 	for _, up := range ups {
 		if up == nil {
 			continue

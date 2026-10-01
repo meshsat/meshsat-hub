@@ -97,15 +97,21 @@ type run struct {
 	wg    sync.WaitGroup
 
 	// suppress is the nodes that export their own marker; seen is what has been
-	// forwarded in the last minute. Both belong to this tenure and start empty.
+	// forwarded or delivered in the last minute; sent is what was written to TAK
+	// servers, so its echo is recognised; present is the tenants with a client
+	// online. All four belong to this tenure and start empty.
 	suppress *suppressor
 	seen     *dedup
+	sent     *sentMemory
+	present  *presence
 }
 
-// inbound is one bus message waiting for the dispatcher.
+// inbound is one thing waiting for the dispatcher: a bus message, or (when
+// connect is set) a tenant whose connections want opening.
 type inbound struct {
 	topic   string
 	payload []byte
+	connect string
 }
 
 // intakeQueue bounds what the handlers may have waiting for the dispatcher. The
@@ -128,9 +134,18 @@ var forwardFilters = []string{
 	"meshsat/+/sos",
 }
 
-// hubMarkerPrefixes are the UIDs the Hub itself publishes. A marker carrying one
-// came from us, so forwarding it would echo.
-var hubMarkerPrefixes = []string{"meshsat-bridge-", "meshsat-device-"}
+// presenceFilters are what says a tenant has a client online: every bridge's
+// health, every thirty seconds, and its birth. See presence.go.
+var presenceFilters = []string{
+	"meshsat/bridge/+/health",
+	"meshsat/bridge/+/birth",
+}
+
+// hubMarkerPrefixes are the UIDs the Hub itself publishes: the markers it draws
+// for bridges and devices, and its own hello and ping on a TAK stream. An event
+// carrying one came from us, so forwarding it would echo, and a client or a
+// server sending one is speaking in the Hub's name.
+var hubMarkerPrefixes = []string{"meshsat-bridge-", "meshsat-device-", hubUIDPrefix}
 
 // DefaultStaleSec is how long a forwarded position is treated as current. Two
 // minutes: long enough that a kit reporting every minute never flickers, short
@@ -176,7 +191,7 @@ func (f *Forwarder) Run(ctx context.Context) {
 
 	r := &run{
 		ctx: ctx, intake: make(chan inbound, intakeQueue), links: map[string]*link{},
-		suppress: newSuppressor(), seen: newDedup(),
+		suppress: newSuppressor(), seen: newDedup(), sent: newSentMemory(), present: newPresence(),
 	}
 	// The run is published BEFORE the filters are installed, so what the broker
 	// delivers the moment a filter lands -- retained positions -- has somewhere
@@ -205,11 +220,18 @@ func (f *Forwarder) Run(ctx context.Context) {
 			return
 		case <-t.C:
 			now := time.Now()
-			r.reapIdle(f.log)
+			r.reapIdle(f.log, now)
 			r.suppress.prune(now)
 			r.seen.prune(now)
+			r.sent.prune(now)
 			f.limits.prune(now)
 			f.pruneRegistrations(now)
+			// Every tenant with a client online has its connections checked: a
+			// server that was down, or a hosted instance whose identity had not
+			// been issued yet, is tried again here.
+			for _, tenantID := range r.present.active(now) {
+				r.askConnect(tenantID)
+			}
 		}
 	}
 }
@@ -231,6 +253,10 @@ func (f *Forwarder) subscribe() {
 	}
 	// What kits and apps export themselves (MESHSAT-1458); see cot_ingest.go.
 	filters = append(filters, hubmqtt.TAKCotOutFilters()...)
+	// Which tenants have a client online (MESHSAT-1461); see presence.go.
+	for _, legacy := range presenceFilters {
+		filters = append(filters, hubmqtt.DualFilters(legacy)...)
+	}
 	for _, filter := range filters {
 		if f.subscribed[filter] {
 			continue
@@ -251,7 +277,20 @@ func (f *Forwarder) receive(topic string, payload []byte) {
 		// Not the leader. The message is the leader's to forward.
 		return
 	}
-	if strings.HasSuffix(topic, cotOutSuffix) && !f.admit(topic, payload) {
+	switch {
+	case strings.HasSuffix(topic, cotOutSuffix):
+		if !f.admit(topic, payload) {
+			return
+		}
+	case strings.HasSuffix(topic, "/health"), strings.HasSuffix(topic, "/birth"):
+		// A bridge reporting in: its tenant has a client online. Nothing of the
+		// message is kept. Only a tenant that has just arrived is handed to the
+		// dispatcher, so its connections open now and not at the next tick.
+		if tenantID, _, rest, ok := hubmqtt.ParseBridgeTopic(topic); ok && len(rest) == 1 {
+			if r.present.touch(tenantID, time.Now()) {
+				r.askConnect(tenantID)
+			}
+		}
 		return
 	}
 	// Copied: the handler returns before the dispatcher reads it.
@@ -270,6 +309,10 @@ func (f *Forwarder) dispatch(r *run) {
 		case <-r.ctx.Done():
 			return
 		case m := <-r.intake:
+			if m.connect != "" {
+				f.connectTenant(r, m.connect)
+				continue
+			}
 			if tenantID, bridgeID, ok := hubmqtt.ParseTAKCotOut(m.topic); ok {
 				f.onCot(r, tenantID, bridgeID, m.payload)
 				continue
@@ -336,6 +379,10 @@ func (f *Forwarder) onPosition(r *run, topic string, payload []byte) {
 		return
 	}
 	line := append(xml, '\n')
+	if at, err := time.Parse(time.RFC3339, ev.Time); err == nil {
+		// Remembered, so a server that sends this back is not delivering news.
+		r.sent.add(tenantID, ev.UID, at, time.Now())
+	}
 
 	// Every upstream gets it, and one failing must not stop the others: a
 	// customer's own server being unreachable is no reason to keep their kit off
@@ -366,16 +413,7 @@ func (f *Forwarder) enqueue(r *run, tenantID string, up *takfront.Tenant, line [
 	if r.ctx.Err() != nil {
 		return
 	}
-	l, ok := r.links[key]
-	if !ok {
-		l = newLink(r.ctx, f, key, tenantID)
-		r.links[key] = l
-		r.wg.Add(1)
-		go func() {
-			defer r.wg.Done()
-			l.loop()
-		}()
-	}
+	l := f.linkLocked(r, key, tenantID, up)
 	j := job{up: up, payload: line}
 	// An emergency has a queue of its own, which the link empties first, so it
 	// neither waits behind routine positions nor is the one displaced by them.
@@ -403,6 +441,55 @@ func (f *Forwarder) enqueue(r *run, tenantID string, up *takfront.Tenant, line [
 	forwardsFailed.WithLabelValues(kindOf(up), reasonQueue).Inc()
 }
 
+// linkLocked returns the link for one upstream, making and starting it on first
+// use, and records the upstream as it was just resolved. r.mu must be held.
+func (f *Forwarder) linkLocked(r *run, key, tenantID string, up *takfront.Tenant) *link {
+	l, ok := r.links[key]
+	if !ok {
+		l = newLink(r, f, key, tenantID)
+		r.links[key] = l
+		r.wg.Add(1)
+		go func() {
+			defer r.wg.Done()
+			l.loop()
+		}()
+	}
+	l.setUp(up)
+	return l
+}
+
+// askConnect queues a tenant for connectTenant. It never waits: it is called
+// from the bus handler.
+func (r *run) askConnect(tenantID string) {
+	select {
+	case r.intake <- inbound{connect: tenantID}:
+	default:
+		// The dispatcher is behind. The next tick asks again.
+	}
+}
+
+// connectTenant opens a connection to every TAK server of a tenant that has a
+// client online, with nothing to send, so that what those servers have to say is
+// heard. A tenant with no TAK server costs one lookup and nothing else.
+func (f *Forwarder) connectTenant(r *run, tenantID string) {
+	for _, up := range f.upstreams(r.ctx, tenantID) {
+		if up == nil {
+			continue
+		}
+		r.mu.Lock()
+		if r.ctx.Err() != nil {
+			r.mu.Unlock()
+			return
+		}
+		l := f.linkLocked(r, upstreamKey(tenantID, up), tenantID, up)
+		r.mu.Unlock()
+		select {
+		case l.wake <- struct{}{}:
+		default:
+		}
+	}
+}
+
 // upstreamKey identifies one link: a tenant can have several upstreams, so the
 // tenant alone is not enough. Keyed on the address rather than the label, because
 // the address is what a connection actually goes to.
@@ -410,12 +497,16 @@ func upstreamKey(tenantID string, t *takfront.Tenant) string {
 	return tenantID + "|" + t.Upstream
 }
 
-// reapIdle closes the links that have had nothing to send for idleUpstream.
-func (r *run) reapIdle(log *slog.Logger) {
-	cutoff := time.Now().Add(-idleUpstream)
+// reapIdle closes the links that have had nothing to send for idleUpstream and
+// whose tenant has no client online to listen for.
+func (r *run) reapIdle(log *slog.Logger, now time.Time) {
+	cutoff := now.Add(-idleUpstream)
 	var stale []*link
 	r.mu.Lock()
 	for key, l := range r.links {
+		if r.present.present(l.tenantID, now) {
+			continue
+		}
 		if l.idleSince().Before(cutoff) && len(l.q) == 0 && len(l.urgent) == 0 {
 			delete(r.links, key)
 			stale = append(stale, l)
@@ -465,7 +556,11 @@ func (f *Forwarder) ForgetTenant(tenantID string) {
 	f.forgetRegistrations(tenantID)
 	f.limits.forget("t|" + tenantID)
 	f.limits.forget("tu|" + tenantID)
+	f.limits.forget("u|" + tenantID + "|")
 	if r := f.cur.Load(); r != nil {
+		// Presence first: a link closed while its tenant still counts as present
+		// would be opened again at the next tick.
+		r.present.forget(tenantID)
 		r.forget(tenantID)
 		r.suppress.forget(tenantID)
 	}
