@@ -77,6 +77,13 @@ type Forwarder struct {
 
 	// cur is the run the handlers feed, nil while this replica is not the leader.
 	cur atomic.Pointer[run]
+
+	// limits are the budgets on exported CoT, drawn on by the bus handler.
+	limits *limiter
+
+	// reg caches whether a bridge is registered to a tenant. Guarded by regMu.
+	regMu sync.Mutex
+	reg   map[string]regEntry
 }
 
 // run is one tenure as leader: the queue the handlers feed and the links it
@@ -88,6 +95,11 @@ type run struct {
 	mu    sync.Mutex
 	links map[string]*link
 	wg    sync.WaitGroup
+
+	// suppress is the nodes that export their own marker; seen is what has been
+	// forwarded in the last minute. Both belong to this tenure and start empty.
+	suppress *suppressor
+	seen     *dedup
 }
 
 // inbound is one bus message waiting for the dispatcher.
@@ -149,6 +161,8 @@ func NewForwarder(
 		bus: b, store: s, dial: dial, upstreams: upstreams, log: log,
 		staleSec:   DefaultStaleSec,
 		subscribed: map[string]bool{},
+		limits:     newLimiter(),
+		reg:        map[string]regEntry{},
 	}
 }
 
@@ -160,7 +174,10 @@ func (f *Forwarder) Run(ctx context.Context) {
 		return
 	}
 
-	r := &run{ctx: ctx, intake: make(chan inbound, intakeQueue), links: map[string]*link{}}
+	r := &run{
+		ctx: ctx, intake: make(chan inbound, intakeQueue), links: map[string]*link{},
+		suppress: newSuppressor(), seen: newDedup(),
+	}
 	// The run is published BEFORE the filters are installed, so what the broker
 	// delivers the moment a filter lands -- retained positions -- has somewhere
 	// to go.
@@ -187,7 +204,12 @@ func (f *Forwarder) Run(ctx context.Context) {
 			r.wg.Wait()
 			return
 		case <-t.C:
+			now := time.Now()
 			r.reapIdle(f.log)
+			r.suppress.prune(now)
+			r.seen.prune(now)
+			f.limits.prune(now)
+			f.pruneRegistrations(now)
 		}
 	}
 }
@@ -203,17 +225,21 @@ func (f *Forwarder) Run(ctx context.Context) {
 func (f *Forwarder) subscribe() {
 	f.subMu.Lock()
 	defer f.subMu.Unlock()
+	var filters []string
 	for _, legacy := range forwardFilters {
-		for _, filter := range hubmqtt.DualFilters(legacy) {
-			if f.subscribed[filter] {
-				continue
-			}
-			if err := f.bus.Subscribe(filter, 0, f.receive); err != nil {
-				f.log.Warn("takhosted: could not subscribe for TAK forwarding", "filter", filter, "error", err)
-				continue
-			}
-			f.subscribed[filter] = true
+		filters = append(filters, hubmqtt.DualFilters(legacy)...)
+	}
+	// What kits and apps export themselves (MESHSAT-1458); see cot_ingest.go.
+	filters = append(filters, hubmqtt.TAKCotOutFilters()...)
+	for _, filter := range filters {
+		if f.subscribed[filter] {
+			continue
 		}
+		if err := f.bus.Subscribe(filter, 0, f.receive); err != nil {
+			f.log.Warn("takhosted: could not subscribe for TAK forwarding", "filter", filter, "error", err)
+			continue
+		}
+		f.subscribed[filter] = true
 	}
 }
 
@@ -223,6 +249,9 @@ func (f *Forwarder) receive(topic string, payload []byte) {
 	r := f.cur.Load()
 	if r == nil {
 		// Not the leader. The message is the leader's to forward.
+		return
+	}
+	if strings.HasSuffix(topic, cotOutSuffix) && !f.admit(topic, payload) {
 		return
 	}
 	// Copied: the handler returns before the dispatcher reads it.
@@ -241,6 +270,10 @@ func (f *Forwarder) dispatch(r *run) {
 		case <-r.ctx.Done():
 			return
 		case m := <-r.intake:
+			if tenantID, bridgeID, ok := hubmqtt.ParseTAKCotOut(m.topic); ok {
+				f.onCot(r, tenantID, bridgeID, m.payload)
+				continue
+			}
 			f.onPosition(r, m.topic, m.payload)
 		}
 	}
@@ -249,13 +282,18 @@ func (f *Forwarder) dispatch(r *run) {
 // onPosition forwards one position to its own tenant's servers.
 func (f *Forwarder) onPosition(r *run, topic string, payload []byte) {
 	ctx := r.ctx
-	tenantID, deviceID, _, ok := hubmqtt.ParseDeviceTopic(topic)
+	tenantID, deviceID, suffix, ok := hubmqtt.ParseDeviceTopic(topic)
 	if !ok {
 		f.log.Debug("takhosted: unparseable device topic, not forwarded", "topic", topic)
 		return
 	}
 	if isHubMarkerUID(deviceID) {
 		// Our own marker. Forwarding it is the loop.
+		return
+	}
+	if r.suppress.suppressed(tenantID, deviceID, time.Now()) {
+		// This node exports its own marker, which is the better one. Drawing it
+		// from its position report as well would put it on the map twice.
 		return
 	}
 
@@ -307,13 +345,14 @@ func (f *Forwarder) onPosition(r *run, topic string, payload []byte) {
 		if up == nil {
 			continue
 		}
-		f.enqueue(r, tenantID, up, line)
+		// An SOS report goes ahead of routine positions on its link.
+		f.enqueue(r, tenantID, up, line, suffix == "sos")
 	}
 }
 
 // enqueue hands one event to the link for one upstream, making the link on first
 // use. It never waits: a full queue loses its oldest event, and that is counted.
-func (f *Forwarder) enqueue(r *run, tenantID string, up *takfront.Tenant, line []byte) {
+func (f *Forwarder) enqueue(r *run, tenantID string, up *takfront.Tenant, line []byte, urgent bool) {
 	// Keyed by tenant AND upstream address: a tenant can have more than one
 	// server, and keying by tenant alone would make two upstreams share one
 	// connection and send each position to whichever was dialled first.
@@ -338,8 +377,14 @@ func (f *Forwarder) enqueue(r *run, tenantID string, up *takfront.Tenant, line [
 		}()
 	}
 	j := job{up: up, payload: line}
+	// An emergency has a queue of its own, which the link empties first, so it
+	// neither waits behind routine positions nor is the one displaced by them.
+	q := l.q
+	if urgent {
+		q = l.urgent
+	}
 	select {
-	case l.q <- j:
+	case q <- j:
 		return
 	default:
 	}
@@ -348,11 +393,11 @@ func (f *Forwarder) enqueue(r *run, tenantID string, up *takfront.Tenant, line [
 	// into this queue while r.mu is held, so after taking one out there is room;
 	// if the link emptied it in between, there is room anyway.
 	select {
-	case <-l.q:
+	case <-q:
 	default:
 	}
 	select {
-	case l.q <- j:
+	case q <- j:
 	default:
 	}
 	forwardsFailed.WithLabelValues(kindOf(up), reasonQueue).Inc()
@@ -371,7 +416,7 @@ func (r *run) reapIdle(log *slog.Logger) {
 	var stale []*link
 	r.mu.Lock()
 	for key, l := range r.links {
-		if l.idleSince().Before(cutoff) && len(l.q) == 0 {
+		if l.idleSince().Before(cutoff) && len(l.q) == 0 && len(l.urgent) == 0 {
 			delete(r.links, key)
 			stale = append(stale, l)
 		}
@@ -417,8 +462,12 @@ func (f *Forwarder) ForgetTenant(tenantID string) {
 	if f == nil {
 		return
 	}
+	f.forgetRegistrations(tenantID)
+	f.limits.forget("t|" + tenantID)
+	f.limits.forget("tu|" + tenantID)
 	if r := f.cur.Load(); r != nil {
 		r.forget(tenantID)
+		r.suppress.forget(tenantID)
 	}
 }
 

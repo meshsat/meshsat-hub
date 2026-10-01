@@ -282,6 +282,43 @@ func TopicConfigUpdateFor(tenantID, deviceID string) string {
 	return DeviceTopic(tenantID, deviceID, "config/update")
 }
 
+// TAK through the Hub (MESHSAT-1458). A kit or an app exports the Cursor-on-Target
+// it builds on its OWN bridge subtree:
+//
+//	meshsat/bridge/{bridge_id}/tak/cot/out            default tenant
+//	meshsat/{tenant}/bridge/{bridge_id}/tak/cot/out   every other tenant
+//
+// The bridge subtree and not a device-shaped topic, for three reasons. Every
+// bridge credential may already publish under its own subtree, so the export
+// needs no new broker permission. The broker confines each credential to its own
+// id there, so the sender named in the topic is the sender. And the wide grants a
+// bridge holds on device topics (mo.>, status.>, sms.>) reach a device-shaped
+// .../tak/cot/out in ANOTHER tenant's namespace, which a bridge-shaped one is
+// out of reach of.
+
+// TAKCotOutFilters returns the subscription filters that see every bridge's
+// exported CoT, in both topic shapes. Written out through DualFilters rather than
+// built with TopicTAKCotOutFor("+"): the builders percent-encode their ids, and
+// "+" is exactly what they encode.
+func TAKCotOutFilters() []string {
+	return DualFilters("meshsat/bridge/+/tak/cot/out")
+}
+
+// TopicTAKCotOutFor is where a bridge of that tenant exports its CoT.
+func TopicTAKCotOutFor(tenantID, bridgeID string) string {
+	return BridgeTopic(tenantID, bridgeID, "tak/cot/out")
+}
+
+// ParseTAKCotOut splits an export topic of either shape. ok is false for any
+// other topic, including a bridge topic that merely ends the same way.
+func ParseTAKCotOut(topic string) (tenantID, bridgeID string, ok bool) {
+	tenantID, bridgeID, rest, ok := ParseBridgeTopic(topic)
+	if !ok || len(rest) != 3 || rest[0] != "tak" || rest[1] != "cot" || rest[2] != "out" {
+		return "", "", false
+	}
+	return tenantID, bridgeID, true
+}
+
 // DualFilters returns the subscription filters for both topic shapes of a
 // legacy filter: "meshsat/+/mo/decoded" -> itself and "meshsat/+/+/mo/decoded";
 // "meshsat/bridge/+/birth" -> itself and "meshsat/+/bridge/+/birth".

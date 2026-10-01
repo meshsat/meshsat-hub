@@ -43,6 +43,10 @@ const (
 	// not keeping up, and enqueue then loses the oldest event to make room.
 	linkQueue = 256
 
+	// linkUrgentQueue is the same for emergencies, which are rare: a queue of
+	// them this deep is a server that has stopped, not an incident.
+	linkUrgentQueue = 32
+
 	// linkWriteTimeout is how long one write may take before the connection is
 	// treated as gone.
 	linkWriteTimeout = 10 * time.Second
@@ -69,6 +73,7 @@ type link struct {
 	key      string
 	tenantID string
 	q        chan job
+	urgent   chan job // emergencies; emptied before q
 	ctx      context.Context
 	cancel   context.CancelFunc
 
@@ -83,8 +88,9 @@ func newLink(parent context.Context, f *Forwarder, key, tenantID string) *link {
 	ctx, cancel := context.WithCancel(parent)
 	return &link{
 		f: f, key: key, tenantID: tenantID,
-		q:   make(chan job, linkQueue),
-		ctx: ctx, cancel: cancel,
+		q:      make(chan job, linkQueue),
+		urgent: make(chan job, linkUrgentQueue),
+		ctx:    ctx, cancel: cancel,
 		last: time.Now(),
 	}
 }
@@ -93,9 +99,18 @@ func newLink(parent context.Context, f *Forwarder, key, tenantID string) *link {
 func (l *link) loop() {
 	defer l.closeConn()
 	for {
+		// An emergency that is waiting goes before anything else that is.
+		select {
+		case j := <-l.urgent:
+			l.deliver(j)
+			continue
+		default:
+		}
 		select {
 		case <-l.ctx.Done():
 			return
+		case j := <-l.urgent:
+			l.deliver(j)
 		case j := <-l.q:
 			l.deliver(j)
 		}

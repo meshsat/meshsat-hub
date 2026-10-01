@@ -157,7 +157,8 @@ func normalizeTopic(topic string) string {
 			"signal", "health", "position", "telemetry",
 			"sos", "config", "current", "update",
 			"hub", "events", "credits", "birth", "death",
-			"command", "response", "reticulum":
+			"command", "response", "reticulum",
+			"tak", "cot", "in", "out":
 			continue
 		default:
 			parts[i] = "+"

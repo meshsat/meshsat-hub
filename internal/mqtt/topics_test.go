@@ -116,3 +116,62 @@ func TestPhoneNumberDeviceIDsAreWildcardSafe(t *testing.T) {
 		t.Errorf("filter parse: %q %v", dev, ok)
 	}
 }
+
+// The export topic for CoT (MESHSAT-1458) is the bridge's own subtree in both
+// shapes, and nothing else parses as one.
+func TestTAKCotOutTopics(t *testing.T) {
+	if got := TopicTAKCotOutFor(DefaultTenant, "kit1"); got != "meshsat/bridge/kit1/tak/cot/out" {
+		t.Errorf("default tenant: %q", got)
+	}
+	if got := TopicTAKCotOutFor("t_x", "kit1"); got != "meshsat/t_x/bridge/kit1/tak/cot/out" {
+		t.Errorf("tenant: %q", got)
+	}
+	// An id is percent-encoded like every other id in a topic, and decoded back.
+	enc := TopicTAKCotOutFor("t_x", "ios+1/2")
+	if enc != "meshsat/t_x/bridge/ios%2B1%2F2/tak/cot/out" {
+		t.Errorf("encoded: %q", enc)
+	}
+	if tenant, id, ok := ParseTAKCotOut(enc); !ok || tenant != "t_x" || id != "ios+1/2" {
+		t.Errorf("round trip: %q %q %v", tenant, id, ok)
+	}
+
+	want := []string{"meshsat/bridge/+/tak/cot/out", "meshsat/+/bridge/+/tak/cot/out"}
+	if got := TAKCotOutFilters(); !reflect.DeepEqual(got, want) {
+		t.Errorf("filters = %v, want %v", got, want)
+	}
+
+	for topic, c := range map[string]struct {
+		tenant, id string
+		ok         bool
+	}{
+		"meshsat/bridge/kit1/tak/cot/out":     {DefaultTenant, "kit1", true},
+		"meshsat/t_x/bridge/kit1/tak/cot/out": {"t_x", "kit1", true},
+		// The shape the clients shipped with, which no bridge was ever allowed to
+		// publish, and its tenant form.
+		"meshsat/kit1/tak/cot/out":     {"", "", false},
+		"meshsat/t_x/kit1/tak/cot/out": {"", "", false},
+		// What the wide device grants (mo.>, status.>, sms.>) can reach in another
+		// tenant's namespace. Not a bridge topic, so not an export.
+		"meshsat/t_x/mo/tak/cot/out":     {"", "", false},
+		"meshsat/t_x/status/tak/cot/out": {"", "", false},
+		"meshsat/t_x/sms/tak/cot/out":    {"", "", false},
+		// The same grants DO reach a bridge-shaped topic with a made-up id. It
+		// parses; what refuses it is that no such bridge is registered.
+		"meshsat/bridge/mo/tak/cot/out": {DefaultTenant, "mo", true},
+		// Not exactly tak/cot/out under the bridge.
+		"meshsat/bridge/kit1/tak/cot/in":        {"", "", false},
+		"meshsat/bridge/kit1/tak/cot/out/extra": {"", "", false},
+		"meshsat/bridge/kit1/x/tak/cot/out":     {"", "", false},
+		"meshsat/bridge/kit1/tak/cot":           {"", "", false},
+		"meshsat/bridge//tak/cot/out":           {"", "", false},
+		// A reserved word is never a tenant.
+		"meshsat/hub/bridge/kit1/tak/cot/out":       {"", "", false},
+		"meshsat/broadcast/bridge/kit1/tak/cot/out": {"", "", false},
+		"other/bridge/kit1/tak/cot/out":             {"", "", false},
+	} {
+		tenant, id, ok := ParseTAKCotOut(topic)
+		if ok != c.ok || tenant != c.tenant || id != c.id {
+			t.Errorf("ParseTAKCotOut(%q) = %q %q %v, want %q %q %v", topic, tenant, id, ok, c.tenant, c.id, c.ok)
+		}
+	}
+}
