@@ -1774,7 +1774,12 @@ func main() {
 	// server directly -- and the front needs a server certificate that does not
 	// exist yet. Gating this on HUB_TAK_FRONT_ENABLED would make a working feature
 	// wait on an unrelated one.
-	startTAKOutbound(dataStore, msgBus, leaderSingletons, takUpstreams)
+	// Registered for eviction AFTER takUpstreams, which is the order they are
+	// forgotten in: the cached settings go first, so a link the forwarder makes
+	// again resolves from the store rather than from the answer just removed.
+	if fwd := startTAKOutbound(dataStore, msgBus, leaderSingletons, takUpstreams); fwd != nil {
+		tenantEvict.Register(fwd)
+	}
 
 	if cfg.TAKFrontEnabled {
 		// No leaderSingletons argument any more: the one singleton this used to

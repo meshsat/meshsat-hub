@@ -82,9 +82,7 @@ func TestAPositionReachesEveryUpstream(t *testing.T) {
 	// One connection per upstream, not one per tenant: keying by tenant alone would
 	// make both upstreams share a connection and send each position to whichever
 	// was dialled first.
-	f.mu.Lock()
-	open := len(f.conns)
-	f.mu.Unlock()
+	open := openConns(f)
 	if open != 2 {
 		t.Errorf("%d connections open for two upstreams, want 2", open)
 	}
@@ -132,9 +130,7 @@ func TestBothUpstreamsReuseTheirOwnConnection(t *testing.T) {
 	if got := own.waitFor(t, 3); len(got) < 3 {
 		t.Errorf("the tenant's own server received %d of 3", len(got))
 	}
-	f.mu.Lock()
-	open := len(f.conns)
-	f.mu.Unlock()
+	open := openConns(f)
 	if open != 2 {
 		t.Errorf("%d connections for two upstreams after three positions, want 2", open)
 	}

@@ -12,6 +12,7 @@ import (
 	"github.com/meshsat/meshsat-hub/internal/store"
 	"github.com/meshsat/meshsat-hub/internal/takfront"
 	"github.com/meshsat/meshsat-hub/internal/takhosted"
+	"github.com/meshsat/meshsat-hub/internal/tenancy"
 )
 
 // The outbound CoT leg: a tenant's device positions, SOS and telemetry pushed to
@@ -37,14 +38,18 @@ import (
 // A singleton because it WRITES: two replicas forwarding the same position would
 // draw every device twice on every map. The front, by contrast, runs everywhere,
 // because a door has to be open on every replica.
+//
+// It returns the forwarder as something a tenant eviction can reach, or nil when
+// there is nothing to register: a purged or closed tenant must not keep a
+// connection open to its TAK server (MESHSAT-1460).
 func startTAKOutbound(
 	dataStore store.Store,
 	msgBus bus.MessageBus,
 	singletons *leader.Singletons,
 	upstreams *takhosted.Upstreams,
-) {
+) tenancy.TenantForgetter {
 	if singletons == nil || upstreams == nil {
-		return
+		return nil
 	}
 
 	// takfront.DialUpstream rather than a dial of our own. That function is the
@@ -60,6 +65,7 @@ func startTAKOutbound(
 	fwd := takhosted.NewForwarder(msgBus, dataStore, dial, upstreams.For, slog.Default())
 	singletons.Add("takhosted-outbound", fwd.Run)
 	slog.Info("takhosted: outbound CoT forwarding registered (hosted instances and tenants' own TAK servers)")
+	return fwd
 }
 
 // newTAKUpstreams builds the resolver the forwarder asks for upstreams.

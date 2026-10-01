@@ -336,9 +336,7 @@ func TestTheUpstreamConnectionIsReusedAcrossPositions(t *testing.T) {
 	if got := ots.waitFor(t, 3); len(got) < 3 {
 		t.Fatalf("only %d of 3 events arrived: %v", len(got), got)
 	}
-	f.mu.Lock()
-	open := len(f.conns)
-	f.mu.Unlock()
+	open := openConns(f)
 	if open != 1 {
 		t.Errorf("%d upstream connections open for one tenant, want 1", open)
 	}
@@ -372,11 +370,7 @@ func TestADeadUpstreamIsDroppedAndRedialled(t *testing.T) {
 	ots.waitFor(t, 1)
 
 	// Close the held connection behind the forwarder's back.
-	f.mu.Lock()
-	for _, c := range f.conns {
-		_ = c.conn.Close()
-	}
-	f.mu.Unlock()
+	closeConnsBehindItsBack(f)
 
 	b.deliver(hubmqtt.TopicPositionFor("t1", "300434"), positionPayload(t, "300434", 52.2, 4.6))
 	if got := ots.waitFor(t, 2); len(got) < 2 {

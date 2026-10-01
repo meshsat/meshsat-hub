@@ -1,7 +1,6 @@
 package takhosted
 
 import (
-	"bytes"
 	"context"
 	"crypto/ecdsa"
 	"crypto/elliptic"
@@ -172,9 +171,9 @@ func (s *mtlsOTS) received() []string {
 // tenant's CA with the name check skipped.
 func forwarderWithCert(
 	t *testing.T, ots *mtlsOTS, serverCA *mtlsCA, clientCert tls.Certificate, label string,
-) (*Forwarder, *fakeBus, *bytes.Buffer) {
+) (*Forwarder, *fakeBus, *syncBuffer) {
 	t.Helper()
-	logs := &bytes.Buffer{}
+	logs := &syncBuffer{}
 	log := slog.New(slog.NewJSONHandler(logs, &slog.HandlerOptions{Level: slog.LevelDebug}))
 
 	tenant := &takfront.Tenant{TenantID: "t1", Label: label, Upstream: ots.addr}
