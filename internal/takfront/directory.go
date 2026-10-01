@@ -22,6 +22,7 @@ import (
 	"errors"
 	"fmt"
 	"math/big"
+	"syscall"
 	"time"
 )
 
@@ -71,6 +72,13 @@ type Tenant struct {
 	// MaxConns caps simultaneous phone connections for this tenant. Zero means
 	// the server's per-tenant default.
 	MaxConns int
+	// DialControl, when set, is the net.Dialer Control hook for dialling
+	// Upstream. Nil for a hosted instance, whose address is an in-cluster name
+	// the operator chose. Set for a tenant's OWN server, whose address a
+	// customer typed: there it refuses a connect to anything on the Hub's side
+	// of the wire, after resolution, which is the half of that check a
+	// save-time validation cannot do (MESHSAT-1460).
+	DialControl func(network, address string, c syscall.RawConn) error
 }
 
 // Peer is a phone whose certificate verified, and the tenant it belongs to.

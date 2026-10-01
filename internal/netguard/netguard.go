@@ -57,6 +57,40 @@ func ValidatePublicURL(raw string) error {
 	if host == "" {
 		return fmt.Errorf("%w: no host", ErrUnsafe)
 	}
+	return validateHost(host)
+}
+
+// ValidatePublicHost is ValidatePublicURL for a setting that is a bare host
+// rather than a URL: the address of a tenant's own TAK server, which the Hub
+// dials as raw TLS and which therefore never had a scheme to check
+// (MESHSAT-1460).
+//
+// It takes a hostname or an address literal WITHOUT a port. Anything that looks
+// like more than that is refused rather than interpreted, because a value the
+// guard parses one way and the dialer another is how a check is walked around.
+func ValidatePublicHost(raw string) error {
+	host := strings.TrimSpace(raw)
+	if host == "" {
+		return fmt.Errorf("%w: no host", ErrUnsafe)
+	}
+	if strings.ContainsAny(host, "/@?#\\ \t\r\n") {
+		return fmt.Errorf("%w: %q is not a bare host name or address", ErrUnsafe, host)
+	}
+	// An IPv6 literal may arrive bracketed, the way it is written beside a port.
+	if strings.HasPrefix(host, "[") && strings.HasSuffix(host, "]") {
+		host = host[1 : len(host)-1]
+	}
+	if ip := net.ParseIP(host); ip == nil && strings.Contains(host, ":") {
+		// Not an address, and a name has no colon: this is host:port, which the
+		// form asks for in two fields.
+		return fmt.Errorf("%w: %q carries a port, give the host alone", ErrUnsafe, host)
+	}
+	return validateHost(host)
+}
+
+// validateHost is the half ValidatePublicURL and ValidatePublicHost share: the
+// name must not be an internal one, and everything it resolves to must be public.
+func validateHost(host string) error {
 	// A bare ".svc" or "localhost" name never needs resolving to be wrong.
 	lower := strings.ToLower(host)
 	if lower == "localhost" || strings.HasSuffix(lower, ".localhost") ||
@@ -124,24 +158,34 @@ func SafeHTTPClient(timeout time.Duration) *http.Client {
 			DialContext: (&net.Dialer{
 				Timeout:   10 * time.Second,
 				KeepAlive: 30 * time.Second,
-				Control: func(network, address string, _ syscall.RawConn) error {
-					host, _, err := net.SplitHostPort(address)
-					if err != nil {
-						return fmt.Errorf("%w: cannot parse %q", ErrUnsafe, address)
-					}
-					ip := net.ParseIP(host)
-					if ip == nil {
-						// Control is called with a resolved literal; anything
-						// else is unexpected, so refuse rather than guess.
-						return fmt.Errorf("%w: %q is not an IP", ErrUnsafe, host)
-					}
-					if !IsPublicIP(ip) {
-						return fmt.Errorf("%w: refusing to connect to %s", ErrUnsafe, ip)
-					}
-					return nil
-				},
+				Control:   DialControl,
 			}).DialContext,
 			TLSHandshakeTimeout: 10 * time.Second,
 		},
 	}
+}
+
+// DialControl is a net.Dialer Control hook that refuses to CONNECT to an address
+// the Hub keeps on its own side of the wire.
+//
+// It runs after resolution and immediately before connect, on the address
+// actually being dialled, so there is no window between the check and the use.
+// SafeHTTPClient is this on an http.Transport; it is exported so a dialer that is
+// not HTTP -- the TLS dial to a tenant's own TAK server -- gets the same guard
+// instead of a second implementation of it (MESHSAT-1460).
+func DialControl(_, address string, _ syscall.RawConn) error {
+	host, _, err := net.SplitHostPort(address)
+	if err != nil {
+		return fmt.Errorf("%w: cannot parse %q", ErrUnsafe, address)
+	}
+	ip := net.ParseIP(host)
+	if ip == nil {
+		// Control is called with a resolved literal; anything else is
+		// unexpected, so refuse rather than guess.
+		return fmt.Errorf("%w: %q is not an IP", ErrUnsafe, host)
+	}
+	if !IsPublicIP(ip) {
+		return fmt.Errorf("%w: refusing to connect to %s", ErrUnsafe, ip)
+	}
+	return nil
 }

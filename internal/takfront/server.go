@@ -382,7 +382,9 @@ func dialUpstreamWith(ctx context.Context, t *Tenant, timeout time.Duration) (ne
 		}
 	}
 	dialer := &tls.Dialer{
-		NetDialer: &net.Dialer{Timeout: timeout},
+		// Control is nil for a hosted instance and the request-forgery guard for
+		// a tenant's own server; see Tenant.DialControl.
+		NetDialer: &net.Dialer{Timeout: timeout, Control: t.DialControl},
 		Config:    cfg,
 	}
 	dctx, cancel := context.WithTimeout(ctx, timeout)

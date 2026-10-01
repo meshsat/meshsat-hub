@@ -393,6 +393,13 @@ definitions:
         type: boolean
       hint:
         type: string
+      host:
+        description: |-
+          Host marks a bare host name or address the Hub will dial for this tenant
+          (a tenant's own TAK server, which is raw TLS and so has no URL). The same
+          request-forgery concern as URL: it must resolve to a public address
+          (MESHSAT-1460).
+        type: boolean
       key:
         type: string
       label:

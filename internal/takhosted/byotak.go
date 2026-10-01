@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/meshsat/meshsat-hub/internal/netguard"
 	"github.com/meshsat/meshsat-hub/internal/takfront"
 )
 
@@ -229,5 +230,15 @@ func buildExternalTenant(tenantID string, v map[string]string) (*takfront.Tenant
 		// its address does not, which is most of them -- and the customer can set
 		// it when their certificate does name the host.
 		UpstreamServerName: strings.TrimSpace(v[takFieldServerName]),
+		// The address is whatever a customer typed. Refuse to connect to
+		// anything on the Hub's own side of the wire, at dial time, on the
+		// address actually resolved (MESHSAT-1460). A hosted instance sets no
+		// such hook: its address is an in-cluster name by design.
+		DialControl: externalDialControl,
 	}, ""
 }
+
+// externalDialControl guards the dial to a tenant's own TAK server. A variable
+// so a test that stands a server up on 127.0.0.1 can reach it; nothing in
+// production assigns it.
+var externalDialControl = netguard.DialControl
