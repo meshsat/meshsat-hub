@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	hubmqtt "github.com/meshsat/meshsat-hub/internal/mqtt"
 	"github.com/meshsat/meshsat-hub/internal/store"
 )
 
@@ -97,4 +98,70 @@ func contains(ss []string, want string) bool {
 		}
 	}
 	return false
+}
+
+// subjectMatches is NATS subject matching: "*" is one token, ">" is the rest.
+func subjectMatches(pattern, subject string) bool {
+	p, s := strings.Split(pattern, "."), strings.Split(subject, ".")
+	for i, tok := range p {
+		if tok == ">" {
+			return len(s) > i
+		}
+		if i >= len(s) || (tok != "*" && tok != s[i]) {
+			return false
+		}
+	}
+	return len(p) == len(s)
+}
+
+func anyMatches(patterns []string, subject string) bool {
+	for _, p := range patterns {
+		if subjectMatches(p, subject) {
+			return true
+		}
+	}
+	return false
+}
+
+// CoT export (MESHSAT-1458) rides the bridge's own subtree, so it needs no grant
+// of its own, and the broker holds the sender to its own id and its own tenant.
+// This pins those three facts, because the Hub's consumer leans on each of them.
+func TestABridgeMayExportCoTOnItsOwnSubtreeAndNowhereElse(t *testing.T) {
+	for _, c := range []struct{ ns, tenant, otherTenant string }{
+		{"meshsat", hubmqtt.DefaultTenant, "t_x"},
+		{"meshsat/t_x", "t_x", hubmqtt.DefaultTenant},
+	} {
+		pub, _ := NATSPermissions(c.ns, "b1")
+		subject := func(tenant, bridge string) string {
+			return strings.ReplaceAll(hubmqtt.TopicTAKCotOutFor(tenant, bridge), "/", ".")
+		}
+
+		if !anyMatches(pub, subject(c.tenant, "b1")) {
+			t.Errorf("%s: a bridge may not publish its own CoT export topic %s", c.ns, subject(c.tenant, "b1"))
+		}
+		if anyMatches(pub, subject(c.tenant, "b2")) {
+			t.Errorf("%s: a bridge may publish ANOTHER bridge's export topic; the sender in the "+
+				"topic would no longer be the sender", c.ns)
+		}
+		if anyMatches(pub, subject(c.otherTenant, "b1")) || anyMatches(pub, subject(c.otherTenant, "b2")) {
+			t.Errorf("%s: a bridge may publish an export topic in another tenant's namespace", c.ns)
+		}
+
+		// The device-shaped topic the clients first shipped with was never
+		// publishable, and must not become so: the wide device grants reach that
+		// shape in OTHER namespaces.
+		n := strings.ReplaceAll(c.ns, "/", ".")
+		if anyMatches(pub, n+".b1.tak.cot.out") {
+			t.Errorf("%s: a device-shaped tak/cot/out is publishable", c.ns)
+		}
+
+		// The one made-up sender a bridge CAN reach: n.*.mo.> with "bridge" in the
+		// wildcard. This is why the Hub requires the bridge named in an export
+		// topic to be registered to the tenant. If this stops being true, that
+		// comment in internal/takhosted/cot_ingest.go wants updating; the check
+		// itself should stay.
+		if !anyMatches(pub, subject(c.tenant, "mo")) {
+			t.Logf("%s: the mo.> grant no longer reaches a bridge-shaped export topic", c.ns)
+		}
+	}
 }

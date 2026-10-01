@@ -51,6 +51,45 @@ This document specifies the wire-level protocol for MeshSat field nodes (bridges
 | `meshsat/{device_id}/sos` | 1 | Bridge | Emergency event |
 | `meshsat/{device_id}/mo/decoded` | 0 | Bridge | Decoded messages |
 
+### TAK Export Topic (Hub 2026-10, MESHSAT-1458)
+
+| Topic | QoS | Retained | Publisher | Description |
+|-------|-----|----------|-----------|-------------|
+| `meshsat/bridge/{bridge_id}/tak/cot/out` | 1 | No | Bridge | One Cursor-on-Target event the bridge built, as XML |
+
+A bridge (a kit, or the Android or iOS app) that builds CoT for what it knows
+publishes each event here, and the Hub forwards it to every TAK server the
+bridge's tenant has: the hosted one, the tenant's own, or both. The bridge
+needs no TAK server of its own and no address for one.
+
+- **Payload:** exactly one `<event>` element as UTF-8 XML, at most 16 KiB. No
+  DOCTYPE, comment, CDATA section or processing instruction (one leading
+  `<?xml?>` declaration is tolerated), no namespace prefixes. The event needs
+  `uid`, `type`, `time`, `start`, `stale` and one `<point>` with `lat` and
+  `lon`; `<point>` and `<detail>` are the only direct children. Anything else
+  is dropped and counted, never forwarded in part.
+- **The Hub re-writes it.** Every element and attribute is kept, in order; the
+  bytes are the Hub's own, on one line. Do not rely on formatting surviving.
+- **Not retained, not queued while offline.** CoT is perishable: an event that
+  could not be sent when it was true is not worth sending later.
+- **Not forwarded:** keepalives (`t-x-c-t...`), protocol negotiation
+  (`t-x-takp-...`), a `uid` starting `meshsat-device-` or `meshsat-bridge-`
+  (those are the Hub's own markers), an event already stale by more than five
+  minutes, and a repeat of an event forwarded in the last minute.
+- **The bridge must be registered** to the tenant whose topic root it
+  publishes under. The Hub takes the tenant from the topic and never from the
+  bridge id.
+- **Budget:** 10 events a second per bridge and 50 per tenant, with bursts of
+  50 and 200. Emergencies (`type` starting `b-a`, or a `<emergency>` detail)
+  have a budget of their own and go ahead of everything else.
+- **One node, one marker.** When a bridge exports a position event (`type`
+  starting `a-`) for a node, the Hub stops drawing that node from its
+  `position` reports until the event goes stale, so the node is on the map
+  once, under the name the bridge gave it.
+
+The topic clients first shipped with, `meshsat/{id}/tak/cot/out`, was never
+accepted by the broker and is not consumed.
+
 ### Tenant Namespaces (Hub 2026-09, MESHSAT-864)
 
 The tables above show the **default tenant** shape. Every other tenant owns the
@@ -74,6 +113,7 @@ meshsat/bridge/+/health
 meshsat/bridge/+/cmd/response
 meshsat/bridge/+/device/+/birth
 meshsat/bridge/+/device/+/death
+meshsat/bridge/+/tak/cot/out
 ```
 plus the tenant-prefixed twin of each (`meshsat/+/bridge/+/birth`, `meshsat/+/+/position`, ...).
 

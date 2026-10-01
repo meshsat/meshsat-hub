@@ -10,6 +10,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 
+	"github.com/meshsat/meshsat-hub/internal/tak"
 	"github.com/meshsat/meshsat-hub/internal/takfront"
 )
 
@@ -63,7 +64,27 @@ var intakeDropped = promauto.NewCounter(prometheus.CounterOpts{
 	Help: "Bus messages the TAK forwarder dropped because its dispatcher was behind.",
 })
 
+// cotTotal counts the CoT that kits and apps export to the Hub, by what became of
+// it (MESHSAT-1458). No tenant and no sender label, for the reason given above.
+// result is "forwarded", "nowhere" (accepted, and the tenant has no TAK server),
+// or why it was dropped: one of the fixed results in cot_ingest.go or a
+// tak.Refused reason.
+var cotTotal = promauto.NewCounterVec(prometheus.CounterOpts{
+	Name: "meshsat_hub_takhosted_cot_total",
+	Help: "CoT events exported to the Hub by kits and apps, by source and by what became of them.",
+}, []string{"source", "result"})
+
 func init() {
+	// Materialised for the same reason as the failure counter: a rate over a
+	// series that does not exist yet is not zero, it is absent.
+	for _, result := range []string{
+		cotForwarded, cotNowhere, cotUnregistered, cotRateLimited, cotDuplicate,
+		cotControl, cotHubUID, cotError,
+		tak.ReasonSize, tak.ReasonEncoding, tak.ReasonMarkup, tak.ReasonStructure,
+		tak.ReasonNamespace, tak.ReasonLimits, tak.ReasonFields, tak.ReasonStale,
+	} {
+		cotTotal.WithLabelValues(sourceClient, result)
+	}
 	for _, kind := range []string{kindHosted, kindExternal} {
 		for _, reason := range []string{reasonRefused, reasonDial, reasonWrite, reasonQueue} {
 			forwardsFailed.WithLabelValues(kind, reason)
