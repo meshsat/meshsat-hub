@@ -1,6 +1,6 @@
 # MeshSat Hub — security posture
 
-_Assessed 2026-09-16 / 17. Instrument for the hardening programme MESHSAT-1189 → 1194. Incident record kept current to 2026-09-18 (item 13)._
+_Assessed 2026-09-16 / 17. Instrument for the hardening programme MESHSAT-1189 → 1194. Incident record kept current to 2026-10-02 (item 17)._
 
 ## What this document is, and what it is not
 
@@ -51,7 +51,7 @@ assessment rather than implying a per-requirement audit that has not happened.
 | V11 | Cryptography | 1.0 | 1.0 | **read.** AES-256-GCM with a 12-byte random nonce, bcrypt cost 10, five long-lived keys sealed under `HUB_CONFIG_WRAP_KEY` with a preflight that refuses to boot rather than regenerate. No forward secrecy on the satellite path, documented with a cost argument in `docs/ENCRYPTION.md`. |
 | V12 | Secure Communication | 0.5 | **1.0** | **measured.** TLS 1.2/1.3 at the edge; NATS websocket and stunnel verify client certificates against the bridge CA, asserted nightly from two external vantages (MESHSAT-1200). The cluster route port, which had no authorization and no TLS, now has both (MESHSAT-1194, 2026-09-18): routes authenticate with a credential rendered into the route URLs by the ExternalSecret and speak TLS with `verify: true` on certificates from the internal CA (cert-manager ClusterIssuer `meshsat-internal-ca`, rotated at 60 of 90 days), inside a policy that admits only nats pods to :6222. The first attempt split the cluster for 14 minutes: `cluster.authorization` guards INBOUND routes only and a bare route URL carries no credential, which was reproduced offline in three containers before the retry, as was the plain-to-TLS roll (routes re-form within a second of the last restart, meta leader within six). Proven in production by the three-signal drill on every member (routes 8/8/8, one agreed meta leader, both Hub replicas on the bus, `tls_required=true tls_verify=true` in varz) and by an unauthenticated CONNECT on the route port answered `-ERR 'Authorization Violation'`. What remains plaintext is the Hub's own MQTT session to `nats:1883` inside the allow-list — an in-cluster hop between two policy-confined pods, recorded here rather than scored. |
 | V13 | Configuration | 1.0 | 1.0 | **read.** Every secret an ExternalSecret from OpenBao; no secret values committed; `"changeme"` appears only as a value to reject. An IMEI and a Cloudloop thingId sit in a ConfigMap — sensitive, not secret. |
-| V14 | Data Protection | 0.5 | **1.0** | **measured.** Tenant export, redaction on export, audit retention bounded 30–3650 days and tenant-selectable. The cross-tenant TAK leak (MESHSAT-1032) is closed: the platform-wide CoT gateway is gone, replaced by a per-tenant forwarder that resolves the tenant off the topic and reaches only that tenant's upstreams, and the unscoped `/api/tak/federation/peers` route and TAK Operations page no longer exist. Now held by three tests using `DefaultTenantID` as the victim, proven by reintroducing the bug in production code. Every other `DualFilters` consumer was audited for the same shape: sos, position, message and mesh all resolve through `tenancy.Resolver`, which is stronger than topic parsing because the store is authoritative. Residual, other repo: the privacy page has not been checked against what the Hub actually does with location data. |
+| V14 | Data Protection | 0.5 | **1.0** | **measured.** Tenant export, redaction on export, audit retention bounded 30–3650 days and tenant-selectable. The cross-tenant TAK leak (MESHSAT-1032) is closed: the platform-wide CoT gateway is gone, replaced by a per-tenant forwarder that resolves the tenant off the topic and reaches only that tenant's upstreams, and the unscoped `/api/tak/federation/peers` route and TAK Operations page no longer exist. Now held by three tests using `DefaultTenantID` as the victim, proven by reintroducing the bug in production code. Every other `DualFilters` consumer was audited for the same shape: sos, position, message and mesh all resolve through `tenancy.Resolver`, which is stronger than topic parsing because the store is authoritative **for a registered device; whether a topic tenant that differs from the owner should be refused rather than rewritten is open (item 16)**. The TAK surface grew on 2026-10-02 (item 15): kits and apps export Cursor-on-Target to the Hub and receive their tenant's TAK traffic back, with the tenant taken from the topic the broker enforces and the bridge required to be registered to it, held by isolation tests in both directions with `DefaultTenantID` as the victim and by a nightly production probe. Residual, other repo: the privacy page has not been checked against what the Hub actually does with location data. |
 | V15 | Secure Coding & Architecture | 1.0 | 1.0 | **read.** Invariants held by tests that are declared not to be weakened (SOS survives quota; quota is on no ingest path; refunds are on no ingest path). Ratchets rather than review as the enforcement mechanism. |
 | V16 | Security Logging & Error Handling | 0.0 | **1.0** | **measured.** Was: a 401 produced no metric, no log line and no audit row, because auth is registered outside metrics and logging and short-circuits; rejection reasons were logged at Debug while production runs at info. Now every refusal increments a labelled counter and emits a `Warn` line with the correctly-resolved client IP — proven 0 → 6 on real production 401s, and `ip=45.138.52.48` rather than the ingress pod. **2026-09-18:** the credential surface now audits — API key create/delete, local user create/role/enable/password/delete, tenant creation (written as the first entry of the new tenant's own chain) — proven with a mint+delete on the probe tenant leaving two hash-version-2 rows that verify. |
 | V17 | WebRTC | — | — | Not applicable. |
@@ -297,6 +297,59 @@ effect is nothing is worse than an absent one, because this scorecard counts it.
     the three edge addresses: `HEAD` 200 and ranges at 0 and 20 GB answered 206 in 0.08-1.2 s
     against 30 s hangs before. No data or security impact. Not posted to status.meshsat.net.
 
+14. ~~**A tenant's own TAK server could be an internal address**~~ — **CLOSED 2026-10-02
+    (MESHSAT-1460).** The address of a tenant's own TAK server is dialled as raw TLS, so it was a
+    bare host, not a URL, and never went through `netguard`: a tenant could point the Hub at the
+    database or the broker by name and the Hub would open a TLS connection with its own network
+    identity. Low impact while the connection was write-only (the server's chain had to verify
+    against the tenant's own CA before anything was sent), and it had to be closed before the Hub
+    began reading that connection. Now `netguard.ValidatePublicHost` on save (`integrations.Field.Host`)
+    and `netguard.DialControl` on the dial (`takfront.Tenant.DialControl`, set for a tenant's own
+    server and not for a hosted instance), each held by a test shown to fail with the guard removed.
+    No tenant had such a server configured, so nothing that worked was refused.
+    **In the same change, an availability defect:** the TAK forwarder dialled and wrote from inside
+    its bus handler, and the bus delivers in order on one goroutine, so one unreachable TAK server
+    could stall the leader's whole MQTT intake, SOS detection included, for up to ten seconds per
+    position. A handler now only hands its message over; each server has its own goroutine, bounded
+    queue and redial backoff. And after a lease was lost and regained, a stale handler wrote every
+    position twice (MESHSAT-1457 was the log-noise half); handlers are installed once and gated on
+    the current run.
+15. **TAK through the Hub** — **shipped 2026-10-02 (MESHSAT-1458, MESHSAT-1461), a new surface,
+    recorded here with its controls.** Kits and apps publish Cursor-on-Target to the Hub, the Hub
+    forwards it to the tenant's TAK servers, reads those servers back and delivers to the tenant's
+    clients. What the first design got wrong, found by an independent review before any code:
+    the tenant was resolved by store owner, which would have let one tenant write into another's
+    map; the export topic was device-shaped, which the wide grants on device topics reach in other
+    tenants' namespaces; and payloads were forwarded as bytes into a stream the server splits on a
+    literal `</event>`. What shipped: the export rides the bridge's own subtree (no new broker
+    permission, sender authenticated by the broker); the tenant is the topic's and the bridge must
+    be registered to it; every event, from a client or from a server, is parsed and re-written by
+    `tak.Sanitize` (one event, one line, no DOCTYPE, comment, CDATA or processing instruction,
+    bounded); budgets per sender, per tenant and per server connection, with a separate allowance
+    so an SOS is not rate-limited with position updates; an event from one of a tenant's servers
+    goes to that tenant's clients and never to its other server; delivery is QoS 0 and never
+    retained. Evidence: isolation tests with `DefaultTenantID` as the victim, 28 mutations of which
+    27 were caught by a test and the last is covered structurally, two fuzz targets, and
+    `k8s/verify/suites/tak-export-suite.py` in the nightly run (20 of 20 by hand on two versions).
+    **Not yet observed:** a real client's export arriving on a TAK server and a TAK phone's event
+    arriving on a client; both wait for client releases. Residuals: the sanitizer refuses namespace
+    prefixes, which real ATAK traffic is not expected to carry (`result="namespace"` on
+    `meshsat_hub_takhosted_cot_total` will say); public port 8089 for plain TAK apps stays open
+    until MESHSAT-1466.
+16. **A topic tenant that differs from the store owner is rewritten, not refused** — **OPEN
+    (MESHSAT-1469), inferred from code and not exercised.** `tenancy.Resolver.reconcile` files a
+    message under the registered owner whatever tenant its topic names. For the satellite provider
+    paths, which have no tenant context, that is the point. For a bridge publishing under its own
+    tenant's root and naming another tenant's registered IMEI, it would write into that tenant.
+    To do: reproduce or refute with a test (default tenant as the victim); if real, refuse and
+    count the mismatch on the bus paths without touching the provider paths.
+17. **The Hub cannot reach wg-easy** — **OPEN (MESHSAT-1476), found 2026-10-02.** The policy
+    `wg-easy-confine` (MESHSAT-1205) admits TCP 51821 only from the edge relay and the kubelet, so
+    the Hub's own login to wg-easy has timed out since that policy landed; every Hub start logs
+    it. Not a confidentiality finding: an availability regression, and the third of its shape from
+    that sprint (items 12 and 13). The WireGuard data plane is on the host network and is not
+    governed by the policy. The fix admits the Hub pods; the check is the Hub logging in.
+
 ## What measurement caught
 
 These findings survived only because something was run rather than reasoned about, which is the
@@ -336,3 +389,15 @@ argument for the evidence standard at the top:
 And one the other way: the onion key rotation left `onion-heartbeat` probing a dead address, because
 it reads the hostname once at pod start and carried no reloader annotation. The change had worked;
 the monitor would have said it had not.
+
+- **The image gate failed a deploy, which is the first time it has been seen to.** On 2026-10-01
+  the `trivy` job stopped a pipeline whose every other stage was green: two HIGH OpenSSL CVEs
+  (CVE-2026-75804, CVE-2026-84782) fixed that day in the Alpine repository while the `alpine:3.21`
+  base still carried the old package. Nothing deployed until the image took the fix
+  (MESHSAT-1472: the runtime stage now runs `apk upgrade`). A control is not shipped until
+  something has been observed to fail because of it; this one now has been.
+
+- **A policy regression sat in the log for two weeks** (item 17). The Hub said at every start that
+  it could not log in to wg-easy, in a warning worded as "not answering yet". It was read only
+  because the same log was being read for something else. A start-up warning that never resolves
+  is a fault with a patient voice.
