@@ -331,11 +331,18 @@ effect is nothing is worse than an absent one, because this scorecard counts it.
     retained. Evidence: isolation tests with `DefaultTenantID` as the victim, 28 mutations of which
     27 were caught by a test and the last is covered structurally, two fuzz targets, and
     `k8s/verify/suites/tak-export-suite.py` in the nightly run (20 of 20 by hand on two versions).
-    **Not yet observed:** a real client's export arriving on a TAK server and a TAK phone's event
-    arriving on a client; both wait for client releases. Residuals: the sanitizer refuses namespace
-    prefixes, which real ATAK traffic is not expected to carry (`result="namespace"` on
-    `meshsat_hub_takhosted_cot_total` will say); public port 8089 for plain TAK apps stays open
-    until MESHSAT-1466.
+    **Observed with a real client on 2026-10-02** (MeshSat Android 2.19.5 and 2.19.6 on a phone in
+    the default tenant, the tenant's hosted OpenTAKServer, Hub b66df421; the record is on
+    MESHSAT-1459): the phone's chat export and then one position event a minute were counted
+    `forwarded` on the leader only and stored by the TAK server; the broker delivered the phone its
+    own export on the per-sender topic and the phone dropped it by topic; one event sent by a TAK
+    client through port 8089 was counted `delivered` and stored by the phone. No refusal of any kind
+    was counted. **Still not observed:** the Bridge and iOS as clients (no release), and the
+    one-marker rule in production (the phone has sent no ordinary position since it began exporting).
+    Residuals: the sanitizer refuses namespace prefixes, which real ATAK traffic is not expected to
+    carry (`result="namespace"` on `meshsat_hub_takhosted_cot_total` will say; none so far, on one
+    hand-made event, which is not ATAK); public port 8089 for plain TAK apps stays open until
+    MESHSAT-1466.
 16. **A topic tenant that differs from the store owner is rewritten, not refused** — **OPEN
     (MESHSAT-1469), inferred from code and not exercised.** `tenancy.Resolver.reconcile` files a
     message under the registered owner whatever tenant its topic names. For the satellite provider
@@ -343,12 +350,22 @@ effect is nothing is worse than an absent one, because this scorecard counts it.
     tenant's root and naming another tenant's registered IMEI, it would write into that tenant.
     To do: reproduce or refute with a test (default tenant as the victim); if real, refuse and
     count the mismatch on the bus paths without touching the provider paths.
-17. **The Hub cannot reach wg-easy** — **OPEN (MESHSAT-1476), found 2026-10-02.** The policy
-    `wg-easy-confine` (MESHSAT-1205) admits TCP 51821 only from the edge relay and the kubelet, so
-    the Hub's own login to wg-easy has timed out since that policy landed; every Hub start logs
-    it. Not a confidentiality finding: an availability regression, and the third of its shape from
-    that sprint (items 12 and 13). The WireGuard data plane is on the host network and is not
-    governed by the policy. The fix admits the Hub pods; the check is the Hub logging in.
+17. ~~**The Hub cannot reach wg-easy**~~ — **CLOSED 2026-10-02 (MESHSAT-1476, b66df42), found the
+    same day.** The policy `wg-easy-confine` (MESHSAT-1205) admitted TCP 51821 only from the edge
+    relay and the kubelet, so the Hub's own login to wg-easy timed out from 2026-09-17 until the
+    fix, fifteen days; every Hub start logged it. Not a confidentiality finding: an availability
+    regression, and the third of its shape from that sprint (items 12 and 13). No peer existed on
+    wg-easy, so nothing was lost. The policy now also admits the Hub pods on that port. Proof by
+    the journey: both pods answer `GET /api/wireguard/peers` with 200, and both fresh pods log
+    `wireguard: platform server enabled` at start instead of the two warnings. The same omission
+    was looked for on everything else the Hub calls in-cluster, from a Hub pod: apprise, hawkbit,
+    KeyDB, NATS and the backup gateway all answer; wg-easy was the only one.
+18. **A removed TAK account still counts against the plan's limit** — **OPEN (MESHSAT-1489), found
+    2026-10-02.** Not a security finding, recorded because it was found by the same test and
+    because a wrong meter is a wrong refusal: removal deactivates the account, the meter counts
+    every row, and a removed name cannot be reused. A probe account `hubprobe` was added to the
+    default tenant for the test above, with the owner's go, and removed; it remains listed as
+    inactive, its certificate is refused, and its key was deleted from the runner.
 
 ## What measurement caught
 
@@ -400,4 +417,11 @@ the monitor would have said it had not.
 - **A policy regression sat in the log for two weeks** (item 17). The Hub said at every start that
   it could not log in to wg-easy, in a warning worded as "not answering yet". It was read only
   because the same log was being read for something else. A start-up warning that never resolves
-  is a fault with a patient voice.
+  is a fault with a patient voice. Since then: after a policy change, every in-cluster service the
+  Hub itself calls is tried from a Hub pod, beside the Ingress paths.
+
+- **The first real phone found what twenty probe runs could not.** The nightly probe publishes
+  well-formed events whenever it likes. A real phone lying still published its one position half a
+  second before its Hub session was up and then nothing (MESHSAT-1487, fixed in Android 2.19.6),
+  and every ordinary position fix arrived twice (MESHSAT-1488). Neither is a Hub defect and
+  neither was visible from the Hub's own tests.
