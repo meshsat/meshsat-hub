@@ -21,6 +21,17 @@ spec:
     matchLabels:
       app.kubernetes.io/name: wg-easy
   ingress:
+    # The Hub itself: it logs in to wg-easy's API (HUB_WG_URL) and manages peers
+    # there. The Hubble window this policy was built from never saw that login,
+    # so the Hub was left out and every call timed out (MESHSAT-1476).
+    - fromEndpoints:
+        - matchLabels:
+            app.kubernetes.io/name: hub
+            io.kubernetes.pod.namespace: meshsat-hub
+      toPorts:
+        - ports:
+            - port: '51821'
+              protocol: TCP
     # The edge relay (hostNetwork, SNAT'd to cilium_host) and the kubelet probe.
     - fromEntities:
         - host
