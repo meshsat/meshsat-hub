@@ -1,4 +1,4 @@
-FROM golang:1.25-alpine AS builder
+FROM golang:1.26-alpine AS builder
 
 # VERSION is stamped into main.version (reported by /api/version and the
 # startup log). CI passes the short commit SHA; local builds report "dev".
