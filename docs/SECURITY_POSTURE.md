@@ -75,6 +75,31 @@ journey suite (support grant, wrong PIN refused, right PIN opens, both chains ca
 Every other operator action on a tenant (plan, status, caps, close) is now audited on both chains
 too (`tenant_admin_updated`, `tenant_deleted`).
 
+**V8 addendum, 2026-10-11 (MESHSAT-1527): a read-only platform key.** `platform_admin` on a key
+cannot be narrowed: `RequirePlatformAdmin` reads the flag and never the key's role, so a "viewer"
+key carrying it can still change and close tenants, approve sign-ups and requeue receipts. A
+consumer that only looks customers up (an operator tool answering the MeshSat support line) gets a
+separate axis instead: `api_keys.platform_read` (postgres migration 32). `RequirePlatformRead`
+admits a platform reader on GET and HEAD only and a platform admin on everything; it guards
+exactly six routes, the tenant directory (`GET /api/admin/tenants`, with `?email=` to find the
+tenants of one user's address), one tenant, its users, its usage, the pending sign-ups and the
+sign-up decisions. Everything else under `/api/admin`, the tenant audit chain included, stays
+platform-admin. `routefloor_test.go` holds the gate to that list in both directions and refuses
+any non-read method under it (mutation-checked: a PUT or a platform-admin route moved under the
+gate fails the build). Minting: `POST /api/auth/keys` refuses `platform_read` unless the caller
+holds `platform_admin` (a platform reader cannot mint another), refuses it combined with
+`platform_admin`, and refuses any role but `viewer`, because a key is also a member of the tenant
+it is minted in. A reader cannot use `X-Tenant-ID`. Its trace: `api_key_created ...
+platform_read=true` on the minting tenant's chain, `last_used` on the row, an Info log line
+`auth: platform read` with the key id per admitted request (the request logger keeps successful
+requests at Debug, which production drops), `meshsat_hub_authz_denials_total{requirement="platform_read"}`
+per refusal, and `api_key_deleted` on revocation. No audit row per read, the same as the other
+admin reads and the platform-admin keys. Known scope: as a viewer of its own tenant (the platform
+tenant, in practice) it also reads that tenant's own data. Held by
+`internal/auth.TestRequirePlatformRead`, `internal/api.TestPlatformReadKeyMinting`,
+`internal/api.TestAdminTenants_APlatformReaderReadsTheDirectoryAndChangesNothing` and the store
+conformance suite in both dialects. **Not yet exercised on production.**
+
 ---
 
 ## CIS Kubernetes Benchmark, chapter 5 (workload scope)

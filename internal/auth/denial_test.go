@@ -145,9 +145,9 @@ func TestSecurityCountersExistBeforeFirstUse(t *testing.T) {
 		t.Errorf("meshsat_hub_auth_failures_total has %d series, want at least 12 "+
 			"(6 reasons x 2 channels materialised at startup)", got)
 	}
-	if got := seriesCount(t, "meshsat_hub_authz_denials_total"); got < 14 {
-		t.Errorf("meshsat_hub_authz_denials_total has %d series, want at least 14 "+
-			"(7 requirements x 2 channels materialised at startup)", got)
+	if got := seriesCount(t, "meshsat_hub_authz_denials_total"); got < 16 {
+		t.Errorf("meshsat_hub_authz_denials_total has %d series, want at least 16 "+
+			"(8 requirements x 2 channels materialised at startup)", got)
 	}
 }
 

@@ -62,6 +62,45 @@ func testTenantSummaries(t *testing.T, s store.Store) {
 	}
 }
 
+// testTenantIDsByUserEmail: the directory's email filter (MESHSAT-1527)
+// answers every tenant with a user of that address, compared without case,
+// sorted, and nothing for a partial address or a LIKE pattern. The DEFAULT
+// tenant is the victim, deliberately: a query that lost its WHERE would
+// return it for every address.
+func testTenantIDsByUserEmail(t *testing.T, s store.Store) {
+	ctx := context.Background()
+	users := []struct{ tenant, id, email string }{
+		{"em-b", "ub", "carol@example.org"},
+		{"em-a", "ua", "Carol@Example.ORG"},
+		{"em-b", "ub2", "dave@example.org"},
+		{store.DefaultTenantID, "uop", "erin@example.org"},
+	}
+	for _, u := range users {
+		if err := s.CreateUser(ctx, u.tenant, &store.LocalUser{ID: u.id, Email: u.email, Role: "viewer", PasswordHash: "x", Enabled: true}); err != nil {
+			t.Fatalf("user %s: %v", u.id, err)
+		}
+	}
+	for _, tc := range []struct{ email, want string }{
+		{"carol@example.org", "em-a,em-b"},
+		{"CAROL@EXAMPLE.ORG", "em-a,em-b"},
+		{"  carol@example.org ", "em-a,em-b"},
+		{"dave@example.org", "em-b"},
+		{"erin@example.org", store.DefaultTenantID},
+		{"nobody@example.org", ""},
+		{"carol@example", ""},
+		{"%@example.org", ""},
+		{"carol@example.o_g", ""},
+	} {
+		ids, err := s.TenantIDsByUserEmail(ctx, tc.email)
+		if err != nil {
+			t.Fatalf("%q: %v", tc.email, err)
+		}
+		if got := strings.Join(ids, ","); got != tc.want {
+			t.Errorf("%q: %q, want %q", tc.email, got, tc.want)
+		}
+	}
+}
+
 // testAuditEntriesByAction: the filter returns the asked actions of the
 // asked tenant only, newest first, limit honoured.
 func testAuditEntriesByAction(t *testing.T, s store.Store) {

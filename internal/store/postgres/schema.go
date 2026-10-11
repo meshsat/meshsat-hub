@@ -982,4 +982,18 @@ CREATE TABLE IF NOT EXISTS support_grants (
 );
 CREATE INDEX IF NOT EXISTS idx_support_grants_tenant ON support_grants (tenant_id, expires_at);
 `},
+	// MESHSAT-1527: a READ-ONLY platform axis on a key.
+	//
+	// platform_admin (29) cannot be narrowed: RequirePlatformAdmin reads the
+	// flag and never the key's role, so a "viewer" key carrying it may still
+	// PUT and DELETE tenants, approve sign-ups and requeue receipts. A consumer
+	// that only needs to LOOK a customer up (an operator tool answering the
+	// MeshSat support line) gets this column instead, and RequirePlatformRead lets
+	// it through on GET and HEAD only.
+	//
+	// DEFAULT false, and the column alone grants nothing: like platform_admin,
+	// the handler refuses to SET it unless the caller holds PlatformAdmin.
+	{Version: 32, Name: "api key platform read", SQL: `
+ALTER TABLE api_keys ADD COLUMN IF NOT EXISTS platform_read BOOLEAN NOT NULL DEFAULT false;
+`},
 }

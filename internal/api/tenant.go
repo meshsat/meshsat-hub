@@ -491,13 +491,44 @@ func (h *TenantHandler) DeleteInvite(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// AdminList lists every tenant (platform administrators only).
-// @Summary      List all tenants
-// @Tags         admin
-// @Produce      json
-// @Success      200  {array}  tenantResponse
-// @Router       /api/admin/tenants [get]
+// AdminList lists every tenant (platform administrators and platform readers).
+//
+// email narrows the list to the tenants that have a USER with that address,
+// compared case-insensitively (MESHSAT-1527), so a platform reader can find
+// one customer's account without walking every tenant's users. It matches
+// membership, not only the owner: q already searches the owner's address as
+// a substring. The filters combine.
+//
+//	@Summary      List all tenants
+//	@Tags         admin
+//	@Produce      json
+//	@Param        q                query     string  false  "substring of id, slug, name or owner email"
+//	@Param        email            query     string  false  "only tenants with a user of this email (exact, case-insensitive)"
+//	@Param        include_deleted  query     string  false  "1 to include closed accounts"
+//	@Success      200              {array}   adminTenantResponse
+//	@Failure      400              {object}  map[string]string
+//	@Router       /api/admin/tenants [get]
 func (h *TenantHandler) AdminList(w http.ResponseWriter, r *http.Request) {
+	var withUser map[string]bool
+	if email := strings.TrimSpace(r.URL.Query().Get("email")); email != "" {
+		if !validEmail(email) {
+			writeError(w, http.StatusBadRequest, "invalid email")
+			return
+		}
+		ids, err := h.store.TenantIDsByUserEmail(r.Context(), email)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "list failed")
+			return
+		}
+		withUser = make(map[string]bool, len(ids))
+		for _, id := range ids {
+			withUser[id] = true
+		}
+		if len(withUser) == 0 {
+			writeJSON(w, http.StatusOK, []adminTenantResponse{})
+			return
+		}
+	}
 	items, err := h.store.ListTenantSummaries(r.Context())
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "list failed")
@@ -509,6 +540,9 @@ func (h *TenantHandler) AdminList(w http.ResponseWriter, r *http.Request) {
 	for i := range items {
 		ts := &items[i]
 		if ts.DeletedAt != nil && !includeDeleted {
+			continue
+		}
+		if withUser != nil && !withUser[ts.ID] {
 			continue
 		}
 		if q != "" && !strings.Contains(strings.ToLower(ts.ID+" "+ts.Slug+" "+ts.Name+" "+ts.OwnerEmail), q) {

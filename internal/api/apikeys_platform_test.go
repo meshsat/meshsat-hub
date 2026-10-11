@@ -138,3 +138,76 @@ func TestAnOrdinaryKeyNeverCarriesPlatformAdmin(t *testing.T) {
 		t.Fatal("no plaintext key returned")
 	}
 }
+
+// MESHSAT-1527. The read-only platform axis gets the same gate: reading every
+// tenant's directory is cross-tenant authority even without a write, so only
+// a caller who holds PlatformAdmin may mint it.
+
+func readerCtx(tid string) context.Context {
+	ctx := context.WithValue(context.Background(), auth.TenantContextKey, tid)
+	return context.WithValue(ctx, auth.UserContextKey, &auth.User{
+		ID: "apikey:key-reader", Roles: []string{auth.RoleViewer}, TenantID: tid, PlatformReader: true,
+	})
+}
+
+func TestPlatformReadKeyMinting(t *testing.T) {
+	cases := []struct {
+		name    string
+		ctx     context.Context
+		body    string
+		want    int
+		created bool
+	}{
+		{"a tenant owner is refused", callerCtx("t-customer", false), `{"label":"pwn","role":"viewer","platform_read":true}`, http.StatusForbidden, false},
+		{"no caller is refused", context.WithValue(context.Background(), auth.TenantContextKey, "t-customer"), `{"platform_read":true}`, http.StatusForbidden, false},
+		{"a platform reader cannot mint another reader", readerCtx(store.DefaultTenantID), `{"label":"copy","platform_read":true}`, http.StatusForbidden, false},
+		{"both axes at once are refused", callerCtx(store.DefaultTenantID, true), `{"label":"x","role":"viewer","platform_admin":true,"platform_read":true}`, http.StatusBadRequest, false},
+		{"a reader key must be a viewer", callerCtx(store.DefaultTenantID, true), `{"label":"x","role":"owner","platform_read":true}`, http.StatusBadRequest, false},
+		{"a platform admin mints a reader", callerCtx(store.DefaultTenantID, true), `{"label":"paops","role":"viewer","platform_read":true,"expires_in":"8760h"}`, http.StatusCreated, true},
+		{"the role defaults to viewer", callerCtx(store.DefaultTenantID, true), `{"label":"paops","platform_read":true}`, http.StatusCreated, true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var got *store.APIKey
+			st := &mockStore{createKeyFn: func(_ context.Context, _ string, k *store.APIKey) error {
+				k.ID = "key-reader"
+				got = k
+				return nil
+			}}
+			rec := postKey(t, tc.ctx, tc.body, st)
+			if rec.Code != tc.want {
+				t.Fatalf("status = %d, want %d; body: %s", rec.Code, tc.want, rec.Body.String())
+			}
+			if (got != nil) != tc.created {
+				t.Fatalf("persisted = %v, want %v (a refusal must not leave a usable key behind)", got != nil, tc.created)
+			}
+			if !tc.created {
+				return
+			}
+			if !got.PlatformRead || got.PlatformAdmin || got.Role != auth.RoleViewer {
+				t.Fatalf("stored key = %+v, want platform_read only, role viewer", got)
+			}
+			var resp createKeyResponse
+			if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
+				t.Fatalf("decode: %v", err)
+			}
+			if !resp.PlatformRead || resp.PlatformAdmin || resp.Key == "" {
+				t.Fatalf("response = %+v, want platform_read and a plaintext key", resp)
+			}
+		})
+	}
+}
+
+// An ordinary key never acquires the reader axis by omission.
+func TestAnOrdinaryKeyNeverCarriesPlatformRead(t *testing.T) {
+	var got *store.APIKey
+	st := &mockStore{createKeyFn: func(_ context.Context, _ string, k *store.APIKey) error {
+		k.ID = "key-ordinary"
+		got = k
+		return nil
+	}}
+	rec := postKey(t, callerCtx(store.DefaultTenantID, true), `{"label":"ordinary","role":"viewer"}`, st)
+	if rec.Code != http.StatusCreated || got == nil || got.PlatformRead || got.PlatformAdmin {
+		t.Fatalf("status %d, key %+v: an ordinary key acquired a platform axis", rec.Code, got)
+	}
+}

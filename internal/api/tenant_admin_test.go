@@ -59,16 +59,26 @@ func newAdminEnv(t *testing.T) *adminEnv {
 	r.Use(func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 			u := &hubauth.User{ID: "u-admin", Email: "admin@platform.example", TenantID: store.DefaultTenantID, Roles: []string{"owner"}, PlatformAdmin: req.Header.Get("X-Test-User") != "customer", Session: true}
+			if req.Header.Get("X-Test-User") == "reader" {
+				// A platform_read API key, as the validator in main.go builds it.
+				u = &hubauth.User{ID: "apikey:key-reader", Name: "paops", TenantID: store.DefaultTenantID, Roles: []string{"viewer"}, PlatformReader: true}
+			}
 			next.ServeHTTP(w, req.WithContext(context.WithValue(req.Context(), hubauth.UserContextKey, u)))
 		})
 	})
+	// Grouped exactly as main.go groups them (MESHSAT-1527).
 	r.Route("/api/admin/tenants", func(r chi.Router) {
-		r.Use(hubauth.RequirePlatformAdmin())
-		r.Get("/", h.AdminList)
-		r.Get("/{id}", h.AdminGet)
-		r.Put("/{id}", h.AdminUpdate)
-		r.Get("/{id}/users", h.AdminListUsers)
-		r.Get("/{id}/audit", h.AdminListAudit)
+		r.Group(func(r chi.Router) {
+			r.Use(hubauth.RequirePlatformRead())
+			r.Get("/", h.AdminList)
+			r.Get("/{id}", h.AdminGet)
+			r.Get("/{id}/users", h.AdminListUsers)
+		})
+		r.Group(func(r chi.Router) {
+			r.Use(hubauth.RequirePlatformAdmin())
+			r.Put("/{id}", h.AdminUpdate)
+			r.Get("/{id}/audit", h.AdminListAudit)
+		})
 	})
 	env.router = r
 	return env
@@ -200,5 +210,105 @@ func TestAdminTenants_ReactivatingAClosedAccountClearsThePurgeDate(t *testing.T)
 	latest, _ := e.store.GetLatestAuditEntry(context.Background(), "beta")
 	if latest == nil || !strings.Contains(latest.Detail, "status=deleted>active") || !strings.Contains(latest.Detail, "deleted_at=") {
 		t.Errorf("reactivation row: %+v", latest)
+	}
+}
+
+func (e *adminEnv) doAs(t *testing.T, who, method, path, body string) (int, []byte) {
+	t.Helper()
+	req := httptest.NewRequest(method, path, strings.NewReader(body))
+	req.Header.Set("X-Test-User", who)
+	if body != "" {
+		req.Header.Set("Content-Type", "application/json")
+	}
+	w := httptest.NewRecorder()
+	e.router.ServeHTTP(w, req)
+	return w.Code, w.Body.Bytes()
+}
+
+// MESHSAT-1527. A platform_read key looks a customer up and changes nothing:
+// the directory, one tenant and its users answer; the update and the tenant's
+// own audit chain stay platform-admin only.
+func TestAdminTenants_APlatformReaderReadsTheDirectoryAndChangesNothing(t *testing.T) {
+	e := newAdminEnv(t)
+	for _, path := range []string{"/api/admin/tenants", "/api/admin/tenants/acme", "/api/admin/tenants/acme/users"} {
+		if code, body := e.doAs(t, "reader", "GET", path, ""); code != http.StatusOK {
+			t.Errorf("reader GET %s: %d %s", path, code, body)
+		}
+	}
+	before, _ := e.store.GetTenant(context.Background(), "acme")
+	if code, _ := e.doAs(t, "reader", "PUT", "/api/admin/tenants/acme", `{"plan":"custom"}`); code != http.StatusForbidden {
+		t.Errorf("reader PUT: %d, want 403", code)
+	}
+	if after, _ := e.store.GetTenant(context.Background(), "acme"); after.Plan != before.Plan {
+		t.Errorf("a refused reader PUT still changed the plan: %s -> %s", before.Plan, after.Plan)
+	}
+	if code, _ := e.doAs(t, "reader", "GET", "/api/admin/tenants/acme/audit", ""); code != http.StatusForbidden {
+		t.Errorf("reader GET audit: %d, want 403 (the tenant's own chain is not a lookup)", code)
+	}
+	// A reader is not a customer either: the customer is still refused the reads.
+	if code, _ := e.doAs(t, "customer", "GET", "/api/admin/tenants/acme", ""); code != http.StatusForbidden {
+		t.Errorf("customer GET detail: %d, want 403", code)
+	}
+}
+
+// The email filter finds the tenants that have a USER with that address,
+// case-insensitively, and nothing else. The DEFAULT tenant is the victim: a
+// filter that ignored its argument would hand back every tenant, default
+// included.
+func TestAdminTenants_EmailFilterFindsTheCustomersTenant(t *testing.T) {
+	e := newAdminEnv(t)
+	ctx := context.Background()
+	if _, err := e.store.GetTenant(ctx, store.DefaultTenantID); err != nil {
+		if err := e.store.CreateTenant(ctx, &store.Tenant{ID: store.DefaultTenantID, Slug: "platform", Name: "Platform", Plan: "custom", Status: store.TenantActive}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, u := range []struct{ tenant, id, email string }{
+		{"beta", "u-beta", "Pat.Member@Beta.Example"},
+		{"acme", "u-acme-pat", "pat.member@beta.example"},
+		{store.DefaultTenantID, "u-op", "operator@platform.example"},
+	} {
+		if err := e.store.CreateUser(ctx, u.tenant, &store.LocalUser{ID: u.id, Email: u.email, Role: "viewer", PasswordHash: "x", Enabled: true}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	ids := func(body []byte) []string {
+		var rows []map[string]any
+		if err := json.Unmarshal(body, &rows); err != nil {
+			t.Fatalf("decode %s: %v", body, err)
+		}
+		var out []string
+		for _, r := range rows {
+			out = append(out, r["id"].(string))
+		}
+		return out
+	}
+	for _, tc := range []struct {
+		query string
+		want  string
+	}{
+		{"email=owner%40acme.example", "acme"},
+		{"email=OWNER%40ACME.EXAMPLE", "acme"},
+		{"email=pat.member%40beta.example", "acme,beta"},
+		{"email=pat.member%40beta.example&q=beta", "beta"},
+		{"email=operator%40platform.example", store.DefaultTenantID},
+		{"email=nobody%40example.org", ""},
+		// Exact, not a pattern: a partial address or a wildcard finds nothing.
+		{"email=pat%25%40beta.example", ""},
+	} {
+		code, body := e.doAs(t, "reader", "GET", "/api/admin/tenants?"+tc.query, "")
+		if code != http.StatusOK {
+			t.Errorf("%s: %d %s", tc.query, code, body)
+			continue
+		}
+		if got := strings.Join(ids(body), ","); got != tc.want {
+			t.Errorf("%s: tenants %q, want %q", tc.query, got, tc.want)
+		}
+		if tc.want == "" && strings.TrimSpace(string(body)) != "[]" {
+			t.Errorf("%s: no match must be an empty array, got %s", tc.query, body)
+		}
+	}
+	if code, _ := e.doAs(t, "reader", "GET", "/api/admin/tenants?email=not-an-address", ""); code != http.StatusBadRequest {
+		t.Errorf("an invalid email: %d, want 400", code)
 	}
 }

@@ -32,6 +32,12 @@ type User struct {
 	TenantID      string    `json:"tenant_id,omitempty"`
 	PlatformAdmin bool      `json:"platform_admin,omitempty"` // may act across tenants (X-Tenant-ID)
 	ExpiresAt     time.Time `json:"-"`                        // API key expiry (zero = no expiry)
+	// PlatformReader may READ the platform directory (MESHSAT-1527): GET and
+	// HEAD on the routes behind RequirePlatformRead, and nothing else. Only an
+	// API key minted with platform_read sets it. It is not PlatformAdmin and
+	// never implies it: TenantMiddleware ignores X-Tenant-ID for a reader, so
+	// it cannot open a customer's workspace either.
+	PlatformReader bool `json:"platform_reader,omitempty"`
 	// Session is true for a person signed in through the console (a Hub
 	// session token), false for the break-glass token and API keys. It is
 	// what decides whether X-Tenant-ID needs the customer's consent
@@ -694,8 +700,49 @@ func sessionOrProviderMiddleware(sm *SessionManager, legacyToken string, provide
 	}
 }
 
+// RequirePlatformRead guards the platform directory's READS (MESHSAT-1527).
+// A platform administrator passes on every method, exactly as under
+// RequirePlatformAdmin. A platform READER -- an API key minted with
+// platform_read -- passes on GET and HEAD only, so even a write route
+// registered here by mistake stays shut to it (and internal/auth's route-floor
+// test refuses any non-read route under this gate). Everybody else is refused
+// the way RequirePlatformAdmin refuses, under its own metric label.
+//
+// It exists because PlatformAdmin cannot be narrowed: RequirePlatformAdmin
+// reads the flag and never the key's role, so a "viewer" key with the flag can
+// still change tenants, approve sign-ups and requeue receipts.
+//
+// A reader's pass is logged at Info with the key's id. The request logger
+// writes successful requests at Debug, which production does not keep, so
+// without this line a cross-tenant read by a key would leave nothing but the
+// key's last_used stamp. The query string is not logged: it can carry an
+// email address.
+func RequirePlatformRead() func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			u := FromContext(r.Context())
+			switch {
+			case u != nil && u.PlatformAdmin:
+			case u != nil && u.PlatformReader && (r.Method == http.MethodGet || r.Method == http.MethodHead):
+				slog.Info("auth: platform read",
+					"actor", u.ID,
+					"channel", channelLabel(r),
+					"ip", clientIPOrUnknown(r),
+					"method", r.Method,
+					"path", r.URL.Path,
+				)
+			default:
+				writeAuthzDenial(w, r, "platform_read", "platform read access required")
+				return
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
+}
+
 // RequirePlatformAdmin allows only users flagged as platform administrators
-// (members of the IdP admin group, or the legacy static token).
+// (members of the IdP admin group, or the legacy static token). A platform
+// READER does not pass: PlatformReader is a different field, on purpose.
 func RequirePlatformAdmin() func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

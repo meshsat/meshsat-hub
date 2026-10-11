@@ -11,6 +11,14 @@ definitions:
       platform_admin:
         description: may act across tenants (X-Tenant-ID)
         type: boolean
+      platform_reader:
+        description: |-
+          PlatformReader may READ the platform directory (MESHSAT-1527): GET and
+          HEAD on the routes behind RequirePlatformRead, and nothing else. Only an
+          API key minted with platform_read sets it. It is not PlatformAdmin and
+          never implies it: TenantMiddleware ignores X-Tenant-ID for a reader, so
+          it cannot open a customer's workspace either.
+        type: boolean
       roles:
         items:
           type: string
@@ -506,6 +514,16 @@ definitions:
           MESHSAT-1209 only the static HUB_AUTH_TOKEN could carry. Settable ONLY by a
           caller who already holds it -- see internal/api/apikeys.go. Unlike that token
           a key with this flag is revocable and can expire, which is the entire point.
+        type: boolean
+      platform_read:
+        description: |-
+          PlatformRead lets this key READ the platform directory across tenants
+          (MESHSAT-1527): GET and HEAD on the routes behind auth.RequirePlatformRead,
+          nothing else. PlatformAdmin cannot be narrowed by the key's role --
+          RequirePlatformAdmin reads only the flag, so a "viewer" key carrying it can
+          still PUT and DELETE tenants -- which is why a read-only consumer (an
+          operator's lookup tool) gets this separate axis instead. Same gate as
+          PlatformAdmin: settable ONLY by a caller who holds PlatformAdmin.
         type: boolean
       role:
         description: '"viewer", "operator", "owner"'
@@ -1708,6 +1726,12 @@ definitions:
           the CALLER already holds it — see CreateKey. This route is open to any
           tenant owner, so an ungated field here would be a cross-tenant escalation.
         type: boolean
+      platform_read:
+        description: |-
+          PlatformRead requests the READ-ONLY platform axis (MESHSAT-1527): GET and
+          HEAD on the platform directory, nothing else. Gated exactly like
+          PlatformAdmin, and for the same reason. Not combinable with it.
+        type: boolean
       role:
         type: string
     type: object
@@ -1724,6 +1748,10 @@ definitions:
         type: string
       label:
         type: string
+      platform_admin:
+        type: boolean
+      platform_read:
+        type: boolean
       role:
         type: string
     type: object
@@ -3277,6 +3305,19 @@ paths:
       - admin
   /api/admin/tenants:
     get:
+      parameters:
+      - description: substring of id, slug, name or owner email
+        in: query
+        name: q
+        type: string
+      - description: only tenants with a user of this email (exact, case-insensitive)
+        in: query
+        name: email
+        type: string
+      - description: 1 to include closed accounts
+        in: query
+        name: include_deleted
+        type: string
       produces:
       - application/json
       responses:
@@ -3284,8 +3325,14 @@ paths:
           description: OK
           schema:
             items:
-              $ref: '#/definitions/internal_api.tenantResponse'
+              $ref: '#/definitions/internal_api.adminTenantResponse'
             type: array
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
       summary: List all tenants
       tags:
       - admin

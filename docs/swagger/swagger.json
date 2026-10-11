@@ -452,13 +452,42 @@
                     "admin"
                 ],
                 "summary": "List all tenants",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "substring of id, slug, name or owner email",
+                        "name": "q",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "only tenants with a user of this email (exact, case-insensitive)",
+                        "name": "email",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "1 to include closed accounts",
+                        "name": "include_deleted",
+                        "in": "query"
+                    }
+                ],
                 "responses": {
                     "200": {
                         "description": "OK",
                         "schema": {
                             "type": "array",
                             "items": {
-                                "$ref": "#/definitions/internal_api.tenantResponse"
+                                "$ref": "#/definitions/internal_api.adminTenantResponse"
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
                             }
                         }
                     }
@@ -9702,6 +9731,10 @@
                     "description": "may act across tenants (X-Tenant-ID)",
                     "type": "boolean"
                 },
+                "platform_reader": {
+                    "description": "PlatformReader may READ the platform directory (MESHSAT-1527): GET and\nHEAD on the routes behind RequirePlatformRead, and nothing else. Only an\nAPI key minted with platform_read sets it. It is not PlatformAdmin and\nnever implies it: TenantMiddleware ignores X-Tenant-ID for a reader, so\nit cannot open a customer's workspace either.",
+                    "type": "boolean"
+                },
                 "roles": {
                     "type": "array",
                     "items": {
@@ -10377,6 +10410,10 @@
                 },
                 "platform_admin": {
                     "description": "PlatformAdmin lets this key act across tenants, the axis that until\nMESHSAT-1209 only the static HUB_AUTH_TOKEN could carry. Settable ONLY by a\ncaller who already holds it -- see internal/api/apikeys.go. Unlike that token\na key with this flag is revocable and can expire, which is the entire point.",
+                    "type": "boolean"
+                },
+                "platform_read": {
+                    "description": "PlatformRead lets this key READ the platform directory across tenants\n(MESHSAT-1527): GET and HEAD on the routes behind auth.RequirePlatformRead,\nnothing else. PlatformAdmin cannot be narrowed by the key's role --\nRequirePlatformAdmin reads only the flag, so a \"viewer\" key carrying it can\nstill PUT and DELETE tenants -- which is why a read-only consumer (an\noperator's lookup tool) gets this separate axis instead. Same gate as\nPlatformAdmin: settable ONLY by a caller who holds PlatformAdmin.",
                     "type": "boolean"
                 },
                 "role": {
@@ -11929,6 +11966,10 @@
                     "description": "PlatformAdmin requests the cross-tenant axis (MESHSAT-1209). Refused unless\nthe CALLER already holds it — see CreateKey. This route is open to any\ntenant owner, so an ungated field here would be a cross-tenant escalation.",
                     "type": "boolean"
                 },
+                "platform_read": {
+                    "description": "PlatformRead requests the READ-ONLY platform axis (MESHSAT-1527): GET and\nHEAD on the platform directory, nothing else. Gated exactly like\nPlatformAdmin, and for the same reason. Not combinable with it.",
+                    "type": "boolean"
+                },
                 "role": {
                     "type": "string"
                 }
@@ -11952,6 +11993,12 @@
                 },
                 "label": {
                     "type": "string"
+                },
+                "platform_admin": {
+                    "type": "boolean"
+                },
+                "platform_read": {
+                    "type": "boolean"
                 },
                 "role": {
                     "type": "string"

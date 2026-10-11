@@ -19,7 +19,7 @@ const routeTableFile = "../../cmd/meshsat-hub/main.go"
 type parsedRoute struct {
 	method string // GET, POST, ... or ANY for Handle/HandleFunc
 	path   string // as registered, chi placeholders intact
-	gate   string // "", viewer, operator, owner, admin, platform-admin
+	gate   string // "", viewer, operator, owner, admin, platform-read, platform-admin
 }
 
 func (r parsedRoute) key() string { return r.method + " " + r.path }
@@ -39,8 +39,8 @@ var placeholder = regexp.MustCompile(`\{[^}]*\}`)
 
 func concretePath(p string) string { return placeholder.ReplaceAllString(p, "x") }
 
-// gateIn reports the strongest RequireRole/RequirePlatformAdmin found anywhere
-// in the given expression tree.
+// gateIn reports the strongest RequireRole/RequirePlatformRead/
+// RequirePlatformAdmin found anywhere in the given expression tree.
 func gateIn(n ast.Node) string {
 	best := ""
 	ast.Inspect(n, func(x ast.Node) bool {
@@ -59,6 +59,8 @@ func gateIn(n ast.Node) string {
 		switch name {
 		case "RequirePlatformAdmin":
 			found = "platform-admin"
+		case "RequirePlatformRead":
+			found = "platform-read"
 		case "RequireRole":
 			if len(ce.Args) == 1 {
 				switch a := ce.Args[0].(type) {
@@ -295,13 +297,85 @@ func TestNamedRoutesKeepTheirFloor(t *testing.T) {
 					label, want)
 				continue
 			}
-			if RoleRank(r.gate) < RoleRank(minGate) {
+			if !satisfiesFloor(r.gate, minGate) {
 				t.Errorf("%s must require %s or stronger, has %q", want, minGate, orNone(r.gate))
 			}
 		}
 	}
 	check(MustRequireOwner, RoleOwner, "MustRequireOwner")
 	check(MustRequirePlatformAdmin, "platform-admin", "MustRequirePlatformAdmin")
+}
+
+// satisfiesFloor is the named-floor comparison. platform-read outranks the
+// tenant roles in RoleRank (no tenant role passes it), but it is never a
+// substitute for a named floor: a platform READER key passes it, and a reader
+// is neither a tenant owner nor a platform administrator (MESHSAT-1527).
+func satisfiesFloor(gate, minGate string) bool {
+	if gate == "platform-read" {
+		return minGate == "platform-read"
+	}
+	return RoleRank(gate) >= RoleRank(minGate)
+}
+
+// TestPlatformReadNeverSatisfiesANamedFloor pins the comparison above. Without
+// it, the rank order alone would let RequirePlatformRead stand in for owner on
+// a MustRequireOwner route, and a rank edit could let it stand in for
+// platform-admin.
+func TestPlatformReadNeverSatisfiesANamedFloor(t *testing.T) {
+	if satisfiesFloor("platform-read", "platform-admin") {
+		t.Error("platform-read satisfied the platform-admin floor")
+	}
+	if satisfiesFloor("platform-read", RoleOwner) {
+		t.Error("platform-read satisfied the owner floor")
+	}
+	if RoleRank("platform-read") >= RoleRank("platform-admin") {
+		t.Error("platform-read must rank below platform-admin, or a route gated by both would report the weaker gate")
+	}
+	if !satisfiesFloor("platform-admin", RoleOwner) || !satisfiesFloor("platform-admin", "platform-admin") {
+		t.Error("platform-admin stopped satisfying the floors it always has")
+	}
+}
+
+// TestPlatformReadGatesOnlyReads is the MESHSAT-1527 rule: the read-only
+// platform gate carries GET and HEAD routes only, and exactly the ones in
+// PlatformReadRoutes. RequirePlatformRead refuses a reader on any other
+// method, so a write here would not leak to a reader -- but it would sit under
+// a gate whose name says "read", and the next person to move a route would
+// trust the name.
+func TestPlatformReadGatesOnlyReads(t *testing.T) {
+	routes := parseRouteTable(t)
+	want := make(map[string]bool, len(PlatformReadRoutes))
+	for _, k := range PlatformReadRoutes {
+		want[k] = true
+		if m := strings.SplitN(k, " ", 2)[0]; m != "GET" && m != "HEAD" {
+			t.Errorf("PlatformReadRoutes names %q, which is not a read", k)
+		}
+	}
+	got := map[string]bool{}
+	for _, r := range routes {
+		if r.gate != "platform-read" {
+			continue
+		}
+		got[r.key()] = true
+		if r.method != "GET" && r.method != "HEAD" {
+			t.Errorf("%s is gated by RequirePlatformRead but is not a GET or HEAD; "+
+				"put it under RequirePlatformAdmin", r.key())
+		}
+		if !want[r.key()] {
+			t.Errorf("%s is gated by RequirePlatformRead but is not in PlatformReadRoutes; "+
+				"every platform reader key can reach it. Add it there with the reason, or gate it with RequirePlatformAdmin", r.key())
+		}
+	}
+	for _, k := range PlatformReadRoutes {
+		if !got[k] {
+			t.Errorf("PlatformReadRoutes names %q, but no route with that key is gated by RequirePlatformRead "+
+				"(renamed, moved, or regated): update the list in the same commit", k)
+		}
+	}
+	// Non-vacuity: the parser must see the gate at all.
+	if len(got) == 0 {
+		t.Fatal("found no route gated by RequirePlatformRead; the parser does not recognise the gate")
+	}
 }
 
 func orNone(g string) string {

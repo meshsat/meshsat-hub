@@ -386,7 +386,7 @@ func init() {
 			AuthFailuresTotal.WithLabelValues(reason, ch)
 		}
 		for _, req := range []string{
-			"viewer", "operator", "owner", "platform_admin",
+			"viewer", "operator", "owner", "platform_admin", "platform_read",
 			"tenant_required", "tenant_suspended", "tenant_deleted",
 		} {
 			AuthzDenialsTotal.WithLabelValues(req, ch)

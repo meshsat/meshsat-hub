@@ -94,11 +94,18 @@ func TestSignupRoutesRefuseAnyoneButAPlatformAdmin(t *testing.T) {
 				next.ServeHTTP(w, req.WithContext(ctx))
 			})
 		})
+		// Grouped exactly as main.go groups them (MESHSAT-1527): the list is
+		// readable by a platform reader key, a decision is admin-only.
 		r.Route("/api/admin/signups", func(r chi.Router) {
-			r.Use(hubauth.RequirePlatformAdmin())
-			r.Get("/", h.List)
-			r.Post("/{id}/approve", h.Approve)
-			r.Post("/{id}/reject", h.Reject)
+			r.Group(func(r chi.Router) {
+				r.Use(hubauth.RequirePlatformRead())
+				r.Get("/", h.List)
+			})
+			r.Group(func(r chi.Router) {
+				r.Use(hubauth.RequirePlatformAdmin())
+				r.Post("/{id}/approve", h.Approve)
+				r.Post("/{id}/reject", h.Reject)
+			})
 		})
 		return r
 	}
@@ -139,6 +146,21 @@ func TestSignupRoutesRefuseAnyoneButAPlatformAdmin(t *testing.T) {
 		r.ServeHTTP(rec, httptest.NewRequest(rt.method, rt.path, nil))
 		if rec.Code != http.StatusServiceUnavailable {
 			t.Errorf("platform admin on %s %s: got %d, want 503 (handler reached)", rt.method, rt.path, rec.Code)
+		}
+	}
+
+	// A platform READER key (MESHSAT-1527) may see whether a request is
+	// waiting and never decide one: approve and reject stay 403.
+	r = mount(&hubauth.User{ID: "apikey:key-reader", TenantID: "default", Roles: []string{"viewer"}, PlatformReader: true})
+	for _, rt := range routes {
+		rec := httptest.NewRecorder()
+		r.ServeHTTP(rec, httptest.NewRequest(rt.method, rt.path, nil))
+		want := http.StatusForbidden
+		if rt.method == http.MethodGet {
+			want = http.StatusServiceUnavailable
+		}
+		if rec.Code != want {
+			t.Errorf("platform reader on %s %s: got %d, want %d", rt.method, rt.path, rec.Code, want)
 		}
 	}
 }
