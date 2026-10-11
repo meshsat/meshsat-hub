@@ -364,6 +364,15 @@ type Store interface {
 	// devices and bridges the tenant has. One grouped query, never one query
 	// per tenant (MESHSAT-1366).
 	ListTenantSummaries(ctx context.Context) ([]TenantSummary, error)
+	// TenantIDsByUserEmail returns the tenants that have a user with this
+	// email, compared case-insensitively, sorted (MESHSAT-1527). Cross-tenant
+	// BY DESIGN, like ListTenantSummaries: it backs the platform directory's
+	// email filter (GET /api/admin/tenants?email=), behind
+	// RequirePlatformRead, so a platform reader can find one customer's tenant
+	// without listing every tenant's users. Its subject is the tenant, which
+	// is how the scoping ratchet classifies it; it returns ids only, never a
+	// user row.
+	TenantIDsByUserEmail(ctx context.Context, email string) ([]string, error)
 	UpdateTenant(ctx context.Context, t *Tenant) error
 
 	// TenantByStripeCustomer resolves the payment events that carry a customer
@@ -1241,8 +1250,16 @@ type APIKey struct {
 	// MESHSAT-1209 only the static HUB_AUTH_TOKEN could carry. Settable ONLY by a
 	// caller who already holds it -- see internal/api/apikeys.go. Unlike that token
 	// a key with this flag is revocable and can expire, which is the entire point.
-	PlatformAdmin bool      `json:"platform_admin,omitempty"`
-	CreatedAt     time.Time `json:"created_at"`
+	PlatformAdmin bool `json:"platform_admin,omitempty"`
+	// PlatformRead lets this key READ the platform directory across tenants
+	// (MESHSAT-1527): GET and HEAD on the routes behind auth.RequirePlatformRead,
+	// nothing else. PlatformAdmin cannot be narrowed by the key's role --
+	// RequirePlatformAdmin reads only the flag, so a "viewer" key carrying it can
+	// still PUT and DELETE tenants -- which is why a read-only consumer (an
+	// operator's lookup tool) gets this separate axis instead. Same gate as
+	// PlatformAdmin: settable ONLY by a caller who holds PlatformAdmin.
+	PlatformRead bool      `json:"platform_read,omitempty"`
+	CreatedAt    time.Time `json:"created_at"`
 }
 
 // AlertRule defines a configurable condition that triggers an escalation chain.

@@ -264,3 +264,24 @@ func (d *DB) ListTenantSummaries(ctx context.Context) ([]store.TenantSummary, er
 	}
 	return out, rows.Err()
 }
+
+// TenantIDsByUserEmail is the platform directory's email filter
+// (MESHSAT-1527): every tenant with a user of that address, case-insensitive.
+// Cross-tenant by design; see the interface.
+func (d *DB) TenantIDsByUserEmail(ctx context.Context, email string) ([]string, error) {
+	rows, err := d.db.QueryContext(ctx,
+		"SELECT DISTINCT tenant_id FROM users WHERE LOWER(email) = LOWER($1) ORDER BY tenant_id", strings.TrimSpace(email))
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+	var out []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		out = append(out, id)
+	}
+	return out, rows.Err()
+}

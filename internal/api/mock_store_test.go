@@ -826,6 +826,9 @@ func (m *mockStore) MeshNodesSeenSince(context.Context, string, string, time.Tim
 func (m *mockStore) ListTenantSummaries(context.Context) ([]store.TenantSummary, error) {
 	return nil, nil
 }
+func (m *mockStore) TenantIDsByUserEmail(context.Context, string) ([]string, error) {
+	return nil, nil
+}
 func (m *mockStore) ListAuditEntriesByAction(context.Context, string, []string, int) ([]store.AuditEntry, error) {
 	return nil, nil
 }

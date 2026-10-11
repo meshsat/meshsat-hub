@@ -1535,7 +1535,13 @@ func main() {
 			// revocation path. It is false for every existing key (column default)
 			// and only a caller who ALREADY holds PlatformAdmin can set it.
 			PlatformAdmin: k.PlatformAdmin,
-			ExpiresAt:     k.ExpiresAt,
+			// MESHSAT-1527: the read-only platform axis. RequirePlatformRead lets
+			// it through on GET and HEAD of the platform directory and nowhere
+			// else; RequirePlatformAdmin and the X-Tenant-ID switch read only
+			// PlatformAdmin, so a reader key can neither write nor open a
+			// customer's workspace. Same minting gate as PlatformAdmin.
+			PlatformReader: k.PlatformRead,
+			ExpiresAt:      k.ExpiresAt,
 		}
 		return user, tenantID, nil
 	}
@@ -2471,11 +2477,20 @@ func main() {
 			"authentik", akClient != nil, "mail", mailer != nil)
 	}
 	r.Route("/api/admin/signups", func(r chi.Router) {
-		r.Use(hubauth.RequirePlatformAdmin())
-		r.Get("/", signupHandler.List)
-		r.Get("/history", signupHandler.History)
-		r.Post("/{id}/approve", signupHandler.Approve)
-		r.Post("/{id}/reject", signupHandler.Reject)
+		// MESHSAT-1527: the two reads a platform READER key may make (is a
+		// hosted-account request pending for this caller?). RequirePlatformRead
+		// admits a reader on GET/HEAD only and a platform admin on everything.
+		r.Group(func(r chi.Router) {
+			r.Use(hubauth.RequirePlatformRead())
+			r.Get("/", signupHandler.List)
+			r.Get("/history", signupHandler.History)
+		})
+		// Deciding a request stays platform-admin only.
+		r.Group(func(r chi.Router) {
+			r.Use(hubauth.RequirePlatformAdmin())
+			r.Post("/{id}/approve", signupHandler.Approve)
+			r.Post("/{id}/reject", signupHandler.Reject)
+		})
 	})
 	// Payments that upgraded nobody. Matching is deliberately not a guess, so
 	// some payments land here; without a surface they were a log line and
@@ -2508,17 +2523,28 @@ func main() {
 	r.With(hubauth.RequirePlatformAdmin()).Get("/api/admin/vat/threshold", paymentsHandler.VATThreshold)
 	viewAs := api.NewViewAsHandler(dataStore, auditSvc, supportGrants.Forget)
 	r.Route("/api/admin/tenants", func(r chi.Router) {
-		r.Use(hubauth.RequirePlatformAdmin())
-		r.Get("/", tenantHandler.AdminList)
-		r.Get("/{id}", tenantHandler.AdminGet)
-		r.Put("/{id}", tenantHandler.AdminUpdate)
-		r.Delete("/{id}", offboarding.AdminDelete)
-		r.Get("/{id}/usage", usageHandler.AdminUsage)
-		r.Get("/{id}/users", tenantHandler.AdminListUsers)
-		r.Get("/{id}/audit", tenantHandler.AdminListAudit)
-		// The PIN check is a login surface: same per-IP budget as the others.
-		r.Post("/{id}/view-as", hubmw.WebhookRateLimit(http.HandlerFunc(viewAs.Start), cfg.AuthRateLimitPerMin).ServeHTTP)
-		r.Delete("/{id}/view-as", viewAs.End)
+		// MESHSAT-1527: the directory reads a platform READER key may make
+		// (look a caller's account up: plan, status, users, usage). Nothing
+		// else belongs in this group: RequirePlatformRead admits a reader on
+		// GET/HEAD, and the route-floor test refuses any other method here.
+		r.Group(func(r chi.Router) {
+			r.Use(hubauth.RequirePlatformRead())
+			r.Get("/", tenantHandler.AdminList)
+			r.Get("/{id}", tenantHandler.AdminGet)
+			r.Get("/{id}/usage", usageHandler.AdminUsage)
+			r.Get("/{id}/users", tenantHandler.AdminListUsers)
+		})
+		// Everything else stays platform-admin only, the tenant audit chain
+		// included (it is the customer's own record, not a lookup).
+		r.Group(func(r chi.Router) {
+			r.Use(hubauth.RequirePlatformAdmin())
+			r.Put("/{id}", tenantHandler.AdminUpdate)
+			r.Delete("/{id}", offboarding.AdminDelete)
+			r.Get("/{id}/audit", tenantHandler.AdminListAudit)
+			// The PIN check is a login surface: same per-IP budget as the others.
+			r.Post("/{id}/view-as", hubmw.WebhookRateLimit(http.HandlerFunc(viewAs.Start), cfg.AuthRateLimitPerMin).ServeHTTP)
+			r.Delete("/{id}/view-as", viewAs.End)
+		})
 	})
 
 	// API key management (owner-only)

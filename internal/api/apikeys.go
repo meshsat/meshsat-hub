@@ -54,15 +54,21 @@ type createKeyRequest struct {
 	// the CALLER already holds it — see CreateKey. This route is open to any
 	// tenant owner, so an ungated field here would be a cross-tenant escalation.
 	PlatformAdmin bool `json:"platform_admin,omitempty"`
+	// PlatformRead requests the READ-ONLY platform axis (MESHSAT-1527): GET and
+	// HEAD on the platform directory, nothing else. Gated exactly like
+	// PlatformAdmin, and for the same reason. Not combinable with it.
+	PlatformRead bool `json:"platform_read,omitempty"`
 }
 
 type createKeyResponse struct {
-	Key       string     `json:"key"` // plaintext — shown once
-	ID        string     `json:"id"`
-	KeyPrefix string     `json:"key_prefix"`
-	Role      string     `json:"role"`
-	Label     string     `json:"label"`
-	ExpiresAt *time.Time `json:"expires_at,omitempty"`
+	Key           string     `json:"key"` // plaintext — shown once
+	ID            string     `json:"id"`
+	KeyPrefix     string     `json:"key_prefix"`
+	Role          string     `json:"role"`
+	Label         string     `json:"label"`
+	ExpiresAt     *time.Time `json:"expires_at,omitempty"`
+	PlatformAdmin bool       `json:"platform_admin,omitempty"`
+	PlatformRead  bool       `json:"platform_read,omitempty"`
 }
 
 // CreateKey generates a new API key. Owner-only.
@@ -110,6 +116,30 @@ func (h *APIKeyHandler) CreateKey(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	// The same gate for the read-only axis (MESHSAT-1527). Reading every
+	// tenant's directory -- owners' addresses, plans, users -- is cross-tenant
+	// authority even without a write, so a tenant owner may not mint it, and
+	// neither may a platform READER: only PlatformAdmin passes it on.
+	if req.PlatformRead {
+		if u := auth.FromContext(r.Context()); u == nil || !u.PlatformAdmin {
+			writeError(w, http.StatusForbidden, "platform_read keys may only be created by a platform administrator")
+			return
+		}
+		// Both flags would be a key whose meaning depends on which check reads
+		// it; platform_admin already reads everything.
+		if req.PlatformAdmin {
+			writeError(w, http.StatusBadRequest, "platform_admin already includes platform_read; request one of them")
+			return
+		}
+		// A key is also a member of the tenant it is minted in (the platform
+		// tenant, in practice), with its role. A read-only key that is an
+		// operator or owner there could change the platform tenant's own
+		// routes, kits and keys, so it is a viewer or nothing.
+		if req.Role != auth.RoleViewer {
+			writeError(w, http.StatusBadRequest, "platform_read keys are read-only: role must be viewer")
+			return
+		}
+	}
 
 	plaintext, hash, prefix, err := auth.GenerateAPIKey()
 	if err != nil {
@@ -125,6 +155,7 @@ func (h *APIKeyHandler) CreateKey(w http.ResponseWriter, r *http.Request) {
 		Label:         req.Label,
 		DeviceIMEI:    req.DeviceIMEI,
 		PlatformAdmin: req.PlatformAdmin,
+		PlatformRead:  req.PlatformRead,
 	}
 
 	if req.ExpiresIn != "" {
@@ -144,17 +175,19 @@ func (h *APIKeyHandler) CreateKey(w http.ResponseWriter, r *http.Request) {
 	}
 
 	resp := createKeyResponse{
-		Key:       plaintext,
-		ID:        key.ID,
-		KeyPrefix: prefix,
-		Role:      req.Role,
-		Label:     req.Label,
+		Key:           plaintext,
+		ID:            key.ID,
+		KeyPrefix:     prefix,
+		Role:          req.Role,
+		Label:         req.Label,
+		PlatformAdmin: key.PlatformAdmin,
+		PlatformRead:  key.PlatformRead,
 	}
 	if !key.ExpiresAt.IsZero() {
 		resp.ExpiresAt = &key.ExpiresAt
 	}
 	// The prefix identifies the key without being the key.
-	h.auditLog(r, "api_key_created", fmt.Sprintf("id=%s prefix=%s role=%s platform_admin=%t label=%q", key.ID, prefix, req.Role, key.PlatformAdmin, req.Label))
+	h.auditLog(r, "api_key_created", fmt.Sprintf("id=%s prefix=%s role=%s platform_admin=%t platform_read=%t label=%q", key.ID, prefix, req.Role, key.PlatformAdmin, key.PlatformRead, req.Label))
 
 	writeJSON(w, http.StatusCreated, resp)
 }

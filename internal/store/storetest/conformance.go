@@ -39,11 +39,13 @@ func Run(t *testing.T, open Opener) {
 		{"BridgeIDCannotCrossTenants", testBridgeIDCannotCrossTenants},
 		{"APIKeys", testAPIKeys},
 		{"APIKeyTenantIsolation", testAPIKeyTenantIsolation},
+		{"APIKeyPlatformAxes", testAPIKeyPlatformAxes},
 		{"DeviceConfigVersioning", testDeviceConfigVersioning},
 		{"SystemConfig", testSystemConfig},
 		{"ClaimsAndDeadman", testClaims},
 		{"TenantsAndInvites", testTenants},
 		{"TenantSummaries", testTenantSummaries},
+		{"TenantIDsByUserEmail", testTenantIDsByUserEmail},
 		{"AuditEntriesByAction", testAuditEntriesByAction},
 		{"SupportGrants", testSupportGrants},
 		{"OIDCIdentities", testOIDCIdentities},
@@ -402,6 +404,57 @@ func testAPIKeyTenantIsolation(t *testing.T, db store.Store) {
 	}
 	if _, tid, err := db.GetAPIKeyByHash(ctx, "hash_a"); err != nil || tid != "tenant-a" {
 		t.Errorf("get: %v %q", err, tid)
+	}
+}
+
+// testAPIKeyPlatformAxes: both platform flags survive every read path, the
+// one the authenticator uses (by hash) and the two the owner sees (by id,
+// list), and an ordinary key reads back with neither (MESHSAT-1209,
+// MESHSAT-1527). A read path that drops the column would turn a reader key
+// into an ordinary key, or hide a platform key from the owner revoking it.
+func testAPIKeyPlatformAxes(t *testing.T, db store.Store) {
+	ctx := context.Background()
+	keys := []*store.APIKey{
+		{KeyHash: "hash_reader", KeyPrefix: "meshsat_rrrrrrrr", Role: "viewer", Label: "reader", PlatformRead: true},
+		{KeyHash: "hash_admin", KeyPrefix: "meshsat_pppppppp", Role: "owner", Label: "admin", PlatformAdmin: true},
+		{KeyHash: "hash_plain", KeyPrefix: "meshsat_oooooooo", Role: "viewer", Label: "plain"},
+	}
+	for _, k := range keys {
+		if err := db.CreateAPIKey(ctx, store.DefaultTenantID, k); err != nil {
+			t.Fatalf("create %s: %v", k.Label, err)
+		}
+	}
+	listed, err := db.ListAPIKeys(ctx, store.DefaultTenantID)
+	if err != nil || len(listed) != len(keys) {
+		t.Fatalf("list: %v %d", err, len(listed))
+	}
+	byLabel := map[string]store.APIKey{}
+	for _, k := range listed {
+		byLabel[k.Label] = k
+	}
+	for _, want := range keys {
+		got, tid, err := db.GetAPIKeyByHash(ctx, want.KeyHash)
+		if err != nil || tid != store.DefaultTenantID {
+			t.Fatalf("get by hash %s: %v %q", want.Label, err, tid)
+		}
+		byID, err := db.GetAPIKeyByID(ctx, store.DefaultTenantID, want.ID)
+		if err != nil {
+			t.Fatalf("get by id %s: %v", want.Label, err)
+		}
+		l := byLabel[want.Label]
+		for path, k := range map[string]store.APIKey{"by hash": *got, "by id": *byID, "list": l} {
+			if k.PlatformRead != want.PlatformRead || k.PlatformAdmin != want.PlatformAdmin {
+				t.Errorf("%s %s: platform_read=%v platform_admin=%v, want %v %v",
+					want.Label, path, k.PlatformRead, k.PlatformAdmin, want.PlatformRead, want.PlatformAdmin)
+			}
+		}
+	}
+	// Rotation keeps the row, so it keeps the axis.
+	if err := db.UpdateAPIKeySecret(ctx, store.DefaultTenantID, keys[0].ID, "hash_reader2", "meshsat_rrrrrrr2", time.Time{}); err != nil {
+		t.Fatalf("rotate: %v", err)
+	}
+	if got, _, err := db.GetAPIKeyByHash(ctx, "hash_reader2"); err != nil || !got.PlatformRead || got.PlatformAdmin {
+		t.Errorf("rotated reader key: %v %+v", err, got)
 	}
 }
 

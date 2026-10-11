@@ -189,6 +189,46 @@ Other operator actions on the same page (plan, expiry, send caps, suspend, react
 no grant, because they are the platform's own decisions; each is written to the tenant's chain as
 `tenant_admin_updated` or `tenant_deleted` and mirrored to the platform chain with `tenant=<id>`.
 
+### 9. A read-only platform key (a tool that only looks customers up)
+
+A key minted with `platform_read` (MESHSAT-1527) reads the platform directory and nothing else:
+`GET /api/admin/tenants` (`?email=` narrows to the tenants that have a user with that address,
+case-insensitive; `?q=` and `?include_deleted=1` as before), `GET /api/admin/tenants/{id}`,
+`/{id}/users`, `/{id}/usage`, `GET /api/admin/signups` and `/api/admin/signups/history`. Every
+write, the tenant audit chain, payments, receipts, refunds and VAT answer it 403. Never hand such
+a consumer the platform-admin key instead: that one can close tenants whatever its role says.
+
+Minting needs a credential that already holds `platform_admin`: the platform-admin API key
+(`HUB_VERIFY_ADMIN_KEY` in OpenBao `secret/ci-no/apps/meshsat-hub/verify`, a key of the `default`
+tenant) or a signed-in platform admin's session. The break-glass `HUB_AUTH_TOKEN` is refused in
+production. The new key belongs to the caller's tenant, which for that key is `default`; the role
+must be `viewer` (the default), and `platform_read` cannot be combined with `platform_admin`.
+
+```bash
+curl -sS -X POST https://hub.meshsat.net/api/auth/keys \
+  -H "Authorization: Bearer $HUB_VERIFY_ADMIN_KEY" -H "Content-Type: application/json" \
+  -d '{"label":"<consumer> (read-only platform)","role":"viewer","platform_read":true,"expires_in":"8760h"}'
+# 201: {"key":"meshsat_...","id":"key-...","key_prefix":"meshsat_...","role":"viewer",
+#       "label":"...","expires_at":"...","platform_read":true}
+```
+
+The plaintext `key` is shown once; store it in OpenBao under the consumer's path, never in git.
+The minting writes `api_key_created ... platform_read=true` to the `default` tenant's chain. Each
+directory read the key makes leaves an Info line `auth: platform read actor=apikey:<id>` on the
+replica that served it, and the row's `last_used` moves.
+
+To list or revoke it, use the SAME tenant it was minted in (`default`), or the delete matches
+nothing and still answers 204:
+
+```bash
+curl -sS https://hub.meshsat.net/api/auth/keys -H "Authorization: Bearer $HUB_VERIFY_ADMIN_KEY"
+curl -sS -X DELETE https://hub.meshsat.net/api/auth/keys/<id> -H "Authorization: Bearer $HUB_VERIFY_ADMIN_KEY"
+```
+
+Revocation is immediate on both replicas (the key is looked up on every request) and writes
+`api_key_deleted`. An owner signed in to the console in that tenant can do the same on the
+API keys page (`/api-keys`).
+
 ---
 
 ## Health Checks

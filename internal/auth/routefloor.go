@@ -14,9 +14,11 @@ package auth
 // scoping got one in internal/store/scoping.go.
 //
 // routefloor_test.go parses the route table in cmd/meshsat-hub/main.go, works
-// out the gate on each route from RequireRole / RequirePlatformAdmin -- whether
-// applied with .With(), inherited from an enclosing r.Route group, or absent --
-// and enforces two rules:
+// out the gate on each route from RequireRole / RequirePlatformAdmin /
+// RequirePlatformRead -- whether applied with .With(), inherited from an
+// enclosing r.Route or r.Group scope, or absent -- and enforces two rules
+// (plus, since MESHSAT-1527, that the platform-read gate carries exactly
+// PlatformReadRoutes and nothing that is not a read):
 //
 //  1. A route that MUTATES state (POST, PUT, PATCH, DELETE, or a bare Handle)
 //     and is not auth-exempt must require at least OPERATOR. Read routes
@@ -98,10 +100,42 @@ var MustRequirePlatformAdmin = []string{
 	"POST /api/backup/import",
 }
 
+// PlatformReadRoutes is the COMPLETE list of routes behind RequirePlatformRead
+// (MESHSAT-1527), i.e. everything an API key minted with platform_read can
+// reach on the platform axis. routefloor_test.go holds the route table to it
+// in both directions: a route gated platform-read that is not named here
+// fails, and so does a name here whose route lost the gate. Every entry must
+// be a GET or HEAD -- the same test refuses any other method under the gate,
+// because RequirePlatformRead admits a platform reader on reads only and a
+// write registered there would be reachable by platform admins under a gate
+// whose name says "read".
+//
+// Adding a route here hands it to every platform reader key in existence.
+// The question to answer first: does a read-only consumer looking a customer
+// up need it, and does it disclose anything the directory does not already?
+var PlatformReadRoutes = []string{
+	// The directory: plan, status, owner, counts, signup date; ?email= finds
+	// one customer's tenant by a user's address.
+	"GET /api/admin/tenants",
+	"GET /api/admin/tenants/{id}",
+	"GET /api/admin/tenants/{id}/users",
+	"GET /api/admin/tenants/{id}/usage",
+	// Is a hosted-account request waiting, and what was decided.
+	"GET /api/admin/signups",
+	"GET /api/admin/signups/history",
+}
+
 // RoleRank ranks the gates a route can carry, strongest last. "" is no gate.
 // PlatformAdmin is a separate axis from the tenant roles, but for the purpose
 // of "is this route gated at least as strongly as X" it dominates, because a
 // platform admin is strictly more privileged than any tenant role.
+//
+// "platform-read" (RequirePlatformRead, MESHSAT-1527) sits between: no tenant
+// role passes it, so it outranks them for "who can reach this route", and it
+// is weaker than platform-admin because a platform reader passes it on GET and
+// HEAD. It never stands in for either named floor: routefloor_test.go refuses
+// it on every MustRequireOwner and MustRequirePlatformAdmin route explicitly,
+// and refuses any non-read method under it.
 func RoleRank(gate string) int {
 	switch gate {
 	case RoleViewer:
@@ -110,8 +144,10 @@ func RoleRank(gate string) int {
 		return 2
 	case RoleOwner, "admin":
 		return 3
-	case "platform-admin":
+	case "platform-read":
 		return 4
+	case "platform-admin":
+		return 5
 	}
 	return 0
 }

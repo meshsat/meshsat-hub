@@ -575,6 +575,8 @@ var lateAlterMigrations = []string{
 	// MESHSAT-1209: the platform axis on a key. INTEGER because sqlite has no
 	// boolean; 0/1 maps to the Go bool in the scan below.
 	`ALTER TABLE api_keys ADD COLUMN platform_admin INTEGER NOT NULL DEFAULT 0`,
+	// MESHSAT-1527: the read-only platform axis; mirrors postgres migration 32.
+	`ALTER TABLE api_keys ADD COLUMN platform_read INTEGER NOT NULL DEFAULT 0`,
 }
 
 // --- Devices ---
@@ -1188,9 +1190,9 @@ func (d *DB) CreateAPIKey(ctx context.Context, tenantID string, k *store.APIKey)
 		expiresAt = k.ExpiresAt.UTC().Format(time.DateTime)
 	}
 	_, err := d.db.ExecContext(ctx,
-		`INSERT INTO api_keys (id, key_hash, key_prefix, role, label, device_imei, expires_at, tenant_id, platform_admin)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		k.ID, k.KeyHash, k.KeyPrefix, k.Role, k.Label, k.DeviceIMEI, expiresAt, tenantID, k.PlatformAdmin)
+		`INSERT INTO api_keys (id, key_hash, key_prefix, role, label, device_imei, expires_at, tenant_id, platform_admin, platform_read)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		k.ID, k.KeyHash, k.KeyPrefix, k.Role, k.Label, k.DeviceIMEI, expiresAt, tenantID, k.PlatformAdmin, k.PlatformRead)
 	return err
 }
 
@@ -1198,9 +1200,9 @@ func (d *DB) GetAPIKeyByHash(ctx context.Context, keyHash string) (*store.APIKey
 	var k store.APIKey
 	var tenantID, lastUsed, expiresAt, createdAt string
 	err := d.db.QueryRowContext(ctx,
-		"SELECT id, key_hash, key_prefix, role, label, device_imei, last_used, expires_at, created_at, tenant_id, platform_admin FROM api_keys WHERE key_hash=?",
+		"SELECT id, key_hash, key_prefix, role, label, device_imei, last_used, expires_at, created_at, tenant_id, platform_admin, platform_read FROM api_keys WHERE key_hash=?",
 		keyHash,
-	).Scan(&k.ID, &k.KeyHash, &k.KeyPrefix, &k.Role, &k.Label, &k.DeviceIMEI, &lastUsed, &expiresAt, &createdAt, &tenantID, &k.PlatformAdmin)
+	).Scan(&k.ID, &k.KeyHash, &k.KeyPrefix, &k.Role, &k.Label, &k.DeviceIMEI, &lastUsed, &expiresAt, &createdAt, &tenantID, &k.PlatformAdmin, &k.PlatformRead)
 	if err != nil {
 		return nil, "", err
 	}
@@ -1212,7 +1214,7 @@ func (d *DB) GetAPIKeyByHash(ctx context.Context, keyHash string) (*store.APIKey
 
 func (d *DB) ListAPIKeys(ctx context.Context, tenantID string) ([]store.APIKey, error) {
 	rows, err := d.db.QueryContext(ctx,
-		"SELECT id, key_prefix, role, label, device_imei, last_used, expires_at, created_at FROM api_keys WHERE tenant_id=? ORDER BY created_at DESC",
+		"SELECT id, key_prefix, role, label, device_imei, last_used, expires_at, created_at, platform_admin, platform_read FROM api_keys WHERE tenant_id=? ORDER BY created_at DESC",
 		tenantID)
 	if err != nil {
 		return nil, err
@@ -1222,7 +1224,7 @@ func (d *DB) ListAPIKeys(ctx context.Context, tenantID string) ([]store.APIKey, 
 	for rows.Next() {
 		var k store.APIKey
 		var lastUsed, expiresAt, createdAt string
-		if err := rows.Scan(&k.ID, &k.KeyPrefix, &k.Role, &k.Label, &k.DeviceIMEI, &lastUsed, &expiresAt, &createdAt); err != nil {
+		if err := rows.Scan(&k.ID, &k.KeyPrefix, &k.Role, &k.Label, &k.DeviceIMEI, &lastUsed, &expiresAt, &createdAt, &k.PlatformAdmin, &k.PlatformRead); err != nil {
 			return nil, err
 		}
 		k.LastUsed, _ = time.Parse(time.DateTime, lastUsed)
@@ -1237,9 +1239,9 @@ func (d *DB) GetAPIKeyByID(ctx context.Context, tenantID string, id string) (*st
 	var k store.APIKey
 	var lastUsed, expiresAt, createdAt string
 	err := d.db.QueryRowContext(ctx,
-		"SELECT id, key_hash, key_prefix, role, label, device_imei, last_used, expires_at, rotation_days, created_at FROM api_keys WHERE id=? AND tenant_id=?",
+		"SELECT id, key_hash, key_prefix, role, label, device_imei, last_used, expires_at, rotation_days, created_at, platform_admin, platform_read FROM api_keys WHERE id=? AND tenant_id=?",
 		id, tenantID,
-	).Scan(&k.ID, &k.KeyHash, &k.KeyPrefix, &k.Role, &k.Label, &k.DeviceIMEI, &lastUsed, &expiresAt, &k.RotationDays, &createdAt)
+	).Scan(&k.ID, &k.KeyHash, &k.KeyPrefix, &k.Role, &k.Label, &k.DeviceIMEI, &lastUsed, &expiresAt, &k.RotationDays, &createdAt, &k.PlatformAdmin, &k.PlatformRead)
 	if err != nil {
 		return nil, err
 	}
