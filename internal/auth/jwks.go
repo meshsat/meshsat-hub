@@ -326,7 +326,14 @@ func parseECPublicKey(crv, xB64, yB64 string) (*ecdsa.PublicKey, error) {
 	if _, err := ecdhCurve.NewPublicKey(point); err != nil {
 		return nil, fmt.Errorf("point is not on curve %s: %w", crv, err)
 	}
-	return &ecdsa.PublicKey{Curve: curve, X: x, Y: y}, nil
+	// Go 1.26 deprecates setting PublicKey.X/Y directly (MESHSAT-1528):
+	// ParseUncompressedPublicKey builds the key from the same point and
+	// validates it again.
+	pub, err := ecdsa.ParseUncompressedPublicKey(curve, point)
+	if err != nil {
+		return nil, fmt.Errorf("point is not on curve %s: %w", crv, err)
+	}
+	return pub, nil
 }
 
 // parseRSAPublicKey builds an *rsa.PublicKey from base64url-encoded modulus and exponent.

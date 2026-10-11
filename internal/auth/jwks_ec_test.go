@@ -75,7 +75,7 @@ func TestJWKSProvider_ECKeyAndDiscoveryEndpoints(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected *ecdsa.PublicKey, got %T", key)
 	}
-	if ecKey.X.Cmp(priv.X) != 0 || ecKey.Y.Cmp(priv.Y) != 0 {
+	if !ecKey.Equal(&priv.PublicKey) {
 		t.Error("EC public key mismatch")
 	}
 	disc, err := provider.Discover(context.Background())
