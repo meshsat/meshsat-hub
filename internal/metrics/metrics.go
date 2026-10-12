@@ -3,6 +3,7 @@ package metrics
 
 import (
 	"net/http"
+	"strings"
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
@@ -391,5 +392,22 @@ func init() {
 		} {
 			AuthzDenialsTotal.WithLabelValues(req, ch)
 		}
+	}
+}
+
+// RegisterFederation exposes the federation relay counters of this replica
+// (MESHSAT-1549). snapshot is read at scrape time.
+func RegisterFederation(snapshot func() (sent, sendFailed, received, duplicate, refused, failed uint64)) {
+	pick := func(i int) func() float64 {
+		return func() float64 {
+			a, b, c, d, e, f := snapshot()
+			return float64([]uint64{a, b, c, d, e, f}[i])
+		}
+	}
+	for i, name := range []string{"sent", "send_failed", "received", "duplicate", "refused", "failed"} {
+		promauto.NewCounterFunc(prometheus.CounterOpts{
+			Name: "meshsat_hub_federation_relay_" + name + "_total",
+			Help: "Federation relays on this replica: " + strings.ReplaceAll(name, "_", " ") + ".",
+		}, pick(i))
 	}
 }

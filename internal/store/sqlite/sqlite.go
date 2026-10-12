@@ -174,6 +174,30 @@ var migrations = []string{
 		PRIMARY KEY (tenant_id, id)
 	)`,
 	`CREATE INDEX IF NOT EXISTS idx_support_grants_tenant ON support_grants (tenant_id, expires_at)`,
+	// MESHSAT-1549: Hub federation peers and grants, keyed (tenant_id, id).
+	`CREATE TABLE IF NOT EXISTS federation_peers (
+		tenant_id TEXT NOT NULL,
+		id TEXT NOT NULL,
+		name TEXT NOT NULL DEFAULT '',
+		relay_url TEXT NOT NULL,
+		cert_pem TEXT NOT NULL,
+		fingerprint TEXT NOT NULL,
+		created_by_email TEXT NOT NULL DEFAULT '',
+		created_at TEXT NOT NULL,
+		PRIMARY KEY (tenant_id, id)
+	)`,
+	`CREATE UNIQUE INDEX IF NOT EXISTS uq_federation_peers_fp ON federation_peers (tenant_id, fingerprint)`,
+	`CREATE TABLE IF NOT EXISTS federation_grants (
+		tenant_id TEXT NOT NULL,
+		id TEXT NOT NULL,
+		peer_id TEXT NOT NULL,
+		from_imei TEXT NOT NULL,
+		to_imei TEXT NOT NULL,
+		created_by_email TEXT NOT NULL DEFAULT '',
+		created_at TEXT NOT NULL,
+		PRIMARY KEY (tenant_id, id)
+	)`,
+	`CREATE UNIQUE INDEX IF NOT EXISTS uq_federation_grants ON federation_grants (tenant_id, peer_id, from_imei, to_imei)`,
 }
 
 // alterMigrations add tenant_id to existing tables. These use ALTER TABLE

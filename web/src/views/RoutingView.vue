@@ -28,7 +28,7 @@ const testResults = ref(null)
 const testLoading = ref(false)
 
 const sourceTypes = ['*', 'satellite', 'iridium', 'sms', 'email']
-const destTypes = ['tak', 'aprs', 'sms', 'email', 'satellite', 'satellite_relay', 'webhook', 'notification', 'mqtt']
+const destTypes = ['tak', 'aprs', 'sms', 'email', 'satellite', 'satellite_relay', 'federation_relay', 'webhook', 'notification', 'mqtt']
 
 const showDeleteConfirm = ref(false)
 const routeToDelete = ref(null)
@@ -178,6 +178,7 @@ const WORDS = {
   '*': 'Any source', satellite: 'Satellite', iridium: 'Iridium', sms: 'SMS', email: 'Email',
   tak: 'TAK', aprs: 'APRS', webhook: 'Webhook', notification: 'Notifications', mqtt: 'MQTT',
   satellite_relay: 'Relay to a kit by satellite',
+  federation_relay: 'Relay to a kit on a peer Hub',
 }
 function words(type) { return WORDS[type] || type }
 
@@ -185,12 +186,12 @@ function words(type) { return WORDS[type] || type }
 // (isRecipientDestination): for SMS, email and satellite destinations it is
 // WHO receives the message; for the others it is a condition on the message
 // (the sender's id, or a word in the text).
-const RECIPIENT_DESTS = new Set(['sms', 'email', 'satellite', 'satellite_relay'])
+const RECIPIENT_DESTS = new Set(['sms', 'email', 'satellite', 'satellite_relay', 'federation_relay'])
 function isRecipient(dest) { return RECIPIENT_DESTS.has(dest) }
 
 function sourceBadgeClass(type) {
   if (type === '*' || type === 'All sources') return 'bg-gray-700 text-gray-300'
-  if (type === 'iridium' || type === 'satellite' || type === 'satellite_relay') return 'bg-blue-900/50 text-blue-300'
+  if (type === 'iridium' || type === 'satellite' || type === 'satellite_relay' || type === 'federation_relay') return 'bg-blue-900/50 text-blue-300'
   if (type === 'sms') return 'bg-green-900/50 text-green-300'
   if (type === 'email') return 'bg-yellow-900/50 text-yellow-300'
   return 'bg-gray-700 text-gray-300'

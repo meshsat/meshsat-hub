@@ -2,11 +2,14 @@ package routing
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"github.com/meshsat/meshsat-hub/internal/tenancy"
 	"log/slog"
 	"strings"
+	"time"
 
 	hubmqtt "github.com/meshsat/meshsat-hub/internal/mqtt"
 	"github.com/meshsat/meshsat-hub/internal/sms"
@@ -26,6 +29,8 @@ type moDecodedPayload struct {
 	// IMTTopic is the IMT topic the message arrived on; the relay answers
 	// on the same one. [MESHSAT-1352]
 	IMTTopic string `json:"imt_topic,omitempty"`
+	// ID is the publisher's message id, when it set one.
+	ID string `json:"id,omitempty"`
 }
 
 // NewSMSHandler creates a routing destination handler that sends SMS via Twilio.
@@ -309,4 +314,92 @@ func NewSatelliteRelayHandler(send SatelliteRelaySender) DestinationHandler {
 			slog.Info("routing/satellite_relay: relayed", "route", route.Name, "from", deviceID, "to", imei, "topic", msg.IMTTopic, "wire_b64_len", len(msg.Wire))
 		}
 	}
+}
+
+// DestFederationRelay forwards a satellite message byte for byte to a device
+// on another Hub that this tenant has peered with [MESHSAT-1549]: the
+// satellite_relay of two Cloudloop accounts that are not the same tenant.
+// Recipients are written "<peer id>/<imei>"; the peer's owner must have
+// added this tenant and granted the sending modem that device, or the peer
+// refuses it. Like satellite_relay, name the senders on the route: every
+// relayed message is a paid MT on the peer's account.
+const DestFederationRelay = "federation_relay"
+
+// FederationRelaySender relays one payload to one device on one peer.
+type FederationRelaySender func(ctx context.Context, tenantID, peerID, fromIMEI, toIMEI, wireB64, imtTopic, msgID string) error
+
+// federationRelayTimeout bounds one relay including its retries; it runs off
+// the dispatch goroutine because a peer can take seconds to answer.
+const federationRelayTimeout = 60 * time.Second
+
+// NewFederationRelayHandler relays the original payload to every
+// "<peer>/<imei>" in the route's filter. The engine has already claimed this
+// dispatch for this message, so it runs on one replica; the msg_id comes off
+// the payload, so a retry is the same message to the peer's claim.
+func NewFederationRelayHandler(send FederationRelaySender) DestinationHandler {
+	return func(ctx context.Context, route *store.Route, deviceID string, payload json.RawMessage) {
+		var msg moDecodedPayload
+		if err := json.Unmarshal(payload, &msg); err != nil {
+			slog.Warn("routing/federation_relay: unmarshal payload failed", "error", err)
+			return
+		}
+		if msg.Wire == "" {
+			slog.Warn("routing/federation_relay: message carries no original payload, nothing to relay",
+				"route", route.Name, "device", deviceID, "channel", msg.Channel)
+			return
+		}
+		// A relay open to every sender would turn any modem's message into a
+		// paid MT on the peer: the senders must be named.
+		if strings.TrimSpace(route.Senders) == "" || strings.Contains(route.Senders, "*") {
+			slog.Warn("routing/federation_relay: route names no senders, not relaying", "route", route.Name)
+			return
+		}
+		// Never attributed to the platform by default: no tenant, no relay.
+		tenantID := tenancy.FromContext(ctx)
+		if tenantID == "" {
+			slog.Error("routing/federation_relay: no tenant on the dispatch, not relaying", "route", route.Name)
+			return
+		}
+		msgID := ""
+		if msgIDOK(msg.ID) {
+			msgID = "id-" + msg.ID
+		} else {
+			sum := sha256.Sum256(payload)
+			msgID = "mo-" + hex.EncodeToString(sum[:16])
+		}
+		for _, r := range parseRecipients(route.Filter) {
+			peerID, imei, ok := strings.Cut(r, "/")
+			if !ok || peerID == "" || imei == "" {
+				slog.Warn("routing/federation_relay: recipient is not <peer>/<imei>", "route", route.ID, "recipient", r)
+				continue
+			}
+			go func(peerID, imei string) {
+				// Off the dispatch goroutine, so not bound to its cancellation,
+				// but keeping its values (the tenant).
+				rctx, cancel := context.WithTimeout(tenancy.WithTenant(context.WithoutCancel(ctx), tenantID), federationRelayTimeout)
+				defer cancel()
+				if err := send(rctx, tenantID, peerID, deviceID, imei, msg.Wire, msg.IMTTopic, msgID); err != nil {
+					slog.Error("routing/federation_relay: relay failed", "route", route.Name, "peer", peerID, "to", imei, "error", err)
+					return
+				}
+				slog.Info("routing/federation_relay: relayed", "route", route.Name, "from", deviceID, "peer", peerID, "to", imei)
+			}(peerID, imei)
+		}
+	}
+}
+
+// msgIDOK reports whether a publisher id can travel as a relay msg_id
+// (federation.RelayFrame, 1-128 of [A-Za-z0-9._:-] once prefixed).
+func msgIDOK(id string) bool {
+	if id == "" || len(id) > 120 {
+		return false
+	}
+	for _, c := range id {
+		switch {
+		case c >= 'a' && c <= 'z', c >= 'A' && c <= 'Z', c >= '0' && c <= '9', c == '.', c == '_', c == ':', c == '-':
+		default:
+			return false
+		}
+	}
+	return true
 }

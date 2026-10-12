@@ -48,6 +48,7 @@ func Run(t *testing.T, open Opener) {
 		{"TenantIDsByUserEmail", testTenantIDsByUserEmail},
 		{"AuditEntriesByAction", testAuditEntriesByAction},
 		{"SupportGrants", testSupportGrants},
+		{"Federation", testFederation},
 		{"OIDCIdentities", testOIDCIdentities},
 		{"TenantOffboarding", testTenantOffboarding},
 		{"TenantQuota", testTenantQuota},

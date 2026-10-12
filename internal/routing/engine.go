@@ -216,7 +216,7 @@ func (e *Engine) InvalidateCache() {
 // isRecipientDestination returns true for destination types where the filter
 // field is a recipient address (phone number, email), not a message match condition.
 func isRecipientDestination(destType string) bool {
-	return destType == "sms" || destType == "email" || destType == "satellite" || destType == DestSatelliteRelay
+	return destType == "sms" || destType == "email" || destType == "satellite" || destType == DestSatelliteRelay || destType == DestFederationRelay
 }
 
 // carriesOpaque reports whether a destination makes sense for a payload the
@@ -228,7 +228,7 @@ func isRecipientDestination(destType string) bool {
 // ciphertext: a paid, multi-segment SMS of noise.
 func carriesOpaque(destType string) bool {
 	switch destType {
-	case DestSatelliteRelay, "webhook", "mqtt", "notification":
+	case DestSatelliteRelay, DestFederationRelay, "webhook", "mqtt", "notification":
 		return true
 	}
 	return false
