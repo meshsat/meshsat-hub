@@ -55,6 +55,7 @@ so a test message can text a real phone. See rule 14 in CLAUDE.md.
 | `vat-suite.py` | the country rules and the threshold meter | none |
 | `quota-suite.py` | the device ceiling gates registration and **nothing else** — an SOS still gets through | none |
 | `lapse-suite.py` | the lapse job warns and then ends, at the right moments | none |
+| `federation-e2e.py` | Hub federation from outside: a script playing a self-hosted Hub peers with the default tenant, every refusal holds, one signed relay becomes a real IMT MT, a replay is dropped, removing the peer closes it (MESHSAT-1549) | **one real MT** to tesseract (demo line); peer and grant removed |
 | `cancel-diagnosis.py` | tells a lost webhook delivery apart from a Hub defect, using Stripe's own `pending_webhooks` | none |
 | `replay-invoice.py` | redelivers one genuine event, signed as Stripe signs it | none |
 | `cleanup-test-payments.py` | the purge-and-rewind used after any probe that issued a document | — |
