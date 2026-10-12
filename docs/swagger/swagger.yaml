@@ -1336,6 +1336,42 @@ definitions:
       username:
         type: string
     type: object
+  internal_api.adminBridgeResponse:
+    properties:
+      bridge_id:
+        type: string
+      created_at:
+        type: string
+      hostname:
+        type: string
+      label:
+        type: string
+      last_report_at:
+        type: string
+      last_report_bearer:
+        type: string
+      last_seen:
+        type: string
+      mode:
+        type: string
+      online:
+        type: boolean
+      version:
+        type: string
+    type: object
+  internal_api.adminDeviceResponse:
+    properties:
+      created_at:
+        type: string
+      imei:
+        type: string
+      label:
+        type: string
+      last_seen:
+        type: string
+      type:
+        type: string
+    type: object
   internal_api.adminTenantResponse:
     properties:
       audit_retention_days:
@@ -3443,6 +3479,58 @@ paths:
               $ref: '#/definitions/github_com_meshsat_meshsat-hub_internal_store.AuditEntry'
             type: array
       summary: A tenant's recent audit entries (platform administrators only)
+      tags:
+      - admin
+  /api/admin/tenants/{id}/bridges:
+    get:
+      parameters:
+      - description: Tenant ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/internal_api.adminBridgeResponse'
+            type: array
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: A tenant's registered bridges (platform read)
+      tags:
+      - admin
+  /api/admin/tenants/{id}/devices:
+    get:
+      parameters:
+      - description: Tenant ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/internal_api.adminDeviceResponse'
+            type: array
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: A tenant's registered devices (platform read)
       tags:
       - admin
   /api/admin/tenants/{id}/usage:
