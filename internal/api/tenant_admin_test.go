@@ -73,6 +73,8 @@ func newAdminEnv(t *testing.T) *adminEnv {
 			r.Get("/", h.AdminList)
 			r.Get("/{id}", h.AdminGet)
 			r.Get("/{id}/users", h.AdminListUsers)
+			r.Get("/{id}/devices", h.AdminListDevices)
+			r.Get("/{id}/bridges", h.AdminListBridges)
 		})
 		r.Group(func(r chi.Router) {
 			r.Use(hubauth.RequirePlatformAdmin())
@@ -310,5 +312,32 @@ func TestAdminTenants_EmailFilterFindsTheCustomersTenant(t *testing.T) {
 	}
 	if code, _ := e.doAs(t, "reader", "GET", "/api/admin/tenants?email=not-an-address", ""); code != http.StatusBadRequest {
 		t.Errorf("an invalid email: %d, want 400", code)
+	}
+}
+
+// MESHSAT-1538: a platform reader lists a tenant's registered devices and
+// bridges, and the projection carries no location, keys or payloads.
+func TestAdminTenants_AReaderListsTheInventoryWithoutSecrets(t *testing.T) {
+	e := newAdminEnv(t)
+	if err := e.store.CreateOrUpdateBridge(context.Background(), "beta", &store.Bridge{BridgeID: "beta-bridge", Label: "b", Hostname: "pi-1",
+		LocationLat: 59.9, LocationLon: 10.7, ReticulumHash: "deadbeef", ReticulumPubkey: "PUBKEY", MQTTUsername: "bridge-beta"}); err != nil {
+		t.Fatal(err)
+	}
+	code, body := e.doAs(t, "reader", "GET", "/api/admin/tenants/acme/devices", "")
+	var devs []map[string]any
+	if code != 200 || json.Unmarshal(body, &devs) != nil || len(devs) != 5 || devs[0]["imei"] == nil {
+		t.Fatalf("devices: %d %s", code, body)
+	}
+	code, body = e.doAs(t, "reader", "GET", "/api/admin/tenants/beta/bridges", "")
+	if code != 200 || !strings.Contains(string(body), "beta-bridge") || !strings.Contains(string(body), "pi-1") {
+		t.Fatalf("bridges: %d %s", code, body)
+	}
+	for _, secret := range []string{"59.9", "10.7", "deadbeef", "PUBKEY", "bridge-beta", "location", "reticulum", "mqtt"} {
+		if strings.Contains(string(body), secret) {
+			t.Errorf("the bridge view leaks %q: %s", secret, body)
+		}
+	}
+	if code, _ := e.doAs(t, "reader", "GET", "/api/admin/tenants/nope/devices", ""); code != http.StatusNotFound {
+		t.Errorf("unknown tenant: %d", code)
 	}
 }

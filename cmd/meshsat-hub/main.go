@@ -2533,6 +2533,9 @@ func main() {
 			r.Get("/{id}", tenantHandler.AdminGet)
 			r.Get("/{id}/usage", usageHandler.AdminUsage)
 			r.Get("/{id}/users", tenantHandler.AdminListUsers)
+			// MESHSAT-1538: the inventory a customer registered (identifiers, labels, last seen; never keys or payloads).
+			r.Get("/{id}/devices", tenantHandler.AdminListDevices)
+			r.Get("/{id}/bridges", tenantHandler.AdminListBridges)
 		})
 		// Everything else stays platform-admin only, the tenant audit chain
 		// included (it is the customer's own record, not a lookup).

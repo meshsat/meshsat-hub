@@ -120,6 +120,12 @@ var PlatformReadRoutes = []string{
 	"GET /api/admin/tenants/{id}",
 	"GET /api/admin/tenants/{id}/users",
 	"GET /api/admin/tenants/{id}/usage",
+	// MESHSAT-1538: a customer's registered inventory for the MeshSat Support
+	// CRM: IMEI/bridge id, label, type or version, created, last seen. The
+	// directory already shows the counts; this names them, and nothing more
+	// (no location, keys, configs, messages or health payloads).
+	"GET /api/admin/tenants/{id}/devices",
+	"GET /api/admin/tenants/{id}/bridges",
 	// Is a hosted-account request waiting, and what was decided.
 	"GET /api/admin/signups",
 	"GET /api/admin/signups/history",

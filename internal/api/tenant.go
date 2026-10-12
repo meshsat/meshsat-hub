@@ -683,6 +683,97 @@ func (h *TenantHandler) AdminListUsers(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, resp)
 }
 
+// adminDeviceResponse is a registered device as the platform directory shows
+// it (MESHSAT-1538): the identifier, the label and when it was last heard of.
+// Notes, keys, configs and messages stay out: a reader looks a customer's
+// inventory up, it does not read the customer's data.
+type adminDeviceResponse struct {
+	IMEI      string     `json:"imei"`
+	Label     string     `json:"label"`
+	Type      string     `json:"type"`
+	CreatedAt time.Time  `json:"created_at"`
+	LastSeen  *time.Time `json:"last_seen,omitempty"`
+}
+
+// adminBridgeResponse is a registered bridge as the platform directory shows
+// it (MESHSAT-1538): never the location, the Reticulum identity, the MQTT
+// username, the capabilities or the raw birth and health payloads.
+type adminBridgeResponse struct {
+	BridgeID         string     `json:"bridge_id"`
+	Label            string     `json:"label"`
+	Hostname         string     `json:"hostname"`
+	Version          string     `json:"version"`
+	Mode             string     `json:"mode"`
+	Online           bool       `json:"online"`
+	CreatedAt        time.Time  `json:"created_at"`
+	LastSeen         *time.Time `json:"last_seen,omitempty"`
+	LastReportBearer string     `json:"last_report_bearer,omitempty"`
+	LastReportAt     *time.Time `json:"last_report_at,omitempty"`
+}
+
+// AdminListDevices is a tenant's registered devices (platform readers and administrators, MESHSAT-1538).
+//
+//	@Summary      A tenant's registered devices (platform read)
+//	@Tags         admin
+//	@Produce      json
+//	@Param        id   path      string  true  "Tenant ID"
+//	@Success      200  {array}   adminDeviceResponse
+//	@Failure      404  {object}  map[string]string
+//	@Router       /api/admin/tenants/{id}/devices [get]
+func (h *TenantHandler) AdminListDevices(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	if t, err := h.store.GetTenant(r.Context(), id); err != nil || t == nil {
+		writeError(w, http.StatusNotFound, "tenant not found")
+		return
+	}
+	devs, err := h.store.ListDevices(r.Context(), id)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to list devices")
+		return
+	}
+	resp := make([]adminDeviceResponse, 0, len(devs))
+	for _, d := range devs {
+		v := adminDeviceResponse{IMEI: d.IMEI, Label: d.Label, Type: d.Type, CreatedAt: d.CreatedAt}
+		if !d.LastSeen.IsZero() {
+			ls := d.LastSeen
+			v.LastSeen = &ls
+		}
+		resp = append(resp, v)
+	}
+	writeJSON(w, http.StatusOK, resp)
+}
+
+// AdminListBridges is a tenant's registered bridges (platform readers and administrators, MESHSAT-1538).
+//
+//	@Summary      A tenant's registered bridges (platform read)
+//	@Tags         admin
+//	@Produce      json
+//	@Param        id   path      string  true  "Tenant ID"
+//	@Success      200  {array}   adminBridgeResponse
+//	@Failure      404  {object}  map[string]string
+//	@Router       /api/admin/tenants/{id}/bridges [get]
+func (h *TenantHandler) AdminListBridges(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	if t, err := h.store.GetTenant(r.Context(), id); err != nil || t == nil {
+		writeError(w, http.StatusNotFound, "tenant not found")
+		return
+	}
+	bridges, err := h.store.ListBridges(r.Context(), id)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to list bridges")
+		return
+	}
+	resp := make([]adminBridgeResponse, 0, len(bridges))
+	for _, b := range bridges {
+		if b == nil {
+			continue
+		}
+		resp = append(resp, adminBridgeResponse{BridgeID: b.BridgeID, Label: b.Label, Hostname: b.Hostname, Version: b.Version, Mode: b.Mode,
+			Online: b.Online, CreatedAt: b.CreatedAt, LastSeen: b.LastSeen, LastReportBearer: b.LastReportBearer, LastReportAt: b.LastReportAt})
+	}
+	writeJSON(w, http.StatusOK, resp)
+}
+
 // AdminListAudit is the newest entries of a tenant's own audit chain.
 //
 //	@Summary      A tenant's recent audit entries (platform administrators only)

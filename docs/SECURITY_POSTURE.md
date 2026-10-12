@@ -99,6 +99,10 @@ tenant, in practice) it also reads that tenant's own data. Held by
 `internal/auth.TestRequirePlatformRead`, `internal/api.TestPlatformReadKeyMinting`,
 `internal/api.TestAdminTenants_APlatformReaderReadsTheDirectoryAndChangesNothing` and the store
 conformance suite in both dialects. **Not yet exercised on production.**
+2026-10-12 (MESHSAT-1538): two more reads under the gate, `GET /api/admin/tenants/{id}/devices` and `/bridges`, for
+the MeshSat Support CRM's inventory: device IMEI, label, type, created, last seen; bridge id, label, hostname, version,
+mode, online, created, last seen, last report bearer. Never notes, keys, configs, messages, location, the Reticulum
+identity, the MQTT username or the birth and health payloads (`TestAdminTenants_AReaderListsTheInventoryWithoutSecrets`).
 
 ---
 
