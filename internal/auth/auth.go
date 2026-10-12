@@ -347,6 +347,12 @@ var publicExact = map[string]bool{
 	"/manifest.json":    true,
 	"/robots.txt":       true,
 	"/site.webmanifest": true,
+	// Named in index.html for whoever has not signed in: the link preview a
+	// chat app fetches, and the icon an iPhone saves to its home screen. Both
+	// answered 401 (MESHSAT-1539). By name, not by extension: /logo.svg and
+	// /icons.svg sit beside them in dist and nothing references them.
+	"/og-image.jpg":         true,
+	"/apple-touch-icon.png": true,
 }
 
 func isExempt(path string) bool {
