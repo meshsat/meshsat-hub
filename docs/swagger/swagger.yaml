@@ -906,6 +906,23 @@ definitions:
         description: seconds to wait before escalating to next tier
         type: integer
     type: object
+  github_com_meshsat_meshsat-hub_internal_store.FederationGrant:
+    properties:
+      created_at:
+        type: string
+      created_by_email:
+        type: string
+      from_imei:
+        type: string
+      id:
+        type: string
+      peer_id:
+        type: string
+      tenant_id:
+        type: string
+      to_imei:
+        type: string
+    type: object
   github_com_meshsat_meshsat-hub_internal_store.Message:
     properties:
       channel:
@@ -1899,6 +1916,54 @@ definitions:
         description: Username is the account the package will authenticate as.
         type: string
     type: object
+  internal_api.federationGrantRequest:
+    properties:
+      from_imei:
+        type: string
+      peer_id:
+        type: string
+      to_imei:
+        type: string
+    type: object
+  internal_api.federationIdentityResponse:
+    properties:
+      certificate_pem:
+        type: string
+      fingerprint:
+        description: |-
+          Fingerprint is the SPKI SHA-256 of the certificate, the value both
+          owners compare out of band.
+        type: string
+      relay_url:
+        description: |-
+          RelayURL is what a peer enters for this tenant. It carries a
+          capability token: share it with the peer's owner only.
+        type: string
+    type: object
+  internal_api.federationPeerRequest:
+    properties:
+      certificate_pem:
+        type: string
+      name:
+        type: string
+      relay_url:
+        type: string
+    type: object
+  internal_api.federationPeerResponse:
+    properties:
+      created_at:
+        type: string
+      created_by_email:
+        type: string
+      fingerprint:
+        type: string
+      id:
+        type: string
+      name:
+        type: string
+      relay_url:
+        type: string
+    type: object
   internal_api.geofencePolicy:
     properties:
       cooldown_default:
@@ -2684,6 +2749,31 @@ definitions:
       subject:
         type: string
       to:
+        type: string
+    type: object
+  internal_federation.RelayFrame:
+    properties:
+      attempt:
+        description: |-
+          Attempt counts the sender's tries for this message, from 1. The
+          receiver claims msg_id per attempt: a replay of one attempt sends
+          nothing, while a retry after a failed send is sent. A retry after a
+          send whose answer was lost can deliver a second copy; the receiving
+          Bridge drops a repeated MT and Reticulum a repeated packet, so that
+          costs one message where the opposite choice would lose one.
+        type: integer
+      from_imei:
+        type: string
+      imt_topic:
+        type: string
+      msg_id:
+        description: |-
+          MsgID identifies the message on the sender's side; the receiver claims
+          it once, so a retry or a replay inside the date window sends nothing.
+        type: string
+      to_imei:
+        type: string
+      wire_b64:
         type: string
     type: object
   internal_hawkbit.ActionStatus:
@@ -6556,6 +6646,158 @@ paths:
       summary: Get escalation chain
       tags:
       - escalation
+  /api/federation/grants:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/github_com_meshsat_meshsat-hub_internal_store.FederationGrant'
+            type: array
+      summary: List federation grants
+      tags:
+      - federation
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: peer, the peer's sending modem, this tenant's device
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/internal_api.federationGrantRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/github_com_meshsat_meshsat-hub_internal_store.FederationGrant'
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "409":
+          description: Conflict
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Add a federation grant
+      tags:
+      - federation
+  /api/federation/grants/{id}:
+    delete:
+      parameters:
+      - description: grant id
+        in: path
+        name: id
+        required: true
+        type: string
+      responses:
+        "204":
+          description: No Content
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Remove a federation grant
+      tags:
+      - federation
+  /api/federation/identity:
+    get:
+      description: The certificate and fingerprint a peer Hub's owner pins, and the
+        URL that peer relays to. Created on first request.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_api.federationIdentityResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Federation identity
+      tags:
+      - federation
+  /api/federation/peers:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/internal_api.federationPeerResponse'
+            type: array
+      summary: List federation peers
+      tags:
+      - federation
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Name, the peer's relay URL and its certificate (PEM)
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/internal_api.federationPeerRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/internal_api.federationPeerResponse'
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "409":
+          description: Conflict
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Add a federation peer
+      tags:
+      - federation
+  /api/federation/peers/{id}:
+    delete:
+      parameters:
+      - description: peer id
+        in: path
+        name: id
+        required: true
+        type: string
+      responses:
+        "204":
+          description: No Content
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Remove a federation peer
+      tags:
+      - federation
   /api/geofences:
     get:
       produces:
@@ -9027,6 +9269,67 @@ paths:
       summary: Receive inbound email
       tags:
       - webhook
+  /api/webhook/federation/{token}:
+    post:
+      consumes:
+      - application/json
+      description: Signed by a peer Hub (X-MeshSat-Federation-* headers) with the
+        federation key its owner pinned. Sends the payload byte for byte to the named
+        device on this tenant's own satellite account when a grant allows it.
+      parameters:
+      - description: the tenant's relay token
+        in: path
+        name: token
+        required: true
+        type: string
+      - description: relay frame
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/internal_federation.RelayFrame'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: a duplicate, already sent
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "202":
+          description: Accepted
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "502":
+          description: Bad Gateway
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Receive a federated satellite relay
+      tags:
+      - federation
   /api/webhook/globalstar:
     post:
       consumes:

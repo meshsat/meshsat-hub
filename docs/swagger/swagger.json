@@ -5301,6 +5301,239 @@
                 }
             }
         },
+        "/api/federation/grants": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "federation"
+                ],
+                "summary": "List federation grants",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/github_com_meshsat_meshsat-hub_internal_store.FederationGrant"
+                            }
+                        }
+                    }
+                }
+            },
+            "post": {
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "federation"
+                ],
+                "summary": "Add a federation grant",
+                "parameters": [
+                    {
+                        "description": "peer, the peer's sending modem, this tenant's device",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.federationGrantRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_meshsat_meshsat-hub_internal_store.FederationGrant"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/federation/grants/{id}": {
+            "delete": {
+                "tags": [
+                    "federation"
+                ],
+                "summary": "Remove a federation grant",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "grant id",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/federation/identity": {
+            "get": {
+                "description": "The certificate and fingerprint a peer Hub's owner pins, and the URL that peer relays to. Created on first request.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "federation"
+                ],
+                "summary": "Federation identity",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.federationIdentityResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/federation/peers": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "federation"
+                ],
+                "summary": "List federation peers",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/internal_api.federationPeerResponse"
+                            }
+                        }
+                    }
+                }
+            },
+            "post": {
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "federation"
+                ],
+                "summary": "Add a federation peer",
+                "parameters": [
+                    {
+                        "description": "Name, the peer's relay URL and its certificate (PEM)",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.federationPeerRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.federationPeerResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/federation/peers/{id}": {
+            "delete": {
+                "tags": [
+                    "federation"
+                ],
+                "summary": "Remove a federation peer",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "peer id",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/geofences": {
             "get": {
                 "produces": [
@@ -9011,6 +9244,95 @@
                 }
             }
         },
+        "/api/webhook/federation/{token}": {
+            "post": {
+                "description": "Signed by a peer Hub (X-MeshSat-Federation-* headers) with the federation key its owner pinned. Sends the payload byte for byte to the named device on this tenant's own satellite account when a grant allows it.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "federation"
+                ],
+                "summary": "Receive a federated satellite relay",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "the tenant's relay token",
+                        "name": "token",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "relay frame",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/internal_federation.RelayFrame"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "a duplicate, already sent",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "202": {
+                        "description": "Accepted",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "502": {
+                        "description": "Bad Gateway",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/webhook/globalstar": {
             "post": {
                 "description": "Globalstar gateway posts MO messages here via webhook callback",
@@ -11043,6 +11365,32 @@
                 }
             }
         },
+        "github_com_meshsat_meshsat-hub_internal_store.FederationGrant": {
+            "type": "object",
+            "properties": {
+                "created_at": {
+                    "type": "string"
+                },
+                "created_by_email": {
+                    "type": "string"
+                },
+                "from_imei": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "peer_id": {
+                    "type": "string"
+                },
+                "tenant_id": {
+                    "type": "string"
+                },
+                "to_imei": {
+                    "type": "string"
+                }
+            }
+        },
         "github_com_meshsat_meshsat-hub_internal_store.Message": {
             "type": "object",
             "properties": {
@@ -12283,6 +12631,73 @@
                 }
             }
         },
+        "internal_api.federationGrantRequest": {
+            "type": "object",
+            "properties": {
+                "from_imei": {
+                    "type": "string"
+                },
+                "peer_id": {
+                    "type": "string"
+                },
+                "to_imei": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_api.federationIdentityResponse": {
+            "type": "object",
+            "properties": {
+                "certificate_pem": {
+                    "type": "string"
+                },
+                "fingerprint": {
+                    "description": "Fingerprint is the SPKI SHA-256 of the certificate, the value both\nowners compare out of band.",
+                    "type": "string"
+                },
+                "relay_url": {
+                    "description": "RelayURL is what a peer enters for this tenant. It carries a\ncapability token: share it with the peer's owner only.",
+                    "type": "string"
+                }
+            }
+        },
+        "internal_api.federationPeerRequest": {
+            "type": "object",
+            "properties": {
+                "certificate_pem": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "relay_url": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_api.federationPeerResponse": {
+            "type": "object",
+            "properties": {
+                "created_at": {
+                    "type": "string"
+                },
+                "created_by_email": {
+                    "type": "string"
+                },
+                "fingerprint": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "relay_url": {
+                    "type": "string"
+                }
+            }
+        },
         "internal_api.geofencePolicy": {
             "type": "object",
             "properties": {
@@ -13355,6 +13770,31 @@
                     "type": "string"
                 },
                 "to": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_federation.RelayFrame": {
+            "type": "object",
+            "properties": {
+                "attempt": {
+                    "description": "Attempt counts the sender's tries for this message, from 1. The\nreceiver claims msg_id per attempt: a replay of one attempt sends\nnothing, while a retry after a failed send is sent. A retry after a\nsend whose answer was lost can deliver a second copy; the receiving\nBridge drops a repeated MT and Reticulum a repeated packet, so that\ncosts one message where the opposite choice would lose one.",
+                    "type": "integer"
+                },
+                "from_imei": {
+                    "type": "string"
+                },
+                "imt_topic": {
+                    "type": "string"
+                },
+                "msg_id": {
+                    "description": "MsgID identifies the message on the sender's side; the receiver claims\nit once, so a retry or a replay inside the date window sends nothing.",
+                    "type": "string"
+                },
+                "to_imei": {
+                    "type": "string"
+                },
+                "wire_b64": {
                     "type": "string"
                 }
             }

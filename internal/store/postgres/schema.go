@@ -996,4 +996,35 @@ CREATE INDEX IF NOT EXISTS idx_support_grants_tenant ON support_grants (tenant_i
 	{Version: 32, Name: "api key platform read", SQL: `
 ALTER TABLE api_keys ADD COLUMN IF NOT EXISTS platform_read BOOLEAN NOT NULL DEFAULT false;
 `},
+	// MESHSAT-1549: Hub federation. A peer is another Hub tenant this tenant's
+	// owner added by its certificate; a grant lets one of the peer's modems
+	// reach one of this tenant's devices. Both keyed (tenant_id, id); the
+	// fingerprint is unique per tenant so a peer cannot be added twice, and a
+	// grant is unique per (peer, sender, recipient). relay_url carries the
+	// peer's capability token and is in RedactedInExport.
+	{Version: 33, Name: "federation peers and grants", SQL: `
+CREATE TABLE IF NOT EXISTS federation_peers (
+	tenant_id VARCHAR(64) NOT NULL,
+	id VARCHAR(64) NOT NULL,
+	name VARCHAR(128) NOT NULL DEFAULT '',
+	relay_url TEXT NOT NULL,
+	cert_pem TEXT NOT NULL,
+	fingerprint VARCHAR(64) NOT NULL,
+	created_by_email VARCHAR(255) NOT NULL DEFAULT '',
+	created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+	PRIMARY KEY (tenant_id, id)
+);
+CREATE UNIQUE INDEX IF NOT EXISTS uq_federation_peers_fp ON federation_peers (tenant_id, fingerprint);
+CREATE TABLE IF NOT EXISTS federation_grants (
+	tenant_id VARCHAR(64) NOT NULL,
+	id VARCHAR(64) NOT NULL,
+	peer_id VARCHAR(64) NOT NULL,
+	from_imei VARCHAR(32) NOT NULL,
+	to_imei VARCHAR(32) NOT NULL,
+	created_by_email VARCHAR(255) NOT NULL DEFAULT '',
+	created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+	PRIMARY KEY (tenant_id, id)
+);
+CREATE UNIQUE INDEX IF NOT EXISTS uq_federation_grants ON federation_grants (tenant_id, peer_id, from_imei, to_imei);
+`},
 }

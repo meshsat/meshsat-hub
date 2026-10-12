@@ -415,6 +415,22 @@ export const tenant = {
   },
 }
 
+// Hub federation (MESHSAT-1549), owner only: this tenant's identity, the peer
+// Hubs it trusts by certificate, and which peer modem may reach which device.
+export const federation = {
+  identity: () => fetchJSON('/federation/identity'),
+  peers: {
+    list: () => fetchJSON('/federation/peers'),
+    create: (peer) => fetchJSON('/federation/peers', { method: 'POST', body: JSON.stringify(peer) }),
+    remove: (id) => fetchJSON(`/federation/peers/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  },
+  grants: {
+    list: () => fetchJSON('/federation/grants'),
+    create: (grant) => fetchJSON('/federation/grants', { method: 'POST', body: JSON.stringify(grant) }),
+    remove: (id) => fetchJSON(`/federation/grants/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  },
+}
+
 // The platform's own console (/platform/*), platform admins only. None of
 // these carries X-Tenant-ID: the platform acts as itself here.
 export const admin = {

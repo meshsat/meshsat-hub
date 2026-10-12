@@ -845,3 +845,28 @@ func (m *mockStore) BumpSupportGrantFailures(context.Context, string, string) (i
 	return 0, nil
 }
 func (m *mockStore) RevokeSupportGrant(context.Context, string, string, time.Time) error { return nil }
+
+// Federation (MESHSAT-1549): not exercised by these handler tests.
+func (m *mockStore) CreateFederationPeer(context.Context, string, *store.FederationPeer) error {
+	return nil
+}
+func (m *mockStore) ListFederationPeers(context.Context, string) ([]store.FederationPeer, error) {
+	return nil, nil
+}
+func (m *mockStore) GetFederationPeer(context.Context, string, string) (*store.FederationPeer, error) {
+	return nil, store.ErrNotFound
+}
+func (m *mockStore) GetFederationPeerByFingerprint(context.Context, string, string) (*store.FederationPeer, error) {
+	return nil, store.ErrNotFound
+}
+func (m *mockStore) DeleteFederationPeer(context.Context, string, string) error { return nil }
+func (m *mockStore) CreateFederationGrant(context.Context, string, *store.FederationGrant) error {
+	return nil
+}
+func (m *mockStore) ListFederationGrants(context.Context, string) ([]store.FederationGrant, error) {
+	return nil, nil
+}
+func (m *mockStore) DeleteFederationGrant(context.Context, string, string) error { return nil }
+func (m *mockStore) HasFederationGrant(context.Context, string, string, string, string) (bool, error) {
+	return false, nil
+}

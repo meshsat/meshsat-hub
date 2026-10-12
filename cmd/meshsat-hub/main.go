@@ -52,6 +52,7 @@ import (
 	"github.com/meshsat/meshsat-hub/internal/directory"
 	hubemail "github.com/meshsat/meshsat-hub/internal/email"
 	"github.com/meshsat/meshsat-hub/internal/escalation"
+	"github.com/meshsat/meshsat-hub/internal/federation"
 	"github.com/meshsat/meshsat-hub/internal/fragment"
 	"github.com/meshsat/meshsat-hub/internal/geo"
 	"github.com/meshsat/meshsat-hub/internal/globalstar"
@@ -461,6 +462,26 @@ func main() {
 	if err := mtSender.Start(); err != nil {
 		slog.Error("failed to start MT sender", "error", err)
 	}
+
+	// Hub federation (MESHSAT-1549): a tenant relays a satellite payload to a
+	// device on a peer Hub after both owners pinned each other's certificate.
+	// The receiving side sends the MT on its OWN account, through the same
+	// IMT check satellite_relay makes.
+	fedSvc := federation.New(dataStore, providerAccounts, cfg.PublicURL,
+		func(tenantID, imei, wireB64, imtTopic string) error {
+			if _, imt := thingResolver.Resolve(tenantID, imei); !imt {
+				return fmt.Errorf("modem %s is not a known IMT device", imei)
+			}
+			_, err := mtSender.SendDirect(imei, cloudloop.MTSendRequest{WireB64: wireB64, IMTTopic: imtTopic})
+			return err
+		},
+		func(ctx context.Context, tenantID, action, detail string) {
+			_ = auditSvc.Log(ctx, tenantID, action, "federation", detail, "")
+		})
+	metrics.RegisterFederation(func() (uint64, uint64, uint64, uint64, uint64, uint64) {
+		st := fedSvc.Snapshot()
+		return st.Sent, st.SendFailed, st.Received, st.Duplicate, st.Refused, st.Failed
+	})
 
 	// Credit balance poller (polls Cloudloop API, publishes to meshsat/hub/credits).
 	creditPoller := cloudloop.NewTenantCreditPoller(cloudloopPool, msgBus, 1*time.Hour)
@@ -1919,6 +1940,11 @@ func main() {
 	webhookRoute(integrations.ProviderRockBLOCK, "webhook_secret", "/api/webhook/rockblock", rbHandler.ServeHTTP)
 	webhookRoute(integrations.ProviderGlobalstar, "webhook_secret", "/api/webhook/globalstar", gsHandler.ServeHTTP)
 	webhookRoute(integrations.ProviderCloudloop, "webhook_token", "/api/webhook/cloudloop", clHandler.ServeHTTP)
+	// Federation relays arrive on the tenant's capability path ONLY: there is
+	// no bare /api/webhook/federation, because the token is what names the
+	// tenant; the peer's signature is what authorises it (MESHSAT-1549).
+	r.Post("/api/webhook/federation/{"+webhookroute.URLParam+"}", hubmw.WebhookRateLimit(
+		webhookroute.Middleware(providerAccounts, integrations.ProviderFederation, "relay_token")(fedSvc), 60).ServeHTTP)
 
 	// Transactional email. One relay, no credentials: it authorises by IP and
 	// signs with DKIM for meshsat.net. Receipts are NOT sent from here --
@@ -2408,6 +2434,19 @@ func main() {
 	// Support access (MESHSAT-1366): the owner's consent for the platform to
 	// open this workspace, with a PIN and a window of their choosing.
 	supportAccess := api.NewSupportAccessHandler(dataStore, auditSvc, cfg.SupportAccessMinMinutes, cfg.SupportAccessMaxMinutes, supportGrants.Forget)
+	// Federation (MESHSAT-1549): owner only. A peer and a grant are standing
+	// decisions to receive traffic and to pay for the MT that delivers it.
+	federationHandler := api.NewFederationHandler(dataStore, fedSvc, auditSvc)
+	r.Route("/api/federation", func(r chi.Router) {
+		r.Use(hubauth.RequireRole(hubauth.RoleOwner))
+		r.Get("/identity", federationHandler.Identity)
+		r.Get("/peers", federationHandler.ListPeers)
+		r.Post("/peers", federationHandler.CreatePeer)
+		r.Delete("/peers/{id}", federationHandler.DeletePeer)
+		r.Get("/grants", federationHandler.ListGrants)
+		r.Post("/grants", federationHandler.CreateGrant)
+		r.Delete("/grants/{id}", federationHandler.DeleteGrant)
+	})
 	r.Route("/api/tenant", func(r chi.Router) {
 		r.With(hubauth.RequireRole(hubauth.RoleViewer)).Get("/", tenantHandler.Get)
 		r.With(hubauth.RequireRole(hubauth.RoleOwner)).Get("/support-access", supportAccess.Get)
@@ -3159,6 +3198,7 @@ func main() {
 		_, err := mtSender.SendDirect(imei, cloudloop.MTSendRequest{WireB64: wireB64, IMTTopic: imtTopic})
 		return err
 	}))
+	routeEngine.RegisterHandler(routing.DestFederationRelay, routing.NewFederationRelayHandler(fedSvc.Relay))
 	routeEngine.RegisterHandler("webhook", routing.NewWebhookHandler(webhookDispatcher))
 	routeEngine.RegisterHandler("mqtt", routing.NewMQTTHandler(msgBus))
 	routeEngine.RegisterHandler("tak", routing.NewTAKHandler(msgBus))

@@ -7,6 +7,7 @@ import { tenant as tenantApi } from '../api/client'
 import { useAuthStore } from '../stores/auth'
 import { useToastStore } from '../stores/toast'
 import SupportAccess from './SupportAccess.vue'
+import FederationPanel from './FederationPanel.vue'
 
 const auth = useAuthStore()
 const toast = useToastStore()
@@ -613,6 +614,9 @@ onMounted(load)
 
       <!-- Support access: the owner lets MeshSat support in, on their terms. -->
       <div class="md:col-span-2"><SupportAccess /></div>
+
+      <!-- Hub federation: peers by certificate, and what they may reach. -->
+      <div class="md:col-span-2"><FederationPanel /></div>
     </div>
     <p v-if="error" class="text-ms-error text-sm mt-3">{{ error }}</p>
   </div>

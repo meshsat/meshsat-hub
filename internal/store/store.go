@@ -410,6 +410,26 @@ type Store interface {
 	// RevokeSupportGrant ends a grant early. Idempotent.
 	RevokeSupportGrant(ctx context.Context, tenantID, id string, at time.Time) error
 
+	// Federation (MESHSAT-1549): peers this tenant trusts by certificate and
+	// the grants that let a peer's modem reach one of this tenant's devices.
+	// CreateFederationPeer returns ErrDuplicate when the tenant already holds
+	// a peer with that fingerprint.
+	CreateFederationPeer(ctx context.Context, tenantID string, p *FederationPeer) error
+	ListFederationPeers(ctx context.Context, tenantID string) ([]FederationPeer, error)
+	// GetFederationPeer and GetFederationPeerByFingerprint return ErrNotFound
+	// when the tenant holds no such peer.
+	GetFederationPeer(ctx context.Context, tenantID, id string) (*FederationPeer, error)
+	GetFederationPeerByFingerprint(ctx context.Context, tenantID, fingerprint string) (*FederationPeer, error)
+	// DeleteFederationPeer removes the peer and every grant naming it.
+	DeleteFederationPeer(ctx context.Context, tenantID, id string) error
+	// CreateFederationGrant returns ErrDuplicate for an identical grant.
+	CreateFederationGrant(ctx context.Context, tenantID string, g *FederationGrant) error
+	ListFederationGrants(ctx context.Context, tenantID string) ([]FederationGrant, error)
+	DeleteFederationGrant(ctx context.Context, tenantID, id string) error
+	// HasFederationGrant reports whether the tenant lets fromIMEI on the peer
+	// reach its device toIMEI.
+	HasFederationGrant(ctx context.Context, tenantID, peerID, fromIMEI, toIMEI string) (bool, error)
+
 	// Tenant invites: an owner invites an email address into a tenant with a
 	// role; the invite is claimed at the invitee's first login.
 	CreateInvite(ctx context.Context, tenantID string, inv *TenantInvite) error
