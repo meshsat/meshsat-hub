@@ -23,6 +23,10 @@ func TestIsExempt(t *testing.T) {
 		{"/startupz", true, "startup probe"},
 		{"/metrics", true, "guarded by its own bearer token, not the auth chain"},
 		{"/favicon.ico", true, "browser default request"},
+		{"/og-image.jpg", true, "index.html's og:image, fetched by link previews (MESHSAT-1539)"},
+		{"/apple-touch-icon.png", true, "index.html's home-screen icon (MESHSAT-1539)"},
+		{"/logo.svg", false, "in dist but referenced by nothing; exempt by name only"},
+		{"/icons.svg", false, "in dist but referenced by nothing; exempt by name only"},
 
 		// Webhooks: the provider authenticates itself.
 		{"/api/webhook/rockblock", true, "provider signature"},
