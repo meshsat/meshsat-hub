@@ -423,6 +423,15 @@ type Config struct {
 	RNSPublicIFACNetkey  string `yaml:"rns_public_ifac_netkey"`
 	RNSPathTTLHours      int    `yaml:"rns_path_ttl_hours"`
 
+	// The tenants' LXMF addresses on that node (MESHSAT-1555). Platform
+	// bounds; the address itself, its display name and stamp cost are the
+	// tenant's own, in its encrypted provider row. Zero takes the defaults
+	// in internal/lxmfhub (30m, 60/min, 10000 rows, 3m).
+	LXMFAnnounceInterval time.Duration `yaml:"lxmf_announce_interval"`
+	LXMFInboundPerMinute int           `yaml:"lxmf_inbound_per_minute"`
+	LXMFInboxMax         int           `yaml:"lxmf_inbox_max"`
+	LXMFSendTimeout      time.Duration `yaml:"lxmf_send_timeout"`
+
 	// Cloudloop MO webhook + MQTT subscriber
 	CloudloopWebhookAllowedIPs string `yaml:"cloudloop_webhook_allowed_ips"` // comma-separated IP allowlist (default: Cloudloop IPs)
 
@@ -1201,6 +1210,26 @@ func Load() (Config, error) {
 	if v := os.Getenv("HUB_RNS_PATH_TTL_HOURS"); v != "" {
 		if n, err := strconv.Atoi(v); err == nil && n >= 0 {
 			cfg.RNSPathTTLHours = n
+		}
+	}
+	if v := os.Getenv("HUB_LXMF_ANNOUNCE_INTERVAL"); v != "" {
+		if d, err := time.ParseDuration(v); err == nil && d > 0 {
+			cfg.LXMFAnnounceInterval = d
+		}
+	}
+	if v := os.Getenv("HUB_LXMF_INBOUND_PER_MINUTE"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			cfg.LXMFInboundPerMinute = n
+		}
+	}
+	if v := os.Getenv("HUB_LXMF_INBOX_MAX"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			cfg.LXMFInboxMax = n
+		}
+	}
+	if v := os.Getenv("HUB_LXMF_SEND_TIMEOUT"); v != "" {
+		if d, err := time.ParseDuration(v); err == nil && d > 0 {
+			cfg.LXMFSendTimeout = d
 		}
 	}
 

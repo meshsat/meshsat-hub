@@ -8,6 +8,7 @@ import (
 
 	"github.com/meshsat/meshsat-hub/internal/config"
 	"github.com/meshsat/meshsat-hub/internal/reticulum"
+	"github.com/meshsat/meshsat-hub/internal/rns"
 	"github.com/meshsat/meshsat-hub/internal/rnsnode"
 	"github.com/meshsat/meshsat-hub/internal/rnswire"
 	"github.com/meshsat/meshsat-hub/internal/store"
@@ -34,7 +35,8 @@ func (m mqttLeg) Connected() bool          { return m.iface.IsAvailable() }
 // declines and the legacy router as the mirror for every accepted announce,
 // which keeps the bridge route tables and route hints working as before.
 func buildRNSNode(cfg config.Config, hubIdentity *reticulum.HubIdentity, dataStore store.Store,
-	mqttIface *reticulum.MQTTInterface, legacyHandler reticulum.PacketHandler, legacyRouter *reticulum.Router) (*rnsnode.Service, error) {
+	mqttIface *reticulum.MQTTInterface, legacyHandler reticulum.PacketHandler, legacyRouter *reticulum.Router,
+	onNode func(*rns.Node), onNodeStopped func()) (*rnsnode.Service, error) {
 	legacy := hubIdentity.Identity()
 	id, err := rnswire.LoadIdentity(legacy.EncryptionPrivateBytes(), legacy.SigningPrivateBytes())
 	if err != nil {
@@ -47,6 +49,8 @@ func buildRNSNode(cfg config.Config, hubIdentity *reticulum.HubIdentity, dataSto
 		BridgeListenAddr: cfg.ReticulumTCPAddr,
 		PublicListenAddr: cfg.RNSPublicTCPAddr,
 		OnDeclinedTCP:    func(raw []byte) { legacyHandler(reticulum.IfaceTCP, raw) },
+		OnNode:           onNode,
+		OnNodeStopped:    onNodeStopped,
 		OnAnnounce: func(_ *rnswire.Announce, raw []byte, src rnsnode.Source) {
 			ann, err := reticulum.UnmarshalAnnouncePacket(raw)
 			if err != nil {

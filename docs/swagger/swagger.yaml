@@ -439,6 +439,21 @@ definitions:
           name (MESHSAT-1121, found by gosec as a G704 taint).
         type: boolean
     type: object
+  github_com_meshsat_meshsat-hub_internal_lxmf.Peer:
+    properties:
+      dest_hash:
+        type: string
+      display_name:
+        type: string
+      hops:
+        type: integer
+      interface:
+        type: string
+      last_seen:
+        type: string
+      stamp_cost:
+        type: integer
+    type: object
   github_com_meshsat_meshsat-hub_internal_protocol.HeMBReassemblyStats:
     properties:
       active_streams:
@@ -1042,6 +1057,55 @@ definitions:
       tenant_id:
         type: string
       to_imei:
+        type: string
+    type: object
+  github_com_meshsat_meshsat-hub_internal_store.LXMFMessage:
+    properties:
+      content:
+        type: string
+      created_at:
+        type: string
+      created_by_email:
+        type: string
+      destination:
+        type: string
+      detail:
+        description: Detail carries the failure reason of a failed send.
+        type: string
+      direction:
+        type: string
+      fields_json:
+        description: |-
+          FieldsJSON is the message's LXMF fields rendered as JSON (binary
+          values base64), "" when there are none.
+        type: string
+      hash:
+        description: |-
+          Hash is the LXMF message hash (32 bytes hex), known for every inbound
+          message and for an outbound one once it was packed.
+        type: string
+      id:
+        type: string
+      message_at:
+        type: string
+      method:
+        description: 'Method is how it travelled: opportunistic, direct or "" (not
+          yet).'
+        type: string
+      signature_valid:
+        type: boolean
+      source:
+        description: Source and Destination are lxmf.delivery hashes (16 bytes hex).
+        type: string
+      stamp_value:
+        type: integer
+      state:
+        type: string
+      tenant_id:
+        type: string
+      title:
+        type: string
+      updated_at:
         type: string
     type: object
   github_com_meshsat_meshsat-hub_internal_store.Message:
@@ -2135,6 +2199,56 @@ definitions:
       refresh_token:
         type: string
       token_type:
+        type: string
+    type: object
+  internal_api.lxmfIdentityRequest:
+    properties:
+      display_name:
+        type: string
+      enabled:
+        type: boolean
+      stamp_cost:
+        type: integer
+    type: object
+  internal_api.lxmfIdentityResponse:
+    properties:
+      active_on_this_replica:
+        description: |-
+          ActiveOnThisReplica is true on the replica whose node carries the
+          address (the leader); LastAnnounce is when it last announced there.
+        type: boolean
+      address:
+        description: |-
+          Address is the lxmf.delivery destination hash, 32 hex characters: what
+          a Sideband, CrossTalk, MeshChat or NomadNet user enters to reach this
+          tenant.
+        type: string
+      display_name:
+        type: string
+      enabled:
+        type: boolean
+      exists:
+        description: Exists is false until the owner creates the address.
+        type: boolean
+      last_announce:
+        type: string
+      qr_url:
+        description: QRURL renders the address as a QR code image.
+        type: string
+      stamp_cost:
+        type: integer
+    type: object
+  internal_api.lxmfSendRequest:
+    properties:
+      content:
+        type: string
+      destination:
+        description: Destination is the peer's LXMF address, 32 hex characters.
+        type: string
+      method:
+        description: Method is auto (default), direct or opportunistic.
+        type: string
+      title:
         type: string
     type: object
   internal_api.oobPairRequest:
@@ -7038,6 +7152,221 @@ paths:
       summary: Rotate channel encryption key
       tags:
       - keys
+  /api/lxmf/identity:
+    get:
+      description: This tenant's LXMF address on the Hub's Reticulum node, its display
+        name, stamp cost and whether it is enabled. exists is false until the owner
+        creates it.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_api.lxmfIdentityResponse'
+        "503":
+          description: Service Unavailable
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: LXMF identity
+      tags:
+      - lxmf
+    post:
+      description: 'Generates this tenant''s Reticulum identity and LXMF address,
+        named after the tenant with no stamp cost. Idempotent: an existing address
+        is returned. Owner only.'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/internal_api.lxmfIdentityResponse'
+        "503":
+          description: Service Unavailable
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Create the LXMF identity
+      tags:
+      - lxmf
+    put:
+      consumes:
+      - application/json
+      description: Changes the display name other clients see, the stamp cost a sender
+        must pay, or disables the address. Absent fields are left alone. Owner only.
+      parameters:
+      - description: fields to change
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/internal_api.lxmfIdentityRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_api.lxmfIdentityResponse'
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Update the LXMF identity
+      tags:
+      - lxmf
+  /api/lxmf/identity/qr.png:
+    get:
+      description: The tenant's 32-character LXMF address as a QR code, for a client's
+        "scan" button. size is the image side in pixels (128-1024, default 256).
+      parameters:
+      - description: image side in pixels
+        in: query
+        name: size
+        type: integer
+      produces:
+      - image/png
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: file
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: LXMF address as QR
+      tags:
+      - lxmf
+  /api/lxmf/messages:
+    get:
+      description: The tenant's received and sent LXMF messages, newest first. direction
+        in|out, state received|queued|sending|delivered|failed, limit 1-500 (default
+        50), before an RFC 3339 time for paging.
+      parameters:
+      - description: in or out
+        in: query
+        name: direction
+        type: string
+      - description: message state
+        in: query
+        name: state
+        type: string
+      - description: page size
+        in: query
+        name: limit
+        type: integer
+      - description: 'RFC 3339: only messages created before this'
+        in: query
+        name: before
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/github_com_meshsat_meshsat-hub_internal_store.LXMFMessage'
+            type: array
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: LXMF messages
+      tags:
+      - lxmf
+    post:
+      consumes:
+      - application/json
+      description: Queues a message from this tenant's address to a peer's LXMF address.
+        The leader delivers it and the row moves to delivered on the peer's proof
+        or to failed. Operator or owner.
+      parameters:
+      - description: the message
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/internal_api.lxmfSendRequest'
+      produces:
+      - application/json
+      responses:
+        "202":
+          description: Accepted
+          schema:
+            $ref: '#/definitions/github_com_meshsat_meshsat-hub_internal_store.LXMFMessage'
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Send an LXMF message
+      tags:
+      - lxmf
+  /api/lxmf/messages/{id}:
+    get:
+      parameters:
+      - description: message id
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/github_com_meshsat_meshsat-hub_internal_store.LXMFMessage'
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: One LXMF message
+      tags:
+      - lxmf
+  /api/lxmf/peers:
+    get:
+      description: LXMF delivery destinations the tenant's address has seen announce,
+        with display names and hop counts. Filled on the leader replica, empty elsewhere.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/github_com_meshsat_meshsat-hub_internal_lxmf.Peer'
+            type: array
+      summary: LXMF peers
+      tags:
+      - lxmf
   /api/message-templates:
     get:
       produces:
