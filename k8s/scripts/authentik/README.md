@@ -17,9 +17,13 @@ through `ak shell` on the worker pod; nothing touches the omoikane Brand or flow
    account prompts → details prompts (organisation, country, callsign, hardware, intended use,
    Matrix ID validated as `@user:server`, "joined the MeshSat room" checkbox) → user created
    **inactive** in `meshsat-pending` → email verification → `attributes.email_verified=true`.
-2. On user creation authentik fires `meshsat-new-signup`: webhook to the n8n workflow
+2. On that user's `model_created` event authentik fires `meshsat-new-signup` once: one expression
+   policy (`meshsat-is-a-signup`: a user the enrolment flow wrote, or one sitting in
+   `meshsat-pending`; never a service account) and a webhook to the n8n workflow
    `NL - MeshSat Hub Signup Notifier` (Matrix `#meshsat` post + YouTrack `MESHSAT` issue
-   "Signup: <email> (<organisation>)") and an email to the `meshsat-platform-admin` group.
+   "Signup: <email> (<organisation>)"). No email transport is on the rule; the Hub's own
+   signups watcher emails the platform admins. authentik ORs a rule's bindings whatever its
+   policy_engine_mode says, which is why the rule has exactly one (MESHSAT-1456).
 3. Operator: `./run-bootstrap.sh approve alice@example.org owner` (or `reject`). The user is
    activated, moved from `meshsat-pending` to `meshsat-<role>`, and gets the activation email
    (Hub URL + Matrix room). The Hub refuses logins without a `meshsat-*` role group with

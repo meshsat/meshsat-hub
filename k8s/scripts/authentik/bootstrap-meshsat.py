@@ -20,7 +20,7 @@ from authentik.brands.models import Brand
 from authentik.core.models import Application, Group, User
 from authentik.crypto.models import CertificateKeyPair
 from authentik.events.models import (
-    EventAction, NotificationRule, NotificationSeverity, NotificationTransport,
+    NotificationRule, NotificationSeverity, NotificationTransport,
     NotificationWebhookMapping, TransportMode,
 )
 from authentik.flows.models import Flow, FlowDesignation, FlowStageBinding
@@ -749,17 +749,22 @@ brand.save()
 note(f"brand meshsat.net {'created' if b_created else 'ok'}")
 
 # ---------------------------------------------------------------- signup notification -> n8n (Matrix + YouTrack) and operator email
-mapping, _ = NotificationWebhookMapping.objects.get_or_create(
-    name="meshsat-signup-webhook",
-    defaults={"expression": (
-        'ctx = notification.event.context if notification.event else {}\n'
-        'pk = (ctx.get("model") or {}).get("pk")\n'
-        'u = ak_user_by(pk=pk) if pk else None\n'
-        'user = {"pk": str(pk), "email": u.email, "username": u.username, "name": u.name,\n'
-        '        "attributes": u.attributes, "groups": [g.name for g in u.ak_groups.all()]} if u else {}\n'
-        'return {"event": "user_created", "severity": notification.severity, "user": user}\n'
-    )},
+# The body n8n receives. Updated in place when it changes: get_or_create alone
+# left the live copy on its first version for ever.
+WEBHOOK_MAPPING_EXPR = (
+    'ctx = notification.event.context if notification.event else {}\n'
+    'pk = (ctx.get("model") or {}).get("pk")\n'
+    'u = ak_user_by(pk=pk) if pk else None\n'
+    'user = {"pk": str(pk), "email": u.email, "username": u.username, "name": u.name,\n'
+    '        "attributes": u.attributes, "groups": [g.name for g in u.groups.all()]} if u else {}\n'
+    'return {"event": "user_created", "severity": notification.severity, "user": user}\n'
 )
+mapping, _ = NotificationWebhookMapping.objects.get_or_create(
+    name="meshsat-signup-webhook", defaults={"expression": WEBHOOK_MAPPING_EXPR},
+)
+if mapping.expression != WEBHOOK_MAPPING_EXPR:
+    mapping.expression = WEBHOOK_MAPPING_EXPR
+    mapping.save()
 transport, t_created = NotificationTransport.objects.get_or_create(
     name="meshsat-signup-n8n",
     defaults={"mode": TransportMode.WEBHOOK, "webhook_url": WEBHOOK_URL, "webhook_mapping_body": mapping, "send_once": True},
@@ -778,25 +783,39 @@ transport.save()
 if email_transport := NotificationTransport.objects.filter(mode=TransportMode.EMAIL).first():
     note(f"leaving the shared email transport ({email_transport.name}) off this rule; it has no sender of its own")
 
-matcher, _ = EventMatcherPolicy.objects.get_or_create(
-    name="meshsat-user-created",
-    defaults={"action": EventAction.MODEL_CREATED, "model": "authentik_core.user"},
-)
-
-# A user object is created for plenty of reasons that are not somebody asking
-# for beta access: service accounts, anything the API makes. Matching only the
-# model and the action mailed the operator about all of them. A signup is an
-# account that landed inactive in the pending group, so say that.
+# ONE policy decides, and it carries the event match itself. authentik evaluates
+# a notification rule's bindings in ANY mode whatever the rule's own
+# policy_engine_mode says (events/tasks.py, event_trigger_handler), so the two
+# bindings this rule had until 13 Oct 2026, an EventMatcherPolicy for
+# model_created on the user model and this expression, were OR'd: every user
+# creation of any origin fired the webhook through the matcher, and every
+# model_updated on a pending user (the verified-email write, a password reset)
+# fired it through the expression, so one enrolment opened five YouTrack issues
+# (MESHSAT-1567 to 1571); and the expression threw on the token deletions of the
+# enrolment and recovery flows, whose model pk is a UUID (MESHSAT-1456).
+#
+# A signup is the model_created event of a user the enrolment flow wrote, or, for
+# an account somebody put in the pending group by hand, one that sits there.
+# Service accounts and anything else the API makes are not.
 SIGNUP_ONLY_EXPR = (
     'event = request.context.get("event")\n'
+    'if getattr(event, "action", None) != "model_created":\n'
+    '    return False\n'
     'ctx = getattr(event, "context", None) or {}\n'
-    'pk = (ctx.get("model") or {}).get("pk")\n'
-    'if not pk:\n'
+    'model = ctx.get("model") or {}\n'
+    'if model.get("app") != "authentik_core" or model.get("model_name") != "user":\n'
+    '    return False\n'
+    'try:\n'
+    '    pk = int(model.get("pk"))\n'
+    'except (TypeError, ValueError):\n'
     '    return False\n'
     'u = ak_user_by(pk=pk)\n'
     'if u is None or u.type == "service_account":\n'
     '    return False\n'
-    'return u.ak_groups.filter(name="meshsat-pending").exists()\n'
+    'path = (ctx.get("http_request") or {}).get("path") or ""\n'
+    'if "/flows/executor/meshsat-enrollment/" in path:\n'
+    '    return True\n'
+    'return u.groups.filter(name="meshsat-pending").exists()\n'
 )
 signup_only, _ = ExpressionPolicy.objects.get_or_create(
     name="meshsat-is-a-signup", defaults={"expression": SIGNUP_ONLY_EXPR},
@@ -811,8 +830,10 @@ rule, r_created = NotificationRule.objects.get_or_create(
 rule.destination_group = groups["meshsat-platform-admin"]
 rule.save()
 rule.transports.set([transport])
-PolicyBinding.objects.get_or_create(policy=matcher, target=rule, defaults={"order": 0, "enabled": True})
-PolicyBinding.objects.get_or_create(policy=signup_only, target=rule, defaults={"order": 10, "enabled": True})
+# The matcher of the first version, unbound and removed; see above.
+PolicyBinding.objects.filter(target=rule, policy__name="meshsat-user-created").delete()
+EventMatcherPolicy.objects.filter(name="meshsat-user-created").delete()
+PolicyBinding.objects.get_or_create(policy=signup_only, target=rule, defaults={"order": 0, "enabled": True})
 note(f"notification rule meshsat-new-signup {'created' if r_created else 'ok'}")
 
 print("---MESHSAT_BOOTSTRAP_LOG---")
