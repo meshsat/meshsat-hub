@@ -7187,6 +7187,49 @@
                 }
             }
         },
+        "/api/rns/paths": {
+            "get": {
+                "description": "Every destination the node knows a path to, with next hop, hop count, interface and expiry. Empty on a replica that is not the leader.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "rns"
+                ],
+                "summary": "Reticulum path table",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/github_com_meshsat_meshsat-hub_internal_rnsnode.PathInfo"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/rns/status": {
+            "get": {
+                "description": "Whether this replica runs the upstream-compatible Reticulum node, its TCP listeners and their connections, the path and link counts and the node's counters. Only the leader is active.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "rns"
+                ],
+                "summary": "Reticulum node status",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_meshsat_meshsat-hub_internal_rnsnode.Status"
+                        }
+                    }
+                }
+            }
+        },
         "/api/routes": {
             "get": {
                 "produces": [
@@ -10780,6 +10823,174 @@
                 },
                 "signing_pub_hex": {
                     "type": "string"
+                }
+            }
+        },
+        "github_com_meshsat_meshsat-hub_internal_rns.Stats": {
+            "type": "object",
+            "properties": {
+                "announcesRx": {
+                    "type": "integer"
+                },
+                "announcesTx": {
+                    "type": "integer"
+                },
+                "dropped": {
+                    "type": "integer"
+                },
+                "filtered": {
+                    "type": "integer"
+                },
+                "forwarded": {
+                    "type": "integer"
+                },
+                "ifacviolations": {
+                    "type": "integer"
+                },
+                "linkTransit": {
+                    "type": "integer"
+                },
+                "paidSuppressed": {
+                    "description": "PaidTx counts announces, path responses and path requests sent on a\npaid interface under its policy; PaidSuppressed those held back\n(destination not listed, or its interval not yet passed).",
+                    "type": "integer"
+                },
+                "paidTx": {
+                    "description": "PaidTx counts announces, path responses and path requests sent on a\npaid interface under its policy; PaidSuppressed those held back\n(destination not listed, or its interval not yet passed).",
+                    "type": "integer"
+                },
+                "pathRequestsRx": {
+                    "type": "integer"
+                },
+                "rxPackets": {
+                    "type": "integer"
+                },
+                "txPackets": {
+                    "type": "integer"
+                }
+            }
+        },
+        "github_com_meshsat_meshsat-hub_internal_rnsnode.ConnInfo": {
+            "type": "object",
+            "properties": {
+                "id": {
+                    "type": "string"
+                },
+                "remote": {
+                    "type": "string"
+                },
+                "rx_frames": {
+                    "type": "integer"
+                },
+                "since": {
+                    "type": "string"
+                },
+                "tx_frames": {
+                    "type": "integer"
+                }
+            }
+        },
+        "github_com_meshsat_meshsat-hub_internal_rnsnode.ListenerStatus": {
+            "type": "object",
+            "properties": {
+                "addr": {
+                    "type": "string"
+                },
+                "connections": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/github_com_meshsat_meshsat-hub_internal_rnsnode.ConnInfo"
+                    }
+                },
+                "stats": {
+                    "$ref": "#/definitions/github_com_meshsat_meshsat-hub_internal_rnsnode.TCPStats"
+                }
+            }
+        },
+        "github_com_meshsat_meshsat-hub_internal_rnsnode.PathInfo": {
+            "type": "object",
+            "properties": {
+                "app_data": {
+                    "description": "AppData is the announced application data, hex, when known.",
+                    "type": "string"
+                },
+                "dest": {
+                    "type": "string"
+                },
+                "direct": {
+                    "type": "boolean"
+                },
+                "expires": {
+                    "type": "string"
+                },
+                "hops": {
+                    "type": "integer"
+                },
+                "iface": {
+                    "type": "string"
+                },
+                "next_hop": {
+                    "type": "string"
+                }
+            }
+        },
+        "github_com_meshsat_meshsat-hub_internal_rnsnode.Status": {
+            "type": "object",
+            "properties": {
+                "active": {
+                    "type": "boolean"
+                },
+                "bridge": {
+                    "$ref": "#/definitions/github_com_meshsat_meshsat-hub_internal_rnsnode.ListenerStatus"
+                },
+                "enabled": {
+                    "description": "Enabled is false when the node is configured off; Active is true on\nthe replica that holds leadership and runs it.",
+                    "type": "boolean"
+                },
+                "links": {
+                    "type": "integer"
+                },
+                "mqtt": {
+                    "description": "MQTT is true when the legacy Reticulum topic is attached and connected.",
+                    "type": "boolean"
+                },
+                "paths": {
+                    "type": "integer"
+                },
+                "public": {
+                    "$ref": "#/definitions/github_com_meshsat_meshsat-hub_internal_rnsnode.ListenerStatus"
+                },
+                "started_at": {
+                    "type": "string"
+                },
+                "stats": {
+                    "$ref": "#/definitions/github_com_meshsat_meshsat-hub_internal_rns.Stats"
+                },
+                "terms": {
+                    "description": "Terms counts leadership terms this process has run the node for.",
+                    "type": "integer"
+                },
+                "transport_id": {
+                    "type": "string"
+                }
+            }
+        },
+        "github_com_meshsat_meshsat-hub_internal_rnsnode.TCPStats": {
+            "type": "object",
+            "properties": {
+                "accepted": {
+                    "type": "integer"
+                },
+                "dropped": {
+                    "type": "integer"
+                },
+                "refused": {
+                    "type": "integer"
+                },
+                "rxFrames": {
+                    "type": "integer"
+                },
+                "txFrames": {
+                    "type": "integer"
                 }
             }
         },

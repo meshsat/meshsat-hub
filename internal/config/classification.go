@@ -288,6 +288,14 @@ var Classification = map[string]Class{
 	"reticulum_identity_file": ClassPlatform,
 	"reticulum_tcp_addr":      ClassPlatform,
 	"reticulum_tcp_enabled":   ClassPlatform,
+	// The upstream-compatible node (MESHSAT-1555) is the deployment's own
+	// transport; the tenant-owned part of it (the LXMF identity, display
+	// name and stamp cost) lives in the tenant's encrypted provider row.
+	"rns_enabled":             ClassPlatform,
+	"rns_public_tcp_addr":     ClassPlatform,
+	"rns_public_ifac_netname": ClassPlatform,
+	"rns_public_ifac_netkey":  ClassPlatform,
+	"rns_path_ttl_hours":      ClassPlatform,
 	"shutdown_drain_seconds":  ClassPlatform,
 	"smtp_relay":              ClassPlatform,
 	"sqlite_path":             ClassPlatform,

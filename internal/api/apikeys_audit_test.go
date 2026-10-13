@@ -77,3 +77,7 @@ func TestAPIKeyHandlerWithoutAuditWritesNoRows(t *testing.T) {
 		t.Fatalf("code=%d rows=%d", rec.Code, len(st.auditEntries))
 	}
 }
+
+func (m *mockStore) UpsertRNSPath(context.Context, *store.RNSPath) error   { return nil }
+func (m *mockStore) ListRNSPaths(context.Context) ([]store.RNSPath, error) { return nil, nil }
+func (m *mockStore) DeleteRNSPath(context.Context, string) error           { return nil }

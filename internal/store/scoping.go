@@ -28,10 +28,17 @@ var UnscopedByDesign = map[string]string{ // #nosec G101 -- method names and the
 	// Platform-wide background jobs: they run on the leader over every tenant
 	// and either touch no tenant data or scope every row they touch by the
 	// row's own tenant_id (checked by the SQL ratchet, not exempted from it).
-	"MarkStaleBridgesOffline":      "reaper over the whole fleet; per-tenant timeout resolved inside the statement",
-	"ListScheduledMessages":        "scheduler drains every tenant's due messages; each Message carries its tenant",
-	"ClaimScheduledMessage":        "claim by message id; the id was read from a tenant-carrying row",
-	"ExpireStaleSends":             "outbox reaper, keyed on age",
+	"MarkStaleBridgesOffline": "reaper over the whole fleet; per-tenant timeout resolved inside the statement",
+	"ListScheduledMessages":   "scheduler drains every tenant's due messages; each Message carries its tenant",
+	"ClaimScheduledMessage":   "claim by message id; the id was read from a tenant-carrying row",
+	"ExpireStaleSends":        "outbox reaper, keyed on age",
+
+	// The Reticulum node's path table (MESHSAT-1555). A path is transport
+	// state: a destination hash names no tenant, the node is one transport
+	// for every tenant's clients, and an announce is public by definition.
+	"UpsertRNSPath":                "the transport's path table; a Reticulum destination hash carries no tenant",
+	"ListRNSPaths":                 "the leader reloads the whole path table on takeover",
+	"DeleteRNSPath":                "forgets one destination by its hash, which names no tenant",
 	"ListExpiringAPIKeys":          "expiry notifier over every tenant; each APIKey carries its tenant",
 	"TouchAPIKeyLastUsed":          "keyed by the key's own id after the key authenticated the request",
 	"ListExpiringCredentials":      "expiry notifier; each Credential carries its tenant",

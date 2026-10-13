@@ -409,6 +409,20 @@ type Config struct {
 	ReticulumTCPEnabled bool   `yaml:"reticulum_tcp_enabled"` // Enable TCP listener for RNS nodes (default true)
 	ReticulumTCPAddr    string `yaml:"reticulum_tcp_addr"`    // TCP listen address (default ":4242")
 
+	// The upstream-compatible Reticulum node (MESHSAT-1555): one node on the
+	// leader, in front of the legacy layer above. RNSEnabled off leaves the
+	// legacy layer alone on every interface. RNSPublicTCPAddr is a second
+	// listener for stock clients (Sideband, CrossTalk, MeshChat, NomadNet)
+	// without stunnel; empty disables it. The optional interface access code
+	// applies to that public listener only; the stunnel leg is authenticated
+	// by the bridge client certificate already. RNSPathTTLHours 0 is the
+	// upstream default (one week).
+	RNSEnabled           bool   `yaml:"rns_enabled"`
+	RNSPublicTCPAddr     string `yaml:"rns_public_tcp_addr"`
+	RNSPublicIFACNetname string `yaml:"rns_public_ifac_netname"`
+	RNSPublicIFACNetkey  string `yaml:"rns_public_ifac_netkey"`
+	RNSPathTTLHours      int    `yaml:"rns_path_ttl_hours"`
+
 	// Cloudloop MO webhook + MQTT subscriber
 	CloudloopWebhookAllowedIPs string `yaml:"cloudloop_webhook_allowed_ips"` // comma-separated IP allowlist (default: Cloudloop IPs)
 
@@ -533,6 +547,7 @@ func Defaults() Config {
 		ReticulumAppName:      "meshsat.hub",
 		ReticulumTCPEnabled:   true,
 		ReticulumTCPAddr:      ":4242",
+		RNSEnabled:            true,
 		BridgeOfflineTimeout:  300, // 5 minutes
 		// A tenant may choose between one minute and one day.
 		GeofenceCooldownSec:     300,
@@ -1169,6 +1184,24 @@ func Load() (Config, error) {
 	if v := os.Getenv("HUB_RETICULUM_TCP_PORT"); v != "" {
 		cfg.ReticulumTCPEnabled = true
 		cfg.ReticulumTCPAddr = ":" + v
+	}
+	// The upstream-compatible Reticulum node (MESHSAT-1555).
+	if v := os.Getenv("HUB_RNS_ENABLED"); v != "" {
+		cfg.RNSEnabled = strings.EqualFold(v, "true") || v == "1"
+	}
+	if v := os.Getenv("HUB_RNS_PUBLIC_TCP_ADDR"); v != "" {
+		cfg.RNSPublicTCPAddr = v
+	}
+	if v := os.Getenv("HUB_RNS_PUBLIC_IFAC_NETNAME"); v != "" {
+		cfg.RNSPublicIFACNetname = v
+	}
+	if v := os.Getenv("HUB_RNS_PUBLIC_IFAC_NETKEY"); v != "" {
+		cfg.RNSPublicIFACNetkey = v
+	}
+	if v := os.Getenv("HUB_RNS_PATH_TTL_HOURS"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n >= 0 {
+			cfg.RNSPathTTLHours = n
+		}
 	}
 
 	// Cloudloop MO webhook/MQTT overrides

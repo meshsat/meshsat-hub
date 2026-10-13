@@ -198,6 +198,17 @@ var migrations = []string{
 		PRIMARY KEY (tenant_id, id)
 	)`,
 	`CREATE UNIQUE INDEX IF NOT EXISTS uq_federation_grants ON federation_grants (tenant_id, peer_id, from_imei, to_imei)`,
+	// MESHSAT-1555: the Reticulum node's path table, keyed by destination hash (no tenant; see store.RNSPath).
+	`CREATE TABLE IF NOT EXISTS rns_paths (
+		dest_hash TEXT PRIMARY KEY,
+		next_hop TEXT NOT NULL,
+		hops INTEGER NOT NULL DEFAULT 0,
+		iface TEXT NOT NULL DEFAULT '',
+		expires_at TEXT NOT NULL,
+		random_blobs BLOB NOT NULL DEFAULT X'',
+		announce_raw BLOB NOT NULL,
+		updated_at TEXT NOT NULL
+	)`,
 }
 
 // alterMigrations add tenant_id to existing tables. These use ALTER TABLE

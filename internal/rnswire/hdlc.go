@@ -65,9 +65,30 @@ func NewHDLCFrameReader() *HDLCFrameReader {
 	return &HDLCFrameReader{}
 }
 
+// HDLCMaxBuffered bounds what the reader holds while waiting for a closing
+// flag: the largest frame a TCP interface carries (HW_MTU 262144) escaped
+// worst case, plus a flag. A peer that opens a frame and never closes it
+// cannot grow the buffer past this; the partial frame is dropped and
+// framing resumes at the next flag. The Hub listens on the internet
+// (MESHSAT-1555), so an unbounded reader would be a memory hole per client.
+const HDLCMaxBuffered = 2*262144 + 2
+
 // Feed adds data to the buffer and returns any complete frames extracted.
 func (r *HDLCFrameReader) Feed(data []byte) [][]byte {
 	r.buf = append(r.buf, data...)
+	if len(r.buf) > HDLCMaxBuffered {
+		// Keep only the tail that can still start a frame: from the last
+		// flag onwards, or nothing.
+		cut := len(r.buf) - 1
+		for cut >= 0 && r.buf[cut] != HDLCFlag {
+			cut--
+		}
+		if cut < 0 || len(r.buf)-cut > HDLCMaxBuffered {
+			r.buf = r.buf[:0]
+		} else {
+			r.buf = append(r.buf[:0], r.buf[cut:]...)
+		}
+	}
 
 	var frames [][]byte
 	for {

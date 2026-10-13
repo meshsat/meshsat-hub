@@ -489,6 +489,127 @@ definitions:
       signing_pub_hex:
         type: string
     type: object
+  github_com_meshsat_meshsat-hub_internal_rns.Stats:
+    properties:
+      announcesRx:
+        type: integer
+      announcesTx:
+        type: integer
+      dropped:
+        type: integer
+      filtered:
+        type: integer
+      forwarded:
+        type: integer
+      ifacviolations:
+        type: integer
+      linkTransit:
+        type: integer
+      paidSuppressed:
+        description: |-
+          PaidTx counts announces, path responses and path requests sent on a
+          paid interface under its policy; PaidSuppressed those held back
+          (destination not listed, or its interval not yet passed).
+        type: integer
+      paidTx:
+        description: |-
+          PaidTx counts announces, path responses and path requests sent on a
+          paid interface under its policy; PaidSuppressed those held back
+          (destination not listed, or its interval not yet passed).
+        type: integer
+      pathRequestsRx:
+        type: integer
+      rxPackets:
+        type: integer
+      txPackets:
+        type: integer
+    type: object
+  github_com_meshsat_meshsat-hub_internal_rnsnode.ConnInfo:
+    properties:
+      id:
+        type: string
+      remote:
+        type: string
+      rx_frames:
+        type: integer
+      since:
+        type: string
+      tx_frames:
+        type: integer
+    type: object
+  github_com_meshsat_meshsat-hub_internal_rnsnode.ListenerStatus:
+    properties:
+      addr:
+        type: string
+      connections:
+        items:
+          $ref: '#/definitions/github_com_meshsat_meshsat-hub_internal_rnsnode.ConnInfo'
+        type: array
+      stats:
+        $ref: '#/definitions/github_com_meshsat_meshsat-hub_internal_rnsnode.TCPStats'
+    type: object
+  github_com_meshsat_meshsat-hub_internal_rnsnode.PathInfo:
+    properties:
+      app_data:
+        description: AppData is the announced application data, hex, when known.
+        type: string
+      dest:
+        type: string
+      direct:
+        type: boolean
+      expires:
+        type: string
+      hops:
+        type: integer
+      iface:
+        type: string
+      next_hop:
+        type: string
+    type: object
+  github_com_meshsat_meshsat-hub_internal_rnsnode.Status:
+    properties:
+      active:
+        type: boolean
+      bridge:
+        $ref: '#/definitions/github_com_meshsat_meshsat-hub_internal_rnsnode.ListenerStatus'
+      enabled:
+        description: |-
+          Enabled is false when the node is configured off; Active is true on
+          the replica that holds leadership and runs it.
+        type: boolean
+      links:
+        type: integer
+      mqtt:
+        description: MQTT is true when the legacy Reticulum topic is attached and
+          connected.
+        type: boolean
+      paths:
+        type: integer
+      public:
+        $ref: '#/definitions/github_com_meshsat_meshsat-hub_internal_rnsnode.ListenerStatus'
+      started_at:
+        type: string
+      stats:
+        $ref: '#/definitions/github_com_meshsat_meshsat-hub_internal_rns.Stats'
+      terms:
+        description: Terms counts leadership terms this process has run the node for.
+        type: integer
+      transport_id:
+        type: string
+    type: object
+  github_com_meshsat_meshsat-hub_internal_rnsnode.TCPStats:
+    properties:
+      accepted:
+        type: integer
+      dropped:
+        type: integer
+      refused:
+        type: integer
+      rxFrames:
+        type: integer
+      txFrames:
+        type: integer
+    type: object
   github_com_meshsat_meshsat-hub_internal_store.APIKey:
     properties:
       created_at:
@@ -7890,6 +8011,37 @@ paths:
       summary: Get Reticulum network topology
       tags:
       - reticulum
+  /api/rns/paths:
+    get:
+      description: Every destination the node knows a path to, with next hop, hop
+        count, interface and expiry. Empty on a replica that is not the leader.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/github_com_meshsat_meshsat-hub_internal_rnsnode.PathInfo'
+            type: array
+      summary: Reticulum path table
+      tags:
+      - rns
+  /api/rns/status:
+    get:
+      description: Whether this replica runs the upstream-compatible Reticulum node,
+        its TCP listeners and their connections, the path and link counts and the
+        node's counters. Only the leader is active.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/github_com_meshsat_meshsat-hub_internal_rnsnode.Status'
+      summary: Reticulum node status
+      tags:
+      - rns
   /api/routes:
     get:
       produces:

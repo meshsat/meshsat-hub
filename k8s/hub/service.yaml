@@ -25,6 +25,29 @@ spec:
     # cannot read it.
     - {name: takfront, port: 8089, targetPort: takfront}
 ---
+# The Reticulum node runs on ONE replica, the leader (MESHSAT-1555): links,
+# path tables and TCP sessions are stateful. A Service that balanced across
+# both pods would refuse half of all connections, so this one selects on the
+# label the leader puts on its own pod (internal/leader.PodLabeler, cleared
+# at every start and on loss) and stunnel's connect target is this name.
+# 4242 is the stunnel leg (bridge client certificates); 4244 is the public
+# listener for stock clients (Sideband, CrossTalk, MeshChat, NomadNet),
+# reached through the edge relay once rns.meshsat.net exists (P4).
+apiVersion: v1
+kind: Service
+metadata:
+  name: hub-rns
+  namespace: meshsat-hub
+  labels:
+    app.kubernetes.io/name: hub
+spec:
+  selector:
+    app.kubernetes.io/name: hub
+    meshsat.net/rns-leader: "true"
+  ports:
+    - {name: reticulum, port: 4242, targetPort: reticulum}
+    - {name: rns-public, port: 4244, targetPort: rns-public}
+---
 # Selector-less Service with no endpoints: the /metrics path on the public
 # Ingress points here so ingress-nginx answers 503 instead of proxying the
 # scrape endpoint to the internet. Prometheus scrapes the `hub` Service
