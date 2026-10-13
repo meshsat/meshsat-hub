@@ -231,6 +231,28 @@ API keys page (`/api-keys`).
 
 ---
 
+### 10. The Reticulum node, a tenant's LXMF address, a client that cannot reach it
+
+The upstream-compatible Reticulum node runs on the LEADER replica only; the `hub-rns` Service follows
+the leader's pod label and stunnel connects through it (MESHSAT-1555). Full detail and the API in
+`docs/reticulum-lxmf.md`.
+
+```bash
+kubectl -n meshsat-hub get pods -l meshsat.net/rns-leader=true   # exactly one pod
+kubectl -n meshsat-hub get endpoints hub-rns                      # that pod, ports 4242 and 4244
+kubectl -n meshsat-hub logs <leader pod> | grep 'rns: upstream-compatible Reticulum node started'
+curl -s -H "Authorization: Bearer $HUB_VERIFY_ADMIN_KEY" https://hub.meshsat.net/api/rns/status  # read twice: one replica says active
+```
+
+- No endpoint on `hub-rns`: the leader could not label itself (RBAC on pods, see the leader's log) or
+  the running image predates the label. `kubectl label pod <running hub pod> meshsat.net/rns-leader=true`
+  bridges it until the next rollout.
+- A tenant's address is live when the leader logs `lxmf: address registered` for it and
+  `GET /api/lxmf/identity` answers `active_on_this_replica: true` there.
+- A fresh Sideband or CrossTalk connection shows the Hub's addresses 15 to 20 s after connecting:
+  upstream ingress control holds announce bursts on a new interface. Not a fault.
+- The public endpoint `rns.meshsat.net:4242` is the VPS edge plus DNS, outside this repo.
+
 ## Health Checks
 
 | Endpoint | What it checks | Used by |
