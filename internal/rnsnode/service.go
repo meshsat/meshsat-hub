@@ -80,6 +80,9 @@ type Config struct {
 	// OnNode is called with the node of each term before its interfaces
 	// start, so services register their destinations on it.
 	OnNode func(n *rns.Node)
+	// OnNodeStopped is called after the term's node is gone, so those
+	// services drop what they registered on it.
+	OnNodeStopped func()
 	// Now is the clock; nil means time.Now.
 	Now func() time.Time
 }
@@ -202,6 +205,9 @@ func (s *Service) Stop() {
 	bridge.Stop()
 	if public != nil {
 		public.Stop()
+	}
+	if s.cfg.OnNodeStopped != nil {
+		s.cfg.OnNodeStopped()
 	}
 	slog.Info("rns: node stopped")
 }

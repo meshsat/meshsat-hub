@@ -98,7 +98,7 @@ func (n *Node) forwardTransport(pkt *Packet) bool {
 	}
 	entry.Timestamp = now
 	n.count(func(s *Stats) { s.Forwarded++ })
-	n.transmit(entry.Iface, out)
+	_ = n.transmit(entry.Iface, out)
 	return true
 }
 
@@ -133,7 +133,7 @@ func (n *Node) forwardHeader1(pkt *Packet) bool {
 	}
 	n.mu.Unlock()
 	n.count(func(s *Stats) { s.Forwarded++ })
-	n.transmit(entry.Iface, out)
+	_ = n.transmit(entry.Iface, out)
 	return true
 }
 
@@ -173,7 +173,7 @@ func (n *Node) linkTransit(pkt *Packet) bool {
 	e.timestamp = n.now()
 	n.stats.LinkTransit++
 	n.mu.Unlock()
-	n.transmit(outIface, pkt.Raw)
+	_ = n.transmit(outIface, pkt.Raw)
 	return true
 }
 
@@ -210,7 +210,7 @@ func (n *Node) lrProofTransit(pkt *Packet) bool {
 	e.validated = true
 	e.timestamp = n.now()
 	n.mu.Unlock()
-	n.transmit(e.receivedIface, pkt.Raw)
+	_ = n.transmit(e.receivedIface, pkt.Raw)
 	return true
 }
 
@@ -229,7 +229,7 @@ func (n *Node) proofTransit(pkt *Packet) {
 	if pkt.Iface != e.outboundIface {
 		return
 	}
-	n.transmit(e.receivedIface, pkt.Raw)
+	_ = n.transmit(e.receivedIface, pkt.Raw)
 }
 
 // expireTables sweeps the link, reverse and path tables.

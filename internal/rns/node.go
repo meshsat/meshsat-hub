@@ -283,6 +283,16 @@ func (n *Node) AddDestination(d *Destination) *Destination {
 	return d
 }
 
+// RemoveDestination forgets a local destination: packets for it are no
+// longer delivered or proven and its announces stop. Links a peer holds to
+// it close on their own at the next keepalive. A tenant's LXMF identity that
+// is disabled or rebuilt goes through here (MESHSAT-1555).
+func (n *Node) RemoveDestination(h [HashLen]byte) {
+	n.mu.Lock()
+	delete(n.dests, h)
+	n.mu.Unlock()
+}
+
 // LocalDestination returns the local destination for a hash, or nil.
 func (n *Node) LocalDestination(h [HashLen]byte) *Destination {
 	n.mu.Lock()
@@ -394,7 +404,7 @@ func (n *Node) Inbound(raw []byte, ifaceID string) bool {
 
 	n.mu.Lock()
 	_, inLinkTable := n.linkTable[hdr.DestHash]
-	remember := !inLinkTable && !(hdr.PacketType == rnswire.PacketProof && hdr.Context == rnswire.ContextLRProof)
+	remember := !inLinkTable && (hdr.PacketType != rnswire.PacketProof || hdr.Context != rnswire.ContextLRProof)
 	if remember {
 		n.hashlist[pkt.Hash] = struct{}{}
 	}
@@ -537,7 +547,7 @@ func (n *Node) deliverLocal(d *Destination, pkt *Packet) {
 // interface, as Identity.prove does.
 func (n *Node) prove(d *Destination, pkt *Packet) {
 	proof := rnswire.BuildProofPacket(pkt.Raw, d.Identity.ImplicitProof(pkt.Hash))
-	n.transmit(pkt.Iface, proof)
+	_ = n.transmit(pkt.Iface, proof)
 }
 
 func (n *Node) count(f func(*Stats)) {

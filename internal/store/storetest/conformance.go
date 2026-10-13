@@ -50,6 +50,7 @@ func Run(t *testing.T, open Opener) {
 		{"SupportGrants", testSupportGrants},
 		{"Federation", testFederation},
 		{"RNSPaths", testRNSPaths},
+		{"LXMFMessages", testLXMFMessages},
 		{"OIDCIdentities", testOIDCIdentities},
 		{"TenantOffboarding", testTenantOffboarding},
 		{"TenantQuota", testTenantQuota},

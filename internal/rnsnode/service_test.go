@@ -208,7 +208,7 @@ func TestService_DeclinedFramesFallThroughUnchanged(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 	waitFor(t, "connected", func() bool { return svc.BridgeCount() == 1 })
 
 	// A HEADER_1 DATA packet to a PLAIN destination that is not the path

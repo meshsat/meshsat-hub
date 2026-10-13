@@ -84,12 +84,12 @@ func TestTCPServer_EachConnectionIsAnInterface(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer a.Close()
+	defer func() { _ = a.Close() }()
 	b, err := net.Dial("tcp", srv.Addr())
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer b.Close()
+	defer func() { _ = b.Close() }()
 	waitFor(t, "two connections", func() bool { return srv.Count() == 2 })
 	ifs := srv.Interfaces()
 	if len(ifs) != 2 || ifs[0] != "tcpb_1" || ifs[1] != "tcpb_2" {
@@ -148,10 +148,10 @@ func TestTCPServer_RefusesBeyondMaxConns(t *testing.T) {
 	}
 	defer srv.Stop()
 	a, _ := net.Dial("tcp", srv.Addr())
-	defer a.Close()
+	defer func() { _ = a.Close() }()
 	waitFor(t, "first", func() bool { return srv.Count() == 1 })
 	b, _ := net.Dial("tcp", srv.Addr())
-	defer b.Close()
+	defer func() { _ = b.Close() }()
 	waitFor(t, "refused", func() bool { return srv.Stats().Refused == 1 })
 	_ = b.SetReadDeadline(time.Now().Add(2 * time.Second))
 	if _, err := b.Read(make([]byte, 1)); err == nil {
@@ -160,6 +160,6 @@ func TestTCPServer_RefusesBeyondMaxConns(t *testing.T) {
 	_ = a.Close()
 	waitFor(t, "slot freed", func() bool { return srv.Count() == 0 })
 	c, _ := net.Dial("tcp", srv.Addr())
-	defer c.Close()
+	defer func() { _ = c.Close() }()
 	waitFor(t, "third accepted", func() bool { return srv.Count() == 1 && srv.Stats().Accepted == 2 })
 }

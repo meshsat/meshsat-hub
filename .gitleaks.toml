@@ -15,4 +15,18 @@ paths = [
   '''internal/.*_test\.go$''',
   # The store conformance harness shared by the sqlite and postgres tests.
   '''internal/store/storetest/.*\.go$''',
+  # The Reticulum golden-vector generators and the Python interop peer
+  # (MESHSAT-1555): upstream RNS/LXMF scripts whose import lines name key
+  # classes (X25519PrivateKey) and whose fixtures are throwaway identities.
+  '''internal/rnswire/testdata/.*\.py$''',
+  '''internal/interop/testdata/.*\.py$''',
+]
+
+# Secrets allow-listed by VALUE, each one a string that is not a credential.
+regexes = [
+  # The CI cache key of the Reticulum interop venv, named after its pins
+  # ("rns-venv-1.5.5-lxmf-1.2.0" in .gitlab-ci.yml at f439bbd; since moved
+  # into the cache path). gitleaks reads "key: <that>" as a generic API key,
+  # and the git scan sees the commit for 25 commits (MESHSAT-1555).
+  '''rns-venv-[0-9.]+-lxmf-[0-9.]+''',
 ]

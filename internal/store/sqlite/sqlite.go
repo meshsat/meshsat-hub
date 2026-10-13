@@ -209,6 +209,30 @@ var migrations = []string{
 		announce_raw BLOB NOT NULL,
 		updated_at TEXT NOT NULL
 	)`,
+	// MESHSAT-1555: a tenant's LXMF inbox and outbox, keyed (tenant_id, id).
+	`CREATE TABLE IF NOT EXISTS lxmf_messages (
+		tenant_id TEXT NOT NULL,
+		id TEXT NOT NULL,
+		hash TEXT NOT NULL DEFAULT '',
+		direction TEXT NOT NULL,
+		state TEXT NOT NULL,
+		source TEXT NOT NULL,
+		destination TEXT NOT NULL,
+		title TEXT NOT NULL DEFAULT '',
+		content TEXT NOT NULL DEFAULT '',
+		fields_json TEXT NOT NULL DEFAULT '',
+		method TEXT NOT NULL DEFAULT '',
+		stamp_value INTEGER NOT NULL DEFAULT 0,
+		signature_valid INTEGER NOT NULL DEFAULT 1,
+		detail TEXT NOT NULL DEFAULT '',
+		created_by_email TEXT NOT NULL DEFAULT '',
+		message_at TEXT NOT NULL,
+		created_at TEXT NOT NULL,
+		updated_at TEXT NOT NULL,
+		PRIMARY KEY (tenant_id, id)
+	)`,
+	`CREATE INDEX IF NOT EXISTS idx_lxmf_messages_tenant_created ON lxmf_messages (tenant_id, created_at DESC)`,
+	`CREATE INDEX IF NOT EXISTS idx_lxmf_messages_tenant_state ON lxmf_messages (tenant_id, state)`,
 }
 
 // alterMigrations add tenant_id to existing tables. These use ALTER TABLE

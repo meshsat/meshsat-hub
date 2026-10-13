@@ -279,6 +279,18 @@ type Store interface {
 	ListRNSPaths(ctx context.Context) ([]RNSPath, error)
 	DeleteRNSPath(ctx context.Context, destHash string) error
 
+	// LXMF inbox and outbox (MESHSAT-1555), keyed (tenant_id, id).
+	// InsertLXMFMessage returns ErrDuplicate for an id the tenant holds.
+	InsertLXMFMessage(ctx context.Context, tenantID string, m *LXMFMessage) error
+	GetLXMFMessage(ctx context.Context, tenantID, id string) (*LXMFMessage, error)
+	ListLXMFMessages(ctx context.Context, tenantID string, q LXMFQuery) ([]LXMFMessage, error)
+	// UpdateLXMFMessageState returns ErrNotFound when the tenant has no such row.
+	UpdateLXMFMessageState(ctx context.Context, tenantID, id string, upd LXMFStateUpdate) error
+	CountLXMFMessages(ctx context.Context, tenantID string) (int, error)
+	// PruneLXMFMessages deletes the oldest rows beyond keep, never one that
+	// is still queued or sending; it returns how many went.
+	PruneLXMFMessages(ctx context.Context, tenantID string, keep int) (int, error)
+
 	// Device groups (fleet organization)
 	CreateDeviceGroup(ctx context.Context, tenantID string, g *DeviceGroup) error
 	GetDeviceGroup(ctx context.Context, tenantID string, id string) (*DeviceGroup, error)
