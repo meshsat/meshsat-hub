@@ -89,6 +89,18 @@ data:
         default_backend hub_takfront
     backend hub_takfront
         server hub hub.meshsat-hub.svc.cluster.local:8089 resolvers kubedns init-addr none check inter 30s
+    # Public Reticulum (MESHSAT-1555): rns.meshsat.net:4242 on the VPS edge,
+    # raw TCP with no TLS, because stock clients (Sideband, CrossTalk, MeshChat,
+    # NomadNet) speak plain HDLC over TCP and carry no certificate; the node
+    # authenticates nothing at the transport and every message is end-to-end
+    # encrypted by Reticulum itself. 4242 in, 4244 on to the leader's public
+    # listener through the leader-following hub-rns Service. Reads DOWN until a
+    # replica holds the rns-leader label, which is the honest answer.
+    frontend rns_in
+        bind :4242
+        default_backend hub_rns
+    backend hub_rns
+        server hub hub-rns.meshsat-hub.svc.cluster.local:4244 resolvers kubedns init-addr none check inter 30s
 ---
 apiVersion: apps/v1
 kind: DaemonSet
@@ -125,7 +137,7 @@ spec:
           # NodePort does not answer traffic arriving through the xfrm tunnels, which
           # is why this relay exists at all. Everything ELSE goes (MESHSAT-1204).
           #
-          # Checked, not assumed: haproxy binds :9443, :4243 and :9089 -- all above
+          # Checked, not assumed: haproxy binds :9443, :4243, :9089 and :4242 -- all above
           # 1024, so no NET_BIND_SERVICE -- and the embedded config declares no
           # `user`, `group` or `chroot`, so no SETUID/SETGID/SYS_CHROOT either. No
           # `usesrc`/transparent binding, so no NET_RAW. That leaves nothing for the
@@ -148,6 +160,10 @@ spec:
             # is the free number that keeps the pairing readable.
             - containerPort: 9089
               hostPort: 9089
+            # Public Reticulum (MESHSAT-1555): the convention's port in, 4244
+            # on to the leader's public listener.
+            - containerPort: 4242
+              hostPort: 4242
           # Both probes hit haproxy's own loopback monitor (see the config
           # above). They used to be tcpSocket pokes at :9443 and :4243, which
           # the relay forwarded to NATS and stunnel and which showed up in

@@ -82,3 +82,13 @@ spec:
       toPorts:
         - ports:
             - {port: "4242", protocol: TCP}
+    # The public Reticulum listener (MESHSAT-1555) is reached from the edge
+    # relay, which is hostNetwork and SNAT'd to cilium_host, so it presents as
+    # host / remote-node, exactly as the stunnel and TAK legs do on their
+    # pods. Stock clients carry no certificate; Reticulum encrypts end to end.
+    - fromEntities:
+        - host
+        - remote-node
+      toPorts:
+        - ports:
+            - {port: "4244", protocol: TCP}
