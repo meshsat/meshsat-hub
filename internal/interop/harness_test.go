@@ -223,12 +223,19 @@ type hub struct {
 	links chan *rns.Link
 }
 
-func newHub(t *testing.T, ctx context.Context) *hub {
+func newHub(t *testing.T, ctx context.Context) *hub { return newHubWith(t, ctx, nil) }
+
+// newHubWith starts the Hub's node on a free port; extra, when given, adds
+// destinations on the term's node before the listeners open.
+func newHubWith(t *testing.T, ctx context.Context, extra func(h *hub, n *rns.Node)) *hub {
 	t.Helper()
 	id, _ := rnswire.GenerateIdentity()
 	h := &hub{ident: id, got: make(chan string, 16), links: make(chan *rns.Link, 16)}
 	h.svc = rnsnode.New(rnsnode.Config{Identity: id, BridgeListenAddr: "127.0.0.1:0", OnNode: func(n *rns.Node) {
 		h.node = n
+		if extra != nil {
+			extra(h, n)
+		}
 		h.dest = n.AddDestination(&rns.Destination{Name: "interop.raw", AcceptLinks: true, ProveAll: true,
 			OnPacket:     func(plain []byte, pkt *rns.Packet) { h.got <- string(plain) },
 			OnLink:       func(l *rns.Link) { h.links <- l },

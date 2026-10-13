@@ -5716,6 +5716,317 @@
                 }
             }
         },
+        "/api/lxmf/identity": {
+            "get": {
+                "description": "This tenant's LXMF address on the Hub's Reticulum node, its display name, stamp cost and whether it is enabled. exists is false until the owner creates it.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "lxmf"
+                ],
+                "summary": "LXMF identity",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.lxmfIdentityResponse"
+                        }
+                    },
+                    "503": {
+                        "description": "Service Unavailable",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            },
+            "put": {
+                "description": "Changes the display name other clients see, the stamp cost a sender must pay, or disables the address. Absent fields are left alone. Owner only.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "lxmf"
+                ],
+                "summary": "Update the LXMF identity",
+                "parameters": [
+                    {
+                        "description": "fields to change",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.lxmfIdentityRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.lxmfIdentityResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            },
+            "post": {
+                "description": "Generates this tenant's Reticulum identity and LXMF address, named after the tenant with no stamp cost. Idempotent: an existing address is returned. Owner only.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "lxmf"
+                ],
+                "summary": "Create the LXMF identity",
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.lxmfIdentityResponse"
+                        }
+                    },
+                    "503": {
+                        "description": "Service Unavailable",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/lxmf/identity/qr.png": {
+            "get": {
+                "description": "The tenant's 32-character LXMF address as a QR code, for a client's \"scan\" button. size is the image side in pixels (128-1024, default 256).",
+                "produces": [
+                    "image/png"
+                ],
+                "tags": [
+                    "lxmf"
+                ],
+                "summary": "LXMF address as QR",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "image side in pixels",
+                        "name": "size",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "file"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/lxmf/messages": {
+            "get": {
+                "description": "The tenant's received and sent LXMF messages, newest first. direction in|out, state received|queued|sending|delivered|failed, limit 1-500 (default 50), before an RFC 3339 time for paging.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "lxmf"
+                ],
+                "summary": "LXMF messages",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "in or out",
+                        "name": "direction",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "message state",
+                        "name": "state",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "page size",
+                        "name": "limit",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "RFC 3339: only messages created before this",
+                        "name": "before",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/github_com_meshsat_meshsat-hub_internal_store.LXMFMessage"
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            },
+            "post": {
+                "description": "Queues a message from this tenant's address to a peer's LXMF address. The leader delivers it and the row moves to delivered on the peer's proof or to failed. Operator or owner.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "lxmf"
+                ],
+                "summary": "Send an LXMF message",
+                "parameters": [
+                    {
+                        "description": "the message",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.lxmfSendRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "202": {
+                        "description": "Accepted",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_meshsat_meshsat-hub_internal_store.LXMFMessage"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/lxmf/messages/{id}": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "lxmf"
+                ],
+                "summary": "One LXMF message",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "message id",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_meshsat_meshsat-hub_internal_store.LXMFMessage"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/lxmf/peers": {
+            "get": {
+                "description": "LXMF delivery destinations the tenant's address has seen announce, with display names and hop counts. Filled on the leader replica, empty elsewhere.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "lxmf"
+                ],
+                "summary": "LXMF peers",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/github_com_meshsat_meshsat-hub_internal_lxmf.Peer"
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/message-templates": {
             "get": {
                 "produces": [
@@ -10749,6 +11060,29 @@
                 }
             }
         },
+        "github_com_meshsat_meshsat-hub_internal_lxmf.Peer": {
+            "type": "object",
+            "properties": {
+                "dest_hash": {
+                    "type": "string"
+                },
+                "display_name": {
+                    "type": "string"
+                },
+                "hops": {
+                    "type": "integer"
+                },
+                "interface": {
+                    "type": "string"
+                },
+                "last_seen": {
+                    "type": "string"
+                },
+                "stamp_cost": {
+                    "type": "integer"
+                }
+            }
+        },
         "github_com_meshsat_meshsat-hub_internal_protocol.HeMBReassemblyStats": {
             "type": "object",
             "properties": {
@@ -11598,6 +11932,70 @@
                     "type": "string"
                 },
                 "to_imei": {
+                    "type": "string"
+                }
+            }
+        },
+        "github_com_meshsat_meshsat-hub_internal_store.LXMFMessage": {
+            "type": "object",
+            "properties": {
+                "content": {
+                    "type": "string"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "created_by_email": {
+                    "type": "string"
+                },
+                "destination": {
+                    "type": "string"
+                },
+                "detail": {
+                    "description": "Detail carries the failure reason of a failed send.",
+                    "type": "string"
+                },
+                "direction": {
+                    "type": "string"
+                },
+                "fields_json": {
+                    "description": "FieldsJSON is the message's LXMF fields rendered as JSON (binary\nvalues base64), \"\" when there are none.",
+                    "type": "string"
+                },
+                "hash": {
+                    "description": "Hash is the LXMF message hash (32 bytes hex), known for every inbound\nmessage and for an outbound one once it was packed.",
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "message_at": {
+                    "type": "string"
+                },
+                "method": {
+                    "description": "Method is how it travelled: opportunistic, direct or \"\" (not yet).",
+                    "type": "string"
+                },
+                "signature_valid": {
+                    "type": "boolean"
+                },
+                "source": {
+                    "description": "Source and Destination are lxmf.delivery hashes (16 bytes hex).",
+                    "type": "string"
+                },
+                "stamp_value": {
+                    "type": "integer"
+                },
+                "state": {
+                    "type": "string"
+                },
+                "tenant_id": {
+                    "type": "string"
+                },
+                "title": {
+                    "type": "string"
+                },
+                "updated_at": {
                     "type": "string"
                 }
             }
@@ -12984,6 +13382,72 @@
                     "type": "string"
                 },
                 "token_type": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_api.lxmfIdentityRequest": {
+            "type": "object",
+            "properties": {
+                "display_name": {
+                    "type": "string"
+                },
+                "enabled": {
+                    "type": "boolean"
+                },
+                "stamp_cost": {
+                    "type": "integer"
+                }
+            }
+        },
+        "internal_api.lxmfIdentityResponse": {
+            "type": "object",
+            "properties": {
+                "active_on_this_replica": {
+                    "description": "ActiveOnThisReplica is true on the replica whose node carries the\naddress (the leader); LastAnnounce is when it last announced there.",
+                    "type": "boolean"
+                },
+                "address": {
+                    "description": "Address is the lxmf.delivery destination hash, 32 hex characters: what\na Sideband, CrossTalk, MeshChat or NomadNet user enters to reach this\ntenant.",
+                    "type": "string"
+                },
+                "display_name": {
+                    "type": "string"
+                },
+                "enabled": {
+                    "type": "boolean"
+                },
+                "exists": {
+                    "description": "Exists is false until the owner creates the address.",
+                    "type": "boolean"
+                },
+                "last_announce": {
+                    "type": "string"
+                },
+                "qr_url": {
+                    "description": "QRURL renders the address as a QR code image.",
+                    "type": "string"
+                },
+                "stamp_cost": {
+                    "type": "integer"
+                }
+            }
+        },
+        "internal_api.lxmfSendRequest": {
+            "type": "object",
+            "properties": {
+                "content": {
+                    "type": "string"
+                },
+                "destination": {
+                    "description": "Destination is the peer's LXMF address, 32 hex characters.",
+                    "type": "string"
+                },
+                "method": {
+                    "description": "Method is auto (default), direct or opportunistic.",
+                    "type": "string"
+                },
+                "title": {
                     "type": "string"
                 }
             }

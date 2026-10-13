@@ -60,6 +60,7 @@ import (
 	"github.com/meshsat/meshsat-hub/internal/health"
 	"github.com/meshsat/meshsat-hub/internal/ipougrs"
 	"github.com/meshsat/meshsat-hub/internal/leader"
+	"github.com/meshsat/meshsat-hub/internal/lxmfhub"
 	"github.com/meshsat/meshsat-hub/internal/mail"
 	"github.com/meshsat/meshsat-hub/internal/mesh"
 	hubmessage "github.com/meshsat/meshsat-hub/internal/message"
@@ -1252,12 +1253,32 @@ func main() {
 	// (onLeaderAcquired above); the hub-rns Service follows the leader.
 	var retTCPIface tcpLeg
 	tcpWanted := cfg.ReticulumTCPEnabled && cfg.ReticulumTCPAddr != ""
+	var lxmfSvc *lxmfhub.Service
 	if cfg.RNSEnabled && tcpWanted && hubIdentity != nil && hubIdentity.IsLoaded() {
-		svc, err := buildRNSNode(cfg, hubIdentity, dataStore, retMQTTIface, reticulumPacketHandler, reticulumRouter)
+		// The tenants' LXMF addresses live on that node: registered for each
+		// leadership term, rebuilt when a tenant's provider row changes on
+		// any replica (integrations.ReloadTopic).
+		lxmfSvc = lxmfhub.New(lxmfhub.Config{AnnounceInterval: cfg.LXMFAnnounceInterval, InboundPerMinute: cfg.LXMFInboundPerMinute,
+			InboxMax: cfg.LXMFInboxMax, SendTimeout: cfg.LXMFSendTimeout}, dataStore, providerAccounts,
+			func(actx context.Context, tenantID, action, actor, detail string) {
+				_ = auditSvc.Log(actx, tenantID, action, actor, detail, "")
+			})
+		svc, err := buildRNSNode(cfg, hubIdentity, dataStore, retMQTTIface, reticulumPacketHandler, reticulumRouter, lxmfSvc.OnNode, lxmfSvc.OnNodeStopped)
 		if err != nil {
 			slog.Error("rns: node not built, the legacy layer keeps the TCP leg on this replica", "error", err)
+			lxmfSvc = nil
 		} else {
 			rnsSvc = svc
+			if err := msgBus.Subscribe(integrations.ReloadTopic, 1, func(_ string, payload []byte) {
+				var ev struct {
+					TenantID string `json:"tenant_id"`
+				}
+				if json.Unmarshal(payload, &ev) == nil && ev.TenantID != "" {
+					go lxmfSvc.Reload(ev.TenantID)
+				}
+			}); err != nil {
+				slog.Warn("lxmf: not subscribed to provider changes; an address edit takes effect at the next leadership term", "error", err)
+			}
 			legacyTCP := rnsnode.NewLegacyTCP(svc)
 			retTCPIface = legacyTCP
 			reticulumRelay.RegisterInterface(legacyTCP)
@@ -2527,6 +2548,19 @@ func main() {
 		r.Use(hubauth.RequirePlatformAdmin())
 		r.Get("/status", rnsHandler.Status)
 		r.Get("/paths", rnsHandler.Paths)
+	})
+	// A tenant's LXMF address on that node (MESHSAT-1555): viewers read,
+	// operators send, the owner creates and configures the address.
+	lxmfHandler := api.NewLXMFHandler(lxmfSvc, dataStore)
+	r.Route("/api/lxmf", func(r chi.Router) {
+		r.With(hubauth.RequireRole(hubauth.RoleViewer)).Get("/identity", lxmfHandler.Identity)
+		r.With(hubauth.RequireRole(hubauth.RoleOwner)).Post("/identity", lxmfHandler.CreateIdentity)
+		r.With(hubauth.RequireRole(hubauth.RoleOwner)).Put("/identity", lxmfHandler.UpdateIdentity)
+		r.With(hubauth.RequireRole(hubauth.RoleViewer)).Get("/identity/qr.png", lxmfHandler.IdentityQR)
+		r.With(hubauth.RequireRole(hubauth.RoleViewer)).Get("/messages", lxmfHandler.ListMessages)
+		r.With(hubauth.RequireRole(hubauth.RoleOperator)).Post("/messages", lxmfHandler.Send)
+		r.With(hubauth.RequireRole(hubauth.RoleViewer)).Get("/messages/{id}", lxmfHandler.GetMessage)
+		r.With(hubauth.RequireRole(hubauth.RoleViewer)).Get("/peers", lxmfHandler.Peers)
 	})
 	r.Route("/api/tenant", func(r chi.Router) {
 		r.With(hubauth.RequireRole(hubauth.RoleViewer)).Get("/", tenantHandler.Get)
