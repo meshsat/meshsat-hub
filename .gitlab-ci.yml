@@ -529,6 +529,39 @@ test:
 # Postgres store tests against a real server (MESHSAT-903). The unit job above
 # skips them when HUB_TEST_POSTGRES_DSN is unset; this job provides it through a
 # GitLab service container, so no Go test dependency is needed.
+# Reticulum interoperability (MESHSAT-1555): the Hub's upstream-compatible
+# node against the pinned Python RNS 1.5.5 / LXMF 1.2.0 over real TCP, plus the
+# golden vectors Python generates. bookworm rather than alpine because the venv
+# needs python3 and the wheels RNS pulls in (cryptography) ship for glibc. The
+# venv is cached by its pins; rnsenv refuses a cached venv with other versions.
+# Every Python peer is a child of the test binary and dies with it.
+test:interop:
+  stage: test
+  image: golang:1.26-bookworm
+  tags: [docker]
+  variables:
+    MESHSAT_INTEROP: "1"
+    MESHSAT_RNS_VENV: "${CI_PROJECT_DIR}/.cache/rns-venv"
+  cache:
+    key: rns-venv-1.5.5-lxmf-1.2.0
+    paths:
+      - .cache/rns-venv
+  before_script:
+    - apt-get update -qq && apt-get install -y -qq python3 python3-venv python3-pip > /dev/null
+  script:
+    - go install gotest.tools/gotestsum@v1.13.0
+    - gotestsum --junitfile report-interop.xml --format testname -- -p 1 -count=1 -timeout 20m -run 'RNSGolden|MatchesRNS|ReadByBridge|MatchRNS|Interop|Golden' ./internal/rnswire/... ./internal/lxmf/... ./internal/interop/...
+  artifacts:
+    reports:
+      junit: report-interop.xml
+    when: always
+    expire_in: 30 days
+  # allow_failure until the job has been observed green on main AND observed
+  # to fail on a deliberate break; then it becomes a gate (MESHSAT-1555 P2).
+  allow_failure: true
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main"
+
 test:postgres:
   stage: test
   image: golang:1.26-alpine

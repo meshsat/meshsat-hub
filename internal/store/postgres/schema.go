@@ -1027,4 +1027,22 @@ CREATE TABLE IF NOT EXISTS federation_grants (
 );
 CREATE UNIQUE INDEX IF NOT EXISTS uq_federation_grants ON federation_grants (tenant_id, peer_id, from_imei, to_imei);
 `},
+	// MESHSAT-1555: the upstream-compatible Reticulum node's path table,
+	// persisted so a leader failover resumes with every known path and the
+	// cached announce each path request is answered with. Keyed by the
+	// destination hash alone: a Reticulum destination carries no tenant and
+	// the node is one transport for every tenant's clients. Nothing in a row
+	// is secret (an announce is public by definition).
+	{Version: 34, Name: "rns paths", SQL: `
+CREATE TABLE IF NOT EXISTS rns_paths (
+	dest_hash VARCHAR(32) PRIMARY KEY,
+	next_hop VARCHAR(32) NOT NULL,
+	hops INTEGER NOT NULL DEFAULT 0,
+	iface VARCHAR(64) NOT NULL DEFAULT '',
+	expires_at TIMESTAMPTZ NOT NULL,
+	random_blobs BYTEA NOT NULL DEFAULT ''::bytea,
+	announce_raw BYTEA NOT NULL,
+	updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+`},
 }

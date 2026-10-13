@@ -1,4 +1,4 @@
-.PHONY: build build-arm64 build-x86_64 build-sim test test-integration lint fmt clean docker run dev security gosec govulncheck owasp owasp-full swagger
+.PHONY: build build-arm64 build-x86_64 build-sim test test-integration interop lint fmt clean docker run dev security gosec govulncheck owasp owasp-full swagger
 
 BINARY := meshsat-hub
 PKG := github.com/meshsat/meshsat-hub
@@ -19,6 +19,12 @@ test:
 
 test-integration:
 	CGO_ENABLED=0 go test -v -count=1 -tags=integration ./...
+
+# Reticulum interoperability against the pinned upstream Python RNS/LXMF
+# (internal/interop/rnsenv creates ~/.cache/meshsat/rns-venv-<ver> on first run;
+# MESHSAT-1555). Golden vectors plus the Hub's node against real Python peers.
+interop:
+	MESHSAT_INTEROP=1 go test -count=1 -timeout 900s -run 'RNSGolden|MatchesRNS|ReadByBridge|MatchRNS|Interop|Golden' ./internal/rnswire/... ./internal/lxmf/... ./internal/interop/...
 
 lint:
 	golangci-lint run ./...

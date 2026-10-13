@@ -20,7 +20,7 @@ data:
 
     [reticulum]
     accept = 0.0.0.0:4243
-    connect = hub.meshsat-hub.svc.cluster.local:4242
+    connect = hub-rns.meshsat-hub.svc.cluster.local:4242
     cert = /etc/stunnel/tls/tls.crt
     key = /etc/stunnel/tls/tls.key
     CAfile = /etc/stunnel/bridge-ca/ca.crt

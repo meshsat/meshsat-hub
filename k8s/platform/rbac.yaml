@@ -19,6 +19,13 @@ rules:
     resources: ["secrets"]
     resourceNames: ["meshsat-bridge-ca", "meshsat-nats-auth"]
     verbs: ["get", "patch"]
+  # The leader marks its own pod (meshsat.net/rns-leader) so the hub-rns
+  # Service follows it (MESHSAT-1555). A pod name is not known in advance, so
+  # resourceNames cannot narrow this; the patch touches labels only and the
+  # namespace holds no other pods the Hub's account could reach for.
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "patch"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding

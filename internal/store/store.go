@@ -271,6 +271,14 @@ type Store interface {
 	// abandoned provisioning attempt would grow without bound.
 	DeleteSystemConfig(ctx context.Context, key string) error
 
+	// Reticulum path table (MESHSAT-1555): the upstream-compatible node's
+	// paths, persisted so the leader that takes over answers path requests
+	// without waiting for every peer to announce again. Platform-wide: a
+	// destination hash carries no tenant (see RNSPath).
+	UpsertRNSPath(ctx context.Context, p *RNSPath) error
+	ListRNSPaths(ctx context.Context) ([]RNSPath, error)
+	DeleteRNSPath(ctx context.Context, destHash string) error
+
 	// Device groups (fleet organization)
 	CreateDeviceGroup(ctx context.Context, tenantID string, g *DeviceGroup) error
 	GetDeviceGroup(ctx context.Context, tenantID string, id string) (*DeviceGroup, error)

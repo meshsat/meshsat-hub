@@ -130,6 +130,11 @@ spec:
               containerPort: 6079
             - name: reticulum
               containerPort: 4242
+            # The upstream-compatible node's public listener (MESHSAT-1555),
+            # for stock Reticulum clients without stunnel; only the leader
+            # listens, and only the hub-rns Service names this port.
+            - name: rns-public
+              containerPort: 4244
             # The hosted TAK front (MESHSAT-1037): one TLS listener for every
             # tenant's phones. 8089 rather than a 6xxx port, matching the public
             # TAK SSL port so the edge configuration reads straight across --

@@ -78,6 +78,7 @@ import (
 	"github.com/meshsat/meshsat-hub/internal/refunds"
 	"github.com/meshsat/meshsat-hub/internal/relay"
 	"github.com/meshsat/meshsat-hub/internal/reticulum"
+	"github.com/meshsat/meshsat-hub/internal/rnsnode"
 	"github.com/meshsat/meshsat-hub/internal/rock7"
 	"github.com/meshsat/meshsat-hub/internal/rockblock"
 	"github.com/meshsat/meshsat-hub/internal/routing"
@@ -521,7 +522,33 @@ func main() {
 
 	// The elector itself is started at the end of startup (see
 	// leader.RunWith below), after every singleton has been registered.
+	// The upstream-compatible Reticulum node (MESHSAT-1555) runs on the leader
+	// only: built further down once the legacy identity and interfaces exist,
+	// started and stopped with leadership here. The pod label is what makes
+	// the hub-rns Service follow the leader (k8s/hub/service.yaml).
+	var rnsSvc *rnsnode.Service
+	var podLabeler *leader.PodLabeler
+	if cfg.Mode == "kubernetes" {
+		if pl, err := leader.NewPodLabeler(); err != nil {
+			slog.Warn("leader: pod labeler unavailable, the hub-rns Service cannot follow this replica", "error", err)
+		} else {
+			podLabeler = pl
+			// A pod that restarted in place keeps its labels: never start marked.
+			if err := pl.Clear(ctx, rnsnode.LeaderLabel); err != nil {
+				slog.Warn("leader: could not clear the rns leader label at start", "error", err)
+			}
+		}
+	}
 	onLeaderAcquired := func() {
+		if rnsSvc != nil {
+			if err := rnsSvc.Start(ctx); err != nil {
+				slog.Error("rns: node failed to start on the leader", "error", err)
+			} else if podLabeler != nil {
+				if err := podLabeler.Set(ctx, rnsnode.LeaderLabel, "true"); err != nil {
+					slog.Error("rns: could not mark this pod as the rns leader; hub-rns has no endpoint", "error", err)
+				}
+			}
+		}
 		// onAcquired: APRS-IS, the one connection-holding service left that needs
 		// explicit teardown; the rest of the singleton set is started by RunWith.
 		//
@@ -586,6 +613,16 @@ func main() {
 		}()
 	}
 	onLeaderLost := func() {
+		// The label goes first, so no new connection lands on a listener that
+		// is about to close; then the node, which tears down every link.
+		if podLabeler != nil {
+			if err := podLabeler.Clear(context.Background(), rnsnode.LeaderLabel); err != nil {
+				slog.Warn("rns: could not clear the rns leader label", "error", err)
+			}
+		}
+		if rnsSvc != nil {
+			rnsSvc.Stop()
+		}
 		// onLost: stop singleton services. Every tenant's connection has to go,
 		// or the replica that is no longer leader keeps a callsign logged in and
 		// the new leader cannot take it.
@@ -1201,21 +1238,57 @@ func main() {
 
 	// Reticulum transport interfaces.
 	retMQTTIface := reticulum.NewMQTTInterface(mqttBridge)
-	retMQTTIface.SetHandler(reticulumPacketHandler)
 	reticulumRelay.RegisterInterface(retMQTTIface)
 
 	// Reticulum TCP interface — external RNS nodes connect via HDLC framing.
 	// stunnel on DMZ terminates TLS; raw HDLC arrives here on port 4242.
-	var retTCPIface *reticulum.TCPInterface
-	if cfg.ReticulumTCPEnabled && cfg.ReticulumTCPAddr != "" {
-		retTCPIface = reticulum.NewTCPInterface(cfg.ReticulumTCPAddr)
-		retTCPIface.SetHandler(reticulumPacketHandler)
-		reticulumRelay.RegisterInterface(retTCPIface)
-		if err := retTCPIface.Start(); err != nil {
-			slog.Error("reticulum: tcp interface failed to start", "error", err)
+	//
+	// With the upstream-compatible node on (MESHSAT-1555) the node owns the
+	// TCP leg and the MQTT topic and sees every frame first; what it declines
+	// (MeshSat-private contexts: time sync, custody, HeMB) falls through to
+	// the legacy handler, every accepted announce is mirrored into the legacy
+	// router, and the legacy relay keeps a "tcp" interface that broadcasts to
+	// every bridge on stunnel as before. The listener opens on the leader only
+	// (onLeaderAcquired above); the hub-rns Service follows the leader.
+	var retTCPIface tcpLeg
+	tcpWanted := cfg.ReticulumTCPEnabled && cfg.ReticulumTCPAddr != ""
+	if cfg.RNSEnabled && tcpWanted && hubIdentity != nil && hubIdentity.IsLoaded() {
+		svc, err := buildRNSNode(cfg, hubIdentity, dataStore, retMQTTIface, reticulumPacketHandler, reticulumRouter)
+		if err != nil {
+			slog.Error("rns: node not built, the legacy layer keeps the TCP leg on this replica", "error", err)
 		} else {
-			slog.Info("reticulum: tcp interface started", "addr", cfg.ReticulumTCPAddr)
-			defer retTCPIface.Stop()
+			rnsSvc = svc
+			legacyTCP := rnsnode.NewLegacyTCP(svc)
+			retTCPIface = legacyTCP
+			reticulumRelay.RegisterInterface(legacyTCP)
+			checker.AddInfoProbe("rns_node", func(_ context.Context) error {
+				if leaderElector.IsLeader() && !svc.Active() {
+					return fmt.Errorf("this replica is the leader and the Reticulum node is not running")
+				}
+				return nil
+			})
+		}
+	}
+	if rnsSvc != nil {
+		retMQTTIface.SetHandler(func(iface reticulum.InterfaceType, raw []byte) {
+			if rnsSvc.InboundMQTT(raw) {
+				return
+			}
+			reticulumPacketHandler(iface, raw)
+		})
+	} else {
+		retMQTTIface.SetHandler(reticulumPacketHandler)
+		if tcpWanted {
+			legacyTCP := reticulum.NewTCPInterface(cfg.ReticulumTCPAddr)
+			legacyTCP.SetHandler(reticulumPacketHandler)
+			reticulumRelay.RegisterInterface(legacyTCP)
+			if err := legacyTCP.Start(); err != nil {
+				slog.Error("reticulum: tcp interface failed to start", "error", err)
+			} else {
+				slog.Info("reticulum: tcp interface started", "addr", cfg.ReticulumTCPAddr)
+				retTCPIface = legacyTCP
+				defer legacyTCP.Stop()
+			}
 		}
 	}
 
@@ -2446,6 +2519,14 @@ func main() {
 		r.Get("/grants", federationHandler.ListGrants)
 		r.Post("/grants", federationHandler.CreateGrant)
 		r.Delete("/grants/{id}", federationHandler.DeleteGrant)
+	})
+	// The Reticulum node (MESHSAT-1555): read-only, platform admins only. A
+	// path table names every peer that announced through the Hub.
+	rnsHandler := api.NewRNSHandler(rnsSvc)
+	r.Route("/api/rns", func(r chi.Router) {
+		r.Use(hubauth.RequirePlatformAdmin())
+		r.Get("/status", rnsHandler.Status)
+		r.Get("/paths", rnsHandler.Paths)
 	})
 	r.Route("/api/tenant", func(r chi.Router) {
 		r.With(hubauth.RequireRole(hubauth.RoleViewer)).Get("/", tenantHandler.Get)
