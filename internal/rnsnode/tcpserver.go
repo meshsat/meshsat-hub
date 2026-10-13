@@ -201,6 +201,7 @@ func (s *TCPServer) write(c *tcpConn, frame []byte) error {
 	}
 	c.tx.Add(1)
 	s.txFrames.Add(1)
+	slog.Debug("rns: tcp frame written", "iface", c.id, "bytes", len(frame))
 	return nil
 }
 

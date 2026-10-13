@@ -72,6 +72,7 @@ type Link struct {
 	local         *Destination
 	destIdentity  *rnswire.Identity // initiator: the destination identity
 	resources     *linkResources
+	pending       map[[HashLen]byte]*RequestReceipt // requests we made, by id
 
 	// AcceptResources decides whether an advertised resource of the given
 	// data size is received; nil rejects every resource.
@@ -447,6 +448,7 @@ func (m *LinkManager) Teardown(l *Link) {
 }
 
 func (m *LinkManager) closed(l *Link) {
+	m.failAllRequests(l)
 	m.mu.Lock()
 	delete(m.links, l.ID)
 	delete(m.pending, l.ID)
@@ -552,6 +554,10 @@ func (m *LinkManager) receive(l *Link, pkt *Packet) {
 			m.closed(l)
 		}
 
+	case rnswire.ContextRequest:
+		m.handleRequestPacket(l, pkt)
+	case rnswire.ContextResponse:
+		m.handleResponsePacket(l, pkt)
 	case rnswire.ContextResourceAdv:
 		if plain, err := l.Decrypt(h.Data); err == nil {
 			m.handleResourceAdv(l, plain)

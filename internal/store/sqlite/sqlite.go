@@ -233,6 +233,20 @@ var migrations = []string{
 	)`,
 	`CREATE INDEX IF NOT EXISTS idx_lxmf_messages_tenant_created ON lxmf_messages (tenant_id, created_at DESC)`,
 	`CREATE INDEX IF NOT EXISTS idx_lxmf_messages_tenant_state ON lxmf_messages (tenant_id, state)`,
+	// MESHSAT-1555 P5: what a tenant's propagation node holds, keyed (tenant_id, transient id).
+	`CREATE TABLE IF NOT EXISTS lxmf_held (
+		tenant_id TEXT NOT NULL,
+		id TEXT NOT NULL,
+		destination TEXT NOT NULL,
+		data BLOB NOT NULL,
+		size INTEGER NOT NULL,
+		stamp_value INTEGER NOT NULL DEFAULT 0,
+		source TEXT NOT NULL DEFAULT '',
+		received_at TEXT NOT NULL,
+		PRIMARY KEY (tenant_id, id)
+	)`,
+	`CREATE INDEX IF NOT EXISTS idx_lxmf_held_tenant_dest ON lxmf_held (tenant_id, destination)`,
+	`CREATE INDEX IF NOT EXISTS idx_lxmf_held_tenant_received ON lxmf_held (tenant_id, received_at)`,
 }
 
 // alterMigrations add tenant_id to existing tables. These use ALTER TABLE

@@ -62,7 +62,18 @@ func GenerateStamp(ctx context.Context, messageID [32]byte, cost int) ([]byte, i
 	if cost <= 0 {
 		return nil, 0
 	}
-	wb := Workblock(messageID)
+	return searchStamp(ctx, Workblock(messageID), cost)
+}
+
+// searchStamp finds a stamp for an already expanded workblock. cost 0 is
+// satisfied by the first random stamp (a propagation stamp when the node
+// announced no cost).
+func searchStamp(ctx context.Context, wb []byte, cost int) ([]byte, int) {
+	if cost <= 0 {
+		stamp := make([]byte, StampLen)
+		rand.Read(stamp)
+		return stamp, stampValueOf(wb, stamp)
+	}
 	var found atomic.Bool
 	var result []byte
 	var mu sync.Mutex

@@ -25,7 +25,7 @@ const busy = ref(false)
 const filter = ref('all')
 
 const canSend = computed(() => auth.isOwner || auth.role === 'operator')
-const form = ref({ display_name: '', stamp_cost: 0, enabled: true })
+const form = ref({ display_name: '', stamp_cost: 0, enabled: true, propagation_enabled: true, propagation_stamp_cost: 16 })
 const compose = ref({ destination: '', content: '', title: '', method: 'auto' })
 const destOK = computed(() => /^[0-9a-f]{32}$/.test(compose.value.destination.trim().toLowerCase()))
 
@@ -48,7 +48,7 @@ async function loadIdentity() {
   const id = await lxmf.identity()
   identity.value = id
   if (id?.exists) {
-    form.value = { display_name: id.display_name, stamp_cost: id.stamp_cost, enabled: id.enabled }
+    form.value = { display_name: id.display_name, stamp_cost: id.stamp_cost, enabled: id.enabled, propagation_enabled: id.propagation_enabled, propagation_stamp_cost: id.propagation_stamp_cost }
     try {
       const blob = await lxmf.qr(320)
       if (qr.value) URL.revokeObjectURL(qr.value)
@@ -103,13 +103,23 @@ async function saveIdentity() {
   busy.value = true
   error.value = ''
   try {
-    await lxmf.updateIdentity({ display_name: form.value.display_name, stamp_cost: Number(form.value.stamp_cost), enabled: form.value.enabled })
+    await lxmf.updateIdentity({ display_name: form.value.display_name, stamp_cost: Number(form.value.stamp_cost), enabled: form.value.enabled,
+      propagation_enabled: form.value.propagation_enabled, propagation_stamp_cost: Number(form.value.propagation_stamp_cost) })
     await loadIdentity()
     toast.success('Address settings saved')
   } catch (e) {
     error.value = e?.message || 'Could not save the settings'
   } finally {
     busy.value = false
+  }
+}
+
+async function copyText(text, what) {
+  try {
+    await navigator.clipboard.writeText(text)
+    toast.success(`${what} copied`)
+  } catch {
+    toast.error('Copy failed; select the text instead')
   }
 }
 
@@ -195,15 +205,29 @@ onUnmounted(() => {
               <template v-else-if="identity.last_announce">Enabled, announced {{ formatWhen(identity.last_announce, '') }}.</template>
               <template v-else>Enabled; announced every 30 minutes by the leader replica.</template>
             </p>
+            <div>
+              <span class="ms-label">Propagation node</span>
+              <div class="flex flex-wrap items-center gap-2 mt-1">
+                <span class="ms-id break-all" data-testid="lxmf-pn-address">{{ identity.propagation_address }}</span>
+                <button type="button" class="ms-btn" @click="copyText(identity.propagation_address, 'Propagation node address')">Copy</button>
+              </div>
+              <p class="text-ms-muted text-[11px] mt-1">
+                <template v-if="identity.propagation_enabled">Holds messages for clients that are offline and hands them over when they sync; set it as the propagation node in a client. Messages for this address arrive in the inbox directly.</template>
+                <template v-else>Off: this address holds nothing for other clients.</template>
+              </p>
+            </div>
             <form v-if="auth.isOwner" class="grid gap-3 sm:grid-cols-[1fr_8rem_auto] items-end" @submit.prevent="saveIdentity">
               <label class="block"><span class="ms-label">Display name</span>
                 <input v-model="form.display_name" class="ms-input w-full mt-1" maxlength="64" autocomplete="off" /></label>
               <label class="block"><span class="ms-label">Stamp cost</span>
                 <input v-model.number="form.stamp_cost" type="number" min="0" max="32" class="ms-input w-full mt-1 ms-num" /></label>
               <label class="flex items-center gap-2 pb-2"><input v-model="form.enabled" type="checkbox" /> <span>Enabled</span></label>
+              <label class="flex items-center gap-2 sm:col-span-2"><input v-model="form.propagation_enabled" type="checkbox" /> <span>Propagation node: hold messages for offline clients</span></label>
+              <label class="block"><span class="ms-label">Propagation stamp cost</span>
+                <input v-model.number="form.propagation_stamp_cost" type="number" min="0" max="32" class="ms-input w-full mt-1 ms-num" /></label>
               <div class="sm:col-span-3 flex items-center gap-3">
                 <button type="submit" class="ms-btn" :disabled="busy || !form.display_name">Save</button>
-                <span class="text-ms-muted text-[11px]">A stamp cost makes a sender do proof of work per message; 0 accepts everything, Sideband's default. Costs above 16 keep most clients out.</span>
+                <span class="text-ms-muted text-[11px]">A stamp cost makes a sender do proof of work per message; 0 accepts everything, Sideband's default. The propagation stamp is a separate, cheaper proof a client attaches to a message it hands the node; LXMF's default is 16. Costs above 16 keep most clients out.</span>
               </div>
             </form>
           </div>

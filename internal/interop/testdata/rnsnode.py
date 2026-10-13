@@ -21,7 +21,9 @@ Commands (JSON objects):
   {"cmd":"link","dest":HEX}                open an RNS.Link to dest (must be known)
   {"cmd":"link_send","link":HEX,"data":TEXT}  send data on a link, report proof
   {"cmd":"link_close","link":HEX}
-  {"cmd":"send_lxm","dest":HEX,"content":TEXT,"title":TEXT,"method":"opportunistic|direct|auto"}
+  {"cmd":"send_lxm","dest":HEX,"content":TEXT,"title":TEXT,"method":"opportunistic|direct|auto|propagated"}
+  {"cmd":"set_pn","dest":HEX}            use this propagation node for propagated sends and syncs
+  {"cmd":"sync_pn"}                       fetch what the propagation node holds for us -> pn_sync events
   {"cmd":"send_packet","dest":HEX,"data":TEXT}  single encrypted packet to a SINGLE dest, waits for proof
   {"cmd":"set_keepalive","link":HEX,"seconds":N}
   {"cmd":"status"}
@@ -75,6 +77,11 @@ def main():
     enabled = yes
     target_host = {host}
     target_port = {port}
+    # A freshly connected interface holds announces that arrive in a burst
+    # (ingress control, released every IC_HELD_RELEASE_INTERVAL). The Hub
+    # announces every tenant's address and propagation node to a new peer at
+    # once, which is a burst by design; the tests want to see them now.
+    ingress_control = no
 """
     if args.listen:
         ifaces += f"""
@@ -233,6 +240,8 @@ def main():
                         method = LXMF.LXMessage.OPPORTUNISTIC
                     else:
                         method = LXMF.LXMessage.DIRECT
+                elif m == "propagated":
+                    method = LXMF.LXMessage.PROPAGATED
                 else:
                     method = LXMF.LXMessage.DIRECT if m == "direct" else LXMF.LXMessage.OPPORTUNISTIC
                 lxm = LXMF.LXMessage(dest, delivery, cmd.get("content", "").encode("utf-8"),
@@ -241,7 +250,27 @@ def main():
                 lxm.register_failed_callback(lambda m: emit(event="lxm_failed", hash=m.hash.hex(), state=m.state))
                 router.handle_outbound(lxm)
                 emit(event="lxm_sent", hash=lxm.hash.hex(), method=str(lxm.method))
-            elif c == "status":
+            elif c == "set_pn":
+                router.set_outbound_propagation_node(bytes.fromhex(cmd["dest"]))
+                emit(event="pn_set", dest=cmd["dest"])
+            elif c == "sync_pn":
+                # Poll the router's transfer state until it settles, as Sideband's UI does.
+                def watch():
+                    last = None
+                    deadline = time.time() + float(cmd.get("timeout", 60))
+                    while time.time() < deadline:
+                        st = router.propagation_transfer_state
+                        if st != last:
+                            emit(event="pn_sync", state=int(st), progress=float(router.propagation_transfer_progress or 0))
+                            last = st
+                        if st == LXMF.LXMRouter.PR_COMPLETE or st >= LXMF.LXMRouter.PR_NO_PATH:
+                            emit(event="pn_sync_done", state=int(st), result=router.propagation_transfer_last_result)
+                            router.acknowledge_sync_completion(reset_state=True)
+                            return
+                        time.sleep(0.2)
+                    emit(event="pn_sync_done", state=int(router.propagation_transfer_state), result=None, timeout=True)
+                threading.Thread(target=watch, daemon=True).start()
+                router.request_messages_from_propagation_node(identity)
                 emit(event="status", paths=len(RNS.Transport.path_table), links=len(links))
             else:
                 emit(event="error", error=f"unknown command {c}")

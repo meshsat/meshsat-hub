@@ -268,6 +268,8 @@ type Destination struct {
 
 	ratchetMu sync.Mutex
 	ratchets  [][]byte // newest first
+	// requestHandlers answer link requests by path hash (request.go).
+	requestHandlers map[[HashLen]byte]*requestEntry
 }
 
 // AddDestination registers a local destination; its hash is computed from
@@ -281,6 +283,14 @@ func (n *Node) AddDestination(d *Destination) *Destination {
 	n.dests[d.Hash] = d
 	n.mu.Unlock()
 	return d
+}
+
+// Ratchets returns the destination's ratchet private keys, newest first:
+// what decrypts a payload a peer encrypted to an announced ratchet.
+func (d *Destination) Ratchets() [][]byte {
+	d.ratchetMu.Lock()
+	defer d.ratchetMu.Unlock()
+	return append([][]byte(nil), d.ratchets...)
 }
 
 // RemoveDestination forgets a local destination: packets for it are no

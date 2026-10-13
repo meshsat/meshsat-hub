@@ -79,6 +79,10 @@ type OutgoingResource struct {
 	state         int // 0 advertised, 1 transferring, 2 awaiting proof, 3 complete, 4 failed
 	recvMinHeight int
 	done          chan ResourceResult
+	// requestID and isResponse mark a resource that carries a link request
+	// or its response (RNS.Resource request_id / is_response).
+	requestID  *[HashLen]byte
+	isResponse bool
 }
 
 // Done resolves once the receiver proved the resource or the transfer failed.
@@ -110,6 +114,11 @@ type IncomingResource struct {
 	reqSent      time.Time
 	state        int    // 0 transferring, 1 assembling, 2 complete, 3 failed
 	Data         []byte // set when complete
+	// A resource advertised with a request id is a request to the local
+	// destination (isRequest) or the response to one we made (isResponse).
+	requestID  [HashLen]byte
+	isRequest  bool
+	isResponse bool
 }
 
 // linkResources is the per-link resource state.
@@ -138,6 +147,12 @@ func mapHash(part []byte, random [resourceRandomHashLen]byte) [resourceMapHashLe
 // SendResource advertises payload on the link and serves it. The returned
 // resource resolves when the receiver proves it.
 func (m *LinkManager) SendResource(l *Link, payload []byte) (*OutgoingResource, error) {
+	return m.sendResource(l, payload, nil, false)
+}
+
+// sendResource is SendResource with the request fields a link request or
+// response carries in its advertisement.
+func (m *LinkManager) sendResource(l *Link, payload []byte, requestID *[HashLen]byte, isResponse bool) (*OutgoingResource, error) {
 	if l.State() != LinkActive && l.State() != LinkStale {
 		return nil, errors.New("rns: link not active")
 	}
@@ -152,7 +167,7 @@ func (m *LinkManager) SendResource(l *Link, payload []byte) (*OutgoingResource, 
 		return nil, err
 	}
 	sdu := l.mtu - rnswire.HeaderMaxSize - rnswire.IFACMinSize
-	r := &OutgoingResource{link: l, data: enc, dataSize: len(payload), done: make(chan ResourceResult, 1), rtt: l.RTT()}
+	r := &OutgoingResource{link: l, data: enc, dataSize: len(payload), done: make(chan ResourceResult, 1), rtt: l.RTT(), requestID: requestID, isResponse: isResponse}
 	for {
 		rand.Read(r.randomHash[:])
 		r.Hash = sha256.Sum256(append(append([]byte(nil), payload...), r.randomHash[:]...))
@@ -200,6 +215,16 @@ func (r *OutgoingResource) advertisement(segment int) msgpack.Value {
 		hm = append(hm, r.mapHashes[i][:]...)
 	}
 	kv := func(k string, v msgpack.Value) msgpack.KV { return msgpack.KV{Key: msgpack.Str(k), Val: v} }
+	q := msgpack.Nil()
+	flags := int64(0x01)
+	if r.requestID != nil {
+		q = msgpack.Bin(r.requestID[:])
+		if r.isResponse {
+			flags |= 0x10 // is response
+		} else {
+			flags |= 0x08 // is request
+		}
+	}
 	return msgpack.MapOf(
 		kv("t", msgpack.Int(int64(len(r.data)))),
 		kv("d", msgpack.Int(int64(r.dataSize))),
@@ -209,8 +234,8 @@ func (r *OutgoingResource) advertisement(segment int) msgpack.Value {
 		kv("o", msgpack.Bin(r.Hash[:])),
 		kv("i", msgpack.Int(1)),
 		kv("l", msgpack.Int(1)),
-		kv("q", msgpack.Nil()),
-		kv("f", msgpack.Int(0x01)), // encrypted, not compressed, not split, no metadata
+		kv("q", q),
+		kv("f", msgpack.Int(flags)), // encrypted, not compressed, not split, no metadata; request/response bits when q is set
 		kv("m", msgpack.Bin(hm)),
 	)
 }
@@ -413,14 +438,34 @@ func (m *LinkManager) handleResourceAdv(l *Link, plain []byte) {
 		m.rejectResource(l, h)
 		return
 	}
-	if l.AcceptResources == nil || !l.AcceptResources(int(d)) {
-		m.rejectResource(l, h)
-		return
+	q := get("q").Bin
+	isRequest, isResponse := f&0x08 != 0 && len(q) == HashLen, f&0x10 != 0 && len(q) == HashLen
+	var reqID [HashLen]byte
+	copy(reqID[:], q)
+	switch {
+	case isRequest:
+		// A request to the local destination: accepted when it serves any
+		// path (Link.handle_resource_advertisement for is_request).
+		if l.local == nil || !l.local.hasRequestHandlers() || int(d) > resourceMaxRequestSize {
+			m.rejectResource(l, h)
+			return
+		}
+	case isResponse:
+		// The response to a request we made: accepted when it is pending.
+		if l.pendingRequest(reqID) == nil {
+			m.rejectResource(l, h)
+			return
+		}
+	default:
+		if l.AcceptResources == nil || !l.AcceptResources(int(d)) {
+			m.rejectResource(l, h)
+			return
+		}
 	}
 	sdu := l.mtu - rnswire.HeaderMaxSize - rnswire.IFACMinSize
 	r := &IncomingResource{link: l, size: int(t), dataSize: int(d), totalParts: int((t + int64(sdu) - 1) / int64(sdu)),
 		compressed: f&0x02 != 0, window: resourceWindow, windowMax: resourceWindowMaxSlow, windowMin: resourceWindowMin,
-		consecutive: -1, lastActivity: m.n.now()}
+		consecutive: -1, lastActivity: m.n.now(), requestID: reqID, isRequest: isRequest, isResponse: isResponse}
 	copy(r.Hash[:], h)
 	copy(r.randomHash[:], rb)
 	if int(n) != r.totalParts {
@@ -618,6 +663,17 @@ func (m *LinkManager) concludeIncoming(r *IncomingResource, data []byte, err err
 		return
 	}
 	slog.Debug("rns: resource received", "link", hexh(r.link.ID), "bytes", len(data))
+	if r.isRequest {
+		h := sha256.Sum256(data)
+		var id [HashLen]byte
+		copy(id[:], h[:HashLen])
+		m.handleRequest(r.link, id, data)
+		return
+	}
+	if r.isResponse {
+		m.handleResponse(r.link, data)
+		return
+	}
 	if r.link.OnResource != nil {
 		r.link.OnResource(r.link, data)
 	}
@@ -696,3 +752,6 @@ func (m *LinkManager) resourceWatchdog(now time.Time) {
 		}
 	}
 }
+
+// resourceMaxRequestSize bounds a request that arrives as a resource.
+const resourceMaxRequestSize = resourceMaxSize

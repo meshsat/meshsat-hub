@@ -277,6 +277,8 @@ var Specs = []Spec{
 			{Key: "display_name", Label: "Display name", Hint: "what other LXMF clients show for this address"},
 			{Key: "stamp_cost", Label: "Stamp cost", Hint: "0 = none; the proof of work a sender must attach (Sideband's default is none)"},
 			{Key: "enabled", Label: "Enabled", Hint: "true or false; a disabled address is not announced and receives nothing"},
+			{Key: "propagation_enabled", Label: "Propagation node", Hint: "true or false (default true): hold messages for clients that are offline"},
+			{Key: "propagation_stamp_cost", Label: "Propagation stamp cost", Hint: "the proof of work a client attaches to a message it hands the node; LXMF's default is 16"},
 		}},
 	{Provider: ProviderFederation, Label: "Federation (Hub to Hub)", Description: "This tenant's identity towards other MeshSat Hubs: a key they pin and the URL they relay satellite messages to. Created on the Federation page; edit it there, not here.",
 		Webhook: "/api/webhook/federation",

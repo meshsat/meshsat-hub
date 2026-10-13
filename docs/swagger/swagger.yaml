@@ -2207,6 +2207,10 @@ definitions:
         type: string
       enabled:
         type: boolean
+      propagation_enabled:
+        type: boolean
+      propagation_stamp_cost:
+        type: integer
       stamp_cost:
         type: integer
     type: object
@@ -2232,6 +2236,17 @@ definitions:
         type: boolean
       last_announce:
         type: string
+      propagation_address:
+        description: |-
+          PropagationAddress is the tenant's propagation node (lxmf.propagation
+          on the same identity): what a client sets as its propagation node so
+          messages for it are held while it is offline. PropagationStampCost is
+          the proof of work a client attaches to a message it hands the node.
+        type: string
+      propagation_enabled:
+        type: boolean
+      propagation_stamp_cost:
+        type: integer
       qr_url:
         description: QRURL renders the address as a QR code image.
         type: string
@@ -7197,7 +7212,9 @@ paths:
       consumes:
       - application/json
       description: Changes the display name other clients see, the stamp cost a sender
-        must pay, or disables the address. Absent fields are left alone. Owner only.
+        must pay, whether the address is enabled, and whether the propagation node
+        holds messages for offline clients and at what stamp cost. Absent fields are
+        left alone. Owner only.
       parameters:
       - description: fields to change
         in: body

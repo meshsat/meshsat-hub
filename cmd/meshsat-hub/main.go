@@ -1259,7 +1259,7 @@ func main() {
 		// leadership term, rebuilt when a tenant's provider row changes on
 		// any replica (integrations.ReloadTopic).
 		lxmfSvc = lxmfhub.New(lxmfhub.Config{AnnounceInterval: cfg.LXMFAnnounceInterval, InboundPerMinute: cfg.LXMFInboundPerMinute,
-			InboxMax: cfg.LXMFInboxMax, SendTimeout: cfg.LXMFSendTimeout}, dataStore, providerAccounts,
+			InboxMax: cfg.LXMFInboxMax, SendTimeout: cfg.LXMFSendTimeout, PropagationMaxBytes: cfg.LXMFPropagationMaxBytes}, dataStore, providerAccounts,
 			func(actx context.Context, tenantID, action, actor, detail string) {
 				_ = auditSvc.Log(actx, tenantID, action, actor, detail, "")
 			})

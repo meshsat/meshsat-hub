@@ -1075,4 +1075,22 @@ CREATE TABLE IF NOT EXISTS lxmf_messages (
 CREATE INDEX IF NOT EXISTS idx_lxmf_messages_tenant_created ON lxmf_messages (tenant_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_lxmf_messages_tenant_state ON lxmf_messages (tenant_id, state);
 `},
+	// MESHSAT-1555 P5: what a tenant's LXMF propagation node holds for
+	// clients that are offline. The node cannot read a row's data (encrypted
+	// to the destination); the destination index serves a client's sync.
+	{Version: 36, Name: "lxmf held messages", SQL: `
+CREATE TABLE IF NOT EXISTS lxmf_held (
+	tenant_id VARCHAR(64) NOT NULL,
+	id VARCHAR(64) NOT NULL,
+	destination VARCHAR(32) NOT NULL,
+	data BYTEA NOT NULL,
+	size INTEGER NOT NULL,
+	stamp_value INTEGER NOT NULL DEFAULT 0,
+	source VARCHAR(32) NOT NULL DEFAULT '',
+	received_at TIMESTAMPTZ NOT NULL,
+	PRIMARY KEY (tenant_id, id)
+);
+CREATE INDEX IF NOT EXISTS idx_lxmf_held_tenant_dest ON lxmf_held (tenant_id, destination);
+CREATE INDEX IF NOT EXISTS idx_lxmf_held_tenant_received ON lxmf_held (tenant_id, received_at);
+`},
 }
