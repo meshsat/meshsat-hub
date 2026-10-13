@@ -293,6 +293,7 @@ var Classification = map[string]Class{
 	// name and stamp cost) lives in the tenant's encrypted provider row.
 	"rns_enabled":                ClassPlatform,
 	"rns_public_tcp_addr":        ClassPlatform,
+	"rns_public_endpoint":        ClassPlatform,
 	"rns_public_ifac_netname":    ClassPlatform,
 	"rns_public_ifac_netkey":     ClassPlatform,
 	"rns_path_ttl_hours":         ClassPlatform,

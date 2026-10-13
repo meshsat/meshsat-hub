@@ -23,11 +23,14 @@ import (
 type LXMFHandler struct {
 	svc   *lxmfhub.Service // nil when the Reticulum node is configured off
 	store store.Store
+	// endpoint is the public host:port a client connects to, "" when none.
+	endpoint string
 }
 
-// NewLXMFHandler builds the handler; svc may be nil.
-func NewLXMFHandler(svc *lxmfhub.Service, st store.Store) *LXMFHandler {
-	return &LXMFHandler{svc: svc, store: st}
+// NewLXMFHandler builds the handler; svc may be nil. endpoint is the public
+// host:port a stock client connects to (HUB_RNS_PUBLIC_ENDPOINT).
+func NewLXMFHandler(svc *lxmfhub.Service, st store.Store, endpoint string) *LXMFHandler {
+	return &LXMFHandler{svc: svc, store: st, endpoint: endpoint}
 }
 
 type lxmfIdentityResponse struct {
@@ -53,6 +56,9 @@ type lxmfIdentityResponse struct {
 	PropagationAddress   string `json:"propagation_address,omitempty"`
 	PropagationEnabled   bool   `json:"propagation_enabled"`
 	PropagationStampCost int    `json:"propagation_stamp_cost"`
+	// PublicEndpoint is the host:port a client connects to with a TCP client
+	// interface (no interface access code), "" when this Hub has none.
+	PublicEndpoint string `json:"public_endpoint,omitempty"`
 }
 
 type lxmfIdentityRequest struct {
@@ -82,7 +88,8 @@ func (h *LXMFHandler) off(w http.ResponseWriter) bool {
 
 func (h *LXMFHandler) identityResponse(tenantID string, id *lxmfhub.Identity) lxmfIdentityResponse {
 	resp := lxmfIdentityResponse{Exists: true, Address: id.Address, DisplayName: id.DisplayName, StampCost: id.StampCost, Enabled: id.Enabled,
-		QRURL: "/api/lxmf/identity/qr.png", PropagationAddress: id.PropagationAddress, PropagationEnabled: id.PropagationEnabled, PropagationStampCost: id.PropagationStampCost}
+		QRURL: "/api/lxmf/identity/qr.png", PropagationAddress: id.PropagationAddress, PropagationEnabled: id.PropagationEnabled, PropagationStampCost: id.PropagationStampCost,
+		PublicEndpoint: h.endpoint}
 	if active, last := h.svc.RegisteredOnThisReplica(tenantID); active {
 		resp.ActiveOnThisReplica = true
 		if !last.IsZero() {
@@ -108,7 +115,7 @@ func (h *LXMFHandler) Identity(w http.ResponseWriter, r *http.Request) {
 	tid := hubauth.TenantIDFromContext(r.Context())
 	id, err := h.svc.LoadIdentity(r.Context(), tid)
 	if errors.Is(err, lxmfhub.ErrNoIdentity) {
-		writeJSON(w, http.StatusOK, lxmfIdentityResponse{})
+		writeJSON(w, http.StatusOK, lxmfIdentityResponse{PublicEndpoint: h.endpoint})
 		return
 	}
 	if err != nil {

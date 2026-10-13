@@ -2551,7 +2551,7 @@ func main() {
 	})
 	// A tenant's LXMF address on that node (MESHSAT-1555): viewers read,
 	// operators send, the owner creates and configures the address.
-	lxmfHandler := api.NewLXMFHandler(lxmfSvc, dataStore)
+	lxmfHandler := api.NewLXMFHandler(lxmfSvc, dataStore, cfg.RNSPublicEndpoint)
 	r.Route("/api/lxmf", func(r chi.Router) {
 		r.With(hubauth.RequireRole(hubauth.RoleViewer)).Get("/identity", lxmfHandler.Identity)
 		r.With(hubauth.RequireRole(hubauth.RoleOwner)).Post("/identity", lxmfHandler.CreateIdentity)
