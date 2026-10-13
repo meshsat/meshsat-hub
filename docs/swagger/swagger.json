@@ -13440,6 +13440,10 @@
                 "propagation_stamp_cost": {
                     "type": "integer"
                 },
+                "public_endpoint": {
+                    "description": "PublicEndpoint is the host:port a client connects to with a TCP client\ninterface (no interface access code), \"\" when this Hub has none.",
+                    "type": "string"
+                },
                 "qr_url": {
                     "description": "QRURL renders the address as a QR code image.",
                     "type": "string"

@@ -183,6 +183,7 @@ onUnmounted(() => {
         <div v-if="loading" class="text-ms-muted text-[13px]">Loading</div>
         <div v-else-if="!identity?.exists" class="space-y-3">
           <p class="text-ms-text2 text-[13px]">This workspace has no LXMF address yet. The address is a Reticulum identity the Hub keeps for you; other clients reach it by its 32-character hash.</p>
+          <p v-if="identity?.public_endpoint" class="text-ms-muted text-[13px]">Clients connect to this Hub at <span class="ms-id">{{ identity.public_endpoint }}</span>.</p>
           <button v-if="auth.isOwner" type="button" class="ms-btn-primary" :disabled="busy" @click="createIdentity">Create address</button>
           <p v-else class="text-ms-muted text-[13px]">An owner of this workspace creates it.</p>
         </div>
@@ -199,6 +200,14 @@ onUnmounted(() => {
                 <button type="button" class="ms-btn" @click="copyAddress">Copy</button>
               </div>
               <p class="text-ms-muted text-[11px] mt-1">Paste it into a client's "new conversation" field, or scan the code. Clients show the display name once they have heard the address announce.</p>
+            </div>
+            <div v-if="identity.public_endpoint">
+              <span class="ms-label">Where a client connects</span>
+              <div class="flex flex-wrap items-center gap-2 mt-1">
+                <span class="ms-id" data-testid="lxmf-endpoint">{{ identity.public_endpoint }}</span>
+                <button type="button" class="ms-btn" @click="copyText(identity.public_endpoint, 'Endpoint')">Copy</button>
+              </div>
+              <p class="text-ms-muted text-[11px] mt-1">Add a TCP client interface to this host and port in Sideband (Connectivity), CrossTalk, MeshChat or NomadNet; no interface access code. The Hub's addresses appear in the client within a minute of connecting.</p>
             </div>
             <p class="text-ms-text2">
               <template v-if="!identity.enabled">Disabled: not announced and receiving nothing.</template>

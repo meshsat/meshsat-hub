@@ -422,6 +422,10 @@ type Config struct {
 	RNSPublicIFACNetname string `yaml:"rns_public_ifac_netname"`
 	RNSPublicIFACNetkey  string `yaml:"rns_public_ifac_netkey"`
 	RNSPathTTLHours      int    `yaml:"rns_path_ttl_hours"`
+	// RNSPublicEndpoint is the host:port a stock client connects to (the edge
+	// in front of RNSPublicTCPAddr), shown on the tenants' Reticulum page; ""
+	// shows nothing. A self-hosted Hub names its own.
+	RNSPublicEndpoint string `yaml:"rns_public_endpoint"`
 
 	// The tenants' LXMF addresses on that node (MESHSAT-1555). Platform
 	// bounds; the address itself, its display name and stamp cost are the
@@ -1203,6 +1207,9 @@ func Load() (Config, error) {
 	}
 	if v := os.Getenv("HUB_RNS_PUBLIC_TCP_ADDR"); v != "" {
 		cfg.RNSPublicTCPAddr = v
+	}
+	if v := os.Getenv("HUB_RNS_PUBLIC_ENDPOINT"); v != "" {
+		cfg.RNSPublicEndpoint = strings.TrimSpace(v)
 	}
 	if v := os.Getenv("HUB_RNS_PUBLIC_IFAC_NETNAME"); v != "" {
 		cfg.RNSPublicIFACNetname = v

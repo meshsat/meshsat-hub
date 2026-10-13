@@ -30,7 +30,7 @@ survive a restart, so a reloaded path is usable again when the peer announces ag
 | Interface id | What | Who |
 |---|---|---|
 | `tcpb_<n>` | one per connection on the stunnel listener (`:4242`), reached as `reticulum.meshsat.net:4243` with a bridge client certificate | the kits |
-| `tcpp_<n>` | one per connection on the public listener (`HUB_RNS_PUBLIC_TCP_ADDR`, `:4244` in k8s), reached as `rns.meshsat.net:4242` once the edge carries it | stock clients |
+| `tcpp_<n>` | one per connection on the public listener (`HUB_RNS_PUBLIC_TCP_ADDR`, `:4244` in k8s), reached as `rns.meshsat.net:4242` (live since 13 Oct 2026, IPv4; shown to tenants from `HUB_RNS_PUBLIC_ENDPOINT`) | stock clients |
 | `mqtt_rns` | the legacy Reticulum MQTT topic `meshsat/reticulum/packet` | bridges over the bus |
 
 Every frame on those goes to the node first. What it declines (MeshSat-private contexts: time
@@ -123,9 +123,13 @@ the response `[request_id, data]` as a RESPONSE packet or a resource flagged as 
 - **Interop:** `make interop` runs the golden vectors and the Hub's node against Python RNS 1.5.5 /
   LXMF 1.2.0 from a pinned venv (`internal/interop/rnsenv`, `~/.cache/meshsat/rns-venv-1.5.5`); CI
   job `test:interop`.
-- **The public endpoint** (`rns.meshsat.net:4242`) is the edge relay's `rns_in` frontend to
-  `hub-rns:4244` plus, on the three VPS, `patch-haproxy.py rns` and `ufw allow 4242/tcp`, plus
-  the DNS record. The VPS and DNS parts are an infrastructure change, not this repo's.
+- **The public endpoint** (`rns.meshsat.net:4242`, live since 13 Oct 2026) is the edge relay's
+  `rns_in` frontend to `hub-rns:4244` plus, on the three VPS, `patch-haproxy.py rns` and
+  `ufw allow 4242/tcp`, plus the Cloudflare A records (not proxied; IPv4 only, `bind :4242` is
+  v4-only on HAProxy 2.8). The VPS and DNS parts live in the NL edge repo. `HUB_RNS_PUBLIC_ENDPOINT`
+  is what the Reticulum page tells tenants to point a client at; a self-hosted Hub sets its own.
+  Proven on 13 Oct with two stock LXMF 1.2.0 clients over the public path (direct both ways, a
+  console reply, propagated hold-and-sync).
 
 Never on this path: a plan gate. An address receives whatever its plan is; the plan gates how many
 devices and bridges a tenant may register, nothing else.

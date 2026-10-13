@@ -93,6 +93,9 @@ data:
   # is reached through hub-rns:4244 once the edge carries rns.meshsat.net.
   HUB_RNS_ENABLED: "true"
   HUB_RNS_PUBLIC_TCP_ADDR: ":4244"
+  # The public name the edge carries to that listener (live since 13 Oct 2026),
+  # shown to tenants as where to point a client.
+  HUB_RNS_PUBLIC_ENDPOINT: "rns.meshsat.net:4242"
   # The estate's backup gateway (rclone crypt -> Hetzner Object Storage), the
   # same endpoint the CNPG barman backups use. nl-s3 was retired on 2026-09-25
   # and this line still named it, so the map answered 502 for four days
