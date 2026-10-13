@@ -396,6 +396,38 @@ effect is nothing is worse than an absent one, because this scorecard counts it.
     default tenant for the test above, with the owner's go, and removed; it remains listed as
     inactive, its certificate is refused, and its key was deleted from the runner.
 
+## Addendum, 2026-10-13 (MESHSAT-1555): a public Reticulum endpoint
+
+The Hub now runs an upstream-compatible Reticulum node (one, on the leader replica) and exposes it
+to the internet as `rns.meshsat.net:4242`, raw TCP, no TLS, no transport authentication. That is
+the protocol: stock clients (Sideband, CrossTalk, MeshChat, NomadNet) speak plain HDLC over TCP and
+carry no certificate, and every message is encrypted end to end by Reticulum to the destination's
+keys, which the Hub holds only for its own tenants' addresses. What defends it:
+
+- **Per-tenant rate budgets and caps** in `internal/lxmfhub` (inbound messages per minute, inbox
+  rows, propagation store bytes, one message per transfer from an unpeered client, a stamp at the
+  announced cost on anything a propagation node holds).
+- **A bounded HDLC reader** (`rnswire.HDLCMaxBuffered`): a peer that opens a frame and never
+  closes it cannot grow memory; a listener cap (`rnsnode.DefaultMaxConns`, 512) and the edge's
+  `maxconn 200` bound connections.
+- **The node answers only its own destinations and transport duties**; MeshSat-private frames
+  fall through to the legacy handler exactly as before, and the public listener is a separate
+  interface id family (`tcpp_*`) from the stunnel leg the kits use (`tcpb_*`), so a policy can
+  tell them apart. Interface access codes are available on the public listener
+  (`HUB_RNS_PUBLIC_IFAC_*`) and deliberately off: a stock client must connect with no key.
+- **Isolation**: a tenant's address, inbox and held messages are keyed `(tenant_id, …)`; the
+  store tests use `DefaultTenantID` as the victim; a path table is platform-wide by nature (a
+  destination hash names no tenant) and is read-only for platform admins.
+- **Edge**: the three VPS forward 4242 to the workers' relay, ufw opened, the security scanners
+  told (NL infra 11791a80, dd86a93a). A blackbox connect probe for the port is owed there.
+- **Verified** on 2026-10-13 with stock LXMF 1.2.0 clients over the public path, and in CI
+  (`test:interop`) against Python RNS 1.5.5 / LXMF 1.2.0.
+
+Residual: no abuse signal per client identity yet (a client is anonymous at the transport by
+design; a flood shows up as dropped messages in the tenant's counters and the Hub's logs, not as a
+ban); IPv6 is not served (`bind :4242` is v4-only on the edge). Both are written down, neither is
+an exception to a control above.
+
 ## What measurement caught
 
 These findings survived only because something was run rather than reasoned about, which is the
