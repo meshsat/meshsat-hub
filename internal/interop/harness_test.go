@@ -17,6 +17,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -63,15 +64,6 @@ func scriptPath(t *testing.T) string {
 		t.Fatalf("rnsnode.py not found: %v", err)
 	}
 	return p
-}
-
-// startPeerWithConfig runs rnsnode.py with a caller-written RNS config.
-func startPeerWithConfig(t *testing.T, py, cfgDir, config, name string) *peer {
-	t.Helper()
-	if err := os.WriteFile(filepath.Join(cfgDir, "config"), []byte(config), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	return startPeerArgs(t, py, cfgDir, []string{"--config-dir", cfgDir, "--keep-config", "--name", name}, name)
 }
 
 func startPeer(t *testing.T, o peerOpts) *peer {
@@ -153,11 +145,11 @@ func startPeerArgs(t *testing.T, py, cfgDir string, args []string, name string) 
 		}
 		p.send(event{"cmd": "quit"})
 		done := make(chan struct{})
-		go func() { cmd.Wait(); close(done) }()
+		go func() { _ = cmd.Wait(); close(done) }()
 		select {
 		case <-done:
 		case <-time.After(3 * time.Second):
-			cmd.Process.Kill()
+			_ = cmd.Process.Kill()
 		}
 	})
 	ready := p.wait("ready", nil, 20*time.Second)
@@ -173,7 +165,7 @@ func startPeerArgs(t *testing.T, py, cfgDir string, args []string, name string) 
 
 func (p *peer) send(cmd event) {
 	b, _ := json.Marshal(cmd)
-	p.stdin.Write(append(b, '\n'))
+	_, _ = p.stdin.Write(append(b, '\n'))
 }
 
 // wait returns the first event named name matching pred (nil = any). Events
@@ -251,7 +243,7 @@ func newHub(t *testing.T, ctx context.Context) *hub {
 	if err != nil {
 		t.Fatal(err)
 	}
-	fmt.Sscan(portStr, &h.port)
+	h.port, _ = strconv.Atoi(portStr)
 	return h
 }
 
@@ -324,7 +316,7 @@ func TestInteropPacketAndProofBothWays(t *testing.T) {
 	waitFor(t, "tcp peer", 10*time.Second, func() bool { return b.peers() > 0 })
 	p.send(event{"cmd": "announce"})
 	waitFor(t, "hub learns python", 10*time.Second, func() bool { return b.node.Paths().Hops(h16(p.Raw)) == 1 })
-	b.node.Announce(b.dest, "", false)
+	_ = b.node.Announce(b.dest, "", false)
 	dh := hex.EncodeToString(b.dest.Hash[:])
 	p.wait("announce", func(e event) bool { return e["dest"] == dh }, 10*time.Second)
 
@@ -365,7 +357,7 @@ func TestInteropLinkPythonToHub(t *testing.T) {
 	b := newHub(t, ctx)
 	p := startPeer(t, peerOpts{name: "A", connect: fmt.Sprintf("127.0.0.1:%d", b.port)})
 	waitFor(t, "tcp peer", 10*time.Second, func() bool { return b.peers() > 0 })
-	b.node.Announce(b.dest, "", false)
+	_ = b.node.Announce(b.dest, "", false)
 	dh := hex.EncodeToString(b.dest.Hash[:])
 	p.wait("announce", func(e event) bool { return e["dest"] == dh }, 10*time.Second)
 

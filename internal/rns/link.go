@@ -302,7 +302,7 @@ func (m *LinkManager) accept(d *Destination, pkt *Packet) {
 	ph := &rnswire.Header{HeaderType: rnswire.HeaderType1, DestType: rnswire.DestLink, PacketType: rnswire.PacketProof,
 		DestHash: id, Context: rnswire.ContextLRProof, Data: lp.Marshal()}
 	l.lastOutbound = now
-	n.transmit(pkt.Iface, ph.Marshal())
+	_ = n.transmit(pkt.Iface, ph.Marshal())
 	slog.Debug("rns: link request accepted, proof sent", "link", hexh(id), "dest", d.Name, "iface", pkt.Iface)
 }
 
@@ -377,7 +377,7 @@ func (m *LinkManager) sendLinkPacket(l *Link, ptype, context byte, data []byte) 
 	if context == rnswire.ContextKeepalive {
 		l.lastKeepalive = l.lastOutbound
 	}
-	m.n.transmit(l.Iface, raw)
+	_ = m.n.transmit(l.Iface, raw)
 	return raw
 }
 

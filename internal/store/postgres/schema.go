@@ -1045,4 +1045,34 @@ CREATE TABLE IF NOT EXISTS rns_paths (
 	updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 `},
+	// MESHSAT-1555: a tenant's LXMF inbox and outbox on the Hub's Reticulum
+	// node. Keyed (tenant_id, id) like every tenant-owned table; the state
+	// index serves the leader's sender, which drains queued rows per tenant.
+	// Message text is the tenant's own data and exportable; the identity key
+	// lives in the encrypted credentials row, not here.
+	{Version: 35, Name: "lxmf messages", SQL: `
+CREATE TABLE IF NOT EXISTS lxmf_messages (
+	tenant_id VARCHAR(64) NOT NULL,
+	id VARCHAR(64) NOT NULL,
+	hash VARCHAR(64) NOT NULL DEFAULT '',
+	direction VARCHAR(8) NOT NULL,
+	state VARCHAR(16) NOT NULL,
+	source VARCHAR(32) NOT NULL,
+	destination VARCHAR(32) NOT NULL,
+	title TEXT NOT NULL DEFAULT '',
+	content TEXT NOT NULL DEFAULT '',
+	fields_json TEXT NOT NULL DEFAULT '',
+	method VARCHAR(16) NOT NULL DEFAULT '',
+	stamp_value INTEGER NOT NULL DEFAULT 0,
+	signature_valid BOOLEAN NOT NULL DEFAULT true,
+	detail TEXT NOT NULL DEFAULT '',
+	created_by_email VARCHAR(255) NOT NULL DEFAULT '',
+	message_at TIMESTAMPTZ NOT NULL,
+	created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+	updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+	PRIMARY KEY (tenant_id, id)
+);
+CREATE INDEX IF NOT EXISTS idx_lxmf_messages_tenant_created ON lxmf_messages (tenant_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_lxmf_messages_tenant_state ON lxmf_messages (tenant_id, state);
+`},
 }

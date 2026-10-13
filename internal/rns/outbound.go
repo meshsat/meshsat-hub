@@ -37,7 +37,7 @@ func (n *Node) outbound(raw []byte, dest [HashLen]byte, destType byte) ([]string
 		return nil, ErrNoPath
 	}
 	for _, id := range ifaces {
-		n.transmit(id, raw)
+		_ = n.transmit(id, raw)
 	}
 	return ifaces, nil
 }

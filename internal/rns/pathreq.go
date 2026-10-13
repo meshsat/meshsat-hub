@@ -176,7 +176,7 @@ func (n *Node) sendPathRequest(dest [HashLen]byte, ifaceID string, tag [HashLen]
 		Context:       rnswire.ContextNone,
 		Data:          data,
 	}
-	n.transmit(ifaceID, h.Marshal())
+	_ = n.transmit(ifaceID, h.Marshal())
 }
 
 // RequestPath asks the network for a path and waits up to ctx/timeout for

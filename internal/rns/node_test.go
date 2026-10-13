@@ -19,7 +19,6 @@ type fakeNet struct {
 type wire struct {
 	peer      *Node
 	peerIface string
-	bitrate   int
 }
 
 type fakeTx struct {

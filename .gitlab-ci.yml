@@ -541,9 +541,12 @@ test:interop:
   tags: [docker]
   variables:
     MESHSAT_INTEROP: "1"
-    MESHSAT_RNS_VENV: "${CI_PROJECT_DIR}/.cache/rns-venv"
+    # The pins are in the PATH, not the cache key: a bumped pin then starts a
+    # fresh venv beside the old one instead of failing rnsenv's version check
+    # against a cached venv of the previous release.
+    MESHSAT_RNS_VENV: "${CI_PROJECT_DIR}/.cache/rns-venv/1.5.5-1.2.0"
   cache:
-    key: rns-venv-1.5.5-lxmf-1.2.0
+    key: rns-venv
     paths:
       - .cache/rns-venv
   before_script:

@@ -164,7 +164,7 @@ func (n *Node) handleAnnounce(pkt *Packet) bool {
 		if !n.paidGate(ifc, h.DestHash, paidAnnounce) {
 			continue
 		}
-		n.transmit(ifc, ann.MarshalPacketTransport(n.idHash, byte(hops), rnswire.ContextPathResponse)) // #nosec G115 -- hops come off a one-byte header field
+		_ = n.transmit(ifc, ann.MarshalPacketTransport(n.idHash, byte(hops), rnswire.ContextPathResponse)) // #nosec G115 -- hops come off a one-byte header field
 	}
 	for _, w := range waiters {
 		close(w)
@@ -260,7 +260,7 @@ type announceQueue struct {
 func (n *Node) sendAnnounceOn(ifaceID string, raw []byte, now time.Time) {
 	bitrate := n.announceBitrate(ifaceID)
 	if bitrate <= 0 {
-		n.transmit(ifaceID, raw)
+		_ = n.transmit(ifaceID, raw)
 		return
 	}
 	txTime := float64(len(raw)*8) / float64(bitrate)
@@ -274,7 +274,7 @@ func (n *Node) sendAnnounceOn(ifaceID string, raw []byte, now time.Time) {
 	if len(q.pending) == 0 && now.After(q.allowedAt) {
 		q.allowedAt = now.Add(wait)
 		n.mu.Unlock()
-		n.transmit(ifaceID, raw)
+		_ = n.transmit(ifaceID, raw)
 		return
 	}
 	if len(q.pending) >= 16 {
@@ -318,7 +318,7 @@ func (n *Node) flushAnnounceQueue(ifaceID string) {
 		q.timer = nil
 	}
 	n.mu.Unlock()
-	n.transmit(ifaceID, raw)
+	_ = n.transmit(ifaceID, raw)
 }
 
 // Announce emits an announce for a local destination on every floodable

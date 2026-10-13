@@ -78,6 +78,18 @@ func TestAPIKeyHandlerWithoutAuditWritesNoRows(t *testing.T) {
 	}
 }
 
-func (m *mockStore) UpsertRNSPath(context.Context, *store.RNSPath) error   { return nil }
-func (m *mockStore) ListRNSPaths(context.Context) ([]store.RNSPath, error) { return nil, nil }
-func (m *mockStore) DeleteRNSPath(context.Context, string) error           { return nil }
+func (m *mockStore) UpsertRNSPath(context.Context, *store.RNSPath) error                 { return nil }
+func (m *mockStore) ListRNSPaths(context.Context) ([]store.RNSPath, error)               { return nil, nil }
+func (m *mockStore) DeleteRNSPath(context.Context, string) error                         { return nil }
+func (m *mockStore) InsertLXMFMessage(context.Context, string, *store.LXMFMessage) error { return nil }
+func (m *mockStore) GetLXMFMessage(context.Context, string, string) (*store.LXMFMessage, error) {
+	return nil, store.ErrNotFound
+}
+func (m *mockStore) ListLXMFMessages(context.Context, string, store.LXMFQuery) ([]store.LXMFMessage, error) {
+	return nil, nil
+}
+func (m *mockStore) UpdateLXMFMessageState(context.Context, string, string, store.LXMFStateUpdate) error {
+	return nil
+}
+func (m *mockStore) CountLXMFMessages(context.Context, string) (int, error)      { return 0, nil }
+func (m *mockStore) PruneLXMFMessages(context.Context, string, int) (int, error) { return 0, nil }

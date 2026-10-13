@@ -33,7 +33,7 @@ func testRNSPaths(t *testing.T, s store.Store) {
 		!got.ExpiresAt.Equal(exp) || !bytes.Equal(got.RandomBlobs, a.RandomBlobs) || !bytes.Equal(got.AnnounceRaw, a.AnnounceRaw) || got.UpdatedAt.IsZero() {
 		t.Fatalf("row a round trip: %+v", got)
 	}
-	if list[1].RandomBlobs != nil && len(list[1].RandomBlobs) != 0 {
+	if len(list[1].RandomBlobs) != 0 {
 		t.Fatalf("row b had no blobs, got %v", list[1].RandomBlobs)
 	}
 

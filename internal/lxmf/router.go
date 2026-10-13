@@ -75,18 +75,18 @@ func New(node *rns.Node, cfg Config) *Router {
 		OnPacket: func(plain []byte, pkt *rns.Packet) {
 			// Opportunistic: the packet carried packed[16:], prepend our hash.
 			data := append(append([]byte(nil), r.Dest.Hash[:]...), plain...)
-			r.Inbound(data, Opportunistic, pkt.Iface)
+			_, _ = r.Inbound(data, Opportunistic, pkt.Iface)
 		},
 		OnLink: func(l *rns.Link) {
 			l.OnIdentified = r.onIdentified
 		},
 		OnLinkPacket: func(l *rns.Link, plain []byte, pkt *rns.Packet) {
-			r.Inbound(plain, Direct, pkt.Iface)
+			_, _ = r.Inbound(plain, Direct, pkt.Iface)
 		},
 		OnLinkClosed:    func(l *rns.Link) { r.forgetLink(l) },
 		AcceptResources: r.acceptResource,
 		OnLinkResource: func(l *rns.Link, data []byte) {
-			r.Inbound(data, Direct, l.Iface)
+			_, _ = r.Inbound(data, Direct, l.Iface)
 		},
 	})
 	return r
@@ -339,9 +339,9 @@ func (r *Router) linkTo(ctx context.Context, dest [DestLen]byte) (*rns.Link, err
 	l.OnEstablished = func(*rns.Link) { est <- struct{}{} }
 	l.OnClosed = func(l *rns.Link) { r.forgetLink(l) }
 	// The peer may answer on this link (LXMF backchannel), by packet or resource.
-	l.OnPacket = func(l *rns.Link, plain []byte, pkt *rns.Packet) { r.Inbound(plain, Direct, pkt.Iface) }
+	l.OnPacket = func(l *rns.Link, plain []byte, pkt *rns.Packet) { _, _ = r.Inbound(plain, Direct, pkt.Iface) }
 	l.AcceptResources = r.acceptResource
-	l.OnResource = func(l *rns.Link, data []byte) { r.Inbound(data, Direct, l.Iface) }
+	l.OnResource = func(l *rns.Link, data []byte) { _, _ = r.Inbound(data, Direct, l.Iface) }
 	// At least the link's own establishment timeout, which grows with the
 	// path's hops (a satellite link counts as several).
 	wait := LinkEstablishTimeout
