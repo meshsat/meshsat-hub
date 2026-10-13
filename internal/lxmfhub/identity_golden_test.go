@@ -15,17 +15,19 @@ import (
 func TestGolden_IdentityExportLoadsInPythonRNS(t *testing.T) {
 	id, _ := rnswire.GenerateIdentity()
 	var out struct {
-		Identity string `json:"identity"`
-		Delivery string `json:"delivery"`
+		Identity    string `json:"identity"`
+		Delivery    string `json:"delivery"`
+		Propagation string `json:"propagation"`
 	}
 	rnsenv.RunJSON(t, &out, `
 import sys, json, RNS
 i = RNS.Identity.from_bytes(bytes.fromhex(sys.argv[1]))
-print(json.dumps({"identity": i.hash.hex(), "delivery": RNS.Destination.hash(i, "lxmf", "delivery").hex()}))
+print(json.dumps({"identity": i.hash.hex(), "delivery": RNS.Destination.hash(i, "lxmf", "delivery").hex(), "propagation": RNS.Destination.hash(i, "lxmf", "propagation").hex()}))
 `, PrivateKeyHex(id))
 	ih := id.IdentityHash()
 	dh := id.DestHash(lxmf.DeliveryName)
-	if out.Identity != hex.EncodeToString(ih[:]) || out.Delivery != hex.EncodeToString(dh[:]) {
-		t.Fatalf("python derived %+v, go has identity %x delivery %x", out, ih, dh)
+	ph := id.DestHash(lxmf.PropagationName)
+	if out.Identity != hex.EncodeToString(ih[:]) || out.Delivery != hex.EncodeToString(dh[:]) || out.Propagation != hex.EncodeToString(ph[:]) {
+		t.Fatalf("python derived %+v, go has identity %x delivery %x propagation %x", out, ih, dh, ph)
 	}
 }

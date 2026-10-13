@@ -34,15 +34,23 @@ type Identity struct {
 	DisplayName string `json:"display_name"`
 	StampCost   int    `json:"stamp_cost"`
 	Enabled     bool   `json:"enabled"`
+	// PropagationAddress is the lxmf.propagation hash on the same identity:
+	// what a client enters as its propagation node. PropagationStampCost is
+	// the proof of work a client attaches to a message it hands the node.
+	PropagationAddress   string `json:"propagation_address"`
+	PropagationEnabled   bool   `json:"propagation_enabled"`
+	PropagationStampCost int    `json:"propagation_stamp_cost"`
 
 	ident *rnswire.Identity
 }
 
 // IdentityUpdate changes what an owner may change; nil leaves a field alone.
 type IdentityUpdate struct {
-	DisplayName *string
-	StampCost   *int
-	Enabled     *bool
+	DisplayName          *string
+	StampCost            *int
+	Enabled              *bool
+	PropagationEnabled   *bool
+	PropagationStampCost *int
 }
 
 // PrivateKeyHex renders an identity the way Reticulum's own identity files
@@ -83,6 +91,18 @@ func identityFromAccount(tenantID, tenantName string, acct *integrations.Account
 	}
 	if v := acct.Get("enabled"); v != "" {
 		id.Enabled = v == "true" || v == "1"
+	}
+	ph := ident.DestHash(lxmf.PropagationName)
+	id.PropagationAddress = hex.EncodeToString(ph[:])
+	id.PropagationEnabled = true
+	if v := acct.Get("propagation_enabled"); v != "" {
+		id.PropagationEnabled = v == "true" || v == "1"
+	}
+	id.PropagationStampCost = lxmf.DefaultPropagationCost
+	if v := acct.Get("propagation_stamp_cost"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n >= 0 && n <= MaxStampCost {
+			id.PropagationStampCost = n
+		}
 	}
 	return id, nil
 }
@@ -182,6 +202,17 @@ func (s *Service) UpdateIdentity(ctx context.Context, tenantID, actor string, up
 	if upd.Enabled != nil {
 		fields["enabled"] = strconv.FormatBool(*upd.Enabled)
 		changes = append(changes, "enabled "+strconv.FormatBool(*upd.Enabled))
+	}
+	if upd.PropagationEnabled != nil {
+		fields["propagation_enabled"] = strconv.FormatBool(*upd.PropagationEnabled)
+		changes = append(changes, "propagation "+strconv.FormatBool(*upd.PropagationEnabled))
+	}
+	if upd.PropagationStampCost != nil {
+		if *upd.PropagationStampCost < 0 || *upd.PropagationStampCost > MaxStampCost {
+			return nil, fmt.Errorf("lxmf: propagation stamp cost must be 0 to %d", MaxStampCost)
+		}
+		fields["propagation_stamp_cost"] = strconv.Itoa(*upd.PropagationStampCost)
+		changes = append(changes, "propagation stamp cost "+strconv.Itoa(*upd.PropagationStampCost))
 	}
 	if len(fields) == 0 {
 		return s.LoadIdentity(ctx, tenantID)

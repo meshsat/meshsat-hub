@@ -5,176 +5,17 @@ import (
 	"encoding/hex"
 	"fmt"
 	"net"
-	"strings"
 	"sync"
 	"testing"
 	"time"
 
-	"github.com/meshsat/meshsat-hub/internal/integrations"
 	"github.com/meshsat/meshsat-hub/internal/lxmf"
+	"github.com/meshsat/meshsat-hub/internal/lxmfhub/lxmfhubtest"
 	"github.com/meshsat/meshsat-hub/internal/rns"
 	"github.com/meshsat/meshsat-hub/internal/rnsnode"
 	"github.com/meshsat/meshsat-hub/internal/rnswire"
 	"github.com/meshsat/meshsat-hub/internal/store"
 )
-
-// --- fakes ---
-
-type memStore struct {
-	mu      sync.Mutex
-	rows    map[string]map[string]*store.LXMFMessage // tenant -> id -> row
-	claims  map[string]bool
-	tenants []store.Tenant
-	seq     int
-}
-
-func newMemStore(tenants ...string) *memStore {
-	m := &memStore{rows: map[string]map[string]*store.LXMFMessage{}, claims: map[string]bool{}}
-	for _, t := range tenants {
-		m.tenants = append(m.tenants, store.Tenant{ID: t, Name: "Tenant " + t, Status: store.TenantActive})
-	}
-	return m
-}
-
-func (m *memStore) InsertLXMFMessage(_ context.Context, tenantID string, row *store.LXMFMessage) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	if row.ID == "" {
-		m.seq++
-		row.ID = strings.Repeat("0", 3) + string(rune('a'+m.seq))
-	}
-	row.TenantID = tenantID
-	if m.rows[tenantID] == nil {
-		m.rows[tenantID] = map[string]*store.LXMFMessage{}
-	}
-	if _, dup := m.rows[tenantID][row.ID]; dup {
-		return store.ErrDuplicate
-	}
-	cp := *row
-	cp.CreatedAt = time.Now()
-	m.rows[tenantID][row.ID] = &cp
-	return nil
-}
-
-func (m *memStore) ListLXMFMessages(_ context.Context, tenantID string, q store.LXMFQuery) ([]store.LXMFMessage, error) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	var out []store.LXMFMessage
-	for _, r := range m.rows[tenantID] {
-		if (q.Direction == "" || r.Direction == q.Direction) && (q.State == "" || r.State == q.State) && (q.Before.IsZero() || r.CreatedAt.Before(q.Before)) {
-			out = append(out, *r)
-		}
-	}
-	return out, nil
-}
-
-func (m *memStore) UpdateLXMFMessageState(_ context.Context, tenantID, id string, upd store.LXMFStateUpdate) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	r := m.rows[tenantID][id]
-	if r == nil {
-		return store.ErrNotFound
-	}
-	r.State = upd.State
-	if upd.Hash != "" {
-		r.Hash = upd.Hash
-	}
-	if upd.Method != "" {
-		r.Method = upd.Method
-	}
-	if upd.Detail != "" {
-		r.Detail = upd.Detail
-	}
-	return nil
-}
-
-func (m *memStore) CountLXMFMessages(_ context.Context, tenantID string) (int, error) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	return len(m.rows[tenantID]), nil
-}
-
-func (m *memStore) PruneLXMFMessages(context.Context, string, int) (int, error) { return 0, nil }
-
-func (m *memStore) ClaimOnce(_ context.Context, key string) (bool, error) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	if m.claims[key] {
-		return false, nil
-	}
-	m.claims[key] = true
-	return true, nil
-}
-
-func (m *memStore) ListTenants(context.Context) ([]store.Tenant, error) { return m.tenants, nil }
-
-func (m *memStore) GetTenant(_ context.Context, id string) (*store.Tenant, error) {
-	for i := range m.tenants {
-		if m.tenants[i].ID == id {
-			return &m.tenants[i], nil
-		}
-	}
-	return nil, store.ErrNotFound
-}
-
-func (m *memStore) states(tenantID string) map[string]string {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	out := map[string]string{}
-	for id, r := range m.rows[tenantID] {
-		out[id] = r.State
-	}
-	return out
-}
-
-func (m *memStore) inbox(tenantID string) []store.LXMFMessage {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	var out []store.LXMFMessage
-	for _, r := range m.rows[tenantID] {
-		if r.Direction == store.LXMFDirectionIn {
-			out = append(out, *r)
-		}
-	}
-	return out
-}
-
-type memAccounts struct {
-	mu   sync.Mutex
-	rows map[string]map[string]string
-	// onSet mimics the bus: every replica reloads the tenant.
-	onSet func(tenantID string)
-}
-
-func (a *memAccounts) ForTenant(_ context.Context, tenantID, provider string) (*integrations.Account, error) {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	f := a.rows[tenantID+"/"+provider]
-	if f == nil {
-		return nil, nil
-	}
-	cp := map[string]string{}
-	for k, v := range f {
-		cp[k] = v
-	}
-	return &integrations.Account{Provider: provider, TenantID: tenantID, Fields: cp}, nil
-}
-
-func (a *memAccounts) Set(_ context.Context, tenantID, provider string, fields map[string]string) (*integrations.Account, error) {
-	a.mu.Lock()
-	k := tenantID + "/" + provider
-	if a.rows[k] == nil {
-		a.rows[k] = map[string]string{}
-	}
-	for f, v := range fields {
-		a.rows[k][f] = v
-	}
-	a.mu.Unlock()
-	if a.onSet != nil {
-		a.onSet(tenantID)
-	}
-	return a.ForTenant(context.Background(), tenantID, provider)
-}
 
 // peer is a stock-shaped LXMF client on one TCP connection to the hub.
 type peer struct {
@@ -247,8 +88,8 @@ func h16(s string) [16]byte {
 }
 
 type fixture struct {
-	st   *memStore
-	acc  *memAccounts
+	st   *lxmfhubtest.MemStore
+	acc  *lxmfhubtest.MemAccounts
 	svc  *Service
 	node *rnsnode.Service
 	addr string
@@ -256,10 +97,10 @@ type fixture struct {
 
 func newFixture(t *testing.T, ctx context.Context, cfg Config) *fixture {
 	t.Helper()
-	st := newMemStore(store.DefaultTenantID, "other")
-	acc := &memAccounts{rows: map[string]map[string]string{}}
+	st := lxmfhubtest.NewMemStore(store.DefaultTenantID, "other")
+	acc := lxmfhubtest.NewMemAccounts()
 	svc := New(cfg, st, acc, nil)
-	acc.onSet = func(tenantID string) { svc.Reload(tenantID) }
+	acc.OnSet = func(tenantID string) { svc.Reload(tenantID) }
 	hubID, _ := rnswire.GenerateIdentity()
 	node := rnsnode.New(rnsnode.Config{Identity: hubID, BridgeListenAddr: "127.0.0.1:0", OnNode: svc.OnNode, OnNodeStopped: svc.OnNodeStopped})
 	if err := node.Start(ctx); err != nil {
@@ -314,19 +155,19 @@ func TestService_InboxIsPerTenantAndOutboundIsProven(t *testing.T) {
 	if err != nil {
 		t.Fatalf("peer send: %v", err)
 	}
-	waitFor(t, "victim inbox", func() bool { return len(f.st.inbox(victim)) == 1 })
-	in := f.st.inbox(victim)[0]
+	waitFor(t, "victim inbox", func() bool { return len(f.st.Inbox(victim)) == 1 })
+	in := f.st.Inbox(victim)[0]
 	if in.Content != "hello from the mesh" || in.Title != "hi" || in.Hash != hex.EncodeToString(m.Hash[:]) || in.Source != p.router.HashHex() ||
 		in.Destination != vid.Address || !in.SignatureValid || in.Method != "opportunistic" || in.State != store.LXMFStateReceived {
 		t.Fatalf("inbox row %+v", in)
 	}
-	if len(f.st.inbox(other)) != 0 {
+	if len(f.st.Inbox(other)) != 0 {
 		t.Fatal("the other tenant saw the victim's message")
 	}
 	// The same message again is filed once (the router dedups by hash and
 	// the claim guards a resend across a failover).
 	f.svc.onMessage(victim, m)
-	if len(f.st.inbox(victim)) != 1 {
+	if len(f.st.Inbox(victim)) != 1 {
 		t.Fatal("duplicate filed twice")
 	}
 
@@ -346,7 +187,7 @@ func TestService_InboxIsPerTenantAndOutboundIsProven(t *testing.T) {
 	case <-time.After(20 * time.Second):
 		t.Fatal("peer did not receive the hub's message")
 	}
-	waitFor(t, "delivered state", func() bool { return f.st.states(victim)[row.ID] == store.LXMFStateDelivered })
+	waitFor(t, "delivered state", func() bool { return f.st.States(victim)[row.ID] == store.LXMFStateDelivered })
 	if st := f.svc.Stats(); st.Addresses != 2 || st.Received != 1 || st.Delivered != 1 || st.Failed != 0 {
 		t.Fatalf("stats %+v", st)
 	}
@@ -430,7 +271,7 @@ func TestService_InboundRateLimit(t *testing.T) {
 		}
 		f.svc.onMessage(store.DefaultTenantID, m)
 	}
-	if n := len(f.st.inbox(store.DefaultTenantID)); n != 2 || f.svc.Stats().Dropped != 1 {
+	if n := len(f.st.Inbox(store.DefaultTenantID)); n != 2 || f.svc.Stats().Dropped != 1 {
 		t.Fatalf("inbox %d dropped %d", n, f.svc.Stats().Dropped)
 	}
 }

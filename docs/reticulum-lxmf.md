@@ -76,13 +76,34 @@ opportunistic otherwise (or as the request says), and moves it to `delivered` on
 or `failed` with the reason within `HUB_LXMF_SEND_TIMEOUT` (3 min). A send interrupted by a
 failover is failed on the next pass.
 
+## The propagation node
+
+Every tenant address also runs an LXMF propagation node: the `lxmf.propagation` destination on the
+same identity, announced with LXMF 1.2's app data (timebase, limits, `[stamp_cost, flexibility,
+peering_cost]`, name). A client that sets it as its propagation node hands it a message for a peer
+that is offline, one per transfer, as a link packet or a resource, with a propagation stamp at the
+node's cost (`propagation_stamp_cost`, LXMF's default 16, flexibility 3). The node validates the
+stamp, keeps the message in `lxmf_held (tenant_id, transient_id)` as the encrypted bytes it cannot
+read, and serves it on `/get`: a link request after the client identified, `[None, None]` lists what
+is held for the client's delivery address, `[wants, haves, limit_kB]` purges what the client already
+has and returns the wanted messages within its limit. A message handed in for one of this Hub's own
+tenant addresses is decrypted with that identity and filed straight into the inbox as method
+`propagated`. Per tenant `HUB_LXMF_PROPAGATION_MAX_BYTES` (50 MiB) and the upstream 30-day expiry;
+the oldest go first. Peering between propagation nodes (`/offer` with a peering key) is not offered
+yet: the node answers no access. Verified against Python LXMF 1.2.0 (`TestInteropLXMFPropagationHoldAndSync`):
+Sideband-style send through the node, sync, purge on the next sync, and the local-address shortcut.
+
+RNS link requests and responses (`internal/rns/request.go`) were added for this: a request is
+msgpack `[requested_at, path_hash, data]` as a REQUEST packet or a resource flagged as a request;
+the response `[request_id, data]` as a RESPONSE packet or a resource flagged as a response.
+
 ## API
 
 | Route | Role | What |
 |---|---|---|
-| `GET /api/lxmf/identity` | viewer | the address, or `exists: false` |
+| `GET /api/lxmf/identity` | viewer | the address and the propagation node address, or `exists: false` |
 | `POST /api/lxmf/identity` | owner | create (idempotent) |
-| `PUT /api/lxmf/identity` | owner | `display_name`, `stamp_cost`, `enabled` |
+| `PUT /api/lxmf/identity` | owner | `display_name`, `stamp_cost`, `enabled`, `propagation_enabled`, `propagation_stamp_cost` |
 | `GET /api/lxmf/identity/qr.png?size=` | viewer | the address as a QR code |
 | `GET /api/lxmf/messages?direction=&state=&limit=&before=` | viewer | inbox and outbox, newest first |
 | `GET /api/lxmf/messages/{id}` | viewer | one message |

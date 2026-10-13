@@ -46,12 +46,21 @@ type lxmfIdentityResponse struct {
 	LastAnnounce        *time.Time `json:"last_announce,omitempty"`
 	// QRURL renders the address as a QR code image.
 	QRURL string `json:"qr_url,omitempty"`
+	// PropagationAddress is the tenant's propagation node (lxmf.propagation
+	// on the same identity): what a client sets as its propagation node so
+	// messages for it are held while it is offline. PropagationStampCost is
+	// the proof of work a client attaches to a message it hands the node.
+	PropagationAddress   string `json:"propagation_address,omitempty"`
+	PropagationEnabled   bool   `json:"propagation_enabled"`
+	PropagationStampCost int    `json:"propagation_stamp_cost"`
 }
 
 type lxmfIdentityRequest struct {
-	DisplayName *string `json:"display_name"`
-	StampCost   *int    `json:"stamp_cost"`
-	Enabled     *bool   `json:"enabled"`
+	DisplayName          *string `json:"display_name"`
+	StampCost            *int    `json:"stamp_cost"`
+	Enabled              *bool   `json:"enabled"`
+	PropagationEnabled   *bool   `json:"propagation_enabled"`
+	PropagationStampCost *int    `json:"propagation_stamp_cost"`
 }
 
 type lxmfSendRequest struct {
@@ -73,7 +82,7 @@ func (h *LXMFHandler) off(w http.ResponseWriter) bool {
 
 func (h *LXMFHandler) identityResponse(tenantID string, id *lxmfhub.Identity) lxmfIdentityResponse {
 	resp := lxmfIdentityResponse{Exists: true, Address: id.Address, DisplayName: id.DisplayName, StampCost: id.StampCost, Enabled: id.Enabled,
-		QRURL: "/api/lxmf/identity/qr.png"}
+		QRURL: "/api/lxmf/identity/qr.png", PropagationAddress: id.PropagationAddress, PropagationEnabled: id.PropagationEnabled, PropagationStampCost: id.PropagationStampCost}
 	if active, last := h.svc.RegisteredOnThisReplica(tenantID); active {
 		resp.ActiveOnThisReplica = true
 		if !last.IsZero() {
@@ -134,7 +143,7 @@ func (h *LXMFHandler) CreateIdentity(w http.ResponseWriter, r *http.Request) {
 // UpdateIdentity changes the display name, stamp cost or enabled flag.
 //
 //	@Summary      Update the LXMF identity
-//	@Description  Changes the display name other clients see, the stamp cost a sender must pay, or disables the address. Absent fields are left alone. Owner only.
+//	@Description  Changes the display name other clients see, the stamp cost a sender must pay, whether the address is enabled, and whether the propagation node holds messages for offline clients and at what stamp cost. Absent fields are left alone. Owner only.
 //	@Tags         lxmf
 //	@Accept       json
 //	@Produce      json
@@ -153,7 +162,8 @@ func (h *LXMFHandler) UpdateIdentity(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	tid := hubauth.TenantIDFromContext(r.Context())
-	id, err := h.svc.UpdateIdentity(r.Context(), tid, operatorEmail(r), lxmfhub.IdentityUpdate{DisplayName: req.DisplayName, StampCost: req.StampCost, Enabled: req.Enabled})
+	id, err := h.svc.UpdateIdentity(r.Context(), tid, operatorEmail(r), lxmfhub.IdentityUpdate{DisplayName: req.DisplayName, StampCost: req.StampCost, Enabled: req.Enabled,
+		PropagationEnabled: req.PropagationEnabled, PropagationStampCost: req.PropagationStampCost})
 	switch {
 	case errors.Is(err, lxmfhub.ErrNoIdentity):
 		writeError(w, http.StatusNotFound, "this tenant has no LXMF address yet")

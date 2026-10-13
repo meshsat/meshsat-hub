@@ -291,6 +291,22 @@ type Store interface {
 	// is still queued or sending; it returns how many went.
 	PruneLXMFMessages(ctx context.Context, tenantID string, keep int) (int, error)
 
+	// Messages a tenant's LXMF propagation node holds for offline clients
+	// (MESHSAT-1555 P5), keyed (tenant_id, id = transient id).
+	// InsertLXMFHeld returns ErrDuplicate for a transient id the tenant holds.
+	InsertLXMFHeld(ctx context.Context, tenantID string, m *LXMFHeldMessage) error
+	// ListLXMFHeldFor lists what is held for one destination, smallest first,
+	// without Data.
+	ListLXMFHeldFor(ctx context.Context, tenantID, destination string) ([]LXMFHeldMessage, error)
+	GetLXMFHeld(ctx context.Context, tenantID, id string) (*LXMFHeldMessage, error)
+	// DeleteLXMFHeld removes the given ids when they are held for destination.
+	DeleteLXMFHeld(ctx context.Context, tenantID, destination string, ids []string) (int, error)
+	// LXMFHeldBytes is the tenant's held total.
+	LXMFHeldBytes(ctx context.Context, tenantID string) (int64, error)
+	// PruneLXMFHeld drops what was received before cutoff, then the oldest
+	// rows until the tenant holds at most maxBytes; it returns how many went.
+	PruneLXMFHeld(ctx context.Context, tenantID string, cutoff time.Time, maxBytes int64) (int, error)
+
 	// Device groups (fleet organization)
 	CreateDeviceGroup(ctx context.Context, tenantID string, g *DeviceGroup) error
 	GetDeviceGroup(ctx context.Context, tenantID string, id string) (*DeviceGroup, error)

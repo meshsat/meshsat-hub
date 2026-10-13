@@ -42,6 +42,8 @@ func (m Method) String() string {
 		return "opportunistic"
 	case Direct:
 		return "direct"
+	case Propagated:
+		return "propagated"
 	}
 	return "unknown"
 }

@@ -34,6 +34,12 @@ type Store interface {
 	UpdateLXMFMessageState(ctx context.Context, tenantID, id string, upd store.LXMFStateUpdate) error
 	CountLXMFMessages(ctx context.Context, tenantID string) (int, error)
 	PruneLXMFMessages(ctx context.Context, tenantID string, keep int) (int, error)
+	InsertLXMFHeld(ctx context.Context, tenantID string, m *store.LXMFHeldMessage) error
+	ListLXMFHeldFor(ctx context.Context, tenantID, destination string) ([]store.LXMFHeldMessage, error)
+	GetLXMFHeld(ctx context.Context, tenantID, id string) (*store.LXMFHeldMessage, error)
+	DeleteLXMFHeld(ctx context.Context, tenantID, destination string, ids []string) (int, error)
+	LXMFHeldBytes(ctx context.Context, tenantID string) (int64, error)
+	PruneLXMFHeld(ctx context.Context, tenantID string, cutoff time.Time, maxBytes int64) (int, error)
 	ClaimOnce(ctx context.Context, key string) (bool, error)
 	ListTenants(ctx context.Context) ([]store.Tenant, error)
 	GetTenant(ctx context.Context, id string) (*store.Tenant, error)
@@ -62,7 +68,9 @@ type Config struct {
 	SendTimeout time.Duration
 	// MaxConcurrentSends bounds deliveries in flight on the node.
 	MaxConcurrentSends int
-	Now                func() time.Time
+	// PropagationMaxBytes caps what one tenant's propagation node holds.
+	PropagationMaxBytes int64
+	Now                 func() time.Time
 }
 
 const (
@@ -97,11 +105,13 @@ type Service struct {
 	sem     chan struct{}
 
 	received, dropped, delivered, failed atomic.Uint64
+	heldIn, heldServed                   atomic.Uint64
 }
 
 type tenantRouter struct {
 	id           *Identity
 	router       *lxmf.Router
+	pn           *rns.Destination // the propagation node, nil when disabled
 	registeredAt time.Time
 	lastAnnounce time.Time
 	bucket       *bucket
@@ -123,6 +133,9 @@ func New(cfg Config, st Store, accounts Accounts, audit Auditor) *Service {
 	}
 	if cfg.MaxConcurrentSends <= 0 {
 		cfg.MaxConcurrentSends = defaultConcurrentSends
+	}
+	if cfg.PropagationMaxBytes <= 0 {
+		cfg.PropagationMaxBytes = defaultPropagationMaxBytes
 	}
 	now := cfg.Now
 	if now == nil {
@@ -208,7 +221,11 @@ func (s *Service) register(ctx context.Context, tenantID string) bool {
 	tid := tenantID
 	r := lxmf.New(s.node, lxmf.Config{Identity: id.ident, DisplayName: id.DisplayName, StampCost: id.StampCost,
 		EnforceStamps: id.StampCost > 0, OnMessage: func(m *lxmf.Message) { s.onMessage(tid, m) }})
-	s.routers[tenantID] = &tenantRouter{id: id, router: r, registeredAt: s.now(), bucket: newBucket(s.cfg.InboundPerMinute, s.now())}
+	tr := &tenantRouter{id: id, router: r, registeredAt: s.now(), bucket: newBucket(s.cfg.InboundPerMinute, s.now())}
+	if id.PropagationEnabled {
+		s.registerPNLocked(tr)
+	}
+	s.routers[tenantID] = tr
 	slog.Info("lxmf: address registered", "tenant", tenantID, "address", id.Address, "display_name", id.DisplayName, "stamp_cost", id.StampCost)
 	return true
 }
@@ -216,6 +233,9 @@ func (s *Service) register(ctx context.Context, tenantID string) bool {
 func (s *Service) unregisterLocked(tenantID string) {
 	if tr := s.routers[tenantID]; tr != nil {
 		s.node.RemoveDestination(tr.router.Hash())
+		if tr.pn != nil {
+			s.node.RemoveDestination(tr.pn.Hash)
+		}
 		delete(s.routers, tenantID)
 	}
 }
@@ -239,11 +259,16 @@ func (s *Service) Reload(tenantID string) {
 func (s *Service) announcer(ctx context.Context) {
 	t := time.NewTicker(10 * time.Second)
 	defer t.Stop()
+	lastSweep := s.now()
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case <-t.C:
+		}
+		if s.now().Sub(lastSweep) >= pnSweepEvery {
+			lastSweep = s.now()
+			s.sweepHeld(ctx)
 		}
 		now := s.now()
 		s.mu.Lock()
@@ -273,6 +298,14 @@ func (s *Service) announceOne(tenantID string) {
 	}
 	if err := tr.router.Announce(); err != nil {
 		slog.Debug("lxmf: announce failed", "tenant", tenantID, "error", err)
+	}
+	s.mu.Lock()
+	pn, node := tr.pn, s.node
+	s.mu.Unlock()
+	if pn != nil && node != nil {
+		if err := node.Announce(pn, "", false); err != nil {
+			slog.Debug("lxmf: propagation announce failed", "tenant", tenantID, "error", err)
+		}
 	}
 }
 
@@ -529,11 +562,13 @@ func (s *Service) RegisteredOnThisReplica(tenantID string) (bool, time.Time) {
 
 // Stats are this replica's counters.
 type Stats struct {
-	Addresses int    `json:"addresses"`
-	Received  uint64 `json:"received"`
-	Dropped   uint64 `json:"dropped"`
-	Delivered uint64 `json:"delivered"`
-	Failed    uint64 `json:"failed"`
+	Addresses  int    `json:"addresses"`
+	Received   uint64 `json:"received"`
+	Dropped    uint64 `json:"dropped"`
+	Delivered  uint64 `json:"delivered"`
+	Failed     uint64 `json:"failed"`
+	HeldIn     uint64 `json:"held_in"`
+	HeldServed uint64 `json:"held_served"`
 }
 
 // Stats returns this replica's counters.
@@ -541,5 +576,6 @@ func (s *Service) Stats() Stats {
 	s.mu.Lock()
 	n := len(s.routers)
 	s.mu.Unlock()
-	return Stats{Addresses: n, Received: s.received.Load(), Dropped: s.dropped.Load(), Delivered: s.delivered.Load(), Failed: s.failed.Load()}
+	return Stats{Addresses: n, Received: s.received.Load(), Dropped: s.dropped.Load(), Delivered: s.delivered.Load(), Failed: s.failed.Load(),
+		HeldIn: s.heldIn.Load(), HeldServed: s.heldServed.Load()}
 }

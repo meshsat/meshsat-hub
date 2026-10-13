@@ -123,7 +123,13 @@ func TestTCPServer_EachConnectionIsAnInterface(t *testing.T) {
 	}
 
 	_ = a.Close()
-	waitFor(t, "a gone", func() bool { return srv.Count() == 1 })
+	// The connection is forgotten before the change callback runs, so wait
+	// for the callback, not the count.
+	waitFor(t, "a gone", func() bool {
+		cmu.Lock()
+		defer cmu.Unlock()
+		return srv.Count() == 1 && len(changes) == 3
+	})
 	if !srv.Owns("tcpb_1") || srv.Owns("tcpp_1") {
 		t.Fatal("Owns is by listener name")
 	}

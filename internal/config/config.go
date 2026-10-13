@@ -431,6 +431,9 @@ type Config struct {
 	LXMFInboundPerMinute int           `yaml:"lxmf_inbound_per_minute"`
 	LXMFInboxMax         int           `yaml:"lxmf_inbox_max"`
 	LXMFSendTimeout      time.Duration `yaml:"lxmf_send_timeout"`
+	// LXMFPropagationMaxBytes caps what one tenant's propagation node holds
+	// for offline clients; 0 is 50 MiB.
+	LXMFPropagationMaxBytes int64 `yaml:"lxmf_propagation_max_bytes"`
 
 	// Cloudloop MO webhook + MQTT subscriber
 	CloudloopWebhookAllowedIPs string `yaml:"cloudloop_webhook_allowed_ips"` // comma-separated IP allowlist (default: Cloudloop IPs)
@@ -1230,6 +1233,11 @@ func Load() (Config, error) {
 	if v := os.Getenv("HUB_LXMF_SEND_TIMEOUT"); v != "" {
 		if d, err := time.ParseDuration(v); err == nil && d > 0 {
 			cfg.LXMFSendTimeout = d
+		}
+	}
+	if v := os.Getenv("HUB_LXMF_PROPAGATION_MAX_BYTES"); v != "" {
+		if n, err := strconv.ParseInt(v, 10, 64); err == nil && n > 0 {
+			cfg.LXMFPropagationMaxBytes = n
 		}
 	}
 

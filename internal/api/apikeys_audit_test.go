@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 
@@ -91,5 +92,19 @@ func (m *mockStore) ListLXMFMessages(context.Context, string, store.LXMFQuery) (
 func (m *mockStore) UpdateLXMFMessageState(context.Context, string, string, store.LXMFStateUpdate) error {
 	return nil
 }
-func (m *mockStore) CountLXMFMessages(context.Context, string) (int, error)      { return 0, nil }
-func (m *mockStore) PruneLXMFMessages(context.Context, string, int) (int, error) { return 0, nil }
+func (m *mockStore) CountLXMFMessages(context.Context, string) (int, error)               { return 0, nil }
+func (m *mockStore) PruneLXMFMessages(context.Context, string, int) (int, error)          { return 0, nil }
+func (m *mockStore) InsertLXMFHeld(context.Context, string, *store.LXMFHeldMessage) error { return nil }
+func (m *mockStore) ListLXMFHeldFor(context.Context, string, string) ([]store.LXMFHeldMessage, error) {
+	return nil, nil
+}
+func (m *mockStore) GetLXMFHeld(context.Context, string, string) (*store.LXMFHeldMessage, error) {
+	return nil, store.ErrNotFound
+}
+func (m *mockStore) DeleteLXMFHeld(context.Context, string, string, []string) (int, error) {
+	return 0, nil
+}
+func (m *mockStore) LXMFHeldBytes(context.Context, string) (int64, error) { return 0, nil }
+func (m *mockStore) PruneLXMFHeld(context.Context, string, time.Time, int64) (int, error) {
+	return 0, nil
+}

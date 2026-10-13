@@ -68,6 +68,19 @@ func Int(i int64) Value {
 }
 
 // AsInt returns an integer value of either sign kind.
+// AsFloat reads a float, or an integer widened to one.
+func (v Value) AsFloat() (float64, bool) {
+	switch v.Kind {
+	case KindFloat:
+		return v.Float, true
+	case KindInt:
+		return float64(v.Int), true
+	case KindUint:
+		return float64(v.Uint), true
+	}
+	return 0, false
+}
+
 func (v Value) AsInt() (int64, bool) {
 	switch v.Kind {
 	case KindInt:
