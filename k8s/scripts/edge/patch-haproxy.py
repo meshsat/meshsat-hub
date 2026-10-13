@@ -323,6 +323,39 @@ def tak(text):
     return text
 
 
+# Public Reticulum (MESHSAT-1555): rns.meshsat.net:4242, the convention's port,
+# raw TCP to the three workers' relay on :4242, which hands it to the leader's
+# public listener (hub-rns:4244). No TLS, on purpose: stock clients (Sideband,
+# CrossTalk, MeshChat, NomadNet) speak plain HDLC over TCP and carry no
+# certificate, and Reticulum encrypts every message end to end itself. Like
+# the TAK leg a separate frontend, because there is no SNI to route on.
+RNS_FRONTEND = """frontend rns_in
+    bind :4242
+    mode tcp
+    option tcplog
+    timeout client 3600s
+    default_backend meshsat_rns
+"""
+
+
+def rns(text):
+    """Add the public Reticulum leg: :4242 public in, the workers' relay on :4242 out."""
+    assert "frontend tls_in" in text, "this does not look like a VPS edge config"
+    # A Reticulum client keeps one TCP session up for as long as it runs; 200
+    # per worker is far above what the first clients will be.
+    block = tcp_backend("meshsat_rns", 4242, 200)
+    if "backend meshsat_rns" in text:
+        text = replace_backend(text, "meshsat_rns", block)
+    else:
+        if not text.endswith("\n"):
+            text += "\n"
+        text += "\n" + RNS_FRONTEND + "\n" + block
+    assert "bind :4242" in text, "the Reticulum frontend did not land"
+    for _, ip in NODES:
+        assert f"{ip}:4242" in text, f"worker {ip} is missing from the Reticulum backend"
+    return text
+
+
 def main():
     if len(sys.argv) < 3:
         print(__doc__)
@@ -331,7 +364,7 @@ def main():
     out = sys.argv[sys.argv.index("--out") + 1] if "--out" in sys.argv else None
     orig = open(path).read()
     new = {"auth": add_auth, "cutover": cutover, "rollback": rollback,
-           "launch": launch, "tak": tak, "statuscsp": statuscsp}[phase](orig)
+           "launch": launch, "tak": tak, "statuscsp": statuscsp, "rns": rns}[phase](orig)
     diff = difflib.unified_diff(orig.splitlines(True), new.splitlines(True), fromfile=path, tofile=f"{path} ({phase})")
     sys.stderr.write("".join(diff))
     if out:

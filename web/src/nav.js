@@ -37,6 +37,8 @@ export const navGroups = [
   { label: 'Network', items: [
     { to: '/network', name: 'network', label: 'Network', icon: 'network', keywords: 'wireguard tor onion mptcp' },
     { to: '/topology', name: 'topology', label: 'Topology', icon: 'topology', keywords: 'reticulum graph' },
+    // The tenant's LXMF address on the Hub's Reticulum node (MESHSAT-1555).
+    { to: '/reticulum', name: 'reticulum', label: 'Reticulum', icon: 'mesh', keywords: 'lxmf address inbox sideband crosstalk meshchat nomadnet columba stamps' },
     { to: '/ota', name: 'ota', label: 'Updates', icon: 'ota', keywords: 'ota firmware hawkbit rollout' },
   ]},
   { label: 'Admin', items: [

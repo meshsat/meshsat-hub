@@ -415,6 +415,25 @@ export const tenant = {
   },
 }
 
+// The tenant's LXMF address on the Hub's Reticulum node (MESHSAT-1555):
+// viewers read the identity, inbox and peers; operators send; the owner
+// creates and configures the address.
+export const lxmf = {
+  identity: () => fetchJSON('/lxmf/identity'),
+  createIdentity: () => fetchJSON('/lxmf/identity', { method: 'POST' }),
+  updateIdentity: (fields) => fetchJSON('/lxmf/identity', { method: 'PUT', body: JSON.stringify(fields) }),
+  qr: (size = 256) => fetchBlob(`/lxmf/identity/qr.png?size=${size}`),
+  messages: (params = {}) => {
+    const q = new URLSearchParams()
+    for (const [k, v] of Object.entries(params)) if (v) q.set(k, v)
+    const qs = q.toString()
+    return fetchJSON(`/lxmf/messages${qs ? '?' + qs : ''}`)
+  },
+  message: (id) => fetchJSON(`/lxmf/messages/${encodeURIComponent(id)}`),
+  send: (msg) => fetchJSON('/lxmf/messages', { method: 'POST', body: JSON.stringify(msg) }),
+  peers: () => fetchJSON('/lxmf/peers'),
+}
+
 // Hub federation (MESHSAT-1549), owner only: this tenant's identity, the peer
 // Hubs it trusts by certificate, and which peer modem may reach which device.
 export const federation = {

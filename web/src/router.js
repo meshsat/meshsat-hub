@@ -26,6 +26,7 @@ const routes = [
   // platform gateway (MESHSAT-1032). This one belongs to the customer.
   { path: '/tak', name: 'tak', component: () => import('./views/TakView.vue'), meta: { requiresAuth: true } },
   { path: '/topology', name: 'topology', component: () => import('./views/TopologyView.vue'), meta: { requiresAuth: true } },
+  { path: '/reticulum', name: 'reticulum', component: () => import('./views/ReticulumView.vue'), meta: { requiresAuth: true } },
   { path: '/devices/:imei', name: 'deviceDetail', component: () => import('./views/DeviceDetail.vue'), meta: { requiresAuth: true } },
   { path: '/email', name: 'email', component: () => import('./views/EmailView.vue'), meta: { requiresAuth: true } },
   { path: '/geofences', name: 'geofences', component: () => import('./views/GeofenceView.vue'), meta: { requiresAuth: true } },
