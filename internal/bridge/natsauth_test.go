@@ -34,7 +34,7 @@ func TestRenderNATSUsers(t *testing.T) {
 		// A customer-tenant bridge gets neither the platform's broadcast nor hub.
 		// What it does get is its OWN tenant's TAK traffic, named exactly
 		// (MESHSAT-1461).
-		`{ user: "kit-b", password: "$2a$10$hashB", permissions: { publish: { allow: ["meshsat.t_x.bridge.kit-b.>", "meshsat.t_x.*.position", "meshsat.t_x.*.telemetry", "meshsat.t_x.*.sos", "meshsat.t_x.*.health", "meshsat.t_x.*.signal", "meshsat.t_x.*.mo.>", "meshsat.t_x.*.status.>", "meshsat.t_x.*.sms.>", "meshsat.t_x.*.config.current"] }, subscribe: { allow: ["meshsat.t_x.bridge.kit-b.>", "meshsat.t_x.*.mt.>", "meshsat.t_x.*.config.>", "meshsat.t_x.broadcast.tak.cot.in", "meshsat.t_x.broadcast.tak.cot.in.*", "$MQTT.sub.>"] } }`,
+		`{ user: "kit-b", password: "$2a$10$hashB", permissions: { publish: { allow: ["meshsat.t_x.bridge.kit-b.>", "meshsat.t_x.*.position", "meshsat.t_x.*.telemetry", "meshsat.t_x.*.sos", "meshsat.t_x.*.health", "meshsat.t_x.*.signal", "meshsat.t_x.*.mo.>", "meshsat.t_x.*.status.>", "meshsat.t_x.*.sms.>", "meshsat.t_x.*.config.current"], deny: ["meshsat.t_x.bridge.kit-b.msg.in", "meshsat.t_x.bridge.kit-b.msg.in.>", "meshsat.t_x.bridge.kit-b.msg.status", "meshsat.t_x.bridge.kit-b.msg.status.>"] }, subscribe: { allow: ["meshsat.t_x.bridge.kit-b.>", "meshsat.t_x.*.mt.>", "meshsat.t_x.*.config.>", "meshsat.t_x.broadcast.tak.cot.in", "meshsat.t_x.broadcast.tak.cot.in.*", "$MQTT.sub.>"] } }`,
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("missing %q in:\n%s", want, out)
@@ -210,4 +210,57 @@ func TestABridgeMaySubscribeOnlyItsOwnTenantsTAKBroadcast(t *testing.T) {
 			t.Errorf("a customer bridge may subscribe to %s", no)
 		}
 	}
+}
+
+// C4.1 (MESHSAT-1584): a client publishes its own msg/out and msg/ack and never
+// its msg/in or msg/status, which only the Hub publishes; it still subscribes to
+// all four of its own. Platform and customer tenants alike.
+func TestNATSPermissionsTheHubOwnsMsgInAndStatus(t *testing.T) {
+	for _, c := range []struct{ ns, root string }{{"meshsat", "meshsat"}, {"meshsat/t_x", "meshsat.t_x"}} {
+		pub, sub := NATSPermissions(c.ns, "b1")
+		deny := NATSPublishDeny(c.ns, "b1")
+		own := c.root + ".bridge.b1.msg."
+		for subject, wantPub := range map[string]bool{
+			own + "out": true, own + "ack": true, own + "in": false, own + "status": false, own + "status.x": false, own + "in.x": false,
+		} {
+			if got := natsAllows(pub, subject) && !natsAllows(deny, subject); got != wantPub {
+				t.Errorf("%s: publish %s = %v, want %v", c.ns, subject, got, wantPub)
+			}
+			if !natsAllows(sub, subject) {
+				t.Errorf("%s: cannot subscribe to its own %s", c.ns, subject)
+			}
+		}
+		// Another bridge's msg/in is neither publishable nor readable.
+		other := c.root + ".bridge.b2.msg.in"
+		if natsAllows(pub, other) || natsAllows(sub, other) {
+			t.Errorf("%s: reaches another bridge's msg/in", c.ns)
+		}
+	}
+}
+
+// natsAllows matches a subject against NATS subject patterns (* one token, >
+// the rest), as nats-server does for permissions.
+func natsAllows(patterns []string, subject string) bool {
+	st := strings.Split(subject, ".")
+	for _, p := range patterns {
+		pt := strings.Split(p, ".")
+		ok := true
+		for i, tok := range pt {
+			if tok == ">" {
+				ok = len(st) > i
+				break
+			}
+			if i >= len(st) || (tok != "*" && tok != st[i]) {
+				ok = false
+				break
+			}
+			if i == len(pt)-1 && len(st) != len(pt) {
+				ok = false
+			}
+		}
+		if ok {
+			return true
+		}
+	}
+	return false
 }

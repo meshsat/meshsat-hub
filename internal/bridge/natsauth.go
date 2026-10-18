@@ -77,6 +77,19 @@ func NATSPermissions(ns, bridgeID string) (publish, subscribe []string) {
 // platformNamespace is the topic root of the default (platform) tenant.
 const platformNamespace = "meshsat"
 
+// NATSPublishDeny returns what a bridge may never publish although it lies in
+// its own subtree (HeMB-NG contract C4.1, MESHSAT-1584): the Hub's side of the
+// app route, msg/in (what the Hub delivers to it) and msg/status (the Hub's
+// and the recipient's evidence about its operations). The Hub takes the sender
+// from the topic segment the broker enforced, so a client that could publish
+// these could forge a delivery to itself or a receipt for its own message.
+// Phones join the Hub as bridges and get the same rule. A deny wins over an
+// allow in nats-server, for MQTT clients too.
+func NATSPublishDeny(ns, bridgeID string) []string {
+	own := natsSubject(ns) + ".bridge." + bridgeID + ".msg."
+	return []string{own + "in", own + "in.>", own + "status", own + "status.>"}
+}
+
 func quoteList(items []string) string {
 	q := make([]string, len(items))
 	for i, s := range items {
@@ -128,8 +141,8 @@ func RenderNATSUsers(bridges []*store.Bridge, namespace func(tenantID string) st
 	w.WriteString("    { user: " + SharedNATSUser + ", password: $NATS_MQTT_PASSWORD, permissions: { publish: { allow: [\">\"] }, subscribe: { allow: [\">\"] } } }\n")
 	for _, u := range users {
 		pub, sub := NATSPermissions(u.ns, u.id)
-		fmt.Fprintf(&w, "    { user: \"%s\", password: \"%s\", permissions: { publish: { allow: [%s] }, subscribe: { allow: [%s] } } }\n",
-			u.name, u.hash, quoteList(pub), quoteList(sub))
+		fmt.Fprintf(&w, "    { user: \"%s\", password: \"%s\", permissions: { publish: { allow: [%s], deny: [%s] }, subscribe: { allow: [%s] } } }\n",
+			u.name, u.hash, quoteList(pub), quoteList(NATSPublishDeny(u.ns, u.id)), quoteList(sub))
 	}
 	w.WriteString("  ]\n}\n")
 	return []byte(w.String())
