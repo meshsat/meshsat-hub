@@ -1,6 +1,7 @@
 package routing
 
 import (
+	"encoding/json"
 	"testing"
 )
 
@@ -153,5 +154,25 @@ func TestMatchSourceTopic(t *testing.T) {
 		if got := matchSourceTopic(tt.routeSource, tt.msgSource, tt.topic); got != tt.want {
 			t.Errorf("matchSourceTopic(%q, %q, %q) = %v, want %v", tt.routeSource, tt.msgSource, tt.topic, got, tt.want)
 		}
+	}
+}
+
+// A Bridge's mesh text on a channel other than 0 carries the channel index
+// as a number: it reaches route evaluation instead of failing the decode.
+// The engine has no store, so reaching evaluation panics (as in
+// TestALaneTextIsNotRouted). [MESHSAT-1584]
+func TestABridgeMeshTextOnAChannelOtherThanZeroIsRouted(t *testing.T) {
+	e := &Engine{handlers: map[string]DestinationHandler{}, cachedRoutes: map[string]routeCache{}}
+	reached := func() (got bool) {
+		defer func() { got = recover() != nil }()
+		e.handleMODecoded("meshsat/!4370c1d8/mo/decoded", []byte(`{"device_id":"!4370c1d8","text":"on channel 3","channel":3}`))
+		return false
+	}()
+	if !reached {
+		t.Fatal("a mesh text with a numeric channel never reached route evaluation")
+	}
+	var p moDecodedPayload
+	if err := json.Unmarshal([]byte(`{"text":"on channel 3","channel":3}`), &p); err != nil || p.Text != "on channel 3" {
+		t.Fatalf("route handlers' payload: %+v %v", p, err)
 	}
 }

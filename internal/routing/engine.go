@@ -95,11 +95,11 @@ func (e *Engine) handleMODecoded(topic string, payload []byte) {
 
 	// Extract source channel from message.
 	var msg struct {
-		ID       string `json:"id"`
-		Channel  string `json:"channel"`
-		Text     string `json:"text"`
-		Opaque   bool   `json:"opaque"`
-		IMTTopic string `json:"imt_topic"`
+		ID       string              `json:"id"`
+		Channel  hubmqtt.BearerField `json:"channel"`
+		Text     string              `json:"text"`
+		Opaque   bool                `json:"opaque"`
+		IMTTopic string              `json:"imt_topic"`
 	}
 	if err := json.Unmarshal(payload, &msg); err != nil {
 		return
@@ -116,7 +116,7 @@ func (e *Engine) handleMODecoded(topic string, payload []byte) {
 		return
 	}
 
-	sourceType := msg.Channel
+	sourceType := string(msg.Channel)
 	if sourceType == "" {
 		sourceType = "*"
 	}

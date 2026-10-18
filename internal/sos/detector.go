@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"github.com/meshsat/meshsat-hub/internal/tenancy"
 	"log/slog"
+	"regexp"
 	"strings"
 	"time"
 
@@ -20,6 +21,22 @@ import (
 
 // sosKeywords are the keywords that trigger SOS detection (case-insensitive).
 var sosKeywords = []string{"SOS", "MAYDAY", "EMERGENCY"}
+
+// bridgeSOSID is a Bridge SOS alert id: sos-<bearer>-<bridge>-<start unix>,
+// with -cancelled for its cancellation. The Hub's uplink writes the bearer
+// the frame came on (sbd, imt, sms); the Bridge's own MQTT alert writes the
+// run's satellite bearer.
+var bridgeSOSID = regexp.MustCompile(`^sos-[a-z0-9_]+-(.+)-([0-9]+)(-cancelled)?$`)
+
+// sosClaimKey is the claim of one SOS whatever bearer carried it: the same
+// SOS by satellite and by SMS had two ids and paged twice. The bearer is
+// left out of the claim; the ids on the wire are unchanged. [MESHSAT-1584]
+func sosClaimKey(id string) string {
+	if m := bridgeSOSID.FindStringSubmatch(id); m != nil {
+		return "sos-" + m[1] + "-" + m[2] + m[3]
+	}
+	return id
+}
 
 // moDecodedMsg is the subset of the MO decoded message needed for SOS detection.
 type moDecodedMsg struct {
@@ -102,7 +119,7 @@ func (d *Detector) handleMODecoded(topic string, payload []byte) {
 	}
 	if d.dataStore != nil {
 		claimCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		won, err := d.dataStore.ClaimOnce(claimCtx, "sos:"+tenantID+":"+msgID)
+		won, err := d.dataStore.ClaimOnce(claimCtx, "sos:"+tenantID+":"+sosClaimKey(msgID))
 		cancel()
 		if err != nil {
 			slog.Error("sos: claim failed, not triggering", "imei", msg.IMEI, "message", msgID, "error", err)

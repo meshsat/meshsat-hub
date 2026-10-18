@@ -19,10 +19,10 @@ import (
 
 // moDecodedPayload is the subset of mo/decoded fields needed for routing dispatch.
 type moDecodedPayload struct {
-	DeviceGUID string `json:"device_guid,omitempty"`
-	IMEI       string `json:"imei,omitempty"`
-	Text       string `json:"text"`
-	Channel    string `json:"channel"`
+	DeviceGUID string              `json:"device_guid,omitempty"`
+	IMEI       string              `json:"imei,omitempty"`
+	Text       string              `json:"text"`
+	Channel    hubmqtt.BearerField `json:"channel"`
 	// Wire is the payload as the modem sent it (base64); see
 	// cloudloop.WebhookMOMessage. Only the relay reads it.
 	Wire string `json:"wire,omitempty"`

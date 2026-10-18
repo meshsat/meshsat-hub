@@ -66,3 +66,34 @@ func TestSOSOverPlainTextSMSEscalates(t *testing.T) {
 		t.Errorf("SOS on a non-device topic published %v", rb.topics)
 	}
 }
+
+// One Bridge SOS reaches the Hub by satellite, by SMS and from the Bridge
+// over MQTT: its alert ids differ only in the bearer, and it raises one SOS
+// event, not one per bearer. A different SOS (another start) still raises
+// its own. [MESHSAT-1584]
+func TestOneBridgeSOSByEveryBearerRaisesOneEvent(t *testing.T) {
+	st, err := sqlite.New(":memory:", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+	if err := st.Migrate(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	rb := &recordingBus{}
+	d := NewDetector(rb, nil, st, nil, "")
+	topic := hubmqtt.TopicMODecodedFor("default", "kit-01")
+	for _, bearer := range []string{"imt", "sms", "sbd"} {
+		d.handleMODecoded(topic, []byte(`{"id":"sos-`+bearer+`-kit-01-1792330000","imei":"kit-01","text":"SOS at the stand","sos":true}`))
+	}
+	if len(rb.topics) != 1 {
+		t.Fatalf("published %d SOS events for one SOS; want 1", len(rb.topics))
+	}
+	d.handleMODecoded(topic, []byte(`{"id":"sos-imt-kit-01-1792339999","imei":"kit-01","text":"SOS again","sos":true}`))
+	if len(rb.topics) != 2 {
+		t.Fatalf("a second SOS (another start) raised %d events in all; want 2", len(rb.topics))
+	}
+	if sosClaimKey("sos-sms-kit-01-1792330000-cancelled") != "sos-kit-01-1792330000-cancelled" || sosClaimKey("sms-in-SM1") != "sms-in-SM1" {
+		t.Fatal("claim key")
+	}
+}

@@ -87,3 +87,14 @@ func TestSubscriber_TenantPrefixedTopic(t *testing.T) {
 		t.Fatalf("tenants: %v want %v", cs.tenants, want)
 	}
 }
+
+// A Bridge writes its mesh channel index as a number: such a text is stored,
+// not dropped on the decode. [MESHSAT-1584]
+func TestHandleMODecoded_ABridgeMeshTextOnAChannelOtherThanZeroIsStored(t *testing.T) {
+	cs := &captureStore{}
+	s := NewSubscriber(nil, cs, nil)
+	s.handleMODecoded("meshsat/!4370c1d8/mo/decoded", []byte(`{"protocol":"meshsat-uplink/v1","device_id":"!4370c1d8","bridge_id":"b1","text":"on channel 3","channel":3}`))
+	if len(cs.inserted) != 1 || cs.inserted[0].Text != "on channel 3" {
+		t.Fatalf("inserted %+v; want the text stored", cs.inserted)
+	}
+}

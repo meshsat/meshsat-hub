@@ -16,18 +16,18 @@ import (
 
 // moDecodedPayload matches the JSON published to meshsat/+/mo/decoded.
 type moDecodedPayload struct {
-	ID          string  `json:"id"`
-	IMEI        string  `json:"imei"`
-	DeviceGUID  string  `json:"device_guid"`
-	MOMSN       int     `json:"momsn"`
-	Channel     string  `json:"channel"`
-	Text        string  `json:"text"`
-	Raw         string  `json:"raw"`
-	Compressed  bool    `json:"compressed"`
-	Compression string  `json:"compression"`
-	Encrypted   bool    `json:"encrypted"`
-	Lat         float64 `json:"iridium_latitude"`
-	Lon         float64 `json:"iridium_longitude"`
+	ID          string              `json:"id"`
+	IMEI        string              `json:"imei"`
+	DeviceGUID  string              `json:"device_guid"`
+	MOMSN       int                 `json:"momsn"`
+	Channel     hubmqtt.BearerField `json:"channel"`
+	Text        string              `json:"text"`
+	Raw         string              `json:"raw"`
+	Compressed  bool                `json:"compressed"`
+	Compression string              `json:"compression"`
+	Encrypted   bool                `json:"encrypted"`
+	Lat         float64             `json:"iridium_latitude"`
+	Lon         float64             `json:"iridium_longitude"`
 }
 
 // Subscriber persists MO decoded messages from MQTT to the database.
@@ -88,7 +88,7 @@ func (s *Subscriber) handleMODecoded(topic string, payload []byte) {
 		ID:         id,
 		DeviceIMEI: imei,
 		Direction:  "mo",
-		Channel:    msg.Channel,
+		Channel:    string(msg.Channel),
 		MOMSN:      msg.MOMSN,
 		Text:       msg.Text,
 		RawHex:     msg.Raw,
