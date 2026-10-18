@@ -4,7 +4,7 @@
 **Duration:** ~110 minutes (09:41 – 11:31 UTC)
 **Severity:** P0 — Full service outage (hub.meshsat.net unreachable)
 **Type:** E (new) — Network partition + Docker UUID fragmentation
-**Author:** Claude Code (post-mortem analysis)
+**Author:** Kyriakos Papadopoulos (post-mortem analysis)
 
 ---
 

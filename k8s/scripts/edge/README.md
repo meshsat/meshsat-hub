@@ -43,4 +43,4 @@ only if a VPS is restored from a pre-launch backup.
 To shut the door again in a hurry you do not need any of that back: add the two hostnames to
 `tier5a_host` and reload, and only `whitelisted_ip` (the three ASA WANs) gets in.
 
-After the change: re-snapshot the three configs into `infrastructure/nllei01/production/edge/vps/<vps>/haproxy/haproxy.cfg` and update the hostname/backend table in `edge/CLAUDE.md` (phase 6).
+After the change: re-snapshot the three configs into `infrastructure/nllei01/production/edge/vps/<vps>/haproxy/haproxy.cfg` and update the hostname/backend table in the edge notes (phase 6).

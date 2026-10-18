@@ -5,14 +5,14 @@
 > key middleware — was fixed and the document not updated.
 >
 > Read it as history. The current assessment is **`docs/SECURITY_POSTURE.md`**, with the threat
-> boundaries in the per-area rules under `.claude/rules/` and the live findings in YouTrack
+> boundaries in the local per-area rules and the live findings in YouTrack
 > MESHSAT-1189 through MESHSAT-1194.
 
 # MeshSat Hub — Security Audit Report
 
 _Version: v0.2 (multi-tenant device management)_
 _Date: 2026-03-18_
-_Auditor: Claude Code_
+_Auditor: Kyriakos Papadopoulos_
 _Scope: All Go code + production header audit on NL/GR DMZ hosts_
 
 ## Summary
@@ -138,7 +138,7 @@ Auth middleware verified: `/api/auth/me` returns 401 Unauthorized without token.
 
 ## 10. Security MCP Tools (MESHSAT-160)
 
-The following security-focused MCP servers are configured for interactive use during Claude Code development sessions:
+The following security-focused MCP servers are configured for interactive use during development sessions:
 
 | MCP Server | Command | Purpose | Status |
 |-----------|---------|---------|--------|
@@ -148,7 +148,7 @@ The following security-focused MCP servers are configured for interactive use du
 
 **CI pipeline** (`security` stage in `.gitlab-ci.yml`): runs `gosec` and `govulncheck` on every push. HIGH severity findings block the pipeline.
 
-**Interactive development**: Semgrep MCP provides on-demand SAST scanning during Claude Code sessions, catching patterns that gosec may miss (e.g., taint analysis, custom rules). Use `semgrep_scan` tool for targeted file or directory scanning.
+**Interactive development**: Semgrep MCP provides on-demand SAST scanning during development sessions, catching patterns that gosec may miss (e.g., taint analysis, custom rules). Use `semgrep_scan` tool for targeted file or directory scanning.
 
 **Evaluated but not installed:**
 - **Snyk MCP** — requires commercial account, overlaps with govulncheck for dependency scanning

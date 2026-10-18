@@ -4,7 +4,7 @@
 **Duration:** ~110 minutes (00:19 – 02:08 UTC)
 **Severity:** P0 — Full service outage (Hub down on both nodes)
 **Type:** E + G (network partition + UUID fragmentation + entrypoint env var mismatch)
-**Author:** Claude Code (post-mortem analysis)
+**Author:** Kyriakos Papadopoulos (post-mortem analysis)
 **YouTrack:** MESHSAT-506
 
 ---

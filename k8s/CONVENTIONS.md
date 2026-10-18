@@ -2,7 +2,7 @@
 
 Kustomize base for MeshSat Hub on `notrf01cl01k8s`. Synced by ONE Argo CD Application
 (`meshsat-hub`, NO infra repo `k8s/argocd-apps/meshsat-hub/`, `prune: false`, `selfHeal: true`).
-OpenTofu never touches anything here (platform/app split, see the NO repo's `k8s/CLAUDE.md`).
+OpenTofu never touches anything here (platform/app split, see the NO repo's k8s notes).
 Modelled on `websites/omoikane.coach/daemon/k8s/`; where the two differ, this file wins here.
 
 ## Layout

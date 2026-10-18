@@ -7,7 +7,7 @@ with an in-memory fake cannot tell you that the live Stripe signing secret is
 the one Stripe uses, or that a receipt reached a real inbox.
 
 They lived in a session temp directory until 2026-09-11, while this repo's
-CLAUDE.md cited them by name as durable artefacts. Two of them are the only
+local notes cited them by name as durable artefacts. Two of them are the only
 evidence that parts of the billing chain work at all, so they are in git now.
 
 **None of them contains a secret.** Every one reads its credentials at runtime
@@ -39,7 +39,7 @@ for no money at all. A probe must never manufacture the alerts it exists to
 help prove. Cancel in Stripe, wait, then purge.
 
 **Test MO messages cost money.** Routing has wildcard `Relay MO -> SMS` rules,
-so a test message can text a real phone. See rule 14 in CLAUDE.md.
+so a test message can text a real phone. See rule 14 in the local notes.
 
 ## What each one is for
 

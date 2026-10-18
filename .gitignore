@@ -21,10 +21,6 @@ web/dist/
 .env
 *.env.local
 
-# Claude Code (local-only, never commit)
-CLAUDE.md
-.claude/
-
 # Data
 *.db
 *.db-journal

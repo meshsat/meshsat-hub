@@ -1,7 +1,7 @@
 # Rehearsal and cutover data path (MESHSAT-944)
 
 MariaDB Galera (NL) → Postgres (CNPG `meshsat-hub-main`) with pgloader, data only, into the
-schema the Hub creates itself. Everything runs from the Claude runner; nothing new is
+schema the Hub creates itself. Everything runs from the runner; nothing new is
 installed on the DMZ hosts.
 
 ```

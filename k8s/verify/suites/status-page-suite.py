@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """status.meshsat.net acceptance suite (MESHSAT-1134).
 
-Runs from the Claude runner (egress 45.138.52.48, which is on the edge's
+Runs from the runner (egress 45.138.52.48, which is on the edge's
 whitelisted_ip), so the admin-gate POSITIVE checks are meaningful here and the
 NEGATIVE ones are taken from a VPS (not allow-listed) over ssh. Reads only;
 nothing is written to the page.
@@ -85,7 +85,7 @@ else:
         check(f"{path} answers {want} from whitelisted_ip", st in want, f"HTTP {st}")
 
 print("=== 4. admin surface: silent-dropped from a non-allow-listed vantage (NO VPS via CH edge) ===") if not IN_CLUSTER else None
-cmd = ["ssh", "-i", "/home/claude-runner/.ssh/one_key", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", "kyriakosp@185.125.171.172",
+cmd = ["ssh", "-i", os.path.expanduser("~/.ssh/one_key"), "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", "kyriakosp@185.125.171.172",
        "for p in /manage/app/monitors /account/signin /api/v4/monitors; do curl -s -m 8 --resolve status.meshsat.net:443:185.44.82.32 -o /dev/null -w \"$p %{http_code}\\n\" https://status.meshsat.net$p; done; curl -s -m 8 --resolve status.meshsat.net:443:185.44.82.32 -o /dev/null -w \"/ %{http_code}\\n\" https://status.meshsat.net/"]
 if not IN_CLUSTER:
     out = subprocess.run(cmd, capture_output=True, text=True, timeout=90).stdout

@@ -116,7 +116,7 @@ for line in log.splitlines():
 
 print("=== what the relay saw ===")
 time.sleep(4)
-relay = sh("ssh", "-i", "/home/claude-runner/.ssh/one_key", "-o", "BatchMode=yes",
+relay = sh("ssh", "-i", _os.path.expanduser("~/.ssh/one_key"), "-o", "BatchMode=yes",
            "root@nllei01smtp-dkim01",
            f"grep -E '10\\.255\\.200|{TO}|opendkim' /var/log/mail.log | tail -60")
 # Only this run counts. Old rejections in the log are history, not evidence.

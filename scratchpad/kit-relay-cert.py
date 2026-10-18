@@ -60,7 +60,7 @@ def main():
         print(f"Hub issued a new certificate (expires {cert.get('expires_at', cert.get('expiry', '?'))})")
         # tls_ca_pem stays EMPTY: it is the root store for the MQTT broker,
         # which carries a Let's Encrypt certificate; giving it the bridge CA
-        # breaks the MQTT session (Hub CLAUDE.md). The relay client fetches
+        # breaks the MQTT session (Hub notes). The relay client fetches
         # the bridge CA from the Hub itself.
         s, b = call("PUT", f"http://{host}:6050/api/routing/hub", None, {
             "tls_cert_pem": cert["cert_pem"], "tls_key_pem": cert["key_pem"], "tls_ca_pem": "",

@@ -411,7 +411,7 @@ func TestMQTT_MODecodedFormat(t *testing.T) {
 		t.Fatalf("invalid JSON: %v", err)
 	}
 
-	// Validate all required fields per CLAUDE.md spec.
+	// Validate all required fields per the spec.
 	required := []string{"imei", "momsn", "channel", "text", "raw", "compressed", "encrypted", "transmit_time"}
 	for _, f := range required {
 		if _, ok := decoded[f]; !ok {

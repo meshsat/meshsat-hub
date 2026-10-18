@@ -1,6 +1,6 @@
 #!/bin/sh
 # In-cluster shim for the suites (MESHSAT-1153). They were written on the
-# Claude runner and say `kubectl --context notrf01 ...`; inside the cluster
+# runner and say `kubectl --context notrf01 ...`; inside the cluster
 # there is exactly one cluster and the ServiceAccount's own credentials, so
 # the context flag is dropped. A context that is NOT this cluster (the NL
 # one, used for one Prometheus read) is refused with exit 3 so the suite can
