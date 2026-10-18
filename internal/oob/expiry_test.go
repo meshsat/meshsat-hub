@@ -24,7 +24,7 @@ func seqKey() []byte {
 	return k
 }
 
-// The bytes the bridge's codec (meshsat cd1267f) seals for the same inputs,
+// The bytes the bridge's codec (meshsat f4d457a) seals for the same inputs,
 // produced by compiling that frame.go on its own. If these move, a kit and the
 // Hub no longer agree on the wire.
 func TestExpiryFrameMatchesTheBridgesBytes(t *testing.T) {

@@ -2,7 +2,7 @@
 
 Provisions a throwaway tenant with two bridges (a kit and a phone), generates
 their MQTT credentials AND issues their certificates through the real API
-(the kit's must carry ServerAuth + a SAN, which is what 21f6289 added), then
+(the kit's must carry ServerAuth + a SAN, which is what 9c01be4 added), then
 runs the Bridge repo's RELAY_LIVE Go test: in one process the kit end serves a
 chi router through hub.meshsat.net with mutual TLS inside the tunnel, and the
 phone end dials back in through the Hub, verifies the kit's certificate under
@@ -96,7 +96,7 @@ def main():
                 f.write(cert.get("ca_pem", ""))
             env["RELAY_CA"] = p
             facts = cert_facts(env["RELAY_BRIDGE_CERT"])
-            check("the kit's certificate carries ServerAuth and a SAN equal to its id (21f6289 deployed)",
+            check("the kit's certificate carries ServerAuth and a SAN equal to its id (9c01be4 deployed)",
                   "TLS Web Server Authentication" in facts and f"DNS:{KIT}" in facts, facts[:120])
         ok_setup = ok_setup and bool(pw) and bool(cert.get("cert_pem"))
     if not ok_setup:

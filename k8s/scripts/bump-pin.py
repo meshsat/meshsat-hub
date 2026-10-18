@@ -9,7 +9,7 @@ Usage: bump-pin.py <kustomization.yaml> <image-name-key> <sha256:digest> [proven
 PROVENANCE, and why it is optional (MESHSAT-1047). Without it this script
 preserved the trailing comment, which is right for a hand-written one and wrong
 for the one that describes the pin itself: the digest moved on every deploy while
-its comment stayed frozen, so after the 55e20d16 deploy kustomization.yaml read
+its comment stayed frozen, so after the cdfaf7cb deploy kustomization.yaml read
 
     digest: sha256:da80ceba...  # main 4790250e (2026-09-08)
 
