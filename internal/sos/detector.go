@@ -31,6 +31,13 @@ var bridgeSOSID = regexp.MustCompile(`^sos-[a-z0-9_]+-(.+)-([0-9]+)(-cancelled)?
 // sosClaimKey is the claim of one SOS whatever bearer carried it: the same
 // SOS by satellite and by SMS had two ids and paged twice. The bearer is
 // left out of the claim; the ids on the wire are unchanged. [MESHSAT-1584]
+//
+// This is a compatibility heuristic for the ids Bridges send today, not an
+// SOS identity: the key is the Bridge id and the run's start in whole
+// seconds, and the caller scopes it to the tenant. Two SOS runs from one
+// Bridge that start in the same second therefore share one claim and page
+// once. The SOS identity of stage 2 (tenant, origin, sos_id; contract C10)
+// replaces it; until then this collision is accepted.
 func sosClaimKey(id string) string {
 	if m := bridgeSOSID.FindStringSubmatch(id); m != nil {
 		return "sos-" + m[1] + "-" + m[2] + m[3]

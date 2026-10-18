@@ -97,3 +97,18 @@ func TestOneBridgeSOSByEveryBearerRaisesOneEvent(t *testing.T) {
 		t.Fatal("claim key")
 	}
 }
+
+// The accepted limit of the legacy claim (review 2026-10-18 18:26, F-D):
+// two SOS runs from one Bridge that start in the same second share a claim,
+// and another Bridge's SOS in that second does not. [MESHSAT-1584]
+func TestTheLegacySOSClaimKeysOnBridgeAndSecond(t *testing.T) {
+	if sosClaimKey("sos-imt-kit-01-1792330000") != sosClaimKey("sos-sms-kit-01-1792330000") {
+		t.Fatal("one run by two bearers has two claims")
+	}
+	if sosClaimKey("sos-imt-kit-01-1792330000") == sosClaimKey("sos-imt-kit-02-1792330000") {
+		t.Fatal("two Bridges in one second share a claim")
+	}
+	if sosClaimKey("sos-imt-kit-01-1792330000") == sosClaimKey("sos-imt-kit-01-1792330000-cancelled") {
+		t.Fatal("an SOS and its cancellation share a claim")
+	}
+}
