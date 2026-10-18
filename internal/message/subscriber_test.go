@@ -93,7 +93,7 @@ func TestSubscriber_TenantPrefixedTopic(t *testing.T) {
 func TestHandleMODecoded_ABridgeMeshTextOnAChannelOtherThanZeroIsStored(t *testing.T) {
 	cs := &captureStore{}
 	s := NewSubscriber(nil, cs, nil)
-	s.handleMODecoded("meshsat/!4370c1d8/mo/decoded", []byte(`{"protocol":"meshsat-uplink/v1","device_id":"!4370c1d8","bridge_id":"b1","text":"on channel 3","channel":3}`))
+	s.handleMODecoded("meshsat/!0a0b0c0d/mo/decoded", []byte(`{"protocol":"meshsat-uplink/v1","device_id":"!0a0b0c0d","bridge_id":"b1","text":"on channel 3","channel":3}`))
 	if len(cs.inserted) != 1 || cs.inserted[0].Text != "on channel 3" {
 		t.Fatalf("inserted %+v; want the text stored", cs.inserted)
 	}

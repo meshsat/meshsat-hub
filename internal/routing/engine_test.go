@@ -165,7 +165,7 @@ func TestABridgeMeshTextOnAChannelOtherThanZeroIsRouted(t *testing.T) {
 	e := &Engine{handlers: map[string]DestinationHandler{}, cachedRoutes: map[string]routeCache{}}
 	reached := func() (got bool) {
 		defer func() { got = recover() != nil }()
-		e.handleMODecoded("meshsat/!4370c1d8/mo/decoded", []byte(`{"device_id":"!4370c1d8","text":"on channel 3","channel":3}`))
+		e.handleMODecoded("meshsat/!0a0b0c0d/mo/decoded", []byte(`{"device_id":"!0a0b0c0d","text":"on channel 3","channel":3}`))
 		return false
 	}()
 	if !reached {
