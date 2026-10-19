@@ -346,9 +346,10 @@ configmap since 19 Oct 2026). The Bridge speaks it behind `MESHSAT_HUB_MSG_ROUTE
 (default `false`, meshsat `6a28669f`, durable since `ace79651`, `64a3990a` and `fb7d4d29`): a contact's
 MQTT address `bridge:<id>` is a delivery-intent route, and what arrives on
 `msg/in` is committed, answered and handed to the access rules as interface
-`hub_0`. MeshSat Android speaks it behind the setting "Messages through the
-Hub" (default off, meshsat-android `b0a84f5`); MeshSat iOS does not speak it
-yet. Recipients are `bridge:<id>` only; a phone is a bridge principal (C4.1),
+`hub_0`. MeshSat Android and MeshSat iOS speak it behind the setting "Messages
+through the Hub" (default off, meshsat-android `b0a84f5`, meshsat-ios
+`97d8dbb`); both are proven on a phone against production, the kit
+included, both ways. Recipients are `bridge:<id>` only; a phone is a bridge principal (C4.1),
 so phones use the same topics.
 
 ### Topics
