@@ -432,6 +432,13 @@ data:
   # does; nothing else in the Hub changes with it.
   HUB_MSG_ROUTE_ENABLED: "true"
 
+  # SOS identity (docs/bridge-hub-protocol.md "SOS identity (C10)", MESHSAT-1584).
+  # Says sos_v2 on every bridge's retained hub/caps, so a Bridge that speaks C10
+  # sends its SOS with its id (0x07/0x08, sos/event). The Hub takes those frames
+  # either way; "false" sends the bridges back to the old frames at their next
+  # connect.
+  HUB_SOS_V2_ENABLED: "true"
+
   # Transactional email. nllei01smtp-dkim01 authorises by IP and signs with DKIM
   # for meshsat.net; the Hub's tunnel address 10.255.200.37 is in its mynetworks
   # AND in opendkim's trusted.hosts -- reaching the relay and being signed by it

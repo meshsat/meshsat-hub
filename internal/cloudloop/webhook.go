@@ -102,6 +102,7 @@ type WebhookPositionMessage struct {
 // WebhookHandler handles Cloudloop LingoMO webhook POST requests.
 type WebhookHandler struct {
 	tenants         *tenancy.Resolver // device → tenant for topic namespaces; nil = default tenant
+	sosRuns         bridge.SOSRuns    // C10 SOS frames 0x07/0x08; nil = the old path only
 	mqtt            bus.MessageBus
 	audit           *audit.Service
 	dedup           dedup.Dedup
@@ -181,7 +182,7 @@ func (h *WebhookHandler) uplinkSink() *bridge.UplinkSink {
 	if h.store != nil {
 		st = h.store
 	}
-	return bridge.NewUplinkSink(st, h.publish, h.audit, "cloudloop_webhook").SetTenants(h.tenants)
+	return bridge.NewUplinkSink(st, h.publish, h.audit, "cloudloop_webhook").SetTenants(h.tenants).SetSOSRuns(h.sosRuns)
 }
 
 // ackToBridge publishes the receipt for an MO on the owning bridge's own topic,
@@ -806,6 +807,9 @@ func isPrintable(b []byte) bool {
 // SetTenants makes published topics follow the owning tenant's namespace
 // (MESHSAT-864 MR 20). Without it every topic uses the default namespace.
 func (h *WebhookHandler) SetTenants(r *tenancy.Resolver) { h.tenants = r }
+
+// SetSOSRuns lets satellite frames raise and cancel SOS runs (HeMB-NG C10).
+func (h *WebhookHandler) SetSOSRuns(r bridge.SOSRuns) { h.sosRuns = r }
 
 // tenantOf is the tenant every row and topic for this message uses. On a
 // tenant's own webhook path it is that tenant, already checked to own the

@@ -1149,4 +1149,34 @@ CREATE TABLE IF NOT EXISTS msg_op_events (
 );
 CREATE INDEX IF NOT EXISTS idx_msg_op_events_unpublished ON msg_op_events (at) WHERE published_at IS NULL;
 `},
+	// MESHSAT-1584, HeMB-NG stage 2 C10: one record per SOS a sender raised under its own
+	// identity, keyed (tenant, origin principal, sos_id). It pages once whichever bearers
+	// carry the SOS, and a cancel is terminal, also when it arrives before the start.
+	{Version: 38, Name: "sos runs", SQL: `
+CREATE TABLE IF NOT EXISTS sos_runs (
+	tenant_id VARCHAR(64) NOT NULL,
+	origin VARCHAR(160) NOT NULL,
+	sos_id VARCHAR(36) NOT NULL,
+	bridge_id VARCHAR(128) NOT NULL DEFAULT '',
+	run_start_ms BIGINT NOT NULL,
+	state VARCHAR(16) NOT NULL,
+	rev INTEGER NOT NULL DEFAULT 0,
+	bearers VARCHAR(256) NOT NULL DEFAULT '',
+	device_id VARCHAR(64) NOT NULL DEFAULT '',
+	text TEXT NOT NULL DEFAULT '',
+	lat DOUBLE PRECISION NOT NULL DEFAULT 0,
+	lon DOUBLE PRECISION NOT NULL DEFAULT 0,
+	has_position BOOLEAN NOT NULL DEFAULT false,
+	alert_id VARCHAR(200) NOT NULL DEFAULT '',
+	started_at TIMESTAMPTZ NULL,
+	cancelled_at TIMESTAMPTZ NULL,
+	cancelled_by VARCHAR(160) NOT NULL DEFAULT '',
+	cancel_reason INTEGER NOT NULL DEFAULT -1,
+	created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+	updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+	PRIMARY KEY (tenant_id, origin, sos_id)
+);
+CREATE INDEX IF NOT EXISTS idx_sos_runs_created ON sos_runs (tenant_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_sos_runs_sos_id ON sos_runs (tenant_id, sos_id);
+`},
 }

@@ -1396,6 +1396,66 @@ definitions:
       updated_at:
         type: string
     type: object
+  github_com_meshsat_meshsat-hub_internal_store.SOSRun:
+    properties:
+      alert_id:
+        description: AlertID is the escalation alert the run raised; empty until one
+          exists.
+        type: string
+      bearers:
+        description: Bearers lists every bearer a start or cancel arrived over, in
+          order, each once.
+        type: string
+      bridge_id:
+        type: string
+      cancel_reason:
+        description: CancelReason is the frame's reason (0 operator, 1 test ended);
+          -1 when not cancelled.
+        type: integer
+      cancelled_at:
+        type: string
+      cancelled_by:
+        description: |-
+          CancelledBy is the principal that cancelled: the origin, or "user:<id>" for an
+          operator of the tenant.
+        type: string
+      created_at:
+        type: string
+      device_id:
+        type: string
+      has_position:
+        type: boolean
+      lat:
+        type: number
+      lon:
+        type: number
+      origin:
+        description: |-
+          Origin is the principal that raised it, "bridge:<id>": the bridge the ingress
+          authenticated (the topic over MQTT, the modem's bridge over satellite).
+        type: string
+      rev:
+        description: Rev counts the events applied to the run, duplicates included.
+        type: integer
+      run_start_ms:
+        description: RunStartMs is the sender's start of the run, carried in every
+          frame and event.
+        type: integer
+      sos_id:
+        type: string
+      started_at:
+        description: StartedAt is when the first start arrived; nil when only the
+          cancel has.
+        type: string
+      state:
+        type: string
+      tenant_id:
+        type: string
+      text:
+        type: string
+      updated_at:
+        type: string
+    type: object
   internal_api.Capability:
     properties:
       configured:
@@ -8626,6 +8686,70 @@ paths:
       summary: Send SMS message
       tags:
       - sms
+  /api/sos/runs:
+    get:
+      description: 'Every SOS a bridge or phone raised under its own identity (C10):
+        its state (active or cancelled), the bearers it arrived over, its alert, and
+        who cancelled it.'
+      parameters:
+      - default: 100
+        description: Max results
+        in: query
+        name: limit
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/github_com_meshsat_meshsat-hub_internal_store.SOSRun'
+            type: array
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: List SOS runs
+      tags:
+      - sos
+  /api/sos/runs/{sos_id}/cancel:
+    post:
+      description: 'Cancels the run for good: its alert stops escalating, and a start
+        that arrives later pages nobody. Logged with who cancelled. The sender''s
+        own SOS on its device is not stopped by this.'
+      parameters:
+      - description: SOS id (UUID)
+        in: path
+        name: sos_id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/github_com_meshsat_meshsat-hub_internal_store.SOSRun'
+            type: array
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Cancel an SOS run
+      tags:
+      - sos
   /api/tak/enroll/{claimID}/{nonce}:
     get:
       parameters:

@@ -534,6 +534,94 @@ pending, and when tried again it makes only what is missing.
 - Metrics: `meshsat_hub_msg_submissions_total{result,reason}`,
   `meshsat_hub_msg_deliveries_total{result}`, `meshsat_hub_msg_acks_total{kind}`.
 
+## SOS identity (C10, Hub 2026-10, MESHSAT-1584)
+
+An SOS a bridge or phone raises carries its own identity, so the Hub pages once
+whichever bearers carry it, a cancel stops it for good, and the sender knows
+when the Hub has each. The shared cases are `docs/fixtures/v1/sos.json`
+(release `fixtures-v1.1`); every repository's tests read a copy.
+
+### Identity
+
+- `sos_id` is a UUIDv7 whose first 48 bits are the run's start, `run_start_ms`.
+- A run that started before its Bridge spoke C10 (the old millisecond run id)
+  takes `sos_id = UUIDv5(a389cf74-e475-53d9-b656-d994a485fe0a, "<bridge id>:<run_start_ms>")`.
+- Every frame and event carries both `sos_id` and `run_start_ms`. The Hub
+  checks the id against the start and the bridge the ingress authenticated,
+  and refuses anything else.
+
+### Who the Hub believes
+
+| Ingress | Bridge |
+|---|---|
+| MQTT `sos/event` | the topic's, which the broker enforces |
+| SBD and IMT frames | the bridge the modem belongs to (linked from its birth); a frame naming another bridge is not taken as its run |
+| SMS-borne frames | the tenant's bridge the frame names (no number is linked to a bridge); only a v7 id may cancel by SMS, since a v5 id can be worked out from the bridge id and the start |
+
+A start that cannot be taken as its run (unknown modem, wrong bridge, an id
+that does not name its run) still pages, the old way, under the old claim. An
+SOS is never dropped. Such a start changes no run, so it can neither cancel
+nor be mistaken for one. A cancel that cannot be taken changes nothing.
+
+### Frames (satellite and SMS)
+
+- `0x07` start: `4D 53 01 07`, the `0x02` body unchanged (bridge id, device
+  id, lat, lon, text, unix seconds), `sos_id` (16), `run_start_ms` (8, BE).
+- `0x08` cancel: `4D 53 01 08`, bridge id (1-byte length + bytes), `sos_id`
+  (16), `run_start_ms` (8, BE), unix seconds (4, BE), reason (1: `00` the
+  operator, `01` test ended).
+- Each is exactly its layout; a byte more or less is refused.
+
+### Topics
+
+| Topic | QoS | Retained | Publisher | Description |
+|---|---|---|---|---|
+| `{ns}/bridge/{id}/sos/event` | 1 | no | Bridge | a start or a cancel, v2 JSON |
+| `{ns}/bridge/{id}/sos/ack` | 1 | no | Hub only | the Hub has the start or the cancel |
+| `{ns}/bridge/{id}/hub/caps` | 1 | yes | Hub only | what this Hub understands |
+
+The broker refuses a bridge's own `sos/ack` and `hub/caps`.
+
+```json
+{"v":2,"kind":"start","sos_id":"…","run_start_ms":1792330000123,"text":"Injured, need help","lat":52.16,"lon":4.49,"device_id":"","timestamp":1792330000}
+{"v":2,"kind":"cancel","sos_id":"…","run_start_ms":1792330000123,"reason":0,"timestamp":1792330600}
+{"v":2,"sos_id":"…","kind":"start","state":"active","rev":1}
+{"v":1,"caps":["sos_v2"]}
+```
+
+The third line is `sos/ack`. Its `state` is the run's after the event: a start
+that arrives after its cancel is answered `cancelled`.
+
+### Run state
+
+- Keyed `(tenant, origin principal, sos_id)`; the origin is `bridge:<id>`.
+- A start makes the run `active`, and every copy of it, over any bearer, only
+  adds its bearer.
+- A cancel makes it `cancelled`. It is terminal: a cancel that arrives before
+  its start stores the run cancelled, and a start that follows is recorded and
+  pages nobody. A new run, with a new `sos_id`, pages as usual.
+- The run raises one alert, under an id derived from its key. Two replicas, or
+  three bearers, page once. A cancel closes it, as `cancelled`: escalation
+  stops and no escalation step reopens it.
+- An operator of the tenant may cancel a run on the Hub
+  (`POST /api/sos/runs/{sos_id}/cancel`), logged with who. That closes the
+  Hub's alert only; the sender's own SOS on its device keeps running.
+  `GET /api/sos/runs` lists the tenant's runs.
+
+### The sender
+
+- It sends `0x07`/`0x08` and `sos/event` only while its Hub's `hub/caps` says
+  `sos_v2`, and the old frames otherwise. It keeps the last `hub/caps` it read,
+  because it may have to send by satellite with no Hub session at all.
+- It keeps a run's `sos_id` and `run_start_ms` with the run, so the id is the
+  same on every bearer and after a restart.
+- The hub leg reads "the Hub has it" on the start's `sos/ack`, not on the broker's
+  PUBACK.
+- It repeats the cancel on each bearer that carried the start until the cancel's
+  `sos/ack`, or for 24 h, backing off. It keeps that state across a restart.
+- `HUB_SOS_V2_ENABLED` (default on) is the Hub's switch for `sos_v2` in
+  `hub/caps`. The Hub takes the C10 frames and events either way.
+
 ## CoT Type Mapping
 
 | Entity | CoT Type | MIL-STD-2525 | TAK Appearance |

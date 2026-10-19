@@ -85,9 +85,15 @@ const platformNamespace = "meshsat"
 // these could forge a delivery to itself or a receipt for its own message.
 // Phones join the Hub as bridges and get the same rule. A deny wins over an
 // allow in nats-server, for MQTT clients too.
+//
+// The same holds for the SOS answers (C10): sos/ack says the Hub has a start or a cancel,
+// and hub/caps what the Hub understands. A bridge that could publish them could stop its
+// own cancel retries or switch its own frames without the Hub.
 func NATSPublishDeny(ns, bridgeID string) []string {
-	own := natsSubject(ns) + ".bridge." + bridgeID + ".msg."
-	return []string{own + "in", own + "in.>", own + "status", own + "status.>"}
+	base := natsSubject(ns) + ".bridge." + bridgeID + "."
+	own := base + "msg."
+	return []string{own + "in", own + "in.>", own + "status", own + "status.>",
+		base + "sos.ack", base + "sos.ack.>", base + "hub.caps", base + "hub.caps.>"}
 }
 
 func quoteList(items []string) string {

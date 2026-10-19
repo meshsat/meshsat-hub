@@ -46,11 +46,14 @@ func (d *DB) ExpireStaleSends(ctx context.Context, olderThan time.Duration) (int
 	return res.RowsAffected()
 }
 
+// AdvanceAlert moves an alert that is still open (triggered or escalating) one step, and
+// only if no other step moved it since next_esc_at was read. An alert acknowledged or
+// cancelled meanwhile stays closed: the step finds no row (C10).
 func (d *DB) AdvanceAlert(ctx context.Context, tenantID string, a *store.Alert, expectedNextEscAt time.Time) (bool, error) {
 	// An empty tenantID is a wildcard, as in UpdateAlert (the escalation
 	// engine processes alerts across tenants).
 	query := `UPDATE alerts SET state=?, current_tier=?, retries=?, acked_by=?, acked_at=?, next_esc_at=?, updated_at=?
-		WHERE id=? AND next_esc_at=?`
+		WHERE id=? AND next_esc_at=? AND state IN ('triggered', 'escalating')`
 	args := []any{a.State, a.CurrentTier, a.Retries, a.AckedBy, fmtTime(a.AckedAt), fmtTime(a.NextEscAt), fmtTime(a.UpdatedAt),
 		a.ID, fmtTime(expectedNextEscAt)}
 	if tenantID != "" {

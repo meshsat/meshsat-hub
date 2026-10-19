@@ -212,6 +212,7 @@ var Classification = map[string]Class{
 	"bridge_ca_secret_name":          ClassPlatform,
 	"bridge_offline_timeout_max":     ClassPlatform,
 	"bridge_offline_timeout_min":     ClassPlatform,
+	"sos_v2_enabled":                 ClassPlatform,
 	"support_access_max_minutes":     ClassPlatform,
 	"support_access_min_minutes":     ClassPlatform,
 	"cloudloop_mqtt_broker":          ClassPlatform,

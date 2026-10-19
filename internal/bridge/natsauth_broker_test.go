@@ -153,3 +153,60 @@ func TestNATSPermissionsOnARealBroker(t *testing.T) {
 		t.Errorf("b1 received %q, want only its own msg/in", in)
 	}
 }
+
+// The broker side of C10 (MESHSAT-1584), run as TestNATSPermissionsOnARealBroker: a bridge
+// publishes its own sos/event, never its sos/ack or hub/caps, which only the Hub publishes;
+// it reads the Hub's retained hub/caps when it subscribes later, and its own sos/ack only.
+func TestSOSPermissionsOnARealBroker(t *testing.T) {
+	addr := os.Getenv("MESHSAT_NATS_MQTT")
+	if addr == "" {
+		t.Skip("MESHSAT_NATS_MQTT not set")
+	}
+	root := "meshsat/t_x/bridge/"
+	hub := dialLive(t, addr, SharedNATSUser, liveHubPass, "c10-hub")
+	defer hub.c.Disconnect(100)
+	for _, f := range []string{root + "+/sos/#", root + "+/hub/#"} {
+		if err := hub.subscribe(t, f); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, suffix := range []string{"sos/event", "sos/ack", "hub/caps"} {
+		b := dialLive(t, addr, "b1", liveBridgePass, "c10-b1-"+strings.ReplaceAll(suffix, "/", "-"))
+		tok := b.c.Publish(root+"b1/"+suffix, 1, suffix == "hub/caps", "from-b1")
+		tok.WaitTimeout(5 * time.Second)
+		t.Logf("b1 publish %s: token error %v", suffix, tok.Error())
+		b.c.Disconnect(100)
+	}
+	time.Sleep(2 * time.Second)
+	got := strings.Join(hub.received(), "\n")
+	for suffix, want := range map[string]bool{"sos/event": true, "sos/ack": false, "hub/caps": false} {
+		if has := strings.Contains(got, root+"b1/"+suffix+" from-b1"); has != want {
+			t.Errorf("the Hub received b1's %s: %v, want %v (got %q)", suffix, has, want, got)
+		}
+	}
+
+	// The Hub's retained caps, then a bridge that subscribes after: it reads them. Its own
+	// sos/ack reaches it; b2's does not.
+	hub.c.Publish(root+"b1/hub/caps", 1, true, `caps-for-b1`).WaitTimeout(5 * time.Second)
+	time.Sleep(time.Second)
+	b1 := dialLive(t, addr, "b1", liveBridgePass, "c10-b1-sub")
+	defer b1.c.Disconnect(100)
+	for _, f := range []string{root + "b1/hub/caps", root + "b1/sos/ack"} {
+		if err := b1.subscribe(t, f); err != nil {
+			t.Fatalf("b1 cannot subscribe to its own %s: %v", f, err)
+		}
+	}
+	if err := b1.subscribe(t, root+"b2/sos/ack"); err == nil {
+		t.Error("b1 subscribed to b2's sos/ack")
+	}
+	hub.c.Publish(root+"b1/sos/ack", 1, false, "ack-for-b1").WaitTimeout(5 * time.Second)
+	hub.c.Publish(root+"b2/sos/ack", 1, false, "ack-for-b2").WaitTimeout(5 * time.Second)
+	time.Sleep(2 * time.Second)
+	in := strings.Join(b1.received(), "\n")
+	if !strings.Contains(in, root+"b1/hub/caps caps-for-b1") || !strings.Contains(in, root+"b1/sos/ack ack-for-b1") ||
+		strings.Contains(in, "ack-for-b2") {
+		t.Errorf("b1 received %q, want its retained caps and its own ack only", in)
+	}
+	// Clear the retained caps the test left.
+	hub.c.Publish(root+"b1/hub/caps", 1, true, "").WaitTimeout(5 * time.Second)
+}

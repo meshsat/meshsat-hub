@@ -7897,6 +7897,97 @@
                 }
             }
         },
+        "/api/sos/runs": {
+            "get": {
+                "description": "Every SOS a bridge or phone raised under its own identity (C10): its state (active or cancelled), the bearers it arrived over, its alert, and who cancelled it.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "sos"
+                ],
+                "summary": "List SOS runs",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "default": 100,
+                        "description": "Max results",
+                        "name": "limit",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/github_com_meshsat_meshsat-hub_internal_store.SOSRun"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/sos/runs/{sos_id}/cancel": {
+            "post": {
+                "description": "Cancels the run for good: its alert stops escalating, and a start that arrives later pages nobody. Logged with who cancelled. The sender's own SOS on its device is not stopped by this.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "sos"
+                ],
+                "summary": "Cancel an SOS run",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "SOS id (UUID)",
+                        "name": "sos_id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/github_com_meshsat_meshsat-hub_internal_store.SOSRun"
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/tak/enroll/{claimID}/{nonce}": {
             "get": {
                 "produces": [
@@ -12331,6 +12422,79 @@
                     "type": "string"
                 },
                 "source_type": {
+                    "type": "string"
+                },
+                "updated_at": {
+                    "type": "string"
+                }
+            }
+        },
+        "github_com_meshsat_meshsat-hub_internal_store.SOSRun": {
+            "type": "object",
+            "properties": {
+                "alert_id": {
+                    "description": "AlertID is the escalation alert the run raised; empty until one exists.",
+                    "type": "string"
+                },
+                "bearers": {
+                    "description": "Bearers lists every bearer a start or cancel arrived over, in order, each once.",
+                    "type": "string"
+                },
+                "bridge_id": {
+                    "type": "string"
+                },
+                "cancel_reason": {
+                    "description": "CancelReason is the frame's reason (0 operator, 1 test ended); -1 when not cancelled.",
+                    "type": "integer"
+                },
+                "cancelled_at": {
+                    "type": "string"
+                },
+                "cancelled_by": {
+                    "description": "CancelledBy is the principal that cancelled: the origin, or \"user:\u003cid\u003e\" for an\noperator of the tenant.",
+                    "type": "string"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "device_id": {
+                    "type": "string"
+                },
+                "has_position": {
+                    "type": "boolean"
+                },
+                "lat": {
+                    "type": "number"
+                },
+                "lon": {
+                    "type": "number"
+                },
+                "origin": {
+                    "description": "Origin is the principal that raised it, \"bridge:\u003cid\u003e\": the bridge the ingress\nauthenticated (the topic over MQTT, the modem's bridge over satellite).",
+                    "type": "string"
+                },
+                "rev": {
+                    "description": "Rev counts the events applied to the run, duplicates included.",
+                    "type": "integer"
+                },
+                "run_start_ms": {
+                    "description": "RunStartMs is the sender's start of the run, carried in every frame and event.",
+                    "type": "integer"
+                },
+                "sos_id": {
+                    "type": "string"
+                },
+                "started_at": {
+                    "description": "StartedAt is when the first start arrived; nil when only the cancel has.",
+                    "type": "string"
+                },
+                "state": {
+                    "type": "string"
+                },
+                "tenant_id": {
+                    "type": "string"
+                },
+                "text": {
                     "type": "string"
                 },
                 "updated_at": {

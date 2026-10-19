@@ -24,6 +24,12 @@ const (
 	SatMsgPosition      byte = 0x01
 	SatMsgSOS           byte = 0x02
 	SatMsgHealthSummary byte = 0x03
+	// SatMsgSOSStart and SatMsgSOSCancel carry an SOS's identity (HeMB-NG C10, r4;
+	// docs/fixtures/v1/sos.json): 0x07 is the 0x02 body, then sos_id (16) and
+	// run_start_ms (8, BE); 0x08 is bridge id (1-byte length + bytes), sos_id (16),
+	// run_start_ms (8, BE), unix seconds (4, BE) and a reason (1).
+	SatMsgSOSStart  byte = 0x07
+	SatMsgSOSCancel byte = 0x08
 
 	satUplinkVersion byte = 1
 )
@@ -111,6 +117,12 @@ func DecodeSatPosition(payload []byte) (bridgeID string, lat, lon float64, alt f
 
 // DecodeSatSOS decodes an SOS payload (after header).
 func DecodeSatSOS(payload []byte) (bridgeID, deviceID string, lat, lon float64, message string, timestamp time.Time, err error) {
+	bridgeID, deviceID, lat, lon, message, timestamp, _, err = decodeSOSBody(payload)
+	return
+}
+
+// decodeSOSBody decodes the 0x02 body and says how many bytes it took.
+func decodeSOSBody(payload []byte) (bridgeID, deviceID string, lat, lon float64, message string, timestamp time.Time, used int, err error) {
 	off := 0
 	bridgeID, n, err := readLenPrefixedString(payload[off:])
 	if err != nil {
@@ -140,7 +152,80 @@ func DecodeSatSOS(payload []byte) (bridgeID, deviceID string, lat, lon float64, 
 		return
 	}
 	timestamp = time.Unix(int64(binary.BigEndian.Uint32(payload[off:])), 0).UTC()
+	used = off + 4
 	return
+}
+
+// SOSStartFrame is a decoded 0x07: an SOS with its identity.
+type SOSStartFrame struct {
+	BridgeID, DeviceID, Message string
+	Lat, Lon                    float64
+	Timestamp                   time.Time
+	SOSID                       [16]byte
+	RunStartMs                  int64
+}
+
+// SOSCancelFrame is a decoded 0x08: the cancel of the SOS SOSID.
+type SOSCancelFrame struct {
+	BridgeID   string
+	SOSID      [16]byte
+	RunStartMs int64
+	Timestamp  time.Time
+	Reason     byte
+}
+
+// ErrSatTrailing is returned for a C10 frame longer than its layout.
+var ErrSatTrailing = errors.New("satdecoder: trailing bytes")
+
+// readRunStart reads the 8-byte big-endian run_start_ms, refusing one beyond int64.
+func readRunStart(b []byte) (int64, error) {
+	v := binary.BigEndian.Uint64(b)
+	if v > math.MaxInt64 {
+		return 0, ErrSatTruncated
+	}
+	return int64(v), nil // #nosec G115 -- checked above
+}
+
+// DecodeSatSOSStart decodes a 0x07 payload (after header); its length must be exact.
+func DecodeSatSOSStart(payload []byte) (f SOSStartFrame, err error) {
+	var used int
+	f.BridgeID, f.DeviceID, f.Lat, f.Lon, f.Message, f.Timestamp, used, err = decodeSOSBody(payload)
+	if err != nil {
+		return f, err
+	}
+	rest := payload[used:]
+	if len(rest) < 24 {
+		return f, ErrSatTruncated
+	}
+	if len(rest) > 24 {
+		return f, ErrSatTrailing
+	}
+	copy(f.SOSID[:], rest[:16])
+	f.RunStartMs, err = readRunStart(rest[16:24])
+	return f, err
+}
+
+// DecodeSatSOSCancel decodes a 0x08 payload (after header); its length must be exact.
+func DecodeSatSOSCancel(payload []byte) (f SOSCancelFrame, err error) {
+	id, n, err := readLenPrefixedString(payload)
+	if err != nil {
+		return f, err
+	}
+	f.BridgeID = id
+	rest := payload[n:]
+	if len(rest) < 16+8+4+1 {
+		return f, ErrSatTruncated
+	}
+	if len(rest) > 16+8+4+1 {
+		return f, ErrSatTrailing
+	}
+	copy(f.SOSID[:], rest[:16])
+	if f.RunStartMs, err = readRunStart(rest[16:24]); err != nil {
+		return f, err
+	}
+	f.Timestamp = time.Unix(int64(binary.BigEndian.Uint32(rest[24:28])), 0).UTC()
+	f.Reason = rest[28]
+	return f, nil
 }
 
 // DecodeSatHealth decodes a health summary payload (after header).

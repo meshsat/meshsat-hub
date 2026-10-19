@@ -315,6 +315,11 @@ type Config struct {
 
 	// SOS detection
 	SOSChainID string `yaml:"sos_chain_id"` // Default escalation chain ID for SOS alerts (empty = first available)
+	// SOSV2Enabled says sos_v2 on every bridge's retained hub/caps (HeMB-NG C10,
+	// MESHSAT-1584): a bridge sends its SOS with its identity (0x07/0x08, sos/event) only
+	// while its Hub says so. The Hub takes those frames and events either way; off makes the
+	// bridges go back to the old frames at their next connect.
+	SOSV2Enabled bool `yaml:"sos_v2_enabled"`
 
 	// Email gateway (SMTP + PGP)
 	EmailEnabled  bool   `yaml:"email_enabled"`
@@ -551,6 +556,7 @@ type Config struct {
 // Defaults returns a Config with sensible default values.
 func Defaults() Config {
 	return Config{
+		SOSV2Enabled:          true,
 		Port:                  6070,
 		MQTTBrokerURL:         "tcp://mqtt:1883",
 		Mode:                  "standalone",
@@ -1048,6 +1054,9 @@ func Load() (Config, error) {
 	// SOS overrides
 	if v := os.Getenv("HUB_SOS_CHAIN_ID"); v != "" {
 		cfg.SOSChainID = v
+	}
+	if v := os.Getenv("HUB_SOS_V2_ENABLED"); v != "" {
+		cfg.SOSV2Enabled = strings.EqualFold(v, "true") || v == "1"
 	}
 
 	// Email overrides

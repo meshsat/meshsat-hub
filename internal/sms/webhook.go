@@ -73,6 +73,7 @@ type reticulumReceiver interface {
 // reassembly, SMAZ2/MSVQ-SC compression, Reticulum relay, bridge uplink.
 type WebhookHandler struct {
 	tenants          *tenancy.Resolver // device → tenant for topic namespaces; nil = default tenant
+	sosRuns          bridge.SOSRuns    // C10 SOS frames 0x07/0x08; nil = the old path only
 	mqtt             bus.MessageBus
 	secret           string                // platform custom-relay HMAC secret (default tenant)
 	channel          string                // "sms" (default) or "whatsapp" (MESHSAT-1175)
@@ -655,7 +656,7 @@ func (h *WebhookHandler) handleBridgeUplink(ctx context.Context, from string, ra
 	if h.store != nil {
 		st = h.store
 	}
-	return bridge.NewUplinkSink(st, h.publish, h.audit, "sms_webhook").SetTenants(h.tenants).Handle(ctx, h.tenantOf(ctx, from), "sms", from, rawBytes)
+	return bridge.NewUplinkSink(st, h.publish, h.audit, "sms_webhook").SetTenants(h.tenants).SetSOSRuns(h.sosRuns).Handle(ctx, h.tenantOf(ctx, from), "sms", from, rawBytes)
 }
 
 // smsMessageID is the stable ID of an inbound SMS: Twilio's MessageSid is
@@ -670,6 +671,9 @@ func smsMessageID(messageSID string) string {
 // SetTenants makes published topics follow the owning tenant's namespace
 // (MESHSAT-864 MR 20). Without it every topic uses the default namespace.
 func (h *WebhookHandler) SetTenants(r *tenancy.Resolver) { h.tenants = r }
+
+// SetSOSRuns lets SMS-borne frames raise and cancel SOS runs (HeMB-NG C10).
+func (h *WebhookHandler) SetSOSRuns(r bridge.SOSRuns) { h.sosRuns = r }
 
 // tenantOf returns the tenant a message belongs to: the tenant the webhook
 // token authenticated (carried in ctx), else the sender's owner.

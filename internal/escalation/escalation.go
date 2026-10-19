@@ -6,6 +6,8 @@ package escalation
 
 import (
 	"context"
+	"database/sql"
+	"errors"
 	"fmt"
 	"github.com/meshsat/meshsat-hub/internal/tenancy"
 	"log/slog"
@@ -128,6 +130,55 @@ func (e *Engine) Acknowledge(ctx context.Context, tenantID, alertID, ackedBy str
 	}
 	slog.Info("escalation: alert acknowledged", "id", alertID, "by", ackedBy)
 	return nil
+}
+
+// isNotFound is how a store says an alert does not exist.
+func isNotFound(err error) bool {
+	return errors.Is(err, sql.ErrNoRows) || errors.Is(err, store.ErrNotFound)
+}
+
+// TriggerOnce raises alert under its own id and starts escalation. False, and no error,
+// when an alert with that id exists already: another replica raised it first (C10, an SOS
+// run pages once under a deterministic id).
+func (e *Engine) TriggerOnce(ctx context.Context, tenantID string, alert *store.Alert) (bool, error) {
+	if alert.ID == "" {
+		return false, errors.New("escalation: TriggerOnce needs an alert id")
+	}
+	if _, err := e.store.GetAlert(ctx, tenantID, alert.ID); err == nil {
+		return false, nil
+	}
+	if err := e.Trigger(ctx, tenantID, alert); err != nil {
+		if _, gerr := e.store.GetAlert(ctx, tenantID, alert.ID); gerr == nil {
+			return false, nil // lost the race: the other replica's alert stands
+		}
+		return false, err
+	}
+	return true, nil
+}
+
+// Cancel closes an alert for good: its SOS was cancelled (C10). Escalation stops, nothing
+// reopens it (AdvanceAlert only moves an open alert), and AckedBy/AckedAt record who and
+// when. False when the alert does not exist or was cancelled already.
+func (e *Engine) Cancel(ctx context.Context, tenantID, alertID, by string) (bool, error) {
+	alert, err := e.store.GetAlert(ctx, tenantID, alertID)
+	if isNotFound(err) {
+		return false, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("escalation: get alert: %w", err)
+	}
+	if alert.State == store.AlertStateCancelled {
+		return false, nil
+	}
+	alert.State = store.AlertStateCancelled
+	alert.AckedBy = by
+	alert.AckedAt = time.Now().UTC()
+	alert.UpdatedAt = alert.AckedAt
+	if err := e.store.UpdateAlert(ctx, tenantID, alert); err != nil {
+		return false, fmt.Errorf("escalation: update alert: %w", err)
+	}
+	slog.Info("escalation: alert cancelled", "id", alertID, "by", by)
+	return true, nil
 }
 
 // processAlerts checks all active alerts and escalates as needed.

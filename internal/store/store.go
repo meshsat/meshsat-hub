@@ -347,6 +347,23 @@ type Store interface {
 	// and the mids no operation uses any more; it returns how many operations went.
 	PruneMsgOps(ctx context.Context, cutoff time.Time) (int, error)
 
+	// SOS runs (HeMB-NG stage 2, C10, MESHSAT-1584), keyed (tenant, origin, sos_id).
+	//
+	// ApplySOSRunEvent applies one start or cancel in one transaction, so two replicas
+	// applying the same event agree. A start makes an active run, or adds its bearer to
+	// a known one whatever its state. A cancel makes a cancelled run when none exists
+	// (terminal before its start), ends an active one, and adds its bearer otherwise.
+	// Nothing ever makes a cancelled run active again.
+	ApplySOSRunEvent(ctx context.Context, ev *SOSRunEvent) (SOSRunApplied, error)
+	// GetSOSRun returns ErrNotFound for an unknown key.
+	GetSOSRun(ctx context.Context, tenantID, origin, sosID string) (*SOSRun, error)
+	// FindSOSRuns lists a tenant's runs with this sos_id, whatever their origin.
+	FindSOSRuns(ctx context.Context, tenantID, sosID string) ([]SOSRun, error)
+	// ListSOSRuns lists a tenant's runs, newest first.
+	ListSOSRuns(ctx context.Context, tenantID string, limit int) ([]SOSRun, error)
+	// SetSOSRunAlert records the run's escalation alert.
+	SetSOSRunAlert(ctx context.Context, tenantID, origin, sosID, alertID string) error
+
 	// Device groups (fleet organization)
 	CreateDeviceGroup(ctx context.Context, tenantID string, g *DeviceGroup) error
 	GetDeviceGroup(ctx context.Context, tenantID string, id string) (*DeviceGroup, error)
@@ -383,8 +400,9 @@ type Store interface {
 	ClaimScheduledMessage(ctx context.Context, id string) (bool, error)
 	ExpireStaleSends(ctx context.Context, olderThan time.Duration) (int64, error)
 	// AdvanceAlert writes a's state/tier/retries/next_esc_at only if the stored
-	// next_esc_at still equals expectedNextEscAt (compare-and-set); false means
-	// another replica already advanced this alert.
+	// next_esc_at still equals expectedNextEscAt (compare-and-set) and the alert is
+	// still open (triggered or escalating); false means another replica already
+	// advanced it, or it was acknowledged or cancelled meanwhile and stays so.
 	AdvanceAlert(ctx context.Context, tenantID string, a *Alert, expectedNextEscAt time.Time) (bool, error)
 
 	// Dead man's switch configs (persisted so every replica and every pod
@@ -924,6 +942,9 @@ const (
 	AlertStateEscalating   = "escalating"
 	AlertStateAcknowledged = "acknowledged"
 	AlertStateExhausted    = "exhausted"
+	// AlertStateCancelled: the SOS behind the alert was cancelled (C10); escalation stops
+	// and nothing reopens it. AckedBy and AckedAt say who and when.
+	AlertStateCancelled = "cancelled"
 )
 
 // Alert represents an active or resolved escalation alert.

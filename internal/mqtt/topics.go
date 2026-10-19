@@ -469,3 +469,36 @@ func ParseMsgTopic(topic string) (tenantID, bridgeID, kind string, ok bool) {
 	}
 	return tenantID, bridgeID, rest[1], true
 }
+
+// SOS identity (HeMB-NG stage 2, C10, MESHSAT-1584; docs/bridge-hub-protocol.md "SOS
+// identity (C10)"). A bridge raises and cancels an SOS on its own subtree; the Hub answers
+// each, and says at every birth what it understands:
+//
+//	{ns}/bridge/{id}/sos/event  a start or cancel, v2 JSON   (the bridge publishes)
+//	{ns}/bridge/{id}/sos/ack    the Hub has the start/cancel  (only the Hub publishes)
+//	{ns}/bridge/{id}/hub/caps   what this Hub understands     (only the Hub publishes, retained)
+//
+// The broker refuses a bridge's own sos/ack and hub/caps (internal/bridge NATSPublishDeny),
+// and the bridge id in sos/event is the principal the broker enforced.
+
+// SOSEventFilters see every bridge's SOS events, in both shapes.
+func SOSEventFilters() []string { return DualFilters("meshsat/bridge/+/sos/event") }
+
+// ParseSOSEventTopic splits an sos/event topic of either shape; ok is false otherwise.
+func ParseSOSEventTopic(topic string) (tenantID, bridgeID string, ok bool) {
+	tenantID, bridgeID, rest, ok := ParseBridgeTopic(topic)
+	if !ok || len(rest) != 2 || rest[0] != "sos" || rest[1] != "event" {
+		return "", "", false
+	}
+	return tenantID, bridgeID, true
+}
+
+// TopicSOSAckFor is where the Hub acknowledges a bridge's SOS start or cancel.
+func TopicSOSAckFor(tenantID, bridgeID string) string {
+	return BridgeTopic(tenantID, bridgeID, "sos/ack")
+}
+
+// TopicHubCapsFor is where the Hub tells a bridge what it understands (retained).
+func TopicHubCapsFor(tenantID, bridgeID string) string {
+	return BridgeTopic(tenantID, bridgeID, "hub/caps")
+}

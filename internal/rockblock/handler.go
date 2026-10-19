@@ -83,6 +83,7 @@ type reticulumReceiver interface {
 
 type Handler struct {
 	tenants *tenancy.Resolver // device → tenant for topic namespaces; nil = default tenant
+	sosRuns bridge.SOSRuns    // C10 SOS frames 0x07/0x08; nil = the old path only
 	mqtt    bus.MessageBus
 	secret  string // platform webhook secret (default tenant)
 	// requireSignature refuses an unsigned delivery on the per-tenant
@@ -166,7 +167,7 @@ func (h *Handler) uplinkSink() *bridge.UplinkSink {
 	if h.store != nil {
 		st = h.store
 	}
-	return bridge.NewUplinkSink(st, h.publish, h.audit, "rockblock_webhook").SetTenants(h.tenants)
+	return bridge.NewUplinkSink(st, h.publish, h.audit, "rockblock_webhook").SetTenants(h.tenants).SetSOSRuns(h.sosRuns)
 }
 
 // OOBClassifier is the out-of-band management service: it takes "MS:" frames
@@ -686,6 +687,9 @@ func sbdMessageID(imei string, momsn int) string {
 // SetTenants makes published topics follow the owning tenant's namespace
 // (MESHSAT-864 MR 20). Without it every topic uses the default namespace.
 func (h *Handler) SetTenants(r *tenancy.Resolver) { h.tenants = r }
+
+// SetSOSRuns lets SBD frames raise and cancel SOS runs (HeMB-NG C10).
+func (h *Handler) SetSOSRuns(r bridge.SOSRuns) { h.sosRuns = r }
 
 // authTenant is the tenant this request authenticated as: the one behind the
 // secret in the path, or the platform tenant when the platform account was

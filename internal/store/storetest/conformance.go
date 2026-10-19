@@ -53,6 +53,8 @@ func Run(t *testing.T, open Opener) {
 		{"LXMFMessages", testLXMFMessages},
 		{"LXMFHeld", testLXMFHeld},
 		{"MsgOps", testMsgOps},
+		{"SOSRuns", testSOSRuns},
+		{"AdvanceAlertKeepsAClosedAlertClosed", testAdvanceAlertKeepsAClosedAlertClosed},
 		{"OIDCIdentities", testOIDCIdentities},
 		{"TenantOffboarding", testTenantOffboarding},
 		{"TenantQuota", testTenantQuota},

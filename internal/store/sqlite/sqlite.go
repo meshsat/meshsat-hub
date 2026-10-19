@@ -592,6 +592,10 @@ var postAlterMigrations = []string{
 	`CREATE TABLE IF NOT EXISTS msg_mids (tenant_id TEXT NOT NULL, sender TEXT NOT NULL, mid TEXT NOT NULL, content_sha256 TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT (datetime('now')), PRIMARY KEY (tenant_id, sender, mid))`,
 	`CREATE TABLE IF NOT EXISTS msg_op_events (event_id TEXT PRIMARY KEY, tenant_id TEXT NOT NULL, sender TEXT NOT NULL, op_id TEXT NOT NULL, rev INTEGER NOT NULL, class TEXT NOT NULL, kind TEXT NOT NULL, reason TEXT NOT NULL DEFAULT '', authority TEXT NOT NULL, scope TEXT NOT NULL DEFAULT '', detail TEXT NOT NULL DEFAULT '', at TEXT NOT NULL, published_at TEXT NULL, UNIQUE (tenant_id, sender, op_id, rev))`,
 	`CREATE INDEX IF NOT EXISTS idx_msg_op_events_unpublished ON msg_op_events (published_at, at)`,
+	// MESHSAT-1584, HeMB-NG stage 2 C10: SOS runs, keyed (tenant, origin principal, sos_id).
+	`CREATE TABLE IF NOT EXISTS sos_runs (tenant_id TEXT NOT NULL, origin TEXT NOT NULL, sos_id TEXT NOT NULL, bridge_id TEXT NOT NULL DEFAULT '', run_start_ms INTEGER NOT NULL, state TEXT NOT NULL, rev INTEGER NOT NULL DEFAULT 0, bearers TEXT NOT NULL DEFAULT '', device_id TEXT NOT NULL DEFAULT '', text TEXT NOT NULL DEFAULT '', lat REAL NOT NULL DEFAULT 0, lon REAL NOT NULL DEFAULT 0, has_position INTEGER NOT NULL DEFAULT 0, alert_id TEXT NOT NULL DEFAULT '', started_at TEXT NOT NULL DEFAULT '', cancelled_at TEXT NOT NULL DEFAULT '', cancelled_by TEXT NOT NULL DEFAULT '', cancel_reason INTEGER NOT NULL DEFAULT -1, created_at TEXT NOT NULL DEFAULT (datetime('now')), updated_at TEXT NOT NULL DEFAULT (datetime('now')), PRIMARY KEY (tenant_id, origin, sos_id))`,
+	`CREATE INDEX IF NOT EXISTS idx_sos_runs_created ON sos_runs (tenant_id, created_at)`,
+	`CREATE INDEX IF NOT EXISTS idx_sos_runs_sos_id ON sos_runs (tenant_id, sos_id)`,
 }
 
 // lateAlterMigrations alter tables created in postAlterMigrations.

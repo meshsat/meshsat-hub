@@ -18,6 +18,7 @@ import (
 	"github.com/meshsat/meshsat-hub/internal/bus"
 	"github.com/meshsat/meshsat-hub/internal/metrics"
 	"github.com/meshsat/meshsat-hub/internal/protocol"
+	"github.com/meshsat/meshsat-hub/internal/sos"
 	"github.com/meshsat/meshsat-hub/internal/store"
 	"github.com/meshsat/meshsat-hub/internal/store/dbwrap"
 )
@@ -51,6 +52,14 @@ type Subscriber struct {
 	hembReassembler    HeMBReassembler
 	quota              QuotaChecker  // nil = no subscription ceiling
 	leader             LeaderChecker // nil = every replica writes health reports
+	sosV2              *bool         // nil = no hub/caps; else whether caps say sos_v2 (C10)
+}
+
+// SetSOSV2 makes every fresh birth answered on the bridge's retained hub/caps, saying
+// whether this Hub takes the C10 SOS frames and events (sos_v2). A bridge sends them only
+// while its Hub says so.
+func (s *Subscriber) SetSOSV2(on bool) {
+	s.sosV2 = &on
 }
 
 // LeaderChecker is the one question this package asks the leader election:
@@ -319,6 +328,14 @@ func (s *Subscriber) handleBridgeBirth(topic string, payload []byte) {
 				slog.Debug("bridge: failed to associate device",
 					"error", err, "bridge", bridgeID, "imei", iface.IMEI)
 			}
+		}
+	}
+
+	// What this Hub understands, for the bridge to read at once (C10: sos_v2). Every replica
+	// publishes the same retained value; the second copy replaces the first.
+	if !stale && s.sosV2 != nil {
+		if err := sos.PublishCaps(s.mqtt, tenantID, bridgeID, *s.sosV2); err != nil {
+			slog.Warn("bridge: hub/caps publish failed", "error", err, "bridge", bridgeID)
 		}
 	}
 

@@ -144,3 +144,16 @@ func (m *mockStore) ReplayMsgOpEvents(context.Context, string, string, string) (
 	return 0, nil
 }
 func (m *mockStore) PruneMsgOps(context.Context, time.Time) (int, error) { return 0, nil }
+func (m *mockStore) ApplySOSRunEvent(context.Context, *store.SOSRunEvent) (store.SOSRunApplied, error) {
+	return store.SOSRunApplied{}, nil
+}
+func (m *mockStore) GetSOSRun(context.Context, string, string, string) (*store.SOSRun, error) {
+	return nil, store.ErrNotFound
+}
+func (m *mockStore) FindSOSRuns(context.Context, string, string) ([]store.SOSRun, error) {
+	return nil, nil
+}
+func (m *mockStore) ListSOSRuns(context.Context, string, int) ([]store.SOSRun, error) {
+	return nil, nil
+}
+func (m *mockStore) SetSOSRunAlert(context.Context, string, string, string, string) error { return nil }

@@ -192,6 +192,10 @@ func detectSOS(msg moDecodedMsg) (keyword, source string) {
 	return "", ""
 }
 
+// ChainFor names the tenant's escalation chain for an SOS ("" for none), for the SOS runs
+// (C10), which page the same chain.
+func (d *Detector) ChainFor(tenantID string) string { return d.resolveChainID(tenantID) }
+
 // resolveChainID returns the escalation chain ID to use. If a specific chain
 // is configured, use it. Otherwise, try the first available chain.
 func (d *Detector) resolveChainID(tenantID string) string {

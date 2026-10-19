@@ -10,7 +10,9 @@ import (
 	"time"
 
 	"github.com/meshsat/meshsat-hub/internal/audit"
+	"github.com/meshsat/meshsat-hub/internal/hubmsg"
 	hubmqtt "github.com/meshsat/meshsat-hub/internal/mqtt"
+	"github.com/meshsat/meshsat-hub/internal/sos"
 	"github.com/meshsat/meshsat-hub/internal/tenancy"
 )
 
@@ -39,6 +41,52 @@ type UplinkSink struct {
 	actor   string // audit actor, e.g. "sms_webhook"
 	now     func() time.Time
 	tenants *tenancy.Resolver // bridge id -> owning tenant; nil disables the check
+	runs    SOSRuns           // C10: starts and cancels that carry their identity; nil = old path only
+}
+
+// SOSRuns applies an SOS start or cancel that carries its identity (HeMB-NG C10).
+type SOSRuns interface {
+	Apply(ctx context.Context, ev sos.Event) (store.SOSRunApplied, error)
+}
+
+// SetSOSRuns lets the sink take the C10 frames 0x07 and 0x08. Without it they are logged,
+// and a start still pages the old way.
+func (u *UplinkSink) SetSOSRuns(r SOSRuns) *UplinkSink { u.runs = r; return u }
+
+// deviceBridger is the optional part of the store that names a modem's bridge.
+type deviceBridger interface {
+	DeviceBridgeID(ctx context.Context, tenantID string, imei string) (string, error)
+}
+
+// authBridge is the bridge the ingress vouches for, for a C10 frame naming frameBridge
+// (sos.json's rule): over a satellite modem, the bridge the modem belongs to, which must be
+// the one the frame names; over SMS, which links no number to a bridge, the tenant's bridge
+// the frame names (the tenant comes from the webhook path, the sender's number from Twilio).
+// why is non-empty when the frame cannot be attributed.
+func (u *UplinkSink) authBridge(ctx context.Context, tenantID, bearer, origin, frameBridge string) (bridgeID, why string) {
+	if frameBridge == "" {
+		return "", "the frame names no bridge"
+	}
+	if bearer == "sms" {
+		if !u.ownsBridge(ctx, tenantID, frameBridge) {
+			return "", "the bridge belongs to another tenant"
+		}
+		return frameBridge, ""
+	}
+	db, ok := u.store.(deviceBridger)
+	if !ok {
+		return "", "no modem-to-bridge link in this store"
+	}
+	owner, err := db.DeviceBridgeID(ctx, tenantID, origin)
+	switch {
+	case err != nil:
+		return "", "modem lookup failed: " + err.Error()
+	case owner == "":
+		return "", "the modem belongs to no bridge"
+	case owner != frameBridge:
+		return "", "the frame names " + frameBridge + ", the modem belongs to " + owner
+	}
+	return owner, ""
 }
 
 // SetTenants lets the sink check that a bridge belongs to the tenant whose
@@ -186,39 +234,70 @@ func (u *UplinkSink) Handle(ctx context.Context, tenantID, bearer, origin string
 			return true
 		}
 		bridgeID = u.resolveBridgeID(ctx, tenantID, id, bearer)
-		slog.Warn("uplink: BRIDGE SOS", "bridge_id", bridgeID, "device_id", deviceID, "bearer", bearer, "lat", lat, "lon", lon, "message", message)
-		u.pub(hubmqtt.TopicSOSFor(tenantID, bridgeID), 1, false, map[string]any{
-			"bridge_id": bridgeID, "device_id": deviceID, "lat": lat, "lon": lon, "message": message,
-			"source": bearer + "_uplink", "bearer": bearer, "timestamp": ts.UTC().Format(time.RFC3339),
-		})
-		// The SOS detector listens on mo/decoded and raises the escalation
-		// alert on sos=true; the id makes the claim stable across replicas.
-		subject := deviceID
-		if subject == "" || subject == bridgeSelfDevice {
-			// The bridge raised it itself (its panel or API). The frame then
-			// names the device "bridge", and an alert under that name paged the
-			// on-call person with "[sos] bridge: ..." -- with two kits at a
-			// stand, no way to tell which one (MESHSAT-1294). A mesh node's SOS
-			// relayed by the bridge keeps the node's own id.
-			subject = bridgeID
-		}
-		text := message
-		if text == "" {
-			text = fmt.Sprintf("SOS from bridge %s via %s", bridgeID, bearer)
-		}
-		u.pub(hubmqtt.TopicMODecodedFor(tenantID, subject), 1, false, map[string]any{
-			"id":        fmt.Sprintf("sos-%s-%s-%d", bearer, bridgeID, ts.Unix()),
-			"imei":      subject,
-			"bridge_id": bridgeID,
-			"text":      text,
-			"sos":       true,
-			"channel":   bearer,
-			"source":    "bridge_sos",
-			"lat":       lat,
-			"lon":       lon,
-			"timestamp": ts.UTC().Format(time.RFC3339),
-		})
+		u.legacySOS(tenantID, bridgeID, bearer, deviceID, message, lat, lon, ts)
 		u.report(ctx, tenantID, bridgeID, bearer, ts)
+
+	case SatMsgSOSStart:
+		f, err := DecodeSatSOSStart(payload)
+		if err != nil {
+			slog.Warn("uplink: SOS start (0x07) decode failed", "error", err, "bearer", bearer, "origin", origin)
+			return true
+		}
+		bridgeID = u.resolveBridgeID(ctx, tenantID, f.BridgeID, bearer)
+		sosID := hubmsg.UUIDText(f.SOSID)
+		auth, why := u.authBridge(ctx, tenantID, bearer, origin, bridgeID)
+		if why == "" && u.runs == nil {
+			why = "this ingress does not take C10 runs"
+		}
+		if why == "" {
+			_, err := u.runs.Apply(ctx, sos.Event{
+				TenantID: tenantID, BridgeID: auth, Bearer: bearer, Kind: store.SOSEventStart, SOSID: sosID,
+				RunStartMs: f.RunStartMs, DeviceID: f.DeviceID, Text: f.Message, Lat: f.Lat, Lon: f.Lon,
+				HasPosition: f.Lat != 0 || f.Lon != 0,
+			})
+			if err != nil {
+				why = err.Error()
+			}
+		}
+		if why != "" {
+			// Never drop an SOS: one that cannot be taken as its run pages the old way, and
+			// changes no run, so it can neither cancel nor be mistaken for one.
+			slog.Warn("uplink: SOS start not taken as its run; paging the old way", "why", why, "sos_id", sosID,
+				"bridge_id", bridgeID, "bearer", bearer, "origin", origin)
+			u.legacySOS(tenantID, bridgeID, bearer, f.DeviceID, f.Message, f.Lat, f.Lon, f.Timestamp)
+		}
+		u.report(ctx, tenantID, bridgeID, bearer, f.Timestamp)
+
+	case SatMsgSOSCancel:
+		f, err := DecodeSatSOSCancel(payload)
+		if err != nil {
+			slog.Warn("uplink: SOS cancel (0x08) decode failed", "error", err, "bearer", bearer, "origin", origin)
+			return true
+		}
+		bridgeID = u.resolveBridgeID(ctx, tenantID, f.BridgeID, bearer)
+		sosID := hubmsg.UUIDText(f.SOSID)
+		auth, why := u.authBridge(ctx, tenantID, bearer, origin, bridgeID)
+		if why == "" && bearer == "sms" && !hubmsg.ValidV7(sosID) {
+			// An old-format id is UUIDv5 of the bridge id and the run's start, which an SMS
+			// sender could work out; only a v7 id, random past its time, may cancel by SMS.
+			why = "an old-format SOS id cannot be cancelled over SMS"
+		}
+		if why == "" && u.runs == nil {
+			why = "this ingress does not take C10 runs"
+		}
+		if why == "" {
+			if _, err := u.runs.Apply(ctx, sos.Event{
+				TenantID: tenantID, BridgeID: auth, Bearer: bearer, Kind: store.SOSEventCancel, SOSID: sosID,
+				RunStartMs: f.RunStartMs, Reason: int(f.Reason),
+			}); err != nil {
+				why = err.Error()
+			}
+		}
+		if why != "" {
+			slog.Warn("uplink: SOS cancel refused; nothing changed", "why", why, "sos_id", sosID, "bridge_id", bridgeID,
+				"bearer", bearer, "origin", origin)
+		}
+		u.report(ctx, tenantID, bridgeID, bearer, f.Timestamp)
 
 	case SatMsgHealthSummary:
 		id, uptimeSec, cpuPct, memPct, diskPct, ifaces, ts, err := DecodeSatHealth(payload)
@@ -270,6 +349,44 @@ func (u *UplinkSink) Handle(ctx context.Context, tenantID, bearer, origin string
 		}
 	}
 	return true
+}
+
+// legacySOS raises an SOS the old way (MESHSAT-964 B): the SOS topic for the Hub's
+// consumers, and mo/decoded with sos=true for the Detector, which pages once per bridge and
+// start second whichever bearer carried it.
+func (u *UplinkSink) legacySOS(tenantID, bridgeID, bearer, deviceID, message string, lat, lon float64, ts time.Time) {
+	slog.Warn("uplink: BRIDGE SOS", "bridge_id", bridgeID, "device_id", deviceID, "bearer", bearer, "lat", lat, "lon", lon, "message", message)
+	u.pub(hubmqtt.TopicSOSFor(tenantID, bridgeID), 1, false, map[string]any{
+		"bridge_id": bridgeID, "device_id": deviceID, "lat": lat, "lon": lon, "message": message,
+		"source": bearer + "_uplink", "bearer": bearer, "timestamp": ts.UTC().Format(time.RFC3339),
+	})
+	// The SOS detector listens on mo/decoded and raises the escalation
+	// alert on sos=true; the id makes the claim stable across replicas.
+	subject := deviceID
+	if subject == "" || subject == bridgeSelfDevice {
+		// The bridge raised it itself (its panel or API). The frame then
+		// names the device "bridge", and an alert under that name paged the
+		// on-call person with "[sos] bridge: ..." -- with two kits at a
+		// stand, no way to tell which one (MESHSAT-1294). A mesh node's SOS
+		// relayed by the bridge keeps the node's own id.
+		subject = bridgeID
+	}
+	text := message
+	if text == "" {
+		text = fmt.Sprintf("SOS from bridge %s via %s", bridgeID, bearer)
+	}
+	u.pub(hubmqtt.TopicMODecodedFor(tenantID, subject), 1, false, map[string]any{
+		"id":        fmt.Sprintf("sos-%s-%s-%d", bearer, bridgeID, ts.Unix()),
+		"imei":      subject,
+		"bridge_id": bridgeID,
+		"text":      text,
+		"sos":       true,
+		"channel":   bearer,
+		"source":    "bridge_sos",
+		"lat":       lat,
+		"lon":       lon,
+		"timestamp": ts.UTC().Format(time.RFC3339),
+	})
 }
 
 func (u *UplinkSink) pub(topic string, qos byte, retained bool, v any) {

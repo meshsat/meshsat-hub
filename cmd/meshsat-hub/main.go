@@ -715,6 +715,9 @@ func main() {
 	// HeMB reassembly: decode bonded RLNC-coded symbols from bridges.
 	hembReassemblyBuf = protocol.NewHeMBReassemblyBuffer(nil) // deliverFn set via subscriber handler
 	bridgeSub.SetHeMBReassembler(hembReassemblyBuf)
+	// Every fresh birth is answered on the bridge's retained hub/caps (HeMB-NG C10): sos_v2
+	// tells the bridge to send its SOS with its identity.
+	bridgeSub.SetSOSV2(cfg.SOSV2Enabled)
 
 	if err := bridgeSub.Start(); err != nil {
 		slog.Error("bridge: failed to start subscriber", "error", err)
@@ -1030,6 +1033,18 @@ func main() {
 	} else {
 		slog.Info("sos: detector started")
 	}
+
+	// SOS runs (HeMB-NG stage 2, C10, MESHSAT-1584; docs/bridge-hub-protocol.md "SOS identity
+	// (C10)"): an SOS raised under its own identity pages once whichever bearers carry it, and
+	// a cancel is terminal. Every replica takes sos/event, as hub_msg does: the store's
+	// transaction and the run's deterministic alert id make the second copy a no-op.
+	sosRuns := sos.NewRuns(dataStore, msgBus, escEngine, sosDetector.ChainFor, auditSvc)
+	for _, f := range hubmqtt.SOSEventFilters() {
+		if err := msgBus.Subscribe(f, 1, sosRuns.HandleMQTT); err != nil {
+			slog.Warn("sos: sos/event subscription failed on this replica", "filter", f, "error", err)
+		}
+	}
+	slog.Info("sos: runs enabled", "advertise_sos_v2", cfg.SOSV2Enabled)
 
 	// Fragment reassembler for multi-fragment MO messages.
 	reassembler := fragment.NewReassembler(5 * time.Minute)
@@ -1466,6 +1481,7 @@ func main() {
 			"tighten_with", "HUB_ROCKBLOCK_REQUIRE_SIGNATURE=true")
 	}
 	rbHandler.SetTenants(tenants)
+	rbHandler.SetSOSRuns(sosRuns)
 	rbHandler.SetAccounts(providerAccounts)
 	rbHandler.SetAudit(auditSvc)
 	rbHandler.SetDedup(dedupTracker)
@@ -1535,6 +1551,7 @@ func main() {
 	// Cloudloop LingoMO webhook handler.
 	clHandler := cloudloop.NewWebhookHandler(msgBus)
 	clHandler.SetTenants(tenants)
+	clHandler.SetSOSRuns(sosRuns)
 	clHandler.SetAccounts(providerAccounts)
 	clHandler.SetOOB(oobSvc)
 	clHandler.SetAudit(auditSvc)
@@ -2245,6 +2262,7 @@ func main() {
 			h.SetChannel(channel)
 			h.SetInboundAuthToken(cfg.SMSInboundAuthToken)
 			h.SetTenants(tenants)
+			h.SetSOSRuns(sosRuns)
 			h.SetAccounts(providerAccounts)
 			h.SetOOB(oobSvc)
 			h.SetStore(dataStore)
@@ -3078,6 +3096,11 @@ func main() {
 	r.With(hubauth.RequireRole(hubauth.RoleOperator)).Post("/api/alerts", escHandler.TriggerAlert)
 	r.Get("/api/alerts/{id}", escHandler.GetAlert)
 	r.With(hubauth.RequireRole(hubauth.RoleOperator)).Post("/api/alerts/{id}/ack", escHandler.AcknowledgeAlert)
+	// SOS runs (C10): the list for everyone in the tenant; cancelling one stops its alert for
+	// good, so it is an operator's (MESHSAT-1189 floor, as acknowledging an alert).
+	sosRunHandler := api.NewSOSRunHandler(dataStore, sosRuns)
+	r.Get("/api/sos/runs", sosRunHandler.List)
+	r.With(hubauth.RequireRole(hubauth.RoleOperator)).Post("/api/sos/runs/{sos_id}/cancel", sosRunHandler.Cancel)
 
 	// Alert rules (configurable alerting engine, MESHSAT-313)
 	alertRuleHandler := api.NewAlertRuleHandler(dataStore)
