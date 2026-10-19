@@ -426,6 +426,12 @@ data:
   # separate Role in that namespace (k8s/tak/rbac-hub.yaml).
   HUB_TAK_NAMESPACE: "meshsat-tak"
 
+  # hub_msg, bridge-to-bridge texts with evidence (docs/bridge-hub-protocol.md
+  # "Messaging v1", MESHSAT-1584). On here, it does nothing until a bridge
+  # publishes on its msg/out, which only a Bridge with MESHSAT_HUB_MSG_ROUTE on
+  # does; nothing else in the Hub changes with it.
+  HUB_MSG_ROUTE_ENABLED: "true"
+
   # Transactional email. nllei01smtp-dkim01 authorises by IP and signs with DKIM
   # for meshsat.net; the Hub's tunnel address 10.255.200.37 is in its mynetworks
   # AND in opendkim's trusted.hosts -- reaching the relay and being signed by it

@@ -341,9 +341,13 @@ HeMB-NG stage 2 (decisions C3 to C6a, C13, C4.1). The test vectors are
 one of them as production code.
 
 **State:** the Hub implements it behind `HUB_MSG_ROUTE_ENABLED` (default
-`false`; with it off nothing subscribes to these topics). The Bridge, MeshSat
-Android and MeshSat iOS do not speak it yet. Recipients are `bridge:<id>`
-only; a phone is a bridge principal (C4.1), so phones use the same topics.
+`false`; with it off nothing subscribes to these topics; on in the production
+configmap since 19 Oct 2026). The Bridge speaks it behind `MESHSAT_HUB_MSG_ROUTE`
+(default `false`, meshsat `6a28669f`): a contact's MQTT address `bridge:<id>` is
+a delivery-intent route, and what arrives on `msg/in` is committed, answered
+and handed to the access rules as interface `hub_0`. MeshSat Android and
+MeshSat iOS do not speak it yet. Recipients are `bridge:<id>` only; a phone is
+a bridge principal (C4.1), so phones use the same topics.
 
 ### Topics
 
