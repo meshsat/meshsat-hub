@@ -580,7 +580,9 @@ nor be mistaken for one. A cancel that cannot be taken changes nothing.
 | `{ns}/bridge/{id}/sos/ack` | 1 | no | Hub only | the Hub has the start or the cancel |
 | `{ns}/bridge/{id}/hub/caps` | 1 | yes | Hub only | what this Hub understands |
 
-The broker refuses a bridge's own `sos/ack` and `hub/caps`.
+The broker refuses a bridge's own `sos/ack` and `hub/caps`. The Hub answers every birth on
+`hub/caps`, a retained replay included: a Hub that starts, or changes `HUB_SOS_V2_ENABLED`, while a
+bridge stays connected sees only that bridge's retained birth.
 
 ```json
 {"v":2,"kind":"start","sos_id":"…","run_start_ms":1792330000123,"text":"Injured, need help","lat":52.16,"lon":4.49,"device_id":"","timestamp":1792330000}
@@ -590,7 +592,10 @@ The broker refuses a bridge's own `sos/ack` and `hub/caps`.
 ```
 
 The third line is `sos/ack`. Its `state` is the run's after the event: a start
-that arrives after its cancel is answered `cancelled`.
+that arrives after its cancel is answered `cancelled`. Every Hub replica takes each
+`sos/event`, so an event counts twice in `rev` and is acked twice; the sender takes the
+first ack of the kind it waits for and ignores the rest. An ack for another `sos_id` changes
+nothing.
 
 ### Run state
 
@@ -600,8 +605,9 @@ that arrives after its cancel is answered `cancelled`.
 - A cancel makes it `cancelled`. It is terminal: a cancel that arrives before
   its start stores the run cancelled, and a start that follows is recorded and
   pages nobody. A new run, with a new `sos_id`, pages as usual.
-- The run raises one alert, under an id derived from its key. Two replicas, or
-  three bearers, page once. A cancel closes it, as `cancelled`: escalation
+- The run raises one alert, under an id derived from its key
+  (`sos-` and the first 40 hex digits of sha256 of tenant, origin and `sos_id`, each
+  followed by a zero byte but the last). Two replicas, or three bearers, page once. A cancel closes it, as `cancelled`: escalation
   stops and no escalation step reopens it.
 - An operator of the tenant may cancel a run on the Hub
   (`POST /api/sos/runs/{sos_id}/cancel`), logged with who. That closes the
@@ -617,8 +623,19 @@ that arrives after its cancel is answered `cancelled`.
   same on every bearer and after a restart.
 - The hub leg reads "the Hub has it" on the start's `sos/ack`, not on the broker's
   PUBACK.
-- It repeats the cancel on each bearer that carried the start until the cancel's
-  `sos/ack`, or for 24 h, backing off. It keeps that state across a restart.
+- It repeats the cancel until the cancel's `sos/ack`, or for 24 h, backing off, and keeps
+  that state across a restart: the `sos/event` cancel is published again (the Bridge from
+  5 s, the phones from 15 s, doubling to a minute); each frame bearer that carried the `0x07`
+  gets one `0x08`, which its queue tries until it goes, never twice (each costs a credit or
+  an SMS). While the Hub's session is up the `0x08` waits 30 s for the cancel's ack, and the
+  ack stops an `0x08` that has not gone; with no session it is queued at once. A start that
+  went the old way (`0x02`, `mo/decoded`) is cancelled the old way.
+- A frame by SMS is base64 in one SMS of 160 characters, so the Bridge cuts the `0x07`'s
+  words to keep the frame at 120 bytes. A `0x07` or `0x08` carries the bridge id whole (up
+  to 63 bytes): the Hub matches it against the modem's bridge. The phones cut the `0x02`'s
+  bridge id at 16 bytes as before.
+- The sender's SOS stays on until its own cancel: an ack whose `state` is `cancelled` (an
+  operator on the Hub, or a cancel that arrived first) is shown, and stops nothing.
 - `HUB_SOS_V2_ENABLED` (default on) is the Hub's switch for `sos_v2` in
   `hub/caps`. The Hub takes the C10 frames and events either way.
 
