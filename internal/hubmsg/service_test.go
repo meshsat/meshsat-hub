@@ -190,6 +190,7 @@ func TestARepeatReplaysEveryEventAndAConflictIsRefused(t *testing.T) {
 	s.Drain(context.Background())
 	b.take(statusA)
 
+	c.add(DuplicateWindow + time.Second) // a sender asking again, not a replica's copy
 	s.HandleOut(outA, mustJSON(t, sub))
 	s.Drain(context.Background())
 	if got := events(t, b.take(statusA)); classes(got) != "forwarded,completed" {
@@ -313,6 +314,14 @@ func TestTwoReplicasARestartAndAFailedPublish(t *testing.T) {
 	b.take(inB)
 	if got := events(t, b.take(statusA)); classes(got) != "forwarded" {
 		t.Fatalf("after the delivery: %q", classes(got))
+	}
+	// The other replica's copy of the frame, late (seen live on 19 Oct 2026): the events
+	// are not published a second time.
+	c.add(2 * time.Second)
+	two.HandleOut(outA, mustJSON(t, sub))
+	one.Drain(context.Background())
+	if got := b.take(statusA); len(got) != 0 {
+		t.Fatalf("a replica's copy of the frame replayed the events: %s", got)
 	}
 	ack := mustJSON(t, Ack{V: 1, OpID: sub.OpID, Mid: sub.Mid, From: "bridge:kit-a", Result: "stored"})
 	one.HandleAck(ackB, ack)

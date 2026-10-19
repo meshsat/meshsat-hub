@@ -480,7 +480,9 @@ operation ends `hub_refused` with reason `refused_unknown_recipient`.
 
 - Every replica subscribes to `msg/out` and `msg/ack` (the bus gives each
   replica every message). Admission and events are transactions on the
-  shared store, so the second copy changes nothing.
+  shared store, so the second copy changes nothing. A repeat that comes within
+  10 s of its operation's admission is taken for that second copy and replays
+  nothing; a later one replays every event.
 - The outbox leases an operation to one drainer for 30 s; a drainer that dies
   holding it loses the lease. Due times and leases are judged by the
   drainer's clock.

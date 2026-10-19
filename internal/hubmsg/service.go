@@ -43,6 +43,10 @@ const (
 	KeepAfter     = 24 * time.Hour
 )
 
+// DuplicateWindow is how soon after its admission a repeat of an operation is taken for the
+// other replica's copy of the same frame rather than the sender asking again.
+const DuplicateWindow = 10 * time.Second
+
 // handlerTimeout bounds the store work of one bus message, so a stuck database cannot hold
 // the bus client's callback. A message not decided in time is decided on the sender's repeat.
 const handlerTimeout = 10 * time.Second
@@ -107,11 +111,18 @@ func (s *Service) HandleOut(topic string, payload []byte) {
 		return
 	}
 	known := func(recipient string) (bool, error) { return s.bridgeExists(ctx, tenant, BridgeOf(recipient)) }
-	v, _, err := Submit(ctx, s.st, tenant, sender, sub, s.now(), known)
+	v, op, err := Submit(ctx, s.st, tenant, sender, sub, s.now(), known)
 	if err != nil {
 		// Nothing was decided; the sender's next repeat is decided then.
 		slog.Error("hub_msg: submission not decided", "tenant", tenant, "sender", sender, "op_id", sub.OpID, "error", err)
 		submissionsTotal.WithLabelValues("error", "").Inc()
+		return
+	}
+	if v.Result == Replay && op != nil && s.now().Sub(op.CreatedAt) < DuplicateWindow {
+		// Every replica takes every frame from the bus, so the other replica's copy of a
+		// submission admitted a moment ago reads as a repeat. It is the same frame, not the
+		// sender asking again: nothing is replayed (the events go out once, as they are made).
+		submissionsTotal.WithLabelValues("duplicate", "").Inc()
 		return
 	}
 	submissionsTotal.WithLabelValues(v.Result, v.Reason).Inc()
