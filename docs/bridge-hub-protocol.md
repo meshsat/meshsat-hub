@@ -343,7 +343,7 @@ one of them as production code.
 **State:** the Hub implements it behind `HUB_MSG_ROUTE_ENABLED` (default
 `false`; with it off nothing subscribes to these topics; on in the production
 configmap since 19 Oct 2026). The Bridge speaks it behind `MESHSAT_HUB_MSG_ROUTE`
-(default `false`, meshsat `6a28669f`, durable since `ace79651` and `64a3990a`): a contact's
+(default `false`, meshsat `6a28669f`, durable since `ace79651`, `64a3990a` and `fb7d4d29`): a contact's
 MQTT address `bridge:<id>` is a delivery-intent route, and what arrives on
 `msg/in` is committed, answered and handed to the access rules as interface
 `hub_0`. MeshSat Android and
@@ -484,13 +484,18 @@ operation ends `hub_refused` with reason `refused_unknown_recipient`.
   was kept, after a restart too, and the ledger records each `event_id` once.
 - An event it could not even keep makes it repeat the operation's submission,
   unchanged, and the Hub answers with every event again under the same ids.
-- It keeps asking until it keeps the operation's outcome (a valid `completed`,
-  `failed` or `expired` event, or a refusal); a repeat going out does not end
-  it. A process start asks once for every operation without its outcome, since
-  a lost event may have left no mark. A Hub that does not answer is asked less
-  often (30 s, doubling to 30 min).
-- It stops 12 h past `expires_at`, inside the Hub's 24 h, and records that the
-  outcome is unknown (`hub_outcome_unknown`): given up, not recovered.
+- It keeps asking until it keeps the event it lost, or a valid `completed`
+  event (C6's strongest class: nothing a replay could bring raises it). A
+  weaker outcome kept (`failed`, `expired`) ends nothing, because a completion
+  may follow it: the Hub records a stored answer that comes after its expiry. A
+  repeat going out does not end it either.
+- A process start asks once for every operation without a completion, a
+  weaker outcome kept included, since a lost event may have left no mark; it
+  walks them all in batches. A Hub that does not answer is asked less often (30
+  s, doubling to 30 min).
+- It stops 12 h past `expires_at`, inside the Hub's 24 h. For an operation with
+  an event still missing, or no outcome at all, it records that the outcome is
+  unknown (`hub_outcome_unknown`): given up, not recovered.
 - A refusal record is kept the same way, once per reason. The message was not
   carried, so the sender's ledger books the attempt not sent
   (`dropped:hub_refusal:<reason>`) and its next route takes over.
