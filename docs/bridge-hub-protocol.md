@@ -346,9 +346,10 @@ configmap since 19 Oct 2026). The Bridge speaks it behind `MESHSAT_HUB_MSG_ROUTE
 (default `false`, meshsat `6a28669f`, durable since `ace79651`, `64a3990a` and `fb7d4d29`): a contact's
 MQTT address `bridge:<id>` is a delivery-intent route, and what arrives on
 `msg/in` is committed, answered and handed to the access rules as interface
-`hub_0`. MeshSat Android and
-MeshSat iOS do not speak it yet. Recipients are `bridge:<id>` only; a phone is
-a bridge principal (C4.1), so phones use the same topics.
+`hub_0`. MeshSat Android speaks it behind the setting "Messages through the
+Hub" (default off, meshsat-android `b0a84f5`); MeshSat iOS does not speak it
+yet. Recipients are `bridge:<id>` only; a phone is a bridge principal (C4.1),
+so phones use the same topics.
 
 ### Topics
 
@@ -493,6 +494,14 @@ operation ends `hub_refused` with reason `refused_unknown_recipient`.
   weaker outcome kept included, since a lost event may have left no mark; it
   walks them all in batches. A Hub that does not answer is asked less often (30
   s, doubling to 30 min).
+- The Bridge's MQTT session is persistent (clean session off, subscriptions
+  resumed), so the broker keeps its QoS 1 `msg/status` while it is away. A
+  phone's session is clean: what the Hub publishes while the phone is off the
+  Hub is gone, so the phone asks once at **every connect**, not only at a
+  process start, whatever an operation's wait.
+- On a phone the chat row is the ledger: an event is kept and the row's status
+  recomputed in one transaction. A phone's operation lives 24 h
+  (`expires_at` = `mid_expires_at`).
 - It stops 12 h past `expires_at`, inside the Hub's 24 h. For an operation with
   an event still missing, or no outcome at all, it records that the outcome is
   unknown (`hub_outcome_unknown`): given up, not recovered.
