@@ -116,6 +116,12 @@ type Config struct {
 	// tenant's phones, identifying the tenant from the client certificate's
 	// issuer and proxying into that tenant's own OpenTAKServer.
 	//
+	// MsgRouteEnabled turns on hub_msg (HeMB-NG stage 2, MESHSAT-1584): the Hub
+	// admits operations from a bridge's msg/out, delivers them on the recipient's
+	// msg/in and reports on the sender's msg/status. Off by default until the
+	// Bridge and the phones speak it; with it off the topics have no subscriber.
+	MsgRouteEnabled bool `yaml:"msg_route_enabled"`
+
 	// TAKFrontEnabled is the switch. It stays off until the certificate below
 	// exists, because the front cannot be started without one.
 	TAKFrontEnabled bool `yaml:"tak_front_enabled"`
@@ -813,6 +819,10 @@ func Load() (Config, error) {
 			cfg.PlanSendCaps = map[string][2]int{}
 		}
 		cfg.PlanSendCaps[plan] = [2]int{daily, monthly}
+	}
+	// hub_msg (MESHSAT-1584).
+	if v := os.Getenv("HUB_MSG_ROUTE_ENABLED"); v != "" {
+		cfg.MsgRouteEnabled = strings.EqualFold(v, "true") || v == "1"
 	}
 	// The hosted TAK front (MESHSAT-1037).
 	if v := os.Getenv("HUB_TAK_FRONT_ENABLED"); v != "" {

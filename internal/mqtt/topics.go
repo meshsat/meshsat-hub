@@ -434,3 +434,38 @@ func FallbackMessageID(topic string, payload []byte) string {
 func FallbackPositionID(topic string, payload []byte) string {
 	return "pos-" + MessageDigest(topic, payload)
 }
+
+// The Hub app route hub_msg (HeMB-NG stage 2, C4, MESHSAT-1584), on each bridge's own
+// subtree in its tenant's namespace (phones join as bridges):
+//
+//	{ns}/bridge/{id}/msg/out     the bridge submits operations     (the bridge publishes)
+//	{ns}/bridge/{id}/msg/ack     the bridge answers a delivery     (the bridge publishes)
+//	{ns}/bridge/{id}/msg/in      the Hub delivers to the bridge    (only the Hub publishes)
+//	{ns}/bridge/{id}/msg/status  the Hub's evidence for the sender (only the Hub publishes)
+//
+// The broker refuses a bridge's own msg/in and msg/status (internal/bridge NATSPublishDeny,
+// C4.1), so the bridge id in the topic is the principal the Hub may trust.
+
+// MsgOutFilters and MsgAckFilters see every bridge's submissions and answers, in both shapes.
+func MsgOutFilters() []string { return DualFilters("meshsat/bridge/+/msg/out") }
+func MsgAckFilters() []string { return DualFilters("meshsat/bridge/+/msg/ack") }
+
+// TopicMsgInFor is where the Hub delivers an operation to a bridge.
+func TopicMsgInFor(tenantID, bridgeID string) string {
+	return BridgeTopic(tenantID, bridgeID, "msg/in")
+}
+
+// TopicMsgStatusFor is where the Hub publishes a sender bridge's evidence and refusals.
+func TopicMsgStatusFor(tenantID, bridgeID string) string {
+	return BridgeTopic(tenantID, bridgeID, "msg/status")
+}
+
+// ParseMsgTopic splits a msg/out or msg/ack topic of either shape; kind is "out" or "ack".
+// ok is false for any other topic.
+func ParseMsgTopic(topic string) (tenantID, bridgeID, kind string, ok bool) {
+	tenantID, bridgeID, rest, ok := ParseBridgeTopic(topic)
+	if !ok || len(rest) != 2 || rest[0] != "msg" || (rest[1] != "out" && rest[1] != "ack") {
+		return "", "", "", false
+	}
+	return tenantID, bridgeID, rest[1], true
+}

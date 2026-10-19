@@ -58,6 +58,7 @@ import (
 	"github.com/meshsat/meshsat-hub/internal/globalstar"
 	"github.com/meshsat/meshsat-hub/internal/hawkbit"
 	"github.com/meshsat/meshsat-hub/internal/health"
+	"github.com/meshsat/meshsat-hub/internal/hubmsg"
 	"github.com/meshsat/meshsat-hub/internal/ipougrs"
 	"github.com/meshsat/meshsat-hub/internal/leader"
 	"github.com/meshsat/meshsat-hub/internal/lxmfhub"
@@ -2008,6 +2009,26 @@ func main() {
 		relayHandler.SetCA(bridgeCA.CACertPEM())
 	}
 	r.Get("/api/relay/serve", hubmw.WebhookRateLimit(http.HandlerFunc(relayHandler.Serve), 60).ServeHTTP)
+
+	// hub_msg (HeMB-NG stage 2, MESHSAT-1584; contract docs/bridge-hub-protocol.md, "Messaging
+	// v1"). Every replica takes msg/out and msg/ack: the bus hands each replica every message,
+	// and the store's transactions and deterministic event ids make the second copy a no-op.
+	// The outbox (deliveries, expiry, the senders' msg/status) drains on the leader only.
+	if cfg.MsgRouteEnabled {
+		msgSvc := hubmsg.NewService(dataStore, msgBus)
+		for _, f := range hubmqtt.MsgOutFilters() {
+			if err := msgBus.Subscribe(f, 1, msgSvc.HandleOut); err != nil {
+				slog.Warn("hub_msg: msg/out subscription failed on this replica", "filter", f, "error", err)
+			}
+		}
+		for _, f := range hubmqtt.MsgAckFilters() {
+			if err := msgBus.Subscribe(f, 1, msgSvc.HandleAck); err != nil {
+				slog.Warn("hub_msg: msg/ack subscription failed on this replica", "filter", f, "error", err)
+			}
+		}
+		leaderSingletons.Add("hub-msg-outbox", func(ctx context.Context) { msgSvc.Run(ctx, 2*time.Second) })
+		slog.Info("hub_msg: route enabled")
+	}
 	r.Get("/api/relay/connect/{bridge_id}", hubmw.WebhookRateLimit(http.HandlerFunc(relayHandler.Connect), 60).ServeHTTP)
 	// The bridge CA, public, for the Bridge relay client (MESHSAT-613): a
 	// kit must not carry it in its Hub connection (that is the broker's

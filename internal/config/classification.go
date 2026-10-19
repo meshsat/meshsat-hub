@@ -238,6 +238,7 @@ var Classification = map[string]Class{
 	"mail_timeout":                   ClassPlatform,
 	"metrics_token":                  ClassPlatform,
 	"mode":                           ClassPlatform,
+	"msg_route_enabled":              ClassPlatform,
 	"mqtt_broker_url":                ClassPlatform,
 	"mqtt_client_id":                 ClassPlatform,
 	"mqtt_tls_ca":                    ClassPlatform,

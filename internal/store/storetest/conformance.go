@@ -52,6 +52,7 @@ func Run(t *testing.T, open Opener) {
 		{"RNSPaths", testRNSPaths},
 		{"LXMFMessages", testLXMFMessages},
 		{"LXMFHeld", testLXMFHeld},
+		{"MsgOps", testMsgOps},
 		{"OIDCIdentities", testOIDCIdentities},
 		{"TenantOffboarding", testTenantOffboarding},
 		{"TenantQuota", testTenantQuota},

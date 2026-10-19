@@ -1093,4 +1093,60 @@ CREATE TABLE IF NOT EXISTS lxmf_held (
 CREATE INDEX IF NOT EXISTS idx_lxmf_held_tenant_dest ON lxmf_held (tenant_id, destination);
 CREATE INDEX IF NOT EXISTS idx_lxmf_held_tenant_received ON lxmf_held (tenant_id, received_at);
 `},
+	// MESHSAT-1584, HeMB-NG stage 2 C4: the Hub app route hub_msg. An operation is keyed
+	// (tenant, sender principal, op_id) and is its own outbox entry; msg_mids is the
+	// sender's mid index (one content digest per mid); msg_op_events the evidence (C6),
+	// published on the sender's msg/status until published_at is set.
+	{Version: 37, Name: "hub_msg operations", SQL: `
+CREATE TABLE IF NOT EXISTS msg_operations (
+	tenant_id VARCHAR(64) NOT NULL,
+	sender VARCHAR(160) NOT NULL,
+	op_id VARCHAR(36) NOT NULL,
+	mid VARCHAR(36) NOT NULL,
+	recipient VARCHAR(160) NOT NULL,
+	content_type VARCHAR(64) NOT NULL,
+	mid_expires_at BIGINT NOT NULL,
+	expires_at BIGINT NOT NULL,
+	content_sha256 VARCHAR(64) NOT NULL,
+	body BYTEA NOT NULL,
+	state VARCHAR(16) NOT NULL DEFAULT 'pending',
+	conflict BOOLEAN NOT NULL DEFAULT false,
+	rev INTEGER NOT NULL DEFAULT 0,
+	attempts INTEGER NOT NULL DEFAULT 0,
+	next_attempt_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+	leased_until TIMESTAMPTZ NOT NULL DEFAULT '1970-01-01T00:00:00Z',
+	recipient_answer VARCHAR(16) NOT NULL DEFAULT '',
+	created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+	updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+	PRIMARY KEY (tenant_id, sender, op_id)
+);
+CREATE INDEX IF NOT EXISTS idx_msg_operations_mid ON msg_operations (tenant_id, sender, mid);
+CREATE INDEX IF NOT EXISTS idx_msg_operations_due ON msg_operations (next_attempt_at) WHERE recipient_answer = '' AND state NOT IN ('completed', 'failed', 'expired');
+CREATE INDEX IF NOT EXISTS idx_msg_operations_expires ON msg_operations (expires_at);
+CREATE TABLE IF NOT EXISTS msg_mids (
+	tenant_id VARCHAR(64) NOT NULL,
+	sender VARCHAR(160) NOT NULL,
+	mid VARCHAR(36) NOT NULL,
+	content_sha256 VARCHAR(64) NOT NULL,
+	created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+	PRIMARY KEY (tenant_id, sender, mid)
+);
+CREATE TABLE IF NOT EXISTS msg_op_events (
+	event_id VARCHAR(36) PRIMARY KEY,
+	tenant_id VARCHAR(64) NOT NULL,
+	sender VARCHAR(160) NOT NULL,
+	op_id VARCHAR(36) NOT NULL,
+	rev INTEGER NOT NULL,
+	class VARCHAR(16) NOT NULL,
+	kind VARCHAR(48) NOT NULL,
+	reason VARCHAR(64) NOT NULL DEFAULT '',
+	authority VARCHAR(16) NOT NULL,
+	scope VARCHAR(128) NOT NULL DEFAULT '',
+	detail TEXT NOT NULL DEFAULT '',
+	at TIMESTAMPTZ NOT NULL,
+	published_at TIMESTAMPTZ NULL,
+	UNIQUE (tenant_id, sender, op_id, rev)
+);
+CREATE INDEX IF NOT EXISTS idx_msg_op_events_unpublished ON msg_op_events (at) WHERE published_at IS NULL;
+`},
 }

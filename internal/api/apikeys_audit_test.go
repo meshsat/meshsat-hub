@@ -108,3 +108,39 @@ func (m *mockStore) LXMFHeldBytes(context.Context, string) (int64, error) { retu
 func (m *mockStore) PruneLXMFHeld(context.Context, string, time.Time, int64) (int, error) {
 	return 0, nil
 }
+
+func (m *mockStore) AdmitMsgOp(context.Context, *store.MsgOp) (store.MsgOpAdmission, error) {
+	return store.MsgOpAdmission{}, nil
+}
+func (m *mockStore) GetMsgOp(context.Context, string, string, string) (*store.MsgOp, error) {
+	return nil, store.ErrNotFound
+}
+func (m *mockStore) AddMsgOpEvent(context.Context, *store.MsgOpEvent, func([]store.MsgOpEvent) (string, bool)) (bool, error) {
+	return false, nil
+}
+func (m *mockStore) ListMsgOpEvents(context.Context, string, string, string) ([]store.MsgOpEvent, error) {
+	return nil, nil
+}
+func (m *mockStore) ListDueMsgOps(context.Context, time.Time, int) ([]store.MsgOp, error) {
+	return nil, nil
+}
+func (m *mockStore) ClaimMsgOp(context.Context, string, string, string, time.Time, time.Time) (bool, error) {
+	return false, nil
+}
+func (m *mockStore) MarkMsgOpAttempt(context.Context, string, string, string, time.Time) error {
+	return nil
+}
+func (m *mockStore) SetMsgOpRecipientAnswer(context.Context, string, string, string, string) error {
+	return nil
+}
+func (m *mockStore) ListExpiredMsgOps(context.Context, time.Time, int) ([]store.MsgOp, error) {
+	return nil, nil
+}
+func (m *mockStore) ListUnpublishedMsgOpEvents(context.Context, int) ([]store.MsgOpEvent, error) {
+	return nil, nil
+}
+func (m *mockStore) MarkMsgOpEventsPublished(context.Context, []string, time.Time) error { return nil }
+func (m *mockStore) ReplayMsgOpEvents(context.Context, string, string, string) (int, error) {
+	return 0, nil
+}
+func (m *mockStore) PruneMsgOps(context.Context, time.Time) (int, error) { return 0, nil }

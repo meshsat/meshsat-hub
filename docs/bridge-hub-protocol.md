@@ -152,6 +152,8 @@ meshsat/bridge/+/cmd/response
 meshsat/bridge/+/device/+/birth
 meshsat/bridge/+/device/+/death
 meshsat/bridge/+/tak/cot/out
+meshsat/bridge/+/msg/out          (only with HUB_MSG_ROUTE_ENABLED)
+meshsat/bridge/+/msg/ack          (only with HUB_MSG_ROUTE_ENABLED)
 ```
 plus the tenant-prefixed twin of each (`meshsat/+/bridge/+/birth`, `meshsat/+/+/position`, ...).
 
@@ -328,6 +330,160 @@ Supported commands: `send_mt`, `send_text`, `config_update`, `flush_burst`, `pin
 ```
 
 Status values: `ok`, `error`.
+
+## Messaging v1 (`hub_msg`, Hub 2026-10, MESHSAT-1584)
+
+One bridge sends one text to another bridge of its tenant through the Hub, and
+the sender learns what is known about it: forwarded by the Hub, stored by the
+recipient's MeshSat app, refused, or expired. This is the Hub's side of
+HeMB-NG stage 2 (decisions C3 to C6a, C13, C4.1). The test vectors are
+`docs/fixtures/v1` at release `fixtures-v1.1`; `internal/hubmsg` runs every
+one of them as production code.
+
+**State:** the Hub implements it behind `HUB_MSG_ROUTE_ENABLED` (default
+`false`; with it off nothing subscribes to these topics). The Bridge, MeshSat
+Android and MeshSat iOS do not speak it yet. Recipients are `bridge:<id>`
+only; a phone is a bridge principal (C4.1), so phones use the same topics.
+
+### Topics
+
+| Topic | QoS | Retained | Publisher | Payload |
+|-------|-----|----------|-----------|---------|
+| `{root}/bridge/{id}/msg/out` | 1 | No | the bridge `{id}` | a submission |
+| `{root}/bridge/{id}/msg/in` | 1 | No | the Hub only | a delivery to `{id}` |
+| `{root}/bridge/{id}/msg/ack` | 1 | No | the bridge `{id}` | its answer to a delivery |
+| `{root}/bridge/{id}/msg/status` | 1 | No | the Hub only | events and refusals for `{id}`'s operations |
+
+`{root}` is the tenant root (`meshsat`, or `meshsat/{tenant_id}`, C13). The
+sender's principal is the topic's `{id}`: the bridge's NATS user may publish
+`msg/out` and `msg/ack` under its own id and is denied `msg/in` and
+`msg/status` (`natsauth.NATSPublishDeny`), so no payload field names the
+sender.
+
+### Submission (`msg/out`)
+
+```json
+{"v":1,"op_id":"<UUIDv7>","mid":"<UUIDv7>","to":"bridge:kit-b",
+ "content_type":"text/plain;charset=utf-8","mid_expires_at":1792400000000,
+ "expires_at":1792396400000,"content_sha256":"<hex>","body":"Water at the north gate"}
+```
+
+- `mid` is the message, `op_id` this attempt to deliver it through the Hub.
+  Both are UUIDv7 (C1e). Times are Unix milliseconds.
+- `body` is a JSON string; its UTF-8 bytes are what the recipient stores and
+  what `content_sha256` covers (C1d: tag `meshsat.content/1`, then `mid`,
+  `to`, `content_type`, `mid_expires_at`, `body`, each length-prefixed).
+- `expires_at` is when the Hub stops trying, at most `mid_expires_at`.
+- At most 16 KiB of body.
+
+**The Hub's checks, in order.** The first that fails is the answer:
+
+1. `bad_id`: `op_id` or `mid` is not a UUIDv7.
+2. `digest_mismatch`: `content_sha256` is not the digest of the fields as sent.
+3. `bad_expiry`: `expires_at` is later than `mid_expires_at`.
+4. `bad_version`, `bad_recipient` (not `bridge:<id>`), `bad_content_type`, `too_large`.
+5. The key `(tenant, sender, op_id)`. If it is already stored:
+   - the same `to`, `mid`, `content_sha256` and `expires_at`: **every** event
+     of the operation is published again (`replay_all_events`), even after its
+     deadline, because the sender may have lost any of them;
+   - anything else: `op_conflict`.
+6. For a new key only:
+   - `expired_at_hub` if `expires_at` has passed;
+   - `refused_unknown_recipient` if `to` is not a bridge of the tenant;
+   - `mid_conflict` if the sender has this `mid` under another digest.
+7. Otherwise the operation is stored, admitted and delivered by the outbox.
+
+A refusal is published on the sender's `msg/status` as a refusal record, not
+an event. It concerns the submission, not a stored operation, so no reducer
+takes it in:
+
+```json
+{"v":1,"type":"refusal","op_id":"...","mid":"...","reason":"op_conflict"}
+```
+
+A payload that is not JSON is refused `bad_json`. A database error decides
+nothing and publishes nothing; the sender's next repeat is decided then.
+
+### Delivery (`msg/in`)
+
+The submission's fields plus `from`, the sender's principal. `from` and
+`op_id` are the recipient's commit key (C3):
+
+```json
+{"v":1,"op_id":"...","mid":"...","from":"bridge:kit-a","to":"bridge:kit-b",
+ "content_type":"text/plain;charset=utf-8","mid_expires_at":...,"expires_at":...,
+ "content_sha256":"...","body":"Water at the north gate"}
+```
+
+The outbox runs on the leader replica. It publishes a due operation, records
+`hub_forwarded` once the broker acknowledged the publish, and publishes again
+after 15 s, 30 s, 60 s, 120 s and then every 5 min until the recipient answers
+or `expires_at` passes. After `expires_at` it publishes nothing more and
+records `hub_expired`. A delivery the broker had already queued can still
+arrive late; the recipient refuses it at commit (`expired_at_recipient`) or
+stores it, and a late `stored` still completes the operation.
+
+A recipient taken out of the tenant after admission gets nothing; the
+operation ends `hub_refused` with reason `refused_unknown_recipient`.
+
+### Answer (`msg/ack`)
+
+```json
+{"v":1,"op_id":"...","mid":"...","from":"bridge:kit-a","result":"stored","reason":""}
+```
+
+- Sent after the recipient's durable commit (C3), never before.
+- `from` is the delivery's `from`: the origin the recipient committed under.
+  The Hub takes the answer only for an operation of that origin whose
+  recipient is the answering bridge and whose `mid` matches, so `from`
+  selects among the answering bridge's own deliveries and cannot reach anyone
+  else's. Anything else is ignored.
+- `result` is `stored` or `refused`. A refusal's reasons (C5): `op_conflict`,
+  `mid_conflict`, `digest_mismatch`, `bad_expiry`, `bad_id`,
+  `expired_at_recipient`, `receiver_busy`.
+
+| Answer | Event recorded | Outbox |
+|--------|----------------|--------|
+| `stored` | `recipient_app_stored`, class `completed` | stops |
+| `refused` `receiver_busy` | `recipient_busy`, class `unknown` | keeps trying until `expires_at` |
+| `refused` `expired_at_recipient` | `recipient_refused`, class `expired` | stops |
+| `refused`, any other C5 reason | `recipient_refused`, class `failed` | stops |
+
+### Events (`msg/status`)
+
+```json
+{"v":1,"op_id":"...","mid":"...","recipient":"bridge:kit-b","event_id":"<UUIDv7>","rev":2,
+ "class":"completed","kind":"recipient_app_stored","reason":"","authority":"recipient",
+ "scope":"the recipient's MeshSat app","detail":"","at":"2026-10-19T03:10:00Z"}
+```
+
+- The kinds the Hub writes: `hub_forwarded` (`forwarded`), `hub_expired`
+  (`expired`, reason `expired`), `hub_refused` (`failed`, reason
+  `refused_unknown_recipient`), and the recipient's kinds above. The sender's
+  own `hub_broker_puback` (`accepted`) never comes from the Hub.
+- `event_id` is a UUIDv7 derived from the operation's key and the evidence
+  (kind, class, reason), so every replica that records the same evidence
+  makes the same id and it is stored once.
+- The reducer is C6's: the union of the valid events by `event_id`, state =
+  the strongest class (`completed` > `failed` > `expired` > `forwarded` >
+  `unknown` > `accepted` > `pending`), `completed` and `failed` together mark
+  a conflict, `rev` orders the history and decides nothing. The Hub keeps the
+  same projection on its own row.
+- An event is published until the broker acknowledged it; a failed publish is
+  tried again on the next pass, in order.
+
+### Replicas, restarts and retention
+
+- Every replica subscribes to `msg/out` and `msg/ack` (the bus gives each
+  replica every message). Admission and events are transactions on the
+  shared store, so the second copy changes nothing.
+- The outbox leases an operation to one drainer for 30 s; a drainer that dies
+  holding it loses the lease. Due times and leases are judged by the
+  drainer's clock.
+- An operation and its events are kept until 24 h and 120 s after
+  `expires_at`, so a late repeat is answered from the stored row.
+- Metrics: `meshsat_hub_msg_submissions_total{result,reason}`,
+  `meshsat_hub_msg_deliveries_total{result}`, `meshsat_hub_msg_acks_total{kind}`.
 
 ## CoT Type Mapping
 

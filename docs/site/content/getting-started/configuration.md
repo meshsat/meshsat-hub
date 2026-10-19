@@ -36,6 +36,12 @@ Hub reads config from YAML (`config.yaml`) with environment variable overrides (
 | `HUB_TAK_FRONT_ADDR` | `:8089` | Listen address of that front |
 | `HUB_TAK_NAMESPACE` | `meshsat-tak` | Namespace the per-tenant OpenTAKServer instances run in |
 
+### Messaging
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `HUB_MSG_ROUTE_ENABLED` | `false` | Carry bridge-to-bridge texts on `msg/out`, `msg/in`, `msg/ack` and `msg/status` (`hub_msg`, see the protocol's "Messaging v1"). Off until the Bridge and the apps speak it |
+
 ### APRS-IS
 
 | Variable | Default | Description |

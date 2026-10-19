@@ -584,6 +584,14 @@ var postAlterMigrations = []string{
 	`CREATE TABLE IF NOT EXISTS tak_users (tenant_id TEXT NOT NULL, username TEXT NOT NULL, callsign TEXT NOT NULL DEFAULT '', active INTEGER NOT NULL DEFAULT 1, cert_serial TEXT NOT NULL DEFAULT '', cert_not_after TEXT NOT NULL DEFAULT '', revoked_serial TEXT NOT NULL DEFAULT '', enroll_token_hash TEXT NOT NULL DEFAULT '', enroll_expires_at TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL DEFAULT (datetime('now')), updated_at TEXT NOT NULL DEFAULT (datetime('now')), PRIMARY KEY (tenant_id, username))`,
 	`CREATE INDEX IF NOT EXISTS idx_tak_users_serial ON tak_users (cert_serial)`,
 	`CREATE INDEX IF NOT EXISTS idx_tak_users_enroll ON tak_users (enroll_token_hash)`,
+	// Mirrors postgres migration 37: the Hub app route hub_msg (MESHSAT-1584, HeMB-NG C4).
+	`CREATE TABLE IF NOT EXISTS msg_operations (tenant_id TEXT NOT NULL, sender TEXT NOT NULL, op_id TEXT NOT NULL, mid TEXT NOT NULL, recipient TEXT NOT NULL, content_type TEXT NOT NULL, mid_expires_at INTEGER NOT NULL, expires_at INTEGER NOT NULL, content_sha256 TEXT NOT NULL, body BLOB NOT NULL, state TEXT NOT NULL DEFAULT 'pending', conflict INTEGER NOT NULL DEFAULT 0, rev INTEGER NOT NULL DEFAULT 0, attempts INTEGER NOT NULL DEFAULT 0, next_attempt_at TEXT NOT NULL DEFAULT (datetime('now')), leased_until TEXT NOT NULL DEFAULT '1970-01-01 00:00:00', recipient_answer TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL DEFAULT (datetime('now')), updated_at TEXT NOT NULL DEFAULT (datetime('now')), PRIMARY KEY (tenant_id, sender, op_id))`,
+	`CREATE INDEX IF NOT EXISTS idx_msg_operations_mid ON msg_operations (tenant_id, sender, mid)`,
+	`CREATE INDEX IF NOT EXISTS idx_msg_operations_due ON msg_operations (next_attempt_at)`,
+	`CREATE INDEX IF NOT EXISTS idx_msg_operations_expires ON msg_operations (expires_at)`,
+	`CREATE TABLE IF NOT EXISTS msg_mids (tenant_id TEXT NOT NULL, sender TEXT NOT NULL, mid TEXT NOT NULL, content_sha256 TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT (datetime('now')), PRIMARY KEY (tenant_id, sender, mid))`,
+	`CREATE TABLE IF NOT EXISTS msg_op_events (event_id TEXT PRIMARY KEY, tenant_id TEXT NOT NULL, sender TEXT NOT NULL, op_id TEXT NOT NULL, rev INTEGER NOT NULL, class TEXT NOT NULL, kind TEXT NOT NULL, reason TEXT NOT NULL DEFAULT '', authority TEXT NOT NULL, scope TEXT NOT NULL DEFAULT '', detail TEXT NOT NULL DEFAULT '', at TEXT NOT NULL, published_at TEXT NULL, UNIQUE (tenant_id, sender, op_id, rev))`,
+	`CREATE INDEX IF NOT EXISTS idx_msg_op_events_unpublished ON msg_op_events (published_at, at)`,
 }
 
 // lateAlterMigrations alter tables created in postAlterMigrations.

@@ -94,6 +94,13 @@ var UnscopedByDesign = map[string]string{ // #nosec G101 -- method names and the
 	"ClaimRefund":            "drainer claim by refund id",
 	"ReleaseRefund":          "drainer claim by refund id",
 	"DeleteRefund":           "platform-admin withdrawal of a wrong figure",
+	// hub_msg (MESHSAT-1584): the outbox drainer runs on the leader for every tenant; each row
+	// it reads names its tenant and everything it publishes goes under that tenant's root.
+	"ListDueMsgOps":              "the hub_msg drainer works the whole outbox",
+	"ListExpiredMsgOps":          "the hub_msg expiry sweep works the whole outbox",
+	"ListUnpublishedMsgOpEvents": "the hub_msg status drainer works the whole outbox",
+	"MarkMsgOpEventsPublished":   "drainer bookkeeping by event id, read from the rows above",
+	"PruneMsgOps":                "retention runs over every tenant",
 }
 
 // UnfilteredByDesign lists the store functions whose SQL touches a table with
@@ -154,4 +161,8 @@ var UnfilteredByDesign = map[string]string{ // #nosec G101 -- function names and
 	"ClaimRefund":            "drainer claim by refund id",
 	"ReleaseRefund":          "drainer claim by refund id",
 	"DeleteRefund":           "platform-admin withdrawal of a wrong figure",
+	// hub_msg (MESHSAT-1584): the leader's outbox drainer, across tenants on purpose.
+	"listMsgOps":                 "helper; ListDueMsgOps and ListExpiredMsgOps, the drainer's cross-tenant lists",
+	"ListUnpublishedMsgOpEvents": "the hub_msg status drainer works the whole outbox",
+	"MarkMsgOpEventsPublished":   "drainer bookkeeping by event id, read from ListUnpublishedMsgOpEvents",
 }

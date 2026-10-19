@@ -307,6 +307,46 @@ type Store interface {
 	// rows until the tenant holds at most maxBytes; it returns how many went.
 	PruneLXMFHeld(ctx context.Context, tenantID string, cutoff time.Time, maxBytes int64) (int, error)
 
+	// The Hub app route hub_msg (HeMB-NG stage 2, C4, MESHSAT-1584): operations keyed
+	// (tenant, sender, op_id), each its own outbox entry, and their evidence (C6).
+	//
+	// AdmitMsgOp stores a new operation and its sender's mid in one transaction. A known
+	// key answers MsgOpExisting with the stored row, and a known mid with another content
+	// digest MsgOpMidConflict; neither stores anything. Two replicas admitting the same
+	// operation at once store it once.
+	AdmitMsgOp(ctx context.Context, op *MsgOp) (MsgOpAdmission, error)
+	// GetMsgOp returns ErrNotFound for an unknown key.
+	GetMsgOp(ctx context.Context, tenantID, sender, opID string) (*MsgOp, error)
+	// AddMsgOpEvent adds one event to its operation and stores the operation's new
+	// projection, in one transaction: ev.Rev becomes the operation's next revision, and
+	// project gets every event of the operation, the new one included. False, and nothing
+	// changed, when the event id is already stored. ErrNotFound for an unknown operation.
+	AddMsgOpEvent(ctx context.Context, ev *MsgOpEvent, project func([]MsgOpEvent) (state string, conflict bool)) (bool, error)
+	// ListMsgOpEvents lists an operation's events by revision.
+	ListMsgOpEvents(ctx context.Context, tenantID, sender, opID string) ([]MsgOpEvent, error)
+	// ListDueMsgOps lists operations the outbox should publish now: not final, no answer
+	// from the recipient, due, not leased, not past their deadline.
+	ListDueMsgOps(ctx context.Context, now time.Time, limit int) ([]MsgOp, error)
+	// ClaimMsgOp leases one operation to one drainer until the given time; false means
+	// another drainer holds it at now. The caller's clock decides, as in ListDueMsgOps.
+	ClaimMsgOp(ctx context.Context, tenantID, sender, opID string, now, until time.Time) (bool, error)
+	// MarkMsgOpAttempt counts a publication, sets when to publish again and drops the lease.
+	MarkMsgOpAttempt(ctx context.Context, tenantID, sender, opID string, next time.Time) error
+	// SetMsgOpRecipientAnswer records the recipient's answer ("stored" or "refused"); the
+	// outbox publishes the operation no more.
+	SetMsgOpRecipientAnswer(ctx context.Context, tenantID, sender, opID, answer string) error
+	// ListExpiredMsgOps lists operations that are not final and whose deadline is past.
+	ListExpiredMsgOps(ctx context.Context, now time.Time, limit int) ([]MsgOp, error)
+	// ListUnpublishedMsgOpEvents lists events the senders' msg/status has not taken yet.
+	ListUnpublishedMsgOpEvents(ctx context.Context, limit int) ([]MsgOpEvent, error)
+	MarkMsgOpEventsPublished(ctx context.Context, eventIDs []string, at time.Time) error
+	// ReplayMsgOpEvents marks every event of an operation unpublished again, so a sender
+	// that repeated its submission gets all of them (C4); it returns how many.
+	ReplayMsgOpEvents(ctx context.Context, tenantID, sender, opID string) (int, error)
+	// PruneMsgOps deletes operations whose deadline was before cutoff, with their events
+	// and the mids no operation uses any more; it returns how many operations went.
+	PruneMsgOps(ctx context.Context, cutoff time.Time) (int, error)
+
 	// Device groups (fleet organization)
 	CreateDeviceGroup(ctx context.Context, tenantID string, g *DeviceGroup) error
 	GetDeviceGroup(ctx context.Context, tenantID string, id string) (*DeviceGroup, error)
