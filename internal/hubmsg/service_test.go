@@ -190,7 +190,7 @@ func TestARepeatReplaysEveryEventAndAConflictIsRefused(t *testing.T) {
 	s.Drain(context.Background())
 	b.take(statusA)
 
-	c.add(DuplicateWindow + time.Second) // a sender asking again, not a replica's copy
+	c.add(time.Second) // a sender asking again a moment later: no age decides it (C4)
 	s.HandleOut(outA, mustJSON(t, sub))
 	s.Drain(context.Background())
 	if got := events(t, b.take(statusA)); classes(got) != "forwarded,completed" {
@@ -309,19 +309,22 @@ func TestTwoReplicasARestartAndAFailedPublish(t *testing.T) {
 	one, two := newService(st, b, c), newService(st, b, c)
 	sub := submission(t, c.t, "bridge:kit-b", "twice")
 	one.HandleOut(outA, mustJSON(t, sub))
-	two.HandleOut(outA, mustJSON(t, sub))
+	two.HandleOut(outA, mustJSON(t, sub)) // the other replica's copy, before anything went out
 	one.Drain(context.Background())
 	b.take(inB)
-	if got := events(t, b.take(statusA)); classes(got) != "forwarded" {
-		t.Fatalf("after the delivery: %q", classes(got))
+	first := events(t, b.take(statusA))
+	if classes(first) != "forwarded" {
+		t.Fatalf("after the delivery: %q", classes(first))
 	}
-	// The other replica's copy of the frame, late (seen live on 19 Oct 2026): the events
-	// are not published a second time.
+	// The other replica's copy of the frame, late (seen live on 19 Oct 2026): it reads as a
+	// repeat and the events go out once more, under the same ids, which the sender keeps
+	// once. Two copies before one drain publish them once.
 	c.add(2 * time.Second)
 	two.HandleOut(outA, mustJSON(t, sub))
+	one.HandleOut(outA, mustJSON(t, sub))
 	one.Drain(context.Background())
-	if got := b.take(statusA); len(got) != 0 {
-		t.Fatalf("a replica's copy of the frame replayed the events: %s", got)
+	if got := events(t, b.take(statusA)); classes(got) != "forwarded" || got[0].EventID != first[0].EventID {
+		t.Fatalf("a late copy and a repeat replayed %q", classes(got))
 	}
 	ack := mustJSON(t, Ack{V: 1, OpID: sub.OpID, Mid: sub.Mid, From: "bridge:kit-a", Result: "stored"})
 	one.HandleAck(ackB, ack)

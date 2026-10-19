@@ -343,9 +343,10 @@ one of them as production code.
 **State:** the Hub implements it behind `HUB_MSG_ROUTE_ENABLED` (default
 `false`; with it off nothing subscribes to these topics; on in the production
 configmap since 19 Oct 2026). The Bridge speaks it behind `MESHSAT_HUB_MSG_ROUTE`
-(default `false`, meshsat `6a28669f`): a contact's MQTT address `bridge:<id>` is
-a delivery-intent route, and what arrives on `msg/in` is committed, answered
-and handed to the access rules as interface `hub_0`. MeshSat Android and
+(default `false`, meshsat `6a28669f`, durable since `ace79651`): a contact's
+MQTT address `bridge:<id>` is a delivery-intent route, and what arrives on
+`msg/in` is committed, answered and handed to the access rules as interface
+`hub_0`. MeshSat Android and
 MeshSat iOS do not speak it yet. Recipients are `bridge:<id>` only; a phone is
 a bridge principal (C4.1), so phones use the same topics.
 
@@ -476,13 +477,35 @@ operation ends `hub_refused` with reason `refused_unknown_recipient`.
 - An event is published until the broker acknowledged it; a failed publish is
   tried again on the next pass, in order.
 
+**What the sender does with them** (the Bridge; a phone does the same):
+
+- It keeps each event as received, once per `event_id`, before its delivery
+  ledger takes it. An event the ledger did not take is applied again, from what
+  was kept, after a restart too, and the ledger records each `event_id` once.
+- An event it could not even keep makes it repeat the operation's submission,
+  unchanged, until an hour past `expires_at`; the Hub answers with every event
+  again under the same ids. A sender that lost events for any other reason
+  asks the same way.
+- A refusal record is kept the same way, once per reason. The message was not
+  carried, so the sender's ledger books the attempt not sent
+  (`dropped:hub_refusal:<reason>`) and its next route takes over.
+
+**What the recipient does with a delivery** after its answer: it hands the
+stored message to its access rules as `hub_0`, once. The work the rules make is
+listed under the stored message, rule, target and destination, in the
+transaction that queues it. A hand-off that could not make all of it stays
+pending, and when tried again it makes only what is missing.
+
 ### Replicas, restarts and retention
 
 - Every replica subscribes to `msg/out` and `msg/ack` (the bus gives each
   replica every message). Admission and events are transactions on the
-  shared store, so the second copy changes nothing. A repeat that comes within
-  10 s of its operation's admission is taken for that second copy and replays
-  nothing; a later one replays every event.
+  shared store, so the second copy changes nothing. The other replica's copy
+  of a submission reads as a repeat, and nothing tells it apart from a sender
+  asking again, so it is answered as one: the replay marks the operation's
+  events for publication again. The drainer publishes them once, however many
+  marks came first. A copy that arrives before the events went out changes
+  nothing, and one that arrives after sends them once more, under the same ids.
 - The outbox leases an operation to one drainer for 30 s; a drainer that dies
   holding it loses the lease. Due times and leases are judged by the
   drainer's clock.
