@@ -343,7 +343,7 @@ one of them as production code.
 **State:** the Hub implements it behind `HUB_MSG_ROUTE_ENABLED` (default
 `false`; with it off nothing subscribes to these topics; on in the production
 configmap since 19 Oct 2026). The Bridge speaks it behind `MESHSAT_HUB_MSG_ROUTE`
-(default `false`, meshsat `6a28669f`, durable since `ace79651`): a contact's
+(default `false`, meshsat `6a28669f`, durable since `ace79651` and `64a3990a`): a contact's
 MQTT address `bridge:<id>` is a delivery-intent route, and what arrives on
 `msg/in` is committed, answered and handed to the access rules as interface
 `hub_0`. MeshSat Android and
@@ -483,9 +483,14 @@ operation ends `hub_refused` with reason `refused_unknown_recipient`.
   ledger takes it. An event the ledger did not take is applied again, from what
   was kept, after a restart too, and the ledger records each `event_id` once.
 - An event it could not even keep makes it repeat the operation's submission,
-  unchanged, until an hour past `expires_at`; the Hub answers with every event
-  again under the same ids. A sender that lost events for any other reason
-  asks the same way.
+  unchanged, and the Hub answers with every event again under the same ids.
+- It keeps asking until it keeps the operation's outcome (a valid `completed`,
+  `failed` or `expired` event, or a refusal); a repeat going out does not end
+  it. A process start asks once for every operation without its outcome, since
+  a lost event may have left no mark. A Hub that does not answer is asked less
+  often (30 s, doubling to 30 min).
+- It stops 12 h past `expires_at`, inside the Hub's 24 h, and records that the
+  outcome is unknown (`hub_outcome_unknown`): given up, not recovered.
 - A refusal record is kept the same way, once per reason. The message was not
   carried, so the sender's ledger books the attempt not sent
   (`dropped:hub_refusal:<reason>`) and its next route takes over.
