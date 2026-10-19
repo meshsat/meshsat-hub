@@ -34,9 +34,10 @@ func birthOf(id string, at time.Time) []byte {
 	return b
 }
 
-// Every fresh birth is answered on the bridge's retained hub/caps, saying sos_v2 when the Hub
-// takes the C10 SOS frames and events; a stale (retained) birth is not, and a Hub that was
-// not told says nothing (HeMB-NG C10).
+// Every birth is answered on the bridge's retained hub/caps, saying sos_v2 when the Hub takes
+// the C10 SOS frames and events; a stale (retained) birth too, since that is all a Hub that
+// starts sees of a bridge that stayed connected; a Hub that was not told says nothing
+// (HeMB-NG C10).
 func TestABirthIsAnsweredWithTheHubsCaps(t *testing.T) {
 	for _, c := range []struct {
 		name  string
@@ -47,7 +48,7 @@ func TestABirthIsAnsweredWithTheHubsCaps(t *testing.T) {
 		{"sos_v2 on", ptr(true), false, []any{"sos_v2"}},
 		{"sos_v2 off", ptr(false), false, []any{}},
 		{"not told", nil, false, nil},
-		{"a stale birth", ptr(true), true, nil},
+		{"a stale birth", ptr(true), true, []any{"sos_v2"}},
 	} {
 		mb := &capsBus{mockBus: newMockBus()}
 		sub := NewSubscriber(mb, newMockStore(), nil)

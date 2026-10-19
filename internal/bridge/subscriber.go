@@ -332,8 +332,11 @@ func (s *Subscriber) handleBridgeBirth(topic string, payload []byte) {
 	}
 
 	// What this Hub understands, for the bridge to read at once (C10: sos_v2). Every replica
-	// publishes the same retained value; the second copy replaces the first.
-	if !stale && s.sosV2 != nil {
+	// publishes the same retained value; the second copy replaces the first. A retained
+	// replay is answered too: a Hub that starts (or changes HUB_SOS_V2_ENABLED) while a
+	// bridge stays connected sees only that bridge's retained birth, and the bridge would
+	// otherwise not learn the caps until it reconnects.
+	if s.sosV2 != nil {
 		if err := sos.PublishCaps(s.mqtt, tenantID, bridgeID, *s.sosV2); err != nil {
 			slog.Warn("bridge: hub/caps publish failed", "error", err, "bridge", bridgeID)
 		}
