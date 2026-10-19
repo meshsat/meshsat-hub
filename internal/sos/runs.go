@@ -286,7 +286,13 @@ const mqttHandlerTimeout = 10 * time.Second
 
 // HandleMQTT takes a start or cancel from a bridge's sos/event. The bridge id is the topic's,
 // which the broker enforced. A start that cannot be taken as its run still pages the old way.
+// The work runs off the bus's handler goroutine: it publishes (the ack, the page), and a publish
+// waits for a PUBACK the MQTT client cannot read while a handler holds its router.
 func (r *Runs) HandleMQTT(topic string, payload []byte) {
+	go r.handleMQTT(topic, append([]byte(nil), payload...))
+}
+
+func (r *Runs) handleMQTT(topic string, payload []byte) {
 	tenantID, bridgeID, ok := hubmqtt.ParseSOSEventTopic(topic)
 	if !ok {
 		return

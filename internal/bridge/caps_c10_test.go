@@ -2,16 +2,32 @@ package bridge
 
 import (
 	"encoding/json"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/meshsat/meshsat-hub/internal/protocol"
 )
 
-// capsBus is the mock bus that keeps what is published as JSON.
+// capsBus is the mock bus that keeps what is published as JSON; with hold set, each publish
+// waits for it to close, as a real publish waits for its PUBACK.
 type capsBus struct {
 	*mockBus
+	mu   sync.Mutex
 	pubs []capsPub
+	hold chan struct{}
+}
+
+func (c *capsBus) capsOn(topic string) []capsPub {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	var out []capsPub
+	for _, p := range c.pubs {
+		if p.topic == topic {
+			out = append(out, p)
+		}
+	}
+	return out
 }
 
 type capsPub struct {
@@ -21,10 +37,15 @@ type capsPub struct {
 }
 
 func (c *capsBus) PublishJSON(topic string, _ byte, retained bool, v any) error {
+	if c.hold != nil {
+		<-c.hold
+	}
 	b, _ := json.Marshal(v)
 	var m map[string]any
 	_ = json.Unmarshal(b, &m)
+	c.mu.Lock()
 	c.pubs = append(c.pubs, capsPub{topic, retained, m})
+	c.mu.Unlock()
 	return nil
 }
 
@@ -63,12 +84,15 @@ func TestABirthIsAnsweredWithTheHubsCaps(t *testing.T) {
 			at = at.Add(-time.Hour)
 		}
 		mb.deliver("meshsat/bridge/mule01/birth", birthOf("mule01", at))
-		var caps []capsPub
-		for _, p := range mb.pubs {
-			if p.topic == "meshsat/bridge/mule01/hub/caps" {
-				caps = append(caps, p)
-			}
+		const topic = "meshsat/bridge/mule01/hub/caps"
+		deadline := time.Now().Add(2 * time.Second)
+		for c.want != nil && len(mb.capsOn(topic)) == 0 && time.Now().Before(deadline) {
+			time.Sleep(5 * time.Millisecond)
 		}
+		if c.want == nil {
+			time.Sleep(50 * time.Millisecond)
+		}
+		caps := mb.capsOn(topic)
 		if c.want == nil {
 			if len(caps) != 0 {
 				t.Errorf("%s: published %+v", c.name, caps)
@@ -86,6 +110,39 @@ func TestABirthIsAnsweredWithTheHubsCaps(t *testing.T) {
 }
 
 func ptr(b bool) *bool { return &b }
+
+// The birth handler never waits for the caps publish: it runs on the MQTT client's router, and
+// a publish waits for a PUBACK the client cannot read while a handler holds it. A Hub that
+// started with retained births waiting hung there and never opened its port (20 Oct 2026).
+func TestTheBirthHandlerNeverWaitsForTheCapsPublish(t *testing.T) {
+	mb := &capsBus{mockBus: newMockBus(), hold: make(chan struct{})}
+	sub := NewSubscriber(mb, newMockStore(), nil)
+	sub.SetSOSV2(true)
+	if err := sub.Start(); err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan struct{})
+	go func() {
+		for i := 0; i < 5; i++ {
+			mb.deliver("meshsat/bridge/mule01/birth", birthOf("mule01", time.Now().Add(-time.Hour)))
+		}
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		close(mb.hold)
+		t.Fatal("the birth handler waited for the caps publish")
+	}
+	close(mb.hold)
+	deadline := time.Now().Add(2 * time.Second)
+	for len(mb.capsOn("meshsat/bridge/mule01/hub/caps")) < 5 && time.Now().Before(deadline) {
+		time.Sleep(5 * time.Millisecond)
+	}
+	if n := len(mb.capsOn("meshsat/bridge/mule01/hub/caps")); n != 5 {
+		t.Fatalf("%d caps published, want 5", n)
+	}
+}
 
 // A bridge never publishes the Hub's answers on its own subtree: sos/ack and hub/caps, in
 // both topic shapes; it still publishes its sos/event and reads all three (C10).

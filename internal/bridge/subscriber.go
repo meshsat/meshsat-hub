@@ -335,11 +335,16 @@ func (s *Subscriber) handleBridgeBirth(topic string, payload []byte) {
 	// publishes the same retained value; the second copy replaces the first. A retained
 	// replay is answered too: a Hub that starts (or changes HUB_SOS_V2_ENABLED) while a
 	// bridge stays connected sees only that bridge's retained birth, and the bridge would
-	// otherwise not learn the caps until it reconnects.
+	// otherwise not learn the caps until it reconnects. Off the bus's handler goroutine: a
+	// publish waits for its PUBACK, which the MQTT client cannot read while this handler holds
+	// its router, and at start every retained birth arrives at once (the replica never started).
 	if s.sosV2 != nil {
-		if err := sos.PublishCaps(s.mqtt, tenantID, bridgeID, *s.sosV2); err != nil {
-			slog.Warn("bridge: hub/caps publish failed", "error", err, "bridge", bridgeID)
-		}
+		on := *s.sosV2
+		go func() {
+			if err := sos.PublishCaps(s.mqtt, tenantID, bridgeID, on); err != nil {
+				slog.Warn("bridge: hub/caps publish failed", "error", err, "bridge", bridgeID)
+			}
+		}()
 	}
 
 	// Inject Reticulum route for bridges that report their identity.

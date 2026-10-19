@@ -21,6 +21,7 @@ import (
 type capBus struct {
 	mu   sync.Mutex
 	pubs []capPub
+	hold chan struct{} // set: each publish waits for it to close, as a real one waits for its PUBACK
 }
 
 type capPub struct {
@@ -35,6 +36,9 @@ func (b *capBus) IsConnected() bool                                             
 func (b *capBus) Subscribe(string, byte, bus.MessageHandler) error              { return nil }
 func (b *capBus) QueueSubscribe(string, byte, string, bus.MessageHandler) error { return nil }
 func (b *capBus) Publish(topic string, _ byte, retained bool, p []byte) error {
+	if b.hold != nil {
+		<-b.hold
+	}
 	var m map[string]any
 	_ = json.Unmarshal(p, &m)
 	b.mu.Lock()
@@ -343,7 +347,7 @@ func TestMQTTEventsFollowTheFixture(t *testing.T) {
 	for _, c := range f.MQTT {
 		before := len(h.bus.on("/mo/decoded"))
 		payload, _ := json.Marshal(c.JSON)
-		h.runs.HandleMQTT(topic, payload)
+		h.runs.handleMQTT(topic, payload)
 		run, err := h.st.GetSOSRun(ctx, tenant, Origin("kit-a"), f.Legacy.SOSID)
 		legacy := len(h.bus.on("/mo/decoded")) - before
 		switch {
@@ -367,7 +371,7 @@ func TestMQTTEventsFollowTheFixture(t *testing.T) {
 	}
 	// A refused cancel changes nothing and pages nobody.
 	before := len(h.bus.pubs)
-	h.runs.HandleMQTT(topic, []byte(`{"v":2,"kind":"cancel","sos_id":"`+f.Legacy.SOSID+`"}`))
+	h.runs.handleMQTT(topic, []byte(`{"v":2,"kind":"cancel","sos_id":"`+f.Legacy.SOSID+`"}`))
 	if len(h.bus.pubs) != before {
 		t.Error("a refused cancel published something")
 	}
@@ -403,5 +407,35 @@ func TestAnotherCopyOfTheCancelClosesAnAlertLeftOpen(t *testing.T) {
 	a, err := h.st.GetAlert(ctx, tenant, AlertID(tenant, Origin("kit-a"), f.Legacy.SOSID))
 	if err != nil || a.State != store.AlertStateCancelled {
 		t.Fatalf("alert %+v %v", a, err)
+	}
+}
+
+// The sos/event handler never holds the bus's handler goroutine: it publishes (the ack), and a
+// publish waits for a PUBACK the MQTT client cannot read while a handler holds its router.
+func TestTheEventHandlerNeverHoldsTheBus(t *testing.T) {
+	f := loadFixture(t)
+	h := newHarness(t)
+	h.bus.hold = make(chan struct{})
+	payload, _ := json.Marshal(f.MQTT[0].JSON)
+	done := make(chan struct{})
+	go func() {
+		for i := 0; i < 3; i++ {
+			h.runs.HandleMQTT("meshsat/bridge/kit-a/sos/event", payload)
+		}
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		close(h.bus.hold)
+		t.Fatal("HandleMQTT waited for its publish")
+	}
+	close(h.bus.hold)
+	deadline := time.Now().Add(5 * time.Second)
+	for len(h.bus.on("/sos/ack")) < 3 && time.Now().Before(deadline) {
+		time.Sleep(5 * time.Millisecond)
+	}
+	if n := len(h.bus.on("/sos/ack")); n != 3 {
+		t.Fatalf("%d acks, want 3", n)
 	}
 }
