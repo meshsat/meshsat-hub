@@ -12436,6 +12436,10 @@
                     "description": "AlertID is the escalation alert the run raised; empty until one exists.",
                     "type": "string"
                 },
+                "alert_pending": {
+                    "description": "AlertPending is the alert work the run's state still owes (raise it while active,\nclose it once cancelled), set in the same transaction as the state change and cleared\nonly once that work succeeded for the run's rev. The reconciler finishes what an\napply could not, so an ack the sender got always stands for durable work.",
+                    "type": "boolean"
+                },
                 "bearers": {
                     "description": "Bearers lists every bearer a start or cancel arrived over, in order, each once.",
                     "type": "string"
