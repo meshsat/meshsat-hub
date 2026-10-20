@@ -6,7 +6,7 @@
 // The victim tenant in the isolation cases is store.DefaultTenantID on
 // purpose: a store that lost its tenant dimension collapses onto the
 // default tenant, and a test between two other tenants passes by accident
-// (.claude/rules/tenancy.md).
+// (the lesson of the deadman, webhook and rate-limit isolation fixes).
 package directorytest
 
 import (
