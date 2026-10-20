@@ -791,8 +791,9 @@ func policyModel(t *testing.T, s *directory.SQLStore) {
 }
 
 // concurrentRotations (r19 C7-R5): replicas asked to rotate at once agree
-// on one key, the tenant gets one record from the old key, and that key is
-// the one made current.
+// on one key, each tenant gets one record from the old key (two callers
+// racing on a tenant's insert do not fail: the CI run of 8d84392c on
+// Postgres did), and that key is the one made current.
 func concurrentRotations(t *testing.T, s *directory.SQLStore) {
 	ctx := context.Background()
 	kv := &memKV{m: map[string]string{}}
@@ -801,11 +802,12 @@ func concurrentRotations(t *testing.T, s *directory.SQLStore) {
 		t.Fatal(err)
 	}
 	mustPut(t, s, &directory.Contact{TenantID: victim, DisplayName: "A"})
+	mustPut(t, s, &directory.Contact{TenantID: attacker, DisplayName: "B"})
 	oldID := first.KeyID()
 	var mu sync.Mutex
 	keys := map[string]bool{}
 	var wg sync.WaitGroup
-	for i := 0; i < 6; i++ {
+	for i := 0; i < 12; i++ {
 		replica, err := directory.LoadOrCreateTrustAnchor(ctx, kv)
 		if err != nil {
 			t.Fatal(err)
@@ -813,7 +815,7 @@ func concurrentRotations(t *testing.T, s *directory.SQLStore) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			res, err := directory.RotateSigningKey(ctx, kv, s, replica, []string{victim})
+			res, err := directory.RotateSigningKey(ctx, kv, s, replica, []string{victim, attacker})
 			if err != nil && !errors.Is(err, directory.ErrRotationInProgress) {
 				t.Errorf("caller: %v", err)
 			}
@@ -828,9 +830,16 @@ func concurrentRotations(t *testing.T, s *directory.SQLStore) {
 	if len(keys) != 1 {
 		t.Fatalf("callers rotated to %d keys", len(keys))
 	}
-	chain, err := s.RotationChain(ctx, victim, oldID)
-	if err != nil || len(chain) != 1 || !keys[chain[0].NewKeyID] {
-		t.Fatalf("chain %+v %v", chain, err)
+	var chain []directory.Rotation
+	for _, tenant := range []string{victim, attacker} {
+		c, err := s.RotationChain(ctx, tenant, oldID)
+		if err != nil || len(c) != 1 || !keys[c[0].NewKeyID] {
+			t.Fatalf("%s chain %+v %v", tenant, c, err)
+		}
+		chain = c
+	}
+	if v := version(t, s, victim); v != 2 {
+		t.Errorf("victim version %d, want 2 (its contact, one record)", v)
 	}
 	if err := first.Refresh(ctx, kv); err != nil || first.KeyID() != chain[0].NewKeyID {
 		t.Errorf("current key %s (%v), records name %s", first.KeyID(), err, chain[0].NewKeyID)

@@ -56,9 +56,15 @@ type rotationKeyStore interface {
 	CompareAndSetSystemConfig(ctx context.Context, key, old, value string) (bool, error)
 }
 
+// errRotationExists rolls back a record another caller wrote first.
+var errRotationExists = errors.New("directory: the tenant has a record from this key")
+
 // appendRotation writes the tenant's record for oldKeyID -> newKeyID, if it
 // has none yet, in one transaction with the version bump the record takes.
-// seal signs the record at that version.
+// seal signs the record at that version. Two callers that both found none
+// (they converged on one new key) race on the insert: the second one's
+// insert does nothing and its transaction, version bump included, rolls
+// back, so the tenant gets one record and one version.
 func (s *SQLStore) appendRotation(ctx context.Context, tenantID, oldKeyID, newKeyID string, seal func(version int64) (*Envelope, error)) (bool, error) {
 	inserted := false
 	err := s.write(ctx, func(tx *sql.Tx) error {
@@ -84,14 +90,24 @@ func (s *SQLStore) appendRotation(ctx context.Context, tenantID, oldKeyID, newKe
 		if err != nil {
 			return err
 		}
-		if _, err := tx.ExecContext(ctx, `
+		res, err := tx.ExecContext(ctx, `
 			INSERT INTO directory_rotations (tenant_id, version, old_key_id, new_key_id, envelope, created_at)
-			VALUES ($1, $2, $3, $4, $5, $6)`, tenantID, version, oldKeyID, newKeyID, string(raw), now); err != nil {
+			VALUES ($1, $2, $3, $4, $5, $6) ON CONFLICT (tenant_id, old_key_id) DO NOTHING`,
+			tenantID, version, oldKeyID, newKeyID, string(raw), now)
+		if err != nil {
 			return fmt.Errorf("store rotation: %w", err)
+		}
+		if n, err := res.RowsAffected(); err != nil {
+			return err
+		} else if n == 0 {
+			return errRotationExists
 		}
 		inserted = true
 		return nil
 	})
+	if errors.Is(err, errRotationExists) {
+		return false, nil
+	}
 	return inserted, err
 }
 
