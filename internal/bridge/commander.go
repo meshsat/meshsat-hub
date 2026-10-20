@@ -104,6 +104,19 @@ func DirectoryPushCommand(snapshot *directory.Snapshot) protocol.Command {
 	}
 }
 
+// DirectoryPushV2Command ships a v2 directory envelope (contract C7.2) under
+// the same command name as v1: the bridge tells them apart by the
+// envelope's "v". The Hub sends it only to a bridge whose birth lists
+// directory_v2. [MESHSAT-1584 C7]
+func DirectoryPushV2Command(env *directory.Envelope) protocol.Command {
+	payload, _ := json.Marshal(env)
+	return protocol.Command{
+		Cmd:       "directory_push",
+		Payload:   json.RawMessage(payload),
+		Timestamp: time.Now().UTC(),
+	}
+}
+
 // KeyRotateCommand creates a command to push a new encryption key to a bridge or Android device.
 // The bridge stores this key in its keystore; the old key is retired with a grace period. [MESHSAT-447]
 func KeyRotateCommand(channelType, address, keyHex string, version int) protocol.Command {

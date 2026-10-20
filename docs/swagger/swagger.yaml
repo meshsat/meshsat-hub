@@ -10193,10 +10193,17 @@ paths:
         polling this endpoint on reconnect. since is advisory —
         v1 always returns the full snapshot; a future delta
         endpoint (MESHSAT-540) ships incremental changes.
+        With v=2 the answer is the v2 envelope instead (contract
+        C7.2): the signature covers the exact payload bytes, which
+        carry each row's origin and each policy's seeded mark.
       parameters:
       - description: 'Hint: only return data if stored version > since'
         in: query
         name: since
+        type: integer
+      - description: 2 for the v2 envelope (directory.Envelope)
+        in: query
+        name: v
         type: integer
       produces:
       - application/json
@@ -10207,8 +10214,20 @@ paths:
             $ref: '#/definitions/github_com_meshsat_meshsat-hub_internal_directory.Snapshot'
         "304":
           description: Not modified — stored version <= since
+        "400":
+          description: v is neither empty, 1 nor 2
+          schema:
+            additionalProperties:
+              type: string
+            type: object
         "500":
           description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "503":
+          description: v=2 without a signing key
           schema:
             additionalProperties:
               type: string

@@ -669,6 +669,55 @@ nothing.
 - `HUB_SOS_V2_ENABLED` (default on) is the Hub's switch for `sos_v2` in
   `hub/caps`. The Hub takes the C10 frames and events either way.
 
+## Directory (C7, Hub 2026-10, MESHSAT-1584)
+
+The tenant directory (contacts with their addresses and keys, groups, dispatch policies) lives on
+the Hub, on Postgres in production since migration 40. Every row is keyed by its tenant; a write
+bumps the tenant's `version` in the same transaction, so a snapshot's version names exactly the rows
+it carries.
+
+### Address values
+
+| Kind | Accepted | Stored |
+|---|---|---|
+| `TETRA` | an SSI 1-16777214, a 15/16-digit TSI, or `tetra:<ssi>` | `tetra:<ssi>` |
+| `CELL` | digits (optional leading `+`, at most 20) or `cell:<digits>` | `cell:<digits>` |
+| `MQTT` | `bridge:<id>` or `device:<id>` (no `/`, `+`, `#` or space in the id) | as given |
+
+Group kinds: `TEAM`, `ROLE`, `LIST` (default), `MLS_GROUP`.
+
+### The v2 envelope
+
+```json
+{"v":2,"key_id":"<sha256 of the PKIX key, hex>","alg":"ES256","payload":"<base64 of the exact bytes signed>","sig":"<base64 ASN.1>"}
+```
+
+The verifier checks `sig` over the decoded `payload` bytes BEFORE it parses them, so a field it
+does not know is still covered by the signature and ignored afterwards. A v1 snapshot was re-encoded
+by the verifier, so a field the Bridge did not know broke its signature. Test vectors:
+`docs/fixtures/v1/directory_v2.json` (release `fixtures-v1.1`).
+
+A snapshot payload:
+
+```json
+{"type":"snapshot","tenant_id":"<tenant>","version":42,"signed_at":"...",
+ "contacts":[{..., "origin":"hub:<tenant>", "addresses":[{..., "origin":"hub:<tenant>"}]}],
+ "groups":[{..., "kind":"TEAM", "member_ids":[...], "origin":"hub:<tenant>"}],
+ "policies":[{..., "seeded":true, "origin":"hub:<tenant>"}]}
+```
+
+A payload without `type` is a snapshot (the fixture's); a rotation record always names
+`"type":"rotation"`. `origin` is the ownership the Bridge records: a full snapshot replaces only the
+rows of that Hub and tenant. `seeded` marks a precedence default the Hub installed itself; an
+operator's write clears it.
+
+### Where it travels
+
+- `GET /api/v1/directory/snapshot?v=2` answers the envelope (`since=<version>` answers 304 when
+  nothing is newer); without `v` it answers the v1 snapshot as before.
+- The `directory_push` command carries either a v1 snapshot or a v2 envelope; the Bridge tells them
+  apart by `"v"`. The Hub sends v2 only to a Bridge whose birth lists `directory_v2`.
+
 ## CoT Type Mapping
 
 | Entity | CoT Type | MIL-STD-2525 | TAK Appearance |

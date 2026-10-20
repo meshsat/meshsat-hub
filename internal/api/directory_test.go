@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -138,5 +139,80 @@ func TestDirectoryGroupAndPolicyREST(t *testing.T) {
 	}
 	if g, _ := s.GetGroup(ctx, other, "g1"); g != nil {
 		t.Errorf("another tenant ended up with %+v", g)
+	}
+}
+
+type mapKV map[string]string
+
+func (m mapKV) GetSystemConfig(_ context.Context, k string) (string, error) { return m[k], nil }
+func (m mapKV) SetSystemConfig(_ context.Context, k, v string) error        { m[k] = v; return nil }
+
+// TestDirectorySnapshotV2: ?v=2 answers the envelope; it opens under the
+// Hub's key and its payload is the tenant's snapshot at its version.
+func TestDirectorySnapshotV2(t *testing.T) {
+	_, s := directoryTestHandler(t)
+	ctx := context.Background()
+	anchor, err := directory.LoadOrCreateTrustAnchor(ctx, mapKV{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	h := NewDirectoryHandler(s, anchor)
+	if err := s.PutContact(ctx, &directory.Contact{ID: "c1", TenantID: "acme", DisplayName: "One"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.SeedPrecedenceDefaults(ctx, "acme"); err != nil {
+		t.Fatal(err)
+	}
+	get := func(h *DirectoryHandler, query string) *httptest.ResponseRecorder {
+		w := httptest.NewRecorder()
+		h.GetSnapshot(w, directoryRequest(http.MethodGet, "/api/v1/directory/snapshot"+query, "", "acme", ""))
+		return w
+	}
+	w := get(h, "?v=2")
+	if w.Code != http.StatusOK {
+		t.Fatalf("v=2: %d %s", w.Code, w.Body.String())
+	}
+	var env directory.Envelope
+	if err := json.Unmarshal(w.Body.Bytes(), &env); err != nil {
+		t.Fatal(err)
+	}
+	der := anchor.PublicKey()
+	payload, err := directory.OpenEnvelope(&env, func(id string) []byte {
+		if id == directory.KeyID(der) {
+			return der
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	var p struct {
+		Type     string `json:"type"`
+		TenantID string `json:"tenant_id"`
+		Version  int64  `json:"version"`
+		Contacts []struct {
+			ID string `json:"id"`
+		} `json:"contacts"`
+		Policies []struct {
+			Seeded bool `json:"seeded"`
+		} `json:"policies"`
+	}
+	if err := json.Unmarshal(payload, &p); err != nil {
+		t.Fatal(err)
+	}
+	if p.Type != "snapshot" || p.TenantID != "acme" || p.Version != 2 || len(p.Contacts) != 1 || len(p.Policies) != 7 || !p.Policies[0].Seeded {
+		t.Errorf("payload: %+v", p)
+	}
+	if w := get(h, "?v=2&since=2"); w.Code != http.StatusNotModified {
+		t.Errorf("since the current version: %d", w.Code)
+	}
+	if w := get(h, "?v=3"); w.Code != http.StatusBadRequest {
+		t.Errorf("v=3: %d", w.Code)
+	}
+	if w := get(NewDirectoryHandler(s, nil), "?v=2"); w.Code != http.StatusServiceUnavailable {
+		t.Errorf("v=2 without a key: %d", w.Code)
+	}
+	if w := get(h, ""); w.Code != http.StatusOK || !strings.Contains(w.Body.String(), `"signature"`) {
+		t.Errorf("v1 still answers: %d", w.Code)
 	}
 }

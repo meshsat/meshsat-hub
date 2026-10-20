@@ -10092,7 +10092,7 @@
         },
         "/api/v1/directory/snapshot": {
             "get": {
-                "description": "Full tenant directory payload with an ECDSA-P256-SHA256\nsignature over its canonical JSON. Bridges consume via\nthe directory_push MQTT command (MESHSAT-540) or by\npolling this endpoint on reconnect. since is advisory —\nv1 always returns the full snapshot; a future delta\nendpoint (MESHSAT-540) ships incremental changes.",
+                "description": "Full tenant directory payload with an ECDSA-P256-SHA256\nsignature over its canonical JSON. Bridges consume via\nthe directory_push MQTT command (MESHSAT-540) or by\npolling this endpoint on reconnect. since is advisory —\nv1 always returns the full snapshot; a future delta\nendpoint (MESHSAT-540) ships incremental changes.\nWith v=2 the answer is the v2 envelope instead (contract\nC7.2): the signature covers the exact payload bytes, which\ncarry each row's origin and each policy's seeded mark.",
                 "produces": [
                     "application/json"
                 ],
@@ -10106,6 +10106,12 @@
                         "description": "Hint: only return data if stored version \u003e since",
                         "name": "since",
                         "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "2 for the v2 envelope (directory.Envelope)",
+                        "name": "v",
+                        "in": "query"
                     }
                 ],
                 "responses": {
@@ -10118,8 +10124,26 @@
                     "304": {
                         "description": "Not modified — stored version \u003c= since"
                     },
+                    "400": {
+                        "description": "v is neither empty, 1 nor 2",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
                     "500": {
                         "description": "Internal Server Error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "503": {
+                        "description": "v=2 without a signing key",
                         "schema": {
                             "type": "object",
                             "additionalProperties": {

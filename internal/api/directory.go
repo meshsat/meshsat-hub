@@ -197,16 +197,31 @@ func (h *DirectoryHandler) DeleteContact(w http.ResponseWriter, r *http.Request)
 // @Description polling this endpoint on reconnect. since is advisory —
 // @Description v1 always returns the full snapshot; a future delta
 // @Description endpoint (MESHSAT-540) ships incremental changes.
+// @Description With v=2 the answer is the v2 envelope instead (contract
+// @Description C7.2): the signature covers the exact payload bytes, which
+// @Description carry each row's origin and each policy's seeded mark.
 // @Tags directory
 // @Produce json
 // @Param since query integer false "Hint: only return data if stored version > since"
+// @Param v query integer false "2 for the v2 envelope (directory.Envelope)"
 // @Success 200 {object} directory.Snapshot
 // @Success 304 "Not modified — stored version <= since"
+// @Failure 400 {object} map[string]string "v is neither empty, 1 nor 2"
 // @Failure 500 {object} map[string]string
+// @Failure 503 {object} map[string]string "v=2 without a signing key"
 // @Router /api/v1/directory/snapshot [get]
 func (h *DirectoryHandler) GetSnapshot(w http.ResponseWriter, r *http.Request) {
 	tid := auth.TenantIDFromContext(r.Context())
 	since := r.URL.Query().Get("since")
+	format := r.URL.Query().Get("v")
+	if format != "" && format != "1" && format != "2" {
+		writeError(w, http.StatusBadRequest, "v must be 1 or 2")
+		return
+	}
+	if format == "2" && h.trustAnchor == nil {
+		writeError(w, http.StatusServiceUnavailable, "directory signing key not configured")
+		return
+	}
 	snap, err := h.store.Snapshot(r.Context(), tid)
 	if err != nil {
 		writeInternalError(w, err, "")
@@ -219,6 +234,15 @@ func (h *DirectoryHandler) GetSnapshot(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusNotModified)
 			return
 		}
+	}
+	if format == "2" {
+		env, err := h.trustAnchor.SealSnapshot(snap)
+		if err != nil {
+			writeInternalError(w, err, "")
+			return
+		}
+		writeJSON(w, http.StatusOK, env)
+		return
 	}
 	if h.trustAnchor != nil {
 		if sig, err := SignSnapshot(snap, h.trustAnchor); err == nil {
