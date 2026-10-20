@@ -127,7 +127,7 @@ func startRun(t *testing.T, f *Forwarder) (lose func()) {
 		defer close(done)
 		f.Run(ctx)
 	}()
-	// Let Run publish its run and install its filters.
+	// Let Run publish its run; its filters land right after it (count them once Run returned).
 	deadline := time.Now().Add(2 * time.Second)
 	for f.cur.Load() == nil && time.Now().Before(deadline) {
 		time.Sleep(5 * time.Millisecond)
@@ -170,11 +170,13 @@ func TestRunSubscribesOnce(t *testing.T) {
 	f := NewForwarder(b, storeWithDevice(t, "300434", "KIT", "rockblock"), plainDial, oneTenant(ots.addr), nil)
 
 	lose := startRun(t, f)
+	// Counted once Run has returned: it publishes its run before it installs its filters, so a
+	// count taken as soon as the run shows can miss the last filter on a loaded runner.
+	lose()
 	first := b.handlerCount()
 	if first == 0 {
 		t.Fatal("the first run installed no handlers")
 	}
-	lose()
 
 	for i := 0; i < 3; i++ {
 		lose = startRun(t, f)
