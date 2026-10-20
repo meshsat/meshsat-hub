@@ -12,10 +12,12 @@ import (
 )
 
 type fakeStore struct {
-	mu      sync.Mutex
-	data    map[string]string
-	fail    bool
-	failKey string // a Set of this key fails (a crash at that step)
+	mu        sync.Mutex
+	data      map[string]string
+	fail      bool
+	failKey   string                  // a write of this key fails (a crash at that step)
+	failClear string                  // a write of "" to this key fails
+	onCAS     func(key, value string) // runs before a compare-and-set, unlocked (an interleaving)
 }
 
 func newFakeStore() *fakeStore {
@@ -31,11 +33,30 @@ func (f *fakeStore) GetSystemConfig(_ context.Context, key string) (string, erro
 func (f *fakeStore) SetSystemConfig(_ context.Context, key, value string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	if f.fail || key == f.failKey {
+	if f.fail || key == f.failKey || (value == "" && key == f.failClear) {
 		return errors.New("persist failed")
 	}
 	f.data[key] = value
 	return nil
+}
+
+func (f *fakeStore) CompareAndSetSystemConfig(_ context.Context, key, old, value string) (bool, error) {
+	f.mu.Lock()
+	hook := f.onCAS
+	f.mu.Unlock()
+	if hook != nil {
+		hook(key, value)
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.fail || key == f.failKey || (value == "" && key == f.failClear) {
+		return false, errors.New("persist failed")
+	}
+	if f.data[key] != old {
+		return false, nil
+	}
+	f.data[key] = value
+	return true, nil
 }
 
 func TestLoadOrCreateTrustAnchor_GeneratesAndPersists(t *testing.T) {

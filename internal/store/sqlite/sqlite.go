@@ -1957,6 +1957,26 @@ func (d *DB) SetSystemConfig(ctx context.Context, key, value string) error {
 	return err
 }
 
+// CompareAndSetSystemConfig writes value while key holds old ("" = absent or
+// blank); one statement, so two callers cannot both win.
+func (d *DB) CompareAndSetSystemConfig(ctx context.Context, key, old, value string) (bool, error) {
+	var res sql.Result
+	var err error
+	if old == "" {
+		res, err = d.db.ExecContext(ctx, `INSERT INTO system_config (key, value, updated_at) VALUES (?, ?, datetime('now'))
+			ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at WHERE system_config.value = ''`,
+			key, value)
+	} else {
+		res, err = d.db.ExecContext(ctx, `UPDATE system_config SET value=?, updated_at=datetime('now') WHERE key=? AND value=?`,
+			value, key, old)
+	}
+	if err != nil {
+		return false, err
+	}
+	n, err := res.RowsAffected()
+	return n == 1, err
+}
+
 // ListSystemConfigOlderThan returns keys under prefix last written before cutoff.
 // See the Postgres twin for why the prefix is escaped rather than concatenated.
 func (d *DB) ListSystemConfigOlderThan(ctx context.Context, prefix string, cutoff time.Time) ([]string, error) {

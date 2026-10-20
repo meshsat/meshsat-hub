@@ -416,6 +416,20 @@ func (m *mockStore) DeleteSystemConfig(_ context.Context, key string) error {
 	return nil
 }
 
+func (m *mockStore) CompareAndSetSystemConfig(_ context.Context, key, old, value string) (bool, error) {
+	if m.sysConfigErr != nil {
+		return false, m.sysConfigErr
+	}
+	if m.sysConfig[key] != old {
+		return false, nil
+	}
+	if m.sysConfig == nil {
+		m.sysConfig = map[string]string{}
+	}
+	m.sysConfig[key] = value
+	return true, nil
+}
+
 // Device groups
 func (m *mockStore) CreateDeviceGroup(context.Context, string, *store.DeviceGroup) error { return nil }
 func (m *mockStore) GetDeviceGroup(context.Context, string, string) (*store.DeviceGroup, error) {

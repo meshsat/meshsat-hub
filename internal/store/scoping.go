@@ -56,6 +56,7 @@ var UnscopedByDesign = map[string]string{ // #nosec G101 -- method names and the
 	"SetSystemConfig":           "platform key/value",
 	"ListSystemConfigOlderThan": "platform key/value reaper",
 	"DeleteSystemConfig":        "platform key/value",
+	"CompareAndSetSystemConfig": "platform key/value",
 
 	// Authentication before a tenant is known.
 	"GetRefreshToken":         "the token is the credential; the tenant is on the row it returns",

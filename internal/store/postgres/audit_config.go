@@ -280,6 +280,26 @@ func (d *DB) SetSystemConfig(ctx context.Context, key, value string) error {
 	return err
 }
 
+// CompareAndSetSystemConfig writes value while key holds old ("" = absent or
+// blank); one statement, so two replicas cannot both win.
+func (d *DB) CompareAndSetSystemConfig(ctx context.Context, key, old, value string) (bool, error) {
+	var res sql.Result
+	var err error
+	if old == "" {
+		res, err = d.db.ExecContext(ctx, `INSERT INTO system_config (key, value) VALUES ($1, $2)
+			ON CONFLICT (key) DO UPDATE SET value=EXCLUDED.value, updated_at=now() WHERE system_config.value = ''`,
+			key, value)
+	} else {
+		res, err = d.db.ExecContext(ctx, `UPDATE system_config SET value=$1, updated_at=now() WHERE key=$2 AND value=$3`,
+			value, key, old)
+	}
+	if err != nil {
+		return false, err
+	}
+	n, err := res.RowsAffected()
+	return n == 1, err
+}
+
 // ListSystemConfigOlderThan returns keys under prefix last written before cutoff.
 //
 // LIKE with an escaped prefix, not a bare concatenation: a prefix containing %

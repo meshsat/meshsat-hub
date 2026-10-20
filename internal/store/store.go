@@ -270,6 +270,12 @@ type Store interface {
 	// claim paths do; this is for the sweeper, where leaving an empty row per
 	// abandoned provisioning attempt would grow without bound.
 	DeleteSystemConfig(ctx context.Context, key string) error
+	// CompareAndSetSystemConfig writes value only while key holds old ("" is
+	// an absent or blank row) and reports whether it wrote: of the replicas
+	// that read the same value, exactly one swaps it. Added for the directory
+	// key rotation, whose pending key must be stored by one caller and taken
+	// by every other (MESHSAT-1584 r19 C7-R5).
+	CompareAndSetSystemConfig(ctx context.Context, key, old, value string) (bool, error)
 
 	// Reticulum path table (MESHSAT-1555): the upstream-compatible node's
 	// paths, persisted so the leader that takes over answers path requests

@@ -58,3 +58,12 @@ func (s *sealedStore) SetSystemConfig(ctx context.Context, key, value string) er
 	}
 	return s.keeper.Set(ctx, key, value)
 }
+
+// CompareAndSetSystemConfig compares a sealed key's opened value and swaps
+// its sealed row (sealedconfig.Keeper.CompareAndSet).
+func (s *sealedStore) CompareAndSetSystemConfig(ctx context.Context, key, old, value string) (bool, error) {
+	if !sealedconfig.IsSensitive(key) {
+		return s.Store.CompareAndSetSystemConfig(ctx, key, old, value)
+	}
+	return s.keeper.CompareAndSet(ctx, key, old, value)
+}

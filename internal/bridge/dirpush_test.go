@@ -86,6 +86,13 @@ type kv map[string]string
 
 func (m kv) GetSystemConfig(_ context.Context, k string) (string, error) { return m[k], nil }
 func (m kv) SetSystemConfig(_ context.Context, k, v string) error        { m[k] = v; return nil }
+func (m kv) CompareAndSetSystemConfig(_ context.Context, k, old, v string) (bool, error) {
+	if m[k] != old {
+		return false, nil
+	}
+	m[k] = v
+	return true, nil
+}
 
 func newPushRig(t *testing.T) *pushRig {
 	t.Helper()
@@ -368,7 +375,9 @@ func TestDirectoryPushBacksOffAFailingBridge(t *testing.T) {
 
 // TestDirectoryPushV1UntilEveryBridgeVerifiesV2: one bridge of the tenant
 // without directory_v2 keeps the tenant on v1, which leaves out the seeded
-// defaults; a v1 push with nothing left is not sent.
+// defaults; a v1 push with nothing left in it is still sent, since an empty
+// full snapshot is how the last row is taken back (r19 C7-R3), and a bridge
+// that applied it is not asked again.
 func TestDirectoryPushV1UntilEveryBridgeVerifiesV2(t *testing.T) {
 	r := newPushRig(t)
 	ctx := context.Background()
@@ -378,12 +387,18 @@ func TestDirectoryPushV1UntilEveryBridgeVerifiesV2(t *testing.T) {
 		t.Fatal(err)
 	}
 	r.tick()
-	if s := r.take(); len(s) != 0 {
-		t.Fatalf("a v1 push of seeded defaults only was sent to %d bridges", len(s))
+	s := r.take()
+	if len(s) != 2 {
+		t.Fatalf("the v1 push of seeded defaults only went to %d bridges", len(s))
+	}
+	for _, x := range s {
+		if snap := r.v1(t, x.cmd); len(snap.Contacts) != 0 || len(snap.Policies) != 0 || snap.Version == 0 {
+			t.Errorf("v1 push to %s: %+v", x.bridge, snap)
+		}
 	}
 	r.tick()
 	if s := r.take(); len(s) != 0 {
-		t.Fatalf("the empty v1 push is not retried: %d", len(s))
+		t.Fatalf("the applied empty v1 push was sent again: %d", len(s))
 	}
 	put(t, r.dir, "t", "A")
 	if err := r.dir.PutPolicy(ctx, &directory.DispatchPolicy{TenantID: "t", ScopeType: "contact", ScopeID: "x",
@@ -391,7 +406,7 @@ func TestDirectoryPushV1UntilEveryBridgeVerifiesV2(t *testing.T) {
 		t.Fatal(err)
 	}
 	r.tick()
-	s := r.take()
+	s = r.take()
 	if len(s) != 2 {
 		t.Fatalf("%d pushes", len(s))
 	}
@@ -482,8 +497,7 @@ func (r *pushRig) rotateKey(t *testing.T, tenants ...string) *directory.Rotation
 	r.mu.Lock()
 	r.known[directory.KeyID(old)] = old
 	r.mu.Unlock()
-	res, err := directory.RotateSigningKey(context.Background(), r.kv, func(context.Context, string) (bool, error) { return true, nil },
-		r.dir, r.anchor, tenants)
+	res, err := directory.RotateSigningKey(context.Background(), r.kv, r.dir, r.anchor, tenants)
 	if err != nil {
 		t.Fatal(err)
 	}

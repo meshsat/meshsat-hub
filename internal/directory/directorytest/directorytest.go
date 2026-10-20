@@ -51,6 +51,7 @@ func Run(t *testing.T, open Opener) {
 		{"GroupKinds", groupKinds},
 		{"PolicyModel", policyModel},
 		{"RotationRecords", rotationRecords},
+		{"ConcurrentRotationsConvergeOnOneKey", concurrentRotations},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) { c.fn(t, open(t)) })
@@ -789,6 +790,53 @@ func policyModel(t *testing.T, s *directory.SQLStore) {
 	}
 }
 
+// concurrentRotations (r19 C7-R5): replicas asked to rotate at once agree
+// on one key, the tenant gets one record from the old key, and that key is
+// the one made current.
+func concurrentRotations(t *testing.T, s *directory.SQLStore) {
+	ctx := context.Background()
+	kv := &memKV{m: map[string]string{}}
+	first, err := directory.LoadOrCreateTrustAnchor(ctx, kv)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mustPut(t, s, &directory.Contact{TenantID: victim, DisplayName: "A"})
+	oldID := first.KeyID()
+	var mu sync.Mutex
+	keys := map[string]bool{}
+	var wg sync.WaitGroup
+	for i := 0; i < 6; i++ {
+		replica, err := directory.LoadOrCreateTrustAnchor(ctx, kv)
+		if err != nil {
+			t.Fatal(err)
+		}
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			res, err := directory.RotateSigningKey(ctx, kv, s, replica, []string{victim})
+			if err != nil && !errors.Is(err, directory.ErrRotationInProgress) {
+				t.Errorf("caller: %v", err)
+			}
+			if err == nil {
+				mu.Lock()
+				keys[res.NewKeyID] = true
+				mu.Unlock()
+			}
+		}()
+	}
+	wg.Wait()
+	if len(keys) != 1 {
+		t.Fatalf("callers rotated to %d keys", len(keys))
+	}
+	chain, err := s.RotationChain(ctx, victim, oldID)
+	if err != nil || len(chain) != 1 || !keys[chain[0].NewKeyID] {
+		t.Fatalf("chain %+v %v", chain, err)
+	}
+	if err := first.Refresh(ctx, kv); err != nil || first.KeyID() != chain[0].NewKeyID {
+		t.Errorf("current key %s (%v), records name %s", first.KeyID(), err, chain[0].NewKeyID)
+	}
+}
+
 type memKV struct {
 	mu sync.Mutex
 	m  map[string]string
@@ -807,6 +855,16 @@ func (k *memKV) SetSystemConfig(_ context.Context, key, v string) error {
 	return nil
 }
 
+func (k *memKV) CompareAndSetSystemConfig(_ context.Context, key, old, v string) (bool, error) {
+	k.mu.Lock()
+	defer k.mu.Unlock()
+	if k.m[key] != old {
+		return false, nil
+	}
+	k.m[key] = v
+	return true, nil
+}
+
 // rotationRecords: a rotation's records are stored per tenant in the
 // tenant's version sequence and read back as a chain from any key the
 // tenant's bridges may still trust; a tenant's chain is its own.
@@ -819,12 +877,11 @@ func rotationRecords(t *testing.T, s *directory.SQLStore) {
 	}
 	mustPut(t, s, &directory.Contact{TenantID: victim, DisplayName: "A"})
 	k1 := a.KeyID()
-	claim := func(context.Context, string) (bool, error) { return true, nil }
-	r1, err := directory.RotateSigningKey(ctx, kv, claim, s, a, []string{victim, attacker})
+	r1, err := directory.RotateSigningKey(ctx, kv, s, a, []string{victim, attacker})
 	if err != nil {
 		t.Fatal(err)
 	}
-	r2, err := directory.RotateSigningKey(ctx, kv, claim, s, a, []string{victim})
+	r2, err := directory.RotateSigningKey(ctx, kv, s, a, []string{victim})
 	if err != nil {
 		t.Fatal(err)
 	}

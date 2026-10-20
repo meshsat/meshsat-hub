@@ -97,6 +97,7 @@ var (
 type Store interface {
 	GetSystemConfig(ctx context.Context, key string) (string, error)
 	SetSystemConfig(ctx context.Context, key, value string) error
+	CompareAndSetSystemConfig(ctx context.Context, key, old, value string) (bool, error)
 }
 
 // Keeper seals and opens system_config values.
@@ -183,6 +184,39 @@ func (k *Keeper) Set(ctx context.Context, key, value string) error {
 		return err
 	}
 	return k.store.SetSystemConfig(ctx, key+Suffix, sealed)
+}
+
+// CompareAndSet seals and stores value only while key holds old, as Get
+// reads it ("" = nothing stored), and reports whether it wrote. A sealed
+// value is never the same bytes twice, so the swap is on the exact sealed
+// row that was read and opened: of two callers that read the same value,
+// one wins.
+func (k *Keeper) CompareAndSet(ctx context.Context, key, old, value string) (bool, error) {
+	if !k.Sealing() {
+		return k.store.CompareAndSetSystemConfig(ctx, key, old, value)
+	}
+	raw, err := k.store.GetSystemConfig(ctx, key+Suffix)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return false, fmt.Errorf("sealedconfig: reading %q: %w", key+Suffix, err)
+	}
+	cur := ""
+	if raw != "" {
+		if cur, err = k.open(raw); err != nil {
+			return false, fmt.Errorf("%w: %s", ErrSealed, key)
+		}
+	} else if plain, err := k.store.GetSystemConfig(ctx, key); err == nil {
+		cur = plain
+	} else if !errors.Is(err, sql.ErrNoRows) {
+		return false, fmt.Errorf("sealedconfig: reading %q: %w", key, err)
+	}
+	if cur != old {
+		return false, nil
+	}
+	sealed, err := k.seal(value)
+	if err != nil {
+		return false, err
+	}
+	return k.store.CompareAndSetSystemConfig(ctx, key+Suffix, raw, sealed)
 }
 
 // Migrate seals a value that is currently stored in plaintext, leaving the

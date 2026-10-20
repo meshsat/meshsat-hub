@@ -7,6 +7,9 @@ package storetest
 import (
 	"context"
 	"errors"
+	"fmt"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -562,6 +565,43 @@ func testSystemConfig(t *testing.T, db store.Store) {
 	}
 	if v, err := db.GetSystemConfig(ctx, "other:c"); err != nil || v != "x" {
 		t.Errorf("a row under a different prefix was affected: %q %v", v, err)
+	}
+
+	// Compare and set (MESHSAT-1584 r19 C7-R5): "" matches an absent or a
+	// blank row; any other old value only itself; of many callers that read
+	// the same value, one swaps it.
+	for _, c := range []struct {
+		old, value string
+		want       bool
+		after      string
+	}{
+		{"", "k1", true, "k1"},  // absent
+		{"", "k2", false, "k1"}, // set: "" does not match
+		{"other", "k2", false, "k1"},
+		{"k1", "", true, ""},   // cleared
+		{"", "k3", true, "k3"}, // blank matches ""
+		{"k3", "k4", true, "k4"},
+	} {
+		won, err := db.CompareAndSetSystemConfig(ctx, "cas:key", c.old, c.value)
+		got, _ := db.GetSystemConfig(ctx, "cas:key")
+		if err != nil || won != c.want || got != c.after {
+			t.Errorf("CAS %q -> %q: won=%v err=%v, now %q; want %v, %q", c.old, c.value, won, err, got, c.want, c.after)
+		}
+	}
+	var wins atomic.Int32
+	var wg sync.WaitGroup
+	for i := 0; i < 8; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			if won, err := db.CompareAndSetSystemConfig(ctx, "cas:race", "", fmt.Sprintf("caller-%d", i)); err == nil && won {
+				wins.Add(1)
+			}
+		}(i)
+	}
+	wg.Wait()
+	if n := wins.Load(); n != 1 {
+		t.Errorf("%d of 8 concurrent callers set an absent key; want exactly 1", n)
 	}
 }
 

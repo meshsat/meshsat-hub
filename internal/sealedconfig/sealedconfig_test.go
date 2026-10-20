@@ -32,6 +32,15 @@ func (m *memStore) SetSystemConfig(_ context.Context, key, value string) error {
 	return nil
 }
 
+func (m *memStore) CompareAndSetSystemConfig(_ context.Context, key, old, value string) (bool, error) {
+	if m.rows[key] != old {
+		return false, nil
+	}
+	m.sets++
+	m.rows[key] = value
+	return true, nil
+}
+
 func testKey(t *testing.T) []byte {
 	t.Helper()
 	k, err := hubcrypto.GenerateKey()

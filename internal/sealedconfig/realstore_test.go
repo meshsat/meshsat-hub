@@ -2,8 +2,11 @@ package sealedconfig
 
 import (
 	"context"
+	"fmt"
 	"path/filepath"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 
 	hubcrypto "github.com/meshsat/meshsat-hub/internal/crypto"
@@ -113,5 +116,72 @@ func TestPreflightMigratesRealRowsAndLeavesThePlaintextAlone(t *testing.T) {
 		if err != nil || got != want {
 			t.Errorf("%s after blanking: %q, %v", key, got, err)
 		}
+	}
+}
+
+// CompareAndSet on a real driver (MESHSAT-1584 r19 C7-R5): the directory key
+// rotation stores its pending key with it. The swap compares the OPENED value
+// and swaps the exact sealed row read, so a value cleared to "" (sealed, never
+// the same bytes twice) still counts as nothing stored, and of many callers
+// that find nothing stored exactly one writes.
+func TestCompareAndSetOnARealDriver(t *testing.T) {
+	ctx := context.Background()
+	s, err := sqlite.New(filepath.Join(t.TempDir(), "hub.db"), 0)
+	if err != nil {
+		t.Fatalf("open sqlite: %v", err)
+	}
+	defer func() { _ = s.Close() }()
+	if err := s.Migrate(ctx); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	wrap, err := hubcrypto.GenerateKey()
+	if err != nil {
+		t.Fatal(err)
+	}
+	k := New(s, wrap)
+	const key = "directory_signing_key_next"
+	for i, c := range []struct {
+		old, value string
+		want       bool
+		after      string
+	}{
+		{"", "pem-1", true, "pem-1"},
+		{"", "pem-2", false, "pem-1"},
+		{"pem-2", "pem-3", false, "pem-1"},
+		{"pem-1", "", true, ""}, // cleared: a sealed empty value
+		{"", "pem-4", true, "pem-4"},
+	} {
+		won, err := k.CompareAndSet(ctx, key, c.old, c.value)
+		got, gerr := k.Get(ctx, key)
+		if gerr == ErrNotFound {
+			got = ""
+		}
+		if err != nil || won != c.want || got != c.after {
+			t.Fatalf("step %d: CAS %q -> %q: won=%v err=%v, now %q (%v); want %v, %q", i, c.old, c.value, won, err, got, gerr, c.want, c.after)
+		}
+	}
+	if raw, _ := s.GetSystemConfig(ctx, key+Suffix); raw == "" || strings.Contains(raw, "pem-4") {
+		t.Errorf("the sealed row is %q", raw)
+	}
+	if _, err := s.GetSystemConfig(ctx, key); err == nil {
+		t.Error("a plaintext row was written")
+	}
+	if _, err := k.CompareAndSet(ctx, key, "pem-4", ""); err != nil {
+		t.Fatal(err)
+	}
+	var wins atomic.Int32
+	var wg sync.WaitGroup
+	for i := 0; i < 8; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			if won, err := k.CompareAndSet(ctx, key, "", fmt.Sprintf("caller-%d", i)); err == nil && won {
+				wins.Add(1)
+			}
+		}(i)
+	}
+	wg.Wait()
+	if n := wins.Load(); n != 1 {
+		t.Errorf("%d of 8 callers stored a key over a cleared one; want exactly 1", n)
 	}
 }

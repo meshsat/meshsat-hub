@@ -44,9 +44,17 @@ type Rotation struct {
 	Envelope Envelope
 }
 
-// ErrRotationInProgress: another rotation from the current key has begun
-// and its pending key is not visible here yet.
+// ErrRotationInProgress: another rotation moved the key while this one
+// started, so there is nothing for this one to do.
 var ErrRotationInProgress = errors.New("directory: a key rotation from this key is already under way")
+
+// rotationKeyStore is what a rotation needs of the key store: the pending
+// key is stored by compare-and-set, so of the callers that find none pending
+// exactly one stores its key and every other one takes that key (r19 C7-R5).
+type rotationKeyStore interface {
+	signingKeyStore
+	CompareAndSetSystemConfig(ctx context.Context, key, old, value string) (bool, error)
+}
 
 // appendRotation writes the tenant's record for oldKeyID -> newKeyID, if it
 // has none yet, in one transaction with the version bump the record takes.
@@ -143,8 +151,13 @@ type RotationResult struct {
 // RotateSigningKey replaces the Hub's directory signing key. Every step can
 // be repeated, so a rotation that stopped resumes where it stopped:
 //
-//  1. the new private key is stored as pending (sealed), unless one is
-//     pending already; claim makes sure only one caller generates it;
+//  1. a new private key is stored as pending (sealed) by compare-and-set,
+//     unless one is pending already: of the callers that find none, one
+//     stores its key and the others carry on with it. Storing it is the
+//     whole claim, so a caller that fails or dies before it leaves nothing
+//     behind, and one that dies after it leaves the key the next caller
+//     resumes with (r19 C7-R5; until then a claim taken first and kept a day
+//     could stand with no key behind it);
 //  2. each tenant gets its rotation record, signed by the old key, in one
 //     transaction with the version bump it takes (a tenant that has one
 //     is skipped);
@@ -153,38 +166,55 @@ type RotationResult struct {
 // The new key is stored before any record names it, so no record can name a
 // key the Hub does not hold. tenants should be every tenant: a bridge of a
 // tenant without a record could not follow the rotation.
-func RotateSigningKey(ctx context.Context, kv signingKeyStore, claim func(ctx context.Context, key string) (bool, error),
-	dir *SQLStore, anchor *TrustAnchor, tenants []string) (*RotationResult, error) {
+func RotateSigningKey(ctx context.Context, kv rotationKeyStore, dir *SQLStore, anchor *TrustAnchor, tenants []string) (*RotationResult, error) {
 	if err := anchor.Refresh(ctx, kv); err != nil {
 		return nil, err
 	}
 	oldPEM, oldID := anchor.current()
 	res := &RotationResult{OldKeyID: oldID, Tenants: len(tenants)}
-	pending, err := kv.GetSystemConfig(ctx, nextKeyConfig)
-	if err != nil && !errors.Is(err, sql.ErrNoRows) {
-		return nil, fmt.Errorf("directory: read pending key: %w", err)
+	pending, err := readPending(ctx, kv)
+	if err != nil {
+		return nil, err
 	}
 	if pending == oldPEM {
 		// Stopped after step 3 wrote the key: only the clean-up is left.
 		res.NewKeyID, res.Resumed = oldID, true
-		return res, kv.SetSystemConfig(ctx, nextKeyConfig, "")
+		_, err := kv.CompareAndSetSystemConfig(ctx, nextKeyConfig, pending, "")
+		return res, err
 	}
 	if pending == "" {
-		won, err := claim(ctx, "directory-rotate:"+oldID)
-		if err != nil {
-			return nil, fmt.Errorf("directory: claim rotation: %w", err)
-		}
-		if !won {
-			return nil, ErrRotationInProgress
-		}
 		_, pemBytes, err := generateECPrivateKeyPEM()
 		if err != nil {
 			return nil, err
 		}
-		if err := kv.SetSystemConfig(ctx, nextKeyConfig, string(pemBytes)); err != nil {
+		won, err := kv.CompareAndSetSystemConfig(ctx, nextKeyConfig, "", string(pemBytes))
+		if err != nil {
 			return nil, fmt.Errorf("directory: store pending key: %w", err)
 		}
-		pending = string(pemBytes)
+		if won {
+			// Nothing was pending when it was stored, so a rotation that
+			// started from the same key either had not stored its own yet
+			// (it will take this one) or had finished: then the key read
+			// above is no longer current, and this one must not run from it.
+			cur, err := kv.GetSystemConfig(ctx, systemConfigKey)
+			if err != nil {
+				return nil, fmt.Errorf("directory: read signing key: %w", err)
+			}
+			if cur != oldPEM {
+				_, _ = kv.CompareAndSetSystemConfig(ctx, nextKeyConfig, string(pemBytes), "")
+				return nil, ErrRotationInProgress
+			}
+			pending = string(pemBytes)
+		} else {
+			// Another caller stored its key first: carry on with it.
+			if pending, err = readPending(ctx, kv); err != nil {
+				return nil, err
+			}
+			if pending == "" || pending == oldPEM {
+				return nil, ErrRotationInProgress
+			}
+			res.Resumed = true
+		}
 	} else {
 		res.Resumed = true
 	}
@@ -217,12 +247,21 @@ func RotateSigningKey(ctx context.Context, kv signingKeyStore, claim func(ctx co
 		return res, fmt.Errorf("directory: make the new key current: %w", err)
 	}
 	anchor.set(next, nextPKIX, pending)
-	if err := kv.SetSystemConfig(ctx, nextKeyConfig, ""); err != nil {
+	if _, err := kv.CompareAndSetSystemConfig(ctx, nextKeyConfig, pending, ""); err != nil {
 		return res, fmt.Errorf("directory: clear pending key: %w", err)
 	}
 	slog.Info("directory: signing key rotated", "old_key_id", oldID, "new_key_id", res.NewKeyID,
 		"tenants", len(tenants), "records_added", res.Records, "resumed", res.Resumed)
 	return res, nil
+}
+
+// readPending reads the pending key; nothing stored reads as "".
+func readPending(ctx context.Context, kv signingKeyStore) (string, error) {
+	pending, err := kv.GetSystemConfig(ctx, nextKeyConfig)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return "", fmt.Errorf("directory: read pending key: %w", err)
+	}
+	return pending, nil
 }
 
 // Refresh reloads the current key from the store when another replica

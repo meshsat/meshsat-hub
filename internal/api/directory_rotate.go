@@ -59,7 +59,7 @@ func (h *DirectoryKeyRotateHandler) Rotate(w http.ResponseWriter, r *http.Reques
 	}
 	// The rotation must not stop because the caller went away: it resumes
 	// either way, but finishing now is better.
-	res, err := directory.RotateSigningKey(context.WithoutCancel(r.Context()), h.store, h.store.ClaimOnce, h.dir, h.anchor, ids)
+	res, err := directory.RotateSigningKey(context.WithoutCancel(r.Context()), h.store, h.dir, h.anchor, ids)
 	if errors.Is(err, directory.ErrRotationInProgress) {
 		writeError(w, http.StatusConflict, err.Error())
 		return

@@ -720,32 +720,49 @@ operator's write clears it.
 
 ### Push and catch-up (C7.5)
 
-The birth carries `"directory_version"` (the version the Bridge last applied) and, from a Bridge that
-verifies v2, the capability `"directory_v2"`. The Hub's leader compares, every 10 s, each online
+The birth carries `"directory_version"` (the version of the last SNAPSHOT the Bridge applied; a key
+rotation never moves it) and, from a Bridge that verifies v2, the capability `"directory_v2"`. The Hub's leader compares, every 10 s, each online
 Bridge's last reported version (from its birth, or from its answer to a push) with its tenant's, and
 pushes the current snapshot to a Bridge that is behind. Writes inside one tick go out as one push of
 the last version; a Bridge that missed a push gets the snapshot within a tick of its next birth. A
 tenant gets v2 once every Bridge of it lists `directory_v2`, v1 until then. A phone registered as a
 bridge (birth mode `android` or `ios`) is not a Bridge here: it gets no push and does not hold its
-tenant on v1 (the phones read the directory their own way, C9).
+tenant on v1 (the phones read the directory their own way, C9). A Bridge that lists `directory_v2` and
+reports a `directory_key_id` other than the Hub's current key is due as well, even with current rows,
+so a key rotation reaches it without waiting for the next directory edit (see Key rotation).
 
 A v1 push leaves out the precedence defaults the Hub seeded: v1 cannot mark a row seeded, and a v1
 Bridge applies a pushed policy over its own for the scope and clears its seeded mark, so a Hub default
-would replace what the kit's operator set. A v1 push with nothing left in it is not sent.
+would replace what the kit's operator set. A snapshot with nothing in it is sent like any other (since
+r19): an empty full snapshot is how the last contact, group or policy is taken back from a Bridge, and
+a Bridge from before v2 applies it as nothing.
 
 The Bridge answers `directory_push` (the command response's `result`):
 
 ```json
-{"tenant_id":"<tenant>","version":42,"applied":true,"applied_version":42}
-{"tenant_id":"<tenant>","version":41,"applied":false,"reason":"not_newer","applied_version":42}
+{"tenant_id":"<tenant>","version":42,"applied":true,"applied_version":42,"key_version":40,"key_id":"<id>"}
+{"tenant_id":"<tenant>","version":41,"applied":false,"reason":"not_newer","applied_version":42,"key_version":40,"key_id":"<id>"}
+{"tenant_id":"<tenant>","version":0,"applied":false,"reason":"unknown_key","applied_version":42,"key_version":40,"key_id":"<id>"}
 ```
 
-`applied_version` is the version the Bridge holds after the push, applied or not. A push that is not
-newer is answered `applied:false`, `reason:"not_newer"`, status `ok`; the Hub then counts the Bridge as
-current. Anything else not applied (another tenant, a signature that does not verify, no pinned key)
-is a failure: the Hub asks again after 30 s, doubling to at most 30 min. Metric:
-`meshsat_hub_directory_pushes_total{format, result}` (`applied`, `current`, `refused`, `failed`,
-`empty`; format `rotation` counts rotation records taken).
+`applied_version` is the snapshot version the Bridge holds after the command, applied or not;
+`key_version` is the version of the rotation record its key came from (0: the key it pinned). A push
+that is not newer is answered `applied:false`, `reason:"not_newer"`, status `ok`; the Hub then counts
+the Bridge as current. An envelope signed by a key the Bridge does not trust (a replica that has not
+reloaded a new key yet, or a rotation record the Bridge already followed) is answered `unknown_key`
+with the key it does trust, without reading the payload; the Hub learns where the Bridge stands and
+asks again after the backoff. Anything else not applied (another tenant, a signature that does not
+verify, no pinned key) is a failure: the Hub asks again after 30 s, doubling to at most 30 min.
+Metric: `meshsat_hub_directory_pushes_total{format, result}` (`applied`, `current`, `refused`,
+`failed`; format `rotation` counts rotation records taken or already held).
+
+**Policy precedence on a Bridge.** A Hub policy that the Bridge implements sets the strategy for its
+scope on that Bridge, and the Bridge's own fields of that row stay. While the Hub manages a scope, a
+policy edited on the Bridge holds only until the next snapshot: the Hub's row wins for every scope
+the Hub sends. When the Hub stops sending a scope, a precedence or default scope returns to the
+Bridge's own default and a contact or group scope goes. A seeded Hub row never replaces the Bridge's
+own (C7.7). Contacts are different: a local display name or notes on a Hub contact survive every
+snapshot (`local_override`). There is no local policy layer that outranks the Hub's.
 
 ### Key rotation (C7.6)
 
@@ -753,27 +770,39 @@ A Bridge trusts the one directory key it pinned and reports its id in the birth 
 `"directory_key_id"`. A Bridge that has pinned none fetches `GET /api/relay/directory-key` from its
 Hub over HTTPS (system roots; no authentication, it is a public key:
 `{"key_id":"<hex>","pkix":"<base64 PKIX DER>","alg":"ES256"}`), checks that the key hashes to its
-id, and pins it. That is the only time a key is taken without a signature. `POST /api/admin/directory/signing-key/rotate` (platform admin) replaces the
+id, and pins it. It follows no redirect (an answer that points anywhere else, plain HTTP included, is
+refused) and never fetches again once a key is pinned. That is the only time a key is taken without a
+signature. `POST /api/admin/directory/signing-key/rotate` (platform admin) replaces the
 Hub's key:
 
-1. the new private key is stored as pending (sealed at rest), so no record can name a key the Hub
-   does not hold;
+1. the new private key is stored as pending (sealed at rest) by compare-and-set, so no record can
+   name a key the Hub does not hold; of the replicas that find none pending, one stores its key and the
+   others carry on with that one. Storing it is the claim: a call that fails before it leaves nothing,
+   one that dies after it leaves the key the next call resumes with;
 2. every tenant gets a rotation record, signed by the OLD key, in one transaction with the version
    bump it takes:
    `{"type":"rotation","tenant_id":"<tenant>","version":43,"new_key_id":"<hex>","new_key_pkix":"<base64>"}`;
 3. the new key becomes current. Every replica reloads it within 30 s.
 
 A rotation that stopped part-way is finished by calling the endpoint again. The Hub keeps every
-record. Before a v2 snapshot, the Hub sends a Bridge whose key is not the current one the records from
-its key on, oldest first, one `directory_rotate` command each (the payload is the record's envelope);
-it stops at the first one the Bridge does not take, and sends nothing to a Bridge that trusts a key
-no chain leads from. The Bridge accepts a record only signed by the key it trusts (never an unsigned
-rotate), with a version above the last it applied, and answers like a push, with `"key_id"` the key it
-trusts afterwards:
+record. Before a snapshot (v2, or v1 to a Bridge that lists `directory_v2`: the v1 snapshot is signed
+by the current key too), the Hub sends a Bridge whose key is not the current one the records from its
+key on, oldest first, one `directory_rotate` command each (the payload is the record's envelope). A
+Bridge that answers with a key further down the chain is already there (the answer to an earlier
+record was lost) and the records up to it are skipped; the Hub stops at a record the Bridge does not
+take, and sends nothing to a Bridge that trusts a key no chain leads from. The Bridge accepts a record
+only signed by the key it trusts (never an unsigned rotate), with a version above the last ROTATION it
+applied, and answers like a push, with `"key_id"` the key it trusts afterwards:
 
 ```json
-{"tenant_id":"<tenant>","version":43,"applied":true,"applied_version":43,"key_id":"<new key id>"}
+{"tenant_id":"<tenant>","version":43,"applied":true,"applied_version":42,"key_version":43,"key_id":"<new key id>"}
 ```
+
+A record and the snapshots share the tenant's version sequence, but they are counted apart on the
+Bridge (since r19): a rotation moves `key_version` and never the snapshot version, so the snapshot of
+the same version as the last record still applies after it, and a snapshot a replica signed with the
+old key before it reloaded (a higher version than the record) does not make the record look old. The
+Hub reads only the key from a rotation answer, never the Bridge's rows.
 
 ## CoT Type Mapping
 
