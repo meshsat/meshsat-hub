@@ -725,7 +725,9 @@ verifies v2, the capability `"directory_v2"`. The Hub's leader compares, every 1
 Bridge's last reported version (from its birth, or from its answer to a push) with its tenant's, and
 pushes the current snapshot to a Bridge that is behind. Writes inside one tick go out as one push of
 the last version; a Bridge that missed a push gets the snapshot within a tick of its next birth. A
-tenant gets v2 once every Bridge of it lists `directory_v2`, v1 until then.
+tenant gets v2 once every Bridge of it lists `directory_v2`, v1 until then. A phone registered as a
+bridge (birth mode `android` or `ios`) is not a Bridge here: it gets no push and does not hold its
+tenant on v1 (the phones read the directory their own way, C9).
 
 A v1 push leaves out the precedence defaults the Hub seeded: v1 cannot mark a row seeded, and a v1
 Bridge applies a pushed policy over its own for the scope and clears its seeded mark, so a Hub default

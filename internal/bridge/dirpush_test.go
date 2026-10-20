@@ -417,6 +417,37 @@ func TestDirectoryPushV1UntilEveryBridgeVerifiesV2(t *testing.T) {
 	}
 }
 
+// TestDirectoryPushLeavesPhonesOut: a phone registered as a bridge (mode
+// android or ios) gets no push and does not keep its tenant on v1.
+func TestDirectoryPushLeavesPhonesOut(t *testing.T) {
+	r := newPushRig(t)
+	r.birth("t", "kit", true, 0, protocol.CapDirectoryV2)
+	r.st.birth("t", "msa-phone", true, 0, "")
+	r.st.birth("t", "msi-phone", true, 0, "")
+	r.st.mu.Lock()
+	for _, b := range r.st.bridges["t"] {
+		switch b.BridgeID {
+		case "msa-phone":
+			b.Mode = "android"
+		case "msi-phone":
+			b.Mode = "ios"
+		default:
+			b.Mode = "direct"
+		}
+	}
+	r.st.mu.Unlock()
+	put(t, r.dir, "t", "A")
+	r.tick()
+	s := r.take()
+	if len(s) != 1 || s[0].bridge != "kit" {
+		t.Fatalf("pushed %v, want the kit only", cmds(s))
+	}
+	var env directory.Envelope
+	if json.Unmarshal(s[0].cmd.Payload, &env) != nil || env.V != 2 {
+		t.Errorf("the phones held the tenant on v1")
+	}
+}
+
 // TestDirectoryPushNeverDoublesAPushInFlight: a tick while a push waits for
 // its answer does not send another.
 func TestDirectoryPushNeverDoublesAPushInFlight(t *testing.T) {
