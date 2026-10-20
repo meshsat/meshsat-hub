@@ -58,6 +58,8 @@ func Run(t *testing.T, open Opener) {
 		{"SOSRunAlertPending", testSOSRunAlertPending},
 		{"EscalationStepCannotReopenACancel", testEscalationStepCannotReopenACancel},
 		{"EscalationStaleWorkerKeepsItsHandsOff", testEscalationStaleWorkerKeepsItsHandsOff},
+		{"EscalationCloseTombstones", testEscalationCloseTombstones},
+		{"SOSCancelFencesLateAlertWork", testSOSCancelFencesLateAlertWork},
 		{"OIDCIdentities", testOIDCIdentities},
 		{"TenantOffboarding", testTenantOffboarding},
 		{"TenantQuota", testTenantQuota},

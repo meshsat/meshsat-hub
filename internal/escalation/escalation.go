@@ -167,6 +167,10 @@ func (e *Engine) Cancel(ctx context.Context, tenantID, alertID, by string) (bool
 	if err != nil {
 		return false, fmt.Errorf("escalation: get alert: %w", err)
 	}
+	return e.cancelAlert(ctx, tenantID, alert, by)
+}
+
+func (e *Engine) cancelAlert(ctx context.Context, tenantID string, alert *store.Alert, by string) (bool, error) {
 	if alert.State == store.AlertStateCancelled {
 		return false, nil
 	}
@@ -177,8 +181,47 @@ func (e *Engine) Cancel(ctx context.Context, tenantID, alertID, by string) (bool
 	if err := e.store.UpdateAlert(ctx, tenantID, alert); err != nil {
 		return false, fmt.Errorf("escalation: update alert: %w", err)
 	}
-	slog.Info("escalation: alert cancelled", "id", alertID, "by", by)
+	slog.Info("escalation: alert cancelled", "id", alert.ID, "by", by)
 	return true, nil
+}
+
+// closeRounds bounds Close's retries when a raise keeps winning the insert.
+const closeRounds = 3
+
+// ClosedBeforeRaised ends the text of an alert Close wrote closed: it never paged anybody.
+const ClosedBeforeRaised = " (cancelled before it paged)"
+
+// Close closes the alert under alert.ID for good, also when it does not exist yet: it is then
+// written cancelled (a tombstone), so a start or a fallback that raises it later finds it and
+// pages nobody (TriggerOnce never replaces an alert). The id's uniqueness decides every race: a
+// raise that inserted first is cancelled here, one that comes later meets the tombstone
+// (C10-R6). True when this call closed the alert or wrote its tombstone.
+func (e *Engine) Close(ctx context.Context, tenantID string, alert *store.Alert, by string) (bool, error) {
+	if alert.ID == "" {
+		return false, errors.New("escalation: Close needs an alert id")
+	}
+	for range closeRounds {
+		existing, err := e.store.GetAlert(ctx, tenantID, alert.ID)
+		if err == nil {
+			return e.cancelAlert(ctx, tenantID, existing, by)
+		}
+		if !isNotFound(err) {
+			return false, fmt.Errorf("escalation: get alert: %w", err)
+		}
+		now := time.Now().UTC()
+		tomb := *alert
+		tomb.State = store.AlertStateCancelled
+		tomb.Detail += ClosedBeforeRaised
+		tomb.CurrentTier, tomb.Retries = 0, 0
+		tomb.AckedBy, tomb.AckedAt = by, now
+		tomb.CreatedAt, tomb.UpdatedAt, tomb.NextEscAt = now, now, now
+		if err := e.store.CreateAlert(ctx, tenantID, &tomb); err == nil {
+			slog.Info("escalation: alert closed before it was raised", "id", alert.ID, "by", by)
+			return true, nil
+		}
+		// A raise inserted it after the read: the next round cancels that one.
+	}
+	return false, fmt.Errorf("escalation: closing alert %s lost %d races to a raise", alert.ID, closeRounds)
 }
 
 // processAlerts checks all active alerts and escalates as needed.

@@ -86,6 +86,18 @@ func newHarness(t *testing.T) *harness {
 		runs: NewRuns(st, b, engine, func(string) string { return "chain-1" }, nil)}
 }
 
+// pages counts the alerts that paged. A cancel that came before its start writes the run's
+// alert closed (a tombstone, C10-R6), which paged nobody.
+func pages(alerts []store.Alert) int {
+	n := 0
+	for _, a := range alerts {
+		if !strings.HasSuffix(a.Detail, escalation.ClosedBeforeRaised) {
+			n++
+		}
+	}
+	return n
+}
+
 func (h *harness) alerts(t *testing.T) []store.Alert {
 	t.Helper()
 	a, err := h.st.ListAlerts(context.Background(), tenant, false, 100)
@@ -171,8 +183,8 @@ func TestRunsFollowTheFixtureStates(t *testing.T) {
 				t.Fatalf("state %+v %v, want %s", run, err, c.Expect.State)
 			}
 			alerts := h.alerts(t)
-			if len(alerts) != c.Expect.Pages {
-				t.Fatalf("%d alerts, want %d pages", len(alerts), c.Expect.Pages)
+			if got := pages(alerts); got != c.Expect.Pages {
+				t.Fatalf("%d of %d alerts paged, want %d pages", got, len(alerts), c.Expect.Pages)
 			}
 			runs, _ := h.st.ListSOSRuns(ctx, tenant, 10)
 			for _, r := range runs {

@@ -623,6 +623,11 @@ nothing.
   completion and its early exits) is a compare-and-set against the lease it took and an
   open state, so a cancel or an acknowledgement made while the notifier ran stays, and
   so does the step another replica took after a lease ran out.
+- A cancel closes the run's alert even before the alert exists: the Hub then writes it
+  `cancelled` under the run's id (a tombstone; its text ends "(cancelled before it
+  paged)"). A start still raising it, a worker that raises it after a restart, or the
+  satellite/SMS fallback of a start that was not stored finds that row and pages nobody;
+  a raise that inserted first is cancelled. The id's uniqueness decides every race.
 - An operator of the tenant may cancel a run on the Hub
   (`POST /api/sos/runs/{sos_id}/cancel`), logged with who. That closes the
   Hub's alert only; the sender's own SOS on its device keeps running.
@@ -649,7 +654,9 @@ nothing.
 - The cancel's obligation is the sender's per run, not per current run: each bearer's
   `0x08` is owed until a delivery row for it exists (an enqueue that fails is tried again;
   the row's reference makes a second enqueue a no-op), and a new SOS does not end an
-  older run's owed cancel, which goes on until its own ack or its 24 h.
+  older run's owed cancel, which goes on until its own ack or its 24 h. However many
+  SOS follow, the sender keeps every owed cancel (no count limit): a run leaves the list
+  only when its cancel is acked or its 24 h are over.
 - The sender records that a start may have left before it publishes, so a cancel made
   while that first publish is under way owes the Hub the cancel; a start's ack that
   arrives after the local cancel does too.

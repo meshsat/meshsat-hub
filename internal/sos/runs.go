@@ -278,7 +278,9 @@ func (r *Runs) closeAlert(ctx context.Context, run store.SOSRun) error {
 	if by == "" {
 		by = run.Origin
 	}
-	if _, err := r.engine.Cancel(ctx, run.TenantID, AlertID(run.TenantID, run.Origin, run.SOSID), by); err != nil {
+	// Closed even when no alert exists yet (a tombstone): a start still raising it, or the
+	// fallback of a start that was not stored, then finds it closed (C10-R6).
+	if _, err := r.engine.Close(ctx, run.TenantID, alertFor(run, r.chain(run.TenantID)), by); err != nil {
 		return fmt.Errorf("close alert: %w", err)
 	}
 	return nil
@@ -300,9 +302,15 @@ func (r *Runs) PageUnstored(ctx context.Context, ev Event) bool {
 		BridgeID: ev.BridgeID, RunStartMs: ev.RunStartMs, Kind: store.SOSEventStart, Bearer: ev.Bearer, DeviceID: ev.DeviceID,
 		Text: ev.Text, Lat: ev.Lat, Lon: ev.Lon, HasPosition: ev.HasPosition, At: r.now().UTC()})
 	alert := alertFor(run, chain)
-	if _, err := r.engine.TriggerOnce(ctx, ev.TenantID, alert); err != nil {
+	created, err := r.engine.TriggerOnce(ctx, ev.TenantID, alert)
+	if err != nil {
 		slog.Error("sos: a start that was not stored could not page under its run's id either", "error", err, "sos_id", ev.SOSID)
 		return false
+	}
+	if !created {
+		// Raised already, or closed by its cancel (a tombstone): nobody is paged again.
+		slog.Warn("sos: a start that was not stored found its run's alert raised or closed", "tenant", ev.TenantID, "sos_id", ev.SOSID, "alert", alert.ID)
+		return true
 	}
 	slog.Warn("sos: a start that was not stored pages under its run's id", "tenant", ev.TenantID, "sos_id", ev.SOSID, "alert", alert.ID)
 	return true
