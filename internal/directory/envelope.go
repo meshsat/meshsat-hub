@@ -47,6 +47,28 @@ var (
 	ErrBadSignature   = errors.New("directory: envelope signature does not verify")
 )
 
+// CanonicalV1 is what a v1 snapshot's signature covers: the snapshot's
+// JSON with Signature empty, which the Bridge recreates by re-encoding what
+// it parsed (so a field it does not know breaks the signature; the reason
+// for v2).
+func CanonicalV1(snap *Snapshot) ([]byte, error) {
+	if snap == nil {
+		return nil, errors.New("directory: nil snapshot")
+	}
+	cp := *snap
+	cp.Signature = nil
+	return json.Marshal(&cp)
+}
+
+// SignV1 signs snap the v1 way (CanonicalV1).
+func (t *TrustAnchor) SignV1(snap *Snapshot) ([]byte, error) {
+	b, err := CanonicalV1(snap)
+	if err != nil {
+		return nil, err
+	}
+	return t.Sign(b)
+}
+
 // KeyID is the key's name in an envelope: SHA-256 of its PKIX DER, hex.
 func KeyID(pkix []byte) string {
 	sum := sha256.Sum256(pkix)

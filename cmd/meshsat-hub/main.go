@@ -2899,6 +2899,13 @@ func main() {
 			} else if n > 0 {
 				slog.Info("directory: seeded precedence defaults", "tenant", store.DefaultTenantID, "inserted", n)
 			}
+			// The leader keeps every online bridge at its tenant's directory
+			// version: a push 10 s after a change at most, and at the next
+			// birth for a bridge that missed one (MESHSAT-1584 C7).
+			if directoryTrustAnchor != nil {
+				dirPusher := bridge.NewDirectoryPusher(dataStore, directorySQLStore, directoryTrustAnchor, bridgeCommander.SendCommand)
+				leaderSingletons.Add("directory-push", func(sctx context.Context) { dirPusher.Run(sctx, 10*time.Second) })
+			}
 			directoryHandler := api.NewDirectoryHandler(directorySQLStore, directoryTrustAnchor)
 			r.Get("/api/v1/directory/contacts", directoryHandler.ListContacts)
 			r.With(hubauth.RequireRole(hubauth.RoleOperator)).Post("/api/v1/directory/contacts", directoryHandler.CreateContact)

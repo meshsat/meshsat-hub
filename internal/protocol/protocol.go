@@ -196,7 +196,16 @@ type BridgeBirth struct {
 	Timestamp    time.Time       `json:"timestamp"`
 	Certificate  string          `json:"certificate,omitempty"` // base64 PEM of bridge TLS cert
 	Signature    string          `json:"signature,omitempty"`   // base64 ECDSA-P256-SHA256 signature
+	// DirectoryVersion is the directory version the bridge last applied
+	// (contract C7.5): the Hub pushes its tenant's snapshot when it holds a
+	// newer one, so a push the bridge missed arrives at its next connect.
+	DirectoryVersion int64 `json:"directory_version,omitempty"`
 }
+
+// CapDirectoryV2 in a birth's capabilities: the bridge verifies v2
+// directory envelopes (C7.2). The Hub sends a tenant v2 once every bridge
+// of the tenant lists it.
+const CapDirectoryV2 = "directory_v2"
 
 // BridgeDeath is published when the bridge disconnects (explicit or LWT).
 // Topic: meshsat/bridge/{bridge_id}/death (QoS 1)

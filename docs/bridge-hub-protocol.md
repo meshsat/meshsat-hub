@@ -716,7 +716,34 @@ operator's write clears it.
 - `GET /api/v1/directory/snapshot?v=2` answers the envelope (`since=<version>` answers 304 when
   nothing is newer); without `v` it answers the v1 snapshot as before.
 - The `directory_push` command carries either a v1 snapshot or a v2 envelope; the Bridge tells them
-  apart by `"v"`. The Hub sends v2 only to a Bridge whose birth lists `directory_v2`.
+  apart by `"v"`.
+
+### Push and catch-up (C7.5)
+
+The birth carries `"directory_version"` (the version the Bridge last applied) and, from a Bridge that
+verifies v2, the capability `"directory_v2"`. The Hub's leader compares, every 10 s, each online
+Bridge's last reported version (from its birth, or from its answer to a push) with its tenant's, and
+pushes the current snapshot to a Bridge that is behind. Writes inside one tick go out as one push of
+the last version; a Bridge that missed a push gets the snapshot within a tick of its next birth. A
+tenant gets v2 once every Bridge of it lists `directory_v2`, v1 until then.
+
+A v1 push leaves out the precedence defaults the Hub seeded: v1 cannot mark a row seeded, and a v1
+Bridge applies a pushed policy over its own for the scope and clears its seeded mark, so a Hub default
+would replace what the kit's operator set. A v1 push with nothing left in it is not sent.
+
+The Bridge answers `directory_push` (the command response's `result`):
+
+```json
+{"tenant_id":"<tenant>","version":42,"applied":true,"applied_version":42}
+{"tenant_id":"<tenant>","version":41,"applied":false,"reason":"not_newer","applied_version":42}
+```
+
+`applied_version` is the version the Bridge holds after the push, applied or not. A push that is not
+newer is answered `applied:false`, `reason:"not_newer"`, status `ok`; the Hub then counts the Bridge as
+current. Anything else not applied (another tenant, a signature that does not verify, no pinned key)
+is a failure: the Hub asks again after 30 s, doubling to at most 30 min. Metric:
+`meshsat_hub_directory_pushes_total{format, result}` (`applied`, `current`, `refused`, `failed`,
+`empty`).
 
 ## CoT Type Mapping
 

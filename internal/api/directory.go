@@ -260,11 +260,7 @@ func SignSnapshot(snap *directory.Snapshot, anchor *directory.TrustAnchor) ([]by
 	if snap == nil || anchor == nil {
 		return nil, errors.New("nil snapshot or anchor")
 	}
-	canonical, err := CanonicalSnapshotBytes(snap)
-	if err != nil {
-		return nil, err
-	}
-	return anchor.Sign(canonical)
+	return anchor.SignV1(snap)
 }
 
 // CanonicalSnapshotBytes returns the deterministic byte representation
@@ -272,13 +268,7 @@ func SignSnapshot(snap *directory.Snapshot, anchor *directory.TrustAnchor) ([]by
 // encoding/json with a sorted map-key stable output for the Signature
 // field zeroed.
 func CanonicalSnapshotBytes(snap *directory.Snapshot) ([]byte, error) {
-	if snap == nil {
-		return nil, errors.New("nil snapshot")
-	}
-	// Copy and zero the Signature so signers and verifiers agree.
-	cp := *snap
-	cp.Signature = nil
-	return json.Marshal(&cp)
+	return directory.CanonicalV1(snap)
 }
 
 // writeDirectoryError answers a failed directory write: the caller's
