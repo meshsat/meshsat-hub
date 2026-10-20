@@ -2905,6 +2905,11 @@ func main() {
 			if directoryTrustAnchor != nil {
 				dirPusher := bridge.NewDirectoryPusher(dataStore, directorySQLStore, directoryTrustAnchor, bridgeCommander.SendCommand)
 				leaderSingletons.Add("directory-push", func(sctx context.Context) { dirPusher.Run(sctx, 10*time.Second) })
+				// Every replica follows a key rotation done on another
+				// within 30 s (C7.6).
+				go directoryTrustAnchor.KeepFresh(ctx, dataStore, 30*time.Second)
+				dirRotate := api.NewDirectoryKeyRotateHandler(dataStore, directorySQLStore, directoryTrustAnchor, auditSvc)
+				r.With(hubauth.RequirePlatformAdmin()).Post("/api/admin/directory/signing-key/rotate", dirRotate.Rotate)
 			}
 			directoryHandler := api.NewDirectoryHandler(directorySQLStore, directoryTrustAnchor)
 			r.Get("/api/v1/directory/contacts", directoryHandler.ListContacts)

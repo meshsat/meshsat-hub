@@ -17,6 +17,7 @@ import (
 var Sensitive = []string{
 	"bridge_ca_key",
 	"directory_signing_key",
+	"directory_signing_key_next", // a rotation's new key until it is current (MESHSAT-1584 C7)
 	"credential_master_key",
 	"reticulum_signing_key",
 	"reticulum_encryption_key",

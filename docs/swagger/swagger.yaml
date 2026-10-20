@@ -296,6 +296,19 @@ definitions:
     - OriginHub
     - OriginImported
     - OriginQR
+  github_com_meshsat_meshsat-hub_internal_directory.RotationResult:
+    properties:
+      new_key_id:
+        type: string
+      old_key_id:
+        type: string
+      records_added:
+        type: integer
+      resumed:
+        type: boolean
+      tenants:
+        type: integer
+    type: object
   github_com_meshsat_meshsat-hub_internal_directory.Snapshot:
     properties:
       contacts:
@@ -3486,6 +3499,41 @@ info:
   title: MeshSat Hub API
   version: "1.1"
 paths:
+  /api/admin/directory/signing-key/rotate:
+    post:
+      description: Generates a new directory signing key and writes, for every tenant,
+        a rotation record signed by the old key that names the new one; then makes
+        the new key current. Bridges get the records they are missing before their
+        next snapshot. A rotation that stopped part-way is finished by calling this
+        again.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/github_com_meshsat_meshsat-hub_internal_directory.RotationResult'
+        "409":
+          description: A rotation from this key is already under way
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "503":
+          description: No directory signing key or directory store
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Rotate the directory signing key
+      tags:
+      - directory
   /api/admin/payments/unmatched:
     get:
       parameters:

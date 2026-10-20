@@ -13,6 +13,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/meshsat/meshsat-hub/internal/auth"
 	"github.com/meshsat/meshsat-hub/internal/directory"
+	"github.com/meshsat/meshsat-hub/internal/store/sqlite"
 
 	_ "modernc.org/sqlite"
 )
@@ -214,5 +215,53 @@ func TestDirectorySnapshotV2(t *testing.T) {
 	}
 	if w := get(h, ""); w.Code != http.StatusOK || !strings.Contains(w.Body.String(), `"signature"`) {
 		t.Errorf("v1 still answers: %d", w.Code)
+	}
+}
+
+// TestDirectoryKeyRotateEndpoint: the platform rotation writes a record per
+// tenant signed by the old key, makes the new key current, and answers 503
+// without a key.
+func TestDirectoryKeyRotateEndpoint(t *testing.T) {
+	ctx := context.Background()
+	hubPath := filepath.Join(t.TempDir(), "hub.db")
+	st, err := sqlite.New(hubPath, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+	if err := st.Migrate(ctx); err != nil {
+		t.Fatal(err)
+	}
+	_, dir := directoryTestHandler(t)
+	anchor, err := directory.LoadOrCreateTrustAnchor(ctx, st)
+	if err != nil {
+		t.Fatal(err)
+	}
+	oldID := anchor.KeyID()
+	h := NewDirectoryKeyRotateHandler(st, dir, anchor, nil)
+	w := httptest.NewRecorder()
+	h.Rotate(w, httptest.NewRequest(http.MethodPost, "/api/admin/directory/signing-key/rotate", nil))
+	if w.Code != http.StatusOK {
+		t.Fatalf("%d %s", w.Code, w.Body.String())
+	}
+	var res directory.RotationResult
+	if err := json.Unmarshal(w.Body.Bytes(), &res); err != nil {
+		t.Fatal(err)
+	}
+	if res.OldKeyID != oldID || res.NewKeyID != anchor.KeyID() || res.Records < 1 {
+		t.Fatalf("result %+v", res)
+	}
+	chain, err := dir.RotationChain(ctx, "default", oldID)
+	if err != nil || len(chain) != 1 || chain[0].NewKeyID != res.NewKeyID {
+		t.Fatalf("default tenant chain: %+v %v", chain, err)
+	}
+	reloaded, err := directory.LoadOrCreateTrustAnchor(ctx, st)
+	if err != nil || reloaded.KeyID() != res.NewKeyID {
+		t.Fatalf("the stored key after the rotation: %s %v", reloaded.KeyID(), err)
+	}
+	w = httptest.NewRecorder()
+	NewDirectoryKeyRotateHandler(st, dir, nil, nil).Rotate(w, httptest.NewRequest(http.MethodPost, "/", nil))
+	if w.Code != http.StatusServiceUnavailable {
+		t.Errorf("without a key: %d", w.Code)
 	}
 }

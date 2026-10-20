@@ -1301,4 +1301,20 @@ CREATE TABLE IF NOT EXISTS directory_versions (
 	updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 `},
+	// MESHSAT-1584 C7.6: the directory signing key's rotation records, one per tenant per
+	// rotation, each signed by the key it rotates away from and holding a slot in the
+	// tenant's version sequence. Kept for good: a bridge that was offline across several
+	// rotations walks the chain from the key it pinned.
+	{Version: 41, Name: "directory rotations", SQL: `
+CREATE TABLE IF NOT EXISTS directory_rotations (
+	tenant_id VARCHAR(64) NOT NULL,
+	version BIGINT NOT NULL,
+	old_key_id VARCHAR(64) NOT NULL,
+	new_key_id VARCHAR(64) NOT NULL,
+	envelope TEXT NOT NULL,
+	created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+	PRIMARY KEY (tenant_id, version),
+	UNIQUE (tenant_id, old_key_id)
+);
+`},
 }

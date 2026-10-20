@@ -50,6 +50,7 @@ func Run(t *testing.T, open Opener) {
 		{"AddressValuesInTheirKindsForm", addressValueForms},
 		{"GroupKinds", groupKinds},
 		{"PolicyModel", policyModel},
+		{"RotationRecords", rotationRecords},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) { c.fn(t, open(t)) })
@@ -785,5 +786,63 @@ func policyModel(t *testing.T, s *directory.SQLStore) {
 		if err := s.PutPolicy(ctx, &p); err != nil {
 			t.Errorf("%+v: %v", p, err)
 		}
+	}
+}
+
+type memKV struct {
+	mu sync.Mutex
+	m  map[string]string
+}
+
+func (k *memKV) GetSystemConfig(_ context.Context, key string) (string, error) {
+	k.mu.Lock()
+	defer k.mu.Unlock()
+	return k.m[key], nil
+}
+
+func (k *memKV) SetSystemConfig(_ context.Context, key, v string) error {
+	k.mu.Lock()
+	defer k.mu.Unlock()
+	k.m[key] = v
+	return nil
+}
+
+// rotationRecords: a rotation's records are stored per tenant in the
+// tenant's version sequence and read back as a chain from any key the
+// tenant's bridges may still trust; a tenant's chain is its own.
+func rotationRecords(t *testing.T, s *directory.SQLStore) {
+	ctx := context.Background()
+	kv := &memKV{m: map[string]string{}}
+	a, err := directory.LoadOrCreateTrustAnchor(ctx, kv)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mustPut(t, s, &directory.Contact{TenantID: victim, DisplayName: "A"})
+	k1 := a.KeyID()
+	claim := func(context.Context, string) (bool, error) { return true, nil }
+	r1, err := directory.RotateSigningKey(ctx, kv, claim, s, a, []string{victim, attacker})
+	if err != nil {
+		t.Fatal(err)
+	}
+	r2, err := directory.RotateSigningKey(ctx, kv, claim, s, a, []string{victim})
+	if err != nil {
+		t.Fatal(err)
+	}
+	chain, err := s.RotationChain(ctx, victim, k1)
+	if err != nil || len(chain) != 2 || chain[0].Version != 2 || chain[1].Version != 3 ||
+		chain[0].NewKeyID != r1.NewKeyID || chain[1].NewKeyID != r2.NewKeyID {
+		t.Fatalf("victim chain from the first key: %+v %v", chain, err)
+	}
+	if v := version(t, s, victim); v != 3 {
+		t.Errorf("victim version %d, want 3", v)
+	}
+	if c, _ := s.RotationChain(ctx, attacker, k1); len(c) != 1 || c[0].TenantID != attacker || c[0].Version != 1 {
+		t.Errorf("attacker chain: %+v", c)
+	}
+	if c, _ := s.RotationChain(ctx, attacker, r1.NewKeyID); len(c) != 0 {
+		t.Errorf("the attacker was not in the second rotation, yet has %+v", c)
+	}
+	if _, err := s.RotationChain(ctx, "", k1); !errors.Is(err, directory.ErrEmptyID) {
+		t.Errorf("empty tenant: %v", err)
 	}
 }

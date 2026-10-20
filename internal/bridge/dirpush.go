@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"slices"
 	"strings"
@@ -32,6 +33,15 @@ type DirectoryPushAnswer struct {
 	Applied        bool   `json:"applied"`
 	Reason         string `json:"reason,omitempty"`
 	AppliedVersion *int64 `json:"applied_version,omitempty"`
+	// KeyID is the directory key the bridge trusts after the command.
+	KeyID string `json:"key_id,omitempty"`
+}
+
+// DirectoryPushSource is what the pusher reads of the directory.
+type DirectoryPushSource interface {
+	CurrentVersion(ctx context.Context, tenantID string) (int64, error)
+	Snapshot(ctx context.Context, tenantID string) (*directory.Snapshot, error)
+	RotationChain(ctx context.Context, tenantID, fromKeyID string) ([]directory.Rotation, error)
 }
 
 // DirectoryPusherStore is what the pusher reads of the Hub store.
@@ -51,7 +61,7 @@ type DirectoryPusherStore interface {
 // not newer with the version it holds. [MESHSAT-1584 C7]
 type DirectoryPusher struct {
 	store  DirectoryPusherStore
-	dir    directory.Store
+	dir    DirectoryPushSource
 	anchor *directory.TrustAnchor
 	send   func(ctx context.Context, bridgeID string, cmd protocol.Command) (*protocol.CommandResponse, error)
 	now    func() time.Time
@@ -64,13 +74,14 @@ type DirectoryPusher struct {
 type pushState struct {
 	birth    [32]byte // the stored birth this state last read
 	applied  int64    // the bridge's version as last heard
+	keyID    string   // the key the bridge trusts, as last heard (v2 bridges)
 	inflight bool
 	failures int
 	retryAt  time.Time
 }
 
 // NewDirectoryPusher builds the pusher. send is the commander's SendCommand.
-func NewDirectoryPusher(st DirectoryPusherStore, dir directory.Store, anchor *directory.TrustAnchor,
+func NewDirectoryPusher(st DirectoryPusherStore, dir DirectoryPushSource, anchor *directory.TrustAnchor,
 	send func(ctx context.Context, bridgeID string, cmd protocol.Command) (*protocol.CommandResponse, error)) *DirectoryPusher {
 	return &DirectoryPusher{store: st, dir: dir, anchor: anchor, send: send, now: time.Now, state: map[string]*pushState{}}
 }
@@ -151,6 +162,7 @@ func (p *DirectoryPusher) tickTenant(ctx context.Context, tenantID string) {
 		// less than it answered before (a reset bridge starts over).
 		if sum := sha256.Sum256([]byte(b.LastBirth)); sum != st.birth {
 			st.birth, st.applied, st.failures, st.retryAt = sum, birth.DirectoryVersion, 0, time.Time{}
+			st.keyID = birth.DirectoryKeyID
 		}
 		if !b.Online || st.inflight || st.applied >= version || now.Before(st.retryAt) {
 			continue
@@ -227,14 +239,26 @@ func (p *DirectoryPusher) command(ctx context.Context, tenantID string, v2 bool)
 }
 
 func (p *DirectoryPusher) push(ctx context.Context, tenantID, bridgeID string, st *pushState, cmd protocol.Command, format string, sent int64) {
-	cmd.RequestID = "" // one id per bridge
-	resp, err := p.send(ctx, bridgeID, cmd)
-	var ans DirectoryPushAnswer
+	var (
+		resp *protocol.CommandResponse
+		err  error
+		ans  DirectoryPushAnswer
+	)
+	if format == "v2" {
+		err = p.rotate(ctx, tenantID, bridgeID, st)
+	}
+	if err == nil {
+		cmd.RequestID = "" // one id per bridge
+		resp, err = p.send(ctx, bridgeID, cmd)
+	}
 	ok := err == nil && resp != nil && resp.Status == "ok" && json.Unmarshal(resp.Result, &ans) == nil
 	result := "failed"
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	st.inflight = false
+	if ok && ans.KeyID != "" {
+		st.keyID = ans.KeyID
+	}
 	switch {
 	case ok && ans.AppliedVersion != nil:
 		st.applied = *ans.AppliedVersion
@@ -267,6 +291,51 @@ func (p *DirectoryPusher) push(ctx context.Context, tenantID, bridgeID string, s
 	if result == "applied" {
 		slog.Info("directory push: applied", "tenant", tenantID, "bridge", bridgeID, "format", format, "version", sent)
 	}
+}
+
+// rotate brings a v2 bridge to the current signing key before a snapshot:
+// it sends the rotation records from the key the bridge trusts on, oldest
+// first, each signed by the key before it, and stops at the first one the
+// bridge does not take. A bridge that trusts a key the Hub holds no chain
+// from cannot verify the snapshot, so nothing is sent to it.
+func (p *DirectoryPusher) rotate(ctx context.Context, tenantID, bridgeID string, st *pushState) error {
+	p.mu.Lock()
+	trusted := st.keyID
+	p.mu.Unlock()
+	current := p.anchor.KeyID()
+	if trusted == current {
+		return nil
+	}
+	if trusted == "" {
+		return fmt.Errorf("bridge reports no directory key (not paired)")
+	}
+	chain, err := p.dir.RotationChain(ctx, tenantID, trusted)
+	if err != nil {
+		return err
+	}
+	if len(chain) == 0 || chain[len(chain)-1].NewKeyID != current {
+		return fmt.Errorf("bridge trusts key %s and no rotation chain leads from it to %s", trusted, current)
+	}
+	for _, r := range chain {
+		env := r.Envelope
+		resp, err := p.send(ctx, bridgeID, DirectoryRotateCommand(&env))
+		if err != nil {
+			return fmt.Errorf("rotation %d: %w", r.Version, err)
+		}
+		var ans DirectoryPushAnswer
+		if resp.Status != "ok" || json.Unmarshal(resp.Result, &ans) != nil || ans.KeyID != r.NewKeyID {
+			return fmt.Errorf("rotation %d not taken: %s %s", r.Version, resp.Error, ans.Reason)
+		}
+		p.mu.Lock()
+		st.keyID = ans.KeyID
+		if ans.AppliedVersion != nil {
+			st.applied = *ans.AppliedVersion
+		}
+		p.mu.Unlock()
+		directoryPushes.WithLabelValues("rotation", "applied").Inc()
+		slog.Info("directory push: rotation applied", "tenant", tenantID, "bridge", bridgeID, "version", r.Version, "key_id", r.NewKeyID)
+	}
+	return nil
 }
 
 // pushBackoff is 30 s doubling per failure, at most 30 min: a bridge that

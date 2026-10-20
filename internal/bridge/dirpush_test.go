@@ -47,12 +47,13 @@ func (f *pushFakeStore) ListBridges(_ context.Context, tenantID string) ([]*stor
 	return out, nil
 }
 
-// birth sets a bridge's stored birth (a new connect).
-func (f *pushFakeStore) birth(tenant, id string, online bool, version int64, caps ...string) {
+// birth sets a bridge's stored birth (a new connect). A v2 bridge reports
+// keyID as the key it trusts.
+func (f *pushFakeStore) birth(tenant, id string, online bool, version int64, keyID string, caps ...string) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	raw, _ := json.Marshal(protocol.BridgeBirth{BridgeID: id, TenantID: tenant, Capabilities: caps,
-		DirectoryVersion: version, Timestamp: time.Now()})
+		DirectoryVersion: version, DirectoryKeyID: keyID, Timestamp: time.Now()})
 	for _, b := range f.bridges[tenant] {
 		if b.BridgeID == id {
 			b.Online, b.LastBirth = online, string(raw)
@@ -72,6 +73,8 @@ type pushRig struct {
 	st     *pushFakeStore
 	dir    *directory.SQLStore
 	anchor *directory.TrustAnchor
+	kv     kv
+	known  map[string][]byte // keys a pushed envelope may be signed by, besides the current one
 	clock  time.Time
 	mu     sync.Mutex
 	sent   []sent
@@ -96,12 +99,13 @@ func newPushRig(t *testing.T) *pushRig {
 	if err := dir.Migrate(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	anchor, err := directory.LoadOrCreateTrustAnchor(context.Background(), kv{})
+	keys := kv{}
+	anchor, err := directory.LoadOrCreateTrustAnchor(context.Background(), keys)
 	if err != nil {
 		t.Fatal(err)
 	}
-	r := &pushRig{st: &pushFakeStore{bridges: map[string][]*store.Bridge{}}, dir: dir, anchor: anchor,
-		clock: time.Date(2026, 10, 20, 12, 0, 0, 0, time.UTC)}
+	r := &pushRig{st: &pushFakeStore{bridges: map[string][]*store.Bridge{}}, dir: dir, anchor: anchor, kv: keys,
+		known: map[string][]byte{}, clock: time.Date(2026, 10, 20, 12, 0, 0, 0, time.UTC)}
 	// By default a bridge applies what it is sent and says so.
 	r.answer = func(_ string, v int64) (*protocol.CommandResponse, error) {
 		res, _ := json.Marshal(DirectoryPushAnswer{Version: v, Applied: true, AppliedVersion: &v})
@@ -127,6 +131,21 @@ func (r *pushRig) tick() {
 	r.p.Wait()
 }
 
+// birth is a connect of a bridge that trusts the anchor's current key.
+func (r *pushRig) birthTrusting(tenant, id string, version int64, keyID string) {
+	r.st.birth(tenant, id, true, version, keyID, protocol.CapDirectoryV2)
+}
+
+func (r *pushRig) birth(tenant, id string, online bool, version int64, caps ...string) {
+	key := ""
+	for _, c := range caps {
+		if c == protocol.CapDirectoryV2 {
+			key = r.anchor.KeyID()
+		}
+	}
+	r.st.birth(tenant, id, online, version, key, caps...)
+}
+
 func (r *pushRig) advance(d time.Duration) { r.mu.Lock(); r.clock = r.clock.Add(d); r.mu.Unlock() }
 
 // take returns and clears what was sent.
@@ -144,24 +163,27 @@ func (r *pushRig) take() []sent {
 // open verifies a push and returns its version and tenant: a v2 envelope
 // under the anchor's key, a v1 snapshot by its v1 signature.
 func (r *pushRig) open(cmd protocol.Command) (int64, string, error) {
-	if cmd.Cmd != "directory_push" {
+	if cmd.Cmd != "directory_push" && cmd.Cmd != "directory_rotate" {
 		return 0, "", fmt.Errorf("command %q", cmd.Cmd)
 	}
 	var probe struct {
 		V int `json:"v"`
 	}
 	_ = json.Unmarshal(cmd.Payload, &probe)
-	if probe.V == 2 {
+	if probe.V == 2 || cmd.Cmd == "directory_rotate" {
 		var env directory.Envelope
 		if err := json.Unmarshal(cmd.Payload, &env); err != nil {
 			return 0, "", err
 		}
 		der := r.anchor.PublicKey()
+		r.mu.Lock()
+		known := r.known[env.KeyID]
+		r.mu.Unlock()
 		payload, err := directory.OpenEnvelope(&env, func(id string) []byte {
 			if id == directory.KeyID(der) {
 				return der
 			}
-			return nil
+			return known
 		})
 		if err != nil {
 			return 0, "", err
@@ -234,10 +256,10 @@ func TestDirectoryPushGoesToBridgesBehindTheirTenant(t *testing.T) {
 	put(t, r.dir, victim, "A")
 	put(t, r.dir, victim, "B") // victim at version 2
 	put(t, r.dir, other, "X")  // other at version 1
-	r.st.birth(victim, "kit-1", true, 0, protocol.CapDirectoryV2)
-	r.st.birth(victim, "kit-2", true, 2, protocol.CapDirectoryV2)  // already current
-	r.st.birth(victim, "kit-3", false, 0, protocol.CapDirectoryV2) // offline
-	r.st.birth(other, "kit-9", true, 0, protocol.CapDirectoryV2)
+	r.birth(victim, "kit-1", true, 0, protocol.CapDirectoryV2)
+	r.birth(victim, "kit-2", true, 2, protocol.CapDirectoryV2)  // already current
+	r.birth(victim, "kit-3", false, 0, protocol.CapDirectoryV2) // offline
+	r.birth(other, "kit-9", true, 0, protocol.CapDirectoryV2)
 
 	r.tick()
 	got := map[string]string{}
@@ -264,7 +286,7 @@ func TestDirectoryPushGoesToBridgesBehindTheirTenant(t *testing.T) {
 // of the last version.
 func TestDirectoryPushDebounces(t *testing.T) {
 	r := newPushRig(t)
-	r.st.birth("t", "kit", true, 0, protocol.CapDirectoryV2)
+	r.birth("t", "kit", true, 0, protocol.CapDirectoryV2)
 	for i := 0; i < 5; i++ {
 		put(t, r.dir, "t", fmt.Sprint("c", i))
 	}
@@ -280,14 +302,14 @@ func TestDirectoryPushDebounces(t *testing.T) {
 // comes back holding less than it answered before (reset) gets it again.
 func TestDirectoryPushCatchesUpAtTheNextBirth(t *testing.T) {
 	r := newPushRig(t)
-	r.st.birth("t", "kit", false, 0, protocol.CapDirectoryV2)
+	r.birth("t", "kit", false, 0, protocol.CapDirectoryV2)
 	put(t, r.dir, "t", "A")
 	put(t, r.dir, "t", "B")
 	r.tick()
 	if s := r.take(); len(s) != 0 {
 		t.Fatalf("pushed to an offline bridge: %d", len(s))
 	}
-	r.st.birth("t", "kit", true, 1, protocol.CapDirectoryV2)
+	r.birth("t", "kit", true, 1, protocol.CapDirectoryV2)
 	r.tick()
 	if s := r.take(); len(s) != 1 || r.versionOf(t, s[0].cmd) != 2 {
 		t.Fatalf("catch-up at birth: %d pushes", len(s))
@@ -296,7 +318,7 @@ func TestDirectoryPushCatchesUpAtTheNextBirth(t *testing.T) {
 	if s := r.take(); len(s) != 0 {
 		t.Fatalf("pushed after the bridge applied: %d", len(s))
 	}
-	r.st.birth("t", "kit", true, 0, protocol.CapDirectoryV2) // reset, came back empty
+	r.birth("t", "kit", true, 0, protocol.CapDirectoryV2) // reset, came back empty
 	r.tick()
 	if s := r.take(); len(s) != 1 {
 		t.Fatalf("a reset bridge got %d pushes", len(s))
@@ -308,7 +330,7 @@ func TestDirectoryPushCatchesUpAtTheNextBirth(t *testing.T) {
 // it already holds the version is not a failure.
 func TestDirectoryPushBacksOffAFailingBridge(t *testing.T) {
 	r := newPushRig(t)
-	r.st.birth("t", "kit", true, 0, protocol.CapDirectoryV2)
+	r.birth("t", "kit", true, 0, protocol.CapDirectoryV2)
 	put(t, r.dir, "t", "A")
 	r.answer = func(string, int64) (*protocol.CommandResponse, error) {
 		return &protocol.CommandResponse{Status: "error", Error: "directory_push: no pinned trust anchor"}, nil
@@ -350,8 +372,8 @@ func TestDirectoryPushBacksOffAFailingBridge(t *testing.T) {
 func TestDirectoryPushV1UntilEveryBridgeVerifiesV2(t *testing.T) {
 	r := newPushRig(t)
 	ctx := context.Background()
-	r.st.birth("t", "new-kit", true, 0, protocol.CapDirectoryV2)
-	r.st.birth("t", "old-kit", true, 0)
+	r.birth("t", "new-kit", true, 0, protocol.CapDirectoryV2)
+	r.birth("t", "old-kit", true, 0)
 	if _, err := r.dir.SeedPrecedenceDefaults(ctx, "t"); err != nil {
 		t.Fatal(err)
 	}
@@ -380,7 +402,7 @@ func TestDirectoryPushV1UntilEveryBridgeVerifiesV2(t *testing.T) {
 		}
 	}
 	// The old kit is upgraded: the tenant goes v2, seeded defaults included.
-	r.st.birth("t", "old-kit", true, 3, protocol.CapDirectoryV2)
+	r.birth("t", "old-kit", true, 3, protocol.CapDirectoryV2)
 	put(t, r.dir, "t", "B")
 	r.tick()
 	s = r.take()
@@ -399,7 +421,7 @@ func TestDirectoryPushV1UntilEveryBridgeVerifiesV2(t *testing.T) {
 // its answer does not send another.
 func TestDirectoryPushNeverDoublesAPushInFlight(t *testing.T) {
 	r := newPushRig(t)
-	r.st.birth("t", "kit", true, 0, protocol.CapDirectoryV2)
+	r.birth("t", "kit", true, 0, protocol.CapDirectoryV2)
 	put(t, r.dir, "t", "A")
 	release := make(chan struct{})
 	r.answer = func(_ string, v int64) (*protocol.CommandResponse, error) {
@@ -419,4 +441,113 @@ func TestDirectoryPushNeverDoublesAPushInFlight(t *testing.T) {
 	if s := r.take(); len(s) != 1 || r.versionOf(t, s[0].cmd) != 2 {
 		t.Fatalf("after the answer: %d pushes", len(s))
 	}
+}
+
+// rotateKey rotates the Hub's key for tenants; the old key stays known to
+// the rig so records signed by it open.
+func (r *pushRig) rotateKey(t *testing.T, tenants ...string) *directory.RotationResult {
+	t.Helper()
+	old := r.anchor.PublicKey()
+	r.mu.Lock()
+	r.known[directory.KeyID(old)] = old
+	r.mu.Unlock()
+	res, err := directory.RotateSigningKey(context.Background(), r.kv, func(context.Context, string) (bool, error) { return true, nil },
+		r.dir, r.anchor, tenants)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return res
+}
+
+// answerRotations answers a rotate as a bridge that takes it, and a push
+// as one that applies it.
+func (r *pushRig) answerRotations(rotateOK bool) {
+	r.answer = func(_ string, v int64) (*protocol.CommandResponse, error) {
+		r.mu.Lock()
+		last := r.sent[len(r.sent)-1]
+		r.mu.Unlock()
+		if last.cmd.Cmd == "directory_rotate" {
+			if !rotateOK {
+				return &protocol.CommandResponse{Status: "error", Error: "directory_rotate: not signed by the trusted key"}, nil
+			}
+			var env directory.Envelope
+			_ = json.Unmarshal(last.cmd.Payload, &env)
+			var p directory.RotationPayload
+			_ = json.Unmarshal(env.Payload, &p)
+			res, _ := json.Marshal(DirectoryPushAnswer{Version: v, Applied: true, AppliedVersion: &v, KeyID: p.NewKeyID})
+			return &protocol.CommandResponse{Status: "ok", Result: res}, nil
+		}
+		res, _ := json.Marshal(DirectoryPushAnswer{Version: v, Applied: true, AppliedVersion: &v, KeyID: r.anchor.KeyID()})
+		return &protocol.CommandResponse{Status: "ok", Result: res}, nil
+	}
+}
+
+// TestDirectoryPushSendsTheRotationChainFirst: a bridge that trusts a key
+// two rotations old gets both records, in order, each signed by the key
+// before it, then the snapshot the newest key signed.
+func TestDirectoryPushSendsTheRotationChainFirst(t *testing.T) {
+	r := newPushRig(t)
+	put(t, r.dir, "t", "A") // version 1
+	k1 := r.anchor.KeyID()
+	r.birthTrusting("t", "kit", 1, k1)
+	res1 := r.rotateKey(t, "t") // version 2
+	res2 := r.rotateKey(t, "t") // version 3
+	put(t, r.dir, "t", "B")     // version 4, signed by the newest key
+	r.answerRotations(true)
+	r.tick()
+	s := r.take()
+	if len(s) != 3 || s[0].cmd.Cmd != "directory_rotate" || s[1].cmd.Cmd != "directory_rotate" || s[2].cmd.Cmd != "directory_push" {
+		t.Fatalf("sent %d commands: %v", len(s), cmds(s))
+	}
+	for i, want := range []struct {
+		signer, names string
+		version       int64
+	}{{k1, res1.NewKeyID, 2}, {res1.NewKeyID, res2.NewKeyID, 3}} {
+		var env directory.Envelope
+		_ = json.Unmarshal(s[i].cmd.Payload, &env)
+		var p directory.RotationPayload
+		_ = json.Unmarshal(env.Payload, &p)
+		if env.KeyID != want.signer || p.NewKeyID != want.names || p.Version != want.version || p.TenantID != "t" {
+			t.Errorf("record %d: signed by %s naming %s at %d, want %+v", i, env.KeyID, p.NewKeyID, p.Version, want)
+		}
+	}
+	var env directory.Envelope
+	_ = json.Unmarshal(s[2].cmd.Payload, &env)
+	if env.KeyID != res2.NewKeyID || r.versionOf(t, s[2].cmd) != 4 {
+		t.Errorf("snapshot signed by %s", env.KeyID)
+	}
+	r.tick()
+	if s := r.take(); len(s) != 0 {
+		t.Fatalf("a current bridge got %v", cmds(s))
+	}
+}
+
+// TestDirectoryPushStopsWhereTheBridgeStops: a rotation the bridge does not
+// take stops the push (the snapshot would not verify), and a bridge that
+// trusts a key the Hub holds no chain from gets nothing.
+func TestDirectoryPushStopsWhereTheBridgeStops(t *testing.T) {
+	r := newPushRig(t)
+	put(t, r.dir, "t", "A")
+	r.birthTrusting("t", "kit", 1, r.anchor.KeyID())
+	r.birthTrusting("t", "stranger", 0, "0000000000000000000000000000000000000000000000000000000000000000")
+	r.rotateKey(t, "t")
+	r.answerRotations(false)
+	r.tick()
+	s := r.take()
+	if len(s) != 1 || s[0].bridge != "kit" || s[0].cmd.Cmd != "directory_rotate" {
+		t.Fatalf("sent %v", cmds(s))
+	}
+	r.advance(10 * time.Second)
+	r.tick()
+	if s := r.take(); len(s) != 0 {
+		t.Fatalf("no backoff after a refused rotation: %v", cmds(s))
+	}
+}
+
+func cmds(s []sent) []string {
+	var out []string
+	for _, x := range s {
+		out = append(out, x.bridge+":"+x.cmd.Cmd)
+	}
+	return out
 }

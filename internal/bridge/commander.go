@@ -117,6 +117,19 @@ func DirectoryPushV2Command(env *directory.Envelope) protocol.Command {
 	}
 }
 
+// DirectoryRotateCommand ships one signed rotation record (contract C7.6):
+// the bridge accepts it only signed by the key it trusts, and then trusts
+// the key it names. Not the unsigned directory_trust_anchor_rotate of
+// earlier bridges, which the Hub never sends. [MESHSAT-1584 C7]
+func DirectoryRotateCommand(env *directory.Envelope) protocol.Command {
+	payload, _ := json.Marshal(env)
+	return protocol.Command{
+		Cmd:       "directory_rotate",
+		Payload:   json.RawMessage(payload),
+		Timestamp: time.Now().UTC(),
+	}
+}
+
 // KeyRotateCommand creates a command to push a new encryption key to a bridge or Android device.
 // The bridge stores this key in its keystore; the old key is retired with a grace period. [MESHSAT-447]
 func KeyRotateCommand(channelType, address, keyHex string, version int) protocol.Command {

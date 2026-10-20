@@ -256,6 +256,16 @@ var sqliteTables = []string{
 		version    INTEGER NOT NULL DEFAULT 0,
 		updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 	)`,
+	`CREATE TABLE IF NOT EXISTS directory_rotations (
+		tenant_id  TEXT NOT NULL,
+		version    INTEGER NOT NULL,
+		old_key_id TEXT NOT NULL,
+		new_key_id TEXT NOT NULL,
+		envelope   TEXT NOT NULL,
+		created_at TEXT NOT NULL DEFAULT (datetime('now')),
+		PRIMARY KEY (tenant_id, version),
+		UNIQUE (tenant_id, old_key_id)
+	)`,
 }
 
 // sqliteIndexes run after the tables (and, on an upgrade, after the old

@@ -743,7 +743,32 @@ newer is answered `applied:false`, `reason:"not_newer"`, status `ok`; the Hub th
 current. Anything else not applied (another tenant, a signature that does not verify, no pinned key)
 is a failure: the Hub asks again after 30 s, doubling to at most 30 min. Metric:
 `meshsat_hub_directory_pushes_total{format, result}` (`applied`, `current`, `refused`, `failed`,
-`empty`).
+`empty`; format `rotation` counts rotation records taken).
+
+### Key rotation (C7.6)
+
+A Bridge trusts the one directory key it pinned at provisioning and reports its id in the birth as
+`"directory_key_id"`. `POST /api/admin/directory/signing-key/rotate` (platform admin) replaces the
+Hub's key:
+
+1. the new private key is stored as pending (sealed at rest), so no record can name a key the Hub
+   does not hold;
+2. every tenant gets a rotation record, signed by the OLD key, in one transaction with the version
+   bump it takes:
+   `{"type":"rotation","tenant_id":"<tenant>","version":43,"new_key_id":"<hex>","new_key_pkix":"<base64>"}`;
+3. the new key becomes current. Every replica reloads it within 30 s.
+
+A rotation that stopped part-way is finished by calling the endpoint again. The Hub keeps every
+record. Before a v2 snapshot, the Hub sends a Bridge whose key is not the current one the records from
+its key on, oldest first, one `directory_rotate` command each (the payload is the record's envelope);
+it stops at the first one the Bridge does not take, and sends nothing to a Bridge that trusts a key
+no chain leads from. The Bridge accepts a record only signed by the key it trusts (never an unsigned
+rotate), with a version above the last it applied, and answers like a push, with `"key_id"` the key it
+trusts afterwards:
+
+```json
+{"tenant_id":"<tenant>","version":43,"applied":true,"applied_version":43,"key_id":"<new key id>"}
+```
 
 ## CoT Type Mapping
 

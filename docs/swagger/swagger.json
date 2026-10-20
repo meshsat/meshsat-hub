@@ -13,6 +13,53 @@
     "host": "localhost:6070",
     "basePath": "/",
     "paths": {
+        "/api/admin/directory/signing-key/rotate": {
+            "post": {
+                "description": "Generates a new directory signing key and writes, for every tenant, a rotation record signed by the old key that names the new one; then makes the new key current. Bridges get the records they are missing before their next snapshot. A rotation that stopped part-way is finished by calling this again.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "directory"
+                ],
+                "summary": "Rotate the directory signing key",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_meshsat_meshsat-hub_internal_directory.RotationResult"
+                        }
+                    },
+                    "409": {
+                        "description": "A rotation from this key is already under way",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "503": {
+                        "description": "No directory signing key or directory store",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/admin/payments/unmatched": {
             "get": {
                 "produces": [
@@ -11530,6 +11577,26 @@
                 "OriginImported",
                 "OriginQR"
             ]
+        },
+        "github_com_meshsat_meshsat-hub_internal_directory.RotationResult": {
+            "type": "object",
+            "properties": {
+                "new_key_id": {
+                    "type": "string"
+                },
+                "old_key_id": {
+                    "type": "string"
+                },
+                "records_added": {
+                    "type": "integer"
+                },
+                "resumed": {
+                    "type": "boolean"
+                },
+                "tenants": {
+                    "type": "integer"
+                }
+            }
         },
         "github_com_meshsat_meshsat-hub_internal_directory.Snapshot": {
             "type": "object",

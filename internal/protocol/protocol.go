@@ -200,6 +200,11 @@ type BridgeBirth struct {
 	// (contract C7.5): the Hub pushes its tenant's snapshot when it holds a
 	// newer one, so a push the bridge missed arrives at its next connect.
 	DirectoryVersion int64 `json:"directory_version,omitempty"`
+	// DirectoryKeyID is the id (SHA-256 of the PKIX key, hex) of the
+	// directory signing key the bridge trusts (C7.6): the Hub sends the
+	// rotation records from that key on before a snapshot the bridge could
+	// not verify otherwise.
+	DirectoryKeyID string `json:"directory_key_id,omitempty"`
 }
 
 // CapDirectoryV2 in a birth's capabilities: the bridge verifies v2

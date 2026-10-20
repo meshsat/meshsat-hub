@@ -12,9 +12,10 @@ import (
 )
 
 type fakeStore struct {
-	mu   sync.Mutex
-	data map[string]string
-	fail bool
+	mu      sync.Mutex
+	data    map[string]string
+	fail    bool
+	failKey string // a Set of this key fails (a crash at that step)
 }
 
 func newFakeStore() *fakeStore {
@@ -30,7 +31,7 @@ func (f *fakeStore) GetSystemConfig(_ context.Context, key string) (string, erro
 func (f *fakeStore) SetSystemConfig(_ context.Context, key, value string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	if f.fail {
+	if f.fail || key == f.failKey {
 		return errors.New("persist failed")
 	}
 	f.data[key] = value
@@ -96,58 +97,6 @@ func TestTrustAnchor_Sign_VerifiesWithPublicKey(t *testing.T) {
 	digest := sha256.Sum256(msg)
 	if !ecdsa.VerifyASN1(pub.(*ecdsa.PublicKey), digest[:], sig) {
 		t.Fatal("signature did not verify with exported pubkey")
-	}
-}
-
-func TestTrustAnchor_Rotate_ReplacesKey(t *testing.T) {
-	s := newFakeStore()
-	ta, err := LoadOrCreateTrustAnchor(context.Background(), s)
-	if err != nil {
-		t.Fatal(err)
-	}
-	oldPub := ta.PublicKey()
-	stored := s.data[systemConfigKey]
-
-	newPub, err := ta.Rotate(context.Background(), s)
-	if err != nil {
-		t.Fatalf("Rotate: %v", err)
-	}
-	if bytes.Equal(oldPub, newPub) {
-		t.Fatal("rotated pubkey equals old pubkey")
-	}
-	if !bytes.Equal(newPub, ta.PublicKey()) {
-		t.Fatal("TrustAnchor does not reflect rotated key")
-	}
-	if s.data[systemConfigKey] == stored {
-		t.Fatal("stored PEM was not updated on rotate")
-	}
-
-	// Signatures after rotation verify only under the new key.
-	msg := []byte("after rotation")
-	sig, err := ta.Sign(msg)
-	if err != nil {
-		t.Fatal(err)
-	}
-	newKey, _ := x509.ParsePKIXPublicKey(newPub)
-	oldKey, _ := x509.ParsePKIXPublicKey(oldPub)
-	digest := sha256.Sum256(msg)
-	if !ecdsa.VerifyASN1(newKey.(*ecdsa.PublicKey), digest[:], sig) {
-		t.Fatal("signature does not verify under new key")
-	}
-	if ecdsa.VerifyASN1(oldKey.(*ecdsa.PublicKey), digest[:], sig) {
-		t.Fatal("signature unexpectedly verifies under rotated-out old key")
-	}
-}
-
-func TestTrustAnchor_Rotate_PersistFailure(t *testing.T) {
-	s := newFakeStore()
-	ta, err := LoadOrCreateTrustAnchor(context.Background(), s)
-	if err != nil {
-		t.Fatal(err)
-	}
-	s.fail = true
-	if _, err := ta.Rotate(context.Background(), s); err == nil {
-		t.Fatal("expected error when persisting rotated key fails")
 	}
 }
 
