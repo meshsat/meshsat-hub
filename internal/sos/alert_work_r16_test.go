@@ -2,8 +2,10 @@ package sos
 
 import (
 	"context"
+	"database/sql/driver"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"sync"
 	"testing"
 	"time"
@@ -23,6 +25,7 @@ type failAlerts struct {
 	mu                    sync.Mutex
 	failCreate, failClose bool
 	failApply             bool
+	transientApply        int // this many run writes fail as a dropped connection first
 }
 
 func (s *failAlerts) set(create, closeAlert, apply bool) {
@@ -54,7 +57,14 @@ func (s *failAlerts) UpdateAlert(ctx context.Context, tenantID string, a *store.
 func (s *failAlerts) ApplySOSRunEvent(ctx context.Context, ev *store.SOSRunEvent) (store.SOSRunApplied, error) {
 	s.mu.Lock()
 	fail := s.failApply
+	transient := s.transientApply > 0
+	if transient {
+		s.transientApply--
+	}
 	s.mu.Unlock()
+	if transient {
+		return store.SOSRunApplied{}, fmt.Errorf("injected: %w", driver.ErrBadConn)
+	}
 	if fail {
 		return store.SOSRunApplied{}, errors.New("injected: run not stored")
 	}
@@ -230,6 +240,30 @@ func TestR16AStartNotStoredIsRepeatedNotPagedTheOldWay(t *testing.T) {
 	h.runs.handleMQTT("meshsat/bridge/"+f.Legacy.BridgeID+"/sos/event", payload)
 	if n, a := len(h.bus.on("/sos/ack")), len(h.alerts(t)); n != 1 || a != 1 {
 		t.Fatalf("the repeat: %d acks, %d alerts", n, a)
+	}
+}
+
+// A transient database error on the run's write (a dropped connection, a serialization
+// failure) is retried at once: the start is stored, acked and paged once, without waiting
+// for the sender's next copy.
+func TestR16ATransientErrorOnTheRunsWriteIsRetried(t *testing.T) {
+	f := loadFixture(t)
+	h, fs := failing(t)
+	fs.mu.Lock()
+	fs.transientApply = 1
+	fs.mu.Unlock()
+	payload, _ := json.Marshal(map[string]any{"v": 2, "kind": "start", "sos_id": f.Legacy.SOSID,
+		"run_start_ms": f.Legacy.RunStartMs, "text": "Injured, need help"})
+	h.runs.handleMQTT("meshsat/bridge/"+f.Legacy.BridgeID+"/sos/event", payload)
+	acks, alerts, legacy := len(h.bus.on("/sos/ack")), len(h.alerts(t)), len(h.bus.on("/mo/decoded"))
+	if acks != 1 || alerts != 1 || legacy != 0 {
+		t.Fatalf("after one dropped connection: %d acks, %d alerts, %d old-way pages; want 1, 1, 0", acks, alerts, legacy)
+	}
+	fs.mu.Lock()
+	left := fs.transientApply
+	fs.mu.Unlock()
+	if left != 0 {
+		t.Fatal("the injected failure was never hit")
 	}
 }
 
