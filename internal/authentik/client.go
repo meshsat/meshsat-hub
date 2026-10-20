@@ -249,12 +249,13 @@ var ErrEmailNotVerified = errors.New("authentik: email not verified")
 // drift apart: they had different guards, and the weaker one was on Approve.
 //
 // The test is the group, never is_active. Enrolment creates the account
-// inactive, but the recovery flow's email stage activates it, and an applicant
-// who tries to sign in while waiting resets the password and is active from
-// then on (MESHSAT-1599; the Hub still refuses them, because the gate is the
-// group). Refusing active accounts left exactly those applicants with no
-// decision anyone could make in the Hub: every Reject and Approve answered 409
-// and the 24 h reminder went on for a week. What keeps this from reaching an
+// inactive, but until MESHSAT-1600 the recovery flow's email stage activated
+// it, so an applicant who tried to sign in while waiting and reset the password
+// was active from then on, and an administrator can activate one by hand
+// (MESHSAT-1599; the Hub still refuses them, because the gate is the group).
+// Refusing active accounts left exactly those applicants with no decision
+// anyone could make in the Hub: every Reject and Approve answered 409 and the
+// 24 h reminder went on for a week. What keeps this from reaching an
 // account of the other product on the shared instance is that the pending
 // group must be its ONLY group: enrolment puts a signup there and nowhere else.
 func (c *Client) pending(ctx context.Context, pk int) (*akUser, error) {

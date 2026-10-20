@@ -577,8 +577,39 @@ st_recovery_ident.case_insensitive_matching = True
 st_recovery_ident.pretend_user_exists = True
 st_recovery_ident.save()
 
+# A password reset never activates an account (MESHSAT-1600). It did, which
+# made "inactive" mean nothing: an applicant waiting for approval who reset the
+# password became an active user of this shared instance, able to sign in to
+# every application here that has no binding (the other product's among them),
+# and an account an administrator had deactivated got back in by itself while
+# it still held a MeshSat role, because the Hub gates on the group. Approval is
+# the only thing that activates a MeshSat account.
 st_recovery_email = mail_stage("meshsat-recovery-email", "Reset your MeshSat Hub password",
-                               "email/meshsat_password_reset.html", activate_user_on_success=True)
+                               "email/meshsat_password_reset.html", activate_user_on_success=False)
+
+# What the reset used to give a waiting applicant by accident was a way in to
+# the Hub's "Awaiting approval" page. Without it they would set a new password
+# and still be told "Invalid password" at sign-in, so the flow says why before
+# it ends. Re-evaluated when the stage is reached, against the user being reset
+# (the pending user, not the anonymous visitor), so nobody else sees it.
+p_recovery_pending = [prompt(
+    "meshsat-recovery-pending-notice", "meshsat_pending_notice", "Waiting for approval", FieldTypes.STATIC, 10, required=False,
+    initial="Your new password is set. Your MeshSat Hub account request is still waiting for approval, "
+            "so you cannot sign in yet. We will email you as soon as it is approved; then sign in with this password.",
+)]
+st_recovery_pending = prompt_stage("meshsat-recovery-pending-notice", p_recovery_pending)
+RECOVERY_PENDING_EXPR = (
+    'u = request.user\n'
+    'if not getattr(u, "pk", None):\n'
+    '    return False\n'
+    'return u.groups.filter(name="meshsat-pending").exists()\n'
+)
+recovery_pending_policy, _ = ExpressionPolicy.objects.get_or_create(
+    name="meshsat-recovery-user-is-pending", defaults={"expression": RECOVERY_PENDING_EXPR},
+)
+if recovery_pending_policy.expression != RECOVERY_PENDING_EXPR:
+    recovery_pending_policy.expression = RECOVERY_PENDING_EXPR
+    recovery_pending_policy.save()
 
 st_recovery_write, _ = UserWriteStage.objects.get_or_create(
     name="meshsat-recovery-write",
@@ -595,13 +626,20 @@ recovery, r_created = Flow.objects.get_or_create(
 recovery.title = "Reset your MeshSat Hub password"
 recovery.designation = FlowDesignation.RECOVERY
 recovery.save()
-for order, st in ((10, st_recovery_ident), (20, st_recovery_email), (30, st_recovery_prompt), (40, st_recovery_write)):
+for order, st in ((10, st_recovery_ident), (20, st_recovery_email), (30, st_recovery_prompt), (40, st_recovery_write),
+                  (50, st_recovery_pending)):
     b, _ = FlowStageBinding.objects.get_or_create(target=recovery, stage=st, defaults={"order": order})
     if b.order != order:
         b.order = order
         b.save()
 FlowStageBinding.objects.filter(target=recovery).exclude(
-    stage__in=[st_recovery_ident, st_recovery_email, st_recovery_prompt, st_recovery_write]).delete()
+    stage__in=[st_recovery_ident, st_recovery_email, st_recovery_prompt, st_recovery_write, st_recovery_pending]).delete()
+pending_notice_binding = FlowStageBinding.objects.get(target=recovery, stage=st_recovery_pending)
+pending_notice_binding.evaluate_on_plan = False
+pending_notice_binding.re_evaluate_policies = True
+pending_notice_binding.save()
+PolicyBinding.objects.get_or_create(policy=recovery_pending_policy, target=pending_notice_binding,
+                                    defaults={"order": 0, "enabled": True})
 
 # The sign-in page only shows "Forgot password?" when its identification stage
 # knows where to send it.
