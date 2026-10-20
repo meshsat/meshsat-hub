@@ -1185,4 +1185,120 @@ CREATE INDEX IF NOT EXISTS idx_sos_runs_sos_id ON sos_runs (tenant_id, sos_id);
 ALTER TABLE sos_runs ADD COLUMN IF NOT EXISTS alert_pending BOOLEAN NOT NULL DEFAULT false;
 CREATE INDEX IF NOT EXISTS idx_sos_runs_alert_pending ON sos_runs (updated_at) WHERE alert_pending;
 `},
+	// MESHSAT-1584, HeMB-NG stage 2 C7: the tenant directory (contacts, their addresses and
+	// keys, groups, dispatch policies, the per-tenant version) on Postgres, until now on
+	// SQLite only. Every table carries tenant_id and every key starts with it, so an id or an
+	// address is unique within its tenant only and no upsert can move a row between tenants.
+	// The foreign keys all cascade inside one tenant, so a tenant purge may delete these
+	// tables in any order. seeded marks the precedence defaults the Hub installed itself.
+	// The statements live in internal/directory (shared with the SQLite schema there).
+	{Version: 40, Name: "directory", SQL: `
+CREATE TABLE IF NOT EXISTS directory_contacts (
+	tenant_id VARCHAR(64) NOT NULL,
+	id TEXT NOT NULL,
+	display_name TEXT NOT NULL,
+	given_name TEXT NOT NULL DEFAULT '',
+	family_name TEXT NOT NULL DEFAULT '',
+	org TEXT NOT NULL DEFAULT '',
+	role TEXT NOT NULL DEFAULT '',
+	team TEXT NOT NULL DEFAULT '',
+	sidc TEXT NOT NULL DEFAULT '',
+	notes TEXT NOT NULL DEFAULT '',
+	trust_level INTEGER NOT NULL DEFAULT 0,
+	trust_verified_at TIMESTAMPTZ NULL,
+	origin TEXT NOT NULL DEFAULT 'hub',
+	policy_id TEXT NOT NULL DEFAULT '',
+	hub_version BIGINT NOT NULL DEFAULT 0,
+	hub_etag TEXT NOT NULL DEFAULT '',
+	metadata TEXT NOT NULL DEFAULT '{}',
+	created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+	updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+	PRIMARY KEY (tenant_id, id)
+);
+CREATE INDEX IF NOT EXISTS idx_dir_contacts_name ON directory_contacts (tenant_id, display_name);
+CREATE TABLE IF NOT EXISTS directory_addresses (
+	tenant_id VARCHAR(64) NOT NULL,
+	id TEXT NOT NULL,
+	contact_id TEXT NOT NULL,
+	kind TEXT NOT NULL,
+	value TEXT NOT NULL,
+	subvalue TEXT NOT NULL DEFAULT '',
+	label TEXT NOT NULL DEFAULT '',
+	primary_rank INTEGER NOT NULL DEFAULT 0,
+	verified BOOLEAN NOT NULL DEFAULT false,
+	bearer_hint INTEGER NOT NULL DEFAULT 50,
+	max_cost_cents INTEGER NULL,
+	created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+	updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+	PRIMARY KEY (tenant_id, id),
+	UNIQUE (tenant_id, kind, value),
+	FOREIGN KEY (tenant_id, contact_id) REFERENCES directory_contacts (tenant_id, id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_dir_addr_contact ON directory_addresses (tenant_id, contact_id);
+CREATE TABLE IF NOT EXISTS directory_contact_keys (
+	tenant_id VARCHAR(64) NOT NULL,
+	id TEXT NOT NULL,
+	contact_id TEXT NOT NULL,
+	kind TEXT NOT NULL,
+	version INTEGER NOT NULL DEFAULT 1,
+	status TEXT NOT NULL DEFAULT 'active',
+	public_data BYTEA NULL,
+	fingerprint TEXT NOT NULL DEFAULT '',
+	algorithm TEXT NOT NULL DEFAULT '',
+	trust_anchor TEXT NOT NULL DEFAULT 'hub',
+	created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+	PRIMARY KEY (tenant_id, id),
+	UNIQUE (tenant_id, contact_id, kind, version),
+	FOREIGN KEY (tenant_id, contact_id) REFERENCES directory_contacts (tenant_id, id) ON DELETE CASCADE
+);
+CREATE TABLE IF NOT EXISTS directory_groups (
+	tenant_id VARCHAR(64) NOT NULL,
+	id TEXT NOT NULL,
+	name TEXT NOT NULL,
+	kind TEXT NOT NULL DEFAULT 'LIST',
+	sidc TEXT NOT NULL DEFAULT '',
+	mls_group_id TEXT NOT NULL DEFAULT '',
+	policy_id TEXT NOT NULL DEFAULT '',
+	hub_version BIGINT NOT NULL DEFAULT 0,
+	hub_etag TEXT NOT NULL DEFAULT '',
+	created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+	updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+	PRIMARY KEY (tenant_id, id)
+);
+CREATE TABLE IF NOT EXISTS directory_group_members (
+	tenant_id VARCHAR(64) NOT NULL,
+	group_id TEXT NOT NULL,
+	contact_id TEXT NOT NULL,
+	position INTEGER NOT NULL DEFAULT 0,
+	role TEXT NOT NULL DEFAULT '',
+	added_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+	PRIMARY KEY (tenant_id, group_id, contact_id),
+	FOREIGN KEY (tenant_id, group_id) REFERENCES directory_groups (tenant_id, id) ON DELETE CASCADE,
+	FOREIGN KEY (tenant_id, contact_id) REFERENCES directory_contacts (tenant_id, id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_dir_members_contact ON directory_group_members (tenant_id, contact_id);
+CREATE TABLE IF NOT EXISTS directory_dispatch_policy (
+	tenant_id VARCHAR(64) NOT NULL,
+	id TEXT NOT NULL,
+	name TEXT NOT NULL DEFAULT '',
+	scope_type TEXT NOT NULL DEFAULT 'contact',
+	scope_id TEXT NOT NULL DEFAULT '',
+	strategy TEXT NOT NULL DEFAULT 'PRIMARY_ONLY',
+	preferred TEXT NOT NULL DEFAULT '[]',
+	fallback TEXT NOT NULL DEFAULT '[]',
+	require_encryption BOOLEAN NOT NULL DEFAULT false,
+	max_retries INTEGER NOT NULL DEFAULT 0,
+	retry_delay_ns BIGINT NOT NULL DEFAULT 0,
+	seeded BOOLEAN NOT NULL DEFAULT false,
+	created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+	updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+	PRIMARY KEY (tenant_id, id),
+	UNIQUE (tenant_id, scope_type, scope_id)
+);
+CREATE TABLE IF NOT EXISTS directory_versions (
+	tenant_id VARCHAR(64) PRIMARY KEY,
+	version BIGINT NOT NULL DEFAULT 0,
+	updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+`},
 }

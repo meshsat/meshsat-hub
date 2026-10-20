@@ -9618,6 +9618,13 @@ paths:
             additionalProperties:
               type: string
             type: object
+        "409":
+          description: An address, address id or key id belongs to another contact
+            of the tenant
+          schema:
+            additionalProperties:
+              type: string
+            type: object
         "500":
           description: Internal Server Error
           schema:
@@ -9702,6 +9709,19 @@ paths:
             type: object
         "404":
           description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "409":
+          description: An address, address id or key id belongs to another contact
+            of the tenant
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
           schema:
             additionalProperties:
               type: string

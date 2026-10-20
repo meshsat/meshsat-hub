@@ -92,6 +92,7 @@ func (h *DirectoryHandler) GetContact(w http.ResponseWriter, r *http.Request) {
 // @Param body body directory.Contact true "Contact (tenant_id will be overridden by the caller's tenant)"
 // @Success 201 {object} directory.Contact
 // @Failure 400 {object} map[string]string
+// @Failure 409 {object} map[string]string "An address, address id or key id belongs to another contact of the tenant"
 // @Failure 500 {object} map[string]string
 // @Router /api/v1/directory/contacts [post]
 func (h *DirectoryHandler) CreateContact(w http.ResponseWriter, r *http.Request) {
@@ -108,10 +109,9 @@ func (h *DirectoryHandler) CreateContact(w http.ResponseWriter, r *http.Request)
 	body.CreatedAt = time.Time{} // let the store stamp these
 	body.UpdatedAt = time.Time{}
 	if err := h.store.PutContact(r.Context(), &body); err != nil {
-		writeInternalError(w, err, "")
+		writeDirectoryError(w, err)
 		return
 	}
-	_, _ = h.store.BumpVersion(r.Context(), body.TenantID)
 	writeJSON(w, http.StatusCreated, body)
 }
 
@@ -125,6 +125,8 @@ func (h *DirectoryHandler) CreateContact(w http.ResponseWriter, r *http.Request)
 // @Success 200 {object} directory.Contact
 // @Failure 400 {object} map[string]string
 // @Failure 404 {object} map[string]string
+// @Failure 409 {object} map[string]string "An address, address id or key id belongs to another contact of the tenant"
+// @Failure 500 {object} map[string]string
 // @Router /api/v1/directory/contacts/{id} [put]
 func (h *DirectoryHandler) UpdateContact(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
@@ -133,7 +135,11 @@ func (h *DirectoryHandler) UpdateContact(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	tid := auth.TenantIDFromContext(r.Context())
-	existing, _ := h.store.GetContact(r.Context(), tid, id)
+	existing, err := h.store.GetContact(r.Context(), tid, id)
+	if err != nil {
+		writeInternalError(w, err, "")
+		return
+	}
 	if existing == nil {
 		writeError(w, http.StatusNotFound, "contact not found")
 		return
@@ -148,10 +154,9 @@ func (h *DirectoryHandler) UpdateContact(w http.ResponseWriter, r *http.Request)
 	body.CreatedAt = existing.CreatedAt // preserve
 	body.UpdatedAt = time.Time{}        // store re-stamps
 	if err := h.store.PutContact(r.Context(), &body); err != nil {
-		writeInternalError(w, err, "")
+		writeDirectoryError(w, err)
 		return
 	}
-	_, _ = h.store.BumpVersion(r.Context(), tid)
 	writeJSON(w, http.StatusOK, body)
 }
 
@@ -175,7 +180,6 @@ func (h *DirectoryHandler) DeleteContact(w http.ResponseWriter, r *http.Request)
 		writeInternalError(w, err, "")
 		return
 	}
-	_, _ = h.store.BumpVersion(r.Context(), tid)
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -251,6 +255,24 @@ func CanonicalSnapshotBytes(snap *directory.Snapshot) ([]byte, error) {
 	cp := *snap
 	cp.Signature = nil
 	return json.Marshal(&cp)
+}
+
+// writeDirectoryError answers a failed directory write: the caller's
+// mistakes as 400 or 409 with the store's reason, anything else as 500.
+// The store bumps the version inside the write, so a failed write left
+// nothing to undo.
+func writeDirectoryError(w http.ResponseWriter, err error) {
+	switch {
+	case errors.Is(err, directory.ErrEmptyID), errors.Is(err, directory.ErrInvalidAddressKind):
+		writeError(w, http.StatusBadRequest, err.Error())
+	case errors.Is(err, directory.ErrAddressTaken), errors.Is(err, directory.ErrKeyTaken),
+		errors.Is(err, directory.ErrPolicyScopeTaken), errors.Is(err, directory.ErrUnknownMember):
+		writeError(w, http.StatusConflict, err.Error())
+	case errors.Is(err, directory.ErrNotFound):
+		writeError(w, http.StatusNotFound, err.Error())
+	default:
+		writeInternalError(w, err, "")
+	}
 }
 
 // filterContactsByKind returns only contacts with at least one

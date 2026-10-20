@@ -89,6 +89,17 @@ var (
 	ErrNotFound           = errors.New("directory: not found")
 	ErrInvalidAddressKind = errors.New("directory: invalid address kind")
 	ErrEmptyID            = errors.New("directory: empty identifier")
+	// ErrAddressTaken: another contact of the tenant already has this
+	// (kind, value), or this address id. An address names one contact.
+	ErrAddressTaken = errors.New("directory: address belongs to another contact")
+	// ErrPolicyScopeTaken: another policy of the tenant already covers
+	// this (scope_type, scope_id).
+	ErrPolicyScopeTaken = errors.New("directory: another policy covers this scope")
+	// ErrKeyTaken: another key of the tenant already has this key id,
+	// or this contact already has a key of this (kind, version).
+	ErrKeyTaken = errors.New("directory: key id or (kind, version) is taken")
+	// ErrUnknownMember: a group member id is not a contact of the tenant.
+	ErrUnknownMember = errors.New("directory: group member is not a contact of this tenant")
 )
 
 // Address is one reachable endpoint for a Contact. The wire shape
@@ -129,6 +140,9 @@ type ContactKey struct {
 // populated when a bridge-side policy row backs this record; legacy
 // Hub-only policies continue to rely on Preferred/Fallback.
 type DispatchPolicy struct {
+	// TenantID owns the policy. Not on the wire: a snapshot names its
+	// tenant once, and the v1 snapshot's bytes must not change.
+	TenantID          string        `json:"-"`
 	ID                string        `json:"id"`
 	Name              string        `json:"name,omitempty"`
 	ScopeType         string        `json:"scope_type,omitempty"` // contact / group / precedence / default
@@ -139,8 +153,12 @@ type DispatchPolicy struct {
 	RequireEncryption bool          `json:"require_encryption,omitempty"`
 	MaxRetries        int           `json:"max_retries,omitempty"`
 	RetryDelay        time.Duration `json:"retry_delay,omitempty"`
-	CreatedAt         time.Time     `json:"created_at"`
-	UpdatedAt         time.Time     `json:"updated_at"`
+	// Seeded marks a precedence default the Hub installed itself
+	// (SeedPrecedenceDefaults); a write through PutPolicy clears it.
+	// Not on the v1 wire, for the same reason as TenantID.
+	Seeded    bool      `json:"-"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
 }
 
 // Contact is an addressable entity (person, device, bot) with one or
@@ -225,10 +243,12 @@ type Resolved struct {
 // lookups, ErrNotFound for mutations. Transient failures should
 // return a non-nil error.
 //
-// The mutation methods (Put*, Delete*, BumpVersion) were added in
-// MESHSAT-538 to support Hub REST writes and directory_push snapshot
-// assembly. They preserve the read-only contract of earlier callers —
-// the Resolver still uses only the read methods.
+// The mutation methods (Put*, Delete*) were added in MESHSAT-538 to
+// support Hub REST writes and directory_push snapshot assembly. They
+// preserve the read-only contract of earlier callers — the Resolver
+// still uses only the read methods. Each mutation that changes a row
+// bumps the tenant's directory version in the same transaction
+// (MESHSAT-1584 C7): there is no separate bump to forget or to lose.
 type Store interface {
 	// Reads.
 	GetContact(ctx context.Context, tenantID, contactID string) (*Contact, error)
@@ -240,8 +260,9 @@ type Store interface {
 	FindContactByAddress(ctx context.Context, tenantID string, kind AddressKind, value string) (*Contact, error)
 
 	// Mutations. PutContact / PutGroup / PutPolicy insert-or-update
-	// by ID; the caller is responsible for generating or preserving
-	// the UUID on creation.
+	// by (tenant, ID); an empty ID gets a new UUID. An ID is unique
+	// within its tenant only, so a write never reaches another
+	// tenant's row.
 	PutContact(ctx context.Context, c *Contact) error
 	DeleteContact(ctx context.Context, tenantID, contactID string) error
 	PutGroup(ctx context.Context, g *Group) error
@@ -249,11 +270,10 @@ type Store interface {
 	PutPolicy(ctx context.Context, p *DispatchPolicy) error
 	DeletePolicy(ctx context.Context, tenantID, policyID string) error
 
-	// Versioning. Snapshot assembles the full tenant view and bumps
-	// the tenant's monotonic directory version. CurrentVersion returns
-	// the latest without mutating.
+	// Versioning. CurrentVersion is the tenant's monotonic directory
+	// version (0 before the first change). Snapshot assembles the full
+	// tenant view and its version from one consistent read.
 	CurrentVersion(ctx context.Context, tenantID string) (int64, error)
-	BumpVersion(ctx context.Context, tenantID string) (int64, error)
 	Snapshot(ctx context.Context, tenantID string) (*Snapshot, error)
 }
 

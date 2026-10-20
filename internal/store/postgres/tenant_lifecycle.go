@@ -77,8 +77,9 @@ func (d *DB) ListTenantsDeletedBefore(ctx context.Context, cutoff time.Time) ([]
 
 // PurgeTenant destroys everything the tenant owns. One transaction, so a
 // failure part-way leaves the tenant intact and the job can try again rather
-// than leaving a half-erased account behind. The schema has no foreign keys
-// between these tables, so the order does not matter.
+// than leaving a half-erased account behind. The only foreign keys between
+// these tables are the directory's (migration 40), and each cascades inside one
+// tenant, so the order does not matter.
 func (d *DB) PurgeTenant(ctx context.Context, id string) error {
 	if id == store.DefaultTenantID {
 		return store.ErrReservedTenantID

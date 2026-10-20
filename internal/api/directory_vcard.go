@@ -135,11 +135,11 @@ func (h *DirectoryHandler) ImportCSV(w http.ResponseWriter, r *http.Request) {
 }
 
 // importContacts loops over parsed contacts and Puts them through
-// the tenant-scoped store. A UNIQUE(kind,value) collision (bridge
-// v45 constraint — Hub mirrors it) is a soft skip: the contact is
-// rolled back and the import continues. Bumps the tenant's directory
-// version exactly once at the end so a single directory_push covers
-// the whole import on the next fan-out.
+// the tenant-scoped store. An address another contact of the tenant
+// holds (UNIQUE(tenant, kind, value), the bridge v45 constraint per
+// tenant) is a soft skip: the contact is rolled back and the import
+// continues. Each put bumps the tenant's directory version in its own
+// transaction.
 func (h *DirectoryHandler) importContacts(w http.ResponseWriter, r *http.Request, tenantID string, contacts []directory.Contact) (imported int, errored int) {
 	for i := range contacts {
 		c := &contacts[i]
@@ -156,9 +156,6 @@ func (h *DirectoryHandler) importContacts(w http.ResponseWriter, r *http.Request
 			continue
 		}
 		imported++
-	}
-	if imported > 0 {
-		_, _ = h.store.BumpVersion(r.Context(), tenantID)
 	}
 	return imported, errored
 }

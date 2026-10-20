@@ -215,6 +215,9 @@ func main() {
 	// --- Store: driver from HUB_DB_DRIVER or sniffed from the DSN ---
 	dbwrap.SetDefaultMaxAttempts(cfg.DBRetryMaxAttempts)
 	var dataStore store.Store
+	// pgRawDB is the Postgres pool when the driver is postgres; the directory
+	// store runs its own transactions on it (MESHSAT-1584 C7).
+	var pgRawDB *sql.DB
 	slowQ := time.Duration(cfg.DBSlowQueryMS) * time.Millisecond
 	dbDriver := cfg.ResolvedDBDriver()
 	switch dbDriver {
@@ -229,6 +232,7 @@ func main() {
 			os.Exit(1)
 		}
 		dataStore = pgStore
+		pgRawDB = pgStore.RawDB()
 	default: // "sqlite"
 		sqlStore, err := sqlite.New(cfg.SQLitePath, slowQ)
 		if err != nil {
@@ -2862,51 +2866,58 @@ func main() {
 	r.With(hubauth.RequireRole(hubauth.RoleOwner)).Get("/api/bridges/{id}/provision/status", provisionHandler.ProvisionStatus)
 
 	// Directory REST — tenant-scoped contacts + signed snapshot
-	// [MESHSAT-538]. Opens a dedicated *sql.DB connection on the
-	// same SQLite file so the directory package can own its
-	// transactions without threading through the dbwrap interface
-	// (which doesn't expose BeginTx). Only wired in standalone mode
-	// today; cluster/MariaDB support lands in a follow-up once a
-	// MariaDB-compatible SQLStore is added.
-	if dbDriver == "sqlite" {
-		directoryRawDB, err := sql.Open("sqlite", "file:"+cfg.SQLitePath+"?_journal_mode=WAL&_busy_timeout=5000&_foreign_keys=ON&_synchronous=NORMAL")
+	// [MESHSAT-538]. On Postgres (production) the directory store runs
+	// its own transactions on the Hub's pool and its schema is the store
+	// migrations' number 40 (MESHSAT-1584 C7; until then the directory
+	// existed on SQLite only). On SQLite it keeps a dedicated handle on
+	// the same file, opened with the `_pragma` form because modernc
+	// ignores `_foreign_keys=ON` and its siblings, and creates its own
+	// schema.
+	var directorySQLStore *directory.SQLStore
+	if pgRawDB != nil {
+		directorySQLStore = directory.NewPostgresStore(pgRawDB)
+	} else if dbDriver == "sqlite" {
+		directoryRawDB, err := sql.Open("sqlite", "file:"+cfg.SQLitePath+
+			"?_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)&_pragma=foreign_keys(1)&_pragma=synchronous(NORMAL)&_txlock=immediate")
 		if err != nil {
 			slog.Error("directory: open raw sqlite failed", "error", err)
 		} else {
 			directoryRawDB.SetMaxOpenConns(1)
-			directorySQLStore := directory.NewSQLStore(directoryRawDB)
-			if err := directorySQLStore.Migrate(ctx); err != nil {
-				slog.Error("directory: migrate failed", "error", err)
-			} else {
-				// Seed STANAG 4406 precedence → strategy fall-backs for
-				// the default tenant. Idempotent; future per-tenant
-				// lifecycle code should call this on tenant creation.
-				// [MESHSAT-547 / S2-04]
-				if n, err := directorySQLStore.SeedPrecedenceDefaults(ctx, store.DefaultTenantID); err != nil {
-					slog.Warn("directory: precedence defaults seed failed", "error", err)
-				} else if n > 0 {
-					slog.Info("directory: seeded precedence defaults", "tenant", store.DefaultTenantID, "inserted", n)
-				}
-				directoryHandler := api.NewDirectoryHandler(directorySQLStore, directoryTrustAnchor)
-				r.Get("/api/v1/directory/contacts", directoryHandler.ListContacts)
-				r.With(hubauth.RequireRole(hubauth.RoleOperator)).Post("/api/v1/directory/contacts", directoryHandler.CreateContact)
-				r.Get("/api/v1/directory/contacts/{id}", directoryHandler.GetContact)
-				r.With(hubauth.RequireRole(hubauth.RoleOperator)).Put("/api/v1/directory/contacts/{id}", directoryHandler.UpdateContact)
-				r.With(hubauth.RequireRole(hubauth.RoleOperator)).Delete("/api/v1/directory/contacts/{id}", directoryHandler.DeleteContact)
-				// NOTE: group + policy CRUD handlers will land in a
-				// follow-up story. The Store layer already supports
-				// them; the REST surface is deferred until a consuming
-				// UI exists. Bridge-side PutPolicy + PutGroup are
-				// exercised via directory_push snapshot import — the
-				// directory table of record can still be populated via
-				// the snapshot endpoint below.
-				r.Get("/api/v1/directory/snapshot", directoryHandler.GetSnapshot)
-				// vCard 4.0 / CSV import + export [MESHSAT-541]
-				r.With(hubauth.RequireRole(hubauth.RoleOperator)).Post("/api/v1/directory/import/vcard", directoryHandler.ImportVCard)
-				r.With(hubauth.RequireRole(hubauth.RoleOperator)).Post("/api/v1/directory/import/csv", directoryHandler.ImportCSV)
-				r.Get("/api/v1/directory/export/vcard", directoryHandler.ExportVCard)
-				slog.Info("directory REST registered")
+			directorySQLStore = directory.NewSQLStore(directoryRawDB)
+		}
+	}
+	if directorySQLStore != nil {
+		if err := directorySQLStore.Migrate(ctx); err != nil {
+			slog.Error("directory: migrate failed", "error", err)
+		} else {
+			// Seed STANAG 4406 precedence → strategy fall-backs for
+			// the default tenant. Idempotent; future per-tenant
+			// lifecycle code should call this on tenant creation.
+			// [MESHSAT-547 / S2-04]
+			if n, err := directorySQLStore.SeedPrecedenceDefaults(ctx, store.DefaultTenantID); err != nil {
+				slog.Warn("directory: precedence defaults seed failed", "error", err)
+			} else if n > 0 {
+				slog.Info("directory: seeded precedence defaults", "tenant", store.DefaultTenantID, "inserted", n)
 			}
+			directoryHandler := api.NewDirectoryHandler(directorySQLStore, directoryTrustAnchor)
+			r.Get("/api/v1/directory/contacts", directoryHandler.ListContacts)
+			r.With(hubauth.RequireRole(hubauth.RoleOperator)).Post("/api/v1/directory/contacts", directoryHandler.CreateContact)
+			r.Get("/api/v1/directory/contacts/{id}", directoryHandler.GetContact)
+			r.With(hubauth.RequireRole(hubauth.RoleOperator)).Put("/api/v1/directory/contacts/{id}", directoryHandler.UpdateContact)
+			r.With(hubauth.RequireRole(hubauth.RoleOperator)).Delete("/api/v1/directory/contacts/{id}", directoryHandler.DeleteContact)
+			// NOTE: group + policy CRUD handlers will land in a
+			// follow-up story. The Store layer already supports
+			// them; the REST surface is deferred until a consuming
+			// UI exists. Bridge-side PutPolicy + PutGroup are
+			// exercised via directory_push snapshot import — the
+			// directory table of record can still be populated via
+			// the snapshot endpoint below.
+			r.Get("/api/v1/directory/snapshot", directoryHandler.GetSnapshot)
+			// vCard 4.0 / CSV import + export [MESHSAT-541]
+			r.With(hubauth.RequireRole(hubauth.RoleOperator)).Post("/api/v1/directory/import/vcard", directoryHandler.ImportVCard)
+			r.With(hubauth.RequireRole(hubauth.RoleOperator)).Post("/api/v1/directory/import/csv", directoryHandler.ImportCSV)
+			r.Get("/api/v1/directory/export/vcard", directoryHandler.ExportVCard)
+			slog.Info("directory REST registered")
 		}
 	}
 

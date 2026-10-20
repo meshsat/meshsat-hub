@@ -148,7 +148,6 @@ func (m *memStore) DeletePolicy(_ context.Context, _, id string) error {
 }
 
 func (m *memStore) CurrentVersion(_ context.Context, _ string) (int64, error) { return 0, nil }
-func (m *memStore) BumpVersion(_ context.Context, _ string) (int64, error)    { return 1, nil }
 func (m *memStore) Snapshot(_ context.Context, tenantID string) (*Snapshot, error) {
 	cs, _ := m.ListContacts(context.Background(), tenantID)
 	gs, _ := m.ListGroups(context.Background(), tenantID)
