@@ -2059,6 +2059,9 @@ func main() {
 	// kit must not carry it in its Hub connection (that is the broker's
 	// root store), so it asks here.
 	r.Get("/api/relay/ca", hubmw.WebhookRateLimit(http.HandlerFunc(relayHandler.CA), 60).ServeHTTP)
+	// The directory signing key, public, for a bridge to pin on its first
+	// connect (MESHSAT-1584 C7); a rotation moves it only by a signed record.
+	r.Get("/api/relay/directory-key", hubmw.WebhookRateLimit(http.HandlerFunc(api.NewDirectoryKeyHandler(directoryTrustAnchor).Key), 60).ServeHTTP)
 
 	// Webhook endpoints — rate limited to 60 requests/minute per source IP.
 	//

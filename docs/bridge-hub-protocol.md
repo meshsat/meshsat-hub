@@ -747,8 +747,11 @@ is a failure: the Hub asks again after 30 s, doubling to at most 30 min. Metric:
 
 ### Key rotation (C7.6)
 
-A Bridge trusts the one directory key it pinned at provisioning and reports its id in the birth as
-`"directory_key_id"`. `POST /api/admin/directory/signing-key/rotate` (platform admin) replaces the
+A Bridge trusts the one directory key it pinned and reports its id in the birth as
+`"directory_key_id"`. A Bridge that has pinned none fetches `GET /api/relay/directory-key` from its
+Hub over HTTPS (system roots; no authentication, it is a public key:
+`{"key_id":"<hex>","pkix":"<base64 PKIX DER>","alg":"ES256"}`), checks that the key hashes to its
+id, and pins it. That is the only time a key is taken without a signature. `POST /api/admin/directory/signing-key/rotate` (platform admin) replaces the
 Hub's key:
 
 1. the new private key is stored as pending (sealed at rest), so no record can name a key the Hub

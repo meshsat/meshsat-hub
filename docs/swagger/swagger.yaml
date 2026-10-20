@@ -2151,6 +2151,18 @@ definitions:
       wireguard:
         $ref: '#/definitions/github_com_meshsat_meshsat-hub_internal_store.DeviceWireguard'
     type: object
+  internal_api.directoryKeyResponse:
+    properties:
+      alg:
+        type: string
+      key_id:
+        type: string
+      pkix:
+        description: base64 PKIX DER
+        items:
+          type: integer
+        type: array
+    type: object
   internal_api.distributeKeyRequest:
     properties:
       bridge_ids:
@@ -8410,6 +8422,27 @@ paths:
       summary: Open a tunnel to one of your tenant's bridges (WebSocket)
       tags:
       - relay
+  /api/relay/directory-key:
+    get:
+      description: 'The Hub''s current directory signing key, public half, for a bridge
+        to pin on its first connect. key_id is the SHA-256 of the PKIX DER, hex. No
+        authentication: it is a public key.'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_api.directoryKeyResponse'
+        "404":
+          description: This Hub signs no directory
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Directory signing key (public)
+      tags:
+      - directory
   /api/relay/serve:
     get:
       description: The bridge opens one outbound WebSocket and every client of it

@@ -265,3 +265,25 @@ func TestDirectoryKeyRotateEndpoint(t *testing.T) {
 		t.Errorf("without a key: %d", w.Code)
 	}
 }
+
+// TestDirectoryKeyEndpoint: the public key and its id, which a bridge pins.
+func TestDirectoryKeyEndpoint(t *testing.T) {
+	anchor, err := directory.LoadOrCreateTrustAnchor(context.Background(), mapKV{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	w := httptest.NewRecorder()
+	NewDirectoryKeyHandler(anchor).Key(w, httptest.NewRequest(http.MethodGet, "/api/relay/directory-key", nil))
+	var got directoryKeyResponse
+	if w.Code != http.StatusOK || json.Unmarshal(w.Body.Bytes(), &got) != nil {
+		t.Fatalf("%d %s", w.Code, w.Body.String())
+	}
+	if got.KeyID != anchor.KeyID() || directory.KeyID(got.PKIX) != got.KeyID || got.Alg != "ES256" {
+		t.Errorf("answer %+v", got)
+	}
+	w = httptest.NewRecorder()
+	NewDirectoryKeyHandler(nil).Key(w, httptest.NewRequest(http.MethodGet, "/api/relay/directory-key", nil))
+	if w.Code != http.StatusNotFound {
+		t.Errorf("without a key: %d", w.Code)
+	}
+}
