@@ -458,10 +458,16 @@ Reject both answered 409 for a request that the pending list and the 24 h remind
   and the refusal tables in `internal/authentik/approve_guard_test.go`, mutation-checked against
   the old guard and against a looser "contains pending" guard.
 
-Residual, not a MeshSat control: an APPROVED MeshSat customer is an active user of the shared
-instance too, so `omoikane` and `cv-omoikane` accept their sign-in unless those applications gate
-on something of their own. Raised with the owner on 20 Oct 2026; a binding on those applications
-belongs to the other product.
+The same day the other product closed its side: an APPROVED MeshSat customer is an active user of
+the shared instance too, and `omoikane` and `cv-omoikane` had no policy binding, so both accepted
+a MeshSat sign-in. Both are now bound to a group `omoikane-users` (an allowlist of that product's
+18 accounts, none in a `meshsat-*` group), done by the omoikane session on the owner's instruction.
+Proven there with real browser sign-ins (a MeshSat-shaped probe got an authorization code from both
+before, "Permission denied" from both after; an omoikane user still signs in to both), and
+re-checked from this side the same day: the policy engine refuses all 8 active MeshSat accounts
+for both applications. No MeshSat account had ever been authorized to either (authentik events
+since 5 May 2026), and neither application held a local account for one. A new omoikane account
+now has to be added to `omoikane-users` by hand; MeshSat objects were not touched.
 
 ## What measurement caught
 
