@@ -428,6 +428,41 @@ design; a flood shows up as dropped messages in the tenant's counters and the Hu
 ban); IPv6 is not served (`bind :4242` is v4-only on the edge). Both are written down, neither is
 an exception to a control above.
 
+## Addendum, 2026-10-20 (MESHSAT-1599, MESHSAT-1600): account state on the shared identity provider
+
+V6 (account lifecycle). Found because the owner could not reject a sign-up: the Hub's Approve and
+Reject both answered 409 for a request that the pending list and the 24 h reminder kept showing.
+
+- **What was wrong.** The `meshsat-recovery` flow's email stage had `activate_user_on_success`
+  on. Enrolment creates an account INACTIVE in `meshsat-pending`, and an applicant who tried to sign
+  in while waiting (authentik answers an inactive account with "Invalid password") reset the
+  password and became active. Three consequences: (1) the Hub's decision guard, which treated
+  `is_active` as "already decided", refused every decision on that applicant (MESHSAT-1599);
+  (2) a stranger nobody had approved became an active user of the shared authentik, which can
+  sign in to every application there without a policy binding, and `omoikane` and `cv-omoikane`
+  have none; (3) an account an administrator had deactivated got back in by itself through a
+  reset as long as it still held a MeshSat role, because the Hub gates on the group.
+- **What changed.** The Hub's guard (`authentik.Client.pending`) tests "meshsat-pending is the
+  account's ONLY group" and ignores `is_active`, which still keeps an account of the other
+  product out of reach of a pk in the URL (ae0a2c95). The reset no longer activates anybody, so
+  approval is the only thing that activates a MeshSat account and deactivation is a real lock
+  (0eb98cb7, applied to the live instance the same day). A waiting applicant who resets is shown a
+  static step saying the request is still waiting, bound with a policy re-evaluated against the
+  account being reset.
+- **Observed to fail, then to hold.** Before: pk 8810 enrolled at 12:28 UTC on 13 Oct, ran the
+  reset at 12:32, signed in at 12:32 and sat active in `meshsat-pending`; Reject answered 409 on
+  20 Oct. After: the owner's Reject went through (14:21:56 UTC), and the live reset flow was walked
+  on 20 Oct with a throwaway account in three shapes: a waiting applicant (password set, notice,
+  still inactive), a deactivated account holding `meshsat-viewer` (password set, still inactive),
+  and an active customer (reset unchanged). Unit tests: `TestAnActivePendingApplicantCanStillBeDecided`
+  and the refusal tables in `internal/authentik/approve_guard_test.go`, mutation-checked against
+  the old guard and against a looser "contains pending" guard.
+
+Residual, not a MeshSat control: an APPROVED MeshSat customer is an active user of the shared
+instance too, so `omoikane` and `cv-omoikane` accept their sign-in unless those applications gate
+on something of their own. Raised with the owner on 20 Oct 2026; a binding on those applications
+belongs to the other product.
+
 ## What measurement caught
 
 These findings survived only because something was run rather than reasoned about, which is the
