@@ -276,6 +276,22 @@ func RotationFence(t *testing.T, rig Rig) {
 		}
 		c.consistent(mid.NewKeyID, latest, again.NewKeyID)
 	})
+	t.Run("a caller between activation and clean-up joins the generation", func(t *testing.T) {
+		c := newFenceCase(t, rig, "fence-between")
+		a := c.anchor()
+		var late *directory.RotationResult
+		hk := &hookedKV{KeyStore: c.kv, key: pendingKey, clear: true, before: func() {
+			late = c.mustRotate(c.anchor()) // the key is current, the pending one not cleared yet
+		}}
+		res, err := c.rotate(hk, a)
+		if err != nil || late == nil || !late.Resumed || late.NewKeyID != res.NewKeyID || late.Records != 0 {
+			t.Fatalf("the first caller %+v %v; the late one %+v: it must finish this generation, not start one", res, err, late)
+		}
+		if p := c.pending(); p != "" {
+			t.Error("a pending key was left")
+		}
+		c.consistent(res.NewKeyID)
+	})
 	t.Run("two callers resume one generation", func(t *testing.T) {
 		c := newFenceCase(t, rig, "fence-same")
 		a := c.anchor()

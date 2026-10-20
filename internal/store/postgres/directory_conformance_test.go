@@ -19,20 +19,35 @@ func TestDirectoryConformance(t *testing.T) {
 	})
 }
 
-// TestDirectoryRotationFenceSealed runs the cross-generation rotation cases
-// (r20 C7-R7) on Postgres with the key store production uses: this store's
-// system_config behind a sealedconfig keeper. The plain-store run is the
-// RotationActivationIsFenced case of TestDirectoryConformance.
-func TestDirectoryRotationFenceSealed(t *testing.T) {
+// TestDirectoryRotationCasesOnThisKeyStore runs the rotation cases (r20
+// C7-R7 fence, r21 R21-T1 generations) on Postgres with this store's own
+// system_config as the key store, plain and behind the sealedconfig keeper
+// production uses. The in-memory key store runs are the Rotation* cases of
+// TestDirectoryConformance.
+func TestDirectoryRotationCasesOnThisKeyStore(t *testing.T) {
 	testDSN(t)
-	directorytest.RotationFence(t, func(t *testing.T) (*directory.SQLStore, directorytest.KeyStore) {
-		db := testDB(t)
-		wrap, err := hubcrypto.GenerateKey()
-		if err != nil {
-			t.Fatal(err)
+	for _, sealed := range []bool{false, true} {
+		name := "plain"
+		if sealed {
+			name = "sealed"
 		}
-		return directory.NewPostgresStore(db.rawDB), directorytest.SealedKeyStore(db, wrap)
-	})
+		rig := func(t *testing.T) (*directory.SQLStore, directorytest.KeyStore) {
+			db := testDB(t)
+			if !sealed {
+				return directory.NewPostgresStore(db.rawDB), db
+			}
+			wrap, err := hubcrypto.GenerateKey()
+			if err != nil {
+				t.Fatal(err)
+			}
+			return directory.NewPostgresStore(db.rawDB), directorytest.SealedKeyStore(db, wrap)
+		}
+		t.Run(name, func(t *testing.T) {
+			t.Run("Fence", func(t *testing.T) { directorytest.RotationFence(t, rig) })
+			t.Run("OneGeneration", func(t *testing.T) { directorytest.RotationOneGeneration(t, rig) })
+			t.Run("NextGeneration", func(t *testing.T) { directorytest.RotationNextGeneration(t, rig) })
+		})
+	}
 }
 
 // TestDirectoryRowsLeaveWithTheirTenant: the directory tables carry

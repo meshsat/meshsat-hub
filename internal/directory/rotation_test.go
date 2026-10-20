@@ -201,59 +201,126 @@ func TestRotateSigningKeyRecoversAFailedPendingWrite(t *testing.T) {
 	}
 }
 
-// TestRotateSigningKeyConcurrentCallersConvergeOnOneKey (r19 C7-R5): many
-// replicas asked at once rotate to one key with one record per tenant; a
-// caller either takes part in that rotation or is told one is under way.
-func TestRotateSigningKeyConcurrentCallersConvergeOnOneKey(t *testing.T) {
+// waveBarrier holds each caller of a wave at its activation until every
+// caller has got there or returned: a caller reaches activation only after
+// choosing its generation, so the wave is one generation by construction
+// rather than by timing (r21 R21-T1; directorytest has the same for the
+// drivers).
+type waveBarrier struct {
+	mu      sync.Mutex
+	pending int
+	release chan struct{}
+}
+
+func (b *waveBarrier) done() {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if b.pending--; b.pending == 0 {
+		close(b.release)
+	}
+}
+
+type barrierStore struct {
+	*fakeStore
+	b       *waveBarrier
+	arrived bool
+}
+
+func (s *barrierStore) CompareAndSetSystemConfig(ctx context.Context, key, old, value string) (bool, error) {
+	if key == systemConfigKey && value != "" && !s.arrived {
+		s.arrived = true
+		s.b.done()
+		<-s.b.release
+	}
+	return s.fakeStore.CompareAndSetSystemConfig(ctx, key, old, value)
+}
+
+// rotateWave runs n replicas asked at once as one arranged wave and checks
+// they all succeeded with one key and one record per tenant.
+func rotateWave(t *testing.T, s *SQLStore, kv *fakeStore, tenants []string, n int) string {
+	t.Helper()
 	ctx := context.Background()
-	s, kv, a := rotationRig(t)
-	oldID := a.KeyID()
+	b := &waveBarrier{pending: n, release: make(chan struct{})}
 	type out struct {
 		res *RotationResult
 		err error
 	}
-	results := make(chan out, 8)
+	results := make([]out, n)
 	var wg sync.WaitGroup
-	for i := 0; i < 8; i++ {
+	for i := 0; i < n; i++ {
 		replica, err := LoadOrCreateTrustAnchor(ctx, kv)
 		if err != nil {
 			t.Fatal(err)
 		}
+		bs := &barrierStore{fakeStore: kv, b: b}
 		wg.Add(1)
-		go func() {
+		go func(i int) {
 			defer wg.Done()
-			res, err := RotateSigningKey(ctx, kv, s, replica, []string{"t1", "t2"})
-			results <- out{res, err}
-		}()
+			res, err := RotateSigningKey(ctx, bs, s, replica, tenants)
+			if !bs.arrived {
+				b.done()
+			}
+			results[i] = out{res, err}
+		}(i)
 	}
 	wg.Wait()
-	close(results)
 	keys := map[string]int{}
 	records := 0
-	for o := range results {
-		switch {
-		case o.err == nil:
-			keys[o.res.NewKeyID]++
-			records += o.res.Records
-		case errors.Is(o.err, ErrRotationInProgress):
-		default:
-			t.Errorf("caller failed: %v", o.err)
+	for _, o := range results {
+		if o.err != nil {
+			t.Errorf("a caller of the wave: %v", o.err)
+			continue
 		}
+		keys[o.res.NewKeyID]++
+		records += o.res.Records
 	}
-	if len(keys) != 1 || records != 2 {
-		t.Fatalf("callers rotated to %v with %d records; want one key, 2 records", keys, records)
+	if len(keys) != 1 || records != len(tenants) {
+		t.Fatalf("the wave rotated to %v with %d records; want one key, %d records", keys, records, len(tenants))
 	}
+	for k := range keys {
+		return k
+	}
+	return ""
+}
+
+// TestRotateSigningKeyConcurrentCallersConvergeOnOneKey (r19 C7-R5, made
+// deterministic for r21 R21-T1): replicas asked at once, held into one
+// generation, all succeed with one key, one record per tenant, and that key
+// is current.
+func TestRotateSigningKeyConcurrentCallersConvergeOnOneKey(t *testing.T) {
+	ctx := context.Background()
+	s, kv, a := rotationRig(t)
+	oldID := a.KeyID()
+	key := rotateWave(t, s, kv, []string{"t1", "t2"}, 8)
 	for _, tenant := range []string{"t1", "t2"} {
 		c, _ := s.RotationChain(ctx, tenant, oldID)
-		if len(c) != 1 || keys[c[0].NewKeyID] == 0 {
+		if len(c) != 1 || c[0].NewKeyID != key {
 			t.Errorf("%s chain %+v", tenant, c)
 		}
 	}
 	if err := a.Refresh(ctx, kv); err != nil {
 		t.Fatal(err)
 	}
-	if keys[a.KeyID()] == 0 || kv.data[nextKeyConfig] != "" {
-		t.Errorf("current key %s, pending %q", a.KeyID(), kv.data[nextKeyConfig])
+	if a.KeyID() != key || kv.data[nextKeyConfig] != "" {
+		t.Errorf("current key %s, pending %q; want %s, none", a.KeyID(), kv.data[nextKeyConfig], key)
+	}
+}
+
+// TestRotateSigningKeyLaterCallersStartTheNextGeneration: callers that
+// start after a wave cleaned up start the next generation; each wave is one
+// key and the chain runs through both.
+func TestRotateSigningKeyLaterCallersStartTheNextGeneration(t *testing.T) {
+	ctx := context.Background()
+	s, kv, a := rotationRig(t)
+	oldID := a.KeyID()
+	k1 := rotateWave(t, s, kv, []string{"t1"}, 5)
+	k2 := rotateWave(t, s, kv, []string{"t1"}, 5)
+	c, _ := s.RotationChain(ctx, "t1", oldID)
+	if k1 == k2 || len(c) != 2 || c[0].NewKeyID != k1 || c[1].NewKeyID != k2 {
+		t.Fatalf("generations %s then %s, chain %+v", k1, k2, c)
+	}
+	if err := a.Refresh(ctx, kv); err != nil || a.KeyID() != k2 {
+		t.Errorf("current key %s (%v), want %s", a.KeyID(), err, k2)
 	}
 }
 
