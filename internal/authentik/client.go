@@ -229,8 +229,8 @@ func (c *Client) user(ctx context.Context, pk int) (*akUser, error) {
 }
 
 // ErrNotPending means the account is not a MeshSat signup awaiting a decision:
-// it is already active, or it was never in the pending group. Both Approve and
-// Reject refuse it.
+// it was never in the pending group, it has left it, or it belongs to some
+// other group as well. Both Approve and Reject refuse it.
 //
 // This matters more than it looks. The Hub's authentik identity is an admin on
 // an authentik instance shared with another product, so without this check a
@@ -247,6 +247,16 @@ var ErrEmailNotVerified = errors.New("authentik: email not verified")
 // pending fetches the account and refuses anything that is not a MeshSat signup
 // still awaiting a decision. Shared by Approve and Reject so the two cannot
 // drift apart: they had different guards, and the weaker one was on Approve.
+//
+// The test is the group, never is_active. Enrolment creates the account
+// inactive, but the recovery flow's email stage activates it, and an applicant
+// who tries to sign in while waiting resets the password and is active from
+// then on (MESHSAT-1599; the Hub still refuses them, because the gate is the
+// group). Refusing active accounts left exactly those applicants with no
+// decision anyone could make in the Hub: every Reject and Approve answered 409
+// and the 24 h reminder went on for a week. What keeps this from reaching an
+// account of the other product on the shared instance is that the pending
+// group must be its ONLY group: enrolment puts a signup there and nowhere else.
 func (c *Client) pending(ctx context.Context, pk int) (*akUser, error) {
 	u, err := c.user(ctx, pk)
 	if err != nil {
@@ -256,13 +266,7 @@ func (c *Client) pending(ctx context.Context, pk int) (*akUser, error) {
 	if err != nil {
 		return nil, err
 	}
-	inPending := false
-	for _, g := range u.Groups {
-		if g == pendingPK {
-			inPending = true
-		}
-	}
-	if u.IsActive || !inPending {
+	if len(u.Groups) != 1 || u.Groups[0] != pendingPK {
 		return nil, ErrNotPending
 	}
 	return u, nil

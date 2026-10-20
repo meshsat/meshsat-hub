@@ -87,10 +87,14 @@ func TestApprove_RefusesAnAccountThatIsNotAPendingSignup(t *testing.T) {
 		name string
 		user map[string]any
 	}{
-		{"already active", map[string]any{"pk": 7, "email": "someone@omoikane.example", "is_active": true,
-			"groups": []string{"g-pending"}, "attributes": map[string]any{"email_verified": true}}},
 		{"never pending", map[string]any{"pk": 7, "email": "someone@omoikane.example", "is_active": false,
 			"groups": []string{"some-other-group"}, "attributes": map[string]any{"email_verified": true}}},
+		{"already decided", map[string]any{"pk": 7, "email": "someone@omoikane.example", "is_active": true,
+			"groups": []string{"g-owner"}, "attributes": map[string]any{"email_verified": true}}},
+		{"pending and another group", map[string]any{"pk": 7, "email": "someone@omoikane.example", "is_active": true,
+			"groups": []string{"g-pending", "some-other-group"}, "attributes": map[string]any{"email_verified": true}}},
+		{"no groups", map[string]any{"pk": 7, "email": "someone@omoikane.example", "is_active": false,
+			"groups": []string{}, "attributes": map[string]any{"email_verified": true}}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			c, f := newFake(t, tc.user)
@@ -116,15 +120,51 @@ func TestApprove_RefusesUnverifiedEmail(t *testing.T) {
 	}
 }
 
+// Reject deletes, so the guard matters most here: an account of the other
+// product on the shared instance must never be deletable from a pk in the URL.
 func TestReject_RefusesAnAccountThatIsNotAPendingSignup(t *testing.T) {
-	u := pendingUser()
-	u["is_active"] = true
-	c, f := newFake(t, u)
-	if _, _, err := c.Reject(context.Background(), 7); !errors.Is(err, ErrNotPending) {
-		t.Fatalf("err = %v, want ErrNotPending", err)
+	for _, groups := range [][]string{{"some-other-group"}, {"g-owner"}, {"g-pending", "some-other-group"}, {}} {
+		u := pendingUser()
+		u["is_active"] = true
+		u["groups"] = groups
+		c, f := newFake(t, u)
+		if _, _, err := c.Reject(context.Background(), 7); !errors.Is(err, ErrNotPending) {
+			t.Fatalf("groups %v: err = %v, want ErrNotPending", groups, err)
+		}
+		if f.deletes != 0 {
+			t.Fatalf("groups %v: refused rejection still deleted %d account(s)", groups, f.deletes)
+		}
 	}
-	if f.deletes != 0 {
-		t.Fatalf("refused rejection still deleted %d account(s)", f.deletes)
+}
+
+// An applicant who tries to sign in while waiting resets the password, and the
+// recovery flow activates the account; it stays in meshsat-pending only. That
+// is still a request awaiting a decision. Refusing it on is_active left pk 8810
+// undecidable in the Hub for a week, with a reminder every 24 h (MESHSAT-1599).
+func TestAnActivePendingApplicantCanStillBeDecided(t *testing.T) {
+	active := func() map[string]any {
+		u := pendingUser()
+		u["is_active"] = true
+		return u
+	}
+
+	c, f := newFake(t, active())
+	if _, _, err := c.Reject(context.Background(), 7); err != nil {
+		t.Fatalf("reject: %v", err)
+	}
+	if f.deletes != 1 {
+		t.Fatalf("deletes = %d, want 1", f.deletes)
+	}
+
+	c, f = newFake(t, active())
+	if _, _, _, _, err := c.Approve(context.Background(), 7, "owner"); err != nil {
+		t.Fatalf("approve: %v", err)
+	}
+	if len(f.patches) != 1 {
+		t.Fatalf("want 1 patch, got %d", len(f.patches))
+	}
+	if groups, _ := f.patches[0]["groups"].([]any); len(groups) != 1 || groups[0] != "g-owner" {
+		t.Errorf("groups = %v, want just the role group", groups)
 	}
 }
 
