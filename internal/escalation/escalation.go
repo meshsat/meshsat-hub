@@ -201,6 +201,12 @@ func (e *Engine) processAlerts(ctx context.Context) {
 	}
 }
 
+// Step runs one escalation step of a due alert at now, as the loop does for each due alert;
+// the store conformance tests drive it on every driver.
+func (e *Engine) Step(ctx context.Context, alert *store.Alert, now time.Time) {
+	e.processAlert(ctx, alert, now)
+}
+
 func (e *Engine) processAlert(ctx context.Context, alert *store.Alert, now time.Time) {
 	// Load the chain to get tier configuration.
 	chain, err := e.store.GetEscalationChain(ctx, alert.TenantID, alert.ChainID)
@@ -213,14 +219,21 @@ func (e *Engine) processAlert(ctx context.Context, alert *store.Alert, now time.
 		// no UpdateEscalationChain at any layer, so editing a chain means delete
 		// and recreate, which orphans every alert already pointing at the old id
 		// (MESHSAT-1115).
+		// Compare-and-set, like every write of this worker: an alert acknowledged or
+		// cancelled since it was listed stays so (C10, r16 review C10-R1).
+		expected := alert.NextEscAt
 		alert.State = store.AlertStateExhausted
 		alert.UpdatedAt = now
-		if uerr := e.store.UpdateAlert(ctx, alert.TenantID, alert); uerr != nil {
+		won, uerr := e.store.AdvanceAlert(ctx, alert.TenantID, alert, expected)
+		if uerr != nil {
 			// Keep the old behaviour on a write failure: better to retry the
 			// loop than to drop the alert silently.
 			slog.Error("escalation: chain missing AND the alert could not be closed; will retry",
 				"id", alert.ID, "chain_id", alert.ChainID, "error", err, "update_error", uerr)
 			return
+		}
+		if !won {
+			return // acknowledged, cancelled or advanced meanwhile
 		}
 		slog.Error("escalation: chain not found, alert closed undelivered",
 			"id", alert.ID, "tenant", alert.TenantID, "type", alert.Type,
@@ -230,9 +243,12 @@ func (e *Engine) processAlert(ctx context.Context, alert *store.Alert, now time.
 
 	if alert.CurrentTier >= len(chain.Tiers) {
 		// All tiers exhausted.
+		expected := alert.NextEscAt
 		alert.State = store.AlertStateExhausted
 		alert.UpdatedAt = now
-		_ = e.store.UpdateAlert(ctx, alert.TenantID, alert)
+		if won, uerr := e.store.AdvanceAlert(ctx, alert.TenantID, alert, expected); uerr != nil || !won {
+			return // a write failure is retried next tick; !won: closed or advanced meanwhile
+		}
 		slog.Warn("escalation: alert exhausted all tiers",
 			"id", alert.ID, "type", alert.Type, "device", alert.DeviceIMEI)
 		return
@@ -257,6 +273,10 @@ func (e *Engine) processAlert(ctx context.Context, alert *store.Alert, now time.
 		slog.Debug("escalation: step taken by another replica", "alert", alert.ID)
 		return
 	}
+	// The step is finished against this lease only: a cancel or an acknowledgement while
+	// the notifier ran, or another replica that took the step after the lease ran out,
+	// makes the completion a no-op instead of reopening the alert (r16 review C10-R1).
+	lease := alert.NextEscAt
 
 	// Build template data for Go template-based formatting.
 	data := apprise.AlertData{
@@ -332,8 +352,15 @@ func (e *Engine) processAlert(ctx context.Context, alert *store.Alert, now time.
 	}
 
 	alert.UpdatedAt = now
-	if err := e.store.UpdateAlert(ctx, alert.TenantID, alert); err != nil {
+	done, err := e.store.AdvanceAlert(ctx, alert.TenantID, alert, lease)
+	if err != nil {
+		// The lease runs out and the step is retried.
 		slog.Error("escalation: update alert", "id", alert.ID, "error", err)
+		return
+	}
+	if !done {
+		slog.Info("escalation: alert closed or taken over during its step; left as it is", "id", alert.ID)
+		return
 	}
 
 	slog.Info("escalation: processed",

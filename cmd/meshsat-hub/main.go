@@ -1044,6 +1044,10 @@ func main() {
 			slog.Warn("sos: sos/event subscription failed on this replica", "filter", f, "error", err)
 		}
 	}
+	// The alert work a run's state change owes is committed with it; what an apply could not
+	// finish (a failed alert write, a replica that stopped in between) the leader settles,
+	// at once on taking the lease and then every 15 s (r16 review C10-R2).
+	leaderSingletons.Add("sos-run-reconciler", func(ctx context.Context) { sosRuns.RunReconciler(ctx, 15*time.Second) })
 	slog.Info("sos: runs enabled", "advertise_sos_v2", cfg.SOSV2Enabled)
 
 	// Fragment reassembler for multi-fragment MO messages.

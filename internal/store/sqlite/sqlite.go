@@ -601,6 +601,8 @@ var postAlterMigrations = []string{
 // lateAlterMigrations alter tables created in postAlterMigrations.
 // Duplicate column errors are ignored for idempotency.
 var lateAlterMigrations = []string{
+	// MESHSAT-1584 C10: the alert work an SOS run still owes (r16 review C10-R2)
+	`ALTER TABLE sos_runs ADD COLUMN alert_pending INTEGER NOT NULL DEFAULT 0`,
 	// Mirrors postgres migration 17: which provider payment settled a receipt,
 	// so a refund can find the document to reverse. Late because receipts is
 	// created in postAlterMigrations.

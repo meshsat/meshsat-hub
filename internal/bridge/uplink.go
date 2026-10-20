@@ -3,6 +3,7 @@ package bridge
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"github.com/meshsat/meshsat-hub/internal/store"
 	"log/slog"
@@ -47,6 +48,8 @@ type UplinkSink struct {
 // SOSRuns applies an SOS start or cancel that carries its identity (HeMB-NG C10).
 type SOSRuns interface {
 	Apply(ctx context.Context, ev sos.Event) (store.SOSRunApplied, error)
+	// PageUnstored pages a valid start the database did not take, under its run's id.
+	PageUnstored(ctx context.Context, ev sos.Event) bool
 }
 
 // SetSOSRuns lets the sink take the C10 frames 0x07 and 0x08. Without it they are logged,
@@ -250,13 +253,25 @@ func (u *UplinkSink) Handle(ctx context.Context, tenantID, bearer, origin string
 			why = "this ingress does not take C10 runs"
 		}
 		if why == "" {
-			_, err := u.runs.Apply(ctx, sos.Event{
+			ev := sos.Event{
 				TenantID: tenantID, BridgeID: auth, Bearer: bearer, Kind: store.SOSEventStart, SOSID: sosID,
 				RunStartMs: f.RunStartMs, DeviceID: f.DeviceID, Text: f.Message, Lat: f.Lat, Lon: f.Lon,
 				HasPosition: f.Lat != 0 || f.Lon != 0,
-			})
-			if err != nil {
+			}
+			_, err := u.runs.Apply(ctx, ev)
+			switch {
+			case err == nil:
+			case errors.Is(err, sos.ErrBadSOSID):
 				why = err.Error()
+			default:
+				// Valid, but the database did not take the run (after retries). This bearer
+				// sends the frame once, so it pages now, under the run's own alert id: a copy
+				// that stores the run later finds its alert raised (r16 review C10-R2).
+				slog.Error("uplink: SOS start not stored; paging under its run's id", "error", err, "sos_id", sosID,
+					"bridge_id", bridgeID, "bearer", bearer)
+				if !u.runs.PageUnstored(ctx, ev) {
+					why = "not stored, and not paged under its run's id: " + err.Error()
+				}
 			}
 		}
 		if why != "" {

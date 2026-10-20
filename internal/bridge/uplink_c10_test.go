@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 
@@ -23,8 +24,15 @@ func (l *linkedStore) DeviceBridgeID(_ context.Context, _ string, imei string) (
 
 // recRuns records what the sink applies; err, when set, is returned.
 type recRuns struct {
-	events []sos.Event
-	err    error
+	events   []sos.Event
+	err      error
+	unstored []sos.Event // PageUnstored calls
+	pageOK   bool
+}
+
+func (r *recRuns) PageUnstored(_ context.Context, ev sos.Event) bool {
+	r.unstored = append(r.unstored, ev)
+	return r.pageOK
 }
 
 func (r *recRuns) Apply(_ context.Context, ev sos.Event) (store.SOSRunApplied, error) {
@@ -151,5 +159,33 @@ func TestC10OverSMSOnlyARandomIDMayCancel(t *testing.T) {
 	}
 	if e := c.runs.events[1]; e.Kind != store.SOSEventCancel || e.BridgeID != "kit-a" || e.Reason != 0 {
 		t.Errorf("cancel %+v", e)
+	}
+}
+
+// A valid start the database did not take pages under its run's own id (PageUnstored), not
+// the old way under a second identity; the old way only when even that fails (r16 C10-R2).
+func TestC10AStartNotStoredPagesUnderItsRunsID(t *testing.T) {
+	for _, pageOK := range []bool{true, false} {
+		c := newC10Sink(map[string]string{"300434060000001": "kit-a"}, true)
+		c.runs.err = errors.New("injected: database unavailable")
+		c.runs.pageOK = pageOK
+		c.sink.Handle(context.Background(), "default", "imt", "300434060000001", fixtureFrame(t, frameStartV7))
+		if len(c.runs.unstored) != 1 || c.runs.unstored[0].SOSID != c.runs.events[0].SOSID {
+			t.Fatalf("pageOK %v: PageUnstored calls %+v", pageOK, c.runs.unstored)
+		}
+		want := 0
+		if !pageOK {
+			want = 1 // the last resort: an SOS is never dropped
+		}
+		if n := c.oldWayPages(); n != want {
+			t.Errorf("pageOK %v: %d old-way pages, want %d", pageOK, n, want)
+		}
+	}
+	// A refused id is not a database failure: the old way, and no PageUnstored.
+	c := newC10Sink(map[string]string{"300434060000001": "kit-a"}, true)
+	c.runs.err = sos.ErrBadSOSID
+	c.sink.Handle(context.Background(), "default", "imt", "300434060000001", fixtureFrame(t, frameStartV7))
+	if len(c.runs.unstored) != 0 || c.oldWayPages() != 1 {
+		t.Errorf("a refused id: %d PageUnstored, %d old-way pages", len(c.runs.unstored), c.oldWayPages())
 	}
 }

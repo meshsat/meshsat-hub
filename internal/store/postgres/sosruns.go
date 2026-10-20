@@ -12,14 +12,15 @@ import (
 // --- SOS runs (MESHSAT-1584, HeMB-NG stage 2 C10) ---
 
 const sosRunCols = `tenant_id, origin, sos_id, bridge_id, run_start_ms, state, rev, bearers, device_id, text,
-	lat, lon, has_position, alert_id, started_at, cancelled_at, cancelled_by, cancel_reason, created_at, updated_at`
+	lat, lon, has_position, alert_id, started_at, cancelled_at, cancelled_by, cancel_reason, created_at, updated_at,
+	alert_pending`
 
 func scanSOSRun(sc interface{ Scan(...any) error }) (store.SOSRun, error) {
 	var r store.SOSRun
 	var started, cancelled sql.NullTime
 	err := sc.Scan(&r.TenantID, &r.Origin, &r.SOSID, &r.BridgeID, &r.RunStartMs, &r.State, &r.Rev, &r.Bearers,
 		&r.DeviceID, &r.Text, &r.Lat, &r.Lon, &r.HasPosition, &r.AlertID, &started, &cancelled, &r.CancelledBy,
-		&r.CancelReason, &r.CreatedAt, &r.UpdatedAt)
+		&r.CancelReason, &r.CreatedAt, &r.UpdatedAt, &r.AlertPending)
 	r.StartedAt, r.CancelledAt = utcPtr(started), utcPtr(cancelled)
 	r.CreatedAt, r.UpdatedAt = utc(r.CreatedAt), utc(r.UpdatedAt)
 	return r, err
@@ -28,7 +29,7 @@ func scanSOSRun(sc interface{ Scan(...any) error }) (store.SOSRun, error) {
 func sosRunArgs(r *store.SOSRun) []any {
 	return []any{r.TenantID, r.Origin, r.SOSID, r.BridgeID, r.RunStartMs, r.State, r.Rev, r.Bearers, r.DeviceID, r.Text,
 		r.Lat, r.Lon, r.HasPosition, r.AlertID, nullTimePtr(r.StartedAt), nullTimePtr(r.CancelledAt), r.CancelledBy,
-		r.CancelReason, r.CreatedAt.UTC(), r.UpdatedAt.UTC()}
+		r.CancelReason, r.CreatedAt.UTC(), r.UpdatedAt.UTC(), r.AlertPending}
 }
 
 func (d *DB) ApplySOSRunEvent(ctx context.Context, ev *store.SOSRunEvent) (store.SOSRunApplied, error) {
@@ -45,7 +46,7 @@ func (d *DB) ApplySOSRunEvent(ctx context.Context, ev *store.SOSRunEvent) (store
 	// other transaction and then finds the row, so two replicas never both create it.
 	fresh := store.NewSOSRun(ev)
 	res, err := tx.ExecContext(ctx, `INSERT INTO sos_runs (`+sosRunCols+`)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20) ON CONFLICT DO NOTHING`,
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21) ON CONFLICT DO NOTHING`,
 		sosRunArgs(&fresh)...)
 	if err != nil {
 		return store.SOSRunApplied{}, err
@@ -63,11 +64,12 @@ func (d *DB) ApplySOSRunEvent(ctx context.Context, ev *store.SOSRunEvent) (store
 	}
 	ended := store.ApplySOSEvent(&run, ev)
 	if _, err := tx.ExecContext(ctx, `UPDATE sos_runs SET state=$4, rev=$5, bearers=$6, device_id=$7, text=$8, lat=$9, lon=$10,
-		has_position=$11, started_at=$12, cancelled_at=$13, cancelled_by=$14, cancel_reason=$15, updated_at=$16
+		has_position=$11, started_at=$12, cancelled_at=$13, cancelled_by=$14, cancel_reason=$15, updated_at=$16,
+		alert_pending=$17
 		WHERE tenant_id=$1 AND origin=$2 AND sos_id=$3`,
 		run.TenantID, run.Origin, run.SOSID, run.State, run.Rev, run.Bearers, run.DeviceID, run.Text, run.Lat, run.Lon,
 		run.HasPosition, nullTimePtr(run.StartedAt), nullTimePtr(run.CancelledAt), run.CancelledBy, run.CancelReason,
-		run.UpdatedAt.UTC()); err != nil {
+		run.UpdatedAt.UTC(), run.AlertPending); err != nil {
 		return store.SOSRunApplied{}, err
 	}
 	if err := tx.Commit(); err != nil {
@@ -128,4 +130,21 @@ func (d *DB) SetSOSRunAlert(ctx context.Context, tenantID, origin, sosID, alertI
 		return store.ErrNotFound
 	}
 	return nil
+}
+
+func (d *DB) ClearSOSRunAlertPending(ctx context.Context, tenantID, origin, sosID string, rev int) (bool, error) {
+	res, err := d.rawDB.ExecContext(ctx, `UPDATE sos_runs SET alert_pending=false
+		WHERE tenant_id=$1 AND origin=$2 AND sos_id=$3 AND rev=$4`, tenantID, origin, sosID, rev)
+	if err != nil {
+		return false, err
+	}
+	n, err := res.RowsAffected()
+	return n == 1, err
+}
+
+func (d *DB) ListSOSRunsAlertPending(ctx context.Context, limit int) ([]store.SOSRun, error) {
+	if limit <= 0 {
+		limit = 100
+	}
+	return d.querySOSRuns(ctx, "SELECT "+sosRunCols+" FROM sos_runs WHERE alert_pending ORDER BY updated_at, sos_id LIMIT $1", limit)
 }

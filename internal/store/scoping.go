@@ -32,6 +32,7 @@ var UnscopedByDesign = map[string]string{ // #nosec G101 -- method names and the
 	"ListScheduledMessages":   "scheduler drains every tenant's due messages; each Message carries its tenant",
 	"ClaimScheduledMessage":   "claim by message id; the id was read from a tenant-carrying row",
 	"ExpireStaleSends":        "outbox reaper, keyed on age",
+	"ListSOSRunsAlertPending": "SOS run reconciler over every tenant (C10); each run carries its tenant and every later write is keyed by it",
 
 	// The Reticulum node's path table (MESHSAT-1555). A path is transport
 	// state: a destination hash names no tenant, the node is one transport
@@ -126,10 +127,11 @@ var UnfilteredByDesign = map[string]string{ // #nosec G101 -- function names and
 
 	// Keyed by an id that was read from a tenant-scoped row moments earlier
 	// by a platform-wide background job on the leader.
-	"ClaimScheduledMessage": "scheduler claim by message id from ListScheduledMessages",
-	"ExpireStaleSends":      "outbox reaper keyed on age across the fleet",
-	"ListExpiringAPIKeys":   "expiry notifier over every tenant; each row carries its tenant",
-	"TouchAPIKeyLastUsed":   "by the key's own id after it authenticated the request",
+	"ClaimScheduledMessage":   "scheduler claim by message id from ListScheduledMessages",
+	"ExpireStaleSends":        "outbox reaper keyed on age across the fleet",
+	"ListSOSRunsAlertPending": "SOS run reconciler lists the owed alert work of every tenant; each row carries its tenant",
+	"ListExpiringAPIKeys":     "expiry notifier over every tenant; each row carries its tenant",
+	"TouchAPIKeyLastUsed":     "by the key's own id after it authenticated the request",
 
 	// Billing outbox: one Stripe account, one gapless document series, worked
 	// as a whole by the drainers and the platform-admin surfaces. Every row

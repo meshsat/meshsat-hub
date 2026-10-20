@@ -1179,4 +1179,10 @@ CREATE TABLE IF NOT EXISTS sos_runs (
 CREATE INDEX IF NOT EXISTS idx_sos_runs_created ON sos_runs (tenant_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_sos_runs_sos_id ON sos_runs (tenant_id, sos_id);
 `},
+	// MESHSAT-1584 C10 (r16 review C10-R2): the alert work a run still owes, set with its
+	// state change and cleared once done; the reconciler lists the owed ones.
+	{Version: 39, Name: "sos runs alert pending", SQL: `
+ALTER TABLE sos_runs ADD COLUMN IF NOT EXISTS alert_pending BOOLEAN NOT NULL DEFAULT false;
+CREATE INDEX IF NOT EXISTS idx_sos_runs_alert_pending ON sos_runs (updated_at) WHERE alert_pending;
+`},
 }

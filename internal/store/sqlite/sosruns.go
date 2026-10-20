@@ -15,7 +15,8 @@ import (
 // statement, as in msgops.go.
 
 const sosRunCols = `tenant_id, origin, sos_id, bridge_id, run_start_ms, state, rev, bearers, device_id, text,
-	lat, lon, has_position, alert_id, started_at, cancelled_at, cancelled_by, cancel_reason, created_at, updated_at`
+	lat, lon, has_position, alert_id, started_at, cancelled_at, cancelled_by, cancel_reason, created_at, updated_at,
+	alert_pending`
 
 func parseTimePtr(s string) *time.Time {
 	if s == "" {
@@ -27,12 +28,12 @@ func parseTimePtr(s string) *time.Time {
 
 func scanSOSRun(sc interface{ Scan(...any) error }) (store.SOSRun, error) {
 	var r store.SOSRun
-	var hasPos int
+	var hasPos, pending int
 	var started, cancelled, created, updated string
 	err := sc.Scan(&r.TenantID, &r.Origin, &r.SOSID, &r.BridgeID, &r.RunStartMs, &r.State, &r.Rev, &r.Bearers,
 		&r.DeviceID, &r.Text, &r.Lat, &r.Lon, &hasPos, &r.AlertID, &started, &cancelled, &r.CancelledBy,
-		&r.CancelReason, &created, &updated)
-	r.HasPosition = hasPos != 0
+		&r.CancelReason, &created, &updated, &pending)
+	r.HasPosition, r.AlertPending = hasPos != 0, pending != 0
 	r.StartedAt, r.CancelledAt = parseTimePtr(started), parseTimePtr(cancelled)
 	r.CreatedAt, r.UpdatedAt = parseTime(created), parseTime(updated)
 	return r, err
@@ -41,7 +42,7 @@ func scanSOSRun(sc interface{ Scan(...any) error }) (store.SOSRun, error) {
 func sosRunArgs(r *store.SOSRun) []any {
 	return []any{r.TenantID, r.Origin, r.SOSID, r.BridgeID, r.RunStartMs, r.State, r.Rev, r.Bearers, r.DeviceID, r.Text,
 		r.Lat, r.Lon, boolInt(r.HasPosition), r.AlertID, fmtTimePtr(r.StartedAt), fmtTimePtr(r.CancelledAt), r.CancelledBy,
-		r.CancelReason, fmtTime(r.CreatedAt), fmtTime(r.UpdatedAt)}
+		r.CancelReason, fmtTime(r.CreatedAt), fmtTime(r.UpdatedAt), boolInt(r.AlertPending)}
 }
 
 func (d *DB) ApplySOSRunEvent(ctx context.Context, ev *store.SOSRunEvent) (store.SOSRunApplied, error) {
@@ -55,7 +56,7 @@ func (d *DB) ApplySOSRunEvent(ctx context.Context, ev *store.SOSRunEvent) (store
 	defer func() { _ = tx.Rollback() }()
 	fresh := store.NewSOSRun(ev)
 	res, err := tx.ExecContext(ctx, `INSERT INTO sos_runs (`+sosRunCols+`)
-		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT DO NOTHING`, sosRunArgs(&fresh)...)
+		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT DO NOTHING`, sosRunArgs(&fresh)...)
 	if err != nil {
 		return store.SOSRunApplied{}, err
 	}
@@ -72,11 +73,11 @@ func (d *DB) ApplySOSRunEvent(ctx context.Context, ev *store.SOSRunEvent) (store
 	}
 	ended := store.ApplySOSEvent(&run, ev)
 	if _, err := tx.ExecContext(ctx, `UPDATE sos_runs SET state=?, rev=?, bearers=?, device_id=?, text=?, lat=?, lon=?,
-		has_position=?, started_at=?, cancelled_at=?, cancelled_by=?, cancel_reason=?, updated_at=?
+		has_position=?, started_at=?, cancelled_at=?, cancelled_by=?, cancel_reason=?, updated_at=?, alert_pending=?
 		WHERE tenant_id=? AND origin=? AND sos_id=?`,
 		run.State, run.Rev, run.Bearers, run.DeviceID, run.Text, run.Lat, run.Lon, boolInt(run.HasPosition),
 		fmtTimePtr(run.StartedAt), fmtTimePtr(run.CancelledAt), run.CancelledBy, run.CancelReason, fmtTime(run.UpdatedAt),
-		run.TenantID, run.Origin, run.SOSID); err != nil {
+		boolInt(run.AlertPending), run.TenantID, run.Origin, run.SOSID); err != nil {
 		return store.SOSRunApplied{}, err
 	}
 	if err := tx.Commit(); err != nil {
@@ -137,4 +138,21 @@ func (d *DB) SetSOSRunAlert(ctx context.Context, tenantID, origin, sosID, alertI
 		return store.ErrNotFound
 	}
 	return nil
+}
+
+func (d *DB) ClearSOSRunAlertPending(ctx context.Context, tenantID, origin, sosID string, rev int) (bool, error) {
+	res, err := d.rawDB.ExecContext(ctx, `UPDATE sos_runs SET alert_pending=0 WHERE tenant_id=? AND origin=? AND sos_id=? AND rev=?`,
+		tenantID, origin, sosID, rev)
+	if err != nil {
+		return false, err
+	}
+	n, err := res.RowsAffected()
+	return n == 1, err
+}
+
+func (d *DB) ListSOSRunsAlertPending(ctx context.Context, limit int) ([]store.SOSRun, error) {
+	if limit <= 0 {
+		limit = 100
+	}
+	return d.querySOSRuns(ctx, "SELECT "+sosRunCols+" FROM sos_runs WHERE alert_pending=1 ORDER BY updated_at, sos_id LIMIT ?", limit)
 }

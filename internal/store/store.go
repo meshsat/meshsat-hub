@@ -399,6 +399,13 @@ type Store interface {
 	// fails "sending" rows whose claim is older than olderThan (a replica died).
 	ClaimScheduledMessage(ctx context.Context, id string) (bool, error)
 	ExpireStaleSends(ctx context.Context, olderThan time.Duration) (int64, error)
+	// ClearSOSRunAlertPending clears a run's alert_pending once its alert work is done, but
+	// only while the run's rev is still rev: an event applied meanwhile keeps it owed. False
+	// when the rev moved on (or the run is gone).
+	ClearSOSRunAlertPending(ctx context.Context, tenantID, origin, sosID string, rev int) (bool, error)
+	// ListSOSRunsAlertPending lists, across tenants, the runs whose alert work is still owed,
+	// oldest change first (the reconciler, C10).
+	ListSOSRunsAlertPending(ctx context.Context, limit int) ([]SOSRun, error)
 	// AdvanceAlert writes a's state/tier/retries/next_esc_at only if the stored
 	// next_esc_at still equals expectedNextEscAt (compare-and-set) and the alert is
 	// still open (triggered or escalating); false means another replica already

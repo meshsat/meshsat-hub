@@ -157,3 +157,9 @@ func (m *mockStore) ListSOSRuns(context.Context, string, int) ([]store.SOSRun, e
 	return nil, nil
 }
 func (m *mockStore) SetSOSRunAlert(context.Context, string, string, string, string) error { return nil }
+func (m *mockStore) ClearSOSRunAlertPending(context.Context, string, string, string, int) (bool, error) {
+	return false, nil
+}
+func (m *mockStore) ListSOSRunsAlertPending(context.Context, int) ([]store.SOSRun, error) {
+	return nil, nil
+}

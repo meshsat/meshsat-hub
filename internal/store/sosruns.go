@@ -40,6 +40,11 @@ type SOSRun struct {
 	HasPosition bool    `json:"has_position"`
 	// AlertID is the escalation alert the run raised; empty until one exists.
 	AlertID string `json:"alert_id,omitempty"`
+	// AlertPending is the alert work the run's state still owes (raise it while active,
+	// close it once cancelled), set in the same transaction as the state change and cleared
+	// only once that work succeeded for the run's rev. The reconciler finishes what an
+	// apply could not, so an ack the sender got always stands for durable work.
+	AlertPending bool `json:"alert_pending"`
 	// StartedAt is when the first start arrived; nil when only the cancel has.
 	StartedAt   *time.Time `json:"started_at,omitempty"`
 	CancelledAt *time.Time `json:"cancelled_at,omitempty"`
@@ -92,6 +97,9 @@ func NewSOSRun(ev *SOSRunEvent) SOSRun {
 		RunStartMs: ev.RunStartMs, Rev: 1, Bearers: AddSOSBearer("", ev.Bearer), CancelReason: -1,
 		CreatedAt: at, UpdatedAt: at,
 	}
+	// Either way the alert work is owed: a start raises the alert; a cancel that arrived
+	// first closes one a fallback page may have raised under the run's id.
+	r.AlertPending = true
 	if ev.Kind == SOSEventCancel {
 		r.State = SOSRunCancelled
 		r.CancelledAt, r.CancelledBy, r.CancelReason = &at, ev.By, ev.Reason
@@ -122,6 +130,7 @@ func ApplySOSEvent(r *SOSRun, ev *SOSRunEvent) (ended bool) {
 		if r.State == SOSRunActive {
 			r.State = SOSRunCancelled
 			r.CancelledAt, r.CancelledBy, r.CancelReason = &at, ev.By, ev.Reason
+			r.AlertPending = true
 			return true
 		}
 	}

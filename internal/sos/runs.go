@@ -16,6 +16,7 @@ import (
 	"github.com/meshsat/meshsat-hub/internal/hubmsg"
 	hubmqtt "github.com/meshsat/meshsat-hub/internal/mqtt"
 	"github.com/meshsat/meshsat-hub/internal/store"
+	"github.com/meshsat/meshsat-hub/internal/store/dbwrap"
 )
 
 // Runs is the Hub's side of an SOS raised under its own identity (HeMB-NG stage 2, C10,
@@ -28,6 +29,8 @@ import (
 //   - A cancel is terminal: it stores the run cancelled even before the start arrives,
 //     closes its alert, and a start that comes after it pages nobody.
 //   - The bridge gets sos/ack for every start and cancel it sent, so it can stop retrying.
+//     The ack follows the run's commit, and the alert work the run owes is in the same
+//     row (alert_pending): what an apply could not finish, the reconciler does.
 //
 // The old frames (0x02, mo/decoded with sos=true) keep their own path (Detector).
 type Runs struct {
@@ -96,10 +99,15 @@ func (r *Runs) apply(ctx context.Context, ev Event, origin string) (store.SOSRun
 	if by == "" {
 		by = origin
 	}
-	applied, err := r.store.ApplySOSRunEvent(ctx, &store.SOSRunEvent{
-		TenantID: ev.TenantID, Origin: origin, SOSID: ev.SOSID, BridgeID: ev.BridgeID, RunStartMs: ev.RunStartMs,
-		Kind: ev.Kind, Bearer: ev.Bearer, DeviceID: ev.DeviceID, Text: ev.Text, Lat: ev.Lat, Lon: ev.Lon,
-		HasPosition: ev.HasPosition, By: by, Reason: ev.Reason, At: r.now().UTC(),
+	var applied store.SOSRunApplied
+	err := dbwrap.RetryShort(ctx, func() error {
+		var aerr error
+		applied, aerr = r.store.ApplySOSRunEvent(ctx, &store.SOSRunEvent{
+			TenantID: ev.TenantID, Origin: origin, SOSID: ev.SOSID, BridgeID: ev.BridgeID, RunStartMs: ev.RunStartMs,
+			Kind: ev.Kind, Bearer: ev.Bearer, DeviceID: ev.DeviceID, Text: ev.Text, Lat: ev.Lat, Lon: ev.Lon,
+			HasPosition: ev.HasPosition, By: by, Reason: ev.Reason, At: r.now().UTC(),
+		})
+		return aerr
 	})
 	if err != nil {
 		return applied, fmt.Errorf("sos: apply %s: %w", ev.Kind, err)
@@ -108,13 +116,10 @@ func (r *Runs) apply(ctx context.Context, ev Event, origin string) (store.SOSRun
 	slog.Warn("sos: run "+ev.Kind, "tenant", ev.TenantID, "origin", origin, "sos_id", ev.SOSID, "bearer", ev.Bearer,
 		"state", run.State, "rev", run.Rev, "created", applied.Created, "ended", applied.Ended)
 
-	switch {
-	case run.State == store.SOSRunActive && run.AlertID == "":
-		r.raise(ctx, run)
-	case run.State == store.SOSRunCancelled:
-		// Closed whether or not this event ended it: a replica that raised the alert
-		// while this cancel was being applied finds the run cancelled and closes it too.
-		r.closeAlert(ctx, run)
+	// The alert work this state change owes, committed with it: done now, or by the
+	// reconciler when it fails here. The ack below stands for that durable obligation.
+	if run.AlertPending {
+		r.settle(ctx, run)
 	}
 	if applied.Created && run.State == store.SOSRunActive || applied.Ended {
 		r.tell(run)
@@ -151,21 +156,74 @@ func (r *Runs) Cancel(ctx context.Context, tenantID, sosID, userID string) ([]st
 	return out, nil
 }
 
-// raise pages for an active run once: the alert id is the run's, so a second replica or a
-// copy from another bearer finds it raised. A cancel applied meanwhile closes it again.
-func (r *Runs) raise(ctx context.Context, run store.SOSRun) {
-	if r.engine == nil {
-		slog.Warn("sos: run active, no escalation engine; logged only", "sos_id", run.SOSID)
-		return
+// settle does the alert work run owes and, when it succeeded, clears the obligation for the
+// run's rev; an event applied meanwhile keeps it owed, and the reconciler does it again.
+func (r *Runs) settle(ctx context.Context, run store.SOSRun) bool {
+	if err := r.syncAlert(ctx, run); err != nil {
+		slog.Error("sos: the run's alert work failed; the reconciler finishes it", "error", err, "sos_id", run.SOSID,
+			"state", run.State)
+		return false
 	}
-	chain := ""
-	if r.chainOf != nil {
-		chain = r.chainOf(run.TenantID)
+	ok, err := r.store.ClearSOSRunAlertPending(ctx, run.TenantID, run.Origin, run.SOSID, run.Rev)
+	if err != nil {
+		slog.Warn("sos: clearing the run's owed alert work failed; the reconciler does it again", "error", err, "sos_id", run.SOSID)
 	}
-	if chain == "" {
-		slog.Warn("sos: run active, no escalation chain configured; alert logged only", "tenant", run.TenantID, "sos_id", run.SOSID)
-		return
+	return err == nil && ok
+}
+
+// syncAlert makes the run's alert match its state: raised while it is active, closed once it
+// is cancelled. Idempotent, keyed by the run's alert id.
+func (r *Runs) syncAlert(ctx context.Context, run store.SOSRun) error {
+	if run.State == store.SOSRunCancelled {
+		return r.closeAlert(ctx, run)
 	}
+	return r.raise(ctx, run)
+}
+
+// Reconcile finishes the alert work runs still owe: an apply whose alert step failed, or a
+// replica that stopped between committing a run and raising or closing its alert. Every
+// replica runs it; the work is idempotent. It answers how many runs it settled.
+func (r *Runs) Reconcile(ctx context.Context) (int, error) {
+	runs, err := r.store.ListSOSRunsAlertPending(ctx, 100)
+	if err != nil {
+		return 0, fmt.Errorf("sos: list owed alert work: %w", err)
+	}
+	n := 0
+	for _, run := range runs {
+		if r.settle(ctx, run) {
+			n++
+			slog.Info("sos: reconciled the run's alert", "tenant", run.TenantID, "sos_id", run.SOSID, "state", run.State)
+		}
+	}
+	return n, nil
+}
+
+// RunReconciler reconciles at once (a restart) and then every interval, until ctx ends.
+func (r *Runs) RunReconciler(ctx context.Context, every time.Duration) {
+	t := time.NewTicker(every)
+	defer t.Stop()
+	for {
+		if _, err := r.Reconcile(ctx); err != nil {
+			slog.Warn("sos: reconciler", "error", err)
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+		}
+	}
+}
+
+// chain is the tenant's escalation chain; "" for none.
+func (r *Runs) chain(tenantID string) string {
+	if r.chainOf == nil {
+		return ""
+	}
+	return r.chainOf(tenantID)
+}
+
+// alertFor is the alert a run raises, under its deterministic id.
+func alertFor(run store.SOSRun, chain string) *store.Alert {
 	subject := run.DeviceID
 	if subject == "" || subject == "bridge" {
 		subject = run.BridgeID
@@ -174,35 +232,80 @@ func (r *Runs) raise(ctx context.Context, run store.SOSRun) {
 	if text == "" {
 		text = fmt.Sprintf("SOS from bridge %s via %s", run.BridgeID, run.Bearers)
 	}
-	alert := &store.Alert{ID: AlertID(run.TenantID, run.Origin, run.SOSID), ChainID: chain, DeviceIMEI: subject, Type: "sos", Detail: text}
+	return &store.Alert{ID: AlertID(run.TenantID, run.Origin, run.SOSID), ChainID: chain, DeviceIMEI: subject, Type: "sos", Detail: text}
+}
+
+// raise pages for an active run once: the alert id is the run's, so a second replica or a
+// copy from another bearer finds it raised. A cancel applied meanwhile closes it again.
+// Without an engine or a chain there is nothing to page, and nothing is owed.
+func (r *Runs) raise(ctx context.Context, run store.SOSRun) error {
+	if r.engine == nil {
+		slog.Warn("sos: run active, no escalation engine; logged only", "sos_id", run.SOSID)
+		return nil
+	}
+	chain := r.chain(run.TenantID)
+	if chain == "" {
+		slog.Warn("sos: run active, no escalation chain configured; alert logged only", "tenant", run.TenantID, "sos_id", run.SOSID)
+		return nil
+	}
+	alert := alertFor(run, chain)
 	created, err := r.engine.TriggerOnce(ctx, run.TenantID, alert)
 	if err != nil {
-		slog.Error("sos: raising the run's alert failed; the next copy of its start tries again", "error", err, "sos_id", run.SOSID)
-		return
-	}
-	if err := r.store.SetSOSRunAlert(ctx, run.TenantID, run.Origin, run.SOSID, alert.ID); err != nil {
-		slog.Error("sos: recording the run's alert failed", "error", err, "sos_id", run.SOSID)
+		return fmt.Errorf("raise alert: %w", err)
 	}
 	if created {
 		slog.Warn("sos: run paged", "tenant", run.TenantID, "sos_id", run.SOSID, "alert", alert.ID)
 	}
-	// A cancel that was applied while the alert was being raised found no alert to close.
-	if now, err := r.store.GetSOSRun(ctx, run.TenantID, run.Origin, run.SOSID); err == nil && now.State == store.SOSRunCancelled {
-		r.closeAlert(ctx, *now)
+	if err := r.store.SetSOSRunAlert(ctx, run.TenantID, run.Origin, run.SOSID, alert.ID); err != nil {
+		return fmt.Errorf("record alert: %w", err)
 	}
+	// A cancel that was applied while the alert was being raised found no alert to close.
+	now, err := r.store.GetSOSRun(ctx, run.TenantID, run.Origin, run.SOSID)
+	if err != nil {
+		return fmt.Errorf("re-read run: %w", err)
+	}
+	if now.State == store.SOSRunCancelled {
+		return r.closeAlert(ctx, *now)
+	}
+	return nil
 }
 
-func (r *Runs) closeAlert(ctx context.Context, run store.SOSRun) {
+func (r *Runs) closeAlert(ctx context.Context, run store.SOSRun) error {
 	if r.engine == nil {
-		return
+		return nil
 	}
 	by := run.CancelledBy
 	if by == "" {
 		by = run.Origin
 	}
 	if _, err := r.engine.Cancel(ctx, run.TenantID, AlertID(run.TenantID, run.Origin, run.SOSID), by); err != nil {
-		slog.Error("sos: closing the run's alert failed", "error", err, "sos_id", run.SOSID)
+		return fmt.Errorf("close alert: %w", err)
 	}
+	return nil
+}
+
+// PageUnstored pages a valid start whose run the database did not take (after retries),
+// under the run's own alert id: a copy that stores the run later finds its alert raised and
+// pages nobody again. False when even that failed; the caller then pages the old way, as a
+// last resort, since an SOS is never dropped.
+func (r *Runs) PageUnstored(ctx context.Context, ev Event) bool {
+	if r.engine == nil {
+		return false
+	}
+	chain := r.chain(ev.TenantID)
+	if chain == "" {
+		return true // nothing pages without a chain, the old way neither
+	}
+	run := store.NewSOSRun(&store.SOSRunEvent{TenantID: ev.TenantID, Origin: Origin(ev.BridgeID), SOSID: ev.SOSID,
+		BridgeID: ev.BridgeID, RunStartMs: ev.RunStartMs, Kind: store.SOSEventStart, Bearer: ev.Bearer, DeviceID: ev.DeviceID,
+		Text: ev.Text, Lat: ev.Lat, Lon: ev.Lon, HasPosition: ev.HasPosition, At: r.now().UTC()})
+	alert := alertFor(run, chain)
+	if _, err := r.engine.TriggerOnce(ctx, ev.TenantID, alert); err != nil {
+		slog.Error("sos: a start that was not stored could not page under its run's id either", "error", err, "sos_id", ev.SOSID)
+		return false
+	}
+	slog.Warn("sos: a start that was not stored pages under its run's id", "tenant", ev.TenantID, "sos_id", ev.SOSID, "alert", alert.ID)
+	return true
 }
 
 // RunEvent is what the Hub's own consumers (the live screens, outbound webhooks, TAK) get
@@ -319,6 +422,13 @@ func (r *Runs) handleMQTT(topic string, payload []byte) {
 			ev.Lat, ev.Lon, ev.HasPosition = *m.Lat, *m.Lon, true
 		}
 		if _, err := r.Apply(ctx, ev); err != nil {
+			if !errors.Is(err, ErrBadSOSID) {
+				// Valid, but not stored (the database): no ack, so the bridge publishes it
+				// again until it has one. Not paged the old way, under a second identity.
+				slog.Error("sos: event not stored; the bridge repeats it until its ack", "error", err, "tenant", tenantID,
+					"bridge_id", bridgeID, "kind", m.Kind, "sos_id", m.SOSID)
+				return
+			}
 			why = err.Error()
 		}
 	}

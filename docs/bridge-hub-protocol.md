@@ -609,6 +609,20 @@ nothing.
   (`sos-` and the first 40 hex digits of sha256 of tenant, origin and `sos_id`, each
   followed by a zero byte but the last). Two replicas, or three bearers, page once. A cancel closes it, as `cancelled`: escalation
   stops and no escalation step reopens it.
+- The ack follows the run's commit. The alert work a state change owes (raise the
+  alert while the run is active, close it once cancelled) is committed in the same row
+  and cleared only once done for that row's `rev`; what an apply could not finish, the
+  leader's reconciler does, at once when it takes the lead and then every 15 s. An ack
+  therefore stands for durable work, never for an alert operation that failed.
+- A start the database does not take (after retries): over `sos/event` it is neither
+  acked nor paged the old way, and the sender repeats it; over a satellite or SMS frame,
+  which comes once, it pages under the run's own alert id, so the run, once a later copy
+  stores it, finds its alert raised. The old way is the last resort, when even that
+  fails. A refused id (not a database failure) pages the old way as before.
+- A cancel is terminal through an escalation step too: every write of a step (its
+  completion and its early exits) is a compare-and-set against the lease it took and an
+  open state, so a cancel or an acknowledgement made while the notifier ran stays, and
+  so does the step another replica took after a lease ran out.
 - An operator of the tenant may cancel a run on the Hub
   (`POST /api/sos/runs/{sos_id}/cancel`), logged with who. That closes the
   Hub's alert only; the sender's own SOS on its device keeps running.
@@ -629,7 +643,16 @@ nothing.
   gets one `0x08`, which its queue tries until it goes, never twice (each costs a credit or
   an SMS). While the Hub's session is up the `0x08` waits 30 s for the cancel's ack, and the
   ack stops an `0x08` that has not gone; with no session it is queued at once. A start that
-  went the old way (`0x02`, `mo/decoded`) is cancelled the old way.
+  went the old way (`0x02`, `mo/decoded`) is cancelled the old way. One `0x08` per bearer
+  is the owner's ruling (20 Oct 2026): the queue retries it until the modem or the SMS
+  link takes it, and it is not repeated after (each costs a credit or an SMS).
+- The cancel's obligation is the sender's per run, not per current run: each bearer's
+  `0x08` is owed until a delivery row for it exists (an enqueue that fails is tried again;
+  the row's reference makes a second enqueue a no-op), and a new SOS does not end an
+  older run's owed cancel, which goes on until its own ack or its 24 h.
+- The sender records that a start may have left before it publishes, so a cancel made
+  while that first publish is under way owes the Hub the cancel; a start's ack that
+  arrives after the local cancel does too.
 - A frame by SMS is base64 in one SMS of 160 characters, so the Bridge cuts the `0x07`'s
   words to keep the frame at 120 bytes. A `0x07` or `0x08` carries the bridge id whole (up
   to 63 bytes): the Hub matches it against the modem's bridge. The phones cut the `0x02`'s
