@@ -28,6 +28,8 @@ var vcardXMeshsatKinds = map[string]AddressKind{
 	"X-MESHSAT-BLE":         KindBLE,
 	"X-MESHSAT-WEBHOOK":     KindWebhook,
 	"X-MESHSAT-MQTT":        KindMQTT,
+	"X-MESHSAT-TETRA":       KindTETRA,
+	"X-MESHSAT-CELL":        KindCell,
 }
 
 // ParseVCards reads BEGIN:VCARD..END:VCARD blocks from r and returns

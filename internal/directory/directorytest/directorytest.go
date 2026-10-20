@@ -47,6 +47,9 @@ func Run(t *testing.T, open Opener) {
 		{"Policies", policies},
 		{"SeedIsOncePerScopeUnderConcurrency", seedConcurrent},
 		{"Guards", guards},
+		{"AddressValuesInTheirKindsForm", addressValueForms},
+		{"GroupKinds", groupKinds},
+		{"PolicyModel", policyModel},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) { c.fn(t, open(t)) })
@@ -673,5 +676,114 @@ func guards(t *testing.T, s *directory.SQLStore) {
 	}
 	if p, err := s.GetPolicy(ctx, victim, "missing"); p != nil || err != nil {
 		t.Errorf("missing policy: %+v %v", p, err)
+	}
+}
+
+// addressValueForms: TETRA, CELL and MQTT values are checked and stored in
+// one form, so one number written two ways is one address, and a lookup
+// finds it either way. [MESHSAT-1584 C7]
+func addressValueForms(t *testing.T, s *directory.SQLStore) {
+	ctx := context.Background()
+	c := &directory.Contact{ID: "radio", TenantID: victim, DisplayName: "Radio",
+		Addresses: []directory.Address{
+			{Kind: directory.KindTETRA, Value: "02000"},
+			{Kind: directory.KindCell, Value: " 1001 "},
+			{Kind: directory.KindMQTT, Value: "bridge:kit-1"},
+		}}
+	mustPut(t, s, c)
+	got, _ := s.GetContact(ctx, victim, "radio")
+	want := map[directory.AddressKind]string{directory.KindTETRA: "tetra:2000", directory.KindCell: "cell:1001", directory.KindMQTT: "bridge:kit-1"}
+	for _, a := range got.Addresses {
+		if want[a.Kind] != a.Value {
+			t.Errorf("%s stored as %q, want %q", a.Kind, a.Value, want[a.Kind])
+		}
+	}
+	for _, q := range []struct {
+		kind  directory.AddressKind
+		value string
+	}{{directory.KindTETRA, "2000"}, {directory.KindTETRA, "tetra:2000"}, {directory.KindCell, "cell:1001"}, {directory.KindCell, "1001"}} {
+		if f, err := s.FindContactByAddress(ctx, victim, q.kind, q.value); err != nil || f == nil || f.ID != "radio" {
+			t.Errorf("lookup %s %q: %+v %v", q.kind, q.value, f, err)
+		}
+	}
+	v := version(t, s, victim)
+	if err := s.PutContact(ctx, &directory.Contact{ID: "other", TenantID: victim, DisplayName: "Other",
+		Addresses: []directory.Address{{Kind: directory.KindTETRA, Value: "tetra:2000"}}}); !errors.Is(err, directory.ErrAddressTaken) {
+		t.Errorf("the same SSI written the other way: err=%v, want ErrAddressTaken", err)
+	}
+	for _, bad := range []directory.Address{
+		{Kind: directory.KindTETRA, Value: "0"}, {Kind: directory.KindTETRA, Value: "16777215"}, {Kind: directory.KindTETRA, Value: "talkgroup"},
+		{Kind: directory.KindCell, Value: "cell:"}, {Kind: directory.KindCell, Value: "10a1"},
+		{Kind: directory.KindMQTT, Value: "kit-1"}, {Kind: directory.KindMQTT, Value: "bridge:"}, {Kind: directory.KindMQTT, Value: "bridge:a/b"},
+		{Kind: directory.KindSMS, Value: "  "},
+	} {
+		err := s.PutContact(ctx, &directory.Contact{ID: "other", TenantID: victim, DisplayName: "Other", Addresses: []directory.Address{bad}})
+		if !errors.Is(err, directory.ErrInvalidAddressValue) {
+			t.Errorf("%s %q: err=%v, want ErrInvalidAddressValue", bad.Kind, bad.Value, err)
+		}
+	}
+	if _, err := s.FindContactByAddress(ctx, victim, directory.KindMQTT, "kit-1"); !errors.Is(err, directory.ErrInvalidAddressValue) {
+		t.Errorf("lookup of a malformed MQTT value: %v", err)
+	}
+	if got := version(t, s, victim); got != v {
+		t.Errorf("refused puts moved the version %d -> %d", v, got)
+	}
+	if c, _ := s.GetContact(ctx, victim, "other"); c != nil {
+		t.Errorf("a refused put stored %+v", c)
+	}
+}
+
+func groupKinds(t *testing.T, s *directory.SQLStore) {
+	ctx := context.Background()
+	for _, k := range []directory.GroupKind{directory.GroupTeam, directory.GroupRole, directory.GroupList, directory.GroupMLSGroup} {
+		if err := s.PutGroup(ctx, &directory.Group{TenantID: victim, Name: string(k), Kind: k}); err != nil {
+			t.Errorf("kind %s: %v", k, err)
+		}
+	}
+	g := &directory.Group{TenantID: victim, Name: "No kind"}
+	if err := s.PutGroup(ctx, g); err != nil || g.Kind != directory.GroupList {
+		t.Errorf("a group without a kind: %v, kind %q, want LIST", err, g.Kind)
+	}
+	v := version(t, s, victim)
+	if err := s.PutGroup(ctx, &directory.Group{ID: "squad", TenantID: victim, Name: "Squad", Kind: "SQUAD"}); !errors.Is(err, directory.ErrInvalidGroupKind) {
+		t.Errorf("kind SQUAD: err=%v, want ErrInvalidGroupKind", err)
+	}
+	if g, _ := s.GetGroup(ctx, victim, "squad"); g != nil || version(t, s, victim) != v {
+		t.Errorf("a refused group was stored (%+v) or moved the version", g)
+	}
+}
+
+func policyModel(t *testing.T, s *directory.SQLStore) {
+	ctx := context.Background()
+	v := version(t, s, victim)
+	for _, p := range []directory.DispatchPolicy{
+		{ScopeType: "team", ScopeID: "x", Strategy: directory.StrategyPrimaryOnly},
+		{ScopeType: "contact", Strategy: directory.StrategyPrimaryOnly},
+		{ScopeType: "group", Strategy: directory.StrategyPrimaryOnly},
+		{ScopeType: "precedence", ScopeID: "Urgent", Strategy: directory.StrategyPrimaryOnly},
+		{ScopeType: "default", ScopeID: "x", Strategy: directory.StrategyPrimaryOnly},
+		{ScopeType: "default", Strategy: "FASTEST"},
+		{ScopeType: "default", Strategy: directory.StrategyPrimaryOnly, Preferred: []directory.AddressKind{"PIGEON"}},
+		{ScopeType: "default", Strategy: directory.StrategyPrimaryOnly, MaxRetries: -1},
+	} {
+		p.TenantID = victim
+		if err := s.PutPolicy(ctx, &p); !errors.Is(err, directory.ErrInvalidPolicy) {
+			t.Errorf("%+v: err=%v, want ErrInvalidPolicy", p, err)
+		}
+	}
+	if list, _ := s.ListPolicies(ctx, victim); len(list) != 0 || version(t, s, victim) != v {
+		t.Errorf("refused policies were stored (%d) or moved the version", len(list))
+	}
+	for _, p := range []directory.DispatchPolicy{
+		{ScopeType: "contact", ScopeID: "c", Strategy: directory.StrategyAllBearers},
+		{ScopeType: "group", ScopeID: "g", Strategy: directory.StrategyHeMBBonded},
+		{ScopeType: "precedence", ScopeID: "Deferred", Strategy: directory.StrategyOrderedFallback,
+			Preferred: []directory.AddressKind{directory.KindTETRA}, Fallback: []directory.AddressKind{directory.KindCell}},
+		{ScopeType: "default", Strategy: directory.StrategyAnyReachable},
+	} {
+		p.TenantID = victim
+		if err := s.PutPolicy(ctx, &p); err != nil {
+			t.Errorf("%+v: %v", p, err)
+		}
 	}
 }

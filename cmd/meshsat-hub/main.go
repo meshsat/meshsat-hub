@@ -2905,13 +2905,18 @@ func main() {
 			r.Get("/api/v1/directory/contacts/{id}", directoryHandler.GetContact)
 			r.With(hubauth.RequireRole(hubauth.RoleOperator)).Put("/api/v1/directory/contacts/{id}", directoryHandler.UpdateContact)
 			r.With(hubauth.RequireRole(hubauth.RoleOperator)).Delete("/api/v1/directory/contacts/{id}", directoryHandler.DeleteContact)
-			// NOTE: group + policy CRUD handlers will land in a
-			// follow-up story. The Store layer already supports
-			// them; the REST surface is deferred until a consuming
-			// UI exists. Bridge-side PutPolicy + PutGroup are
-			// exercised via directory_push snapshot import — the
-			// directory table of record can still be populated via
-			// the snapshot endpoint below.
+			// Groups and dispatch policies, the same scoping and
+			// roles as the contacts [MESHSAT-1584 C7].
+			r.Get("/api/v1/directory/groups", directoryHandler.ListGroups)
+			r.With(hubauth.RequireRole(hubauth.RoleOperator)).Post("/api/v1/directory/groups", directoryHandler.CreateGroup)
+			r.Get("/api/v1/directory/groups/{id}", directoryHandler.GetGroup)
+			r.With(hubauth.RequireRole(hubauth.RoleOperator)).Put("/api/v1/directory/groups/{id}", directoryHandler.UpdateGroup)
+			r.With(hubauth.RequireRole(hubauth.RoleOperator)).Delete("/api/v1/directory/groups/{id}", directoryHandler.DeleteGroup)
+			r.Get("/api/v1/directory/policies", directoryHandler.ListPolicies)
+			r.With(hubauth.RequireRole(hubauth.RoleOperator)).Post("/api/v1/directory/policies", directoryHandler.CreatePolicy)
+			r.Get("/api/v1/directory/policies/{id}", directoryHandler.GetPolicy)
+			r.With(hubauth.RequireRole(hubauth.RoleOperator)).Put("/api/v1/directory/policies/{id}", directoryHandler.UpdatePolicy)
+			r.With(hubauth.RequireRole(hubauth.RoleOperator)).Delete("/api/v1/directory/policies/{id}", directoryHandler.DeletePolicy)
 			r.Get("/api/v1/directory/snapshot", directoryHandler.GetSnapshot)
 			// vCard 4.0 / CSV import + export [MESHSAT-541]
 			r.With(hubauth.RequireRole(hubauth.RoleOperator)).Post("/api/v1/directory/import/vcard", directoryHandler.ImportVCard)

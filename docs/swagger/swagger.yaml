@@ -108,6 +108,8 @@ definitions:
     - WEBHOOK
     - EMAIL
     - MQTT
+    - TETRA
+    - CELL
     type: string
     x-enum-comments:
       KindMQTT: '[MESHSAT-538] mirrors bridge-side v45'
@@ -125,6 +127,8 @@ definitions:
     - KindWebhook
     - KindEmail
     - KindMQTT
+    - KindTETRA
+    - KindCell
   github_com_meshsat_meshsat-hub_internal_directory.Contact:
     properties:
       addresses:
@@ -250,8 +254,7 @@ definitions:
       id:
         type: string
       kind:
-        description: TEAM / ROLE / LIST / MLS_GROUP (bridge-side shape)
-        type: string
+        $ref: '#/definitions/github_com_meshsat_meshsat-hub_internal_directory.GroupKind'
       member_ids:
         items:
           type: string
@@ -269,6 +272,18 @@ definitions:
       updated_at:
         type: string
     type: object
+  github_com_meshsat_meshsat-hub_internal_directory.GroupKind:
+    enum:
+    - TEAM
+    - ROLE
+    - LIST
+    - MLS_GROUP
+    type: string
+    x-enum-varnames:
+    - GroupTeam
+    - GroupRole
+    - GroupList
+    - GroupMLSGroup
   github_com_meshsat_meshsat-hub_internal_directory.Origin:
     enum:
     - local
@@ -9757,6 +9772,172 @@ paths:
       summary: Export tenant contacts as vCard 4.0
       tags:
       - directory
+  /api/v1/directory/groups:
+    get:
+      description: Every group of the caller's tenant with its members in their order.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/github_com_meshsat_meshsat-hub_internal_directory.Group'
+            type: array
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: List directory groups
+      tags:
+      - directory
+    post:
+      consumes:
+      - application/json
+      description: kind is TEAM, ROLE, LIST (the default) or MLS_GROUP. member_ids
+        name contacts of the caller's tenant, in order; a repeated id counts once.
+      parameters:
+      - description: Group (tenant_id is the caller's)
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/github_com_meshsat_meshsat-hub_internal_directory.Group'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/github_com_meshsat_meshsat-hub_internal_directory.Group'
+        "400":
+          description: Missing name or unknown kind
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "409":
+          description: A member is not a contact of the tenant
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Create directory group
+      tags:
+      - directory
+  /api/v1/directory/groups/{id}:
+    delete:
+      parameters:
+      - description: Group ID
+        in: path
+        name: id
+        required: true
+        type: string
+      responses:
+        "204":
+          description: No Content
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Delete directory group
+      tags:
+      - directory
+    get:
+      parameters:
+      - description: Group ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/github_com_meshsat_meshsat-hub_internal_directory.Group'
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Get directory group
+      tags:
+      - directory
+    put:
+      consumes:
+      - application/json
+      description: Replaces the group's fields and its member list.
+      parameters:
+      - description: Group ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Group
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/github_com_meshsat_meshsat-hub_internal_directory.Group'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/github_com_meshsat_meshsat-hub_internal_directory.Group'
+        "400":
+          description: Missing name or unknown kind
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "409":
+          description: A member is not a contact of the tenant
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Update directory group
+      tags:
+      - directory
   /api/v1/directory/import/csv:
     post:
       consumes:
@@ -9833,6 +10014,174 @@ paths:
               type: string
             type: object
       summary: Import contacts from vCard 4.0
+      tags:
+      - directory
+  /api/v1/directory/policies:
+    get:
+      description: Every dispatch policy of the caller's tenant, the seeded precedence
+        defaults included.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/github_com_meshsat_meshsat-hub_internal_directory.DispatchPolicy'
+            type: array
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: List directory dispatch policies
+      tags:
+      - directory
+    post:
+      consumes:
+      - application/json
+      description: scope_type is contact or group (scope_id names it), precedence
+        (scope_id is Override, Flash, Immediate, Priority, Routine or Deferred) or
+        default (no scope_id). strategy is PRIMARY_ONLY, ANY_REACHABLE, ORDERED_FALLBACK,
+        HEMB_BONDED or ALL_BEARERS. One policy per scope.
+      parameters:
+      - description: Policy
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/github_com_meshsat_meshsat-hub_internal_directory.DispatchPolicy'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/github_com_meshsat_meshsat-hub_internal_directory.DispatchPolicy'
+        "400":
+          description: Unknown scope, precedence, strategy or bearer kind
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "409":
+          description: Another policy covers this scope
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Create directory dispatch policy
+      tags:
+      - directory
+  /api/v1/directory/policies/{id}:
+    delete:
+      parameters:
+      - description: Policy ID
+        in: path
+        name: id
+        required: true
+        type: string
+      responses:
+        "204":
+          description: No Content
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Delete directory dispatch policy
+      tags:
+      - directory
+    get:
+      parameters:
+      - description: Policy ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/github_com_meshsat_meshsat-hub_internal_directory.DispatchPolicy'
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Get directory dispatch policy
+      tags:
+      - directory
+    put:
+      consumes:
+      - application/json
+      parameters:
+      - description: Policy ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Policy
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/github_com_meshsat_meshsat-hub_internal_directory.DispatchPolicy'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/github_com_meshsat_meshsat-hub_internal_directory.DispatchPolicy'
+        "400":
+          description: Unknown scope, precedence, strategy or bearer kind
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "409":
+          description: Another policy covers this scope
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Update directory dispatch policy
       tags:
       - directory
   /api/v1/directory/snapshot:

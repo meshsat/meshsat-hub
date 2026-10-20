@@ -523,8 +523,12 @@ func (s *SQLStore) FindContactByAddress(ctx context.Context, tenantID string, ki
 	if !kind.Valid() {
 		return nil, ErrInvalidAddressKind
 	}
+	value, err := kind.Canonical(value)
+	if err != nil {
+		return nil, err
+	}
 	var cid string
-	err := s.db.QueryRowContext(ctx, `
+	err = s.db.QueryRowContext(ctx, `
 		SELECT contact_id FROM directory_addresses
 		WHERE tenant_id = $1 AND kind = $2 AND value = $3`,
 		tenantID, string(kind), value).Scan(&cid)
@@ -538,9 +542,10 @@ func (s *SQLStore) FindContactByAddress(ctx context.Context, tenantID string, ki
 }
 
 // PutContact inserts or updates (by tenant and ID) a contact and replaces
-// its addresses and keys, all in one transaction with the version bump. An
-// address another contact of the tenant holds fails the whole put with
-// ErrAddressTaken and changes nothing.
+// its addresses and keys, all in one transaction with the version bump.
+// Address values are stored in their kind's canonical form
+// (AddressKind.Canonical). An address another contact of the tenant holds
+// fails the whole put with ErrAddressTaken and changes nothing.
 func (s *SQLStore) PutContact(ctx context.Context, c *Contact) error {
 	if c == nil {
 		return fmt.Errorf("%w: nil contact", ErrEmptyID)
@@ -548,10 +553,16 @@ func (s *SQLStore) PutContact(ctx context.Context, c *Contact) error {
 	if c.TenantID == "" || c.DisplayName == "" {
 		return fmt.Errorf("%w: tenant_id and display_name are required", ErrEmptyID)
 	}
-	for _, a := range c.Addresses {
+	for i := range c.Addresses {
+		a := &c.Addresses[i]
 		if !a.Kind.Valid() {
 			return fmt.Errorf("%w: %s", ErrInvalidAddressKind, a.Kind)
 		}
+		v, err := a.Kind.Canonical(a.Value)
+		if err != nil {
+			return err
+		}
+		a.Value = v
 	}
 	if c.ID == "" {
 		c.ID = NewID()
@@ -756,18 +767,22 @@ func listGroups(ctx context.Context, q querier, tenantID string) ([]Group, error
 }
 
 // PutGroup inserts or updates (by tenant and ID) a group and sets its
-// members in the order given (a repeated id counts once). Every member must
-// be a contact of the same tenant, or the put fails with ErrUnknownMember
-// and changes nothing. A member that stays keeps the time it was added.
+// members in the order given (a repeated id counts once). The kind is one
+// of the four GroupKinds (LIST when empty). Every member must be a contact
+// of the same tenant, or the put fails with ErrUnknownMember and changes
+// nothing. A member that stays keeps the time it was added.
 func (s *SQLStore) PutGroup(ctx context.Context, g *Group) error {
 	if g == nil || g.TenantID == "" || g.Name == "" {
 		return fmt.Errorf("%w: tenant_id and name required", ErrEmptyID)
 	}
+	if g.Kind == "" {
+		g.Kind = GroupList
+	}
+	if !g.Kind.Valid() {
+		return fmt.Errorf("%w: %q", ErrInvalidGroupKind, g.Kind)
+	}
 	if g.ID == "" {
 		g.ID = NewID()
-	}
-	if g.Kind == "" {
-		g.Kind = "LIST"
 	}
 	members := make([]string, 0, len(g.MemberIDs))
 	seen := map[string]bool{}
@@ -795,7 +810,7 @@ func (s *SQLStore) PutGroup(ctx context.Context, g *Group) error {
 				policy_id = excluded.policy_id, hub_version = excluded.hub_version,
 				hub_etag = excluded.hub_etag, updated_at = excluded.updated_at
 			RETURNING created_at`,
-			g.TenantID, g.ID, g.Name, g.Kind, g.SIDC, g.MLSGroupID, g.PolicyID,
+			g.TenantID, g.ID, g.Name, string(g.Kind), g.SIDC, g.MLSGroupID, g.PolicyID,
 			g.HubVersion, g.HubEtag, s.ts(g.CreatedAt), s.ts(g.UpdatedAt)).Scan(&created); err != nil {
 			return fmt.Errorf("put group: %w", err)
 		}
@@ -938,14 +953,19 @@ func listPolicies(ctx context.Context, q querier, tenantID string) ([]DispatchPo
 
 // PutPolicy inserts or updates (by tenant and ID) a dispatch policy and
 // bumps the version. p.TenantID is required: a policy belongs to exactly one
-// tenant. A (scope_type, scope_id) another policy of the tenant covers fails
-// with ErrPolicyScopeTaken. A put is an operator's word, so it clears seeded.
+// tenant. A policy outside the model fails with ErrInvalidPolicy
+// (DispatchPolicy.Check). A (scope_type, scope_id) another policy of the
+// tenant covers fails with ErrPolicyScopeTaken. A put is an operator's
+// word, so it clears seeded.
 func (s *SQLStore) PutPolicy(ctx context.Context, p *DispatchPolicy) error {
 	if p == nil {
 		return fmt.Errorf("%w: nil policy", ErrEmptyID)
 	}
 	if p.TenantID == "" {
 		return fmt.Errorf("%w: tenant_id is required", ErrEmptyID)
+	}
+	if err := p.Check(); err != nil {
+		return err
 	}
 	if p.ID == "" {
 		p.ID = NewID()

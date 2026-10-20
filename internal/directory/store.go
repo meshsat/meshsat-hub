@@ -32,6 +32,12 @@ const (
 	KindWebhook    AddressKind = "WEBHOOK"
 	KindEmail      AddressKind = "EMAIL"
 	KindMQTT       AddressKind = "MQTT" // [MESHSAT-538] mirrors bridge-side v45
+	// KindTETRA is an SDS address: a DMO talk group or a radio's ITSI.
+	// KindCell is a phone's short number on the MeshSat 2G cell, apart
+	// from its public SMS number. The Bridge's kinds of the same names.
+	// [MESHSAT-1584 C7]
+	KindTETRA AddressKind = "TETRA"
+	KindCell  AddressKind = "CELL"
 )
 
 // Valid reports whether k is a recognised AddressKind.
@@ -39,7 +45,7 @@ func (k AddressKind) Valid() bool {
 	switch k {
 	case KindSMS, KindMeshtastic, KindAPRS, KindIridiumSBD, KindIridiumIMT,
 		KindCellular, KindTAK, KindReticulum, KindZigbee, KindBLE,
-		KindWebhook, KindEmail, KindMQTT:
+		KindWebhook, KindEmail, KindMQTT, KindTETRA, KindCell:
 		return true
 	}
 	return false
@@ -100,6 +106,15 @@ var (
 	ErrKeyTaken = errors.New("directory: key id or (kind, version) is taken")
 	// ErrUnknownMember: a group member id is not a contact of the tenant.
 	ErrUnknownMember = errors.New("directory: group member is not a contact of this tenant")
+	// ErrInvalidAddressValue: the value is not an address of its kind
+	// (TETRA, CELL and MQTT have a form; see AddressKind.Canonical).
+	ErrInvalidAddressValue = errors.New("directory: invalid address value")
+	// ErrInvalidGroupKind: a group kind other than TEAM, ROLE, LIST or
+	// MLS_GROUP.
+	ErrInvalidGroupKind = errors.New("directory: invalid group kind")
+	// ErrInvalidPolicy: a scope, precedence, strategy or bearer the
+	// dispatch policy model does not have.
+	ErrInvalidPolicy = errors.New("directory: invalid dispatch policy")
 )
 
 // Address is one reachable endpoint for a Contact. The wire shape
@@ -199,7 +214,7 @@ type Group struct {
 	ID         string    `json:"id"`
 	TenantID   string    `json:"tenant_id"`
 	Name       string    `json:"name"`
-	Kind       string    `json:"kind,omitempty"` // TEAM / ROLE / LIST / MLS_GROUP (bridge-side shape)
+	Kind       GroupKind `json:"kind,omitempty"`
 	SIDC       string    `json:"sidc,omitempty"`
 	MLSGroupID string    `json:"mls_group_id,omitempty"`
 	HubVersion int64     `json:"hub_version,omitempty"`

@@ -263,7 +263,9 @@ func CanonicalSnapshotBytes(snap *directory.Snapshot) ([]byte, error) {
 // nothing to undo.
 func writeDirectoryError(w http.ResponseWriter, err error) {
 	switch {
-	case errors.Is(err, directory.ErrEmptyID), errors.Is(err, directory.ErrInvalidAddressKind):
+	case errors.Is(err, directory.ErrEmptyID), errors.Is(err, directory.ErrInvalidAddressKind),
+		errors.Is(err, directory.ErrInvalidAddressValue), errors.Is(err, directory.ErrInvalidGroupKind),
+		errors.Is(err, directory.ErrInvalidPolicy):
 		writeError(w, http.StatusBadRequest, err.Error())
 	case errors.Is(err, directory.ErrAddressTaken), errors.Is(err, directory.ErrKeyTaken),
 		errors.Is(err, directory.ErrPolicyScopeTaken), errors.Is(err, directory.ErrUnknownMember):
