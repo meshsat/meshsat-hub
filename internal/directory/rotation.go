@@ -177,7 +177,10 @@ type RotationResult struct {
 //  2. each tenant gets its rotation record, signed by the old key, in one
 //     transaction with the version bump it takes (a tenant that has one
 //     is skipped);
-//  3. the new key becomes current and the pending one is cleared.
+//  3. the new key becomes current, by compare-and-set from the key the
+//     rotation started from (a caller delayed past a newer rotation never
+//     rolls the key back, r20 C7-R7), and the pending one is cleared, by
+//     compare-and-set from this rotation's key (a newer one stays).
 //
 // The new key is stored before any record names it, so no record can name a
 // key the Hub does not hold. tenants should be every tenant: a bridge of a
@@ -259,8 +262,28 @@ func RotateSigningKey(ctx context.Context, kv rotationKeyStore, dir *SQLStore, a
 			res.Records++
 		}
 	}
-	if err := kv.SetSystemConfig(ctx, systemConfigKey, pending); err != nil {
+	// Activation is fenced like the pending key (r20 C7-R7): only the key
+	// this rotation started from may be replaced. A caller delayed past
+	// another caller that finished this rotation and a newer one that
+	// moved the key on finds the store elsewhere and leaves it alone.
+	won, err := kv.CompareAndSetSystemConfig(ctx, systemConfigKey, oldPEM, pending)
+	if err != nil {
 		return res, fmt.Errorf("directory: make the new key current: %w", err)
+	}
+	if !won {
+		cur, err := kv.GetSystemConfig(ctx, systemConfigKey)
+		if err != nil {
+			return res, fmt.Errorf("directory: read signing key: %w", err)
+		}
+		if cur != pending {
+			// Nothing this caller holds is current any more: follow the
+			// store, and leave its pending key, whoever's it is, alone.
+			if err := anchor.Refresh(ctx, kv); err != nil {
+				return res, err
+			}
+			return res, ErrRotationInProgress
+		}
+		res.Resumed = true // another caller made this key current first
 	}
 	anchor.set(next, nextPKIX, pending)
 	if _, err := kv.CompareAndSetSystemConfig(ctx, nextKeyConfig, pending, ""); err != nil {

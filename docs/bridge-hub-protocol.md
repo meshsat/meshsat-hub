@@ -782,7 +782,11 @@ Hub's key:
 2. every tenant gets a rotation record, signed by the OLD key, in one transaction with the version
    bump it takes:
    `{"type":"rotation","tenant_id":"<tenant>","version":43,"new_key_id":"<hex>","new_key_pkix":"<base64>"}`;
-3. the new key becomes current. Every replica reloads it within 30 s.
+3. the new key becomes current, by compare-and-set from the key the rotation started from, and the
+   pending key is cleared by compare-and-set from the new one. A caller delayed past another that
+   finished the rotation and a newer one after it finds the store elsewhere: it changes nothing,
+   follows the stored key and answers 409 (since r20; before, its late write could roll the key back
+   behind the chain). Every replica reloads the current key within 30 s.
 
 A rotation that stopped part-way is finished by calling the endpoint again. The Hub keeps every
 record. Before a snapshot (v2, or v1 to a Bridge that lists `directory_v2`: the v1 snapshot is signed

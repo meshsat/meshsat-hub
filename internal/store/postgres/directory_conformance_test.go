@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	hubcrypto "github.com/meshsat/meshsat-hub/internal/crypto"
 	"github.com/meshsat/meshsat-hub/internal/directory"
 	"github.com/meshsat/meshsat-hub/internal/directory/directorytest"
 )
@@ -15,6 +16,22 @@ func TestDirectoryConformance(t *testing.T) {
 	testDSN(t)
 	directorytest.Run(t, func(t *testing.T) *directory.SQLStore {
 		return directory.NewPostgresStore(testDB(t).rawDB)
+	})
+}
+
+// TestDirectoryRotationFenceSealed runs the cross-generation rotation cases
+// (r20 C7-R7) on Postgres with the key store production uses: this store's
+// system_config behind a sealedconfig keeper. The plain-store run is the
+// RotationActivationIsFenced case of TestDirectoryConformance.
+func TestDirectoryRotationFenceSealed(t *testing.T) {
+	testDSN(t)
+	directorytest.RotationFence(t, func(t *testing.T) (*directory.SQLStore, directorytest.KeyStore) {
+		db := testDB(t)
+		wrap, err := hubcrypto.GenerateKey()
+		if err != nil {
+			t.Fatal(err)
+		}
+		return directory.NewPostgresStore(db.rawDB), directorytest.SealedKeyStore(db, wrap)
 	})
 }
 

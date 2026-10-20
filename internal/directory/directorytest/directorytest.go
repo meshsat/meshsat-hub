@@ -52,6 +52,7 @@ func Run(t *testing.T, open Opener) {
 		{"PolicyModel", policyModel},
 		{"RotationRecords", rotationRecords},
 		{"ConcurrentRotationsConvergeOnOneKey", concurrentRotations},
+		{"RotationActivationIsFenced", func(t *testing.T, s *directory.SQLStore) { RotationFence(t, memRig(s)) }},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) { c.fn(t, open(t)) })
