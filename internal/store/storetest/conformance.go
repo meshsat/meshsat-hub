@@ -35,6 +35,7 @@ func Run(t *testing.T, open Opener) {
 		{"Devices", testDevices},
 		{"DeviceEgress", testDeviceEgress},
 		{"BridgeEgress", testBridgeEgress},
+		{"BirthOrderConcurrent", testBirthOrderConcurrent},
 		{"Messages", testMessages},
 		{"MessageDuplicateIsNoOp", testMessageDuplicate},
 		{"Webhooks", testWebhooks},

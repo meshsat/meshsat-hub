@@ -114,15 +114,15 @@ type egressDouble struct {
 	err       error
 }
 
-func (s *egressDouble) BridgeEgress(context.Context, string, string, string) (string, error) {
-	return s.mapFormat, s.err
+func (s *egressDouble) BridgeEgressEntry(context.Context, string, string, string) (store.EgressDecl, error) {
+	return store.EgressDecl{Format: s.mapFormat}, s.err
 }
 
 // heldDeclaration is a subscriber's pending declaration (SetPending).
 type heldDeclaration struct{ bridge, format string }
 
-func (h heldDeclaration) PendingEgress(string, string) (string, string, bool) {
-	return h.bridge, h.format, true
+func (h heldDeclaration) PendingEgressEntry(string, string) (string, store.EgressDecl, bool) {
+	return h.bridge, store.EgressDecl{Format: h.format}, true
 }
 
 func (s *egressDouble) DeviceBridgeID(context.Context, string, string) (string, error) {

@@ -202,12 +202,19 @@ and `egress_format`: `sealed` when its send chain encrypts, so every payload it 
 protocol version byte is ciphertext for the bridges' key, or `plain` when it does not. Bridges from
 b4a56fb2 also send `egress_sealed: true` for a sealed chain, the older form of the same
 declaration. A Bridge that cannot read the chain sends the `imei` and leaves both out: no
-declaration, never `plain`. The Hub records the declaration per modem when a birth names the
-modem's `imei` with a format, in the bridge's own map in the same statement that saves the birth,
-and keeps it: a birth without the `imei` (a restart before the 9704 tells it), without the gateway,
-or without a format changes nothing; an explicit `plain` replaces `sealed` and the reverse. The record
-applies while the bridge that made it owns the modem. The satellite webhooks keep a sealed modem's
-payloads they cannot decrypt opaque instead of guessing text in them (`docs/satellite-relay.md`).
+declaration, never `plain`. The Hub records the declaration per bridge and modem when a birth
+names the modem's `imei` with a format, and keeps it: a birth without the `imei` (a restart before
+the 9704 tells it), without the gateway, or without a format changes nothing; an explicit `plain`
+replaces `sealed` and the reverse. It applies while the bridge that made it owns the modem. The
+satellite webhooks keep a sealed modem's payloads they cannot decrypt opaque instead of guessing
+text in them (`docs/satellite-relay.md`).
+
+The Hub orders a bridge's births by their `timestamp`: it writes the bridge row and each
+declaration only when the birth is not older than what it stored, so a birth written late (a retry
+after a failed write, a replica behind) never undoes a newer one. A Bridge therefore stamps each
+birth later than its last one, also when its clock stepped back and across a restart (it keeps the
+last stamp in `system_config`, `hub_last_birth_stamp`). The link from a modem to its bridge is
+ordered by when the Hub received the birth instead.
 A bridge publishes the birth again when a satellite chain changes while it is connected, and when
 a satellite modem's IMEI or its declared format changes (a chain read again after a failure).
 

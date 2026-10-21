@@ -3,7 +3,6 @@ package postgres
 import (
 	"context"
 	"database/sql"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
@@ -87,17 +86,28 @@ func (d *DB) queryBridges(ctx context.Context, withSecret bool, where string, ar
 // CreateOrUpdateBridge upserts the birth-provided fields. On conflict it does
 // NOT touch mqtt_username, mqtt_password_hash, cert_pem, cert_expiry or
 // created_at: a bridge re-announcing itself must never lose its credentials.
-// CreateOrUpdateBridge registers a bridge or refreshes what it reports about
-// itself. It deliberately does NOT move an existing bridge between tenants:
-// this runs from an MQTT birth, and a bridge that could rewrite its own
-// tenant_id could walk itself into somebody else's fleet and out of its own
-// tenant's quota. Ownership changes through the API, where a human is asking.
+// It deliberately does NOT move an existing bridge between tenants: this runs
+// from an MQTT birth, and a bridge that could rewrite its own tenant_id could
+// walk itself into somebody else's fleet and out of its own tenant's quota.
+// Ownership changes through the API, where a human is asking.
+//
+// The row, the birth's declarations and its modem links are written in one
+// transaction, each part only where it is not older than what is stored
+// (store.Bridge.BirthStamp, Egress, Links; HeMB-NG S3-2). Every conditional
+// write is an upsert or update that locks the row it compares against, so two
+// replicas writing births of one bridge are ordered by the stamps, not by
+// which commits last.
 func (d *DB) CreateOrUpdateBridge(ctx context.Context, tenantID string, b *store.Bridge) error {
-	res, err := d.db.ExecContext(ctx,
+	tx, err := d.rawDB.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+	res, err := tx.ExecContext(ctx,
 		`INSERT INTO bridges (bridge_id, tenant_id, label, hostname, version, mode,
 			location_lat, location_lon, location_alt, capabilities,
 			reticulum_hash, reticulum_pubkey, cot_type, cot_callsign,
-			online, last_birth, last_health, egress_declarations, last_seen)
+			online, last_birth, last_health, birth_stamp, last_seen)
 		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, now())
 		 ON CONFLICT (bridge_id) DO UPDATE SET
 			label=EXCLUDED.label, hostname=EXCLUDED.hostname,
@@ -107,23 +117,52 @@ func (d *DB) CreateOrUpdateBridge(ctx context.Context, tenantID string, b *store
 			reticulum_hash=EXCLUDED.reticulum_hash, reticulum_pubkey=EXCLUDED.reticulum_pubkey,
 			cot_type=EXCLUDED.cot_type, cot_callsign=EXCLUDED.cot_callsign,
 			online=EXCLUDED.online, last_birth=EXCLUDED.last_birth, last_health=EXCLUDED.last_health,
-			egress_declarations=bridges.egress_declarations || EXCLUDED.egress_declarations,
+			birth_stamp=EXCLUDED.birth_stamp,
 			last_seen=now(), updated_at=now()
-		 WHERE bridges.tenant_id = EXCLUDED.tenant_id`,
+		 WHERE bridges.tenant_id = EXCLUDED.tenant_id AND EXCLUDED.birth_stamp >= bridges.birth_stamp`,
 		b.BridgeID, tenantID, b.Label, b.Hostname, b.Version, b.Mode,
 		b.LocationLat, b.LocationLon, b.LocationAlt, defaultJSON(b.Capabilities, "[]"),
 		b.ReticulumHash, b.ReticulumPubkey, b.CoTType, b.CoTCallsign,
-		b.Online, defaultJSON(b.LastBirth, "{}"), defaultJSON(b.LastHealth, "{}"), defaultJSON(b.EgressDeclarations, "{}"))
+		b.Online, defaultJSON(b.LastBirth, "{}"), defaultJSON(b.LastHealth, "{}"), b.BirthStamp)
 	if err != nil {
 		return err
 	}
-	// The conflict update is guarded on tenant_id (MESHSAT-1307): without it,
-	// a second tenant naming an existing bridge id rewrote the other tenant's
-	// row. Zero rows now means exactly that, and it is refused.
-	if n, err := res.RowsAffected(); err == nil && n == 0 {
-		return store.ErrOwnedElsewhere
+	n, err := res.RowsAffected()
+	if err != nil {
+		return err
 	}
-	return nil
+	if n == 0 {
+		// The conflict update is guarded on tenant_id (MESHSAT-1307): without
+		// it, a second tenant naming an existing bridge id rewrote the other
+		// tenant's row. Zero rows means that, refused; or a row that holds a
+		// newer birth, kept.
+		var owner string
+		if err := tx.QueryRowContext(ctx, "SELECT tenant_id FROM bridges WHERE bridge_id=$1", b.BridgeID).Scan(&owner); err != nil {
+			return err
+		}
+		if owner != tenantID {
+			return store.ErrOwnedElsewhere
+		}
+	}
+	for imei, e := range b.Egress {
+		if _, err := tx.ExecContext(ctx,
+			`INSERT INTO bridge_egress (tenant_id, bridge_id, imei, format, stamp, declared_at)
+			 VALUES ($1, $2, $3, $4, $5, now())
+			 ON CONFLICT (tenant_id, bridge_id, imei) DO UPDATE SET
+				format=EXCLUDED.format, stamp=EXCLUDED.stamp, declared_at=EXCLUDED.declared_at
+			 WHERE EXCLUDED.stamp >= bridge_egress.stamp`,
+			tenantID, b.BridgeID, imei, e.Format, e.Stamp); err != nil {
+			return err
+		}
+	}
+	for imei, at := range b.Links {
+		if _, err := tx.ExecContext(ctx,
+			"UPDATE devices SET bridge_id=$1, bridge_linked_at=$2 WHERE imei=$3 AND tenant_id=$4 AND bridge_linked_at <= $2",
+			b.BridgeID, at, imei, tenantID); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
 }
 
 func (d *DB) GetBridge(ctx context.Context, tenantID string, bridgeID string) (*store.Bridge, error) {
@@ -156,7 +195,9 @@ func (d *DB) UpdateBridge(ctx context.Context, tenantID string, bridgeID string,
 
 func (d *DB) DeleteBridge(ctx context.Context, tenantID string, bridgeID string) error {
 	_, _ = d.db.ExecContext(ctx,
-		"UPDATE devices SET bridge_id=NULL WHERE bridge_id=$1 AND tenant_id=$2", bridgeID, tenantID)
+		"UPDATE devices SET bridge_id=NULL, bridge_linked_at=$1 WHERE bridge_id=$2 AND tenant_id=$3",
+		time.Now().UnixNano(), bridgeID, tenantID)
+	_, _ = d.db.ExecContext(ctx, "DELETE FROM bridge_egress WHERE bridge_id=$1 AND tenant_id=$2", bridgeID, tenantID)
 	_, err := d.db.ExecContext(ctx, "DELETE FROM bridges WHERE bridge_id=$1 AND tenant_id=$2", bridgeID, tenantID)
 	return err
 }
@@ -228,7 +269,8 @@ func (d *DB) SetBridgeHealth(ctx context.Context, tenantID string, bridgeID stri
 
 func (d *DB) AssociateDeviceWithBridge(ctx context.Context, tenantID string, imei string, bridgeID string) error {
 	_, err := d.db.ExecContext(ctx,
-		"UPDATE devices SET bridge_id=$1 WHERE imei=$2 AND tenant_id=$3", bridgeID, imei, tenantID)
+		"UPDATE devices SET bridge_id=$1, bridge_linked_at=$2 WHERE imei=$3 AND tenant_id=$4",
+		bridgeID, time.Now().UnixNano(), imei, tenantID)
 	return err
 }
 
@@ -244,8 +286,10 @@ func (d *DB) DeviceBridgeID(ctx context.Context, tenantID string, imei string) (
 
 func (d *DB) SetDeviceEgress(ctx context.Context, tenantID, imei, bridgeID, format string) error {
 	_, err := d.db.ExecContext(ctx,
-		`UPDATE devices SET egress_format=$1, egress_bridge_id=$2, egress_declared_at=now()
-		 WHERE imei=$3 AND tenant_id=$4`, format, bridgeID, imei, tenantID)
+		`UPDATE devices SET
+			egress_format=COALESCE((SELECT format FROM bridge_egress WHERE tenant_id=$1 AND bridge_id=$2 AND imei=$3), $4),
+			egress_bridge_id=$2, egress_declared_at=now()
+		 WHERE imei=$3 AND tenant_id=$1`, tenantID, bridgeID, imei, format)
 	return err
 }
 
@@ -259,25 +303,20 @@ func (d *DB) DeviceEgress(ctx context.Context, tenantID, imei string) (string, s
 	return bridgeID, format, err
 }
 
-func (d *DB) MergeBridgeEgress(ctx context.Context, tenantID, bridgeID string, declarations map[string]string) error {
-	patch, err := json.Marshal(declarations)
-	if err != nil {
-		return err
-	}
-	_, err = d.db.ExecContext(ctx,
-		`UPDATE bridges SET egress_declarations = egress_declarations || $1::jsonb WHERE bridge_id=$2 AND tenant_id=$3`,
-		string(patch), bridgeID, tenantID)
-	return err
+func (d *DB) BridgeEgress(ctx context.Context, tenantID, bridgeID, imei string) (string, error) {
+	e, err := d.BridgeEgressEntry(ctx, tenantID, bridgeID, imei)
+	return e.Format, err
 }
 
-func (d *DB) BridgeEgress(ctx context.Context, tenantID, bridgeID, imei string) (string, error) {
-	var format sql.NullString
+func (d *DB) BridgeEgressEntry(ctx context.Context, tenantID, bridgeID, imei string) (store.EgressDecl, error) {
+	var e store.EgressDecl
 	err := d.db.QueryRowContext(ctx,
-		"SELECT egress_declarations->>$1 FROM bridges WHERE bridge_id=$2 AND tenant_id=$3", imei, bridgeID, tenantID).Scan(&format)
+		"SELECT format, stamp FROM bridge_egress WHERE tenant_id=$1 AND bridge_id=$2 AND imei=$3",
+		tenantID, bridgeID, imei).Scan(&e.Format, &e.Stamp)
 	if errors.Is(err, sql.ErrNoRows) {
-		return "", nil
+		return store.EgressDecl{}, nil
 	}
-	return format.String, err
+	return e, err
 }
 
 // --- Bridge MQTT credentials ---

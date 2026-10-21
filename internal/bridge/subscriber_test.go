@@ -28,9 +28,10 @@ type mockStore struct {
 	bridgeOnline      map[string]bool
 	bridgeHealth      map[string]string
 	bridgeLastSeen    map[string]bool
-	deviceBridgeMap   map[string]string            // imei -> bridge_id
-	deviceEgress      map[string][2]string         // imei -> {declaring bridge, format}
-	bridgeEgress      map[string]map[string]string // bridge -> imei -> format
+	deviceBridgeMap   map[string]string                      // imei -> bridge_id
+	deviceEgress      map[string][2]string                   // imei -> {declaring bridge, format}
+	bridgeEgress      map[string]map[string]store.EgressDecl // bridge -> imei -> declaration
+	linkedAt          map[string]int64                       // imei -> when its link was made
 	createDeviceCalls int
 	bridgeOwner       map[string]string // bridge -> registered owner
 	knownTenants      map[string]bool   // tenants GetTenant will admit exist
@@ -61,32 +62,41 @@ func newMockStore() *mockStore {
 	}
 }
 
+// CreateOrUpdateBridge orders every part as the real stores do: the row and
+// the declarations by the birth's stamp, the links by when they were made.
 func (m *mockStore) CreateOrUpdateBridge(_ context.Context, _ string, b *store.Bridge) error {
-	m.bridges[b.BridgeID] = b
-	if b.EgressDeclarations != "" {
-		var decl map[string]string
-		if err := json.Unmarshal([]byte(b.EgressDeclarations), &decl); err != nil {
-			return err
-		}
-		return m.MergeBridgeEgress(context.Background(), "", b.BridgeID, decl)
+	if old, ok := m.bridges[b.BridgeID]; !ok || b.BirthStamp >= old.BirthStamp {
+		m.bridges[b.BridgeID] = b
 	}
-	return nil
-}
-
-func (m *mockStore) MergeBridgeEgress(_ context.Context, _ string, bridgeID string, decl map[string]string) error {
 	if m.bridgeEgress == nil {
-		m.bridgeEgress = map[string]map[string]string{}
+		m.bridgeEgress = map[string]map[string]store.EgressDecl{}
 	}
-	if m.bridgeEgress[bridgeID] == nil {
-		m.bridgeEgress[bridgeID] = map[string]string{}
+	if m.bridgeEgress[b.BridgeID] == nil {
+		m.bridgeEgress[b.BridgeID] = map[string]store.EgressDecl{}
 	}
-	for imei, format := range decl {
-		m.bridgeEgress[bridgeID][imei] = format
+	for imei, e := range b.Egress {
+		if old, ok := m.bridgeEgress[b.BridgeID][imei]; !ok || e.Stamp >= old.Stamp {
+			m.bridgeEgress[b.BridgeID][imei] = e
+		}
+	}
+	if m.linkedAt == nil {
+		m.linkedAt = map[string]int64{}
+	}
+	for imei, at := range b.Links {
+		if at >= m.linkedAt[imei] {
+			m.deviceBridgeMap[imei] = b.BridgeID
+			m.linkedAt[imei] = at
+		}
 	}
 	return nil
 }
 
-func (m *mockStore) BridgeEgress(_ context.Context, _ string, bridgeID, imei string) (string, error) {
+func (m *mockStore) BridgeEgress(ctx context.Context, tenantID string, bridgeID, imei string) (string, error) {
+	e, err := m.BridgeEgressEntry(ctx, tenantID, bridgeID, imei)
+	return e.Format, err
+}
+
+func (m *mockStore) BridgeEgressEntry(_ context.Context, _ string, bridgeID, imei string) (store.EgressDecl, error) {
 	return m.bridgeEgress[bridgeID][imei], nil
 }
 
@@ -125,12 +135,19 @@ func (m *mockStore) DeviceBridgeID(_ context.Context, _ string, imei string) (st
 
 func (m *mockStore) AssociateDeviceWithBridge(_ context.Context, _ string, imei string, bridgeID string) error {
 	m.deviceBridgeMap[imei] = bridgeID
+	if m.linkedAt == nil {
+		m.linkedAt = map[string]int64{}
+	}
+	m.linkedAt[imei] = time.Now().UnixNano()
 	return nil
 }
 
 func (m *mockStore) SetDeviceEgress(_ context.Context, _ string, imei, bridgeID, format string) error {
 	if m.deviceEgress == nil {
 		m.deviceEgress = map[string][2]string{}
+	}
+	if e, ok := m.bridgeEgress[bridgeID][imei]; ok {
+		format = e.Format
 	}
 	m.deviceEgress[imei] = [2]string{bridgeID, format}
 	return nil

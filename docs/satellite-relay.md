@@ -49,22 +49,37 @@ which turned ciphertext into printable nonsense. A modem without a declaration, 
 Globalstar webhooks, and anything else the Hub cannot turn into text is opaque too, so no route
 shows a person an empty message.
 
-The declaration is the modem's and is kept in the Hub's database twice. The bridge's own map,
-IMEI to format (`bridges.egress_declarations`), is merged in the same statement that saves its
-birth, so the saved birth and its declarations never disagree. The per-modem record
-(`devices.egress_format`, with the bridge that made it) is written next. Only a birth that names
-the modem's `imei` with a format changes them. A birth without the `imei`, without the gateway, or
-with the `imei` and no format (a Bridge that could not read its chain) leaves them, so a restart
-before the 9704 has told its IMEI does not undo them. An explicit `plain` replaces `sealed`. They
-apply while the bridge that made them owns the modem; a modem that moves to another bridge is read
-by that bridge's declaration, or as undeclared.
+The declaration is kept per bridge and modem (`bridge_egress`), with the stamp of the birth that
+made it: the birth's own `timestamp`, which a Bridge never lets go backwards. A copy per modem
+(`devices.egress_format`, with the bridge that made it) is written after it and always reads the
+bridge's stored declaration, so it can never be older than that. Only a birth that names the
+modem's `imei` with a format changes them. A birth without the `imei`, without the gateway, or with
+the `imei` and no format (a Bridge that could not read its chain) leaves them, so a restart before
+the 9704 has told its IMEI does not undo them. An explicit `plain` replaces `sealed`. They apply
+while the bridge that made them owns the modem; a modem that moves to another bridge is read by
+that bridge's declaration, or as undeclared.
 
-Until both writes have succeeded, the birth subscriber holds the declaration pending and the
-readers in that process take it over the database. The subscriber writes it again after every birth
-the store takes and every 30 s, until it lands. A Hub that restarts first reads the bridge's
-retained birth on subscribe. The reader's order is: the held declaration, the bridge's map, the
-per-modem record, the owner's last birth (one saved before the map existed), and, when the database
-cannot be read, what it last confirmed for the modem.
+Every part of a birth is written in one transaction and is ordered, so writing a birth later than
+a newer one (a retry, or a replica that is behind) changes nothing the newer one stored:
+
+- the bridge row and each declaration only when the birth's stamp is not older than the stored
+  one;
+- the modem's link to a bridge only when the link on record was made earlier: a link carries the
+  time the Hub received the birth that made it, a delete of the bridge stamps its modems' links
+  with the time of the delete, so a retry cannot take a modem a later birth moved or link it to a
+  deleted bridge again.
+
+A birth the store has not taken is held by the subscriber, merged with any later birth of that
+bridge (the newest row, per modem the newest declaration and the latest link), and written again
+after every birth the store takes and every 30 s. It is let go only once the store has taken it,
+whether its parts were written or found older than what was stored. The readers in that process
+take a held declaration first, unless the bridge's stored one is newer (another replica wrote a
+later birth); a held birth that links the modem to a bridge other than its owner is unresolved
+until written, and the payload is kept opaque. A Hub that restarts first reads the bridge's
+retained birth on subscribe. After the held declaration, the reader's order is: the owner's stored
+declaration, the per-modem record, the owner's last birth (one saved before the declarations
+existed), and, when the database cannot be read, what it last confirmed for the modem. While the
+database cannot be read, a held `sealed` still answers sealed and a held `plain` is not trusted.
 
 ## The two routes
 
@@ -92,8 +107,8 @@ One route per direction, each naming its sender and its recipient:
 
 Unit: `internal/cloudloop/webhook_reticulum_test.go`, `internal/cloudloop/webhook_s32_test.go`,
 `internal/cloudloop/review_r26_test.go`, `internal/codec/opaque_test.go`,
-`internal/bridge/egress_test.go`, `internal/bridge/egress_r29_test.go`,
-`internal/bridge/review_r27_test.go`, `internal/cloudloop/review_r28_test.go`,
+`internal/bridge/egress_test.go`, `internal/bridge/egress_r29_test.go`, `internal/bridge/egress_r30_test.go`,
+`internal/bridge/review_r27_test.go`, `internal/cloudloop/review_r28_test.go`, `internal/cloudloop/review_r29_test.go`,
 `internal/cloudloop/review_r27_test.go`, `internal/store/storetest/device_egress.go`, `internal/rockblock/handler_s32_test.go`,
 `internal/globalstar/handler_s32_test.go`, `internal/routing/opaque_routes_test.go`,
 `internal/routing/engine_test.go`

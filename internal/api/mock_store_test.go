@@ -353,12 +353,12 @@ func (m *mockStore) DeviceEgress(context.Context, string, string) (string, strin
 	return "", "", nil
 }
 
-func (m *mockStore) MergeBridgeEgress(context.Context, string, string, map[string]string) error {
-	return nil
-}
-
 func (m *mockStore) BridgeEgress(context.Context, string, string, string) (string, error) {
 	return "", nil
+}
+
+func (m *mockStore) BridgeEgressEntry(context.Context, string, string, string) (store.EgressDecl, error) {
+	return store.EgressDecl{}, nil
 }
 
 // Bridge MQTT credentials. The writes are recorded: WHEN the bridge row takes

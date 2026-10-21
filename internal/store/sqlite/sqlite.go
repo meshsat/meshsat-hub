@@ -672,6 +672,28 @@ var lateAlterMigrations = []string{
 	// MESHSAT-1584 (r29): what each bridge declared per modem, merged in the
 	// statement that saves its birth; mirrors postgres migration 43.
 	`ALTER TABLE bridges ADD COLUMN egress_declarations TEXT NOT NULL DEFAULT '{}'`,
+	// MESHSAT-1584 (r30): births ordered by their own timestamp, modem links
+	// by when the Hub received the birth, and the declarations per bridge and
+	// modem with the stamp of the birth that made them, so a birth written
+	// again later never undoes a newer one; mirrors postgres migration 44.
+	// The r29 declarations move over with stamp 0 (older than any birth) and
+	// the column they lived in is emptied, so the copy runs once in effect.
+	`ALTER TABLE bridges ADD COLUMN birth_stamp INTEGER NOT NULL DEFAULT 0`,
+	`ALTER TABLE devices ADD COLUMN bridge_linked_at INTEGER NOT NULL DEFAULT 0`,
+	`CREATE TABLE IF NOT EXISTS bridge_egress (
+		tenant_id TEXT NOT NULL,
+		bridge_id TEXT NOT NULL,
+		imei TEXT NOT NULL,
+		format TEXT NOT NULL,
+		stamp INTEGER NOT NULL DEFAULT 0,
+		declared_at TEXT NOT NULL DEFAULT (datetime('now')),
+		PRIMARY KEY (tenant_id, bridge_id, imei)
+	)`,
+	`INSERT OR IGNORE INTO bridge_egress (tenant_id, bridge_id, imei, format, stamp)
+		SELECT b.tenant_id, b.bridge_id, j.key, j.value, 0
+		FROM bridges b, json_each(b.egress_declarations) j
+		WHERE j.value IN ('sealed', 'plain')`,
+	`UPDATE bridges SET egress_declarations = '{}' WHERE egress_declarations <> '{}'`,
 }
 
 // --- Devices ---

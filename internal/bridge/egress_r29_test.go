@@ -15,8 +15,8 @@ import (
 )
 
 // faultyStore is a real store whose declaration writes can be made to fail:
-// the per-modem record alone (failRecord), or every write that carries a
-// birth or a declaration (failBirth).
+// the per-modem record alone (failRecord), or the birth's write with every
+// write after it (failBirth).
 type faultyStore struct {
 	store.Store
 	failRecord, failBirth bool
@@ -40,13 +40,6 @@ func (s *faultyStore) CreateOrUpdateBridge(ctx context.Context, tenant string, b
 		return errInjected
 	}
 	return s.Store.CreateOrUpdateBridge(ctx, tenant, b)
-}
-
-func (s *faultyStore) MergeBridgeEgress(ctx context.Context, tenant, bridge string, decl map[string]string) error {
-	if s.failBirth {
-		return errInjected
-	}
-	return s.Store.MergeBridgeEgress(ctx, tenant, bridge, decl)
 }
 
 type r29Kit struct {
@@ -267,15 +260,19 @@ func TestEgressRefusedBirthHoldsNothing(t *testing.T) {
 
 type heldBy struct{ bridge, format string }
 
-func (h heldBy) PendingEgress(string, string) (string, string, bool) { return h.bridge, h.format, true }
+func (h heldBy) PendingEgressEntry(string, string) (string, store.EgressDecl, bool) {
+	return h.bridge, store.EgressDecl{Format: h.format}, true
+}
 
-// A held declaration speaks for the modem only while its bridge owns it.
-func TestEgressHeldDeclarationOfAnotherOwnerIgnored(t *testing.T) {
+// A held birth that links the modem to a bridge other than its owner is not
+// written yet: which bridge's word applies is unresolved, so the payload is
+// kept opaque (unavailable). The owner's own held declaration answers.
+func TestEgressHeldDeclarationOfAnotherOwnerIsUnresolved(t *testing.T) {
 	f := &egressFake{owner: map[string]string{egressIMEI: "kit"}, record: map[string][2]string{egressIMEI: {"kit", "plain"}}}
 	d := NewEgressDeclarations(f)
-	d.SetPending(heldBy{"kit-b", "sealed"})
-	if got := d.Declaration(context.Background(), "default", egressIMEI); got != codec.DeclaredPlain {
-		t.Fatalf("another bridge's held declaration was used: %v", got)
+	d.SetPending(heldBy{"kit-b", "plain"})
+	if got := d.Declaration(context.Background(), "default", egressIMEI); got != codec.DeclarationUnavailable {
+		t.Fatalf("another bridge's held link was read as settled: %v", got)
 	}
 	d.SetPending(heldBy{"kit", "sealed"})
 	if got := d.Declaration(context.Background(), "default", egressIMEI); got != codec.DeclaredSealed {

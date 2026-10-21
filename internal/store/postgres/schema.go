@@ -1331,4 +1331,28 @@ ALTER TABLE devices ADD COLUMN IF NOT EXISTS egress_declared_at TIMESTAMPTZ NULL
 	{Version: 43, Name: "bridge egress declarations", SQL: `
 ALTER TABLE bridges ADD COLUMN IF NOT EXISTS egress_declarations JSONB NOT NULL DEFAULT '{}'::jsonb;
 `},
+	// MESHSAT-1584 (r30): births ordered by their own timestamp, modem links
+	// by when the Hub received the birth, and the declarations per bridge and
+	// modem with the stamp of the birth that made them, so a birth written
+	// again later (a retry, or another replica behind) never undoes a newer
+	// one. The r29 declarations move over with stamp 0, older than any birth.
+	{Version: 44, Name: "ordered births and declarations", SQL: `
+ALTER TABLE bridges ADD COLUMN IF NOT EXISTS birth_stamp BIGINT NOT NULL DEFAULT 0;
+ALTER TABLE devices ADD COLUMN IF NOT EXISTS bridge_linked_at BIGINT NOT NULL DEFAULT 0;
+CREATE TABLE IF NOT EXISTS bridge_egress (
+	tenant_id VARCHAR(64) NOT NULL,
+	bridge_id VARCHAR(64) NOT NULL,
+	imei VARCHAR(64) NOT NULL,
+	format VARCHAR(16) NOT NULL,
+	stamp BIGINT NOT NULL DEFAULT 0,
+	declared_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+	PRIMARY KEY (tenant_id, bridge_id, imei)
+);
+INSERT INTO bridge_egress (tenant_id, bridge_id, imei, format, stamp)
+	SELECT b.tenant_id, b.bridge_id, e.key, e.value, 0
+	FROM bridges b, jsonb_each_text(b.egress_declarations) e
+	WHERE e.value IN ('sealed', 'plain')
+	ON CONFLICT DO NOTHING;
+UPDATE bridges SET egress_declarations = '{}'::jsonb WHERE egress_declarations <> '{}'::jsonb;
+`},
 }

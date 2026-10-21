@@ -21,7 +21,6 @@ import (
 	"github.com/meshsat/meshsat-hub/internal/protocol"
 	"github.com/meshsat/meshsat-hub/internal/sos"
 	"github.com/meshsat/meshsat-hub/internal/store"
-	"github.com/meshsat/meshsat-hub/internal/store/dbwrap"
 )
 
 // ReticulumRouter is the subset of the Reticulum routing table needed by the
@@ -55,10 +54,10 @@ type Subscriber struct {
 	leader             LeaderChecker // nil = every replica writes health reports
 	sosV2              *bool         // nil = no hub/caps; else whether caps say sos_v2 (C10)
 
-	// Declarations taken from births and not yet written in full (HeMB-NG
-	// S3-2), and the loop that writes them again; see egress_pending.go.
+	// Births not yet written in full (HeMB-NG S3-2), and the loop that
+	// writes them again; see egress_pending.go.
 	pendingOnce   sync.Once
-	egressPending *egressPending
+	egressPending *pendingBirths
 	stopOnce      sync.Once
 	stopEgress    chan struct{}
 }
@@ -321,43 +320,37 @@ func (s *Subscriber) handleBridgeBirth(topic string, payload []byte) {
 		b.Online = false
 	}
 
-	// The satellite payload formats this birth declares (HeMB-NG S3-2), per
-	// modem IMEI. They are saved with the birth, merged into what the bridge
-	// declared before, and recorded per modem below; until both writes have
-	// succeeded they are held pending, so a failed write never leaves an older
-	// declaration in charge.
-	declared := map[string]string{}
-	for _, iface := range birth.Interfaces {
-		if iface.IMEI != "" {
-			if format := declaredFormat(iface); format != "" {
-				declared[iface.IMEI] = format
-			}
-		}
+	// The satellite payload formats this birth declares (HeMB-NG S3-2) and the
+	// modems it names. The store writes them with the row, in one
+	// transaction, ordered: the declarations by the birth's own timestamp,
+	// the links by when the Hub received the birth, so a birth written again
+	// later never undoes a newer one. The birth is held until it is written
+	// in full, and a held birth is written again after the next birth the
+	// store takes and every egressRetryEvery (egress_pending.go).
+	receivedAt := time.Now().UnixNano()
+	if !birth.Timestamp.IsZero() {
+		b.BirthStamp = birth.Timestamp.UnixNano()
 	}
-	var held map[string]uint64
-	if len(declared) > 0 {
-		j, _ := json.Marshal(declared)
-		b.EgressDeclarations = string(j)
-		held = s.pending().hold(tenantID, bridgeID, declared)
+	for _, iface := range birth.Interfaces {
+		if iface.IMEI == "" {
+			continue
+		}
+		if b.Links == nil {
+			b.Links = map[string]int64{}
+		}
+		b.Links[iface.IMEI] = receivedAt
+		if format := declaredFormat(iface); format != "" {
+			if b.Egress == nil {
+				b.Egress = map[string]store.EgressDecl{}
+			}
+			b.Egress[iface.IMEI] = store.EgressDecl{Format: format, Stamp: b.BirthStamp}
+		}
 	}
 
-	// Retry transient store errors (Galera 1213 deadlock, Postgres 40P01/40001):
-	// simultaneous births from two Hub instances hit the same rows.
-	createErr := dbwrap.RetryShort(ctx, func() error {
-		return s.store.CreateOrUpdateBridge(ctx, tenantID, b)
-	})
-	if createErr != nil {
-		if errors.Is(createErr, store.ErrOwnedElsewhere) {
-			// Refused, not failed: this birth declares nothing.
-			for imei, seq := range held {
-				s.pending().drop(tenantID, imei, seq)
-			}
-		}
-		slog.Error("bridge: failed to create/update bridge", "error", createErr, "bridge", bridgeID)
+	key := s.pending().hold(tenantID, b)
+	if err := s.writeHeld(ctx, key); err != nil {
+		slog.Error("bridge: failed to create/update bridge", "error", err, "bridge", bridgeID)
 		return
-	}
-	for imei, seq := range held {
-		s.pending().done(tenantID, imei, seq, true)
 	}
 
 	if !stale {
@@ -366,30 +359,9 @@ func (s *Subscriber) handleBridgeBirth(topic string, payload []byte) {
 		}
 	}
 
-	// Associate devices with IMEIs from the birth interfaces, and record the
-	// satellite payload format each one declares (HeMB-NG S3-2). An interface
-	// without its IMEI, or a gateway missing from this birth, records nothing:
-	// the last declaration for that modem stands. A failed record stays held
-	// (ReconcileEgress writes it again).
-	for _, iface := range birth.Interfaces {
-		if iface.IMEI != "" {
-			if err := s.store.AssociateDeviceWithBridge(ctx, tenantID, iface.IMEI, bridgeID); err != nil {
-				slog.Debug("bridge: failed to associate device",
-					"error", err, "bridge", bridgeID, "imei", iface.IMEI)
-			}
-			if format, ok := declared[iface.IMEI]; ok {
-				if err := s.store.SetDeviceEgress(ctx, tenantID, iface.IMEI, bridgeID, format); err != nil {
-					slog.Warn("bridge: egress declaration not recorded yet; held and tried again",
-						"error", err, "bridge", bridgeID, "imei", iface.IMEI, "format", format)
-				} else {
-					s.pending().done(tenantID, iface.IMEI, held[iface.IMEI], false)
-				}
-			}
-		}
-	}
-	// The store has just taken this birth: write what older births left
-	// pending now rather than at the next tick.
-	s.reconcileEgress(ctx, held)
+	// The store has just taken this birth: write what other births left
+	// held now rather than at the next tick.
+	s.reconcileEgress(ctx, key)
 
 	// What this Hub understands, for the bridge to read at once (C10: sos_v2). Every replica
 	// publishes the same retained value; the second copy replaces the first. A retained

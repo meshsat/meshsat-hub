@@ -177,6 +177,13 @@ type Store interface {
 	DeleteRoute(ctx context.Context, tenantID string, id string) error
 
 	// Bridges
+	//
+	// CreateOrUpdateBridge saves a birth: the row, and with it in one
+	// transaction the birth's declarations and modem links (Bridge.BirthStamp,
+	// Egress, Links). Nothing is written when it fails. A bridge row that
+	// belongs to another tenant refuses it with ErrOwnedElsewhere. A part
+	// that is older than what is stored is left as stored and is not an
+	// error: the newer word stands.
 	CreateOrUpdateBridge(ctx context.Context, tenantID string, b *Bridge) error
 	GetBridge(ctx context.Context, tenantID string, bridgeID string) (*Bridge, error)
 	// LookupBridgeTenant returns the tenant that owns the bridge (ErrNotFound /
@@ -206,6 +213,9 @@ type Store interface {
 	UpdateTAKUser(ctx context.Context, tenantID string, u *TAKUser) error
 	DeleteTAKUser(ctx context.Context, tenantID string, username string) error
 	UpdateBridge(ctx context.Context, tenantID string, bridgeID string, updates BridgeUpdate) error
+	// DeleteBridge removes the bridge and its declarations and unlinks its
+	// modems, now: a birth received before the delete and written later
+	// cannot link them again.
 	DeleteBridge(ctx context.Context, tenantID string, bridgeID string) error
 	SetBridgeOnline(ctx context.Context, tenantID string, bridgeID string, online bool) error
 	TouchBridgeLastSeen(ctx context.Context, tenantID string, bridgeID string) error
@@ -232,26 +242,30 @@ type Store interface {
 	// SetOOBReplayWindow persists the receive window after an accepted frame.
 	SetOOBReplayWindow(ctx context.Context, tenantID string, bridgeID string, high int64, window int64) error
 	SetBridgeHealth(ctx context.Context, tenantID string, bridgeID string, health string) error
+	// AssociateDeviceWithBridge links a modem to the bridge that reports it,
+	// now: the link carries the time, which orders it against a birth the
+	// Hub retries later (CreateOrUpdateBridge, Bridge.Links).
 	AssociateDeviceWithBridge(ctx context.Context, tenantID string, imei string, bridgeID string) error
 	// DeviceBridgeID answers which bridge owns a modem: "" when none does or
 	// the device is unknown (MESHSAT-1246, the MO receipt).
 	DeviceBridgeID(ctx context.Context, tenantID string, imei string) (string, error)
-	// SetDeviceEgress records the format a bridge's birth declared for a
-	// modem's satellite payloads ("sealed" or "plain", HeMB-NG S3-2) and the
-	// bridge that declared it. It stays until a later birth declares
-	// otherwise: a birth without the modem's IMEI or without the gateway does
-	// not touch it. Only a registered device row takes it.
+	// SetDeviceEgress records, per modem, the satellite payload format its
+	// bridge declared ("sealed" or "plain", HeMB-NG S3-2) and that bridge. The
+	// format recorded is the bridge's stored declaration for the modem
+	// (BridgeEgressEntry) when it has one, read in the same statement, so a
+	// late or repeated call never records an older word than the bridge's
+	// newest; format is recorded only when the bridge has none. Only a
+	// registered device row takes it.
 	SetDeviceEgress(ctx context.Context, tenantID, imei, bridgeID, format string) error
 	// DeviceEgress is the last declaration recorded for a modem: the bridge
 	// that made it and the format, both "" when there is none.
 	DeviceEgress(ctx context.Context, tenantID, imei string) (bridgeID, format string, err error)
-	// MergeBridgeEgress merges declarations (IMEI to format) into what the
-	// bridge declared before, as CreateOrUpdateBridge does with a birth's: the
-	// retry of a declaration whose first write failed.
-	MergeBridgeEgress(ctx context.Context, tenantID, bridgeID string, declarations map[string]string) error
-	// BridgeEgress is the format the bridge last declared for a modem, "" for
-	// none.
+	// BridgeEgress is the format the bridge declared last for a modem, ""
+	// for none.
 	BridgeEgress(ctx context.Context, tenantID, bridgeID, imei string) (string, error)
+	// BridgeEgressEntry is that declaration with the stamp of the birth that
+	// made it; the zero EgressDecl for none.
+	BridgeEgressEntry(ctx context.Context, tenantID, bridgeID, imei string) (EgressDecl, error)
 	MarkStaleBridgesOffline(ctx context.Context, timeout time.Duration) (int64, error)
 
 	// Bridge MQTT credentials
@@ -800,13 +814,28 @@ type Bridge struct {
 	BirthVerified    bool       `json:"birth_verified"` // true if last birth had valid ECDSA signature
 	CreatedAt        time.Time  `json:"created_at"`
 	UpdatedAt        time.Time  `json:"updated_at"`
-	// EgressDeclarations, on CreateOrUpdateBridge only: the satellite payload
-	// formats this birth declares, a JSON object of IMEI to "sealed" or
-	// "plain". The store merges it into what the bridge declared before, in
-	// the same statement that saves the birth, so the saved birth and its
-	// declarations never disagree and a birth without an IMEI keeps the
-	// earlier one (HeMB-NG S3-2). Read back with BridgeEgress.
-	EgressDeclarations string `json:"-"`
+	// What a birth writes besides the row, on CreateOrUpdateBridge only
+	// (HeMB-NG S3-2). The store writes the row, the declarations and the
+	// links in one transaction, and every part is ordered, so a birth the Hub
+	// writes again later (a retry) never undoes a newer one:
+	//   - BirthStamp is the birth's own timestamp (Unix ns). The row is
+	//     written only when it is not older than the stored row's.
+	//   - Egress is what the birth declares per modem IMEI, each with that
+	//     stamp; a declaration replaces a stored one only when it is not
+	//     older, so a birth that leaves a modem out keeps its declaration.
+	//   - Links are the modems the birth names, each with the time (Unix ns)
+	//     the Hub received the birth; a link replaces a modem's link only when
+	//     that was made earlier (AssociateDeviceWithBridge links now).
+	BirthStamp int64                 `json:"-"`
+	Egress     map[string]EgressDecl `json:"-"`
+	Links      map[string]int64      `json:"-"`
+}
+
+// EgressDecl is a declared satellite payload format ("sealed" or "plain")
+// and the stamp of the birth that declared it (Bridge.BirthStamp).
+type EgressDecl struct {
+	Format string
+	Stamp  int64
 }
 
 // BridgeCredentials holds MQTT authentication info for a bridge.
