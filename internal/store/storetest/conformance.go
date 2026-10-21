@@ -34,6 +34,7 @@ func Run(t *testing.T, open Opener) {
 		{"MeshPresence", testMeshPresence},
 		{"Devices", testDevices},
 		{"DeviceEgress", testDeviceEgress},
+		{"BridgeEgress", testBridgeEgress},
 		{"Messages", testMessages},
 		{"MessageDuplicateIsNoOp", testMessageDuplicate},
 		{"Webhooks", testWebhooks},

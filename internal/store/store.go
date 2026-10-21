@@ -245,6 +245,13 @@ type Store interface {
 	// DeviceEgress is the last declaration recorded for a modem: the bridge
 	// that made it and the format, both "" when there is none.
 	DeviceEgress(ctx context.Context, tenantID, imei string) (bridgeID, format string, err error)
+	// MergeBridgeEgress merges declarations (IMEI to format) into what the
+	// bridge declared before, as CreateOrUpdateBridge does with a birth's: the
+	// retry of a declaration whose first write failed.
+	MergeBridgeEgress(ctx context.Context, tenantID, bridgeID string, declarations map[string]string) error
+	// BridgeEgress is the format the bridge last declared for a modem, "" for
+	// none.
+	BridgeEgress(ctx context.Context, tenantID, bridgeID, imei string) (string, error)
 	MarkStaleBridgesOffline(ctx context.Context, timeout time.Duration) (int64, error)
 
 	// Bridge MQTT credentials
@@ -793,6 +800,13 @@ type Bridge struct {
 	BirthVerified    bool       `json:"birth_verified"` // true if last birth had valid ECDSA signature
 	CreatedAt        time.Time  `json:"created_at"`
 	UpdatedAt        time.Time  `json:"updated_at"`
+	// EgressDeclarations, on CreateOrUpdateBridge only: the satellite payload
+	// formats this birth declares, a JSON object of IMEI to "sealed" or
+	// "plain". The store merges it into what the bridge declared before, in
+	// the same statement that saves the birth, so the saved birth and its
+	// declarations never disagree and a birth without an IMEI keeps the
+	// earlier one (HeMB-NG S3-2). Read back with BridgeEgress.
+	EgressDeclarations string `json:"-"`
 }
 
 // BridgeCredentials holds MQTT authentication info for a bridge.

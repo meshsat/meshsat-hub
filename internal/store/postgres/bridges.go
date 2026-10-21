@@ -3,6 +3,7 @@ package postgres
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
@@ -96,8 +97,8 @@ func (d *DB) CreateOrUpdateBridge(ctx context.Context, tenantID string, b *store
 		`INSERT INTO bridges (bridge_id, tenant_id, label, hostname, version, mode,
 			location_lat, location_lon, location_alt, capabilities,
 			reticulum_hash, reticulum_pubkey, cot_type, cot_callsign,
-			online, last_birth, last_health, last_seen)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, now())
+			online, last_birth, last_health, egress_declarations, last_seen)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, now())
 		 ON CONFLICT (bridge_id) DO UPDATE SET
 			label=EXCLUDED.label, hostname=EXCLUDED.hostname,
 			version=EXCLUDED.version, mode=EXCLUDED.mode,
@@ -106,12 +107,13 @@ func (d *DB) CreateOrUpdateBridge(ctx context.Context, tenantID string, b *store
 			reticulum_hash=EXCLUDED.reticulum_hash, reticulum_pubkey=EXCLUDED.reticulum_pubkey,
 			cot_type=EXCLUDED.cot_type, cot_callsign=EXCLUDED.cot_callsign,
 			online=EXCLUDED.online, last_birth=EXCLUDED.last_birth, last_health=EXCLUDED.last_health,
+			egress_declarations=bridges.egress_declarations || EXCLUDED.egress_declarations,
 			last_seen=now(), updated_at=now()
 		 WHERE bridges.tenant_id = EXCLUDED.tenant_id`,
 		b.BridgeID, tenantID, b.Label, b.Hostname, b.Version, b.Mode,
 		b.LocationLat, b.LocationLon, b.LocationAlt, defaultJSON(b.Capabilities, "[]"),
 		b.ReticulumHash, b.ReticulumPubkey, b.CoTType, b.CoTCallsign,
-		b.Online, defaultJSON(b.LastBirth, "{}"), defaultJSON(b.LastHealth, "{}"))
+		b.Online, defaultJSON(b.LastBirth, "{}"), defaultJSON(b.LastHealth, "{}"), defaultJSON(b.EgressDeclarations, "{}"))
 	if err != nil {
 		return err
 	}
@@ -255,6 +257,27 @@ func (d *DB) DeviceEgress(ctx context.Context, tenantID, imei string) (string, s
 		return "", "", nil
 	}
 	return bridgeID, format, err
+}
+
+func (d *DB) MergeBridgeEgress(ctx context.Context, tenantID, bridgeID string, declarations map[string]string) error {
+	patch, err := json.Marshal(declarations)
+	if err != nil {
+		return err
+	}
+	_, err = d.db.ExecContext(ctx,
+		`UPDATE bridges SET egress_declarations = egress_declarations || $1::jsonb WHERE bridge_id=$2 AND tenant_id=$3`,
+		string(patch), bridgeID, tenantID)
+	return err
+}
+
+func (d *DB) BridgeEgress(ctx context.Context, tenantID, bridgeID, imei string) (string, error) {
+	var format sql.NullString
+	err := d.db.QueryRowContext(ctx,
+		"SELECT egress_declarations->>$1 FROM bridges WHERE bridge_id=$2 AND tenant_id=$3", imei, bridgeID, tenantID).Scan(&format)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", nil
+	}
+	return format.String, err
 }
 
 // --- Bridge MQTT credentials ---

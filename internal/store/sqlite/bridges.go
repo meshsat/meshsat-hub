@@ -3,6 +3,7 @@ package sqlite
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
@@ -22,8 +23,8 @@ func (d *DB) CreateOrUpdateBridge(ctx context.Context, tenantID string, b *store
 		`INSERT INTO bridges (bridge_id, tenant_id, label, hostname, version, mode,
 			location_lat, location_lon, location_alt, capabilities,
 			reticulum_hash, reticulum_pubkey, cot_type, cot_callsign,
-			online, last_birth, last_health, last_seen)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+			online, last_birth, last_health, egress_declarations, last_seen)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
 		 ON CONFLICT(bridge_id) DO UPDATE SET
 			label=excluded.label, hostname=excluded.hostname,
 			version=excluded.version, mode=excluded.mode,
@@ -32,12 +33,13 @@ func (d *DB) CreateOrUpdateBridge(ctx context.Context, tenantID string, b *store
 			reticulum_hash=excluded.reticulum_hash, reticulum_pubkey=excluded.reticulum_pubkey,
 			cot_type=excluded.cot_type, cot_callsign=excluded.cot_callsign,
 			online=excluded.online, last_birth=excluded.last_birth, last_health=excluded.last_health,
+			egress_declarations=json_patch(bridges.egress_declarations, excluded.egress_declarations),
 			last_seen=datetime('now'), updated_at=datetime('now')
 		 WHERE bridges.tenant_id = excluded.tenant_id`,
 		b.BridgeID, tenantID, b.Label, b.Hostname, b.Version, b.Mode,
 		b.LocationLat, b.LocationLon, b.LocationAlt, b.Capabilities,
 		b.ReticulumHash, b.ReticulumPubkey, b.CoTType, b.CoTCallsign,
-		boolToInt(b.Online), b.LastBirth, b.LastHealth)
+		boolToInt(b.Online), b.LastBirth, b.LastHealth, egressJSON(b.EgressDeclarations))
 	if err != nil {
 		return err
 	}
@@ -253,6 +255,36 @@ func (d *DB) DeviceEgress(ctx context.Context, tenantID, imei string) (string, s
 		return "", "", nil
 	}
 	return bridgeID, format, err
+}
+
+func (d *DB) MergeBridgeEgress(ctx context.Context, tenantID, bridgeID string, declarations map[string]string) error {
+	patch, err := json.Marshal(declarations)
+	if err != nil {
+		return err
+	}
+	_, err = d.db.ExecContext(ctx,
+		`UPDATE bridges SET egress_declarations=json_patch(egress_declarations, ?) WHERE bridge_id=? AND tenant_id=?`,
+		string(patch), bridgeID, tenantID)
+	return err
+}
+
+func (d *DB) BridgeEgress(ctx context.Context, tenantID, bridgeID, imei string) (string, error) {
+	var format sql.NullString
+	err := d.db.QueryRowContext(ctx,
+		`SELECT json_extract(egress_declarations, '$."' || ? || '"') FROM bridges WHERE bridge_id=? AND tenant_id=?`,
+		imei, bridgeID, tenantID).Scan(&format)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", nil
+	}
+	return format.String, err
+}
+
+// egressJSON is a birth's declarations as stored: an empty object for none.
+func egressJSON(s string) string {
+	if s == "" {
+		return "{}"
+	}
+	return s
 }
 
 func (d *DB) SetBridgeCredentials(ctx context.Context, tenantID, bridgeID, username, passwordHash string) error {

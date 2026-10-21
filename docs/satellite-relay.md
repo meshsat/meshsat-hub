@@ -49,14 +49,22 @@ which turned ciphertext into printable nonsense. A modem without a declaration, 
 Globalstar webhooks, and anything else the Hub cannot turn into text is opaque too, so no route
 shows a person an empty message.
 
-The declaration is the modem's, kept in the Hub's database (`devices.egress_format`, with the
-bridge that made it): the birth subscriber writes it when a birth names the modem's `imei` with a
-format, and nothing else changes it. A birth without the `imei` or without the gateway leaves it,
-so a restart before the 9704 has told its IMEI does not undo it. An explicit `plain` replaces
-`sealed`. It applies while the bridge that made it owns the modem; a modem that moves to another
-bridge is read by that bridge's declaration, or as undeclared. The reader falls back to the
-owner's last birth (a birth stored before the record existed) and, when the database cannot be
-read, to what it last confirmed for the modem.
+The declaration is the modem's and is kept in the Hub's database twice. The bridge's own map,
+IMEI to format (`bridges.egress_declarations`), is merged in the same statement that saves its
+birth, so the saved birth and its declarations never disagree. The per-modem record
+(`devices.egress_format`, with the bridge that made it) is written next. Only a birth that names
+the modem's `imei` with a format changes them. A birth without the `imei`, without the gateway, or
+with the `imei` and no format (a Bridge that could not read its chain) leaves them, so a restart
+before the 9704 has told its IMEI does not undo them. An explicit `plain` replaces `sealed`. They
+apply while the bridge that made them owns the modem; a modem that moves to another bridge is read
+by that bridge's declaration, or as undeclared.
+
+Until both writes have succeeded, the birth subscriber holds the declaration pending and the
+readers in that process take it over the database. The subscriber writes it again after every birth
+the store takes and every 30 s, until it lands. A Hub that restarts first reads the bridge's
+retained birth on subscribe. The reader's order is: the held declaration, the bridge's map, the
+per-modem record, the owner's last birth (one saved before the map existed), and, when the database
+cannot be read, what it last confirmed for the modem.
 
 ## The two routes
 
@@ -84,7 +92,8 @@ One route per direction, each naming its sender and its recipient:
 
 Unit: `internal/cloudloop/webhook_reticulum_test.go`, `internal/cloudloop/webhook_s32_test.go`,
 `internal/cloudloop/review_r26_test.go`, `internal/codec/opaque_test.go`,
-`internal/bridge/egress_test.go`, `internal/bridge/review_r27_test.go`,
+`internal/bridge/egress_test.go`, `internal/bridge/egress_r29_test.go`,
+`internal/bridge/review_r27_test.go`, `internal/cloudloop/review_r28_test.go`,
 `internal/cloudloop/review_r27_test.go`, `internal/store/storetest/device_egress.go`, `internal/rockblock/handler_s32_test.go`,
 `internal/globalstar/handler_s32_test.go`, `internal/routing/opaque_routes_test.go`,
 `internal/routing/engine_test.go`

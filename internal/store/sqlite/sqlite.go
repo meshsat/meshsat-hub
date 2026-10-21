@@ -669,6 +669,9 @@ var lateAlterMigrations = []string{
 	`ALTER TABLE devices ADD COLUMN egress_format TEXT NOT NULL DEFAULT ''`,
 	`ALTER TABLE devices ADD COLUMN egress_bridge_id TEXT NOT NULL DEFAULT ''`,
 	`ALTER TABLE devices ADD COLUMN egress_declared_at TEXT NOT NULL DEFAULT ''`,
+	// MESHSAT-1584 (r29): what each bridge declared per modem, merged in the
+	// statement that saves its birth; mirrors postgres migration 43.
+	`ALTER TABLE bridges ADD COLUMN egress_declarations TEXT NOT NULL DEFAULT '{}'`,
 }
 
 // --- Devices ---

@@ -136,6 +136,8 @@ func TestEgressDeclarationLifecycleThroughBirths(t *testing.T) {
 		{"sealed", func() { publish("kit-a", imt(egressIMEI, "sealed")) }, codec.DeclaredSealed},
 		{"restart before the IMEI", func() { publish("kit-a", imt("", "sealed")) }, codec.DeclaredSealed},
 		{"gateway missing", func() { publish("kit-a") }, codec.DeclaredSealed},
+		// R28-R2: a Bridge whose chain read failed sends the IMEI and no format.
+		{"IMEI without a format (the chain read failed)", func() { publish("kit-a", imt(egressIMEI, "")) }, codec.DeclaredSealed},
 		{"chain changed to plain", func() { publish("kit-a", imt(egressIMEI, "plain")) }, codec.DeclaredPlain},
 		{"plain, then the IMEI is late again", func() { publish("kit-a", imt("", "plain")) }, codec.DeclaredPlain},
 		{"back to sealed", func() { publish("kit-a", imt(egressIMEI, "sealed")) }, codec.DeclaredSealed},

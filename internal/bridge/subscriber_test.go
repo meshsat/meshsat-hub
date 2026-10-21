@@ -28,8 +28,9 @@ type mockStore struct {
 	bridgeOnline      map[string]bool
 	bridgeHealth      map[string]string
 	bridgeLastSeen    map[string]bool
-	deviceBridgeMap   map[string]string    // imei -> bridge_id
-	deviceEgress      map[string][2]string // imei -> {declaring bridge, format}
+	deviceBridgeMap   map[string]string            // imei -> bridge_id
+	deviceEgress      map[string][2]string         // imei -> {declaring bridge, format}
+	bridgeEgress      map[string]map[string]string // bridge -> imei -> format
 	createDeviceCalls int
 	bridgeOwner       map[string]string // bridge -> registered owner
 	knownTenants      map[string]bool   // tenants GetTenant will admit exist
@@ -62,7 +63,31 @@ func newMockStore() *mockStore {
 
 func (m *mockStore) CreateOrUpdateBridge(_ context.Context, _ string, b *store.Bridge) error {
 	m.bridges[b.BridgeID] = b
+	if b.EgressDeclarations != "" {
+		var decl map[string]string
+		if err := json.Unmarshal([]byte(b.EgressDeclarations), &decl); err != nil {
+			return err
+		}
+		return m.MergeBridgeEgress(context.Background(), "", b.BridgeID, decl)
+	}
 	return nil
+}
+
+func (m *mockStore) MergeBridgeEgress(_ context.Context, _ string, bridgeID string, decl map[string]string) error {
+	if m.bridgeEgress == nil {
+		m.bridgeEgress = map[string]map[string]string{}
+	}
+	if m.bridgeEgress[bridgeID] == nil {
+		m.bridgeEgress[bridgeID] = map[string]string{}
+	}
+	for imei, format := range decl {
+		m.bridgeEgress[bridgeID][imei] = format
+	}
+	return nil
+}
+
+func (m *mockStore) BridgeEgress(_ context.Context, _ string, bridgeID, imei string) (string, error) {
+	return m.bridgeEgress[bridgeID][imei], nil
 }
 
 func (m *mockStore) SetBridgeOnline(_ context.Context, _ string, bridgeID string, online bool) error {

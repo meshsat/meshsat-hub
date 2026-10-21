@@ -353,6 +353,14 @@ func (m *mockStore) DeviceEgress(context.Context, string, string) (string, strin
 	return "", "", nil
 }
 
+func (m *mockStore) MergeBridgeEgress(context.Context, string, string, map[string]string) error {
+	return nil
+}
+
+func (m *mockStore) BridgeEgress(context.Context, string, string, string) (string, error) {
+	return "", nil
+}
+
 // Bridge MQTT credentials. The writes are recorded: WHEN the bridge row takes
 // a new login is the whole of MESHSAT-1336.
 type credWrite struct{ tenant, bridge, user, hash string }

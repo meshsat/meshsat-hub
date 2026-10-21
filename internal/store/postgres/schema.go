@@ -1325,4 +1325,10 @@ ALTER TABLE devices ADD COLUMN IF NOT EXISTS egress_format VARCHAR(16) NOT NULL 
 ALTER TABLE devices ADD COLUMN IF NOT EXISTS egress_bridge_id VARCHAR(64) NOT NULL DEFAULT '';
 ALTER TABLE devices ADD COLUMN IF NOT EXISTS egress_declared_at TIMESTAMPTZ NULL;
 `},
+	// MESHSAT-1584 (HeMB-NG S3-2, r29): what each bridge declared per modem
+	// (IMEI to "sealed" or "plain"), merged in the statement that saves its
+	// birth, so a failed per-device write cannot leave the two disagreeing.
+	{Version: 43, Name: "bridge egress declarations", SQL: `
+ALTER TABLE bridges ADD COLUMN IF NOT EXISTS egress_declarations JSONB NOT NULL DEFAULT '{}'::jsonb;
+`},
 }

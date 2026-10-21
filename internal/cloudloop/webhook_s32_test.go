@@ -175,9 +175,21 @@ func TestWebhook_UnreadablePayloadIsOpaque(t *testing.T) {
 // egressDouble is a declaration store for the real bridge.EgressDeclarations:
 // one owner ("kit"), its durable record, its last birth, and a lookup error.
 type egressDouble struct {
-	record [2]string
-	birth  string
-	err    error
+	record    [2]string
+	mapFormat string // what the bridge's merged declarations say
+	birth     string
+	err       error
+}
+
+func (s *egressDouble) BridgeEgress(context.Context, string, string, string) (string, error) {
+	return s.mapFormat, s.err
+}
+
+// heldDeclaration is a subscriber's pending declaration (SetPending).
+type heldDeclaration struct{ bridge, format string }
+
+func (h heldDeclaration) PendingEgress(string, string) (string, string, bool) {
+	return h.bridge, h.format, true
 }
 
 func (s *egressDouble) DeviceBridgeID(context.Context, string, string) (string, error) {
@@ -270,5 +282,19 @@ func TestWebhook_DeclarationLifecycle(t *testing.T) {
 	})
 	t.Run("undeclared", func(t *testing.T) {
 		readable(t, run(t, bridge.NewEgressDeclarations(&egressDouble{birth: noIMEIBirth}), smaz))
+	})
+	// R28-R1: the record says plain because its write failed.
+	t.Run("the bridge's declarations say sealed over an older plain record", func(t *testing.T) {
+		opaque(t, run(t, bridge.NewEgressDeclarations(&egressDouble{record: [2]string{"kit", "plain"}, mapFormat: "sealed"}), fixedCiphertext(t)))
+	})
+	t.Run("a held sealed over an older plain record and map", func(t *testing.T) {
+		d := bridge.NewEgressDeclarations(&egressDouble{record: [2]string{"kit", "plain"}, mapFormat: "plain"})
+		d.SetPending(heldDeclaration{"kit", "sealed"})
+		opaque(t, run(t, d, fixedCiphertext(t)))
+	})
+	t.Run("a held plain over an older sealed", func(t *testing.T) {
+		d := bridge.NewEgressDeclarations(&egressDouble{record: [2]string{"kit", "sealed"}, mapFormat: "sealed"})
+		d.SetPending(heldDeclaration{"kit", "plain"})
+		readable(t, run(t, d, smaz))
 	})
 }

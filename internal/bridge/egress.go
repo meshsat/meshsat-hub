@@ -44,6 +44,18 @@ type egressRecords interface {
 	DeviceEgress(ctx context.Context, tenantID, imei string) (bridgeID, format string, err error)
 }
 
+// bridgeEgress is what a bridge declared per modem, merged in the statement
+// that saves its birth (store.Store has it).
+type bridgeEgress interface {
+	BridgeEgress(ctx context.Context, tenantID, bridgeID, imei string) (string, error)
+}
+
+// pendingSource is the declarations a subscriber in this process took from a
+// birth and has not written in full (Subscriber.PendingEgress).
+type pendingSource interface {
+	PendingEgress(tenantID, imei string) (bridgeID, format string, ok bool)
+}
+
 // EgressDeclarations answers what the bridge that owns a modem declared about
 // the modem's satellite payloads. It implements codec.EgressDeclarations.
 //
@@ -54,15 +66,45 @@ type egressRecords interface {
 // modem; a modem that moves to another bridge is read by that bridge's
 // declaration, or as undeclared. An explicit "plain" replaces "sealed".
 //
-// Lookup order: the durable record, then the owner's last birth (a birth
-// stored before the record existed), then what this process last confirmed
-// for the modem. A failed lookup with nothing confirmed is
-// DeclarationUnavailable, never Undeclared: an unknown is not a plain modem.
+// Lookup order, newest word first:
+//  1. a declaration this process took from a birth and has not written in
+//     full (SetPending): a failed write never leaves an older one in charge;
+//  2. the owner bridge's merged declarations, saved in the statement that
+//     saves its birth, so they cannot disagree with it;
+//  3. the per-modem record (devices.egress_format);
+//  4. the owner's last birth (one saved before either of the above existed);
+//  5. what this process last confirmed for the modem.
+//
+// A failed lookup with nothing confirmed is DeclarationUnavailable, never
+// Undeclared: an unknown is not a plain modem.
 type EgressDeclarations struct {
 	store egressStore
 
 	mu        sync.Mutex
+	pending   pendingSource
 	confirmed map[string]confirmedEgress // tenant + "/" + imei
+}
+
+// SetPending gives the reader the declarations the birth subscriber in this
+// process holds pending.
+func (d *EgressDeclarations) SetPending(p pendingSource) {
+	d.mu.Lock()
+	d.pending = p
+	d.mu.Unlock()
+}
+
+func (d *EgressDeclarations) pendingFor(tenantID, imei, owner string) (string, bool) {
+	d.mu.Lock()
+	p := d.pending
+	d.mu.Unlock()
+	if p == nil {
+		return "", false
+	}
+	by, format, ok := p.PendingEgress(tenantID, imei)
+	if !ok || (owner != "" && by != owner) {
+		return "", false
+	}
+	return format, true
 }
 
 type confirmedEgress struct {
@@ -89,10 +131,25 @@ func (d *EgressDeclarations) Declaration(ctx context.Context, tenantID, imei str
 	key := tenantID + "/" + imei
 	owner, err := d.store.DeviceBridgeID(ctx, tenantID, imei)
 	if err != nil {
+		if format, ok := d.pendingFor(tenantID, imei, ""); ok {
+			return asDeclaration(format)
+		}
 		return d.unavailable(key, "", "owner", err)
+	}
+	if format, ok := d.pendingFor(tenantID, imei, owner); ok {
+		return asDeclaration(format)
 	}
 	if owner == "" {
 		return codec.Undeclared
+	}
+	if be, ok := d.store.(bridgeEgress); ok {
+		format, err := be.BridgeEgress(ctx, tenantID, owner, imei)
+		if err != nil {
+			return d.unavailable(key, owner, "bridge declarations", err)
+		}
+		if format != "" {
+			return d.confirm(key, owner, format)
+		}
 	}
 	if recs, ok := d.store.(egressRecords); ok {
 		by, format, err := recs.DeviceEgress(ctx, tenantID, imei)

@@ -1574,6 +1574,11 @@ func main() {
 	// A bridge's birth declares which of its satellite chains seal; those
 	// modems' payloads the Hub cannot decrypt stay opaque (HeMB-NG S3-2).
 	egressDecl := bridge.NewEgressDeclarations(dataStore)
+	if bridgeSub != nil {
+		// Declarations the subscriber holds pending after a failed write
+		// are the newest word on their modem.
+		egressDecl.SetPending(bridgeSub)
+	}
 	clHandler.SetEgressDeclarations(egressDecl)
 	rbHandler.SetEgressDeclarations(egressDecl)
 	gsHandler.SetEgressDeclarations(egressDecl)
