@@ -10,6 +10,7 @@ import (
 
 	"github.com/meshsat/meshsat-hub/internal/fragment"
 	"github.com/meshsat/meshsat-hub/internal/protocol"
+	"github.com/meshsat/meshsat-hub/internal/rnswire"
 )
 
 // rnsAnnounceLike builds bytes with the shape of an RNS announce (HEADER_1,
@@ -28,6 +29,25 @@ func rnsAnnounceLike() []byte {
 	return pkt
 }
 
+// rnsAnnounce is a real signed announce, as a kit's or CrossTalk's node
+// emits it: HEADER_1, flags 0x01, which is also the protocol version byte.
+func rnsAnnounce(t *testing.T) []byte {
+	t.Helper()
+	id, err := rnswire.GenerateIdentity()
+	if err != nil {
+		t.Fatal(err)
+	}
+	a, err := rnswire.NewAnnounce(id, "meshsat.bridge", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pkt := a.MarshalPacket()
+	if pkt[0] != 0x01 {
+		t.Fatalf("announce flags 0x%02x, want 0x01", pkt[0])
+	}
+	return pkt
+}
+
 func rnsMO(imei, topic string, payload []byte, id string) *LingoMO {
 	return &LingoMO{
 		ID:       id,
@@ -43,7 +63,7 @@ func rnsMO(imei, topic string, payload []byte, id string) *LingoMO {
 // first byte collides with the protocol version byte. [MESHSAT-1352]
 func TestWebhook_ReticulumOnRawIMTTopicIsOpaqueAndKeepsTheWire(t *testing.T) {
 	const imei = "300000000000021"
-	pkt := rnsAnnounceLike()
+	pkt := rnsAnnounce(t)
 	if !looksLikeReticulum(pkt) {
 		t.Fatal("premise gone: the synthetic announce does not look like a Reticulum packet")
 	}
@@ -132,7 +152,9 @@ func TestWebhook_ACRC8CoincidenceIsNotAHeMBFrame(t *testing.T) {
 }
 
 func TestLooksLikeReticulum(t *testing.T) {
-	ann := rnsAnnounceLike()
+	ann := rnsAnnounce(t)
+	tampered := append([]byte(nil), ann...)
+	tampered[len(tampered)-1] ^= 0x01
 	cases := []struct {
 		name string
 		raw  []byte
@@ -140,6 +162,13 @@ func TestLooksLikeReticulum(t *testing.T) {
 	}{
 		{"announce", ann, true},
 		{"announce behind RNSI", append([]byte("RNSI\x01"), ann...), true},
+		// Unframed flags 0x01 is the version byte too: an announce whose
+		// signature fails, or announce-shaped bytes with none, are a
+		// MeshSat payload (HeMB-NG S3-2). Behind CrossTalk's explicit
+		// header the shape still decides.
+		{"announce with a bad signature", tampered, false},
+		{"announce-shaped bytes, unsigned", rnsAnnounceLike(), false},
+		{"announce-shaped bytes behind RNSI", append([]byte("RNSI\x01"), rnsAnnounceLike()...), true},
 		{"announce too short", ann[:100], false},
 		{"hops 128", append([]byte{0x01, 0x80}, ann[2:]...), false},
 		{"header type 3", append([]byte{0xC1, 0x00}, ann[2:]...), false},

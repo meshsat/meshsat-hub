@@ -23,6 +23,21 @@ also the Bridge's version byte, and classifying its bytes as text would route ci
 noise to people. Only destinations that can do something with an opaque payload see it
 (`satellite_relay`, `webhook`, `mqtt`, `notification`).
 
+Unframed, a first byte `0x01` counts as Reticulum only when the packet verifies as a signed
+announce (destination hash and signature): as RNS flags `0x01` is an announce and nothing else,
+and a kit's message without base64 is the version byte followed by binary that passes the
+header shape tests about one time in 24 once it is 167 bytes or longer (hops below 128, a defined
+context byte). Behind `RNSI\x01` the shape still decides.
+
+A kit's own message (not Reticulum) is the version byte followed by its egress chain's output.
+When the Hub cannot decrypt it, it is ciphertext for the kits' key: base64 of binary (the kits'
+`smaz2, encrypt, base64` chain) or, once a chain drops base64 on a binary bearer (HeMB-NG S3-2),
+binary longer than a nonce and tag that is not UTF-8 text. Either way it is published
+`opaque: true` (base64 keeps its old `text`, binary has none) and never goes through the SMAZ2
+guess, which turned such bytes into printable nonsense. The same rule runs on the Rock7 (SBD) and
+Globalstar webhooks, and anything else the Hub cannot turn into text is opaque too, so no route
+shows a person an empty message.
+
 ## The two routes
 
 One route per direction, each naming its sender and its recipient:
@@ -47,7 +62,9 @@ One route per direction, each naming its sender and its recipient:
 
 ## Verifying it
 
-Unit: `internal/cloudloop/webhook_reticulum_test.go`, `internal/routing/engine_test.go`
+Unit: `internal/cloudloop/webhook_reticulum_test.go`, `internal/cloudloop/webhook_s32_test.go`,
+`internal/codec/opaque_test.go`, `internal/rockblock/handler_s32_test.go`,
+`internal/globalstar/handler_s32_test.go`, `internal/routing/engine_test.go`
 (`TestMatchSourceTopic`), `internal/routing/destinations_test.go`
 (`TestSatelliteRelayForwardsTheWireUntouched`), `internal/protocol/hemb_test.go` (a CRC-8
 coincidence is no longer a HeMB frame; about one in 256 arbitrary payloads used to vanish as a

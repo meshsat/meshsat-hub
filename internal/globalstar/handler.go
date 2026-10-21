@@ -51,6 +51,10 @@ type MOMessage struct {
 	ReceivedAt  string  `json:"received_at"`
 	Latitude    float64 `json:"latitude,omitempty"`
 	Longitude   float64 `json:"longitude,omitempty"`
+	// Opaque: the Hub could not turn the payload into text, most often a
+	// Bridge's ciphertext for a key the Hub does not hold. Text is empty and
+	// only destinations that carry an opaque payload get it.
+	Opaque bool `json:"opaque,omitempty"`
 }
 
 // RawMOMessage is published to mo/raw for Globalstar messages.
@@ -321,13 +325,22 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Attempt SMAZ2 decompression.
+	// Attempt SMAZ2 decompression, unless the payload is a Bridge's
+	// ciphertext for a key the Hub does not hold: SMAZ2 makes printable
+	// nonsense of such bytes (codec.SealedForAnother).
 	text := ""
 	compressed := false
 	compressionType := ""
 
+	sealed := codec.SealedForAnother(protoVersion, encrypted, rawBytes)
 	decompressed, err := compress.Decompress(rawBytes)
-	if err == nil && len(decompressed) > 0 && isPrintable(decompressed) {
+	if sealed {
+		slog.Info("globalstar: ciphertext for another key, relayed but not read", "device", deviceID, "bytes", len(rawBytes))
+		// The base64 form keeps the text it had on the Cloudloop path; binary has none.
+		if codec.IsBase64Ciphertext(rawBytes) {
+			text = string(rawBytes)
+		}
+	} else if err == nil && len(decompressed) > 0 && isPrintable(decompressed) {
 		text = string(decompressed)
 		compressed = true
 		compressionType = "smaz2"
@@ -362,6 +375,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		ReceivedAt:  receivedAt,
 		Latitude:    payload.Latitude,
 		Longitude:   payload.Longitude,
+		Opaque:      sealed || text == "",
 	}
 	h.publish(hubmqtt.TopicMODecodedFor(h.tenantOf(ctx, deviceID), deviceID), 1, false, decoded)
 

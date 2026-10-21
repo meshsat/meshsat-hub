@@ -30,6 +30,7 @@ import (
 	hubmqtt "github.com/meshsat/meshsat-hub/internal/mqtt"
 	"github.com/meshsat/meshsat-hub/internal/msvqsc"
 	"github.com/meshsat/meshsat-hub/internal/protocol"
+	"github.com/meshsat/meshsat-hub/internal/rnswire"
 	"github.com/meshsat/meshsat-hub/internal/store"
 )
 
@@ -602,18 +603,23 @@ func (h *WebhookHandler) processLingoMO(ctx context.Context, mo *LingoMO, remote
 	compressionType := ""
 
 	// Opaque: marked with the version byte (the Bridge does that only after
-	// egress transforms), not decrypted here, and what is left is base64 of
-	// binary, which is how those transforms end. Decided BEFORE decompression,
-	// because smaz2 will "decompress" base64 text into printable nonsense and
-	// report success, and that nonsense would be stored and routed as the text.
-	opaque := protoVersion > 0 && !encrypted && isBase64Ciphertext(rawBytes)
+	// egress transforms), not decrypted here, and what is left is ciphertext
+	// for a key the Hub does not hold: base64 of binary, how those transforms
+	// ended until HeMB-NG, or binary that is not text, how they end without
+	// base64 (S3-2). Decided BEFORE decompression, because smaz2 will
+	// "decompress" such bytes into printable nonsense and report success, and
+	// that nonsense would be stored and routed as the text.
+	opaque := codec.SealedForAnother(protoVersion, encrypted, rawBytes)
 
 	decompressed, err := compress.Decompress(rawBytes)
 	if isReticulum {
 		opaque = true
 		slog.Info("cloudloop: Reticulum packet on the raw IMT topic", "imei", imei, "bytes", len(rawBytes))
 	} else if opaque {
-		text = string(rawBytes)
+		// The base64 form keeps the text it always had; binary has none.
+		if codec.IsBase64Ciphertext(rawBytes) {
+			text = string(rawBytes)
+		}
 	} else if err == nil && len(decompressed) > 0 && isPrintable(decompressed) {
 		text = string(decompressed)
 		compressed = true
@@ -630,6 +636,12 @@ func (h *WebhookHandler) processLingoMO(ctx context.Context, mo *LingoMO, remote
 		if isPrintable(rawBytes) {
 			text = string(rawBytes)
 		}
+	}
+	// What the Hub could not turn into text goes only where an opaque payload
+	// makes sense (relays, webhooks, MQTT, notifications), never to a
+	// destination that would show a person an empty message.
+	if text == "" {
+		opaque = true
 	}
 
 	// An OOB management frame is a reply to a command the Hub sent; it never
@@ -827,20 +839,6 @@ func (h *WebhookHandler) tenantOf(ctx context.Context, id string) string {
 	return h.tenants.ForDeviceTopic(ctx, id, auth)
 }
 
-// isBase64Ciphertext reports whether b is base64 text whose decoded form is
-// binary and at least as long as an AES-GCM nonce plus tag: the tail of the
-// Bridge's smaz2 -> encrypt -> base64 egress chain.
-func isBase64Ciphertext(b []byte) bool {
-	if len(b) < 40 {
-		return false
-	}
-	raw, err := base64.StdEncoding.DecodeString(string(b))
-	if err != nil || len(raw) < hubcrypto.Overhead {
-		return false
-	}
-	return !isPrintable(raw)
-}
-
 // moMessageID is the identity a message is stored, claimed and routed under.
 //
 // SBD keeps "mo-<imei>-<momsn>", the scheme rockblock.sbdMessageID uses, so the
@@ -869,11 +867,21 @@ func moMessageID(imei string, momsn int, source, lingoID, transmitTime string) s
 // request of 64 or 67 bytes), optionally behind CrossTalk's "RNSI\x01" IMT
 // framing. It is only consulted for the raw IMT topic. [MESHSAT-1352]
 func looksLikeReticulum(raw []byte) bool {
-	if len(raw) >= 5 && string(raw[:4]) == "RNSI" && raw[4] == 0x01 {
+	framed := len(raw) >= 5 && string(raw[:4]) == "RNSI" && raw[4] == 0x01
+	if framed {
 		raw = raw[5:]
 	}
 	if len(raw) < 19 {
 		return false
+	}
+	// Unframed, flags 0x01 is also the Bridge's protocol version byte, and
+	// since HeMB-NG S3-2 what follows it may be binary that passes every
+	// shape test below (about one in 24 from 167 bytes on). As flags, 0x01 is an
+	// announce and nothing else, and an announce is signed: it counts only
+	// when its destination hash and signature verify.
+	if !framed && raw[0] == codec.ProtoVersion1 {
+		a, err := rnswire.UnmarshalAnnouncePacket(raw)
+		return err == nil && a.Verify() == nil
 	}
 	flags := raw[0]
 	headerType := flags >> 6

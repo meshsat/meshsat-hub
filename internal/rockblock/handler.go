@@ -48,6 +48,10 @@ type MOMessage struct {
 	IridiumLatitude  float64 `json:"iridium_latitude,omitempty"`
 	IridiumLongitude float64 `json:"iridium_longitude,omitempty"`
 	IridiumCEP       float64 `json:"iridium_cep,omitempty"`
+	// Opaque: the Hub could not turn the payload into text, most often a
+	// Bridge's ciphertext for a key the Hub does not hold. Text is empty and
+	// only destinations that carry an opaque payload get it.
+	Opaque bool `json:"opaque,omitempty"`
 }
 
 // RawMessage is the raw MO payload published to mo/raw.
@@ -481,13 +485,22 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		// an unknown key — proceed with the raw bytes (backwards compatible).
 	}
 
-	// Attempt SMAZ2 decompression.
+	// Attempt SMAZ2 decompression, unless the payload is a Bridge's
+	// ciphertext for a key the Hub does not hold: SMAZ2 makes printable
+	// nonsense of such bytes (codec.SealedForAnother).
 	text := ""
 	compressed := false
 	compressionType := ""
 
+	sealed := codec.SealedForAnother(protoVersion, encrypted, rawBytes)
 	decompressed, err := compress.Decompress(rawBytes)
-	if err == nil && len(decompressed) > 0 && isPrintable(decompressed) {
+	if sealed {
+		slog.Info("rockblock: ciphertext for another key, relayed but not read", "imei", imei, "bytes", len(rawBytes))
+		// The base64 form keeps the text it had on the Cloudloop path; binary has none.
+		if codec.IsBase64Ciphertext(rawBytes) {
+			text = string(rawBytes)
+		}
+	} else if err == nil && len(decompressed) > 0 && isPrintable(decompressed) {
 		text = string(decompressed)
 		compressed = true
 		compressionType = "smaz2"
@@ -523,6 +536,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		IridiumLatitude:  iridiumLat,
 		IridiumLongitude: iridiumLon,
 		IridiumCEP:       iridiumCEP,
+		Opaque:           sealed || text == "",
 	}
 	h.publish(hubmqtt.TopicMODecodedFor(h.tenantOf(ctx, imei), imei), 1, false, decoded)
 
