@@ -181,7 +181,7 @@ Published on connect (retained). Re-published on reconnect.
   },
   "interfaces": [
     {"name": "mesh_0", "type": "meshtastic", "status": "online", "port": "/dev/ttyACM0"},
-    {"name": "iridium_0", "type": "iridium_sbd", "status": "online", "imei": "300234065123456", "egress_sealed": true},
+    {"name": "iridium_0", "type": "iridium_sbd", "status": "online", "imei": "300234065123456", "egress_sealed": true, "egress_format": "sealed"},
     {"name": "cellular_0", "type": "cellular", "status": "online", "imsi": "204080123456789"}
   ],
   "capabilities": ["meshtastic", "iridium_sbd", "cellular", "reticulum", "tak", "aprs"],
@@ -198,12 +198,16 @@ Published on connect (retained). Re-published on reconnect.
 ```
 
 A satellite interface carries its modem's `imei` (the Hub associates the modem with the bridge)
-and `egress_sealed: true` when its send chain encrypts: every payload it sends behind the protocol
-version byte is then ciphertext for the bridges' key, and the Hub's satellite webhooks keep that
-modem's payloads they cannot decrypt opaque instead of guessing text in them
-(`docs/satellite-relay.md`). The field is left out otherwise, and a modem without it is read as
-before. A bridge publishes the birth again when such a chain changes while it is connected; the
-stored birth is what the Hub reads while the bridge is off the network.
+and `egress_format`: `sealed` when its send chain encrypts, so every payload it sends behind the
+protocol version byte is ciphertext for the bridges' key, or `plain` when it does not. Bridges from
+b4a56fb2 also send `egress_sealed: true` for a sealed chain, the older form of the same
+declaration. The Hub records the declaration per modem when a birth names the modem's `imei` with
+a format, and keeps it: a birth without the `imei` (a restart before the 9704 tells it) or without
+the gateway changes nothing; an explicit `plain` replaces `sealed` and the reverse. The record
+applies while the bridge that made it owns the modem. The satellite webhooks keep a sealed modem's
+payloads they cannot decrypt opaque instead of guessing text in them (`docs/satellite-relay.md`).
+A bridge publishes the birth again when a satellite chain changes while it is connected, and when
+a satellite modem's IMEI appears or changes.
 
 ### BridgeDeath
 

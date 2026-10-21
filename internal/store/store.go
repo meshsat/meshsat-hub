@@ -236,6 +236,15 @@ type Store interface {
 	// DeviceBridgeID answers which bridge owns a modem: "" when none does or
 	// the device is unknown (MESHSAT-1246, the MO receipt).
 	DeviceBridgeID(ctx context.Context, tenantID string, imei string) (string, error)
+	// SetDeviceEgress records the format a bridge's birth declared for a
+	// modem's satellite payloads ("sealed" or "plain", HeMB-NG S3-2) and the
+	// bridge that declared it. It stays until a later birth declares
+	// otherwise: a birth without the modem's IMEI or without the gateway does
+	// not touch it. Only a registered device row takes it.
+	SetDeviceEgress(ctx context.Context, tenantID, imei, bridgeID, format string) error
+	// DeviceEgress is the last declaration recorded for a modem: the bridge
+	// that made it and the format, both "" when there is none.
+	DeviceEgress(ctx context.Context, tenantID, imei string) (bridgeID, format string, err error)
 	MarkStaleBridgesOffline(ctx context.Context, timeout time.Duration) (int64, error)
 
 	// Bridge MQTT credentials

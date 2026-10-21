@@ -1317,4 +1317,12 @@ CREATE TABLE IF NOT EXISTS directory_rotations (
 	UNIQUE (tenant_id, old_key_id)
 );
 `},
+	// MESHSAT-1584 (HeMB-NG S3-2, r28): the last satellite payload format a
+	// bridge declared for a modem ("sealed" or "plain"), kept per modem so a
+	// birth that lacks the modem's IMEI or the gateway does not undo it.
+	{Version: 42, Name: "device egress declaration", SQL: `
+ALTER TABLE devices ADD COLUMN IF NOT EXISTS egress_format VARCHAR(16) NOT NULL DEFAULT '';
+ALTER TABLE devices ADD COLUMN IF NOT EXISTS egress_bridge_id VARCHAR(64) NOT NULL DEFAULT '';
+ALTER TABLE devices ADD COLUMN IF NOT EXISTS egress_declared_at TIMESTAMPTZ NULL;
+`},
 }

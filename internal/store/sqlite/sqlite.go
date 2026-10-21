@@ -664,6 +664,11 @@ var lateAlterMigrations = []string{
 	`ALTER TABLE api_keys ADD COLUMN platform_admin INTEGER NOT NULL DEFAULT 0`,
 	// MESHSAT-1527: the read-only platform axis; mirrors postgres migration 32.
 	`ALTER TABLE api_keys ADD COLUMN platform_read INTEGER NOT NULL DEFAULT 0`,
+	// MESHSAT-1584 (HeMB-NG S3-2, r28): the last satellite payload format a
+	// bridge declared for a modem; mirrors postgres migration 42.
+	`ALTER TABLE devices ADD COLUMN egress_format TEXT NOT NULL DEFAULT ''`,
+	`ALTER TABLE devices ADD COLUMN egress_bridge_id TEXT NOT NULL DEFAULT ''`,
+	`ALTER TABLE devices ADD COLUMN egress_declared_at TEXT NOT NULL DEFAULT ''`,
 }
 
 // --- Devices ---

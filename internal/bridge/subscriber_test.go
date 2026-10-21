@@ -28,7 +28,8 @@ type mockStore struct {
 	bridgeOnline      map[string]bool
 	bridgeHealth      map[string]string
 	bridgeLastSeen    map[string]bool
-	deviceBridgeMap   map[string]string // imei -> bridge_id
+	deviceBridgeMap   map[string]string    // imei -> bridge_id
+	deviceEgress      map[string][2]string // imei -> {declaring bridge, format}
 	createDeviceCalls int
 	bridgeOwner       map[string]string // bridge -> registered owner
 	knownTenants      map[string]bool   // tenants GetTenant will admit exist
@@ -100,6 +101,19 @@ func (m *mockStore) DeviceBridgeID(_ context.Context, _ string, imei string) (st
 func (m *mockStore) AssociateDeviceWithBridge(_ context.Context, _ string, imei string, bridgeID string) error {
 	m.deviceBridgeMap[imei] = bridgeID
 	return nil
+}
+
+func (m *mockStore) SetDeviceEgress(_ context.Context, _ string, imei, bridgeID, format string) error {
+	if m.deviceEgress == nil {
+		m.deviceEgress = map[string][2]string{}
+	}
+	m.deviceEgress[imei] = [2]string{bridgeID, format}
+	return nil
+}
+
+func (m *mockStore) DeviceEgress(_ context.Context, _ string, imei string) (string, string, error) {
+	e := m.deviceEgress[imei]
+	return e[0], e[1], nil
 }
 
 func (m *mockStore) GetDevice(_ context.Context, _ string, imei string) (*store.Device, error) {

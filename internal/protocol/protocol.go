@@ -138,6 +138,10 @@ type InterfaceInfo struct {
 	// the satellite webhooks keep that modem's payloads they cannot decrypt
 	// opaque (codec.SealedForAnother, HeMB-NG S3-2).
 	EgressSealed bool `json:"egress_sealed,omitempty"`
+	// EgressFormat: "sealed" or "plain", the explicit form of the declaration,
+	// so a chain changed to plain is a declaration and not the absence of one.
+	// Left out by bridges that declare nothing.
+	EgressFormat string `json:"egress_format,omitempty"`
 }
 
 // InterfaceHealth reports live metrics for a transport interface.

@@ -4,57 +4,160 @@ import (
 	"context"
 	"encoding/json"
 	"log/slog"
+	"sync"
 
+	"github.com/meshsat/meshsat-hub/internal/codec"
 	"github.com/meshsat/meshsat-hub/internal/protocol"
 	"github.com/meshsat/meshsat-hub/internal/store"
 )
 
-// egressStore is what EgressDeclarations reads: which bridge owns a modem,
-// and that bridge's last birth.
+// Egress formats a bridge declares for a satellite interface (HeMB-NG S3-2).
+const (
+	EgressSealed = "sealed"
+	EgressPlain  = "plain"
+)
+
+// declaredFormat is the format an interface entry of a birth declares: its
+// egress_format, or "sealed" from the older egress_sealed flag; "" when the
+// entry declares nothing (an older bridge, a phone).
+func declaredFormat(iface protocol.InterfaceInfo) string {
+	switch iface.EgressFormat {
+	case EgressSealed, EgressPlain:
+		return iface.EgressFormat
+	}
+	if iface.EgressSealed {
+		return EgressSealed
+	}
+	return ""
+}
+
+// egressStore is what EgressDeclarations needs at least: which bridge owns a
+// modem, and that bridge's last birth.
 type egressStore interface {
 	DeviceBridgeID(ctx context.Context, tenantID, imei string) (string, error)
 	GetBridge(ctx context.Context, tenantID, bridgeID string) (*store.Bridge, error)
 }
 
-// EgressDeclarations reads, from the last birth of the bridge that owns a
-// modem, whether the satellite interface on that modem declared its send
-// chain sealing (InterfaceInfo.EgressSealed). It implements
-// codec.EgressDeclarations. The birth is the bridge's own word, retained and
-// stored, so it holds while the bridge is off the network and its messages
-// come by satellite. A modem no bridge owns, a bridge without a stored birth
-// or a birth without the declaration answers false: the payload is read as
-// before.
+// egressRecords is the durable record of declarations per modem, which the
+// birth subscriber writes (store.Store has it).
+type egressRecords interface {
+	DeviceEgress(ctx context.Context, tenantID, imei string) (bridgeID, format string, err error)
+}
+
+// EgressDeclarations answers what the bridge that owns a modem declared about
+// the modem's satellite payloads. It implements codec.EgressDeclarations.
+//
+// A declaration lives per modem. The birth subscriber records it when a birth
+// names the modem's IMEI with a format, and a birth without the IMEI or
+// without the gateway leaves it alone: a restart before the 9704 has told its
+// IMEI does not undo it. It holds while the bridge that declared it owns the
+// modem; a modem that moves to another bridge is read by that bridge's
+// declaration, or as undeclared. An explicit "plain" replaces "sealed".
+//
+// Lookup order: the durable record, then the owner's last birth (a birth
+// stored before the record existed), then what this process last confirmed
+// for the modem. A failed lookup with nothing confirmed is
+// DeclarationUnavailable, never Undeclared: an unknown is not a plain modem.
 type EgressDeclarations struct {
 	store egressStore
+
+	mu        sync.Mutex
+	confirmed map[string]confirmedEgress // tenant + "/" + imei
+}
+
+type confirmedEgress struct {
+	owner  string
+	format string
 }
 
 // NewEgressDeclarations reads declarations from s.
 func NewEgressDeclarations(s egressStore) *EgressDeclarations {
-	return &EgressDeclarations{store: s}
+	return &EgressDeclarations{store: s, confirmed: map[string]confirmedEgress{}}
 }
 
-// Sealed implements codec.EgressDeclarations.
+// Sealed reports whether the modem's owning bridge declared its chain
+// sealing.
 func (d *EgressDeclarations) Sealed(ctx context.Context, tenantID, imei string) bool {
+	return d.Declaration(ctx, tenantID, imei) == codec.DeclaredSealed
+}
+
+// Declaration implements codec.EgressDeclarations.
+func (d *EgressDeclarations) Declaration(ctx context.Context, tenantID, imei string) codec.Declaration {
 	if d == nil || d.store == nil || imei == "" {
-		return false
+		return codec.Undeclared
 	}
-	bridgeID, err := d.store.DeviceBridgeID(ctx, tenantID, imei)
-	if err != nil || bridgeID == "" {
-		return false
+	key := tenantID + "/" + imei
+	owner, err := d.store.DeviceBridgeID(ctx, tenantID, imei)
+	if err != nil {
+		return d.unavailable(key, "", "owner", err)
 	}
-	b, err := d.store.GetBridge(ctx, tenantID, bridgeID)
-	if err != nil || b == nil || b.LastBirth == "" {
-		return false
+	if owner == "" {
+		return codec.Undeclared
 	}
-	var birth protocol.BridgeBirth
-	if err := json.Unmarshal([]byte(b.LastBirth), &birth); err != nil {
-		slog.Debug("bridge: stored birth unreadable, no egress declaration", "bridge", bridgeID, "error", err)
-		return false
-	}
-	for _, iface := range birth.Interfaces {
-		if iface.IMEI == imei {
-			return iface.EgressSealed
+	if recs, ok := d.store.(egressRecords); ok {
+		by, format, err := recs.DeviceEgress(ctx, tenantID, imei)
+		if err != nil {
+			return d.unavailable(key, owner, "record", err)
+		}
+		if by == owner && format != "" {
+			return d.confirm(key, owner, format)
 		}
 	}
-	return false
+	b, err := d.store.GetBridge(ctx, tenantID, owner)
+	if err != nil {
+		return d.unavailable(key, owner, "birth", err)
+	}
+	if b != nil && b.LastBirth != "" {
+		var birth protocol.BridgeBirth
+		if err := json.Unmarshal([]byte(b.LastBirth), &birth); err != nil {
+			return d.unavailable(key, owner, "birth", err)
+		}
+		for _, iface := range birth.Interfaces {
+			if iface.IMEI == imei {
+				if format := declaredFormat(iface); format != "" {
+					return d.confirm(key, owner, format)
+				}
+			}
+		}
+	}
+	if c, ok := d.lastConfirmed(key); ok && c.owner == owner {
+		return asDeclaration(c.format)
+	}
+	return codec.Undeclared
+}
+
+func (d *EgressDeclarations) confirm(key, owner, format string) codec.Declaration {
+	d.mu.Lock()
+	d.confirmed[key] = confirmedEgress{owner: owner, format: format}
+	d.mu.Unlock()
+	return asDeclaration(format)
+}
+
+func (d *EgressDeclarations) lastConfirmed(key string) (confirmedEgress, bool) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	c, ok := d.confirmed[key]
+	return c, ok
+}
+
+// unavailable answers a failed lookup: what this process last confirmed for
+// the modem (with the same owner, when the owner is known), else
+// DeclarationUnavailable.
+func (d *EgressDeclarations) unavailable(key, owner, what string, err error) codec.Declaration {
+	if c, ok := d.lastConfirmed(key); ok && (owner == "" || c.owner == owner) {
+		slog.Warn("bridge: egress declaration lookup failed, using the last one confirmed", "device", key, "lookup", what, "format", c.format, "error", err)
+		return asDeclaration(c.format)
+	}
+	slog.Warn("bridge: egress declaration lookup failed; the payload is kept opaque, not guessed at", "device", key, "lookup", what, "error", err)
+	return codec.DeclarationUnavailable
+}
+
+func asDeclaration(format string) codec.Declaration {
+	switch format {
+	case EgressSealed:
+		return codec.DeclaredSealed
+	case EgressPlain:
+		return codec.DeclaredPlain
+	}
+	return codec.Undeclared
 }

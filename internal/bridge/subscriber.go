@@ -321,12 +321,21 @@ func (s *Subscriber) handleBridgeBirth(topic string, payload []byte) {
 		}
 	}
 
-	// Associate devices with IMEIs from the birth interfaces.
+	// Associate devices with IMEIs from the birth interfaces, and record the
+	// satellite payload format each one declares (HeMB-NG S3-2). An interface
+	// without its IMEI, or a gateway missing from this birth, records nothing:
+	// the last declaration for that modem stands.
 	for _, iface := range birth.Interfaces {
 		if iface.IMEI != "" {
 			if err := s.store.AssociateDeviceWithBridge(ctx, tenantID, iface.IMEI, bridgeID); err != nil {
 				slog.Debug("bridge: failed to associate device",
 					"error", err, "bridge", bridgeID, "imei", iface.IMEI)
+			}
+			if format := declaredFormat(iface); format != "" {
+				if err := s.store.SetDeviceEgress(ctx, tenantID, iface.IMEI, bridgeID, format); err != nil {
+					slog.Warn("bridge: egress declaration not recorded",
+						"error", err, "bridge", bridgeID, "imei", iface.IMEI, "format", format)
+				}
 			}
 		}
 	}

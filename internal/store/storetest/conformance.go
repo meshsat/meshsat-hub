@@ -33,6 +33,7 @@ func Run(t *testing.T, open Opener) {
 		{"BoothSpendAndExpiry", testBoothSpendAndExpiry},
 		{"MeshPresence", testMeshPresence},
 		{"Devices", testDevices},
+		{"DeviceEgress", testDeviceEgress},
 		{"Messages", testMessages},
 		{"MessageDuplicateIsNoOp", testMessageDuplicate},
 		{"Webhooks", testWebhooks},

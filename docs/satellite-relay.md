@@ -36,15 +36,27 @@ cannot decrypt for ciphertext only when:
 
 - it is base64 of binary (the kits' `smaz2, encrypt, base64` chain), as the Cloudloop path always
   did; it keeps that base64 as its `text`;
-- or the bridge that owns the modem declared the chain sealing in its birth (`egress_sealed` on
-  the interface with that `imei`, `docs/bridge-hub-protocol.md`), as a kit does once its
-  satellite chain encrypts without base64 (HeMB-NG S3-2). Its `text` is empty.
+- or the bridge that owns the modem declared the chain sealing (`egress_format: sealed` on the
+  interface with that `imei` in its birth, `docs/bridge-hub-protocol.md`), as a kit does once its
+  satellite chain encrypts without base64 (HeMB-NG S3-2). Its `text` is empty;
+- or the Hub could not read the declaration (a database error) and has none confirmed for that
+  modem since it started: a modem that may be sealing is never guessed at. Its `text` is empty and
+  the Hub logs the failed lookup.
 
 Either way it is published `opaque: true`, keeps its wire, and never goes through the SMAZ2 guess,
-which turned ciphertext into printable nonsense. A modem without the declaration is read exactly as
-before, plain SMAZ2 included. The same rule runs on the Rock7 (SBD) and Globalstar webhooks, and
-anything else the Hub cannot turn into text is opaque too, so no route shows a person an empty
-message.
+which turned ciphertext into printable nonsense. A modem without a declaration, or declared
+`plain`, is read exactly as before, plain SMAZ2 included. The same rule runs on the Rock7 (SBD) and
+Globalstar webhooks, and anything else the Hub cannot turn into text is opaque too, so no route
+shows a person an empty message.
+
+The declaration is the modem's, kept in the Hub's database (`devices.egress_format`, with the
+bridge that made it): the birth subscriber writes it when a birth names the modem's `imei` with a
+format, and nothing else changes it. A birth without the `imei` or without the gateway leaves it,
+so a restart before the 9704 has told its IMEI does not undo it. An explicit `plain` replaces
+`sealed`. It applies while the bridge that made it owns the modem; a modem that moves to another
+bridge is read by that bridge's declaration, or as undeclared. The reader falls back to the
+owner's last birth (a birth stored before the record existed) and, when the database cannot be
+read, to what it last confirmed for the modem.
 
 ## The two routes
 
@@ -72,7 +84,8 @@ One route per direction, each naming its sender and its recipient:
 
 Unit: `internal/cloudloop/webhook_reticulum_test.go`, `internal/cloudloop/webhook_s32_test.go`,
 `internal/cloudloop/review_r26_test.go`, `internal/codec/opaque_test.go`,
-`internal/bridge/egress_test.go`, `internal/rockblock/handler_s32_test.go`,
+`internal/bridge/egress_test.go`, `internal/bridge/review_r27_test.go`,
+`internal/cloudloop/review_r27_test.go`, `internal/store/storetest/device_egress.go`, `internal/rockblock/handler_s32_test.go`,
 `internal/globalstar/handler_s32_test.go`, `internal/routing/opaque_routes_test.go`,
 `internal/routing/engine_test.go`
 (`TestMatchSourceTopic`), `internal/routing/destinations_test.go`

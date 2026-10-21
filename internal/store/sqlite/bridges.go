@@ -238,6 +238,23 @@ func (d *DB) DeviceBridgeID(ctx context.Context, tenantID string, imei string) (
 	return id, err
 }
 
+func (d *DB) SetDeviceEgress(ctx context.Context, tenantID, imei, bridgeID, format string) error {
+	_, err := d.db.ExecContext(ctx,
+		`UPDATE devices SET egress_format=?, egress_bridge_id=?, egress_declared_at=datetime('now')
+		 WHERE imei=? AND tenant_id=?`, format, bridgeID, imei, tenantID)
+	return err
+}
+
+func (d *DB) DeviceEgress(ctx context.Context, tenantID, imei string) (string, string, error) {
+	var bridgeID, format string
+	err := d.db.QueryRowContext(ctx,
+		"SELECT egress_bridge_id, egress_format FROM devices WHERE imei=? AND tenant_id=?", imei, tenantID).Scan(&bridgeID, &format)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", "", nil
+	}
+	return bridgeID, format, err
+}
+
 func (d *DB) SetBridgeCredentials(ctx context.Context, tenantID, bridgeID, username, passwordHash string) error {
 	_, err := d.db.ExecContext(ctx,
 		`UPDATE bridges SET mqtt_username=?, mqtt_password_hash=?, updated_at=datetime('now')

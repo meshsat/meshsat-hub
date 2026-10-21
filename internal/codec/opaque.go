@@ -7,13 +7,42 @@ import (
 	hubcrypto "github.com/meshsat/meshsat-hub/internal/crypto"
 )
 
-// EgressDeclarations answers whether the bridge that owns a modem declared,
-// in its last birth, that the satellite interface on that modem seals every
-// payload (its send chain encrypts). Only the declaration tells ciphertext
-// from plain SMAZ2: both are binary after the version byte, and a guess by
-// length or printability gets one of them wrong.
+// Declaration is what the Hub knows of a modem's satellite payload format,
+// from the bridge that owns it (HeMB-NG S3-2).
+type Declaration int
+
+const (
+	// Undeclared: no bridge declared a format for this modem (an older
+	// bridge, a phone, a device no bridge owns). Read as before.
+	Undeclared Declaration = iota
+	// DeclaredSealed: the owning bridge's send chain encrypts, so a versioned
+	// payload the Hub cannot decrypt is ciphertext for the bridges' key.
+	DeclaredSealed
+	// DeclaredPlain: the owning bridge declared a chain without encryption.
+	DeclaredPlain
+	// DeclarationUnavailable: the lookup failed. The modem may be a sealing
+	// one, so its binary is never guessed at.
+	DeclarationUnavailable
+)
+
+func (d Declaration) String() string {
+	switch d {
+	case DeclaredSealed:
+		return "sealed"
+	case DeclaredPlain:
+		return "plain"
+	case DeclarationUnavailable:
+		return "unavailable"
+	}
+	return "undeclared"
+}
+
+// EgressDeclarations answers what the bridge that owns a modem declared
+// about its satellite payloads. Only a declaration tells ciphertext from
+// plain SMAZ2: both are binary after the version byte, and a guess by length
+// or printability gets one of them wrong.
 type EgressDeclarations interface {
-	Sealed(ctx context.Context, tenantID, deviceID string) bool
+	Declaration(ctx context.Context, tenantID, deviceID string) Declaration
 }
 
 // SealedForAnother reports whether a payload the Hub could not decrypt is
@@ -24,20 +53,25 @@ type EgressDeclarations interface {
 //   - it is base64 of binary at least a nonce and tag long: an encrypting
 //     chain that ends in base64 (the kits' smaz2, encrypt, base64), as the
 //     Cloudloop path has always read it;
-//   - or the owning bridge declared the chain sealing (declared) and it is
-//     longer than a nonce and tag: an encrypting chain without base64
-//     (HeMB-NG S3-2).
+//   - or it is longer than a nonce and tag and the owning bridge declared the
+//     chain sealing (an encrypting chain without base64, HeMB-NG S3-2), or
+//     the declaration could not be read: a modem that may be sealing is not
+//     guessed at.
 //
-// Without a declaration, binary after the version byte is read as before: a
-// plain SMAZ2 chain's output is binary too.
-func SealedForAnother(protoVersion byte, decrypted bool, b []byte, declared bool) bool {
+// Undeclared or declared plain, binary after the version byte is read as
+// before: a plain SMAZ2 chain's output is binary too.
+func SealedForAnother(protoVersion byte, decrypted bool, b []byte, d Declaration) bool {
 	if protoVersion == 0 || decrypted {
 		return false
 	}
 	if IsBase64Ciphertext(b) {
 		return true
 	}
-	return declared && len(b) > hubcrypto.Overhead
+	switch d {
+	case DeclaredSealed, DeclarationUnavailable:
+		return len(b) > hubcrypto.Overhead
+	}
+	return false
 }
 
 // IsBase64Ciphertext reports whether b is base64 text whose decoded form is

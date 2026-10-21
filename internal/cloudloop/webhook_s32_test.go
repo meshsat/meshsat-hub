@@ -3,23 +3,29 @@ package cloudloop
 import (
 	"context"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math/rand"
 	"testing"
 	"time"
 
+	"github.com/meshsat/meshsat-hub/internal/bridge"
 	"github.com/meshsat/meshsat-hub/internal/codec"
 	"github.com/meshsat/meshsat-hub/internal/compress"
 	hubcrypto "github.com/meshsat/meshsat-hub/internal/crypto"
 	"github.com/meshsat/meshsat-hub/internal/fragment"
+	"github.com/meshsat/meshsat-hub/internal/store"
 )
 
 // declared is a fake of the bridges' egress declarations: the modems whose
 // bridge declared a sealing satellite chain.
-type declared map[string]bool
+type declared map[string]codec.Declaration
 
-func (d declared) Sealed(_ context.Context, _ string, imei string) bool { return d[imei] }
+func (d declared) Declaration(_ context.Context, _ string, imei string) codec.Declaration {
+	return d[imei]
+}
 
 func decodedOf(t *testing.T, b *ackBus, imei string) WebhookMOMessage {
 	t.Helper()
@@ -48,7 +54,7 @@ func process(t *testing.T, imei, topic string, payload []byte) (WebhookMOMessage
 	b := &ackBus{}
 	h := NewWebhookHandler(b)
 	h.SetReassembler(fragment.NewReassembler(time.Minute))
-	h.SetEgressDeclarations(declared{sealedIMEI: true})
+	h.SetEgressDeclarations(declared{sealedIMEI: codec.DeclaredSealed})
 	moSeq++
 	mo := rnsMO(imei, topic, payload, fmt.Sprintf("00000000-0000-4000-8000-%012d", moSeq))
 	h.ProcessLingoMO(context.Background(), mo)
@@ -164,4 +170,105 @@ func TestWebhook_UnreadablePayloadIsOpaque(t *testing.T) {
 	if out.Text != "" || !out.Opaque {
 		t.Fatalf("text=%q opaque=%v", out.Text, out.Opaque)
 	}
+}
+
+// egressDouble is a declaration store for the real bridge.EgressDeclarations:
+// one owner ("kit"), its durable record, its last birth, and a lookup error.
+type egressDouble struct {
+	record [2]string
+	birth  string
+	err    error
+}
+
+func (s *egressDouble) DeviceBridgeID(context.Context, string, string) (string, error) {
+	if s.err != nil {
+		return "", s.err
+	}
+	return "kit", nil
+}
+
+func (s *egressDouble) GetBridge(context.Context, string, string) (*store.Bridge, error) {
+	if s.err != nil {
+		return nil, s.err
+	}
+	return &store.Bridge{BridgeID: "kit", LastBirth: s.birth}, nil
+}
+
+func (s *egressDouble) DeviceEgress(context.Context, string, string) (string, string, error) {
+	return s.record[0], s.record[1], s.err
+}
+
+// fixedCiphertext is the r27 review's fixture: AES-256-GCM under an all-zero
+// test key of the smaz2g frame {0x00, 'k'}, which the SMAZ2 guess reads as
+// text; with the version byte, 31 bytes.
+func fixedCiphertext(t *testing.T) []byte {
+	t.Helper()
+	b, err := hex.DecodeString("42f28a46039f894d3a0179d07a753f51ccddb2686d236a400d8ee239f8d1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return append([]byte{codec.ProtoVersion1}, b...)
+}
+
+// The declaration's life at the Cloudloop boundary, through the real reader:
+// a known sealing modem stays opaque when its record and birth lose the
+// declaration or the lookup fails; plain, declared or not, reads as text,
+// including after an explicit change from sealed.
+func TestWebhook_DeclarationLifecycle(t *testing.T) {
+	long := "Team at the north gate, all safe, moving to camp"
+	smaz := append([]byte{codec.ProtoVersion1}, compress.Compress([]byte(long))...)
+	sealedBirth := `{"bridge_id":"kit","interfaces":[{"name":"iridium_imt","imei":"` + sealedIMEI + `","egress_format":"sealed","egress_sealed":true}]}`
+	noIMEIBirth := `{"bridge_id":"kit","interfaces":[{"name":"iridium_imt","imei":"","egress_format":"sealed","egress_sealed":true}]}`
+	run := func(t *testing.T, d *bridge.EgressDeclarations, payload []byte) WebhookMOMessage {
+		t.Helper()
+		b := &ackBus{}
+		h := NewWebhookHandler(b)
+		h.SetEgressDeclarations(d)
+		moSeq++
+		mo := rnsMO(sealedIMEI, IMTTopicRaw, payload, fmt.Sprintf("00000000-0000-4000-8000-%012d", moSeq))
+		h.ProcessLingoMO(context.Background(), mo)
+		out := decodedOf(t, b, sealedIMEI)
+		if out.Wire != mo.Message {
+			t.Fatal("the wire is not kept")
+		}
+		return out
+	}
+	opaque := func(t *testing.T, out WebhookMOMessage) {
+		t.Helper()
+		if !out.Opaque || out.Text != "" || out.Compressed {
+			t.Fatalf("opaque=%v text=%q compressed=%v", out.Opaque, out.Text, out.Compressed)
+		}
+	}
+	readable := func(t *testing.T, out WebhookMOMessage) {
+		t.Helper()
+		if out.Opaque || out.Text != long || !out.Compressed {
+			t.Fatalf("opaque=%v text=%q compressed=%v", out.Opaque, out.Text, out.Compressed)
+		}
+	}
+	t.Run("declared sealed", func(t *testing.T) {
+		opaque(t, run(t, bridge.NewEgressDeclarations(&egressDouble{record: [2]string{"kit", "sealed"}}), fixedCiphertext(t)))
+	})
+	t.Run("record and birth lose it after it was confirmed", func(t *testing.T) {
+		s := &egressDouble{birth: sealedBirth}
+		d := bridge.NewEgressDeclarations(s)
+		opaque(t, run(t, d, fixedCiphertext(t)))
+		s.birth = noIMEIBirth
+		opaque(t, run(t, d, fixedCiphertext(t)))
+	})
+	t.Run("lookup fails, nothing confirmed", func(t *testing.T) {
+		opaque(t, run(t, bridge.NewEgressDeclarations(&egressDouble{err: errors.New("db down")}), fixedCiphertext(t)))
+	})
+	t.Run("declared plain", func(t *testing.T) {
+		readable(t, run(t, bridge.NewEgressDeclarations(&egressDouble{record: [2]string{"kit", "plain"}}), smaz))
+	})
+	t.Run("sealed, then an explicit change to plain", func(t *testing.T) {
+		s := &egressDouble{record: [2]string{"kit", "sealed"}}
+		d := bridge.NewEgressDeclarations(s)
+		opaque(t, run(t, d, smaz))
+		s.record = [2]string{"kit", "plain"}
+		readable(t, run(t, d, smaz))
+	})
+	t.Run("undeclared", func(t *testing.T) {
+		readable(t, run(t, bridge.NewEgressDeclarations(&egressDouble{birth: noIMEIBirth}), smaz))
+	})
 }
