@@ -10,7 +10,7 @@ import (
 // ReadsAsText reports whether b is UTF-8 text with no control character but
 // tab and line breaks. Unlike a check for bytes below 0x20 alone, it refuses
 // what random bytes look like: a 29-byte ciphertext passes the older check
-// about one time in fifty.
+// about one time in 33 ((227/256)^29).
 func ReadsAsText(b []byte) bool {
 	if len(b) == 0 || !utf8.Valid(b) {
 		return false
