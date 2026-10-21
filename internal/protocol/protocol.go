@@ -133,6 +133,11 @@ type InterfaceInfo struct {
 	Port   string `json:"port,omitempty"` // serial port path
 	IMEI   string `json:"imei,omitempty"` // satellite/cellular modem IMEI
 	IMSI   string `json:"imsi,omitempty"` // cellular SIM IMSI
+	// EgressSealed: the interface's send chain encrypts, so every payload it
+	// sends with the protocol version byte is ciphertext for the bridges' key;
+	// the satellite webhooks keep that modem's payloads they cannot decrypt
+	// opaque (codec.SealedForAnother, HeMB-NG S3-2).
+	EgressSealed bool `json:"egress_sealed,omitempty"`
 }
 
 // InterfaceHealth reports live metrics for a transport interface.

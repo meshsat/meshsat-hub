@@ -101,6 +101,7 @@ type Handler struct {
 	keyStore         *hubcrypto.KeyStore
 	deadman          *deadman.Monitor
 	msvqsc           *msvqsc.Decoder
+	egress           codec.EgressDeclarations // which modems declared a sealing chain (HeMB-NG S3-2)
 	retIface         reticulumReceiver
 	hembReassembler  interface{ AddRawFrame([]byte) ([]byte, error) }
 	store            interface {
@@ -492,7 +493,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	compressed := false
 	compressionType := ""
 
-	sealed := codec.SealedForAnother(protoVersion, encrypted, rawBytes)
+	sealed := codec.SealedForAnother(protoVersion, encrypted, rawBytes, h.declaredSealed(ctx, protoVersion, encrypted, imei))
 	decompressed, err := compress.Decompress(rawBytes)
 	if sealed {
 		slog.Info("rockblock: ciphertext for another key, relayed but not read", "imei", imei, "bytes", len(rawBytes))
@@ -742,4 +743,18 @@ func isPrintableASCII(b []byte) bool {
 		}
 	}
 	return true
+}
+
+// SetEgressDeclarations attaches the bridges' declarations of sealing
+// satellite chains (bridge.EgressDeclarations). Without it no payload is
+// taken for ciphertext but base64 of binary.
+func (h *Handler) SetEgressDeclarations(d codec.EgressDeclarations) { h.egress = d }
+
+// declaredSealed asks, only for a versioned payload the Hub could not
+// decrypt, whether the modem's bridge declared its chain sealing.
+func (h *Handler) declaredSealed(ctx context.Context, protoVersion byte, decrypted bool, deviceID string) bool {
+	if protoVersion == 0 || decrypted || h.egress == nil {
+		return false
+	}
+	return h.egress.Sealed(ctx, h.tenantOf(ctx, deviceID), deviceID)
 }

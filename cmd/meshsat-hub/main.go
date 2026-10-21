@@ -1571,6 +1571,12 @@ func main() {
 	clHandler.SetStore(dataStore)
 	clHandler.SetHeMBReassembler(hembReassemblyBuf)
 	clHandler.SetResolver(thingResolver)
+	// A bridge's birth declares which of its satellite chains seal; those
+	// modems' payloads the Hub cannot decrypt stay opaque (HeMB-NG S3-2).
+	egressDecl := bridge.NewEgressDeclarations(dataStore)
+	clHandler.SetEgressDeclarations(egressDecl)
+	rbHandler.SetEgressDeclarations(egressDecl)
+	gsHandler.SetEgressDeclarations(egressDecl)
 	if cfg.CloudloopWebhookExpectedIPs != "" {
 		clHandler.SetExpectedSources(strings.Split(cfg.CloudloopWebhookExpectedIPs, ","))
 	}

@@ -1,47 +1,43 @@
 package codec
 
 import (
+	"context"
 	"encoding/base64"
-	"unicode/utf8"
 
 	hubcrypto "github.com/meshsat/meshsat-hub/internal/crypto"
 )
 
-// ReadsAsText reports whether b is UTF-8 text with no control character but
-// tab and line breaks. Unlike a check for bytes below 0x20 alone, it refuses
-// what random bytes look like: a 29-byte ciphertext passes the older check
-// about one time in 33 ((227/256)^29).
-func ReadsAsText(b []byte) bool {
-	if len(b) == 0 || !utf8.Valid(b) {
-		return false
-	}
-	for _, r := range string(b) {
-		if (r < 0x20 && r != '\t' && r != '\n' && r != '\r') || r == 0x7f {
-			return false
-		}
-	}
-	return true
+// EgressDeclarations answers whether the bridge that owns a modem declared,
+// in its last birth, that the satellite interface on that modem seals every
+// payload (its send chain encrypts). Only the declaration tells ciphertext
+// from plain SMAZ2: both are binary after the version byte, and a guess by
+// length or printability gets one of them wrong.
+type EgressDeclarations interface {
+	Sealed(ctx context.Context, tenantID, deviceID string) bool
 }
 
 // SealedForAnother reports whether a payload the Hub could not decrypt is
 // ciphertext for a key it does not hold, which the Hub relays but never reads
 // as text. The Bridge puts the version byte in front only after its egress
-// transforms, so versioned is the sign a chain ran; what follows is one of:
-//   - base64 of binary at least a nonce and tag long: an encrypting chain
-//     that ends in base64 (smaz2, encrypt, base64 on the kits until HeMB-NG);
-//   - binary longer than a nonce and tag that does not read as text: an
-//     encrypting chain without base64 (HeMB-NG S3-2). An MSVQ-SC frame is at
-//     most 17 bytes, so it is never this long.
+// transforms, so versioned means a chain ran, not that it encrypted. It is
+// sealed when:
+//   - it is base64 of binary at least a nonce and tag long: an encrypting
+//     chain that ends in base64 (the kits' smaz2, encrypt, base64), as the
+//     Cloudloop path has always read it;
+//   - or the owning bridge declared the chain sealing (declared) and it is
+//     longer than a nonce and tag: an encrypting chain without base64
+//     (HeMB-NG S3-2).
 //
-// Guessing SMAZ2 on such bytes is what made nonsense text of ciphertext.
-func SealedForAnother(protoVersion byte, decrypted bool, b []byte) bool {
+// Without a declaration, binary after the version byte is read as before: a
+// plain SMAZ2 chain's output is binary too.
+func SealedForAnother(protoVersion byte, decrypted bool, b []byte, declared bool) bool {
 	if protoVersion == 0 || decrypted {
 		return false
 	}
 	if IsBase64Ciphertext(b) {
 		return true
 	}
-	return len(b) > hubcrypto.Overhead && !ReadsAsText(b)
+	return declared && len(b) > hubcrypto.Overhead
 }
 
 // IsBase64Ciphertext reports whether b is base64 text whose decoded form is
@@ -58,9 +54,8 @@ func IsBase64Ciphertext(b []byte) bool {
 	return !isControlFree(raw)
 }
 
-// isControlFree is the Hub's older printable test (no byte below 0x20 but
-// tab and line breaks), kept for the base64 case so that case decides as it
-// always did.
+// isControlFree is the Hub's printable test (no byte below 0x20 but tab and
+// line breaks), which the base64 case has always used.
 func isControlFree(b []byte) bool {
 	for _, c := range b {
 		if c < 0x20 && c != '\n' && c != '\r' && c != '\t' {

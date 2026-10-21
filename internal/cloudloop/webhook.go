@@ -111,6 +111,7 @@ type WebhookHandler struct {
 	keyStore        *hubcrypto.KeyStore
 	deadman         *deadman.Monitor
 	msvqsc          *msvqsc.Decoder
+	egress          codec.EgressDeclarations // which modems declared a sealing chain (HeMB-NG S3-2)
 	retIface        reticulumReceiver
 	hembReassembler interface{ AddRawFrame([]byte) ([]byte, error) }
 	resolver        *ThingResolver
@@ -609,7 +610,7 @@ func (h *WebhookHandler) processLingoMO(ctx context.Context, mo *LingoMO, remote
 	// base64 (S3-2). Decided BEFORE decompression, because smaz2 will
 	// "decompress" such bytes into printable nonsense and report success, and
 	// that nonsense would be stored and routed as the text.
-	opaque := codec.SealedForAnother(protoVersion, encrypted, rawBytes)
+	opaque := codec.SealedForAnother(protoVersion, encrypted, rawBytes, h.declaredSealed(ctx, protoVersion, encrypted, imei))
 
 	decompressed, err := compress.Decompress(rawBytes)
 	if isReticulum {
@@ -917,4 +918,18 @@ func looksLikeReticulum(raw []byte) bool {
 	default: // DATA
 		return data > 0
 	}
+}
+
+// SetEgressDeclarations attaches the bridges' declarations of sealing
+// satellite chains (bridge.EgressDeclarations). Without it no payload is
+// taken for ciphertext but base64 of binary.
+func (h *WebhookHandler) SetEgressDeclarations(d codec.EgressDeclarations) { h.egress = d }
+
+// declaredSealed asks, only for a versioned payload the Hub could not
+// decrypt, whether the modem's bridge declared its chain sealing.
+func (h *WebhookHandler) declaredSealed(ctx context.Context, protoVersion byte, decrypted bool, deviceID string) bool {
+	if protoVersion == 0 || decrypted || h.egress == nil {
+		return false
+	}
+	return h.egress.Sealed(ctx, h.tenantOf(ctx, deviceID), deviceID)
 }

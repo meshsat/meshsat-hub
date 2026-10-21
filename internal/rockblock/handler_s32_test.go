@@ -1,6 +1,7 @@
 package rockblock
 
 import (
+	"context"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
@@ -13,11 +14,24 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 
 	"github.com/meshsat/meshsat-hub/internal/codec"
+	"github.com/meshsat/meshsat-hub/internal/compress"
 	hubcrypto "github.com/meshsat/meshsat-hub/internal/crypto"
 )
 
-func postMO(t *testing.T, h *Handler, imei string, momsn int, data []byte) {
+type declared map[string]bool
+
+func (d declared) Sealed(_ context.Context, _ string, imei string) bool { return d[imei] }
+
+const (
+	sealedIMEI = "300234065000041" // its bridge declared a sealing chain
+	plainIMEI  = "300234065000042" // no declaration
+)
+
+func postMO(t *testing.T, imei string, momsn int, data []byte) MOMessage {
 	t.Helper()
+	b := &ackBus{}
+	h := NewHandler(b, testSecret)
+	h.SetEgressDeclarations(declared{sealedIMEI: true})
 	dataHex := hex.EncodeToString(data)
 	form := url.Values{"imei": {imei}, "momsn": {jsonInt(momsn)}, "transmit_time": {"26-10-21 10:00:00"}, "data": {dataHex}}
 	form.Set("JWT", signedJWT(t, jwt.MapClaims{"imei": imei, "momsn": momsn, "data": dataHex, "transmit_time": form.Get("transmit_time")}))
@@ -28,69 +42,60 @@ func postMO(t *testing.T, h *Handler, imei string, momsn int, data []byte) {
 	if w.Code != http.StatusOK {
 		t.Fatalf("status %d: %s", w.Code, w.Body.String())
 	}
-}
-
-// An SBD message from a kit whose chain dropped base64 (HeMB-NG S3-2) is
-// ciphertext for a key the Hub does not hold: opaque, no text, never a SMAZ2
-// guess. Text from a device without a chain is still read.
-func TestHandler_KitCiphertextWithoutBase64IsOpaque(t *testing.T) {
-	useTestKey(t)
-	key, err := hubcrypto.GenerateKey()
-	if err != nil {
-		t.Fatal(err)
-	}
-	const imei = "300234065000031"
-	for momsn, n := range []int{1, 2, 20, 100, 311} {
-		frame := make([]byte, n)
-		for i := range frame {
-			frame[i] = byte(i*7 + n)
-		}
-		sealed, err := hubcrypto.Encrypt(key, frame)
-		if err != nil {
-			t.Fatal(err)
-		}
-		b := &ackBus{}
-		h := NewHandler(b, testSecret)
-		postMO(t, h, imei, momsn+1, append([]byte{codec.ProtoVersion1}, sealed...))
-		var out MOMessage
-		if err := json.Unmarshal(b.msgs["meshsat/"+imei+"/mo/decoded"], &out); err != nil {
-			t.Fatal(err)
-		}
-		if !out.Opaque || out.Text != "" || out.Compressed {
-			t.Fatalf("%d-byte frame: opaque=%v text=%q compressed=%v", n, out.Opaque, out.Text, out.Compressed)
-		}
-	}
-	// Built so the old SMAZ2 guess reads it as letters (bigram codes, no
-	// control byte), and the base64 form, which keeps its text.
-	bigrams := []byte{codec.ProtoVersion1}
-	for i := 0; i < 60; i++ {
-		bigrams = append(bigrams, byte(0x80+i))
-	}
-	b64 := append([]byte{codec.ProtoVersion1}, []byte(base64.StdEncoding.EncodeToString(make([]byte, 40)))...)
-	for momsn, c := range []struct {
-		name string
-		data []byte
-		text string
-	}{{"bigram-shaped", bigrams, ""}, {"base64", b64, string(b64[1:])}} {
-		b := &ackBus{}
-		h := NewHandler(b, testSecret)
-		postMO(t, h, imei, 20+momsn, c.data)
-		var out MOMessage
-		if err := json.Unmarshal(b.msgs["meshsat/"+imei+"/mo/decoded"], &out); err != nil {
-			t.Fatal(err)
-		}
-		if !out.Opaque || out.Text != c.text {
-			t.Fatalf("%s: opaque=%v text=%q", c.name, out.Opaque, out.Text)
-		}
-	}
-	b := &ackBus{}
-	h := NewHandler(b, testSecret)
-	postMO(t, h, imei, 9, []byte("plain text from a handheld"))
 	var out MOMessage
 	if err := json.Unmarshal(b.msgs["meshsat/"+imei+"/mo/decoded"], &out); err != nil {
 		t.Fatal(err)
 	}
-	if out.Opaque || out.Text != "plain text from a handheld" {
-		t.Fatalf("plain text: opaque=%v text=%q", out.Opaque, out.Text)
+	if out.Raw != base64.StdEncoding.EncodeToString(data) {
+		t.Fatal("the payload is not kept as received")
+	}
+	return out
+}
+
+// The Rock7 (SBD) webhook decides as the Cloudloop one: plain SMAZ2 stays
+// readable without a declaration (R26-R1), a declared modem's ciphertext is
+// opaque with no guessed text, base64 ciphertext is opaque and keeps its text.
+func TestHandler_PayloadMatrix(t *testing.T) {
+	useTestKey(t)
+	short := "OK at base, all safe"
+	long := "Team at the north gate, all safe, moving to camp"
+	v := func(b []byte) []byte { return append([]byte{codec.ProtoVersion1}, b...) }
+	ctrlFree := make([]byte, 45)
+	for i := range ctrlFree {
+		ctrlFree[i] = byte(0x80 + (i*3)%0x80)
+	}
+	b64 := []byte(base64.StdEncoding.EncodeToString(make([]byte, 40)))
+	key, err := hubcrypto.GenerateKey()
+	if err != nil {
+		t.Fatal(err)
+	}
+	sealed, err := hubcrypto.Encrypt(key, []byte{0x00, 'o', 'n', ' ', 'm', 'y', ' ', 'w', 'a', 'y'})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i, c := range []struct {
+		name       string
+		imei       string
+		data       []byte
+		opaque     bool
+		compressed int // 1 yes, 0 no, -1 not asserted
+		text       string
+	}{
+		{"UTF-8 text", plainIMEI, []byte("plain text from a handheld"), false, -1, "plain text from a handheld"},
+		{"short SMAZ2", plainIMEI, v(compress.Compress([]byte(short))), false, 1, short},
+		{"short SMAZ2, declared modem", sealedIMEI, v(compress.Compress([]byte(short))), false, 1, short},
+		{"SMAZ2 over 28 bytes", plainIMEI, v(compress.Compress([]byte(long))), false, 1, long},
+		{"SMAZ2 over 28 bytes, declared modem", sealedIMEI, v(compress.Compress([]byte(long))), true, 0, ""},
+		{"ciphertext, declared modem", sealedIMEI, v(sealed), true, 0, ""},
+		{"control-free ciphertext, declared modem", sealedIMEI, v(ctrlFree), true, 0, ""},
+		{"base64 ciphertext", plainIMEI, v(b64), true, 0, string(b64)},
+	} {
+		out := postMO(t, c.imei, 100+i, c.data)
+		if c.compressed >= 0 && out.Compressed != (c.compressed == 1) {
+			t.Errorf("%s: compressed=%v", c.name, out.Compressed)
+		}
+		if out.Opaque != c.opaque || out.Text != c.text {
+			t.Errorf("%s: opaque=%v text=%q", c.name, out.Opaque, out.Text)
+		}
 	}
 }

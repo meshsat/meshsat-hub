@@ -181,7 +181,7 @@ Published on connect (retained). Re-published on reconnect.
   },
   "interfaces": [
     {"name": "mesh_0", "type": "meshtastic", "status": "online", "port": "/dev/ttyACM0"},
-    {"name": "iridium_0", "type": "iridium_sbd", "status": "online", "imei": "300234065123456"},
+    {"name": "iridium_0", "type": "iridium_sbd", "status": "online", "imei": "300234065123456", "egress_sealed": true},
     {"name": "cellular_0", "type": "cellular", "status": "online", "imsi": "204080123456789"}
   ],
   "capabilities": ["meshtastic", "iridium_sbd", "cellular", "reticulum", "tak", "aprs"],
@@ -196,6 +196,14 @@ Published on connect (retained). Re-published on reconnect.
   "timestamp": "2026-03-23T12:00:00Z"
 }
 ```
+
+A satellite interface carries its modem's `imei` (the Hub associates the modem with the bridge)
+and `egress_sealed: true` when its send chain encrypts: every payload it sends behind the protocol
+version byte is then ciphertext for the bridges' key, and the Hub's satellite webhooks keep that
+modem's payloads they cannot decrypt opaque instead of guessing text in them
+(`docs/satellite-relay.md`). The field is left out otherwise, and a modem without it is read as
+before. A bridge publishes the birth again when such a chain changes while it is connected; the
+stored birth is what the Hub reads while the bridge is off the network.
 
 ### BridgeDeath
 

@@ -29,14 +29,22 @@ and a kit's message without base64 is the version byte followed by binary that p
 header shape tests about one time in 24 once it is 167 bytes or longer (hops below 128, a defined
 context byte). Behind `RNSI\x01` the shape still decides.
 
-A kit's own message (not Reticulum) is the version byte followed by its egress chain's output.
-When the Hub cannot decrypt it, it is ciphertext for the kits' key: base64 of binary (the kits'
-`smaz2, encrypt, base64` chain) or, once a chain drops base64 on a binary bearer (HeMB-NG S3-2),
-binary longer than a nonce and tag that is not UTF-8 text. Either way it is published
-`opaque: true` (base64 keeps its old `text`, binary has none) and never goes through the SMAZ2
-guess, which turned such bytes into printable nonsense. The same rule runs on the Rock7 (SBD) and
-Globalstar webhooks, and anything else the Hub cannot turn into text is opaque too, so no route
-shows a person an empty message.
+A kit's own message (not Reticulum) is the version byte followed by its egress chain's output. The
+version byte says a chain ran, not that it encrypted: a plain SMAZ2 chain's output is binary too,
+and no length or printability test tells it from ciphertext. So the Hub takes such a payload it
+cannot decrypt for ciphertext only when:
+
+- it is base64 of binary (the kits' `smaz2, encrypt, base64` chain), as the Cloudloop path always
+  did; it keeps that base64 as its `text`;
+- or the bridge that owns the modem declared the chain sealing in its birth (`egress_sealed` on
+  the interface with that `imei`, `docs/bridge-hub-protocol.md`), as a kit does once its
+  satellite chain encrypts without base64 (HeMB-NG S3-2). Its `text` is empty.
+
+Either way it is published `opaque: true`, keeps its wire, and never goes through the SMAZ2 guess,
+which turned ciphertext into printable nonsense. A modem without the declaration is read exactly as
+before, plain SMAZ2 included. The same rule runs on the Rock7 (SBD) and Globalstar webhooks, and
+anything else the Hub cannot turn into text is opaque too, so no route shows a person an empty
+message.
 
 ## The two routes
 
@@ -63,8 +71,10 @@ One route per direction, each naming its sender and its recipient:
 ## Verifying it
 
 Unit: `internal/cloudloop/webhook_reticulum_test.go`, `internal/cloudloop/webhook_s32_test.go`,
-`internal/codec/opaque_test.go`, `internal/rockblock/handler_s32_test.go`,
-`internal/globalstar/handler_s32_test.go`, `internal/routing/engine_test.go`
+`internal/cloudloop/review_r26_test.go`, `internal/codec/opaque_test.go`,
+`internal/bridge/egress_test.go`, `internal/rockblock/handler_s32_test.go`,
+`internal/globalstar/handler_s32_test.go`, `internal/routing/opaque_routes_test.go`,
+`internal/routing/engine_test.go`
 (`TestMatchSourceTopic`), `internal/routing/destinations_test.go`
 (`TestSatelliteRelayForwardsTheWireUntouched`), `internal/protocol/hemb_test.go` (a CRC-8
 coincidence is no longer a HeMB frame; about one in 256 arbitrary payloads used to vanish as a
