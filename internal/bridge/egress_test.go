@@ -84,8 +84,9 @@ func TestEgressDeclarationStates(t *testing.T) {
 	}
 }
 
-// What a reader confirmed carries it through a failed lookup, for the same
-// owner only; a modem that changed owner is not read by the old declaration.
+// A sealed a reader confirmed carries it through a failed lookup, for the
+// same owner only; a confirmed plain does not; a modem that changed owner is
+// not read by the old declaration.
 func TestEgressDeclarationRemembersWhatItConfirmed(t *testing.T) {
 	ctx := context.Background()
 	f := &egressFake{owner: map[string]string{egressIMEI: "kit"}, record: map[string][2]string{egressIMEI: {"kit", "sealed"}}}
@@ -106,6 +107,26 @@ func TestEgressDeclarationRemembersWhatItConfirmed(t *testing.T) {
 	f.record = map[string][2]string{}
 	if got := d.Declaration(ctx, "default", egressIMEI); got != codec.Undeclared {
 		t.Fatalf("a new owner without a declaration is read by the old one's: %v", got)
+	}
+	f.recordErr = errors.New("db down")
+	if got := d.Declaration(ctx, "default", egressIMEI); got != codec.DeclarationUnavailable {
+		t.Fatalf("a failed lookup for the new owner answered with the old owner's sealed: %v", got)
+	}
+	f.recordErr = nil
+	// A confirmed plain does not answer a failed lookup: a newer sealed may
+	// have been stored meanwhile (R30-R1).
+	f.owner[egressIMEI] = "kit"
+	f.record = map[string][2]string{egressIMEI: {"kit", "plain"}}
+	if got := d.Declaration(ctx, "default", egressIMEI); got != codec.DeclaredPlain {
+		t.Fatalf("confirmed plain: %v", got)
+	}
+	f.recordErr = errors.New("db down")
+	if got := d.Declaration(ctx, "default", egressIMEI); got != codec.DeclarationUnavailable {
+		t.Fatalf("record lookup fails after a confirmed plain: %v", got)
+	}
+	f.recordErr, f.ownerErr = nil, errors.New("db down")
+	if got := d.Declaration(ctx, "default", egressIMEI); got != codec.DeclarationUnavailable {
+		t.Fatalf("owner lookup fails after a confirmed plain: %v", got)
 	}
 }
 

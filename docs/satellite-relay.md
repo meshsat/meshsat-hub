@@ -78,8 +78,10 @@ later birth); a held birth that links the modem to a bridge other than its owner
 until written, and the payload is kept opaque. A Hub that restarts first reads the bridge's
 retained birth on subscribe. After the held declaration, the reader's order is: the owner's stored
 declaration, the per-modem record, the owner's last birth (one saved before the declarations
-existed), and, when the database cannot be read, what it last confirmed for the modem. While the
-database cannot be read, a held `sealed` still answers sealed and a held `plain` is not trusted.
+existed), and, when the database cannot be read, a `sealed` it last confirmed for the modem. While
+the database cannot be read, only a `sealed`, held or confirmed, answers: a `plain`, held or
+confirmed, does not, since another replica may have stored a newer `sealed` meanwhile, and the
+payload is kept opaque until the database answers again.
 
 ## The two routes
 

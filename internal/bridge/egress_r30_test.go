@@ -405,3 +405,90 @@ func TestEgressHeldPlainIsNotTrustedWhileLookupsFail(t *testing.T) {
 		}
 	}
 }
+
+// matrixStore answers every lookup a reader makes for one modem owned by
+// "kit": its stored declaration, record and last birth, any of which, or the
+// owner lookup, can fail.
+type matrixStore struct {
+	entry, record string
+	fail          string // "owner", "entry", "record", "birth" or ""
+}
+
+var errMatrix = errors.New("injected lookup failure")
+
+func (m *matrixStore) DeviceBridgeID(context.Context, string, string) (string, error) {
+	if m.fail == "owner" {
+		return "", errMatrix
+	}
+	return "kit", nil
+}
+
+func (m *matrixStore) BridgeEgressEntry(context.Context, string, string, string) (store.EgressDecl, error) {
+	if m.fail == "entry" {
+		return store.EgressDecl{}, errMatrix
+	}
+	return store.EgressDecl{Format: m.entry}, nil
+}
+
+func (m *matrixStore) DeviceEgress(context.Context, string, string) (string, string, error) {
+	if m.fail == "record" {
+		return "", "", errMatrix
+	}
+	if m.record == "" {
+		return "", "", nil
+	}
+	return "kit", m.record, nil
+}
+
+func (m *matrixStore) GetBridge(context.Context, string, string) (*store.Bridge, error) {
+	if m.fail == "birth" {
+		return nil, errMatrix
+	}
+	return &store.Bridge{BridgeID: "kit"}, nil
+}
+
+// R30-R1 over every combination: what the reader confirmed before (nothing,
+// plain, sealed), what this process holds (nothing, plain, sealed) and which
+// lookup fails. Whenever a lookup fails, only a sealed, held or confirmed,
+// answers; a plain never does, and the answer is otherwise unavailable. A
+// held declaration whose freshness was checked (the lookup that failed came
+// after it) answers as held. Read recovery takes the stored word again.
+func TestEgressLookupFailureMatrix(t *testing.T) {
+	ctx := context.Background()
+	for _, cached := range []string{"", "plain", "sealed"} {
+		for _, held := range []string{"", "plain", "sealed"} {
+			for _, fail := range []string{"owner", "entry", "record", "birth"} {
+				m := &matrixStore{entry: cached}
+				d := NewEgressDeclarations(m)
+				if cached != "" {
+					if got := asFormat(d.Declaration(ctx, "default", egressIMEI)); got != cached {
+						t.Fatalf("premise: priming %s gave %s", cached, got)
+					}
+				}
+				if held != "" {
+					d.SetPending(heldBy{"kit", held})
+				}
+				// The record and the birth are read only when nothing is
+				// stored for the bridge.
+				if fail == "record" || fail == "birth" {
+					m.entry = ""
+				}
+				m.fail = fail
+				want := codec.DeclarationUnavailable
+				switch {
+				case held != "" && (fail == "record" || fail == "birth"):
+					want = asDeclaration(held)
+				case held == "sealed" || cached == "sealed":
+					want = codec.DeclaredSealed
+				}
+				if got := d.Declaration(ctx, "default", egressIMEI); got != want {
+					t.Errorf("cached %q, held %q, %s lookup fails: %v, want %v", cached, held, fail, got, want)
+				}
+				m.fail, m.entry = "", "sealed"
+				if got := d.Declaration(ctx, "default", egressIMEI); held == "" && got != codec.DeclaredSealed {
+					t.Errorf("cached %q, %s lookup recovered: %v, want the stored sealed", cached, fail, got)
+				}
+			}
+		}
+	}
+}

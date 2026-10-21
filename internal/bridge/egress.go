@@ -78,10 +78,10 @@ type pendingSource interface {
 //  4. the owner's last birth (one saved before either of the above existed);
 //  5. what this process last confirmed for the modem.
 //
-// A failed lookup with nothing confirmed is DeclarationUnavailable, never
-// Undeclared: an unknown is not a plain modem. While lookups fail, a held
-// "sealed" still answers sealed, and a held "plain" is not taken on trust,
-// since a newer stored word cannot be checked.
+// A failed lookup is DeclarationUnavailable, never Undeclared: an unknown is
+// not a plain modem. Only a "sealed", held or confirmed earlier, still
+// answers while lookups fail; a "plain", held or confirmed, is not taken on
+// trust, since a newer stored word cannot be checked.
 type EgressDeclarations struct {
 	store egressStore
 
@@ -225,13 +225,17 @@ func (d *EgressDeclarations) lastConfirmed(key string) (confirmedEgress, bool) {
 	return c, ok
 }
 
-// unavailable answers a failed lookup: what this process last confirmed for
-// the modem (with the same owner, when the owner is known), else
-// DeclarationUnavailable.
+// unavailable answers a failed lookup. A failed lookup cannot tell whether
+// another replica stored a newer declaration, so a declaration this process
+// confirmed earlier answers only when it is "sealed" (for the same owner,
+// when the owner is known): that keeps the payload opaque whichever is
+// newer. A confirmed "plain" does not answer: a newer "sealed" stored
+// meanwhile would make the payload ciphertext, and reading it as text would
+// be a guess (r30 review, R30-R1). Otherwise DeclarationUnavailable.
 func (d *EgressDeclarations) unavailable(key, owner, what string, err error) codec.Declaration {
-	if c, ok := d.lastConfirmed(key); ok && (owner == "" || c.owner == owner) {
-		slog.Warn("bridge: egress declaration lookup failed, using the last one confirmed", "device", key, "lookup", what, "format", c.format, "error", err)
-		return asDeclaration(c.format)
+	if c, ok := d.lastConfirmed(key); ok && c.format == EgressSealed && (owner == "" || c.owner == owner) {
+		slog.Warn("bridge: egress declaration lookup failed, using the last sealed one confirmed", "device", key, "lookup", what, "error", err)
+		return codec.DeclaredSealed
 	}
 	slog.Warn("bridge: egress declaration lookup failed; the payload is kept opaque, not guessed at", "device", key, "lookup", what, "error", err)
 	return codec.DeclarationUnavailable

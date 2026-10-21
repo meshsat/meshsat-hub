@@ -213,8 +213,10 @@ The Hub orders a bridge's births by their `timestamp`: it writes the bridge row 
 declaration only when the birth is not older than what it stored, so a birth written late (a retry
 after a failed write, a replica behind) never undoes a newer one. A Bridge therefore stamps each
 birth later than its last one, also when its clock stepped back and across a restart (it keeps the
-last stamp in `system_config`, `hub_last_birth_stamp`). The link from a modem to its bridge is
-ordered by when the Hub received the birth instead.
+last stamp in `system_config`, `hub_last_birth_stamp`). It stores a stamp before a birth carries it:
+a Bridge that cannot read its last stamp, or cannot store the next, withholds the birth and tries
+again every 10 s while connected, so no birth goes out with a stamp a restart could hand out again.
+The link from a modem to its bridge is ordered by when the Hub received the birth instead.
 A bridge publishes the birth again when a satellite chain changes while it is connected, and when
 a satellite modem's IMEI or its declared format changes (a chain read again after a failure).
 

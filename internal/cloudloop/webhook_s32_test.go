@@ -297,4 +297,17 @@ func TestWebhook_DeclarationLifecycle(t *testing.T) {
 		d.SetPending(heldDeclaration{"kit", "plain"})
 		readable(t, run(t, d, smaz))
 	})
+	// R30-R1: a plain this reader confirmed, or holds, does not answer a
+	// failed lookup: a newer sealed may have been stored meanwhile.
+	t.Run("plain confirmed, then the lookup fails", func(t *testing.T) {
+		s := &egressDouble{record: [2]string{"kit", "plain"}}
+		d := bridge.NewEgressDeclarations(s)
+		readable(t, run(t, d, smaz))
+		s.err = errors.New("db down")
+		opaque(t, run(t, d, fixedCiphertext(t)))
+		d.SetPending(heldDeclaration{"kit", "plain"})
+		opaque(t, run(t, d, fixedCiphertext(t)))
+		s.err = nil
+		readable(t, run(t, d, smaz))
+	})
 }
