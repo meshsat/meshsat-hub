@@ -18,6 +18,7 @@ require (
 	github.com/ProtonMail/go-crypto v1.4.1
 	github.com/jackc/pgx/v5 v5.11.0
 	github.com/klauspost/reedsolomon v1.13.3
+	github.com/lib-x/smaz2 v0.1.0
 	github.com/prometheus/client_golang v1.23.2
 	github.com/rs/xid v1.6.0
 	github.com/rs/zerolog v1.35.0

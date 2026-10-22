@@ -17,12 +17,11 @@ import (
 	"net/http"
 	"strings"
 	"time"
-	"unicode/utf8"
 
 	"github.com/meshsat/meshsat-hub/internal/audit"
 	"github.com/meshsat/meshsat-hub/internal/bridge"
 	"github.com/meshsat/meshsat-hub/internal/bus"
-	"github.com/meshsat/meshsat-hub/internal/compress"
+	"github.com/meshsat/meshsat-hub/internal/codec"
 	hubcrypto "github.com/meshsat/meshsat-hub/internal/crypto"
 	"github.com/meshsat/meshsat-hub/internal/deadman"
 	"github.com/meshsat/meshsat-hub/internal/dedup"
@@ -443,41 +442,49 @@ func (h *WebhookHandler) processBinaryPipeline(r *http.Request, w http.ResponseW
 		rawB64 = base64.StdEncoding.EncodeToString(rawBytes)
 	}
 
+	// The apps put protocol version 0x01 in front of a transformed SMS
+	// (SmsSender, SmsWire.encode). It went into decryption and SMAZ2 with
+	// the payload, so neither worked. A sender without it, whose nonce may
+	// start with 0x01, still decrypts: the bytes as received are tried too.
+	// [MESHSAT-1646]
+	candidates := [][]byte{rawBytes}
+	if v, stripped := codec.StripVersionByte(rawBytes); v == codec.ProtoVersion1 && len(stripped) > 0 {
+		candidates = [][]byte{stripped, rawBytes}
+	}
+	payload := candidates[0]
+
 	// E2E decryption.
 	encrypted := false
-	if h.keyStore != nil && len(rawBytes) >= hubcrypto.Overhead {
-		if decrypted, err := h.keyStore.DecryptMessage(from, rawBytes); err == nil {
-			rawBytes = decrypted
-			rawB64 = base64.StdEncoding.EncodeToString(rawBytes)
-			encrypted = true
-			slog.Info("sms: decrypted", "from", from, "bytes", len(decrypted))
-		} else if decrypted, err := h.keyStore.DecryptMessage("sms", rawBytes); err == nil {
-			rawBytes = decrypted
-			rawB64 = base64.StdEncoding.EncodeToString(rawBytes)
-			encrypted = true
+	if h.keyStore != nil {
+	decrypt:
+		for _, c := range candidates {
+			if len(c) < hubcrypto.Overhead {
+				continue
+			}
+			for _, owner := range []string{from, "sms"} {
+				if decrypted, err := h.keyStore.DecryptMessage(owner, c); err == nil {
+					payload = decrypted
+					rawB64 = base64.StdEncoding.EncodeToString(payload)
+					encrypted = true
+					slog.Info("sms: decrypted", "from", from, "bytes", len(decrypted))
+					break decrypt
+				}
+			}
 		}
 	}
 
-	// Decompression: SMAZ2 → MSVQ-SC → raw UTF-8 fallback.
-	text := ""
-	compressed := false
-	compressionType := ""
-
-	decompressed, err := compress.Decompress(rawBytes)
-	if err == nil && len(decompressed) > 0 && utf8.Valid(decompressed) {
-		text = string(decompressed)
-		compressed = true
-		compressionType = "smaz2"
-	} else if h.msvqsc != nil && msvqsc.LooksLikeMSVQSC(rawBytes) {
-		decoded, decErr := h.msvqsc.Decode(rawBytes)
-		if decErr == nil && decoded != "" {
-			text = decoded
-			compressed = true
-			compressionType = "msvqsc"
+	// Decompression: SMAZ2 (default table, then Meshtastic), MSVQ-SC, raw UTF-8.
+	var msvqscDecode func([]byte) (string, bool)
+	if h.msvqsc != nil {
+		msvqscDecode = func(b []byte) (string, bool) {
+			if !msvqsc.LooksLikeMSVQSC(b) {
+				return "", false
+			}
+			decoded, err := h.msvqsc.Decode(b)
+			return decoded, err == nil && decoded != ""
 		}
-	} else if utf8.Valid(rawBytes) {
-		text = string(rawBytes)
 	}
+	text, compressed, compressionType := smsText(payload, msvqscDecode)
 
 	// Publish decoded message.
 	msgID := smsMessageID(messageSID)
