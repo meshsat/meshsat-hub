@@ -831,6 +831,26 @@ the same version as the last record still applies after it, and a snapshot a rep
 old key before it reloaded (a higher version than the record) does not make the record look old. The
 Hub reads only the key from a rotation answer, never the Bridge's rows.
 
+### The phones read it (C9.5)
+
+MeshSat Android and iOS get no `directory_push`. They read their tenant's directory with
+`GET /api/relay/directory?since=<snapshot version held>&key_id=<id of the key pinned>`, HTTP Basic
+with the phone's own bridge credentials (the same pair as the relay; the tenant is the bridge's
+owner). The answer:
+
+```json
+{"rotations":[<rotation envelope>, ...],"snapshot":<v2 envelope>}
+```
+
+`rotations` are the tenant's records from the named key on, oldest first (empty when the phone names
+the current key or none); `snapshot` is the current snapshot sealed by the current key, left out when
+its version is not above `since`. 304 when there is neither. 400 for a `since` that is not a
+non-negative integer, 503 on a Hub with no directory store or signing key. The phone applies it the
+way a Bridge does: it pins the key from its provisioning bundle (`dir_sign_pub`) and, only without
+one, from `GET /api/relay/directory-key` once; it takes a record only under the key it trusts and
+moves its pin to the record's new key; it applies a snapshot only under its pinned key, for its own
+tenant, with a version above the one it holds. Rate limit 60 per minute per address.
+
 ## CoT Type Mapping
 
 | Entity | CoT Type | MIL-STD-2525 | TAK Appearance |

@@ -2073,6 +2073,9 @@ func main() {
 	// The directory signing key, public, for a bridge to pin on its first
 	// connect (MESHSAT-1584 C7); a rotation moves it only by a signed record.
 	r.Get("/api/relay/directory-key", hubmw.WebhookRateLimit(http.HandlerFunc(api.NewDirectoryKeyHandler(directoryTrustAnchor).Key), 60).ServeHTTP)
+	// The phones' signed directory (HeMB-NG C9.5): bridge credentials, the
+	// directory wired below once its store is open. [MESHSAT-1642]
+	r.Get("/api/relay/directory", hubmw.WebhookRateLimit(http.HandlerFunc(relayHandler.Directory), 60).ServeHTTP)
 
 	// Webhook endpoints — rate limited to 60 requests/minute per source IP.
 	//
@@ -2924,6 +2927,7 @@ func main() {
 				go directoryTrustAnchor.KeepFresh(ctx, dataStore, 30*time.Second)
 				dirRotate := api.NewDirectoryKeyRotateHandler(dataStore, directorySQLStore, directoryTrustAnchor, auditSvc)
 				r.With(hubauth.RequirePlatformAdmin()).Post("/api/admin/directory/signing-key/rotate", dirRotate.Rotate)
+				relayHandler.SetDirectory(directorySQLStore, directoryTrustAnchor) // GET /api/relay/directory [MESHSAT-1642]
 			}
 			directoryHandler := api.NewDirectoryHandler(directorySQLStore, directoryTrustAnchor)
 			r.Get("/api/v1/directory/contacts", directoryHandler.ListContacts)

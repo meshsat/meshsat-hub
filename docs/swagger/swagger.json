@@ -7428,6 +7428,75 @@
                 }
             }
         },
+        "/api/relay/directory": {
+            "get": {
+                "security": [
+                    {
+                        "BasicAuth": []
+                    }
+                ],
+                "description": "MeshSat Android and iOS take no directory_push (the pusher leaves phones out) and read the directory here: HTTP Basic with the phone's own bridge credentials, the tenant being the bridge's owner. The answer is the v2 envelope of the tenant's snapshot (contract C7.2), which the phone verifies against the key it pinned from its provisioning bundle (dir_sign_pub) or once over HTTPS, and the signed rotation records from the key it names to the current one, oldest first. 304 when there is neither a newer snapshot nor a rotation to give. [MESHSAT-1642]",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "relay"
+                ],
+                "summary": "The tenant's signed directory, for a phone (HeMB-NG C9.5)",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "The snapshot version the phone holds; a snapshot at or below it is left out",
+                        "name": "since",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "The id of the directory key the phone trusts (SHA-256 of its PKIX DER, hex)",
+                        "name": "key_id",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.RelayDirectoryAnswer"
+                        }
+                    },
+                    "304": {
+                        "description": "nothing newer"
+                    },
+                    "400": {
+                        "description": "since is not a number",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "503": {
+                        "description": "no directory or no signing key on this Hub",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/relay/directory-key": {
             "get": {
                 "description": "The Hub's current directory signing key, public half, for a bridge to pin on its first connect. key_id is the SHA-256 of the PKIX DER, hex. No authentication: it is a public key.",
@@ -11533,6 +11602,32 @@
                 }
             }
         },
+        "github_com_meshsat_meshsat-hub_internal_directory.Envelope": {
+            "type": "object",
+            "properties": {
+                "alg": {
+                    "type": "string"
+                },
+                "key_id": {
+                    "type": "string"
+                },
+                "payload": {
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                },
+                "sig": {
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                },
+                "v": {
+                    "type": "integer"
+                }
+            }
+        },
         "github_com_meshsat_meshsat-hub_internal_directory.Group": {
             "type": "object",
             "properties": {
@@ -13288,6 +13383,20 @@
                 "v": {
                     "description": "\"1\"",
                     "type": "string"
+                }
+            }
+        },
+        "internal_api.RelayDirectoryAnswer": {
+            "type": "object",
+            "properties": {
+                "rotations": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/github_com_meshsat_meshsat-hub_internal_directory.Envelope"
+                    }
+                },
+                "snapshot": {
+                    "$ref": "#/definitions/github_com_meshsat_meshsat-hub_internal_directory.Envelope"
                 }
             }
         },

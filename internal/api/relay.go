@@ -9,6 +9,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"golang.org/x/crypto/bcrypt"
 
+	"github.com/meshsat/meshsat-hub/internal/directory"
 	"github.com/meshsat/meshsat-hub/internal/metrics"
 	"github.com/meshsat/meshsat-hub/internal/relay"
 	"github.com/meshsat/meshsat-hub/internal/store"
@@ -26,7 +27,10 @@ type RelayHandler struct {
 	store   store.Store
 	tenants *tenancy.Resolver
 	relay   *relay.Relay
-	caPEM   []byte // the bridge CA, served at GET /api/relay/ca (relay_ca.go)
+	// The phones' directory read (GET /api/relay/directory); nil until SetDirectory.
+	directory relayDirectory
+	dirAnchor *directory.TrustAnchor
+	caPEM     []byte // the bridge CA, served at GET /api/relay/ca (relay_ca.go)
 }
 
 // NewRelayHandler wires the relay to the store that holds bridge credentials.

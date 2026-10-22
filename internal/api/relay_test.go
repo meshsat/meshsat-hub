@@ -34,6 +34,21 @@ func (relayNoBus) QueueSubscribe(string, byte, string, bus.MessageHandler) error
 // Every bridge's password is its id followed by "-pw".
 func relayFixture(t *testing.T, opt relay.Options) *httptest.Server {
 	t.Helper()
+	db := relayDB(t)
+	rl := relay.New(relayNoBus{}, nil, opt)
+	h := NewRelayHandler(db, tenancy.NewResolver(db, store.DefaultTenantID, 0), rl)
+	r := chi.NewRouter()
+	r.Get("/api/relay/serve", h.Serve)
+	r.Get("/api/relay/connect/{bridge_id}", h.Connect)
+	srv := httptest.NewServer(r)
+	t.Cleanup(srv.Close)
+	return srv
+}
+
+// relayDB is the store behind relayFixture: the tenants, the bridges and
+// their credentials.
+func relayDB(t *testing.T) *sqlite.DB {
+	t.Helper()
 	db, err := sqlite.New(t.TempDir()+"/hub.db", 0)
 	if err != nil {
 		t.Fatal(err)
@@ -57,14 +72,7 @@ func relayFixture(t *testing.T, opt relay.Options) *httptest.Server {
 			t.Fatal(err)
 		}
 	}
-	rl := relay.New(relayNoBus{}, nil, opt)
-	h := NewRelayHandler(db, tenancy.NewResolver(db, store.DefaultTenantID, 0), rl)
-	r := chi.NewRouter()
-	r.Get("/api/relay/serve", h.Serve)
-	r.Get("/api/relay/connect/{bridge_id}", h.Connect)
-	srv := httptest.NewServer(r)
-	t.Cleanup(srv.Close)
-	return srv
+	return db
 }
 
 func basic(user, pass string) http.Header {

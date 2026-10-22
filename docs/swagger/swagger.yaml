@@ -243,6 +243,23 @@ definitions:
       updated_at:
         type: string
     type: object
+  github_com_meshsat_meshsat-hub_internal_directory.Envelope:
+    properties:
+      alg:
+        type: string
+      key_id:
+        type: string
+      payload:
+        items:
+          type: integer
+        type: array
+      sig:
+        items:
+          type: integer
+        type: array
+      v:
+        type: integer
+    type: object
   github_com_meshsat_meshsat-hub_internal_directory.Group:
     properties:
       created_at:
@@ -1588,6 +1605,15 @@ definitions:
       v:
         description: '"1"'
         type: string
+    type: object
+  internal_api.RelayDirectoryAnswer:
+    properties:
+      rotations:
+        items:
+          $ref: '#/definitions/github_com_meshsat_meshsat-hub_internal_directory.Envelope'
+        type: array
+      snapshot:
+        $ref: '#/definitions/github_com_meshsat_meshsat-hub_internal_directory.Envelope'
     type: object
   internal_api.SecurityStatus:
     properties:
@@ -8420,6 +8446,59 @@ paths:
       security:
       - BasicAuth: []
       summary: Open a tunnel to one of your tenant's bridges (WebSocket)
+      tags:
+      - relay
+  /api/relay/directory:
+    get:
+      description: 'MeshSat Android and iOS take no directory_push (the pusher leaves
+        phones out) and read the directory here: HTTP Basic with the phone''s own
+        bridge credentials, the tenant being the bridge''s owner. The answer is the
+        v2 envelope of the tenant''s snapshot (contract C7.2), which the phone verifies
+        against the key it pinned from its provisioning bundle (dir_sign_pub) or once
+        over HTTPS, and the signed rotation records from the key it names to the current
+        one, oldest first. 304 when there is neither a newer snapshot nor a rotation
+        to give. [MESHSAT-1642]'
+      parameters:
+      - description: The snapshot version the phone holds; a snapshot at or below
+          it is left out
+        in: query
+        name: since
+        type: integer
+      - description: The id of the directory key the phone trusts (SHA-256 of its
+          PKIX DER, hex)
+        in: query
+        name: key_id
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_api.RelayDirectoryAnswer'
+        "304":
+          description: nothing newer
+        "400":
+          description: since is not a number
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "503":
+          description: no directory or no signing key on this Hub
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BasicAuth: []
+      summary: The tenant's signed directory, for a phone (HeMB-NG C9.5)
       tags:
       - relay
   /api/relay/directory-key:
