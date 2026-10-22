@@ -4,7 +4,9 @@ import (
 	"bytes"
 	"crypto/aes"
 	"crypto/cipher"
+	"crypto/sha256"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -40,7 +42,9 @@ func decodedText(t *testing.T, h *WebhookHandler, mb *mockBus, body string) (str
 	mb.published = nil
 	form := inboundForm()
 	form.Set("Body", body)
-	form.Set("MessageSid", "SM"+body[:8])
+	// Length-safe: an SMS body can be shorter than eight characters.
+	sum := sha256.Sum256([]byte(body))
+	form.Set("MessageSid", "SM"+hex.EncodeToString(sum[:8]))
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, signedRequest(t, form))
 	if w.Code != http.StatusOK || len(mb.published) == 0 {

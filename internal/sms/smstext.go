@@ -4,12 +4,16 @@ import (
 	"bytes"
 	"unicode/utf8"
 
+	"github.com/meshsat/meshsat-hub/internal/codec"
 	"github.com/meshsat/meshsat-hub/internal/compress"
 )
 
-// smsText reads the text of a binary SMS payload once its version byte and
-// encryption are off, as MeshSat Android and iOS do (SmsReceiver.smaz2Text,
-// SmsWire.decode). [MESHSAT-1646]
+// smsText reads the text of a version 1 or unversioned binary SMS payload
+// once its version byte and encryption are off, as MeshSat Android and iOS do
+// (SmsReceiver.smaz2Text, SmsWire.decode). Version 1 does not say which codec
+// a payload is in, so this is a rule, and it cannot be right for every
+// payload: the SMAZ2 of "sara" is the two bytes of "¡", and reads as "¡".
+// Senders of wire v2 say which (readSMSWireV2). [MESHSAT-1646]
 //
 //   - A payload that is itself readable UTF-8 with any non-ASCII character is
 //     the text, never SMAZ2. The senders compress only when it gains, so
@@ -84,4 +88,70 @@ func readable(s string) bool {
 		}
 	}
 	return true
+}
+
+// smsWireV2Result is what an app SMS in wire v2 reads as (codec.SMSWireV2,
+// r40 review R40-R1).
+type smsWireV2Result struct {
+	text        string
+	compression string
+	encrypted   bool
+	// read: the frame was opened and its codec read. kept: the frame is v2
+	// but its mode or codec is one this Hub does not read, or no key opens
+	// it; nothing is read into it.
+	read, kept bool
+}
+
+// readSMSWireV2 reads an app SMS in wire v2. open tries the sender's keys on
+// a sealed payload. A blob that is not v2 answers neither read nor kept, and
+// the version 1 rule (smsText) reads it.
+func readSMSWireV2(raw []byte, open func([]byte) ([]byte, bool), msvqscDecode func([]byte) (string, bool)) smsWireV2Result {
+	mode, payload, ok := codec.ParseSMSWireV2(raw)
+	if !ok {
+		return smsWireV2Result{}
+	}
+	var frame []byte
+	var r smsWireV2Result
+	switch mode {
+	case codec.SMSModeClear:
+		frame = payload
+	case codec.SMSModeAESGCM:
+		opened, ok := open(payload)
+		if !ok {
+			return smsWireV2Result{kept: true}
+		}
+		frame, r.encrypted = opened, true
+	default:
+		return smsWireV2Result{kept: true}
+	}
+	if len(frame) == 0 {
+		return smsWireV2Result{kept: true, encrypted: r.encrypted}
+	}
+	body := frame[1:]
+	switch frame[0] {
+	case codec.SMSCodecText:
+		if !utf8.Valid(body) {
+			return smsWireV2Result{kept: true, encrypted: r.encrypted}
+		}
+		r.text = string(body)
+	case codec.SMSCodecSMAZ2:
+		out, err := compress.DecompressDefault(body)
+		if err != nil || !utf8.Valid(out) {
+			return smsWireV2Result{kept: true, encrypted: r.encrypted}
+		}
+		r.text, r.compression = string(out), "smaz2"
+	case codec.SMSCodecMSVQSC:
+		if msvqscDecode == nil {
+			return smsWireV2Result{kept: true, encrypted: r.encrypted}
+		}
+		t, ok := msvqscDecode(body)
+		if !ok {
+			return smsWireV2Result{kept: true, encrypted: r.encrypted}
+		}
+		r.text, r.compression = t, "msvqsc"
+	default:
+		return smsWireV2Result{kept: true, encrypted: r.encrypted}
+	}
+	r.read = true
+	return r
 }

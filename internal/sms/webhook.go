@@ -442,38 +442,7 @@ func (h *WebhookHandler) processBinaryPipeline(r *http.Request, w http.ResponseW
 		rawB64 = base64.StdEncoding.EncodeToString(rawBytes)
 	}
 
-	// The apps put protocol version 0x01 in front of a transformed SMS
-	// (SmsSender, SmsWire.encode). It went into decryption and SMAZ2 with
-	// the payload, so neither worked. A sender without it, whose nonce may
-	// start with 0x01, still decrypts: the bytes as received are tried too.
-	// [MESHSAT-1646]
-	candidates := [][]byte{rawBytes}
-	if v, stripped := codec.StripVersionByte(rawBytes); v == codec.ProtoVersion1 && len(stripped) > 0 {
-		candidates = [][]byte{stripped, rawBytes}
-	}
-	payload := candidates[0]
-
-	// E2E decryption.
-	encrypted := false
-	if h.keyStore != nil {
-	decrypt:
-		for _, c := range candidates {
-			if len(c) < hubcrypto.Overhead {
-				continue
-			}
-			for _, owner := range []string{from, "sms"} {
-				if decrypted, err := h.keyStore.DecryptMessage(owner, c); err == nil {
-					payload = decrypted
-					rawB64 = base64.StdEncoding.EncodeToString(payload)
-					encrypted = true
-					slog.Info("sms: decrypted", "from", from, "bytes", len(decrypted))
-					break decrypt
-				}
-			}
-		}
-	}
-
-	// Decompression: SMAZ2 (default table, then Meshtastic), MSVQ-SC, raw UTF-8.
+	// Decompression needs the MSVQ-SC codebook for that codec.
 	var msvqscDecode func([]byte) (string, bool)
 	if h.msvqsc != nil {
 		msvqscDecode = func(b []byte) (string, bool) {
@@ -484,7 +453,62 @@ func (h *WebhookHandler) processBinaryPipeline(r *http.Request, w http.ResponseW
 			return decoded, err == nil && decoded != ""
 		}
 	}
-	text, compressed, compressionType := smsText(payload, msvqscDecode)
+	// E2E decryption with the sender's key, then the shared one.
+	open := func(c []byte) ([]byte, bool) {
+		if h.keyStore == nil || len(c) < hubcrypto.Overhead {
+			return nil, false
+		}
+		for _, owner := range []string{from, "sms"} {
+			if decrypted, err := h.keyStore.DecryptMessage(owner, c); err == nil {
+				return decrypted, true
+			}
+		}
+		return nil, false
+	}
+
+	var text, compressionType string
+	var compressed, encrypted bool
+	// App SMS wire v2: the frame names its codec, so nothing is guessed
+	// (r40 review R40-R1). A frame whose mode or codec this Hub does not
+	// read, or that no key opens, is kept as it came, unless the version 1
+	// rule below opens it with a key: an old sender's random nonce can
+	// start with 0x02.
+	v2 := readSMSWireV2(rawBytes, open, msvqscDecode)
+	if v2.read {
+		text, encrypted = v2.text, v2.encrypted
+		compressed, compressionType = v2.compression != "", v2.compression
+		slog.Info("sms: app SMS wire v2", "from", from, "encrypted", encrypted, "compression", compressionType)
+	} else {
+		// Version 1: the apps put protocol version 0x01 in front of a
+		// transformed SMS (SmsSender, SmsWire.encode). It went into
+		// decryption and SMAZ2 with the payload, so neither worked. A sender
+		// without it, whose nonce may start with 0x01, still decrypts: the
+		// bytes as received are tried too. [MESHSAT-1646]
+		candidates := [][]byte{rawBytes}
+		if v, stripped := codec.StripVersionByte(rawBytes); v == codec.ProtoVersion1 && len(stripped) > 0 {
+			candidates = [][]byte{stripped, rawBytes}
+		}
+		payload := candidates[0]
+		for _, c := range candidates {
+			if decrypted, ok := open(c); ok {
+				payload = decrypted
+				rawB64 = base64.StdEncoding.EncodeToString(payload)
+				encrypted = true
+				slog.Info("sms: decrypted", "from", from, "bytes", len(decrypted))
+				break
+			}
+		}
+		switch {
+		case v2.kept && !encrypted:
+			// v2 this Hub cannot read: the SMS as it came, nothing read into it.
+			text, encrypted = base64.StdEncoding.EncodeToString(rawBytes), v2.encrypted
+			slog.Warn("sms: app SMS wire v2 with a mode or codec this Hub does not read, or no key opens it; kept as it came",
+				"from", from, "mode", rawBytes[1])
+		default:
+			// SMAZ2 (default table, then Meshtastic), MSVQ-SC, raw UTF-8.
+			text, compressed, compressionType = smsText(payload, msvqscDecode)
+		}
+	}
 
 	// Publish decoded message.
 	msgID := smsMessageID(messageSID)
