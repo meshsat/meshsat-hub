@@ -50,7 +50,15 @@ func DSN(path string) string {
 	if os.Getenv("HUB_SQLITE_TEST_FAST") == "1" {
 		sync, journal = "OFF", "MEMORY"
 	}
-	return fmt.Sprintf("file:%s?_journal_mode=%s&_busy_timeout=5000&_foreign_keys=ON&_synchronous=%s", path, journal, sync)
+	// modernc reads only `_pragma=name(value)`: the `_journal_mode=` form it
+	// ignored, so a SQLite Hub ran journal_mode delete, busy_timeout 0 and
+	// synchronous FULL (HeMB-NG r19). Foreign keys stay OFF, now said
+	// outright: this schema declares three (messages and positions on
+	// devices, devices.bridge_id on bridges) that production's Postgres
+	// schema does not, and the shared store code relies on not having them
+	// (a position for a modem not registered yet); turned on, three
+	// conformance cases fail. [MESHSAT-1644]
+	return fmt.Sprintf("file:%s?_pragma=journal_mode(%s)&_pragma=busy_timeout(5000)&_pragma=foreign_keys(0)&_pragma=synchronous(%s)", path, journal, sync)
 }
 
 func (d *DB) Close() error { return d.db.Close() }
