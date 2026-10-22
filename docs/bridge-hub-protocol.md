@@ -795,7 +795,9 @@ Hub over HTTPS (system roots; no authentication, it is a public key:
 `{"key_id":"<hex>","pkix":"<base64 PKIX DER>","alg":"ES256"}`), checks that the key hashes to its
 id, and pins it. It follows no redirect (an answer that points anywhere else, plain HTTP included, is
 refused) and never fetches again once a key is pinned. That is the only time a key is taken without a
-signature. `POST /api/admin/directory/signing-key/rotate` (platform admin) replaces the
+signature. A Bridge given the key with its provisioning (the bundle's `dir_sign_pub`, sent to the
+Bridge's `PUT /api/routing/hub`) pins it at once and never fetches; a bundle key is never written over
+a different key already pinned (since MESHSAT-1642). The phones pin the bundle's key the same way. `POST /api/admin/directory/signing-key/rotate` (platform admin) replaces the
 Hub's key:
 
 1. the new private key is stored as pending (sealed at rest) by compare-and-set, so no record can
