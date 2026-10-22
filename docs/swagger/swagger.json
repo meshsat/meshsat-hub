@@ -13376,6 +13376,10 @@
                     "description": "Reticulum TCP peer",
                     "type": "string"
                 },
+                "tenant_id": {
+                    "description": "TenantID is the tenant the bridge belongs to: the tenant_id of every\ndirectory snapshot it may take. A phone binds its directory to it, so a\nreprovision to another tenant on the same Hub (same signing key) starts\nthe directory over (r40 review R40-R3). [MESHSAT-1642]",
+                    "type": "string"
+                },
                 "user": {
                     "description": "MQTT username (always \"meshsat\" for NATS auth)",
                     "type": "string"

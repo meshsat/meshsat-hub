@@ -25,7 +25,9 @@ func TestTwoTenantsWithTheSameBridgeNameKeepTheirOwnQR(t *testing.T) {
 	if len(provisionStashKeys(m)) != 2 {
 		t.Fatalf("stash rows: %v; the second tenant's QR replaced the first's", provisionStashKeys(m))
 	}
-	for _, tc := range []struct{ nonce, wantPrefix string }{{victim, "meshsat"}, {other, "meshsat/t-other"}} {
+	for _, tc := range []struct{ nonce, wantPrefix, wantTenant string }{
+		{victim, "meshsat", store.DefaultTenantID}, {other, "meshsat/t-other", "t-other"},
+	} {
 		rr := claimBundle(t, h, "kit-a", tc.nonce)
 		if rr.Code != http.StatusOK {
 			t.Fatalf("claim for %s: %d %s", tc.wantPrefix, rr.Code, rr.Body.String())
@@ -34,6 +36,10 @@ func TestTwoTenantsWithTheSameBridgeNameKeepTheirOwnQR(t *testing.T) {
 		_ = json.Unmarshal(rr.Body.Bytes(), &b)
 		if b.MQTTTopicPrefix != tc.wantPrefix {
 			t.Fatalf("a nonce claimed another tenant's bundle: prefix %q, want %q", b.MQTTTopicPrefix, tc.wantPrefix)
+		}
+		// The tenant a phone binds its directory to (r40 review R40-R3). [MESHSAT-1642]
+		if b.TenantID != tc.wantTenant {
+			t.Fatalf("bundle tenant_id %q, want %q", b.TenantID, tc.wantTenant)
 		}
 	}
 }

@@ -797,7 +797,7 @@ id, and pins it. It follows no redirect (an answer that points anywhere else, pl
 refused) and never fetches again once a key is pinned. That is the only time a key is taken without a
 signature. A Bridge given the key with its provisioning (the bundle's `dir_sign_pub`, sent to the
 Bridge's `PUT /api/routing/hub`) pins it at once and never fetches; a bundle key is never written over
-a different key already pinned (since MESHSAT-1642). The phones pin the bundle's key the same way. `POST /api/admin/directory/signing-key/rotate` (platform admin) replaces the
+a different key already pinned (since MESHSAT-1642): a partial, unauthenticated settings PUT on the kit's LAN never replaces a trust anchor. A phone's provisioning works differently (see The phones read it). `POST /api/admin/directory/signing-key/rotate` (platform admin) replaces the
 Hub's key:
 
 1. the new private key is stored as pending (sealed at rest) by compare-and-set, so no record can
@@ -848,10 +848,20 @@ owner). The answer:
 the current key or none); `snapshot` is the current snapshot sealed by the current key, left out when
 its version is not above `since`. 304 when there is neither. 400 for a `since` that is not a
 non-negative integer, 503 on a Hub with no directory store or signing key. The phone applies it the
-way a Bridge does: it pins the key from its provisioning bundle (`dir_sign_pub`) and, only without
-one, from `GET /api/relay/directory-key` once; it takes a record only under the key it trusts and
-moves its pin to the record's new key; it applies a snapshot only under its pinned key, for its own
-tenant, with a version above the one it holds. Rate limit 60 per minute per address.
+way a Bridge does: it takes a record only under the key it trusts and moves its pin to the record's
+new key; it applies a snapshot only under its pinned key, for its own tenant, with a version above
+the one it holds. Rate limit 60 per minute per address.
+
+A phone's directory belongs to its provisioning context: the broker URL, the bridge id, the topic
+root and the tenant (the bundle's `tenant_id`, since r40 review R40-R3). Scanning a provisioning
+code is a deliberate act with a single-use claim over HTTPS, so it sets the context: when any part
+changes, even with the same signing key (all tenants of a Hub share it), the phone drops the
+directory it held, its versions and its tenant, pins the bundle's `dir_sign_pub` (or, with none,
+fetches `GET /api/relay/directory-key` once), and takes snapshots only for the bundle's tenant. A
+reply to a read started under the old context is dropped. Re-scanning the same context keeps the
+directory. A Bridge keeps its pin-once rule: its settings PUT is partial and unauthenticated on the
+kit's LAN, so it never replaces a trust anchor; a deliberate Bridge reset would be an operation of
+its own.
 
 ## CoT Type Mapping
 

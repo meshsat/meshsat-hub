@@ -40,6 +40,11 @@ type ProvisionBundle struct {
 	CertExpires         string `json:"cert_exp"`          // certificate expiry (RFC3339)
 	ReticulumTCP        string `json:"ret_tcp"`           // Reticulum TCP peer
 	DirectorySigningPub []byte `json:"dir_sign_pub"`      // Hub's ECDSA-P256 directory-signing pubkey (PKIX DER) — bridge pins on first provision [MESHSAT-539]
+	// TenantID is the tenant the bridge belongs to: the tenant_id of every
+	// directory snapshot it may take. A phone binds its directory to it, so a
+	// reprovision to another tenant on the same Hub (same signing key) starts
+	// the directory over (r40 review R40-R3). [MESHSAT-1642]
+	TenantID string `json:"tenant_id,omitempty"`
 }
 
 // provisionStash holds pre-generated credentials waiting to be claimed.
@@ -287,6 +292,7 @@ func (h *BridgeProvisionHandler) generateAndStash(r *http.Request, id, tid strin
 			CertExpires:         expiry.Format(time.RFC3339),
 			ReticulumTCP:        retTCP,
 			DirectorySigningPub: dirSignPub,
+			TenantID:            tid,
 		},
 		CreatedAt:    time.Now(),
 		PasswordHash: string(hash),
