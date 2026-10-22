@@ -107,7 +107,7 @@ func (g *relayDirRig) get(t *testing.T, query string, hdr http.Header) (int, Rel
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	var ans RelayDirectoryAnswer
 	if resp.StatusCode == http.StatusOK {
 		if err := json.NewDecoder(resp.Body).Decode(&ans); err != nil {

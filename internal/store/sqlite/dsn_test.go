@@ -14,7 +14,7 @@ func pragmas(t *testing.T) map[string]string {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 	got := map[string]string{}
 	for _, p := range []string{"journal_mode", "busy_timeout", "foreign_keys", "synchronous"} {
 		var v string
