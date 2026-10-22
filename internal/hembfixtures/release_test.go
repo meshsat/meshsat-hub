@@ -16,8 +16,8 @@ import (
 // recorded here. A changed fixture is a new release with a new tag, never an
 // edit of this one. [MESHSAT-1584]
 const (
-	release    = "fixtures-v1.1"
-	sumsSHA256 = "433684467695e3061e41157276e50c62e57e00eb13aeb7e55c8c4c8ba499e91d"
+	release    = "fixtures-v1.2"
+	sumsSHA256 = "8c8203d0b5c705e74a4976cbd34ffb370fbdedacfc27fc5e20faa62e945e9e87"
 )
 
 func TestTheFixtureReleaseIsIntact(t *testing.T) {

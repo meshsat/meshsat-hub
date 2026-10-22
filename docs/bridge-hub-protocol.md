@@ -360,7 +360,7 @@ One bridge sends one text to another bridge of its tenant through the Hub, and
 the sender learns what is known about it: forwarded by the Hub, stored by the
 recipient's MeshSat app, refused, or expired. This is the Hub's side of
 HeMB-NG stage 2 (decisions C3 to C6a, C13, C4.1). The test vectors are
-`docs/fixtures/v1` at release `fixtures-v1.1`; `internal/hubmsg` runs every
+`docs/fixtures/v1` at release `fixtures-v1.2`; `internal/hubmsg` runs every
 one of them as production code.
 
 **State:** the Hub implements it behind `HUB_MSG_ROUTE_ENABLED` (default
@@ -562,7 +562,7 @@ pending, and when tried again it makes only what is missing.
 An SOS a bridge or phone raises carries its own identity, so the Hub pages once
 whichever bearers carry it, a cancel stops it for good, and the sender knows
 when the Hub has each. The shared cases are `docs/fixtures/v1/sos.json`
-(release `fixtures-v1.1`); every repository's tests read a copy.
+(release `fixtures-v1.2`, unchanged since `fixtures-v1.1`); every repository's tests read a copy.
 
 ### Identity
 
@@ -718,7 +718,10 @@ Group kinds: `TEAM`, `ROLE`, `LIST` (default), `MLS_GROUP`.
 The verifier checks `sig` over the decoded `payload` bytes BEFORE it parses them, so a field it
 does not know is still covered by the signature and ignored afterwards. A v1 snapshot was re-encoded
 by the verifier, so a field the Bridge did not know broke its signature. Test vectors:
-`docs/fixtures/v1/directory_v2.json` (release `fixtures-v1.1`).
+`docs/fixtures/v1/directory_v2.json` (since `fixtures-v1.1`: the envelope and its signature only,
+its rows are not the REST shapes) and `docs/fixtures/v1/directory_v2_rest.json` (release
+`fixtures-v1.2`: made by the Hub's own store, encoder, signer and rotation, with the contacts,
+addresses, memberships, versions and skipped rows each receiver must end with).
 
 A snapshot payload:
 
