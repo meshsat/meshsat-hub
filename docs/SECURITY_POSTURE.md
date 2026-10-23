@@ -1,6 +1,6 @@
 # MeshSat Hub — security posture
 
-_Assessed 2026-09-16 / 17. Instrument for the hardening programme MESHSAT-1189 → 1194. Incident record kept current to 2026-10-02 (item 17)._
+_Assessed 2026-09-16 / 17. Instrument for the hardening programme MESHSAT-1189 → 1194. Incident record kept current to 2026-10-24 (item 19)._
 
 ## What this document is, and what it is not
 
@@ -395,6 +395,22 @@ effect is nothing is worse than an absent one, because this scorecard counts it.
     every row, and a removed name cannot be reused. A probe account `hubprobe` was added to the
     default tenant for the test above, with the owner's go, and removed; it remains listed as
     inactive, its certificate is refused, and its key was deleted from the runner.
+19. ~~**The billing system's proxy refused the Hub**~~ — **CLOSED 2026-10-24 (MESHSAT-1661), found
+    by a sibling session reading the pods' start-up log, two and a half days in.** An estate
+    php2shell mitigation (IFRNLLEI01PRD-2949) put a LAN-only allowlist on the Invoice Ninja vhost
+    at the NL Nginx Proxy Manager on 2026-10-21 16:14Z and verified it from the VPS overlay and the
+    LAN. The Hub and the shop reach that proxy from notrf01's per-node IPsec tunnel addresses in
+    10.255.200.0/24, so from 17:46Z that day every billing call answered the proxy's own 403; the
+    only sign was the once-at-start `verifyBillingCompany` warning on both pods. Not a
+    confidentiality finding: an availability regression of the receipt path, the fourth of the
+    shape of items 12, 13 and 17, this time in a dependency's edge rather than a policy of the
+    Hub's own. Nothing was lost: no payment arrived in the window, so no receipt parked. Fixed at
+    the proxy with a list naming the LAN and the six notrf01 nodes' tunnel addresses on both legs,
+    on that one vhost; the VPS overlay stays refused, because the VPS HAProxys forward to the
+    proxy by Host header. Proof by the journey: both pods answer `GET /api/v1/companies` with the
+    Hub's token at 200 and the overlay still gets the proxy's 403. Left open: the Hub has no alert
+    for an unreachable billing system (MESHSAT-1662), and the next rollout's start-up line is the
+    last check.
 
 ## Addendum, 2026-10-13 (MESHSAT-1555): a public Reticulum endpoint
 
