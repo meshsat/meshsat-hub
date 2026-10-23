@@ -1,10 +1,11 @@
 # Hub federation: a satellite message to a kit on another Hub
 
 `satellite_relay` (see `satellite-relay.md`) carries one modem's message to another modem byte for
-byte, but only inside one tenant, because the Hub sends the MT on that tenant's own Cloudloop
-account. Federation is the same relay between two tenants that each keep their own account: two
+byte, but only inside one tenant, because the Hub sends the MT on that tenant's own Cloudloop (IMT)
+or Rock7 (SBD) account. Federation is the same relay between two tenants that each keep their own account: two
 tenants on hub.meshsat.net, a tenant there and a self-hosted Hub, or two self-hosted Hubs
-(MESHSAT-1549).
+(MESHSAT-1549). Federation still delivers only to IMT modems; the SBD ends of 24 Oct 2026 are
+`satellite_relay`'s alone.
 
 ## Trust
 

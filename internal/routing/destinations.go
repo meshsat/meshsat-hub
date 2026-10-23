@@ -24,7 +24,8 @@ type moDecodedPayload struct {
 	Text       string              `json:"text"`
 	Channel    hubmqtt.BearerField `json:"channel"`
 	// Wire is the payload as the modem sent it (base64); see
-	// cloudloop.WebhookMOMessage. Only the relay reads it.
+	// cloudloop.WebhookMOMessage and rockblock.MOMessage. Only the relay
+	// reads it.
 	Wire string `json:"wire,omitempty"`
 	// IMTTopic is the IMT topic the message arrived on; the relay answers
 	// on the same one. [MESHSAT-1352]
@@ -275,7 +276,9 @@ func formatRoutedSMS(deviceID, text string) string {
 const DestSatelliteRelay = "satellite_relay"
 
 // SatelliteRelaySender sends wire (base64) unchanged to one modem, on the
-// IMT topic the message arrived on (empty = the sender's default, RAW).
+// IMT topic the message arrived on (empty = the sender's default, RAW, which
+// is also what an SBD message relayed to an IMT modem gets: SBD has no
+// topic).
 type SatelliteRelaySender func(ctx context.Context, tenantID, imei, wireB64, imtTopic string) error
 
 // NewSatelliteRelayHandler relays the original payload to every IMEI in the

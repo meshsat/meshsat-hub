@@ -52,6 +52,10 @@ type MOMessage struct {
 	// Bridge's ciphertext for a key the Hub does not hold. Text is empty and
 	// only destinations that carry an opaque payload get it.
 	Opaque bool `json:"opaque,omitempty"`
+	// Wire is the payload as the modem sent it (base64, version byte
+	// included), for a satellite-to-satellite relay; see
+	// cloudloop.WebhookMOMessage.Wire. Only the relay reads it.
+	Wire string `json:"wire,omitempty"`
 }
 
 // RawMessage is the raw MO payload published to mo/raw.
@@ -456,6 +460,9 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		rawB64 = base64.StdEncoding.EncodeToString(rawBytes)
 	}
 
+	// Kept untouched for a satellite-to-satellite relay (MOMessage.Wire).
+	wire := rawB64
+
 	// Strip protocol version byte (if present) before further processing.
 	protoVersion, strippedBytes := codec.StripVersionByte(rawBytes)
 	if protoVersion > 0 {
@@ -538,6 +545,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		IridiumLongitude: iridiumLon,
 		IridiumCEP:       iridiumCEP,
 		Opaque:           sealed || text == "",
+		Wire:             wire,
 	}
 	h.publish(hubmqtt.TopicMODecodedFor(h.tenantOf(ctx, imei), imei), 1, false, decoded)
 

@@ -85,6 +85,7 @@ import (
 	"github.com/meshsat/meshsat-hub/internal/rockblock"
 	"github.com/meshsat/meshsat-hub/internal/routing"
 	"github.com/meshsat/meshsat-hub/internal/satchat"
+	"github.com/meshsat/meshsat-hub/internal/satrelay"
 	"github.com/meshsat/meshsat-hub/internal/scheduler"
 	"github.com/meshsat/meshsat-hub/internal/sealedconfig"
 	"github.com/meshsat/meshsat-hub/internal/signups"
@@ -3398,15 +3399,45 @@ func main() {
 		}
 	}
 	// Kit to kit over satellite: the original payload, byte for byte, to the
-	// modems in the route's filter. IMT only: a 9603 would need the bytes cut to
-	// 270 and no Bridge reassembles the Hub's fragment header.
-	routeEngine.RegisterHandler(routing.DestSatelliteRelay, routing.NewSatelliteRelayHandler(func(_ context.Context, tenantID, imei, wireB64, imtTopic string) error {
-		if _, imt := thingResolver.Resolve(tenantID, imei); !imt {
-			return fmt.Errorf("modem %s is not a known IMT device; register it and let the Hub see one message or a thing listing first", imei)
-		}
-		_, err := mtSender.SendDirect(imei, cloudloop.MTSendRequest{WireB64: wireB64, IMTTopic: imtTopic})
-		return err
-	}))
+	// modems in the route's filter, through Cloudloop for an IMT modem and
+	// Rock7 for an SBD one. Never cut: an SBD recipient takes one 270-byte
+	// frame, since no Bridge reassembles the Hub's fragment header.
+	relaySender := &satrelay.Sender{
+		IsIMT: func(tenantID, imei string) bool {
+			_, imt := thingResolver.Resolve(tenantID, imei)
+			return imt
+		},
+		SendIMT: func(imei, wireB64, imtTopic string) error {
+			_, err := mtSender.SendDirect(imei, cloudloop.MTSendRequest{WireB64: wireB64, IMTTopic: imtTopic})
+			return err
+		},
+		DeviceType: func(ctx context.Context, tenantID, imei string) (string, error) {
+			dev, err := dataStore.GetDevice(ctx, tenantID, imei)
+			if err != nil {
+				return "", err
+			}
+			return dev.Type, nil
+		},
+		Rock7: func(ctx context.Context, tenantID string) satrelay.MTSender {
+			if c := rock7Pool.ForTenant(ctx, tenantID); c != nil {
+				return c
+			}
+			return nil
+		},
+		Allow: func(tenantID, imei string) bool { return limiter.Allow(tenantID, imei, false) },
+		Record: (&satrelay.Recorder{
+			Messages: dataStore,
+			Costs:    dataStore,
+			Audit: func(ctx context.Context, tenantID, action, detail string) error {
+				return auditSvc.Log(ctx, tenantID, action, "system", detail, "")
+			},
+			Publish: func(tenantID, imei string, v any) error {
+				return msgBus.PublishJSON(hubmqtt.TopicMTStatusFor(tenantID, imei), 1, false, v)
+			},
+			CostPerMsg: 0.05, // as the Cloudloop sender's Iridium default
+		}).Record,
+	}
+	routeEngine.RegisterHandler(routing.DestSatelliteRelay, routing.NewSatelliteRelayHandler(relaySender.Send))
 	routeEngine.RegisterHandler(routing.DestFederationRelay, routing.NewFederationRelayHandler(fedSvc.Relay))
 	routeEngine.RegisterHandler("webhook", routing.NewWebhookHandler(webhookDispatcher))
 	routeEngine.RegisterHandler("mqtt", routing.NewMQTTHandler(msgBus))

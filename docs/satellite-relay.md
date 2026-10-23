@@ -8,6 +8,10 @@ and the other kit's `iridium_imt_0` hands the packet to its Reticulum node. The 
 a message from a RockBLOCK 9704 running CrossTalk's `IridiumIMTInterface` (its `RNSI` framing
 is passed through untouched; the kit's interface strips it).
 
+Since 24 Oct 2026 either end can also be a RockBLOCK 9602/9603 (SBD) on Rock7, as a field kit's
+RockBLOCK Mk2 is: its MO keeps its `wire` like an IMT one, and a relay to it goes out through the
+tenant's Rock7 account (see "SBD ends" below). [MESHSAT-1623]
+
 This is distinct from the `satellite` destination, which sends the decoded **text** with a
 sender prefix for a person to read. Anything the Hub adds or re-encodes makes a relayed packet
 undeliverable: the receiving kit authenticates the bytes with keys the Hub does not hold.
@@ -97,8 +101,18 @@ One route per direction, each naming its sender and its recipient:
   fires on SBD or SMS traffic.
 - The relay answers on the topic the message arrived on, so a packet sent on `IMT_TOPIC_RAW`
   lands on the other kit's raw topic, which is what its interface listens to.
-- The relay never sends back to the origin, and a verbatim payload is never fragmented: a 9603
-  (SBD, 270 bytes) cannot be a relay target.
+- The relay never sends back to the origin, and a verbatim payload is never fragmented: no Bridge
+  or phone reassembles the Hub's fragment header.
+- **SBD ends.** An SBD MO arrives through the Rock7 webhook and is published with `wire` (the payload
+  as sent, version byte included) and no `imt_topic`, so a route pinned to an IMT topic never fires
+  on it; use the `satellite` source. A relay to a modem the tenant registered as `rockblock` or
+  `iridium_sbd` goes out through the tenant's Rock7 account as one MT of at most 270 bytes (a
+  9602/9603's MT frame); a longer payload is refused, never cut. Each such MT is stored as an `mt`
+  message (`channel` `iridium`, `raw_hex` the bytes) and published on the modem's `mt/status`
+  (`queued` with Rock7's id, or `failed` with the reason). An SBD message relayed to an IMT modem
+  goes on the sender's default topic, `IMT_TOPIC_RAW`, which is the one the Bridge and MeshSat
+  Android use for the satellite chain. A modem that is neither a known IMT device nor a registered
+  Rock7 one is refused, as is any other device type.
 - **Name the senders.** Every relayed message is a paid MT. A relay open to any sender forwards
   whatever any modem on the account transmits.
 - Keep the default `satellite` fan-out routes (TAK, APRS, SMS, notification) restricted by lane or
@@ -115,7 +129,9 @@ Unit: `internal/cloudloop/webhook_reticulum_test.go`, `internal/cloudloop/webhoo
 `internal/globalstar/handler_s32_test.go`, `internal/routing/opaque_routes_test.go`,
 `internal/routing/engine_test.go`
 (`TestMatchSourceTopic`), `internal/routing/destinations_test.go`
-(`TestSatelliteRelayForwardsTheWireUntouched`), `internal/protocol/hemb_test.go` (a CRC-8
+(`TestSatelliteRelayForwardsTheWireUntouched`), `internal/satrelay/sender_test.go` (the provider per
+recipient, the 270-byte SBD frame, refusals), `internal/rockblock/handler_sbd_relay_test.go` (an SBD
+MO's `wire`, through the real relay handler), `internal/protocol/hemb_test.go` (a CRC-8
 coincidence is no longer a HeMB frame; about one in 256 arbitrary payloads used to vanish as a
 "HeMB symbol" before routing).
 
