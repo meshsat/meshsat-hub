@@ -469,13 +469,15 @@ func (h *WebhookHandler) processBinaryPipeline(r *http.Request, w http.ResponseW
 	var text, compressionType string
 	var compressed, encrypted bool
 	// App SMS wire v2: the frame names its codec, so nothing is guessed
-	// (r40 review R40-R1). A frame whose mode or codec this Hub does not
-	// read, or that no key opens, is kept as it came, unless the version 1
-	// rule below opens it with a key: an old sender's random nonce can
-	// start with 0x02.
+	// (r40 review R40-R1). What a key opens is read first: a sealed v2
+	// frame, then version 1 or unversioned below. Only then a clear v2
+	// frame, which nothing authenticates: an old sender's random nonce, or
+	// a Bridge chain's, can start 02 00 with a rest that reads, and the key
+	// that opens it must win (r41 review V2). A v2 frame whose mode or codec
+	// this Hub does not read, or that no key opens, is kept as it came.
 	v2 := readSMSWireV2(rawBytes, open, msvqscDecode)
-	if v2.read {
-		text, encrypted = v2.text, v2.encrypted
+	if v2.read && v2.encrypted {
+		text, encrypted = v2.text, true
 		compressed, compressionType = v2.compression != "", v2.compression
 		slog.Info("sms: app SMS wire v2", "from", from, "encrypted", encrypted, "compression", compressionType)
 	} else {
@@ -499,7 +501,16 @@ func (h *WebhookHandler) processBinaryPipeline(r *http.Request, w http.ResponseW
 			}
 		}
 		switch {
-		case v2.kept && !encrypted:
+		case encrypted:
+			// A key opened it the version 1 way: SMAZ2 (default table, then
+			// Meshtastic), MSVQ-SC, raw UTF-8, whatever a clear v2 reading
+			// of the same bytes would have said.
+			text, compressed, compressionType = smsText(payload, msvqscDecode)
+		case v2.read:
+			text = v2.text
+			compressed, compressionType = v2.compression != "", v2.compression
+			slog.Info("sms: app SMS wire v2", "from", from, "encrypted", false, "compression", compressionType)
+		case v2.kept:
 			// v2 this Hub cannot read: the SMS as it came, nothing read into it.
 			text, encrypted = base64.StdEncoding.EncodeToString(rawBytes), v2.encrypted
 			slog.Warn("sms: app SMS wire v2 with a mode or codec this Hub does not read, or no key opens it; kept as it came",

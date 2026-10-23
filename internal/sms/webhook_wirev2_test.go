@@ -22,8 +22,9 @@ type wireVector struct {
 	Codec  *int   `json:"codec"`
 	SMS    string `json:"sms"`
 	Expect struct {
-		Status string `json:"status"`
-		Text   string `json:"text"`
+		Status    string `json:"status"`
+		Text      string `json:"text"`
+		Encrypted bool   `json:"encrypted"`
 	} `json:"expect"`
 }
 
@@ -71,18 +72,18 @@ func TestWebhookReadsAppSMSWireV2(t *testing.T) {
 	h.SetKeyStore(ks)
 	for _, c := range v.Vectors {
 		text, compressed, encrypted := decodedText(t, h, mb, c.SMS)
-		if text != c.Expect.Text || encrypted != (*c.Mode == 1) || compressed != (*c.Codec == 1) {
-			t.Errorf("%s: read %q compressed=%v encrypted=%v, want %q", c.Name, text, compressed, encrypted, c.Expect.Text)
+		if text != c.Expect.Text || encrypted != c.Expect.Encrypted || compressed != (*c.Codec == 1) {
+			t.Errorf("%s: read %q compressed=%v encrypted=%v, want %q encrypted=%v", c.Name, text, compressed, encrypted, c.Expect.Text, c.Expect.Encrypted)
 		}
 	}
 	for _, c := range v.Negative {
-		if text, _, _ := decodedText(t, h, mb, c.SMS); text != c.SMS {
-			t.Errorf("%s: read %q, want it kept as it came (%q)", c.Name, text, c.SMS)
+		if text, _, encrypted := decodedText(t, h, mb, c.SMS); text != c.SMS || encrypted != c.Expect.Encrypted {
+			t.Errorf("%s: read %q encrypted=%v, want it kept as it came (%q) encrypted=%v", c.Name, text, encrypted, c.SMS, c.Expect.Encrypted)
 		}
 	}
 	for _, c := range v.Legacy {
-		if text, _, _ := decodedText(t, h, mb, c.SMS); text != c.Expect.Text {
-			t.Errorf("%s: read %q, want %q (the version 1 rule)", c.Name, text, c.Expect.Text)
+		if text, _, encrypted := decodedText(t, h, mb, c.SMS); text != c.Expect.Text || encrypted != c.Expect.Encrypted {
+			t.Errorf("%s: read %q encrypted=%v, want %q encrypted=%v (the version 1 rule)", c.Name, text, encrypted, c.Expect.Text, c.Expect.Encrypted)
 		}
 	}
 	// Without the key a sealed v2 SMS is kept, never read as text.
@@ -124,5 +125,33 @@ func TestWebhookReviewR40SaraSata(t *testing.T) {
 		if text, _, _ := decodedText(t, h, mb, c.SMS); text != c.Text {
 			t.Errorf("%s (% x): read %q, want %q", name, raw[:3], text, c.Text)
 		}
+	}
+}
+
+// legacy_encrypted_clear_header_overlap (r41 review V2): an unversioned SMS
+// the key opens, whose bytes also parse as a clear v2 frame with a text body
+// that reads. The key's reading wins: its words, encrypted, persisted as
+// decrypted. Without the key the clear frame is all there is.
+func TestWebhookLegacyEncryptedClearHeaderOverlap(t *testing.T) {
+	v := loadWireVectors(t)
+	c := v.Legacy[len(v.Legacy)-1]
+	if c.Name != "legacy_encrypted_clear_header_overlap" {
+		t.Fatalf("the last legacy vector is %s", c.Name)
+	}
+	raw, _ := base64.StdEncoding.DecodeString(c.SMS)
+	if r := readSMSWireV2(raw, func([]byte) ([]byte, bool) { return nil, false }, nil); !r.read || r.encrypted {
+		t.Fatalf("the vector does not parse as a clear v2 frame: %+v", r)
+	}
+	key, _ := hex.DecodeString(v.KeyHex)
+	mb := &mockBus{}
+	h := NewWebhookHandler(mb, "")
+	h.SetInboundAuthToken(testAuthToken)
+	ks := hubcrypto.NewKeyStore()
+	if _, err := ks.StoreKey("+31612345678", key, "decrypt"); err != nil {
+		t.Fatal(err)
+	}
+	h.SetKeyStore(ks)
+	if text, _, encrypted := decodedText(t, h, mb, c.SMS); text != c.Expect.Text || !encrypted {
+		t.Fatalf("read %q encrypted=%v, want %q encrypted", text, encrypted, c.Expect.Text)
 	}
 }
