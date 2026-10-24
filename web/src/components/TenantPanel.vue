@@ -31,6 +31,9 @@ const savingOOB = ref(false)
 const oobMax = ref('')
 const oobSms = ref('')
 const oobSat = ref('')
+// Who this tenant's devices may write to through the "@" lane (MESHSAT-1685).
+const personMode = ref('')
+const savingPersonMode = ref(false)
 const saving = ref(false)
 const invites = ref([])
 const inviteEmail = ref('')
@@ -123,6 +126,7 @@ async function load() {
     oobMax.value = info.value.oob_max_per_hour ? String(info.value.oob_max_per_hour) : ''
     oobSms.value = info.value.oob_sms_timeout_sec ? String(info.value.oob_sms_timeout_sec) : ''
     oobSat.value = info.value.oob_sat_timeout_sec ? String(info.value.oob_sat_timeout_sec) : ''
+    personMode.value = info.value.person_chat_mode || ''
     available.value = true
   } catch {
     available.value = false
@@ -256,6 +260,26 @@ async function saveOOB() {
     error.value = e.message || 'Save failed'
   } finally {
     savingOOB.value = false
+  }
+}
+
+const personModeLabels = {
+  off: 'Nobody',
+  contacts: 'People in your contacts',
+  open: 'Any number or address',
+}
+
+async function savePersonMode() {
+  savingPersonMode.value = true
+  error.value = ''
+  try {
+    info.value = await tenantApi.update({ name: name.value.trim(), person_chat_mode: personMode.value })
+    personMode.value = info.value.person_chat_mode || ''
+    toast.success('Saved')
+  } catch (e) {
+    error.value = e.message || 'Save failed'
+  } finally {
+    savingPersonMode.value = false
   }
 }
 
@@ -466,6 +490,37 @@ onMounted(load)
         <p class="mt-1 text-xs text-ms-muted">
           Leave a box empty for the platform default. A satellite reply waits for a pass, so it is
           normally much longer than an SMS one.
+        </p>
+
+        <!-- The "@" lane (MESHSAT-1685): a device writes "@+31612345678 text" or
+             "@ops@example.org text", the Hub sends it from this tenant's own
+             Twilio number or mail gateway, and the reply comes back to the
+             device. Who may be written to is this tenant's call. -->
+        <h4 class="text-xs font-semibold text-ms-text2 mt-5 mb-1">Messages from devices to people</h4>
+        <p class="text-xs text-ms-muted mb-2">
+          A device can text or email a person by starting its message with the address,
+          <span class="font-mono text-ms-text2">@+31612345678</span> or
+          <span class="font-mono text-ms-text2">@name@example.org</span>, or with a contact's name.
+          The reply comes back to the device over satellite. It is sent from your own SMS and mail
+          accounts (Integrations), and each reply costs one satellite message on your account.
+        </p>
+        <div class="flex flex-wrap gap-2 items-end">
+          <div class="min-w-0 w-full sm:w-72">
+            <label for="tenant-person-mode" class="block text-xs text-ms-muted2 mb-1">Devices may write to</label>
+            <select id="tenant-person-mode" v-model="personMode" class="ms-input w-full">
+              <option value="">Platform default: {{ (personModeLabels[info?.person_chat_mode_default] || 'People in your contacts').toLowerCase() }}</option>
+              <option value="contacts">{{ personModeLabels.contacts }}</option>
+              <option value="open">{{ personModeLabels.open }}</option>
+              <option value="off">{{ personModeLabels.off }}</option>
+            </select>
+          </div>
+          <button @click="savePersonMode" :disabled="savingPersonMode" class="ms-btn">Save</button>
+        </div>
+        <p class="mt-1 text-xs text-ms-muted">
+          Contacts is the safe choice: a satellite message is whatever somebody typed on a device, and
+          <router-link to="/contacts" class="underline hover:text-ms-text">your contacts</router-link>
+          are the people you vouched for. Messages can be end-to-end encrypted by the sending app; the
+          Hub then reads only the address.
         </p>
         <dl class="mt-3 text-xs text-ms-muted grid grid-cols-[auto_1fr] gap-x-3 gap-y-1">
           <dt>Slug</dt><dd class="font-mono text-ms-text">{{ info?.slug }}</dd>

@@ -272,6 +272,14 @@ export const ipougrs = {
   status: () => fetchJSON('/ipougrs/status'),
 }
 
+// The tenant directory (MESHSAT-538): the people its devices may write to
+// through the "@" lane (MESHSAT-1685).
+export const directory = {
+  listContacts: () => fetchJSON('/v1/directory/contacts'),
+  createContact: (data) => fetchJSON('/v1/directory/contacts', { method: 'POST', body: JSON.stringify(data) }),
+  deleteContact: (id) => fetchJSON(`/v1/directory/contacts/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+}
+
 export const geofences = {
   policy: () => fetchJSON('/geofences/policy'),
   list: () => fetchJSON('/geofences'),

@@ -30,6 +30,7 @@ const routes = [
   { path: '/devices/:imei', name: 'deviceDetail', component: () => import('./views/DeviceDetail.vue'), meta: { requiresAuth: true } },
   { path: '/email', name: 'email', component: () => import('./views/EmailView.vue'), meta: { requiresAuth: true } },
   { path: '/geofences', name: 'geofences', component: () => import('./views/GeofenceView.vue'), meta: { requiresAuth: true } },
+  { path: '/contacts', name: 'contacts', component: () => import('./views/ContactsView.vue'), meta: { requiresAuth: true } },
   { path: '/alert-rules', name: 'alertRules', component: () => import('./views/AlertRulesView.vue'), meta: { requiresAuth: true } },
   { path: '/backup', name: 'backup', component: () => import('./views/BackupView.vue'), meta: { requiresAuth: true } },
   { path: '/settings', name: 'settings', component: () => import('./views/Settings.vue'), meta: { requiresAuth: true } },

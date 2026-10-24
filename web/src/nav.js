@@ -26,6 +26,8 @@ export const navGroups = [
     { to: '/notifications', name: 'notifications', label: 'Notifications', icon: 'bell', keywords: 'apprise ntfy push' },
   ]},
   { label: 'Delivery', items: [
+    // The people devices may write to through the "@" lane (MESHSAT-1685).
+    { to: '/contacts', name: 'contacts', label: 'Contacts', icon: 'contacts', keywords: 'directory people address book sms email reply' },
     { to: '/routing', name: 'routing', label: 'Routing', icon: 'routing', keywords: 'routes rules forward relay' },
     { to: '/integrations', name: 'integrations', label: 'Integrations', icon: 'integrations', keywords: 'cloudloop twilio rock7 providers' },
     { to: '/webhooks', name: 'webhooks', label: 'Webhooks', icon: 'webhooks', keywords: 'outbound http' },
