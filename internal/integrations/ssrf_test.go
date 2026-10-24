@@ -68,3 +68,25 @@ func TestThePlatformsOwnInClusterURLIsNotRefused(t *testing.T) {
 		t.Errorf("platform url = %q", got)
 	}
 }
+
+// A tenant's SMTP host is dialled for every mail its devices send through the
+// "@" lane, and until MESHSAT-1685 the field went unchecked: the Hub would
+// open an SMTP conversation with whatever host:port a customer typed, the
+// database and the broker included. The dial is guarded as well
+// (email.NewTenantClient).
+func TestATenantsSMTPHostMustBePublic(t *testing.T) {
+	svc, ctx := newSvc(t)
+	for _, bad := range []string{
+		"127.0.0.1:25", "localhost:587", "10.0.0.5:25", "nats:1883",
+		"meshsat-hub-main-rw.meshsat-hub-db.svc:5432", "169.254.169.254:80",
+		"mail.example.org", "mail.example.org:0", "mail.example.org:99999", "mail.example.org:smtp",
+	} {
+		if _, err := svc.Set(ctx, "t_cust", ProviderEmail, map[string]string{"webhook_secret": "s", "smtp_host": bad}); err == nil {
+			t.Errorf("smtp_host %q was accepted", bad)
+		}
+	}
+	// An inbound-only account (no SMTP host) still saves.
+	if _, err := svc.Set(ctx, "t_cust", ProviderEmail, map[string]string{"webhook_secret": "s"}); err != nil {
+		t.Fatalf("an inbound-only account was refused: %v", err)
+	}
+}

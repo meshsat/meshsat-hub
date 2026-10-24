@@ -2,6 +2,7 @@ package routing
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 )
 
@@ -124,6 +125,35 @@ func TestALaneTextIsNotRouted(t *testing.T) {
 	}()
 	if !reached {
 		t.Fatal("an ordinary text did not reach route evaluation; this test no longer proves anything")
+	}
+}
+
+// A lane that decides on the whole message (the "@" lane, MESHSAT-1685)
+// keeps routes off what it claims, and adding it leaves the text filter of
+// the "*" lane in place: SetLaneFilter used to be the only slot, and a second
+// lane would have overwritten the first.
+func TestALaneClaimerKeepsRoutesOffAndKeepsTheTextFilter(t *testing.T) {
+	e := &Engine{handlers: map[string]DestinationHandler{}, cachedRoutes: map[string]routeCache{}}
+	e.SetLaneFilter(func(text string) bool { return len(text) > 0 && text[0] == '*' })
+	var seen []string
+	e.AddLaneClaimer(func(topic string, payload []byte) bool {
+		seen = append(seen, topic)
+		return strings.Contains(string(payload), `"lane":"person"`)
+	})
+
+	const topic = "meshsat/%2B31600000001/mo/decoded"
+	e.handleMODecoded(topic, []byte(`{"id":"m1","channel":"sms","text":"on my way","lane":"person"}`))
+	e.handleMODecoded(topic, []byte(`{"id":"m2","channel":"sms","text":"*F8 on my way"}`))
+	if len(seen) != 1 {
+		t.Fatalf("the claimer saw %d messages; the text filter must still decide first", len(seen))
+	}
+	reached := func() (got bool) {
+		defer func() { got = recover() != nil }()
+		e.handleMODecoded(topic, []byte(`{"id":"m3","channel":"sms","text":"plain"}`))
+		return false
+	}()
+	if !reached {
+		t.Fatal("an unclaimed text did not reach route evaluation; this test no longer proves anything")
 	}
 }
 

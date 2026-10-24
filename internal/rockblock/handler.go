@@ -548,6 +548,8 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		Wire:             wire,
 	}
 	h.publish(hubmqtt.TopicMODecodedFor(h.tenantOf(ctx, imei), imei), 1, false, decoded)
+	// The Hub's own copy, which no bridge can publish (MESHSAT-1685).
+	h.publish(hubmqtt.TopicSatMOFor(h.tenantOf(ctx, imei), imei), 1, false, decoded)
 
 	// Persist MO message to database.
 	if h.store != nil {

@@ -223,12 +223,16 @@ func TestServeHTTP_PositionPublished(t *testing.T) {
 		t.Fatalf("expected 200, got %d", w.Code)
 	}
 
-	// Should have 3 publishes: raw, decoded, position.
-	if len(mb.published) != 3 {
-		t.Fatalf("expected 3 publishes, got %d", len(mb.published))
+	// Should have 4 publishes: raw, decoded, the Hub's own satmo copy
+	// (MESHSAT-1685), position.
+	if len(mb.published) != 4 {
+		t.Fatalf("expected 4 publishes, got %d", len(mb.published))
 	}
-	if mb.published[2].topic != "meshsat/dev-gs-001/position" {
-		t.Errorf("expected position topic, got %s", mb.published[2].topic)
+	if mb.published[2].topic != "meshsat/hub/satmo/dev-gs-001" {
+		t.Errorf("expected the satmo copy, got %s", mb.published[2].topic)
+	}
+	if mb.published[3].topic != "meshsat/dev-gs-001/position" {
+		t.Errorf("expected position topic, got %s", mb.published[3].topic)
 	}
 }
 
@@ -244,9 +248,9 @@ func TestServeHTTP_NoPositionWhenZero(t *testing.T) {
 		t.Fatalf("expected 200, got %d", w.Code)
 	}
 
-	// Should have 2 publishes: raw, decoded (no position).
-	if len(mb.published) != 2 {
-		t.Fatalf("expected 2 publishes (no position), got %d", len(mb.published))
+	// Should have 3 publishes: raw, decoded, the satmo copy (no position).
+	if len(mb.published) != 3 {
+		t.Fatalf("expected 3 publishes (no position), got %d", len(mb.published))
 	}
 }
 

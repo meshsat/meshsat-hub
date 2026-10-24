@@ -33,6 +33,10 @@ type Engine struct {
 	// claimed reports that a text belongs to a lane that handles it itself
 	// (internal/satchat's "*K7 ..."); see SetLaneFilter.
 	claimed func(text string) bool
+	// claimers are lanes that decide on the whole message, not the text alone
+	// (internal/personchat's "@" lane: only a tenant's own modem, on its own
+	// topics, writing to a person); see AddLaneClaimer.
+	claimers []func(topic string, payload []byte) bool
 }
 
 // SetLaneFilter names the texts no route may touch. A lane that reads the same
@@ -44,6 +48,14 @@ type Engine struct {
 // character picks the lane, and a text that picked one is not ordinary traffic.
 // Call before Start.
 func (e *Engine) SetLaneFilter(f func(text string) bool) { e.claimed = f }
+
+// AddLaneClaimer is SetLaneFilter for a lane whose decision needs the topic
+// and the payload: the "@" lane takes "@+31... text" only from a modem
+// registered to the topic's tenant, so the same text from anywhere else is
+// still ordinary traffic. Call before Start.
+func (e *Engine) AddLaneClaimer(f func(topic string, payload []byte) bool) {
+	e.claimers = append(e.claimers, f)
+}
 
 type routeCache struct {
 	routes    []store.Route
@@ -114,6 +126,12 @@ func (e *Engine) handleMODecoded(topic string, payload []byte) {
 	if e.claimed != nil && e.claimed(msg.Text) {
 		slog.Debug("routing: text belongs to a lane, no route evaluated", "device", deviceID)
 		return
+	}
+	for _, claims := range e.claimers {
+		if claims(topic, payload) {
+			slog.Debug("routing: message belongs to a lane, no route evaluated", "device", deviceID)
+			return
+		}
 	}
 
 	sourceType := string(msg.Channel)

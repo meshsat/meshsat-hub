@@ -25,6 +25,7 @@ var RedactedInExport = map[string]bool{
 	"credentials.encrypted_data":  true,
 	"device_keys.key_hash":        true,
 	"device_keys.key_hex":         true, // the tenant's own message encryption key
+	"person_conversations.ref":    true, // an email reply's capability (MESHSAT-1685)
 	"federation_peers.relay_url":  true, // the peer's capability token (MESHSAT-1549)
 	"refresh_tokens.token_hash":   true,
 	"support_grants.pin_hash":     true, // the customer's support-access PIN (MESHSAT-1366)

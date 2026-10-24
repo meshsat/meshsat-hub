@@ -604,6 +604,14 @@ var postAlterMigrations = []string{
 	`CREATE TABLE IF NOT EXISTS sos_runs (tenant_id TEXT NOT NULL, origin TEXT NOT NULL, sos_id TEXT NOT NULL, bridge_id TEXT NOT NULL DEFAULT '', run_start_ms INTEGER NOT NULL, state TEXT NOT NULL, rev INTEGER NOT NULL DEFAULT 0, bearers TEXT NOT NULL DEFAULT '', device_id TEXT NOT NULL DEFAULT '', text TEXT NOT NULL DEFAULT '', lat REAL NOT NULL DEFAULT 0, lon REAL NOT NULL DEFAULT 0, has_position INTEGER NOT NULL DEFAULT 0, alert_id TEXT NOT NULL DEFAULT '', started_at TEXT NOT NULL DEFAULT '', cancelled_at TEXT NOT NULL DEFAULT '', cancelled_by TEXT NOT NULL DEFAULT '', cancel_reason INTEGER NOT NULL DEFAULT -1, created_at TEXT NOT NULL DEFAULT (datetime('now')), updated_at TEXT NOT NULL DEFAULT (datetime('now')), PRIMARY KEY (tenant_id, origin, sos_id))`,
 	`CREATE INDEX IF NOT EXISTS idx_sos_runs_created ON sos_runs (tenant_id, created_at)`,
 	`CREATE INDEX IF NOT EXISTS idx_sos_runs_sos_id ON sos_runs (tenant_id, sos_id)`,
+	// MESHSAT-1685, the "@" lane; mirrors postgres migration 45.
+	`CREATE TABLE IF NOT EXISTS person_conversations (tenant_id TEXT NOT NULL, id TEXT NOT NULL, device_id TEXT NOT NULL, device_kind TEXT NOT NULL, peer_kind TEXT NOT NULL, peer TEXT NOT NULL, tag TEXT NOT NULL, ref TEXT NOT NULL, last_out_at TEXT NOT NULL, last_in_at TEXT, last_out_message_id TEXT NOT NULL DEFAULT '', last_in_message_id TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL DEFAULT (datetime('now')), updated_at TEXT NOT NULL DEFAULT (datetime('now')), PRIMARY KEY (tenant_id, id), UNIQUE (tenant_id, ref))`,
+	`CREATE INDEX IF NOT EXISTS idx_person_conversations_peer ON person_conversations (tenant_id, peer_kind, peer, last_out_at)`,
+	`CREATE TABLE IF NOT EXISTS person_chat_sends (tenant_id TEXT NOT NULL, id TEXT NOT NULL, conversation_id TEXT NOT NULL, direction TEXT NOT NULL, e2e INTEGER NOT NULL DEFAULT 0, bytes INTEGER NOT NULL DEFAULT 0, status TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL DEFAULT (datetime('now')), PRIMARY KEY (tenant_id, id))`,
+	`CREATE INDEX IF NOT EXISTS idx_person_chat_sends_conv ON person_chat_sends (tenant_id, conversation_id, direction, created_at)`,
+	`CREATE INDEX IF NOT EXISTS idx_person_chat_sends_created ON person_chat_sends (tenant_id, direction, created_at)`,
+	`CREATE TABLE IF NOT EXISTS person_chat_buckets (tenant_id TEXT NOT NULL, key TEXT NOT NULL, n INTEGER NOT NULL DEFAULT 0, updated_at TEXT NOT NULL DEFAULT (datetime('now')), PRIMARY KEY (tenant_id, key))`,
+	`CREATE INDEX IF NOT EXISTS idx_person_chat_buckets_age ON person_chat_buckets (tenant_id, updated_at)`,
 }
 
 // lateAlterMigrations alter tables created in postAlterMigrations.
@@ -702,6 +710,9 @@ var lateAlterMigrations = []string{
 		FROM bridges b, json_each(b.egress_declarations) j
 		WHERE j.value IN ('sealed', 'plain')`,
 	`UPDATE bridges SET egress_declarations = '{}' WHERE egress_declarations <> '{}'`,
+	// MESHSAT-1685: who the tenant's devices may write to through the "@"
+	// lane; mirrors postgres migration 45. Empty = the platform default.
+	`ALTER TABLE tenants ADD COLUMN person_chat_mode TEXT NOT NULL DEFAULT ''`,
 }
 
 // --- Devices ---

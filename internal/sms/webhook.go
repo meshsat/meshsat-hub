@@ -28,6 +28,7 @@ import (
 	"github.com/meshsat/meshsat-hub/internal/fragment"
 	hubmqtt "github.com/meshsat/meshsat-hub/internal/mqtt"
 	"github.com/meshsat/meshsat-hub/internal/msvqsc"
+	"github.com/meshsat/meshsat-hub/internal/personchat"
 	"github.com/meshsat/meshsat-hub/internal/protocol"
 	"github.com/meshsat/meshsat-hub/internal/store"
 )
@@ -52,6 +53,17 @@ type InboundSMS struct {
 	Compression string `json:"compression,omitempty"`
 	Encrypted   bool   `json:"encrypted"`
 	Timestamp   string `json:"timestamp"`
+	// Lane names the lane that took this SMS for itself (personchat's
+	// LaneMarker): a person's reply on its way to the device that wrote to
+	// them. Still published, so SOS detection and the message history see
+	// it; the routing engine leaves it alone.
+	Lane string `json:"lane,omitempty"`
+}
+
+// PersonLane is the "@" lane (internal/personchat): it takes a person's reply
+// to a device that wrote to them, and answers whether it did.
+type PersonLane interface {
+	TakeSMS(ctx context.Context, tenantID string, in personchat.InboundSMS) bool
 }
 
 // RawSMS is published to mo/raw for binary SMS payloads.
@@ -89,6 +101,31 @@ type WebhookHandler struct {
 	deadman          *deadman.Monitor
 	audit            *audit.Service
 	hembReassembler  hembReassemblerIface
+	lane             PersonLane // the "@" lane; nil = off
+}
+
+// SetPersonLane attaches the "@" lane. SMS only: the device wrote by SMS, and
+// WhatsApp is its own bearer.
+func (h *WebhookHandler) SetPersonLane(l PersonLane) { h.lane = l }
+
+// takenByLane hands an inbound SMS to the "@" lane and answers whether it
+// took it. body is the SMS exactly as it arrived; sealed a MeshSat frame no
+// Hub key opened (end to end, carried unread); opened one a Hub key DID open,
+// which is MeshSat app traffic for the pipeline and never a person's reply.
+//
+// The tenant is the one whose webhook URL the SMS arrived at, and only that:
+// tenantOf lets a registered device id beat the path, and a device id is
+// whatever somebody registered, a phone number included.
+func (h *WebhookHandler) takenByLane(ctx context.Context, from, messageSID, body string, sealed, opened bool) bool {
+	if h.lane == nil || h.channelName() != "sms" {
+		return false
+	}
+	tenantID := tenancy.FromContext(ctx)
+	if tenantID == "" {
+		tenantID = hubmqtt.DefaultTenant
+	}
+	return h.lane.TakeSMS(ctx, tenantID, personchat.InboundSMS{
+		From: from, MessageSID: messageSID, Body: body, Sealed: sealed, Opened: opened})
 }
 
 // hembReassemblerIface allows the SMS handler to feed HeMB symbols into the
@@ -536,6 +573,15 @@ func (h *WebhookHandler) processBinaryPipeline(r *http.Request, w http.ResponseW
 		Encrypted:   encrypted,
 		Timestamp:   time.Now().UTC().Format(time.RFC3339),
 	}
+	// A person's reply to a device that wrote to them. A sealed frame no Hub
+	// key opened is end to end: the lane carries the SMS exactly as it came.
+	// Anything else that only LOOKS like base64 ("Help", "Test", "1234" all
+	// decode) is the text as typed, not this pipeline's guess at a codec.
+	asReceived := base64.StdEncoding.EncodeToString(rawBytes)
+	sealed := !encrypted && personchat.SealedSMS(asReceived)
+	if h.takenByLane(r.Context(), from, messageSID, asReceived, sealed, encrypted) {
+		msg.Lane = personchat.LaneMarker
+	}
 	h.publish(hubmqtt.TopicMODecodedFor(h.tenantOf(r.Context(), from), from), 1, false, msg)
 	h.publish("meshsat/hub/sms/inbound", 1, false, msg)
 
@@ -650,6 +696,9 @@ func (h *WebhookHandler) processPlaintextSMS(r *http.Request, w http.ResponseWri
 	// and the dashboards see it. Until MESHSAT-1022 only the base64 branch
 	// published here, so no route ever fired for a plain-text SMS.
 	tid := h.tenantOf(r.Context(), from)
+	if h.takenByLane(r.Context(), from, messageSID, body, false, false) {
+		msg.Lane = personchat.LaneMarker
+	}
 	h.publish(hubmqtt.TopicMODecodedFor(tid, from), 1, false, msg)
 	h.publish("meshsat/hub/sms/inbound", 1, false, msg)
 	slog.Info("sms: plaintext published for routing", "from", from, "id", msgID, "tenant", tid)

@@ -557,6 +557,113 @@ pending, and when tried again it makes only what is missing.
 - Metrics: `meshsat_hub_msg_submissions_total{result,reason}`,
   `meshsat_hub_msg_deliveries_total{result}`, `meshsat_hub_msg_acks_total{kind}`.
 
+## The "@" lane: a device writes to a person (Hub 2026-10, MESHSAT-1685)
+
+A tenant's satellite device writes to a PERSON by SMS or email through the
+Hub, and the person's reply comes back to that device. Every message is plain
+or end to end, the sender's choice. This works over the satellite link alone:
+no MQTT, no internet at the device.
+
+### Who may write, and to whom
+
+- The sender is a satellite modem **registered to the tenant** (a node behind
+  MeshSat Android or iOS, a kit's 9704 or 9603), and the message reached the
+  Hub through the Hub's own provider handler (Cloudloop, RockBLOCK,
+  Globalstar). The lane sends only on the Hub's copy of such a message,
+  `{root}/hub/satmo/{imei}`, which no bridge can publish; a bridge that
+  publishes `mo/decoded` for a modem does not make the Hub send anything.
+- The Hub sends from the tenant's OWN accounts: its Twilio number for SMS, its
+  mail gateway for email (Integrations). The platform's accounts are never
+  used for a customer tenant.
+- Who may be written to is the tenant's setting (Settings, "Devices may write
+  to", `person_chat_mode` on `GET/PUT /api/tenant`): `contacts` (the platform
+  default: only numbers and addresses in the tenant's Contacts), `open` (any),
+  `off` (nobody, and `@` texts are ordinary traffic again).
+- Never to the Hub's own numbers, the tenant's own sending number or
+  addresses, or a kit's SIM.
+
+### Device to person
+
+The text starts with the address, then whitespace or a colon, then the body:
+
+```
+@+31612345678 water at the north gate
+@ops@example.org need fuel at the depot
+@OpsDesk need fuel at the depot        (a contact, by its name without spaces)
+```
+
+- A number is E.164 (`+`, then 7 to 15 digits, no spaces). An email address
+  is one bare ASCII address. A name is a Contact whose display name, spaces
+  removed and case folded, is that word; a name no contact or two contacts
+  answer to is not an address (it may be a mesh mention or APRS's
+  `@CALLSIGN text`) and the text is ordinary traffic.
+- Plain SMS: the person receives `<device label>: <body>`, cut to one SMS
+  segment (160 GSM characters, 70 with any character outside GSM 03.38). When
+  several of the tenant's devices are writing to the same person, the head
+  carries the device's tag, `<label> K7Q: <body>`.
+- Plain email: subject `<device label> via MeshSat [ref XXXX-XXXX-XXXX]`,
+  Reply-To the tenant's reply address, the body, and a footer saying how to
+  reply. Sent only over TLS. Threaded on the person's last reply. When the
+  tenant's mail settings hold the person's PGP key, the Hub encrypts the mail
+  to it (protection from the Hub on, not end to end).
+- Not sent: the device gets ONE satellite message back,
+  `[MeshSat Hub] not sent to <address>: <reason>` (at most five a day per
+  device), so a person in the field never believes a message went that did
+  not.
+- Limits: 20 messages an hour per device, 10 new people a day per device, 120
+  an hour per tenant (platform settings).
+
+### Person to device
+
+- SMS: the person answers the SMS. The reply reaches the device only while the
+  device last wrote to that person within the window (168 h), and only on a
+  real Twilio delivery (a `MessageSid`). With several devices writing to the
+  person, a reply starts with the device's tag (`K7Q on my way`); a reply with
+  no tag gets one SMS a day explaining it, and a tag of a closed conversation
+  delivers to nobody.
+- Email: the reply must carry the conversation's `[ref XXXX-XXXX-XXXX]` in its
+  SUBJECT and come from the address the device wrote to. An auto-reply
+  (`Auto-Submitted`, `Precedence: bulk|list`, list headers, out-of-office
+  subjects) or a mail whose domain checks failed (DKIM and SPF, as the mail
+  service reports them) is not delivered. The tenant's mail service forwards
+  inbound mail to `POST /api/webhook/email/{secret}` (Mailgun, SendGrid, any
+  forwarder; multipart and PGP/MIME parts are read).
+- The device receives `[from <address>] <body>` as an MT: plain text, line
+  breaks folded into spaces, quoted history and signatures cut off, then cut
+  to the link (an SBD MT is 270 bytes; a 9704 reply is cut at 1024 bytes).
+- Limits: 10 replies an hour and 50 a day per conversation, 120 an hour per
+  tenant. Over a limit the person is told once a day.
+- The reply is still published on the sender's `mo/decoded` (so SOS detection,
+  the dead man's switch and the message history see it), marked
+  `"lane":"person"`; the routing engine does not relay it.
+
+### End to end
+
+The Hub carries an end-to-end body unaltered both ways and reads only the
+address. Which it is, is decided by the body's structure:
+
+| Bearer | End-to-end body | What the Hub does |
+|---|---|---|
+| SMS | one base64 token of a sealed MeshSat SMS frame, wire v2 mode AES-GCM (`02 01 | nonce(12) | ciphertext | tag(16)`), sealed with the key the device and the person's MeshSat Android share for that conversation | sends it as the SMS, exactly; it must fit one segment (160 characters) |
+| email | an OpenPGP message encrypted to the person's key: ASCII-armoured, or the packets as ONE base64 token (the form a satellite link affords) | armours a compact one, sends it as inline PGP, never encrypts it again |
+
+Replies come back the same way: a sealed SMS frame no Hub key opens, or a PGP
+message (inline or PGP/MIME) encrypted to some key other than the tenant's,
+reaches the device as `[from <address>] <frame or compact PGP>`. An end-to-end
+reply that does not fit the device's link is not cut: the person is told it
+did not fit.
+
+What the apps do with it (MeshSat Android and iOS): compose with a recipient
+and an encrypted/plain choice; keep the person's key (a conversation key for
+SMS, an OpenPGP public key for email) and the device's own OpenPGP key; show a
+reply as a conversation with `<address>` by parsing the `[from <address>] `
+head; open the frame or the compact PGP behind it. An SMS recipient can only
+read an end-to-end SMS in MeshSat Android (an ordinary phone cannot decrypt,
+and iOS gives apps no SMS access). A modem whose satellite chain is `sealed`
+(the kits' key, which the Hub does not hold) arrives opaque, so the address is
+unreadable: the app sends an `@` message outside that chain, with the address
+readable to the Hub and the body sealed for the person.
+
 ## SOS identity (C10, Hub 2026-10, MESHSAT-1584)
 
 An SOS a bridge or phone raises carries its own identity, so the Hub pages once

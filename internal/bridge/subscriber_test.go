@@ -1203,3 +1203,22 @@ func (m *mockStore) CountBoothSendsTo(context.Context, string, string, time.Time
 	return 0, nil
 }
 func (m *mockStore) CountBoothSends(context.Context, string, time.Time) (int, error) { return 0, nil }
+func (m *mockStore) SavePersonConversationOut(_ context.Context, c *store.PersonConversation) (*store.PersonConversation, error) {
+	return c, nil
+}
+func (m *mockStore) GetPersonConversationByRef(context.Context, string, string) (*store.PersonConversation, error) {
+	return nil, nil
+}
+func (m *mockStore) PersonConversationsWith(context.Context, string, string, string, time.Time) ([]store.PersonConversation, error) {
+	return nil, nil
+}
+func (m *mockStore) MarkPersonConversationIn(context.Context, string, string, time.Time, string) error {
+	return nil
+}
+func (m *mockStore) MarkPersonConversationOut(context.Context, string, string, time.Time, string) error {
+	return nil
+}
+func (m *mockStore) RecordPersonChatSend(context.Context, *store.PersonChatSend) error { return nil }
+func (m *mockStore) TakePersonChatSlot(context.Context, string, string, int) (bool, error) {
+	return true, nil
+}

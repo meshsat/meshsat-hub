@@ -379,6 +379,8 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		Opaque:      sealed || text == "",
 	}
 	h.publish(hubmqtt.TopicMODecodedFor(h.tenantOf(ctx, deviceID), deviceID), 1, false, decoded)
+	// The Hub's own copy, which no bridge can publish (MESHSAT-1685).
+	h.publish(hubmqtt.TopicSatMOFor(h.tenantOf(ctx, deviceID), deviceID), 1, false, decoded)
 
 	// Publish position if lat/lon are present and non-zero.
 	if payload.Latitude != 0 || payload.Longitude != 0 {

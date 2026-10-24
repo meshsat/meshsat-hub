@@ -264,3 +264,21 @@ func natsAllows(patterns []string, subject string) bool {
 	}
 	return false
 }
+
+// The Hub's own copy of a satellite MO (hubmqtt.TopicSatMOFor) is what the
+// "@" lane sends on, BECAUSE no bridge can publish it (MESHSAT-1685): every
+// bridge may publish mo/decoded for any device id in its namespace. If a
+// grant ever reaches it, a kit can make its tenant's Twilio text anyone.
+func TestNoBridgeMayPublishTheHubsSatelliteCopy(t *testing.T) {
+	for _, ns := range []string{"meshsat", "meshsat/t_alpha"} {
+		publish, _ := NATSPermissions(ns, "kit-a")
+		for _, tenant := range []string{"default", "t_alpha", "t_other"} {
+			subject := strings.ReplaceAll(hubmqtt.TopicSatMOFor(tenant, "300434060000101"), "/", ".")
+			for _, p := range publish {
+				if subjectMatches(p, subject) {
+					t.Errorf("a bridge in %s may publish %s through grant %s", ns, subject, p)
+				}
+			}
+		}
+	}
+}

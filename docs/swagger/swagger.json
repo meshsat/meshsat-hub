@@ -11882,6 +11882,10 @@
                     "description": "Host marks a bare host name or address the Hub will dial for this tenant\n(a tenant's own TAK server, which is raw TLS and so has no URL). The same\nrequest-forgery concern as URL: it must resolve to a public address\n(MESHSAT-1460).",
                     "type": "boolean"
                 },
+                "host_port": {
+                    "description": "HostPort is Host for a \"host:port\" setting: a tenant's own SMTP server.\nUntil MESHSAT-1685 smtp_host went unchecked, so a tenant could have the\nHub open an SMTP conversation with any address inside the cluster. The\ndial is guarded too (email.NewTenantClient).",
+                    "type": "boolean"
+                },
                 "key": {
                     "type": "string"
                 },
@@ -13622,6 +13626,13 @@
                 "owner_user_id": {
                     "type": "string"
                 },
+                "person_chat_mode": {
+                    "description": "PersonChatMode is who this tenant's devices may write to through the \"@\"\nlane: \"off\", \"contacts\" or \"open\"; \"\" means the platform default, which\nPersonChatModeDefault names (MESHSAT-1685).",
+                    "type": "string"
+                },
+                "person_chat_mode_default": {
+                    "type": "string"
+                },
                 "plan": {
                     "type": "string"
                 },
@@ -15033,6 +15044,13 @@
                 "owner_user_id": {
                     "type": "string"
                 },
+                "person_chat_mode": {
+                    "description": "PersonChatMode is who this tenant's devices may write to through the \"@\"\nlane: \"off\", \"contacts\" or \"open\"; \"\" means the platform default, which\nPersonChatModeDefault names (MESHSAT-1685).",
+                    "type": "string"
+                },
+                "person_chat_mode_default": {
+                    "type": "string"
+                },
                 "plan": {
                     "type": "string"
                 },
@@ -15210,6 +15228,10 @@
                 },
                 "oob_sms_timeout_sec": {
                     "type": "integer"
+                },
+                "person_chat_mode": {
+                    "description": "PersonChatMode: absent leaves it alone, \"\" returns the tenant to the\nplatform default, \"off\", \"contacts\" or \"open\" sets it (MESHSAT-1685).",
+                    "type": "string"
                 },
                 "ratelimit_daily_cap": {
                     "description": "RatelimitDailyCap and RatelimitMonthlyCap are this tenant's per-device\nsend budget, set by its owner (owner ruling, 21 Sep 2026: every tenant\npays its own carrier for these messages, so the limit on them is the\ntenant's to choose). Same pointer semantics: absent leaves it alone, 0\nreturns to the platform default.",

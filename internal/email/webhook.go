@@ -1,6 +1,7 @@
 package email
 
 import (
+	"context"
 	"crypto/subtle"
 	"encoding/json"
 	"log/slog"
@@ -25,13 +26,45 @@ type InboundEmail struct {
 	Timestamp string `json:"timestamp"`
 }
 
+// ReplyLane is the "@" lane (internal/personchat): it takes a person's reply
+// to a device that wrote to them, and answers whether it did. Declared here
+// so this package does not import the lane.
+type ReplyLane interface {
+	TakeMailReply(ctx context.Context, tenantID string, in InboundReply) bool
+}
+
+// InboundReply is what the webhook hands the lane.
+type InboundReply struct {
+	From      string
+	Subject   string
+	MessageID string
+	// Text is the mail's text, decrypted when the tenant's key opened a
+	// message encrypted to that key ALONE.
+	Text string
+	// PGP is the armoured message the mail carried, inline or as a PGP/MIME
+	// part, when it is end to end: encrypted to some key other than the
+	// tenant's. The lane carries it to the device unopened.
+	PGP string
+	// AutoReply: an out-of-office or list mail, which must never become a
+	// paid satellite message. AuthFailed: the mail service checked the
+	// sender's domain (DKIM, SPF) and nothing passed.
+	AutoReply  bool
+	AuthFailed bool
+}
+
 // WebhookHandler handles inbound email webhooks from services like
 // Mailgun, SendGrid, or custom SMTP-to-webhook bridges.
 type WebhookHandler struct {
 	mqtt   bus.MessageBus
 	pool   *Pool
 	secret string // shared secret (X-Webhook-Secret or ?secret=); empty = every request refused
+	lane   ReplyLane
 }
+
+// SetReplyLane attaches the "@" lane. Until MESHSAT-1685 inbound mail was
+// published on {ns}/hub/email/inbound and nothing read it, so a reply to a
+// device could never reach one.
+func (h *WebhookHandler) SetReplyLane(l ReplyLane) { h.lane = l }
 
 // tenantOf is the tenant whose webhook path this mail arrived at, or the
 // platform tenant on the legacy shared path. Inbound mail used to be published
@@ -100,8 +133,22 @@ func (h *WebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	r.Body = http.MaxBytesReader(w, r.Body, 10<<20) // 10MB limit for email content
 
-	if err := r.ParseForm(); err != nil {
-		slog.Warn("email: parse form failed", "error", err)
+	// Mailgun forwards inbound mail as multipart/form-data. ParseForm does
+	// not read that, and FormValue only parses a multipart body when nothing
+	// was parsed before it, so the fields of such a post used to read as
+	// empty. Kept in memory up to the body limit: the Hub's scratch image has
+	// no temp directory for the parser to spill to.
+	var perr error
+	if strings.HasPrefix(strings.ToLower(r.Header.Get("Content-Type")), "multipart/form-data") {
+		perr = r.ParseMultipartForm(10 << 20)
+		if r.MultipartForm != nil {
+			defer func() { _ = r.MultipartForm.RemoveAll() }()
+		}
+	} else {
+		perr = r.ParseForm()
+	}
+	if perr != nil {
+		slog.Warn("email: parse form failed", "error", perr)
 		http.Error(w, `{"error":"invalid form data"}`, http.StatusBadRequest)
 		return
 	}
@@ -128,7 +175,9 @@ func (h *WebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	slog.Info("email: inbound received", "from", from, "to", to, "subject", subject, "len", len(body))
+	// Not the subject: a reply to a device carries its conversation's
+	// reference there, and a log line is not where a capability belongs.
+	slog.Info("email: inbound received", "from", from, "to", to, "len", len(body))
 
 	msg := InboundEmail{
 		From:      from,
@@ -152,6 +201,34 @@ func (h *WebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				msg.PGPSigner = signer
 			}
 			slog.Info("email: PGP decrypted", "from", from, "signer", signer)
+		}
+	}
+
+	// A reply to a device: the lane checks the conversation's reference and
+	// the sender, and sends it to the device off this request.
+	if h.lane != nil {
+		in := InboundReply{From: from, Subject: subject, MessageID: inboundMessageID(r), Text: msg.Body,
+			AutoReply: autoReply(r, subject), AuthFailed: authFailed(r)}
+		block, inline := armouredBlock(body)
+		if !inline {
+			block = pgpPart(r)
+		}
+		if block != "" {
+			onlyTenant := gw != nil && gw.KeyRing.EncryptedOnlyToMe(block)
+			switch {
+			case onlyTenant && inline && msg.Decrypted:
+				// Encrypted to the tenant's key alone: the hop to the Hub, so
+				// the text goes on as plain.
+			case onlyTenant:
+				if plaintext, _, err := gw.KeyRing.Decrypt(block); err == nil {
+					in.Text = mimeText(plaintext)
+				}
+			default:
+				in.PGP, in.Text = block, ""
+			}
+		}
+		if h.lane.TakeMailReply(r.Context(), h.tenantOf(r), in) {
+			slog.Info("email: inbound taken by the person lane", "tenant", h.tenantOf(r))
 		}
 	}
 

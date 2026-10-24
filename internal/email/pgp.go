@@ -225,3 +225,47 @@ func (kr *KeyRing) armorPublicKey(entity *openpgp.Entity) (string, error) {
 	_ = w.Close()
 	return buf.String(), nil
 }
+
+// EncryptedOnlyToMe reports whether an armoured message is encrypted to this
+// keyring's own key and to nobody else. A reply a person encrypted to the
+// device's key AND the tenant's is meant end to end: the Hub can open it,
+// but handing the device the plaintext over satellite would quietly undo
+// what the sender chose (MESHSAT-1685). A message with a passphrase packet,
+// an anonymous recipient or any other key is not "only to me".
+func (kr *KeyRing) EncryptedOnlyToMe(armored string) bool {
+	if kr == nil || kr.hubEntity == nil {
+		return false
+	}
+	block, err := armor.Decode(strings.NewReader(armored))
+	if err != nil || block.Type != "PGP MESSAGE" {
+		return false
+	}
+	kr.mu.RLock()
+	mine := map[uint64]bool{kr.hubEntity.PrimaryKey.KeyId: true}
+	for _, sub := range kr.hubEntity.Subkeys {
+		if sub.PublicKey != nil {
+			mine[sub.PublicKey.KeyId] = true
+		}
+	}
+	kr.mu.RUnlock()
+	r := packet.NewReader(io.LimitReader(block.Body, 1<<20))
+	keys := 0
+	for i := 0; i < 64; i++ {
+		p, err := r.Next()
+		if err != nil {
+			return false
+		}
+		switch k := p.(type) {
+		case *packet.EncryptedKey:
+			if !mine[k.KeyId] {
+				return false
+			}
+			keys++
+		case *packet.SymmetricallyEncrypted, *packet.AEADEncrypted:
+			return keys > 0
+		default:
+			return false
+		}
+	}
+	return false
+}

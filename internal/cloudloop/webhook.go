@@ -674,6 +674,8 @@ func (h *WebhookHandler) processLingoMO(ctx context.Context, mo *LingoMO, remote
 		Reticulum:        isReticulum,
 	}
 	h.publish(hubmqtt.TopicMODecodedFor(h.tenantOf(ctx, imei), imei), 1, false, decoded)
+	// The Hub's own copy, which no bridge can publish (MESHSAT-1685).
+	h.publish(hubmqtt.TopicSatMOFor(h.tenantOf(ctx, imei), imei), 1, false, decoded)
 
 	// Persist MO message to database.
 	if h.store != nil {

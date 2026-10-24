@@ -219,18 +219,21 @@ func TestWebhookHandler_PositionExtraction(t *testing.T) {
 		t.Fatalf("status = %q, want %q", status, "ok")
 	}
 
-	// Should have 3 messages: mo/raw + mo/decoded + position.
+	// Should have 4 messages: mo/raw + mo/decoded + the Hub's own satmo copy
+	// (MESHSAT-1685) + position.
 	msgs := bus.getMessages()
-	if len(msgs) != 3 {
-		t.Fatalf("expected 3 MQTT messages, got %d", len(msgs))
+	if len(msgs) != 4 {
+		t.Fatalf("expected 4 MQTT messages, got %d", len(msgs))
 	}
-
-	if msgs[2].topic != "meshsat/300000000000002/position" {
-		t.Errorf("topic[2] = %q, want position topic", msgs[2].topic)
+	if msgs[2].topic != "meshsat/hub/satmo/300000000000002" {
+		t.Errorf("topic[2] = %q, want the Hub's satmo copy", msgs[2].topic)
+	}
+	if msgs[3].topic != "meshsat/300000000000002/position" {
+		t.Errorf("topic[3] = %q, want position topic", msgs[3].topic)
 	}
 
 	var pos WebhookPositionMessage
-	if err := json.Unmarshal(msgs[2].payload, &pos); err != nil {
+	if err := json.Unmarshal(msgs[3].payload, &pos); err != nil {
 		t.Fatalf("decode position: %v", err)
 	}
 	if pos.Lat != 52.16 || pos.Lon != 4.51 {
@@ -388,13 +391,19 @@ func TestWebhookHandler_SBD_MO(t *testing.T) {
 		t.Errorf("decoded.MOMSN = %d, want 42", decoded.MOMSN)
 	}
 
-	// Check position topic (SBD includes Iridium CEP location).
-	if msgs[2].topic != "meshsat/300234063904190/position" {
-		t.Errorf("topic[2] = %q, want position topic", msgs[2].topic)
+	// The Hub's own copy, then the position (SBD includes Iridium CEP location).
+	if msgs[2].topic != "meshsat/hub/satmo/300234063904190" {
+		t.Errorf("topic[2] = %q, want the Hub's satmo copy", msgs[2].topic)
+	}
+	if string(msgs[2].payload) != string(msgs[1].payload) {
+		t.Error("the satmo copy must carry exactly the mo/decoded payload")
+	}
+	if msgs[3].topic != "meshsat/300234063904190/position" {
+		t.Errorf("topic[3] = %q, want position topic", msgs[3].topic)
 	}
 
 	var pos WebhookPositionMessage
-	if err := json.Unmarshal(msgs[2].payload, &pos); err != nil {
+	if err := json.Unmarshal(msgs[3].payload, &pos); err != nil {
 		t.Fatalf("decode position: %v", err)
 	}
 	if pos.Lat != 52.16 || pos.Lon != 4.51 {

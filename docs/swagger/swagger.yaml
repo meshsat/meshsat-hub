@@ -453,6 +453,13 @@ definitions:
           request-forgery concern as URL: it must resolve to a public address
           (MESHSAT-1460).
         type: boolean
+      host_port:
+        description: |-
+          HostPort is Host for a "host:port" setting: a tenant's own SMTP server.
+          Until MESHSAT-1685 smtp_host went unchecked, so a tenant could have the
+          Hub open an SMTP conversation with any address inside the cluster. The
+          dial is guarded too (email.NewTenantClient).
+        type: boolean
       key:
         type: string
       label:
@@ -1778,6 +1785,14 @@ definitions:
         type: string
       owner_user_id:
         type: string
+      person_chat_mode:
+        description: |-
+          PersonChatMode is who this tenant's devices may write to through the "@"
+          lane: "off", "contacts" or "open"; "" means the platform default, which
+          PersonChatModeDefault names (MESHSAT-1685).
+        type: string
+      person_chat_mode_default:
+        type: string
       plan:
         type: string
       plan_expires_at:
@@ -2845,6 +2860,14 @@ definitions:
         type: integer
       owner_user_id:
         type: string
+      person_chat_mode:
+        description: |-
+          PersonChatMode is who this tenant's devices may write to through the "@"
+          lane: "off", "contacts" or "open"; "" means the platform default, which
+          PersonChatModeDefault names (MESHSAT-1685).
+        type: string
+      person_chat_mode_default:
+        type: string
       plan:
         type: string
       purge_grace_days:
@@ -2981,6 +3004,11 @@ definitions:
         type: integer
       oob_sms_timeout_sec:
         type: integer
+      person_chat_mode:
+        description: |-
+          PersonChatMode: absent leaves it alone, "" returns the tenant to the
+          platform default, "off", "contacts" or "open" sets it (MESHSAT-1685).
+        type: string
       ratelimit_daily_cap:
         description: |-
           RatelimitDailyCap and RatelimitMonthlyCap are this tenant's per-device

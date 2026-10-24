@@ -473,6 +473,17 @@ type Store interface {
 	RecordBoothSend(ctx context.Context, tenantID, id, recipient, channel, kind string) error
 	CountBoothSendsTo(ctx context.Context, tenantID, recipient string, since time.Time) (int, error)
 	CountBoothSends(ctx context.Context, tenantID string, since time.Time) (int, error)
+	// The "@" lane (MESHSAT-1685): a device's conversations with people, and
+	// the ledger of what the lane sent. See PersonConversation.
+	SavePersonConversationOut(ctx context.Context, c *PersonConversation) (*PersonConversation, error)
+	GetPersonConversationByRef(ctx context.Context, tenantID, ref string) (*PersonConversation, error)
+	PersonConversationsWith(ctx context.Context, tenantID, peerKind, peer string, since time.Time) ([]PersonConversation, error)
+	MarkPersonConversationIn(ctx context.Context, tenantID, id string, at time.Time, messageID string) error
+	MarkPersonConversationOut(ctx context.Context, tenantID, id string, at time.Time, messageID string) error
+	RecordPersonChatSend(ctx context.Context, s *PersonChatSend) error
+	// TakePersonChatSlot counts one use of a ceiling (key names the window,
+	// "dev:<imei>:2026102412") and answers whether it was still under max.
+	TakePersonChatSlot(ctx context.Context, tenantID, key string, max int) (bool, error)
 	// Mesh presence (MESHSAT-1181): which nodes have been heard behind which
 	// bridge. See the MeshNode type for what this can and cannot prove.
 	RecordMeshNode(ctx context.Context, tenantID, bridgeID, nodeID string, heardAt time.Time) error
@@ -1078,6 +1089,13 @@ type Tenant struct {
 	OOBMaxPerHour    int `json:"oob_max_per_hour,omitempty"`
 	OOBSMSTimeoutSec int `json:"oob_sms_timeout_sec,omitempty"`
 	OOBSatTimeoutSec int `json:"oob_sat_timeout_sec,omitempty"`
+	// PersonChatMode is who this tenant's devices may write to through the
+	// "@" lane (MESHSAT-1685): "off", "contacts" (only addresses in the
+	// tenant's directory) or "open" (any number or address). Empty means the
+	// platform default (HUB_PERSONCHAT_DEFAULT_MODE). The sends go out on the
+	// tenant's own Twilio and mail accounts and the replies cost its own
+	// satellite credit, so the choice is the tenant's.
+	PersonChatMode string `json:"person_chat_mode,omitempty"`
 	// PlanExpiresAt is when a paid tier lapses back to free. nil means the
 	// plan does not expire, which is what free, custom and beta are.
 	//
@@ -1273,6 +1291,57 @@ type BoothRelay struct {
 	CreatedAt time.Time
 	ExpiresAt time.Time
 	ClosedAt  *time.Time
+}
+
+// PersonConversation is one device's conversation with one person in the "@"
+// lane (MESHSAT-1685): the device wrote "@+31612345678 ..." or
+// "@ops@example.org ...", and the person's replies go back to it.
+//
+// In the database and not in a map for the booth's reason: both replicas
+// process every message, and a reply lands on whichever pod Twilio or the
+// mail service reached. Keyed (tenant_id, id), id derived from tenant, device,
+// kind and person, so writing to the same person again is the same row.
+//
+// LastOutAt opens the reply window: a person's reply reaches the device only
+// while the device has written to them recently, which is what keeps a
+// stranger from spending the tenant's satellite credit. It moves only when a
+// send was accepted (MarkPersonConversationOut); a row saved for a send that
+// then failed keeps the zero time, so a mistyped number opens no window. Tag tells a person's
+// conversations with several devices of one tenant apart on SMS; Ref is the
+// reference an email reply must carry (a From line can be forged, the
+// reference only the mailbox the Hub wrote to has).
+type PersonConversation struct {
+	TenantID   string
+	ID         string
+	DeviceID   string // a modem IMEI, or a kit's bridge id
+	DeviceKind string // "satellite" or "kit"
+	PeerKind   string // "sms" or "email"
+	Peer       string // E.164, or the mail address as the device wrote it
+	Tag        string
+	Ref        string
+	LastOutAt  time.Time
+	LastInAt   *time.Time
+	// The Message-IDs of the last mail each way, which thread the next one.
+	LastOutMessageID string
+	LastInMessageID  string
+	CreatedAt        time.Time
+	UpdatedAt        time.Time
+}
+
+// PersonChatSend is one message the "@" lane put on a bearer, so a reader
+// can see what was sent: "out" to a person, "in" to a device, "notice" to a
+// device about something that could not be sent. Never a body. The ceilings
+// are TakePersonChatSlot's buckets, which hold across both replicas without a
+// count-then-insert race.
+type PersonChatSend struct {
+	TenantID       string
+	ID             string
+	ConversationID string
+	Direction      string
+	E2E            bool
+	Bytes          int
+	Status         string
+	CreatedAt      time.Time
 }
 
 // EmailContact is a correspondent's PGP public key, as stored.

@@ -90,6 +90,9 @@ func (c *Client) addr(a string) string {
 	return a
 }
 
+// FromNumber is the number the client sends from.
+func (c *Client) FromNumber() string { return c.fromNumber }
+
 // Send sends a message to the given phone number on this client's channel.
 func (c *Client) Send(ctx context.Context, to, body string) (*SendResult, error) {
 	if to == "" {

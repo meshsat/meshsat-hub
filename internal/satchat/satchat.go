@@ -87,6 +87,10 @@ type Options struct {
 	// MTMaxBytes is the most text sent down to a modem. An SBD MT frame is 270
 	// bytes and the version byte and any compression are the sender's business.
 	MTMaxBytes int
+	// Skip names messages another lane delivers itself: the "@" lane's
+	// "@+31... text" from a lane device goes to that person, not to every
+	// kit as well (MESHSAT-1685).
+	Skip func(topic string, payload []byte) bool
 }
 
 // Service runs the lane.
@@ -176,6 +180,9 @@ type decoded struct {
 }
 
 func (s *Service) handle(topic string, payload []byte) {
+	if s.opts.Skip != nil && s.opts.Skip(topic, payload) {
+		return
+	}
 	var m decoded
 	if err := json.Unmarshal(payload, &m); err != nil {
 		return

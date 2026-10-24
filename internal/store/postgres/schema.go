@@ -1355,4 +1355,59 @@ INSERT INTO bridge_egress (tenant_id, bridge_id, imei, format, stamp)
 	ON CONFLICT DO NOTHING;
 UPDATE bridges SET egress_declarations = '{}'::jsonb WHERE egress_declarations <> '{}'::jsonb;
 `},
+	// MESHSAT-1685: the "@" lane. A device's conversation with one person
+	// (store.PersonConversation) and the ledger of what the lane sent, so the
+	// replies a person can make the Hub send have a ceiling that holds across
+	// both replicas. The ref is unique per tenant: an email reply names its
+	// conversation by it. The ledger never holds a body. tenants gains the
+	// tenant's choice of who its devices may write to (store.Tenant). The
+	// buckets are the ceilings: one row per (tenant, window), counted up in
+	// one statement that refuses past the limit, so a check is one write
+	// however far over the limit a sender is.
+	{Version: 45, Name: "person lane", SQL: `
+CREATE TABLE IF NOT EXISTS person_conversations (
+	tenant_id           VARCHAR(64) NOT NULL,
+	id                  VARCHAR(64) NOT NULL,
+	device_id           VARCHAR(64) NOT NULL,
+	device_kind         VARCHAR(16) NOT NULL,
+	peer_kind           VARCHAR(16) NOT NULL,
+	peer                VARCHAR(320) NOT NULL,
+	tag                 VARCHAR(8) NOT NULL,
+	ref                 VARCHAR(32) NOT NULL,
+	last_out_at         TIMESTAMPTZ NOT NULL,
+	last_in_at          TIMESTAMPTZ NULL,
+	last_out_message_id VARCHAR(255) NOT NULL DEFAULT '',
+	last_in_message_id  VARCHAR(255) NOT NULL DEFAULT '',
+	created_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
+	updated_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
+	PRIMARY KEY (tenant_id, id),
+	UNIQUE (tenant_id, ref)
+);
+CREATE INDEX IF NOT EXISTS idx_person_conversations_peer
+	ON person_conversations (tenant_id, peer_kind, peer, last_out_at);
+CREATE TABLE IF NOT EXISTS person_chat_sends (
+	tenant_id       VARCHAR(64) NOT NULL,
+	id              VARCHAR(96) NOT NULL,
+	conversation_id VARCHAR(64) NOT NULL,
+	direction       VARCHAR(16) NOT NULL,
+	e2e             BOOLEAN NOT NULL DEFAULT false,
+	bytes           INTEGER NOT NULL DEFAULT 0,
+	status          VARCHAR(32) NOT NULL DEFAULT '',
+	created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+	PRIMARY KEY (tenant_id, id)
+);
+CREATE INDEX IF NOT EXISTS idx_person_chat_sends_conv
+	ON person_chat_sends (tenant_id, conversation_id, direction, created_at);
+CREATE INDEX IF NOT EXISTS idx_person_chat_sends_created
+	ON person_chat_sends (tenant_id, direction, created_at);
+ALTER TABLE tenants ADD COLUMN IF NOT EXISTS person_chat_mode VARCHAR(16) NOT NULL DEFAULT '';
+CREATE TABLE IF NOT EXISTS person_chat_buckets (
+	tenant_id  VARCHAR(64) NOT NULL,
+	key        VARCHAR(200) NOT NULL,
+	n          INTEGER NOT NULL DEFAULT 0,
+	updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+	PRIMARY KEY (tenant_id, key)
+);
+CREATE INDEX IF NOT EXISTS idx_person_chat_buckets_age ON person_chat_buckets (tenant_id, updated_at);
+`},
 }

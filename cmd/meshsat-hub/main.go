@@ -72,6 +72,7 @@ import (
 	"github.com/meshsat/meshsat-hub/internal/ntfy"
 	"github.com/meshsat/meshsat-hub/internal/objstore"
 	"github.com/meshsat/meshsat-hub/internal/observability"
+	"github.com/meshsat/meshsat-hub/internal/personchat"
 	"github.com/meshsat/meshsat-hub/internal/plans"
 	"github.com/meshsat/meshsat-hub/internal/position"
 	"github.com/meshsat/meshsat-hub/internal/protocol"
@@ -1509,6 +1510,48 @@ func main() {
 	}
 	rock7Pool := rock7.NewClientPool(rock7Client, providerAccounts)
 
+	// Text to one modem as an MT: IMT through the tenant's Cloudloop account
+	// for a 9704, Rock7 MT for a 9603. The satellite route destination, the
+	// "*" lane and the "@" lane all send with it.
+	sendSatText := func(ctx context.Context, tenantID, imei, text string) error {
+		if _, imt := thingResolver.Resolve(tenantID, imei); imt {
+			_, err := mtSender.SendDirect(imei, cloudloop.MTSendRequest{Text: text})
+			return err
+		}
+		client := rock7Pool.ForTenant(ctx, tenantID)
+		if client == nil {
+			return fmt.Errorf("no Rock7 account configured for tenant %s", tenantID)
+		}
+		_, err := client.SendMT(ctx, imei, hex.EncodeToString([]byte(text)))
+		return err
+	}
+
+	// The "@" lane (internal/personchat, MESHSAT-1685): a tenant's modem
+	// writes "@+31612345678 text" or "@ops@example.org text", the Hub sends it
+	// on the tenant's own Twilio account or mail gateway, and the person's
+	// reply comes back to the modem. Built here so the SMS and email webhooks
+	// below can hand it replies; it starts with the routing engine, whose
+	// routes it keeps off its messages. The directory is attached once it
+	// exists.
+	var personLane *personchat.Service
+	if cfg.PersonChatEnabled {
+		personLane = personchat.New(msgBus, dataStore, nil, tenants,
+			laneAccounts{sms: smsPool, mail: emailPool}, sendSatText,
+			func(tenantID, imei string) bool { _, imt := thingResolver.Resolve(tenantID, imei); return imt },
+			personchat.Options{
+				DefaultMode:     cfg.PersonChatDefaultMode,
+				Window:          cfg.PersonChatWindow,
+				DevicePerHour:   cfg.PersonChatDevicePerHour,
+				NewPeoplePerDay: cfg.PersonChatNewPeoplePerDay,
+				NoticesPerDay:   cfg.PersonChatNoticesPerDay,
+				RepliesPerHour:  cfg.PersonChatRepliesPerHour,
+				RepliesPerDay:   cfg.PersonChatRepliesPerDay,
+				TenantPerHour:   cfg.PersonChatTenantPerHour,
+				IMTMaxBytes:     cfg.PersonChatIMTMaxBytes,
+				PlatformNumbers: []string{cfg.SMSFromNumber, strings.TrimPrefix(cfg.WhatsAppFrom(), "whatsapp:")},
+			})
+	}
+
 	// Out-of-band bridge commands (MESHSAT-964 C): sealed OOB frames over the
 	// kit's SIM (Twilio), a 9704 modem (Cloudloop IMT) or a 9603 modem
 	// (Rock7 MT), replies classified out of the three inbound webhooks.
@@ -2300,6 +2343,9 @@ func main() {
 			h.SetDeadman(deadmanMonitor)
 			h.SetAudit(auditSvc)
 			h.SetHeMBReassembler(hembReassemblyBuf)
+			if personLane != nil {
+				h.SetPersonLane(personLane)
+			}
 			return h
 		}
 		// SMS Reticulum interface deferred to MESHSAT-404
@@ -2444,6 +2490,9 @@ func main() {
 	{
 		emailWebhook := hubemail.NewWebhookHandler(msgBus, emailPool)
 		emailWebhook.SetSecret(cfg.EmailWebhookSecret)
+		if personLane != nil {
+			emailWebhook.SetReplyLane(personLane)
+		}
 		if cfg.EmailWebhookSecret == "" {
 			slog.Warn("email: HUB_EMAIL_WEBHOOK_SECRET unset; /api/webhook/email rejects every request (MESHSAT-976)")
 		}
@@ -2540,6 +2589,7 @@ func main() {
 		cfg.RateLimitMonthlyCap, cfg.RateLimitMonthlyCapMax)
 	tenantHandler.SetAuditRetentionPolicy(cfg.AuditRetentionDays,
 		cfg.AuditRetentionMinDays, cfg.AuditRetentionMaxDays)
+	tenantHandler.SetPersonChatPolicy(cfg.PersonChatDefaultMode)
 	tenantHandler.SetOOBPolicy(cfg.OOBMaxPerHour, cfg.OOBMaxPerHourMin, cfg.OOBMaxPerHourMax,
 		int(cfg.OOBSMSTimeout.Seconds()), int(cfg.OOBSatTimeout.Seconds()),
 		int(cfg.OOBTimeoutMin.Seconds()), int(cfg.OOBTimeoutMax.Seconds()))
@@ -2903,6 +2953,9 @@ func main() {
 			directoryRawDB.SetMaxOpenConns(1)
 			directorySQLStore = directory.NewSQLStore(directoryRawDB)
 		}
+	}
+	if directorySQLStore != nil && personLane != nil {
+		personLane.SetDirectory(directorySQLStore)
 	}
 	if directorySQLStore != nil {
 		if err := directorySQLStore.Migrate(ctx); err != nil {
@@ -3354,19 +3407,18 @@ func main() {
 	// Satellite destination (MESHSAT-964 D): the text goes to a bridge's
 	// modem, IMT through the tenant's Cloudloop account for a 9704, Rock7 MT
 	// for a 9603; the route filter lists the modem IMEIs.
-	sendSatText := func(ctx context.Context, tenantID, imei, text string) error {
-		if _, imt := thingResolver.Resolve(tenantID, imei); imt {
-			_, err := mtSender.SendDirect(imei, cloudloop.MTSendRequest{Text: text})
-			return err
-		}
-		client := rock7Pool.ForTenant(ctx, tenantID)
-		if client == nil {
-			return fmt.Errorf("no Rock7 account configured for tenant %s", tenantID)
-		}
-		_, err := client.SendMT(ctx, imei, hex.EncodeToString([]byte(text)))
-		return err
-	}
 	routeEngine.RegisterHandler("satellite", routing.NewSatelliteHandler(sendSatText))
+	var laneSkip func(topic string, payload []byte) bool
+	if personLane != nil {
+		// An "@" text is the lane's to send, and a person's reply the SMS
+		// webhook marked is the lane's to deliver: no route also acts on
+		// either, and the "*" lane does not copy them to the kits.
+		routeEngine.AddLaneClaimer(personLane.Claims)
+		laneSkip = personLane.Claims
+		if err := personLane.Start(); err != nil {
+			slog.Error("personchat: could not subscribe", "error", err)
+		}
+	}
 
 	// The "*" lane (internal/satchat): a roaming satellite node talks to the
 	// kits' meshes and back. It reuses the booth's kit list and its SMS-to-kit
@@ -3390,7 +3442,7 @@ func main() {
 			}
 			lane := satchat.New(msgBus, dataStore, tenants, strings.Split(cfg.SatChatDevices, ","), laneKits,
 				smsKitSender{store: dataStore, c: smsPlatform}, sendSatText,
-				satchat.Options{MaxPerHour: cfg.SatChatMaxPerHour})
+				satchat.Options{MaxPerHour: cfg.SatChatMaxPerHour, Skip: laneSkip})
 			if err := lane.Start(); err != nil {
 				slog.Error("satchat: could not subscribe", "error", err)
 			}

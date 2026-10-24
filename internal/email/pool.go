@@ -44,6 +44,10 @@ var ErrNoGateway = errors.New("email: no outgoing mail configured for this tenan
 type Gateway struct {
 	Client  *Client
 	KeyRing *KeyRing
+	// ReplyTo is where replies to the tenant's devices' mail should go: the
+	// address its mail service forwards to the Hub's webhook (the account's
+	// reply_to); empty means the From address (MESHSAT-1685).
+	ReplyTo string
 }
 
 // Pool resolves a tenant's email gateway.
@@ -170,8 +174,9 @@ func (p *Pool) ForTenant(ctx context.Context, tenantID string) *Gateway {
 		return nil
 	}
 	from, user, pass, key := acct.Get("from"), acct.Get("username"), acct.Get("password"), acct.Get("pgp_key")
+	replyTo := acct.Get("reply_to")
 
-	return p.cache.Get(tenantID, integrations.Fingerprint(host, from, user, pass, key), func() *Gateway {
+	return p.cache.Get(tenantID, integrations.Fingerprint(host, from, user, pass, key, replyTo), func() *Gateway {
 		kr, err := NewKeyRing("MeshSat Hub", from, key)
 		if err != nil {
 			// A malformed key must not silently downgrade to no PGP at all: it
@@ -181,7 +186,7 @@ func (p *Pool) ForTenant(ctx context.Context, tenantID string) *Gateway {
 			return nil
 		}
 		p.loadContacts(ctx, tenantID, kr)
-		return &Gateway{Client: NewClient(host, from, user, pass, kr), KeyRing: kr}
+		return &Gateway{Client: NewTenantClient(host, from, user, pass, kr), KeyRing: kr, ReplyTo: replyTo}
 	})
 }
 

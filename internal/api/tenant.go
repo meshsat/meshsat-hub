@@ -54,6 +54,8 @@ type TenantHandler struct {
 	oobSatTimeoutDefault int
 	oobTimeoutMin        int
 	oobTimeoutMax        int
+	// The "@" lane's platform default mode (MESHSAT-1685).
+	personChatModeDefault string
 }
 
 // NewTenantHandler creates the tenant handler.
@@ -91,6 +93,12 @@ func (h *TenantHandler) SetOOBPolicy(maxPerHour, maxMin, maxMax, smsDefault, sat
 	h.oobMaxPerHourDefault, h.oobMaxPerHourMin, h.oobMaxPerHourMax = maxPerHour, maxMin, maxMax
 	h.oobSMSTimeoutDefault, h.oobSatTimeoutDefault = smsDefault, satDefault
 	h.oobTimeoutMin, h.oobTimeoutMax = timeoutMin, timeoutMax
+}
+
+// SetPersonChatPolicy gives the handler the mode a tenant that has not chosen
+// gets (HUB_PERSONCHAT_DEFAULT_MODE), so the form shows the mode in force.
+func (h *TenantHandler) SetPersonChatPolicy(defaultMode string) {
+	h.personChatModeDefault = defaultMode
 }
 
 // SetStatusInvalidator wires the cross-replica cache drop.
@@ -147,6 +155,11 @@ type tenantResponse struct {
 	OOBSatTimeoutDefault int `json:"oob_sat_timeout_default"`
 	OOBTimeoutMin        int `json:"oob_timeout_min"`
 	OOBTimeoutMax        int `json:"oob_timeout_max"`
+	// PersonChatMode is who this tenant's devices may write to through the "@"
+	// lane: "off", "contacts" or "open"; "" means the platform default, which
+	// PersonChatModeDefault names (MESHSAT-1685).
+	PersonChatMode        string `json:"person_chat_mode"`
+	PersonChatModeDefault string `json:"person_chat_mode_default"`
 }
 
 func (h *TenantHandler) toTenantResponse(t *store.Tenant) tenantResponse {
@@ -168,6 +181,7 @@ func (h *TenantHandler) toTenantResponse(t *store.Tenant) tenantResponse {
 	r.RatelimitDailyMax = h.sendCapDailyMax
 	r.RatelimitMonthlyDefault = h.sendCapMonthlyDefault
 	r.RatelimitMonthlyMax = h.sendCapMonthlyMax
+	r.PersonChatModeDefault = h.personChatModeDefault
 	return r
 }
 
@@ -183,6 +197,7 @@ func toTenantResponse(t *store.Tenant) tenantResponse {
 		OOBMaxPerHour:        t.OOBMaxPerHour,
 		OOBSMSTimeoutSec:     t.OOBSMSTimeoutSec,
 		OOBSatTimeoutSec:     t.OOBSatTimeoutSec,
+		PersonChatMode:       t.PersonChatMode,
 	}
 }
 
@@ -227,6 +242,9 @@ type updateTenantRequest struct {
 	OOBMaxPerHour    *int `json:"oob_max_per_hour,omitempty"`
 	OOBSMSTimeoutSec *int `json:"oob_sms_timeout_sec,omitempty"`
 	OOBSatTimeoutSec *int `json:"oob_sat_timeout_sec,omitempty"`
+	// PersonChatMode: absent leaves it alone, "" returns the tenant to the
+	// platform default, "off", "contacts" or "open" sets it (MESHSAT-1685).
+	PersonChatMode *string `json:"person_chat_mode,omitempty"`
 }
 
 type createInviteRequest struct {
@@ -384,6 +402,20 @@ func (h *TenantHandler) Update(w http.ResponseWriter, r *http.Request) {
 		}
 		*f.dst = v
 	}
+	// Who the tenant's devices may write to (MESHSAT-1685). "open" lets a
+	// device text or mail any number or address on the tenant's own accounts,
+	// so the change goes on the tenant's audit chain.
+	modeBefore := t.PersonChatMode
+	if req.PersonChatMode != nil {
+		v := strings.ToLower(strings.TrimSpace(*req.PersonChatMode))
+		switch v {
+		case "", "off", "contacts", "open":
+		default:
+			writeError(w, http.StatusBadRequest, `person_chat_mode must be "" (platform default), "off", "contacts" or "open"`)
+			return
+		}
+		t.PersonChatMode = v
+	}
 	if err := h.store.UpdateTenant(r.Context(), t); err != nil {
 		slog.Error("tenant: update failed", "error", err)
 		writeError(w, http.StatusInternalServerError, "update failed")
@@ -393,6 +425,26 @@ func (h *TenantHandler) Update(w http.ResponseWriter, r *http.Request) {
 	// everywhere so the owner's new number is the one in force now.
 	if capsChanged && h.forget != nil {
 		h.forget(t.ID)
+	}
+	if t.PersonChatMode != modeBefore && h.audit != nil {
+		actor := "unknown"
+		if u := hubauth.FromContext(r.Context()); u != nil {
+			if u.Email != "" {
+				actor = u.Email
+			} else if u.ID != "" {
+				actor = u.ID
+			}
+		}
+		show := func(m string) string {
+			if m == "" {
+				return "default"
+			}
+			return m
+		}
+		if err := h.audit.Log(r.Context(), t.ID, "person_chat_mode_changed", actor,
+			"person_chat_mode="+show(modeBefore)+">"+show(t.PersonChatMode), clientIPFromRequest(r)); err != nil {
+			slog.Warn("audit: failed to log person_chat_mode_changed", "error", err)
+		}
 	}
 	writeJSON(w, http.StatusOK, h.toTenantResponse(t))
 }
@@ -935,6 +987,7 @@ func adminTenantChanges(before, after *store.Tenant) string {
 	add("oob_max_per_hour", strconv.Itoa(before.OOBMaxPerHour), strconv.Itoa(after.OOBMaxPerHour))
 	add("oob_sms_timeout_sec", strconv.Itoa(before.OOBSMSTimeoutSec), strconv.Itoa(after.OOBSMSTimeoutSec))
 	add("oob_sat_timeout_sec", strconv.Itoa(before.OOBSatTimeoutSec), strconv.Itoa(after.OOBSatTimeoutSec))
+	add("person_chat_mode", before.PersonChatMode, after.PersonChatMode)
 	return strings.Join(parts, " ")
 }
 

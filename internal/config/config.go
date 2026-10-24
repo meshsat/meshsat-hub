@@ -401,6 +401,42 @@ type Config struct {
 	// SatChatMaxPerHour caps street -> stand messages per replica (default 60).
 	SatChatMaxPerHour int `yaml:"satchat_max_per_hour"`
 
+	// PersonChatEnabled turns on the "@" lane (internal/personchat): a
+	// tenant's device writes "@+31612345678 text" or "@ops@example.org text",
+	// the Hub sends it from the tenant's own Twilio account or mail gateway,
+	// and the person's reply goes back to that device. The platform switch;
+	// each tenant chooses its own mode (PersonChatDefaultMode).
+	PersonChatEnabled bool `yaml:"personchat_enabled"`
+	// PersonChatDefaultMode is the mode of a tenant that has not chosen one:
+	// "off", "contacts" (only the tenant directory's addresses, the default)
+	// or "open" (any number or address). "contacts" because a satellite text
+	// is whatever somebody typed on a mesh, and the directory is the list of
+	// people the tenant itself vouched for.
+	PersonChatDefaultMode string `yaml:"personchat_default_mode"`
+	// PersonChatDevicePerHour caps what one device sends to people (default
+	// 20), PersonChatNewPeoplePerDay how many people it may start writing to
+	// in a day (default 10), PersonChatNoticesPerDay the "not sent" notices
+	// one device is sent back (default 5).
+	PersonChatDevicePerHour   int `yaml:"personchat_device_per_hour"`
+	PersonChatNewPeoplePerDay int `yaml:"personchat_new_people_per_day"`
+	PersonChatNoticesPerDay   int `yaml:"personchat_notices_per_day"`
+	// PersonChatWindow is how long after the device last wrote to a person
+	// their replies still reach it (default 168h). Outside it a reply is
+	// dropped: every reply is a paid satellite message on the tenant's
+	// account, and a person the device stopped writing to should not be able
+	// to spend it.
+	PersonChatWindow time.Duration `yaml:"personchat_window"`
+	// PersonChatRepliesPerHour and PersonChatRepliesPerDay cap the replies
+	// one conversation sends to its device (defaults 10 and 50), and
+	// PersonChatTenantPerHour all of a tenant's (default 120). Anti-abuse
+	// ceilings on what a person on the far end can make the Hub spend.
+	PersonChatRepliesPerHour int `yaml:"personchat_replies_per_hour"`
+	PersonChatRepliesPerDay  int `yaml:"personchat_replies_per_day"`
+	PersonChatTenantPerHour  int `yaml:"personchat_tenant_per_hour"`
+	// PersonChatIMTMaxBytes is the most a reply to a 9704 may carry (default
+	// 1024). An SBD modem takes one 270-byte MT, which is not configurable.
+	PersonChatIMTMaxBytes int `yaml:"personchat_imt_max_bytes"`
+
 	// ProvisionProbeAddr is where the broker members answer MQTT in-cluster,
 	// as a name that resolves to one address per member ("nats-headless.<ns>.
 	// svc.cluster.local:1883"). A provisioning claim waits until every member
@@ -570,13 +606,25 @@ func Defaults() Config {
 		RateLimitDailyCap:     100,
 		// A node heard in the last half hour is good evidence someone is there;
 		// much longer and "live" stops meaning anything at a stand (MESHSAT-1181).
-		BoothMeshWindow:       30 * time.Minute,
-		ReticulumIdentityFile: "data/reticulum_identity.json",
-		ReticulumAppName:      "meshsat.hub",
-		ReticulumTCPEnabled:   true,
-		ReticulumTCPAddr:      ":4242",
-		RNSEnabled:            true,
-		BridgeOfflineTimeout:  300, // 5 minutes
+		BoothMeshWindow: 30 * time.Minute,
+		// The "@" lane (MESHSAT-1685): a week of replies after the device last
+		// wrote, ten an hour and fifty a day per conversation.
+		PersonChatEnabled:         true,
+		PersonChatDefaultMode:     "contacts",
+		PersonChatDevicePerHour:   20,
+		PersonChatNewPeoplePerDay: 10,
+		PersonChatNoticesPerDay:   5,
+		PersonChatWindow:          168 * time.Hour,
+		PersonChatRepliesPerHour:  10,
+		PersonChatRepliesPerDay:   50,
+		PersonChatTenantPerHour:   120,
+		PersonChatIMTMaxBytes:     1024,
+		ReticulumIdentityFile:     "data/reticulum_identity.json",
+		ReticulumAppName:          "meshsat.hub",
+		ReticulumTCPEnabled:       true,
+		ReticulumTCPAddr:          ":4242",
+		RNSEnabled:                true,
+		BridgeOfflineTimeout:      300, // 5 minutes
 		// A tenant may choose between one minute and one day.
 		GeofenceCooldownSec:     300,
 		GeofenceCooldownMin:     30,
@@ -1167,6 +1215,42 @@ func Load() (Config, error) {
 	if v := os.Getenv("HUB_SATCHAT_MAX_PER_HOUR"); v != "" {
 		if n, err := strconv.Atoi(v); err == nil && n > 0 {
 			cfg.SatChatMaxPerHour = n
+		}
+	}
+	if v := os.Getenv("HUB_PERSONCHAT_ENABLED"); v != "" {
+		cfg.PersonChatEnabled = strings.EqualFold(v, "true") || v == "1"
+	}
+	if v := os.Getenv("HUB_PERSONCHAT_WINDOW"); v != "" {
+		if d, err := time.ParseDuration(v); err == nil && d > 0 {
+			cfg.PersonChatWindow = d
+		} else {
+			slog.Warn("config: HUB_PERSONCHAT_WINDOW is not a positive duration, keeping the default",
+				"value", v, "error", err)
+		}
+	}
+	if v := os.Getenv("HUB_PERSONCHAT_DEFAULT_MODE"); v != "" {
+		switch strings.ToLower(strings.TrimSpace(v)) {
+		case "off", "contacts", "open":
+			cfg.PersonChatDefaultMode = strings.ToLower(strings.TrimSpace(v))
+		default:
+			slog.Warn("config: HUB_PERSONCHAT_DEFAULT_MODE must be off, contacts or open; keeping the default", "value", v)
+		}
+	}
+	for env, dst := range map[string]*int{
+		"HUB_PERSONCHAT_DEVICE_PER_HOUR":    &cfg.PersonChatDevicePerHour,
+		"HUB_PERSONCHAT_NEW_PEOPLE_PER_DAY": &cfg.PersonChatNewPeoplePerDay,
+		"HUB_PERSONCHAT_NOTICES_PER_DAY":    &cfg.PersonChatNoticesPerDay,
+		"HUB_PERSONCHAT_REPLIES_PER_HOUR":   &cfg.PersonChatRepliesPerHour,
+		"HUB_PERSONCHAT_REPLIES_PER_DAY":    &cfg.PersonChatRepliesPerDay,
+		"HUB_PERSONCHAT_TENANT_PER_HOUR":    &cfg.PersonChatTenantPerHour,
+		"HUB_PERSONCHAT_IMT_MAX_BYTES":      &cfg.PersonChatIMTMaxBytes,
+	} {
+		if v := os.Getenv(env); v != "" {
+			if n, err := strconv.Atoi(v); err == nil && n > 0 {
+				*dst = n
+			} else {
+				slog.Warn("config: not a positive number, keeping the default", "env", env, "value", v)
+			}
 		}
 	}
 	if v := os.Getenv("HUB_BOOTH_SMS_KEYWORD"); v != "" {

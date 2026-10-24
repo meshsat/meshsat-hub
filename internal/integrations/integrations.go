@@ -20,8 +20,10 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net"
 	"net/url"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -122,6 +124,11 @@ type Field struct {
 	// request-forgery concern as URL: it must resolve to a public address
 	// (MESHSAT-1460).
 	Host bool `json:"host,omitempty"`
+	// HostPort is Host for a "host:port" setting: a tenant's own SMTP server.
+	// Until MESHSAT-1685 smtp_host went unchecked, so a tenant could have the
+	// Hub open an SMTP conversation with any address inside the cluster. The
+	// dial is guarded too (email.NewTenantClient).
+	HostPort bool `json:"host_port,omitempty"`
 }
 
 // maxFieldLen is the size cap for a single-line field; multiline fields
@@ -202,8 +209,9 @@ var Specs = []Spec{
 		Webhook: "/api/webhook/email",
 		Fields: []Field{
 			{Key: "webhook_secret", Label: "Webhook secret", Secret: true, Required: true, Generate: true, Hint: "authenticates inbound mail delivered for this tenant."},
-			{Key: "smtp_host", Label: "SMTP host", Hint: "host:port of your outgoing mail server; leave empty to receive only."},
+			{Key: "smtp_host", Label: "SMTP host", HostPort: true, Hint: "host:port of your outgoing mail server (465 = TLS, otherwise STARTTLS when offered); leave empty to receive only."},
 			{Key: "from", Label: "From address", Hint: "the address your alerts are sent from."},
+			{Key: "reply_to", Label: "Reply address", Hint: "where replies to your devices' messages should go: the address your mail service forwards to the webhook below. Leave empty and replies go to the From address."},
 			{Key: "username", Label: "SMTP username", Hint: "leave empty if your relay authorises by address."},
 			{Key: "password", Label: "SMTP password", Secret: true},
 			{Key: "pgp_key", Label: "PGP private key (armored)", Secret: true, Hint: "your own key, used to sign outgoing mail and decrypt inbound. Leave empty and one is generated per run, which is fine for encrypting TO contacts but cannot decrypt anything sent to a previous run."},
@@ -866,10 +874,19 @@ func validatePEM(spec Spec, merged map[string]string) error {
 // (MESHSAT-1460).
 func validateHosts(spec Spec, merged map[string]string) error {
 	for _, f := range spec.Fields {
-		if !f.Host || merged[f.Key] == "" {
+		if (!f.Host && !f.HostPort) || merged[f.Key] == "" {
 			continue
 		}
-		if err := netguard.ValidatePublicHost(merged[f.Key]); err != nil {
+		host := merged[f.Key]
+		if f.HostPort {
+			h, port, err := net.SplitHostPort(strings.TrimSpace(host))
+			n, perr := strconv.Atoi(port)
+			if err != nil || perr != nil || n < 1 || n > 65535 {
+				return fmt.Errorf("%s must look like mail.example.org:587", f.Label)
+			}
+			host = h
+		}
+		if err := netguard.ValidatePublicHost(host); err != nil {
 			return fmt.Errorf("%s: %v", f.Label, err)
 		}
 	}

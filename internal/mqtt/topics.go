@@ -236,6 +236,37 @@ func BridgeTopic(tenantID, bridgeID, suffix string) string {
 	return Namespace(tenantID) + "/bridge/" + EncodeSegment(bridgeID) + "/" + suffix
 }
 
+// TopicSatMOFor is the Hub's own copy of a decoded satellite MO:
+// {namespace}/hub/satmo/{imei}, published only by the Hub's provider handlers
+// (Cloudloop, RockBLOCK, Globalstar) after their ownership check, beside the
+// device's mo/decoded. Every bridge of a tenant may publish mo/decoded for any
+// device id in its namespace (natsauth: {ns}.*.mo.>), so mo/decoded cannot
+// tell a modem's real message from a kit speaking for it; no bridge grant
+// reaches this one (meshsat.hub.> is granted to none, and {ns}.*.mo.> needs
+// "mo" as the segment after the wildcard). A consumer whose side effect must
+// only follow a real satellite message, the "@" lane's sends (MESHSAT-1685),
+// listens here.
+func TopicSatMOFor(tenantID, imei string) string {
+	return Namespace(tenantID) + "/hub/satmo/" + EncodeSegment(imei)
+}
+
+// SatMOFilters are the subscriptions for TopicSatMOFor, both shapes.
+func SatMOFilters() []string {
+	return []string{"meshsat/hub/satmo/+", "meshsat/+/hub/satmo/+"}
+}
+
+// ParseSatMOTopic returns the tenant and the modem of a TopicSatMOFor topic.
+func ParseSatMOTopic(topic string) (tenantID, imei string, ok bool) {
+	parts := strings.Split(topic, "/")
+	switch {
+	case len(parts) == 4 && parts[0] == "meshsat" && parts[1] == "hub" && parts[2] == "satmo" && parts[3] != "":
+		return DefaultTenant, DecodeSegment(parts[3]), true
+	case len(parts) == 5 && parts[0] == "meshsat" && parts[2] == "hub" && parts[3] == "satmo" && parts[1] != "" && parts[4] != "":
+		return parts[1], DecodeSegment(parts[4]), true
+	}
+	return "", "", false
+}
+
 // Tenant-aware variants of the builders above.
 func TopicMORawFor(tenantID, deviceID string) string {
 	return DeviceTopic(tenantID, deviceID, "mo/raw")

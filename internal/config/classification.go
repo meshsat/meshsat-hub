@@ -83,8 +83,11 @@ var Classification = map[string]Class{
 	"wg_password": ClassTenantDone,
 
 	"oob_max_per_hour": ClassTenantDone,
-	"oob_sms_timeout":  ClassTenantDone,
-	"oob_sat_timeout":  ClassTenantDone,
+	// The "@" lane's mode is the tenant's (tenants.person_chat_mode, Settings);
+	// this is the default of a tenant that has not chosen (MESHSAT-1685).
+	"personchat_default_mode": ClassTenantDone,
+	"oob_sms_timeout":         ClassTenantDone,
+	"oob_sat_timeout":         ClassTenantDone,
 
 	"email_enabled":   ClassTenantDone,
 	"email_from":      ClassTenantDone,
@@ -272,24 +275,36 @@ var Classification = map[string]Class{
 	// The TTC stand flow. The deployment's own: a one-off demonstration on the
 	// platform's WhatsApp sender and its own kits, not a tenant feature
 	// (MESHSAT-1175). booth_kits is the destination ALLOWLIST.
-	"booth_enabled":           ClassPlatform,
-	"booth_kits":              ClassPlatform,
-	"booth_content_menu":      ClassPlatform,
-	"booth_content_optin":     ClassPlatform,
-	"booth_content_kits":      ClassPlatform,
-	"booth_sms_keyword":       ClassPlatform,
-	"booth_mesh_window":       ClassPlatform,
-	"satchat_enabled":         ClassPlatform,
-	"satchat_devices":         ClassPlatform,
-	"satchat_max_per_hour":    ClassPlatform,
-	"provision_probe_addr":    ClassPlatform,
-	"pprof_enabled":           ClassPlatform,
-	"public_url":              ClassPlatform,
-	"redis_url":               ClassPlatform,
-	"reticulum_app_name":      ClassPlatform,
-	"reticulum_identity_file": ClassPlatform,
-	"reticulum_tcp_addr":      ClassPlatform,
-	"reticulum_tcp_enabled":   ClassPlatform,
+	"booth_enabled":        ClassPlatform,
+	"booth_kits":           ClassPlatform,
+	"booth_content_menu":   ClassPlatform,
+	"booth_content_optin":  ClassPlatform,
+	"booth_content_kits":   ClassPlatform,
+	"booth_sms_keyword":    ClassPlatform,
+	"booth_mesh_window":    ClassPlatform,
+	"satchat_enabled":      ClassPlatform,
+	"satchat_devices":      ClassPlatform,
+	"satchat_max_per_hour": ClassPlatform,
+	// The "@" lane's ceilings are anti-abuse bounds on what the person at the
+	// far end can make the Hub spend, like satchat_max_per_hour; the lane
+	// itself only ever sends through the tenant's own accounts.
+	"personchat_enabled":            ClassPlatform,
+	"personchat_device_per_hour":    ClassPlatform,
+	"personchat_new_people_per_day": ClassPlatform,
+	"personchat_notices_per_day":    ClassPlatform,
+	"personchat_window":             ClassPlatform,
+	"personchat_replies_per_hour":   ClassPlatform,
+	"personchat_replies_per_day":    ClassPlatform,
+	"personchat_tenant_per_hour":    ClassPlatform,
+	"personchat_imt_max_bytes":      ClassPlatform,
+	"provision_probe_addr":          ClassPlatform,
+	"pprof_enabled":                 ClassPlatform,
+	"public_url":                    ClassPlatform,
+	"redis_url":                     ClassPlatform,
+	"reticulum_app_name":            ClassPlatform,
+	"reticulum_identity_file":       ClassPlatform,
+	"reticulum_tcp_addr":            ClassPlatform,
+	"reticulum_tcp_enabled":         ClassPlatform,
 	// The upstream-compatible node (MESHSAT-1555) is the deployment's own
 	// transport; the tenant-owned part of it (the LXMF identity, display
 	// name and stamp cost) lives in the tenant's encrypted provider row.
