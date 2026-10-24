@@ -379,6 +379,12 @@ effect is nothing is worse than an absent one, because this scorecard counts it.
     tenant's root and naming another tenant's registered IMEI, it would write into that tenant.
     To do: reproduce or refute with a test (default tenant as the victim); if real, refuse and
     count the mismatch on the bus paths without touching the provider paths.
+    **2026-10-24: confirmed from code** (MESHSAT-1685's design attack): bridges may publish
+    `{ns}.*.mo.>`, `.sos`, `.position`, `.telemetry` for any device id, so the forgery reaches the
+    victim's routes, SOS chain and history, and a forged message carrying the victim's next
+    `mo-<imei>-<momsn>` id pre-claims the real message's route dispatch. A fix pattern exists: the
+    provider handlers publish a Hub-only copy on `{ns}/hub/satmo/{imei}` that no bridge grant
+    reaches, which the "@" lane already sends on (addendum below). Still not exercised end to end.
 17. ~~**The Hub cannot reach wg-easy**~~ — **CLOSED 2026-10-02 (MESHSAT-1476, 84e6fbc), found the
     same day.** The policy `wg-easy-confine` (MESHSAT-1205) admitted TCP 51821 only from the edge
     relay and the kubelet, so the Hub's own login to wg-easy timed out from 2026-09-17 until the
@@ -411,6 +417,49 @@ effect is nothing is worse than an absent one, because this scorecard counts it.
     Hub's token at 200 and the overlay still gets the proxy's 403. Left open: the Hub has no alert
     for an unreachable billing system (MESHSAT-1662), and the next rollout's start-up line is the
     last check.
+
+20. **A device id may be any string, and a registered id beats the webhook path's tenant** — **OPEN
+    (MESHSAT-1688), from code, not exercised.** `devices.imei` has no format check, and the SMS
+    webhook's `tenantOf` lets a registered device id win over the tenant whose path the SMS arrived
+    at. A tenant that registers a phone number as a "device" would have that number's inbound SMS
+    on the platform's number or another tenant's path filed, persisted and dead-man-checked in its
+    own account. The "@" lane already takes the path tenant only. To do: IMEI/ESN-shaped ids only,
+    the path's tenant final for SMS, default tenant as the victim.
+
+## Addendum, 2026-10-24 (MESHSAT-1685): devices write to people, and people write back
+
+A new surface: a person who receives a device's SMS or mail can now make the Hub send a paid
+satellite message to that device. V1/V4/V5/V12 (architecture, access control, input, external
+calls). Designed, attacked by a separate reviewer before any code (15 holes, each closed or filed),
+reviewed again after.
+
+- **Who can make the Hub send.** Only a satellite modem registered to the tenant, and only a
+  message from the Hub's own provider handlers: the lane sends on `{ns}/hub/satmo/{imei}`, never on
+  mo/decoded (item 16); `TestNoBridgeMayPublishTheHubsSatelliteCopy` checks the real NATS grants. The
+  topic's tenant must be the modem's owner (`TestAMessageInAnotherTenantsNamespace…`, default tenant
+  as the victim). Only the tenant's own Twilio and mail accounts. Tenant mode `contacts` by default:
+  only addresses in the tenant's directory. Never the Hub's own numbers, the tenant's own sending
+  number or addresses, or a kit's SIM.
+- **Who can make the Hub send to a device.** Only a person the device wrote to, inside 168 h after
+  an ACCEPTED send; SMS only with a Twilio MessageSid (the HMAC relay signature is replayable); mail
+  only with the conversation's 60-bit reference in the subject, the matching From, no failing
+  DKIM/SPF/DMARC verdict and not an auto-reply. Ownership of the modem re-read before every MT.
+  Ceilings per conversation, device and tenant as atomic buckets. Bodies flattened so a reply cannot
+  forge a Hub line on the device; end-to-end bodies carried unread.
+- **SOS unaffected.** A person's reply the lane takes is still published on mo/decoded, marked, so
+  SOS keyword detection and the dead man's switch see it; only the routing engine skips it.
+- **Fixed on the way.** (a) A tenant's `smtp_host` was dialled unchecked, so a customer could make
+  the Hub open SMTP to any in-cluster host:port: validated public on save (`Field.HostPort`) and at
+  dial time (`netguard.DialControl`), `TestATenantsSMTPHostMustBePublic`,
+  `TestATenantsServerIsNeverInsideTheCluster`. (b) The tenant client sent no Date/Message-ID, said
+  `EHLO localhost` and could send an SMTP password without TLS: now refuses that
+  (`TestTheClientRefusesCleartextWhenItMatters`). (c) The inbound email webhook never parsed a
+  multipart post, so it could not read a Mailgun delivery at all.
+- **Observed to fail.** Each of the topic-tenant check, the owner re-check before an MT, the
+  closed-tag rule, the mail From check, the SMTP dial guard and RequireTLS was removed in turn and
+  its test failed. `scripts/check-real-identifiers.py` failed on the platform's SMS number in a
+  test before the first push. Production: both replicas `fee8a67e`, migration 45 once.
+- **Not yet exercised live:** a real device round trip (it costs real SMS and satellite credit).
 
 ## Addendum, 2026-10-13 (MESHSAT-1555): a public Reticulum endpoint
 

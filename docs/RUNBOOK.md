@@ -253,6 +253,38 @@ curl -s -H "Authorization: Bearer $HUB_VERIFY_ADMIN_KEY" https://hub.meshsat.net
   upstream ingress control holds announce bursts on a new interface. Not a fault.
 - The public endpoint `rns.meshsat.net:4242` is the VPS edge plus DNS, outside this repo.
 
+### 11. The "@" lane: a device's message to a person, or a reply that did not arrive
+
+A tenant's satellite modem writes `@+31612345678 text` / `@name@example.org text` / `@Contact text`;
+the Hub sends it on the tenant's own Twilio or mail gateway and the reply comes back to the modem as
+`[from <address>] text` (MESHSAT-1685). Contract: `docs/bridge-hub-protocol.md`, "The @ lane".
+
+```bash
+for p in $(kubectl -n meshsat-hub get pods -l app.kubernetes.io/name=hub -o name); do
+  kubectl -n meshsat-hub logs $p | grep 'personchat:' | tail -20     # read BOTH pods
+done
+curl -s -H "Authorization: Bearer $KEY" https://hub.meshsat.net/api/tenant | jq '.person_chat_mode, .person_chat_mode_default'
+```
+
+- Nothing sent, and the device got `[MeshSat Hub] not sent to …: <reason>`: the reason is the
+  answer (not in contacts, no SMS provider, no mail gateway, a limit, an own number or a kit SIM).
+- Nothing sent and no notice: the message did not come through the satellite provider (a bridge's
+  own mo/decoded is never sent), the modem is not registered to that tenant, the address did not
+  parse (`@word` that is no contact is ordinary traffic), the tenant's mode is `off`, the satellite
+  chain was `sealed` (the Hub cannot read the address), or the tenant's notices for the day are used.
+- A reply that did not reach the device: outside the 168 h window, an SMS without a Twilio
+  MessageSid, a mail without `[ref …]` in its subject or from another address, an auto-reply, a
+  failing domain verdict, a closed conversation's tag, the device no longer the tenant's, or a
+  ceiling (the person is told once a day). The rows: `person_conversations`, the ledger
+  `person_chat_sends`, the ceilings `person_chat_buckets`, all keyed by tenant.
+- Inbound mail reaches the lane only through the tenant's mail service forwarding to
+  `POST /api/webhook/email/{secret}` (Settings, Integrations, Email gateway; replies go to its Reply
+  address).
+- Off switch: `HUB_PERSONCHAT_ENABLED=false` in the ConfigMap (Reloader rolls the Hub). Per tenant:
+  Settings, "Devices may write to: Nobody".
+- Never test it by publishing a synthetic satmo message on production: it sends a real SMS or mail
+  and a real satellite MT.
+
 ## Health Checks
 
 | Endpoint | What it checks | Used by |
