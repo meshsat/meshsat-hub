@@ -14788,7 +14788,7 @@
                     "type": "boolean"
                 },
                 "imt_topic": {
-                    "description": "IMT only: PURPLE/PINK/RED/ORANGE/YELLOW/RAW",
+                    "description": "IMT only: RAW/PURPLE/PINK/RED/ORANGE/YELLOW/ROCKREMOTE_CDM or the IMT_TOPIC_ name (default RAW); any other is refused with 400",
                     "type": "string"
                 },
                 "priority": {
@@ -14796,7 +14796,7 @@
                     "type": "integer"
                 },
                 "ring_style": {
-                    "description": "IMT only: NORMAL/URGENT/EXTENDED",
+                    "description": "IMT only: NORMAL/URGENT/EXTENDED or the RING_STYLE_ name (default NORMAL); any other is refused with 400",
                     "type": "string"
                 },
                 "scheduled_at": {

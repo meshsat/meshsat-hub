@@ -75,8 +75,24 @@ type sendMessageRequest struct {
 	Encrypt     bool   `json:"encrypt"`                // AES-256-GCM encrypt with device key (default: true if key exists)
 	ScheduledAt string `json:"scheduled_at,omitempty"` // RFC3339 timestamp for future delivery (empty = send now)
 	Priority    int    `json:"priority,omitempty"`     // >=9 bypasses per-device rate limiting (SOS)
-	IMTTopic    string `json:"imt_topic,omitempty"`    // IMT only: PURPLE/PINK/RED/ORANGE/YELLOW/RAW
-	RingStyle   string `json:"ring_style,omitempty"`   // IMT only: NORMAL/URGENT/EXTENDED
+	IMTTopic    string `json:"imt_topic,omitempty"`    // IMT only: RAW/PURPLE/PINK/RED/ORANGE/YELLOW/ROCKREMOTE_CDM or the IMT_TOPIC_ name (default RAW); any other is refused with 400
+	RingStyle   string `json:"ring_style,omitempty"`   // IMT only: NORMAL/URGENT/EXTENDED or the RING_STYLE_ name (default NORMAL); any other is refused with 400
+}
+
+// normalizeIMT checks the IMT topic and ring style before anything is sent or
+// scheduled: Cloudloop knows only the full names, and an MT on an unknown
+// topic is billed and then read by nobody. [MESHSAT-1669]
+func (req *sendMessageRequest) normalizeIMT() error {
+	topic, err := cloudloop.NormalizeIMTTopic(req.IMTTopic)
+	if err != nil {
+		return err
+	}
+	style, err := cloudloop.NormalizeRingStyle(req.RingStyle)
+	if err != nil {
+		return err
+	}
+	req.IMTTopic, req.RingStyle = topic, style
+	return nil
 }
 
 // SendMessage sends an MT message to a device via Rock7/Iridium.
@@ -105,6 +121,10 @@ func (h *SendHandler) SendMessage(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.Text == "" {
 		writeError(w, http.StatusBadRequest, "text is required")
+		return
+	}
+	if err := req.normalizeIMT(); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 
@@ -498,6 +518,10 @@ func (h *SendHandler) SendMessageCloudloop(w http.ResponseWriter, r *http.Reques
 	}
 	if req.Text == "" {
 		writeError(w, http.StatusBadRequest, "text is required")
+		return
+	}
+	if err := req.normalizeIMT(); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 	if h.imtSender == nil {

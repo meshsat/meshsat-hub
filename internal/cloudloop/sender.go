@@ -40,8 +40,23 @@ type MTSendRequest struct {
 	Compress   bool   `json:"compress,omitempty"`
 	Encrypt    bool   `json:"encrypt,omitempty"`
 	TTLSeconds int    `json:"ttl_seconds,omitempty"`
-	IMTTopic   string `json:"imt_topic,omitempty"`  // IMT only: PURPLE/PINK/RED/ORANGE/YELLOW/RAW
-	RingStyle  string `json:"ring_style,omitempty"` // IMT only: NORMAL/URGENT/EXTENDED
+	IMTTopic   string `json:"imt_topic,omitempty"`  // IMT only: RAW/PURPLE/PINK/RED/ORANGE/YELLOW/ROCKREMOTE_CDM or the IMT_TOPIC_ name; empty = RAW
+	RingStyle  string `json:"ring_style,omitempty"` // IMT only: NORMAL/URGENT/EXTENDED or the RING_STYLE_ name; empty = NORMAL
+}
+
+// normalize puts the IMT topic and ring style in the form Cloudloop takes,
+// and refuses one it does not know before anything is sent. [MESHSAT-1669]
+func (r *MTSendRequest) normalize() error {
+	topic, err := NormalizeIMTTopic(r.IMTTopic)
+	if err != nil {
+		return err
+	}
+	style, err := NormalizeRingStyle(r.RingStyle)
+	if err != nil {
+		return err
+	}
+	r.IMTTopic, r.RingStyle = topic, style
+	return nil
 }
 
 const imtMTU = 100000 // IMT supports up to 100KB MT messages
@@ -221,7 +236,11 @@ func (s *Sender) handleMTSend(topic string, payload []byte) {
 	}
 
 	var req MTSendRequest
-	if err := json.Unmarshal(payload, &req); err != nil {
+	err := json.Unmarshal(payload, &req)
+	if err == nil {
+		err = req.normalize()
+	}
+	if err != nil {
 		slog.Warn("cloudloop: invalid MT send request", "error", err, "device", deviceID)
 		s.publishStatus(deviceID, "", "failed", "invalid request: "+err.Error())
 		return
@@ -426,6 +445,9 @@ func mtTextPayload(text string, smaz bool, isIMT bool) []byte {
 // mt/status publication behave exactly as for MQTT-initiated sends. The
 // single-fragment success status is published by sendPayload. [MESHSAT-750]
 func (s *Sender) SendDirect(imei string, req MTSendRequest) (*SendDirectResult, error) {
+	if err := req.normalize(); err != nil {
+		return nil, err
+	}
 	thingID, isIMT := s.resolveDevice(imei)
 
 	client, tenant := s.clientFor(imei)

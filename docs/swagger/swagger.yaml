@@ -2656,13 +2656,15 @@ definitions:
         description: 'AES-256-GCM encrypt with device key (default: true if key exists)'
         type: boolean
       imt_topic:
-        description: 'IMT only: PURPLE/PINK/RED/ORANGE/YELLOW/RAW'
+        description: 'IMT only: RAW/PURPLE/PINK/RED/ORANGE/YELLOW/ROCKREMOTE_CDM or
+          the IMT_TOPIC_ name (default RAW); any other is refused with 400'
         type: string
       priority:
         description: '>=9 bypasses per-device rate limiting (SOS)'
         type: integer
       ring_style:
-        description: 'IMT only: NORMAL/URGENT/EXTENDED'
+        description: 'IMT only: NORMAL/URGENT/EXTENDED or the RING_STYLE_ name (default
+          NORMAL); any other is refused with 400'
         type: string
       scheduled_at:
         description: RFC3339 timestamp for future delivery (empty = send now)

@@ -12,6 +12,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
+	"strings"
 	"time"
 )
 
@@ -32,6 +33,48 @@ const (
 	RingStyleUrgent   = "RING_STYLE_URGENT"
 	RingStyleExtended = "RING_STYLE_EXTENDED"
 )
+
+// imtTopics are the topics DoSendImtMessage knows. The send API documents the
+// short names (RAW, PURPLE, ...); Cloudloop takes only the full ones, and an
+// MT on any other topic is billed and then read by nobody. [MESHSAT-1669]
+var imtTopics = []string{IMTTopicRaw, IMTTopicPurple, IMTTopicPink, IMTTopicRed, IMTTopicOrange, IMTTopicYellow, IMTTopicRockRemote}
+
+var ringStyles = []string{RingStyleNormal, RingStyleUrgent, RingStyleExtended}
+
+// NormalizeIMTTopic returns Cloudloop's name for an IMT topic given by its
+// short name (RAW) or its full name (IMT_TOPIC_RAW), in any case. An empty
+// topic stays empty, which SendIMT sends as RAW (the satellite relay relies on
+// that). Any other topic is an error naming the accepted ones. [MESHSAT-1669]
+func NormalizeIMTTopic(topic string) (string, error) {
+	return normalizeName(topic, "IMT_TOPIC_", imtTopics, "imt_topic")
+}
+
+// NormalizeRingStyle does the same for the ring style: NORMAL or
+// RING_STYLE_NORMAL, and so on; empty stays empty (SendIMT sends NORMAL).
+func NormalizeRingStyle(style string) (string, error) {
+	return normalizeName(style, "RING_STYLE_", ringStyles, "ring_style")
+}
+
+func normalizeName(v, prefix string, known []string, field string) (string, error) {
+	v = strings.ToUpper(strings.TrimSpace(v))
+	if v == "" {
+		return "", nil
+	}
+	full := v
+	if !strings.HasPrefix(full, prefix) {
+		full = prefix + full
+	}
+	for _, k := range known {
+		if full == k {
+			return k, nil
+		}
+	}
+	short := make([]string, len(known))
+	for i, k := range known {
+		short[i] = strings.TrimPrefix(k, prefix)
+	}
+	return "", fmt.Errorf("unknown %s %q: use one of %s (or the same with the %s prefix)", field, v, strings.Join(short, ", "), prefix)
+}
 
 // Client communicates with the Cloudloop/Ground Control Data API for MT message delivery.
 // Supports both legacy custom endpoints and the official Cloudloop Data API.
