@@ -42,9 +42,23 @@ func TestWebhookHandler_TenantTokens(t *testing.T) {
 	}
 	key := make([]byte, 32)
 	accounts := integrations.New(db, key)
+	// The account's default API URL is checked against public DNS on save; this test never calls the
+	// provider, so the check stays out of it and the test runs without a network (MESHSAT-1683).
+	accounts.DisableURLCheckForTest()
 	accounts.SetPlatform(integrations.ProviderCloudloop, map[string]string{"api_key": "platform", "webhook_token": "platform-token"})
-	acctA, _ := accounts.Set(ctx, "tenant-a", integrations.ProviderCloudloop, map[string]string{"api_key": "ka"})
-	acctB, _ := accounts.Set(ctx, "tenant-b", integrations.ProviderCloudloop, map[string]string{"api_key": "kb"})
+	acctA, err := accounts.Set(ctx, "tenant-a", integrations.ProviderCloudloop, map[string]string{"api_key": "ka"})
+	if err != nil {
+		t.Fatalf("tenant-a account: %v", err)
+	}
+	acctB, err := accounts.Set(ctx, "tenant-b", integrations.ProviderCloudloop, map[string]string{"api_key": "kb"})
+	if err != nil {
+		t.Fatalf("tenant-b account: %v", err)
+	}
+	for name, a := range map[string]*integrations.Account{"tenant-a": acctA, "tenant-b": acctB} {
+		if a.Get("webhook_token") == "" {
+			t.Fatalf("%s account has no webhook token", name)
+		}
+	}
 
 	h := NewWebhookHandler(&mockBus{})
 	h.SetAllowedIPs([]string{"*"})
