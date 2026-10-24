@@ -238,7 +238,7 @@ func (s *Sender) handleMTSend(topic string, payload []byte) {
 		"thing", thingID,
 		"imt", isIMT,
 		"text_len", len(req.Text),
-		"compress", req.Compress,
+		"compress", req.Compress && !isIMT,
 	)
 
 	// Rate limit check (SOS messages bypass).
@@ -261,14 +261,8 @@ func (s *Sender) handleMTSend(topic string, payload []byte) {
 		return
 	}
 
-	// Prepare payload.
-	data := []byte(req.Text)
-	if req.Compress {
-		data = compress.Compress(data)
-	}
-
-	// Prepend protocol version byte before fragmentation.
-	data = codec.PrependVersionByte(data)
+	// Prepare payload: the version byte goes on before fragmentation.
+	data := mtTextPayload(req.Text, req.Compress, isIMT)
 
 	// IMT supports 100KB — fragmentation rarely needed. SBD uses 270-byte MT MTU.
 	mtu := s.mtMTU
@@ -406,6 +400,26 @@ func (s *Sender) IsIMTDevice(imei string) bool {
 	return isIMT
 }
 
+// mtTextPayload is what a text request puts on the modem. A 9704 (IMT) gets
+// the text's own UTF-8 bytes and nothing else: that is how MeshSat Android
+// and iOS send a plain text and how the Rock7 path sends one, and it is the
+// one form every 9704 reader opens. Both apps read a payload that starts with
+// the version byte as one of the kits' encrypted chains, so the Hub's
+// compressed text arrived as "cannot open" on the phone, and a Bridge's 9704
+// interface has no transforms by default, so it showed the SMAZ2 bytes. One
+// IMT message carries 100 KB, so compression saves nothing there. An SBD
+// modem keeps the version byte and the requested SMAZ2. [MESHSAT-1675]
+func mtTextPayload(text string, smaz bool, isIMT bool) []byte {
+	data := []byte(text)
+	if isIMT {
+		return data
+	}
+	if smaz {
+		data = compress.Compress(data)
+	}
+	return codec.PrependVersionByte(data)
+}
+
 // SendDirect prepares and sends one MT message through Cloudloop synchronously,
 // reusing the same resolve, compress, version-byte and fragmentation pipeline
 // as the MQTT mt/send path. Rate limiting, retries, audit, cost recording and
@@ -432,11 +446,7 @@ func (s *Sender) SendDirect(imei string, req MTSendRequest) (*SendDirectResult, 
 		}
 		data = wire
 	} else {
-		data = []byte(req.Text)
-		if req.Compress {
-			data = compress.Compress(data)
-		}
-		data = codec.PrependVersionByte(data)
+		data = mtTextPayload(req.Text, req.Compress, isIMT)
 	}
 
 	mtu := s.mtMTU

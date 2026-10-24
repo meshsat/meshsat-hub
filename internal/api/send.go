@@ -71,7 +71,7 @@ func (h *SendHandler) SetIMTSender(s *cloudloop.Sender) {
 
 type sendMessageRequest struct {
 	Text        string `json:"text"`
-	Compress    bool   `json:"compress"`               // SMAZ2 compress before sending (default: true)
+	Compress    bool   `json:"compress"`               // SMAZ2 compress before sending (default: true); a 9704 always gets the text as it is (MESHSAT-1675)
 	Encrypt     bool   `json:"encrypt"`                // AES-256-GCM encrypt with device key (default: true if key exists)
 	ScheduledAt string `json:"scheduled_at,omitempty"` // RFC3339 timestamp for future delivery (empty = send now)
 	Priority    int    `json:"priority,omitempty"`     // >=9 bypasses per-device rate limiting (SOS)
