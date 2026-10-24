@@ -62,7 +62,7 @@ func TestSendDirect_IMTTextIsItsOwnBytes(t *testing.T) {
 	s := NewSender(NewClient(server.URL, "k"), &recordingBus{})
 	s.SetDeviceResolver(imtResolver{thing: "THING-phone"})
 
-	res, err := s.SendDirect("300258060512710", MTSendRequest{Text: hubText, Compress: true})
+	res, err := s.SendDirect("300000000000001", MTSendRequest{Text: hubText, Compress: true})
 	if err != nil {
 		t.Fatalf("SendDirect: %v", err)
 	}
@@ -83,7 +83,7 @@ func TestMTSend_IMTTextIsItsOwnBytes(t *testing.T) {
 	s.SetDeviceResolver(imtResolver{thing: "THING-phone"})
 
 	body, _ := json.Marshal(MTSendRequest{Text: hubText, Compress: true})
-	s.handleMTSend("meshsat/300258060512710/mt/send", body)
+	s.handleMTSend("meshsat/300000000000001/mt/send", body)
 	if got := ask.only(t); string(got) != hubText {
 		t.Fatalf("a 9704 was sent % x, want the text's own bytes", got)
 	}

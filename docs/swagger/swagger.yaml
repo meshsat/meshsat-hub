@@ -2649,7 +2649,8 @@ definitions:
   internal_api.sendMessageRequest:
     properties:
       compress:
-        description: 'SMAZ2 compress before sending (default: true)'
+        description: 'SMAZ2 compress before sending (default: true); a 9704 always
+          gets the text as it is (MESHSAT-1675)'
         type: boolean
       encrypt:
         description: 'AES-256-GCM encrypt with device key (default: true if key exists)'
