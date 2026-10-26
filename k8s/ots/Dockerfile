@@ -11,7 +11,8 @@
 #
 # requirements.txt is a hash-locked resolve of requirements.in for CPython 3.13
 # on manylinux x86_64. overrides.txt replaces the vulnerable exact versions that
-# OTS pins, and drops frida:
+# OTS pins, and drops frida, and adsbxcot and aiscot, which were withdrawn from
+# PyPI (MESHSAT-1666; patch-withdrawn-feeds.py below):
 #   uv pip compile requirements.in --override overrides.txt --python-version 3.13 \
 #     --python-platform x86_64-manylinux_2_28 --generate-hashes -o requirements.txt
 # pip installs the lock with --no-deps. Otherwise pip would resolve OTS's own
@@ -43,10 +44,16 @@ RUN /opt/ots/bin/pip install --no-cache-dir --no-deps --require-hashes -r /tmp/r
 # The fetch is digest-pinned and the patch's anchor is byte-exact; either one
 # failing fails the build, which is deliberate. A silent no-op here restores a
 # 134-second stall that nobody would think to look for twice.
-COPY bundle-iconsets.py patch-icon-fetch.py patch-eud-handshake.py /tmp/
+#
+# patch-withdrawn-feeds.py (MESHSAT-1666): OTS 1.7.13's scheduled_jobs.py imports
+# adsbxcot and aiscot at the top, and app.py imports that module while it builds
+# the app. Both packages were withdrawn from PyPI and are not installed, so the
+# imports become stand-ins; only the paused ADS-B and AIS jobs ever used them.
+COPY bundle-iconsets.py patch-icon-fetch.py patch-eud-handshake.py patch-withdrawn-feeds.py /tmp/
 RUN /opt/ots/bin/python /tmp/bundle-iconsets.py /opt/ots/share/iconsets.sqlite \
     && /opt/ots/bin/python /tmp/patch-icon-fetch.py /opt/ots/share/iconsets.sqlite \
-    && /opt/ots/bin/python /tmp/patch-eud-handshake.py
+    && /opt/ots/bin/python /tmp/patch-eud-handshake.py \
+    && /opt/ots/bin/python /tmp/patch-withdrawn-feeds.py
 
 # A default timeout for every HTTP request OpenTAKServer makes (MESHSAT-1070).
 #
@@ -72,14 +79,22 @@ COPY sitecustomize.py /opt/ots/lib/python3.13/site-packages/sitecustomize.py
 # So: assert the handshake patch is in the loaded module, and that requests really
 # carries our default. If Python stops importing sitecustomize, or the venv layout
 # moves, or the patch silently no-ops, the build stops here.
+#
+# And import scheduled_jobs for real (MESHSAT-1666): with adsbxcot and aiscot
+# absent, that import is what fails if the patch did not take, and it would fail
+# at OTS start, not here, without this line.
 RUN /opt/ots/bin/python -c "\
-import sys, requests, inspect; \
+import sys, requests, inspect, importlib.util; \
 import opentakserver.eud_handler.EudHandlerSSL as m; \
 src = inspect.getsource(m); \
 assert 'MESHSAT-1089' in src, 'the EudHandlerSSL patch is NOT in the module Python loads'; \
 assert getattr(requests.Session.request, '_meshsat_timeout_default', False), \
     'sitecustomize did not install the default request timeout'; \
-print('ots image: handshake patch and request timeout default both verified')"
+assert importlib.util.find_spec('adsbxcot') is None and importlib.util.find_spec('aiscot') is None, \
+    'adsbxcot or aiscot is installed; the lock should exclude both'; \
+import opentakserver.blueprints.scheduled_jobs as sj; \
+assert 'MESHSAT-1666' in inspect.getsource(sj), 'the scheduled_jobs patch is NOT in the module Python loads'; \
+print('ots image: handshake patch, request timeout default and withdrawn-feed stand-ins verified')"
 
 FROM python:3.13-slim-trixie
 # Debian security updates for the packages the BASE IMAGE brings.

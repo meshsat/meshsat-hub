@@ -18,9 +18,37 @@ dulwich>=1.2.5,<2
 # (CVE-2026-97687, CVE-2026-97689) and virtualenv 21.7.9 (CVE-2026-102925,
 # -102930, -102937).
 urllib3>=2.8.0
-virtualenv>=21.7.13
+# package:ots on branch pipeline 61405, job 591661 (24 Oct 2026, MESHSAT-1666):
+# virtualenv 21.14.5 (CVE-2026-113718, -113722, -113723, fixed in 21.14.9;
+# CVE-2026-113725, fixed in 21.14.7), pillow 12.3.0 (28 advisories, 5 of them
+# CRITICAL, all fixed in 13.0.0), certifi 2026.7.22 (GHSA-6q48-6c7w-9gw2,
+# CRITICAL), aiohttp 3.14.3 (CVE-2026-111064, CVE-2026-111066,
+# GHSA-2g87-pp6c-29x5) and filelock 3.32.6 (CVE-2026-112940, fixed in 4.2.1).
+# filelock keeps virtualenv's <5: an override replaces the bounds its
+# dependents declare, and 4.0 only changed SoftReadWriteLock, which none of
+# them use (they take FileLock, BaseFileLock and Timeout). aiohttp is no longer
+# installed at all, since only adsbxcot and aiscot (below) required it; the
+# floor stays so it cannot come back vulnerable.
+virtualenv>=21.14.9
+pillow>=13.0.0
+certifi>=2026.10.19
+aiohttp>=3.14.4
+filelock>=4.2.1,<5
+# virtualenv 21.14.9 needs packaging>=26.3, and meshtastic 2.7.6 (pinned by
+# OTS) caps it at <25. meshtastic only calls packaging.version.parse and
+# catches InvalidVersion (util.py, its PyPI version check), which 26.x keeps.
+packaging>=26.3
 # frida comes in with androguard and ships a Go binary (golang.org/x/text,
 # CVE-2026-56852). OTS only uses androguard.core.apk, which never imports frida
 # (only androguard/pentest does). This marker never matches, so frida is
 # excluded.
 frida; sys_platform == "never"
+# adsbxcot and aiscot were withdrawn from PyPI by their maintainer between 22
+# and 26 Oct 2026 (MESHSAT-1666): both the index and the files answer 404, so
+# the lock can no longer be installed from a cold cache. OpenTAKServer 1.7.14
+# dropped them too. They serve only the ADS-B and AIS scheduled jobs, which are
+# paused by default and cannot reach their data sources from a tenant pod (no
+# egress). patch-withdrawn-feeds.py removes the two imports, and these markers
+# never match, so both are excluded.
+adsbxcot; sys_platform == "never"
+aiscot; sys_platform == "never"

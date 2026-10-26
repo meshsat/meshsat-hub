@@ -530,6 +530,168 @@ class IconLoaderBehaviour(unittest.TestCase):
         self.assertTrue(any("falling back" in m.lower() for _, m in log.lines))
 
 
+WITHDRAWN = HERE / "patch-withdrawn-feeds.py"
+
+
+def load_withdrawn_module():
+    """Import patch-withdrawn-feeds.py for its ANCHOR and REPLACEMENT (the name has a dash)."""
+    spec = importlib.util.spec_from_file_location("patch_withdrawn_feeds", WITHDRAWN)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+W = load_withdrawn_module()
+
+
+def write_jobs_fixture(d: pathlib.Path, anchor=None):
+    """Build a minimal scheduled_jobs.py around the real anchor.
+
+    From the script's OWN constant, never a vendored copy (GPL-3.0-or-later
+    upstream, Apache-2.0 here). CRLF, because upstream's file is CRLF. The job
+    below is ours: it has the shape of get_aishub_data (the call inside a
+    `try ... except BaseException` that logs), so the stand-in can be executed.
+    """
+    src = (
+        b"import datetime\r\n"
+        b"import json\r\n"
+        b"import traceback\r\n"
+        b"from xml.etree.ElementTree import tostring\r\n"
+        b"\r\n"
+        + (W.ANCHOR if anchor is None else anchor)
+        + b"import pika\r\n"
+        b"\r\n"
+        b"\r\n"
+        b"def get_aishub_data(logger, vessel):\r\n"
+        b"    try:\r\n"
+        b"        return aiscot.ais_to_cot(vessel, None, None)\r\n"
+        b"    except BaseException as e:\r\n"
+        b'        logger.error(f"Failed to get AIS data: {e}")\r\n'
+    )
+    path = d / "scheduled_jobs.py"
+    path.write_bytes(src)
+    return path
+
+
+def run_withdrawn_patch(path):
+    return subprocess.run(
+        [sys.executable, str(WITHDRAWN), str(path)],
+        capture_output=True, text=True,
+    )
+
+
+class WithdrawnFeedsPatchApplication(unittest.TestCase):
+    """patch-withdrawn-feeds.py -- MESHSAT-1666.
+
+    adsbxcot and aiscot are no longer installable, so the image leaves them
+    out. If this patch did not take, OpenTAKServer would not start at all:
+    app.py imports scheduled_jobs while it builds the app.
+    """
+
+    def test_it_applies_once_and_is_idempotent(self):
+        with tempfile.TemporaryDirectory() as d:
+            jobs = write_jobs_fixture(pathlib.Path(d))
+            r = run_withdrawn_patch(jobs)
+            self.assertEqual(r.returncode, 0, r.stderr)
+            once = jobs.read_bytes()
+            self.assertIn(W.MARKER, once)
+            self.assertNotIn(W.ANCHOR, once)
+            self.assertIsNone(W._IMPORT_RE.search(once), "an import of a withdrawn package survived")
+
+            r2 = run_withdrawn_patch(jobs)
+            self.assertEqual(r2.returncode, 0, r2.stderr)
+            self.assertEqual(jobs.read_bytes(), once, "a second run changed the file")
+            self.assertIn("already patched", r2.stdout)
+
+    def test_the_result_compiles_and_keeps_crlf(self):
+        with tempfile.TemporaryDirectory() as d:
+            jobs = write_jobs_fixture(pathlib.Path(d))
+            self.assertEqual(run_withdrawn_patch(jobs).returncode, 0)
+            raw = jobs.read_bytes()
+            self.assertNotIn(b"\n", raw.replace(b"\r\n", b""), "a bare LF crept in")
+            py_compile.compile(str(jobs), doraise=True)
+
+    def test_drift_refuses_and_writes_nothing(self):
+        with tempfile.TemporaryDirectory() as d:
+            drifted = W.ANCHOR.replace(b"import aiscot", b"import aiscot as ais")
+            jobs = write_jobs_fixture(pathlib.Path(d), anchor=drifted)
+            before = jobs.read_bytes()
+            r = run_withdrawn_patch(jobs)
+            self.assertNotEqual(r.returncode, 0, "drift was accepted")
+            self.assertEqual(jobs.read_bytes(), before, "a refused patch still wrote")
+            self.assertIn("expected exactly 1", r.stderr)
+
+    def test_an_lf_converted_file_is_refused(self):
+        with tempfile.TemporaryDirectory() as d:
+            jobs = write_jobs_fixture(pathlib.Path(d))
+            jobs.write_bytes(jobs.read_bytes().replace(b"\r\n", b"\n"))
+            before = jobs.read_bytes()
+            self.assertNotEqual(run_withdrawn_patch(jobs).returncode, 0)
+            self.assertEqual(jobs.read_bytes(), before)
+
+    def test_the_import_scan_sees_every_form_and_nothing_else(self):
+        """The venv run refuses any OTHER module that imports either package."""
+        for src, hit in (
+            (b"import adsbxcot\r\n", True),
+            (b"    from aiscot.functions import ais_to_cot\r\n", True),
+            (b"import os, aiscot\r\n", True),
+            (b"import adsbxcot_ng\r\n", False),
+            (b"# import adsbxcot\r\n", False),
+            (b'adsbxcot = _MeshSatWithdrawn("adsbxcot")\r\n', False),
+        ):
+            with self.subTest(src=src):
+                self.assertEqual(bool(W._IMPORT_RE.search(src)), hit)
+
+    def test_other_imports_names_the_module_that_would_break(self):
+        with tempfile.TemporaryDirectory() as d:
+            root = pathlib.Path(d) / "opentakserver"
+            (root / "blueprints").mkdir(parents=True)
+            jobs = write_jobs_fixture(root / "blueprints")
+            (root / "clean.py").write_bytes(b"import json\r\n")
+            self.assertEqual(W.other_imports(root, jobs), [], "the file being patched counted")
+            (root / "feeds.py").write_bytes(b"from adsbxcot import adsbx_to_cot\r\n")
+            self.assertEqual(W.other_imports(root, jobs), [str(root / "feeds.py")])
+
+
+class WithdrawnFeedsBehaviour(unittest.TestCase):
+    """Execute the stand-ins the patch writes, rather than trusting the substitution."""
+
+    def _ns(self):
+        ns = {}
+        exec(W.REPLACEMENT, ns)
+        return ns
+
+    def test_a_lookup_on_either_stand_in_names_the_package(self):
+        ns = self._ns()
+        for name in ("adsbxcot", "aiscot"):
+            with self.subTest(package=name):
+                with self.assertRaises(RuntimeError) as cm:
+                    getattr(ns[name], "anything_at_all")
+                self.assertIn(name, str(cm.exception))
+                self.assertIn("MESHSAT-1666", str(cm.exception))
+
+    def test_dunder_lookups_stay_ordinary(self):
+        """copy, pickle and hasattr probe dunders; they must see AttributeError."""
+        ns = self._ns()
+        self.assertFalse(hasattr(ns["aiscot"], "__wrapped__"))
+        self.assertIsNotNone(repr(ns["adsbxcot"]))
+
+    def test_a_resumed_job_logs_the_reason_and_does_not_raise(self):
+        with tempfile.TemporaryDirectory() as d:
+            jobs = write_jobs_fixture(pathlib.Path(d))
+            self.assertEqual(run_withdrawn_patch(jobs).returncode, 0)
+            ns = {"__name__": "scheduled_jobs_fixture"}
+            # The real module imports pika next; a stand-in keeps this offline.
+            sys.modules.setdefault("pika", types.ModuleType("pika"))
+            try:
+                exec(compile(jobs.read_bytes(), str(jobs), "exec"), ns)
+            finally:
+                sys.modules.pop("pika", None)
+            log = Recorder()
+            self.assertIsNone(ns["get_aishub_data"](log, {"MMSI": 1}))
+            self.assertEqual(log.levels, ["error"])
+            self.assertIn("aiscot was withdrawn from PyPI", log.lines[0][1])
+
 
 if __name__ == "__main__":
     unittest.main()
