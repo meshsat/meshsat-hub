@@ -3,9 +3,10 @@ import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { createMap, setMapTheme, addSvgIcon, probeLocalArchive, maplibregl } from '../map/basemap'
 import { useThemeStore } from '../stores/theme'
-import { positions, bridges } from '../api/client'
+import { positions, bridges, takChat } from '../api/client'
 import { ago } from '../utils/paths'
 import Icon from '../components/Icon.vue'
+import CrewChatPanel from '../components/CrewChatPanel.vue'
 import { useOpsStore } from '../stores/ops'
 
 // The common operating picture: full bleed, every kit and device with a
@@ -27,6 +28,9 @@ let refreshInterval = null
 let popup = null
 
 const items = ref([])
+// The crews an operator can write to (MESHSAT-1706), keyed to markers by node_key.
+const crews = ref([])
+const chatOpen = ref(false)
 const selectedKey = ref(null)
 const show = ref({ kit: true, satellite: true, ground: true })
 const trackRange = ref('24h')
@@ -179,6 +183,15 @@ function select(key, fly = true) {
   if (!window.matchMedia('(min-width: 768px)').matches) listOpen.value = false
 }
 
+// The crew the selected marker is: a mesh node by its "!aabbccdd", a phone by
+// its bridge id.
+const selectedCrew = computed(() => {
+  const i = items.value.find((x) => x.key === selectedKey.value)
+  if (!i) return null
+  return crews.value.find((c) => c.node_key && c.node_key === i.id) || null
+})
+watch(selectedKey, () => { chatOpen.value = false })
+
 function fitAll() {
   const vis = items.value.filter((i) => show.value[i.category])
   if (!vis.length || !mapReady) return
@@ -188,7 +201,8 @@ function fitAll() {
 }
 
 async function refreshPositions(first = false) {
-  const [devs, kits] = await Promise.all([positions.allLatest().catch(() => []), bridges.list().catch(() => [])])
+  const [devs, kits, crewList] = await Promise.all([positions.allLatest().catch(() => []), bridges.list().catch(() => []), takChat.crews().catch(() => [])])
+  crews.value = Array.isArray(crewList) ? crewList : []
   const next = []
   for (const p of Array.isArray(devs) ? devs : []) {
     if (!p.lat && !p.lon) continue
@@ -311,6 +325,11 @@ onUnmounted(() => {
     </aside>
     <button v-else class="absolute z-10 top-3 left-3 ms-btn bg-ms-card shadow-lg shadow-black/30" @click="listOpen = true">
       <Icon name="layers" :size="15" />List <span class="ms-num text-ms-muted">{{ items.length }}</span>
+    </button>
+
+    <CrewChatPanel v-if="selectedCrew && chatOpen" :crew="selectedCrew" @close="chatOpen = false" />
+    <button v-else-if="selectedCrew" class="absolute z-10 top-3 right-3 ms-btn bg-ms-card shadow-lg shadow-black/30" data-testid="crew-chat-open" @click="chatOpen = true">
+      <Icon name="messages" :size="15" />Message {{ selectedCrew.callsign }}
     </button>
 
     <div v-if="basemapMissing" class="absolute z-10 top-3 right-3 max-w-sm rounded-lg border border-ms-warning/50 bg-ms-card px-3 py-2 text-xs text-ms-text shadow-lg">

@@ -43,6 +43,47 @@ type CotDetail struct {
 	Status    *CotStatus    `xml:"status,omitempty"`
 	Emergency *CotEmergency `xml:"emergency,omitempty"`
 	Remarks   *CotRemarks   `xml:"remarks,omitempty"`
+	// A GeoChat's routing, as ATAK writes it (MESHSAT-1706).
+	Chat  *CotChat  `xml:"__chat,omitempty"`
+	Link  *CotLink  `xml:"link,omitempty"`
+	Marti *CotMarti `xml:"marti,omitempty"`
+}
+
+// CotChat is a GeoChat's __chat: chatroom and id name the recipient (its
+// callsign and uid), senderCallsign the sender.
+type CotChat struct {
+	Parent         string        `xml:"parent,attr,omitempty"`
+	GroupOwner     string        `xml:"groupOwner,attr,omitempty"`
+	MessageID      string        `xml:"messageId,attr,omitempty"`
+	Chatroom       string        `xml:"chatroom,attr"`
+	ID             string        `xml:"id,attr"`
+	SenderCallsign string        `xml:"senderCallsign,attr"`
+	Group          *CotChatGroup `xml:"chatgrp,omitempty"`
+}
+
+// CotChatGroup is __chat's chatgrp: uid0 the sender, uid1 the recipient.
+type CotChatGroup struct {
+	UID0 string `xml:"uid0,attr"`
+	UID1 string `xml:"uid1,attr"`
+	ID   string `xml:"id,attr"`
+}
+
+// CotLink is a link to another event; on a GeoChat, the sender.
+type CotLink struct {
+	UID      string `xml:"uid,attr"`
+	Type     string `xml:"type,attr"`
+	Relation string `xml:"relation,attr"`
+}
+
+// CotMarti is the server routing a client asks for: one dest per recipient.
+type CotMarti struct {
+	Dests []CotDest `xml:"dest"`
+}
+
+// CotDest names one recipient by uid and callsign.
+type CotDest struct {
+	UID      string `xml:"uid,attr,omitempty"`
+	Callsign string `xml:"callsign,attr,omitempty"`
 }
 
 type CotContact struct {
@@ -75,6 +116,8 @@ type CotEmergency struct {
 
 type CotRemarks struct {
 	Source string `xml:"source,attr,omitempty"`
+	To     string `xml:"to,attr,omitempty"`
+	Time   string `xml:"time,attr,omitempty"`
 	Text   string `xml:",chardata"`
 }
 

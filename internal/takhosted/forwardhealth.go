@@ -87,7 +87,7 @@ func init() {
 	// series that does not exist yet is not zero, it is absent.
 	for _, result := range []string{
 		cotForwarded, cotNowhere, cotUnregistered, cotRateLimited, cotDuplicate,
-		cotControl, cotHubUID, cotError,
+		cotControl, cotHubUID, cotError, cotRouted, cotOperator,
 		tak.ReasonSize, tak.ReasonEncoding, tak.ReasonMarkup, tak.ReasonStructure,
 		tak.ReasonNamespace, tak.ReasonLimits, tak.ReasonFields, tak.ReasonStale,
 	} {
@@ -95,6 +95,7 @@ func init() {
 	}
 	for _, result := range []string{
 		cotDelivered, cotEcho, cotRateLimited, cotDuplicate, cotControl, cotHubUID, cotError,
+		cotRouted, cotNoOwner,
 		tak.ReasonSize, tak.ReasonEncoding, tak.ReasonMarkup, tak.ReasonStructure,
 		tak.ReasonNamespace, tak.ReasonLimits, tak.ReasonFields, tak.ReasonStale,
 	} {

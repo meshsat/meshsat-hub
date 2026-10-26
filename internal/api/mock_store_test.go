@@ -919,3 +919,20 @@ func (m *mockStore) DeleteFederationGrant(context.Context, string, string) error
 func (m *mockStore) HasFederationGrant(context.Context, string, string, string, string) (bool, error) {
 	return false, nil
 }
+
+func (m *mockStore) UpsertTAKContact(context.Context, *store.TAKContact) error { return nil }
+func (m *mockStore) GetTAKContact(context.Context, string, string) (*store.TAKContact, error) {
+	return nil, nil
+}
+func (m *mockStore) ListTAKContacts(context.Context, string, time.Time) ([]store.TAKContact, error) {
+	return nil, nil
+}
+func (m *mockStore) SaveTAKChatMessage(context.Context, *store.TAKChatMessage) (bool, error) {
+	return false, nil
+}
+func (m *mockStore) SetTAKChatMessageStatus(context.Context, string, string, string) error {
+	return nil
+}
+func (m *mockStore) ListTAKChatMessages(context.Context, string, string, int) ([]store.TAKChatMessage, error) {
+	return nil, nil
+}

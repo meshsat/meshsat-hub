@@ -612,6 +612,12 @@ var postAlterMigrations = []string{
 	`CREATE INDEX IF NOT EXISTS idx_person_chat_sends_created ON person_chat_sends (tenant_id, direction, created_at)`,
 	`CREATE TABLE IF NOT EXISTS person_chat_buckets (tenant_id TEXT NOT NULL, key TEXT NOT NULL, n INTEGER NOT NULL DEFAULT 0, updated_at TEXT NOT NULL DEFAULT (datetime('now')), PRIMARY KEY (tenant_id, key))`,
 	`CREATE INDEX IF NOT EXISTS idx_person_chat_buckets_age ON person_chat_buckets (tenant_id, updated_at)`,
+	// MESHSAT-1706, TAK direct messages; mirrors postgres migration 46.
+	`CREATE TABLE IF NOT EXISTS tak_contacts (tenant_id TEXT NOT NULL, uid TEXT NOT NULL, callsign TEXT NOT NULL DEFAULT '', bridge_id TEXT NOT NULL, last_seen_at TEXT NOT NULL, PRIMARY KEY (tenant_id, uid))`,
+	`CREATE INDEX IF NOT EXISTS idx_tak_contacts_seen ON tak_contacts (tenant_id, last_seen_at)`,
+	`CREATE TABLE IF NOT EXISTS tak_chat_messages (tenant_id TEXT NOT NULL, id TEXT NOT NULL, crew_uid TEXT NOT NULL, operator_uid TEXT NOT NULL, user_id TEXT NOT NULL DEFAULT '', direction TEXT NOT NULL, text TEXT NOT NULL, bridge_id TEXT NOT NULL DEFAULT '', status TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL DEFAULT (datetime('now')), PRIMARY KEY (tenant_id, id))`,
+	`CREATE INDEX IF NOT EXISTS idx_tak_chat_messages_crew ON tak_chat_messages (tenant_id, crew_uid, created_at)`,
+	`CREATE INDEX IF NOT EXISTS idx_tak_chat_messages_age ON tak_chat_messages (tenant_id, created_at)`,
 }
 
 // lateAlterMigrations alter tables created in postAlterMigrations.

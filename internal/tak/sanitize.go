@@ -112,6 +112,72 @@ type Meta struct {
 	// <emergency> detail. The caller uses it so an SOS is never queued behind,
 	// or rate-limited with, routine position updates.
 	Emergency bool
+
+	// Who the event is from and for (MESHSAT-1706), as a TAK client writes a
+	// GeoChat: the contact's callsign, the first <link>'s uid, __chat's
+	// senderCallsign, id, chatroom and messageId, chatgrp's uid0 and uid1, and
+	// one Dest per <marti><dest> that names a person (a mission dest does not).
+	Callsign      string
+	LinkUID       string
+	ChatSender    string
+	ChatID        string
+	ChatRoom      string
+	ChatMessageID string
+	ChatUID0      string
+	ChatUID1      string
+	Dests         []Dest
+	// Remarks is the text of <detail><remarks>, at most MaxRemarks bytes.
+	Remarks string
+}
+
+// Dest is one recipient a <marti><dest> names: by uid (iTAK) or callsign (ATAK,
+// WinTAK).
+type Dest struct {
+	UID      string
+	Callsign string
+}
+
+// MaxRemarks bounds Meta.Remarks.
+const MaxRemarks = 4096
+
+// maxDests bounds Meta.Dests: a team chat names its members, never hundreds.
+const maxDests = 32
+
+// IsChat reports whether the event is a GeoChat.
+func (m Meta) IsChat() bool { return m.Type == TypeChat }
+
+// Sender is who wrote a chat: the uid its link (else chatgrp's uid0) names, and
+// __chat's senderCallsign (else the contact's).
+func (m Meta) Sender() (uid, callsign string) {
+	uid = m.LinkUID
+	if uid == "" {
+		uid = m.ChatUID0
+	}
+	callsign = m.ChatSender
+	if callsign == "" {
+		callsign = m.Callsign
+	}
+	return uid, callsign
+}
+
+// Addressees are the recipients the server routing names, each filled in from
+// __chat when it names the same recipient by the other key.
+func (m Meta) Addressees() []Dest {
+	out := make([]Dest, 0, len(m.Dests))
+	chatUID := m.ChatID
+	if chatUID == "" {
+		chatUID = m.ChatUID1
+	}
+	for _, d := range m.Dests {
+		if d.UID == "" && d.Callsign != "" && d.Callsign == m.ChatRoom {
+			d.UID = chatUID
+		}
+		if d.Callsign == "" && d.UID != "" && d.UID == chatUID {
+			d.Callsign = m.ChatRoom
+		}
+		out = append(out, d)
+	}
+	return out
 }
 
 // Sanitize checks raw and returns it re-written as one line. See the comment at
@@ -200,6 +266,12 @@ func Sanitize(raw []byte, lim Limits, now time.Time) ([]byte, Meta, error) {
 			if err := xml.EscapeText(&out, t); err != nil {
 				return nil, meta, refuse(ReasonStructure, "%v", err)
 			}
+			if len(stack) == 3 && stack[1] == "detail" && stack[2] == "remarks" && len(meta.Remarks) < MaxRemarks {
+				meta.Remarks += string(t)
+				if len(meta.Remarks) > MaxRemarks {
+					meta.Remarks = meta.Remarks[:MaxRemarks]
+				}
+			}
 
 		case xml.StartElement:
 			if rootDone {
@@ -286,6 +358,25 @@ func Sanitize(raw []byte, lim Limits, now time.Time) ([]byte, Meta, error) {
 					return nil, meta, err
 				}
 				meta.Lat, meta.Lon = lat, lon
+			case depth == 3 && stack[1] == "detail":
+				switch name {
+				case "contact":
+					meta.Callsign = attrs["callsign"]
+				case "link":
+					if meta.LinkUID == "" {
+						meta.LinkUID = attrs["uid"]
+					}
+				case "__chat":
+					meta.ChatSender, meta.ChatID = attrs["senderCallsign"], attrs["id"]
+					meta.ChatRoom, meta.ChatMessageID = attrs["chatroom"], attrs["messageId"]
+				}
+			case depth == 4 && stack[1] == "detail" && stack[2] == "__chat" && name == "chatgrp":
+				meta.ChatUID0, meta.ChatUID1 = attrs["uid0"], attrs["uid1"]
+			case depth == 4 && stack[1] == "detail" && stack[2] == "marti" && name == "dest":
+				uid, callsign := attrs["uid"], attrs["callsign"]
+				if attrs["mission"] == "" && (uid != "" || callsign != "") && len(meta.Dests) < maxDests {
+					meta.Dests = append(meta.Dests, Dest{UID: uid, Callsign: callsign})
+				}
 			}
 
 		case xml.EndElement:

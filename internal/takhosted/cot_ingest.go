@@ -153,6 +153,14 @@ func (f *Forwarder) onCot(r *run, tenantID, bridgeID string, payload []byte) {
 			"tenant", tenantID, "bridge", bridgeID, "uid", meta.UID)
 		return
 	}
+	// A chat written in the name of one of the Hub's own identities (an
+	// operator) is the Hub's to write. [MESHSAT-1706]
+	if sender, _ := meta.Sender(); meta.IsChat() && isHubMarkerUID(sender) {
+		cotTotal.WithLabelValues(sourceClient, cotHubUID).Inc()
+		f.log.Debug("takhosted: exported chat claims a sender only the Hub writes as, dropped",
+			"tenant", tenantID, "bridge", bridgeID, "sender", sender)
+		return
+	}
 	if !r.seen.first(tenantID, line, now) {
 		cotTotal.WithLabelValues(sourceClient, cotDuplicate).Inc()
 		return
@@ -164,6 +172,18 @@ func (f *Forwarder) onCot(r *run, tenantID, bridgeID string, payload []byte) {
 	// with every exporting kit drawn twice.
 	if strings.HasPrefix(meta.Type, "a-") {
 		r.suppress.mark(tenantID, meta.UID, meta.Stale, now)
+		// And the bridge that exports it owns the crew, for a chat a dispatcher
+		// writes to it (MESHSAT-1706, owners.go).
+		if meta.Callsign != "" {
+			f.observeOwner(r, tenantID, bridgeID, meta.UID, meta.Callsign, now)
+		}
+	}
+
+	// An event that names its recipients is theirs: never fanned out to the
+	// tenant's other clients. See chatroute.go. [MESHSAT-1706]
+	if dests := meta.Addressees(); len(dests) > 0 {
+		f.routeClientAddressed(r, tenantID, bridgeID, line, meta, dests, now)
+		return
 	}
 
 	// To the tenant's other clients, whether or not the tenant has a TAK server:

@@ -84,6 +84,9 @@ type Forwarder struct {
 	// reg caches whether a bridge is registered to a tenant. Guarded by regMu.
 	regMu sync.Mutex
 	reg   map[string]regEntry
+
+	// chat switches dispatcher-to-crew routing on (MESHSAT-1706, chatroute.go).
+	chat atomic.Bool
 }
 
 // run is one tenure as leader: the queue the handlers feed and the links it
@@ -104,6 +107,11 @@ type run struct {
 	seen     *dedup
 	sent     *sentMemory
 	present  *presence
+
+	// owners is which client owns each crew, and contacts its write-behind
+	// (MESHSAT-1706, owners.go).
+	owners   *owners
+	contacts chan store.TAKContact
 }
 
 // inbound is one thing waiting for the dispatcher: a bus message, or (when
@@ -192,6 +200,7 @@ func (f *Forwarder) Run(ctx context.Context) {
 	r := &run{
 		ctx: ctx, intake: make(chan inbound, intakeQueue), links: map[string]*link{},
 		suppress: newSuppressor(), seen: newDedup(), sent: newSentMemory(), present: newPresence(),
+		owners: newOwners(), contacts: make(chan store.TAKContact, contactWrites),
 	}
 	// The run is published BEFORE the filters are installed, so what the broker
 	// delivers the moment a filter lands -- retained positions -- has somewhere
@@ -200,10 +209,14 @@ func (f *Forwarder) Run(ctx context.Context) {
 	f.subscribe()
 	f.log.Info("takhosted: forwarding device positions to tenant TAK servers")
 
-	r.wg.Add(1)
+	r.wg.Add(2)
 	go func() {
 		defer r.wg.Done()
 		f.dispatch(r)
+	}()
+	go func() {
+		defer r.wg.Done()
+		f.writeContacts(r)
 	}()
 
 	t := time.NewTicker(time.Minute)
@@ -224,13 +237,16 @@ func (f *Forwarder) Run(ctx context.Context) {
 			r.suppress.prune(now)
 			r.seen.prune(now)
 			r.sent.prune(now)
+			r.owners.prune(now)
 			f.limits.prune(now)
 			f.pruneRegistrations(now)
 			// Every tenant with a client online has its connections checked: a
 			// server that was down, or a hosted instance whose identity had not
-			// been issued yet, is tried again here.
+			// been issued yet, is tried again here. Its relay frame goes again
+			// when its crews changed or it is due (MESHSAT-1706).
 			for _, tenantID := range r.present.active(now) {
 				r.askConnect(tenantID)
+				f.sendRelay(r, tenantID, now)
 			}
 		}
 	}
@@ -472,6 +488,8 @@ func (r *run) askConnect(tenantID string) {
 // client online, with nothing to send, so that what those servers have to say is
 // heard. A tenant with no TAK server costs one lookup and nothing else.
 func (f *Forwarder) connectTenant(r *run, tenantID string) {
+	// The crews a previous leader knew, for this leader's first relay frame.
+	f.preloadOwners(r, tenantID)
 	for _, up := range f.upstreams(r.ctx, tenantID) {
 		if up == nil {
 			continue
@@ -563,6 +581,7 @@ func (f *Forwarder) ForgetTenant(tenantID string) {
 		r.present.forget(tenantID)
 		r.forget(tenantID)
 		r.suppress.forget(tenantID)
+		r.owners.forget(tenantID)
 	}
 }
 

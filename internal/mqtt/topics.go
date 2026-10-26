@@ -373,6 +373,15 @@ func TopicTAKBroadcastFromFor(tenantID, senderBridgeID string) string {
 	return TopicTAKBroadcastFor(tenantID) + "/" + EncodeSegment(senderBridgeID)
 }
 
+// TopicTAKCotInFor is where the Hub delivers an event addressed to a crew this
+// bridge owns -- a chat a dispatcher wrote to one crew -- to that bridge alone
+// (MESHSAT-1706): {ns}/bridge/{bridge_id}/tak/cot/in, QoS 1, never retained.
+// The bridge's own subtree, so it may subscribe already; only the Hub may
+// publish it (bridge.NATSPublishDeny).
+func TopicTAKCotInFor(tenantID, bridgeID string) string {
+	return BridgeTopic(tenantID, bridgeID, "tak/cot/in")
+}
+
 // DualFilters returns the subscription filters for both topic shapes of a
 // legacy filter: "meshsat/+/mo/decoded" -> itself and "meshsat/+/+/mo/decoded";
 // "meshsat/bridge/+/birth" -> itself and "meshsat/+/bridge/+/birth".

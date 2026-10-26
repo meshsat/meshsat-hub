@@ -8133,6 +8133,178 @@
                 }
             }
         },
+        "/api/tak/contacts": {
+            "get": {
+                "description": "The crews the tenant's kits and phones put on the TAK map in the last day, newest first, each with the client that owns it. An operator can write to any of them. Empty while dispatcher-to-crew chat is off.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "tak"
+                ],
+                "summary": "List TAK crews",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/internal_api.takCrew"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/tak/contacts/{uid}/messages": {
+            "get": {
+                "description": "The last 100 messages between the tenant's operators and one crew, oldest first: \"out\" written from the Hub, \"in\" the crew's answers. Kept 30 days.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "tak"
+                ],
+                "summary": "List messages with a TAK crew",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Crew uid",
+                        "name": "uid",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/github_com_meshsat_meshsat-hub_internal_store.TAKChatMessage"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            },
+            "post": {
+                "description": "Sends a message to one crew as a GeoChat from the operator. It goes to the kit or phone that owns the crew alone: a kit sends it to that node as a direct message, a phone shows it. The crew's answer is listed with the conversation.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "tak"
+                ],
+                "summary": "Write to a TAK crew",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Crew uid",
+                        "name": "uid",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "The message",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.takChatSendRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "A repeat of a client_ref already sent",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_meshsat_meshsat-hub_internal_store.TAKChatMessage"
+                        }
+                    },
+                    "202": {
+                        "description": "Accepted",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_meshsat_meshsat-hub_internal_store.TAKChatMessage"
+                        }
+                    },
+                    "400": {
+                        "description": "No text",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "No such crew, or chat is off",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "409": {
+                        "description": "The crew has not been seen for a day, or its kit or phone is no longer registered",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "413": {
+                        "description": "More than 200 bytes",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "429": {
+                        "description": "Too many messages",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "502": {
+                        "description": "The message could not be handed to the bus",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/tak/enroll/{claimID}/{nonce}": {
             "get": {
                 "produces": [
@@ -13269,6 +13441,38 @@
                 }
             }
         },
+        "github_com_meshsat_meshsat-hub_internal_store.TAKChatMessage": {
+            "type": "object",
+            "properties": {
+                "bridge_id": {
+                    "type": "string"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "crew_uid": {
+                    "type": "string"
+                },
+                "direction": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "operator_uid": {
+                    "type": "string"
+                },
+                "status": {
+                    "type": "string"
+                },
+                "text": {
+                    "type": "string"
+                },
+                "user_id": {
+                    "type": "string"
+                }
+            }
+        },
         "internal_api.Capability": {
             "type": "object",
             "properties": {
@@ -14918,6 +15122,40 @@
                     "type": "string"
                 },
                 "used_by_email": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_api.takChatSendRequest": {
+            "type": "object",
+            "properties": {
+                "client_ref": {
+                    "description": "ClientRef makes the request idempotent: the same ref again sends nothing.",
+                    "type": "string"
+                },
+                "text": {
+                    "description": "Text is the message, 1 to 200 bytes; line breaks become spaces.",
+                    "type": "string"
+                }
+            }
+        },
+        "internal_api.takCrew": {
+            "type": "object",
+            "properties": {
+                "bridge_id": {
+                    "type": "string"
+                },
+                "callsign": {
+                    "type": "string"
+                },
+                "last_seen": {
+                    "type": "string"
+                },
+                "node_key": {
+                    "description": "NodeKey matches the crew to a map marker: \"!aabbccdd\" for a mesh node\n(uid meshsat-aabbccdd), the bridge id for a phone (uid MESHSAT-\u003cbridge\nid\u003e), empty otherwise.",
+                    "type": "string"
+                },
+                "uid": {
                     "type": "string"
                 }
             }

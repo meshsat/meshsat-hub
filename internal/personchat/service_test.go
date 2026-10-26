@@ -779,3 +779,20 @@ func TestCleanMessageID(t *testing.T) {
 		}
 	}
 }
+
+func (f *fakeStore) UpsertTAKContact(context.Context, *store.TAKContact) error { return nil }
+func (f *fakeStore) GetTAKContact(context.Context, string, string) (*store.TAKContact, error) {
+	return nil, nil
+}
+func (f *fakeStore) ListTAKContacts(context.Context, string, time.Time) ([]store.TAKContact, error) {
+	return nil, nil
+}
+func (f *fakeStore) SaveTAKChatMessage(context.Context, *store.TAKChatMessage) (bool, error) {
+	return false, nil
+}
+func (f *fakeStore) SetTAKChatMessageStatus(context.Context, string, string, string) error {
+	return nil
+}
+func (f *fakeStore) ListTAKChatMessages(context.Context, string, string, int) ([]store.TAKChatMessage, error) {
+	return nil, nil
+}

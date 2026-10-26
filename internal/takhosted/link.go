@@ -254,7 +254,14 @@ func (l *link) connFor(up *takfront.Tenant) (net.Conn, error) {
 	// Say who this is before anything else is written; see hello.go for why a
 	// server needs that before it will send anything back.
 	_ = conn.SetWriteDeadline(time.Now().Add(linkWriteTimeout))
-	if _, err := conn.Write(hubHello(l.tenantID, time.Now())); err != nil {
+	hello := hubHello(l.tenantID, time.Now())
+	// Then, on a hosted server, the crews this connection writes for, so a
+	// dispatcher's chat to one of them reaches it from the first moment
+	// (MESHSAT-1706, owners.go).
+	if kindOf(up) == kindHosted {
+		hello = append(hello, l.f.relayFrameFor(l.r, l.tenantID)...)
+	}
+	if _, err := conn.Write(hello); err != nil {
 		_ = conn.Close()
 		forwardsFailed.WithLabelValues(kindOf(up), reasonWrite).Inc()
 		l.failed()

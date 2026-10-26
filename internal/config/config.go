@@ -122,6 +122,14 @@ type Config struct {
 	// Bridge and the phones speak it; with it off the topics have no subscriber.
 	MsgRouteEnabled bool `yaml:"msg_route_enabled"`
 
+	// TAKChatEnabled turns on dispatcher-to-crew chat (MESHSAT-1706): the Hub
+	// tells its hosted TAK servers which crews it writes for, hands a chat a
+	// dispatcher addresses to one crew to the client that owns it, and lets an
+	// operator write to a crew from the map. Off by default, and on only once the
+	// hosted servers run the image with patch-relay-dms.py: a stock server would
+	// hand the relay event to every client.
+	TAKChatEnabled bool `yaml:"tak_chat_enabled"`
+
 	// TAKFrontEnabled is the switch. It stays off until the certificate below
 	// exists, because the front cannot be started without one.
 	TAKFrontEnabled bool `yaml:"tak_front_enabled"`
@@ -877,6 +885,10 @@ func Load() (Config, error) {
 	// hub_msg (MESHSAT-1584).
 	if v := os.Getenv("HUB_MSG_ROUTE_ENABLED"); v != "" {
 		cfg.MsgRouteEnabled = strings.EqualFold(v, "true") || v == "1"
+	}
+	// Dispatcher-to-crew chat (MESHSAT-1706).
+	if v := os.Getenv("HUB_TAKCHAT_ENABLED"); v != "" {
+		cfg.TAKChatEnabled = strings.EqualFold(v, "true") || v == "1"
 	}
 	// The hosted TAK front (MESHSAT-1037).
 	if v := os.Getenv("HUB_TAK_FRONT_ENABLED"); v != "" {

@@ -341,6 +341,16 @@ export const integrations = {
 // enrol and enrolQR each return a live credential that is valid for fifteen
 // minutes and one download, and each call invalidates the previous one. Do not
 // cache either result.
+// Dispatcher-to-crew chat (MESHSAT-1706): the crews on the TAK map and an
+// operator's conversation with each. An empty crew list means it is off.
+export const takChat = {
+  crews: () => fetchJSON('/tak/contacts'),
+  messages: (uid) => fetchJSON(`/tak/contacts/${encodeURIComponent(uid)}/messages`),
+  send: (uid, text, clientRef) => fetchJSON(`/tak/contacts/${encodeURIComponent(uid)}/messages`, {
+    method: 'POST', body: JSON.stringify({ text, client_ref: clientRef }),
+  }),
+}
+
 export const tak = {
   status: () => fetchJSON('/tenant/tak'),
   enable: () => fetchJSON('/tenant/tak', { method: 'POST' }),

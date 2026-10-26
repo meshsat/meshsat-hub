@@ -432,6 +432,15 @@ data:
   # does; nothing else in the Hub changes with it.
   HUB_MSG_ROUTE_ENABLED: "true"
 
+  # Dispatcher-to-crew chat (MESHSAT-1706, docs/bridge-hub-protocol.md "TAK
+  # direct messages"): the Hub tells its hosted TAK servers which crews it
+  # writes for, hands a chat a dispatcher addresses to one crew to the kit or
+  # phone that owns it, and lets an operator write to a crew from the map.
+  # "true" only once every hosted instance runs the OTS image with
+  # patch-relay-dms.py (k8s/tak-operator/configmap.yaml TAK_OTS_IMAGE): a stock
+  # server would hand the relay event to every client.
+  HUB_TAKCHAT_ENABLED: "false"
+
   # SOS identity (docs/bridge-hub-protocol.md "SOS identity (C10)", MESHSAT-1584).
   # Says sos_v2 on every bridge's retained hub/caps, so a Bridge that speaks C10
   # sends its SOS with its id (0x07/0x08, sos/event). The Hub takes those frames

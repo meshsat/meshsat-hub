@@ -1515,6 +1515,27 @@ definitions:
       updated_at:
         type: string
     type: object
+  github_com_meshsat_meshsat-hub_internal_store.TAKChatMessage:
+    properties:
+      bridge_id:
+        type: string
+      created_at:
+        type: string
+      crew_uid:
+        type: string
+      direction:
+        type: string
+      id:
+        type: string
+      operator_uid:
+        type: string
+      status:
+        type: string
+      text:
+        type: string
+      user_id:
+        type: string
+    type: object
   internal_api.Capability:
     properties:
       configured:
@@ -2756,6 +2777,33 @@ definitions:
           then.
         type: string
       used_by_email:
+        type: string
+    type: object
+  internal_api.takChatSendRequest:
+    properties:
+      client_ref:
+        description: 'ClientRef makes the request idempotent: the same ref again sends
+          nothing.'
+        type: string
+      text:
+        description: Text is the message, 1 to 200 bytes; line breaks become spaces.
+        type: string
+    type: object
+  internal_api.takCrew:
+    properties:
+      bridge_id:
+        type: string
+      callsign:
+        type: string
+      last_seen:
+        type: string
+      node_key:
+        description: |-
+          NodeKey matches the crew to a map marker: "!aabbccdd" for a mesh node
+          (uid meshsat-aabbccdd), the bridge id for a phone (uid MESHSAT-<bridge
+          id>), empty otherwise.
+        type: string
+      uid:
         type: string
     type: object
   internal_api.takStatusResponse:
@@ -8968,6 +9016,128 @@ paths:
       summary: Cancel an SOS run
       tags:
       - sos
+  /api/tak/contacts:
+    get:
+      description: The crews the tenant's kits and phones put on the TAK map in the
+        last day, newest first, each with the client that owns it. An operator can
+        write to any of them. Empty while dispatcher-to-crew chat is off.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/internal_api.takCrew'
+            type: array
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: List TAK crews
+      tags:
+      - tak
+  /api/tak/contacts/{uid}/messages:
+    get:
+      description: 'The last 100 messages between the tenant''s operators and one
+        crew, oldest first: "out" written from the Hub, "in" the crew''s answers.
+        Kept 30 days.'
+      parameters:
+      - description: Crew uid
+        in: path
+        name: uid
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/github_com_meshsat_meshsat-hub_internal_store.TAKChatMessage'
+            type: array
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: List messages with a TAK crew
+      tags:
+      - tak
+    post:
+      consumes:
+      - application/json
+      description: 'Sends a message to one crew as a GeoChat from the operator. It
+        goes to the kit or phone that owns the crew alone: a kit sends it to that
+        node as a direct message, a phone shows it. The crew''s answer is listed with
+        the conversation.'
+      parameters:
+      - description: Crew uid
+        in: path
+        name: uid
+        required: true
+        type: string
+      - description: The message
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/internal_api.takChatSendRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: A repeat of a client_ref already sent
+          schema:
+            $ref: '#/definitions/github_com_meshsat_meshsat-hub_internal_store.TAKChatMessage'
+        "202":
+          description: Accepted
+          schema:
+            $ref: '#/definitions/github_com_meshsat_meshsat-hub_internal_store.TAKChatMessage'
+        "400":
+          description: No text
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: No such crew, or chat is off
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "409":
+          description: The crew has not been seen for a day, or its kit or phone is
+            no longer registered
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "413":
+          description: More than 200 bytes
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "429":
+          description: Too many messages
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "502":
+          description: The message could not be handed to the bus
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Write to a TAK crew
+      tags:
+      - tak
   /api/tak/enroll/{claimID}/{nonce}:
     get:
       parameters:

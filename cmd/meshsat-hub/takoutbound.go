@@ -47,6 +47,7 @@ func startTAKOutbound(
 	msgBus bus.MessageBus,
 	singletons *leader.Singletons,
 	upstreams *takhosted.Upstreams,
+	chat bool,
 ) tenancy.TenantForgetter {
 	if singletons == nil || upstreams == nil {
 		return nil
@@ -63,6 +64,8 @@ func startTAKOutbound(
 	}
 
 	fwd := takhosted.NewForwarder(msgBus, dataStore, dial, upstreams.For, slog.Default())
+	// Dispatcher-to-crew chat (MESHSAT-1706, HUB_TAKCHAT_ENABLED).
+	fwd.SetChat(chat)
 	singletons.Add("takhosted-outbound", fwd.Run)
 	slog.Info("takhosted: outbound CoT forwarding registered (hosted instances and tenants' own TAK servers)")
 	return fwd

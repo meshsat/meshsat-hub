@@ -98,6 +98,7 @@ import (
 	"github.com/meshsat/meshsat-hub/internal/store/postgres"
 	"github.com/meshsat/meshsat-hub/internal/store/sqlite"
 	"github.com/meshsat/meshsat-hub/internal/stripe"
+	"github.com/meshsat/meshsat-hub/internal/takchat"
 	"github.com/meshsat/meshsat-hub/internal/timesync"
 	hubtor "github.com/meshsat/meshsat-hub/internal/tor"
 	"github.com/meshsat/meshsat-hub/internal/webhook"
@@ -1979,7 +1980,7 @@ func main() {
 	// Registered for eviction AFTER takUpstreams, which is the order they are
 	// forgotten in: the cached settings go first, so a link the forwarder makes
 	// again resolves from the store rather than from the answer just removed.
-	if fwd := startTAKOutbound(dataStore, msgBus, leaderSingletons, takUpstreams); fwd != nil {
+	if fwd := startTAKOutbound(dataStore, msgBus, leaderSingletons, takUpstreams, cfg.TAKChatEnabled); fwd != nil {
 		tenantEvict.Register(fwd)
 	}
 
@@ -2892,6 +2893,18 @@ func main() {
 		// Operator: this transmits a command to a field bridge (MESHSAT-1189).
 		r.With(hubauth.RequireRole(hubauth.RoleOperator)).Post("/api/bridges/{id}/command", bridgeCmdHandler.SendCommand)
 	}
+	// Dispatcher-to-crew chat (MESHSAT-1706): an operator writes to one crew from
+	// the map, and the crew's answer is kept. The answers are stored by every
+	// replica (one row per answer); the send runs on whichever replica the
+	// request reached. Operator: a message is a transmission on a crew's radio.
+	takChatSvc := takchat.New(dataStore, msgBus, cfg.TAKChatEnabled, slog.Default())
+	if err := takChatSvc.StartReplySink(ctx); err != nil {
+		slog.Error("takchat: the crews' answers will not be stored", "error", err)
+	}
+	takChatAPI := api.NewTAKChatHandler(dataStore, takChatSvc, auditSvc)
+	r.With(hubauth.RequireRole(hubauth.RoleOperator)).Get("/api/tak/contacts", takChatAPI.ListCrews)
+	r.With(hubauth.RequireRole(hubauth.RoleOperator)).Get("/api/tak/contacts/{uid}/messages", takChatAPI.ListMessages)
+	r.With(hubauth.RequireRole(hubauth.RoleOperator)).Post("/api/tak/contacts/{uid}/messages", takChatAPI.SendMessage)
 	// Out-of-band pairing (MESHSAT-964 C); owners only.
 	oobAPI := api.NewBridgeOOBHandler(dataStore, oobSvc, bridgeCommander)
 	r.Get("/api/bridges/{id}/oob", oobAPI.Get)

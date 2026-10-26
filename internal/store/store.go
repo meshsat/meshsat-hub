@@ -484,6 +484,15 @@ type Store interface {
 	// TakePersonChatSlot counts one use of a ceiling (key names the window,
 	// "dev:<imei>:2026102412") and answers whether it was still under max.
 	TakePersonChatSlot(ctx context.Context, tenantID, key string, max int) (bool, error)
+	// TAK direct messages (MESHSAT-1706): the crews the tenant's clients put on
+	// the TAK map and which client owns each, and what the tenant's operators
+	// and the crews wrote to each other. See TAKContact and TAKChatMessage.
+	UpsertTAKContact(ctx context.Context, c *TAKContact) error
+	GetTAKContact(ctx context.Context, tenantID, uid string) (*TAKContact, error)
+	ListTAKContacts(ctx context.Context, tenantID string, since time.Time) ([]TAKContact, error)
+	SaveTAKChatMessage(ctx context.Context, m *TAKChatMessage) (bool, error)
+	SetTAKChatMessageStatus(ctx context.Context, tenantID, id, status string) error
+	ListTAKChatMessages(ctx context.Context, tenantID, crewUID string, limit int) ([]TAKChatMessage, error)
 	// Mesh presence (MESHSAT-1181): which nodes have been heard behind which
 	// bridge. See the MeshNode type for what this can and cannot prove.
 	RecordMeshNode(ctx context.Context, tenantID, bridgeID, nodeID string, heardAt time.Time) error
@@ -1342,6 +1351,35 @@ type PersonChatSend struct {
 	Bytes          int
 	Status         string
 	CreatedAt      time.Time
+}
+
+// TAKContact is one crew a client of the tenant puts on the TAK map
+// (MESHSAT-1706): the uid and callsign it shows under, and the bridge (a kit,
+// or a phone, which joins as a bridge) whose export last carried it. A chat
+// addressed to the crew goes to that bridge alone.
+type TAKContact struct {
+	TenantID string    `json:"-"`
+	UID      string    `json:"uid"`
+	Callsign string    `json:"callsign"`
+	BridgeID string    `json:"bridge_id"`
+	LastSeen time.Time `json:"last_seen"`
+}
+
+// TAKChatMessage is one message between an operator of the tenant and a crew,
+// written from the Hub's map ("out") or answered by the crew ("in"). ID is the
+// GeoChat's message id, so a message stored twice (both replicas, a resent
+// request) is one row.
+type TAKChatMessage struct {
+	TenantID    string    `json:"-"`
+	ID          string    `json:"id"`
+	CrewUID     string    `json:"crew_uid"`
+	OperatorUID string    `json:"operator_uid"`
+	UserID      string    `json:"user_id,omitempty"`
+	Direction   string    `json:"direction"`
+	Text        string    `json:"text"`
+	BridgeID    string    `json:"bridge_id"`
+	Status      string    `json:"status"`
+	CreatedAt   time.Time `json:"created_at"`
 }
 
 // EmailContact is a correspondent's PGP public key, as stored.

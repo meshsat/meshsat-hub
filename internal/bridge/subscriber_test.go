@@ -1222,3 +1222,20 @@ func (m *mockStore) RecordPersonChatSend(context.Context, *store.PersonChatSend)
 func (m *mockStore) TakePersonChatSlot(context.Context, string, string, int) (bool, error) {
 	return true, nil
 }
+
+func (m *mockStore) UpsertTAKContact(context.Context, *store.TAKContact) error { return nil }
+func (m *mockStore) GetTAKContact(context.Context, string, string) (*store.TAKContact, error) {
+	return nil, nil
+}
+func (m *mockStore) ListTAKContacts(context.Context, string, time.Time) ([]store.TAKContact, error) {
+	return nil, nil
+}
+func (m *mockStore) SaveTAKChatMessage(context.Context, *store.TAKChatMessage) (bool, error) {
+	return false, nil
+}
+func (m *mockStore) SetTAKChatMessageStatus(context.Context, string, string, string) error {
+	return nil
+}
+func (m *mockStore) ListTAKChatMessages(context.Context, string, string, int) ([]store.TAKChatMessage, error) {
+	return nil, nil
+}

@@ -3,6 +3,7 @@ package takhosted
 import (
 	"errors"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -98,6 +99,18 @@ func (f *Forwarder) onUpstream(r *run, tenantID string, up *takfront.Tenant, fra
 	case !r.seen.first(tenantID, line, now):
 		cotTotal.WithLabelValues(sourceUpstream, cotDuplicate).Inc()
 		return
+	}
+	// A position from the server is one of the server's own users: never
+	// anybody's crew (owners.go). An addressed event goes to the client that
+	// owns the crew it names, and to no other. [MESHSAT-1706]
+	if strings.HasPrefix(meta.Type, "a-") {
+		r.owners.noteUpstream(tenantID, meta.UID, meta.Callsign, now)
+	}
+	if f.chatEnabled() {
+		if dests := meta.Addressees(); len(dests) > 0 {
+			f.routeUpstreamAddressed(r, tenantID, line, dests, now)
+			return
+		}
 	}
 	if err := f.deliver(hubmqtt.TopicTAKBroadcastFor(tenantID), line); err != nil {
 		cotTotal.WithLabelValues(sourceUpstream, cotError).Inc()

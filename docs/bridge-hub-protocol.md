@@ -128,6 +128,53 @@ topic and one level below it (`.../in/+`).
 For a tenant other than the default one, both topics sit under the tenant's
 root: `meshsat/{tenant_id}/broadcast/tak/cot/in` and `.../in/{sender}`.
 
+### TAK Direct Messages (Hub 2026-10, MESHSAT-1705/1706)
+
+| Topic | QoS | Retained | Publisher | Description |
+|-------|-----|----------|-----------|-------------|
+| `meshsat/bridge/{bridge_id}/tak/cot/in` | 1 | No | Hub only | One event addressed to a crew this bridge owns |
+
+A dispatcher in a TAK client who picks one crew and writes to it, or an
+operator who writes to a crew from the Hub's map, means one radio or one phone.
+
+- **A crew** is a uid a bridge puts on the map with a position event (`type`
+  starting `a-`) that carries `<contact callsign=...>`: a mesh node behind a
+  kit (`meshsat-%08x`, callsign `<prefix>-%04x`), the kit itself
+  (`MESHSAT-<node hex>`), or a phone (`MESHSAT-<bridge id>`). Put
+  `endpoint="*:-1:stcp"` on that contact: it is what makes a TAK client offer
+  chat with the crew.
+- **The owner** of a crew is the bridge that last exported its position. It
+  moves to another bridge only after the owner has been quiet for 3 minutes. A
+  uid `MESHSAT-<x>` naming a bridge of the tenant can be owned by bridge x
+  alone, and a uid or callsign the tenant's TAK server showed as one of its own
+  users is never a crew. A crew is reachable for a day after its last export.
+- **An addressed event** carries `<marti><dest uid=... callsign=.../></marti>`.
+  The Hub delivers it to the owner of each crew it names, on that owner's own
+  `tak/cot/in`, and to nobody else: never on the broadcast topics, never to
+  another bridge. A `dest` naming a callsign two crews share resolves to
+  neither; name the `uid` where you can.
+- **Subscribe** to your own `tak/cot/in`. A GeoChat (`b-t-f`) there is for one
+  of your crews: a kit queues the chat's words to that node as a direct
+  message, prefixed with the sender's callsign, at most 200 bytes; a phone
+  shows it. Chats to "All Chat Rooms" and chats on the broadcast topics never
+  go to a radio. **Do not export what arrives here.**
+- **The answer** is a GeoChat in ATAK's form from the crew (`<link uid=crew>`,
+  `__chat senderCallsign`, `chatgrp uid0`) to the one who wrote, with
+  `<marti><dest uid=... callsign=.../></marti>` naming them by both keys, on
+  your usual `tak/cot/out`. The Hub forwards an answer to a TAK user to the
+  tenant's servers, which route it; an answer to an operator
+  (`uid` starting `meshsat-hub-op-`) stays on the Hub and is shown on its map.
+  The Hub accepts an operator answer only from the bridge that owns the crew.
+- **An addressed event a bridge exports is never fanned out** to the tenant's
+  other bridges, whatever it is addressed to (since MESHSAT-1706; before that it
+  reached every client of the tenant).
+- **Hosted TAK servers only.** The Hub writes the crews it owns to each hosted
+  server (`t-x-meshsat-relay`, which the Hub's OpenTAKServer build alone
+  understands) so a chat addressed to a crew reaches the Hub at all. A
+  tenant's own server is not told, and a chat its users address to a crew is
+  routed by that server alone. The operator's map works either way.
+- **Switched by `HUB_TAKCHAT_ENABLED`** on the Hub.
+
 ### Tenant Namespaces (Hub 2026-09, MESHSAT-864)
 
 The tables above show the **default tenant** shape. Every other tenant owns the

@@ -89,11 +89,16 @@ const platformNamespace = "meshsat"
 // The same holds for the SOS answers (C10): sos/ack says the Hub has a start or a cancel,
 // and hub/caps what the Hub understands. A bridge that could publish them could stop its
 // own cancel retries or switch its own frames without the Hub.
+//
+// And tak/cot/in (MESHSAT-1706): a chat the Hub routes to the crews this bridge
+// owns. A bridge that could publish it could forge a dispatcher's words to its
+// own radios.
 func NATSPublishDeny(ns, bridgeID string) []string {
 	base := natsSubject(ns) + ".bridge." + bridgeID + "."
 	own := base + "msg."
 	return []string{own + "in", own + "in.>", own + "status", own + "status.>",
-		base + "sos.ack", base + "sos.ack.>", base + "hub.caps", base + "hub.caps.>"}
+		base + "sos.ack", base + "sos.ack.>", base + "hub.caps", base + "hub.caps.>",
+		base + "tak.cot.in", base + "tak.cot.in.>"}
 }
 
 func quoteList(items []string) string {

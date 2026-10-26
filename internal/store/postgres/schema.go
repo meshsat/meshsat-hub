@@ -1410,4 +1410,37 @@ CREATE TABLE IF NOT EXISTS person_chat_buckets (
 );
 CREATE INDEX IF NOT EXISTS idx_person_chat_buckets_age ON person_chat_buckets (tenant_id, updated_at);
 `},
+	// MESHSAT-1706, TAK direct messages. tak_contacts is the crews the tenant's
+	// clients put on the TAK map, keyed (tenant, uid), with the bridge whose
+	// export last carried each: a chat addressed to the crew goes to that bridge
+	// alone. The leader writes it behind its own memory (takhosted). The
+	// messages are what the tenant's operators wrote to a crew from the Hub's map
+	// and what the crew answered, keyed (tenant, GeoChat message id) so both
+	// replicas storing one answer, or a resent request, is one row; kept 30 days.
+	{Version: 46, Name: "tak direct messages", SQL: `
+CREATE TABLE IF NOT EXISTS tak_contacts (
+	tenant_id    VARCHAR(64) NOT NULL,
+	uid          VARCHAR(255) NOT NULL,
+	callsign     VARCHAR(255) NOT NULL DEFAULT '',
+	bridge_id    VARCHAR(128) NOT NULL,
+	last_seen_at TIMESTAMPTZ NOT NULL,
+	PRIMARY KEY (tenant_id, uid)
+);
+CREATE INDEX IF NOT EXISTS idx_tak_contacts_seen ON tak_contacts (tenant_id, last_seen_at);
+CREATE TABLE IF NOT EXISTS tak_chat_messages (
+	tenant_id    VARCHAR(64) NOT NULL,
+	id           VARCHAR(96) NOT NULL,
+	crew_uid     VARCHAR(255) NOT NULL,
+	operator_uid VARCHAR(128) NOT NULL,
+	user_id      VARCHAR(128) NOT NULL DEFAULT '',
+	direction    VARCHAR(8) NOT NULL,
+	text         TEXT NOT NULL,
+	bridge_id    VARCHAR(128) NOT NULL DEFAULT '',
+	status       VARCHAR(32) NOT NULL DEFAULT '',
+	created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+	PRIMARY KEY (tenant_id, id)
+);
+CREATE INDEX IF NOT EXISTS idx_tak_chat_messages_crew ON tak_chat_messages (tenant_id, crew_uid, created_at);
+CREATE INDEX IF NOT EXISTS idx_tak_chat_messages_age ON tak_chat_messages (tenant_id, created_at);
+`},
 }
