@@ -100,17 +100,17 @@ func waitRelayNaming(t *testing.T, ots *capturedOTS, uid string) string {
 
 func TestAnExportedPositionMakesItsBridgeTheCrewsOwnerAndTellsTheServer(t *testing.T) {
 	bf, ots, s := chatRig(t)
-	export(t, bf.fakeBus, "t1", "kit-a", crewPLI("meshsat-a1b3c3a4", "MESHSAT-c3a4"))
-	owns(t, bf.f, "t1", "meshsat-a1b3c3a4", "kit-a")
-	frame := waitRelayNaming(t, ots, "meshsat-a1b3c3a4")
-	if !strings.Contains(frame, `callsign="MESHSAT-c3a4"`) || !strings.Contains(frame, `uid="`+hubUIDPrefix+`relay"`) {
+	export(t, bf.fakeBus, "t1", "kit-a", crewPLI("meshsat-0a0b0c0d", "MESHSAT-0c0d"))
+	owns(t, bf.f, "t1", "meshsat-0a0b0c0d", "kit-a")
+	frame := waitRelayNaming(t, ots, "meshsat-0a0b0c0d")
+	if !strings.Contains(frame, `callsign="MESHSAT-0c0d"`) || !strings.Contains(frame, `uid="`+hubUIDPrefix+`relay"`) {
 		t.Errorf("relay frame: %s", frame)
 	}
 	// Written behind to the store, for the API on either replica.
 	deadline := time.Now().Add(3 * time.Second)
 	for {
-		c, err := s.GetTAKContact(context.Background(), "t1", "meshsat-a1b3c3a4")
-		if err == nil && c != nil && c.BridgeID == "kit-a" && c.Callsign == "MESHSAT-c3a4" {
+		c, err := s.GetTAKContact(context.Background(), "t1", "meshsat-0a0b0c0d")
+		if err == nil && c != nil && c.BridgeID == "kit-a" && c.Callsign == "MESHSAT-0c0d" {
 			break
 		}
 		if time.Now().After(deadline) {
@@ -119,7 +119,7 @@ func TestAnExportedPositionMakesItsBridgeTheCrewsOwnerAndTellsTheServer(t *testi
 		time.Sleep(10 * time.Millisecond)
 	}
 	// The victim tenant knows nothing of it.
-	if c, _ := s.GetTAKContact(context.Background(), store.DefaultTenantID, "meshsat-a1b3c3a4"); c != nil {
+	if c, _ := s.GetTAKContact(context.Background(), store.DefaultTenantID, "meshsat-0a0b0c0d"); c != nil {
 		t.Errorf("the contact leaked into the default tenant: %+v", c)
 	}
 }
@@ -167,14 +167,14 @@ func TestNoRelayFrameToATenantsOwnServer(t *testing.T) {
 
 func TestADispatchersChatReachesOnlyTheClientThatOwnsTheCrew(t *testing.T) {
 	bf, ots, _ := chatRig(t)
-	export(t, bf.fakeBus, "t1", "kit-a", crewPLI("meshsat-a1b3c3a4", "MESHSAT-c3a4"))
+	export(t, bf.fakeBus, "t1", "kit-a", crewPLI("meshsat-0a0b0c0d", "MESHSAT-0c0d"))
 	export(t, bf.fakeBus, "t1", "kit-b", crewPLI("meshsat-11112222", "MESHSAT-2222"))
-	owns(t, bf.f, "t1", "meshsat-a1b3c3a4", "kit-a")
+	owns(t, bf.f, "t1", "meshsat-0a0b0c0d", "kit-a")
 	owns(t, bf.f, "t1", "meshsat-11112222", "kit-b")
 	before := upstreamCount(t, cotRouted)
 
 	for _, dest := range []string{"callsign", "uid"} {
-		ots.send(t, string(geoChat("ANDROID-abc", "DISPATCH-1", "meshsat-a1b3c3a4", "MESHSAT-c3a4", dest, "chk-"+dest))+"\n")
+		ots.send(t, string(geoChat("ANDROID-abc", "DISPATCH-1", "meshsat-0a0b0c0d", "MESHSAT-0c0d", dest, "chk-"+dest))+"\n")
 	}
 	toA := hubmqtt.TopicTAKCotInFor("t1", "kit-a")
 	got := waitPublished(t, bf.fakeBus, toA, 2)
@@ -244,8 +244,8 @@ func TestAPhonesOwnUIDIsOwnedOnlyByThatPhone(t *testing.T) {
 		}
 	}
 	// And a kit's own MESHSAT-<node id>, which names no bridge, is the kit's.
-	export(t, bf.fakeBus, "t1", "kit-a", crewPLI("MESHSAT-de11f199", "MESHSAT-F199"))
-	owns(t, bf.f, "t1", "MESHSAT-de11f199", "kit-a")
+	export(t, bf.fakeBus, "t1", "kit-a", crewPLI("MESHSAT-0d0e0f10", "MESHSAT-0F10"))
+	owns(t, bf.f, "t1", "MESHSAT-0d0e0f10", "kit-a")
 }
 
 // --- from a client: what an addressed event may not do ------------------------
@@ -253,7 +253,7 @@ func TestAPhonesOwnUIDIsOwnedOnlyByThatPhone(t *testing.T) {
 func TestAClientsAddressedEventIsNeverFannedOutToOtherClients(t *testing.T) {
 	bf, ots, _ := chatRig(t)
 	bf.f.SetChat(false) // the leak fix holds with chat off too
-	export(t, bf.fakeBus, "t1", "kit-a", geoChat("meshsat-a1b3c3a4", "MESHSAT-c3a4", "ANDROID-abc", "DISPATCH-1", "callsign", "reply-1"))
+	export(t, bf.fakeBus, "t1", "kit-a", geoChat("meshsat-0a0b0c0d", "MESHSAT-0c0d", "ANDROID-abc", "DISPATCH-1", "callsign", "reply-1"))
 	// To the server, which routes it to the dispatcher.
 	got := ots.waitFor(t, 1)
 	if len(got) != 1 || !strings.Contains(got[0], "reply-1") {
@@ -275,7 +275,7 @@ func TestAClientsAddressedEventIsNeverFannedOutToOtherClients(t *testing.T) {
 func TestACrewsAnswerToAnOperatorStaysOnTheHub(t *testing.T) {
 	bf, ots, _ := chatRig(t)
 	before := cotCount(t, cotOperator)
-	export(t, bf.fakeBus, "t1", "kit-a", geoChat("meshsat-a1b3c3a4", "MESHSAT-c3a4", OperatorUIDPrefix+"7", "Office", "uid", "op-answer"))
+	export(t, bf.fakeBus, "t1", "kit-a", geoChat("meshsat-0a0b0c0d", "MESHSAT-0c0d", OperatorUIDPrefix+"7", "Office", "uid", "op-answer"))
 	if moved := waitCount(t, cotOperator, before, 1); moved != 1 {
 		t.Fatalf("operator moved %v, want 1", moved)
 	}
@@ -305,7 +305,7 @@ func TestACrewWritingToAnotherClientsCrewReachesThatClient(t *testing.T) {
 	bf, ots, _ := chatRig(t)
 	export(t, bf.fakeBus, "t1", "kit-b", crewPLI("meshsat-11112222", "MESHSAT-2222"))
 	owns(t, bf.f, "t1", "meshsat-11112222", "kit-b")
-	export(t, bf.fakeBus, "t1", "kit-a", geoChat("meshsat-a1b3c3a4", "MESHSAT-c3a4", "meshsat-11112222", "MESHSAT-2222", "uid", "crew-to-crew"))
+	export(t, bf.fakeBus, "t1", "kit-a", geoChat("meshsat-0a0b0c0d", "MESHSAT-0c0d", "meshsat-11112222", "MESHSAT-2222", "uid", "crew-to-crew"))
 	toB := hubmqtt.TopicTAKCotInFor("t1", "kit-b")
 	if got := waitPublished(t, bf.fakeBus, toB, 1); len(got) != 1 || !strings.Contains(got[0].payload, "crew-to-crew") {
 		t.Fatalf("kit-b got %v", got)
@@ -344,15 +344,15 @@ func TestOwnershipIsSticky(t *testing.T) {
 func TestACallsignTwoCrewsShareResolvesToNeither(t *testing.T) {
 	o := newOwners()
 	now := time.Now()
-	o.observe("t1", "kit-a", "meshsat-1111c3a4", "MESHSAT-c3a4", now)
-	if b, uid, ok := o.owner("t1", tak.Dest{Callsign: "MESHSAT-c3a4"}, now); !ok || b != "kit-a" || uid != "meshsat-1111c3a4" {
+	o.observe("t1", "kit-a", "meshsat-11110c0d", "MESHSAT-0c0d", now)
+	if b, uid, ok := o.owner("t1", tak.Dest{Callsign: "MESHSAT-0c0d"}, now); !ok || b != "kit-a" || uid != "meshsat-11110c0d" {
 		t.Fatalf("one crew with the callsign: %q %q %v", b, uid, ok)
 	}
-	o.observe("t1", "kit-b", "meshsat-2222c3a4", "MESHSAT-c3a4", now)
-	if _, _, ok := o.owner("t1", tak.Dest{Callsign: "MESHSAT-c3a4"}, now); ok {
+	o.observe("t1", "kit-b", "meshsat-22220c0d", "MESHSAT-0c0d", now)
+	if _, _, ok := o.owner("t1", tak.Dest{Callsign: "MESHSAT-0c0d"}, now); ok {
 		t.Error("an ambiguous callsign resolved")
 	}
-	if b, _, ok := o.owner("t1", tak.Dest{UID: "meshsat-2222c3a4"}, now); !ok || b != "kit-b" {
+	if b, _, ok := o.owner("t1", tak.Dest{UID: "meshsat-22220c0d"}, now); !ok || b != "kit-b" {
 		t.Error("the uid no longer resolves")
 	}
 }

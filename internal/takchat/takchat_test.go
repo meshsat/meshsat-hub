@@ -77,7 +77,7 @@ func rig(t *testing.T) (*Service, *fakeBus, store.Store, time.Time) {
 		}
 	}
 	for _, c := range []store.TAKContact{
-		{TenantID: "t1", UID: "meshsat-a1b3c3a4", Callsign: "MESHSAT-c3a4", BridgeID: "kit-a", LastSeen: now},
+		{TenantID: "t1", UID: "meshsat-0a0b0c0d", Callsign: "MESHSAT-0c0d", BridgeID: "kit-a", LastSeen: now},
 		{TenantID: "t1", UID: "meshsat-11112222", Callsign: "MESHSAT-2222", BridgeID: "kit-b", LastSeen: now},
 		{TenantID: "t1", UID: "meshsat-0ld0ld00", Callsign: "OLD", BridgeID: "kit-a", LastSeen: now.Add(-25 * time.Hour)},
 		{TenantID: "t1", UID: "meshsat-90000000", Callsign: "GONE", BridgeID: "kit-gone", LastSeen: now},
@@ -95,7 +95,7 @@ func rig(t *testing.T) (*Service, *fakeBus, store.Store, time.Time) {
 
 func TestAnOperatorsMessageGoesToTheOneClientThatOwnsTheCrew(t *testing.T) {
 	s, b, db, _ := rig(t)
-	msg, created, err := s.Send(context.Background(), SendRequest{TenantID: "t1", CrewUID: "meshsat-a1b3c3a4",
+	msg, created, err := s.Send(context.Background(), SendRequest{TenantID: "t1", CrewUID: "meshsat-0a0b0c0d",
 		UserID: "7", Name: "Anna", Text: "check in\nplease"})
 	if err != nil || !created {
 		t.Fatalf("send: %v %v", created, err)
@@ -111,13 +111,13 @@ func TestAnOperatorsMessageGoesToTheOneClientThatOwnsTheCrew(t *testing.T) {
 	if uid, cs := meta.Sender(); uid != tak.OperatorUIDPrefix+"7" || cs != "Anna" {
 		t.Errorf("from %q %q", uid, cs)
 	}
-	if to := meta.Addressees(); len(to) != 1 || to[0] != (tak.Dest{UID: "meshsat-a1b3c3a4", Callsign: "MESHSAT-c3a4"}) {
+	if to := meta.Addressees(); len(to) != 1 || to[0] != (tak.Dest{UID: "meshsat-0a0b0c0d", Callsign: "MESHSAT-0c0d"}) {
 		t.Errorf("to %v", to)
 	}
 	if meta.Remarks != "check in please" {
 		t.Errorf("text %q: a radio shows one line", meta.Remarks)
 	}
-	rows, _ := db.ListTAKChatMessages(context.Background(), "t1", "meshsat-a1b3c3a4", 10)
+	rows, _ := db.ListTAKChatMessages(context.Background(), "t1", "meshsat-0a0b0c0d", 10)
 	if len(rows) != 1 || rows[0].ID != msg.ID || rows[0].Direction != "out" || rows[0].Status != "sent" || rows[0].BridgeID != "kit-a" {
 		t.Errorf("stored %+v", rows)
 	}
@@ -130,8 +130,8 @@ func TestASendIsRefusedForEachReason(t *testing.T) {
 		req  SendRequest
 		want error
 	}{
-		{"no text", SendRequest{TenantID: "t1", CrewUID: "meshsat-a1b3c3a4", Text: " \n "}, ErrEmpty},
-		{"too long", SendRequest{TenantID: "t1", CrewUID: "meshsat-a1b3c3a4", Text: long}, ErrTooLong},
+		{"no text", SendRequest{TenantID: "t1", CrewUID: "meshsat-0a0b0c0d", Text: " \n "}, ErrEmpty},
+		{"too long", SendRequest{TenantID: "t1", CrewUID: "meshsat-0a0b0c0d", Text: long}, ErrTooLong},
 		{"no such crew", SendRequest{TenantID: "t1", CrewUID: "meshsat-deadbeef", Text: "hi"}, ErrNoCrew},
 		{"another tenant's crew", SendRequest{TenantID: "t1", CrewUID: "meshsat-77777777", Text: "hi"}, ErrNoCrew},
 		{"not seen for a day", SendRequest{TenantID: "t1", CrewUID: "meshsat-0ld0ld00", Text: "hi"}, ErrStale},
@@ -150,14 +150,14 @@ func TestASendIsRefusedForEachReason(t *testing.T) {
 	}
 	s, b, _, _ := rig(t)
 	s.enabled = false
-	if _, _, err := s.Send(context.Background(), SendRequest{TenantID: "t1", CrewUID: "meshsat-a1b3c3a4", Text: "hi"}); !errors.Is(err, ErrDisabled) || len(b.published()) != 0 {
+	if _, _, err := s.Send(context.Background(), SendRequest{TenantID: "t1", CrewUID: "meshsat-0a0b0c0d", Text: "hi"}); !errors.Is(err, ErrDisabled) || len(b.published()) != 0 {
 		t.Errorf("off: %v", err)
 	}
 }
 
 func TestAResentRequestIsOneMessage(t *testing.T) {
 	s, b, db, _ := rig(t)
-	req := SendRequest{TenantID: "t1", CrewUID: "meshsat-a1b3c3a4", UserID: "7", Text: "hi", ClientRef: "r-1"}
+	req := SendRequest{TenantID: "t1", CrewUID: "meshsat-0a0b0c0d", UserID: "7", Text: "hi", ClientRef: "r-1"}
 	first, created, err := s.Send(context.Background(), req)
 	if err != nil || !created {
 		t.Fatal(err)
@@ -170,7 +170,7 @@ func TestAResentRequestIsOneMessage(t *testing.T) {
 	if n := len(b.published()); n != 1 {
 		t.Errorf("published %d times", n)
 	}
-	if rows, _ := db.ListTAKChatMessages(context.Background(), "t1", "meshsat-a1b3c3a4", 10); len(rows) != 1 {
+	if rows, _ := db.ListTAKChatMessages(context.Background(), "t1", "meshsat-0a0b0c0d", 10); len(rows) != 1 {
 		t.Errorf("%d rows", len(rows))
 	}
 }
@@ -178,10 +178,10 @@ func TestAResentRequestIsOneMessage(t *testing.T) {
 func TestOneMessagePerCrewPerWindow(t *testing.T) {
 	s, b, _, _ := rig(t)
 	ctx := context.Background()
-	if _, _, err := s.Send(ctx, SendRequest{TenantID: "t1", CrewUID: "meshsat-a1b3c3a4", Text: "one"}); err != nil {
+	if _, _, err := s.Send(ctx, SendRequest{TenantID: "t1", CrewUID: "meshsat-0a0b0c0d", Text: "one"}); err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := s.Send(ctx, SendRequest{TenantID: "t1", CrewUID: "meshsat-a1b3c3a4", Text: "two"}); !errors.Is(err, ErrLimited) {
+	if _, _, err := s.Send(ctx, SendRequest{TenantID: "t1", CrewUID: "meshsat-0a0b0c0d", Text: "two"}); !errors.Is(err, ErrLimited) {
 		t.Errorf("a second message inside the window: %v", err)
 	}
 	// Positive control: another crew is its own window.
@@ -196,10 +196,10 @@ func TestOneMessagePerCrewPerWindow(t *testing.T) {
 func TestAFailedPublishIsRecordedAsFailed(t *testing.T) {
 	s, b, db, _ := rig(t)
 	b.fail = errors.New("bus down")
-	if _, _, err := s.Send(context.Background(), SendRequest{TenantID: "t1", CrewUID: "meshsat-a1b3c3a4", Text: "hi"}); !errors.Is(err, ErrPublish) {
+	if _, _, err := s.Send(context.Background(), SendRequest{TenantID: "t1", CrewUID: "meshsat-0a0b0c0d", Text: "hi"}); !errors.Is(err, ErrPublish) {
 		t.Fatalf("err %v", err)
 	}
-	rows, _ := db.ListTAKChatMessages(context.Background(), "t1", "meshsat-a1b3c3a4", 10)
+	rows, _ := db.ListTAKChatMessages(context.Background(), "t1", "meshsat-0a0b0c0d", 10)
 	if len(rows) != 1 || rows[0].Status != "failed" {
 		t.Errorf("stored %+v", rows)
 	}
@@ -233,20 +233,20 @@ func TestACrewsAnswerIsStoredOnceFromItsOwnClientOnly(t *testing.T) {
 	s, _, db, _ := rig(t)
 	ctx := context.Background()
 	op := tak.OperatorUIDPrefix + "7"
-	ok := answer(t, "meshsat-a1b3c3a4", "MESHSAT-c3a4", op, "on my way", "ans-1")
+	ok := answer(t, "meshsat-0a0b0c0d", "MESHSAT-0c0d", op, "on my way", "ans-1")
 	// Both replicas receive it.
 	s.store1(ctx, reply{hubmqtt.TopicTAKCotOutFor("t1", "kit-a"), ok})
 	s.store1(ctx, reply{hubmqtt.TopicTAKCotOutFor("t1", "kit-a"), ok})
 	// kit-b answering in kit-a's crew's name; an answer to nobody; an unregistered sender.
-	s.store1(ctx, reply{hubmqtt.TopicTAKCotOutFor("t1", "kit-b"), answer(t, "meshsat-a1b3c3a4", "MESHSAT-c3a4", op, "forged", "ans-2")})
-	s.store1(ctx, reply{hubmqtt.TopicTAKCotOutFor("t1", "kit-a"), answer(t, "meshsat-a1b3c3a4", "MESHSAT-c3a4", "ANDROID-abc", "to a TAK user", "ans-3")})
-	s.store1(ctx, reply{hubmqtt.TopicTAKCotOutFor("t1", "kit-x"), answer(t, "meshsat-a1b3c3a4", "MESHSAT-c3a4", op, "stranger", "ans-4")})
-	rows, _ := db.ListTAKChatMessages(ctx, "t1", "meshsat-a1b3c3a4", 10)
+	s.store1(ctx, reply{hubmqtt.TopicTAKCotOutFor("t1", "kit-b"), answer(t, "meshsat-0a0b0c0d", "MESHSAT-0c0d", op, "forged", "ans-2")})
+	s.store1(ctx, reply{hubmqtt.TopicTAKCotOutFor("t1", "kit-a"), answer(t, "meshsat-0a0b0c0d", "MESHSAT-0c0d", "ANDROID-abc", "to a TAK user", "ans-3")})
+	s.store1(ctx, reply{hubmqtt.TopicTAKCotOutFor("t1", "kit-x"), answer(t, "meshsat-0a0b0c0d", "MESHSAT-0c0d", op, "stranger", "ans-4")})
+	rows, _ := db.ListTAKChatMessages(ctx, "t1", "meshsat-0a0b0c0d", 10)
 	if len(rows) != 1 || rows[0].Text != "on my way" || rows[0].Direction != "in" || rows[0].UserID != "7" || rows[0].ID != "ans-1" {
 		t.Fatalf("stored %+v", rows)
 	}
 	// The victim tenant's identical crew uid got nothing.
-	if v, _ := db.ListTAKChatMessages(ctx, store.DefaultTenantID, "meshsat-a1b3c3a4", 10); len(v) != 0 {
+	if v, _ := db.ListTAKChatMessages(ctx, store.DefaultTenantID, "meshsat-0a0b0c0d", 10); len(v) != 0 {
 		t.Errorf("the default tenant got %+v", v)
 	}
 }
@@ -261,11 +261,11 @@ func TestTheSinkHandsOverOnlyWhatMayBeAnAnswer(t *testing.T) {
 	if len(b.subs) != len(hubmqtt.TAKCotOutFilters()) {
 		t.Fatalf("subscribed %d filters", len(b.subs))
 	}
-	s.receive("x", []byte(`<event uid="meshsat-a1b3c3a4" type="a-f-G-U-C"/>`))
+	s.receive("x", []byte(`<event uid="meshsat-0a0b0c0d" type="a-f-G-U-C"/>`))
 	if len(s.replies) != 0 {
 		t.Error("a position was queued as a possible answer")
 	}
-	s.receive("x", answer(t, "meshsat-a1b3c3a4", "MESHSAT-c3a4", tak.OperatorUIDPrefix+"7", "hi", "q"))
+	s.receive("x", answer(t, "meshsat-0a0b0c0d", "MESHSAT-0c0d", tak.OperatorUIDPrefix+"7", "hi", "q"))
 	deadline := time.Now().Add(time.Second)
 	for len(s.replies) != 0 && time.Now().Before(deadline) {
 		time.Sleep(5 * time.Millisecond)

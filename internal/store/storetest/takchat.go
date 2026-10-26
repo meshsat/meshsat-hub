@@ -17,14 +17,14 @@ func testTAKChat(t *testing.T, db store.Store) {
 	const (
 		mine  = "t_tak_mine"
 		other = store.DefaultTenantID
-		crew  = "meshsat-a1b3c3a4"
+		crew  = "meshsat-0a0b0c0d"
 	)
 	now := time.Now().UTC().Truncate(time.Second)
 
 	if c, err := db.GetTAKContact(ctx, mine, crew); err != nil || c != nil {
 		t.Fatalf("an unknown contact: %+v %v", c, err)
 	}
-	if err := db.UpsertTAKContact(ctx, &store.TAKContact{TenantID: mine, UID: crew, Callsign: "MESHSAT-c3a4",
+	if err := db.UpsertTAKContact(ctx, &store.TAKContact{TenantID: mine, UID: crew, Callsign: "MESHSAT-0c0d",
 		BridgeID: "parallax01", LastSeen: now}); err != nil {
 		t.Fatal(err)
 	}
@@ -34,7 +34,7 @@ func testTAKChat(t *testing.T, db store.Store) {
 		t.Fatal(err)
 	}
 	// An older sighting moves the owner but never the time back.
-	if err := db.UpsertTAKContact(ctx, &store.TAKContact{TenantID: mine, UID: crew, Callsign: "MESHSAT-c3a4",
+	if err := db.UpsertTAKContact(ctx, &store.TAKContact{TenantID: mine, UID: crew, Callsign: "MESHSAT-0c0d",
 		BridgeID: "tesseract01", LastSeen: now.Add(-time.Hour)}); err != nil {
 		t.Fatal(err)
 	}
@@ -42,7 +42,7 @@ func testTAKChat(t *testing.T, db store.Store) {
 	if err != nil || c == nil {
 		t.Fatalf("get: %+v %v", c, err)
 	}
-	if c.BridgeID != "tesseract01" || c.Callsign != "MESHSAT-c3a4" || !c.LastSeen.Equal(now) {
+	if c.BridgeID != "tesseract01" || c.Callsign != "MESHSAT-0c0d" || !c.LastSeen.Equal(now) {
 		t.Errorf("contact %+v", c)
 	}
 	list, err := db.ListTAKContacts(ctx, mine, now.Add(-time.Minute))
