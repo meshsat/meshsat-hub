@@ -43,10 +43,15 @@ RUN /opt/ots/bin/pip install --no-cache-dir --no-deps --require-hashes -r /tmp/r
 # The fetch is digest-pinned and the patch's anchor is byte-exact; either one
 # failing fails the build, which is deliberate. A silent no-op here restores a
 # 134-second stall that nobody would think to look for twice.
-COPY bundle-iconsets.py patch-icon-fetch.py patch-eud-handshake.py /tmp/
+#
+# patch-relay-dms.py (MESHSAT-1706) lets the Hub's connection take the direct
+# chats TAK users address to the crews it writes for; without it RabbitMQ drops
+# them, because only a connection's own uid and callsign are bound on `dms`.
+COPY bundle-iconsets.py patch-icon-fetch.py patch-eud-handshake.py patch-relay-dms.py /tmp/
 RUN /opt/ots/bin/python /tmp/bundle-iconsets.py /opt/ots/share/iconsets.sqlite \
     && /opt/ots/bin/python /tmp/patch-icon-fetch.py /opt/ots/share/iconsets.sqlite \
-    && /opt/ots/bin/python /tmp/patch-eud-handshake.py
+    && /opt/ots/bin/python /tmp/patch-eud-handshake.py \
+    && /opt/ots/bin/python /tmp/patch-relay-dms.py
 
 # A default timeout for every HTTP request OpenTAKServer makes (MESHSAT-1070).
 #
@@ -75,11 +80,14 @@ COPY sitecustomize.py /opt/ots/lib/python3.13/site-packages/sitecustomize.py
 RUN /opt/ots/bin/python -c "\
 import sys, requests, inspect; \
 import opentakserver.eud_handler.EudHandlerSSL as m; \
+import opentakserver.eud_handler.EudHandler as h; \
 src = inspect.getsource(m); \
 assert 'MESHSAT-1089' in src, 'the EudHandlerSSL patch is NOT in the module Python loads'; \
+assert 'MESHSAT-1706' in inspect.getsource(h) and hasattr(h.EudHandler, '_meshsat_relay'), \
+    'the relay patch is NOT in the EudHandler Python loads'; \
 assert getattr(requests.Session.request, '_meshsat_timeout_default', False), \
     'sitecustomize did not install the default request timeout'; \
-print('ots image: handshake patch and request timeout default both verified')"
+print('ots image: handshake and relay patches and request timeout default verified')"
 
 FROM python:3.13-slim-trixie
 # Debian security updates for the packages the BASE IMAGE brings.

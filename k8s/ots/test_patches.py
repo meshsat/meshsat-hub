@@ -530,6 +530,248 @@ class IconLoaderBehaviour(unittest.TestCase):
         self.assertTrue(any("falling back" in m.lower() for _, m in log.lines))
 
 
+RELAY = HERE / "patch-relay-dms.py"
+
+
+def load_relay_module():
+    """Import patch-relay-dms.py for its ANCHOR (the name has a dash)."""
+    spec = importlib.util.spec_from_file_location("patch_relay_dms", RELAY)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+R = load_relay_module()
+
+
+def write_relay_fixture(d: pathlib.Path, anchor=None):
+    """A minimal EudHandler.py around the relay patch's own anchor, CRLF.
+
+    Everything outside the anchor is scaffolding written here, so handle_cot()
+    and publish_cot() can be executed; nothing is copied from upstream.
+    """
+    src = (
+        b"class EudHandler:\r\n"
+        b"    def handle_cot(self, event):\r\n"
+        b"        if event and not self.uid:\r\n"
+        b"            with self.app.app_context():\r\n"
+        b"                db.session.close()\r\n"
+        + (anchor if anchor is not None else R.ANCHOR)
+        + b"        self.published.append(event)\r\n"
+    )
+    path = d / "EudHandler.py"
+    path.write_bytes(src)
+    return path
+
+
+def run_relay_patch(path):
+    return subprocess.run(
+        [sys.executable, str(RELAY), str(path)],
+        capture_output=True, text=True,
+    )
+
+
+class FakeTag:
+    """The three things the patched code asks of a BeautifulSoup tag."""
+
+    def __init__(self, attrs=None, children=None):
+        self.attrs = attrs or {}
+        self.children = children or {}
+
+    def get(self, key):
+        return self.attrs.get(key)
+
+    def find(self, name):
+        found = self.children.get(name, [])
+        return found[0] if found else None
+
+    def find_all(self, name):
+        return list(self.children.get(name, []))
+
+
+def relay_event(*pairs):
+    relays = [FakeTag({"uid": u, "callsign": c}) for u, c in pairs]
+    return FakeTag({"type": "t-x-meshsat-relay"}, {"detail": [FakeTag(children={"relay": relays})]})
+
+
+class RelayPatchApplication(unittest.TestCase):
+    """patch-relay-dms.py -- MESHSAT-1706."""
+
+    def test_it_applies_once_and_is_idempotent(self):
+        with tempfile.TemporaryDirectory() as d:
+            path = write_relay_fixture(pathlib.Path(d))
+            r = run_relay_patch(path)
+            self.assertEqual(r.returncode, 0, r.stderr)
+            once = path.read_bytes()
+            self.assertIn(R.MARKER, once)
+            self.assertNotIn(R.ANCHOR, once)
+            again = run_relay_patch(path)
+            self.assertEqual(again.returncode, 0, again.stderr)
+            self.assertIn("already patched", again.stdout)
+            self.assertEqual(path.read_bytes(), once, "a second run changed the file")
+
+    def test_the_result_compiles_and_keeps_crlf(self):
+        with tempfile.TemporaryDirectory() as d:
+            path = write_relay_fixture(pathlib.Path(d))
+            self.assertEqual(run_relay_patch(path).returncode, 0)
+            raw = path.read_bytes()
+            self.assertEqual(raw.count(b"\n") - raw.count(b"\r\n"), 0, "a bare LF crept in")
+            py_compile.compile(str(path), doraise=True)
+
+    def test_drift_refuses_and_writes_nothing(self):
+        with tempfile.TemporaryDirectory() as d:
+            drifted = R.ANCHOR.replace(b"self.publish_cot(event)", b"self.route(event)")
+            self.assertNotEqual(drifted, R.ANCHOR)
+            path = write_relay_fixture(pathlib.Path(d), anchor=drifted)
+            before = path.read_bytes()
+            r = run_relay_patch(path)
+            self.assertNotEqual(r.returncode, 0, "drift was accepted")
+            self.assertEqual(path.read_bytes(), before, "a refused patch still wrote")
+            self.assertIn("expected exactly 1", r.stderr)
+
+    def test_an_lf_converted_file_is_refused(self):
+        with tempfile.TemporaryDirectory() as d:
+            path = write_relay_fixture(pathlib.Path(d))
+            path.write_bytes(path.read_bytes().replace(b"\r\n", b"\n"))
+            self.assertNotEqual(run_relay_patch(path).returncode, 0)
+
+
+class RelayBehaviour(unittest.TestCase):
+    """Execute what the patch writes against a fake RabbitMQ channel."""
+
+    def setUp(self):
+        self.dir = tempfile.TemporaryDirectory()
+        self.path = write_relay_fixture(pathlib.Path(self.dir.name))
+        self.assertEqual(run_relay_patch(self.path).returncode, 0)
+        ns = {"db": MagicMock()}
+        exec(extract(self.path, "_meshsat_relay"), ns)
+        exec(extract(self.path, "handle_cot"), ns)
+        self.relay, self.handle_cot = ns["_meshsat_relay"], ns["handle_cot"]
+
+    def tearDown(self):
+        self.dir.cleanup()
+
+    def _handler(self, username="meshsat_hub", uid="meshsat-hub-t1", callsign="MeshSat Hub"):
+        h = types.SimpleNamespace()
+        h.user = types.SimpleNamespace(username=username) if username else None
+        h.uid, h.callsign = uid, callsign
+        h.logger = Recorder()
+        h.rabbit_channel = MagicMock()
+        h.rabbit_channel.is_open = True
+        h.callbacks = []
+        h.rabbit_connection = types.SimpleNamespace(
+            ioloop=types.SimpleNamespace(add_callback_threadsafe=h.callbacks.append))
+        h.bound_queues = []
+        h.published = []
+        h.publish_cot = h.published.append
+        h._meshsat_relay = lambda event: self.relay(h, event)
+        return h
+
+    def _run_callbacks(self, h):
+        for cb in h.callbacks:
+            cb()
+        h.callbacks.clear()
+
+    def _bound_keys(self, h):
+        return [c.kwargs["routing_key"] for c in h.rabbit_channel.queue_bind.call_args_list]
+
+    def test_the_hub_binds_each_crew_uid_and_callsign_on_its_own_queue(self):
+        h = self._handler()
+        self.relay(h, relay_event(("meshsat-a1b3c3a4", "MESHSAT-c3a4")))
+        h.rabbit_channel.queue_bind.assert_not_called()  # only on the ioloop thread
+        self._run_callbacks(h)
+        self.assertEqual(self._bound_keys(h), ["meshsat-a1b3c3a4", "MESHSAT-c3a4"])
+        for c in h.rabbit_channel.queue_bind.call_args_list:
+            self.assertEqual(c.kwargs["exchange"], "dms")
+            self.assertEqual(c.kwargs["queue"], "meshsat-hub-t1")
+        self.assertIn({"exchange": "dms", "routing_key": "MESHSAT-c3a4", "queue": "meshsat-hub-t1"},
+                      h.bound_queues, "close would leave the binding behind")
+        self.assertEqual(h.logger.levels, ["info"])
+
+    def test_each_frame_is_the_full_set(self):
+        h = self._handler()
+        self.relay(h, relay_event(("u1", "C1"), ("u2", "C2")))
+        self._run_callbacks(h)
+        h.rabbit_channel.reset_mock()
+        self.relay(h, relay_event(("u2", "C2"), ("u3", "C3")))
+        self._run_callbacks(h)
+        unbound = [c.kwargs["routing_key"] for c in h.rabbit_channel.queue_unbind.call_args_list]
+        self.assertEqual(sorted(unbound), ["C1", "u1"])
+        self.assertEqual(sorted(self._bound_keys(h)), ["C3", "u3"])
+        keys = sorted(b["routing_key"] for b in h.bound_queues)
+        self.assertEqual(keys, ["C2", "C3", "u2", "u3"])
+
+    def test_own_keys_duplicates_and_long_keys_are_skipped(self):
+        h = self._handler()
+        self.relay(h, relay_event(("meshsat-hub-t1", "MeshSat Hub"), ("u1", "C1"), ("u1", "C1"),
+                                  ("x" * 201, "C2")))
+        self._run_callbacks(h)
+        self.assertEqual(self._bound_keys(h), ["u1", "C1", "C2"])
+
+    def test_at_most_1024_keys_are_held(self):
+        h = self._handler()
+        self.relay(h, relay_event(*[(f"u{i}", f"C{i}") for i in range(600)]))
+        self._run_callbacks(h)
+        self.assertEqual(len(self._bound_keys(h)), 1024)
+        self.assertIn("warning", h.logger.levels)
+
+    def test_nobody_but_the_hub_user_may_relay(self):
+        for username in ("spikeuser", None):
+            with self.subTest(username=username):
+                h = self._handler(username=username)
+                self.relay(h, relay_event(("u1", "C1")))
+                self._run_callbacks(h)
+                h.rabbit_channel.queue_bind.assert_not_called()
+                self.assertEqual(h.bound_queues, [])
+                self.assertEqual(h.logger.levels, ["warning"])
+
+    def test_the_relay_user_can_be_renamed(self):
+        import os
+        old = os.environ.get("OTS_MESHSAT_RELAY_USER")
+        os.environ["OTS_MESHSAT_RELAY_USER"] = "hubtwo"
+        try:
+            h = self._handler(username="hubtwo")
+            self.relay(h, relay_event(("u1", "C1")))
+            self._run_callbacks(h)
+            self.assertEqual(self._bound_keys(h), ["u1", "C1"])
+            refused = self._handler()  # meshsat_hub is no longer the relay user
+            self.relay(refused, relay_event(("u1", "C1")))
+            self.assertEqual(refused.callbacks, [])
+        finally:
+            if old is None:
+                os.environ.pop("OTS_MESHSAT_RELAY_USER", None)
+            else:
+                os.environ["OTS_MESHSAT_RELAY_USER"] = old
+
+    def test_an_unidentified_connection_binds_nothing(self):
+        h = self._handler(uid=None)
+        self.relay(h, relay_event(("u1", "C1")))
+        self.assertEqual(h.callbacks, [])
+
+    def test_a_closed_channel_binds_nothing_and_the_next_frame_retries(self):
+        h = self._handler()
+        h.rabbit_channel.is_open = False
+        self.relay(h, relay_event(("u1", "C1")))
+        self.assertEqual(h.callbacks, [])
+        self.assertEqual(h.logger.levels, ["error"])
+        h.rabbit_channel.is_open = True
+        self.relay(h, relay_event(("u1", "C1")))
+        self._run_callbacks(h)
+        self.assertEqual(self._bound_keys(h), ["u1", "C1"])
+
+    def test_the_relay_event_is_never_published_whoever_sends_it(self):
+        for username in ("meshsat_hub", "spikeuser"):
+            with self.subTest(username=username):
+                h = self._handler(username=username)
+                self.handle_cot(h, relay_event(("u1", "C1")))
+                self.assertEqual(h.published, [])
+
+    def test_any_other_event_is_still_published(self):
+        h = self._handler()
+        position = FakeTag({"type": "a-f-G-U-C"})
+        self.handle_cot(h, position)
+        self.assertEqual(h.published, [position], "the patch swallowed an ordinary event")
+
 
 if __name__ == "__main__":
     unittest.main()
