@@ -39,7 +39,11 @@ data:
   # carries the Reloader annotation: Argo updating this file recreates the
   # operator. Still check the new pod's startup line reports the digest below
   # as ots_image.
-  TAK_OTS_IMAGE: "ghcr.io/meshsat/meshsat-hub-ots@sha256:1f1c23a0a6f1447f6f35d974477b74ce8a3a68c9cd31cc561a8b6dc0445641b3"
+  # Moved 2026-10-26 (MESHSAT-1706, MESHSAT-1710): patch-relay-dms.py (a TAK
+  # user's chat to one crew reaches the Hub), patch-optional-feeds.py (adsbxcot
+  # and aiscot were deleted from PyPI) and the CVE floors of pipeline 61636.
+  # Proven on a throwaway server before the move (e2e_ots_dm_test.go).
+  TAK_OTS_IMAGE: "ghcr.io/meshsat/meshsat-hub-ots@sha256:7c7c99b2c8bef663cdc595b12548ca13e2307be6824cb89512f52012e9fb8f21"
   # In the pod because OpenTAKServer's socketio client connects to RabbitMQ as
   # `guest` with no credentials, and guest is loopback-only. Spike S5 settled
   # that it must run as the image's own uid 100: as root with capabilities
