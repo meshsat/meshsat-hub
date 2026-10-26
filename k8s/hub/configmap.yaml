@@ -439,7 +439,7 @@ data:
   # "true" only once every hosted instance runs the OTS image with
   # patch-relay-dms.py (k8s/tak-operator/configmap.yaml TAK_OTS_IMAGE): a stock
   # server would hand the relay event to every client.
-  HUB_TAKCHAT_ENABLED: "false"
+  HUB_TAKCHAT_ENABLED: "true"
 
   # SOS identity (docs/bridge-hub-protocol.md "SOS identity (C10)", MESHSAT-1584).
   # Says sos_v2 on every bridge's retained hub/caps, so a Bridge that speaks C10
