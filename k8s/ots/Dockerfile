@@ -47,11 +47,16 @@ RUN /opt/ots/bin/pip install --no-cache-dir --no-deps --require-hashes -r /tmp/r
 # patch-relay-dms.py (MESHSAT-1706) lets the Hub's connection take the direct
 # chats TAK users address to the crews it writes for; without it RabbitMQ drops
 # them, because only a connection's own uid and callsign are bound on `dms`.
-COPY bundle-iconsets.py patch-icon-fetch.py patch-eud-handshake.py patch-relay-dms.py /tmp/
+#
+# patch-optional-feeds.py (MESHSAT-1710): adsbxcot and aiscot were deleted from
+# PyPI in October 2026 and are excluded from the lock; OTS imports them only for
+# the ADS-B and AIS feed jobs, so the patch makes those imports optional.
+COPY bundle-iconsets.py patch-icon-fetch.py patch-eud-handshake.py patch-relay-dms.py patch-optional-feeds.py /tmp/
 RUN /opt/ots/bin/python /tmp/bundle-iconsets.py /opt/ots/share/iconsets.sqlite \
     && /opt/ots/bin/python /tmp/patch-icon-fetch.py /opt/ots/share/iconsets.sqlite \
     && /opt/ots/bin/python /tmp/patch-eud-handshake.py \
-    && /opt/ots/bin/python /tmp/patch-relay-dms.py
+    && /opt/ots/bin/python /tmp/patch-relay-dms.py \
+    && /opt/ots/bin/python /tmp/patch-optional-feeds.py
 
 # A default timeout for every HTTP request OpenTAKServer makes (MESHSAT-1070).
 #
@@ -85,6 +90,9 @@ src = inspect.getsource(m); \
 assert 'MESHSAT-1089' in src, 'the EudHandlerSSL patch is NOT in the module Python loads'; \
 assert 'MESHSAT-1706' in inspect.getsource(h) and hasattr(h.EudHandler, '_meshsat_relay'), \
     'the relay patch is NOT in the EudHandler Python loads'; \
+import opentakserver.blueprints.scheduled_jobs as sj; \
+assert sj.adsbxcot is None and sj.aiscot is None, \
+    'scheduled_jobs did not import without adsbxcot and aiscot'; \
 assert getattr(requests.Session.request, '_meshsat_timeout_default', False), \
     'sitecustomize did not install the default request timeout'; \
 print('ots image: handshake and relay patches and request timeout default verified')"

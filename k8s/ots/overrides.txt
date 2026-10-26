@@ -24,3 +24,9 @@ virtualenv>=21.7.13
 # (only androguard/pentest does). This marker never matches, so frida is
 # excluded.
 frida; sys_platform == "never"
+# adsbxcot and aiscot were deleted from PyPI, its mirrors and GitHub in October
+# 2026 (MESHSAT-1710). OTS imports them only for the ADS-B and AIS feed jobs,
+# paused by default and without egress on a hosted instance;
+# patch-optional-feeds.py makes those imports optional. Excluded like frida.
+adsbxcot; sys_platform == "never"
+aiscot; sys_platform == "never"

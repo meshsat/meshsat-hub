@@ -773,5 +773,97 @@ class RelayBehaviour(unittest.TestCase):
         self.assertEqual(h.published, [position], "the patch swallowed an ordinary event")
 
 
+FEEDS = HERE / "patch-optional-feeds.py"
+
+
+def load_feeds_module():
+    """Import patch-optional-feeds.py for its ANCHOR (the name has a dash)."""
+    spec = importlib.util.spec_from_file_location("patch_optional_feeds", FEEDS)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+F = load_feeds_module()
+
+
+def write_feeds_fixture(d: pathlib.Path, anchor=None):
+    """A minimal scheduled_jobs.py around the feeds patch's anchor, CRLF."""
+    src = (
+        b"import datetime\r\n"
+        b"\r\n"
+        + (anchor if anchor is not None else F.ANCHOR)
+        + b"import json\r\n"
+    )
+    path = d / "scheduled_jobs.py"
+    path.write_bytes(src)
+    return path
+
+
+def run_feeds_patch(path):
+    return subprocess.run(
+        [sys.executable, str(FEEDS), str(path)],
+        capture_output=True, text=True,
+    )
+
+
+class FeedsPatch(unittest.TestCase):
+    """patch-optional-feeds.py -- MESHSAT-1710."""
+
+    def test_it_applies_once_and_is_idempotent(self):
+        with tempfile.TemporaryDirectory() as d:
+            path = write_feeds_fixture(pathlib.Path(d))
+            r = run_feeds_patch(path)
+            self.assertEqual(r.returncode, 0, r.stderr)
+            once = path.read_bytes()
+            self.assertIn(F.MARKER, once)
+            again = run_feeds_patch(path)
+            self.assertEqual(again.returncode, 0)
+            self.assertIn("already patched", again.stdout)
+            self.assertEqual(path.read_bytes(), once)
+
+    def test_the_result_compiles_and_keeps_crlf(self):
+        with tempfile.TemporaryDirectory() as d:
+            path = write_feeds_fixture(pathlib.Path(d))
+            self.assertEqual(run_feeds_patch(path).returncode, 0)
+            raw = path.read_bytes()
+            self.assertEqual(raw.count(b"\n") - raw.count(b"\r\n"), 0, "a bare LF crept in")
+            py_compile.compile(str(path), doraise=True)
+
+    def test_drift_refuses_and_writes_nothing(self):
+        with tempfile.TemporaryDirectory() as d:
+            path = write_feeds_fixture(pathlib.Path(d), anchor=b"import adsbxcot\r\nimport pika\r\n")
+            before = path.read_bytes()
+            r = run_feeds_patch(path)
+            self.assertNotEqual(r.returncode, 0, "drift was accepted")
+            self.assertEqual(path.read_bytes(), before)
+
+    def _imports(self, available):
+        """Run the patched module's top with only the named feeds importable."""
+        with tempfile.TemporaryDirectory() as d:
+            path = write_feeds_fixture(pathlib.Path(d))
+            self.assertEqual(run_feeds_patch(path).returncode, 0)
+            saved = {n: sys.modules.get(n, ...) for n in ("adsbxcot", "aiscot")}
+            try:
+                for n in ("adsbxcot", "aiscot"):
+                    sys.modules[n] = types.ModuleType(n) if n in available else None
+                ns = {}
+                exec(compile(path.read_bytes(), str(path), "exec"), ns)
+                return ns["adsbxcot"], ns["aiscot"]
+            finally:
+                for n, m in saved.items():
+                    if m is ...:
+                        sys.modules.pop(n, None)
+                    else:
+                        sys.modules[n] = m
+
+    def test_the_module_imports_without_either_feed(self):
+        self.assertEqual(self._imports(set()), (None, None))
+
+    def test_an_installed_feed_is_still_used(self):
+        adsb, ais = self._imports({"adsbxcot", "aiscot"})
+        self.assertEqual((adsb.__name__, ais.__name__), ("adsbxcot", "aiscot"))
+
+
 if __name__ == "__main__":
     unittest.main()
