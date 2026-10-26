@@ -18,7 +18,7 @@ dulwich>=1.2.5,<2
 # (CVE-2026-97687, CVE-2026-97689) and virtualenv 21.7.9 (CVE-2026-102925,
 # -102930, -102937).
 urllib3>=2.8.0
-virtualenv>=21.7.13
+virtualenv>=21.14.9
 # frida comes in with androguard and ships a Go binary (golang.org/x/text,
 # CVE-2026-56852). OTS only uses androguard.core.apk, which never imports frida
 # (only androguard/pentest does). This marker never matches, so frida is
@@ -30,3 +30,13 @@ frida; sys_platform == "never"
 # patch-optional-feeds.py makes those imports optional. Excluded like frida.
 adsbxcot; sys_platform == "never"
 aiscot; sys_platform == "never"
+# trivy:ots on main pipeline 61636 (26 Oct 2026, MESHSAT-1710): certifi
+# 2026.7.22 (1 CRITICAL), filelock 3.32.6, pillow 12.3.0 (28, 1 CRITICAL, via
+# matplotlib) and virtualenv 21.14.5, each to its first fixed release.
+certifi>=2026.10.18
+filelock>=4.2.1
+pillow>=13.0.0
+# The fixed virtualenv needs packaging>=26.3; meshtastic 2.7.6 (an OTS pin, and
+# OTS_ENABLE_MESHTASTIC is off on a hosted instance) declares packaging<25. The
+# version-parsing API it uses is unchanged.
+packaging>=26.3
