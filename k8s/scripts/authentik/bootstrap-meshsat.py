@@ -9,12 +9,16 @@
 #   OAuth2Provider "MeshSat Hub" (confidential, RS256, sub=user_uuid, STRICT redirect)
 #   Application meshsat-hub
 #   enrollment flow meshsat-enrollment (prompts, inactive user in meshsat-pending,
-#     email verification, verified marker)
-#   authentication flow meshsat-authentication (identification with the enrollment link)
+#     email verification, verified marker, a closing "request received" notice)
+#   authentication flow meshsat-authentication (identification with the enrollment link,
+#     its own password stage; a waiting applicant with the right password is sent to
+#     meshsat-pending-notice, any other inactive account is denied)
 #   Brand meshsat.net (title/logo/favicon/custom CSS, flows)
 #   NotificationTransport webhook -> n8n, NotificationRule on user creation
 # Prints the ---MESHSAT_OIDC_CONFIG--- block that run-bootstrap.sh stores in OpenBao.
 import secrets
+
+from django.db import transaction
 
 from authentik.brands.models import Brand
 from authentik.core.models import Application, Group, User
@@ -23,17 +27,19 @@ from authentik.events.models import (
     NotificationRule, NotificationSeverity, NotificationTransport,
     NotificationWebhookMapping, TransportMode,
 )
-from authentik.flows.models import Flow, FlowDesignation, FlowStageBinding
+from authentik.flows.models import Flow, FlowAuthenticationRequirement, FlowDesignation, FlowStageBinding
 from authentik.policies.event_matcher.models import EventMatcherPolicy
 from authentik.policies.expression.models import ExpressionPolicy
 from authentik.policies.models import PolicyBinding
 from authentik.providers.oauth2.models import (
     ClientType, GrantType, OAuth2Provider, RedirectURI, RedirectURIMatchingMode, ScopeMapping,
 )
+from authentik.stages.deny.models import DenyStage
 from authentik.stages.email.models import EmailStage
 from authentik.stages.identification.models import IdentificationStage
 from authentik.stages.password.models import PasswordStage
 from authentik.stages.prompt.models import FieldTypes, Prompt, PromptStage
+from authentik.stages.redirect.models import RedirectMode, RedirectStage
 from authentik.stages.user_login.models import UserLoginStage
 from authentik.stages.user_write.models import UserCreationMode, UserWriteStage
 
@@ -408,6 +414,19 @@ st_write_marker, _ = UserWriteStage.objects.get_or_create(
 st_write_marker.user_creation_mode = UserCreationMode.NEVER_CREATE
 st_write_marker.save()
 
+# The flow used to end on the write above with nothing to read, and authentik
+# then drops the person on the sign-in page, where a waiting account cannot get
+# in. An applicant who had just confirmed the address tried to sign in eight
+# seconds later and went on for twelve minutes (MESHSAT-1717). So the last
+# thing an applicant sees says that a person approves the account.
+p_received = [prompt(
+    "meshsat-enroll-received-notice", "meshsat_received_notice", "Request received", FieldTypes.STATIC, 10, required=False,
+    initial="Thank you, your email address is confirmed. A person reviews every MeshSat Hub account request, "
+            "and we will email you at this address as soon as yours is approved. Until then signing in will not work; "
+            "nothing is wrong. You can close this page.",
+)]
+st_received = prompt_stage("meshsat-enrollment-received", p_received)
+
 enroll, e_created = Flow.objects.get_or_create(
     slug="meshsat-enrollment",
     defaults={"name": "MeshSat Hub sign-up", "title": "Create your MeshSat Hub account",
@@ -416,7 +435,8 @@ enroll, e_created = Flow.objects.get_or_create(
 enroll.title = "Create your MeshSat Hub account"
 enroll.designation = FlowDesignation.ENROLLMENT
 enroll.save()
-for order, st in ((10, st_account), (20, st_details), (30, st_write), (40, st_email), (50, st_marker), (60, st_write_marker)):
+for order, st in ((10, st_account), (20, st_details), (30, st_write), (40, st_email), (50, st_marker), (60, st_write_marker),
+                  (70, st_received)):
     b, _ = FlowStageBinding.objects.get_or_create(target=enroll, stage=st, defaults={"order": order})
     if b.order != order:
         b.order = order
@@ -425,7 +445,7 @@ for order, st in ((10, st_account), (20, st_details), (30, st_write), (40, st_em
 # further down and only when Turnstile keys are supplied, so pruning by this list
 # would SILENTLY REMOVE a working CAPTCHA every time somebody ran bootstrap from
 # a shell that happened not to export them.
-_keep = [st_account, st_details, st_write, st_email, st_marker, st_write_marker]
+_keep = [st_account, st_details, st_write, st_email, st_marker, st_write_marker, st_received]
 from authentik.stages.captcha.models import CaptchaStage as _CaptchaStage
 _captcha = _CaptchaStage.objects.filter(name="meshsat-enrollment-captcha").first()
 if _captcha:
@@ -525,13 +545,47 @@ pw_stage = PasswordStage.objects.filter(name="default-authentication-password").
 login_stage = UserLoginStage.objects.filter(name="default-authentication-login").first() or UserLoginStage.objects.first()
 mfa_binding = FlowStageBinding.objects.filter(target=default_auth, stage__name="default-authentication-mfa-validation").first()
 
+# A waiting applicant who types the right password is told "Failed to
+# authenticate.", because authentik's inbuilt backend refuses an inactive
+# account exactly as it refuses a wrong password. They reset a password that was
+# never wrong and are told the same again (MESHSAT-1717: fourteen tries and two
+# resets in twenty minutes). authentik has no setting that turns that answer into
+# a message for the account, so the MeshSat sign-in gets its own password stage:
+# the shared one's backends, then Django's AllowAllUsersModelBackend LAST, which
+# also accepts an inactive account when the password is right. An active account
+# is matched by the inbuilt backend first, as before; a wrong password fails
+# every backend and counts against the reputation, as before. An inactive account
+# that gets past the password meets the two steps below, before MFA and the
+# login, and authentik's login stage refuses an inactive user whatever happens
+# here (stages/user_login/stage.py), so no path through this ends in a session.
+# The shared default-authentication-password is left alone: the other product's
+# sign-in and meshsat-password-change use it.
+#
+# The cost: with the right password, a switched-off account now sees a page of
+# its own instead of the wrong-password message, so the page tells the two
+# apart. A backend that accepts only waiting applicants would not, but it is
+# custom code in the shared authentik's image or pod spec.
+#
+# Do not edit meshsat-authentication-password in the admin UI. The extra backend
+# is not one of authentik's choices for the field, so the form refuses or drops
+# it, and the sign-in quietly goes back to "Failed to authenticate." for every
+# waiting applicant. Re-run this script instead; it asserts the list.
+meshsat_pw_stage, _ = PasswordStage.objects.get_or_create(
+    name="meshsat-authentication-password",
+    defaults={"backends": list(pw_stage.backends), "failed_attempts_before_cancel": pw_stage.failed_attempts_before_cancel},
+)
+ALLOW_INACTIVE_BACKEND = "django.contrib.auth.backends.AllowAllUsersModelBackend"
+meshsat_pw_stage.backends = [b for b in pw_stage.backends if b != ALLOW_INACTIVE_BACKEND] + [ALLOW_INACTIVE_BACKEND]
+meshsat_pw_stage.failed_attempts_before_cancel = pw_stage.failed_attempts_before_cancel
+meshsat_pw_stage.allow_show_password = pw_stage.allow_show_password
+meshsat_pw_stage.save()
+
 ident, _ = IdentificationStage.objects.get_or_create(
     name="meshsat-authentication-identification",
     defaults={"user_fields": ["email", "username"], "password_stage": pw_stage, "enrollment_flow": enroll,
               "case_insensitive_matching": True, "show_matched_user": False, "pretend_user_exists": True},
 )
 ident.user_fields = ["email", "username"]
-ident.password_stage = pw_stage
 ident.enrollment_flow = enroll
 ident.case_insensitive_matching = True
 ident.save()
@@ -543,6 +597,69 @@ authn, n_created = Flow.objects.get_or_create(
 authn.title = "Sign in to MeshSat Hub"
 authn.designation = FlowDesignation.AUTHENTICATION
 authn.save()
+
+# Where a waiting applicant is sent from the sign-in: a page that says why and
+# never says "denied", which is what authentik's deny stage prints first and
+# would read as a refused request. Reachable only by that redirect.
+p_signin_pending = [prompt(
+    "meshsat-signin-pending-notice", "meshsat_pending_notice", "Waiting for approval", FieldTypes.STATIC, 10, required=False,
+    initial="Your MeshSat Hub account request is waiting for approval. A person reviews every request, and we "
+            "will email you as soon as yours is approved; then sign in with this password. Nothing is wrong in the meantime.",
+)]
+st_signin_pending = prompt_stage("meshsat-signin-pending-notice", p_signin_pending)
+pending_flow, _ = Flow.objects.get_or_create(
+    slug="meshsat-pending-notice",
+    defaults={"name": "MeshSat Hub waiting for approval", "title": "Waiting for approval",
+              "designation": FlowDesignation.AUTHENTICATION,
+              "authentication": FlowAuthenticationRequirement.REQUIRE_REDIRECT},
+)
+pending_flow.title = "Waiting for approval"
+pending_flow.designation = FlowDesignation.AUTHENTICATION
+pending_flow.authentication = FlowAuthenticationRequirement.REQUIRE_REDIRECT
+pending_flow.save()
+FlowStageBinding.objects.get_or_create(target=pending_flow, stage=st_signin_pending, defaults={"order": 10})
+FlowStageBinding.objects.filter(target=pending_flow).exclude(stage=st_signin_pending).delete()
+
+# The context is not carried over: the notice needs nothing from it, and the
+# account it was about stays behind in the sign-in plan, which the switch drops.
+st_signin_pending_redirect, _ = RedirectStage.objects.get_or_create(
+    name="meshsat-authentication-pending-redirect",
+    defaults={"mode": RedirectMode.FLOW, "target_flow": pending_flow, "keep_context": False},
+)
+st_signin_pending_redirect.mode = RedirectMode.FLOW
+st_signin_pending_redirect.target_flow = pending_flow
+st_signin_pending_redirect.keep_context = False
+st_signin_pending_redirect.save()
+
+st_signin_inactive_deny, _ = DenyStage.objects.get_or_create(name="meshsat-authentication-inactive-deny")
+st_signin_inactive_deny.deny_message = ("This account cannot sign in. If you think that is a mistake, "
+                                        "write to support@meshsat.net.")
+st_signin_inactive_deny.save()
+
+
+def expression_policy(name, expr):
+    pol, _ = ExpressionPolicy.objects.get_or_create(name=name, defaults={"expression": expr})
+    if pol.expression != expr:
+        pol.expression = expr
+        pol.save()
+    return pol
+
+
+# Both run when the step is reached, against the account being signed in
+# (request.user is the plan's pending user then), never at planning time, when
+# nobody is known yet. They read the row, not the copy in the plan. An anonymous
+# request has no row, so it lands on the deny step, never on the notice.
+signin_pending_policy = expression_policy(
+    "meshsat-signin-user-is-pending",
+    'from authentik.core.models import User\n'
+    'return User.objects.filter(pk=request.user.pk, is_active=False, groups__name="meshsat-pending").exists()\n',
+)
+signin_inactive_policy = expression_policy(
+    "meshsat-signin-user-is-inactive",
+    'from authentik.core.models import User\n'
+    'return not User.objects.filter(pk=request.user.pk, is_active=True).exists()\n',
+)
+
 bindings = [(10, ident)]
 if mfa_binding:
     bindings.append((30, mfa_binding.stage))
@@ -552,6 +669,38 @@ for order, st in bindings:
     if b.order != order:
         b.order = order
         b.save()
+# A gated step bound without its policy, even for a moment, applies to everyone:
+# every sign-in in that moment would be sent to the notice or denied. So the
+# binding, its flags and its policy are written in one transaction.
+for order, st, pol in ((20, st_signin_pending_redirect, signin_pending_policy),
+                       (25, st_signin_inactive_deny, signin_inactive_policy)):
+    with transaction.atomic():
+        b, _ = FlowStageBinding.objects.get_or_create(
+            target=authn, stage=st,
+            defaults={"order": order, "evaluate_on_plan": False, "re_evaluate_policies": True},
+        )
+        b.order = order
+        b.evaluate_on_plan = False
+        b.re_evaluate_policies = True
+        b.save()
+        pb, _ = PolicyBinding.objects.get_or_create(policy=pol, target=b, defaults={"order": 0, "enabled": True})
+        if not pb.enabled:
+            pb.enabled = True
+            pb.save()
+        PolicyBinding.objects.filter(target=b).exclude(pk=pb.pk).delete()
+    # authentik passes a binding with no enabled policy for everyone. Deleting
+    # either policy (its bindings go with it) or switching one off in the admin
+    # UI would therefore send every sign-in to the notice or the deny step.
+    # A re-run of this script repairs it, and the assert proves it did.
+    live = list(PolicyBinding.objects.filter(target=b, enabled=True).values_list("policy__name", flat=True))
+    assert live == [pol.name], f"{st.name}: gated by {live}, expected [{pol.name}]"
+# Only now does the sign-in take the password stage that lets an inactive
+# account through: both steps that catch one are in place before it.
+ident.password_stage = meshsat_pw_stage
+ident.save()
+meshsat_pw_stage.refresh_from_db()
+assert meshsat_pw_stage.backends[-1] == ALLOW_INACTIVE_BACKEND, meshsat_pw_stage.backends
+assert ident.password_stage_id == meshsat_pw_stage.pk
 note(f"flow meshsat-authentication {'created' if n_created else 'ok'}")
 
 # ---------------------------------------------------------------- recovery flow
