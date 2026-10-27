@@ -1020,6 +1020,75 @@ directory. A Bridge keeps its pin-once rule: its settings PUT is partial and una
 kit's LAN, so it never replaces a trust anchor; a deliberate Bridge reset would be an operation of
 its own.
 
+## Reticulum access (Hub 2026-10, MESHSAT-1715)
+
+A workspace whose Reticulum address is Private (MESHSAT-1722) has a network
+name and passphrase, the access code a person types into Sideband. The Hub
+hands the same code to the workspace's kits, and each kit keeps one row that
+joins that network at `rns.meshsat.net:4242` as a leaf: only the kit's own
+traffic crosses it, and the kit never relays between that network and its mesh
+or its other links.
+
+### Topics
+
+| Topic | QoS | Retained | Publisher | Description |
+|---|---|---|---|---|
+| `{ns}/bridge/{id}/rns/join` | 1 | no | Bridge | the kit asks, `{"v":1}` |
+| `{ns}/bridge/{id}/rns/access` | 0 | no | Hub only | the workspace's access, below |
+
+```json
+{"v":1,"mode":"private","host":"rns.meshsat.net","port":4242,"ifac_netname":"meshsat-1ac167e8","ifac_passphrase":"..."}
+{"v":1,"mode":"none"}
+```
+
+- `none` means the workspace's address is Public, Off, disabled or not made:
+  the kit removes its row.
+- The broker refuses `rns/access` from every bridge, for every bridge of the
+  tenant (`{ns}.bridge.*.rns.access`), and so the other Hub-only topics
+  (`msg/in`, `msg/status`, `sos/ack`, `hub/caps`, `tak/cot/in`): a bridge whose
+  id is `mo`, `status` or `sms` lies inside another bridge's device grants.
+- QoS 0 and never retained: the passphrase is not queued in the broker for a
+  kit that is away. A kit asks again when it comes back.
+
+### The Hub
+
+- The leader answers; a replica without the node says nothing.
+- A join is answered only for a bridge the store files under the topic's tenant
+  now (no cache, no fallback tenant), at most once per bridge in 10 s.
+- What is said is the stored row, never whether the address is registered: a
+  private node that failed to start does not tell every kit to leave. A row
+  that cannot be read, or a Private row without a code yet, says nothing.
+- A change of the row (mode, rotation) is pushed to every bridge of the tenant
+  under the tenant's own lock, reading the row inside it, so an older code is
+  never sent last. A push of the same payload again is skipped.
+  `lxmf_access_sent_to_kits` on the tenant's audit chain names the network,
+  never the passphrase.
+
+### The kit (Bridge `internal/routing/hubaccess.go`)
+
+- It subscribes `rns/access`, then asks on every connect, again with backoff
+  (15 s doubling to 10 min) until it has an answer, when its row stays down for
+  two ticks (a rotation closes it), and every 6 h.
+- It takes only the code from the message. The host and port are its own
+  setting, `MESHSAT_HUB_RNS_ENDPOINT` (default `rns.meshsat.net:4242`), TLS off;
+  a message for another endpoint is not applied.
+- One `tcp_rns` row marked `"managed":"hub"`: created, updated on a new code,
+  removed on `none`. A coded row a person made for the same network is taken
+  over (and is then the Hub's: a later `none` removes it); extra managed rows
+  go. Only the Hub's path sets the mark: the kit API refuses it on a new row or
+  on a person's row. It survives an edit through the API, and the row cannot be
+  made uncoded.
+- `MESHSAT_HUB_RNS_JOIN=false`, or the kit's Reticulum node off, removes the row
+  at start and applies nothing.
+- Inbound LXMF to the kit is capped, `MESHSAT_LXMF_INBOUND_PER_MINUTE`
+  (default 60, one budget for every sender, as a Hub address has); beyond it a
+  message is neither filed nor handed to the access rules, and is lost. A key
+  holder who floods the kit uses the minute's budget for everybody.
+
+Every bridge of the workspace may receive the code, as every owner and
+operator can read it on the Reticulum page. A deleted or lost kit keeps what it
+was told: rotate the code (Reticulum page, Rotate).
+
 ## CoT Type Mapping
 
 | Entity | CoT Type | MIL-STD-2525 | TAK Appearance |

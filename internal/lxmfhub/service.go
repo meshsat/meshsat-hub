@@ -109,8 +109,9 @@ type Service struct {
 	now      func() time.Time
 
 	mu      sync.Mutex
-	node    *rns.Node // the main node: Public addresses
-	nodes   Nodes     // Private tenants' own nodes; nil registers no Private address
+	node    *rns.Node  // the main node: Public addresses
+	nodes   Nodes      // Private tenants' own nodes; nil registers no Private address
+	kits    *kitAccess // the kits' joins (MESHSAT-1715); nil tells no kit anything
 	routers map[string]*tenantRouter
 	cancel  context.CancelFunc
 	kick    chan struct{}
@@ -392,7 +393,7 @@ func (s *Service) unregisterLocked(tenantID string) {
 // Reload is called on every replica when a tenant's provider accounts
 // changed (integrations.ReloadTopic); the leader rebuilds the address on the
 // node its access mode names and, when it is live, announces it with its new
-// name and cost at once.
+// name and cost at once, then tells the tenant's kits what the row says now.
 func (s *Service) Reload(tenantID string) {
 	if !s.Active() {
 		return
@@ -402,6 +403,7 @@ func (s *Service) Reload(tenantID string) {
 	if s.register(ctx, tenantID) {
 		s.announceOne(tenantID)
 	}
+	s.pushKitAccess(ctx, tenantID)
 }
 
 // --- announcing ---

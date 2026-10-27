@@ -207,3 +207,33 @@ func TestTAKBroadcastTopics(t *testing.T) {
 		}
 	}
 }
+
+// MESHSAT-1715: a join is exactly {ns}/bridge/{id}/rns/join, in both shapes; the
+// answer goes to the same bridge in the same namespace.
+func TestRNSAccessTopics(t *testing.T) {
+	for _, c := range []struct {
+		topic, tenant, bridge string
+		ok                    bool
+	}{
+		{"meshsat/bridge/kit1/rns/join", DefaultTenant, "kit1", true},
+		{"meshsat/t_x/bridge/kit1/rns/join", "t_x", "kit1", true},
+		{"meshsat/bridge/bridge/kit1/rns/join", "", "", false},
+		{"meshsat/t_x/bridge/kit1/rns/join/x", "", "", false},
+		{"meshsat/t_x/bridge/kit1/rns/access", "", "", false},
+		{"meshsat/t_x/kit1/rns/join", "", "", false},
+	} {
+		tenant, bridge, ok := ParseRNSJoinTopic(c.topic)
+		if ok != c.ok || tenant != c.tenant || bridge != c.bridge {
+			t.Errorf("%s -> %q %q %v", c.topic, tenant, bridge, ok)
+		}
+	}
+	if got := TopicRNSAccessFor(DefaultTenant, "kit1"); got != "meshsat/bridge/kit1/rns/access" {
+		t.Errorf("default: %s", got)
+	}
+	if got := TopicRNSAccessFor("t_x", "+31"); got != "meshsat/t_x/bridge/%2B31/rns/access" {
+		t.Errorf("customer: %s", got)
+	}
+	if f := RNSJoinFilters(); len(f) != 2 || f[0] != "meshsat/bridge/+/rns/join" || f[1] != "meshsat/+/bridge/+/rns/join" {
+		t.Errorf("filters %v", f)
+	}
+}

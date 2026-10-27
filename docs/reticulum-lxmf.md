@@ -116,11 +116,20 @@ MESHSAT-1554) are the one deliberate way across, named senders only. The design 
 a joined kit, being a transport node, bridges the tenant's network to its mesh; the Bridge's interop
 test reproduces exactly that against stock RNS 1.5.7 when the leaf mark is removed
 (`TestInteropCodedRowIsALeafOfThePrivateNetwork`). On the Hub nothing changed: the kit's connection
-is classified like any app's. Joining a kit is the owner's step (MESHSAT-1715); the code still
-reaches the kit by hand, automatic delivery comes with it. After a passphrase rotation the kit's
-row is disconnected like any client and needs the new passphrase (a row whose host, port or TLS
-switch changes needs it again too: the kit's API keeps it only for the same network at the same
-address).
+is classified like any app's.
+
+**The Hub hands each kit its code (MESHSAT-1715, 27 Oct 2026).** A kit asks on its own
+`rns/join` and the leader answers on its `rns/access` with the stored network name and passphrase,
+or `none` for a Public, Off or missing address; a mode change or a rotation is pushed to every
+bridge of the tenant at once. The kit keeps one `tcp_rns` row marked `"managed":"hub"` to match,
+with the host and port of its own setting (`MESHSAT_HUB_RNS_ENDPOINT`, default
+`rns.meshsat.net:4242`) and only the code from the message, so a rotation reaches the kits within
+seconds and nobody types anything. The broker refuses `rns/access` (and every other Hub-only topic)
+from every bridge of the tenant, not just for the bridge's own id. Contract, limits and the kit's
+asking: `docs/bridge-hub-protocol.md` "Reticulum access". The kits' inbound LXMF is capped at 60
+messages a minute (`MESHSAT_LXMF_INBOUND_PER_MINUTE`). A deleted or lost kit keeps the code it was
+told: rotate it. Both kits joined the platform workspace's network on 27 Oct 2026 (display names
+"MeshSat Kit 1" and "MeshSat Kit 2", without the hostnames).
 
 ## Inbox and outbox
 

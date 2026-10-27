@@ -552,6 +552,27 @@ RNS 1.5.7 / LXMF 1.2.1, which fails with exactly the attack's crossing when the 
 removed. The Hub's code path is unchanged. Residual: the code reaches the kit by hand
 (MESHSAT-1715 brings delivery); a rotation disconnects the kit like any client.
 
+**Code delivery, 2026-10-27 (MESHSAT-1715).** The Hub hands each kit its workspace's network name
+and passphrase on `{ns}/bridge/{id}/rns/access` (QoS 0, never retained, so the broker never queues
+the passphrase), answering the kit's `rns/join` for a bridge the store files under the topic's
+tenant, and pushing a rotation or a mode change to every bridge of the tenant. The design attack
+before the code found five major holes in the first design, all closed: (1) another bridge of the
+tenant could publish `rns/access` to a bridge whose id is `mo`, `status` or `sms`, because those
+ids put the target's subtree inside the device grants `{ns}.*.mo.>` and friends; the same was true
+of every existing Hub-only topic, so the deny is now tenant-wide, `{ns}.bridge.*.<topic>`
+(MESHSAT-1730, a test with those targets fails with the old own-subtree deny); (2) a `none` derived
+from whether the address was registered would have made every kit drop its row when a private
+node failed once: the stored row decides; (3) the kit's `managed` mark was dropped by the config
+normaliser, so every message would have added a row; (4) concurrent messages raced the kit's
+interface manager: one lock now covers create, update, delete and reconcile; (5) two row changes
+close together could publish the older code last, and a lost answer left a kit without a code for
+6 h: sends are serialised per tenant reading the row inside the lock, and the kit asks with backoff
+until it has an answer. The kit takes only the code from the message: host and port are its own
+setting and TLS is off, so a forged or wrong message cannot point the row elsewhere. Verified: 7
+Hub guards and 10 kit guards, each seen to fail when removed. Residual: every bridge of the tenant
+holds the code (as every owner and operator can read it); a deleted or lost kit keeps it until a
+rotation (MESHSAT-1731 offers it at deletion); bridge ids may contain `.` (MESHSAT-1731).
+
 ## Addendum, 2026-10-20 (MESHSAT-1599, MESHSAT-1600): account state on the shared identity provider
 
 V6 (account lifecycle). Found because the owner could not reject a sign-up: the Hub's Approve and

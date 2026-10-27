@@ -1300,11 +1300,26 @@ func main() {
 			// same listener (MESHSAT-1722); without this they are registered
 			// nowhere.
 			lxmfSvc.SetNodes(svc)
+			// A Private tenant's kits ask for its network on rns/join and are
+			// told on rns/access; the leader answers (MESHSAT-1715).
+			if err := lxmfSvc.SetKitAccess(msgBus, dataStore, cfg.RNSPublicEndpoint); err != nil {
+				slog.Warn("lxmf: kits are not told their workspace's Reticulum access", "error", err)
+			} else {
+				for _, f := range hubmqtt.RNSJoinFilters() {
+					if err := msgBus.Subscribe(f, 1, lxmfSvc.HandleJoin); err != nil {
+						slog.Warn("lxmf: rns/join subscription failed on this replica", "filter", f, "error", err)
+					}
+				}
+			}
 			if err := msgBus.Subscribe(integrations.ReloadTopic, 1, func(_ string, payload []byte) {
 				var ev struct {
 					TenantID string `json:"tenant_id"`
 				}
 				if json.Unmarshal(payload, &ev) == nil && ev.TenantID != "" {
+					// The row is read fresh, whichever of this topic's handlers
+					// runs first: a rotation made on the other replica must not
+					// be registered, or told to the kits, from a cached copy.
+					providerAccounts.Invalidate(ev.TenantID)
 					go lxmfSvc.Reload(ev.TenantID)
 				}
 			}); err != nil {

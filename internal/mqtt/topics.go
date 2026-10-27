@@ -542,3 +542,29 @@ func TopicSOSAckFor(tenantID, bridgeID string) string {
 func TopicHubCapsFor(tenantID, bridgeID string) string {
 	return BridgeTopic(tenantID, bridgeID, "hub/caps")
 }
+
+// Reticulum access (MESHSAT-1715; docs/bridge-hub-protocol.md "Reticulum access"). A kit
+// asks for its workspace's Private network on its own subtree and the Hub answers there:
+//
+//	{ns}/bridge/{id}/rns/join    the kit asks, {"v":1}                      (the bridge publishes)
+//	{ns}/bridge/{id}/rns/access  the network name and passphrase, or none  (only the Hub publishes, QoS 0, never retained)
+//
+// The broker refuses rns/access from every bridge (internal/bridge NATSPublishDeny), and the
+// Hub answers a join only for a bridge the store files under the topic's tenant.
+
+// RNSJoinFilters see every bridge's join requests, in both shapes.
+func RNSJoinFilters() []string { return DualFilters("meshsat/bridge/+/rns/join") }
+
+// ParseRNSJoinTopic splits an rns/join topic of either shape; ok is false for any other topic.
+func ParseRNSJoinTopic(topic string) (tenantID, bridgeID string, ok bool) {
+	tenantID, bridgeID, rest, ok := ParseBridgeTopic(topic)
+	if !ok || len(rest) != 2 || rest[0] != "rns" || rest[1] != "join" {
+		return "", "", false
+	}
+	return tenantID, bridgeID, true
+}
+
+// TopicRNSAccessFor is where the Hub tells a bridge its workspace's Reticulum access.
+func TopicRNSAccessFor(tenantID, bridgeID string) string {
+	return BridgeTopic(tenantID, bridgeID, "rns/access")
+}
