@@ -11,8 +11,9 @@
 #   enrollment flow meshsat-enrollment (prompts, inactive user in meshsat-pending,
 #     email verification, verified marker, a closing "request received" notice)
 #   authentication flow meshsat-authentication (identification with the enrollment link,
-#     its own password stage; a waiting applicant with the right password is sent to
-#     meshsat-pending-notice, any other inactive account is denied)
+#     its own password stage with MeshSat's pending-applicant backend; a waiting
+#     applicant with the right password is sent to meshsat-pending-notice, any other
+#     inactive account fails like a wrong password, with a deny step as the backstop)
 #   Brand meshsat.net (title/logo/favicon/custom CSS, flows)
 #   NotificationTransport webhook -> n8n, NotificationRule on user creation
 # Prints the ---MESHSAT_OIDC_CONFIG--- block that run-bootstrap.sh stores in OpenBao.
@@ -551,20 +552,20 @@ mfa_binding = FlowStageBinding.objects.filter(target=default_auth, stage__name="
 # never wrong and are told the same again (MESHSAT-1717: fourteen tries and two
 # resets in twenty minutes). authentik has no setting that turns that answer into
 # a message for the account, so the MeshSat sign-in gets its own password stage:
-# the shared one's backends, then Django's AllowAllUsersModelBackend LAST, which
-# also accepts an inactive account when the password is right. An active account
-# is matched by the inbuilt backend first, as before; a wrong password fails
-# every backend and counts against the reputation, as before. An inactive account
-# that gets past the password meets the two steps below, before MFA and the
+# the shared one's backends, then MeshSat's PendingApplicantBackend LAST
+# (backends/meshsat_auth/backend.py, mounted on the shared authentik by the
+# omoikane repo, OMOIKANE-1679), which accepts an inactive account's right
+# password only when its only group is meshsat-pending. An active account is
+# matched by the inbuilt backend first, as before; a wrong password fails every
+# backend and counts against the reputation, as before; any other inactive
+# account fails like a wrong password (MESHSAT-1719: Django's
+# AllowAllUsersModelBackend did this job until then and accepted every inactive
+# account's right password, so the page told a guesser it was right). A waiting
+# applicant who gets past the password meets the steps below, before MFA and the
 # login, and authentik's login stage refuses an inactive user whatever happens
 # here (stages/user_login/stage.py), so no path through this ends in a session.
 # The shared default-authentication-password is left alone: the other product's
 # sign-in and meshsat-password-change use it.
-#
-# The cost: with the right password, a switched-off account now sees a page of
-# its own instead of the wrong-password message, so the page tells the two
-# apart. A backend that accepts only waiting applicants would not, but it is
-# custom code in the shared authentik's image or pod spec.
 #
 # Do not edit meshsat-authentication-password in the admin UI. The extra backend
 # is not one of authentik's choices for the field, so the form refuses or drops
@@ -574,8 +575,14 @@ meshsat_pw_stage, _ = PasswordStage.objects.get_or_create(
     name="meshsat-authentication-password",
     defaults={"backends": list(pw_stage.backends), "failed_attempts_before_cancel": pw_stage.failed_attempts_before_cancel},
 )
-ALLOW_INACTIVE_BACKEND = "django.contrib.auth.backends.AllowAllUsersModelBackend"
-meshsat_pw_stage.backends = [b for b in pw_stage.backends if b != ALLOW_INACTIVE_BACKEND] + [ALLOW_INACTIVE_BACKEND]
+PENDING_BACKEND = "meshsat_auth.backend.PendingApplicantBackend"
+ALLOW_INACTIVE_BACKEND = "django.contrib.auth.backends.AllowAllUsersModelBackend"  # retired, MESHSAT-1719
+# authentik skips a backend it cannot import, which would quietly take the
+# notice away from every waiting applicant: refuse to switch to one that is not
+# there (the mount comes from the omoikane repo's k8s/auth).
+import importlib
+importlib.import_module(PENDING_BACKEND.rsplit(".", 1)[0])
+meshsat_pw_stage.backends = [b for b in pw_stage.backends if b not in (ALLOW_INACTIVE_BACKEND, PENDING_BACKEND)] + [PENDING_BACKEND]
 meshsat_pw_stage.failed_attempts_before_cancel = pw_stage.failed_attempts_before_cancel
 meshsat_pw_stage.allow_show_password = pw_stage.allow_show_password
 meshsat_pw_stage.save()
@@ -699,7 +706,7 @@ for order, st, pol in ((20, st_signin_pending_redirect, signin_pending_policy),
 ident.password_stage = meshsat_pw_stage
 ident.save()
 meshsat_pw_stage.refresh_from_db()
-assert meshsat_pw_stage.backends[-1] == ALLOW_INACTIVE_BACKEND, meshsat_pw_stage.backends
+assert meshsat_pw_stage.backends[-1] == PENDING_BACKEND and ALLOW_INACTIVE_BACKEND not in meshsat_pw_stage.backends, meshsat_pw_stage.backends
 assert ident.password_stage_id == meshsat_pw_stage.pk
 note(f"flow meshsat-authentication {'created' if n_created else 'ok'}")
 
