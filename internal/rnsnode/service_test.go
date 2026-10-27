@@ -280,3 +280,136 @@ func TestService_MQTTEchoIsSwallowed(t *testing.T) {
 		t.Fatalf("path via mqtt: %+v", e)
 	}
 }
+
+// The legacy layer trusts what it hears the way it trusted the stunnel leg,
+// where every peer holds a Hub-issued client certificate: it answers time
+// sync, signs custody ACKs and forwards onto the kits and the satellites. So
+// the same MeshSat-private frames that reach it from the bridge listener are
+// dropped and counted when a stranger sends them to the public listener
+// (MESHSAT-1720).
+func TestService_PublicFramesNeverReachTheLegacyLayer(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	var declined [][]byte
+	var dmu sync.Mutex
+	nDeclined := func() int {
+		dmu.Lock()
+		defer dmu.Unlock()
+		return len(declined)
+	}
+	svc := newService(t, nil, nil, &declined)
+	svc.cfg.OnDeclinedTCP = func(raw []byte) {
+		dmu.Lock()
+		defer dmu.Unlock()
+		declined = append(declined, append([]byte(nil), raw...))
+	}
+	if err := svc.Start(ctx); err != nil {
+		t.Fatal(err)
+	}
+	defer svc.Stop()
+
+	// fill differs per listener: the node drops a frame whose hash it has
+	// already seen, so the same bytes twice would not test the second leg.
+	frame := func(first, fill byte) []byte {
+		f := make([]byte, rnswire.HeaderMinSize+8)
+		f[0] = first
+		for i := 2; i < len(f); i++ {
+			f[i] = fill
+		}
+		return f
+	}
+	send := func(addr string, fill byte) {
+		t.Helper()
+		conn, err := net.Dial("tcp", addr)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer func() { _ = conn.Close() }()
+		for _, first := range []byte{
+			0x02, // HEADER_1 DATA to a plain destination: forwarded by the legacy relay
+			0x14, // the legacy time sync request
+			0x16, // the legacy custody offer
+			0x17, // the legacy custody ACK
+		} {
+			if _, err := conn.Write(rnswire.HDLCFrame(frame(first, fill))); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+
+	// The control first: what the node declines from the bridge listener
+	// reaches the legacy handler, so these frames are the legacy layer's.
+	send(svc.Status().Bridge.Addr, 0x5a)
+	waitFor(t, "bridge frames declined to the legacy handler", func() bool { return nDeclined() >= 1 })
+	time.Sleep(200 * time.Millisecond) // let the rest of the burst land
+	k := nDeclined()
+	dmu.Lock()
+	first := declined[0][0]
+	dmu.Unlock()
+	if first != 0x02 {
+		t.Fatalf("the forwardable legacy frame did not reach the legacy handler first: %#x", first)
+	}
+	if svc.Status().PublicDropped != 0 {
+		t.Fatal("bridge frames counted as public drops")
+	}
+
+	// The same frames from a stranger: every one the node declines is
+	// dropped and counted, none reaches the legacy handler.
+	send(svc.Status().Public.Addr, 0xa5)
+	waitFor(t, "public frames dropped", func() bool { return svc.Status().PublicDropped == uint64(k) })
+	time.Sleep(200 * time.Millisecond)
+	if n := nDeclined(); n != k {
+		t.Fatalf("%d frames from the public listener reached the legacy handler", n-k)
+	}
+}
+
+// An announce heard on the public listener is the node's business only: it
+// learns the path, but the legacy router, which feeds the relay to the kits
+// and the satellites, never hears of it. One on the bridge listener is
+// mirrored as before.
+func TestService_PublicAnnouncesAreNotMirroredToTheLegacyRouter(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	var mmu sync.Mutex
+	mirrored := map[string]Source{}
+	var declined [][]byte
+	svc := newService(t, nil, nil, &declined)
+	svc.cfg.OnAnnounce = func(ann *rnswire.Announce, _ []byte, src Source) {
+		mmu.Lock()
+		defer mmu.Unlock()
+		mirrored[hex.EncodeToString(ann.DestHash[:])] = src
+	}
+	if err := svc.Start(ctx); err != nil {
+		t.Fatal(err)
+	}
+	defer svc.Stop()
+
+	public := dialPeer(t, ctx, svc.Status().Public.Addr)
+	bridge := dialPeer(t, ctx, svc.Status().Bridge.Addr)
+	pdest := public.node.AddDestination(&rns.Destination{Name: "test.public"})
+	bdest := bridge.node.AddDestination(&rns.Destination{Name: "test.bridge"})
+	waitFor(t, "both connected", func() bool {
+		st := svc.Status()
+		return len(st.Public.Connections) == 1 && len(st.Bridge.Connections) == 1
+	})
+	if err := public.node.Announce(pdest, "", false); err != nil {
+		t.Fatal(err)
+	}
+	if err := bridge.node.Announce(bdest, "", false); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, "both paths learned by the node", func() bool {
+		n := svc.Node()
+		return n != nil && n.Paths().Has(pdest.Hash) && n.Paths().Has(bdest.Hash)
+	})
+	waitFor(t, "bridge announce mirrored", func() bool {
+		mmu.Lock()
+		defer mmu.Unlock()
+		return mirrored[hex.EncodeToString(bdest.Hash[:])] == SourceTCP
+	})
+	mmu.Lock()
+	defer mmu.Unlock()
+	if src, ok := mirrored[hex.EncodeToString(pdest.Hash[:])]; ok {
+		t.Fatalf("public announce mirrored to the legacy router as %q", src)
+	}
+}

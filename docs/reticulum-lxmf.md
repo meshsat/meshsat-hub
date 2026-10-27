@@ -33,11 +33,14 @@ survive a restart, so a reloaded path is usable again when the peer announces ag
 | `tcpp_<n>` | one per connection on the public listener (`HUB_RNS_PUBLIC_TCP_ADDR`, `:4244` in k8s), reached as `rns.meshsat.net:4242` (live since 13 Oct 2026, IPv4; shown to tenants from `HUB_RNS_PUBLIC_ENDPOINT`) | stock clients |
 | `mqtt_rns` | the legacy Reticulum MQTT topic `meshsat/reticulum/packet` | bridges over the bus |
 
-Every frame on those goes to the node first. What it declines (MeshSat-private contexts: time
-sync, custody, HeMB, route hints) falls through to the legacy `internal/reticulum` handler
-unchanged, every accepted announce is mirrored into the legacy router so bridge route tables and
-hints keep working, and the legacy relay keeps a `tcp` interface that broadcasts to every bridge on
-stunnel as before. Iridium, Globalstar, SMS, Tor and WireGuard are legacy-only: no announce from
+Every frame on those goes to the node first. What it declines from `tcpb_*` or `mqtt_rns`
+(MeshSat-private contexts: time sync, custody, HeMB, route hints) falls through to the legacy
+`internal/reticulum` handler unchanged, every announce accepted there is mirrored into the legacy
+router so bridge route tables and hints keep working, and the legacy relay keeps a `tcp` interface
+that broadcasts to every bridge on stunnel as before. **Nothing from `tcpp_*` reaches the legacy
+layer** (MESHSAT-1720): what the node declines there is dropped and counted (`public_dropped` in
+`GET /api/rns/status`), and a public announce teaches the node a path but is never mirrored,
+because the legacy layer trusts its `tcp` interface the way it trusted certificate-holding kits. Iridium, Globalstar, SMS, Tor and WireGuard are legacy-only: no announce from
 this node ever reaches a satellite (MESHSAT-1296). The node's own frames echoed back by the MQTT
 broker are swallowed. The public listener may carry an interface access code
 (`HUB_RNS_PUBLIC_IFAC_NETNAME` / `NETKEY`); off by default, because a stock client must be able to

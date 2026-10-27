@@ -23,10 +23,13 @@ type Status struct {
 	Bridge *ListenerStatus `json:"bridge,omitempty"`
 	Public *ListenerStatus `json:"public,omitempty"`
 	// MQTT is true when the legacy Reticulum topic is attached and connected.
-	MQTT  bool      `json:"mqtt"`
-	Paths int       `json:"paths"`
-	Links int       `json:"links"`
-	Stats rns.Stats `json:"stats"`
+	MQTT bool `json:"mqtt"`
+	// PublicDropped counts frames from the public listener the node did not
+	// handle; they are dropped, never handed to the legacy layer (MESHSAT-1720).
+	PublicDropped uint64    `json:"public_dropped"`
+	Paths         int       `json:"paths"`
+	Links         int       `json:"links"`
+	Stats         rns.Stats `json:"stats"`
 }
 
 // ListenerStatus describes one TCP listener.

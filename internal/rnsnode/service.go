@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"log/slog"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -71,11 +72,14 @@ type Config struct {
 	// MQTT attaches the legacy Reticulum topic as interface IfaceMQTT; nil
 	// leaves it out.
 	MQTT MQTTTransport
-	// OnDeclinedTCP receives every TCP frame the node does not handle (a
-	// MeshSat-private packet), for the legacy handler. MQTT frames are
-	// handed back by InboundMQTT's return value instead.
+	// OnDeclinedTCP receives every frame from the BRIDGE listener the node
+	// does not handle (a MeshSat-private packet), for the legacy handler.
+	// MQTT frames are handed back by InboundMQTT's return value instead.
+	// Nothing from the public listener ever reaches it (MESHSAT-1720).
 	OnDeclinedTCP func(raw []byte)
-	// OnAnnounce receives every accepted announce, for the legacy mirror.
+	// OnAnnounce receives every accepted announce heard on the bridge
+	// listener or the MQTT topic, for the legacy mirror; never one heard on
+	// the public listener.
 	OnAnnounce func(ann *rnswire.Announce, raw []byte, src Source)
 	// OnNode is called with the node of each term before its interfaces
 	// start, so services register their destinations on it.
@@ -103,6 +107,9 @@ type Service struct {
 	active  atomic.Bool
 	terms   atomic.Uint64
 	persist chan store.RNSPath
+	// publicDropped counts frames from the public listener the node
+	// declined, which are dropped instead of handed to the legacy layer.
+	publicDropped atomic.Uint64
 
 	echoMu sync.Mutex
 	echo   map[[32]byte]time.Time
@@ -130,6 +137,12 @@ func (s *Service) Start(ctx context.Context) error {
 		return err
 	}
 	node.OnAnnounce = func(ann *rnswire.Announce, pkt *rns.Packet) {
+		// The legacy router feeds the legacy relay, whose outlets are the
+		// kits, Iridium, Globalstar, Tor and WireGuard: a stranger's
+		// destination has no business in its table (MESHSAT-1720).
+		if isPublic(pkt.Iface) {
+			return
+		}
 		if s.cfg.OnAnnounce != nil {
 			src := SourceTCP
 			if pkt.Iface == IfaceMQTT {
@@ -278,10 +291,25 @@ func (s *Service) onTCPFrame(ifaceID string, raw []byte) {
 	if n != nil && n.Inbound(append([]byte(nil), raw...), ifaceID) {
 		return
 	}
+	// The legacy handler trusts its "tcp" interface the way it trusted the
+	// stunnel leg it was written for, where every peer holds a Hub-issued
+	// client certificate: it answers time sync and path requests to every
+	// kit, signs custody ACKs with the Hub identity and forwards anything
+	// else onto its other outlets, satellites included. A frame from the
+	// public listener was handed to it under that same name until
+	// MESHSAT-1720; now the node is all a stranger ever talks to.
+	if isPublic(ifaceID) {
+		s.publicDropped.Add(1)
+		return
+	}
 	if s.cfg.OnDeclinedTCP != nil {
 		s.cfg.OnDeclinedTCP(raw)
 	}
 }
+
+// isPublic reports whether an interface id is a connection on the public
+// listener.
+func isPublic(ifaceID string) bool { return strings.HasPrefix(ifaceID, IfacePublicPrefix+"_") }
 
 // --- transmitter ---
 
@@ -451,7 +479,8 @@ func (s *Service) loadPaths(ctx context.Context, node *rns.Node) {
 func (s *Service) Status() Status {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	st := Status{Enabled: true, Active: s.node != nil, Terms: s.terms.Load(), MQTT: s.cfg.MQTT != nil && s.cfg.MQTT.Connected()}
+	st := Status{Enabled: true, Active: s.node != nil, Terms: s.terms.Load(), MQTT: s.cfg.MQTT != nil && s.cfg.MQTT.Connected(),
+		PublicDropped: s.publicDropped.Load()}
 	if s.node == nil {
 		return st
 	}

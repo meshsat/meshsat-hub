@@ -476,10 +476,20 @@ keys, which the Hub holds only for its own tenants' addresses. What defends it:
   closes it cannot grow memory; a listener cap (`rnsnode.DefaultMaxConns`, 512) and the edge's
   `maxconn 200` bound connections.
 - **The node answers only its own destinations and transport duties**; MeshSat-private frames
-  fall through to the legacy handler exactly as before, and the public listener is a separate
-  interface id family (`tcpp_*`) from the stunnel leg the kits use (`tcpb_*`), so a policy can
-  tell them apart. Interface access codes are available on the public listener
-  (`HUB_RNS_PUBLIC_IFAC_*`) and deliberately off: a stock client must connect with no key.
+  from the stunnel leg the kits use (`tcpb_*`) fall through to the legacy handler as before.
+  **Corrected 2026-10-27 (MESHSAT-1720):** this bullet said the public listener's separate id
+  family (`tcpp_*`) let a policy tell the two apart, but the hand-off dropped the id: a frame the
+  node declined from the public listener reached the legacy handler as the kits' `tcp`
+  interface, the layer that answers time sync, signs custody ACKs with the Hub identity and
+  forwards onto the kits, Iridium, Globalstar, Tor and WireGuard, and every public announce was
+  mirrored into the legacy router. Found by reading the code while answering the owner, not seen
+  in use (no kit was joined to the node, which knew two public paths). Since then the node drops
+  and counts those frames (`public_dropped` in `/api/rns/status`) and mirrors no public
+  announce; `TestService_PublicFramesNeverReachTheLegacyLayer` and
+  `TestService_PublicAnnouncesAreNotMirroredToTheLegacyRouter` were seen to fail with the old
+  behaviour. Interface access codes are available on the public listener
+  (`HUB_RNS_PUBLIC_IFAC_*`) and off; one shared code would not separate tenants, so per-tenant
+  access (Private by default, Public, Off) is MESHSAT-1722.
 - **Isolation**: a tenant's address, inbox and held messages are keyed `(tenant_id, …)`; the
   store tests use `DefaultTenantID` as the victim; a path table is platform-wide by nature (a
   destination hash names no tenant) and is read-only for platform admins.

@@ -654,6 +654,11 @@ definitions:
         type: integer
       public:
         $ref: '#/definitions/github_com_meshsat_meshsat-hub_internal_rnsnode.ListenerStatus'
+      public_dropped:
+        description: |-
+          PublicDropped counts frames from the public listener the node did not
+          handle; they are dropped, never handed to the legacy layer (MESHSAT-1720).
+        type: integer
       started_at:
         type: string
       stats:
