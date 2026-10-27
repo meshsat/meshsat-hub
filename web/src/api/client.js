@@ -440,6 +440,8 @@ export const lxmf = {
   identity: () => fetchJSON('/lxmf/identity'),
   createIdentity: () => fetchJSON('/lxmf/identity', { method: 'POST' }),
   updateIdentity: (fields) => fetchJSON('/lxmf/identity', { method: 'PUT', body: JSON.stringify(fields) }),
+  // A new network name and passphrase for a Private address (MESHSAT-1722).
+  rotateAccess: () => fetchJSON('/lxmf/access/rotate', { method: 'POST' }),
   qr: (size = 256) => fetchBlob(`/lxmf/identity/qr.png?size=${size}`),
   messages: (params = {}) => {
     const q = new URLSearchParams()

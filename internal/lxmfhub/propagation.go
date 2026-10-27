@@ -36,7 +36,7 @@ func (s *Service) registerPNLocked(tr *tenantRouter) {
 	// the service mutex: the node calls it under its own lock while register
 	// holds ours and calls into the node, the other way round.
 	cost, name := tr.id.PropagationStampCost, tr.id.DisplayName
-	d := s.node.AddDestination(&rns.Destination{
+	d := tr.node.AddDestination(&rns.Destination{
 		Name: lxmf.PropagationName, Identity: tr.id.ident, AcceptLinks: true, ProveAll: true,
 		AppData:      func() []byte { return s.pnAnnounce(cost, name).AppData() },
 		OnLinkPacket: func(l *rns.Link, plain []byte, pkt *rns.Packet) { s.pnInbound(tid, l, plain) },
@@ -61,11 +61,11 @@ func (s *Service) pnAnnounce(cost int, name string) lxmf.PropagationAnnounce {
 func (s *Service) pnInbound(tenantID string, l *rns.Link, data []byte) {
 	s.mu.Lock()
 	tr := s.routers[tenantID]
-	node := s.node
 	s.mu.Unlock()
-	if tr == nil || node == nil {
+	if tr == nil {
 		return
 	}
+	node := tr.node
 	_, msgs, err := lxmf.UnpackPropagation(data)
 	if err != nil {
 		slog.Debug("lxmf: propagation transfer unreadable", "tenant", tenantID, "error", err)
@@ -100,7 +100,7 @@ func (s *Service) pnInbound(tenantID string, l *rns.Link, data []byte) {
 	}
 	// For an address this Hub holds, the node is the recipient's own router:
 	// decrypt and file, as upstream delivers to its own delivery destinations.
-	if owner := s.routerForAddress(held.Destination); owner != nil {
+	if owner := s.routerForAddress(node, held.Destination); owner != nil {
 		plain, _, err := owner.id.ident.Decrypt(held.Data[lxmf.DestLen:], owner.router.Dest.Ratchets())
 		if err != nil {
 			slog.Debug("lxmf: propagated message for a local address did not decrypt", "tenant", owner.id.TenantID, "error", err)
@@ -130,12 +130,14 @@ func (s *Service) pnInbound(tenantID string, l *rns.Link, data []byte) {
 	slog.Info("lxmf: holding a propagated message", "tenant", tenantID, "transient_id", row.ID[:12], "for", row.Destination, "bytes", row.Size, "stamp_value", held.StampValue)
 }
 
-// routerForAddress finds the tenant whose delivery address a message is for.
-func (s *Service) routerForAddress(dest [lxmf.DestLen]byte) *tenantRouter {
+// routerForAddress finds the tenant whose delivery address a message is for,
+// among the addresses on the same node only: a propagation node never files
+// a message across into another network (MESHSAT-1722), it holds it.
+func (s *Service) routerForAddress(node *rns.Node, dest [lxmf.DestLen]byte) *tenantRouter {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	for _, tr := range s.routers {
-		if tr.router.Hash() == dest {
+		if tr.node == node && tr.router.Hash() == dest {
 			return tr
 		}
 	}

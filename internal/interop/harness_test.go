@@ -55,6 +55,8 @@ type peerOpts struct {
 	stampCost int
 	enforce   bool
 	loglevel  int
+	// ifacNetname / ifacPass give the client interface an access code.
+	ifacNetname, ifacPass string
 }
 
 func scriptPath(t *testing.T) string {
@@ -91,6 +93,12 @@ func startPeer(t *testing.T, o peerOpts) *peer {
 	}
 	if o.loglevel > 0 {
 		args = append(args, "--loglevel", fmt.Sprint(o.loglevel))
+	}
+	if o.ifacNetname != "" {
+		args = append(args, "--ifac-netname", o.ifacNetname)
+	}
+	if o.ifacPass != "" {
+		args = append(args, "--ifac-passphrase", o.ifacPass)
 	}
 	return startPeerArgs(t, py, cfgDir, args[1:], o.name)
 }

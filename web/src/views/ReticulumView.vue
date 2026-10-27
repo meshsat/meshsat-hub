@@ -2,14 +2,18 @@
 // The tenant's LXMF address on the Hub's Reticulum node (MESHSAT-1555).
 // Sideband, CrossTalk, MeshChat and NomadNet users message the address;
 // what arrives is the inbox below, what the tenant sends is proven by the
-// peer. The owner creates the address and sets its name, stamp cost and
-// whether it is enabled; operators send; everyone with access reads.
+// peer. The owner creates the address and sets its name, stamp cost,
+// whether it is enabled and who can reach it (MESHSAT-1722: Private, the
+// default, admits only clients with the workspace's network name and
+// passphrase; Public admits anyone; Off nobody); operators send and see the
+// passphrase; everyone with access reads.
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { lxmf } from '../api/client'
 import { useAuthStore } from '../stores/auth'
 import { useToastStore } from '../stores/toast'
 import { formatWhen } from '../utils/time'
 import Icon from '../components/Icon.vue'
+import ConfirmDialog from '../components/platform/ConfirmDialog.vue'
 
 const auth = useAuthStore()
 const toast = useToastStore()
@@ -28,6 +32,17 @@ const canSend = computed(() => auth.isOwner || auth.role === 'operator')
 const form = ref({ display_name: '', stamp_cost: 0, enabled: true, propagation_enabled: true, propagation_stamp_cost: 16 })
 const compose = ref({ destination: '', content: '', title: '', method: 'auto' })
 const destOK = computed(() => /^[0-9a-f]{32}$/.test(compose.value.destination.trim().toLowerCase()))
+
+const MODES = {
+  private: { label: 'Private', line: "only clients that enter this workspace's network name and passphrase reach the address." },
+  public: { label: 'Public', line: 'anyone on Reticulum can message the address, like an email address.' },
+  off: { label: 'Off', line: 'the address is not announced and nobody reaches it.' },
+}
+const mode = computed(() => MODES[identity.value?.access_mode] || MODES.private)
+const modeForm = ref('private')
+const showPass = ref(false)
+const confirmPublic = ref(false)
+const confirmRotate = ref(false)
 
 const shown = computed(() => {
   if (filter.value === 'in') return messages.value.filter((m) => m.direction === 'in')
@@ -49,6 +64,7 @@ async function loadIdentity() {
   identity.value = id
   if (id?.exists) {
     form.value = { display_name: id.display_name, stamp_cost: id.stamp_cost, enabled: id.enabled, propagation_enabled: id.propagation_enabled, propagation_stamp_cost: id.propagation_stamp_cost }
+    modeForm.value = id.access_mode || 'private'
     try {
       const blob = await lxmf.qr(320)
       if (qr.value) URL.revokeObjectURL(qr.value)
@@ -109,6 +125,40 @@ async function saveIdentity() {
     toast.success('Address settings saved')
   } catch (e) {
     error.value = e?.message || 'Could not save the settings'
+  } finally {
+    busy.value = false
+  }
+}
+
+async function saveMode(confirmed = false) {
+  if (modeForm.value === 'public' && identity.value?.access_mode !== 'public' && !confirmed) {
+    confirmPublic.value = true
+    return
+  }
+  confirmPublic.value = false
+  busy.value = true
+  error.value = ''
+  try {
+    await lxmf.updateIdentity({ access_mode: modeForm.value })
+    await loadIdentity()
+    toast.success(`Access set to ${mode.value.label}`)
+  } catch (e) {
+    error.value = e?.message || 'Could not change who can reach the address'
+  } finally {
+    busy.value = false
+  }
+}
+
+async function rotate() {
+  confirmRotate.value = false
+  busy.value = true
+  error.value = ''
+  try {
+    identity.value = await lxmf.rotateAccess()
+    showPass.value = false
+    toast.success('New network name and passphrase; clients that used the old ones were disconnected')
+  } catch (e) {
+    error.value = e?.message || 'Could not replace the passphrase'
   } finally {
     busy.value = false
   }
@@ -207,10 +257,32 @@ onUnmounted(() => {
                 <span class="ms-id" data-testid="lxmf-endpoint">{{ identity.public_endpoint }}</span>
                 <button type="button" class="ms-btn" @click="copyText(identity.public_endpoint, 'Endpoint')">Copy</button>
               </div>
-              <p class="text-ms-muted text-[11px] mt-1">Add a TCP client interface to this host and port in Sideband (Connectivity), CrossTalk, MeshChat or NomadNet; no interface access code. The Hub's addresses appear in the client within a minute of connecting.</p>
+              <p class="text-ms-muted text-[11px] mt-1">Add a TCP client interface to this host and port in Sideband (Connectivity), CrossTalk, MeshChat or NomadNet. The address appears in the client within a minute of connecting.</p>
+            </div>
+            <div data-testid="lxmf-access">
+              <span class="ms-label">Who can reach this address</span>
+              <p class="mt-1" data-testid="lxmf-access-mode"><span class="font-medium">{{ mode.label }}</span>: {{ mode.line }}</p>
+              <template v-if="identity.access_mode === 'private'">
+                <div class="grid gap-x-3 gap-y-2 mt-2 sm:grid-cols-[8rem_1fr] items-center">
+                  <span class="text-ms-muted">Network name</span>
+                  <div class="flex flex-wrap items-center gap-2 min-w-0">
+                    <span class="ms-id break-all" data-testid="lxmf-netname">{{ identity.ifac_netname }}</span>
+                    <button type="button" class="ms-btn" @click="copyText(identity.ifac_netname, 'Network name')">Copy</button>
+                  </div>
+                  <span class="text-ms-muted">Passphrase</span>
+                  <div v-if="identity.ifac_passphrase" class="flex flex-wrap items-center gap-2 min-w-0">
+                    <span class="ms-id break-all" data-testid="lxmf-passphrase">{{ showPass ? identity.ifac_passphrase : '••••••••••••' }}</span>
+                    <button type="button" class="ms-btn-ghost" @click="showPass = !showPass">{{ showPass ? 'Hide' : 'Show' }}</button>
+                    <button type="button" class="ms-btn" @click="copyText(identity.ifac_passphrase, 'Passphrase')">Copy</button>
+                  </div>
+                  <span v-else class="text-ms-muted">Hidden; an owner or operator of this workspace can see it.</span>
+                </div>
+                <p class="text-ms-muted text-[11px] mt-2">In Sideband: Connectivity, Connect via TCP, with the host and port above and this network name and passphrase. In MeshChat, NomadNet or rnsd: network_name and passphrase on the TCP client interface. Anyone who has the passphrase can let others in; replace it to disconnect everyone who used it. Private covers what the Hub carries: a member's own app may still announce itself on other networks.</p>
+              </template>
             </div>
             <p class="text-ms-text2">
               <template v-if="!identity.enabled">Disabled: not announced and receiving nothing.</template>
+              <template v-else-if="identity.access_mode === 'off'">Off: not announced and receiving nothing.</template>
               <template v-else-if="identity.last_announce">Enabled, announced {{ formatWhen(identity.last_announce, '') }}.</template>
               <template v-else>Enabled; announced every 30 minutes by the leader replica.</template>
             </p>
@@ -238,6 +310,16 @@ onUnmounted(() => {
                 <button type="submit" class="ms-btn" :disabled="busy || !form.display_name">Save</button>
                 <span class="text-ms-muted text-[11px]">A stamp cost makes a sender do proof of work per message; 0 accepts everything, Sideband's default. The propagation stamp is a separate, cheaper proof a client attaches to a message it hands the node; LXMF's default is 16. Costs above 16 keep most clients out.</span>
               </div>
+            </form>
+            <form v-if="auth.isOwner" class="flex flex-wrap items-end gap-3" data-testid="lxmf-access-form" @submit.prevent="saveMode()">
+              <label class="block"><span class="ms-label">Who can reach it</span>
+                <select v-model="modeForm" class="ms-input mt-1" data-testid="lxmf-access-select">
+                  <option value="private">Private (network name and passphrase)</option>
+                  <option value="public">Public (anyone on Reticulum)</option>
+                  <option value="off">Off</option>
+                </select></label>
+              <button type="submit" class="ms-btn" :disabled="busy || modeForm === (identity.access_mode || 'private')">Save</button>
+              <button v-if="identity.access_mode === 'private'" type="button" class="ms-btn-danger" :disabled="busy" data-testid="lxmf-rotate" @click="confirmRotate = true">Replace passphrase</button>
             </form>
           </div>
         </div>
@@ -316,5 +398,14 @@ onUnmounted(() => {
     </template>
 
     <p v-if="error" class="text-ms-error text-[13px]">{{ error }}</p>
+
+    <ConfirmDialog :open="confirmPublic" title="Make this address public?" label="Make it public" variant="plain" :busy="busy"
+      @confirm="saveMode(true)" @cancel="confirmPublic = false">
+      <p>Anyone on Reticulum will be able to message it, and its announce reaches every client connected to the Hub. Clients that hear it keep it in their cache until it expires, even if you switch back to Private.</p>
+    </ConfirmDialog>
+    <ConfirmDialog :open="confirmRotate" title="Replace the passphrase?" label="Replace passphrase" :busy="busy"
+      @confirm="rotate" @cancel="confirmRotate = false">
+      <p>A new network name and passphrase are generated. Every client that joined with the current ones is disconnected now and must enter the new ones.</p>
+    </ConfirmDialog>
   </div>
 </template>

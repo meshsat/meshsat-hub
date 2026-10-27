@@ -319,6 +319,20 @@ func (s *TCPServer) readLoop(c *tcpConn) {
 	}
 }
 
+// Close drops one connection, as if the peer had gone away.
+func (s *TCPServer) Close(ifaceID string) {
+	s.mu.RLock()
+	c := s.conns[ifaceID]
+	s.mu.RUnlock()
+	if c == nil {
+		return
+	}
+	if s.remove(ifaceID) && s.onChange != nil {
+		s.onChange(ifaceID, false)
+	}
+	_ = c.c.Close()
+}
+
 // remove forgets a connection; true when it was still registered.
 func (s *TCPServer) remove(id string) bool {
 	s.mu.Lock()

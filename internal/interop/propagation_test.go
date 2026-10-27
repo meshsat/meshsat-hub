@@ -45,7 +45,10 @@ func newHubLXMF(t *testing.T, ctx context.Context, pnCost int) (*hubLXMF, *lxmfh
 		t.Fatal(err)
 	}
 	cost := pnCost
-	if _, err := svc.UpdateIdentity(ctx, store.DefaultTenantID, "test", lxmfhub.IdentityUpdate{PropagationStampCost: &cost}); err != nil {
+	// The Python peers connect on the bridge listener (the main node), so
+	// this address is Public; the Private mode has its own interop test.
+	public := lxmfhub.AccessPublic
+	if _, err := svc.UpdateIdentity(ctx, store.DefaultTenantID, "test", lxmfhub.IdentityUpdate{PropagationStampCost: &cost, AccessMode: &public}); err != nil {
 		t.Fatal(err)
 	}
 	id, _ := svc.LoadIdentity(ctx, store.DefaultTenantID)

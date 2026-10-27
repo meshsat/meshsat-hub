@@ -26,10 +26,21 @@ type Status struct {
 	MQTT bool `json:"mqtt"`
 	// PublicDropped counts frames from the public listener the node did not
 	// handle; they are dropped, never handed to the legacy layer (MESHSAT-1720).
-	PublicDropped uint64    `json:"public_dropped"`
-	Paths         int       `json:"paths"`
-	Links         int       `json:"links"`
-	Stats         rns.Stats `json:"stats"`
+	PublicDropped uint64 `json:"public_dropped"`
+	// Classification of the public listener's connections (MESHSAT-1722):
+	// bound to the main node, bound to a Private tenant's own node, or not
+	// yet classified; PrivateNodes is how many tenants' nodes run here.
+	// IFACUnmatched counts frames whose access code matched no network,
+	// IFACThrottled the frames refused because the key-trial budget was spent.
+	PublicMain         int       `json:"public_main"`
+	PublicPrivate      int       `json:"public_private"`
+	PublicUnclassified int       `json:"public_unclassified"`
+	PrivateNodes       int       `json:"private_nodes"`
+	IFACUnmatched      uint64    `json:"ifac_unmatched"`
+	IFACThrottled      uint64    `json:"ifac_throttled"`
+	Paths              int       `json:"paths"`
+	Links              int       `json:"links"`
+	Stats              rns.Stats `json:"stats"`
 }
 
 // ListenerStatus describes one TCP listener.

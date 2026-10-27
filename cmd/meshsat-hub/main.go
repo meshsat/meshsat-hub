@@ -1296,6 +1296,10 @@ func main() {
 			lxmfSvc = nil
 		} else {
 			rnsSvc = svc
+			// Private tenants' addresses live on nodes of their own on the
+			// same listener (MESHSAT-1722); without this they are registered
+			// nowhere.
+			lxmfSvc.SetNodes(svc)
 			if err := msgBus.Subscribe(integrations.ReloadTopic, 1, func(_ string, payload []byte) {
 				var ev struct {
 					TenantID string `json:"tenant_id"`
@@ -2672,6 +2676,7 @@ func main() {
 		r.With(hubauth.RequireRole(hubauth.RoleViewer)).Get("/identity", lxmfHandler.Identity)
 		r.With(hubauth.RequireRole(hubauth.RoleOwner)).Post("/identity", lxmfHandler.CreateIdentity)
 		r.With(hubauth.RequireRole(hubauth.RoleOwner)).Put("/identity", lxmfHandler.UpdateIdentity)
+		r.With(hubauth.RequireRole(hubauth.RoleOwner)).Post("/access/rotate", lxmfHandler.RotateAccess)
 		r.With(hubauth.RequireRole(hubauth.RoleViewer)).Get("/identity/qr.png", lxmfHandler.IdentityQR)
 		r.With(hubauth.RequireRole(hubauth.RoleViewer)).Get("/messages", lxmfHandler.ListMessages)
 		r.With(hubauth.RequireRole(hubauth.RoleOperator)).Post("/messages", lxmfHandler.Send)

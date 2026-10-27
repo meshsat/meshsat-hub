@@ -3,6 +3,8 @@ package lxmfhub
 import (
 	"context"
 	"crypto/ed25519"
+	"crypto/rand"
+	"encoding/base32"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -25,6 +27,45 @@ const (
 	MaxStampCost   = 32
 )
 
+// Who can reach a tenant's addresses on the Hub's node (MESHSAT-1722).
+// Private is the default and what an empty or unknown value means: the
+// addresses live on the tenant's own node, reachable only through a
+// connection that presents the tenant's network name and passphrase.
+// Public puts them on the main node, reachable by anyone on Reticulum. Off
+// registers them nowhere.
+const (
+	AccessPrivate = "private"
+	AccessPublic  = "public"
+	AccessOff     = "off"
+)
+
+// NormalizeAccessMode maps a stored value to a mode; anything unrecognised
+// is Private, the restrictive end.
+func NormalizeAccessMode(v string) string {
+	switch strings.ToLower(strings.TrimSpace(v)) {
+	case AccessPublic:
+		return AccessPublic
+	case AccessOff:
+		return AccessOff
+	}
+	return AccessPrivate
+}
+
+// newAccessCode generates a Private tenant's network name and passphrase.
+// Reticulum derives the interface key from them with no stretching, so the
+// passphrase is 32 random bytes, never something a person chose.
+func newAccessCode() (netname, passphrase string, err error) {
+	n := make([]byte, 4)
+	p := make([]byte, 32)
+	if _, err := rand.Read(n); err != nil {
+		return "", "", err
+	}
+	if _, err := rand.Read(p); err != nil {
+		return "", "", err
+	}
+	return "meshsat-" + hex.EncodeToString(n), strings.ToLower(base32.StdEncoding.WithPadding(base32.NoPadding).EncodeToString(p)), nil
+}
+
 // Identity is a tenant's LXMF address as the API shows it.
 type Identity struct {
 	TenantID string `json:"-"`
@@ -40,6 +81,12 @@ type Identity struct {
 	PropagationAddress   string `json:"propagation_address"`
 	PropagationEnabled   bool   `json:"propagation_enabled"`
 	PropagationStampCost int    `json:"propagation_stamp_cost"`
+	// AccessMode is private, public or off (MESHSAT-1722). IFACNetname and
+	// IFACPassphrase are what a Private tenant's people enter in their
+	// client; the API shows the passphrase to owners and operators only.
+	AccessMode     string `json:"access_mode"`
+	IFACNetname    string `json:"ifac_netname"`
+	IFACPassphrase string `json:"-"`
 
 	ident *rnswire.Identity
 }
@@ -51,6 +98,7 @@ type IdentityUpdate struct {
 	Enabled              *bool
 	PropagationEnabled   *bool
 	PropagationStampCost *int
+	AccessMode           *string
 }
 
 // PrivateKeyHex renders an identity the way Reticulum's own identity files
@@ -104,6 +152,8 @@ func identityFromAccount(tenantID, tenantName string, acct *integrations.Account
 			id.PropagationStampCost = n
 		}
 	}
+	id.AccessMode = NormalizeAccessMode(acct.Get("access_mode"))
+	id.IFACNetname, id.IFACPassphrase = acct.Get("ifac_netname"), acct.Get("ifac_passphrase")
 	return id, nil
 }
 
@@ -154,9 +204,13 @@ func (s *Service) EnsureIdentity(ctx context.Context, tenantID, actor string) (*
 		if err != nil {
 			return nil, err
 		}
+		netname, pass, err := newAccessCode()
+		if err != nil {
+			return nil, err
+		}
 		if _, err := s.accounts.Set(ctx, tenantID, integrations.ProviderLXMF, map[string]string{
 			"private_key": PrivateKeyHex(fresh), "display_name": defaultDisplayName(s.tenantName(ctx, tenantID)),
-			"stamp_cost": "0", "enabled": "true",
+			"stamp_cost": "0", "enabled": "true", "access_mode": AccessPrivate, "ifac_netname": netname, "ifac_passphrase": pass,
 		}); err != nil {
 			return nil, err
 		}
@@ -177,13 +231,33 @@ func (s *Service) EnsureIdentity(ctx context.Context, tenantID, actor string) (*
 	return nil, errors.New("lxmf: the identity was not stored in time")
 }
 
-// UpdateIdentity changes the display name, stamp cost or enabled flag.
+// UpdateIdentity changes the display name, stamp cost, enabled flag or the
+// access mode.
 func (s *Service) UpdateIdentity(ctx context.Context, tenantID, actor string, upd IdentityUpdate) (*Identity, error) {
-	if _, err := s.LoadIdentity(ctx, tenantID); err != nil {
+	cur, err := s.LoadIdentity(ctx, tenantID)
+	if err != nil {
 		return nil, err
 	}
 	fields := map[string]string{}
 	var changes []string
+	modeFrom, modeTo := "", ""
+	if upd.AccessMode != nil {
+		m := strings.ToLower(strings.TrimSpace(*upd.AccessMode))
+		if m != AccessPrivate && m != AccessPublic && m != AccessOff {
+			return nil, errors.New("lxmf: access mode must be private, public or off")
+		}
+		if m != cur.AccessMode {
+			fields["access_mode"] = m
+			modeFrom, modeTo = cur.AccessMode, m
+			if m == AccessPrivate && (cur.IFACNetname == "" || cur.IFACPassphrase == "") {
+				netname, pass, err := newAccessCode()
+				if err != nil {
+					return nil, err
+				}
+				fields["ifac_netname"], fields["ifac_passphrase"] = netname, pass
+			}
+		}
+	}
 	if upd.DisplayName != nil {
 		n := strings.TrimSpace(*upd.DisplayName)
 		if n == "" || utf8.RuneCountInString(n) > MaxDisplayName || strings.ContainsAny(n, "\n\r\x00") {
@@ -220,6 +294,32 @@ func (s *Service) UpdateIdentity(ctx context.Context, tenantID, actor string, up
 	if _, err := s.accounts.Set(ctx, tenantID, integrations.ProviderLXMF, fields); err != nil {
 		return nil, err
 	}
-	s.auditLog(ctx, tenantID, "lxmf_identity_updated", actor, strings.Join(changes, ", "))
+	// Who can reach the address is a security decision of its own on the
+	// tenant's chain, apart from the cosmetic settings.
+	if modeTo != "" {
+		s.auditLog(ctx, tenantID, "lxmf_access_mode_changed", actor, "from "+modeFrom+" to "+modeTo)
+	}
+	if len(changes) > 0 {
+		s.auditLog(ctx, tenantID, "lxmf_identity_updated", actor, strings.Join(changes, ", "))
+	}
+	return s.LoadIdentity(ctx, tenantID)
+}
+
+// RotateAccess replaces a tenant's network name and passphrase. The leader's
+// node closes every connection that joined with the old ones when the row's
+// change reaches it, so a person who should no longer reach the address is
+// out at once; everybody else enters the new values.
+func (s *Service) RotateAccess(ctx context.Context, tenantID, actor string) (*Identity, error) {
+	if _, err := s.LoadIdentity(ctx, tenantID); err != nil {
+		return nil, err
+	}
+	netname, pass, err := newAccessCode()
+	if err != nil {
+		return nil, err
+	}
+	if _, err := s.accounts.Set(ctx, tenantID, integrations.ProviderLXMF, map[string]string{"ifac_netname": netname, "ifac_passphrase": pass}); err != nil {
+		return nil, err
+	}
+	s.auditLog(ctx, tenantID, "lxmf_access_rotated", actor, "new network name "+netname)
 	return s.LoadIdentity(ctx, tenantID)
 }

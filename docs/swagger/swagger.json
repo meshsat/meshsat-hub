@@ -5763,6 +5763,44 @@
                 }
             }
         },
+        "/api/lxmf/access/rotate": {
+            "post": {
+                "description": "Generates a new network name and passphrase for this tenant's Private Reticulum network. Every client that joined with the old ones is disconnected at once and must enter the new ones. Owner only.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "lxmf"
+                ],
+                "summary": "Rotate the Reticulum access code",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.lxmfIdentityResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "503": {
+                        "description": "Service Unavailable",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/lxmf/identity": {
             "get": {
                 "description": "This tenant's LXMF address on the Hub's Reticulum node, its display name, stamp cost and whether it is enabled. exists is false until the owner creates it.",
@@ -5792,7 +5830,7 @@
                 }
             },
             "put": {
-                "description": "Changes the display name other clients see, the stamp cost a sender must pay, whether the address is enabled, and whether the propagation node holds messages for offline clients and at what stamp cost. Absent fields are left alone. Owner only.",
+                "description": "Changes the display name other clients see, the stamp cost a sender must pay, whether the address is enabled, whether the propagation node holds messages for offline clients and at what stamp cost, and who can reach the address (access_mode: private, the default, admits only clients that enter this tenant's network name and passphrase; public admits anyone on Reticulum; off registers it nowhere). Absent fields are left alone. Owner only.",
                 "consumes": [
                     "application/json"
                 ],
@@ -12306,6 +12344,12 @@
                     "description": "Enabled is false when the node is configured off; Active is true on\nthe replica that holds leadership and runs it.",
                     "type": "boolean"
                 },
+                "ifac_throttled": {
+                    "type": "integer"
+                },
+                "ifac_unmatched": {
+                    "type": "integer"
+                },
                 "links": {
                     "type": "integer"
                 },
@@ -12316,11 +12360,24 @@
                 "paths": {
                     "type": "integer"
                 },
+                "private_nodes": {
+                    "type": "integer"
+                },
                 "public": {
                     "$ref": "#/definitions/github_com_meshsat_meshsat-hub_internal_rnsnode.ListenerStatus"
                 },
                 "public_dropped": {
                     "description": "PublicDropped counts frames from the public listener the node did not\nhandle; they are dropped, never handed to the legacy layer (MESHSAT-1720).",
+                    "type": "integer"
+                },
+                "public_main": {
+                    "description": "Classification of the public listener's connections (MESHSAT-1722):\nbound to the main node, bound to a Private tenant's own node, or not\nyet classified; PrivateNodes is how many tenants' nodes run here.\nIFACUnmatched counts frames whose access code matched no network,\nIFACThrottled the frames refused because the key-trial budget was spent.",
+                    "type": "integer"
+                },
+                "public_private": {
+                    "type": "integer"
+                },
+                "public_unclassified": {
                     "type": "integer"
                 },
                 "started_at": {
@@ -14571,6 +14628,10 @@
         "internal_api.lxmfIdentityRequest": {
             "type": "object",
             "properties": {
+                "access_mode": {
+                    "description": "AccessMode is private, public or off.",
+                    "type": "string"
+                },
                 "display_name": {
                     "type": "string"
                 },
@@ -14591,6 +14652,10 @@
         "internal_api.lxmfIdentityResponse": {
             "type": "object",
             "properties": {
+                "access_mode": {
+                    "description": "AccessMode says who can reach the address (MESHSAT-1722): private\n(default: only a client that enters the network name and passphrase\nbelow on its TCP interface), public (anyone on Reticulum) or off.",
+                    "type": "string"
+                },
                 "active_on_this_replica": {
                     "description": "ActiveOnThisReplica is true on the replica whose node carries the\naddress (the leader); LastAnnounce is when it last announced there.",
                     "type": "boolean"
@@ -14609,6 +14674,16 @@
                     "description": "Exists is false until the owner creates the address.",
                     "type": "boolean"
                 },
+                "ifac_netname": {
+                    "type": "string"
+                },
+                "ifac_passphrase": {
+                    "description": "IFACPassphrase is shown to owners and operators only;\nIFACPassphraseHidden is true when the caller may not see it.",
+                    "type": "string"
+                },
+                "ifac_passphrase_hidden": {
+                    "type": "boolean"
+                },
                 "last_announce": {
                     "type": "string"
                 },
@@ -14623,7 +14698,7 @@
                     "type": "integer"
                 },
                 "public_endpoint": {
-                    "description": "PublicEndpoint is the host:port a client connects to with a TCP client\ninterface (no interface access code), \"\" when this Hub has none.",
+                    "description": "PublicEndpoint is the host:port a client connects to with a TCP client\ninterface, \"\" when this Hub has none.",
                     "type": "string"
                 },
                 "qr_url": {

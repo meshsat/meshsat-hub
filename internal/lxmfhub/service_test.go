@@ -110,6 +110,15 @@ func newFixture(t *testing.T, ctx context.Context, cfg Config) *fixture {
 	return &fixture{st: st, acc: acc, svc: svc, node: node, addr: node.Status().Bridge.Addr}
 }
 
+func (f *fixture) makePublic(t *testing.T, ctx context.Context, tenantID string) {
+	t.Helper()
+	m := AccessPublic
+	if _, err := f.svc.UpdateIdentity(ctx, tenantID, "owner@example.org", IdentityUpdate{AccessMode: &m}); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, "public address registered", func() bool { ok, _ := f.svc.RegisteredOnThisReplica(tenantID); return ok })
+}
+
 // A peer's message to tenant A lands in A's inbox and nowhere else (the
 // default tenant is the victim); A's reply goes out through the queue and is
 // delivered with the peer's proof; a disabled address leaves the node.
@@ -132,6 +141,13 @@ func TestService_InboxIsPerTenantAndOutboundIsProven(t *testing.T) {
 	if again, _ := f.svc.EnsureIdentity(ctx, victim, "x"); again.Address != vid.Address {
 		t.Fatal("EnsureIdentity is not idempotent")
 	}
+	if vid.AccessMode != AccessPrivate || vid.IFACNetname == "" || vid.IFACPassphrase == "" {
+		t.Fatalf("a new address must be Private with its own code: %+v", vid)
+	}
+	// The peers here connect on the bridge listener, the main node: these
+	// addresses are Public (the Private mode has its own tests).
+	f.makePublic(t, ctx, victim)
+	f.makePublic(t, ctx, other)
 	if ok, _ := f.svc.RegisteredOnThisReplica(victim); !ok {
 		t.Fatal("victim's address not registered on the node after the reload")
 	}
@@ -261,6 +277,7 @@ func TestService_InboundRateLimit(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	f.makePublic(t, ctx, store.DefaultTenantID)
 	src, _ := rnswire.GenerateIdentity()
 	for i := 0; i < 3; i++ {
 		// Distinct contents: identical messages share a hash and the claim

@@ -644,6 +644,10 @@ definitions:
           Enabled is false when the node is configured off; Active is true on
           the replica that holds leadership and runs it.
         type: boolean
+      ifac_throttled:
+        type: integer
+      ifac_unmatched:
+        type: integer
       links:
         type: integer
       mqtt:
@@ -652,12 +656,26 @@ definitions:
         type: boolean
       paths:
         type: integer
+      private_nodes:
+        type: integer
       public:
         $ref: '#/definitions/github_com_meshsat_meshsat-hub_internal_rnsnode.ListenerStatus'
       public_dropped:
         description: |-
           PublicDropped counts frames from the public listener the node did not
           handle; they are dropped, never handed to the legacy layer (MESHSAT-1720).
+        type: integer
+      public_main:
+        description: |-
+          Classification of the public listener's connections (MESHSAT-1722):
+          bound to the main node, bound to a Private tenant's own node, or not
+          yet classified; PrivateNodes is how many tenants' nodes run here.
+          IFACUnmatched counts frames whose access code matched no network,
+          IFACThrottled the frames refused because the key-trial budget was spent.
+        type: integer
+      public_private:
+        type: integer
+      public_unclassified:
         type: integer
       started_at:
         type: string
@@ -2384,6 +2402,9 @@ definitions:
     type: object
   internal_api.lxmfIdentityRequest:
     properties:
+      access_mode:
+        description: AccessMode is private, public or off.
+        type: string
       display_name:
         type: string
       enabled:
@@ -2397,6 +2418,12 @@ definitions:
     type: object
   internal_api.lxmfIdentityResponse:
     properties:
+      access_mode:
+        description: |-
+          AccessMode says who can reach the address (MESHSAT-1722): private
+          (default: only a client that enters the network name and passphrase
+          below on its TCP interface), public (anyone on Reticulum) or off.
+        type: string
       active_on_this_replica:
         description: |-
           ActiveOnThisReplica is true on the replica whose node carries the
@@ -2415,6 +2442,15 @@ definitions:
       exists:
         description: Exists is false until the owner creates the address.
         type: boolean
+      ifac_netname:
+        type: string
+      ifac_passphrase:
+        description: |-
+          IFACPassphrase is shown to owners and operators only;
+          IFACPassphraseHidden is true when the caller may not see it.
+        type: string
+      ifac_passphrase_hidden:
+        type: boolean
       last_announce:
         type: string
       propagation_address:
@@ -2431,7 +2467,7 @@ definitions:
       public_endpoint:
         description: |-
           PublicEndpoint is the host:port a client connects to with a TCP client
-          interface (no interface access code), "" when this Hub has none.
+          interface, "" when this Hub has none.
         type: string
       qr_url:
         description: QRURL renders the address as a QR code image.
@@ -7429,6 +7465,33 @@ paths:
       summary: Rotate channel encryption key
       tags:
       - keys
+  /api/lxmf/access/rotate:
+    post:
+      description: Generates a new network name and passphrase for this tenant's Private
+        Reticulum network. Every client that joined with the old ones is disconnected
+        at once and must enter the new ones. Owner only.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_api.lxmfIdentityResponse'
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "503":
+          description: Service Unavailable
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Rotate the Reticulum access code
+      tags:
+      - lxmf
   /api/lxmf/identity:
     get:
       description: This tenant's LXMF address on the Hub's Reticulum node, its display
@@ -7473,10 +7536,12 @@ paths:
     put:
       consumes:
       - application/json
-      description: Changes the display name other clients see, the stamp cost a sender
-        must pay, whether the address is enabled, and whether the propagation node
-        holds messages for offline clients and at what stamp cost. Absent fields are
-        left alone. Owner only.
+      description: 'Changes the display name other clients see, the stamp cost a sender
+        must pay, whether the address is enabled, whether the propagation node holds
+        messages for offline clients and at what stamp cost, and who can reach the
+        address (access_mode: private, the default, admits only clients that enter
+        this tenant''s network name and passphrase; public admits anyone on Reticulum;
+        off registers it nowhere). Absent fields are left alone. Owner only.'
       parameters:
       - description: fields to change
         in: body

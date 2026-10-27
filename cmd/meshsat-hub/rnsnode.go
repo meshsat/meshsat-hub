@@ -43,14 +43,18 @@ func buildRNSNode(cfg config.Config, hubIdentity *reticulum.HubIdentity, dataSto
 		return nil, fmt.Errorf("rns: hub identity: %w", err)
 	}
 	ncfg := rnsnode.Config{
-		Identity:         id,
-		Store:            dataStore,
-		PathTTL:          time.Duration(cfg.RNSPathTTLHours) * time.Hour,
-		BridgeListenAddr: cfg.ReticulumTCPAddr,
-		PublicListenAddr: cfg.RNSPublicTCPAddr,
-		OnDeclinedTCP:    func(raw []byte) { legacyHandler(reticulum.IfaceTCP, raw) },
-		OnNode:           onNode,
-		OnNodeStopped:    onNodeStopped,
+		Identity: id,
+		Store:    dataStore,
+		PathTTL:  time.Duration(cfg.RNSPathTTLHours) * time.Hour,
+		// The public listener's classification into the main node and the
+		// Private tenants' own nodes (MESHSAT-1722).
+		IFACTriesPerSecond:  cfg.RNSIFACTriesPerSecond,
+		UnclassifiedTimeout: cfg.RNSUnclassifiedTimeout,
+		BridgeListenAddr:    cfg.ReticulumTCPAddr,
+		PublicListenAddr:    cfg.RNSPublicTCPAddr,
+		OnDeclinedTCP:       func(raw []byte) { legacyHandler(reticulum.IfaceTCP, raw) },
+		OnNode:              onNode,
+		OnNodeStopped:       onNodeStopped,
 		OnAnnounce: func(_ *rnswire.Announce, raw []byte, src rnsnode.Source) {
 			ann, err := reticulum.UnmarshalAnnouncePacket(raw)
 			if err != nil {

@@ -51,6 +51,17 @@ type Accounts interface {
 	Set(ctx context.Context, tenantID, provider string, fields map[string]string) (*integrations.Account, error)
 }
 
+// Nodes gives a Private tenant its own node (rnsnode.Service, MESHSAT-1722):
+// created on first use in the term, keyed by the tenant's network name and
+// passphrase; a changed key closes the connections that used the old one.
+type Nodes interface {
+	PrivateNode(tenantID, netname, passphrase string) (*rns.Node, error)
+	ReleasePrivate(tenantID string)
+	// ForgetPaths drops the main node's cached paths to an address that is
+	// not on it, so no cache answers for a Private or Off address there.
+	ForgetPaths(hashes ...[rns.HashLen]byte)
+}
+
 // Auditor records an event on the tenant's audit chain.
 type Auditor func(ctx context.Context, tenantID, action, actor, detail string)
 
@@ -98,18 +109,28 @@ type Service struct {
 	now      func() time.Time
 
 	mu      sync.Mutex
-	node    *rns.Node
+	node    *rns.Node // the main node: Public addresses
+	nodes   Nodes     // Private tenants' own nodes; nil registers no Private address
 	routers map[string]*tenantRouter
 	cancel  context.CancelFunc
 	kick    chan struct{}
 	sem     chan struct{}
+
+	// tl serializes register for one tenant: Reload runs on a goroutine per
+	// row change, and two interleaving could leave an Off address live on
+	// the main node or register onto a node another call just released.
+	tlMu sync.Mutex
+	tl   map[string]*sync.Mutex
 
 	received, dropped, delivered, failed atomic.Uint64
 	heldIn, heldServed                   atomic.Uint64
 }
 
 type tenantRouter struct {
-	id           *Identity
+	id *Identity
+	// node is where the address lives: the main node (Public) or the
+	// tenant's own (Private). Everything the router does goes through it.
+	node         *rns.Node
 	router       *lxmf.Router
 	pn           *rns.Destination // the propagation node, nil when disabled
 	registeredAt time.Time
@@ -142,7 +163,15 @@ func New(cfg Config, st Store, accounts Accounts, audit Auditor) *Service {
 		now = time.Now
 	}
 	return &Service{cfg: cfg, store: st, accounts: accounts, audit: audit, now: now, routers: map[string]*tenantRouter{},
-		kick: make(chan struct{}, 1), sem: make(chan struct{}, cfg.MaxConcurrentSends)}
+		kick: make(chan struct{}, 1), sem: make(chan struct{}, cfg.MaxConcurrentSends), tl: map[string]*sync.Mutex{}}
+}
+
+// SetNodes attaches the Private tenants' nodes; until then a Private
+// address is registered nowhere, which is the closed end.
+func (s *Service) SetNodes(n Nodes) {
+	s.mu.Lock()
+	s.nodes = n
+	s.mu.Unlock()
 }
 
 func (s *Service) auditLog(ctx context.Context, tenantID, action, actor, detail string) {
@@ -199,8 +228,8 @@ func (s *Service) Active() bool {
 	return s.node != nil
 }
 
-// register (re)builds one tenant's router from its row; false when the
-// tenant has no enabled identity.
+// register (re)builds one tenant's router from its row on the node its
+// access mode names; false when the tenant has no address that is live.
 func (s *Service) register(ctx context.Context, tenantID string) bool {
 	id, err := s.LoadIdentity(ctx, tenantID)
 	if err != nil {
@@ -209,40 +238,161 @@ func (s *Service) register(ctx context.Context, tenantID string) bool {
 		}
 		return false
 	}
+	if !s.Active() {
+		return false
+	}
+	if needsAccessCode(id) {
+		// An address made before MESHSAT-1722 is Private by default and has
+		// no code yet: the leader makes one, once. Outside the tenant's
+		// lock: the write's own reload may come back into register.
+		if _, err := s.fillAccessCode(ctx, tenantID); err != nil {
+			slog.Warn("lxmf: a Private address has no access code yet, not registered", "tenant", tenantID, "error", err)
+		}
+	}
+	lk := s.tenantLock(tenantID)
+	lk.Lock()
+	defer lk.Unlock()
+	// What is stored now is what gets registered, read under the lock.
+	if id, err = s.LoadIdentity(ctx, tenantID); err != nil || !s.Active() {
+		return false
+	}
+	var node *rns.Node
+	switch {
+	case !id.Enabled || id.AccessMode == AccessOff:
+	case needsAccessCode(id):
+	case id.AccessMode == AccessPublic:
+		s.mu.Lock()
+		node = s.node
+		s.mu.Unlock()
+	default:
+		s.mu.Lock()
+		nodes := s.nodes
+		s.mu.Unlock()
+		if nodes == nil {
+			break
+		}
+		// Never under s.mu: the tenant's node may close connections, and
+		// their callbacks run inside rnsnode.
+		if node, err = nodes.PrivateNode(tenantID, id.IFACNetname, id.IFACPassphrase); err != nil {
+			slog.Warn("lxmf: the tenant's private node did not start, address not registered", "tenant", tenantID, "error", err)
+			node = nil
+		}
+	}
 	s.mu.Lock()
-	defer s.mu.Unlock()
+	main, nodes := s.node, s.nodes
+	s.mu.Unlock()
+	if node != main && nodes != nil {
+		nodes.ForgetPaths(h16hex(id.Address), h16hex(id.PropagationAddress))
+	}
+	if node == nil {
+		s.dropLocked(tenantID)
+		return false
+	}
+	s.mu.Lock()
 	if s.node == nil {
+		s.mu.Unlock()
 		return false
 	}
+	prev := s.routers[tenantID]
 	s.unregisterLocked(tenantID)
-	if !id.Enabled {
-		return false
-	}
 	tid := tenantID
-	r := lxmf.New(s.node, lxmf.Config{Identity: id.ident, DisplayName: id.DisplayName, StampCost: id.StampCost,
+	r := lxmf.New(node, lxmf.Config{Identity: id.ident, DisplayName: id.DisplayName, StampCost: id.StampCost,
 		EnforceStamps: id.StampCost > 0, OnMessage: func(m *lxmf.Message) { s.onMessage(tid, m) }})
-	tr := &tenantRouter{id: id, router: r, registeredAt: s.now(), bucket: newBucket(s.cfg.InboundPerMinute, s.now())}
+	tr := &tenantRouter{id: id, node: node, router: r, registeredAt: s.now(), bucket: newBucket(s.cfg.InboundPerMinute, s.now())}
 	if id.PropagationEnabled {
 		s.registerPNLocked(tr)
 	}
 	s.routers[tenantID] = tr
-	slog.Info("lxmf: address registered", "tenant", tenantID, "address", id.Address, "display_name", id.DisplayName, "stamp_cost", id.StampCost)
+	s.mu.Unlock()
+	if prev != nil && prev.id.AccessMode == AccessPrivate && id.AccessMode != AccessPrivate && nodes != nil {
+		nodes.ReleasePrivate(tenantID)
+	}
+	slog.Info("lxmf: address registered", "tenant", tenantID, "address", id.Address, "access_mode", id.AccessMode,
+		"display_name", id.DisplayName, "stamp_cost", id.StampCost)
 	return true
+}
+
+func h16hex(s string) [rns.HashLen]byte {
+	var out [rns.HashLen]byte
+	b, _ := hex.DecodeString(s)
+	copy(out[:], b)
+	return out
+}
+
+func needsAccessCode(id *Identity) bool {
+	return id.Enabled && id.AccessMode == AccessPrivate && (id.IFACNetname == "" || id.IFACPassphrase == "")
+}
+
+func (s *Service) tenantLock(tenantID string) *sync.Mutex {
+	s.tlMu.Lock()
+	defer s.tlMu.Unlock()
+	l := s.tl[tenantID]
+	if l == nil {
+		l = &sync.Mutex{}
+		s.tl[tenantID] = l
+	}
+	return l
+}
+
+// dropLocked unregisters a tenant's address and stops its own node, if
+// any; the caller holds the tenant's lock.
+func (s *Service) dropLocked(tenantID string) {
+	s.mu.Lock()
+	had := s.routers[tenantID] != nil
+	s.unregisterLocked(tenantID)
+	nodes := s.nodes
+	s.mu.Unlock()
+	if nodes != nil {
+		nodes.ReleasePrivate(tenantID)
+	}
+	if had {
+		slog.Info("lxmf: address unregistered", "tenant", tenantID)
+	}
+}
+
+// fillAccessCode gives a Private address that has none its network name and
+// passphrase. One replica writes (a claim per tenant and minute); the row's
+// change reaches every replica.
+func (s *Service) fillAccessCode(ctx context.Context, tenantID string) (*Identity, error) {
+	won, err := s.store.ClaimOnce(ctx, fmt.Sprintf("lxmf-ifac:%s:%d", tenantID, s.now().Unix()/60))
+	if err != nil {
+		return nil, err
+	}
+	if !won {
+		return nil, errors.New("another replica is writing it")
+	}
+	netname, pass, err := newAccessCode()
+	if err != nil {
+		return nil, err
+	}
+	if _, err := s.accounts.Set(ctx, tenantID, integrations.ProviderLXMF, map[string]string{"ifac_netname": netname, "ifac_passphrase": pass}); err != nil {
+		return nil, err
+	}
+	s.auditLog(ctx, tenantID, "lxmf_access_code_created", "hub", "network name "+netname+" for the Private access mode")
+	id, err := s.LoadIdentity(ctx, tenantID)
+	if err != nil {
+		return nil, err
+	}
+	if id.IFACNetname == "" || id.IFACPassphrase == "" {
+		return nil, errors.New("the access code was not stored")
+	}
+	return id, nil
 }
 
 func (s *Service) unregisterLocked(tenantID string) {
 	if tr := s.routers[tenantID]; tr != nil {
-		s.node.RemoveDestination(tr.router.Hash())
+		tr.node.RemoveDestination(tr.router.Hash())
 		if tr.pn != nil {
-			s.node.RemoveDestination(tr.pn.Hash)
+			tr.node.RemoveDestination(tr.pn.Hash)
 		}
 		delete(s.routers, tenantID)
 	}
 }
 
 // Reload is called on every replica when a tenant's provider accounts
-// changed (integrations.ReloadTopic); the leader rebuilds the address and,
-// when it is enabled, announces it with its new name and cost at once.
+// changed (integrations.ReloadTopic); the leader rebuilds the address on the
+// node its access mode names and, when it is live, announces it with its new
+// name and cost at once.
 func (s *Service) Reload(tenantID string) {
 	if !s.Active() {
 		return
@@ -299,10 +449,7 @@ func (s *Service) announceOne(tenantID string) {
 	if err := tr.router.Announce(); err != nil {
 		slog.Debug("lxmf: announce failed", "tenant", tenantID, "error", err)
 	}
-	s.mu.Lock()
-	pn, node := tr.pn, s.node
-	s.mu.Unlock()
-	if pn != nil && node != nil {
+	if pn, node := tr.pn, tr.node; pn != nil && node != nil {
 		if err := node.Announce(pn, "", false); err != nil {
 			slog.Debug("lxmf: propagation announce failed", "tenant", tenantID, "error", err)
 		}

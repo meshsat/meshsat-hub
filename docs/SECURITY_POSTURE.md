@@ -503,6 +503,41 @@ design; a flood shows up as dropped messages in the tenant's counters and the Hu
 ban); IPv6 is not served (`bind :4242` is v4-only on the edge). Both are written down, neither is
 an exception to a control above.
 
+## Addendum, 2026-10-27 (MESHSAT-1722, MESHSAT-1723): each tenant chooses who reaches its Reticulum addresses
+
+Owner decision, 27 Oct 2026: a tenant's LXMF addresses are **Private** by default (reachable only
+through a connection that presented the tenant's own interface access code), **Public** (anyone on
+Reticulum) or **Off**. Mechanics in `docs/reticulum-lxmf.md`.
+
+- **Separation by construction, not by filter.** A Private tenant gets its own `rns.Node`; its
+  transmitter sees only the public connections bound to it by their access code, and the main
+  node's transmitter skips them. A filter hook in the shared `rns` package was the first design and
+  was rejected by the design review: about fifteen call sites assume one network (path requests
+  answered from any cache, path-request floods, the LXMF router asking for paths with no class),
+  so a missed one would fail open. Here a missed one fails closed.
+- **Classification before any node sees a frame**, bounded by a global key-trial budget (the edge
+  hides client addresses, so there is no per-source limit), unmatched codes closing the
+  connection after three frames, and unclassified connections closed after a timeout.
+- **The code is generated** (32 random bytes): Reticulum derives the key with no stretching. It is
+  in the encrypted provider row, shown to owners and operators only, rotated by the owner, and a
+  rotation closes the connections that used the old one.
+- **No cache answers for a non-Public address on the main node** (`ForgetPaths`), and a propagation
+  node files messages only for addresses on its own node.
+- **MESHSAT-1723:** paths reloaded at a term start kept the interface name of the earlier term,
+  and connection ids restart at 1, so a reloaded path could send to whichever connection reused the
+  name. TCP paths now reload as `restored`, which names nothing.
+- **Verified:** unit tests per isolation property, each seen to fail with its guard removed;
+  `TestInteropAccessModesOnThePublicListener` against stock Python RNS 1.5.7 / LXMF 1.2.1 (a client
+  with the code delivers to the inbox, one without and one with another tenant's code get no path,
+  Public admits anyone, Off nobody).
+
+Residual, written on the page and in the doc: a destination hash is not secret; a key holder can let
+others in; the passphrase is one shared secret per tenant; the transport id is the same in every
+class; Off cannot erase other nodes' caches; a captured frame replayed on a new connection binds it
+to the tenant and yields masked traffic only (sizes and timing), no weaker than upstream IFAC on a
+dedicated port. The tenant's kits reach a Private address only after phase 2 (stunnel passes no
+client identity).
+
 ## Addendum, 2026-10-20 (MESHSAT-1599, MESHSAT-1600): account state on the shared identity provider
 
 V6 (account lifecycle). Found because the owner could not reject a sign-up: the Hub's Approve and

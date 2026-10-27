@@ -457,6 +457,15 @@ func TestService_ReloadedPathNeverReachesANewConnectionOfTheSameName(t *testing.
 		c := svc.Status().Public.Connections
 		return len(c) == 1 && c[0].ID == "tcpp_1"
 	})
+	// A frame binds it to the main node (MESHSAT-1722), the node the path
+	// was learned on, so only the reloaded name could still misdirect.
+	probe := make([]byte, rnswire.HeaderMinSize+8)
+	probe[0] = 0x02
+	if _, err := other.Write(rnswire.HDLCFrame(probe)); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, "the new tcpp_1 bound to the main node", func() bool { return svc.Status().PublicMain == 1 })
+
 	if _, err := svc.Node().SendData(dest.Hash, []byte("for the first client only"), false); err == nil {
 		t.Fatal("a send along a reloaded path succeeded; it can only have gone to a stranger")
 	}

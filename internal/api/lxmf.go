@@ -57,8 +57,17 @@ type lxmfIdentityResponse struct {
 	PropagationEnabled   bool   `json:"propagation_enabled"`
 	PropagationStampCost int    `json:"propagation_stamp_cost"`
 	// PublicEndpoint is the host:port a client connects to with a TCP client
-	// interface (no interface access code), "" when this Hub has none.
+	// interface, "" when this Hub has none.
 	PublicEndpoint string `json:"public_endpoint,omitempty"`
+	// AccessMode says who can reach the address (MESHSAT-1722): private
+	// (default: only a client that enters the network name and passphrase
+	// below on its TCP interface), public (anyone on Reticulum) or off.
+	AccessMode  string `json:"access_mode,omitempty"`
+	IFACNetname string `json:"ifac_netname,omitempty"`
+	// IFACPassphrase is shown to owners and operators only;
+	// IFACPassphraseHidden is true when the caller may not see it.
+	IFACPassphrase       string `json:"ifac_passphrase,omitempty"`
+	IFACPassphraseHidden bool   `json:"ifac_passphrase_hidden,omitempty"`
 }
 
 type lxmfIdentityRequest struct {
@@ -67,6 +76,8 @@ type lxmfIdentityRequest struct {
 	Enabled              *bool   `json:"enabled"`
 	PropagationEnabled   *bool   `json:"propagation_enabled"`
 	PropagationStampCost *int    `json:"propagation_stamp_cost"`
+	// AccessMode is private, public or off.
+	AccessMode *string `json:"access_mode"`
 }
 
 type lxmfSendRequest struct {
@@ -86,10 +97,17 @@ func (h *LXMFHandler) off(w http.ResponseWriter) bool {
 	return false
 }
 
-func (h *LXMFHandler) identityResponse(tenantID string, id *lxmfhub.Identity) lxmfIdentityResponse {
+func (h *LXMFHandler) identityResponse(r *http.Request, tenantID string, id *lxmfhub.Identity) lxmfIdentityResponse {
 	resp := lxmfIdentityResponse{Exists: true, Address: id.Address, DisplayName: id.DisplayName, StampCost: id.StampCost, Enabled: id.Enabled,
 		QRURL: "/api/lxmf/identity/qr.png", PropagationAddress: id.PropagationAddress, PropagationEnabled: id.PropagationEnabled, PropagationStampCost: id.PropagationStampCost,
-		PublicEndpoint: h.endpoint}
+		PublicEndpoint: h.endpoint, AccessMode: id.AccessMode, IFACNetname: id.IFACNetname}
+	// The passphrase admits to the tenant's Private network. Owners hand it
+	// out and operators set up the devices; a viewer reads the page only.
+	if hubauth.RoleAtLeast(hubauth.FromContext(r.Context()), hubauth.RoleOperator) {
+		resp.IFACPassphrase = id.IFACPassphrase
+	} else if id.IFACPassphrase != "" {
+		resp.IFACPassphraseHidden = true
+	}
 	if active, last := h.svc.RegisteredOnThisReplica(tenantID); active {
 		resp.ActiveOnThisReplica = true
 		if !last.IsZero() {
@@ -122,7 +140,7 @@ func (h *LXMFHandler) Identity(w http.ResponseWriter, r *http.Request) {
 		writeInternalError(w, err, "lxmf identity")
 		return
 	}
-	writeJSON(w, http.StatusOK, h.identityResponse(tid, id))
+	writeJSON(w, http.StatusOK, h.identityResponse(r, tid, id))
 }
 
 // CreateIdentity creates the tenant's LXMF address on first call.
@@ -144,13 +162,13 @@ func (h *LXMFHandler) CreateIdentity(w http.ResponseWriter, r *http.Request) {
 		writeInternalError(w, err, "lxmf identity create")
 		return
 	}
-	writeJSON(w, http.StatusCreated, h.identityResponse(tid, id))
+	writeJSON(w, http.StatusCreated, h.identityResponse(r, tid, id))
 }
 
 // UpdateIdentity changes the display name, stamp cost or enabled flag.
 //
 //	@Summary      Update the LXMF identity
-//	@Description  Changes the display name other clients see, the stamp cost a sender must pay, whether the address is enabled, and whether the propagation node holds messages for offline clients and at what stamp cost. Absent fields are left alone. Owner only.
+//	@Description  Changes the display name other clients see, the stamp cost a sender must pay, whether the address is enabled, whether the propagation node holds messages for offline clients and at what stamp cost, and who can reach the address (access_mode: private, the default, admits only clients that enter this tenant's network name and passphrase; public admits anyone on Reticulum; off registers it nowhere). Absent fields are left alone. Owner only.
 //	@Tags         lxmf
 //	@Accept       json
 //	@Produce      json
@@ -170,7 +188,7 @@ func (h *LXMFHandler) UpdateIdentity(w http.ResponseWriter, r *http.Request) {
 	}
 	tid := hubauth.TenantIDFromContext(r.Context())
 	id, err := h.svc.UpdateIdentity(r.Context(), tid, operatorEmail(r), lxmfhub.IdentityUpdate{DisplayName: req.DisplayName, StampCost: req.StampCost, Enabled: req.Enabled,
-		PropagationEnabled: req.PropagationEnabled, PropagationStampCost: req.PropagationStampCost})
+		PropagationEnabled: req.PropagationEnabled, PropagationStampCost: req.PropagationStampCost, AccessMode: req.AccessMode})
 	switch {
 	case errors.Is(err, lxmfhub.ErrNoIdentity):
 		writeError(w, http.StatusNotFound, "this tenant has no LXMF address yet")
@@ -179,7 +197,34 @@ func (h *LXMFHandler) UpdateIdentity(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, h.identityResponse(tid, id))
+	writeJSON(w, http.StatusOK, h.identityResponse(r, tid, id))
+}
+
+// RotateAccess replaces the network name and passphrase of a Private address.
+//
+//	@Summary      Rotate the Reticulum access code
+//	@Description  Generates a new network name and passphrase for this tenant's Private Reticulum network. Every client that joined with the old ones is disconnected at once and must enter the new ones. Owner only.
+//	@Tags         lxmf
+//	@Produce      json
+//	@Success      200  {object}  lxmfIdentityResponse
+//	@Failure      404  {object}  map[string]string
+//	@Failure      503  {object}  map[string]string
+//	@Router       /api/lxmf/access/rotate [post]
+func (h *LXMFHandler) RotateAccess(w http.ResponseWriter, r *http.Request) {
+	if h.off(w) {
+		return
+	}
+	tid := hubauth.TenantIDFromContext(r.Context())
+	id, err := h.svc.RotateAccess(r.Context(), tid, operatorEmail(r))
+	switch {
+	case errors.Is(err, lxmfhub.ErrNoIdentity):
+		writeError(w, http.StatusNotFound, "this tenant has no LXMF address yet")
+		return
+	case err != nil:
+		writeInternalError(w, err, "lxmf access rotate")
+		return
+	}
+	writeJSON(w, http.StatusOK, h.identityResponse(r, tid, id))
 }
 
 // IdentityQR renders the address as a PNG QR code.

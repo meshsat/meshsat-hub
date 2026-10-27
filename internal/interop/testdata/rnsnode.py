@@ -65,6 +65,10 @@ def main():
     ap.add_argument("--enforce-stamps", action="store_true")
     ap.add_argument("--loglevel", type=int, default=2)
     ap.add_argument("--keep-config", action="store_true", help="use the config already in --config-dir")
+    # An interface access code on the client interface, as a Sideband user
+    # enters a network name and passphrase (MESHSAT-1722).
+    ap.add_argument("--ifac-netname", default=None)
+    ap.add_argument("--ifac-passphrase", default=None)
     args = ap.parse_args()
 
     os.makedirs(args.config_dir, exist_ok=True)
@@ -83,6 +87,10 @@ def main():
     # once, which is a burst by design; the tests want to see them now.
     ingress_control = no
 """
+        if args.ifac_netname:
+            ifaces += f"    network_name = {args.ifac_netname}\n"
+        if args.ifac_passphrase:
+            ifaces += f"    passphrase = {args.ifac_passphrase}\n"
     if args.listen:
         ifaces += f"""
   [[server]]

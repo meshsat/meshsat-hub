@@ -76,6 +76,11 @@ type Config struct {
 	PublicListenAddr string
 	PublicIFAC       *rnswire.IFAC
 	MaxConns         int
+	// IFACTriesPerSecond bounds the key trials that classify public
+	// connections (DefaultIFACTriesPerSecond when 0); UnclassifiedTimeout
+	// closes a public connection nothing classified (DefaultUnclassifiedTimeout).
+	IFACTriesPerSecond  int
+	UnclassifiedTimeout time.Duration
 	// MQTT attaches the legacy Reticulum topic as interface IfaceMQTT; nil
 	// leaves it out.
 	MQTT MQTTTransport
@@ -118,6 +123,26 @@ type Service struct {
 	// declined, which are dropped instead of handed to the legacy layer.
 	publicDropped atomic.Uint64
 
+	// Private tenants' nodes (classes.go). pmu guards them and the term's
+	// context, apart from mu, because a node is created from inside OnNode,
+	// which Start calls holding mu. bmu guards the public connections'
+	// classification. Neither is ever held while calling into a node.
+	pmu      sync.RWMutex
+	termCtx  context.Context
+	private  map[string]*tenantNode
+	bmu      sync.RWMutex
+	bindings map[string]*binding
+	tries    *tryBudget
+	// pub is the public listener for the Private nodes' transmitters and
+	// for closing connections, read without mu: those run from callbacks
+	// that may fire while Start or Stop hold it.
+	pub atomic.Pointer[TCPServer]
+	// main is this term's main node, likewise read without mu: lxmfhub
+	// reaches ForgetPaths from inside OnNode, which Start calls holding mu.
+	main atomic.Pointer[rns.Node]
+
+	ifacUnmatched, ifacThrottled atomic.Uint64
+
 	echoMu sync.Mutex
 	echo   map[[32]byte]time.Time
 }
@@ -128,7 +153,8 @@ func New(cfg Config) *Service {
 	if now == nil {
 		now = time.Now
 	}
-	return &Service{cfg: cfg, now: now, echo: make(map[[32]byte]time.Time)}
+	return &Service{cfg: cfg, now: now, echo: make(map[[32]byte]time.Time), private: map[string]*tenantNode{},
+		bindings: map[string]*binding{}, tries: newTryBudget(cfg.IFACTriesPerSecond)}
 }
 
 // Start builds the node, reloads its paths, binds the listeners and starts
@@ -175,25 +201,30 @@ func (s *Service) Start(ctx context.Context) error {
 	if s.cfg.PublicListenAddr != "" {
 		public = NewTCPServer(IfacePublicPrefix, s.cfg.PublicListenAddr, s.onTCPFrame)
 		public.SetMaxConns(s.cfg.MaxConns)
-		if f := s.cfg.PublicIFAC; f != nil {
-			public.OnChange(func(id string, up bool) {
-				if up {
-					node.SetIFAC(id, f)
-				} else {
-					node.SetIFAC(id, nil)
-				}
-			})
-		}
+		// Every public connection starts unclassified and is bound to a
+		// node by its first frame (classes.go); the platform's own access
+		// code, when set, is applied to the main node at that point.
+		public.OnChange(s.onPublicChange)
 		if err := public.Start(); err != nil {
 			bridge.Stop()
 			cancel()
 			return err
 		}
+		s.pub.Store(public)
 	}
+	// Private tenants' nodes are created from OnNode (lxmfhub registers
+	// their addresses there), so the term must be open to them first.
+	s.pmu.Lock()
+	s.termCtx = tctx
+	s.pmu.Unlock()
+	s.main.Store(node)
 	if s.cfg.OnNode != nil {
 		s.cfg.OnNode(node)
 	}
 	node.Start(tctx)
+	if public != nil {
+		go s.sweepUnclassified(tctx)
+	}
 	s.node, s.bridge, s.public, s.cancel, s.startedAt = node, bridge, public, cancel, s.now()
 	s.terms.Add(1)
 	s.active.Store(true)
@@ -221,11 +252,23 @@ func (s *Service) Stop() {
 	if cancel == nil {
 		return
 	}
+	s.pmu.Lock()
+	private := s.private
+	s.termCtx, s.private = nil, map[string]*tenantNode{}
+	s.pmu.Unlock()
+	s.pub.Store(nil)
+	s.main.Store(nil)
+	for _, tn := range private {
+		tn.cancel()
+	}
 	cancel()
 	bridge.Stop()
 	if public != nil {
 		public.Stop()
 	}
+	s.bmu.Lock()
+	s.bindings = map[string]*binding{}
+	s.bmu.Unlock()
 	if s.cfg.OnNodeStopped != nil {
 		s.cfg.OnNodeStopped()
 	}
@@ -290,6 +333,10 @@ func (s *Service) InboundMQTT(raw []byte) bool {
 }
 
 func (s *Service) onTCPFrame(ifaceID string, raw []byte) {
+	if isPublic(ifaceID) {
+		s.onPublicFrame(ifaceID, raw)
+		return
+	}
 	s.mu.RLock()
 	n := s.node
 	s.mu.RUnlock()
@@ -304,11 +351,8 @@ func (s *Service) onTCPFrame(ifaceID string, raw []byte) {
 	// kit, signs custody ACKs with the Hub identity and forwards anything
 	// else onto its other outlets, satellites included. A frame from the
 	// public listener was handed to it under that same name until
-	// MESHSAT-1720; now the node is all a stranger ever talks to.
-	if isPublic(ifaceID) {
-		s.publicDropped.Add(1)
-		return
-	}
+	// MESHSAT-1720; now public frames never get here (onPublicFrame drops
+	// what a node declines).
 	if s.cfg.OnDeclinedTCP != nil {
 		s.cfg.OnDeclinedTCP(raw)
 	}
@@ -337,7 +381,10 @@ func (t *transmitter) Transmit(ifaceID string, raw []byte) error {
 	if b != nil && b.Owns(ifaceID) {
 		return b.Send(ifaceID, raw)
 	}
-	if p != nil && p.Owns(ifaceID) {
+	// A public connection belongs to the main node only once it is bound to
+	// it; one bound to a Private tenant, or not yet classified, is not this
+	// node's to write to (MESHSAT-1722).
+	if p != nil && p.Owns(ifaceID) && s.isMainBound(ifaceID) {
 		return p.Send(ifaceID, raw)
 	}
 	return ErrNoSuchInterface
@@ -353,7 +400,7 @@ func (t *transmitter) Floodable() []string {
 		out = append(out, b.Interfaces()...)
 	}
 	if p != nil {
-		out = append(out, p.Interfaces()...)
+		out = append(out, s.mainBound()...)
 	}
 	if s.cfg.MQTT != nil && s.cfg.MQTT.Connected() {
 		out = append(out, IfaceMQTT)
@@ -491,7 +538,22 @@ func (s *Service) Status() Status {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	st := Status{Enabled: true, Active: s.node != nil, Terms: s.terms.Load(), MQTT: s.cfg.MQTT != nil && s.cfg.MQTT.Connected(),
-		PublicDropped: s.publicDropped.Load()}
+		PublicDropped: s.publicDropped.Load(), IFACUnmatched: s.ifacUnmatched.Load(), IFACThrottled: s.ifacThrottled.Load()}
+	s.pmu.RLock()
+	st.PrivateNodes = len(s.private)
+	s.pmu.RUnlock()
+	s.bmu.RLock()
+	for _, b := range s.bindings {
+		switch {
+		case b.tn != nil:
+			st.PublicPrivate++
+		case b.main:
+			st.PublicMain++
+		default:
+			st.PublicUnclassified++
+		}
+	}
+	s.bmu.RUnlock()
 	if s.node == nil {
 		return st
 	}

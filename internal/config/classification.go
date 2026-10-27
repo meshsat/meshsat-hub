@@ -314,6 +314,8 @@ var Classification = map[string]Class{
 	"rns_public_ifac_netname":    ClassPlatform,
 	"rns_public_ifac_netkey":     ClassPlatform,
 	"rns_path_ttl_hours":         ClassPlatform,
+	"rns_ifac_tries_per_second":  ClassPlatform,
+	"rns_unclassified_timeout":   ClassPlatform,
 	"lxmf_announce_interval":     ClassPlatform,
 	"lxmf_inbound_per_minute":    ClassPlatform,
 	"lxmf_inbox_max":             ClassPlatform,

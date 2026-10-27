@@ -477,6 +477,12 @@ type Config struct {
 	RNSPublicIFACNetname string `yaml:"rns_public_ifac_netname"`
 	RNSPublicIFACNetkey  string `yaml:"rns_public_ifac_netkey"`
 	RNSPathTTLHours      int    `yaml:"rns_path_ttl_hours"`
+	// The public listener's classification (MESHSAT-1722): key trials per
+	// second across the listener for connections presenting an interface
+	// access code (each an HKDF and a signature; 0 is 200), and how long an
+	// unclassified connection may stay open (0 is 60s).
+	RNSIFACTriesPerSecond  int           `yaml:"rns_ifac_tries_per_second"`
+	RNSUnclassifiedTimeout time.Duration `yaml:"rns_unclassified_timeout"`
 	// RNSPublicEndpoint is the host:port a stock client connects to (the edge
 	// in front of RNSPublicTCPAddr), shown on the tenants' Reticulum page; ""
 	// shows nothing. A self-hosted Hub names its own.
@@ -1331,6 +1337,16 @@ func Load() (Config, error) {
 	}
 	if v := os.Getenv("HUB_RNS_PUBLIC_IFAC_NETKEY"); v != "" {
 		cfg.RNSPublicIFACNetkey = v
+	}
+	if v := os.Getenv("HUB_RNS_IFAC_TRIES_PER_SECOND"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			cfg.RNSIFACTriesPerSecond = n
+		}
+	}
+	if v := os.Getenv("HUB_RNS_UNCLASSIFIED_TIMEOUT"); v != "" {
+		if d, err := time.ParseDuration(v); err == nil && d > 0 {
+			cfg.RNSUnclassifiedTimeout = d
+		}
 	}
 	if v := os.Getenv("HUB_RNS_PATH_TTL_HOURS"); v != "" {
 		if n, err := strconv.Atoi(v); err == nil && n >= 0 {
