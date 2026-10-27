@@ -31,6 +31,13 @@ const (
 	IfaceBridgePrefix = "tcpb"
 	IfacePublicPrefix = "tcpp"
 	IfaceMQTT         = "mqtt_rns"
+	// IfaceRestored names the interface of a path reloaded from the store
+	// that was learned on a TCP connection of an earlier term. Connection
+	// ids restart at 1 every term, so the stored name would now belong to
+	// somebody else (MESHSAT-1723); no interface is ever called this, so a
+	// send along such a path fails as it would after the peer dropped, and
+	// the cached announce still answers path requests at once.
+	IfaceRestored = "restored"
 
 	// echoWindow is how long a frame the node published on the MQTT topic
 	// is remembered, so the broker's echo of it to this replica's own
@@ -458,7 +465,11 @@ func (s *Service) loadPaths(ctx context.Context, node *rns.Node) {
 		if err1 != nil || err2 != nil || len(dest) != rns.HashLen || len(nh) != rns.HashLen {
 			continue
 		}
-		e := &rns.PathEntry{Hops: r.Hops, Expires: r.ExpiresAt, Iface: r.Iface, Announce: ann, Timestamp: now}
+		iface := r.Iface
+		if iface != IfaceMQTT {
+			iface = IfaceRestored
+		}
+		e := &rns.PathEntry{Hops: r.Hops, Expires: r.ExpiresAt, Iface: iface, Announce: ann, Timestamp: now}
 		copy(e.DestHash[:], dest)
 		copy(e.NextHop[:], nh)
 		for i := 0; i+10 <= len(r.RandomBlobs); i += 10 {

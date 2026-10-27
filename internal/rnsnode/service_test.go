@@ -182,6 +182,9 @@ func TestService_LearnsPersistsAndReloadsPaths(t *testing.T) {
 	if n := svc.Node(); n == nil || !n.Paths().Has(dest.Hash) || n.Recall(dest.Hash) == nil {
 		t.Fatal("path not reloaded from the store on the second term")
 	}
+	if p := svc.Paths(); len(p) != 1 || p[0].Iface != IfaceRestored {
+		t.Fatalf("reloaded path must not keep the earlier term's connection name: %+v", p)
+	}
 	if svc.Status().Terms != 2 {
 		t.Fatalf("terms %d", svc.Status().Terms)
 	}
@@ -411,5 +414,60 @@ func TestService_PublicAnnouncesAreNotMirroredToTheLegacyRouter(t *testing.T) {
 	defer mmu.Unlock()
 	if src, ok := mirrored[hex.EncodeToString(pdest.Hash[:])]; ok {
 		t.Fatalf("public announce mirrored to the legacy router as %q", src)
+	}
+}
+
+// Connection ids restart at 1 every term, so a path reloaded with its stored
+// interface name would point at whoever is tcpp_1 now (MESHSAT-1723). After
+// a failover a different client on the reused name must receive nothing
+// meant for the one that announced, and the send must fail instead.
+func TestService_ReloadedPathNeverReachesANewConnectionOfTheSameName(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	st := &memStore{rows: map[string]store.RNSPath{}}
+	var declined [][]byte
+	svc := newService(t, st, nil, &declined)
+	if err := svc.Start(ctx); err != nil {
+		t.Fatal(err)
+	}
+	defer svc.Stop()
+
+	first := dialPeer(t, ctx, svc.Status().Public.Addr)
+	dest := first.node.AddDestination(&rns.Destination{Name: "test.first"})
+	waitFor(t, "first client connected", func() bool { return len(svc.Status().Public.Connections) == 1 })
+	if err := first.node.Announce(dest, "", false); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, "path persisted", func() bool { return st.count() == 1 })
+	if got := svc.Paths(); len(got) != 1 || got[0].Iface != "tcpp_1" {
+		t.Fatalf("first term path %+v", got)
+	}
+	_ = first.conn.Close()
+
+	svc.Stop()
+	if err := svc.Start(ctx); err != nil {
+		t.Fatal(err)
+	}
+	other, err := net.Dial("tcp", svc.Status().Public.Addr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = other.Close() }()
+	waitFor(t, "a different client takes tcpp_1", func() bool {
+		c := svc.Status().Public.Connections
+		return len(c) == 1 && c[0].ID == "tcpp_1"
+	})
+	if _, err := svc.Node().SendData(dest.Hash, []byte("for the first client only"), false); err == nil {
+		t.Fatal("a send along a reloaded path succeeded; it can only have gone to a stranger")
+	}
+	_ = other.SetReadDeadline(time.Now().Add(300 * time.Millisecond))
+	buf := make([]byte, 4096)
+	if n, err := other.Read(buf); err == nil && n > 0 {
+		r := rnswire.NewHDLCFrameReader()
+		for _, f := range r.Feed(buf[:n]) {
+			if h, herr := rnswire.UnmarshalHeader(f); herr == nil && h.DestHash == dest.Hash {
+				t.Fatalf("the new tcpp_1 received a packet for the earlier term's client: %x", f)
+			}
+		}
 	}
 }
