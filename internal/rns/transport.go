@@ -39,6 +39,9 @@ func (n *Node) forwardTransport(pkt *Packet) bool {
 		slog.Debug("rns: packet in transport, no path to destination, dropping", "dest", hexh(h.DestHash))
 		return false
 	}
+	if n.crossesLeaf(pkt.Iface, entry.Iface) {
+		return true
+	}
 	now := n.now()
 	var out []byte
 	switch {
@@ -113,6 +116,9 @@ func (n *Node) forwardHeader1(pkt *Packet) bool {
 	entry := n.paths.Get(h.DestHash)
 	if entry == nil || entry.Iface == pkt.Iface {
 		return false
+	}
+	if n.crossesLeaf(pkt.Iface, entry.Iface) {
+		return true
 	}
 	var out []byte
 	if !entry.Direct() {

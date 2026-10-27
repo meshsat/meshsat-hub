@@ -81,8 +81,8 @@ frame without a code binds it to the main node. Three frames whose code matches 
 a connection nothing classified is closed after `HUB_RNS_UNCLASSIFIED_TIMEOUT` (60 s). A Private
 tenant's node is a separate `rns.Node` on the Hub's transport identity with its own path, announce,
 link and dedup tables, whose transmitter sees only its bound connections; the main node's
-transmitter skips them. So a case nobody thought of fails closed. Nothing in `rns`, `rnswire` or
-`lxmf` changed. A Private node's paths are in memory only.
+transmitter skips them. So a case nobody thought of fails closed. Phase 1 changed nothing in `rns`,
+`rnswire` or `lxmf`. A Private node's paths are in memory only.
 
 **Moving between modes.** A mode change reaches the leader through `integrations.ReloadTopic`:
 the address is unregistered from its node and registered on the new one, the tenant's own node is
@@ -98,9 +98,29 @@ member's own app announces on every interface it has; anyone with the passphrase
 (no public destinations, no propagation peering out of it); the Hub's transport id is the same in
 every class; the passphrase is one shared secret per tenant, so removing one person means rotating
 it for everyone. Off stops the Hub serving and remembering an address; a client that cached it while
-it was Public keeps it until its own cache expires. The tenant's kits do not reach a Private address
-yet: stunnel forwards the kits' connections with no identity, so phase 2 of MESHSAT-1722 hands them
-the tenant's code.
+it was Public keeps it until its own cache expires.
+
+**A kit joins a Private network as a leaf (phase 2 v1, 27 Oct 2026).** The kits' own entrance
+(stunnel, `tcpb_*`) carries no tenant, so a kit joins the way an app does: a second Reticulum
+connection to `rns.meshsat.net:4242` with the tenant's network name and passphrase. On the Bridge
+that is a `tcp_rns` row with `ifac_netname` and `ifac_passphrase` (`POST /api/routing/ifaces` on
+the kit; Settings has no form for it). A coded row carries only the kit's own traffic: the kit's
+node marks it a leaf (`rns.Node.SetLeaf`, in the shared package of both repos, unused by the Hub),
+so announces, path requests and packets are never relayed between the tenant's network and the
+kit's LoRa mesh, the Hub's main node over MQTT, or any other link; the row is kept out of the
+Bridge's interface registry and processor, so the legacy layer cannot use it; and the Bridge sends
+nothing on it that the node did not wrap in the code; a path learned on the row never displaces a
+live path the kit has through another interface. LXMF to and from the kit's own address is the
+kit's own traffic: the workspace's access rules on the kit (`lxmf_0` to a satellite bearer and back,
+MESHSAT-1554) are the one deliberate way across, named senders only. The design attack found that without the leaf
+a joined kit, being a transport node, bridges the tenant's network to its mesh; the Bridge's interop
+test reproduces exactly that against stock RNS 1.5.7 when the leaf mark is removed
+(`TestInteropCodedRowIsALeafOfThePrivateNetwork`). On the Hub nothing changed: the kit's connection
+is classified like any app's. Joining a kit is the owner's step (MESHSAT-1715); the code still
+reaches the kit by hand, automatic delivery comes with it. After a passphrase rotation the kit's
+row is disconnected like any client and needs the new passphrase (a row whose host, port or TLS
+switch changes needs it again too: the kit's API keeps it only for the same network at the same
+address).
 
 ## Inbox and outbox
 

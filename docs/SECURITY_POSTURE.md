@@ -538,6 +538,20 @@ to the tenant and yields masked traffic only (sizes and timing), no weaker than 
 dedicated port. The tenant's kits reach a Private address only after phase 2 (stunnel passes no
 client identity).
 
+**Phase 2 v1, 2026-10-27 (Bridge side).** A kit joins its tenant's Private network the way an app
+does, through the public port with the network name and passphrase (a coded `tcp_rns` row). The
+design attack's critical finding: a joined kit is a transport node, so it would join the tenant's
+network to its LoRa mesh, to the Hub's main node over MQTT and to its other links. Fix in the shared
+`rns` package of both repos: `Node.SetLeaf` makes an interface carry only the node's own traffic
+(no announce rebroadcast, path-request answer or forward, and no transit, into or out of it); on
+the Bridge the coded row is also kept out of the interface registry and the processor, so the
+legacy layer cannot address it, and its sender refuses any frame without the IFAC flag. Verified:
+`rns` leaf tests (8 guards, each seen to fail when removed, both repos), Bridge stack tests over
+real TCP (9 guards, likewise), and `TestInteropCodedRowIsALeafOfThePrivateNetwork` against stock
+RNS 1.5.7 / LXMF 1.2.1, which fails with exactly the attack's crossing when the leaf mark is
+removed. The Hub's code path is unchanged. Residual: the code reaches the kit by hand
+(MESHSAT-1715 brings delivery); a rotation disconnects the kit like any client.
+
 ## Addendum, 2026-10-20 (MESHSAT-1599, MESHSAT-1600): account state on the shared identity provider
 
 V6 (account lifecycle). Found because the owner could not reject a sign-up: the Hub's Approve and
