@@ -281,7 +281,7 @@ onUnmounted(() => {
               </template>
               <div v-if="identity.rotation_advised?.length" class="mt-3 rounded-md border border-ms-warning/50 bg-ms-warning/5 px-3 py-2" data-testid="lxmf-rotation-advised">
                 <p>Deleted since this passphrase was made: <span v-for="(k, i) in identity.rotation_advised" :key="k"><span class="ms-id">{{ k }}</span>{{ i < identity.rotation_advised.length - 1 ? ', ' : '' }}</span>. Each may hold the network name and passphrase the Hub gives every kit, and could still join with them. Replace the passphrase to shut it out; your other kits get the new one by themselves.</p>
-                <button v-if="auth.isOwner" type="button" class="ms-btn-danger mt-2" :disabled="busy" data-testid="lxmf-rotate-advised" @click="confirmRotate = true">Replace passphrase</button>
+                <button v-if="auth.isOwner" type="button" class="ms-btn mt-2" :disabled="busy" data-testid="lxmf-rotate-advised" @click="confirmRotate = true">Replace passphrase</button>
                 <p v-else class="text-ms-muted text-[11px] mt-1">An owner of this workspace replaces it.</p>
               </div>
             </div>
