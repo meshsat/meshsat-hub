@@ -92,14 +92,25 @@ const platformNamespace = "meshsat"
 //
 // And tak/cot/in (MESHSAT-1706): a chat the Hub routes to the crews this bridge
 // owns. A bridge that could publish it could forge a dispatcher's words to its
-// own radios.
-func NATSPublishDeny(ns, bridgeID string) []string {
-	base := natsSubject(ns) + ".bridge." + bridgeID + "."
-	own := base + "msg."
-	return []string{own + "in", own + "in.>", own + "status", own + "status.>",
-		base + "sos.ack", base + "sos.ack.>", base + "hub.caps", base + "hub.caps.>",
-		base + "tak.cot.in", base + "tak.cot.in.>"}
+// own radios. And rns/access (MESHSAT-1715): the network name and passphrase of
+// the tenant's Private Reticulum network, which the bridge's managed row joins.
+//
+// Every bridge of the tenant is covered, not only this one: the device grants
+// {ns}.*.mo.>, .status.> and .sms.> also match {ns}.bridge.{id}... for a bridge
+// whose id is mo, status or sms, so without the wildcard another bridge of the
+// tenant could publish the Hub's answers to that one (MESHSAT-1715 review).
+func NATSPublishDeny(ns, _ string) []string {
+	every := natsSubject(ns) + ".bridge.*."
+	out := make([]string, 0, 2*len(hubOnlyBridgeTopics))
+	for _, t := range hubOnlyBridgeTopics {
+		out = append(out, every+t, every+t+".>")
+	}
+	return out
 }
+
+// hubOnlyBridgeTopics are the subjects under a bridge's subtree that only the
+// Hub publishes.
+var hubOnlyBridgeTopics = []string{"msg.in", "msg.status", "sos.ack", "hub.caps", "tak.cot.in", "rns.access"}
 
 func quoteList(items []string) string {
 	q := make([]string, len(items))
