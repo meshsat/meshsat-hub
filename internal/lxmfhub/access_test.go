@@ -21,13 +21,18 @@ import (
 
 func newAccessFixture(t *testing.T, ctx context.Context) *fixture {
 	t.Helper()
+	return newAccessFixtureWith(t, ctx, Config{AnnounceInterval: time.Hour})
+}
+
+func newAccessFixtureWith(t *testing.T, ctx context.Context, cfg Config) *fixture {
+	t.Helper()
 	st := lxmfhubtest.NewMemStore(store.DefaultTenantID, "other")
 	acc := lxmfhubtest.NewMemAccounts()
-	svc := New(Config{AnnounceInterval: time.Hour}, st, acc, nil)
+	svc := New(cfg, st, acc, nil)
 	acc.OnSet = func(tenantID string) { svc.Reload(tenantID) }
 	hubID, _ := rnswire.GenerateIdentity()
 	node := rnsnode.New(rnsnode.Config{Identity: hubID, BridgeListenAddr: "127.0.0.1:0", PublicListenAddr: "127.0.0.1:0",
-		OnNode: svc.OnNode, OnNodeStopped: svc.OnNodeStopped})
+		OnNode: svc.OnNode, OnNodeStopped: svc.OnNodeStopped, OnJoin: svc.OnJoin})
 	svc.SetNodes(node)
 	if err := node.Start(ctx); err != nil {
 		t.Fatal(err)
@@ -299,7 +304,7 @@ func TestAccess_LeaderStartRegistersStoredAddressesWithoutDeadlock(t *testing.T)
 	}
 	hubID, _ := rnswire.GenerateIdentity()
 	node := rnsnode.New(rnsnode.Config{Identity: hubID, BridgeListenAddr: "127.0.0.1:0", PublicListenAddr: "127.0.0.1:0",
-		OnNode: svc.OnNode, OnNodeStopped: svc.OnNodeStopped})
+		OnNode: svc.OnNode, OnNodeStopped: svc.OnNodeStopped, OnJoin: svc.OnJoin})
 	svc.SetNodes(node)
 	started := make(chan error, 1)
 	go func() { started <- node.Start(ctx) }()

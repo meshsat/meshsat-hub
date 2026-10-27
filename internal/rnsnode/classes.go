@@ -367,8 +367,18 @@ func (s *Service) bindMain(id string) {
 			// Closed meanwhile: its close found no key to clear.
 			if !s.stillBound(id, b) {
 				n.SetIFAC(id, nil)
+				return
 			}
 		}
+	}
+	s.joined("")
+}
+
+// joined tells OnJoin that a connection joined a node. It runs apart from
+// the connection's read loop, which must not wait for lxmfhub's lock.
+func (s *Service) joined(tenantID string) {
+	if fn := s.cfg.OnJoin; fn != nil {
+		go fn(tenantID)
 	}
 }
 
@@ -413,6 +423,7 @@ func (s *Service) bindTenant(id string, tn *tenantNode, f *rnswire.IFAC) bool {
 		return false
 	}
 	slog.Info("rns: public connection bound to a private tenant", "iface", id, "tenant", tn.tenant)
+	s.joined(tn.tenant)
 	return true
 }
 

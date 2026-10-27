@@ -36,7 +36,7 @@ func (m mqttLeg) Connected() bool          { return m.iface.IsAvailable() }
 // which keeps the bridge route tables and route hints working as before.
 func buildRNSNode(cfg config.Config, hubIdentity *reticulum.HubIdentity, dataStore store.Store,
 	mqttIface *reticulum.MQTTInterface, legacyHandler reticulum.PacketHandler, legacyRouter *reticulum.Router,
-	onNode func(*rns.Node), onNodeStopped func()) (*rnsnode.Service, error) {
+	onNode func(*rns.Node), onNodeStopped func(), onJoin func(string)) (*rnsnode.Service, error) {
 	legacy := hubIdentity.Identity()
 	id, err := rnswire.LoadIdentity(legacy.EncryptionPrivateBytes(), legacy.SigningPrivateBytes())
 	if err != nil {
@@ -55,6 +55,7 @@ func buildRNSNode(cfg config.Config, hubIdentity *reticulum.HubIdentity, dataSto
 		OnDeclinedTCP:       func(raw []byte) { legacyHandler(reticulum.IfaceTCP, raw) },
 		OnNode:              onNode,
 		OnNodeStopped:       onNodeStopped,
+		OnJoin:              onJoin,
 		OnAnnounce: func(_ *rnswire.Announce, raw []byte, src rnsnode.Source) {
 			ann, err := reticulum.UnmarshalAnnouncePacket(raw)
 			if err != nil {

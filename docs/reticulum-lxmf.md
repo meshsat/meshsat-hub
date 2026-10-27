@@ -59,6 +59,13 @@ The leader registers one `lxmf.delivery` destination per enabled tenant on its n
 each every `HUB_LXMF_ANNOUNCE_INTERVAL` (30 min) with the display name and stamp cost, and at once
 after a change. A change to the row on any replica reaches the leader through
 `integrations.ReloadTopic`; a disabled address leaves the node (`rns.Node.RemoveDestination`).
+A node announces nothing to a client that connects, so a client that had not asked for a path
+did not list the address for up to 30 minutes (MeshChat showed "Unknown Peer", MESHSAT-1561).
+Since then a connection joining a node (`rnsnode.Config.OnJoin`: the main node, or a Private
+tenant's once its code matched) has the addresses on that node announced again, at most once a
+minute each; a join inside the minute is announced when the minute is up, so every joiner hears
+the address within a minute. A stranger joining the main node hears only Public addresses, and
+connecting repeatedly costs at most one announce per Public address a minute.
 
 **Stamps.** `stamp_cost` 0 (Sideband's default) accepts every message; a cost makes a sender do
 proof of work per message and the Hub enforces it. Above 16 most clients refuse to send.
@@ -165,6 +172,24 @@ tenant addresses is decrypted with that identity and filed straight into the inb
 the oldest go first. Peering between propagation nodes (`/offer` with a peering key) is not offered
 yet: the node answers no access. Verified against Python LXMF 1.2.0 (`TestInteropLXMFPropagationHoldAndSync`):
 Sideband-style send through the node, sync, purge on the next sync, and the local-address shortcut.
+
+**The apps, 27 Oct 2026 (MESHSAT-1561), against production, each with a new identity on the
+platform workspace's Private network.** MeshChat 2.4.0 (bundles RNS 1.3.7, LXMF 1.0.1) and
+CrossTalk 2.6.0 (RNS 1.5.5, LXMF 1.2.0) ran their own Python back ends headless on Linux and were
+driven through their own web screens in a browser; NomadNet 1.4.4 (RNS 1.5.7, LXMF 1.2.1) ran its
+text UI in a pseudo-terminal. Each took the network name and passphrase in its own place
+(MeshChat and CrossTalk: Interfaces, Add Interface, TCP Client, IFAC Settings; MeshChat asks for
+a restart, CrossTalk applies it at once; NomadNet: the Reticulum config file). In each, a message
+to the workspace address sent over a direct link showed delivered with the name "MeshSat"
+(MeshChat and CrossTalk in 4.7-4.8 s), the console's reply from the Reticulum page arrived, and
+with the workspace's propagation node set in the app's settings a message held for it arrived on
+the app's own Sync (MeshChat and CrossTalk 4.6 s; NomadNet "Downloaded 1 new messages"). The
+apps also heard each other and both kits by name through the network. Two differences from the
+Python probe: NomadNet's New Conversation stores the name typed there, so a blank name shows no
+name in the conversation (the announce stream shows "MeshSat"); and an app that joined after the
+address's last announce did not list it until it asked for a path, which the announce on join now
+covers. Not covered: Sideband's screens on a phone, and the desktop apps' Electron windows (the
+same screens, served by the same back end).
 
 RNS link requests and responses (`internal/rns/request.go`) were added for this: a request is
 msgpack `[requested_at, path_hash, data]` as a REQUEST packet or a resource flagged as a request;

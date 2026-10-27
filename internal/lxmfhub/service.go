@@ -136,6 +136,8 @@ type tenantRouter struct {
 	pn           *rns.Destination // the propagation node, nil when disabled
 	registeredAt time.Time
 	lastAnnounce time.Time
+	joinAnnounce time.Time // the last announce a joining connection caused
+	joinPending  bool      // a connection joined since; announce when the minute is up
 	bucket       *bucket
 }
 
@@ -408,8 +410,11 @@ func (s *Service) Reload(tenantID string) {
 
 // --- announcing ---
 
+// announcerTick is how often the announcer looks for due addresses.
+var announcerTick = 10 * time.Second
+
 func (s *Service) announcer(ctx context.Context) {
-	t := time.NewTicker(10 * time.Second)
+	t := time.NewTicker(announcerTick)
 	defer t.Stop()
 	lastSweep := s.now()
 	for {
@@ -435,6 +440,58 @@ func (s *Service) announcer(ctx context.Context) {
 		for _, tid := range due {
 			s.announceOne(tid)
 		}
+		s.flushJoins()
+	}
+}
+
+// joinAnnounceEvery bounds the announces joining connections cause: one per
+// address a minute, however many connect. A join inside the minute is
+// announced when the minute is up, so every joiner hears within a minute.
+const joinAnnounceEvery = time.Minute
+
+// OnJoin is rnsnode.Config.OnJoin: a connection joined the main node (tenant
+// "") or a Private tenant's node. A node announces nothing to a newcomer, and
+// the addresses are announced every AnnounceInterval, so a client that had not
+// asked for a path did not list the address (MeshChat's and CrossTalk's peers,
+// NomadNet's announce stream) for up to 30 minutes after it connected
+// (MESHSAT-1561). The addresses on that node are announced again, at most
+// once a minute each.
+func (s *Service) OnJoin(tenantID string) {
+	now := s.now()
+	s.mu.Lock()
+	main := s.node
+	var due []string
+	for tid, tr := range s.routers {
+		onIt := tr.node != nil && (tenantID == "" && tr.node == main || tenantID != "" && tid == tenantID && tr.node != main)
+		switch {
+		case !onIt:
+		case now.Sub(tr.joinAnnounce) >= joinAnnounceEvery:
+			tr.joinAnnounce, tr.joinPending = now, false
+			due = append(due, tid)
+		default:
+			tr.joinPending = true
+		}
+	}
+	s.mu.Unlock()
+	for _, tid := range due {
+		s.announceOne(tid)
+	}
+}
+
+// flushJoins announces the addresses whose joiners waited for the minute.
+func (s *Service) flushJoins() {
+	now := s.now()
+	s.mu.Lock()
+	var due []string
+	for tid, tr := range s.routers {
+		if tr.joinPending && now.Sub(tr.joinAnnounce) >= joinAnnounceEvery {
+			tr.joinAnnounce, tr.joinPending = now, false
+			due = append(due, tid)
+		}
+	}
+	s.mu.Unlock()
+	for _, tid := range due {
+		s.announceOne(tid)
 	}
 }
 

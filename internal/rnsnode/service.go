@@ -99,6 +99,11 @@ type Config struct {
 	// OnNodeStopped is called after the term's node is gone, so those
 	// services drop what they registered on it.
 	OnNodeStopped func()
+	// OnJoin is called, on a goroutine of its own, when a public connection
+	// joins the main node (tenant "") or a Private tenant's node. A node
+	// announces nothing to a newcomer, so lxmfhub announces that node's
+	// addresses again (MESHSAT-1561).
+	OnJoin func(tenantID string)
 	// Now is the clock; nil means time.Now.
 	Now func() time.Time
 }

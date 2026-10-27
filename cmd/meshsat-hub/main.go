@@ -1290,7 +1290,7 @@ func main() {
 			func(actx context.Context, tenantID, action, actor, detail string) {
 				_ = auditSvc.Log(actx, tenantID, action, actor, detail, "")
 			})
-		svc, err := buildRNSNode(cfg, hubIdentity, dataStore, retMQTTIface, reticulumPacketHandler, reticulumRouter, lxmfSvc.OnNode, lxmfSvc.OnNodeStopped)
+		svc, err := buildRNSNode(cfg, hubIdentity, dataStore, retMQTTIface, reticulumPacketHandler, reticulumRouter, lxmfSvc.OnNode, lxmfSvc.OnNodeStopped, lxmfSvc.OnJoin)
 		if err != nil {
 			slog.Error("rns: node not built, the legacy layer keeps the TCP leg on this replica", "error", err)
 			lxmfSvc = nil
