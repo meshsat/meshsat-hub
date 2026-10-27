@@ -221,3 +221,67 @@ func TestEgressDeclarationSurvivesAReload(t *testing.T) {
 		t.Fatalf("declaration after reload: %v", got)
 	}
 }
+
+// A birth from an id the broker cannot confine creates no bridge
+// (MESHSAT-1731); a valid one does.
+func TestBirthFromADottedIDCreatesNoBridge(t *testing.T) {
+	ctx := context.Background()
+	db, err := sqlite.New(":memory:", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	if err := db.Migrate(ctx); err != nil {
+		t.Fatal(err)
+	}
+	sub := NewSubscriber(newMockBus(), db, nil)
+	for _, id := range []string{"kit-ok", "x.tak"} {
+		b, _ := json.Marshal(protocol.BridgeBirth{Protocol: protocol.ProtocolVersion, BridgeID: id, TenantID: "default", Timestamp: time.Now()})
+		sub.handleBridgeBirth("meshsat/bridge/"+id+"/birth", b)
+	}
+	if _, err := db.GetBridge(ctx, store.DefaultTenantID, "kit-ok"); err != nil {
+		t.Fatalf("a valid birth was not written: %v", err)
+	}
+	if _, err := db.LookupBridgeTenant(ctx, "x.tak"); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("a dotted id was registered: %v", err)
+	}
+}
+
+// The broker confines a bridge to its own topic subtree; the payload is its
+// word. A birth on kit-ok's topic naming another bridge neither rewrites that
+// bridge's row nor creates one (MESHSAT-1731 review); a birth without a
+// payload id is the topic's bridge.
+func TestBirthNamingAnotherBridgeIsIgnored(t *testing.T) {
+	ctx := context.Background()
+	db, err := sqlite.New(":memory:", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	if err := db.Migrate(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.CreateOrUpdateBridge(ctx, store.DefaultTenantID, &store.Bridge{BridgeID: "kit-victim", Label: "victim", Hostname: "victim-host"}); err != nil {
+		t.Fatal(err)
+	}
+	sub := NewSubscriber(newMockBus(), db, nil)
+	birth := func(topicID, payloadID, host string) {
+		b, _ := json.Marshal(protocol.BridgeBirth{Protocol: protocol.ProtocolVersion, BridgeID: payloadID, Hostname: host, TenantID: "default", Timestamp: time.Now()})
+		sub.handleBridgeBirth("meshsat/bridge/"+topicID+"/birth", b)
+	}
+	birth("kit-ok", "kit-victim", "evil")
+	birth("kit-ok", "x.tak", "evil")
+	birth("kit-ok", "kit-new", "evil")
+	if v, err := db.GetBridge(ctx, store.DefaultTenantID, "kit-victim"); err != nil || v.Hostname != "victim-host" || v.Online {
+		t.Fatalf("another bridge's birth rewrote kit-victim: %+v %v", v, err)
+	}
+	for _, id := range []string{"x.tak", "kit-new", "kit-ok"} {
+		if _, err := db.LookupBridgeTenant(ctx, id); !errors.Is(err, store.ErrNotFound) {
+			t.Fatalf("a mismatched birth registered %s: %v", id, err)
+		}
+	}
+	birth("kit-ok", "", "kit-ok-host")
+	if b, err := db.GetBridge(ctx, store.DefaultTenantID, "kit-ok"); err != nil || b.Hostname != "kit-ok-host" {
+		t.Fatalf("a birth without a payload id was not the topic's bridge: %+v %v", b, err)
+	}
+}

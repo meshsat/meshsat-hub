@@ -267,6 +267,11 @@ The link from a modem to its bridge is ordered by when the Hub received the birt
 A bridge publishes the birth again when a satellite chain changes while it is connected, and when
 a satellite modem's IMEI or its declared format changes (a chain read again after a failure).
 
+The birth is the topic's bridge (MESHSAT-1731): a `bridge_id` in the payload must equal the id in
+the topic, or be absent, and the id is letters, digits, `-` and `_`. Any other birth is ignored.
+Before this a birth on one bridge's topic naming another bridge rewrote that bridge's row in the
+same tenant.
+
 ### BridgeDeath
 
 Published explicitly on graceful shutdown. Set as LWT for ungraceful disconnect.
@@ -1087,7 +1092,19 @@ or its other links.
 
 Every bridge of the workspace may receive the code, as every owner and
 operator can read it on the Reticulum page. A deleted or lost kit keeps what it
-was told: rotate the code (Reticulum page, Rotate).
+was told: rotate the code (Reticulum page, Replace passphrase). Since
+MESHSAT-1731 deleting a bridge while the workspace has a code writes
+`lxmf_access_rotation_advised` (`bridge=<id> network=<name>`) to the tenant's
+audit chain, and `GET /api/lxmf/identity` lists that bridge under
+`rotation_advised` until the network name changes; the Kits and Reticulum pages
+offer the rotation. A lost kit that is not deleted is not detected: rotate by
+hand.
+
+A bridge id is letters, digits, `-` and `_` (`bridge.ValidBridgeID`,
+MESHSAT-1731). nats-server's MQTT layer turns a `.` inside a topic level into
+`//`, so the grant `{ns}.bridge.x.tak.>` of a bridge called `x.tak` would not
+cover its own topics but would cover bridge `x`'s `tak/` subtree. The Hub
+refuses such an id at creation and at birth and renders no broker login for one.
 
 ## CoT Type Mapping
 

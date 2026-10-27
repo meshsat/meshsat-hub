@@ -227,10 +227,25 @@ func (s *Subscriber) handleBridgeBirth(topic string, payload []byte) {
 		slog.Debug("bridge: birth on unparseable topic", "topic", topic)
 		return
 	}
+	// No row for an id the broker cannot confine (MESHSAT-1731).
+	if !ValidBridgeID(bridgeID) {
+		slog.Warn("bridge: birth from an id the Hub does not register; ids use letters, digits, '-' and '_'", "bridge", bridgeID)
+		return
+	}
 
 	var birth protocol.BridgeBirth
 	if err := json.Unmarshal(payload, &birth); err != nil {
 		slog.Debug("bridge: invalid birth JSON", "error", err, "bridge", bridgeID)
+		return
+	}
+	// The row is the topic's bridge: the broker confined the sender to that
+	// subtree, while the payload is its word. A birth naming another bridge
+	// used to rewrite that bridge's row in the same tenant, or create one
+	// under any id (MESHSAT-1731 review).
+	if birth.BridgeID == "" {
+		birth.BridgeID = bridgeID
+	} else if birth.BridgeID != bridgeID {
+		slog.Warn("bridge: birth names another bridge than its topic, ignored", "bridge", bridgeID, "named", birth.BridgeID)
 		return
 	}
 

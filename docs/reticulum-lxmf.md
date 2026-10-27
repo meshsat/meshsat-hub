@@ -128,7 +128,9 @@ seconds and nobody types anything. The broker refuses `rns/access` (and every ot
 from every bridge of the tenant, not just for the bridge's own id. Contract, limits and the kit's
 asking: `docs/bridge-hub-protocol.md` "Reticulum access". The kits' inbound LXMF is capped at 60
 messages a minute (`MESHSAT_LXMF_INBOUND_PER_MINUTE`). A deleted or lost kit keeps the code it was
-told: rotate it. Both kits joined the platform workspace's network on 27 Oct 2026 (display names
+told: rotate it. Deleting a kit while the workspace has a code records `lxmf_access_rotation_advised`
+in the audit log, and the Kits and Reticulum pages offer the rotation until the network name changes
+(`rotation_advised` on the identity, MESHSAT-1731). Both kits joined the platform workspace's network on 27 Oct 2026 (display names
 "MeshSat Kit 1" and "MeshSat Kit 2", without the hostnames).
 
 ## Inbox and outbox
@@ -172,7 +174,7 @@ the response `[request_id, data]` as a RESPONSE packet or a resource flagged as 
 
 | Route | Role | What |
 |---|---|---|
-| `GET /api/lxmf/identity` | viewer | the address, the propagation node address, `access_mode` and `ifac_netname`, and `ifac_passphrase` for operators and owners (`ifac_passphrase_hidden` for a viewer), or `exists: false` |
+| `GET /api/lxmf/identity` | viewer | the address, the propagation node address, `access_mode` and `ifac_netname`, and `ifac_passphrase` for operators and owners (`ifac_passphrase_hidden` for a viewer), `rotation_advised` (kits deleted under the current network name), or `exists: false` |
 | `POST /api/lxmf/identity` | owner | create (idempotent) |
 | `PUT /api/lxmf/identity` | owner | `display_name`, `stamp_cost`, `enabled`, `propagation_enabled`, `propagation_stamp_cost`, `access_mode` (private, public, off) |
 | `POST /api/lxmf/access/rotate` | owner | a new network name and passphrase for the Private mode; the old ones' connections are closed |

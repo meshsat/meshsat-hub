@@ -337,3 +337,36 @@ func TestNATSPermissionsNoBridgePublishesTheHubsAnswersToAnother(t *testing.T) {
 		}
 	}
 }
+
+// A '.' in a bridge id splits its grant into two subject tokens, and the
+// broker's MQTT layer maps a '.' in a topic to "//", so a bridge called
+// x.tak would be granted bridge x's tak subtree, not its own (MESHSAT-1731).
+// Such an id is never rendered.
+func TestNATSUsersNeverGrantADottedBridgeID(t *testing.T) {
+	pub, sub := NATSPermissions("meshsat", "x.tak")
+	// Bridge x's CoT export and its crews' chats, but not its own topics
+	// (meshsat/bridge/x.tak/birth arrives as meshsat.bridge.x//tak.birth).
+	if !natsAllows(pub, "meshsat.bridge.x.tak.cot.out") || !natsAllows(sub, "meshsat.bridge.x.tak.cot.in") || natsAllows(pub, "meshsat.bridge.x//tak.birth") {
+		t.Fatal("the hazard this guards against is not what the grant shows")
+	}
+	out := string(RenderNATSUsers([]*store.Bridge{
+		{BridgeID: "x", TenantID: "default", MQTTUsername: "x", MQTTPasswordHash: "$2a$10$hashX"},
+		{BridgeID: "x.tak", TenantID: "default", MQTTUsername: "xtak", MQTTPasswordHash: "$2a$10$hashY"},
+		{BridgeID: "x.msg", TenantID: "t_x", MQTTUsername: "x.msg", MQTTPasswordHash: "$2a$10$hashZ"},
+	}, ns))
+	if strings.Contains(out, "xtak") || strings.Contains(out, "x.msg") || !strings.Contains(out, `user: "x"`) {
+		t.Fatalf("a dotted bridge id was rendered, or x was not:\n%s", out)
+	}
+}
+
+func TestValidBridgeID(t *testing.T) {
+	for id, want := range map[string]bool{
+		"kit-01": true, "parallax": true, "android_3f2a": true, strings.Repeat("a", 128): true,
+		"": false, "x.tak": false, ".": false, "a b": false, "x/y": false, "x+y": false, "x#": false,
+		"x*": false, "x>": false, `x"`: false, "%2E": false, strings.Repeat("a", 129): false,
+	} {
+		if got := ValidBridgeID(id); got != want {
+			t.Errorf("ValidBridgeID(%q) = %v, want %v", id, got, want)
+		}
+	}
+}

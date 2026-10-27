@@ -121,7 +121,8 @@ func quoteList(items []string) string {
 }
 
 // validIdent restricts what ends up unquoted-adjacent in the config: bridge
-// IDs and usernames are hostnames/handles; anything else is skipped.
+// IDs and usernames are hostnames/handles; anything else is skipped. A bridge
+// ID must also pass ValidBridgeID.
 func validIdent(s string) bool {
 	if s == "" || len(s) > 128 {
 		return false
@@ -135,6 +136,17 @@ func validIdent(s string) bool {
 	return true
 }
 
+// ValidBridgeID is what a bridge ID may be (MESHSAT-1731): letters, digits,
+// '-' and '_', at most 128. Not '.': the ID is a token of the bridge's own
+// grant {ns}.bridge.{id}.>, and nats-server's MQTT layer turns a '.' inside a
+// topic level into "//" (mqttToNATSSubjectConversion, v2.14.6). The grant of a
+// bridge called x.tak would so miss its own topics and cover
+// meshsat/bridge/x/tak/..., which is bridge x's subtree: its CoT export, and to
+// read, its msg/in and rns/access.
+func ValidBridgeID(id string) bool {
+	return validIdent(id) && !strings.Contains(id, ".")
+}
+
 // RenderNATSUsers renders the authorization block. namespace maps a tenant
 // ID to its topic root (hubmqtt.Namespace). Output is deterministic (sorted
 // by username) so unchanged fleets produce byte-identical files.
@@ -145,7 +157,7 @@ func RenderNATSUsers(bridges []*store.Bridge, namespace func(tenantID string) st
 		if b == nil || b.MQTTUsername == "" || b.MQTTPasswordHash == "" || b.MQTTUsername == SharedNATSUser {
 			continue
 		}
-		if !validIdent(b.MQTTUsername) || !validIdent(b.BridgeID) || !strings.HasPrefix(b.MQTTPasswordHash, "$2") || strings.ContainsAny(b.MQTTPasswordHash, "\"\n\\") {
+		if !validIdent(b.MQTTUsername) || !ValidBridgeID(b.BridgeID) || !strings.HasPrefix(b.MQTTPasswordHash, "$2") || strings.ContainsAny(b.MQTTPasswordHash, "\"\n\\") {
 			slog.Warn("nats-auth: skipping bridge with unusable credentials", "bridge", b.BridgeID)
 			continue
 		}

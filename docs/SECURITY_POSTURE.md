@@ -573,6 +573,23 @@ Hub guards and 10 kit guards, each seen to fail when removed. Residual: every br
 holds the code (as every owner and operator can read it); a deleted or lost kit keeps it until a
 rotation (MESHSAT-1731 offers it at deletion); bridge ids may contain `.` (MESHSAT-1731).
 
+**Closed 2026-10-27 (MESHSAT-1731).** (1) Bridge ids with `.`: measured against nats-server v2.14.6
+(`mqttToNATSSubjectConversion` maps a `.` inside a topic level to `//`), a bridge called `x.tak`
+would have been granted `{ns}.bridge.x.tak.>`, which misses its own topics and covers bridge `x`'s
+`tak/` subtree: publishing its CoT export and reading its crews' chats. Reachable only inside one
+tenant and only by an operator choosing such an id, since `POST /api/bridges` checked nothing about
+the id. Now the id is letters, digits, `-` and `_`: refused at creation (400) and at birth, and a
+stored one gets no broker login. None of the 6 production bridges had one (read on the database
+replica). The review of this change found an older hole on the same path: the birth handler
+checked the topic's id but wrote the row under the payload's `bridge_id`, so a kit could rewrite
+another kit's row in its tenant (hostname, location, Reticulum identity, online state) or create
+rows under any id. A birth must now name its topic's bridge (all 6 production births did). (2) Deleting a bridge while the workspace has an access code writes
+`lxmf_access_rotation_advised` to the tenant chain, and the Kits and Reticulum pages offer a new
+code until the network name changes. It is advice: the Hub does not rotate by itself, because a
+rotation also disconnects every person using Sideband or another app with the old code. A lost
+kit that is not deleted is not detected, and a failed read of the code at deletion is logged
+without advice. Verified: 9 guards each seen to fail when removed.
+
 ## Addendum, 2026-10-20 (MESHSAT-1599, MESHSAT-1600): account state on the shared identity provider
 
 V6 (account lifecycle). Found because the owner could not reject a sign-up: the Hub's Approve and

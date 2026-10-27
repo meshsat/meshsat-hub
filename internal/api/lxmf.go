@@ -1,9 +1,12 @@
 package api
 
 import (
+	"context"
 	"errors"
+	"log/slog"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -68,6 +71,10 @@ type lxmfIdentityResponse struct {
 	// IFACPassphraseHidden is true when the caller may not see it.
 	IFACPassphrase       string `json:"ifac_passphrase,omitempty"`
 	IFACPassphraseHidden bool   `json:"ifac_passphrase_hidden,omitempty"`
+	// RotationAdvised names the kits deleted since this network name was
+	// made, newest first (MESHSAT-1731): each may still hold the code and join
+	// with it, so the page offers a new one. Empty after a rotation.
+	RotationAdvised []string `json:"rotation_advised,omitempty"`
 }
 
 type lxmfIdentityRequest struct {
@@ -108,6 +115,9 @@ func (h *LXMFHandler) identityResponse(r *http.Request, tenantID string, id *lxm
 	} else if id.IFACPassphrase != "" {
 		resp.IFACPassphraseHidden = true
 	}
+	if id.IFACNetname != "" {
+		resp.RotationAdvised = h.rotationAdvised(r.Context(), tenantID, id.IFACNetname)
+	}
 	if active, last := h.svc.RegisteredOnThisReplica(tenantID); active {
 		resp.ActiveOnThisReplica = true
 		if !last.IsZero() {
@@ -115,6 +125,44 @@ func (h *LXMFHandler) identityResponse(r *http.Request, tenantID string, id *lxm
 		}
 	}
 	return resp
+}
+
+// auditRotationAdvised is the audit entry a kit's deletion writes while the
+// workspace has a Reticulum access code (MESHSAT-1731).
+const auditRotationAdvised = "lxmf_access_rotation_advised"
+
+func rotationAdvisedDetail(bridgeID, netname string) string {
+	return "bridge=" + bridgeID + " network=" + netname
+}
+
+// rotationAdvised reads back the kits deleted under the current network name.
+// It is advice: a failed read is logged and leaves the list out.
+func (h *LXMFHandler) rotationAdvised(ctx context.Context, tenantID, netname string) []string {
+	if h.store == nil {
+		return nil
+	}
+	entries, err := h.store.ListAuditEntriesByAction(ctx, tenantID, []string{auditRotationAdvised}, 200)
+	if err != nil {
+		slog.Warn("lxmf: deleted kits not read; no new code advised", "tenant", tenantID, "error", err)
+		return nil
+	}
+	var out []string
+	seen := map[string]bool{}
+	for _, e := range entries {
+		var bridgeID, network string
+		for _, f := range strings.Fields(e.Detail) {
+			if v, ok := strings.CutPrefix(f, "bridge="); ok {
+				bridgeID = v
+			} else if v, ok := strings.CutPrefix(f, "network="); ok {
+				network = v
+			}
+		}
+		if network == netname && bridgeID != "" && !seen[bridgeID] {
+			seen[bridgeID] = true
+			out = append(out, bridgeID)
+		}
+	}
+	return out
 }
 
 // Identity returns the tenant's LXMF address, or exists=false.

@@ -1,7 +1,7 @@
 <script setup>
 import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { bridges, tenant } from '../api/client'
+import { bridges, tenant, lxmf } from '../api/client'
 import { formatUptime, formatUTC } from '../utils/time'
 import { FAMILIES, familyStates, ago } from '../utils/paths'
 import { useAuthStore } from '../stores/auth'
@@ -19,6 +19,8 @@ let pollTimer = null
 const showAddForm = ref(false)
 const addForm = ref({ bridge_id: '', label: '' })
 const addError = ref('')
+// A deleted kit may still hold the workspace's Reticulum access code (MESHSAT-1731).
+const rotationNotice = ref('')
 
 // Edit bridge modal
 const showEditModal = ref(false)
@@ -210,6 +212,14 @@ async function deleteBridge() {
     await loadBridges()
   } catch (e) {
     error.value = e.message
+    return
+  }
+  try {
+    const rns = await lxmf.identity()
+    rotationNotice.value = rns?.rotation_advised?.includes(id) ? id : ''
+  } catch {
+    // The Reticulum node is off on this Hub, or the read failed; the
+    // Reticulum page shows the same advice.
   }
 }
 
@@ -644,10 +654,16 @@ function certExpiryStatus(b) {
       <button class="text-xs text-ms-muted hover:text-ms-text" @click="error = ''">Dismiss</button>
     </div>
 
+    <div v-if="rotationNotice" role="status" data-testid="kit-rotation-notice" class="mb-4 flex items-start justify-between gap-4 rounded-lg border border-ms-warning/50 bg-ms-warning/5 px-4 py-3 text-[13px] text-ms-text">
+      <span><span class="ms-id">{{ rotationNotice }}</span> may hold your workspace's Reticulum network name and passphrase (the Hub gives them to every kit) and could still join with them.
+        <router-link :to="{ name: 'reticulum' }" class="text-ms-primary hover:underline">Replace the passphrase on the Reticulum page</router-link>; your other kits get the new one by themselves.</span>
+      <button class="text-xs text-ms-muted hover:text-ms-text" @click="rotationNotice = ''">Dismiss</button>
+    </div>
+
     <!-- Add a kit -->
     <section v-if="showAddForm" class="ms-panel p-5 mb-5" aria-labelledby="add-h">
       <h2 id="add-h" class="ms-h2">Add a kit</h2>
-      <p class="text-[13px] text-ms-muted mt-1 max-w-[64ch]">Give it a short id; it becomes the kit's name on the broker and cannot be changed later. Next you show a setup QR code, and the kit or the MeshSat app on Android or iOS scans it to connect itself.</p>
+      <p class="text-[13px] text-ms-muted mt-1 max-w-[64ch]">Give it a short id of letters, digits, - and _; it becomes the kit's name on the broker and cannot be changed later. Next you show a setup QR code, and the kit or the MeshSat app on Android or iOS scans it to connect itself.</p>
       <div v-if="addError" class="mt-3 rounded-md border border-ms-error/50 bg-ms-error/10 px-3 py-2 text-xs text-ms-text">{{ addError }}</div>
       <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-4 max-w-2xl">
         <label class="block">

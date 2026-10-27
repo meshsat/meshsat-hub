@@ -2883,6 +2883,7 @@ func main() {
 	bridgeHandler.SetAudit(auditSvc) // bridge create/change/delete are audited (MESHSAT-1308)
 	bridgeHandler.SetNATSAuth(natsAuth)
 	bridgeHandler.SetQuota(quotaChecker)
+	bridgeHandler.SetLXMF(lxmfSvc) // a deleted kit may hold the Reticulum access code (MESHSAT-1731)
 	r.Get("/api/bridges", bridgeHandler.ListBridges)
 	r.With(hubauth.RequireRole(hubauth.RoleOperator)).Post("/api/bridges", bridgeHandler.CreateBridge)
 	r.Get("/api/bridges/{id}", bridgeHandler.GetBridge)

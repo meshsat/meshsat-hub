@@ -279,6 +279,11 @@ onUnmounted(() => {
                 </div>
                 <p class="text-ms-muted text-[11px] mt-2">In Sideband: Connectivity, Connect via TCP, with the host and port above and this network name and passphrase. In MeshChat, NomadNet or rnsd: network_name and passphrase on the TCP client interface. Anyone who has the passphrase can let others in; replace it to disconnect everyone who used it. Private covers what the Hub carries: a member's own app may still announce itself on other networks.</p>
               </template>
+              <div v-if="identity.rotation_advised?.length" class="mt-3 rounded-md border border-ms-warning/50 bg-ms-warning/5 px-3 py-2" data-testid="lxmf-rotation-advised">
+                <p>Deleted since this passphrase was made: <span v-for="(k, i) in identity.rotation_advised" :key="k"><span class="ms-id">{{ k }}</span>{{ i < identity.rotation_advised.length - 1 ? ', ' : '' }}</span>. Each may hold the network name and passphrase the Hub gives every kit, and could still join with them. Replace the passphrase to shut it out; your other kits get the new one by themselves.</p>
+                <button v-if="auth.isOwner" type="button" class="ms-btn-danger mt-2" :disabled="busy" data-testid="lxmf-rotate-advised" @click="confirmRotate = true">Replace passphrase</button>
+                <p v-else class="text-ms-muted text-[11px] mt-1">An owner of this workspace replaces it.</p>
+              </div>
             </div>
             <p class="text-ms-text2">
               <template v-if="!identity.enabled">Disabled: not announced and receiving nothing.</template>
@@ -405,7 +410,7 @@ onUnmounted(() => {
     </ConfirmDialog>
     <ConfirmDialog :open="confirmRotate" title="Replace the passphrase?" label="Replace passphrase" :busy="busy"
       @confirm="rotate" @cancel="confirmRotate = false">
-      <p>A new network name and passphrase are generated. Every client that joined with the current ones is disconnected now and must enter the new ones.</p>
+      <p>A new network name and passphrase are generated. Every client that joined with the current ones is disconnected now. Your kits are given the new ones by the Hub; people using Sideband or another app must enter them.</p>
     </ConfirmDialog>
   </div>
 </template>

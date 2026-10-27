@@ -2477,6 +2477,14 @@ definitions:
       qr_url:
         description: QRURL renders the address as a QR code image.
         type: string
+      rotation_advised:
+        description: |-
+          RotationAdvised names the kits deleted since this network name was
+          made, newest first (MESHSAT-1731): each may still hold the code and join
+          with it, so the page offers a new one. Empty after a rotation.
+        items:
+          type: string
+        type: array
       stamp_cost:
         type: integer
     type: object
@@ -4943,7 +4951,8 @@ paths:
       consumes:
       - application/json
       description: Creates a bridge record for manual provisioning. The bridge will
-        appear as offline until it connects via MQTT.
+        appear as offline until it connects via MQTT. bridge_id may use letters, digits,
+        '-' and '_', up to 128 characters.
       parameters:
       - description: Bridge to create
         in: body
@@ -5169,6 +5178,10 @@ paths:
       - bond-groups
   /api/bridges/{id}:
     delete:
+      description: Removes the bridge, its broker login and its unclaimed setup code.
+        While the workspace has a Reticulum access code, the deletion is recorded
+        as lxmf_access_rotation_advised and the Reticulum identity lists the bridge
+        under rotation_advised until the code is replaced.
       parameters:
       - description: Bridge ID
         in: path

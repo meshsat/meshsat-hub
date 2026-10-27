@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"github.com/meshsat/meshsat-hub/internal/bridge"
@@ -12,6 +13,7 @@ import (
 	"github.com/meshsat/meshsat-hub/internal/audit"
 	"github.com/meshsat/meshsat-hub/internal/auth"
 	"github.com/meshsat/meshsat-hub/internal/bus"
+	"github.com/meshsat/meshsat-hub/internal/lxmfhub"
 	"github.com/meshsat/meshsat-hub/internal/protocol"
 	"github.com/meshsat/meshsat-hub/internal/quota"
 	"github.com/meshsat/meshsat-hub/internal/store"
@@ -24,6 +26,21 @@ type BridgeHandler struct {
 	natsAuth bridge.Resyncer // nil outside Kubernetes
 	quota    *quota.Checker  // nil = no subscription ceiling
 	audit    *audit.Service  // nil = no audit (tests)
+	lxmf     lxmfIdentities  // nil when the Reticulum node is off
+}
+
+// lxmfIdentities is what a kit's deletion reads of the tenant's Reticulum
+// address: whether it has an access code (MESHSAT-1731).
+type lxmfIdentities interface {
+	LoadIdentity(ctx context.Context, tenantID string) (*lxmfhub.Identity, error)
+}
+
+// SetLXMF makes deleting a kit advise a new Reticulum access code while the
+// workspace has one (MESHSAT-1731).
+func (h *BridgeHandler) SetLXMF(svc *lxmfhub.Service) {
+	if svc != nil {
+		h.lxmf = svc
+	}
 }
 
 // SetAudit makes bridge creation, change and deletion audit events
@@ -56,7 +73,7 @@ type bridgeCreateRequest struct {
 
 // CreateBridge manually pre-registers a bridge before it connects via MQTT.
 // @Summary Pre-register a bridge
-// @Description Creates a bridge record for manual provisioning. The bridge will appear as offline until it connects via MQTT.
+// @Description Creates a bridge record for manual provisioning. The bridge will appear as offline until it connects via MQTT. bridge_id may use letters, digits, '-' and '_', up to 128 characters.
 // @Tags bridges
 // @Accept json
 // @Produce json
@@ -75,6 +92,12 @@ func (h *BridgeHandler) CreateBridge(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.BridgeID == "" {
 		writeError(w, http.StatusBadRequest, "bridge_id is required")
+		return
+	}
+	// The id becomes the bridge's broker grant; a '.' in it would grant
+	// another bridge's topics (MESHSAT-1731).
+	if !bridge.ValidBridgeID(req.BridgeID) {
+		writeError(w, http.StatusBadRequest, "bridge_id may use letters, digits, '-' and '_' only, up to 128 characters")
 		return
 	}
 
@@ -207,6 +230,7 @@ func (h *BridgeHandler) UpdateBridge(w http.ResponseWriter, r *http.Request) {
 
 // DeleteBridge removes a bridge and disassociates its devices.
 // @Summary Delete bridge
+// @Description Removes the bridge, its broker login and its unclaimed setup code. While the workspace has a Reticulum access code, the deletion is recorded as lxmf_access_rotation_advised and the Reticulum identity lists the bridge under rotation_advised until the code is replaced.
 // @Tags bridges
 // @Param id path string true "Bridge ID"
 // @Success 204
@@ -251,7 +275,31 @@ func (h *BridgeHandler) DeleteBridge(w http.ResponseWriter, r *http.Request) {
 	}
 
 	auditRequest(h.audit, r, tid, "bridge_deleted", "bridge="+id)
+	h.adviseRotation(r, tid, id)
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// adviseRotation records that a deleted kit may hold the workspace's
+// Reticulum access code (MESHSAT-1731). The Hub tells the code to every kit of
+// a Private workspace (MESHSAT-1715) and a kit keeps what it was told; a code
+// also outlives a switch to Public or Off. So any kit deleted while the
+// workspace has a code may hold it, and the Reticulum page offers a new one
+// until the network name changes.
+func (h *BridgeHandler) adviseRotation(r *http.Request, tid, bridgeID string) {
+	if h.lxmf == nil {
+		return
+	}
+	id, err := h.lxmf.LoadIdentity(r.Context(), tid)
+	switch {
+	case errors.Is(err, lxmfhub.ErrNoIdentity):
+		return
+	case err != nil:
+		slog.Warn("bridge delete: the Reticulum access code could not be read; no new code advised", "bridge_id", bridgeID, "error", err)
+		return
+	case id.IFACNetname == "":
+		return
+	}
+	auditRequest(h.audit, r, tid, auditRotationAdvised, rotationAdvisedDetail(bridgeID, id.IFACNetname))
 }
 
 // bridgeUpdateFields names what an update set, with the new values: a label
