@@ -570,6 +570,11 @@ definitions:
         type: integer
       ifacviolations:
         type: integer
+      leafRefused:
+        description: |-
+          LeafRefused counts announces, path requests and packets not relayed
+          into or out of a leaf interface (leaf.go).
+        type: integer
       linkTransit:
         type: integer
       paidSuppressed:

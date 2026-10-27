@@ -12245,6 +12245,10 @@
                 "ifacviolations": {
                     "type": "integer"
                 },
+                "leafRefused": {
+                    "description": "LeafRefused counts announces, path requests and packets not relayed\ninto or out of a leaf interface (leaf.go).",
+                    "type": "integer"
+                },
                 "linkTransit": {
                     "type": "integer"
                 },
