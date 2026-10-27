@@ -530,7 +530,7 @@ test:
 # skips them when HUB_TEST_POSTGRES_DSN is unset; this job provides it through a
 # GitLab service container, so no Go test dependency is needed.
 # Reticulum interoperability (MESHSAT-1555): the Hub's upstream-compatible
-# node against the pinned Python RNS 1.5.5 / LXMF 1.2.0 over real TCP, plus the
+# node against the pinned Python RNS 1.5.7 / LXMF 1.2.1 over real TCP, plus the
 # golden vectors Python generates. bookworm rather than alpine because the venv
 # needs python3 and the wheels RNS pulls in (cryptography) ship for glibc. The
 # venv is cached by its pins; rnsenv refuses a cached venv with other versions.
@@ -544,7 +544,7 @@ test:interop:
     # The pins are in the PATH, not the cache key: a bumped pin then starts a
     # fresh venv beside the old one instead of failing rnsenv's version check
     # against a cached venv of the previous release.
-    MESHSAT_RNS_VENV: "${CI_PROJECT_DIR}/.cache/rns-venv/1.5.5-1.2.0"
+    MESHSAT_RNS_VENV: "${CI_PROJECT_DIR}/.cache/rns-venv/1.5.7-1.2.1"
   cache:
     key: rns-venv
     paths:
@@ -553,7 +553,7 @@ test:interop:
     - apt-get update -qq && apt-get install -y -qq python3 python3-venv python3-pip > /dev/null
   script:
     - go install gotest.tools/gotestsum@v1.13.0
-    - gotestsum --junitfile report-interop.xml --format testname -- -p 1 -count=1 -timeout 20m -run 'RNSGolden|MatchesRNS|ReadByBridge|MatchRNS|Interop|Golden' ./internal/rnswire/... ./internal/lxmf/... ./internal/interop/...
+    - gotestsum --junitfile report-interop.xml --format testname -- -p 1 -count=1 -timeout 20m -run 'RNSGolden|MatchesRNS|ReadByBridge|MatchRNS|Interop|Golden' ./internal/rnswire/... ./internal/lxmf/... ./internal/lxmfhub/... ./internal/interop/...
   artifacts:
     reports:
       junit: report-interop.xml
