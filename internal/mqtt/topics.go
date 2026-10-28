@@ -382,6 +382,55 @@ func TopicTAKCotInFor(tenantID, bridgeID string) string {
 	return BridgeTopic(tenantID, bridgeID, "tak/cot/in")
 }
 
+// What became of a chat (MESHSAT-1746). The bridge that was handed a chat on
+// its tak/cot/in says what it did with it, one JSON TAKChatStatus per
+// addressee, on its own subtree:
+//
+//	{ns}/bridge/{bridge_id}/tak/chat/status   QoS 1, never retained, the bridge publishes
+//
+// Its own subtree, so the broker holds the sender to its id and no grant is
+// added. The Hub takes the tenant from the topic, requires the bridge to be
+// registered to it, and records the status only on a message it handed to
+// THAT bridge (store.SetTAKChatMessageOutcome): a bridge cannot speak for a
+// message another bridge was given.
+
+// TAKChatStatus is the bridge's word on one chat, as the Bridge's
+// hubreporter.TAKChatStatus writes it. Status is "queued" (in the kit's
+// delivery ledger), "delivered" (the far end confirmed it), "failed" (the
+// ledger gave up) or "undelivered" (refused before the ledger); Reason is one
+// short machine word (not_heard, ambiguous_callsign, no_radio, no_text,
+// no_sender, own_chat, send_failed), Detail one line for the dispatcher.
+type TAKChatStatus struct {
+	MessageID string `json:"message_id"`
+	CrewUID   string `json:"crew_uid"`
+	Status    string `json:"status"`
+	Reason    string `json:"reason,omitempty"`
+	Detail    string `json:"detail,omitempty"`
+	At        string `json:"at,omitempty"`
+}
+
+// TopicTAKChatStatusFor is where a bridge of that tenant reports what became
+// of a chat it was handed.
+func TopicTAKChatStatusFor(tenantID, bridgeID string) string {
+	return BridgeTopic(tenantID, bridgeID, "tak/chat/status")
+}
+
+// TAKChatStatusFilters returns the subscription filters that see every
+// bridge's chat statuses, in both topic shapes.
+func TAKChatStatusFilters() []string {
+	return DualFilters("meshsat/bridge/+/tak/chat/status")
+}
+
+// ParseTAKChatStatus splits a chat status topic of either shape. ok is false
+// for any other topic, including one that merely ends the same way.
+func ParseTAKChatStatus(topic string) (tenantID, bridgeID string, ok bool) {
+	tenantID, bridgeID, rest, ok := ParseBridgeTopic(topic)
+	if !ok || len(rest) != 3 || rest[0] != "tak" || rest[1] != "chat" || rest[2] != "status" {
+		return "", "", false
+	}
+	return tenantID, bridgeID, true
+}
+
 // DualFilters returns the subscription filters for both topic shapes of a
 // legacy filter: "meshsat/+/mo/decoded" -> itself and "meshsat/+/+/mo/decoded";
 // "meshsat/bridge/+/birth" -> itself and "meshsat/+/bridge/+/birth".

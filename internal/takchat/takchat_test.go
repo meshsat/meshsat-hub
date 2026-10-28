@@ -2,6 +2,7 @@ package takchat
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"strings"
 	"sync"
@@ -200,7 +201,7 @@ func TestAFailedPublishIsRecordedAsFailed(t *testing.T) {
 		t.Fatalf("err %v", err)
 	}
 	rows, _ := db.ListTAKChatMessages(context.Background(), "t1", "meshsat-0a0b0c0d", 10)
-	if len(rows) != 1 || rows[0].Status != "failed" {
+	if len(rows) != 1 || rows[0].Status != "failed" || rows[0].StatusDetail != "the message could not be handed to the kit" {
 		t.Errorf("stored %+v", rows)
 	}
 }
@@ -258,7 +259,7 @@ func TestTheSinkHandsOverOnlyWhatMayBeAnAnswer(t *testing.T) {
 	if err := s.StartReplySink(ctx); err != nil {
 		t.Fatal(err)
 	}
-	if len(b.subs) != len(hubmqtt.TAKCotOutFilters()) {
+	if len(b.subs) != len(hubmqtt.TAKCotOutFilters())+len(hubmqtt.TAKChatStatusFilters()) {
 		t.Fatalf("subscribed %d filters", len(b.subs))
 	}
 	s.receive("x", []byte(`<event uid="meshsat-0a0b0c0d" type="a-f-G-U-C"/>`))
@@ -283,5 +284,116 @@ func TestTheReplyHookRunsOncePerAnswer(t *testing.T) {
 	s.store1(ctx, reply{hubmqtt.TopicTAKCotOutFor("t1", "kit-a"), ok})
 	if len(got) != 1 || got[0] != "ans-h|mx01|copy" {
 		t.Fatalf("hook calls %v", got)
+	}
+}
+
+// --- the kit's word (MESHSAT-1746) -------------------------------------------
+
+func kitWord(t *testing.T, id, status, reason, detail string) []byte {
+	t.Helper()
+	b, err := json.Marshal(hubmqtt.TAKChatStatus{MessageID: id, CrewUID: "meshsat-0a0b0c0d", Status: status,
+		Reason: reason, Detail: detail, At: "2026-10-28T12:00:00Z"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return b
+}
+
+func TestAKitsWordIsRecordedOnTheMessageItWasHandedOnly(t *testing.T) {
+	s, _, db, _ := rig(t)
+	ctx := context.Background()
+	msg, _, err := s.Send(ctx, SendRequest{TenantID: "t1", CrewUID: "meshsat-0a0b0c0d", UserID: "7", Name: "Anna",
+		Text: "hi", ClientRef: "r-1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var hook []string
+	s.SetStatusHook(func(_ context.Context, m *store.TAKChatMessage) {
+		hook = append(hook, m.Status+"|"+m.StatusDetail+"|"+m.ClientRef+"|"+m.UserID)
+	})
+	own := hubmqtt.TopicTAKChatStatusFor("t1", "kit-a")
+	row := func() store.TAKChatMessage {
+		rows, _ := db.ListTAKChatMessages(ctx, "t1", "meshsat-0a0b0c0d", 10)
+		if len(rows) != 1 {
+			t.Fatalf("rows %+v", rows)
+		}
+		return rows[0]
+	}
+	if r := row(); r.Status != "sent" || r.ClientRef != "r-1" {
+		t.Fatalf("before any word: %+v", r)
+	}
+
+	// Both replicas record it; the hook runs on both, and claims for itself.
+	queued := kitWord(t, msg.ID, "queued", "", "queued as a direct message to !0a0b0c0d")
+	s.record1(ctx, reply{own, queued})
+	s.record1(ctx, reply{own, queued})
+	if r := row(); r.Status != "queued" || r.StatusDetail != "queued as a direct message to !0a0b0c0d" {
+		t.Fatalf("queued: %+v", r)
+	}
+	if len(hook) != 2 || hook[0] != "queued|queued as a direct message to !0a0b0c0d|r-1|7" {
+		t.Fatalf("hook %v", hook)
+	}
+
+	// Refused: another bridge of the tenant, a stranger, the victim's bridge,
+	// a word that is not one of the four, not JSON, the wrong topic.
+	for _, r := range []reply{
+		{hubmqtt.TopicTAKChatStatusFor("t1", "kit-b"), kitWord(t, msg.ID, "undelivered", "not_heard", "forged")},
+		{hubmqtt.TopicTAKChatStatusFor("t1", "kit-x"), kitWord(t, msg.ID, "undelivered", "not_heard", "a stranger")},
+		{hubmqtt.TopicTAKChatStatusFor(store.DefaultTenantID, "kit-v"), kitWord(t, msg.ID, "undelivered", "not_heard", "the other tenant")},
+		{own, kitWord(t, msg.ID, "lost", "", "not a word")},
+		{own, kitWord(t, "", "failed", "", "no id")},
+		{own, []byte(`{"message_id": "` + msg.ID + `"`)},
+		{hubmqtt.TopicTAKCotOutFor("t1", "kit-a"), kitWord(t, msg.ID, "failed", "", "the wrong topic")},
+	} {
+		s.record1(ctx, r)
+	}
+	if r := row(); r.Status != "queued" || len(hook) != 2 {
+		t.Fatalf("a refused word changed the row: %+v, hook %v", r, hook)
+	}
+
+	// A final word: the detail folded to one line and bounded.
+	s.record1(ctx, reply{own, kitWord(t, msg.ID, "failed", "send_failed", "the kit's ledger\ngave up: "+strings.Repeat("x", 300))})
+	r := row()
+	if r.Status != "failed" || strings.Contains(r.StatusDetail, "\n") || !strings.HasPrefix(r.StatusDetail, "the kit's ledger gave up: ") ||
+		len([]rune(r.StatusDetail)) != statusDetailMax {
+		t.Fatalf("failed: %+v", r)
+	}
+	// A late queued does not undo it, and the hook does not hear of it.
+	s.record1(ctx, reply{own, queued})
+	if r := row(); r.Status != "failed" || len(hook) != 3 {
+		t.Fatalf("a late queued: %+v, hook %v", r, hook)
+	}
+	// A word with no detail keeps the reason as the line.
+	s.record1(ctx, reply{own, kitWord(t, msg.ID, "undelivered", "no_radio", "")})
+	if r := row(); r.Status != "undelivered" || r.StatusDetail != "no_radio" {
+		t.Fatalf("reason as detail: %+v", r)
+	}
+	// The victim tenant's crew of the same uid never changed.
+	if v, _ := db.ListTAKChatMessages(ctx, store.DefaultTenantID, "meshsat-0a0b0c0d", 10); len(v) != 0 {
+		t.Errorf("the default tenant got %+v", v)
+	}
+}
+
+func TestTheStatusSinkHandsOverBoundedPayloadsOnly(t *testing.T) {
+	s, b, _, _ := rig(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	if err := s.StartReplySink(ctx); err != nil {
+		t.Fatal(err)
+	}
+	for _, f := range hubmqtt.TAKChatStatusFilters() {
+		if _, ok := b.subs[f]; !ok {
+			t.Errorf("not subscribed to %s", f)
+		}
+	}
+	s.receiveStatus("x", nil)
+	s.receiveStatus("x", []byte(strings.Repeat("{", statusMaxBytes+1)))
+	if len(s.statuses) != 0 {
+		t.Error("an empty or oversized payload was handed over")
+	}
+	s.receiveStatus("x", kitWord(t, "m", "queued", "", ""))
+	deadline := time.Now().Add(time.Second)
+	for len(s.statuses) != 0 && time.Now().Before(deadline) {
+		time.Sleep(5 * time.Millisecond)
 	}
 }

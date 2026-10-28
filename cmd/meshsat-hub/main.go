@@ -2945,6 +2945,9 @@ func main() {
 	// the replica that stored it. The hook is set before the sink starts.
 	matrixBridge := matrixbridge.New(dataStore, providerAccounts, takChatSvc, auditSvc, cfg.MatrixEnabled, slog.Default())
 	takChatSvc.SetReplyHook(matrixBridge.OnReply)
+	// A kit's word on what became of a chat (MESHSAT-1746) is recorded by
+	// every replica and told to the room by the one that claims it.
+	takChatSvc.SetStatusHook(matrixBridge.OnStatus)
 	matrixBridge.Start(ctx)
 	leaderSingletons.Add("matrix-bridge", func(sctx context.Context) {
 		matrixBridge.Run(sctx, 30*time.Second)

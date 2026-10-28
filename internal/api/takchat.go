@@ -86,7 +86,7 @@ func (h *TAKChatHandler) ListCrews(w http.ResponseWriter, r *http.Request) {
 
 // ListMessages lists the conversation with one crew.
 // @Summary List messages with a TAK crew
-// @Description The last 100 messages between the tenant's operators and one crew, oldest first: "out" written from the Hub, "in" the crew's answers. Kept 30 days.
+// @Description The last 100 messages between the tenant's operators and one crew, oldest first: "out" written from the Hub, "in" the crew's answers. Kept 30 days. An "out" message's status is the Hub's word first ("sent" to the kit, "failed" at the bus), then the kit's ("queued" in its delivery ledger, "delivered", "failed" when the ledger gave up, "undelivered" when it refused the chat), with status_detail one line saying why.
 // @Tags tak
 // @Produce json
 // @Param uid path string true "Crew uid"

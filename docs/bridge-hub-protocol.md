@@ -133,6 +133,7 @@ root: `meshsat/{tenant_id}/broadcast/tak/cot/in` and `.../in/{sender}`.
 | Topic | QoS | Retained | Publisher | Description |
 |-------|-----|----------|-----------|-------------|
 | `meshsat/bridge/{bridge_id}/tak/cot/in` | 1 | No | Hub only | One event addressed to a crew this bridge owns |
+| `meshsat/bridge/{bridge_id}/tak/chat/status` | 1 | No | Bridge | What became of a chat this bridge was handed, one JSON per addressee (MESHSAT-1746) |
 
 A dispatcher in a TAK client who picks one crew and writes to it, or an
 operator who writes to a crew from the Hub's map, means one radio or one phone.
@@ -165,6 +166,37 @@ operator who writes to a crew from the Hub's map, means one radio or one phone.
   tenant's servers, which route it; an answer to an operator
   (`uid` starting `meshsat-hub-op-`) stays on the Hub and is shown on its map.
   The Hub accepts an operator answer only from the bridge that owns the crew.
+- **Say what became of it** (MESHSAT-1746). For every addressee of a GeoChat
+  delivered on your `tak/cot/in`, publish one JSON object on your own
+  `tak/chat/status` (QoS 1, not retained):
+
+  ```json
+  {"message_id": "<the GeoChat's __chat messageId, else its uid>",
+   "crew_uid": "<the dest uid as delivered>",
+   "status": "queued | delivered | failed | undelivered",
+   "reason": "<one machine word, omitted for queued>",
+   "detail": "<one line for the dispatcher>",
+   "at": "<RFC 3339>"}
+  ```
+
+  `queued`: the words are in your delivery ledger, a row for the radio.
+  `delivered`: the far end confirmed receipt; say it only when you read a
+  receipt (a kit's ledger send to a mesh node reads no routing ack, so a kit
+  never says it). `failed`: the ledger gave up (reason `send_failed`, detail
+  the ledger's error). `undelivered`: refused before the ledger, reason one of
+  `not_heard` (the crew was not heard in the last day), `ambiguous_callsign`
+  (a callsign two heard nodes share; name the uid), `no_radio`, `no_text`,
+  `no_sender`, `own_chat`, `send_failed` (the ledger refused the row). A chat
+  seen before (a QoS 1 redelivery) gets no second word: the first stands.
+  The Hub records status and detail on the message
+  (`GET /api/tak/contacts/{uid}/messages`: `status`, `status_detail`), counts
+  them (`meshsat_hub_takchat_status_total{status}`), takes them only from the
+  bridge the message was handed to (tenant from the topic, bridge registered
+  to it, the message's own `bridge_id`; never a `queued` over a final word),
+  and tells a Matrix dispatcher: ❌ on the message and one notice
+  ("Not delivered to MSPB: the kit has not heard MSPB in the last day.") for
+  `undelivered` and `failed`, ✅✅ for `delivered`, nothing for `queued` (the ✅
+  at the send already stands for it).
 - **An addressed event a bridge exports is never fanned out** to the tenant's
   other bridges, whatever it is addressed to (since MESHSAT-1706; before that it
   reached every client of the tenant).

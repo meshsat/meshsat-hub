@@ -75,6 +75,10 @@ var (
 		Name: "meshsat_hub_matrix_answers_total",
 		Help: "Crews' answers to a Matrix user, by whether they reached the room (MESHSAT-1736).",
 	}, []string{"result"})
+	statusesTotal = promauto.NewCounterVec(prometheus.CounterOpts{
+		Name: "meshsat_hub_matrix_statuses_total",
+		Help: "Kits' words on a Matrix user's message (not delivered, delivered), by whether they reached the room (MESHSAT-1746).",
+	}, []string{"result"})
 	syncFailures = promauto.NewCounter(prometheus.CounterOpts{
 		Name: "meshsat_hub_matrix_sync_failures_total",
 		Help: "Reads from a tenant's homeserver that failed; the bot retries with backoff (MESHSAT-1736).",
@@ -87,6 +91,7 @@ func init() {
 	}
 	for _, r := range []string{"posted", "failed", "dropped"} {
 		answersTotal.WithLabelValues(r)
+		statusesTotal.WithLabelValues(r)
 	}
 }
 
@@ -112,6 +117,7 @@ type Service struct {
 	enabled  bool
 	now      func() time.Time
 	answers  chan *store.TAKChatMessage
+	statuses chan *store.TAKChatMessage
 
 	mu      sync.Mutex
 	workers map[string]*worker
@@ -125,7 +131,8 @@ func New(s store.Store, accounts Accounts, chat Chat, a *audit.Service, enabled 
 	}
 	return &Service{store: s, accounts: accounts, chat: chat, audit: a, log: log,
 		enabled: enabled && chat != nil && chat.Enabled(), now: time.Now,
-		answers: make(chan *store.TAKChatMessage, answerQueue), workers: map[string]*worker{}}
+		answers: make(chan *store.TAKChatMessage, answerQueue), statuses: make(chan *store.TAKChatMessage, answerQueue),
+		workers: map[string]*worker{}}
 }
 
 // Enabled reports whether the bridge is switched on.
@@ -594,7 +601,30 @@ func (s *Service) OnReply(_ context.Context, m *store.TAKChatMessage) {
 	}
 }
 
-// Start posts queued answers until ctx is done. It runs on every replica.
+// OnStatus is takchat's status hook (MESHSAT-1746): it queues a kit's word
+// on a Matrix user's message for the room. It runs on the sink's goroutine,
+// so it only hands over. A "queued" says nothing in the room: the ✅ the
+// message got when it was handed to the kit already stands for that.
+func (s *Service) OnStatus(_ context.Context, m *store.TAKChatMessage) {
+	if !s.Enabled() || m == nil || m.Direction != "out" || !strings.HasPrefix(m.UserID, OperatorPrefix) {
+		return
+	}
+	switch m.Status {
+	case takchat.StatusDelivered, takchat.StatusFailed, takchat.StatusUndelivered:
+	default:
+		return
+	}
+	cp := *m
+	select {
+	case s.statuses <- &cp:
+	default:
+		statusesTotal.WithLabelValues("dropped").Inc()
+		s.log.Warn("matrix: the status poster is behind, a kit's word was not posted", "tenant", m.TenantID)
+	}
+}
+
+// Start posts queued answers and statuses until ctx is done. It runs on
+// every replica.
 func (s *Service) Start(ctx context.Context) {
 	if !s.Enabled() {
 		return
@@ -607,6 +637,10 @@ func (s *Service) Start(ctx context.Context) {
 			case m := <-s.answers:
 				pctx, cancel := context.WithTimeout(ctx, callTimeout)
 				s.postAnswer(pctx, m)
+				cancel()
+			case m := <-s.statuses:
+				pctx, cancel := context.WithTimeout(ctx, callTimeout)
+				s.postStatus(pctx, m)
 				cancel()
 			}
 		}
@@ -625,32 +659,13 @@ func (s *Service) postAnswer(ctx context.Context, m *store.TAKChatMessage) {
 		answersTotal.WithLabelValues("dropped").Inc()
 		s.log.Warn("matrix: a crew's answer was not posted: "+why, append([]any{"tenant", m.TenantID}, args...)...)
 	}
-	acct, err := s.accounts.ForTenant(ctx, m.TenantID, integrations.ProviderMatrix)
-	if err != nil || acct == nil || acct.Platform {
-		drop("the tenant has no Matrix account any more")
+	c := s.roomClient(ctx, m.TenantID, op.RoomID, drop)
+	if c == nil {
 		return
-	}
-	cfg, err := parseConfig(acct)
-	if err != nil {
-		drop("the Matrix account cannot be used", "error", err)
-		return
-	}
-	if !cfg.roomSet[op.RoomID] {
-		drop("the room is no longer listed", "room", op.RoomID)
-		return
-	}
-	c := newClient(cfg.homeserver, cfg.token)
-	if enc, err := c.encrypted(ctx, op.RoomID); err != nil || enc {
-		drop("the room is encrypted, or its state cannot be read", "room", op.RoomID, "error", err)
-		return
-	}
-	callsign := m.CrewUID
-	if crew, err := s.store.GetTAKContact(ctx, m.TenantID, m.CrewUID); err == nil && crew != nil && crew.Callsign != "" {
-		callsign = crew.Callsign
 	}
 	if err := c.send(ctx, op.RoomID, "m.room.message", "answer-"+m.ID, map[string]any{
 		"msgtype":    "m.text",
-		"body":       callsign + ": " + m.Text,
+		"body":       s.callsign(ctx, m) + ": " + m.Text,
 		"m.mentions": map[string]any{"user_ids": []string{op.MatrixUserID}},
 	}); err != nil {
 		answersTotal.WithLabelValues("failed").Inc()
@@ -658,6 +673,95 @@ func (s *Service) postAnswer(ctx context.Context, m *store.TAKChatMessage) {
 		return
 	}
 	answersTotal.WithLabelValues("posted").Inc()
+}
+
+// postStatus puts a kit's word beside the message in the room it was
+// written in (MESHSAT-1746): ❌ on the message and one notice for a message
+// the kit did not deliver, ✅✅ for one the far end confirmed. Claimed once
+// per message and status, because every replica records the status and
+// calls the hook.
+func (s *Service) postStatus(ctx context.Context, m *store.TAKChatMessage) {
+	op, err := s.store.GetMatrixOperator(ctx, m.TenantID, m.UserID)
+	if err != nil || op == nil {
+		return
+	}
+	eventID, ok := strings.CutPrefix(m.ClientRef, "matrix:")
+	if !ok || eventID == "" {
+		return // written before the event id was kept with the message
+	}
+	if ok, err := s.store.ClaimOnce(ctx, "matrix:status:"+m.TenantID+":"+m.ID+":"+m.Status); err != nil || !ok {
+		return
+	}
+	drop := func(why string, args ...any) {
+		statusesTotal.WithLabelValues("dropped").Inc()
+		s.log.Warn("matrix: a kit's word on a message was not posted: "+why, append([]any{"tenant", m.TenantID}, args...)...)
+	}
+	c := s.roomClient(ctx, m.TenantID, op.RoomID, drop)
+	if c == nil {
+		return
+	}
+	react := func(key, txn string) error {
+		return c.send(ctx, op.RoomID, "m.reaction", txn, map[string]any{
+			"m.relates_to": map[string]any{"rel_type": "m.annotation", "event_id": eventID, "key": key},
+		})
+	}
+	if m.Status == takchat.StatusDelivered {
+		err = react("✅✅", "ack2-"+eventID)
+	} else if err = react("❌", "nack-"+eventID); err == nil {
+		why := strings.TrimRight(strings.TrimSpace(m.StatusDetail), ".")
+		if why == "" {
+			why = "the kit did not deliver it"
+		}
+		if ok, err := s.store.TakePersonChatSlot(ctx, m.TenantID,
+			"mx:notice:"+roomKey(op.RoomID)+":"+s.now().UTC().Format("200601021504"), noticesPerMinute); err != nil || !ok {
+			drop("the room has had its notices for this minute", "room", op.RoomID)
+			return
+		}
+		err = c.send(ctx, op.RoomID, "m.room.message", "status-"+m.ID+"-"+m.Status, map[string]any{
+			"msgtype":    "m.notice",
+			"body":       "Not delivered to " + s.callsign(ctx, m) + ": " + why + ".",
+			"m.mentions": map[string]any{"user_ids": []string{op.MatrixUserID}},
+		})
+	}
+	if err != nil {
+		statusesTotal.WithLabelValues("failed").Inc()
+		s.log.Warn("matrix: a kit's word on a message could not be posted", "tenant", m.TenantID, "room", op.RoomID, "error", err)
+		return
+	}
+	statusesTotal.WithLabelValues("posted").Inc()
+}
+
+// roomClient answers a client that may post into one of the tenant's listed,
+// unencrypted rooms, or nil after telling drop why not.
+func (s *Service) roomClient(ctx context.Context, tenantID, room string, drop func(why string, args ...any)) *client {
+	acct, err := s.accounts.ForTenant(ctx, tenantID, integrations.ProviderMatrix)
+	if err != nil || acct == nil || acct.Platform {
+		drop("the tenant has no Matrix account any more")
+		return nil
+	}
+	cfg, err := parseConfig(acct)
+	if err != nil {
+		drop("the Matrix account cannot be used", "error", err)
+		return nil
+	}
+	if !cfg.roomSet[room] {
+		drop("the room is no longer listed", "room", room)
+		return nil
+	}
+	c := newClient(cfg.homeserver, cfg.token)
+	if enc, err := c.encrypted(ctx, room); err != nil || enc {
+		drop("the room is encrypted, or its state cannot be read", "room", room, "error", err)
+		return nil
+	}
+	return c
+}
+
+// callsign is the crew's callsign as the room knows it, else its uid.
+func (s *Service) callsign(ctx context.Context, m *store.TAKChatMessage) string {
+	if crew, err := s.store.GetTAKContact(ctx, m.TenantID, m.CrewUID); err == nil && crew != nil && crew.Callsign != "" {
+		return crew.Callsign
+	}
+	return m.CrewUID
 }
 
 // --- checking an account, for the Settings page --------------------------------

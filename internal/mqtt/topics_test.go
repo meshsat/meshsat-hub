@@ -208,6 +208,43 @@ func TestTAKBroadcastTopics(t *testing.T) {
 	}
 }
 
+// MESHSAT-1746: a chat's status is exactly {ns}/bridge/{id}/tak/chat/status, in
+// both shapes, and nothing device-shaped or one level off parses as one.
+func TestTAKChatStatusTopics(t *testing.T) {
+	if got := TopicTAKChatStatusFor(DefaultTenant, "kit1"); got != "meshsat/bridge/kit1/tak/chat/status" {
+		t.Errorf("default: %s", got)
+	}
+	if got := TopicTAKChatStatusFor("t_x", "ios+1/2"); got != "meshsat/t_x/bridge/ios%2B1%2F2/tak/chat/status" {
+		t.Errorf("customer: %s", got)
+	}
+	for _, c := range []struct {
+		topic, tenant, bridge string
+		ok                    bool
+	}{
+		{"meshsat/bridge/kit1/tak/chat/status", DefaultTenant, "kit1", true},
+		{"meshsat/t_x/bridge/kit1/tak/chat/status", "t_x", "kit1", true},
+		{"meshsat/t_x/bridge/ios%2B1%2F2/tak/chat/status", "t_x", "ios+1/2", true},
+		{"meshsat/bridge/kit1/tak/chat/status/x", "", "", false},
+		{"meshsat/bridge/kit1/tak/cot/out", "", "", false},
+		{"meshsat/bridge/kit1/tak/cot/in", "", "", false},
+		{"meshsat/kit1/tak/chat/status", "", "", false},
+		{"meshsat/t_x/kit1/tak/chat/status", "", "", false},
+		{"meshsat/bridge/bridge/kit1/tak/chat/status", "", "", false},
+	} {
+		tenant, bridge, ok := ParseTAKChatStatus(c.topic)
+		if ok != c.ok || tenant != c.tenant || bridge != c.bridge {
+			t.Errorf("%s -> %q %q %v, want %q %q %v", c.topic, tenant, bridge, ok, c.tenant, c.bridge, c.ok)
+		}
+	}
+	if f := TAKChatStatusFilters(); len(f) != 2 || f[0] != "meshsat/bridge/+/tak/chat/status" || f[1] != "meshsat/+/bridge/+/tak/chat/status" {
+		t.Errorf("filters %v", f)
+	}
+	// An export topic never parses as a status and the other way round.
+	if _, _, ok := ParseTAKCotOut("meshsat/bridge/kit1/tak/chat/status"); ok {
+		t.Error("a status topic parsed as an export")
+	}
+}
+
 // MESHSAT-1715: a join is exactly {ns}/bridge/{id}/rns/join, in both shapes; the
 // answer goes to the same bridge in the same namespace.
 func TestRNSAccessTopics(t *testing.T) {

@@ -25,6 +25,7 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -33,6 +34,9 @@ import (
 	"time"
 	"unicode"
 	"unicode/utf8"
+
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promauto"
 
 	"github.com/meshsat/meshsat-hub/internal/bus"
 	hubmqtt "github.com/meshsat/meshsat-hub/internal/mqtt"
@@ -54,7 +58,33 @@ const (
 	maxCallsign = 24
 	// replyQueue bounds what the reply sink may have waiting.
 	replyQueue = 256
+	// statusMaxBytes bounds a kit's status report on the wire; one is under
+	// 400 bytes. statusDetailMax bounds the line kept for the dispatcher.
+	statusMaxBytes  = 4096
+	statusDetailMax = 200
 )
+
+// The kit's words on a message (MESHSAT-1746, hubmqtt.TAKChatStatus).
+const (
+	StatusQueued      = "queued"
+	StatusDelivered   = "delivered"
+	StatusFailed      = "failed"
+	StatusUndelivered = "undelivered"
+)
+
+var kitStatuses = map[string]bool{StatusQueued: true, StatusDelivered: true, StatusFailed: true, StatusUndelivered: true}
+
+var statusTotal = promauto.NewCounterVec(prometheus.CounterOpts{
+	Name: "meshsat_hub_takchat_status_total",
+	Help: "Kits' words on what became of a dispatcher's chat, by status; refused is one the Hub did not record (MESHSAT-1746).",
+}, []string{"status"})
+
+func init() {
+	for s := range kitStatuses {
+		statusTotal.WithLabelValues(s)
+	}
+	statusTotal.WithLabelValues("refused")
+}
 
 // The ways a send is refused; the API maps each to a status.
 var (
@@ -76,13 +106,15 @@ type Bus interface {
 
 // Service sends operators' messages and keeps crews' answers.
 type Service struct {
-	store   store.Store
-	bus     Bus
-	log     *slog.Logger
-	enabled bool
-	now     func() time.Time
-	replies chan reply
-	onReply func(ctx context.Context, m *store.TAKChatMessage)
+	store    store.Store
+	bus      Bus
+	log      *slog.Logger
+	enabled  bool
+	now      func() time.Time
+	replies  chan reply
+	statuses chan reply
+	onReply  func(ctx context.Context, m *store.TAKChatMessage)
+	onStatus func(ctx context.Context, m *store.TAKChatMessage)
 }
 
 // New returns a Service. enabled is HUB_TAKCHAT_ENABLED.
@@ -91,7 +123,7 @@ func New(s store.Store, b Bus, enabled bool, log *slog.Logger) *Service {
 		log = slog.Default()
 	}
 	return &Service{store: s, bus: b, log: log, enabled: enabled, now: time.Now,
-		replies: make(chan reply, replyQueue)}
+		replies: make(chan reply, replyQueue), statuses: make(chan reply, replyQueue)}
 }
 
 // Enabled reports whether the feature is switched on.
@@ -104,6 +136,16 @@ func (s *Service) Enabled() bool { return s != nil && s.enabled }
 // slow work off. Call it before StartReplySink.
 func (s *Service) SetReplyHook(fn func(ctx context.Context, m *store.TAKChatMessage)) {
 	s.onReply = fn
+}
+
+// SetStatusHook makes fn run with the message as it is after a kit's word on
+// it was recorded (MESHSAT-1746). Unlike the reply hook it runs on EVERY
+// replica that recorded it: the write is an observation both make, so fn
+// claims its own side effect (the Matrix bridge does, per message and
+// status). fn runs on the sink's goroutine and must hand slow work off.
+// Call it before StartReplySink.
+func (s *Service) SetStatusHook(fn func(ctx context.Context, m *store.TAKChatMessage)) {
+	s.onStatus = fn
 }
 
 // SendRequest is one message an operator writes to a crew.
@@ -169,7 +211,7 @@ func (s *Service) Send(ctx context.Context, req SendRequest) (*store.TAKChatMess
 	}
 	msg := &store.TAKChatMessage{
 		TenantID: req.TenantID, ID: id, CrewUID: crew.UID, OperatorUID: op.UID, UserID: req.UserID,
-		Direction: "out", Text: text, BridgeID: crew.BridgeID, Status: "sent", CreatedAt: now,
+		Direction: "out", Text: text, BridgeID: crew.BridgeID, Status: "sent", ClientRef: req.ClientRef, CreatedAt: now,
 	}
 	created, err := s.store.SaveTAKChatMessage(ctx, msg)
 	if err != nil {
@@ -179,8 +221,9 @@ func (s *Service) Send(ctx context.Context, req SendRequest) (*store.TAKChatMess
 		return msg, false, nil
 	}
 	if err := s.bus.Publish(hubmqtt.TopicTAKCotInFor(req.TenantID, crew.BridgeID), 1, false, xml); err != nil {
-		_ = s.store.SetTAKChatMessageStatus(ctx, req.TenantID, id, "failed")
-		msg.Status = "failed"
+		const detail = "the message could not be handed to the kit"
+		_ = s.store.SetTAKChatMessageStatus(ctx, req.TenantID, id, "failed", detail)
+		msg.Status, msg.StatusDetail = "failed", detail
 		s.log.Warn("takchat: a message to a crew could not be published",
 			"tenant", req.TenantID, "bridge", crew.BridgeID, "error", err)
 		return msg, true, ErrPublish
@@ -253,13 +296,20 @@ type reply struct {
 }
 
 // StartReplySink subscribes to every client's export and stores the answers
-// addressed to an operator until ctx is done. It runs on every replica.
+// addressed to an operator, and to every kit's word on a chat it was handed
+// (MESHSAT-1746) and records it on the message, until ctx is done. It runs
+// on every replica.
 func (s *Service) StartReplySink(ctx context.Context) error {
 	if !s.Enabled() {
 		return nil
 	}
 	for _, filter := range hubmqtt.TAKCotOutFilters() {
 		if err := s.bus.Subscribe(filter, 0, s.receive); err != nil {
+			return fmt.Errorf("takchat: subscribe %s: %w", filter, err)
+		}
+	}
+	for _, filter := range hubmqtt.TAKChatStatusFilters() {
+		if err := s.bus.Subscribe(filter, 1, s.receiveStatus); err != nil {
 			return fmt.Errorf("takchat: subscribe %s: %w", filter, err)
 		}
 	}
@@ -270,6 +320,8 @@ func (s *Service) StartReplySink(ctx context.Context) error {
 				return
 			case r := <-s.replies:
 				s.store1(ctx, r)
+			case r := <-s.statuses:
+				s.record1(ctx, r)
 			}
 		}
 	}()
@@ -285,6 +337,69 @@ func (s *Service) receive(topic string, payload []byte) {
 	case s.replies <- reply{topic: topic, payload: append([]byte(nil), payload...)}:
 	default:
 		s.log.Warn("takchat: the reply sink is behind, an answer was not stored")
+	}
+}
+
+// receiveStatus runs on the bus goroutine: a size test and a handover.
+func (s *Service) receiveStatus(topic string, payload []byte) {
+	if len(payload) == 0 || len(payload) > statusMaxBytes {
+		return
+	}
+	select {
+	case s.statuses <- reply{topic: topic, payload: append([]byte(nil), payload...)}:
+	default:
+		s.log.Warn("takchat: the status sink is behind, a kit's word was not recorded")
+	}
+}
+
+// record1 records one kit's word on a message. The kit must be registered
+// to the topic's tenant and be the one the message was handed to, which the
+// store checks against the row (SetTAKChatMessageOutcome); the status must
+// be one of the four words. Both replicas record it: the same fact twice is
+// one row, and the hook claims its own side effect.
+func (s *Service) record1(ctx context.Context, r reply) {
+	tenantID, bridgeID, ok := hubmqtt.ParseTAKChatStatus(r.topic)
+	if !ok {
+		return
+	}
+	refuse := func(why string, args ...any) {
+		statusTotal.WithLabelValues("refused").Inc()
+		s.log.Debug("takchat: a kit's word on a message was not recorded: "+why,
+			append([]any{"tenant", tenantID, "bridge", bridgeID}, args...)...)
+	}
+	var st hubmqtt.TAKChatStatus
+	if err := json.Unmarshal(r.payload, &st); err != nil {
+		refuse("not JSON", "error", err)
+		return
+	}
+	st.MessageID = strings.TrimSpace(st.MessageID)
+	if st.MessageID == "" || len(st.MessageID) > 96 || !kitStatuses[st.Status] {
+		refuse("no message id, or not one of the four words", "status", st.Status)
+		return
+	}
+	if b, err := s.store.GetBridge(ctx, tenantID, bridgeID); err != nil || b == nil {
+		refuse("the bridge is not registered to the tenant")
+		return
+	}
+	detail := foldControls(st.Detail)
+	if utf8.RuneCountInString(detail) > statusDetailMax {
+		detail = string([]rune(detail)[:statusDetailMax])
+	}
+	if detail == "" && st.Reason != "" {
+		detail = foldControls(st.Reason)
+	}
+	msg, err := s.store.SetTAKChatMessageOutcome(ctx, tenantID, bridgeID, st.MessageID, st.Status, detail)
+	if err != nil {
+		s.log.Warn("takchat: could not record a kit's word on a message", "tenant", tenantID, "error", err)
+		return
+	}
+	if msg == nil {
+		refuse("no message of this id was handed to the bridge, or a queued came after a final word", "message", st.MessageID)
+		return
+	}
+	statusTotal.WithLabelValues(st.Status).Inc()
+	if s.onStatus != nil {
+		s.onStatus(ctx, msg)
 	}
 }
 

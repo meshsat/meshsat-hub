@@ -791,8 +791,11 @@ func (f *fakeStore) ListTAKContacts(context.Context, string, time.Time) ([]store
 func (f *fakeStore) SaveTAKChatMessage(context.Context, *store.TAKChatMessage) (bool, error) {
 	return false, nil
 }
-func (f *fakeStore) SetTAKChatMessageStatus(context.Context, string, string, string) error {
+func (f *fakeStore) SetTAKChatMessageStatus(context.Context, string, string, string, string) error {
 	return nil
+}
+func (f *fakeStore) SetTAKChatMessageOutcome(context.Context, string, string, string, string, string) (*store.TAKChatMessage, error) {
+	return nil, nil
 }
 func (f *fakeStore) ListTAKChatMessages(context.Context, string, string, int) ([]store.TAKChatMessage, error) {
 	return nil, nil

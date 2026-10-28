@@ -76,10 +76,11 @@ func (d *DB) SaveTAKChatMessage(ctx context.Context, m *store.TAKChatMessage) (b
 	}
 	res, err := d.db.ExecContext(ctx,
 		`INSERT INTO tak_chat_messages
-		   (tenant_id, id, crew_uid, operator_uid, user_id, direction, text, bridge_id, status, created_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		   (tenant_id, id, crew_uid, operator_uid, user_id, direction, text, bridge_id, status, status_detail, client_ref, created_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		 ON CONFLICT (tenant_id, id) DO NOTHING`,
-		m.TenantID, m.ID, m.CrewUID, m.OperatorUID, m.UserID, m.Direction, m.Text, m.BridgeID, m.Status, boothTime(created))
+		m.TenantID, m.ID, m.CrewUID, m.OperatorUID, m.UserID, m.Direction, m.Text, m.BridgeID, m.Status,
+		m.StatusDetail, m.ClientRef, boothTime(created))
 	if err != nil {
 		return false, err
 	}
@@ -95,10 +96,34 @@ func (d *DB) SaveTAKChatMessage(ctx context.Context, m *store.TAKChatMessage) (b
 	return n > 0, nil
 }
 
-func (d *DB) SetTAKChatMessageStatus(ctx context.Context, tenantID, id, status string) error {
+func (d *DB) SetTAKChatMessageStatus(ctx context.Context, tenantID, id, status, detail string) error {
 	_, err := d.db.ExecContext(ctx,
-		`UPDATE tak_chat_messages SET status = ? WHERE tenant_id = ? AND id = ?`, status, tenantID, id)
+		`UPDATE tak_chat_messages SET status = ?, status_detail = ? WHERE tenant_id = ? AND id = ?`,
+		status, detail, tenantID, id)
 	return err
+}
+
+// SetTAKChatMessageOutcome: see the Postgres twin. The status is bound twice
+// (SET and the guard) because sqlite's ? is positional.
+func (d *DB) SetTAKChatMessageOutcome(ctx context.Context, tenantID, bridgeID, id, status, detail string) (*store.TAKChatMessage, error) {
+	var m store.TAKChatMessage
+	var created string
+	err := d.db.QueryRowContext(ctx,
+		`UPDATE tak_chat_messages SET status = ?, status_detail = ?
+		 WHERE tenant_id = ? AND id = ? AND bridge_id = ? AND direction = 'out'
+		   AND NOT (? = 'queued' AND status IN ('delivered', 'failed', 'undelivered'))
+		 RETURNING tenant_id, id, crew_uid, operator_uid, user_id, direction, text, bridge_id, status, status_detail, client_ref, created_at`,
+		status, detail, tenantID, id, bridgeID, status).
+		Scan(&m.TenantID, &m.ID, &m.CrewUID, &m.OperatorUID, &m.UserID, &m.Direction,
+			&m.Text, &m.BridgeID, &m.Status, &m.StatusDetail, &m.ClientRef, &created)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	m.CreatedAt = boothParse(created)
+	return &m, nil
 }
 
 func (d *DB) ListTAKChatMessages(ctx context.Context, tenantID, crewUID string, limit int) ([]store.TAKChatMessage, error) {
@@ -106,7 +131,7 @@ func (d *DB) ListTAKChatMessages(ctx context.Context, tenantID, crewUID string, 
 		limit = 100
 	}
 	rows, err := d.db.QueryContext(ctx,
-		`SELECT tenant_id, id, crew_uid, operator_uid, user_id, direction, text, bridge_id, status, created_at
+		`SELECT tenant_id, id, crew_uid, operator_uid, user_id, direction, text, bridge_id, status, status_detail, client_ref, created_at
 		 FROM (SELECT * FROM tak_chat_messages WHERE tenant_id = ? AND crew_uid = ?
 		       ORDER BY created_at DESC, id DESC LIMIT ?)
 		 ORDER BY created_at, id`, tenantID, crewUID, limit)
@@ -119,7 +144,7 @@ func (d *DB) ListTAKChatMessages(ctx context.Context, tenantID, crewUID string, 
 		var m store.TAKChatMessage
 		var created string
 		if err := rows.Scan(&m.TenantID, &m.ID, &m.CrewUID, &m.OperatorUID, &m.UserID, &m.Direction,
-			&m.Text, &m.BridgeID, &m.Status, &created); err != nil {
+			&m.Text, &m.BridgeID, &m.Status, &m.StatusDetail, &m.ClientRef, &created); err != nil {
 			return nil, err
 		}
 		m.CreatedAt = boothParse(created)

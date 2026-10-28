@@ -735,6 +735,10 @@ var lateAlterMigrations = []string{
 	// MESHSAT-1733: a device's profile ("" or "post", the Community Post);
 	// mirrors postgres migration 49.
 	`ALTER TABLE devices ADD COLUMN profile TEXT NOT NULL DEFAULT ''`,
+	// MESHSAT-1746: the bridge's one line beside its status word, and the
+	// sender's idempotency key; mirrors postgres migration 51.
+	`ALTER TABLE tak_chat_messages ADD COLUMN status_detail TEXT NOT NULL DEFAULT ''`,
+	`ALTER TABLE tak_chat_messages ADD COLUMN client_ref TEXT NOT NULL DEFAULT ''`,
 }
 
 // --- Devices ---

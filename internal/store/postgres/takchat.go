@@ -83,10 +83,11 @@ func (d *DB) SaveTAKChatMessage(ctx context.Context, m *store.TAKChatMessage) (b
 	}
 	res, err := d.db.ExecContext(ctx,
 		`INSERT INTO tak_chat_messages
-		   (tenant_id, id, crew_uid, operator_uid, user_id, direction, text, bridge_id, status, created_at)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+		   (tenant_id, id, crew_uid, operator_uid, user_id, direction, text, bridge_id, status, status_detail, client_ref, created_at)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
 		 ON CONFLICT (tenant_id, id) DO NOTHING`,
-		m.TenantID, m.ID, m.CrewUID, m.OperatorUID, m.UserID, m.Direction, m.Text, m.BridgeID, m.Status, created.UTC())
+		m.TenantID, m.ID, m.CrewUID, m.OperatorUID, m.UserID, m.Direction, m.Text, m.BridgeID, m.Status,
+		m.StatusDetail, m.ClientRef, created.UTC())
 	if err != nil {
 		return false, err
 	}
@@ -101,12 +102,39 @@ func (d *DB) SaveTAKChatMessage(ctx context.Context, m *store.TAKChatMessage) (b
 	return n > 0, nil
 }
 
-// SetTAKChatMessageStatus records what became of a message after it was
-// stored: a send the bus refused, a receipt.
-func (d *DB) SetTAKChatMessageStatus(ctx context.Context, tenantID, id, status string) error {
+// SetTAKChatMessageStatus records the Hub's own word on a message after it
+// was stored: a send the bus refused.
+func (d *DB) SetTAKChatMessageStatus(ctx context.Context, tenantID, id, status, detail string) error {
 	_, err := d.db.ExecContext(ctx,
-		`UPDATE tak_chat_messages SET status = $3 WHERE tenant_id = $1 AND id = $2`, tenantID, id, status)
+		`UPDATE tak_chat_messages SET status = $3, status_detail = $4 WHERE tenant_id = $1 AND id = $2`,
+		tenantID, id, status, detail)
 	return err
+}
+
+// takChatFinal are the bridge's words a later "queued" may not undo: the
+// ledger's row was already settled, whatever order the two reports arrived in.
+const takChatFinal = "'delivered', 'failed', 'undelivered'"
+
+// SetTAKChatMessageOutcome records a bridge's word on a message it was handed
+// (MESHSAT-1746): see store.Store.
+func (d *DB) SetTAKChatMessageOutcome(ctx context.Context, tenantID, bridgeID, id, status, detail string) (*store.TAKChatMessage, error) {
+	var m store.TAKChatMessage
+	err := d.db.QueryRowContext(ctx,
+		`UPDATE tak_chat_messages SET status = $4, status_detail = $5
+		 WHERE tenant_id = $1 AND id = $2 AND bridge_id = $3 AND direction = 'out'
+		   AND NOT ($4 = 'queued' AND status IN (`+takChatFinal+`))
+		 RETURNING tenant_id, id, crew_uid, operator_uid, user_id, direction, text, bridge_id, status, status_detail, client_ref, created_at`,
+		tenantID, id, bridgeID, status, detail).
+		Scan(&m.TenantID, &m.ID, &m.CrewUID, &m.OperatorUID, &m.UserID, &m.Direction,
+			&m.Text, &m.BridgeID, &m.Status, &m.StatusDetail, &m.ClientRef, &m.CreatedAt)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	m.CreatedAt = utc(m.CreatedAt)
+	return &m, nil
 }
 
 // ListTAKChatMessages lists the last limit messages with one crew, oldest
@@ -116,7 +144,7 @@ func (d *DB) ListTAKChatMessages(ctx context.Context, tenantID, crewUID string, 
 		limit = 100
 	}
 	rows, err := d.db.QueryContext(ctx,
-		`SELECT tenant_id, id, crew_uid, operator_uid, user_id, direction, text, bridge_id, status, created_at
+		`SELECT tenant_id, id, crew_uid, operator_uid, user_id, direction, text, bridge_id, status, status_detail, client_ref, created_at
 		 FROM (SELECT * FROM tak_chat_messages WHERE tenant_id = $1 AND crew_uid = $2
 		       ORDER BY created_at DESC, id DESC LIMIT $3) recent
 		 ORDER BY created_at, id`, tenantID, crewUID, limit)
@@ -128,7 +156,7 @@ func (d *DB) ListTAKChatMessages(ctx context.Context, tenantID, crewUID string, 
 	for rows.Next() {
 		var m store.TAKChatMessage
 		if err := rows.Scan(&m.TenantID, &m.ID, &m.CrewUID, &m.OperatorUID, &m.UserID, &m.Direction,
-			&m.Text, &m.BridgeID, &m.Status, &m.CreatedAt); err != nil {
+			&m.Text, &m.BridgeID, &m.Status, &m.StatusDetail, &m.ClientRef, &m.CreatedAt); err != nil {
 			return nil, err
 		}
 		m.CreatedAt = utc(m.CreatedAt)

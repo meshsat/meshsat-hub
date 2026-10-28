@@ -76,14 +76,15 @@ func testTAKChat(t *testing.T, db store.Store) {
 		t.Errorf("the same answer stored twice: %v %v", created, err)
 	}
 	// A status set later is the row's, and only in its own tenant.
-	if err := db.SetTAKChatMessageStatus(ctx, mine, "m1", "failed"); err != nil {
+	if err := db.SetTAKChatMessageStatus(ctx, mine, "m1", "failed", "the bus refused it"); err != nil {
 		t.Fatal(err)
 	}
 	msgs, err := db.ListTAKChatMessages(ctx, mine, crew, 10)
 	if err != nil || len(msgs) != 2 || msgs[0].ID != "m1" || msgs[1].ID != "m2" {
 		t.Fatalf("messages %+v %v", msgs, err)
 	}
-	if msgs[0].Text != "check in" || msgs[0].UserID != "7" || msgs[0].Status != "failed" || msgs[1].Direction != "in" {
+	if msgs[0].Text != "check in" || msgs[0].UserID != "7" || msgs[0].Status != "failed" ||
+		msgs[0].StatusDetail != "the bus refused it" || msgs[1].Direction != "in" {
 		t.Errorf("messages read back wrong: %+v", msgs)
 	}
 	if last, _ := db.ListTAKChatMessages(ctx, mine, crew, 1); len(last) != 1 || last[0].ID != "m2" {
@@ -91,5 +92,48 @@ func testTAKChat(t *testing.T, db store.Store) {
 	}
 	if v, _ := db.ListTAKChatMessages(ctx, other, crew, 10); len(v) != 1 || v[0].Text != "victim's" {
 		t.Errorf("the victim's thread: %+v", v)
+	}
+
+	// MESHSAT-1746: the bridge's word on a message it was handed. Only that
+	// bridge, only an "out" row, and a "queued" never over a final word.
+	m3 := store.TAKChatMessage{TenantID: mine, ID: "m3", CrewUID: crew, OperatorUID: "meshsat-hub-op-mx01", UserID: "mx01",
+		Direction: "out", Text: "where are you?", BridgeID: "tesseract01", Status: "sent", ClientRef: "matrix:$e1", CreatedAt: now}
+	if created, err := db.SaveTAKChatMessage(ctx, &m3); err != nil || !created {
+		t.Fatalf("save m3: %v %v", created, err)
+	}
+	if got, err := db.SetTAKChatMessageOutcome(ctx, mine, "parallax01", "m3", "undelivered", "another kit's word"); err != nil || got != nil {
+		t.Errorf("a bridge that was not handed the message set its status: %+v %v", got, err)
+	}
+	if got, err := db.SetTAKChatMessageOutcome(ctx, mine, "tesseract01", "m2", "undelivered", "an answer"); err != nil || got != nil {
+		t.Errorf("a status landed on a crew's answer: %+v %v", got, err)
+	}
+	if got, err := db.SetTAKChatMessageOutcome(ctx, other, "tesseract01", "m3", "undelivered", "wrong tenant"); err != nil || got != nil {
+		t.Errorf("a status crossed tenants: %+v %v", got, err)
+	}
+	got, err := db.SetTAKChatMessageOutcome(ctx, mine, "tesseract01", "m3", "queued", "queued as a direct message")
+	if err != nil || got == nil || got.Status != "queued" || got.StatusDetail != "queued as a direct message" ||
+		got.ClientRef != "matrix:$e1" || got.UserID != "mx01" || got.CrewUID != crew || got.Direction != "out" {
+		t.Fatalf("queued: %+v %v", got, err)
+	}
+	got, err = db.SetTAKChatMessageOutcome(ctx, mine, "tesseract01", "m3", "undelivered", "the kit has not heard it for a day")
+	if err != nil || got == nil || got.Status != "undelivered" || got.StatusDetail != "the kit has not heard it for a day" {
+		t.Fatalf("undelivered: %+v %v", got, err)
+	}
+	// The two reports arrived the wrong way round: the final word stands.
+	if got, err := db.SetTAKChatMessageOutcome(ctx, mine, "tesseract01", "m3", "queued", "late"); err != nil || got != nil {
+		t.Errorf("a late queued undid a final word: %+v %v", got, err)
+	}
+	// A final word may follow a final word (failed after queued elsewhere), and
+	// the same word again is the same row.
+	if got, err := db.SetTAKChatMessageOutcome(ctx, mine, "tesseract01", "m3", "undelivered", "the kit has not heard it for a day"); err != nil || got == nil {
+		t.Errorf("the same word again: %+v %v", got, err)
+	}
+	msgs, _ = db.ListTAKChatMessages(ctx, mine, crew, 10)
+	if len(msgs) != 3 || msgs[2].ID != "m3" || msgs[2].Status != "undelivered" || msgs[2].ClientRef != "matrix:$e1" ||
+		msgs[2].StatusDetail != "the kit has not heard it for a day" {
+		t.Errorf("m3 read back: %+v", msgs)
+	}
+	if msgs[0].Status != "failed" || msgs[1].Status != "received" {
+		t.Errorf("other rows changed: %+v", msgs)
 	}
 }

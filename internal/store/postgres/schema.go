@@ -1541,4 +1541,13 @@ CREATE TABLE IF NOT EXISTS warning_matches (
 );
 CREATE INDEX IF NOT EXISTS idx_warning_matches_age ON warning_matches (tenant_id, matched_at);
 `},
+	// MESHSAT-1746, what became of a dispatcher's chat. status_detail is the
+	// bridge's one line beside its status word (status itself is the column
+	// from 46); client_ref is the sender's idempotency key as given, so a
+	// status can be put beside the message where it was written (a Matrix
+	// event). Mirrored in sqlite.
+	{Version: 51, Name: "tak chat status detail", SQL: `
+ALTER TABLE tak_chat_messages ADD COLUMN IF NOT EXISTS status_detail VARCHAR(255) NOT NULL DEFAULT '';
+ALTER TABLE tak_chat_messages ADD COLUMN IF NOT EXISTS client_ref VARCHAR(255) NOT NULL DEFAULT '';
+`},
 }

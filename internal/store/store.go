@@ -508,7 +508,13 @@ type Store interface {
 	GetTAKContact(ctx context.Context, tenantID, uid string) (*TAKContact, error)
 	ListTAKContacts(ctx context.Context, tenantID string, since time.Time) ([]TAKContact, error)
 	SaveTAKChatMessage(ctx context.Context, m *TAKChatMessage) (bool, error)
-	SetTAKChatMessageStatus(ctx context.Context, tenantID, id, status string) error
+	SetTAKChatMessageStatus(ctx context.Context, tenantID, id, status, detail string) error
+	// SetTAKChatMessageOutcome records a bridge's word on a message
+	// (MESHSAT-1746): only on a message of direction "out" that was handed to
+	// that bridge, and a "queued" never over a final word (delivered, failed,
+	// undelivered). It answers the row as it is after the write, nil when no
+	// row matched.
+	SetTAKChatMessageOutcome(ctx context.Context, tenantID, bridgeID, id, status, detail string) (*TAKChatMessage, error)
 	ListTAKChatMessages(ctx context.Context, tenantID, crewUID string, limit int) ([]TAKChatMessage, error)
 	// Matrix bridge (MESHSAT-1736): who wrote to a crew from which Matrix room,
 	// so the crew's answer goes back there, and where the tenant's bot left off
@@ -1419,18 +1425,25 @@ type TAKContact struct {
 // TAKChatMessage is one message between an operator of the tenant and a crew,
 // written from the Hub's map ("out") or answered by the crew ("in"). ID is the
 // GeoChat's message id, so a message stored twice (both replicas, a resent
-// request) is one row.
+// request) is one row. Status is the Hub's own word first ("sent" to the
+// bridge, "failed" at the bus, "received" for an answer), then the bridge's
+// (MESHSAT-1746: "queued", "delivered", "failed", "undelivered") with
+// StatusDetail one line for the dispatcher. ClientRef is the sender's
+// idempotency key as given ("matrix:<event id>" from a Matrix room), kept so
+// the bridge's word can be put beside the message where it was written.
 type TAKChatMessage struct {
-	TenantID    string    `json:"-"`
-	ID          string    `json:"id"`
-	CrewUID     string    `json:"crew_uid"`
-	OperatorUID string    `json:"operator_uid"`
-	UserID      string    `json:"user_id,omitempty"`
-	Direction   string    `json:"direction"`
-	Text        string    `json:"text"`
-	BridgeID    string    `json:"bridge_id"`
-	Status      string    `json:"status"`
-	CreatedAt   time.Time `json:"created_at"`
+	TenantID     string    `json:"-"`
+	ID           string    `json:"id"`
+	CrewUID      string    `json:"crew_uid"`
+	OperatorUID  string    `json:"operator_uid"`
+	UserID       string    `json:"user_id,omitempty"`
+	Direction    string    `json:"direction"`
+	Text         string    `json:"text"`
+	BridgeID     string    `json:"bridge_id"`
+	Status       string    `json:"status"`
+	StatusDetail string    `json:"status_detail,omitempty"`
+	ClientRef    string    `json:"-"`
+	CreatedAt    time.Time `json:"created_at"`
 }
 
 // MatrixOperator is one person who wrote to a crew from a Matrix room through

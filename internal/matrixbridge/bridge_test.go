@@ -500,3 +500,101 @@ func TestStripReplyFallback(t *testing.T) {
 		}
 	}
 }
+
+// MESHSAT-1746: the kit's word on a message written from the room lands beside
+// that message: ❌ and one notice when the kit did not deliver it, ✅✅ when the
+// far end confirmed it, nothing for queued, each once across both replicas.
+func TestAKitsWordLandsBesideTheMessageInTheRoom(t *testing.T) {
+	r := rig(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	r.chat.SetStatusHook(r.s.OnStatus)
+	if err := r.chat.StartReplySink(ctx); err != nil {
+		t.Fatal(err)
+	}
+	r.s.Start(ctx)
+	r.hs.batches = [][]event{{text("$e1", anna, "@MSPB where are you?"), text("$e2", anna, "@MSPB 2 hold")}}
+	r.session(t)
+	if v := r.toCrew(); len(v) != 2 {
+		t.Fatalf("to the crews: %v", v)
+	}
+	idOf := func(crewUID string) string {
+		rows, _ := r.db.ListTAKChatMessages(ctx, "t1", crewUID, 10)
+		if len(rows) != 1 || rows[0].ClientRef == "" {
+			t.Fatalf("rows for %s: %+v", crewUID, rows)
+		}
+		return rows[0].ID
+	}
+	m1, m2 := idOf(crew), idOf("meshsat-0b0b0b0b")
+
+	// The kit's word arrives on its own subtree, at both replicas.
+	word := func(id, crewUID, status, reason, detail string) {
+		t.Helper()
+		b, _ := json.Marshal(hubmqtt.TAKChatStatus{MessageID: id, CrewUID: crewUID, Status: status, Reason: reason, Detail: detail})
+		r.bus.mu.Lock()
+		handlers := append([]bus.MessageHandler(nil), r.bus.handlers...)
+		r.bus.mu.Unlock()
+		for i := 0; i < 2; i++ {
+			for _, h := range handlers {
+				h(hubmqtt.TopicTAKChatStatusFor("t1", "kit-a"), b)
+			}
+		}
+	}
+	posted := func(want int) []put {
+		t.Helper()
+		var out []put
+		for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); time.Sleep(20 * time.Millisecond) {
+			if out = r.hs.sent(); len(out) >= want {
+				break
+			}
+		}
+		time.Sleep(100 * time.Millisecond)
+		return r.hs.sent()
+	}
+	// Two ✅ from the sends; a queued adds nothing.
+	word(m1, crew, "queued", "", "queued as a direct message to !0a0b0c0d")
+	if v := posted(2); len(v) != 2 || v[0].typ != "m.reaction" || v[1].typ != "m.reaction" {
+		t.Fatalf("after queued: %+v", v)
+	}
+	// Not delivered: ❌ on $e1 and one notice naming the crew and the reason.
+	word(m1, crew, "undelivered", "not_heard", "the kit has not heard MSPB in the last day")
+	v := posted(4)
+	if len(v) != 4 {
+		t.Fatalf("after undelivered: %+v", v)
+	}
+	nack, notice := v[2], v[3]
+	if nack.typ != "m.reaction" || nack.txn != "nack-$e1" {
+		t.Fatalf("reaction %+v", nack)
+	}
+	if rel, _ := json.Marshal(nack.content["m.relates_to"]); string(rel) != `{"event_id":"$e1","key":"❌","rel_type":"m.annotation"}` {
+		t.Fatalf("relates_to %s", rel)
+	}
+	if notice.typ != "m.room.message" || notice.txn != "status-"+m1+"-undelivered" || notice.content["msgtype"] != "m.notice" ||
+		notice.content["body"] != "Not delivered to MSPB: the kit has not heard MSPB in the last day." {
+		t.Fatalf("notice %+v", notice)
+	}
+	if m, _ := json.Marshal(notice.content["m.mentions"]); string(m) != `{"user_ids":["`+anna+`"]}` {
+		t.Fatalf("mentions %s", m)
+	}
+	// Delivered on the other message: ✅✅ on $e2, no notice.
+	word(m2, "meshsat-0b0b0b0b", "delivered", "", "")
+	v = posted(5)
+	if len(v) != 5 || v[4].typ != "m.reaction" || v[4].txn != "ack2-$e2" {
+		t.Fatalf("after delivered: %+v", v)
+	}
+	if rel, _ := json.Marshal(v[4].content["m.relates_to"]); string(rel) != `{"event_id":"$e2","key":"✅✅","rel_type":"m.annotation"}` {
+		t.Fatalf("relates_to %s", rel)
+	}
+	// The other replica's poster finds each claimed; a console operator's
+	// message and one without its event id say nothing.
+	op := operatorID("t1", room, anna)
+	r.s.postStatus(ctx, &store.TAKChatMessage{TenantID: "t1", ID: m1, CrewUID: crew, UserID: op, Direction: "out",
+		Status: "undelivered", StatusDetail: "again", ClientRef: "matrix:$e1"})
+	r.s.postStatus(ctx, &store.TAKChatMessage{TenantID: "t1", ID: "console-1", CrewUID: crew, UserID: "7", Direction: "out",
+		Status: "undelivered", StatusDetail: "a console message"})
+	r.s.postStatus(ctx, &store.TAKChatMessage{TenantID: "t1", ID: "old-1", CrewUID: crew, UserID: op, Direction: "out",
+		Status: "undelivered", StatusDetail: "before the ref was kept"})
+	if n := len(r.hs.sent()); n != 5 {
+		t.Fatalf("posted %d times: %+v", n, r.hs.sent())
+	}
+}

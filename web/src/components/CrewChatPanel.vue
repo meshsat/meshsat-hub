@@ -28,6 +28,21 @@ const REFUSED = {
   502: 'The message did not go out. Send it again.',
 }
 
+// What an outgoing message's status word says to the person who sent it
+// (MESHSAT-1746): the Hub's own word ("sent" to the kit, "failed" at the bus),
+// then the kit's ("queued" in its ledger, "delivered", "failed" when the
+// ledger gave up, "undelivered" when the kit refused it). Not delivered is
+// the one state that needs acting on, so it alone is red.
+const STATUS = {
+  queued: { text: 'queued on the kit' },
+  delivered: { text: 'delivered' },
+  failed: { text: 'not delivered', alarm: true },
+  undelivered: { text: 'not delivered', alarm: true },
+}
+function statusOf(m) {
+  return m.direction === 'out' ? STATUS[m.status] || null : null
+}
+
 async function load() {
   try {
     const got = await takChat.messages(props.crew.uid)
@@ -76,9 +91,10 @@ onUnmounted(() => clearInterval(poll))
       <li v-for="m in messages" :key="m.id" class="text-[13px]">
         <span class="block text-xs text-ms-muted">
           {{ m.direction === 'out' ? 'Sent' : crew.callsign }}, {{ ago(m.created_at) }}
-          <template v-if="m.status === 'failed'">, <span class="text-ms-error">not sent</span></template>
+          <template v-if="statusOf(m)">, <span :class="statusOf(m).alarm ? 'text-ms-error' : ''">{{ statusOf(m).text }}</span></template>
         </span>
         <span class="block text-ms-text break-words">{{ m.text }}</span>
+        <span v-if="statusOf(m) && m.status_detail" class="block text-xs break-words" :class="statusOf(m).alarm ? 'text-ms-error' : 'text-ms-muted'" data-testid="crew-chat-status-detail">{{ m.status_detail }}</span>
       </li>
     </ul>
     <form class="px-3 py-2 border-t border-ms-border" @submit.prevent="send">

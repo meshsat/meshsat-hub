@@ -168,6 +168,36 @@ func TestABridgeMayExportCoTOnItsOwnSubtreeAndNowhereElse(t *testing.T) {
 	}
 }
 
+// A chat's status (MESHSAT-1746) rides the bridge's own subtree like the
+// export: publishable by the bridge it names and by nobody else, in its own
+// tenant only, and not in the Hub-only deny list (tak/cot/in is, as the
+// positive control).
+func TestABridgeMayReportChatStatusOnItsOwnSubtreeOnly(t *testing.T) {
+	subject := func(topic string) string { return strings.ReplaceAll(topic, "/", ".") }
+	for _, c := range []struct{ ns, tenant, otherTenant string }{
+		{"meshsat", hubmqtt.DefaultTenant, "t_x"},
+		{"meshsat/t_x", "t_x", hubmqtt.DefaultTenant},
+	} {
+		pub, _ := NATSPermissions(c.ns, "b1")
+		if !anyMatches(pub, subject(hubmqtt.TopicTAKChatStatusFor(c.tenant, "b1"))) {
+			t.Errorf("%s: a bridge may not publish its own chat status topic", c.ns)
+		}
+		if anyMatches(pub, subject(hubmqtt.TopicTAKChatStatusFor(c.tenant, "b2"))) {
+			t.Errorf("%s: a bridge may publish ANOTHER bridge's chat status", c.ns)
+		}
+		if anyMatches(pub, subject(hubmqtt.TopicTAKChatStatusFor(c.otherTenant, "b1"))) {
+			t.Errorf("%s: a bridge may publish a chat status in another tenant's namespace", c.ns)
+		}
+		deny := NATSPublishDeny(c.ns, "b1")
+		if anyMatches(deny, subject(hubmqtt.TopicTAKChatStatusFor(c.tenant, "b1"))) {
+			t.Errorf("%s: the bridge's own chat status is denied; the Hub would never hear it", c.ns)
+		}
+		if !anyMatches(deny, subject(hubmqtt.TopicTAKCotInFor(c.tenant, "b1"))) {
+			t.Errorf("%s: positive control: tak/cot/in is not denied", c.ns)
+		}
+	}
+}
+
 // The return path (MESHSAT-1461): a bridge may read its OWN tenant's TAK
 // broadcast, both topics, and nobody else's.
 func TestABridgeMaySubscribeOnlyItsOwnTenantsTAKBroadcast(t *testing.T) {
