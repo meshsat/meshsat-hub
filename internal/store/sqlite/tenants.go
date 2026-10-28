@@ -14,12 +14,12 @@ import (
 
 // --- Tenants (MESHSAT-916) ---
 
-const tenantCols = "id, slug, name, owner_user_id, plan, status, created_at, updated_at, deleted_at, plan_expires_at, kofi_claim_code, kofi_payer_email, kofi_last_message_id, lapse_warned_at, billing_country, billing_country_evidence, stripe_customer_id, stripe_subscription_id, bridge_offline_timeout, audit_retention_days, ratelimit_daily_cap, ratelimit_monthly_cap, oob_max_per_hour, oob_sms_timeout_sec, oob_sat_timeout_sec, person_chat_mode"
+const tenantCols = "id, slug, name, owner_user_id, plan, status, created_at, updated_at, deleted_at, plan_expires_at, kofi_claim_code, kofi_payer_email, kofi_last_message_id, lapse_warned_at, billing_country, billing_country_evidence, stripe_customer_id, stripe_subscription_id, bridge_offline_timeout, audit_retention_days, ratelimit_daily_cap, ratelimit_monthly_cap, oob_max_per_hour, oob_sms_timeout_sec, oob_sat_timeout_sec, person_chat_mode, crew_chat_satellite, crew_chat_sms_off, crew_chat_force_bearer"
 
 func scanTenant(sc interface{ Scan(...any) error }) (store.Tenant, error) {
 	var t store.Tenant
 	var created, updated, deleted, expires, warned string
-	if err := sc.Scan(&t.ID, &t.Slug, &t.Name, &t.OwnerUserID, &t.Plan, &t.Status, &created, &updated, &deleted, &expires, &t.KofiClaimCode, &t.KofiPayerEmail, &t.KofiLastMessageID, &warned, &t.BillingCountry, &t.BillingCountryEvidence, &t.StripeCustomerID, &t.StripeSubscriptionID, &t.BridgeOfflineTimeout, &t.AuditRetentionDays, &t.RatelimitDailyCap, &t.RatelimitMonthlyCap, &t.OOBMaxPerHour, &t.OOBSMSTimeoutSec, &t.OOBSatTimeoutSec, &t.PersonChatMode); err != nil {
+	if err := sc.Scan(&t.ID, &t.Slug, &t.Name, &t.OwnerUserID, &t.Plan, &t.Status, &created, &updated, &deleted, &expires, &t.KofiClaimCode, &t.KofiPayerEmail, &t.KofiLastMessageID, &warned, &t.BillingCountry, &t.BillingCountryEvidence, &t.StripeCustomerID, &t.StripeSubscriptionID, &t.BridgeOfflineTimeout, &t.AuditRetentionDays, &t.RatelimitDailyCap, &t.RatelimitMonthlyCap, &t.OOBMaxPerHour, &t.OOBSMSTimeoutSec, &t.OOBSatTimeoutSec, &t.PersonChatMode, &t.CrewChatSatellite, &t.CrewChatSMSOff, &t.CrewChatForceBearer); err != nil {
 		return t, err
 	}
 	t.CreatedAt, t.UpdatedAt = parseTime(created), parseTime(updated)
@@ -106,8 +106,8 @@ func (d *DB) UpdateTenant(ctx context.Context, t *store.Tenant) error {
 		return err
 	}
 	t.UpdatedAt = time.Now().UTC()
-	_, err := d.db.ExecContext(ctx, `UPDATE tenants SET slug=?, name=?, owner_user_id=?, plan=?, status=?, updated_at=?, deleted_at=?, plan_expires_at=?, kofi_claim_code=?, kofi_payer_email=?, kofi_last_message_id=?, lapse_warned_at=?, billing_country=?, billing_country_evidence=?, stripe_customer_id=?, stripe_subscription_id=?, bridge_offline_timeout=?, audit_retention_days=?, ratelimit_daily_cap=?, ratelimit_monthly_cap=?, oob_max_per_hour=?, oob_sms_timeout_sec=?, oob_sat_timeout_sec=?, person_chat_mode=? WHERE id=?`,
-		t.Slug, t.Name, t.OwnerUserID, t.Plan, t.Status, fmtTime(t.UpdatedAt), fmtTimePtr(t.DeletedAt), fmtTimePtr(t.PlanExpiresAt), t.KofiClaimCode, t.KofiPayerEmail, t.KofiLastMessageID, fmtTimePtr(t.LapseWarnedAt), t.BillingCountry, t.BillingCountryEvidence, t.StripeCustomerID, t.StripeSubscriptionID, t.BridgeOfflineTimeout, t.AuditRetentionDays, t.RatelimitDailyCap, t.RatelimitMonthlyCap, t.OOBMaxPerHour, t.OOBSMSTimeoutSec, t.OOBSatTimeoutSec, t.PersonChatMode, t.ID)
+	_, err := d.db.ExecContext(ctx, `UPDATE tenants SET slug=?, name=?, owner_user_id=?, plan=?, status=?, updated_at=?, deleted_at=?, plan_expires_at=?, kofi_claim_code=?, kofi_payer_email=?, kofi_last_message_id=?, lapse_warned_at=?, billing_country=?, billing_country_evidence=?, stripe_customer_id=?, stripe_subscription_id=?, bridge_offline_timeout=?, audit_retention_days=?, ratelimit_daily_cap=?, ratelimit_monthly_cap=?, oob_max_per_hour=?, oob_sms_timeout_sec=?, oob_sat_timeout_sec=?, person_chat_mode=?, crew_chat_satellite=?, crew_chat_sms_off=?, crew_chat_force_bearer=? WHERE id=?`,
+		t.Slug, t.Name, t.OwnerUserID, t.Plan, t.Status, fmtTime(t.UpdatedAt), fmtTimePtr(t.DeletedAt), fmtTimePtr(t.PlanExpiresAt), t.KofiClaimCode, t.KofiPayerEmail, t.KofiLastMessageID, fmtTimePtr(t.LapseWarnedAt), t.BillingCountry, t.BillingCountryEvidence, t.StripeCustomerID, t.StripeSubscriptionID, t.BridgeOfflineTimeout, t.AuditRetentionDays, t.RatelimitDailyCap, t.RatelimitMonthlyCap, t.OOBMaxPerHour, t.OOBSMSTimeoutSec, t.OOBSatTimeoutSec, t.PersonChatMode, t.CrewChatSatellite, t.CrewChatSMSOff, t.CrewChatForceBearer, t.ID)
 	return err
 }
 
@@ -245,7 +245,7 @@ func (d *DB) ListTenantSummaries(ctx context.Context) ([]store.TenantSummary, er
 		var ts store.TenantSummary
 		var created, updated, deleted, expires, warned string
 		t := &ts.Tenant
-		if err := rows.Scan(&t.ID, &t.Slug, &t.Name, &t.OwnerUserID, &t.Plan, &t.Status, &created, &updated, &deleted, &expires, &t.KofiClaimCode, &t.KofiPayerEmail, &t.KofiLastMessageID, &warned, &t.BillingCountry, &t.BillingCountryEvidence, &t.StripeCustomerID, &t.StripeSubscriptionID, &t.BridgeOfflineTimeout, &t.AuditRetentionDays, &t.RatelimitDailyCap, &t.RatelimitMonthlyCap, &t.OOBMaxPerHour, &t.OOBSMSTimeoutSec, &t.OOBSatTimeoutSec, &t.PersonChatMode,
+		if err := rows.Scan(&t.ID, &t.Slug, &t.Name, &t.OwnerUserID, &t.Plan, &t.Status, &created, &updated, &deleted, &expires, &t.KofiClaimCode, &t.KofiPayerEmail, &t.KofiLastMessageID, &warned, &t.BillingCountry, &t.BillingCountryEvidence, &t.StripeCustomerID, &t.StripeSubscriptionID, &t.BridgeOfflineTimeout, &t.AuditRetentionDays, &t.RatelimitDailyCap, &t.RatelimitMonthlyCap, &t.OOBMaxPerHour, &t.OOBSMSTimeoutSec, &t.OOBSatTimeoutSec, &t.PersonChatMode, &t.CrewChatSatellite, &t.CrewChatSMSOff, &t.CrewChatForceBearer,
 			&ts.OwnerEmail, &ts.Users, &ts.Devices, &ts.Bridges); err != nil {
 			return nil, err
 		}

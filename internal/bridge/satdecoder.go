@@ -45,6 +45,14 @@ type SatIfaceStatus struct {
 	Signal byte // 0-5
 }
 
+// A crew's answer and a kit's word on a dispatcher's chat, sent as frames
+// when the kit is off MQTT (MESHSAT-1744, internal/takchat: C2 and C3). The
+// sink hands the payload to the crew chat service, which reads it.
+const (
+	SatMsgCrewAnswer byte = 0x43
+	SatMsgCrewStatus byte = 0x44
+)
+
 // Errors returned by the decoder.
 var (
 	ErrSatTooShort   = errors.New("satdecoder: data too short")

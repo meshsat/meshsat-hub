@@ -515,6 +515,9 @@ type Store interface {
 	// undelivered). It answers the row as it is after the write, nil when no
 	// row matched.
 	SetTAKChatMessageOutcome(ctx context.Context, tenantID, bridgeID, id, status, detail string) (*TAKChatMessage, error)
+	// GetTAKChatMessage reads one message by its id; nil, nil when there is
+	// none in the tenant (MESHSAT-1744: a kit's frame names the message).
+	GetTAKChatMessage(ctx context.Context, tenantID, id string) (*TAKChatMessage, error)
 	ListTAKChatMessages(ctx context.Context, tenantID, crewUID string, limit int) ([]TAKChatMessage, error)
 	// Matrix bridge (MESHSAT-1736): who wrote to a crew from which Matrix room,
 	// so the crew's answer goes back there, and where the tenant's bot left off
@@ -1172,6 +1175,17 @@ type Tenant struct {
 	// tenant's own Twilio and mail accounts and the replies cost its own
 	// satellite credit, so the choice is the tenant's.
 	PersonChatMode string `json:"person_chat_mode,omitempty"`
+	// Crew chat off MQTT (MESHSAT-1744): how a dispatcher's chat reaches a
+	// kit that is not on MQTT. CrewChatSatellite lets it go as a satellite
+	// MT on the tenant's own Cloudloop or Rock7 account (dollars; off
+	// unless the owner turns it on); CrewChatSMSOff stops the SMS to the
+	// kit's SIM from the Hub's number (cents; on unless turned off).
+	// CrewChatForceBearer ("", "mqtt", "satellite", "sms") makes every chat
+	// take that bearer whatever the kit's state: a test's setting, cleared
+	// after.
+	CrewChatSatellite   bool   `json:"crew_chat_satellite,omitempty"`
+	CrewChatSMSOff      bool   `json:"crew_chat_sms_off,omitempty"`
+	CrewChatForceBearer string `json:"crew_chat_force_bearer,omitempty"`
 	// PlanExpiresAt is when a paid tier lapses back to free. nil means the
 	// plan does not expire, which is what free, custom and beta are.
 	//
@@ -1441,6 +1455,9 @@ type TAKContact struct {
 // StatusDetail one line for the dispatcher. ClientRef is the sender's
 // idempotency key as given ("matrix:<event id>" from a Matrix room), kept so
 // the bridge's word can be put beside the message where it was written.
+// Bearer is how an "out" message reached the kit, or an "in" answer came
+// back (MESHSAT-1744): "mqtt", "sbd", "imt" or "sms"; "" for a row from
+// before, or an answer that came on tak/cot/out.
 type TAKChatMessage struct {
 	TenantID     string    `json:"-"`
 	ID           string    `json:"id"`
@@ -1453,6 +1470,7 @@ type TAKChatMessage struct {
 	Status       string    `json:"status"`
 	StatusDetail string    `json:"status_detail,omitempty"`
 	ClientRef    string    `json:"-"`
+	Bearer       string    `json:"bearer,omitempty"`
 	CreatedAt    time.Time `json:"created_at"`
 }
 

@@ -744,6 +744,12 @@ var lateAlterMigrations = []string{
 	// migration 52.
 	`ALTER TABLE warnings ADD COLUMN raw TEXT NOT NULL DEFAULT ''`,
 	`ALTER TABLE warnings ADD COLUMN superseded_by TEXT NOT NULL DEFAULT ''`,
+	// MESHSAT-1744: how a message reached the kit or came back, and the
+	// tenant's crew chat choices; mirrors postgres migration 52.
+	`ALTER TABLE tak_chat_messages ADD COLUMN bearer TEXT NOT NULL DEFAULT ''`,
+	`ALTER TABLE tenants ADD COLUMN crew_chat_satellite INTEGER NOT NULL DEFAULT 0`,
+	`ALTER TABLE tenants ADD COLUMN crew_chat_sms_off INTEGER NOT NULL DEFAULT 0`,
+	`ALTER TABLE tenants ADD COLUMN crew_chat_force_bearer TEXT NOT NULL DEFAULT ''`,
 }
 
 // --- Devices ---

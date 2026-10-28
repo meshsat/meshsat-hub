@@ -194,7 +194,8 @@ func rig(t *testing.T) *rigged {
 	now := time.Now().UTC()
 	for tenant, kit := range map[string]string{"t1": "kit-a", store.DefaultTenantID: "kit-v"} {
 		_ = db.CreateTenant(ctx, &store.Tenant{ID: tenant, Slug: tenant, Name: tenant, Status: store.TenantActive})
-		if err := db.CreateOrUpdateBridge(ctx, tenant, &store.Bridge{BridgeID: kit, Label: kit}); err != nil {
+		// On MQTT, seen now (MESHSAT-1744 sends a kit off MQTT a frame instead).
+		if err := db.CreateOrUpdateBridge(ctx, tenant, &store.Bridge{BridgeID: kit, Label: kit, Online: true}); err != nil {
 			t.Fatal(err)
 		}
 	}

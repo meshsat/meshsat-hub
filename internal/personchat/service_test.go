@@ -797,6 +797,9 @@ func (f *fakeStore) SetTAKChatMessageStatus(context.Context, string, string, str
 func (f *fakeStore) SetTAKChatMessageOutcome(context.Context, string, string, string, string, string) (*store.TAKChatMessage, error) {
 	return nil, nil
 }
+func (f *fakeStore) GetTAKChatMessage(context.Context, string, string) (*store.TAKChatMessage, error) {
+	return nil, nil
+}
 func (f *fakeStore) ListTAKChatMessages(context.Context, string, string, int) ([]store.TAKChatMessage, error) {
 	return nil, nil
 }

@@ -1516,6 +1516,15 @@ func main() {
 		slog.Info("msvqsc: decoder not available (Android compression won't decode)", "error", err)
 	}
 
+	// Dispatcher-to-crew chat (MESHSAT-1706): an operator writes to one crew from
+	// the map, and the crew's answer is kept. The answers are stored by every
+	// replica (one row per answer); the send runs on whichever replica the
+	// request reached. Operator: a message is a transmission on a crew's radio.
+	// Built here because the satellite and SMS webhooks below hand it the
+	// frames a kit off MQTT answers with (MESHSAT-1744); its bearers and
+	// hooks are set further down.
+	takChatSvc := takchat.New(dataStore, msgBus, cfg.TAKChatEnabled, slog.Default())
+
 	// RockBLOCK webhook handler.
 	rbHandler := rockblock.NewHandler(msgBus, cfg.RockBLOCKSecret)
 	// Stated at startup either way, so the log says which of the two postures
@@ -1530,6 +1539,7 @@ func main() {
 	}
 	rbHandler.SetTenants(tenants)
 	rbHandler.SetSOSRuns(sosRuns)
+	rbHandler.SetCrewChat(takChatSvc)
 	rbHandler.SetAccounts(providerAccounts)
 	rbHandler.SetAudit(auditSvc)
 	rbHandler.SetDedup(dedupTracker)
@@ -1563,6 +1573,49 @@ func main() {
 		_, err := client.SendMT(ctx, imei, hex.EncodeToString([]byte(text)))
 		return err
 	}
+	// Bytes to one modem as an MT, verbatim: IMT on the tenant's Cloudloop
+	// account (raw topic), SBD on its Rock7 account. The warning relay's
+	// digests and the crew chat's frames (MESHSAT-1734, MESHSAT-1744).
+	sendRawMT := func(ctx context.Context, tenantID, imei string, wire []byte) error {
+		if _, imt := thingResolver.Resolve(tenantID, imei); imt {
+			_, err := mtSender.SendDirect(imei, cloudloop.MTSendRequest{WireB64: base64.StdEncoding.EncodeToString(wire), IMTTopic: cloudloop.IMTTopicRaw})
+			return err
+		}
+		client := rock7Pool.ForTenant(ctx, tenantID)
+		if client == nil {
+			return fmt.Errorf("no Rock7 account configured for tenant %s", tenantID)
+		}
+		_, err := client.SendMT(ctx, imei, hex.EncodeToString(wire))
+		return err
+	}
+	// How a dispatcher's chat reaches a kit off MQTT (MESHSAT-1744): a
+	// frame as a satellite MT when the workspace pays for it, else an SMS
+	// to the kit's SIM from the Hub's number (the booth's sender: the kit
+	// takes that number as a plaintext peer and answers to it). A kit's
+	// reply and its word on the chat come back as frames through the three
+	// webhooks above. The tenant's offline timeout is its own choice within
+	// the platform's bounds, as the reaper applies it.
+	crewBearers := takchat.Bearers{
+		SendMT: sendRawMT,
+		IsIMT:  func(tenantID, imei string) bool { _, imt := thingResolver.Resolve(tenantID, imei); return imt },
+		OfflineTimeout: func(t *store.Tenant) time.Duration {
+			secs := cfg.BridgeOfflineTimeout
+			if t != nil && t.BridgeOfflineTimeout > 0 {
+				secs = t.BridgeOfflineTimeout
+				if cfg.BridgeOfflineTimeoutMin > 0 && secs < cfg.BridgeOfflineTimeoutMin {
+					secs = cfg.BridgeOfflineTimeoutMin
+				}
+				if cfg.BridgeOfflineTimeoutMax > 0 && secs > cfg.BridgeOfflineTimeoutMax {
+					secs = cfg.BridgeOfflineTimeoutMax
+				}
+			}
+			return time.Duration(secs) * time.Second
+		},
+	}
+	if smsPlatform != nil {
+		crewBearers.SendSMS = smsKitSender{store: dataStore, c: smsPlatform}.SendToKit
+	}
+	takChatSvc.SetBearers(crewBearers)
 
 	// The "@" lane (internal/personchat, MESHSAT-1685): a tenant's modem
 	// writes "@+31612345678 text" or "@ops@example.org text", the Hub sends it
@@ -1642,6 +1695,7 @@ func main() {
 	clHandler := cloudloop.NewWebhookHandler(msgBus)
 	clHandler.SetTenants(tenants)
 	clHandler.SetSOSRuns(sosRuns)
+	clHandler.SetCrewChat(takChatSvc)
 	clHandler.SetAccounts(providerAccounts)
 	clHandler.SetOOB(oobSvc)
 	clHandler.SetAudit(auditSvc)
@@ -2370,6 +2424,7 @@ func main() {
 			h.SetInboundAuthToken(cfg.SMSInboundAuthToken)
 			h.SetTenants(tenants)
 			h.SetSOSRuns(sosRuns)
+			h.SetCrewChat(takChatSvc)
 			h.SetAccounts(providerAccounts)
 			h.SetOOB(oobSvc)
 			h.SetStore(dataStore)
@@ -2934,11 +2989,6 @@ func main() {
 		// Operator: this transmits a command to a field bridge (MESHSAT-1189).
 		r.With(hubauth.RequireRole(hubauth.RoleOperator)).Post("/api/bridges/{id}/command", bridgeCmdHandler.SendCommand)
 	}
-	// Dispatcher-to-crew chat (MESHSAT-1706): an operator writes to one crew from
-	// the map, and the crew's answer is kept. The answers are stored by every
-	// replica (one row per answer); the send runs on whichever replica the
-	// request reached. Operator: a message is a transmission on a crew's radio.
-	takChatSvc := takchat.New(dataStore, msgBus, cfg.TAKChatEnabled, slog.Default())
 	// The Matrix bridge (MESHSAT-1736): a tenant's dispatchers write to crews
 	// from their own Matrix rooms through the same chat. One reader per
 	// tenant's bot on the leader; a crew's answer is posted into the room by
@@ -2964,18 +3014,7 @@ func main() {
 	// on its Rock7 account, the digest bytes verbatim (WireB64, raw topic).
 	var warningsSvc *warnings.Service
 	if cfg.WarningsEnabled {
-		sendWarningMT := func(ctx context.Context, tenantID, imei string, wire []byte) error {
-			if _, imt := thingResolver.Resolve(tenantID, imei); imt {
-				_, err := mtSender.SendDirect(imei, cloudloop.MTSendRequest{WireB64: base64.StdEncoding.EncodeToString(wire), IMTTopic: cloudloop.IMTTopicRaw})
-				return err
-			}
-			client := rock7Pool.ForTenant(ctx, tenantID)
-			if client == nil {
-				return fmt.Errorf("no Rock7 account configured for tenant %s", tenantID)
-			}
-			_, err := client.SendMT(ctx, imei, hex.EncodeToString(wire))
-			return err
-		}
+		sendWarningMT := sendRawMT
 		fetcher := &warnings.Fetcher{Client: warnings.NewFeedClient(60 * time.Second)}
 		var feeds []warnings.Feed
 		if cfg.WarningsDWDURL != "" {

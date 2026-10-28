@@ -104,6 +104,7 @@ type WebhookPositionMessage struct {
 type WebhookHandler struct {
 	tenants         *tenancy.Resolver // device → tenant for topic namespaces; nil = default tenant
 	sosRuns         bridge.SOSRuns    // C10 SOS frames 0x07/0x08; nil = the old path only
+	crewChat        bridge.CrewChat   // MESHSAT-1744 crew chat frames 0x43/0x44; nil = logged and dropped
 	mqtt            bus.MessageBus
 	audit           *audit.Service
 	dedup           dedup.Dedup
@@ -184,7 +185,7 @@ func (h *WebhookHandler) uplinkSink() *bridge.UplinkSink {
 	if h.store != nil {
 		st = h.store
 	}
-	return bridge.NewUplinkSink(st, h.publish, h.audit, "cloudloop_webhook").SetTenants(h.tenants).SetSOSRuns(h.sosRuns)
+	return bridge.NewUplinkSink(st, h.publish, h.audit, "cloudloop_webhook").SetTenants(h.tenants).SetSOSRuns(h.sosRuns).SetCrewChat(h.crewChat)
 }
 
 // ackToBridge publishes the receipt for an MO on the owning bridge's own topic,
@@ -825,6 +826,10 @@ func (h *WebhookHandler) SetTenants(r *tenancy.Resolver) { h.tenants = r }
 
 // SetSOSRuns lets satellite frames raise and cancel SOS runs (HeMB-NG C10).
 func (h *WebhookHandler) SetSOSRuns(r bridge.SOSRuns) { h.sosRuns = r }
+
+// SetCrewChat lets frames a kit sends over this bearer carry a crew's answer
+// and the kit's word on a dispatcher's chat (MESHSAT-1744).
+func (h *WebhookHandler) SetCrewChat(c bridge.CrewChat) { h.crewChat = c }
 
 // tenantOf is the tenant every row and topic for this message uses. On a
 // tenant's own webhook path it is that tenant, already checked to own the

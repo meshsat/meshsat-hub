@@ -24,6 +24,8 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/sha256"
+	"database/sql"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -79,11 +81,27 @@ var statusTotal = promauto.NewCounterVec(prometheus.CounterOpts{
 	Help: "Kits' words on what became of a dispatcher's chat, by status; refused is one the Hub did not record (MESHSAT-1746).",
 }, []string{"status"})
 
+// sentTotal counts messages by the bearer they left on, and frames that came
+// back by bearer and kind (MESHSAT-1744).
+var sentTotal = promauto.NewCounterVec(prometheus.CounterOpts{
+	Name: "meshsat_hub_takchat_sent_total",
+	Help: "Dispatchers' chats handed to kits, by bearer and result (MESHSAT-1744).",
+}, []string{"bearer", "result"})
+
+var frameTotal = promauto.NewCounterVec(prometheus.CounterOpts{
+	Name: "meshsat_hub_takchat_frame_total",
+	Help: "Crew chat frames a kit sent over satellite or SMS, by bearer, kind (answer, status) and result (MESHSAT-1744).",
+}, []string{"bearer", "kind", "result"})
+
 func init() {
 	for s := range kitStatuses {
 		statusTotal.WithLabelValues(s)
 	}
 	statusTotal.WithLabelValues("refused")
+	for _, b := range []string{BearerMQTT, BearerSBD, BearerIMT, BearerSMS} {
+		sentTotal.WithLabelValues(b, "sent")
+		sentTotal.WithLabelValues(b, "failed")
+	}
 }
 
 // The ways a send is refused; the API maps each to a status.
@@ -111,6 +129,7 @@ type Service struct {
 	log      *slog.Logger
 	enabled  bool
 	now      func() time.Time
+	bearers  Bearers
 	replies  chan reply
 	statuses chan reply
 	onReply  func(ctx context.Context, m *store.TAKChatMessage)
@@ -185,8 +204,37 @@ func (s *Service) Send(ctx context.Context, req SendRequest) (*store.TAKChatMess
 	if now.Sub(crew.LastSeen) > crewFresh {
 		return nil, false, ErrStale
 	}
-	if b, err := s.store.GetBridge(ctx, req.TenantID, crew.BridgeID); err != nil || b == nil {
+	b, err := s.store.GetBridge(ctx, req.TenantID, crew.BridgeID)
+	if err != nil || b == nil {
 		return nil, false, ErrUnregistered
+	}
+	// How it goes (MESHSAT-1744): MQTT while the kit is on it, else a frame
+	// on a bearer the workspace allows. Decided, and the frame built and
+	// measured, before anything is stored, so a refusal stores nothing.
+	tenant, err := s.store.GetTenant(ctx, req.TenantID)
+	if err != nil {
+		return nil, false, err
+	}
+	op := OperatorPeer(req.UserID, req.Name)
+	id := messageID(req.TenantID, req.UserID, req.ClientRef)
+	pick, err := s.chooseBearer(ctx, tenant, b, now)
+	if err != nil {
+		return nil, false, err
+	}
+	var frame []byte
+	if pick.Bearer != BearerMQTT {
+		node, toKit, ok := CrewNode(crew.UID)
+		if !ok {
+			return nil, false, fmt.Errorf("%w (%s cannot be named in a frame)", ErrNoBearer, crew.UID)
+		}
+		frame, err = EncodeChat(Chat{MessageID: id, Node: node, ToKit: toKit, ReplyHere: pick.Forced,
+			OperatorUID: op.UID, Callsign: op.Callsign, Text: text})
+		if err != nil {
+			return nil, false, err
+		}
+		if n := MaxFrame(pick.Bearer); len(frame) > n {
+			return nil, false, fmt.Errorf("%w: %d bytes as a frame, %s carries %d", ErrFrameTooLong, len(frame), pick.Bearer, n)
+		}
 	}
 	// The ceilings hold across both replicas: one statement per bucket.
 	if ok, err := s.store.TakePersonChatSlot(ctx, req.TenantID,
@@ -202,8 +250,6 @@ func (s *Service) Send(ctx context.Context, req SendRequest) (*store.TAKChatMess
 		return nil, false, ErrLimited
 	}
 
-	op := OperatorPeer(req.UserID, req.Name)
-	id := messageID(req.TenantID, req.UserID, req.ClientRef)
 	ev := tak.BuildGeoChat(op, tak.ChatPeer{UID: crew.UID, Callsign: crew.Callsign}, text, id, now)
 	xml, err := tak.MarshalCotEvent(ev)
 	if err != nil {
@@ -211,7 +257,8 @@ func (s *Service) Send(ctx context.Context, req SendRequest) (*store.TAKChatMess
 	}
 	msg := &store.TAKChatMessage{
 		TenantID: req.TenantID, ID: id, CrewUID: crew.UID, OperatorUID: op.UID, UserID: req.UserID,
-		Direction: "out", Text: text, BridgeID: crew.BridgeID, Status: "sent", ClientRef: req.ClientRef, CreatedAt: now,
+		Direction: "out", Text: text, BridgeID: crew.BridgeID, Status: "sent", ClientRef: req.ClientRef,
+		Bearer: pick.Bearer, CreatedAt: now,
 	}
 	created, err := s.store.SaveTAKChatMessage(ctx, msg)
 	if err != nil {
@@ -220,15 +267,63 @@ func (s *Service) Send(ctx context.Context, req SendRequest) (*store.TAKChatMess
 	if !created {
 		return msg, false, nil
 	}
-	if err := s.bus.Publish(hubmqtt.TopicTAKCotInFor(req.TenantID, crew.BridgeID), 1, false, xml); err != nil {
-		const detail = "the message could not be handed to the kit"
+	fail := func(detail string, err error) (*store.TAKChatMessage, bool, error) {
 		_ = s.store.SetTAKChatMessageStatus(ctx, req.TenantID, id, "failed", detail)
 		msg.Status, msg.StatusDetail = "failed", detail
-		s.log.Warn("takchat: a message to a crew could not be published",
-			"tenant", req.TenantID, "bridge", crew.BridgeID, "error", err)
+		sentTotal.WithLabelValues(pick.Bearer, "failed").Inc()
+		s.log.Warn("takchat: a message to a crew could not be sent",
+			"tenant", req.TenantID, "bridge", crew.BridgeID, "bearer", pick.Bearer, "error", err)
 		return msg, true, ErrPublish
 	}
+	if pick.Bearer == BearerMQTT {
+		if err := s.bus.Publish(hubmqtt.TopicTAKCotInFor(req.TenantID, crew.BridgeID), 1, false, xml); err != nil {
+			return fail("the message could not be handed to the kit", err)
+		}
+		sentTotal.WithLabelValues(BearerMQTT, "sent").Inc()
+		return msg, true, nil
+	}
+	// A frame bearer costs money: claimed once per message and bearer, so a
+	// retry of this request on any replica sends nothing more.
+	if ok, err := s.store.ClaimOnce(ctx, "takchat:out:"+req.TenantID+":"+id+":"+pick.Bearer); err != nil {
+		return fail("the send could not be claimed", err)
+	} else if !ok {
+		return msg, true, nil
+	}
+	switch pick.Bearer {
+	case BearerSMS:
+		err = s.bearers.SendSMS(ctx, req.TenantID, crew.BridgeID, base64.StdEncoding.EncodeToString(frame))
+	default:
+		err = s.bearers.SendMT(ctx, req.TenantID, pick.IMEI, frame)
+	}
+	if err != nil {
+		return fail("the message could not be sent over "+bearerName(pick.Bearer)+": "+clipDetail(err.Error()), err)
+	}
+	sentTotal.WithLabelValues(pick.Bearer, "sent").Inc()
+	s.log.Info("takchat: a message to a crew went as a frame", "tenant", req.TenantID, "bridge", crew.BridgeID,
+		"bearer", pick.Bearer, "bytes", len(frame), "forced", pick.Forced)
 	return msg, true, nil
+}
+
+// bearerName is a bearer as a person reads it.
+func bearerName(bearer string) string {
+	switch bearer {
+	case BearerSBD, BearerIMT:
+		return "satellite"
+	case BearerSMS:
+		return "SMS"
+	}
+	return bearer
+}
+
+// IsSatellite reports whether a bearer is a satellite modem's.
+func IsSatellite(bearer string) bool { return bearer == BearerSBD || bearer == BearerIMT }
+
+func clipDetail(s string) string {
+	s = strings.TrimSpace(s)
+	if utf8.RuneCountInString(s) <= statusDetailMax {
+		return s
+	}
+	return string([]rune(s)[:statusDetailMax])
 }
 
 // OperatorPeer is the TAK identity an operator writes under: a uid the Hub
@@ -439,8 +534,20 @@ func (s *Service) store1(ctx context.Context, r reply) {
 		if !ok {
 			continue
 		}
+		operatorUID := d.UID
+		// A kit that was written to over satellite or SMS knows the
+		// operator by hash alone (MESHSAT-1744): the operator it stands
+		// for is the one who last wrote to this crew under that hash.
+		if h, hashed := HashFromOperatorUID(d.UID); hashed {
+			real, found := s.operatorFromHash(ctx, tenantID, crewUID, h)
+			if !found {
+				s.log.Info("takchat: an answer names an operator hash nobody wrote to this crew under", "tenant", tenantID, "crew", crewUID)
+				return
+			}
+			operatorUID, userID = real, strings.TrimPrefix(real, tak.OperatorUIDPrefix)
+		}
 		msg := &store.TAKChatMessage{
-			TenantID: tenantID, ID: id, CrewUID: crewUID, OperatorUID: d.UID, UserID: userID,
+			TenantID: tenantID, ID: id, CrewUID: crewUID, OperatorUID: operatorUID, UserID: userID,
 			Direction: "in", Text: text, BridgeID: bridgeID, Status: "received", CreatedAt: now,
 		}
 		created, err := s.store.SaveTAKChatMessage(ctx, msg)
@@ -453,4 +560,145 @@ func (s *Service) store1(ctx context.Context, r reply) {
 		}
 		return
 	}
+}
+
+// --- the frames a kit sends back (MESHSAT-1744) ------------------------------
+
+// operatorFromHash finds the operator who last wrote to crewUID under hash h:
+// the newest "out" message to that crew whose operator uid hashes to it.
+func (s *Service) operatorFromHash(ctx context.Context, tenantID, crewUID string, h [8]byte) (string, bool) {
+	msgs, err := s.store.ListTAKChatMessages(ctx, tenantID, crewUID, 100)
+	if err != nil {
+		return "", false
+	}
+	for i := len(msgs) - 1; i >= 0; i-- {
+		if msgs[i].Direction == "out" && OperatorHash(msgs[i].OperatorUID) == h {
+			return msgs[i].OperatorUID, true
+		}
+	}
+	return "", false
+}
+
+// question finds the "out" message a kit's frame names and checks that the
+// frame came from the kit it was handed to: over a satellite modem, the
+// modem must belong to that bridge; over SMS, the sender must be the kit's
+// number when one is on file (the message id, 128 random bits, is the
+// capability otherwise, as the "@" lane's ref is). why is non-empty when the
+// frame is refused.
+func (s *Service) question(ctx context.Context, tenantID, bearer, origin, messageID string, node uint32) (*store.TAKChatMessage, string) {
+	msg, err := s.store.GetTAKChatMessage(ctx, tenantID, messageID)
+	if err != nil {
+		return nil, "lookup failed: " + err.Error()
+	}
+	if msg == nil || msg.Direction != "out" || msg.BridgeID == "" {
+		return nil, "no message of this id was handed to a kit of this tenant"
+	}
+	if crewNode, _, ok := CrewNode(msg.CrewUID); !ok || crewNode != node {
+		return nil, "the frame's node is not the message's crew"
+	}
+	switch bearer {
+	case BearerSMS:
+		peer, err := s.store.GetOOBPeer(ctx, tenantID, msg.BridgeID)
+		if err != nil && !errors.Is(err, sql.ErrNoRows) {
+			return nil, "the kit's pairing could not be read"
+		}
+		if peer != nil && peer.Phone != "" && peer.Phone != origin {
+			return nil, "the SMS came from " + origin + ", the kit's number is on file as another"
+		}
+	default:
+		owner, err := s.store.DeviceBridgeID(ctx, tenantID, origin)
+		if err != nil || owner != msg.BridgeID {
+			return nil, "modem " + origin + " does not belong to the kit the message was handed to"
+		}
+	}
+	return msg, ""
+}
+
+// CrewAnswer takes a C2 frame's payload (bridge.UplinkSink): the crew's
+// answer to one question, stored as the answer a kit sends over MQTT is,
+// under an id both replicas derive the same way, and handed to the reply
+// hook. It answers the bridge the frame is taken as, "" when refused.
+func (s *Service) CrewAnswer(ctx context.Context, tenantID, bearer, origin string, payload []byte) string {
+	if !s.Enabled() {
+		return ""
+	}
+	refuse := func(why string, args ...any) string {
+		frameTotal.WithLabelValues(bearer, "answer", "refused").Inc()
+		s.log.Warn("takchat: a crew's answer frame was not taken: "+why,
+			append([]any{"tenant", tenantID, "bearer", bearer, "origin", origin}, args...)...)
+		return ""
+	}
+	a, err := DecodeAnswer(payload)
+	if err != nil {
+		return refuse("unreadable", "error", err)
+	}
+	text := foldControls(a.Text)
+	if text == "" {
+		return refuse("no words")
+	}
+	q, why := s.question(ctx, tenantID, bearer, origin, a.MessageID, a.Node)
+	if why != "" {
+		return refuse(why, "message", a.MessageID)
+	}
+	sum := sha256.Sum256([]byte("takchat:answer:" + tenantID + "|" + q.ID + "|" + CrewUIDOf(a.Node, false) + "|" + strconv.FormatInt(a.At.Unix(), 10)))
+	var idb [16]byte
+	copy(idb[:], sum[:16])
+	id := hubmsgUUID(idb)
+	msg := &store.TAKChatMessage{
+		TenantID: tenantID, ID: id, CrewUID: q.CrewUID, OperatorUID: q.OperatorUID, UserID: q.UserID,
+		Direction: "in", Text: text, BridgeID: q.BridgeID, Status: "received", Bearer: bearer, CreatedAt: s.now(),
+	}
+	created, err := s.store.SaveTAKChatMessage(ctx, msg)
+	if err != nil {
+		return refuse("not stored", "error", err)
+	}
+	frameTotal.WithLabelValues(bearer, "answer", "stored").Inc()
+	s.log.Info("takchat: a crew's answer came as a frame", "tenant", tenantID, "bridge", q.BridgeID, "bearer", bearer, "crew", q.CrewUID)
+	if created && s.onReply != nil {
+		s.onReply(ctx, msg)
+	}
+	return q.BridgeID
+}
+
+// CrewStatus takes a C3 frame's payload (bridge.UplinkSink): the kit's word
+// on one chat, recorded as the word it sends on tak/chat/status is. It
+// answers the bridge the frame is taken as, "" when refused.
+func (s *Service) CrewStatus(ctx context.Context, tenantID, bearer, origin string, payload []byte) string {
+	if !s.Enabled() {
+		return ""
+	}
+	refuse := func(why string, args ...any) string {
+		frameTotal.WithLabelValues(bearer, "status", "refused").Inc()
+		statusTotal.WithLabelValues("refused").Inc()
+		s.log.Warn("takchat: a kit's status frame was not taken: "+why,
+			append([]any{"tenant", tenantID, "bearer", bearer, "origin", origin}, args...)...)
+		return ""
+	}
+	st, err := DecodeStatus(payload)
+	if err != nil {
+		return refuse("unreadable", "error", err)
+	}
+	q, why := s.question(ctx, tenantID, bearer, origin, st.MessageID, st.Node)
+	if why != "" {
+		return refuse(why, "message", st.MessageID)
+	}
+	detail := foldControls(st.Detail)
+	if detail == "" && st.Reason != "" {
+		detail = st.Reason
+	}
+	msg, err := s.store.SetTAKChatMessageOutcome(ctx, tenantID, q.BridgeID, q.ID, st.Status, detail)
+	if err != nil {
+		return refuse("not recorded", "error", err)
+	}
+	if msg == nil {
+		return refuse("a queued came after a final word", "message", st.MessageID)
+	}
+	frameTotal.WithLabelValues(bearer, "status", "recorded").Inc()
+	statusTotal.WithLabelValues(st.Status).Inc()
+	s.log.Info("takchat: a kit's word on a chat came as a frame", "tenant", tenantID, "bridge", q.BridgeID,
+		"bearer", bearer, "status", st.Status, "reason", st.Reason)
+	if s.onStatus != nil {
+		s.onStatus(ctx, msg)
+	}
+	return q.BridgeID
 }

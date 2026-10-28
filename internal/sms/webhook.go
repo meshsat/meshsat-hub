@@ -85,6 +85,7 @@ type reticulumReceiver interface {
 type WebhookHandler struct {
 	tenants          *tenancy.Resolver // device → tenant for topic namespaces; nil = default tenant
 	sosRuns          bridge.SOSRuns    // C10 SOS frames 0x07/0x08; nil = the old path only
+	crewChat         bridge.CrewChat   // MESHSAT-1744 crew chat frames 0x43/0x44; nil = logged and dropped
 	mqtt             bus.MessageBus
 	secret           string                // platform custom-relay HMAC secret (default tenant)
 	channel          string                // "sms" (default) or "whatsapp" (MESHSAT-1175)
@@ -747,7 +748,7 @@ func (h *WebhookHandler) handleBridgeUplink(ctx context.Context, from string, ra
 	if h.store != nil {
 		st = h.store
 	}
-	return bridge.NewUplinkSink(st, h.publish, h.audit, "sms_webhook").SetTenants(h.tenants).SetSOSRuns(h.sosRuns).Handle(ctx, h.tenantOf(ctx, from), "sms", from, rawBytes)
+	return bridge.NewUplinkSink(st, h.publish, h.audit, "sms_webhook").SetTenants(h.tenants).SetSOSRuns(h.sosRuns).SetCrewChat(h.crewChat).Handle(ctx, h.tenantOf(ctx, from), "sms", from, rawBytes)
 }
 
 // smsMessageID is the stable ID of an inbound SMS: Twilio's MessageSid is
@@ -765,6 +766,10 @@ func (h *WebhookHandler) SetTenants(r *tenancy.Resolver) { h.tenants = r }
 
 // SetSOSRuns lets SMS-borne frames raise and cancel SOS runs (HeMB-NG C10).
 func (h *WebhookHandler) SetSOSRuns(r bridge.SOSRuns) { h.sosRuns = r }
+
+// SetCrewChat lets frames a kit sends over this bearer carry a crew's answer
+// and the kit's word on a dispatcher's chat (MESHSAT-1744).
+func (h *WebhookHandler) SetCrewChat(c bridge.CrewChat) { h.crewChat = c }
 
 // tenantOf returns the tenant a message belongs to: the tenant the webhook
 // token authenticated (carried in ctx), else the sender's owner.

@@ -83,11 +83,11 @@ func (d *DB) SaveTAKChatMessage(ctx context.Context, m *store.TAKChatMessage) (b
 	}
 	res, err := d.db.ExecContext(ctx,
 		`INSERT INTO tak_chat_messages
-		   (tenant_id, id, crew_uid, operator_uid, user_id, direction, text, bridge_id, status, status_detail, client_ref, created_at)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+		   (tenant_id, id, crew_uid, operator_uid, user_id, direction, text, bridge_id, status, status_detail, client_ref, bearer, created_at)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
 		 ON CONFLICT (tenant_id, id) DO NOTHING`,
 		m.TenantID, m.ID, m.CrewUID, m.OperatorUID, m.UserID, m.Direction, m.Text, m.BridgeID, m.Status,
-		m.StatusDetail, m.ClientRef, created.UTC())
+		m.StatusDetail, m.ClientRef, m.Bearer, created.UTC())
 	if err != nil {
 		return false, err
 	}
@@ -123,10 +123,10 @@ func (d *DB) SetTAKChatMessageOutcome(ctx context.Context, tenantID, bridgeID, i
 		`UPDATE tak_chat_messages SET status = $4, status_detail = $5
 		 WHERE tenant_id = $1 AND id = $2 AND bridge_id = $3 AND direction = 'out'
 		   AND NOT ($4 = 'queued' AND status IN (`+takChatFinal+`))
-		 RETURNING tenant_id, id, crew_uid, operator_uid, user_id, direction, text, bridge_id, status, status_detail, client_ref, created_at`,
+		 RETURNING tenant_id, id, crew_uid, operator_uid, user_id, direction, text, bridge_id, status, status_detail, client_ref, bearer, created_at`,
 		tenantID, id, bridgeID, status, detail).
 		Scan(&m.TenantID, &m.ID, &m.CrewUID, &m.OperatorUID, &m.UserID, &m.Direction,
-			&m.Text, &m.BridgeID, &m.Status, &m.StatusDetail, &m.ClientRef, &m.CreatedAt)
+			&m.Text, &m.BridgeID, &m.Status, &m.StatusDetail, &m.ClientRef, &m.Bearer, &m.CreatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
@@ -144,7 +144,7 @@ func (d *DB) ListTAKChatMessages(ctx context.Context, tenantID, crewUID string, 
 		limit = 100
 	}
 	rows, err := d.db.QueryContext(ctx,
-		`SELECT tenant_id, id, crew_uid, operator_uid, user_id, direction, text, bridge_id, status, status_detail, client_ref, created_at
+		`SELECT tenant_id, id, crew_uid, operator_uid, user_id, direction, text, bridge_id, status, status_detail, client_ref, bearer, created_at
 		 FROM (SELECT * FROM tak_chat_messages WHERE tenant_id = $1 AND crew_uid = $2
 		       ORDER BY created_at DESC, id DESC LIMIT $3) recent
 		 ORDER BY created_at, id`, tenantID, crewUID, limit)
@@ -156,11 +156,29 @@ func (d *DB) ListTAKChatMessages(ctx context.Context, tenantID, crewUID string, 
 	for rows.Next() {
 		var m store.TAKChatMessage
 		if err := rows.Scan(&m.TenantID, &m.ID, &m.CrewUID, &m.OperatorUID, &m.UserID, &m.Direction,
-			&m.Text, &m.BridgeID, &m.Status, &m.StatusDetail, &m.ClientRef, &m.CreatedAt); err != nil {
+			&m.Text, &m.BridgeID, &m.Status, &m.StatusDetail, &m.ClientRef, &m.Bearer, &m.CreatedAt); err != nil {
 			return nil, err
 		}
 		m.CreatedAt = utc(m.CreatedAt)
 		out = append(out, m)
 	}
 	return out, rows.Err()
+}
+
+// GetTAKChatMessage reads one message by id; nil, nil when none.
+func (d *DB) GetTAKChatMessage(ctx context.Context, tenantID, id string) (*store.TAKChatMessage, error) {
+	var m store.TAKChatMessage
+	err := d.db.QueryRowContext(ctx,
+		`SELECT tenant_id, id, crew_uid, operator_uid, user_id, direction, text, bridge_id, status, status_detail, client_ref, bearer, created_at
+		 FROM tak_chat_messages WHERE tenant_id = $1 AND id = $2`, tenantID, id).
+		Scan(&m.TenantID, &m.ID, &m.CrewUID, &m.OperatorUID, &m.UserID, &m.Direction,
+			&m.Text, &m.BridgeID, &m.Status, &m.StatusDetail, &m.ClientRef, &m.Bearer, &m.CreatedAt)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	m.CreatedAt = utc(m.CreatedAt)
+	return &m, nil
 }

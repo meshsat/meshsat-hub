@@ -1197,6 +1197,142 @@ subscribes to its own. The same bytes may also arrive as a satellite MT whose fi
   ledger; a Cancel as `CANCELLED: <event>`; a test (bit 7) prefixed `TEST`;
 - lists what it holds on `GET /api/warnings`.
 
+## Crew chat over satellite and SMS (Hub 2026-10, MESHSAT-1744)
+
+A dispatcher's chat to a crew (TAK Direct Messages above) reaches a kit that is
+off MQTT as one compact frame, a satellite MT or an SMS, and the crew's answer
+and the kit's word on the chat come back the same way. Nothing changes for a kit
+on MQTT. The Hub's `internal/takchat/frame.go` and the Bridge's
+`internal/crewchat` write and read the same bytes; the vectors below are in
+both test suites.
+
+### Which bearer
+
+Per message, in this order, decided before anything is stored:
+
+1. **MQTT** when the kit is on it: `online`, last seen within the workspace's
+   bridge-offline timeout (its own choice within the platform's bounds, else
+   the platform's 5 minutes), and its last report did not come over another
+   bearer. The GeoChat goes on `tak/cot/in` as before.
+2. **Satellite** (`sbd` or `imt`) when the workspace allows it
+   (`crew_chat_satellite`, off by default: it spends on the workspace's own
+   Rock7 or Cloudloop account) and the kit's last birth names an iridium
+   interface with an IMEI registered to the workspace (an online one first;
+   else the out-of-band pairing's `sat_imei`). IMT for a 9704, SBD otherwise.
+3. **SMS** when the workspace allows it (`crew_chat_sms`, on by default; cents)
+   and the kit's birth names a cellular interface (or names nothing) and the
+   kit's out-of-band pairing has a phone number. Sent from the Hub's own SMS
+   number, which the kit lists as a plaintext peer and an allowed sender, and
+   answers to.
+4. Otherwise the send is refused: HTTP 409, "the kit is off MQTT and no other
+   bearer reaches it (satellite: ...; SMS: ...)"; a Matrix dispatcher is told
+   the same.
+
+`crew_chat_force_bearer` (`""`, `mqtt`, `satellite`, `sms`; `PUT /api/tenant`,
+owner) makes every chat take that bearer whatever the kit's state, for a test;
+a frame sent under it carries flag 0x04, so the kit answers on the same bearer
+even with its Hub link up. Clear it after. Every change of the three settings
+goes on the workspace's audit chain (`crew_chat_settings_changed`).
+
+A frame bearer send is claimed once per message and bearer
+(`takchat:out:<tenant>:<message id>:<bearer>`), on the replica that runs the
+send. The message records its bearer (`bearer`: `mqtt`, `sbd`, `imt`, `sms`, in
+`GET /api/tak/contacts/{uid}/messages`), a Matrix room is told "Sent to X over
+satellite" or "over SMS", and `meshsat_hub_takchat_sent_total{bearer,result}`
+counts them. A text whose frame does not fit the bearer (120 bytes for SMS,
+270 for an SBD MT, 1024 for IMT) is refused with HTTP 413 and nothing stored.
+
+### C1, Hub to kit
+
+As a satellite MT the frame is the MT's bytes; as an SMS it is base64 in one
+message of at most 160 characters from the Hub's number.
+
+| Offset | Size | Field |
+|---|---|---|
+| 0 | 1 | `0x43` ('C') |
+| 1 | 1 | flags: `0x01` text is SMAZ2 (the Meshtastic table), `0x02` the crew is the kit itself (uid `MESHSAT-<node hex>`), `0x04` answer and status on this bearer |
+| 2 | 16 | message id, the GeoChat's UUID as bytes |
+| 18 | 4 | crew node id, big-endian (`meshsat-<8 hex>`, or the kit's own node) |
+| 22 | 8 | operator hash: the first 8 bytes of SHA-256 of the operator's uid (`meshsat-hub-op-<id>`) |
+| 30 | 1 + n | callsign, n at most 16 bytes, cut on a character boundary |
+| 31 + n | rest | the text, UTF-8 or SMAZ2 per flag `0x01`; the shorter is sent |
+
+The kit turns it into the GeoChat it would have received on `tak/cot/in`: from
+`meshsat-hub-op-~<16 hex of the hash>` with the callsign, to the crew, with
+the message id, and hands it to the same delivery (a direct message to the
+node, the status report, the thread for the answer). The thread remembers the
+bearer and the message id.
+
+### C2, kit to Hub: the crew's answer
+
+An uplink frame (magic `4D 53`, version `01`), type `0x43`:
+
+| Offset | Size | Field |
+|---|---|---|
+| 0 | 4 | `4D 53 01 43` |
+| 4 | 16 | the question's message id |
+| 20 | 4 | crew node id |
+| 24 | 4 | unix seconds, big-endian |
+| 28 | 1 | flags: `0x01` text is SMAZ2 |
+| 29 | rest | the text |
+
+The Hub stores it as the crew's answer to the operator who wrote the question,
+under an id derived from the question's id, the node and the time (so a carrier
+retry is one row), with `bearer` the frame's, and posts it to the Matrix room
+like any answer. The kit sends it on the bearer the question came on when flag
+`0x04` was set or its Hub link is down; otherwise it answers over MQTT as a
+GeoChat to `meshsat-hub-op-~<hash>`, which the Hub resolves to the operator who
+last wrote to that crew under that hash.
+
+### C3, kit to Hub: what became of it
+
+An uplink frame, type `0x44`, the `tak/chat/status` report as 27 bytes plus the
+detail:
+
+| Offset | Size | Field |
+|---|---|---|
+| 0 | 4 | `4D 53 01 44` |
+| 4 | 16 | message id |
+| 20 | 4 | crew node id |
+| 24 | 4 | unix seconds |
+| 28 | 1 | status: 1 queued, 2 delivered, 3 failed, 4 undelivered |
+| 29 | 1 | reason: 0 none, 1 not_heard, 2 ambiguous_callsign, 3 no_radio, 4 no_text, 5 no_sender, 6 own_chat, 7 send_failed |
+| 30 | 1 + n | detail, n at most 80 bytes |
+
+Recorded on the message exactly as the MQTT report is (bridge, final words,
+Matrix ❌ and notice). The kit sends it on the frame's bearer under the same
+rule as C2, and over MQTT as well whenever its link is up; the Hub takes the
+same word twice as one.
+
+### Who the Hub believes
+
+A C2 or C3 names its message; the Hub takes it only when the message was
+handed to a kit of the tenant the ingress authenticated and the frame's node is
+that message's crew. Over a satellite modem the modem must belong to that kit
+(the link from its birth); over SMS the sender must be the kit's number when
+the out-of-band pairing has one. Both webhooks hand the frame to
+`takchat.Service` through `bridge.UplinkSink` and record the kit as seen over
+that bearer. Chats a TAK user writes through a hosted server are not carried
+this way (they never pass `takchat.Send`).
+
+### Vectors
+
+Message id `01020304-0506-0708-090a-0b0c0d0e0f10`, crew `meshsat-a1b3c2ec`,
+operator `meshsat-hub-op-7` (hash `3f24d8f92959c061`), callsign `Anna`,
+12:00:00 UTC on 28 Oct 2026 (`1793188800`, `6ae1e3c0`).
+
+```
+C1 "check in please", flags 0x05 (42 bytes):
+4305 0102030405060708090a0b0c0d0e0f10 a1b3c2ec 3f24d8f92959c061 04416e6e61 07c48020f29794
+
+C2 "on my way" (33 bytes):
+4d530143 0102030405060708090a0b0c0d0e0f10 a1b3c2ec 6ae1e3c0 01 86206d7920f579
+
+C3 undelivered, not_heard, "the kit has not heard MESHSAT-c2ec in the last day" (81 bytes):
+4d530144 0102030405060708090a0b0c0d0e0f10 a1b3c2ec 6ae1e3c0 04 01 32
+746865206b697420686173206e6f74206865617264204d4553485341542d6332656320696e20746865206c61737420646179
+```
+
 ## CoT Type Mapping
 
 | Entity | CoT Type | MIL-STD-2525 | TAK Appearance |

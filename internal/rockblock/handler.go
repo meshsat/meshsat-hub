@@ -90,10 +90,11 @@ type reticulumReceiver interface {
 }
 
 type Handler struct {
-	tenants *tenancy.Resolver // device → tenant for topic namespaces; nil = default tenant
-	sosRuns bridge.SOSRuns    // C10 SOS frames 0x07/0x08; nil = the old path only
-	mqtt    bus.MessageBus
-	secret  string // platform webhook secret (default tenant)
+	tenants  *tenancy.Resolver // device → tenant for topic namespaces; nil = default tenant
+	sosRuns  bridge.SOSRuns    // C10 SOS frames 0x07/0x08; nil = the old path only
+	crewChat bridge.CrewChat   // MESHSAT-1744 crew chat frames 0x43/0x44; nil = logged and dropped
+	mqtt     bus.MessageBus
+	secret   string // platform webhook secret (default tenant)
 	// requireSignature refuses an unsigned delivery on the per-tenant
 	// capability path too (MESHSAT-1247). Off by default: see ServeHTTP.
 	requireSignature bool
@@ -176,7 +177,7 @@ func (h *Handler) uplinkSink() *bridge.UplinkSink {
 	if h.store != nil {
 		st = h.store
 	}
-	return bridge.NewUplinkSink(st, h.publish, h.audit, "rockblock_webhook").SetTenants(h.tenants).SetSOSRuns(h.sosRuns)
+	return bridge.NewUplinkSink(st, h.publish, h.audit, "rockblock_webhook").SetTenants(h.tenants).SetSOSRuns(h.sosRuns).SetCrewChat(h.crewChat)
 }
 
 // OOBClassifier is the out-of-band management service: it takes "MS:" frames
@@ -715,6 +716,10 @@ func (h *Handler) SetTenants(r *tenancy.Resolver) { h.tenants = r }
 
 // SetSOSRuns lets SBD frames raise and cancel SOS runs (HeMB-NG C10).
 func (h *Handler) SetSOSRuns(r bridge.SOSRuns) { h.sosRuns = r }
+
+// SetCrewChat lets frames a kit sends over this bearer carry a crew's answer
+// and the kit's word on a dispatcher's chat (MESHSAT-1744).
+func (h *Handler) SetCrewChat(c bridge.CrewChat) { h.crewChat = c }
 
 // authTenant is the tenant this request authenticated as: the one behind the
 // secret in the path, or the platform tenant when the platform account was

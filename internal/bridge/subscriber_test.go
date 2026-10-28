@@ -1239,6 +1239,9 @@ func (m *mockStore) SetTAKChatMessageStatus(context.Context, string, string, str
 func (m *mockStore) SetTAKChatMessageOutcome(context.Context, string, string, string, string, string) (*store.TAKChatMessage, error) {
 	return nil, nil
 }
+func (m *mockStore) GetTAKChatMessage(context.Context, string, string) (*store.TAKChatMessage, error) {
+	return nil, nil
+}
 func (m *mockStore) ListTAKChatMessages(context.Context, string, string, int) ([]store.TAKChatMessage, error) {
 	return nil, nil
 }

@@ -36,13 +36,14 @@ type UplinkPublisher func(topic string, qos byte, retained bool, v any)
 // mo/decoded with sos=true, and the bridge records the bearer and time of
 // its last report.
 type UplinkSink struct {
-	store   UplinkStore
-	publish UplinkPublisher
-	audit   *audit.Service
-	actor   string // audit actor, e.g. "sms_webhook"
-	now     func() time.Time
-	tenants *tenancy.Resolver // bridge id -> owning tenant; nil disables the check
-	runs    SOSRuns           // C10: starts and cancels that carry their identity; nil = old path only
+	store    UplinkStore
+	publish  UplinkPublisher
+	audit    *audit.Service
+	actor    string // audit actor, e.g. "sms_webhook"
+	now      func() time.Time
+	tenants  *tenancy.Resolver // bridge id -> owning tenant; nil disables the check
+	runs     SOSRuns           // C10: starts and cancels that carry their identity; nil = old path only
+	crewChat CrewChat          // MESHSAT-1744: a crew's answer and a kit's word as frames; nil = logged
 }
 
 // SOSRuns applies an SOS start or cancel that carries its identity (HeMB-NG C10).
@@ -55,6 +56,19 @@ type SOSRuns interface {
 // SetSOSRuns lets the sink take the C10 frames 0x07 and 0x08. Without it they are logged,
 // and a start still pages the old way.
 func (u *UplinkSink) SetSOSRuns(r SOSRuns) *UplinkSink { u.runs = r; return u }
+
+// CrewChat takes a crew's answer (C2) and a kit's word on a chat (C3) sent
+// as frames (MESHSAT-1744, takchat.Service). Each answers the bridge the
+// frame was taken as, "" when it was refused; the service reads the frame,
+// finds the message it names and checks the frame came from that kit.
+type CrewChat interface {
+	CrewAnswer(ctx context.Context, tenantID, bearer, origin string, payload []byte) (bridgeID string)
+	CrewStatus(ctx context.Context, tenantID, bearer, origin string, payload []byte) (bridgeID string)
+}
+
+// SetCrewChat lets the sink take the crew chat frames 0x43 and 0x44.
+// Without it they are logged and dropped.
+func (u *UplinkSink) SetCrewChat(c CrewChat) *UplinkSink { u.crewChat = c; return u }
 
 // deviceBridger is the optional part of the store that names a modem's bridge.
 type deviceBridger interface {
@@ -352,6 +366,24 @@ func (u *UplinkSink) Handle(ctx context.Context, tenantID, bearer, origin string
 			}
 		}
 		u.report(ctx, tenantID, bridgeID, bearer, ts)
+
+	case SatMsgCrewAnswer, SatMsgCrewStatus:
+		// A crew's answer to a dispatcher, or the kit's word on the chat,
+		// from a kit off MQTT (MESHSAT-1744). The service names the kit from
+		// the message the frame carries the id of, and vouches for it the
+		// way authBridge does: the modem's bridge, or the kit's number.
+		if u.crewChat == nil {
+			slog.Warn("uplink: crew chat frame with no crew chat service to take it", "type", msgType, "bearer", bearer, "origin", origin)
+			break
+		}
+		if msgType == SatMsgCrewAnswer {
+			bridgeID = u.crewChat.CrewAnswer(ctx, tenantID, bearer, origin, payload)
+		} else {
+			bridgeID = u.crewChat.CrewStatus(ctx, tenantID, bearer, origin, payload)
+		}
+		if bridgeID != "" {
+			u.report(ctx, tenantID, bridgeID, bearer, u.now())
+		}
 
 	default:
 		slog.Warn("uplink: unknown frame type", "type", msgType, "bearer", bearer, "origin", origin)

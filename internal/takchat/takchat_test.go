@@ -72,7 +72,9 @@ func rig(t *testing.T) (*Service, *fakeBus, store.Store, time.Time) {
 	for tenant, bridges := range map[string][]string{"t1": {"kit-a", "kit-b"}, store.DefaultTenantID: {"kit-v"}} {
 		_ = db.CreateTenant(ctx, &store.Tenant{ID: tenant, Slug: tenant, Name: tenant, Status: store.TenantActive})
 		for _, id := range bridges {
-			if err := db.CreateOrUpdateBridge(ctx, tenant, &store.Bridge{BridgeID: id, Label: id}); err != nil {
+			// On MQTT, seen now: how every kit was before a chat could take
+			// another bearer (MESHSAT-1744).
+			if err := db.CreateOrUpdateBridge(ctx, tenant, &store.Bridge{BridgeID: id, Label: id, Online: true}); err != nil {
 				t.Fatal(err)
 			}
 		}

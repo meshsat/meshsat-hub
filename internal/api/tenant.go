@@ -17,6 +17,7 @@ import (
 	hubauth "github.com/meshsat/meshsat-hub/internal/auth"
 	"github.com/meshsat/meshsat-hub/internal/plans"
 	"github.com/meshsat/meshsat-hub/internal/store"
+	"github.com/meshsat/meshsat-hub/internal/takchat"
 )
 
 // inviteTTL is how long a tenant invite stays valid.
@@ -160,6 +161,14 @@ type tenantResponse struct {
 	// PersonChatModeDefault names (MESHSAT-1685).
 	PersonChatMode        string `json:"person_chat_mode"`
 	PersonChatModeDefault string `json:"person_chat_mode_default"`
+	// Crew chat off MQTT (MESHSAT-1744): whether a dispatcher's chat to a
+	// kit that is off MQTT may go as a satellite MT on the workspace's own
+	// account (off by default, it spends) or as an SMS to the kit's SIM
+	// (on by default), and a forced bearer ("", "mqtt", "satellite",
+	// "sms") for a test.
+	CrewChatSatellite   bool   `json:"crew_chat_satellite"`
+	CrewChatSMS         bool   `json:"crew_chat_sms"`
+	CrewChatForceBearer string `json:"crew_chat_force_bearer"`
 }
 
 func (h *TenantHandler) toTenantResponse(t *store.Tenant) tenantResponse {
@@ -198,6 +207,9 @@ func toTenantResponse(t *store.Tenant) tenantResponse {
 		OOBSMSTimeoutSec:     t.OOBSMSTimeoutSec,
 		OOBSatTimeoutSec:     t.OOBSatTimeoutSec,
 		PersonChatMode:       t.PersonChatMode,
+		CrewChatSatellite:    t.CrewChatSatellite,
+		CrewChatSMS:          !t.CrewChatSMSOff,
+		CrewChatForceBearer:  t.CrewChatForceBearer,
 	}
 }
 
@@ -245,6 +257,11 @@ type updateTenantRequest struct {
 	// PersonChatMode: absent leaves it alone, "" returns the tenant to the
 	// platform default, "off", "contacts" or "open" sets it (MESHSAT-1685).
 	PersonChatMode *string `json:"person_chat_mode,omitempty"`
+	// Crew chat off MQTT (MESHSAT-1744); each absent leaves it alone.
+	// CrewChatForceBearer "" clears the forced bearer.
+	CrewChatSatellite   *bool   `json:"crew_chat_satellite,omitempty"`
+	CrewChatSMS         *bool   `json:"crew_chat_sms,omitempty"`
+	CrewChatForceBearer *string `json:"crew_chat_force_bearer,omitempty"`
 }
 
 type createInviteRequest struct {
@@ -416,6 +433,24 @@ func (h *TenantHandler) Update(w http.ResponseWriter, r *http.Request) {
 		}
 		t.PersonChatMode = v
 	}
+	// How a chat reaches a kit off MQTT (MESHSAT-1744). Satellite spends on
+	// the workspace's own account and a forced bearer sends every chat that
+	// way, so both go on the audit chain.
+	crewBefore := takchat.SettingsOf(t)
+	if req.CrewChatSatellite != nil {
+		t.CrewChatSatellite = *req.CrewChatSatellite
+	}
+	if req.CrewChatSMS != nil {
+		t.CrewChatSMSOff = !*req.CrewChatSMS
+	}
+	if req.CrewChatForceBearer != nil {
+		v := strings.ToLower(strings.TrimSpace(*req.CrewChatForceBearer))
+		if !takchat.ForceBearers[v] {
+			writeError(w, http.StatusBadRequest, `crew_chat_force_bearer must be "" (the kit's state decides), "mqtt", "satellite" or "sms"`)
+			return
+		}
+		t.CrewChatForceBearer = v
+	}
 	if err := h.store.UpdateTenant(r.Context(), t); err != nil {
 		slog.Error("tenant: update failed", "error", err)
 		writeError(w, http.StatusInternalServerError, "update failed")
@@ -444,6 +479,13 @@ func (h *TenantHandler) Update(w http.ResponseWriter, r *http.Request) {
 		if err := h.audit.Log(r.Context(), t.ID, "person_chat_mode_changed", actor,
 			"person_chat_mode="+show(modeBefore)+">"+show(t.PersonChatMode), clientIPFromRequest(r)); err != nil {
 			slog.Warn("audit: failed to log person_chat_mode_changed", "error", err)
+		}
+	}
+	if crewAfter := takchat.SettingsOf(t); crewAfter != crewBefore && h.audit != nil {
+		if err := h.audit.Log(r.Context(), t.ID, "crew_chat_settings_changed", operatorEmail(r),
+			fmt.Sprintf("satellite=%t>%t sms=%t>%t force_bearer=%q>%q", crewBefore.Satellite, crewAfter.Satellite,
+				crewBefore.SMS, crewAfter.SMS, crewBefore.ForceBearer, crewAfter.ForceBearer), clientIPFromRequest(r)); err != nil {
+			slog.Warn("audit: failed to log crew_chat_settings_changed", "error", err)
 		}
 	}
 	writeJSON(w, http.StatusOK, h.toTenantResponse(t))

@@ -509,6 +509,12 @@ func (w *worker) send(ctx context.Context, c *client, room string, ev event, cre
 	case errors.Is(err, takchat.ErrUnregistered):
 		refuse("The kit or phone that carries " + crew.Callsign + " is no longer registered.")
 		return
+	case errors.Is(err, takchat.ErrNoBearer):
+		refuse(crew.Callsign + "'s kit is off MQTT and nothing else reaches it: " + strings.TrimPrefix(err.Error(), takchat.ErrNoBearer.Error()+" "))
+		return
+	case errors.Is(err, takchat.ErrFrameTooLong):
+		refuse("Too long for the way " + crew.Callsign + "'s kit is reachable: " + strings.TrimPrefix(err.Error(), takchat.ErrFrameTooLong.Error()+": "))
+		return
 	case errors.Is(err, takchat.ErrLimited):
 		refuse("Too many messages to " + crew.Callsign + " just now. Wait a few seconds.")
 		return
@@ -529,10 +535,18 @@ func (w *worker) send(ctx context.Context, c *client, room string, ev event, cre
 	}); err != nil {
 		w.s.log.Warn("matrix: could not mark a message as sent", "tenant", w.tenant, "error", err)
 	}
+	// A kit off MQTT got it as a frame (MESHSAT-1744): say so, since it
+	// took a satellite credit or an SMS and takes its time.
+	switch {
+	case takchat.IsSatellite(msg.Bearer):
+		w.say(ctx, c, room, ev.EventID+"-bearer", "Sent to "+crew.Callsign+" over satellite: its kit is off MQTT.")
+	case msg.Bearer == takchat.BearerSMS:
+		w.say(ctx, c, room, ev.EventID+"-bearer", "Sent to "+crew.Callsign+" over SMS: its kit is off MQTT.")
+	}
 	if w.s.audit != nil {
 		// Who wrote to which crew from which room; never the words.
 		_ = w.s.audit.Log(ctx, w.tenant, "matrix_chat_sent", ev.Sender,
-			"crew "+crew.UID+" via "+msg.BridgeID+" message "+msg.ID+" room "+room, "")
+			"crew "+crew.UID+" via "+msg.BridgeID+" message "+msg.ID+" bearer "+msg.Bearer+" room "+room, "")
 	}
 }
 

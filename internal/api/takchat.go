@@ -108,7 +108,7 @@ func (h *TAKChatHandler) ListMessages(w http.ResponseWriter, r *http.Request) {
 
 // SendMessage writes to one crew.
 // @Summary Write to a TAK crew
-// @Description Sends a message to one crew as a GeoChat from the operator. It goes to the kit or phone that owns the crew alone: a kit sends it to that node as a direct message, a phone shows it. The crew's answer is listed with the conversation.
+// @Description Sends a message to one crew as a GeoChat from the operator. It goes to the kit or phone that owns the crew alone: a kit sends it to that node as a direct message, a phone shows it. The crew's answer is listed with the conversation. A kit that is off MQTT gets it as a compact frame over satellite (when the workspace allows the spend) or as an SMS to its own SIM (unless turned off); the message's bearer says which (mqtt, sbd, imt, sms).
 // @Tags tak
 // @Accept json
 // @Produce json
@@ -118,8 +118,8 @@ func (h *TAKChatHandler) ListMessages(w http.ResponseWriter, r *http.Request) {
 // @Success 200 {object} store.TAKChatMessage "A repeat of a client_ref already sent"
 // @Failure 400 {object} map[string]string "No text"
 // @Failure 404 {object} map[string]string "No such crew, or chat is off"
-// @Failure 409 {object} map[string]string "The crew has not been seen for a day, or its kit or phone is no longer registered"
-// @Failure 413 {object} map[string]string "More than 200 bytes"
+// @Failure 409 {object} map[string]string "The crew has not been seen for a day, its kit or phone is no longer registered, or the kit is off MQTT and no other bearer reaches it"
+// @Failure 413 {object} map[string]string "More than 200 bytes, or too long for the bearer the kit is reachable on"
 // @Failure 429 {object} map[string]string "Too many messages"
 // @Failure 502 {object} map[string]string "The message could not be handed to the bus"
 // @Router /api/tak/contacts/{uid}/messages [post]
@@ -148,8 +148,11 @@ func (h *TAKChatHandler) SendMessage(w http.ResponseWriter, r *http.Request) {
 	case errors.Is(err, takchat.ErrTooLong):
 		writeError(w, http.StatusRequestEntityTooLarge, err.Error())
 		return
-	case errors.Is(err, takchat.ErrStale), errors.Is(err, takchat.ErrUnregistered):
+	case errors.Is(err, takchat.ErrStale), errors.Is(err, takchat.ErrUnregistered), errors.Is(err, takchat.ErrNoBearer):
 		writeError(w, http.StatusConflict, err.Error())
+		return
+	case errors.Is(err, takchat.ErrFrameTooLong):
+		writeError(w, http.StatusRequestEntityTooLarge, err.Error())
 		return
 	case errors.Is(err, takchat.ErrLimited):
 		writeError(w, http.StatusTooManyRequests, err.Error())
@@ -168,7 +171,7 @@ func (h *TAKChatHandler) SendMessage(w http.ResponseWriter, r *http.Request) {
 	if h.audit != nil {
 		// Who wrote to which crew through which client; never the words.
 		_ = h.audit.Log(r.Context(), tid, "tak_chat_sent", operatorEmail(r),
-			"crew "+crewUID+" via "+msg.BridgeID+" message "+msg.ID, clientIPFromRequest(r))
+			"crew "+crewUID+" via "+msg.BridgeID+" message "+msg.ID+" bearer "+msg.Bearer, clientIPFromRequest(r))
 	}
 	writeJSON(w, http.StatusAccepted, msg)
 }

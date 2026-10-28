@@ -136,4 +136,29 @@ func testTAKChat(t *testing.T, db store.Store) {
 	if msgs[0].Status != "failed" || msgs[1].Status != "received" {
 		t.Errorf("other rows changed: %+v", msgs)
 	}
+
+	// MESHSAT-1744: the bearer a message went on is kept and read back by
+	// id, in its own tenant only.
+	m4 := store.TAKChatMessage{TenantID: mine, ID: "m4", CrewUID: crew, OperatorUID: "meshsat-hub-op-7", UserID: "7",
+		Direction: "out", Text: "over sms", BridgeID: "tesseract01", Status: "sent", Bearer: "sms", CreatedAt: now}
+	if created, err := db.SaveTAKChatMessage(ctx, &m4); err != nil || !created {
+		t.Fatalf("save m4: %v %v", created, err)
+	}
+	got, err = db.GetTAKChatMessage(ctx, mine, "m4")
+	if err != nil || got == nil || got.Bearer != "sms" || got.Text != "over sms" || got.BridgeID != "tesseract01" || got.UserID != "7" {
+		t.Fatalf("get m4: %+v %v", got, err)
+	}
+	if got, err := db.GetTAKChatMessage(ctx, other, "m4"); err != nil || got != nil {
+		t.Errorf("m4 read across tenants: %+v %v", got, err)
+	}
+	if got, err := db.GetTAKChatMessage(ctx, mine, "nope"); err != nil || got != nil {
+		t.Errorf("an unknown id: %+v %v", got, err)
+	}
+	if got, _ := db.SetTAKChatMessageOutcome(ctx, mine, "tesseract01", "m4", "undelivered", "not heard"); got == nil || got.Bearer != "sms" {
+		t.Errorf("the bearer did not survive an outcome: %+v", got)
+	}
+	msgs, _ = db.ListTAKChatMessages(ctx, mine, crew, 10)
+	if len(msgs) != 4 || msgs[3].Bearer != "sms" || msgs[0].Bearer != "" {
+		t.Errorf("bearers listed: %+v", msgs)
+	}
 }
