@@ -175,7 +175,15 @@ func (f *Forwarder) onCot(r *run, tenantID, bridgeID string, payload []byte) {
 		// And the bridge that exports it owns the crew, for a chat a dispatcher
 		// writes to it (MESHSAT-1706, owners.go).
 		if meta.Callsign != "" {
-			f.observeOwner(r, tenantID, bridgeID, meta.UID, meta.Callsign, now)
+			// Seen when the event says, not when it arrived: a kit stamps a
+			// position with the fix's time, and a reconnect replays fixes
+			// from days ago (MESHSAT-1736). A time ahead of the clock is the
+			// node's clock, not a sighting from the future.
+			seen := now
+			if !meta.Time.IsZero() && meta.Time.Before(now) {
+				seen = meta.Time
+			}
+			f.observeOwner(r, tenantID, bridgeID, meta.UID, meta.Callsign, seen)
 		}
 	}
 
