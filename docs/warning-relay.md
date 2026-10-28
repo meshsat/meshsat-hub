@@ -36,16 +36,25 @@ sighting by 30 days.
 ## Who gets what
 
 A workspace opts in under Settings, Integrations, "Public warnings (last-mile relay)"
-(`integrations.ProviderWarnings`, fields `enabled`, `areas`, `languages`, `feeds`, `satellite`).
-A warning goes to:
+(`integrations.ProviderWarnings`, fields `enabled`, `areas`, `languages`, `feeds`, `repeat_hours`,
+`satellite`). A warning goes to:
 
 - **every kit of the workspace** when one of its `areas` lines is in the warning's area: a geocode
   as the feed names it (`EMMA_ID:NL804`, `WARNCELLID:501000005`, or the bare value, which matches
   any geocode name), or a circle `lat,lon,radius_km` whose centre lies inside a warning polygon or
   circle, or within the radius of a polygon vertex;
 - **a kit on its own** when the kit's last reported position (its birth's location) lies inside a
-  warning polygon or circle. A kit with no position never matches by position. A warning with
-  geocodes only (DWD's) matches geocodes only: the Hub carries no cell geometry.
+  warning polygon or circle (`geo.PointInPolygon` over the CAP `<polygon>`). A kit with no position
+  never matches by position. DWD carries a polygon for most cells ("polygonal event area") and
+  MeteoAlarm NL a polygon beside its EMMA_ID; a message with geocodes only matches geocodes only,
+  the Hub carries no cell geometry.
+
+**Kits only.** A digest goes only to a bridge that can do something with it: one whose last birth
+is a MeshSat Bridge's (not a phone's, `protocol.PhoneMode`: birth mode `android` or `ios`) and
+declares a `meshtastic`, `aprs` or `cell` interface, the types the Bridge names its mesh, APRS
+gateway and 2G cell by (`warnings.CanRelay`). A phone declares a `meshtastic` interface too (its
+BLE node) but holds no relay; a bridge that has never sent a birth has declared nothing. The test
+injection's answer names what was left out and why (`deliveries[].skipped`).
 
 `languages` picks the `<info>` block (ISO 639-1, in order of preference; the first the warning
 carries wins, else its first block). `feeds` limits the sources; empty takes all.
@@ -60,8 +69,22 @@ reported last. `satellite` is **off by default**: every warning in the area is t
 per kit. The Hub's own kits are the default tenant and get satellite delivery only if that tenant
 sets it.
 
+**Repeat while in force.** A warning still in force (its `expires` ahead, and no later Update or
+Cancel naming it in its `references`) is handed to the kits again every `repeat_hours` (default
+6, 0 never, at most 168), over the Hub link only: slot n is the n-th period after the warning's
+`sent`, claimed per (tenant, kit, message, slot) as `warn:...:<msgtype>:r<n>`, so a kit that was
+off when the digest went out gets it at the next slot, and the kits that have it relay nothing
+twice (a kit keeps each (id, type) once). The leader's tick (`HUB_WARNINGS_POLL_INTERVAL`)
+matches the message again against the kits of the moment, from the CAP document kept at the
+first match (`warnings.raw`, migration 52, kept only for messages that matched a workspace; a
+re-sent identifier drops it until it matches again). A message a later one names is marked
+`superseded_by` and not repeated; the later one is. Satellite delivery is never repeated: the
+gateway holds an MT for a modem, and every repeat would be a paid message. A test injection
+repeats like a real warning until its `expires`.
+
 Each match is recorded in `warning_matches` (tenant, source, identifier): `GET /api/warnings`
-lists them for the console, newest first, with the kits and bearers.
+lists them for the console, newest match first, with the kits and bearers, and in `detail` when
+each kit was last handed the digest and at which repeat slot (`handed`, `repeat`, `repeat_at`).
 
 ## Digest v1
 
@@ -96,9 +119,13 @@ and reports as `directory_key_id` in its birth. `GET /api/warnings/key` answers 
 kit refuses a digest it cannot verify with its pinned key, so a rotation of the directory key
 reaches the relay the way it reaches snapshots.
 
-Geocodes win over a polygon: a digest carries the first eight geocodes, else the largest polygon
-simplified (Douglas-Peucker, growing tolerance) to twelve points. A geocode longer than nine
-ASCII characters is left out.
+The polygon wins when it fits: a digest carries the largest ring of the chosen `<info>` block
+when Douglas-Peucker (tolerance growing by 1.6 from 0.001 degrees) brings it to twelve points at
+a tolerance of at most 0.03 degrees (about 3 km), so a kit can place itself against the outline;
+else the first eight geocodes; else, with no geocode, the ring at whatever tolerance brings it to
+twelve points. A geocode longer than nine ASCII characters is left out. (DWD's Helgoland ring, seven
+points, rides as a polygon; MeteoAlarm's 36-point Texel ring does not come down within 3 km, so
+its EMMA_ID is sent.)
 
 ### Test vector
 
@@ -159,12 +186,22 @@ the source is `DWD`, `KNMI via MeteoAlarm` or `MeshSat test`; the APRS form is c
 
 | Route | Role | Answers |
 |---|---|---|
-| `GET /api/warnings` | viewer | the warnings that matched this workspace and went to its kits, newest first |
+| `GET /api/warnings` | viewer | the warnings that matched this workspace and went to its kits, newest first, each with `superseded_by` when a later message replaced it |
 | `GET /api/warnings/key` | viewer | `{"enabled","alg":"ES256","pkix_hex"}`, the key the kits verify with |
-| `POST /api/warnings/test` | owner | the body is a CAP 1.2 document with `<status>Test</status>` or `Exercise`; it runs the same parse, match, sign and deliver path for this workspace alone and answers which kits matched and what each was handed (`deliveries[].bearers`, `digest_hex`). Audit `warning_test_injected` |
+| `POST /api/warnings/test` | owner | the body is a CAP 1.2 document with `<status>Test</status>` or `Exercise`; it runs the same parse, match, sign and deliver path for this workspace alone and answers which kits matched, what each was handed (`deliveries[].bearers`, `digest_hex`) and which bridges were left out and why (`deliveries[].skipped`). Audit `warning_test_injected` |
 
 A test injection with `satellite` on spends on the workspace's own satellite account like a real
 warning would.
+
+**The console page.** "Warnings" under Safety in the Hub console (`web/src/views/WarningsView.vue`)
+lists the workspace's matched warnings, newest match first: event and headline, the source, whether
+it is an Update, cancelled, a test or in force, severity, sent and expires, the areas as the feed
+named them, and per kit the bearers, when it was last handed the digest and at which repeat. An
+owner's "Send a test warning" posts a minimal CAP with status Test for the first `areas` line of the
+workspace's settings (a geocode line becomes a `<geocode>`, a circle line a `<circle>`; with no
+area, a 25 km circle around the first kit that reported a position) and shows the answer: the kits
+handed, the bearers, the digest size and who was left out. The page says so when the workspace has
+not turned the relay on, and shows an empty state when the Hub's relay is off.
 
 ## Configuration
 
@@ -175,14 +212,17 @@ warning would.
 | `HUB_WARNINGS_DWD_URL` | the DWD zip above; empty turns the feed off | |
 | `HUB_WARNINGS_METEOALARM_NL_URL` | the MeteoAlarm NL Atom feed; empty turns it off | |
 
+Per workspace, in the provider account (no env var): `repeat_hours` (default 6).
+
 Metrics: `meshsat_hub_warnings_fetched_total{source,result}` (poll, failed, message, new),
 `meshsat_hub_warnings_matched_total{source}`,
 `meshsat_hub_warnings_delivered_total{bearer,result}` (mqtt and satellite; sent, failed,
-claimed_elsewhere, no_modem).
+claimed_elsewhere, no_modem), `meshsat_hub_warnings_repeated_total` (digests handed again).
 
 ## Not in this version
 
-A geocode-to-geometry table (a DWD cell matches a kit only by the geocode the tenant names); more
-feeds (GDACS, USGS, NINA, NL-Alert, which has no public feed); a repeat of a warning on the mesh
-while it is in force; the apps; the 2G cell's broadcast channel on the kit; the legal opinion on
+A geocode-to-geometry table (a DWD message without a polygon matches a kit only by the geocode the
+tenant names); an Update or Cancel that carries no `<area>` matches no kit and so reaches none (the
+kits that hold the warning keep it until it expires); more feeds (GDACS, USGS, NINA, NL-Alert, which
+has no public feed); the apps; the 2G cell's broadcast channel on the kit; the legal opinion on
 relaying under EECC article 110.
