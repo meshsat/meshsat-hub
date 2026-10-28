@@ -14,6 +14,7 @@ import { useToastStore } from '../stores/toast'
 import { formatWhen } from '../utils/time'
 import Icon from '../components/Icon.vue'
 import ConfirmDialog from '../components/platform/ConfirmDialog.vue'
+import LxmfAttachments from '../components/LxmfAttachments.vue'
 
 const auth = useAuthStore()
 const toast = useToastStore()
@@ -370,6 +371,8 @@ onUnmounted(() => {
               <td class="max-w-md">
                 <div v-if="m.title" class="font-medium">{{ m.title }}</div>
                 <div class="whitespace-pre-wrap break-words">{{ m.content }}</div>
+                <!-- The message's voice note and photo, played and shown here (MESHSAT-1735) -->
+                <LxmfAttachments :message-id="m.id" />
                 <div v-if="!m.signature_valid && m.direction === 'in'" class="text-ms-warning text-[11px]">Signature not verified: the sender has not been heard announce yet.</div>
               </td>
               <td>

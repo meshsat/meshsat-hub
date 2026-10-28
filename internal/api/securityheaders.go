@@ -18,14 +18,18 @@ func SecurityHeaders(next http.Handler) http.Handler {
 		h.Set("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
 		h.Set("Content-Security-Policy",
 			"default-src 'self'; "+
-				"script-src 'self'; "+
+				// 'wasm-unsafe-eval' lets the console compile WebAssembly from a
+				// same-origin file (the Codec2 decoder of the voice notes,
+				// /vendor/codec2/, MESHSAT-1735) while scripts stay 'self' only;
+				// without it Chromium refuses WebAssembly.instantiate under a CSP.
+				"script-src 'self' 'wasm-unsafe-eval'; "+
 				"style-src 'self' 'unsafe-inline'; "+ // Tailwind and MapLibre set inline styles
-				"img-src 'self' data: blob:; "+ // map glyphs and sprites, QR blob URLs; no third-party tile host since MESHSAT-967
+				"img-src 'self' data: blob:; "+ // map glyphs and sprites, QR blob URLs, photos of LXMF messages; no third-party tile host since MESHSAT-967
 				"connect-src 'self'; "+ // the vector basemap is same-origin at /basemap/
 				"font-src 'self'; "+
 				"worker-src 'self' blob:; "+ // MapLibre runs its tile workers from a blob URL
 				"child-src 'self' blob:; "+ // worker-src fallback for older engines
-				"media-src 'self'; "+
+				"media-src 'self' blob:; "+ // an Opus voice note plays from a blob URL, fetched with the session token (MESHSAT-1735)
 				"manifest-src 'self'; "+
 				"object-src 'none'; "+
 				"base-uri 'self'; "+

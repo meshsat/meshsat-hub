@@ -461,6 +461,10 @@ export const lxmf = {
   message: (id) => fetchJSON(`/lxmf/messages/${encodeURIComponent(id)}`),
   send: (msg) => fetchJSON('/lxmf/messages', { method: 'POST', body: JSON.stringify(msg) }),
   peers: () => fetchJSON('/lxmf/peers'),
+  // A message's voice note and photo (MESHSAT-1735): the list, and one
+  // attachment's bytes as a Blob (audio/codec2, audio/ogg or image/webp).
+  attachments: (id) => fetchJSON(`/lxmf/messages/${encodeURIComponent(id)}/attachments`),
+  attachment: (id, n) => fetchBlob(`/lxmf/messages/${encodeURIComponent(id)}/attachments/${n}`),
 }
 
 // Hub federation (MESHSAT-1549), owner only: this tenant's identity, the peer

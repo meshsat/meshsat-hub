@@ -172,6 +172,26 @@ queued, so the leader, on either replica, finds them. The same file (`internal/l
 reads and writes them on the kits; the Bridge's interop test proves the wire against Python
 LXMF 1.2.1.
 
+**Playback in the console.** The Reticulum page's Messages table shows each message's
+attachments under its text (`web/src/components/LxmfAttachments.vue`): the list is read once per
+message (four reads in flight at most), and, since every API route sits behind the session token,
+the bytes come through the client as blobs, never by URL in a `src`. A **Codec2** note (0x03-0x09)
+is decoded in the browser by libcodec2 built to WebAssembly, vendored at
+`web/public/vendor/codec2/` (codec2 commit `310777b` via belteshazzar/codec2-web; LGPL-2.1 module,
+MIT glue; sha256 and build script in `LICENSES.md` beside it): `VoiceNote.vue` fetches the bytes
+on the first play, cuts them into whole frames (`(bits + 7) / 8` bytes each, the last partial
+frame dropped), runs `codec2_decode` per frame and plays the 8 kHz PCM through WebAudio (play,
+pause, position, duration; the duration shows before any decode, from the byte count and the
+mode's frame geometry in `web/src/utils/codec2.js`). The 193 KB module loads on demand and is not
+in the main bundle. An **Opus** note (0x10-0x19) plays in the browser's own `<audio>` from a blob
+URL; **450 and 450PWB** are shown as not supported, as in Sideband and MeshChat; a **photo** is an
+`<img>` from a blob URL (`PhotoNote.vue`). For this the CSP in `internal/api/securityheaders.go`
+carries `script-src 'self' 'wasm-unsafe-eval'` (WebAssembly from a same-origin file, no eval) and
+`media-src 'self' blob:`. `web/test/codec2-roundtrip.test.mjs` (`npm test`, CI `web:test`) encodes
+a generated tone at 700C with the vendored module, decodes it and checks the frame counts, the mode
+table and that the output is not silence. The Bridge's SPA plays the same way
+(`meshsat/docs/LXMF_ATTACHMENTS.md`). No recording in the console yet.
+
 ## The propagation node
 
 Every tenant address also runs an LXMF propagation node: the `lxmf.propagation` destination on the

@@ -489,6 +489,26 @@ web:dist-current:
     - echo "committed dist matches the committed source"
 
 # -----------------------------------------------------------------------------
+# WEB:TEST: the console's own tests, plain `node --test` (no framework in the
+# console; Playwright is the e2e suite and needs a running Hub). Today: the
+# vendored Codec2 decoder of the voice notes encodes and decodes a generated
+# tone and its mode table matches the wasm (MESHSAT-1735). Node 20, the same
+# pin as web:dist-current.
+# -----------------------------------------------------------------------------
+web:test:
+  stage: test
+  image: node:20-alpine
+  tags: [docker]
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main"
+    - changes:
+        - web/**/*
+  script:
+    - cd web
+    - npm ci --no-audit --no-fund
+    - npm test
+
+# -----------------------------------------------------------------------------
 # TEST — unit tests
 # -----------------------------------------------------------------------------
 test:

@@ -104,6 +104,18 @@ func TestSecurityHeaders_CSPContainsFrameAncestors(t *testing.T) {
 	if !containsSubstring(csp, "frame-ancestors 'none'") {
 		t.Errorf("CSP should contain frame-ancestors 'none', got %q", csp)
 	}
+	// The voice notes' Codec2 decoder is WebAssembly compiled from a
+	// same-origin file; scripts stay 'self' only (MESHSAT-1735).
+	if !containsSubstring(csp, "script-src 'self' 'wasm-unsafe-eval';") {
+		t.Errorf("CSP should allow same-origin WebAssembly and nothing more for scripts, got %q", csp)
+	}
+	if containsSubstring(csp, "'unsafe-eval'") {
+		t.Errorf("CSP must not allow eval, got %q", csp)
+	}
+	// An Opus note fetched with the session token plays from a blob URL.
+	if !containsSubstring(csp, "media-src 'self' blob:;") {
+		t.Errorf("CSP should let media play from a blob URL, got %q", csp)
+	}
 }
 
 func containsSubstring(s, sub string) bool {

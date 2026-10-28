@@ -5,6 +5,11 @@ bin/
 
 # Go
 vendor/
+# Not Go: the console's vendored Codec2 decoder (two pinned files, see
+# web/public/vendor/codec2/LICENSES.md) and its copy in the embedded dist
+# are tracked on purpose (MESHSAT-1735).
+!web/public/vendor/
+!cmd/meshsat-hub/web/dist/vendor/
 
 # Node
 node_modules/
