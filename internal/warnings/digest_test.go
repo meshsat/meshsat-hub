@@ -9,7 +9,6 @@ import (
 	"crypto/x509"
 	"encoding/hex"
 	"fmt"
-	"math/big"
 	"os"
 	"strings"
 	"testing"
@@ -41,12 +40,14 @@ type testSigner struct{ key *ecdsa.PrivateKey }
 
 func newTestSigner(t *testing.T) *testSigner {
 	t.Helper()
-	d, ok := new(big.Int).SetString(testKeyD, 16)
-	if !ok {
+	raw, err := hex.DecodeString(testKeyD)
+	if err != nil || len(raw) != 32 {
 		t.Fatal("test key")
 	}
-	key := &ecdsa.PrivateKey{D: d, PublicKey: ecdsa.PublicKey{Curve: elliptic.P256()}}
-	key.PublicKey.X, key.PublicKey.Y = key.PublicKey.Curve.ScalarBaseMult(d.Bytes())
+	key, err := ecdsa.ParseRawPrivateKey(elliptic.P256(), raw)
+	if err != nil {
+		t.Fatal(err)
+	}
 	return &testSigner{key: key}
 }
 

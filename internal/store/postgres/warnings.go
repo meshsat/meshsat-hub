@@ -111,7 +111,7 @@ func (d *DB) ListTenantWarnings(ctx context.Context, tenantID string, limit int)
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	var out []store.TenantWarning
 	for rows.Next() {
 		var w store.TenantWarning

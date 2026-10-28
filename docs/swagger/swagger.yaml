@@ -1014,6 +1014,13 @@ definitions:
         type: string
       notes:
         type: string
+      profile:
+        description: |-
+          Profile is how the Hub treats the modem beyond its type: "" for an
+          ordinary device, DeviceProfilePost for a kit that runs the Community
+          Post (MESHSAT-1733), whose "@" lane texts come from many people and
+          carry a pickup code the replies are keyed by.
+        type: string
       type:
         description: '"rockblock", "globalstar", etc.'
         type: string
@@ -2338,6 +2345,13 @@ definitions:
       last_seen:
         type: string
       notes:
+        type: string
+      profile:
+        description: |-
+          Profile is how the Hub treats the modem beyond its type: "" for an
+          ordinary device, DeviceProfilePost for a kit that runs the Community
+          Post (MESHSAT-1733), whose "@" lane texts come from many people and
+          carry a pickup code the replies are keyed by.
         type: string
       type:
         description: '"rockblock", "globalstar", etc.'
