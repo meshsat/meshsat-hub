@@ -135,6 +135,12 @@ func TestRepeatOffAndRepeatHoursBounds(t *testing.T) {
 // capDoc is a minimal test CAP message: an Alert, or an Update that names
 // an earlier identifier.
 func capDoc(id, msgType, refs string) []byte {
+	return capDocArea(id, msgType, refs, `<area><areaDesc>Texel</areaDesc><geocode><valueName>EMMA_ID</valueName><value>NL804</value></geocode></area>`)
+}
+
+// capDocArea is capDoc with the <area> given, "" for none: CAP lets an
+// Update or Cancel stand on its references alone.
+func capDocArea(id, msgType, refs, area string) []byte {
 	references := ""
 	if refs != "" {
 		references = "<references>" + refs + "</references>"
@@ -145,8 +151,8 @@ func capDoc(id, msgType, refs string) []byte {
   <status>Test</status><msgType>%s</msgType><scope>Public</scope>%s
   <info><language>nl</language><category>Met</category><event>Test</event><urgency>Immediate</urgency><severity>Severe</severity><certainty>Observed</certainty>
   <expires>2026-10-28T20:00:00+00:00</expires><senderName>MeshSat</senderName><headline>Relay test %s</headline>
-  <area><areaDesc>Texel</areaDesc><geocode><valueName>EMMA_ID</valueName><value>NL804</value></geocode></area></info></alert>`,
-		id, msgType, references, msgType))
+  %s</info></alert>`,
+		id, msgType, references, msgType, area))
 }
 
 func TestAnUpdateSupersedesTheMessageItNamesAndIsRepeatedInItsPlace(t *testing.T) {

@@ -954,7 +954,10 @@ func (m *mockStore) UpsertWarning(context.Context, *store.Warning) (bool, error)
 func (m *mockStore) GetWarning(context.Context, string, string) (*store.Warning, error) {
 	return nil, nil
 }
-func (m *mockStore) UpsertWarningMatch(context.Context, *store.WarningMatch) error       { return nil }
+func (m *mockStore) UpsertWarningMatch(context.Context, *store.WarningMatch) error { return nil }
+func (m *mockStore) GetWarningMatch(context.Context, string, string, string) (*store.WarningMatch, error) {
+	return nil, nil
+}
 func (m *mockStore) SetWarningRaw(context.Context, string, string, string) error         { return nil }
 func (m *mockStore) MarkWarningSuperseded(context.Context, string, string, string) error { return nil }
 func (m *mockStore) ListWarningsInForce(context.Context, string, time.Time) ([]store.TenantWarning, error) {

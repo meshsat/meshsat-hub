@@ -295,3 +295,102 @@ func TestAPublishFailureIsNotAMatchLost(t *testing.T) {
 		t.Fatalf("the match should be recorded with no bearer: %+v %v", list, err)
 	}
 }
+
+// An Update or Cancel may carry no <area> and stand on its <references>
+// alone. It goes to the kits the message it names went to, in the
+// workspace whose match that was, and nowhere else: a workspace that never
+// got the earlier message hears nothing of its cancellation. The same on
+// the bench path and at a repeat.
+func TestACancelWithoutAnAreaReachesTheKitsTheMessageItNamesWentTo(t *testing.T) {
+	const ref = "owner@example.org,w-1,2026-10-28T12:00:00+00:00"
+	alertDoc, cancelDoc := capDoc("w-1", "Alert", ""), capDocArea("w-2", "Cancel", ref, "")
+	alert, err := ParseCAP(alertDoc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cancel, err := ParseCAP(cancelDoc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	feed := &fakeFeed{source: SourceMeteoAlarmNL, msgs: []Fetched{{Alert: alert, Raw: alertDoc}, {Alert: cancel, Raw: cancelDoc}}}
+	// The victim has the relay on for another area: it never got w-1.
+	svc, bus, db, _ := rig(t, fakeAccounts{
+		"t1":                  {"enabled": "true", "areas": "NL804"},
+		store.DefaultTenantID: {"enabled": "true", "areas": "NL999"},
+	}, feed)
+	ctx := context.Background()
+	sent := time.Date(2026, 10, 28, 12, 0, 0, 0, time.UTC)
+	clock := sent.Add(time.Minute)
+	svc.now = func() time.Time { return clock }
+
+	// The control: by area alone the Cancel finds no kit.
+	bridges, _ := db.ListBridges(ctx, "t1")
+	kits, _ := relayCapable(bridges)
+	if m := MatchTenant(cancel, &TenantConfig{Enabled: true, Geocodes: []string{"NL804"}}, kits); len(m.Bridges) != 0 || !standsOnReferences(cancel) || standsOnReferences(alert) {
+		t.Fatalf("the control: %+v", m)
+	}
+
+	svc.Poll(ctx)
+	got := sendsTo(bus)
+	if len(got) != 2 || got["meshsat/t1/bridge/texel/warn/in"] != 2 || got["meshsat/t1/bridge/leiden/warn/in"] != 2 {
+		t.Fatalf("the alert and its cancel, to the two kits that relay and to nobody else: %v", got)
+	}
+	cancels := 0
+	for _, p := range bus.published() {
+		d, err := Verify(svc.PublicKey(), p.payload)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if d.MsgType == TypeCancel {
+			cancels++
+			if d.ID != IDOf("w-2") || d.Ref != IDOf("w-1") {
+				t.Fatalf("the cancel digest: %+v", d)
+			}
+		}
+	}
+	if cancels != 2 {
+		t.Fatalf("%d cancel digests", cancels)
+	}
+	m, err := db.GetWarningMatch(ctx, "t1", "meteoalarm-nl", "w-2")
+	if err != nil || m == nil || m.Bridges != `["leiden","texel"]` || !strings.Contains(m.Detail, "references w-1") {
+		t.Fatalf("the cancel's match: %+v %v", m, err)
+	}
+	if v, _ := db.GetWarningMatch(ctx, store.DefaultTenantID, "meteoalarm-nl", "w-2"); v != nil {
+		t.Fatalf("the victim matched a cancel of a message it never got: %+v", v)
+	}
+	if w, _ := db.GetWarning(ctx, "meteoalarm-nl", "w-1"); w == nil || w.SupersededBy != "w-2" {
+		t.Fatalf("w-1 not superseded: %+v", w)
+	}
+
+	// The bench path, one tenant at a time: a test Cancel of a test Alert
+	// reaches the kits the Alert went to; the same Cancel injected for a
+	// workspace that never got the Alert goes nowhere and says why.
+	const ref10 = "owner@example.org,w-10,2026-10-28T12:00:00+00:00"
+	if _, err := svc.Inject(ctx, "t1", capDoc("w-10", "Alert", "")); err != nil {
+		t.Fatal(err)
+	}
+	res, err := svc.Inject(ctx, "t1", capDocArea("w-11", "Cancel", ref10, ""))
+	if err != nil || len(res.Deliveries) != 1 || strings.Join(res.Deliveries[0].Bridges, ",") != "leiden,texel" || res.Deliveries[0].Error != "" {
+		t.Fatalf("the test cancel: %+v %v", res, err)
+	}
+	res, err = svc.Inject(ctx, store.DefaultTenantID, capDocArea("w-12", "Cancel", ref10, ""))
+	if err != nil || len(res.Deliveries) != 1 || len(res.Deliveries[0].Bridges) != 0 || !strings.Contains(res.Deliveries[0].Error, "names no area") {
+		t.Fatalf("a cancel of a message this workspace never got: %+v %v", res, err)
+	}
+	before := len(bus.published())
+
+	// At the repeat slot the two cancels in force (w-2, w-11) are matched
+	// again the same way; the messages they superseded are not.
+	clock = sent.Add(6*time.Hour + time.Minute)
+	svc.Repeat(ctx)
+	repeats := bus.published()[before:]
+	if len(repeats) != 4 {
+		t.Fatalf("the repeat of two cancels to two kits: %d sends", len(repeats))
+	}
+	for _, p := range repeats {
+		d, err := Verify(svc.PublicKey(), p.payload)
+		if err != nil || d.MsgType != TypeCancel || (d.Ref != IDOf("w-1") && d.Ref != IDOf("w-10")) {
+			t.Fatalf("a repeat that is not one of the cancels: %+v %v", d, err)
+		}
+	}
+}

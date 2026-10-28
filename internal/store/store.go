@@ -540,6 +540,11 @@ type Store interface {
 	SetWarningRaw(ctx context.Context, source, identifier, raw string) error
 	MarkWarningSuperseded(ctx context.Context, source, identifier, by string) error
 	UpsertWarningMatch(ctx context.Context, m *WarningMatch) error
+	// GetWarningMatch is the tenant's match of one message, nil when the
+	// message never went to any of its kits: what an Update or Cancel that
+	// names no area reads to reach the kits the message it references went
+	// to (MESHSAT-1734).
+	GetWarningMatch(ctx context.Context, tenantID, source, identifier string) (*WarningMatch, error)
 	ListTenantWarnings(ctx context.Context, tenantID string, limit int) ([]TenantWarning, error)
 	// ListWarningsInForce lists the tenant's matched messages still in force
 	// at now (expires after now, document kept, not superseded), with Raw.

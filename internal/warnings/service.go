@@ -213,6 +213,9 @@ func (s *Service) Repeat(ctx context.Context) {
 			}
 			kits, _ := relayCapable(bridges)
 			m := MatchTenant(a, cfg, kits)
+			if len(m.Bridges) == 0 && standsOnReferences(a) {
+				m = s.matchByReferences(ctx, a, &row.Warning, tid, kits)
+			}
 			if len(m.Bridges) == 0 {
 				continue
 			}
@@ -332,9 +335,15 @@ func (s *Service) process(ctx context.Context, a *Alert, w *store.Warning, raw [
 		// digest (CanRelay), whatever area it is in.
 		kits, skipped := relayCapable(bridges)
 		m := MatchTenant(a, cfg, kits)
+		if len(m.Bridges) == 0 && standsOnReferences(a) {
+			m = s.matchByReferences(ctx, a, w, tid, kits)
+		}
 		if len(m.Bridges) == 0 {
 			if onlyTenant != "" {
 				why := "no kit of this workspace is in the warning's area"
+				if standsOnReferences(a) {
+					why = "this " + strings.ToLower(a.MsgType) + " names no area, and no message it references went to a kit of this workspace"
+				}
 				if len(kits) == 0 && len(bridges) > 0 {
 					why = "no kit of this workspace can relay a warning: " + strings.Join(skipped, "; ")
 				}
@@ -354,6 +363,61 @@ func (s *Service) process(ctx context.Context, a *Alert, w *store.Warning, raw [
 		out = append(out, d)
 	}
 	return out
+}
+
+// standsOnReferences reports whether a message is matched by the messages
+// it references rather than by an area: CAP lets an Update or Cancel carry
+// no <area> and stand on its <references> alone, and MatchTenant, which
+// reads areas, finds no kit for such a message.
+func standsOnReferences(a *Alert) bool {
+	if a == nil || strings.EqualFold(a.MsgType, "Alert") || len(a.References) == 0 {
+		return false
+	}
+	for _, info := range a.Infos {
+		if len(info.Areas) > 0 {
+			return false
+		}
+	}
+	return true
+}
+
+// matchByReferences is the match of an Update or Cancel that names no
+// area: the kits the tenant's own match of each referenced message went
+// to, as far as they are still the tenant's and can still relay. A message
+// the tenant never matched contributes none, and the reference is read in
+// this message's feed: another feed's message of the same identifier is
+// not the same message.
+func (s *Service) matchByReferences(ctx context.Context, a *Alert, w *store.Warning, tid string, kits []*store.Bridge) Match {
+	var m Match
+	set := map[string]bool{}
+	for _, r := range a.References {
+		if r.Identifier == "" || r.Identifier == w.Identifier {
+			continue
+		}
+		prior, err := s.store.GetWarningMatch(ctx, tid, w.Source, r.Identifier)
+		if err != nil {
+			s.log.Warn("warnings: a referenced message's match could not be read", "tenant", tid, "source", w.Source, "identifier", r.Identifier, "error", err)
+			continue
+		}
+		if prior == nil {
+			continue
+		}
+		var went []string
+		if err := json.Unmarshal([]byte(prior.Bridges), &went); err != nil {
+			continue
+		}
+		m.Why = append(m.Why, "references "+r.Identifier)
+		for _, id := range went {
+			for _, k := range kits {
+				if k.BridgeID == id && !set[id] {
+					set[id] = true
+					m.Bridges = append(m.Bridges, id)
+				}
+			}
+		}
+	}
+	sort.Strings(m.Bridges)
+	return m
 }
 
 // matchDetail is the JSON in warning_matches.detail: what the last pass

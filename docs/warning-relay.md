@@ -47,7 +47,11 @@ A workspace opts in under Settings, Integrations, "Public warnings (last-mile re
   warning polygon or circle (`geo.PointInPolygon` over the CAP `<polygon>`). A kit with no position
   never matches by position. DWD carries a polygon for most cells ("polygonal event area") and
   MeteoAlarm NL a polygon beside its EMMA_ID; a message with geocodes only matches geocodes only,
-  the Hub carries no cell geometry.
+  the Hub carries no cell geometry;
+- **the kits the message it references went to** when an Update or Cancel carries no `<area>` (CAP
+  lets it stand on its `<references>` alone): each referenced message's match in the workspace
+  names the kits, as far as they are still registered and can still relay; a message the workspace
+  never matched contributes none, and the reference is read in the same feed.
 
 **Kits only.** A digest goes only to a bridge that can do something with it: one whose last birth
 is a MeshSat Bridge's (not a phone's, `protocol.PhoneMode`: birth mode `android` or `ios`) and
@@ -222,7 +226,6 @@ claimed_elsewhere, no_modem), `meshsat_hub_warnings_repeated_total` (digests han
 ## Not in this version
 
 A geocode-to-geometry table (a DWD message without a polygon matches a kit only by the geocode the
-tenant names); an Update or Cancel that carries no `<area>` matches no kit and so reaches none (the
-kits that hold the warning keep it until it expires); more feeds (GDACS, USGS, NINA, NL-Alert, which
+tenant names); more feeds (GDACS, USGS, NINA, NL-Alert, which
 has no public feed); the apps; the 2G cell's broadcast channel on the kit; the legal opinion on
 relaying under EECC article 110.

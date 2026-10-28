@@ -72,6 +72,20 @@ func testWarnings(t *testing.T, db store.Store) {
 		MsgType: "Alert", Bridges: `["kit-a","kit-b"]`}); err != nil {
 		t.Fatal(err)
 	}
+	// One tenant's match by the message it is of: the latest bridges, never
+	// another tenant's row, nil for a message that went to none of its kits.
+	if got, err := db.GetWarningMatch(ctx, mine, w.Source, w.Identifier); err != nil || got == nil || got.Bridges != `["kit-a","kit-b"]` || got.Test || got.MatchedAt.IsZero() || got.TenantID != mine {
+		t.Fatalf("get match: %+v %v", got, err)
+	}
+	if got, err := db.GetWarningMatch(ctx, other, w.Source, w.Identifier); err != nil || got == nil || got.Bridges != `["kit-v"]` || !got.Test {
+		t.Fatalf("the victim's match by its own tenant: %+v %v", got, err)
+	}
+	if got, err := db.GetWarningMatch(ctx, "t_warn_nobody", w.Source, w.Identifier); err != nil || got != nil {
+		t.Fatalf("a tenant with no match: %+v %v", got, err)
+	}
+	if got, err := db.GetWarningMatch(ctx, mine, w.Source, "2.49.0.0.528.0.NL.9"); err != nil || got != nil {
+		t.Fatalf("a message the tenant never matched: %+v %v", got, err)
+	}
 	list, err := db.ListTenantWarnings(ctx, mine, 10)
 	if err != nil || len(list) != 1 {
 		t.Fatalf("list: %d %v", len(list), err)

@@ -815,7 +815,10 @@ func (f *fakeStore) UpsertWarning(context.Context, *store.Warning) (bool, error)
 func (f *fakeStore) GetWarning(context.Context, string, string) (*store.Warning, error) {
 	return nil, nil
 }
-func (f *fakeStore) UpsertWarningMatch(context.Context, *store.WarningMatch) error       { return nil }
+func (f *fakeStore) UpsertWarningMatch(context.Context, *store.WarningMatch) error { return nil }
+func (f *fakeStore) GetWarningMatch(context.Context, string, string, string) (*store.WarningMatch, error) {
+	return nil, nil
+}
 func (f *fakeStore) SetWarningRaw(context.Context, string, string, string) error         { return nil }
 func (f *fakeStore) MarkWarningSuperseded(context.Context, string, string, string) error { return nil }
 func (f *fakeStore) ListWarningsInForce(context.Context, string, time.Time) ([]store.TenantWarning, error) {

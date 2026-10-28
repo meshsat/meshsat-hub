@@ -97,6 +97,24 @@ func (d *DB) UpsertWarningMatch(ctx context.Context, m *store.WarningMatch) erro
 	return err
 }
 
+func (d *DB) GetWarningMatch(ctx context.Context, tenantID, source, identifier string) (*store.WarningMatch, error) {
+	m := store.WarningMatch{TenantID: tenantID}
+	var test int
+	var matched string
+	err := d.db.QueryRowContext(ctx,
+		`SELECT source, identifier, msg_type, test, bridges, detail, matched_at
+		 FROM warning_matches WHERE tenant_id = ? AND source = ? AND identifier = ?`, tenantID, source, identifier).
+		Scan(&m.Source, &m.Identifier, &m.MsgType, &test, &m.Bridges, &m.Detail, &matched)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	m.Test, m.MatchedAt = test != 0, boothParse(matched)
+	return &m, nil
+}
+
 func (d *DB) ListTenantWarnings(ctx context.Context, tenantID string, limit int) ([]store.TenantWarning, error) {
 	if limit <= 0 || limit > 500 {
 		limit = 100
