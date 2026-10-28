@@ -35,7 +35,7 @@ func TestHandler_CrewChatFrameReachesTheService(t *testing.T) {
 	h := NewHandler(b, testSecret)
 	cc := &fakeCrewChat{}
 	h.SetCrewChat(cc)
-	answer, _ := hex.DecodeString("4d530143" + "0102030405060708090a0b0c0d0e0f10a1b3c2ec6ae1e3c00186206d7920f579")
+	answer, _ := hex.DecodeString("4d530143" + "0102030405060708090a0b0c0d0e0f100a0b0c0d6ae1e3c00186206d7920f579")
 	dataHex := hex.EncodeToString(answer)
 	form := url.Values{"imei": {imei}, "momsn": {jsonInt(41)}, "transmit_time": {"26-10-28 12:00:00"}, "data": {dataHex}}
 	form.Set("JWT", signedJWT(t, jwt.MapClaims{"imei": imei, "momsn": 41, "data": dataHex, "transmit_time": form.Get("transmit_time")}))

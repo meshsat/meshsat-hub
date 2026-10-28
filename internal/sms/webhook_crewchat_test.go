@@ -34,14 +34,14 @@ func TestWebhook_CrewChatFrameReachesTheService(t *testing.T) {
 	h.SetInboundAuthToken(testAuthToken)
 	cc := &fakeCrewChat{}
 	h.SetCrewChat(cc)
-	status, _ := hex.DecodeString("4d530144" + "0102030405060708090a0b0c0d0e0f10a1b3c2ec6ae1e3c0040100")
-	form := url.Values{"From": {"+31653618463"}, "To": {"+3197010258258"}, "Body": {base64.StdEncoding.EncodeToString(status)}, "MessageSid": {"SM-c3"}}
+	status, _ := hex.DecodeString("4d530144" + "0102030405060708090a0b0c0d0e0f100a0b0c0d6ae1e3c0040100")
+	form := url.Values{"From": {"+31612345678"}, "To": {"+31600000001"}, "Body": {base64.StdEncoding.EncodeToString(status)}, "MessageSid": {"SM-c3"}}
 	rr := httptest.NewRecorder()
 	h.ServeHTTP(rr, signedRequest(t, form))
 	if rr.Code != http.StatusOK || !strings.Contains(rr.Body.String(), "bridge_uplink") {
 		t.Fatalf("%d %s", rr.Code, rr.Body.String())
 	}
-	want := "status default sms +31653618463 " + hex.EncodeToString(status[4:])
+	want := "status default sms +31612345678 " + hex.EncodeToString(status[4:])
 	if len(cc.calls) != 1 || cc.calls[0] != want {
 		t.Fatalf("calls %q, want %q", cc.calls, want)
 	}

@@ -113,7 +113,7 @@ func setCrewChat(t *testing.T, db store.Store, sat, smsOn bool, force string) {
 
 func TestTheBearerFollowsTheKitsStateAndTheWorkspacesChoices(t *testing.T) {
 	const imei = "300234067504200"
-	reachable := kit{online: true, satIMEI: imei, satStatus: "online", cellular: true, phone: "+31653618463", registered: true}
+	reachable := kit{online: true, satIMEI: imei, satStatus: "online", cellular: true, phone: "+31612345678", registered: true}
 	cases := []struct {
 		name          string
 		kit           kit
@@ -126,24 +126,24 @@ func TestTheBearerFollowsTheKitsStateAndTheWorkspacesChoices(t *testing.T) {
 		wantReplyHere bool
 	}{
 		{name: "on MQTT: mqtt whatever is allowed", kit: reachable, sat: true, sms: true, want: BearerMQTT},
-		{name: "off MQTT, defaults: SMS", kit: kit{stale: true, satIMEI: imei, satStatus: "online", cellular: true, phone: "+31653618463", registered: true},
+		{name: "off MQTT, defaults: SMS", kit: kit{stale: true, satIMEI: imei, satStatus: "online", cellular: true, phone: "+31612345678", registered: true},
 			sat: false, sms: true, want: BearerSMS},
-		{name: "off MQTT, satellite allowed: the modem", kit: kit{stale: true, satIMEI: imei, satStatus: "online", cellular: true, phone: "+31653618463", registered: true},
+		{name: "off MQTT, satellite allowed: the modem", kit: kit{stale: true, satIMEI: imei, satStatus: "online", cellular: true, phone: "+31612345678", registered: true},
 			sat: true, sms: true, want: BearerSBD},
-		{name: "last report came over SMS: off MQTT", kit: kit{online: true, lastBearer: "sms", cellular: true, phone: "+31653618463"},
+		{name: "last report came over SMS: off MQTT", kit: kit{online: true, lastBearer: "sms", cellular: true, phone: "+31612345678"},
 			sat: false, sms: true, want: BearerSMS},
-		{name: "never online: SMS", kit: kit{cellular: true, phone: "+31653618463"}, sat: false, sms: true, want: BearerSMS},
+		{name: "never online: SMS", kit: kit{cellular: true, phone: "+31612345678"}, sat: false, sms: true, want: BearerSMS},
 		{name: "off MQTT, no phone on file", kit: kit{stale: true, cellular: true}, sat: false, sms: true,
 			wantErr: ErrNoBearer, wantWhy: "no phone number on file"},
-		{name: "off MQTT, birth names no cellular interface", kit: kit{stale: true, satIMEI: imei, satStatus: "offline", phone: "+31653618463"},
+		{name: "off MQTT, birth names no cellular interface", kit: kit{stale: true, satIMEI: imei, satStatus: "offline", phone: "+31612345678"},
 			sat: false, sms: true, wantErr: ErrNoBearer, wantWhy: "no cellular interface"},
-		{name: "off MQTT, SMS off, satellite off", kit: kit{stale: true, cellular: true, phone: "+31653618463"}, sat: false, sms: false,
+		{name: "off MQTT, SMS off, satellite off", kit: kit{stale: true, cellular: true, phone: "+31612345678"}, sat: false, sms: false,
 			wantErr: ErrNoBearer, wantWhy: "SMS: off for this workspace"},
 		{name: "off MQTT, satellite allowed but the modem is another tenant's", kit: kit{stale: true, satIMEI: imei, satStatus: "online", cellular: false},
 			sat: true, sms: false, wantErr: ErrNoBearer, wantWhy: "not registered to this workspace"},
 		{name: "off MQTT, satellite allowed, modem offline in the birth still named", kit: kit{stale: true, satIMEI: imei, satStatus: "offline", registered: true},
 			sat: true, sms: false, want: BearerSBD},
-		{name: "off MQTT, no SMS sender on this Hub", kit: kit{stale: true, cellular: true, phone: "+31653618463"}, sat: false, sms: true, noSMS: true,
+		{name: "off MQTT, no SMS sender on this Hub", kit: kit{stale: true, cellular: true, phone: "+31612345678"}, sat: false, sms: true, noSMS: true,
 			wantErr: ErrNoBearer, wantWhy: "no SMS sender"},
 		{name: "forced SMS while on MQTT", kit: reachable, sat: false, sms: true, force: "sms", want: BearerSMS, wantReplyHere: true},
 		{name: "forced satellite while on MQTT", kit: reachable, sat: false, sms: false, force: "satellite", want: BearerSBD, wantReplyHere: true},
@@ -237,7 +237,7 @@ func TestAFrameSendIsClaimedOnceAndAFailureIsRecorded(t *testing.T) {
 	s, _, db, now := rig(t)
 	sends := &frameSends{}
 	s.SetBearers(Bearers{SendSMS: sends.sendSMS})
-	rigKit(t, s, db, "kit-a", kit{stale: true, cellular: true, phone: "+31653618463"})
+	rigKit(t, s, db, "kit-a", kit{stale: true, cellular: true, phone: "+31612345678"})
 	s.now = func() time.Time { return now.Add(time.Hour) }
 	ctx := context.Background()
 	// The claim is taken before the send: a second replica running the same
@@ -266,7 +266,7 @@ func TestATextTooLongForTheBearerIsRefusedBeforeAnythingIsStored(t *testing.T) {
 	s, _, db, now := rig(t)
 	sends := &frameSends{}
 	s.SetBearers(Bearers{SendSMS: sends.sendSMS, SendMT: sends.sendMT})
-	rigKit(t, s, db, "kit-a", kit{stale: true, cellular: true, phone: "+31653618463"})
+	rigKit(t, s, db, "kit-a", kit{stale: true, cellular: true, phone: "+31612345678"})
 	s.now = func() time.Time { return now.Add(time.Hour) }
 	long := strings.Repeat("zq9 ", 45) // 180 bytes, under MaxBytes, and SMAZ2 does not help it
 	_, _, err := s.Send(context.Background(), SendRequest{TenantID: "t1", CrewUID: "meshsat-0a0b0c0d", UserID: "7", Text: long})
@@ -278,7 +278,7 @@ func TestATextTooLongForTheBearerIsRefusedBeforeAnythingIsStored(t *testing.T) {
 	}
 	// The same text fits an SBD MT.
 	setCrewChat(t, db, true, true, "")
-	rigKit(t, s, db, "kit-a", kit{stale: true, satIMEI: "300234067504200", satStatus: "online", cellular: true, phone: "+31653618463", registered: true})
+	rigKit(t, s, db, "kit-a", kit{stale: true, satIMEI: "300234067504200", satStatus: "online", cellular: true, phone: "+31612345678", registered: true})
 	msg, _, err := s.Send(context.Background(), SendRequest{TenantID: "t1", CrewUID: "meshsat-0a0b0c0d", UserID: "7", Text: long})
 	if err != nil || msg.Bearer != BearerSBD || len(sends.mt) != 1 {
 		t.Fatalf("over SBD: %+v %v", msg, err)
@@ -290,7 +290,7 @@ func sendOverSMS(t *testing.T, s *Service, db store.Store, now time.Time) (*stor
 	t.Helper()
 	sends := &frameSends{}
 	s.SetBearers(Bearers{SendSMS: sends.sendSMS})
-	rigKit(t, s, db, "kit-a", kit{stale: true, cellular: true, phone: "+31653618463"})
+	rigKit(t, s, db, "kit-a", kit{stale: true, cellular: true, phone: "+31612345678"})
 	s.now = func() time.Time { return now.Add(time.Hour) }
 	msg, created, err := s.Send(context.Background(), SendRequest{TenantID: "t1", CrewUID: "meshsat-0a0b0c0d", UserID: "7", Name: "Anna", Text: "check in please"})
 	if err != nil || !created || msg.Bearer != BearerSMS {
@@ -307,11 +307,11 @@ func TestACrewsAnswerFrameIsStoredAgainstItsQuestionOnce(t *testing.T) {
 	ctx := context.Background()
 	s.now = func() time.Time { return now.Add(2 * time.Hour) } // the answer comes later
 	payload, _ := EncodeAnswer(Answer{MessageID: q.ID, Node: 0x0a0b0c0d, At: now, Text: "on my way"})
-	if got := s.CrewAnswer(ctx, "t1", BearerSMS, "+31653618463", payload); got != "kit-a" {
+	if got := s.CrewAnswer(ctx, "t1", BearerSMS, "+31612345678", payload); got != "kit-a" {
 		t.Fatalf("taken as %q", got)
 	}
 	// The SMS was retried by the carrier: the same answer is one row, one post.
-	if got := s.CrewAnswer(ctx, "t1", BearerSMS, "+31653618463", payload); got != "kit-a" {
+	if got := s.CrewAnswer(ctx, "t1", BearerSMS, "+31612345678", payload); got != "kit-a" {
 		t.Fatalf("the retry: %q", got)
 	}
 	rows, _ := db.ListTAKChatMessages(ctx, "t1", "meshsat-0a0b0c0d", 10)
@@ -327,17 +327,17 @@ func TestACrewsAnswerFrameIsStoredAgainstItsQuestionOnce(t *testing.T) {
 	// nothing from a satellite modem that is not the kit's.
 	for name, try := range map[string]func() string{
 		"another number": func() string { return s.CrewAnswer(ctx, "t1", BearerSMS, "+31600000000", payload) },
-		"another tenant": func() string { return s.CrewAnswer(ctx, store.DefaultTenantID, BearerSMS, "+31653618463", payload) },
+		"another tenant": func() string { return s.CrewAnswer(ctx, store.DefaultTenantID, BearerSMS, "+31612345678", payload) },
 		"unknown modem":  func() string { return s.CrewAnswer(ctx, "t1", BearerSBD, "300234060000000", payload) },
 		"not the crew": func() string {
 			p, _ := EncodeAnswer(Answer{MessageID: q.ID, Node: 0x11112222, At: now, Text: "x"})
-			return s.CrewAnswer(ctx, "t1", BearerSMS, "+31653618463", p)
+			return s.CrewAnswer(ctx, "t1", BearerSMS, "+31612345678", p)
 		},
 		"unknown message": func() string {
 			p, _ := EncodeAnswer(Answer{MessageID: vecMessageID, Node: 0x0a0b0c0d, At: now, Text: "x"})
-			return s.CrewAnswer(ctx, "t1", BearerSMS, "+31653618463", p)
+			return s.CrewAnswer(ctx, "t1", BearerSMS, "+31612345678", p)
 		},
-		"unreadable": func() string { return s.CrewAnswer(ctx, "t1", BearerSMS, "+31653618463", payload[:10]) },
+		"unreadable": func() string { return s.CrewAnswer(ctx, "t1", BearerSMS, "+31612345678", payload[:10]) },
 	} {
 		if got := try(); got != "" {
 			t.Errorf("%s was taken as %q", name, got)
@@ -356,7 +356,7 @@ func TestAKitsStatusFrameIsRecordedOnItsQuestion(t *testing.T) {
 	ctx := context.Background()
 	payload, _ := EncodeStatus(Status{MessageID: q.ID, Node: 0x0a0b0c0d, At: now, Status: StatusUndelivered, Reason: "not_heard",
 		Detail: "the kit has not heard MESHSAT-0c0d in the last day"})
-	if got := s.CrewStatus(ctx, "t1", BearerSMS, "+31653618463", payload); got != "kit-a" {
+	if got := s.CrewStatus(ctx, "t1", BearerSMS, "+31612345678", payload); got != "kit-a" {
 		t.Fatalf("taken as %q", got)
 	}
 	stored, _ := db.GetTAKChatMessage(ctx, "t1", q.ID)
@@ -368,7 +368,7 @@ func TestAKitsStatusFrameIsRecordedOnItsQuestion(t *testing.T) {
 	}
 	// A late "queued" never undoes the final word; a wrong number is refused.
 	late, _ := EncodeStatus(Status{MessageID: q.ID, Node: 0x0a0b0c0d, At: now, Status: StatusQueued, Detail: "queued"})
-	if got := s.CrewStatus(ctx, "t1", BearerSMS, "+31653618463", late); got != "" {
+	if got := s.CrewStatus(ctx, "t1", BearerSMS, "+31612345678", late); got != "" {
 		t.Error("a late queued was taken")
 	}
 	if got := s.CrewStatus(ctx, "t1", BearerSMS, "+31600000000", payload); got != "" {
