@@ -1564,8 +1564,7 @@ ALTER TABLE warnings ADD COLUMN IF NOT EXISTS superseded_by VARCHAR(255) NOT NUL
 	// message reached the kit or an "in" answer came back (mqtt, sbd, imt,
 	// sms). The tenant's choices: satellite fallback (off, it spends), SMS
 	// fallback (on; the column is the "off" so a new row takes the default),
-	// and a forced bearer for a test. Mirrored in sqlite. NEXT NUMBER AFTER
-	// 51 ON THIS BRANCH; the integrating session renumbers if main moved.
+	// and a forced bearer for a test. Mirrored in sqlite.
 	{Version: 53, Name: "crew chat bearers", SQL: `
 ALTER TABLE tak_chat_messages ADD COLUMN IF NOT EXISTS bearer VARCHAR(16) NOT NULL DEFAULT '';
 ALTER TABLE tenants ADD COLUMN IF NOT EXISTS crew_chat_satellite BOOLEAN NOT NULL DEFAULT FALSE;
