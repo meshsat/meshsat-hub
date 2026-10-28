@@ -95,8 +95,10 @@ type fakeAPI struct {
 	// autoIssue mimics the operator: a created request is signed immediately.
 	autoIssue bool
 	listErr   bool
-	creates   int
-	deletes   int
+	// lists counts instance listings: one per refresh pass.
+	lists   int
+	creates int
+	deletes int
 	// instOps records per-INSTANCE operations in the order they arrive, because
 	// the teardown's load-bearing property is a sequence: the purge marker must be
 	// patched on BEFORE the delete. Counting both would pass just as well if they
@@ -152,6 +154,7 @@ func (f *fakeAPI) handler(t *testing.T) http.Handler {
 
 		switch {
 		case strings.HasSuffix(r.URL.Path, "/takinstances"):
+			f.lists++
 			if f.listErr {
 				w.WriteHeader(http.StatusInternalServerError)
 				_, _ = w.Write([]byte(`{"kind":"Status","message":"api is unwell"}`))

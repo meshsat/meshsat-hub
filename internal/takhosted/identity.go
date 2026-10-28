@@ -38,7 +38,8 @@ import (
 // request sits Pending for a few seconds. The directory refresh runs every five
 // minutes across every replica, and blocking it on a signature would stall the
 // whole tenant set for one tenant. So For returns ErrIdentityPending immediately
-// and the tenant is skipped from this snapshot, appearing in the next one.
+// and the tenant is skipped from this snapshot, appearing in the next one, which
+// the refresher runs within seconds while a tenant waits (MESHSAT-1711).
 //
 // # The private key must outlive the wait
 //

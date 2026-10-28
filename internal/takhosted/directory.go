@@ -81,6 +81,33 @@ type DirectoryRefresher struct {
 // takes effect within the authorizer's much shorter TTL.
 const DefaultRefreshInterval = 5 * time.Minute
 
+// While a tenant waits for the Hub's own upstream certificate, or a pass fails,
+// the next pass comes after retryBase, doubling, instead of after the full
+// interval (MESHSAT-1711).
+//
+// A new pod asks for its certificate on its first pass and the operator signs it
+// within seconds, but the tenant used to enter the directory only on the NEXT
+// tick: for five minutes after every rollout the front refused every phone of
+// every tenant with "client certificate was not issued by a known tenant CA".
+// The same held for a first pass that failed on a busy API server, which left a
+// new pod serving its empty startup directory until the tick.
+//
+// Two caps. A pending tenant is checked at least every pendingRetryMax, so a
+// certificate signed late is picked up within seconds and not at the top of a
+// long backoff; the check is one read of the request object. A failing pass
+// backs off to errorRetryMax, so an API server that stays down, or a defect such
+// as two tenants on one CA, costs a pass a minute rather than one every few
+// seconds.
+const (
+	retryBase       = 2 * time.Second
+	pendingRetryMax = 10 * time.Second
+	errorRetryMax   = time.Minute
+)
+
+// reasonIdentityPending is the skip reason for a tenant whose Hub certificate has
+// been asked for and not signed yet. Run retries soon while any tenant has it.
+const reasonIdentityPending = "waiting for the Hub's upstream certificate to be issued"
+
 // NewDirectoryRefresher wires one up. setDirectory is normally srv.SetDirectory.
 func NewDirectoryRefresher(c *Client, k *IdentityKeeper,
 	setDirectory func(*takfront.Directory), log *slog.Logger) *DirectoryRefresher {
@@ -154,28 +181,81 @@ func (r *DirectoryRefresher) PublishEmpty() error {
 
 // Run refreshes until ctx is done. Not a leader singleton: see the type comment.
 func (r *DirectoryRefresher) Run(ctx context.Context) {
-	r.runEvery(ctx, DefaultRefreshInterval)
+	r.runEvery(ctx, DefaultRefreshInterval, retryPolicy{retryBase, pendingRetryMax, errorRetryMax})
 }
 
-func (r *DirectoryRefresher) runEvery(ctx context.Context, every time.Duration) {
+// retryPolicy is the backoff between passes while one is owed (see retryBase).
+type retryPolicy struct {
+	base, pendingMax, errorMax time.Duration
+}
+
+// runEvery refreshes every `every`, or sooner on a backoff while the last pass
+// failed or left a tenant waiting for its certificate.
+func (r *DirectoryRefresher) runEvery(ctx context.Context, every time.Duration, p retryPolicy) {
 	if every <= 0 {
 		every = DefaultRefreshInterval
 	}
-	t := time.NewTicker(every)
-	defer t.Stop()
-	if err := r.Refresh(ctx); err != nil {
-		r.log.Warn("takhosted: first directory refresh failed, serving what we have", "error", err)
+	clamp := func(d time.Duration) time.Duration {
+		if d <= 0 || d > every {
+			return every
+		}
+		return d
 	}
+	p.base, p.pendingMax, p.errorMax = clamp(p.base), clamp(p.pendingMax), clamp(p.errorMax)
+	retry := p.base
+	first := true
 	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-t.C:
-			if err := r.Refresh(ctx); err != nil {
+		err := r.Refresh(ctx)
+		if err != nil {
+			if first {
+				r.log.Warn("takhosted: first directory refresh failed, serving what we have", "error", err)
+			} else {
 				r.log.Warn("takhosted: directory refresh failed, keeping the previous snapshot", "error", err)
 			}
 		}
+		first = false
+
+		wait := every
+		limit := time.Duration(0)
+		switch {
+		case err != nil:
+			limit = p.errorMax
+		case r.waitingForIdentity():
+			limit = p.pendingMax
+		}
+		if limit > 0 {
+			if retry > limit {
+				// Back from a run of errors to a pending tenant: check it soon.
+				retry = limit
+			}
+			wait = retry
+			if retry *= 2; retry > limit {
+				retry = limit
+			}
+		} else {
+			retry = p.base
+		}
+		t := time.NewTimer(wait)
+		select {
+		case <-ctx.Done():
+			t.Stop()
+			return
+		case <-t.C:
+		}
 	}
+}
+
+// waitingForIdentity reports whether the last pass skipped a tenant only because
+// the Hub's own certificate for it is not signed yet.
+func (r *DirectoryRefresher) waitingForIdentity() bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for _, why := range r.skipped {
+		if why == reasonIdentityPending {
+			return true
+		}
+	}
+	return false
 }
 
 // Refresh rebuilds the snapshot once.
@@ -294,7 +374,7 @@ func (r *DirectoryRefresher) tenantFor(ctx context.Context, inst TakInstance) (*
 	identity, err := r.certs.For(ctx, inst.Spec.TenantID, inst.Spec.Label)
 	if err != nil {
 		if errors.Is(err, ErrIdentityPending) {
-			return nil, "waiting for the Hub's upstream certificate to be issued"
+			return nil, reasonIdentityPending
 		}
 		r.log.Warn("takhosted: no upstream identity for tenant",
 			"tenant", inst.Spec.TenantID, "error", err)
