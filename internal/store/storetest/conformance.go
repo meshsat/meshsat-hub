@@ -61,6 +61,7 @@ func Run(t *testing.T, open Opener) {
 		{"RNSPaths", testRNSPaths},
 		{"LXMFMessages", testLXMFMessages},
 		{"LXMFHeld", testLXMFHeld},
+		{"LXMFAttachments", testLXMFAttachments},
 		{"MsgOps", testMsgOps},
 		{"SOSRuns", testSOSRuns},
 		{"AdvanceAlertKeepsAClosedAlertClosed", testAdvanceAlertKeepsAClosedAlertClosed},

@@ -622,6 +622,9 @@ var postAlterMigrations = []string{
 	`CREATE TABLE IF NOT EXISTS matrix_operators (tenant_id TEXT NOT NULL, user_id TEXT NOT NULL, room_id TEXT NOT NULL, matrix_user_id TEXT NOT NULL, display_name TEXT NOT NULL DEFAULT '', last_used_at TEXT NOT NULL DEFAULT (datetime('now')), PRIMARY KEY (tenant_id, user_id))`,
 	`CREATE INDEX IF NOT EXISTS idx_matrix_operators_used ON matrix_operators (tenant_id, last_used_at)`,
 	`CREATE TABLE IF NOT EXISTS matrix_sync (tenant_id TEXT NOT NULL PRIMARY KEY, bot_user_id TEXT NOT NULL DEFAULT '', next_batch TEXT NOT NULL DEFAULT '', updated_at TEXT NOT NULL DEFAULT (datetime('now')))`,
+	// MESHSAT-1735, voice notes and photos of LXMF messages; mirrors postgres migration 48.
+	`CREATE TABLE IF NOT EXISTS lxmf_attachments (tenant_id TEXT NOT NULL, message_id TEXT NOT NULL, idx INTEGER NOT NULL, kind TEXT NOT NULL, mode INTEGER NOT NULL DEFAULT 0, format TEXT NOT NULL DEFAULT '', size INTEGER NOT NULL, object_key TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT (datetime('now')), PRIMARY KEY (tenant_id, message_id, idx))`,
+	`CREATE INDEX IF NOT EXISTS idx_lxmf_attachments_age ON lxmf_attachments (tenant_id, created_at)`,
 }
 
 // lateAlterMigrations alter tables created in postAlterMigrations.

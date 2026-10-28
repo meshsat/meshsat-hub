@@ -129,6 +129,29 @@ func (c *Client) Get(ctx context.Context, key, byteRange string) (*http.Response
 	return resp, nil
 }
 
+// Delete removes an object; a key that is not there is no error, as S3
+// answers it.
+func (c *Client) Delete(ctx context.Context, key string) error {
+	req, err := http.NewRequestWithContext(ctx, http.MethodDelete, c.URL(key), nil)
+	if err != nil {
+		return err
+	}
+	c.Sign(req, EmptyPayloadHash)
+	resp, err := c.HTTP.Do(req) // #nosec G704 -- operator-configured object store endpoint
+	if err != nil {
+		return fmt.Errorf("delete %s: %w", key, err)
+	}
+	msg, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+	_ = resp.Body.Close()
+	if resp.StatusCode == http.StatusNotFound {
+		return nil
+	}
+	if resp.StatusCode < 200 || resp.StatusCode > 299 {
+		return fmt.Errorf("delete %s: status %d: %s", key, resp.StatusCode, strings.TrimSpace(string(msg)))
+	}
+	return nil
+}
+
 // Sign adds the SigV4 Authorization header. payloadHash is the hex SHA-256 of
 // the request body (EmptyPayloadHash for a body-less request); it is signed,
 // never the UNSIGNED-PAYLOAD sentinel. Headers outside the canonical set are

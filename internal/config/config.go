@@ -515,6 +515,12 @@ type Config struct {
 	// LXMFPropagationMaxBytes caps what one tenant's propagation node holds
 	// for offline clients; 0 is 50 MiB.
 	LXMFPropagationMaxBytes int64 `yaml:"lxmf_propagation_max_bytes"`
+	// LXMFAttachmentMaxBytes caps what one tenant keeps of voice notes and
+	// photos (MESHSAT-1735), oldest out first; 0 is 64 MiB. The bytes live
+	// in the audit archive's object store under LXMFAttachmentS3Prefix
+	// ("lxmf-attachments" when empty).
+	LXMFAttachmentMaxBytes int64  `yaml:"lxmf_attachment_max_bytes"`
+	LXMFAttachmentS3Prefix string `yaml:"lxmf_attachment_s3_prefix"`
 
 	// Cloudloop MO webhook + MQTT subscriber
 	CloudloopWebhookAllowedIPs string `yaml:"cloudloop_webhook_allowed_ips"` // comma-separated IP allowlist (default: Cloudloop IPs)
@@ -1401,6 +1407,14 @@ func Load() (Config, error) {
 		if n, err := strconv.ParseInt(v, 10, 64); err == nil && n > 0 {
 			cfg.LXMFPropagationMaxBytes = n
 		}
+	}
+	if v := os.Getenv("HUB_LXMF_ATTACHMENT_MAX_BYTES"); v != "" {
+		if n, err := strconv.ParseInt(v, 10, 64); err == nil && n > 0 {
+			cfg.LXMFAttachmentMaxBytes = n
+		}
+	}
+	if v := os.Getenv("HUB_LXMF_ATTACHMENT_S3_PREFIX"); v != "" {
+		cfg.LXMFAttachmentS3Prefix = v
 	}
 
 	// Cloudloop MO webhook/MQTT overrides

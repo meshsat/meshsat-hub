@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"encoding/base64"
 	"errors"
 	"log/slog"
 	"net/http"
@@ -94,7 +95,42 @@ type lxmfSendRequest struct {
 	Title       string `json:"title"`
 	// Method is auto (default), direct or opportunistic.
 	Method string `json:"method"`
+	// Audio is a voice note and Image a photo, carried in the message's
+	// LXMF fields as Sideband sends them; together at most 64 KiB. Content
+	// may be empty when the message carries one. [MESHSAT-1735]
+	Audio *lxmfAudioRequest `json:"audio,omitempty"`
+	Image *lxmfImageRequest `json:"image,omitempty"`
 }
+
+// lxmfAudioRequest is a voice note: the LXMF audio mode (Codec2 0x01-0x09,
+// 700C = 3; Opus 0x10-0x19) and the frames, base64.
+type lxmfAudioRequest struct {
+	Mode    int    `json:"mode"`
+	DataB64 string `json:"data_b64"`
+}
+
+// lxmfImageRequest is a photo: the format name ("webp") and the bytes, base64.
+type lxmfImageRequest struct {
+	Format  string `json:"format"`
+	DataB64 string `json:"data_b64"`
+}
+
+// lxmfAttachmentsResponse is the reply of GET /api/lxmf/messages/{id}/attachments.
+type lxmfAttachmentsResponse struct {
+	MessageID   string               `json:"message_id"`
+	Attachments []lxmfAttachmentItem `json:"attachments"`
+}
+
+// lxmfAttachmentItem is one attachment's metadata and where its bytes are.
+type lxmfAttachmentItem struct {
+	store.LXMFAttachment
+	ContentType string `json:"content_type"`
+	URL         string `json:"url"`
+}
+
+// lxmfSendMaxBody bounds POST /api/lxmf/messages: the text, the two
+// attachments in base64 and the JSON around them.
+const lxmfSendMaxBody = int64(lxmfhub.MaxContentBytes + lxmf.MaxAttachmentBytes*2 + 4096)
 
 func (h *LXMFHandler) off(w http.ResponseWriter) bool {
 	if h.svc == nil {
@@ -412,21 +448,117 @@ func (h *LXMFHandler) Send(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req lxmfSendRequest
-	if err := readJSON(w, r, &req, int64(lxmfhub.MaxContentBytes+4096)); err != nil {
+	if err := readJSON(w, r, &req, lxmfSendMaxBody); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	send := lxmfhub.SendRequest{Destination: req.Destination, Content: req.Content, Title: req.Title, Method: req.Method, Actor: operatorEmail(r)}
+	if req.Audio != nil {
+		data, err := base64.StdEncoding.DecodeString(req.Audio.DataB64)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, "audio.data_b64 is not base64")
+			return
+		}
+		send.Audio = &lxmf.Attachment{Mode: req.Audio.Mode, Data: data}
+	}
+	if req.Image != nil {
+		data, err := base64.StdEncoding.DecodeString(req.Image.DataB64)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, "image.data_b64 is not base64")
+			return
+		}
+		send.Image = &lxmf.Attachment{Format: req.Image.Format, Data: data}
+	}
 	tid := hubauth.TenantIDFromContext(r.Context())
-	row, err := h.svc.Send(r.Context(), tid, lxmfhub.SendRequest{Destination: req.Destination, Content: req.Content, Title: req.Title, Method: req.Method, Actor: operatorEmail(r)})
+	row, err := h.svc.Send(r.Context(), tid, send)
 	switch {
 	case errors.Is(err, lxmfhub.ErrNoIdentity):
 		writeError(w, http.StatusNotFound, "this tenant has no LXMF address yet")
+		return
+	case errors.Is(err, lxmf.ErrAttachmentsTooLarge):
+		writeError(w, http.StatusRequestEntityTooLarge, err.Error())
 		return
 	case err != nil:
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 	writeJSON(w, http.StatusAccepted, row)
+}
+
+// Attachments lists a message's voice note and photo.
+//
+//	@Summary      An LXMF message's attachments
+//	@Description  The voice note (audio) and photo (image) a received or sent LXMF message carried in its fields, in the message's order (the image first), with each one's media type and the URL of its bytes.
+//	@Tags         lxmf
+//	@Produce      json
+//	@Param        id   path      string  true  "message id"
+//	@Success      200  {object}  lxmfAttachmentsResponse
+//	@Failure      404  {object}  map[string]string
+//	@Router       /api/lxmf/messages/{id}/attachments [get]
+func (h *LXMFHandler) Attachments(w http.ResponseWriter, r *http.Request) {
+	if h.off(w) {
+		return
+	}
+	tid := hubauth.TenantIDFromContext(r.Context())
+	id := chi.URLParam(r, "id")
+	rows, err := h.svc.Attachments(r.Context(), tid, id)
+	if errors.Is(err, store.ErrNotFound) {
+		writeError(w, http.StatusNotFound, "no such message")
+		return
+	}
+	if err != nil {
+		writeInternalError(w, err, "lxmf attachments")
+		return
+	}
+	resp := lxmfAttachmentsResponse{MessageID: id, Attachments: []lxmfAttachmentItem{}}
+	for _, a := range rows {
+		ct := lxmf.Attachment{Kind: a.Kind, Mode: a.Mode, Format: a.Format, Data: []byte{0}}.ContentType()
+		resp.Attachments = append(resp.Attachments, lxmfAttachmentItem{LXMFAttachment: a, ContentType: ct, URL: "/api/lxmf/messages/" + id + "/attachments/" + strconv.Itoa(a.Index)})
+	}
+	writeJSON(w, http.StatusOK, resp)
+}
+
+// Attachment serves one attachment's bytes.
+//
+//	@Summary      Download an LXMF attachment
+//	@Description  The bytes of one attachment: Codec2 frames as audio/codec2 with the mode in X-LXMF-Audio-Mode (700C = 3), an Opus note as audio/ogg, a photo as image/webp. n is the attachment's index in the message, from the list.
+//	@Tags         lxmf
+//	@Produce      octet-stream
+//	@Param        id   path      string  true  "message id"
+//	@Param        n    path      int     true  "attachment index"
+//	@Success      200  {file}    binary
+//	@Failure      404  {object}  map[string]string
+//	@Router       /api/lxmf/messages/{id}/attachments/{n} [get]
+func (h *LXMFHandler) Attachment(w http.ResponseWriter, r *http.Request) {
+	if h.off(w) {
+		return
+	}
+	n, err := strconv.Atoi(chi.URLParam(r, "n"))
+	if err != nil || n < 0 {
+		writeError(w, http.StatusNotFound, "no such attachment")
+		return
+	}
+	tid := hubauth.TenantIDFromContext(r.Context())
+	row, data, err := h.svc.Attachment(r.Context(), tid, chi.URLParam(r, "id"), n)
+	switch {
+	case errors.Is(err, store.ErrNotFound):
+		// The row or its bytes: ErrNoBlob wraps ErrNotFound.
+		writeError(w, http.StatusNotFound, "no such attachment")
+		return
+	case err != nil:
+		writeInternalError(w, err, "lxmf attachment")
+		return
+	}
+	att := lxmf.Attachment{Kind: row.Kind, Mode: row.Mode, Format: row.Format, Data: data}
+	w.Header().Set("Content-Type", att.ContentType())
+	w.Header().Set("Content-Length", strconv.Itoa(len(data)))
+	w.Header().Set("Cache-Control", "private, max-age=86400")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	if row.Kind == lxmf.AttachmentAudio {
+		w.Header().Set("X-LXMF-Audio-Mode", strconv.Itoa(row.Mode))
+	}
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(data)
 }
 
 // Peers lists the LXMF peers this address has heard of.

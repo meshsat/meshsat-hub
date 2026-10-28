@@ -343,6 +343,23 @@ type Store interface {
 	// rows until the tenant holds at most maxBytes; it returns how many went.
 	PruneLXMFHeld(ctx context.Context, tenantID string, cutoff time.Time, maxBytes int64) (int, error)
 
+	// The voice notes and photos a tenant's LXMF messages carried
+	// (MESHSAT-1735), keyed (tenant_id, message_id, idx); the bytes are in
+	// the object store under ObjectKey, the rows say what is there.
+	// InsertLXMFAttachment returns ErrDuplicate for an index the message has.
+	InsertLXMFAttachment(ctx context.Context, tenantID string, a *LXMFAttachment) error
+	// ListLXMFAttachments lists a message's attachments in order.
+	ListLXMFAttachments(ctx context.Context, tenantID, messageID string) ([]LXMFAttachment, error)
+	// GetLXMFAttachment returns ErrNotFound when the message has none at index.
+	GetLXMFAttachment(ctx context.Context, tenantID, messageID string, index int) (*LXMFAttachment, error)
+	// DeleteLXMFAttachment returns ErrNotFound when there was none.
+	DeleteLXMFAttachment(ctx context.Context, tenantID, messageID string, index int) error
+	// LXMFAttachmentBytes is the tenant's total.
+	LXMFAttachmentBytes(ctx context.Context, tenantID string) (int64, error)
+	// OldestLXMFAttachments lists the tenant's attachments oldest first, up
+	// to limit, for eviction.
+	OldestLXMFAttachments(ctx context.Context, tenantID string, limit int) ([]LXMFAttachment, error)
+
 	// The Hub app route hub_msg (HeMB-NG stage 2, C4, MESHSAT-1584): operations keyed
 	// (tenant, sender, op_id), each its own outbox entry, and their evidence (C6).
 	//

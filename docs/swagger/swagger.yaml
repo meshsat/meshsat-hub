@@ -2405,6 +2405,48 @@ definitions:
       token_type:
         type: string
     type: object
+  internal_api.lxmfAttachmentItem:
+    properties:
+      content_type:
+        type: string
+      created_at:
+        type: string
+      format:
+        type: string
+      index:
+        type: integer
+      kind:
+        description: |-
+          Kind is audio or image; Mode the LXMF audio mode of a note (Codec2
+          0x01-0x09, 700C = 3, Opus 0x10-0x19); Format the image format ("webp").
+        type: string
+      message_id:
+        type: string
+      mode:
+        type: integer
+      size:
+        type: integer
+      tenant_id:
+        type: string
+      url:
+        type: string
+    type: object
+  internal_api.lxmfAttachmentsResponse:
+    properties:
+      attachments:
+        items:
+          $ref: '#/definitions/internal_api.lxmfAttachmentItem'
+        type: array
+      message_id:
+        type: string
+    type: object
+  internal_api.lxmfAudioRequest:
+    properties:
+      data_b64:
+        type: string
+      mode:
+        type: integer
+    type: object
   internal_api.lxmfIdentityRequest:
     properties:
       access_mode:
@@ -2488,13 +2530,29 @@ definitions:
       stamp_cost:
         type: integer
     type: object
+  internal_api.lxmfImageRequest:
+    properties:
+      data_b64:
+        type: string
+      format:
+        type: string
+    type: object
   internal_api.lxmfSendRequest:
     properties:
+      audio:
+        allOf:
+        - $ref: '#/definitions/internal_api.lxmfAudioRequest'
+        description: |-
+          Audio is a voice note and Image a photo, carried in the message's
+          LXMF fields as Sideband sends them; together at most 64 KiB. Content
+          may be empty when the message carries one. [MESHSAT-1735]
       content:
         type: string
       destination:
         description: Destination is the peer's LXMF address, 32 hex characters.
         type: string
+      image:
+        $ref: '#/definitions/internal_api.lxmfImageRequest'
       method:
         description: Method is auto (default), direct or opportunistic.
         type: string
@@ -7711,6 +7769,65 @@ paths:
               type: string
             type: object
       summary: One LXMF message
+      tags:
+      - lxmf
+  /api/lxmf/messages/{id}/attachments:
+    get:
+      description: The voice note (audio) and photo (image) a received or sent LXMF
+        message carried in its fields, in the message's order (the image first), with
+        each one's media type and the URL of its bytes.
+      parameters:
+      - description: message id
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_api.lxmfAttachmentsResponse'
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: An LXMF message's attachments
+      tags:
+      - lxmf
+  /api/lxmf/messages/{id}/attachments/{n}:
+    get:
+      description: 'The bytes of one attachment: Codec2 frames as audio/codec2 with
+        the mode in X-LXMF-Audio-Mode (700C = 3), an Opus note as audio/ogg, a photo
+        as image/webp. n is the attachment''s index in the message, from the list.'
+      parameters:
+      - description: message id
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: attachment index
+        in: path
+        name: "n"
+        required: true
+        type: integer
+      produces:
+      - application/octet-stream
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: file
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Download an LXMF attachment
       tags:
       - lxmf
   /api/lxmf/peers:

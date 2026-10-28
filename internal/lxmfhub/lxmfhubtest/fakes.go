@@ -20,6 +20,7 @@ type MemStore struct {
 	mu      sync.Mutex
 	rows    map[string]map[string]*store.LXMFMessage // tenant -> id -> row
 	held    map[string]map[string]*store.LXMFHeldMessage
+	atts    map[string][]*store.LXMFAttachment // tenant -> rows in insertion order
 	claims  map[string]bool
 	tenants []store.Tenant
 	seq     int
@@ -27,7 +28,8 @@ type MemStore struct {
 
 // NewMemStore knows the given tenants, named "Tenant <id>".
 func NewMemStore(tenants ...string) *MemStore {
-	m := &MemStore{rows: map[string]map[string]*store.LXMFMessage{}, held: map[string]map[string]*store.LXMFHeldMessage{}, claims: map[string]bool{}}
+	m := &MemStore{rows: map[string]map[string]*store.LXMFMessage{}, held: map[string]map[string]*store.LXMFHeldMessage{},
+		atts: map[string][]*store.LXMFAttachment{}, claims: map[string]bool{}}
 	for _, t := range tenants {
 		m.tenants = append(m.tenants, store.Tenant{ID: t, Name: "Tenant " + t, Status: store.TenantActive})
 	}
@@ -52,6 +54,17 @@ func (m *MemStore) InsertLXMFMessage(_ context.Context, tenantID string, row *st
 	cp.CreatedAt = time.Now()
 	m.rows[tenantID][row.ID] = &cp
 	return nil
+}
+
+func (m *MemStore) GetLXMFMessage(_ context.Context, tenantID, id string) (*store.LXMFMessage, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	r := m.rows[tenantID][id]
+	if r == nil {
+		return nil, store.ErrNotFound
+	}
+	cp := *r
+	return &cp, nil
 }
 
 func (m *MemStore) ListLXMFMessages(_ context.Context, tenantID string, q store.LXMFQuery) ([]store.LXMFMessage, error) {
@@ -194,6 +207,153 @@ func (m *MemStore) PruneLXMFHeld(_ context.Context, tenantID string, cutoff time
 		}
 	}
 	return n, nil
+}
+
+func (m *MemStore) InsertLXMFAttachment(_ context.Context, tenantID string, a *store.LXMFAttachment) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, r := range m.atts[tenantID] {
+		if r.MessageID == a.MessageID && r.Index == a.Index {
+			return store.ErrDuplicate
+		}
+	}
+	cp := *a
+	cp.TenantID = tenantID
+	if cp.CreatedAt.IsZero() {
+		cp.CreatedAt = time.Now()
+	}
+	m.atts[tenantID] = append(m.atts[tenantID], &cp)
+	return nil
+}
+
+func (m *MemStore) ListLXMFAttachments(_ context.Context, tenantID, messageID string) ([]store.LXMFAttachment, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	out := []store.LXMFAttachment{}
+	for _, r := range m.atts[tenantID] {
+		if r.MessageID == messageID {
+			out = append(out, *r)
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Index < out[j].Index })
+	return out, nil
+}
+
+func (m *MemStore) GetLXMFAttachment(_ context.Context, tenantID, messageID string, index int) (*store.LXMFAttachment, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, r := range m.atts[tenantID] {
+		if r.MessageID == messageID && r.Index == index {
+			cp := *r
+			return &cp, nil
+		}
+	}
+	return nil, store.ErrNotFound
+}
+
+func (m *MemStore) DeleteLXMFAttachment(_ context.Context, tenantID, messageID string, index int) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for i, r := range m.atts[tenantID] {
+		if r.MessageID == messageID && r.Index == index {
+			m.atts[tenantID] = append(m.atts[tenantID][:i], m.atts[tenantID][i+1:]...)
+			return nil
+		}
+	}
+	return store.ErrNotFound
+}
+
+func (m *MemStore) LXMFAttachmentBytes(_ context.Context, tenantID string) (int64, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	var n int64
+	for _, r := range m.atts[tenantID] {
+		n += int64(r.Size)
+	}
+	return n, nil
+}
+
+func (m *MemStore) OldestLXMFAttachments(_ context.Context, tenantID string, limit int) ([]store.LXMFAttachment, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	out := make([]store.LXMFAttachment, 0, len(m.atts[tenantID]))
+	for _, r := range m.atts[tenantID] {
+		out = append(out, *r)
+	}
+	sort.SliceStable(out, func(i, j int) bool { return out[i].CreatedAt.Before(out[j].CreatedAt) })
+	if limit > 0 && len(out) > limit {
+		out = out[:limit]
+	}
+	return out, nil
+}
+
+// AttachmentCount is how many attachment rows one tenant holds.
+func (m *MemStore) AttachmentCount(tenantID string) int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return len(m.atts[tenantID])
+}
+
+// MemBlobs is lxmfhub.Blobs in memory. FailPut, when set, makes every Put
+// fail with it.
+type MemBlobs struct {
+	mu      sync.Mutex
+	objects map[string][]byte
+	types   map[string]string
+	FailPut error
+}
+
+// NewMemBlobs is empty.
+func NewMemBlobs() *MemBlobs {
+	return &MemBlobs{objects: map[string][]byte{}, types: map[string]string{}}
+}
+
+func (b *MemBlobs) Put(_ context.Context, key, contentType string, data []byte) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if b.FailPut != nil {
+		return b.FailPut
+	}
+	b.objects[key] = append([]byte(nil), data...)
+	b.types[key] = contentType
+	return nil
+}
+
+func (b *MemBlobs) Get(_ context.Context, key string) ([]byte, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	data, ok := b.objects[key]
+	if !ok {
+		return nil, store.ErrNotFound
+	}
+	return append([]byte(nil), data...), nil
+}
+
+func (b *MemBlobs) Delete(_ context.Context, key string) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	delete(b.objects, key)
+	delete(b.types, key)
+	return nil
+}
+
+// Keys lists the stored keys, sorted.
+func (b *MemBlobs) Keys() []string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	out := make([]string, 0, len(b.objects))
+	for k := range b.objects {
+		out = append(out, k)
+	}
+	sort.Strings(out)
+	return out
+}
+
+// ContentType is what a key was stored as.
+func (b *MemBlobs) ContentType(key string) string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.types[key]
 }
 
 func (m *MemStore) ClaimOnce(_ context.Context, key string) (bool, error) {

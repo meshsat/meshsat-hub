@@ -6090,6 +6090,89 @@
                 }
             }
         },
+        "/api/lxmf/messages/{id}/attachments": {
+            "get": {
+                "description": "The voice note (audio) and photo (image) a received or sent LXMF message carried in its fields, in the message's order (the image first), with each one's media type and the URL of its bytes.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "lxmf"
+                ],
+                "summary": "An LXMF message's attachments",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "message id",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.lxmfAttachmentsResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/lxmf/messages/{id}/attachments/{n}": {
+            "get": {
+                "description": "The bytes of one attachment: Codec2 frames as audio/codec2 with the mode in X-LXMF-Audio-Mode (700C = 3), an Opus note as audio/ogg, a photo as image/webp. n is the attachment's index in the message, from the list.",
+                "produces": [
+                    "application/octet-stream"
+                ],
+                "tags": [
+                    "lxmf"
+                ],
+                "summary": "Download an LXMF attachment",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "message id",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "integer",
+                        "description": "attachment index",
+                        "name": "n",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "file"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/lxmf/peers": {
             "get": {
                 "description": "LXMF delivery destinations the tenant's address has seen announce, with display names and hop counts. Filled on the leader replica, empty elsewhere.",
@@ -14630,6 +14713,67 @@
                 }
             }
         },
+        "internal_api.lxmfAttachmentItem": {
+            "type": "object",
+            "properties": {
+                "content_type": {
+                    "type": "string"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "format": {
+                    "type": "string"
+                },
+                "index": {
+                    "type": "integer"
+                },
+                "kind": {
+                    "description": "Kind is audio or image; Mode the LXMF audio mode of a note (Codec2\n0x01-0x09, 700C = 3, Opus 0x10-0x19); Format the image format (\"webp\").",
+                    "type": "string"
+                },
+                "message_id": {
+                    "type": "string"
+                },
+                "mode": {
+                    "type": "integer"
+                },
+                "size": {
+                    "type": "integer"
+                },
+                "tenant_id": {
+                    "type": "string"
+                },
+                "url": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_api.lxmfAttachmentsResponse": {
+            "type": "object",
+            "properties": {
+                "attachments": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/internal_api.lxmfAttachmentItem"
+                    }
+                },
+                "message_id": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_api.lxmfAudioRequest": {
+            "type": "object",
+            "properties": {
+                "data_b64": {
+                    "type": "string"
+                },
+                "mode": {
+                    "type": "integer"
+                }
+            }
+        },
         "internal_api.lxmfIdentityRequest": {
             "type": "object",
             "properties": {
@@ -14722,15 +14866,37 @@
                 }
             }
         },
+        "internal_api.lxmfImageRequest": {
+            "type": "object",
+            "properties": {
+                "data_b64": {
+                    "type": "string"
+                },
+                "format": {
+                    "type": "string"
+                }
+            }
+        },
         "internal_api.lxmfSendRequest": {
             "type": "object",
             "properties": {
+                "audio": {
+                    "description": "Audio is a voice note and Image a photo, carried in the message's\nLXMF fields as Sideband sends them; together at most 64 KiB. Content\nmay be empty when the message carries one. [MESHSAT-1735]",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/internal_api.lxmfAudioRequest"
+                        }
+                    ]
+                },
                 "content": {
                     "type": "string"
                 },
                 "destination": {
                     "description": "Destination is the peer's LXMF address, 32 hex characters.",
                     "type": "string"
+                },
+                "image": {
+                    "$ref": "#/definitions/internal_api.lxmfImageRequest"
                 },
                 "method": {
                     "description": "Method is auto (default), direct or opportunistic.",

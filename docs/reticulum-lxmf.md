@@ -156,6 +156,22 @@ opportunistic otherwise (or as the request says), and moves it to `delivered` on
 or `failed` with the reason within `HUB_LXMF_SEND_TIMEOUT` (3 min). A send interrupted by a
 failover is failed on the next pass.
 
+## Voice notes and photos (MESHSAT-1735)
+
+A message's `FIELD_AUDIO` (`[mode, bytes]`: Codec2 0x01-0x09, 700C = 3; Opus 0x10-0x19) and
+`FIELD_IMAGE` (`["webp", bytes]`), the shapes Sideband and MeshChat send, are kept beside the
+row: the metadata in `lxmf_attachments (tenant_id, message_id, idx)`, the bytes in the audit
+archive's object store (`HUB_AUDIT_ARCHIVE_S3_*`) under `HUB_LXMF_ATTACHMENT_S3_PREFIX`
+(`lxmf-attachments`) `/<tenant>/<message id>/<index>`; `fields_json` leaves them out. One
+audio and one image per message, together at most 64 KiB (a received message over it keeps its
+text only); a tenant keeps at most `HUB_LXMF_ATTACHMENT_MAX_BYTES` (64 MiB), the oldest evicted
+first, bytes before row. Without an object store the text is kept, the attachments are not, and
+a send with one is refused. `POST /api/lxmf/messages` takes `audio: {mode, data_b64}` and
+`image: {format, data_b64}` (content may be empty then); the bytes are stored before the row is
+queued, so the leader, on either replica, finds them. The same file (`internal/lxmf/fields.go`)
+reads and writes them on the kits; the Bridge's interop test proves the wire against Python
+LXMF 1.2.1.
+
 ## The propagation node
 
 Every tenant address also runs an LXMF propagation node: the `lxmf.propagation` destination on the
@@ -206,7 +222,9 @@ the response `[request_id, data]` as a RESPONSE packet or a resource flagged as 
 | `GET /api/lxmf/identity/qr.png?size=` | viewer | the address as a QR code |
 | `GET /api/lxmf/messages?direction=&state=&limit=&before=` | viewer | inbox and outbox, newest first |
 | `GET /api/lxmf/messages/{id}` | viewer | one message |
-| `POST /api/lxmf/messages` | operator | `destination`, `content`, `title`, `method` (auto, direct, opportunistic) |
+| `POST /api/lxmf/messages` | operator | `destination`, `content`, `title`, `method` (auto, direct, opportunistic), `audio` `{mode, data_b64}`, `image` `{format, data_b64}` (together at most 64 KiB; 413 over it) |
+| `GET /api/lxmf/messages/{id}/attachments` | viewer | the message's voice note and photo: `kind`, `mode` or `format`, `size`, `content_type`, `url` |
+| `GET /api/lxmf/messages/{id}/attachments/{n}` | viewer | the bytes: `audio/codec2` with `X-LXMF-Audio-Mode`, `audio/ogg`, `image/webp` |
 | `GET /api/lxmf/peers` | viewer | LXMF peers the address has seen (filled on the leader) |
 | `GET /api/rns/status`, `GET /api/rns/paths` | platform admin | the node on this replica: listeners, connections, paths, links, counters |
 

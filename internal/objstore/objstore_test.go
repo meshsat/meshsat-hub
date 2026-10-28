@@ -109,3 +109,31 @@ func TestPutSurfacesStoreErrors(t *testing.T) {
 		t.Fatalf("error = %v", err)
 	}
 }
+
+func TestDeleteSignsAndTreatsMissingAsGone(t *testing.T) {
+	var gotMethod, gotPath, gotHash, gotAuth string
+	status := http.StatusNoContent
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotMethod, gotPath, gotHash, gotAuth = r.Method, r.URL.Path, r.Header.Get("X-Amz-Content-Sha256"), r.Header.Get("Authorization")
+		w.WriteHeader(status)
+	}))
+	defer srv.Close()
+	c, err := New(Config{Endpoint: srv.URL, Bucket: "bucket", AccessKey: "a", SecretKey: "s"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := c.Delete(context.Background(), "lxmf/t/m/0"); err != nil {
+		t.Fatal(err)
+	}
+	if gotMethod != http.MethodDelete || gotPath != "/bucket/lxmf/t/m/0" || gotHash != EmptyPayloadHash || !strings.Contains(gotAuth, "AWS4-HMAC-SHA256") {
+		t.Fatalf("%s %s %s %s", gotMethod, gotPath, gotHash, gotAuth)
+	}
+	status = http.StatusNotFound
+	if err := c.Delete(context.Background(), "gone"); err != nil {
+		t.Fatalf("a missing key is not an error: %v", err)
+	}
+	status = http.StatusForbidden
+	if err := c.Delete(context.Background(), "k"); err == nil || !strings.Contains(err.Error(), "403") {
+		t.Fatalf("error = %v", err)
+	}
+}

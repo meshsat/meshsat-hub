@@ -321,6 +321,8 @@ var Classification = map[string]Class{
 	"lxmf_inbox_max":             ClassPlatform,
 	"lxmf_send_timeout":          ClassPlatform,
 	"lxmf_propagation_max_bytes": ClassPlatform,
+	"lxmf_attachment_max_bytes":  ClassPlatform,
+	"lxmf_attachment_s3_prefix":  ClassPlatform,
 	"shutdown_drain_seconds":     ClassPlatform,
 	"smtp_relay":                 ClassPlatform,
 	"sqlite_path":                ClassPlatform,

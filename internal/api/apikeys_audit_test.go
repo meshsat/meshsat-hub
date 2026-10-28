@@ -108,6 +108,22 @@ func (m *mockStore) LXMFHeldBytes(context.Context, string) (int64, error) { retu
 func (m *mockStore) PruneLXMFHeld(context.Context, string, time.Time, int64) (int, error) {
 	return 0, nil
 }
+func (m *mockStore) InsertLXMFAttachment(context.Context, string, *store.LXMFAttachment) error {
+	return nil
+}
+func (m *mockStore) ListLXMFAttachments(context.Context, string, string) ([]store.LXMFAttachment, error) {
+	return nil, nil
+}
+func (m *mockStore) GetLXMFAttachment(context.Context, string, string, int) (*store.LXMFAttachment, error) {
+	return nil, store.ErrNotFound
+}
+func (m *mockStore) DeleteLXMFAttachment(context.Context, string, string, int) error {
+	return store.ErrNotFound
+}
+func (m *mockStore) LXMFAttachmentBytes(context.Context, string) (int64, error) { return 0, nil }
+func (m *mockStore) OldestLXMFAttachments(context.Context, string, int) ([]store.LXMFAttachment, error) {
+	return nil, nil
+}
 
 func (m *mockStore) AdmitMsgOp(context.Context, *store.MsgOp) (store.MsgOpAdmission, error) {
 	return store.MsgOpAdmission{}, nil

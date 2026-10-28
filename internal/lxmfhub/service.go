@@ -30,6 +30,7 @@ import (
 // Store is the slice of store.Store the service uses.
 type Store interface {
 	InsertLXMFMessage(ctx context.Context, tenantID string, m *store.LXMFMessage) error
+	GetLXMFMessage(ctx context.Context, tenantID, id string) (*store.LXMFMessage, error)
 	ListLXMFMessages(ctx context.Context, tenantID string, q store.LXMFQuery) ([]store.LXMFMessage, error)
 	UpdateLXMFMessageState(ctx context.Context, tenantID, id string, upd store.LXMFStateUpdate) error
 	CountLXMFMessages(ctx context.Context, tenantID string) (int, error)
@@ -40,6 +41,12 @@ type Store interface {
 	DeleteLXMFHeld(ctx context.Context, tenantID, destination string, ids []string) (int, error)
 	LXMFHeldBytes(ctx context.Context, tenantID string) (int64, error)
 	PruneLXMFHeld(ctx context.Context, tenantID string, cutoff time.Time, maxBytes int64) (int, error)
+	InsertLXMFAttachment(ctx context.Context, tenantID string, a *store.LXMFAttachment) error
+	ListLXMFAttachments(ctx context.Context, tenantID, messageID string) ([]store.LXMFAttachment, error)
+	GetLXMFAttachment(ctx context.Context, tenantID, messageID string, index int) (*store.LXMFAttachment, error)
+	DeleteLXMFAttachment(ctx context.Context, tenantID, messageID string, index int) error
+	LXMFAttachmentBytes(ctx context.Context, tenantID string) (int64, error)
+	OldestLXMFAttachments(ctx context.Context, tenantID string, limit int) ([]store.LXMFAttachment, error)
 	ClaimOnce(ctx context.Context, key string) (bool, error)
 	ListTenants(ctx context.Context) ([]store.Tenant, error)
 	GetTenant(ctx context.Context, id string) (*store.Tenant, error)
@@ -81,7 +88,13 @@ type Config struct {
 	MaxConcurrentSends int
 	// PropagationMaxBytes caps what one tenant's propagation node holds.
 	PropagationMaxBytes int64
-	Now                 func() time.Time
+	// AttachmentMaxBytes caps what one tenant keeps of voice notes and
+	// photos, oldest out first; 0 is 64 MiB. AttachmentPrefix is where
+	// their keys go in the object store; "" is DefaultAttachmentPrefix.
+	// [MESHSAT-1735]
+	AttachmentMaxBytes int64
+	AttachmentPrefix   string
+	Now                func() time.Time
 }
 
 const (
@@ -112,6 +125,7 @@ type Service struct {
 	node    *rns.Node  // the main node: Public addresses
 	nodes   Nodes      // Private tenants' own nodes; nil registers no Private address
 	kits    *kitAccess // the kits' joins (MESHSAT-1715); nil tells no kit anything
+	blobs   Blobs      // where attachment bytes live (MESHSAT-1735); nil keeps none
 	routers map[string]*tenantRouter
 	cancel  context.CancelFunc
 	kick    chan struct{}
@@ -125,6 +139,7 @@ type Service struct {
 
 	received, dropped, delivered, failed atomic.Uint64
 	heldIn, heldServed                   atomic.Uint64
+	noBlobsOnce                          sync.Once
 }
 
 type tenantRouter struct {
@@ -160,6 +175,12 @@ func New(cfg Config, st Store, accounts Accounts, audit Auditor) *Service {
 	}
 	if cfg.PropagationMaxBytes <= 0 {
 		cfg.PropagationMaxBytes = defaultPropagationMaxBytes
+	}
+	if cfg.AttachmentMaxBytes <= 0 {
+		cfg.AttachmentMaxBytes = defaultAttachmentMaxBytes
+	}
+	if cfg.AttachmentPrefix = strings.Trim(strings.TrimSpace(cfg.AttachmentPrefix), "/"); cfg.AttachmentPrefix == "" {
+		cfg.AttachmentPrefix = DefaultAttachmentPrefix
 	}
 	now := cfg.Now
 	if now == nil {
@@ -538,14 +559,25 @@ func (s *Service) onMessage(tenantID string, m *lxmf.Message) {
 	if err != nil || !won {
 		return
 	}
+	// A voice note or a photo goes to the object store beside the row, not
+	// into the fields column; over the cap the text is kept without them.
+	// [MESHSAT-1735]
+	atts := lxmf.AttachmentsOf(m.Fields)
+	if n := lxmf.AttachmentBytes(atts); n > lxmf.MaxAttachmentBytes {
+		slog.Warn("lxmf: attachments over the cap, the text is kept without them", "tenant", tenantID, "hash", hash, "bytes", n)
+		atts = nil
+	}
 	row := &store.LXMFMessage{Hash: hash, Direction: store.LXMFDirectionIn, State: store.LXMFStateReceived,
 		Source: hex.EncodeToString(m.Source[:]), Destination: hex.EncodeToString(m.Dest[:]),
-		Title: clipUTF8(string(m.Title), MaxTitleBytes), Content: clipUTF8(string(m.Content), MaxContentBytes), FieldsJSON: fieldsJSON(m.Fields),
+		Title: clipUTF8(string(m.Title), MaxTitleBytes), Content: clipUTF8(string(m.Content), MaxContentBytes), FieldsJSON: fieldsJSON(lxmf.WithoutAttachments(m.Fields)),
 		Method: m.Method.String(), StampValue: m.StampValue, SignatureValid: m.SignatureValid,
 		MessageAt: time.Unix(int64(m.Timestamp), 0).UTC()}
 	if err := s.store.InsertLXMFMessage(ctx, tenantID, row); err != nil && !errors.Is(err, store.ErrDuplicate) {
 		slog.Error("lxmf: inbox write failed", "tenant", tenantID, "hash", hash, "error", err)
 		return
+	}
+	if err := s.fileAttachments(ctx, tenantID, row.ID, atts); err != nil {
+		slog.Warn("lxmf: a received message's attachments were not kept", "tenant", tenantID, "id", row.ID, "error", err)
 	}
 	s.received.Add(1)
 	metrics.MessageThroughput.WithLabelValues("in", "lxmf").Inc()
@@ -578,6 +610,12 @@ type SendRequest struct {
 	// Method: "" or "auto" lets the size decide, "direct" or "opportunistic" forces one.
 	Method string
 	Actor  string
+	// Audio is a voice note (Mode and Data set), Image a photo (Format and
+	// Data set): the message's LXMF fields, together at most
+	// lxmf.MaxAttachmentBytes. Content may be empty when one is given.
+	// [MESHSAT-1735]
+	Audio *lxmf.Attachment
+	Image *lxmf.Attachment
 }
 
 // ParseMethod maps the API's method names.
@@ -610,7 +648,14 @@ func (s *Service) Send(ctx context.Context, tenantID string, req SendRequest) (*
 	if dest == id.Address {
 		return nil, errors.New("lxmf: destination is this tenant's own address")
 	}
-	if strings.TrimSpace(req.Content) == "" || len(req.Content) > MaxContentBytes {
+	atts, err := attachmentsFromRequest(req)
+	if err != nil {
+		return nil, err
+	}
+	if len(atts) > 0 && !s.HasBlobs() {
+		return nil, errNoBlobStore
+	}
+	if (strings.TrimSpace(req.Content) == "" && len(atts) == 0) || len(req.Content) > MaxContentBytes {
 		return nil, fmt.Errorf("lxmf: content must be 1 to %d bytes", MaxContentBytes)
 	}
 	if len(req.Title) > MaxTitleBytes {
@@ -625,8 +670,23 @@ func (s *Service) Send(ctx context.Context, tenantID string, req SendRequest) (*
 	if method != 0 {
 		row.Method = method.String()
 	}
+	if len(atts) > 0 {
+		// The bytes go in before the row is queued, so the leader never
+		// finds a queued message whose attachments are not there yet.
+		row.State = store.LXMFStateSending
+	}
 	if err := s.store.InsertLXMFMessage(ctx, tenantID, row); err != nil {
 		return nil, err
+	}
+	if len(atts) > 0 {
+		if err := s.fileAttachments(ctx, tenantID, row.ID, atts); err != nil {
+			_ = s.store.UpdateLXMFMessageState(ctx, tenantID, row.ID, store.LXMFStateUpdate{State: store.LXMFStateFailed, Detail: err.Error()})
+			return nil, err
+		}
+		if err := s.store.UpdateLXMFMessageState(ctx, tenantID, row.ID, store.LXMFStateUpdate{State: store.LXMFStateQueued}); err != nil {
+			return nil, err
+		}
+		row.State = store.LXMFStateQueued
 	}
 	select {
 	case s.kick <- struct{}{}:
@@ -712,7 +772,18 @@ func (s *Service) deliver(ctx context.Context, tenantID string, m *store.LXMFMes
 	copy(dest[:], destBytes)
 	sctx, scancel := context.WithTimeout(ctx, s.cfg.SendTimeout)
 	defer scancel()
-	msg, res, serr := tr.router.Send(sctx, dest, []byte(m.Content), []byte(m.Title), lxmf.MapOf(), method)
+	// The note and the photo queued with the message ride in its fields.
+	atts, err := s.loadAttachments(sctx, tenantID, m.ID)
+	if err == nil {
+		_, err = lxmf.WithAttachments(lxmf.MapOf(), atts...)
+	}
+	if err != nil {
+		s.failed.Add(1)
+		s.finish(tenantID, m.ID, store.LXMFStateUpdate{State: store.LXMFStateFailed, Detail: err.Error()})
+		return
+	}
+	fields, _ := lxmf.WithAttachments(lxmf.MapOf(), atts...)
+	msg, res, serr := tr.router.Send(sctx, dest, []byte(m.Content), []byte(m.Title), fields, method)
 	upd := store.LXMFStateUpdate{State: store.LXMFStateDelivered}
 	if msg != nil {
 		upd.Hash = hex.EncodeToString(msg.Hash[:])

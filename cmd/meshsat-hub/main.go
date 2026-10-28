@@ -1295,10 +1295,17 @@ func main() {
 		// leadership term, rebuilt when a tenant's provider row changes on
 		// any replica (integrations.ReloadTopic).
 		lxmfSvc = lxmfhub.New(lxmfhub.Config{AnnounceInterval: cfg.LXMFAnnounceInterval, InboundPerMinute: cfg.LXMFInboundPerMinute,
-			InboxMax: cfg.LXMFInboxMax, SendTimeout: cfg.LXMFSendTimeout, PropagationMaxBytes: cfg.LXMFPropagationMaxBytes}, dataStore, providerAccounts,
+			InboxMax: cfg.LXMFInboxMax, SendTimeout: cfg.LXMFSendTimeout, PropagationMaxBytes: cfg.LXMFPropagationMaxBytes,
+			AttachmentMaxBytes: cfg.LXMFAttachmentMaxBytes, AttachmentPrefix: cfg.LXMFAttachmentS3Prefix}, dataStore, providerAccounts,
 			func(actx context.Context, tenantID, action, actor, detail string) {
 				_ = auditSvc.Log(actx, tenantID, action, actor, detail, "")
 			})
+		// Voice notes and photos go to the object store the audit archive
+		// uses, under their own prefix; without one the text is kept and
+		// the attachments are not. [MESHSAT-1735]
+		if blobs := lxmfBlobStore(cfg); blobs != nil {
+			lxmfSvc.SetBlobs(blobs)
+		}
 		svc, err := buildRNSNode(cfg, hubIdentity, dataStore, retMQTTIface, reticulumPacketHandler, reticulumRouter, lxmfSvc.OnNode, lxmfSvc.OnNodeStopped, lxmfSvc.OnJoin)
 		if err != nil {
 			slog.Error("rns: node not built, the legacy layer keeps the TCP leg on this replica", "error", err)
@@ -2705,6 +2712,8 @@ func main() {
 		r.With(hubauth.RequireRole(hubauth.RoleViewer)).Get("/messages", lxmfHandler.ListMessages)
 		r.With(hubauth.RequireRole(hubauth.RoleOperator)).Post("/messages", lxmfHandler.Send)
 		r.With(hubauth.RequireRole(hubauth.RoleViewer)).Get("/messages/{id}", lxmfHandler.GetMessage)
+		r.With(hubauth.RequireRole(hubauth.RoleViewer)).Get("/messages/{id}/attachments", lxmfHandler.Attachments)
+		r.With(hubauth.RequireRole(hubauth.RoleViewer)).Get("/messages/{id}/attachments/{n}", lxmfHandler.Attachment)
 		r.With(hubauth.RequireRole(hubauth.RoleViewer)).Get("/peers", lxmfHandler.Peers)
 	})
 	r.Route("/api/tenant", func(r chi.Router) {
@@ -3908,6 +3917,25 @@ func basemapHandler(cfg config.Config) *api.BasemapHandler {
 		assets = "basemap/assets"
 	}
 	return api.NewBasemapHandler(client, key, cfg.BasemapS3LocalKey, assets, maxAge)
+}
+
+// lxmfBlobStore is where LXMF attachments live: the audit archive's object
+// store (the same endpoint, bucket and keys), nil when none is configured.
+func lxmfBlobStore(cfg config.Config) lxmfhub.Blobs {
+	if cfg.AuditArchiveS3Endpoint == "" || cfg.AuditArchiveS3Bucket == "" {
+		slog.Info("lxmf: no object store configured, voice notes and photos are not kept")
+		return nil
+	}
+	client, err := objstore.New(objstore.Config{
+		Endpoint: cfg.AuditArchiveS3Endpoint, Bucket: cfg.AuditArchiveS3Bucket, Region: cfg.AuditArchiveS3Region,
+		AccessKey: cfg.AuditArchiveS3AccessKey, SecretKey: cfg.AuditArchiveS3SecretKey,
+	})
+	if err != nil {
+		slog.Error("lxmf: attachments disabled, object store not configured", "error", err)
+		return nil
+	}
+	slog.Info("lxmf: attachments on the object store", "endpoint", client.Endpoint(), "bucket", client.Bucket(), "prefix", cfg.LXMFAttachmentS3Prefix)
+	return lxmfhub.S3Blobs{Client: client}
 }
 
 // bootstrapCredentialMasterKey loads or generates the master key for credential encryption.

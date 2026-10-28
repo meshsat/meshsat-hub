@@ -1466,4 +1466,26 @@ CREATE TABLE IF NOT EXISTS matrix_sync (
 	updated_at  TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 `},
+	// MESHSAT-1735, voice notes and photos: the audio and image fields an
+	// LXMF message in a tenant's inbox or outbox carried. One row per
+	// attachment, keyed by the message and its index in it (the image
+	// first); kind audio or image, mode the LXMF audio mode, format the
+	// image format, size the bytes, which live in the object store under
+	// object_key. A tenant keeps at most HUB_LXMF_ATTACHMENT_MAX_BYTES of
+	// them, oldest out first.
+	{Version: 48, Name: "lxmf attachments", SQL: `
+CREATE TABLE IF NOT EXISTS lxmf_attachments (
+	tenant_id  VARCHAR(64) NOT NULL,
+	message_id VARCHAR(64) NOT NULL,
+	idx        INTEGER NOT NULL,
+	kind       VARCHAR(16) NOT NULL,
+	mode       INTEGER NOT NULL DEFAULT 0,
+	format     VARCHAR(16) NOT NULL DEFAULT '',
+	size       INTEGER NOT NULL,
+	object_key VARCHAR(255) NOT NULL,
+	created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+	PRIMARY KEY (tenant_id, message_id, idx)
+);
+CREATE INDEX IF NOT EXISTS idx_lxmf_attachments_age ON lxmf_attachments (tenant_id, created_at);
+`},
 }
