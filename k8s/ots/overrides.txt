@@ -40,3 +40,10 @@ pillow>=13.0.0
 # OTS_ENABLE_MESHTASTIC is off on a hosted instance) declares packaging<25. The
 # version-parsing API it uses is unchanged.
 packaging>=26.3
+# trivy:ots on main pipeline 61943 (28 Oct 2026, MESHSAT-1749): dnspython 2.8.0
+# (CVE-2026-114605) and msgpack 1.2.2 (CVE-2026-114613), each to its first
+# fixed release. The 44 util-linux findings in the same job's census have no
+# fix in trixie and are outside the gate (--ignore-unfixed); the runtime
+# stage's apt-get upgrade ran and upgraded nothing.
+dnspython>=2.9.0
+msgpack>=1.2.3
