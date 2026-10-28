@@ -8328,7 +8328,7 @@
                 }
             },
             "post": {
-                "description": "Sends a message to one crew as a GeoChat from the operator. It goes to the kit or phone that owns the crew alone: a kit sends it to that node as a direct message, a phone shows it. The crew's answer is listed with the conversation.",
+                "description": "Sends a message to one crew as a GeoChat from the operator. It goes to the kit or phone that owns the crew alone: a kit sends it to that node as a direct message, a phone shows it. The crew's answer is listed with the conversation. A kit that is off MQTT gets it as a compact frame over satellite (when the workspace allows the spend) or as an SMS to its own SIM (unless turned off); the message's bearer says which (mqtt, sbd, imt, sms).",
                 "consumes": [
                     "application/json"
                 ],
@@ -8389,7 +8389,7 @@
                         }
                     },
                     "409": {
-                        "description": "The crew has not been seen for a day, or its kit or phone is no longer registered",
+                        "description": "The crew has not been seen for a day, its kit or phone is no longer registered, or the kit is off MQTT and no other bearer reaches it",
                         "schema": {
                             "type": "object",
                             "additionalProperties": {
@@ -8398,7 +8398,7 @@
                         }
                     },
                     "413": {
-                        "description": "More than 200 bytes",
+                        "description": "More than 200 bytes, or too long for the bearer the kit is reachable on",
                         "schema": {
                             "type": "object",
                             "additionalProperties": {
@@ -13718,6 +13718,9 @@
         "github_com_meshsat_meshsat-hub_internal_store.TAKChatMessage": {
             "type": "object",
             "properties": {
+                "bearer": {
+                    "type": "string"
+                },
                 "bridge_id": {
                     "type": "string"
                 },
@@ -14204,6 +14207,16 @@
                 },
                 "created_at": {
                     "type": "string"
+                },
+                "crew_chat_force_bearer": {
+                    "type": "string"
+                },
+                "crew_chat_satellite": {
+                    "description": "Crew chat off MQTT (MESHSAT-1744): whether a dispatcher's chat to a\nkit that is off MQTT may go as a satellite MT on the workspace's own\naccount (off by default, it spends) or as an SMS to the kit's SIM\n(on by default), and a forced bearer (\"\", \"mqtt\", \"satellite\",\n\"sms\") for a test.",
+                    "type": "boolean"
+                },
+                "crew_chat_sms": {
+                    "type": "boolean"
                 },
                 "deleted_at": {
                     "type": "string"
@@ -15787,6 +15800,16 @@
                 "created_at": {
                     "type": "string"
                 },
+                "crew_chat_force_bearer": {
+                    "type": "string"
+                },
+                "crew_chat_satellite": {
+                    "description": "Crew chat off MQTT (MESHSAT-1744): whether a dispatcher's chat to a\nkit that is off MQTT may go as a satellite MT on the workspace's own\naccount (off by default, it spends) or as an SMS to the kit's SIM\n(on by default), and a forced bearer (\"\", \"mqtt\", \"satellite\",\n\"sms\") for a test.",
+                    "type": "boolean"
+                },
+                "crew_chat_sms": {
+                    "type": "boolean"
+                },
                 "id": {
                     "type": "string"
                 },
@@ -15998,6 +16021,16 @@
                 "bridge_offline_timeout": {
                     "description": "BridgeOfflineTimeout is a pointer so the three cases stay\ndistinguishable: absent leaves the setting alone, 0 returns the tenant to\nthe platform default, and a number sets it. A plain int would make every\nname change silently reset the timeout to the default.",
                     "type": "integer"
+                },
+                "crew_chat_force_bearer": {
+                    "type": "string"
+                },
+                "crew_chat_satellite": {
+                    "description": "Crew chat off MQTT (MESHSAT-1744); each absent leaves it alone.\nCrewChatForceBearer \"\" clears the forced bearer.",
+                    "type": "boolean"
+                },
+                "crew_chat_sms": {
+                    "type": "boolean"
                 },
                 "name": {
                     "type": "string"

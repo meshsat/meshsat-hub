@@ -1552,6 +1552,8 @@ definitions:
     type: object
   github_com_meshsat_meshsat-hub_internal_store.TAKChatMessage:
     properties:
+      bearer:
+        type: string
       bridge_id:
         type: string
       created_at:
@@ -1912,6 +1914,18 @@ definitions:
         type: integer
       created_at:
         type: string
+      crew_chat_force_bearer:
+        type: string
+      crew_chat_satellite:
+        description: |-
+          Crew chat off MQTT (MESHSAT-1744): whether a dispatcher's chat to a
+          kit that is off MQTT may go as a satellite MT on the workspace's own
+          account (off by default, it spends) or as an SMS to the kit's SIM
+          (on by default), and a forced bearer ("", "mqtt", "satellite",
+          "sms") for a test.
+        type: boolean
+      crew_chat_sms:
+        type: boolean
       deleted_at:
         type: string
       devices:
@@ -3117,6 +3131,18 @@ definitions:
         type: integer
       created_at:
         type: string
+      crew_chat_force_bearer:
+        type: string
+      crew_chat_satellite:
+        description: |-
+          Crew chat off MQTT (MESHSAT-1744): whether a dispatcher's chat to a
+          kit that is off MQTT may go as a satellite MT on the workspace's own
+          account (off by default, it spends) or as an SMS to the kit's SIM
+          (on by default), and a forced bearer ("", "mqtt", "satellite",
+          "sms") for a test.
+        type: boolean
+      crew_chat_sms:
+        type: boolean
       id:
         type: string
       name:
@@ -3278,6 +3304,15 @@ definitions:
           the platform default, and a number sets it. A plain int would make every
           name change silently reset the timeout to the default.
         type: integer
+      crew_chat_force_bearer:
+        type: string
+      crew_chat_satellite:
+        description: |-
+          Crew chat off MQTT (MESHSAT-1744); each absent leaves it alone.
+          CrewChatForceBearer "" clears the forced bearer.
+        type: boolean
+      crew_chat_sms:
+        type: boolean
       name:
         type: string
       oob_max_per_hour:
@@ -9423,7 +9458,9 @@ paths:
       description: 'Sends a message to one crew as a GeoChat from the operator. It
         goes to the kit or phone that owns the crew alone: a kit sends it to that
         node as a direct message, a phone shows it. The crew''s answer is listed with
-        the conversation.'
+        the conversation. A kit that is off MQTT gets it as a compact frame over satellite
+        (when the workspace allows the spend) or as an SMS to its own SIM (unless
+        turned off); the message''s bearer says which (mqtt, sbd, imt, sms).'
       parameters:
       - description: Crew uid
         in: path
@@ -9460,14 +9497,16 @@ paths:
               type: string
             type: object
         "409":
-          description: The crew has not been seen for a day, or its kit or phone is
-            no longer registered
+          description: The crew has not been seen for a day, its kit or phone is no
+            longer registered, or the kit is off MQTT and no other bearer reaches
+            it
           schema:
             additionalProperties:
               type: string
             type: object
         "413":
-          description: More than 200 bytes
+          description: More than 200 bytes, or too long for the bearer the kit is
+            reachable on
           schema:
             additionalProperties:
               type: string
