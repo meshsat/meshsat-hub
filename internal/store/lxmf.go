@@ -45,6 +45,11 @@ type LXMFMessage struct {
 	MessageAt      time.Time `json:"message_at"`
 	CreatedAt      time.Time `json:"created_at"`
 	UpdatedAt      time.Time `json:"updated_at"`
+	// Attachments is how many voice notes and photos the message carries
+	// (lxmf_attachments rows), counted by the store on every read, so a
+	// listing says which rows have something to fetch and the console
+	// asks for nothing of the rest (MESHSAT-1735).
+	Attachments int `json:"attachments"`
 }
 
 // LXMFStateUpdate moves an outbound message along: State is required; Hash,

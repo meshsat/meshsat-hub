@@ -372,7 +372,7 @@ onUnmounted(() => {
                 <div v-if="m.title" class="font-medium">{{ m.title }}</div>
                 <div class="whitespace-pre-wrap break-words">{{ m.content }}</div>
                 <!-- The message's voice note and photo, played and shown here (MESHSAT-1735) -->
-                <LxmfAttachments :message-id="m.id" />
+                <LxmfAttachments :message-id="m.id" :attachments="m.attachments" />
                 <div v-if="!m.signature_valid && m.direction === 'in'" class="text-ms-warning text-[11px]">Signature not verified: the sender has not been heard announce yet.</div>
               </td>
               <td>

@@ -13239,6 +13239,10 @@
         "github_com_meshsat_meshsat-hub_internal_store.LXMFMessage": {
             "type": "object",
             "properties": {
+                "attachments": {
+                    "description": "Attachments is how many voice notes and photos the message carries\n(lxmf_attachments rows), counted by the store on every read, so a\nlisting says which rows have something to fetch and the console\nasks for nothing of the rest (MESHSAT-1735).",
+                    "type": "integer"
+                },
                 "content": {
                     "type": "string"
                 },

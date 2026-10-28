@@ -1148,6 +1148,13 @@ definitions:
     type: object
   github_com_meshsat_meshsat-hub_internal_store.LXMFMessage:
     properties:
+      attachments:
+        description: |-
+          Attachments is how many voice notes and photos the message carries
+          (lxmf_attachments rows), counted by the store on every read, so a
+          listing says which rows have something to fetch and the console
+          asks for nothing of the rest (MESHSAT-1735).
+        type: integer
       content:
         type: string
       created_at:

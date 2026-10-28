@@ -64,6 +64,7 @@ func (m *MemStore) GetLXMFMessage(_ context.Context, tenantID, id string) (*stor
 		return nil, store.ErrNotFound
 	}
 	cp := *r
+	cp.Attachments = m.attachmentCount(tenantID, id)
 	return &cp, nil
 }
 
@@ -73,10 +74,23 @@ func (m *MemStore) ListLXMFMessages(_ context.Context, tenantID string, q store.
 	var out []store.LXMFMessage
 	for _, r := range m.rows[tenantID] {
 		if (q.Direction == "" || r.Direction == q.Direction) && (q.State == "" || r.State == q.State) && (q.Before.IsZero() || r.CreatedAt.Before(q.Before)) {
-			out = append(out, *r)
+			cp := *r
+			cp.Attachments = m.attachmentCount(tenantID, r.ID)
+			out = append(out, cp)
 		}
 	}
 	return out, nil
+}
+
+// attachmentCount is the store's count on every read; the caller holds mu.
+func (m *MemStore) attachmentCount(tenantID, id string) int {
+	n := 0
+	for _, a := range m.atts[tenantID] {
+		if a.MessageID == id {
+			n++
+		}
+	}
+	return n
 }
 
 func (m *MemStore) UpdateLXMFMessageState(_ context.Context, tenantID, id string, upd store.LXMFStateUpdate) error {

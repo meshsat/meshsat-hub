@@ -15,10 +15,15 @@ import (
 
 const lxmfCols = "tenant_id, id, hash, direction, state, source, destination, title, content, fields_json, method, stamp_value, signature_valid, detail, created_by_email, message_at, created_at, updated_at"
 
+// lxmfSelect reads a message with its attachment count (MESHSAT-1735); the
+// count is correlated on the tenant as well as the id, since another tenant
+// may hold the same message id.
+const lxmfSelect = `SELECT ` + lxmfCols + `, (SELECT COUNT(*) FROM lxmf_attachments a WHERE a.tenant_id = m.tenant_id AND a.message_id = m.id) FROM lxmf_messages m`
+
 func scanLXMF(sc interface{ Scan(...any) error }) (*store.LXMFMessage, error) {
 	var m store.LXMFMessage
 	if err := sc.Scan(&m.TenantID, &m.ID, &m.Hash, &m.Direction, &m.State, &m.Source, &m.Destination, &m.Title, &m.Content,
-		&m.FieldsJSON, &m.Method, &m.StampValue, &m.SignatureValid, &m.Detail, &m.CreatedByEmail, &m.MessageAt, &m.CreatedAt, &m.UpdatedAt); err != nil {
+		&m.FieldsJSON, &m.Method, &m.StampValue, &m.SignatureValid, &m.Detail, &m.CreatedByEmail, &m.MessageAt, &m.CreatedAt, &m.UpdatedAt, &m.Attachments); err != nil {
 		return nil, err
 	}
 	m.MessageAt, m.CreatedAt, m.UpdatedAt = utc(m.MessageAt), utc(m.CreatedAt), utc(m.UpdatedAt)
@@ -51,7 +56,7 @@ func (d *DB) InsertLXMFMessage(ctx context.Context, tenantID string, m *store.LX
 }
 
 func (d *DB) GetLXMFMessage(ctx context.Context, tenantID, id string) (*store.LXMFMessage, error) {
-	m, err := scanLXMF(d.db.QueryRowContext(ctx, `SELECT `+lxmfCols+` FROM lxmf_messages WHERE tenant_id=$1 AND id=$2`, tenantID, id))
+	m, err := scanLXMF(d.db.QueryRowContext(ctx, lxmfSelect+` WHERE tenant_id=$1 AND id=$2`, tenantID, id))
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, store.ErrNotFound
 	}
@@ -70,7 +75,7 @@ func (d *DB) ListLXMFMessages(ctx context.Context, tenantID string, q store.LXMF
 	if before.IsZero() {
 		before = time.Date(9999, 1, 1, 0, 0, 0, 0, time.UTC)
 	}
-	rows, err := d.db.QueryContext(ctx, `SELECT `+lxmfCols+` FROM lxmf_messages WHERE tenant_id=$1
+	rows, err := d.db.QueryContext(ctx, lxmfSelect+` WHERE tenant_id=$1
 		AND ($2 = '' OR direction=$2) AND ($3 = '' OR state=$3) AND created_at < $4
 		ORDER BY created_at DESC, id DESC LIMIT $5`, tenantID, q.Direction, q.State, before.UTC(), limit)
 	if err != nil {

@@ -28,6 +28,13 @@ func testLXMFAttachments(t *testing.T, s store.Store) {
 		}
 		return a
 	}
+	// The messages the attachments belong to: the same id in both tenants.
+	for _, row := range []struct{ tenant, id string }{{victim, "m1"}, {victim, "m2"}, {victim, "m3"}, {other, "m1"}} {
+		if err := s.InsertLXMFMessage(ctx, row.tenant, &store.LXMFMessage{ID: row.id, Direction: store.LXMFDirectionIn, State: store.LXMFStateReceived,
+			Source: "s", Destination: "d", Content: row.id, CreatedAt: base}); err != nil {
+			t.Fatalf("message %s/%s: %v", row.tenant, row.id, err)
+		}
+	}
 	for _, a := range []*store.LXMFAttachment{
 		mk("m1", 0, "image", 300, base), mk("m1", 1, "audio", 200, base), mk("m2", 0, "audio", 100, base.Add(time.Minute)),
 	} {
@@ -41,6 +48,28 @@ func testLXMFAttachments(t *testing.T, s store.Store) {
 	// Another tenant may hold the same message id and index: keys carry the tenant.
 	if err := s.InsertLXMFAttachment(ctx, other, mk("m1", 0, "audio", 50, base)); err != nil {
 		t.Fatalf("same key in another tenant: %v", err)
+	}
+
+	// Every read of a message carries its count, this tenant's rows only.
+	counts := func(tenant string) map[string]int {
+		rows, err := s.ListLXMFMessages(ctx, tenant, store.LXMFQuery{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		out := map[string]int{}
+		for _, r := range rows {
+			out[r.ID] = r.Attachments
+		}
+		return out
+	}
+	if c := counts(victim); c["m1"] != 2 || c["m2"] != 1 || c["m3"] != 0 {
+		t.Fatalf("the victim's counts: %v", c)
+	}
+	if c := counts(other); c["m1"] != 1 {
+		t.Fatalf("the other tenant's count: %v", c)
+	}
+	if m1, err := s.GetLXMFMessage(ctx, victim, "m1"); err != nil || m1.Attachments != 2 {
+		t.Fatalf("one message's count: %+v %v", m1, err)
 	}
 
 	list, err := s.ListLXMFAttachments(ctx, victim, "m1")
@@ -93,6 +122,9 @@ func testLXMFAttachments(t *testing.T, s store.Store) {
 	}
 	if list, _ := s.ListLXMFAttachments(ctx, victim, "m1"); len(list) != 1 || list[0].Index != 0 {
 		t.Fatalf("after delete: %+v", list)
+	}
+	if c := counts(victim); c["m1"] != 1 {
+		t.Fatalf("the count after the delete: %v", c)
 	}
 	if n, _ := s.LXMFAttachmentBytes(ctx, victim); n != 400 {
 		t.Fatalf("bytes after delete %d", n)

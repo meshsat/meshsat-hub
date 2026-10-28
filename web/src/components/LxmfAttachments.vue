@@ -49,8 +49,13 @@ import PhotoNote from './PhotoNote.vue'
 // list from GET /api/lxmf/messages/{id}/attachments (cached above), a
 // photo fetched on mount, a note's bytes only when it is played. A message
 // with nothing attached renders nothing. [MESHSAT-1735]
+//
+// The message row carries its count (attachments); a row that says 0 is
+// asked for nothing, so an inbox of plain text costs no reads. Absent
+// (a row from before the count) reads as unknown, and the list is fetched.
 const props = defineProps({
-  messageId: { type: String, required: true }
+  messageId: { type: String, required: true },
+  attachments: { type: Number, default: undefined }
 })
 
 const items = ref([])
@@ -58,6 +63,7 @@ const photoOf = att => lxmf.attachment(props.messageId, att.index)
 const audioOf = att => bytesOf(props.messageId, att)
 watch(() => props.messageId, async id => {
   items.value = []
+  if (props.attachments === 0) return
   try {
     const list = await listFor(id)
     if (props.messageId === id) items.value = list

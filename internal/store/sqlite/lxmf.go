@@ -15,12 +15,17 @@ import (
 
 const lxmfCols = "tenant_id, id, hash, direction, state, source, destination, title, content, fields_json, method, stamp_value, signature_valid, detail, created_by_email, message_at, created_at, updated_at"
 
+// lxmfSelect reads a message with its attachment count (MESHSAT-1735); the
+// count is correlated on the tenant as well as the id, since another tenant
+// may hold the same message id.
+const lxmfSelect = `SELECT ` + lxmfCols + `, (SELECT COUNT(*) FROM lxmf_attachments a WHERE a.tenant_id = m.tenant_id AND a.message_id = m.id) FROM lxmf_messages m`
+
 func scanLXMF(sc interface{ Scan(...any) error }) (*store.LXMFMessage, error) {
 	var m store.LXMFMessage
 	var sig int
 	var msgAt, created, updated string
 	if err := sc.Scan(&m.TenantID, &m.ID, &m.Hash, &m.Direction, &m.State, &m.Source, &m.Destination, &m.Title, &m.Content,
-		&m.FieldsJSON, &m.Method, &m.StampValue, &sig, &m.Detail, &m.CreatedByEmail, &msgAt, &created, &updated); err != nil {
+		&m.FieldsJSON, &m.Method, &m.StampValue, &sig, &m.Detail, &m.CreatedByEmail, &msgAt, &created, &updated, &m.Attachments); err != nil {
 		return nil, err
 	}
 	m.SignatureValid = sig != 0
@@ -61,7 +66,7 @@ func (d *DB) InsertLXMFMessage(ctx context.Context, tenantID string, m *store.LX
 }
 
 func (d *DB) GetLXMFMessage(ctx context.Context, tenantID, id string) (*store.LXMFMessage, error) {
-	m, err := scanLXMF(d.db.QueryRowContext(ctx, `SELECT `+lxmfCols+` FROM lxmf_messages WHERE tenant_id=? AND id=?`, tenantID, id))
+	m, err := scanLXMF(d.db.QueryRowContext(ctx, lxmfSelect+` WHERE tenant_id=? AND id=?`, tenantID, id))
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, store.ErrNotFound
 	}
@@ -80,7 +85,7 @@ func (d *DB) ListLXMFMessages(ctx context.Context, tenantID string, q store.LXMF
 	if before.IsZero() {
 		before = time.Date(9999, 1, 1, 0, 0, 0, 0, time.UTC)
 	}
-	rows, err := d.db.QueryContext(ctx, `SELECT `+lxmfCols+` FROM lxmf_messages WHERE tenant_id=?
+	rows, err := d.db.QueryContext(ctx, lxmfSelect+` WHERE tenant_id=?
 		AND (? = '' OR direction=?) AND (? = '' OR state=?) AND created_at < ?
 		ORDER BY created_at DESC, id DESC LIMIT ?`, tenantID, q.Direction, q.Direction, q.State, q.State, fmtTime(before.UTC()), limit)
 	if err != nil {
