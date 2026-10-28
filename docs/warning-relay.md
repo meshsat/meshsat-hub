@@ -227,5 +227,6 @@ claimed_elsewhere, no_modem), `meshsat_hub_warnings_repeated_total` (digests han
 
 A geocode-to-geometry table (a DWD message without a polygon matches a kit only by the geocode the
 tenant names); more feeds (GDACS, USGS, NINA, NL-Alert, which
-has no public feed); the apps; the 2G cell's broadcast channel on the kit; the legal opinion on
-relaying under EECC article 110.
+has no public feed); the iOS app (MeshSat Android raises its alarm since 28 Oct 2026 on main; the kit's 2G cell
+broadcasts a relayed warning since the same day, `meshsat/docs/cell-broadcast.md`); the legal
+opinion on relaying under EECC article 110.

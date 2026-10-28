@@ -43,7 +43,9 @@ data:
   # user's chat to one crew reaches the Hub), patch-optional-feeds.py (adsbxcot
   # and aiscot were deleted from PyPI) and the CVE floors of pipeline 61636.
   # Proven on a throwaway server before the move (e2e_ots_dm_test.go).
-  TAK_OTS_IMAGE: "ghcr.io/meshsat/meshsat-hub-ots@sha256:7c7c99b2c8bef663cdc595b12548ca13e2307be6824cb89512f52012e9fb8f21"
+  # Rebuilt 2026-10-28 (MESHSAT-1749): dnspython and msgpack raised to the floors
+  # trivy asked for; pipeline 61965, tag 1.7.13-de7e41c4.
+  TAK_OTS_IMAGE: "ghcr.io/meshsat/meshsat-hub-ots@sha256:5c8b0c67e9f3f768836f2ab0bff8bab3e7b8d765dc1fe94b4662f3a9e91fc3b5"
   # In the pod because OpenTAKServer's socketio client connects to RabbitMQ as
   # `guest` with no credentials, and guest is loopback-only. Spike S5 settled
   # that it must run as the image's own uid 100: as root with capabilities
