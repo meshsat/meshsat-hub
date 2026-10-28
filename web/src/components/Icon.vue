@@ -20,6 +20,8 @@ const P = {
   geofences: ['M5 7 12 3l7 4v6l-7 8-7-8V7z', 'M12 10.5h.01'],
   rules: ['M4 7h10', 'M18 7h2', 'M4 17h2', 'M10 17h10', 'M16 5v4', 'M8 15v4'],
   bell: ['M6 16V11a6 6 0 1 1 12 0v5l1.5 2h-15L6 16z', 'M10 20.5h4'],
+  // A loudhailer: the public warnings relayed to the kits (MESHSAT-1734).
+  warnings: ['M4 10v4h3l6 4V6l-6 4H4z', 'M16 9.5a3.5 3.5 0 0 1 0 5', 'M18.5 7a7 7 0 0 1 0 10'],
   routing: ['M4 12h6l4-6h6', 'M10 12l4 6h6', 'M17 3l3 3-3 3', 'M17 15l3 3-3 3'],
   integrations: ['M9 3v5', 'M15 3v5', 'M6 8h12v3a6 6 0 0 1-12 0V8z', 'M12 17v4'],
   webhooks: ['M9 8a3 3 0 1 1 5 2.2L11 16', 'M6 15.5a3 3 0 1 0 4.5 2.6h6', 'M18 12.5a3 3 0 1 1-1.5 5.6'],

@@ -16,6 +16,7 @@ const routes = [
   { path: '/escalation', name: 'escalation', component: () => import('./views/EscalationView.vue'), meta: { requiresAuth: true } },
   { path: '/deadman', name: 'deadman', component: () => import('./views/DeadmanView.vue'), meta: { requiresAuth: true } },
   { path: '/notifications', name: 'notifications', component: () => import('./views/NotificationsView.vue'), meta: { requiresAuth: true } },
+  { path: '/warnings', name: 'warnings', component: () => import('./views/WarningsView.vue'), meta: { requiresAuth: true } },
   { path: '/webhooks', name: 'webhooks', component: () => import('./views/WebhooksView.vue'), meta: { requiresAuth: true } },
   { path: '/ota', name: 'ota', component: () => import('./views/OtaView.vue'), meta: { requiresAuth: true } },
   { path: '/network', name: 'network', component: () => import('./views/NetworkView.vue'), meta: { requiresAuth: true } },

@@ -24,6 +24,8 @@ export const navGroups = [
     { to: '/geofences', name: 'geofences', label: 'Geofences', icon: 'geofences', keywords: 'zones areas' },
     { to: '/alert-rules', name: 'alertRules', label: 'Alert rules', icon: 'rules', keywords: 'thresholds battery rules' },
     { to: '/notifications', name: 'notifications', label: 'Notifications', icon: 'bell', keywords: 'apprise ntfy push' },
+    // The official public warnings relayed to the kits (MESHSAT-1734).
+    { to: '/warnings', name: 'warnings', label: 'Warnings', icon: 'warnings', keywords: 'public warnings cap dwd meteoalarm knmi weather relay digest' },
   ]},
   { label: 'Delivery', items: [
     // The people devices may write to through the "@" lane (MESHSAT-1685).

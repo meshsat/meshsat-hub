@@ -351,6 +351,15 @@ export const takChat = {
   }),
 }
 
+// The last-mile warning relay (MESHSAT-1734): what reached this workspace's
+// kits, the key they verify with, and an owner's test injection. The test
+// body is a CAP 1.2 document, not JSON.
+export const warnings = {
+  list: (limit = 100) => fetchJSON(`/warnings?limit=${limit}`),
+  key: () => fetchJSON('/warnings/key'),
+  inject: (capXML) => fetchJSON('/warnings/test', { method: 'POST', headers: { 'Content-Type': 'application/xml' }, body: capXML }),
+}
+
 export const tak = {
   status: () => fetchJSON('/tenant/tak'),
   enable: () => fetchJSON('/tenant/tak', { method: 'POST' }),
