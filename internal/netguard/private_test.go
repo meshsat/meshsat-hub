@@ -103,7 +103,7 @@ func TestTheHostedManifestsNeverTurnTheSwitchOn(t *testing.T) {
 	}
 	set := regexp.MustCompile(`HUB_ALLOW_PRIVATE_TARGETS\s*[:=]\s*"?(true|1|TRUE|True)"?`)
 	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
-		if err != nil || d.IsDir() || !(strings.HasSuffix(path, ".yaml") || strings.HasSuffix(path, ".yml")) {
+		if err != nil || d.IsDir() || (!strings.HasSuffix(path, ".yaml") && !strings.HasSuffix(path, ".yml")) {
 			return err
 		}
 		b, err := os.ReadFile(path) // #nosec G304 -- walking the repo's own manifests
