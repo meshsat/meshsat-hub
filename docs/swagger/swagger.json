@@ -13864,6 +13864,13 @@
                 "error": {
                     "type": "string"
                 },
+                "skipped": {
+                    "description": "Skipped names the tenant's bridges no digest can go to and why: a\nphone, a bridge without a birth, one with no mesh, APRS or 2G cell.",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
                 "tenant_id": {
                     "type": "string"
                 },

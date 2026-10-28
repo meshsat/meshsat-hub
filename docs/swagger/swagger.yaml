@@ -1652,6 +1652,13 @@ definitions:
         type: string
       error:
         type: string
+      skipped:
+        description: |-
+          Skipped names the tenant's bridges no digest can go to and why: a
+          phone, a bridge without a birth, one with no mesh, APRS or 2G cell.
+        items:
+          type: string
+        type: array
       tenant_id:
         type: string
       why:

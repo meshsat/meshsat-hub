@@ -94,9 +94,15 @@ func rig(t *testing.T, accounts fakeAccounts, feeds ...Feed) (*Service, *fakeBus
 	if err := db.Migrate(ctx); err != nil {
 		t.Fatal(err)
 	}
+	// t1: two kits (a mesh, an APRS gateway) and a phone whose BLE node makes
+	// it declare a mesh too; the phone is never handed a digest.
 	for tenant, bridges := range map[string][]*store.Bridge{
-		"t1":                  {{BridgeID: "texel", LocationLat: 53.05, LocationLon: 4.80}, {BridgeID: "leiden", LocationLat: 52.16, LocationLon: 4.49}},
-		store.DefaultTenantID: {{BridgeID: "kit-v", LocationLat: 53.05, LocationLon: 4.80}},
+		"t1": {
+			{BridgeID: "texel", LocationLat: 53.05, LocationLon: 4.80, LastBirth: birthJSON("direct", "meshtastic", "iridium")},
+			{BridgeID: "leiden", LocationLat: 52.16, LocationLon: 4.49, LastBirth: birthJSON("direct", "aprs")},
+			{BridgeID: "msa-flaneur", LocationLat: 53.05, LocationLon: 4.80, LastBirth: birthJSON("android", "meshtastic", "iridium_sbd")},
+		},
+		store.DefaultTenantID: {{BridgeID: "kit-v", LocationLat: 53.05, LocationLon: 4.80, LastBirth: birthJSON("direct", "meshtastic")}},
 	} {
 		_ = db.CreateTenant(ctx, &store.Tenant{ID: tenant, Slug: tenant, Name: tenant, Status: store.TenantActive})
 		for _, b := range bridges {

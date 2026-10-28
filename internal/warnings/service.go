@@ -198,8 +198,11 @@ type Delivery struct {
 	Bridges  []string            `json:"bridges"`
 	Why      []string            `json:"why,omitempty"`
 	Bearers  map[string][]string `json:"bearers"` // bridge id -> bearers the digest went on
-	Digest   string              `json:"digest_hex,omitempty"`
-	Error    string              `json:"error,omitempty"`
+	// Skipped names the tenant's bridges no digest can go to and why: a
+	// phone, a bridge without a birth, one with no mesh, APRS or 2G cell.
+	Skipped []string `json:"skipped,omitempty"`
+	Digest  string   `json:"digest_hex,omitempty"`
+	Error   string   `json:"error,omitempty"`
 }
 
 // process matches a stored message to every tenant with the relay on (or to
@@ -243,15 +246,23 @@ func (s *Service) process(ctx context.Context, a *Alert, w *store.Warning, onlyT
 			s.log.Warn("warnings: listing a tenant's bridges failed", "tenant", tid, "error", err)
 			continue
 		}
-		m := MatchTenant(a, cfg, bridges)
+		// Kits only: a phone or a bridge without a birth is never handed a
+		// digest (CanRelay), whatever area it is in.
+		kits, skipped := relayCapable(bridges)
+		m := MatchTenant(a, cfg, kits)
 		if len(m.Bridges) == 0 {
 			if onlyTenant != "" {
-				out = append(out, Delivery{TenantID: tid, Why: m.Why, Error: "no bridge of this workspace is in the warning's area"})
+				why := "no kit of this workspace is in the warning's area"
+				if len(kits) == 0 && len(bridges) > 0 {
+					why = "no kit of this workspace can relay a warning: " + strings.Join(skipped, "; ")
+				}
+				out = append(out, Delivery{TenantID: tid, Why: m.Why, Skipped: skipped, Error: why})
 			}
 			continue
 		}
 		matchedTotal.WithLabelValues(w.Source).Inc()
 		d := s.deliver(ctx, a, w, tid, cfg, m)
+		d.Skipped = skipped
 		out = append(out, d)
 	}
 	return out

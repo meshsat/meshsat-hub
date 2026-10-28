@@ -12,6 +12,7 @@ import (
 	"github.com/meshsat/meshsat-hub/internal/auth"
 	"github.com/meshsat/meshsat-hub/internal/directory"
 	"github.com/meshsat/meshsat-hub/internal/integrations"
+	"github.com/meshsat/meshsat-hub/internal/protocol"
 	"github.com/meshsat/meshsat-hub/internal/store"
 	"github.com/meshsat/meshsat-hub/internal/store/sqlite"
 	"github.com/meshsat/meshsat-hub/internal/warnings"
@@ -110,8 +111,14 @@ func TestWarningsTestInjection(t *testing.T) {
 		t.Fatal(err)
 	}
 	_ = db.CreateTenant(ctx, &store.Tenant{ID: "t1", Slug: "t1", Name: "t1", Status: store.TenantActive})
-	if err := db.CreateOrUpdateBridge(ctx, "t1", &store.Bridge{BridgeID: "kit"}); err != nil {
-		t.Fatal(err)
+	// A kit (its birth declares a mesh) and a phone (birth mode android);
+	// only the kit is handed a digest.
+	kitBirth, _ := json.Marshal(protocol.BridgeBirth{Mode: "direct", Interfaces: []protocol.InterfaceInfo{{Name: "mesh_0", Type: "meshtastic", Status: "online"}}})
+	phoneBirth, _ := json.Marshal(protocol.BridgeBirth{Mode: "android", Interfaces: []protocol.InterfaceInfo{{Name: "ble_mesh_0", Type: "meshtastic", Status: "online"}}})
+	for _, b := range []*store.Bridge{{BridgeID: "kit", LastBirth: string(kitBirth)}, {BridgeID: "msa-phone", LastBirth: string(phoneBirth)}} {
+		if err := db.CreateOrUpdateBridge(ctx, "t1", b); err != nil {
+			t.Fatal(err)
+		}
 	}
 	bus := &recordingBus{}
 	accounts := staticAccounts{"t1": {"enabled": "true", "areas": "NL804"}}
@@ -133,7 +140,8 @@ func TestWarningsTestInjection(t *testing.T) {
 		t.Fatalf("inject: %d %s", rec.Code, rec.Body)
 	}
 	var res warnings.InjectResult
-	if err := json.Unmarshal(rec.Body.Bytes(), &res); err != nil || len(res.Deliveries) != 1 || len(res.Deliveries[0].Bridges) != 1 {
+	if err := json.Unmarshal(rec.Body.Bytes(), &res); err != nil || len(res.Deliveries) != 1 || len(res.Deliveries[0].Bridges) != 1 ||
+		res.Deliveries[0].Bridges[0] != "kit" || len(res.Deliveries[0].Skipped) != 1 || res.Deliveries[0].Skipped[0] != "msa-phone: a phone" {
 		t.Fatalf("result: %v %s", err, rec.Body)
 	}
 	if len(bus.topics) != 1 || bus.topics[0] != "meshsat/t1/bridge/kit/warn/in" {

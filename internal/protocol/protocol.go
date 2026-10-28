@@ -216,6 +216,13 @@ type BridgeBirth struct {
 	DirectoryKeyID string `json:"directory_key_id,omitempty"`
 }
 
+// PhoneMode reports the birth mode of a phone registered as a bridge
+// (MeshSat Android or iOS). The Bridge's own modes are "direct" and
+// "cubeos". A phone reads the directory its own way (bridge.phoneGateway)
+// and holds no public-warning relay, though it declares a "meshtastic"
+// interface too, its BLE node (warnings.CanRelay).
+func PhoneMode(mode string) bool { return mode == "android" || mode == "ios" }
+
 // CapDirectoryV2 in a birth's capabilities: the bridge verifies v2
 // directory envelopes (C7.2). The Hub sends a tenant v2 once every bridge
 // of the tenant lists it.

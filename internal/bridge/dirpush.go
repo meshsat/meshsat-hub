@@ -380,8 +380,9 @@ func (p *DirectoryPusher) rotate(ctx context.Context, tenantID, bridgeID string,
 // iOS, birth mode "android" or "ios"). The phones read the directory their
 // own way (C9) and take no directory_push, so the pusher neither pushes to
 // them nor lets them hold their tenant on v1: "every Bridge of the tenant"
-// (C7.2) is every MeshSat Bridge.
-func phoneGateway(mode string) bool { return mode == "android" || mode == "ios" }
+// (C7.2) is every MeshSat Bridge. The rule is protocol.PhoneMode, shared
+// with the warning relay, which hands a phone nothing either.
+func phoneGateway(mode string) bool { return protocol.PhoneMode(mode) }
 
 // pushBackoff is 30 s doubling per failure, at most 30 min: a bridge that
 // cannot take the push (no pinned anchor, an old bridge) is asked again
