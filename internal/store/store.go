@@ -529,8 +529,18 @@ type Store interface {
 	// WarningMatch.
 	UpsertWarning(ctx context.Context, w *Warning) (changed bool, err error)
 	GetWarning(ctx context.Context, source, identifier string) (*Warning, error)
+	// SetWarningRaw keeps the CAP document of a message that matched a
+	// tenant, so the relay can hand it out again while it is in force; a
+	// re-sent identifier (UpsertWarning changed) drops it until it matches
+	// again. MarkWarningSuperseded records that a later message (an Update
+	// or a Cancel) names this one in its references.
+	SetWarningRaw(ctx context.Context, source, identifier, raw string) error
+	MarkWarningSuperseded(ctx context.Context, source, identifier, by string) error
 	UpsertWarningMatch(ctx context.Context, m *WarningMatch) error
 	ListTenantWarnings(ctx context.Context, tenantID string, limit int) ([]TenantWarning, error)
+	// ListWarningsInForce lists the tenant's matched messages still in force
+	// at now (expires after now, document kept, not superseded), with Raw.
+	ListWarningsInForce(ctx context.Context, tenantID string, now time.Time) ([]TenantWarning, error)
 	// Mesh presence (MESHSAT-1181): which nodes have been heard behind which
 	// bridge. See the MeshNode type for what this can and cannot prove.
 	RecordMeshNode(ctx context.Context, tenantID, bridgeID, nodeID string, heardAt time.Time) error
@@ -1501,6 +1511,13 @@ type Warning struct {
 	RawHash   string    `json:"raw_hash"` // sha256 of the CAP document, hex
 	FirstSeen time.Time `json:"first_seen"`
 	LastSeen  time.Time `json:"last_seen"`
+	// SupersededBy is the identifier of the later message (an Update or a
+	// Cancel) that named this one in its references; "" while none has.
+	SupersededBy string `json:"superseded_by,omitempty"`
+	// Raw is the CAP document, kept only for a message that matched a
+	// tenant (SetWarningRaw) and read only by ListWarningsInForce; never
+	// in an API answer.
+	Raw string `json:"-"`
 }
 
 // WarningMatch records that a warning matched a tenant and what the Hub did

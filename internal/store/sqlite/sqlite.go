@@ -739,6 +739,11 @@ var lateAlterMigrations = []string{
 	// sender's idempotency key; mirrors postgres migration 51.
 	`ALTER TABLE tak_chat_messages ADD COLUMN status_detail TEXT NOT NULL DEFAULT ''`,
 	`ALTER TABLE tak_chat_messages ADD COLUMN client_ref TEXT NOT NULL DEFAULT ''`,
+	// MESHSAT-1734: the CAP document of a matched warning, kept for the
+	// repeats, and the message that superseded it; mirrors postgres
+	// migration 52.
+	`ALTER TABLE warnings ADD COLUMN raw TEXT NOT NULL DEFAULT ''`,
+	`ALTER TABLE warnings ADD COLUMN superseded_by TEXT NOT NULL DEFAULT ''`,
 }
 
 // --- Devices ---

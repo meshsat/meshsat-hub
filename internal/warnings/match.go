@@ -24,7 +24,16 @@ type TenantConfig struct {
 	Languages []string
 	// Feeds are the source names taken; empty means all.
 	Feeds []string
+	// RepeatHours is how often a warning in force is handed to the kits
+	// again over the Hub link (DefaultRepeatHours when unset); 0 never.
+	RepeatHours int
 }
+
+// Bounds of repeat_hours. The default is the Spec's; a week is the most.
+const (
+	DefaultRepeatHours = 6
+	MaxRepeatHours     = 168
+)
 
 // ParseTenantConfig reads a tenant's warnings account.
 func ParseTenantConfig(a *integrations.Account) (*TenantConfig, error) {
@@ -32,8 +41,16 @@ func ParseTenantConfig(a *integrations.Account) (*TenantConfig, error) {
 		return nil, errors.New("no account")
 	}
 	c := &TenantConfig{
-		Enabled:   isTrue(a.Get("enabled")),
-		Satellite: isTrue(a.Get("satellite")),
+		Enabled:     isTrue(a.Get("enabled")),
+		Satellite:   isTrue(a.Get("satellite")),
+		RepeatHours: DefaultRepeatHours,
+	}
+	if v := strings.TrimSpace(a.Get("repeat_hours")); v != "" {
+		n, err := strconv.Atoi(v)
+		if err != nil || n < 0 || n > MaxRepeatHours {
+			return nil, fmt.Errorf("repeat_hours %q is not a whole number of hours from 0 to %d", clip(v, 20), MaxRepeatHours)
+		}
+		c.RepeatHours = n
 	}
 	for _, line := range splitLines(a.Get("areas")) {
 		if circle, ok := parseCircleLine(line); ok {

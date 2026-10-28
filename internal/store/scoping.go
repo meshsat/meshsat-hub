@@ -53,8 +53,10 @@ var UnscopedByDesign = map[string]string{ // #nosec G101 -- method names and the
 	// names an area, not a tenant. The tenant dimension is WarningMatch,
 	// which is scoped; these two hold the feed rows every tenant is matched
 	// against.
-	"UpsertWarning": "the leader's poller records what a public feed carried; the row names no tenant",
-	"GetWarning":    "lookup of a feed row by its source and CAP identifier, which name no tenant",
+	"UpsertWarning":         "the leader's poller records what a public feed carried; the row names no tenant",
+	"GetWarning":            "lookup of a feed row by its source and CAP identifier, which name no tenant",
+	"SetWarningRaw":         "keeps a feed row's CAP document for the repeats; the row names no tenant",
+	"MarkWarningSuperseded": "a later feed message named this feed row; neither names a tenant",
 
 	// Cross-replica claims and platform config: not tenant data.
 	"ClaimOnce":                 "idempotency key; callers put the tenant in the key",

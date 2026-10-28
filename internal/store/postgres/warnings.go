@@ -46,7 +46,7 @@ func (d *DB) UpsertWarning(ctx context.Context, w *store.Warning) (bool, error) 
 		       expires = EXCLUDED.expires, severity = EXCLUDED.severity, urgency = EXCLUDED.urgency,
 		       certainty = EXCLUDED.certainty, category = EXCLUDED.category, event = EXCLUDED.event,
 		       headline = EXCLUDED.headline, language = EXCLUDED.language, areas = EXCLUDED.areas,
-		       text = EXCLUDED.text, raw_hash = EXCLUDED.raw_hash, last_seen = EXCLUDED.last_seen`,
+		       text = EXCLUDED.text, raw_hash = EXCLUDED.raw_hash, last_seen = EXCLUDED.last_seen, raw = ''`,
 		w.Source, w.Identifier, w.Sender, w.SenderName, w.MsgType, w.Status, w.References, w.Sent.UTC(),
 		nullTime(&w.Effective), nullTime(&w.Expires), w.Severity, w.Urgency, w.Certainty, w.Category, w.Event,
 		w.Headline, w.Language, orJSONArray(w.Areas), w.Text, w.RawHash, now); err != nil {
@@ -62,11 +62,11 @@ func (d *DB) GetWarning(ctx context.Context, source, identifier string) (*store.
 	var effective, expires sql.NullTime
 	err := d.db.QueryRowContext(ctx,
 		`SELECT source, identifier, sender, sender_name, msg_type, status, refs, sent, effective, expires,
-		   severity, urgency, certainty, category, event, headline, language, areas, text, raw_hash, first_seen, last_seen
+		   severity, urgency, certainty, category, event, headline, language, areas, text, raw_hash, first_seen, last_seen, superseded_by
 		 FROM warnings WHERE source = $1 AND identifier = $2`, source, identifier).
 		Scan(&w.Source, &w.Identifier, &w.Sender, &w.SenderName, &w.MsgType, &w.Status, &w.References, &w.Sent,
 			&effective, &expires, &w.Severity, &w.Urgency, &w.Certainty, &w.Category, &w.Event, &w.Headline,
-			&w.Language, &w.Areas, &w.Text, &w.RawHash, &w.FirstSeen, &w.LastSeen)
+			&w.Language, &w.Areas, &w.Text, &w.RawHash, &w.FirstSeen, &w.LastSeen, &w.SupersededBy)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
@@ -75,6 +75,18 @@ func (d *DB) GetWarning(ctx context.Context, source, identifier string) (*store.
 	}
 	w.Effective, w.Expires = effective.Time, expires.Time
 	return &w, nil
+}
+
+// SetWarningRaw keeps a matched message's CAP document for the repeats.
+func (d *DB) SetWarningRaw(ctx context.Context, source, identifier, raw string) error {
+	_, err := d.db.ExecContext(ctx, `UPDATE warnings SET raw = $3 WHERE source = $1 AND identifier = $2`, source, identifier, raw)
+	return err
+}
+
+// MarkWarningSuperseded records the later message that named this one.
+func (d *DB) MarkWarningSuperseded(ctx context.Context, source, identifier, by string) error {
+	_, err := d.db.ExecContext(ctx, `UPDATE warnings SET superseded_by = $3 WHERE source = $1 AND identifier = $2`, source, identifier, by)
+	return err
 }
 
 // UpsertWarningMatch records that a warning matched the tenant. A second
@@ -102,12 +114,30 @@ func (d *DB) ListTenantWarnings(ctx context.Context, tenantID string, limit int)
 	if limit <= 0 || limit > 500 {
 		limit = 100
 	}
+	return d.tenantWarnings(ctx, tenantID, `ORDER BY m.matched_at DESC, w.sent DESC LIMIT $2`, false, limit)
+}
+
+// ListWarningsInForce lists the tenant's matched messages still in force at
+// now whose document is kept and that no later message superseded, oldest
+// first, with the document.
+func (d *DB) ListWarningsInForce(ctx context.Context, tenantID string, now time.Time) ([]store.TenantWarning, error) {
+	return d.tenantWarnings(ctx, tenantID, `AND w.expires > $2 AND w.raw <> '' AND w.superseded_by = ''
+		 ORDER BY w.sent ASC`, true, now.UTC())
+}
+
+// tenantWarnings is the join both listings read, filtered to the tenant
+// here ($1) so no caller can leave that out; withRaw adds the document.
+func (d *DB) tenantWarnings(ctx context.Context, tenantID, tail string, withRaw bool, args ...any) ([]store.TenantWarning, error) {
+	rawCol := `''`
+	if withRaw {
+		rawCol = `w.raw`
+	}
 	rows, err := d.db.QueryContext(ctx,
 		`SELECT w.source, w.identifier, w.sender, w.sender_name, w.msg_type, w.status, w.refs, w.sent, w.effective, w.expires,
 		   w.severity, w.urgency, w.certainty, w.category, w.event, w.headline, w.language, w.areas, w.text, w.raw_hash,
-		   w.first_seen, w.last_seen, m.test, m.bridges, m.detail, m.matched_at
+		   w.first_seen, w.last_seen, w.superseded_by, `+rawCol+`, m.test, m.bridges, m.detail, m.matched_at
 		 FROM warning_matches m JOIN warnings w ON w.source = m.source AND w.identifier = m.identifier
-		 WHERE m.tenant_id = $1 ORDER BY m.matched_at DESC, w.sent DESC LIMIT $2`, tenantID, limit)
+		 WHERE m.tenant_id = $1 `+tail, append([]any{tenantID}, args...)...)
 	if err != nil {
 		return nil, err
 	}
@@ -118,7 +148,7 @@ func (d *DB) ListTenantWarnings(ctx context.Context, tenantID string, limit int)
 		var effective, expires sql.NullTime
 		if err := rows.Scan(&w.Source, &w.Identifier, &w.Sender, &w.SenderName, &w.MsgType, &w.Status, &w.References, &w.Sent,
 			&effective, &expires, &w.Severity, &w.Urgency, &w.Certainty, &w.Category, &w.Event, &w.Headline,
-			&w.Language, &w.Areas, &w.Text, &w.RawHash, &w.FirstSeen, &w.LastSeen, &w.Test, &w.Bridges, &w.Detail, &w.MatchedAt); err != nil {
+			&w.Language, &w.Areas, &w.Text, &w.RawHash, &w.FirstSeen, &w.LastSeen, &w.SupersededBy, &w.Raw, &w.Test, &w.Bridges, &w.Detail, &w.MatchedAt); err != nil {
 			return nil, err
 		}
 		w.Effective, w.Expires = effective.Time, expires.Time

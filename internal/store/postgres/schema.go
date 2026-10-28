@@ -1550,4 +1550,14 @@ CREATE INDEX IF NOT EXISTS idx_warning_matches_age ON warning_matches (tenant_id
 ALTER TABLE tak_chat_messages ADD COLUMN IF NOT EXISTS status_detail VARCHAR(255) NOT NULL DEFAULT '';
 ALTER TABLE tak_chat_messages ADD COLUMN IF NOT EXISTS client_ref VARCHAR(255) NOT NULL DEFAULT '';
 `},
+	// MESHSAT-1734, a warning is handed out again while it is in force. raw
+	// is the CAP document of a message that matched a tenant (empty for the
+	// rest, which is most of the feed), so the leader can match and sign it
+	// again at every repeat slot; superseded_by is the identifier of the
+	// Update or Cancel that named this message, after which it is not
+	// repeated. Mirrored in sqlite.
+	{Version: 52, Name: "warning repeat", SQL: `
+ALTER TABLE warnings ADD COLUMN IF NOT EXISTS raw TEXT NOT NULL DEFAULT '';
+ALTER TABLE warnings ADD COLUMN IF NOT EXISTS superseded_by VARCHAR(255) NOT NULL DEFAULT '';
+`},
 }

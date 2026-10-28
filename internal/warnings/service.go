@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"log/slog"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -33,6 +34,10 @@ var (
 		Name: "meshsat_hub_warnings_delivered_total",
 		Help: "Warning digests handed to kits, by bearer and result (MESHSAT-1734).",
 	}, []string{"bearer", "result"})
+	repeatedTotal = promauto.NewCounter(prometheus.CounterOpts{
+		Name: "meshsat_hub_warnings_repeated_total",
+		Help: "Warning digests handed to a kit again while the warning was in force (MESHSAT-1734).",
+	})
 )
 
 func init() {
@@ -98,10 +103,12 @@ func (s *Service) PublicKey() []byte {
 	return s.signer.PublicKey()
 }
 
-// Run polls the feeds until ctx ends. A leader singleton: it is started on
-// every acquisition and must build its own ticker.
+// Run polls the feeds and repeats the warnings in force until ctx ends. A
+// leader singleton: it is started on every acquisition and must build its
+// own ticker.
 func (s *Service) Run(ctx context.Context) {
 	s.Poll(ctx)
+	s.Repeat(ctx)
 	t := time.NewTicker(s.interval)
 	defer t.Stop()
 	for {
@@ -110,6 +117,7 @@ func (s *Service) Run(ctx context.Context) {
 			return
 		case <-t.C:
 			s.Poll(ctx)
+			s.Repeat(ctx)
 		}
 	}
 }
@@ -146,7 +154,69 @@ func (s *Service) Poll(ctx context.Context) {
 			fetchedTotal.WithLabelValues(source, "new").Inc()
 			s.log.Info("warnings: new message", "source", source, "identifier", w.Identifier, "type", w.MsgType,
 				"event", w.Event, "severity", w.Severity, "expires", w.Expires)
-			s.process(ctx, m.Alert, w, "")
+			s.process(ctx, m.Alert, w, m.Raw, "")
+		}
+	}
+}
+
+// Repeat hands every warning still in force to the kits again, once per
+// repeat slot: slot n is the n-th repeat_hours after the warning was sent,
+// claimed per (tenant, kit, message, slot) across the replicas, so a kit
+// that was off when a digest went out gets it at the next slot and a kit
+// that has it relays nothing twice (it keeps each (id, type) once). The
+// match is made again against the kits of the moment, from the document
+// kept at the first match; a message a later Update or Cancel named is not
+// repeated, the later one is. Repeats ride the Hub link only: satellite
+// delivery is once per message, the gateway holds an MT for a modem.
+func (s *Service) Repeat(ctx context.Context) {
+	tenants, err := s.accounts.TenantsWith(ctx, integrations.ProviderWarnings)
+	if err != nil {
+		s.log.Warn("warnings: listing the tenants with the relay on failed", "error", err)
+		return
+	}
+	now := s.now()
+	for _, tid := range tenants {
+		acct, err := s.accounts.ForTenant(ctx, tid, integrations.ProviderWarnings)
+		if err != nil || acct == nil || acct.Platform {
+			continue
+		}
+		cfg, err := ParseTenantConfig(acct)
+		if err != nil || !cfg.Enabled || cfg.RepeatHours <= 0 {
+			continue
+		}
+		rows, err := s.store.ListWarningsInForce(ctx, tid, now)
+		if err != nil {
+			s.log.Warn("warnings: listing a tenant's warnings in force failed", "tenant", tid, "error", err)
+			continue
+		}
+		period := time.Duration(cfg.RepeatHours) * time.Hour
+		var bridges []*store.Bridge
+		for i := range rows {
+			row := &rows[i]
+			if !cfg.TakesFeed(row.Source) && row.Source != SourceName(SourceTest) {
+				continue
+			}
+			slot := int(now.Sub(row.Sent) / period)
+			if slot < 1 {
+				continue
+			}
+			a, err := ParseCAP([]byte(row.Raw))
+			if err != nil {
+				s.log.Warn("warnings: a kept document does not parse", "source", row.Source, "identifier", row.Identifier, "error", err)
+				continue
+			}
+			if bridges == nil {
+				if bridges, err = s.store.ListBridges(ctx, tid); err != nil {
+					s.log.Warn("warnings: listing a tenant's bridges failed", "tenant", tid, "error", err)
+					break
+				}
+			}
+			kits, _ := relayCapable(bridges)
+			m := MatchTenant(a, cfg, kits)
+			if len(m.Bridges) == 0 {
+				continue
+			}
+			s.deliver(ctx, a, &row.Warning, tid, cfg, m, slot, row.Detail)
 		}
 	}
 }
@@ -206,8 +276,20 @@ type Delivery struct {
 }
 
 // process matches a stored message to every tenant with the relay on (or to
-// onlyTenant) and delivers to the matching bridges.
-func (s *Service) process(ctx context.Context, a *Alert, w *store.Warning, onlyTenant string) []Delivery {
+// onlyTenant) and delivers to the matching bridges. raw is the document,
+// kept (once, at the first match) for the repeats. A message that names
+// earlier ones in its references supersedes them: they are not repeated
+// again, this one is.
+func (s *Service) process(ctx context.Context, a *Alert, w *store.Warning, raw []byte, onlyTenant string) []Delivery {
+	for _, r := range a.References {
+		if r.Identifier == "" || r.Identifier == w.Identifier {
+			continue
+		}
+		if err := s.store.MarkWarningSuperseded(ctx, w.Source, r.Identifier, w.Identifier); err != nil {
+			s.log.Warn("warnings: a superseded message could not be marked", "source", w.Source, "identifier", r.Identifier, "error", err)
+		}
+	}
+	kept := false
 	var tenants []string
 	if onlyTenant != "" {
 		tenants = []string{onlyTenant}
@@ -261,16 +343,45 @@ func (s *Service) process(ctx context.Context, a *Alert, w *store.Warning, onlyT
 			continue
 		}
 		matchedTotal.WithLabelValues(w.Source).Inc()
-		d := s.deliver(ctx, a, w, tid, cfg, m)
+		if !kept && len(raw) > 0 {
+			if err := s.store.SetWarningRaw(ctx, w.Source, w.Identifier, string(raw)); err != nil {
+				s.log.Warn("warnings: the document could not be kept for the repeats", "source", w.Source, "identifier", w.Identifier, "error", err)
+			}
+			kept = true
+		}
+		d := s.deliver(ctx, a, w, tid, cfg, m, 0, "")
 		d.Skipped = skipped
 		out = append(out, d)
 	}
 	return out
 }
 
+// matchDetail is the JSON in warning_matches.detail: what the last pass
+// did per kit, why the warning matched, and when each kit last got it.
+type matchDetail struct {
+	// Bearers is the last pass's result: bridge id -> bearers used.
+	Bearers map[string][]string `json:"bearers"`
+	Why     []string            `json:"why,omitempty"`
+	// Handed is when each kit was last handed the digest, and at which
+	// repeat slot (0 = the first delivery), kept across passes.
+	Handed map[string]handedAt `json:"handed,omitempty"`
+	// Repeat is the last repeat slot a kit was handed the digest at, with
+	// its time; 0 while none has.
+	Repeat   int        `json:"repeat,omitempty"`
+	RepeatAt *time.Time `json:"repeat_at,omitempty"`
+}
+
+type handedAt struct {
+	At      time.Time `json:"at"`
+	Slot    int       `json:"slot"`
+	Bearers []string  `json:"bearers"`
+}
+
 // deliver signs the digest once per tenant (its language choice) and hands
-// it to each matching bridge, once across the replicas.
-func (s *Service) deliver(ctx context.Context, a *Alert, w *store.Warning, tid string, cfg *TenantConfig, m Match) Delivery {
+// it to each matching bridge, once across the replicas per slot (0 is the
+// first delivery; a repeat is slot n of Repeat). prior is the match's
+// detail so far, whose per-kit record this pass extends.
+func (s *Service) deliver(ctx context.Context, a *Alert, w *store.Warning, tid string, cfg *TenantConfig, m Match, slot int, prior string) Delivery {
 	d := Delivery{TenantID: tid, Bridges: m.Bridges, Why: m.Why, Bearers: map[string][]string{}}
 	digest := FromAlert(a, SourceID(w.Source), cfg.Languages)
 	wire, err := Encode(digest, s.signer)
@@ -281,8 +392,20 @@ func (s *Service) deliver(ctx context.Context, a *Alert, w *store.Warning, tid s
 	}
 	d.Digest = hex.EncodeToString(wire)
 	msgType := strings.ToLower(w.MsgType)
+	suffix := ""
+	if slot > 0 {
+		suffix = ":r" + strconv.Itoa(slot)
+	}
+	now := s.now()
+	detail := matchDetail{Bearers: d.Bearers, Why: m.Why, Handed: map[string]handedAt{}}
+	if prior != "" {
+		var was matchDetail
+		if err := json.Unmarshal([]byte(prior), &was); err == nil && was.Handed != nil {
+			detail.Handed, detail.Repeat, detail.RepeatAt = was.Handed, was.Repeat, was.RepeatAt
+		}
+	}
 	for _, bridgeID := range m.Bridges {
-		key := "warn:" + tid + ":" + bridgeID + ":" + w.Source + "/" + w.Identifier + ":" + msgType
+		key := "warn:" + tid + ":" + bridgeID + ":" + w.Source + "/" + w.Identifier + ":" + msgType + suffix
 		switch ok, err := s.store.ClaimOnce(ctx, key); {
 		case err != nil:
 			deliveredTotal.WithLabelValues("mqtt", "failed").Inc()
@@ -296,11 +419,16 @@ func (s *Service) deliver(ctx context.Context, a *Alert, w *store.Warning, tid s
 			} else {
 				deliveredTotal.WithLabelValues("mqtt", "sent").Inc()
 				d.Bearers[bridgeID] = append(d.Bearers[bridgeID], "mqtt")
+				if slot > 0 {
+					repeatedTotal.Inc()
+				}
 				s.log.Info("warnings: digest handed to a kit", "tenant", tid, "bridge", bridgeID, "source", w.Source,
-					"identifier", w.Identifier, "type", w.MsgType, "bytes", len(wire))
+					"identifier", w.Identifier, "type", w.MsgType, "bytes", len(wire), "slot", slot)
 			}
 		}
-		if !cfg.Satellite || s.sat == nil {
+		// Satellite is once per message: the gateway holds an MT for the
+		// modem, and every repeat would be a paid message.
+		if !cfg.Satellite || s.sat == nil || slot > 0 {
 			continue
 		}
 		imei := s.modemOf(ctx, tid, bridgeID)
@@ -327,10 +455,16 @@ func (s *Service) deliver(ctx context.Context, a *Alert, w *store.Warning, tid s
 			}
 		}
 	}
+	for bridgeID, bearers := range d.Bearers {
+		detail.Handed[bridgeID] = handedAt{At: now, Slot: slot, Bearers: bearers}
+		if slot > 0 {
+			detail.Repeat, detail.RepeatAt = slot, &now
+		}
+	}
 	bridges, _ := json.Marshal(m.Bridges)
-	detail, _ := json.Marshal(map[string]any{"bearers": d.Bearers, "why": m.Why})
+	detailJSON, _ := json.Marshal(detail)
 	if err := s.store.UpsertWarningMatch(ctx, &store.WarningMatch{TenantID: tid, Source: w.Source, Identifier: w.Identifier,
-		MsgType: w.MsgType, Test: a.IsTest(), Bridges: string(bridges), Detail: string(detail), MatchedAt: s.now()}); err != nil {
+		MsgType: w.MsgType, Test: a.IsTest(), Bridges: string(bridges), Detail: string(detailJSON), MatchedAt: now}); err != nil {
 		s.log.Warn("warnings: the match could not be recorded", "tenant", tid, "error", err)
 	}
 	return d
@@ -383,6 +517,6 @@ func (s *Service) Inject(ctx context.Context, tenantID string, capXML []byte) (*
 		return nil, fmt.Errorf("warnings: store: %w", err)
 	}
 	res := &InjectResult{Identifier: a.Identifier, MsgType: a.MsgType, Event: w.Event}
-	res.Deliveries = s.process(ctx, a, w, tenantID)
+	res.Deliveries = s.process(ctx, a, w, capXML, tenantID)
 	return res, nil
 }

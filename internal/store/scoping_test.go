@@ -163,7 +163,7 @@ func TestEveryStoreMethodCarriesATenantOrAReason(t *testing.T) {
 
 	// The ratchet. Lower it when a method gains a tenant; never raise it
 	// without the entry above AND a sentence in the commit explaining why.
-	const auditedUnscoped = 66 // +UpsertWarning, GetWarning: the warning feeds name no tenant (MESHSAT-1734)
+	const auditedUnscoped = 68 // +UpsertWarning, GetWarning, SetWarningRaw, MarkWarningSuperseded: the warning feeds name no tenant (MESHSAT-1734)
 	if len(unscoped) > auditedUnscoped {
 		t.Errorf("Store has %d methods without a tenant, audited high-water mark is %d. "+
 			"A new global method needs a reason in UnscopedByDesign and this constant raised in the same commit.",

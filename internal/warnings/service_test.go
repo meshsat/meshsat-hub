@@ -175,7 +175,7 @@ func TestPollDeliversOnceToEachMatchingKit(t *testing.T) {
 	bus2 := &fakeBus{}
 	svc2 := New(db, bus2, accounts, newTestSigner(t), nil, nil, time.Minute, nil)
 	w, _ := db.GetWarning(ctx, "meteoalarm-nl", a.Identifier)
-	svc2.process(ctx, a, w, "")
+	svc2.process(ctx, a, w, doc, "")
 	if n := len(bus2.published()); n != 0 {
 		t.Fatalf("the other replica sent %d", n)
 	}

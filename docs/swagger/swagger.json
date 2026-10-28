@@ -13827,6 +13827,10 @@
                     "description": "Actual, Exercise, Test",
                     "type": "string"
                 },
+                "superseded_by": {
+                    "description": "SupersededBy is the identifier of the later message (an Update or a\nCancel) that named this one in its references; \"\" while none has.",
+                    "type": "string"
+                },
                 "test": {
                     "type": "boolean"
                 },

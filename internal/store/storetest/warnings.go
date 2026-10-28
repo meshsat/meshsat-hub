@@ -86,4 +86,59 @@ func testWarnings(t *testing.T, db store.Store) {
 	if none, err := db.ListTenantWarnings(ctx, "t_warn_nobody", 10); err != nil || len(none) != 0 {
 		t.Fatalf("a tenant with no match: %v %v", none, err)
 	}
+
+	// The repeats: the document is kept only on request; in force lists the
+	// tenant's own matches that are unexpired, kept and not superseded, with
+	// the document; the plain listing never carries it.
+	now := w2.Sent.Add(2 * time.Hour)
+	if rows, err := db.ListWarningsInForce(ctx, mine, now); err != nil || len(rows) != 0 {
+		t.Fatalf("in force before the document is kept: %+v %v", rows, err)
+	}
+	if err := db.SetWarningRaw(ctx, w.Source, w.Identifier, "<alert/>"); err != nil {
+		t.Fatal(err)
+	}
+	rows, err := db.ListWarningsInForce(ctx, mine, now)
+	if err != nil || len(rows) != 1 || rows[0].Raw != "<alert/>" || rows[0].Bridges != `["kit-a","kit-b"]` || rows[0].SupersededBy != "" {
+		t.Fatalf("in force: %+v %v", rows, err)
+	}
+	if list, _ := db.ListTenantWarnings(ctx, mine, 10); len(list) != 1 || list[0].Raw != "" {
+		t.Fatalf("the listing carries the document: %+v", list)
+	}
+	if rows, _ := db.ListWarningsInForce(ctx, other, now); len(rows) != 1 || rows[0].Bridges != `["kit-v"]` {
+		t.Fatalf("the victim's in-force rows are not its own match: %+v", rows)
+	}
+	if rows, _ := db.ListWarningsInForce(ctx, "t_warn_nobody", now); len(rows) != 0 {
+		t.Fatalf("a tenant with no match has a warning in force: %+v", rows)
+	}
+	if rows, _ := db.ListWarningsInForce(ctx, mine, w2.Expires.Add(time.Second)); len(rows) != 0 {
+		t.Fatalf("an expired warning is in force: %+v", rows)
+	}
+	// Superseded by an Update: out of force, and the row says by whom.
+	if err := db.MarkWarningSuperseded(ctx, w.Source, w.Identifier, "2.49.0.0.528.0.NL.2"); err != nil {
+		t.Fatal(err)
+	}
+	if rows, _ := db.ListWarningsInForce(ctx, mine, now); len(rows) != 0 {
+		t.Fatalf("a superseded warning is in force: %+v", rows)
+	}
+	if got, _ := db.GetWarning(ctx, w.Source, w.Identifier); got == nil || got.SupersededBy != "2.49.0.0.528.0.NL.2" {
+		t.Fatalf("superseded_by: %+v", got)
+	}
+	if list, _ := db.ListTenantWarnings(ctx, mine, 10); len(list) != 1 || list[0].SupersededBy != "2.49.0.0.528.0.NL.2" {
+		t.Fatalf("the listing does not say the warning was superseded: %+v", list)
+	}
+	// A re-sent identifier drops the kept document until it matches again.
+	if err := db.MarkWarningSuperseded(ctx, w.Source, w.Identifier, ""); err != nil {
+		t.Fatal(err)
+	}
+	if rows, _ := db.ListWarningsInForce(ctx, mine, now); len(rows) != 1 {
+		t.Fatalf("back in force: %+v", rows)
+	}
+	w3 := w2
+	w3.RawHash = "cc"
+	if changed, err := db.UpsertWarning(ctx, &w3); err != nil || !changed {
+		t.Fatalf("re-sent: %v %v", changed, err)
+	}
+	if rows, _ := db.ListWarningsInForce(ctx, mine, now); len(rows) != 0 {
+		t.Fatalf("a re-sent message kept the old document: %+v", rows)
+	}
 }
