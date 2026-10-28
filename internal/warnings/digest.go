@@ -256,11 +256,23 @@ func encodeBody(d *Digest) ([]byte, error) {
 	}
 	b = append(b, lang[:]...)
 
-	// The area.
+	// The area: the polygon when it comes down to maxPolygon points within
+	// an honest tolerance (a kit can place itself against an outline, a
+	// geocode needs a table it does not have), else the geocodes, else a
+	// coarser outline of the polygon.
 	var area []byte
 	kind, count := AreaNone, 0
-	switch {
-	case len(d.Geocodes) > 0:
+	writePolygon := func(pts []geo.Point) {
+		kind = AreaPolygon
+		for _, p := range pts {
+			area = append(area, int24(p.Lat)...)
+			area = append(area, int24(p.Lon)...)
+			count++
+		}
+	}
+	if pts, ok := fitPolygon(d.Polygon, maxPolygon, maxPolygonEps); ok {
+		writePolygon(pts)
+	} else if len(d.Geocodes) > 0 {
 		kind = AreaGeocodes
 		for _, g := range d.Geocodes {
 			if count == maxGeocodes {
@@ -276,14 +288,10 @@ func encodeBody(d *Digest) ([]byte, error) {
 			area = append(area, slot...)
 			count++
 		}
-	case len(d.Polygon) >= 3:
-		kind = AreaPolygon
-		pts := fitPolygon(d.Polygon, maxPolygon)
-		for _, p := range pts {
-			area = append(area, int24(p.Lat)...)
-			area = append(area, int24(p.Lon)...)
-			count++
-		}
+	} else if pts, ok := fitPolygon(d.Polygon, maxPolygon, 180); ok {
+		writePolygon(pts)
+	} else if len(d.Polygon) >= 3 {
+		writePolygon(d.Polygon[:maxPolygon])
 	}
 	if count == 0 {
 		kind = AreaNone
@@ -498,24 +506,29 @@ func fromInt24(b []byte) float64 {
 	return float64(u) / 10000
 }
 
-// fitPolygon simplifies a polygon until it has at most n points, raising the
-// tolerance each pass; a ring that will not simplify is cut.
-func fitPolygon(pts []geo.Point, n int) []geo.Point {
-	if len(pts) <= n {
-		return pts
+// maxPolygonEps is the coarsest Douglas-Peucker tolerance, in degrees
+// (about 3 km), at which a ring is still the warning's outline: a ring that
+// needs more than that to come down to maxPolygon points is sent as
+// geocodes when the warning has any.
+const maxPolygonEps = 0.03
+
+// fitPolygon simplifies a ring to at most n points, raising the tolerance
+// by 1.6 each pass up to maxEps; ok is false when it will not come down to
+// n points of a ring (3 or more) within that.
+func fitPolygon(pts []geo.Point, n int, maxEps float64) ([]geo.Point, bool) {
+	if len(pts) < 3 {
+		return nil, false
 	}
-	eps := 0.001
-	for i := 0; i < 20; i++ {
+	if len(pts) <= n {
+		return pts, true
+	}
+	for eps := 0.001; eps <= maxEps; eps *= 1.6 {
 		s := geo.Simplify(pts, eps)
 		if len(s) <= n {
-			if len(s) >= 3 {
-				return s
-			}
-			break
+			return s, len(s) >= 3
 		}
-		eps *= 1.6
 	}
-	return pts[:n]
+	return nil, false
 }
 
 // cleanText makes one line of at most maxRunes runes.
@@ -728,18 +741,16 @@ func FromAlert(a *Alert, source int, languages []string) *Digest {
 	if d.Text == "" {
 		d.Text = info.Event
 	}
+	// Both the geocodes and the largest ring: the encoder sends the ring
+	// when it simplifies honestly, else the geocodes (DWD warnings carry
+	// both; MeteoAlarm NL a polygon and an EMMA_ID).
 	for _, ar := range info.Areas {
 		for _, g := range ar.Geocodes {
 			d.Geocodes = append(d.Geocodes, Geocode{Type: geocodeType(g.Name), Value: g.Value})
 		}
-	}
-	if len(d.Geocodes) == 0 {
-		// One polygon only: the largest ring, simplified by the encoder.
-		for _, ar := range info.Areas {
-			for _, p := range ar.Polygons {
-				if len(p) > len(d.Polygon) {
-					d.Polygon = p
-				}
+		for _, p := range ar.Polygons {
+			if len(p) > len(d.Polygon) {
+				d.Polygon = p
 			}
 		}
 	}

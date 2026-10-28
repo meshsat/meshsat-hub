@@ -9,12 +9,15 @@ import (
 	"crypto/x509"
 	"encoding/hex"
 	"fmt"
+	"math"
 	"os"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/meshsat/meshsat-hub/internal/geo"
+	"github.com/meshsat/meshsat-hub/internal/store"
 )
 
 // MESHSAT-1734. The test key and the vector below are the ones in
@@ -247,8 +250,9 @@ func TestFromAlertTakesTheTenantsLanguageAndReferences(t *testing.T) {
 	if d.Language != "nl-NL" || !strings.Contains(strings.ToLower(d.Text), "wind") || d.Event != EventWind || d.Severity != 2 {
 		t.Fatalf("content: %+v", d)
 	}
-	if len(d.Geocodes) != 1 || d.Geocodes[0] != (Geocode{GeocodeEMMAID, "NL804"}) || len(d.Polygon) != 0 {
-		t.Fatalf("area: geocodes win over the polygon: %+v", d)
+	// Both the geocode and the ring are collected; the encoder decides.
+	if len(d.Geocodes) != 1 || d.Geocodes[0] != (Geocode{GeocodeEMMAID, "NL804"}) || len(d.Polygon) < 30 {
+		t.Fatalf("area: %+v", d)
 	}
 	if d.Test {
 		t.Fatal("an Actual message marked as a test")
@@ -257,7 +261,16 @@ func TestFromAlertTakesTheTenantsLanguageAndReferences(t *testing.T) {
 	if err != nil || len(wire) > MaxDigestBytes {
 		t.Fatalf("encode: %d %v", len(wire), err)
 	}
-	// A message with no geocode carries its polygon.
+	// The Texel ring (36 points around the island and its waters) does not
+	// come down to twelve within maxPolygonEps, so the geocode is sent.
+	if _, ok := fitPolygon(d.Polygon, maxPolygon, maxPolygonEps); ok {
+		t.Fatal("the Texel ring simplifies within the honest tolerance now; this test's premise changed")
+	}
+	got, _, err := Decode(wire)
+	if err != nil || len(got.Geocodes) != 1 || got.Geocodes[0].Value != "NL804" || len(got.Polygon) != 0 {
+		t.Fatalf("the digest should carry the geocode: %+v %v", got, err)
+	}
+	// A message with no geocode carries a coarser outline of its polygon.
 	for i := range a.Infos {
 		for j := range a.Infos[i].Areas {
 			a.Infos[i].Areas[j].Geocodes = nil
@@ -271,9 +284,109 @@ func TestFromAlertTakesTheTenantsLanguageAndReferences(t *testing.T) {
 	if err != nil || len(wire) > MaxDigestBytes {
 		t.Fatalf("encode with polygon: %d %v", len(wire), err)
 	}
-	got, _, _ := Decode(wire)
+	got, _, _ = Decode(wire)
 	if len(got.Polygon) < 3 || len(got.Polygon) > 12 {
 		t.Fatalf("decoded polygon: %d", len(got.Polygon))
+	}
+}
+
+// MESHSAT-1734: a CAP polygon matches a kit by its position and a named
+// circle, and rides the digest in preference to the geocodes when it fits.
+// dwd-second.cap.xml is a real DWD message (28 Oct 2026): one area with a
+// seven-point ring around Helgoland, one with the commune's WARNCELLID.
+func TestDWDPolygonMatchesByPositionAndRidesTheDigest(t *testing.T) {
+	a, err := ParseCAP(fixture(t, "dwd-second.cap.xml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var ring []geo.Point
+	var codes int
+	for _, ar := range a.Infos[0].Areas {
+		for _, p := range ar.Polygons {
+			ring = p
+		}
+		codes += len(ar.Geocodes)
+	}
+	onHelgoland := geo.Point{Lat: 54.182, Lon: 7.895}
+	if len(ring) != 7 || codes != 1 || !geo.PointInPolygon(onHelgoland, ring) {
+		t.Fatalf("fixture: ring %d, geocodes %d, inside=%v", len(ring), codes, geo.PointInPolygon(onHelgoland, ring))
+	}
+
+	kit := &store.Bridge{BridgeID: "helgoland", LocationLat: onHelgoland.Lat, LocationLon: onHelgoland.Lon}
+	leiden := &store.Bridge{BridgeID: "leiden", LocationLat: 52.16, LocationLon: 4.49}
+	bridges := []*store.Bridge{kit, leiden}
+	cases := []struct {
+		name   string
+		fields map[string]string
+		want   []string
+	}{
+		{"the kit inside the ring, no area named", map[string]string{"enabled": "true"}, []string{"helgoland"}},
+		{"a circle whose centre lies in the ring sends to every kit", map[string]string{"enabled": "true", "areas": "54.18,7.90,2"}, []string{"helgoland", "leiden"}},
+		{"a circle reaching a vertex of the ring", map[string]string{"enabled": "true", "areas": "54.20,7.93,2"}, []string{"helgoland", "leiden"}},
+		{"a circle far away", map[string]string{"enabled": "true", "areas": "53.0,8.0,5"}, []string{"helgoland"}},
+		{"the geocode still works", map[string]string{"enabled": "true", "areas": "WARNCELLID:801010000"}, nil},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			cfg, err := ParseTenantConfig(account(c.fields))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if c.name == "the geocode still works" {
+				// Read the commune's code from the document rather than guess it.
+				c.want = []string{"helgoland", "leiden"}
+				cfg.Geocodes = []string{a.Geocodes()[0]}
+			}
+			m := MatchTenant(a, cfg, bridges)
+			if !reflect.DeepEqual(m.Bridges, c.want) {
+				t.Fatalf("bridges %v, want %v (why %v)", m.Bridges, c.want, m.Why)
+			}
+		})
+	}
+
+	// The digest carries the ring, not the WARNCELLID, and a kit decoding
+	// it can place itself inside.
+	d := FromAlert(a, SourceDWD, []string{"de"})
+	if len(d.Geocodes) != 1 || len(d.Polygon) != 7 || d.Event != EventWind {
+		t.Fatalf("digest in: %+v", d)
+	}
+	wire, err := Encode(d, newTestSigner(t))
+	if err != nil || len(wire) > MaxDigestBytes {
+		t.Fatalf("encode: %d %v", len(wire), err)
+	}
+	got, err := Verify(newTestSigner(t).PublicKey(), wire)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Geocodes) != 0 || len(got.Polygon) != 7 || !geo.PointInPolygon(onHelgoland, got.Polygon) {
+		t.Fatalf("digest out: geocodes %d polygon %d: %+v", len(got.Geocodes), len(got.Polygon), got.Polygon)
+	}
+	for i, p := range got.Polygon {
+		if geo.HaversineDistance(p, ring[i]) > 12 {
+			t.Fatalf("point %d moved %.0f m", i, geo.HaversineDistance(p, ring[i]))
+		}
+	}
+	// A ring that will not come down to twelve points within the honest
+	// tolerance gives way to the geocodes; without any it is sent coarser.
+	wide := make([]geo.Point, 0, 60)
+	for i := 0; i < 60; i++ {
+		ang := float64(i) / 60 * 2 * 3.14159265
+		wide = append(wide, geo.Point{Lat: 51 + 2*math.Sin(ang), Lon: 9 + 3*math.Cos(ang)})
+	}
+	if _, ok := fitPolygon(wide, maxPolygon, maxPolygonEps); ok {
+		t.Fatal("a 60-point circle 400 km across simplified within 3 km")
+	}
+	d.Polygon = wide
+	wire, _ = Encode(d, newTestSigner(t))
+	got, _, _ = Decode(wire)
+	if len(got.Geocodes) != 1 || len(got.Polygon) != 0 {
+		t.Fatalf("with geocodes: %+v", got)
+	}
+	d.Geocodes = nil
+	wire, _ = Encode(d, newTestSigner(t))
+	got, _, _ = Decode(wire)
+	if len(got.Polygon) < 3 || len(got.Polygon) > 12 {
+		t.Fatalf("without geocodes: %d points", len(got.Polygon))
 	}
 }
 
