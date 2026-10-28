@@ -34,6 +34,10 @@ const oobSat = ref('')
 // Who this tenant's devices may write to through the "@" lane (MESHSAT-1685).
 const personMode = ref('')
 const savingPersonMode = ref(false)
+const crewSatellite = ref(false)
+const crewSms = ref(true)
+const crewForce = ref('')
+const savingCrewChat = ref(false)
 const saving = ref(false)
 const invites = ref([])
 const inviteEmail = ref('')
@@ -127,6 +131,7 @@ async function load() {
     oobSms.value = info.value.oob_sms_timeout_sec ? String(info.value.oob_sms_timeout_sec) : ''
     oobSat.value = info.value.oob_sat_timeout_sec ? String(info.value.oob_sat_timeout_sec) : ''
     personMode.value = info.value.person_chat_mode || ''
+    syncCrewChat()
     available.value = true
   } catch {
     available.value = false
@@ -267,6 +272,36 @@ const personModeLabels = {
   off: 'Nobody',
   contacts: 'People in your contacts',
   open: 'Any number or address',
+}
+
+// Crew chat off MQTT (MESHSAT-1744): a dispatcher's message to a crew whose
+// kit is off MQTT may go as a satellite MT on this workspace's own account
+// (off by default, it spends) or as an SMS to the kit's SIM (on by default);
+// a forced bearer sends every such message that way, for a test. The
+// response is the state in force, so the controls follow it, not the click.
+function syncCrewChat() {
+  crewSatellite.value = !!info.value?.crew_chat_satellite
+  crewSms.value = info.value?.crew_chat_sms !== false
+  crewForce.value = info.value?.crew_chat_force_bearer || ''
+}
+
+async function saveCrewChat() {
+  savingCrewChat.value = true
+  error.value = ''
+  try {
+    info.value = await tenantApi.update({
+      name: name.value.trim(),
+      crew_chat_satellite: crewSatellite.value,
+      crew_chat_sms: crewSms.value,
+      crew_chat_force_bearer: crewForce.value,
+    })
+    syncCrewChat()
+    toast.success('Saved')
+  } catch (e) {
+    error.value = e.message || 'Save failed'
+  } finally {
+    savingCrewChat.value = false
+  }
 }
 
 async function savePersonMode() {
@@ -521,6 +556,35 @@ onMounted(load)
           <router-link to="/contacts" class="underline hover:text-ms-text">your contacts</router-link>
           are the people you vouched for. Messages can be end-to-end encrypted by the sending app; the
           Hub then reads only the address.
+        </p>
+
+        <!-- Crew chat off MQTT (MESHSAT-1744): a dispatcher's message to a crew
+             whose kit is off MQTT goes as a short frame over satellite, on this
+             workspace's own account, or as an SMS to the kit's SIM. The spend
+             is this workspace's, so the choice is too. -->
+        <h4 class="text-xs font-semibold text-ms-text2 mt-5 mb-1">Messages to crews when a kit is off MQTT</h4>
+        <p class="text-xs text-ms-muted mb-2">
+          A message to a crew from the map reaches its kit over MQTT. When the kit is off MQTT it can go
+          as a short frame over satellite, on your own satellite account, or as an SMS to the kit's SIM.
+          Satellite is off by default: each message costs one on your account. SMS is on by default.
+        </p>
+        <div class="flex flex-wrap gap-x-4 gap-y-2 items-end">
+          <label class="flex items-center gap-2 text-xs text-ms-text2 h-9"><input v-model="crewSatellite" type="checkbox" class="accent-brand-primary" /> Satellite</label>
+          <label class="flex items-center gap-2 text-xs text-ms-text2 h-9"><input v-model="crewSms" type="checkbox" class="accent-brand-primary" /> SMS</label>
+          <div class="min-w-0 w-full sm:w-64">
+            <label for="tenant-crew-force" class="block text-xs text-ms-muted2 mb-1">Force one bearer, for a test</label>
+            <select id="tenant-crew-force" v-model="crewForce" class="ms-input w-full">
+              <option value="">Off: the kit's state decides</option>
+              <option value="mqtt">MQTT, even when the kit is off it</option>
+              <option value="satellite">Satellite</option>
+              <option value="sms">SMS</option>
+            </select>
+          </div>
+          <button @click="saveCrewChat" :disabled="savingCrewChat" class="ms-btn">Save</button>
+        </div>
+        <p class="mt-1 text-xs text-ms-muted">
+          A forced bearer sends every crew message that way whatever the kit's state. Set it back to off
+          after the test.
         </p>
         <dl class="mt-3 text-xs text-ms-muted grid grid-cols-[auto_1fr] gap-x-3 gap-y-1">
           <dt>Slug</dt><dd class="font-mono text-ms-text">{{ info?.slug }}</dd>

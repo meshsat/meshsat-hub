@@ -43,6 +43,14 @@ function statusOf(m) {
   return m.direction === 'out' ? STATUS[m.status] || null : null
 }
 
+// How a message reached the kit, or an answer came back (MESHSAT-1744): the
+// row says mqtt, sbd, imt or sms; the person reads the bearer, not the modem.
+// A row from before, or an answer that came over the TAK stream, says nothing.
+const BEARER = { mqtt: 'over MQTT', sbd: 'over satellite', imt: 'over satellite', sms: 'by SMS' }
+function bearerOf(m) {
+  return BEARER[m.bearer] || ''
+}
+
 async function load() {
   try {
     const got = await takChat.messages(props.crew.uid)
@@ -92,6 +100,7 @@ onUnmounted(() => clearInterval(poll))
         <span class="block text-xs text-ms-muted">
           {{ m.direction === 'out' ? 'Sent' : crew.callsign }}, {{ ago(m.created_at) }}
           <template v-if="statusOf(m)">, <span :class="statusOf(m).alarm ? 'text-ms-error' : ''">{{ statusOf(m).text }}</span></template>
+          <template v-if="bearerOf(m)">, <span class="text-ms-muted" data-testid="crew-chat-bearer">{{ bearerOf(m) }}</span></template>
         </span>
         <span class="block text-ms-text break-words">{{ m.text }}</span>
         <span v-if="statusOf(m) && m.status_detail" class="block text-xs break-words" :class="statusOf(m).alarm ? 'text-ms-error' : 'text-ms-muted'" data-testid="crew-chat-status-detail">{{ m.status_detail }}</span>
