@@ -236,4 +236,10 @@ func TestRNSAccessTopics(t *testing.T) {
 	if f := RNSJoinFilters(); len(f) != 2 || f[0] != "meshsat/bridge/+/rns/join" || f[1] != "meshsat/+/bridge/+/rns/join" {
 		t.Errorf("filters %v", f)
 	}
+	if got := TopicWarnInFor(DefaultTenant, "kit1"); got != "meshsat/bridge/kit1/warn/in" {
+		t.Errorf("warn/in legacy: %q", got)
+	}
+	if got := TopicWarnInFor("t_x", "+31"); got != "meshsat/t_x/bridge/%2B31/warn/in" {
+		t.Errorf("warn/in tenant: %q", got)
+	}
 }

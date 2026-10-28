@@ -331,6 +331,13 @@ var Classification = map[string]Class{
 	"tak_chat_enabled":           ClassPlatform,
 	"matrix_enabled":             ClassPlatform,
 	"allow_private_targets":      ClassPlatform,
+	// The warning relay (MESHSAT-1734): the feeds are public and the same for
+	// every tenant; what is the tenant's (its areas, languages, whether it
+	// pays for satellite delivery) lives in its "warnings" provider row.
+	"warnings_enabled":           ClassPlatform,
+	"warnings_poll_interval":     ClassPlatform,
+	"warnings_dwd_url":           ClassPlatform,
+	"warnings_meteoalarm_nl_url": ClassPlatform,
 	"tak_front_enabled":          ClassPlatform,
 	"tak_front_key_file":         ClassPlatform,
 	"tak_namespace":              ClassPlatform,

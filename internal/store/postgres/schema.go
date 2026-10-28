@@ -1496,4 +1496,49 @@ CREATE INDEX IF NOT EXISTS idx_lxmf_attachments_age ON lxmf_attachments (tenant_
 	{Version: 49, Name: "device profile", SQL: `
 ALTER TABLE devices ADD COLUMN IF NOT EXISTS profile VARCHAR(16) NOT NULL DEFAULT '';
 `},
+	// MESHSAT-1734, the last-mile warning relay. warnings holds every CAP
+	// message a feed carried, keyed (source, identifier); it has no tenant
+	// column on purpose, a public warning names an area. warning_matches is
+	// the tenant's side: which warnings matched its areas or kits and went
+	// to which bridges.
+	{Version: 50, Name: "warning relay", SQL: `
+CREATE TABLE IF NOT EXISTS warnings (
+	source      VARCHAR(32) NOT NULL,
+	identifier  VARCHAR(255) NOT NULL,
+	sender      VARCHAR(255) NOT NULL DEFAULT '',
+	sender_name VARCHAR(255) NOT NULL DEFAULT '',
+	msg_type    VARCHAR(16) NOT NULL,
+	status      VARCHAR(16) NOT NULL DEFAULT '',
+	refs        TEXT NOT NULL DEFAULT '',
+	sent        TIMESTAMPTZ NOT NULL,
+	effective   TIMESTAMPTZ NULL,
+	expires     TIMESTAMPTZ NULL,
+	severity    VARCHAR(16) NOT NULL DEFAULT '',
+	urgency     VARCHAR(16) NOT NULL DEFAULT '',
+	certainty   VARCHAR(16) NOT NULL DEFAULT '',
+	category    VARCHAR(16) NOT NULL DEFAULT '',
+	event       VARCHAR(255) NOT NULL DEFAULT '',
+	headline    TEXT NOT NULL DEFAULT '',
+	language    VARCHAR(16) NOT NULL DEFAULT '',
+	areas       TEXT NOT NULL DEFAULT '[]',
+	text        TEXT NOT NULL DEFAULT '',
+	raw_hash    VARCHAR(64) NOT NULL DEFAULT '',
+	first_seen  TIMESTAMPTZ NOT NULL DEFAULT now(),
+	last_seen   TIMESTAMPTZ NOT NULL DEFAULT now(),
+	PRIMARY KEY (source, identifier)
+);
+CREATE INDEX IF NOT EXISTS idx_warnings_seen ON warnings (last_seen);
+CREATE TABLE IF NOT EXISTS warning_matches (
+	tenant_id   VARCHAR(64) NOT NULL,
+	source      VARCHAR(32) NOT NULL,
+	identifier  VARCHAR(255) NOT NULL,
+	msg_type    VARCHAR(16) NOT NULL,
+	test        BOOLEAN NOT NULL DEFAULT false,
+	bridges     TEXT NOT NULL DEFAULT '[]',
+	detail      TEXT NOT NULL DEFAULT '',
+	matched_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+	PRIMARY KEY (tenant_id, source, identifier)
+);
+CREATE INDEX IF NOT EXISTS idx_warning_matches_age ON warning_matches (tenant_id, matched_at);
+`},
 }

@@ -448,6 +448,16 @@ data:
   # Settings, Integrations.
   HUB_MATRIX_ENABLED: "true"
 
+  # The last-mile warning relay (MESHSAT-1734, docs/warning-relay.md): the
+  # leader reads DWD's and MeteoAlarm's public CAP feeds every five minutes
+  # and hands a signed digest of each warning to the kits of every workspace
+  # that opted in under Settings, Integrations, "Public warnings". Inert for
+  # a workspace that has not; satellite delivery is a second opt-in there.
+  # The feed addresses and the interval have defaults in internal/config
+  # (HUB_WARNINGS_DWD_URL, HUB_WARNINGS_METEOALARM_NL_URL,
+  # HUB_WARNINGS_POLL_INTERVAL).
+  HUB_WARNINGS_ENABLED: "true"
+
   # SOS identity (docs/bridge-hub-protocol.md "SOS identity (C10)", MESHSAT-1584).
   # Says sos_v2 on every bridge's retained hub/caps, so a Bridge that speaks C10
   # sends its SOS with its id (0x07/0x08, sos/event). The Hub takes those frames

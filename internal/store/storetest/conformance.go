@@ -34,6 +34,7 @@ func Run(t *testing.T, open Opener) {
 		{"PersonChat", testPersonChat},
 		{"TAKChat", testTAKChat},
 		{"MatrixBridge", testMatrixBridge},
+		{"Warnings", testWarnings},
 		{"MeshPresence", testMeshPresence},
 		{"Devices", testDevices},
 		{"DeviceEgress", testDeviceEgress},

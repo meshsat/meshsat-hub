@@ -1246,4 +1246,12 @@ func (m *mockStore) GetMatrixOperator(context.Context, string, string) (*store.M
 func (m *mockStore) GetMatrixSync(context.Context, string) (*store.MatrixSync, error) {
 	return nil, nil
 }
-func (m *mockStore) SaveMatrixSync(context.Context, *store.MatrixSync) error { return nil }
+func (m *mockStore) SaveMatrixSync(context.Context, *store.MatrixSync) error     { return nil }
+func (m *mockStore) UpsertWarning(context.Context, *store.Warning) (bool, error) { return true, nil }
+func (m *mockStore) GetWarning(context.Context, string, string) (*store.Warning, error) {
+	return nil, nil
+}
+func (m *mockStore) UpsertWarningMatch(context.Context, *store.WarningMatch) error { return nil }
+func (m *mockStore) ListTenantWarnings(context.Context, string, int) ([]store.TenantWarning, error) {
+	return nil, nil
+}

@@ -95,6 +95,11 @@ const platformNamespace = "meshsat"
 // own radios. And rns/access (MESHSAT-1715): the network name and passphrase of
 // the tenant's Private Reticulum network, which the bridge's managed row joins.
 //
+// And warn/in (MESHSAT-1734): a public warning the Hub relays to the kit's
+// radios, signed by the Hub's directory key. The kit verifies the signature,
+// so a forged one would be refused; the deny keeps a forged one from ever
+// being queued for a kit at all.
+//
 // Every bridge of the tenant is covered, not only this one: the device grants
 // {ns}.*.mo.>, .status.> and .sms.> also match {ns}.bridge.{id}... for a bridge
 // whose id is mo, status or sms, so without the wildcard another bridge of the
@@ -110,7 +115,7 @@ func NATSPublishDeny(ns, _ string) []string {
 
 // hubOnlyBridgeTopics are the subjects under a bridge's subtree that only the
 // Hub publishes.
-var hubOnlyBridgeTopics = []string{"msg.in", "msg.status", "sos.ack", "hub.caps", "tak.cot.in", "rns.access"}
+var hubOnlyBridgeTopics = []string{"msg.in", "msg.status", "sos.ack", "hub.caps", "tak.cot.in", "rns.access", "warn.in"}
 
 func quoteList(items []string) string {
 	q := make([]string, len(items))

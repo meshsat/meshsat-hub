@@ -1564,6 +1564,105 @@ definitions:
       user_id:
         type: string
     type: object
+  github_com_meshsat_meshsat-hub_internal_store.TenantWarning:
+    properties:
+      areas:
+        description: Areas is a JSON array of {"desc","geocodes":["NAME:VALUE"],"polygons":n,"circles":n}.
+        type: string
+      bridges:
+        type: string
+      category:
+        type: string
+      certainty:
+        type: string
+      detail:
+        type: string
+      effective:
+        type: string
+      event:
+        type: string
+      expires:
+        type: string
+      first_seen:
+        type: string
+      headline:
+        type: string
+      identifier:
+        type: string
+      language:
+        type: string
+      last_seen:
+        type: string
+      matched_at:
+        type: string
+      msg_type:
+        description: Alert, Update, Cancel
+        type: string
+      raw_hash:
+        description: sha256 of the CAP document, hex
+        type: string
+      references:
+        type: string
+      sender:
+        type: string
+      sender_name:
+        type: string
+      sent:
+        type: string
+      severity:
+        type: string
+      source:
+        description: dwd, meteoalarm-nl, test
+        type: string
+      status:
+        description: Actual, Exercise, Test
+        type: string
+      test:
+        type: boolean
+      text:
+        description: Text is the description and the instruction, as the feed gave
+          them.
+        type: string
+      urgency:
+        type: string
+    type: object
+  github_com_meshsat_meshsat-hub_internal_warnings.Delivery:
+    properties:
+      bearers:
+        additionalProperties:
+          items:
+            type: string
+          type: array
+        description: bridge id -> bearers the digest went on
+        type: object
+      bridges:
+        items:
+          type: string
+        type: array
+      digest_hex:
+        type: string
+      error:
+        type: string
+      tenant_id:
+        type: string
+      why:
+        items:
+          type: string
+        type: array
+    type: object
+  github_com_meshsat_meshsat-hub_internal_warnings.InjectResult:
+    properties:
+      deliveries:
+        items:
+          $ref: '#/definitions/github_com_meshsat_meshsat-hub_internal_warnings.Delivery'
+        type: array
+      event:
+        type: string
+      identifier:
+        type: string
+      msg_type:
+        type: string
+    type: object
   internal_api.Capability:
     properties:
       configured:
@@ -3301,6 +3400,20 @@ definitions:
       slug:
         type: string
       tenant_id:
+        type: string
+    type: object
+  internal_api.warningsKey:
+    properties:
+      alg:
+        description: 'Alg is the signature scheme of a digest: ES256, r and s raw.'
+        type: string
+      enabled:
+        description: Enabled is whether the relay runs on this Hub.
+        type: boolean
+      pkix_hex:
+        description: |-
+          PKIXHex is the public key, PKIX DER in hex; the key the kits pin as
+          the Hub's directory key.
         type: string
     type: object
   internal_codec.CodecInfo:
@@ -10806,6 +10919,94 @@ paths:
       summary: Get signed directory snapshot
       tags:
       - directory
+  /api/warnings:
+    get:
+      description: The official public warnings that matched this workspace's areas
+        or kits and were handed to its kits, newest first, with which kits got them
+        and on which bearers. Empty while the relay is off or nothing has matched.
+      parameters:
+      - description: Most rows to answer (default 100, max 500)
+        in: query
+        name: limit
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/github_com_meshsat_meshsat-hub_internal_store.TenantWarning'
+            type: array
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: List relayed warnings
+      tags:
+      - warnings
+  /api/warnings/key:
+    get:
+      description: 'The public key every warning digest is signed with: the Hub''s
+        directory key, which a kit pins at provisioning (docs/warning-relay.md). PKIX
+        DER in hex; signatures are ECDSA P-256 over SHA-256 with r and s raw.'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_api.warningsKey'
+      summary: The warning relay's signing key
+      tags:
+      - warnings
+  /api/warnings/test:
+    post:
+      consumes:
+      - text/xml
+      description: 'Runs one CAP 1.2 document, posted as the body, through the same
+        parse, match, sign and deliver path a feed''s message takes, for this workspace
+        alone. The document must carry status Test or Exercise; the kits mark it as
+        a test on every bearer. The answer says which kits matched and what each was
+        handed. Owner only: it transmits on the workspace''s radios, and over satellite
+        on its own account when that is on.'
+      parameters:
+      - description: A CAP 1.2 alert with status Test or Exercise
+        in: body
+        name: body
+        required: true
+        schema:
+          type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/github_com_meshsat_meshsat-hub_internal_warnings.InjectResult'
+        "400":
+          description: Not a CAP 1.2 alert, or not a test
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: The relay is off on this Hub
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "413":
+          description: Body over 256 KB
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Inject a test warning
+      tags:
+      - warnings
   /api/webhook/cloudloop:
     post:
       consumes:

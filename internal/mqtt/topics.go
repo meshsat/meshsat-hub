@@ -568,3 +568,9 @@ func ParseRNSJoinTopic(topic string) (tenantID, bridgeID string, ok bool) {
 func TopicRNSAccessFor(tenantID, bridgeID string) string {
 	return BridgeTopic(tenantID, bridgeID, "rns/access")
 }
+
+// TopicWarnInFor is where the Hub hands a bridge a signed public-warning
+// digest for its area (MESHSAT-1734): the bridge's own subtree, Hub only.
+func TopicWarnInFor(tenantID, bridgeID string) string {
+	return BridgeTopic(tenantID, bridgeID, "warn/in")
+}

@@ -625,6 +625,12 @@ var postAlterMigrations = []string{
 	// MESHSAT-1735, voice notes and photos of LXMF messages; mirrors postgres migration 48.
 	`CREATE TABLE IF NOT EXISTS lxmf_attachments (tenant_id TEXT NOT NULL, message_id TEXT NOT NULL, idx INTEGER NOT NULL, kind TEXT NOT NULL, mode INTEGER NOT NULL DEFAULT 0, format TEXT NOT NULL DEFAULT '', size INTEGER NOT NULL, object_key TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT (datetime('now')), PRIMARY KEY (tenant_id, message_id, idx))`,
 	`CREATE INDEX IF NOT EXISTS idx_lxmf_attachments_age ON lxmf_attachments (tenant_id, created_at)`,
+	// MESHSAT-1734, the warning relay; mirrors postgres migration 50. warnings
+	// has no tenant column on purpose: a public warning names an area.
+	`CREATE TABLE IF NOT EXISTS warnings (source TEXT NOT NULL, identifier TEXT NOT NULL, sender TEXT NOT NULL DEFAULT '', sender_name TEXT NOT NULL DEFAULT '', msg_type TEXT NOT NULL, status TEXT NOT NULL DEFAULT '', refs TEXT NOT NULL DEFAULT '', sent TEXT NOT NULL, effective TEXT NOT NULL DEFAULT '', expires TEXT NOT NULL DEFAULT '', severity TEXT NOT NULL DEFAULT '', urgency TEXT NOT NULL DEFAULT '', certainty TEXT NOT NULL DEFAULT '', category TEXT NOT NULL DEFAULT '', event TEXT NOT NULL DEFAULT '', headline TEXT NOT NULL DEFAULT '', language TEXT NOT NULL DEFAULT '', areas TEXT NOT NULL DEFAULT '[]', text TEXT NOT NULL DEFAULT '', raw_hash TEXT NOT NULL DEFAULT '', first_seen TEXT NOT NULL DEFAULT (datetime('now')), last_seen TEXT NOT NULL DEFAULT (datetime('now')), PRIMARY KEY (source, identifier))`,
+	`CREATE INDEX IF NOT EXISTS idx_warnings_seen ON warnings (last_seen)`,
+	`CREATE TABLE IF NOT EXISTS warning_matches (tenant_id TEXT NOT NULL, source TEXT NOT NULL, identifier TEXT NOT NULL, msg_type TEXT NOT NULL, test INTEGER NOT NULL DEFAULT 0, bridges TEXT NOT NULL DEFAULT '[]', detail TEXT NOT NULL DEFAULT '', matched_at TEXT NOT NULL DEFAULT (datetime('now')), PRIMARY KEY (tenant_id, source, identifier))`,
+	`CREATE INDEX IF NOT EXISTS idx_warning_matches_age ON warning_matches (tenant_id, matched_at)`,
 }
 
 // lateAlterMigrations alter tables created in postAlterMigrations.

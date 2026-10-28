@@ -1,0 +1,72 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom" xmlns:cap="urn:oasis:names:tc:emergency:cap:1.2">
+  <link rel="hub" href="https://pubsubhubbub.appspot.com/"/>
+  <link type="application/atom+xml" rel="self" href="https://feeds.meteoalarm.org/feeds/meteoalarm-legacy-atom-netherlands"/>
+  <link type="text/html" rel="alternate" href="https://meteoalarm.org"/>
+  <rights>Copyright © 2026 MeteoAlarm.Org. Licensed under terms equivalent to CC BY 4.0, with additional requirements for redistributing outlined in our Terms and Conditions.</rights>
+  <generator>MeteoAlarm Producer Server</generator>
+  <logo>https://feeds.meteoalarm.org/images/logo.svg</logo>
+  <author>
+    <name>meteoalarm.org</name>
+    <uri>https://meteoalarm.org</uri>
+    <email>meteoalarm@geosphere.at</email>
+  </author>
+  <id>tag:meteoalarm.org,2021-02-19:NL</id>
+  <title>MeteoAlarm - Alerting Europe for Extreme Weather</title>
+  <updated>2026-10-28T13:35:15.891921Z</updated>
+  <entry>
+    <cap:geocode>
+      <valueName>EMMA_ID</valueName>
+      <value>NL804</value>
+    </cap:geocode>
+    <link title="Texel" href="https://meteoalarm.org?geocode=EMMA_ID:NL804" hreflang="en"/>
+    <cap:areaDesc>Texel</cap:areaDesc>
+    <cap:event>Moderate Wind</cap:event>
+    <cap:sent>2026-10-28T10:11:41+00:00</cap:sent>
+    <cap:expires>2026-10-29T10:11:41+00:00</cap:expires>
+    <cap:onset>2026-10-28T04:14:00+00:00</cap:onset>
+    <cap:certainty>Observed</cap:certainty>
+    <cap:severity>Moderate</cap:severity>
+    <cap:urgency>Expected</cap:urgency>
+    <cap:scope>Public</cap:scope>
+    <cap:message_type>Update</cap:message_type>
+    <cap:status>Actual</cap:status>
+    <cap:identifier>2.49.0.0.528.0.NL.20261028101141.6ddd5a99-421a-4c94-b9ea-25fa0ddcdd48_2</cap:identifier>
+    <link type="application/cap+xml" href="https://feeds.meteoalarm.org/api/v1/warnings/feeds-netherlands/a516b79b-d3c0-44f0-a345-78d3c793f6ee"/>
+    <link title="The Netherlands" rel="related" href="https://meteoalarm.org?region=NL" hreflang="en"/>
+    <author>
+      <name>meteoalarm.org</name>
+      <uri>https://meteoalarm.org</uri>
+    </author>
+    <published>2026-10-28T10:11:41Z</published>
+    <id>https://feeds.meteoalarm.org/api/v1/warnings/feeds-netherlands/a516b79b-d3c0-44f0-a345-78d3c793f6ee?index_info=0&amp;index_area=0&amp;index_geocode=0</id>
+    <title>Yellow Wind Warning issued for The Netherlands - Texel</title>
+    <updated>2026-10-28T10:11:41Z</updated>
+  </entry>
+  <entry>
+    <cap:polygon>52.99670,4.75700 52.97000,4.75590 52.96800,4.73510 52.96530,4.72380 52.95250,4.71660 52.88040,4.70670 52.81580,4.68160 52.76700,4.64280 52.80430,3.80980 53.27920,3.98250 53.51030,4.15500 53.79500,4.57900 54.04220,5.47990 53.40710,5.37810 53.38700,5.34340 53.37400,5.29390 53.37420,5.26230 53.36830,5.22720 53.34380,5.18400 53.34990,5.15860 53.30760,5.09710 53.29670,5.09540 53.29650,5.06910 53.28250,5.03560 53.26710,4.97030 53.25330,4.98390 53.23570,4.93950 53.21630,4.91840 53.21950,4.88740 53.18820,4.85420 53.16020,4.87900 53.14170,4.90250 53.08080,4.89390 53.03290,4.84800 53.02970,4.81880 53.00290,4.78910 52.99670,4.75700</cap:polygon>
+    <link title="Texel" href="https://meteoalarm.org?polygon=a516b79b-d3c0-44f0-a345-78d3c793f6ee,0,0,0" hreflang="en"/>
+    <cap:areaDesc>Texel</cap:areaDesc>
+    <cap:event>Moderate Wind</cap:event>
+    <cap:sent>2026-10-28T10:11:41+00:00</cap:sent>
+    <cap:expires>2026-10-29T10:11:41+00:00</cap:expires>
+    <cap:onset>2026-10-28T04:14:00+00:00</cap:onset>
+    <cap:certainty>Observed</cap:certainty>
+    <cap:severity>Moderate</cap:severity>
+    <cap:urgency>Expected</cap:urgency>
+    <cap:scope>Public</cap:scope>
+    <cap:message_type>Update</cap:message_type>
+    <cap:status>Actual</cap:status>
+    <cap:identifier>2.49.0.0.528.0.NL.20261028101141.6ddd5a99-421a-4c94-b9ea-25fa0ddcdd48_2</cap:identifier>
+    <link type="application/cap+xml" href="https://feeds.meteoalarm.org/api/v1/warnings/feeds-netherlands/a516b79b-d3c0-44f0-a345-78d3c793f6ee"/>
+    <link title="The Netherlands" rel="related" href="https://meteoalarm.org?region=NL" hreflang="en"/>
+    <author>
+      <name>meteoalarm.org</name>
+      <uri>https://meteoalarm.org</uri>
+    </author>
+    <published>2026-10-28T10:11:41Z</published>
+    <id>https://feeds.meteoalarm.org/api/v1/warnings/feeds-netherlands/a516b79b-d3c0-44f0-a345-78d3c793f6ee?index_info=0&amp;index_area=0&amp;index_polygon=0</id>
+    <title>Yellow Wind Warning issued for The Netherlands - Texel</title>
+    <updated>2026-10-28T10:11:41Z</updated>
+  </entry>
+</feed>

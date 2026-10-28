@@ -1,0 +1,84 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<alert xmlns="urn:oasis:names:tc:emergency:cap:1.2">
+  <identifier>2.49.0.0.276.0.DWD.PVW.1793187780000.96e0e514-80f0-4d4c-b80f-91fcbfdba59d.DEU</identifier>
+  <sender>opendata@dwd.de</sender>
+  <sent>2026-10-28T12:43:00+01:00</sent>
+  <status>Actual</status>
+  <msgType>Alert</msgType>
+  <source>PVW</source>
+  <scope>Public</scope>
+  <code>id:2.49.0.0.276.0.DWD.PVW.1793187780000.96e0e514-80f0-4d4c-b80f-91fcbfdba59d</code>
+  <info>
+    <language>de-DE</language>
+    <category>Met</category>
+    <event>BÖEN</event>
+    <responseType>Prepare</responseType>
+    <urgency>Immediate</urgency>
+    <severity>Minor</severity>
+    <certainty>Likely</certainty>
+    <eventCode>
+      <valueName>PROFILE_VERSION</valueName>
+      <value>2.1.14</value>
+    </eventCode>
+    <eventCode>
+      <valueName>LICENSE</valueName>
+      <value>© GeoBasis-DE / BKG 2021 (Daten modifiziert)</value>
+    </eventCode>
+    <eventCode>
+      <valueName>II</valueName>
+      <value>11</value>
+    </eventCode>
+    <eventCode>
+      <valueName>GROUP</valueName>
+      <value>WIND</value>
+    </eventCode>
+    <eventCode>
+      <valueName>AREA_COLOR</valueName>
+      <value>255 235 59</value>
+    </eventCode>
+    <effective>2026-10-28T12:43:00+01:00</effective>
+    <onset>2026-10-28T12:43:00+01:00</onset>
+    <senderName>DWD / Seewetterdienst Hamburg</senderName>
+    <headline>Amtliche Warnung des Seewetterdienstes Hamburg vor BÖEN</headline>
+    <description>Böen von 7 Beaufort aus Südwest bis West.</description>
+    <instruction/>
+    <web>https://dwd.de/warnungen</web>
+    <contact>Deutscher Wetterdienst</contact>
+    <area>
+      <areaDesc>Nordfriesische Küste</areaDesc>
+      <geocode>
+        <valueName>WARNCELLID</valueName>
+        <value>501000005</value>
+      </geocode>
+      <altitude>0.0</altitude>
+      <ceiling>9842.5197</ceiling>
+    </area>
+    <area>
+      <areaDesc>Ostfriesische Küste</areaDesc>
+      <geocode>
+        <valueName>WARNCELLID</valueName>
+        <value>501000001</value>
+      </geocode>
+      <altitude>0.0</altitude>
+      <ceiling>9842.5197</ceiling>
+    </area>
+    <area>
+      <areaDesc>Helgoland</areaDesc>
+      <geocode>
+        <valueName>WARNCELLID</valueName>
+        <value>501000002</value>
+      </geocode>
+      <altitude>0.0</altitude>
+      <ceiling>9842.5197</ceiling>
+    </area>
+    <area>
+      <areaDesc>Elbe-/Wesermündung</areaDesc>
+      <geocode>
+        <valueName>WARNCELLID</valueName>
+        <value>501000003</value>
+      </geocode>
+      <altitude>0.0</altitude>
+      <ceiling>9842.5197</ceiling>
+    </area>
+  </info>
+</alert>

@@ -804,4 +804,12 @@ func (f *fakeStore) GetMatrixOperator(context.Context, string, string) (*store.M
 func (f *fakeStore) GetMatrixSync(context.Context, string) (*store.MatrixSync, error) {
 	return nil, nil
 }
-func (f *fakeStore) SaveMatrixSync(context.Context, *store.MatrixSync) error { return nil }
+func (f *fakeStore) SaveMatrixSync(context.Context, *store.MatrixSync) error     { return nil }
+func (f *fakeStore) UpsertWarning(context.Context, *store.Warning) (bool, error) { return true, nil }
+func (f *fakeStore) GetWarning(context.Context, string, string) (*store.Warning, error) {
+	return nil, nil
+}
+func (f *fakeStore) UpsertWarningMatch(context.Context, *store.WarningMatch) error { return nil }
+func (f *fakeStore) ListTenantWarnings(context.Context, string, int) ([]store.TenantWarning, error) {
+	return nil, nil
+}

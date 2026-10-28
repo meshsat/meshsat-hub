@@ -1,0 +1,93 @@
+<?xml version="1.0" encoding="utf-8" standalone="yes" ?>
+<alert xmlns="urn:oasis:names:tc:emergency:cap:1.2">
+  <identifier>2.49.0.0.528.0.NL.20261028101141.6ddd5a99-421a-4c94-b9ea-25fa0ddcdd48_2</identifier>
+  <sender>noreply@knmi.nl</sender>
+  <sent>2026-10-28T10:11:41+00:00</sent>
+  <status>Actual</status>
+  <msgType>Update</msgType>
+  <scope>Public</scope>
+  <code>MCP:v2.0</code>
+  <references>noreply@knmi.nl,2.49.0.0.528.0.NL.20261028041400.6ddd5a99-421a-4c94-b9ea-25fa0ddcdd48_1,2026-10-28T04:14:00+00:00</references>
+  <info>
+    <language>en-GB</language>
+    <category>Met</category>
+    <event>Moderate Wind</event>
+    <responseType>Monitor</responseType>
+    <urgency>Expected</urgency>
+    <severity>Moderate</severity>
+    <certainty>Observed</certainty>
+    <onset>2026-10-28T04:14:00+00:00</onset>
+    <expires>2026-10-29T10:11:41+00:00</expires>
+    <senderName>KNMI Royal Netherlands Meteorological Institute</senderName>
+    <headline>From Wednesday 28 October onwards: chance of wind</headline>
+    <description>From Wednesday 28 October onwards: chance of wind.
+
+WSW-6
+
+This weather situation is still uncertain. Keep track of our weather forecasts and warnings.</description>
+    <instruction>No instructions available</instruction>
+    <web>https://www.knmi.nl/nederland-nu/weer/waarschuwingen-en-verwachtingen/waarschuwingen-kust-en-noordzee</web>
+    <contact>https://www.knmi.nl/over-het-knmi/contact/contactformulier</contact>
+    <parameter>
+      <valueName>awareness_level</valueName>
+      <value>2; yellow; Moderate</value>
+    </parameter>
+    <parameter>
+      <valueName>awareness_type</valueName>
+      <value>1; Wind</value>
+    </parameter>
+    <parameter>
+      <valueName>use_polygon_over_geocode</valueName>
+      <value>True</value>
+    </parameter>
+    <area>
+      <areaDesc>Texel</areaDesc>
+      <polygon>52.99670,4.75700 52.97000,4.75590 52.96800,4.73510 52.96530,4.72380 52.95250,4.71660 52.88040,4.70670 52.81580,4.68160 52.76700,4.64280 52.80430,3.80980 53.27920,3.98250 53.51030,4.15500 53.79500,4.57900 54.04220,5.47990 53.40710,5.37810 53.38700,5.34340 53.37400,5.29390 53.37420,5.26230 53.36830,5.22720 53.34380,5.18400 53.34990,5.15860 53.30760,5.09710 53.29670,5.09540 53.29650,5.06910 53.28250,5.03560 53.26710,4.97030 53.25330,4.98390 53.23570,4.93950 53.21630,4.91840 53.21950,4.88740 53.18820,4.85420 53.16020,4.87900 53.14170,4.90250 53.08080,4.89390 53.03290,4.84800 53.02970,4.81880 53.00290,4.78910 52.99670,4.75700</polygon>
+      <geocode>
+        <valueName>EMMA_ID</valueName>
+        <value>NL804</value>
+      </geocode>
+    </area>
+  </info>
+  <info>
+    <language>nl-NL</language>
+    <category>Met</category>
+    <event>Matige Wind</event>
+    <responseType>Monitor</responseType>
+    <urgency>Expected</urgency>
+    <severity>Moderate</severity>
+    <certainty>Observed</certainty>
+    <onset>2026-10-28T04:14:00+00:00</onset>
+    <expires>2026-10-29T10:11:41+00:00</expires>
+    <senderName>KNMI Royal Netherlands Meteorological Institute</senderName>
+    <headline>Vanaf Woensdag 28 oktober: kans op wind</headline>
+    <description>Vanaf Woensdag 28 oktober: kans op wind.
+
+WZW-6
+
+Deze weersituatie is nog onzeker. Houd onze weerberichten en waarschuwingen in de gaten.</description>
+    <instruction>Geen instructies beschikbaar</instruction>
+    <web>https://www.knmi.nl/nederland-nu/weer/waarschuwingen-en-verwachtingen/waarschuwingen-kust-en-noordzee</web>
+    <contact>https://www.knmi.nl/over-het-knmi/contact/contactformulier</contact>
+    <parameter>
+      <valueName>awareness_level</valueName>
+      <value>2; yellow; Moderate</value>
+    </parameter>
+    <parameter>
+      <valueName>awareness_type</valueName>
+      <value>1; Wind</value>
+    </parameter>
+    <parameter>
+      <valueName>use_polygon_over_geocode</valueName>
+      <value>True</value>
+    </parameter>
+    <area>
+      <areaDesc>Texel</areaDesc>
+      <polygon>52.99670,4.75700 52.97000,4.75590 52.96800,4.73510 52.96530,4.72380 52.95250,4.71660 52.88040,4.70670 52.81580,4.68160 52.76700,4.64280 52.80430,3.80980 53.27920,3.98250 53.51030,4.15500 53.79500,4.57900 54.04220,5.47990 53.40710,5.37810 53.38700,5.34340 53.37400,5.29390 53.37420,5.26230 53.36830,5.22720 53.34380,5.18400 53.34990,5.15860 53.30760,5.09710 53.29670,5.09540 53.29650,5.06910 53.28250,5.03560 53.26710,4.97030 53.25330,4.98390 53.23570,4.93950 53.21630,4.91840 53.21950,4.88740 53.18820,4.85420 53.16020,4.87900 53.14170,4.90250 53.08080,4.89390 53.03290,4.84800 53.02970,4.81880 53.00290,4.78910 52.99670,4.75700</polygon>
+      <geocode>
+        <valueName>EMMA_ID</valueName>
+        <value>NL804</value>
+      </geocode>
+    </area>
+  </info>
+</alert>

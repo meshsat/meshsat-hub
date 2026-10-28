@@ -10593,6 +10593,127 @@
                 }
             }
         },
+        "/api/warnings": {
+            "get": {
+                "description": "The official public warnings that matched this workspace's areas or kits and were handed to its kits, newest first, with which kits got them and on which bearers. Empty while the relay is off or nothing has matched.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "warnings"
+                ],
+                "summary": "List relayed warnings",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "Most rows to answer (default 100, max 500)",
+                        "name": "limit",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/github_com_meshsat_meshsat-hub_internal_store.TenantWarning"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/warnings/key": {
+            "get": {
+                "description": "The public key every warning digest is signed with: the Hub's directory key, which a kit pins at provisioning (docs/warning-relay.md). PKIX DER in hex; signatures are ECDSA P-256 over SHA-256 with r and s raw.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "warnings"
+                ],
+                "summary": "The warning relay's signing key",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.warningsKey"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/warnings/test": {
+            "post": {
+                "description": "Runs one CAP 1.2 document, posted as the body, through the same parse, match, sign and deliver path a feed's message takes, for this workspace alone. The document must carry status Test or Exercise; the kits mark it as a test on every bearer. The answer says which kits matched and what each was handed. Owner only: it transmits on the workspace's radios, and over satellite on its own account when that is on.",
+                "consumes": [
+                    "text/xml"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "warnings"
+                ],
+                "summary": "Inject a test warning",
+                "parameters": [
+                    {
+                        "description": "A CAP 1.2 alert with status Test or Exercise",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_meshsat_meshsat-hub_internal_warnings.InjectResult"
+                        }
+                    },
+                    "400": {
+                        "description": "Not a CAP 1.2 alert, or not a test",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "The relay is off on this Hub",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "413": {
+                        "description": "Body over 256 KB",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/webhook/cloudloop": {
             "post": {
                 "description": "Cloudloop posts LingoMO JSON messages here (SBD, IMT, or cellular)",
@@ -13622,6 +13743,151 @@
                 }
             }
         },
+        "github_com_meshsat_meshsat-hub_internal_store.TenantWarning": {
+            "type": "object",
+            "properties": {
+                "areas": {
+                    "description": "Areas is a JSON array of {\"desc\",\"geocodes\":[\"NAME:VALUE\"],\"polygons\":n,\"circles\":n}.",
+                    "type": "string"
+                },
+                "bridges": {
+                    "type": "string"
+                },
+                "category": {
+                    "type": "string"
+                },
+                "certainty": {
+                    "type": "string"
+                },
+                "detail": {
+                    "type": "string"
+                },
+                "effective": {
+                    "type": "string"
+                },
+                "event": {
+                    "type": "string"
+                },
+                "expires": {
+                    "type": "string"
+                },
+                "first_seen": {
+                    "type": "string"
+                },
+                "headline": {
+                    "type": "string"
+                },
+                "identifier": {
+                    "type": "string"
+                },
+                "language": {
+                    "type": "string"
+                },
+                "last_seen": {
+                    "type": "string"
+                },
+                "matched_at": {
+                    "type": "string"
+                },
+                "msg_type": {
+                    "description": "Alert, Update, Cancel",
+                    "type": "string"
+                },
+                "raw_hash": {
+                    "description": "sha256 of the CAP document, hex",
+                    "type": "string"
+                },
+                "references": {
+                    "type": "string"
+                },
+                "sender": {
+                    "type": "string"
+                },
+                "sender_name": {
+                    "type": "string"
+                },
+                "sent": {
+                    "type": "string"
+                },
+                "severity": {
+                    "type": "string"
+                },
+                "source": {
+                    "description": "dwd, meteoalarm-nl, test",
+                    "type": "string"
+                },
+                "status": {
+                    "description": "Actual, Exercise, Test",
+                    "type": "string"
+                },
+                "test": {
+                    "type": "boolean"
+                },
+                "text": {
+                    "description": "Text is the description and the instruction, as the feed gave them.",
+                    "type": "string"
+                },
+                "urgency": {
+                    "type": "string"
+                }
+            }
+        },
+        "github_com_meshsat_meshsat-hub_internal_warnings.Delivery": {
+            "type": "object",
+            "properties": {
+                "bearers": {
+                    "description": "bridge id -\u003e bearers the digest went on",
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
+                    }
+                },
+                "bridges": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "digest_hex": {
+                    "type": "string"
+                },
+                "error": {
+                    "type": "string"
+                },
+                "tenant_id": {
+                    "type": "string"
+                },
+                "why": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                }
+            }
+        },
+        "github_com_meshsat_meshsat-hub_internal_warnings.InjectResult": {
+            "type": "object",
+            "properties": {
+                "deliveries": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/github_com_meshsat_meshsat-hub_internal_warnings.Delivery"
+                    }
+                },
+                "event": {
+                    "type": "string"
+                },
+                "identifier": {
+                    "type": "string"
+                },
+                "msg_type": {
+                    "type": "string"
+                }
+            }
+        },
         "internal_api.Capability": {
             "type": "object",
             "properties": {
@@ -15895,6 +16161,23 @@
                     "type": "string"
                 },
                 "tenant_id": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_api.warningsKey": {
+            "type": "object",
+            "properties": {
+                "alg": {
+                    "description": "Alg is the signature scheme of a digest: ES256, r and s raw.",
+                    "type": "string"
+                },
+                "enabled": {
+                    "description": "Enabled is whether the relay runs on this Hub.",
+                    "type": "boolean"
+                },
+                "pkix_hex": {
+                    "description": "PKIXHex is the public key, PKIX DER in hex; the key the kits pin as\nthe Hub's directory key.",
                     "type": "string"
                 }
             }

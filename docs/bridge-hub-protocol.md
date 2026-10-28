@@ -1138,6 +1138,32 @@ MESHSAT-1731). nats-server's MQTT layer turns a `.` inside a topic level into
 cover its own topics but would cover bridge `x`'s `tak/` subtree. The Hub
 refuses such an id at creation and at birth and renders no broker login for one.
 
+## Public warnings (Hub 2026-10, MESHSAT-1734)
+
+The Hub relays official public warnings (DWD, MeteoAlarm) to the kits in their area as a
+compact digest signed by the directory key the kit pins. Contract: `docs/warning-relay.md`.
+
+### Topics
+
+| Topic | QoS | Retained | Publisher | Description |
+|---|---|---|---|---|
+| `{ns}/bridge/{id}/warn/in` | 1 | no | Hub only | one digest v1, at most 234 bytes |
+
+The Hub alone may publish there (`NATSPublishDeny`, like `tak/cot/in` and `rns/access`); a kit
+subscribes to its own. The same bytes may also arrive as a satellite MT whose first byte is
+`0x57`, the digest's magic, when the workspace pays for satellite delivery.
+
+### The kit
+
+- verifies the last 64 bytes (ECDSA P-256 over SHA-256, `r` and `s` raw) with its pinned
+  directory key (`hub_directory_signing_pubkey`) and refuses anything else, logged;
+- keeps the warning by its 8-byte id, relays a given (id, message type) once, replaces the row an
+  Update refers to (`ref`), marks cancelled the one a Cancel refers to;
+- puts an Alert or Update on its mesh as an ALERT_APP (port 11) text with BEL and as a text
+  broadcast, and on APRS as a `BLN<d>` bulletin when that gateway runs, each through its delivery
+  ledger; a Cancel as `CANCELLED: <event>`; a test (bit 7) prefixed `TEST`;
+- lists what it holds on `GET /api/warnings`.
+
 ## CoT Type Mapping
 
 | Entity | CoT Type | MIL-STD-2525 | TAK Appearance |

@@ -92,6 +92,13 @@ const (
 	// creates or federates rooms.
 	ProviderMatrix = "matrix"
 
+	// ProviderWarnings is a tenant's opt-in to the last-mile warning relay
+	// (MESHSAT-1734): the areas whose official public warnings (DWD,
+	// MeteoAlarm) the Hub relays to its kits, and whether the tenant pays to
+	// have them sent over satellite as well. Not an account with a company:
+	// the feeds are public and the Hub reads them once for everybody.
+	ProviderWarnings = "warnings"
+
 	// CredType marks a provider-account row in the credentials table.
 	CredType = "provider_account"
 	// Scope is the target_scope of a provider-account row.
@@ -306,6 +313,17 @@ var Specs = []Spec{
 			{Key: "access_token", Label: "Bot access token", Secret: true, Required: true, Hint: "of an ordinary account made for the Hub; it needs no admin rights. Stored encrypted and never shown again."},
 			{Key: "rooms", Label: "Rooms", Required: true, Multiline: true, Hint: "one room id per line, e.g. !AbCdEfGh:example.org (in Element: Room settings, Advanced). Invite the bot to each room first."},
 			{Key: "senders", Label: "Who may write to crews", Multiline: true, Hint: "optional: one Matrix user id (@anna:example.org) or homeserver (:example.org) per line. Empty means anyone who can write in the room."},
+		}},
+	// The warning relay reads only what the tenant lists; no secret, no URL.
+	// satellite is off by default: a digest over Iridium is a paid message on
+	// the tenant's own account for every kit, for every warning in the area.
+	{Provider: ProviderWarnings, Label: "Public warnings (last-mile relay)", Description: "Official public warnings for the areas you name, or where your kits are, relayed to your kits as a signed digest: each kit puts the warning on its mesh (alert and text) and its APRS bulletin channel. Sources today: DWD (Germany) and MeteoAlarm (the Netherlands). A relay is marked as such and is not an official NL-Alert or cell broadcast.",
+		Fields: []Field{
+			{Key: "enabled", Label: "Enabled", Default: "false", Hint: "true to relay warnings to this workspace's kits"},
+			{Key: "areas", Label: "Areas", Multiline: true, Hint: "one per line: a geocode as the feed names it (EMMA_ID:NL804, WARNCELLID:501000005, or the bare value) or a circle as lat,lon,radius_km (52.37,4.90,25). A kit whose last reported position lies inside a warning's polygon matches on its own."},
+			{Key: "languages", Label: "Languages", Default: "nl,en,de", Hint: "ISO 639-1 codes in order of preference; the first language the warning carries wins"},
+			{Key: "feeds", Label: "Feeds", Default: "dwd,meteoalarm-nl", Hint: "which sources to take; empty means all"},
+			{Key: "satellite", Label: "Also send over satellite", Default: "false", Hint: "true sends every matching digest to each kit's modem as an MT on your own Cloudloop or Rock7 account, about 230 bytes per warning per kit; the kits' Hub link carries it either way"},
 		}},
 	{Provider: ProviderFederation, Label: "Federation (Hub to Hub)", Description: "This tenant's identity towards other MeshSat Hubs: a key they pin and the URL they relay satellite messages to. Created on the Federation page; edit it there, not here.",
 		Webhook: "/api/webhook/federation",

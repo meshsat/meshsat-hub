@@ -5,6 +5,7 @@ import (
 	"crypto/ed25519"
 	"crypto/subtle"
 	"database/sql"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -103,6 +104,7 @@ import (
 	"github.com/meshsat/meshsat-hub/internal/takchat"
 	"github.com/meshsat/meshsat-hub/internal/timesync"
 	hubtor "github.com/meshsat/meshsat-hub/internal/tor"
+	"github.com/meshsat/meshsat-hub/internal/warnings"
 	"github.com/meshsat/meshsat-hub/internal/webhook"
 	"github.com/meshsat/meshsat-hub/internal/wireguard"
 
@@ -2950,6 +2952,44 @@ func main() {
 	if err := takChatSvc.StartReplySink(ctx); err != nil {
 		slog.Error("takchat: the crews' answers will not be stored", "error", err)
 	}
+	// The last-mile warning relay (MESHSAT-1734, docs/warning-relay.md): the
+	// leader polls the public CAP feeds and hands each matching tenant's kits
+	// a digest signed by the directory key they pin; a test injection runs
+	// on whichever replica the request reached. Both deliver through
+	// ClaimOnce. Satellite delivery, when a tenant pays for it, uses the same
+	// senders as every other MT: IMT on the tenant's Cloudloop account, SBD
+	// on its Rock7 account, the digest bytes verbatim (WireB64, raw topic).
+	var warningsSvc *warnings.Service
+	if cfg.WarningsEnabled {
+		sendWarningMT := func(ctx context.Context, tenantID, imei string, wire []byte) error {
+			if _, imt := thingResolver.Resolve(tenantID, imei); imt {
+				_, err := mtSender.SendDirect(imei, cloudloop.MTSendRequest{WireB64: base64.StdEncoding.EncodeToString(wire), IMTTopic: cloudloop.IMTTopicRaw})
+				return err
+			}
+			client := rock7Pool.ForTenant(ctx, tenantID)
+			if client == nil {
+				return fmt.Errorf("no Rock7 account configured for tenant %s", tenantID)
+			}
+			_, err := client.SendMT(ctx, imei, hex.EncodeToString(wire))
+			return err
+		}
+		fetcher := &warnings.Fetcher{Client: warnings.NewFeedClient(60 * time.Second)}
+		var feeds []warnings.Feed
+		if cfg.WarningsDWDURL != "" {
+			feeds = append(feeds, &warnings.DWDFeed{URL: cfg.WarningsDWDURL, Fetcher: fetcher})
+		}
+		if cfg.WarningsMeteoAlarmNLURL != "" {
+			feeds = append(feeds, &warnings.MeteoAlarmFeed{URL: cfg.WarningsMeteoAlarmNLURL, ID: warnings.SourceMeteoAlarmNL, Fetcher: fetcher})
+		}
+		warningsSvc = warnings.New(dataStore, msgBus, providerAccounts, directoryTrustAnchor, sendWarningMT, feeds, cfg.WarningsPollInterval, slog.Default())
+		leaderSingletons.Add("warning-relay", warningsSvc.Run)
+	}
+	warningsAPI := api.NewWarningsHandler(dataStore, warningsSvc, auditSvc)
+	r.Get("/api/warnings", warningsAPI.List)
+	r.Get("/api/warnings/key", warningsAPI.Key)
+	// Owner: a test injection transmits on the workspace's radios and, with
+	// satellite on, spends on its own account.
+	r.With(hubauth.RequireRole(hubauth.RoleOwner)).Post("/api/warnings/test", warningsAPI.InjectTest)
 	takChatAPI := api.NewTAKChatHandler(dataStore, takChatSvc, auditSvc)
 	r.With(hubauth.RequireRole(hubauth.RoleOperator)).Get("/api/tak/contacts", takChatAPI.ListCrews)
 	r.With(hubauth.RequireRole(hubauth.RoleOperator)).Get("/api/tak/contacts/{uid}/messages", takChatAPI.ListMessages)

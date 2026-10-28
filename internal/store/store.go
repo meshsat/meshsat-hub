@@ -517,6 +517,14 @@ type Store interface {
 	GetMatrixOperator(ctx context.Context, tenantID, userID string) (*MatrixOperator, error)
 	GetMatrixSync(ctx context.Context, tenantID string) (*MatrixSync, error)
 	SaveMatrixSync(ctx context.Context, s *MatrixSync) error
+	// The last-mile warning relay (MESHSAT-1734): every CAP message a feed
+	// carried, platform-wide (a warning names no tenant), and per tenant the
+	// ones that matched its areas or kits and went to them. See Warning and
+	// WarningMatch.
+	UpsertWarning(ctx context.Context, w *Warning) (changed bool, err error)
+	GetWarning(ctx context.Context, source, identifier string) (*Warning, error)
+	UpsertWarningMatch(ctx context.Context, m *WarningMatch) error
+	ListTenantWarnings(ctx context.Context, tenantID string, limit int) ([]TenantWarning, error)
 	// Mesh presence (MESHSAT-1181): which nodes have been heard behind which
 	// bridge. See the MeshNode type for what this can and cannot prove.
 	RecordMeshNode(ctx context.Context, tenantID, bridgeID, nodeID string, heardAt time.Time) error
@@ -1448,6 +1456,64 @@ type MatrixSync struct {
 	BotUserID string
 	NextBatch string
 	UpdatedAt time.Time
+}
+
+// Warning is one CAP message a warning feed carried (MESHSAT-1734), keyed
+// by its source feed and the CAP identifier. Platform data: a warning
+// names an area, not a tenant; the tenant dimension is WarningMatch. An
+// Update or Cancel is a message of its own whose References name the one
+// it replaces. Rows outlive their expiry by 30 days.
+type Warning struct {
+	Source     string    `json:"source"` // dwd, meteoalarm-nl, test
+	Identifier string    `json:"identifier"`
+	Sender     string    `json:"sender"`
+	SenderName string    `json:"sender_name"`
+	MsgType    string    `json:"msg_type"` // Alert, Update, Cancel
+	Status     string    `json:"status"`   // Actual, Exercise, Test
+	References string    `json:"references,omitempty"`
+	Sent       time.Time `json:"sent"`
+	Effective  time.Time `json:"effective,omitempty"`
+	Expires    time.Time `json:"expires,omitempty"`
+	Severity   string    `json:"severity"`
+	Urgency    string    `json:"urgency"`
+	Certainty  string    `json:"certainty"`
+	Category   string    `json:"category"`
+	Event      string    `json:"event"`
+	Headline   string    `json:"headline"`
+	Language   string    `json:"language"`
+	// Areas is a JSON array of {"desc","geocodes":["NAME:VALUE"],"polygons":n,"circles":n}.
+	Areas string `json:"areas"`
+	// Text is the description and the instruction, as the feed gave them.
+	Text      string    `json:"text"`
+	RawHash   string    `json:"raw_hash"` // sha256 of the CAP document, hex
+	FirstSeen time.Time `json:"first_seen"`
+	LastSeen  time.Time `json:"last_seen"`
+}
+
+// WarningMatch records that a warning matched a tenant and what the Hub did
+// with it (MESHSAT-1734), keyed (tenant, source, identifier).
+type WarningMatch struct {
+	TenantID   string `json:"-"`
+	Source     string `json:"source"`
+	Identifier string `json:"identifier"`
+	MsgType    string `json:"msg_type"`
+	Test       bool   `json:"test"`
+	// Bridges is a JSON array of the bridge ids the digest went to.
+	Bridges string `json:"bridges"`
+	// Detail is a JSON object the service writes: the bearers used per bridge
+	// and any refusal.
+	Detail    string    `json:"detail,omitempty"`
+	MatchedAt time.Time `json:"matched_at"`
+}
+
+// TenantWarning is a warning with the tenant's match of it, as the console
+// lists them.
+type TenantWarning struct {
+	Warning
+	Test      bool      `json:"test"`
+	Bridges   string    `json:"bridges"`
+	Detail    string    `json:"detail,omitempty"`
+	MatchedAt time.Time `json:"matched_at"`
 }
 
 // EmailContact is a correspondent's PGP public key, as stored.

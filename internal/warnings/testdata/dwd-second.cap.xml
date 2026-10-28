@@ -1,0 +1,86 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<alert xmlns="urn:oasis:names:tc:emergency:cap:1.2">
+  <identifier>2.49.0.0.276.0.DWD.PVW.1793188140000.dabd6307-fc62-41a8-93c0-f17b269b497c.DEU</identifier>
+  <sender>opendata@dwd.de</sender>
+  <sent>2026-10-28T12:49:00+01:00</sent>
+  <status>Actual</status>
+  <msgType>Alert</msgType>
+  <source>PVW</source>
+  <scope>Public</scope>
+  <code>id:2.49.0.0.276.0.DWD.PVW.1793188140000.dabd6307-fc62-41a8-93c0-f17b269b497c</code>
+  <info>
+    <language>de-DE</language>
+    <category>Met</category>
+    <event>WINDBÖEN</event>
+    <responseType>Prepare</responseType>
+    <urgency>Immediate</urgency>
+    <severity>Minor</severity>
+    <certainty>Likely</certainty>
+    <eventCode>
+      <valueName>PROFILE_VERSION</valueName>
+      <value>2.1.14</value>
+    </eventCode>
+    <eventCode>
+      <valueName>LICENSE</valueName>
+      <value>© GeoBasis-DE / BKG 2021 (Daten modifiziert)</value>
+    </eventCode>
+    <eventCode>
+      <valueName>II</valueName>
+      <value>51</value>
+    </eventCode>
+    <eventCode>
+      <valueName>GROUP</valueName>
+      <value>WIND</value>
+    </eventCode>
+    <eventCode>
+      <valueName>AREA_COLOR</valueName>
+      <value>255 235 59</value>
+    </eventCode>
+    <effective>2026-10-28T12:49:00+01:00</effective>
+    <onset>2026-10-28T19:00:00+01:00</onset>
+    <expires>2026-10-28T22:00:00+01:00</expires>
+    <senderName>Deutscher Wetterdienst</senderName>
+    <headline>Amtliche WARNUNG vor WINDBÖEN</headline>
+    <description>Es treten Windböen mit Geschwindigkeiten um 55 km/h (15 m/s, 30 kn, Bft 7) anfangs aus südwestlicher, später aus westlicher Richtung auf.</description>
+    <instruction>Hinweis auf: umherfliegende leichte Gegenstände. 
+Handlungsempfehlungen: 
+lose Gegenstände sichern; z.B. Zelte und Abdeckungen befestigen</instruction>
+    <web>https://dwd.de/warnungen</web>
+    <contact>Deutscher Wetterdienst</contact>
+    <parameter>
+      <valueName>wind direction</valueName>
+      <value>south-west</value>
+    </parameter>
+    <parameter>
+      <valueName>subsequent wind direction</valueName>
+      <value>west</value>
+    </parameter>
+    <parameter>
+      <valueName>wind direction</valueName>
+      <value>south-west</value>
+    </parameter>
+    <parameter>
+      <valueName>wind direction</valueName>
+      <value>west</value>
+    </parameter>
+    <parameter>
+      <valueName>gusts</valueName>
+      <value>~55 [km/h]</value>
+    </parameter>
+    <area>
+      <areaDesc>polygonal event area</areaDesc>
+      <polygon>54.180256,7.909102 54.172252,7.889149 54.18791,7.869404 54.187188,7.901788 54.189534,7.919221 54.181188,7.917959 54.180256,7.909102 54.180256,7.909102</polygon>
+      <altitude>0.0</altitude>
+      <ceiling>9842.5197</ceiling>
+    </area>
+    <area>
+      <areaDesc>Gemeinde Helgoland</areaDesc>
+      <geocode>
+        <valueName>WARNCELLID</valueName>
+        <value>801056025</value>
+      </geocode>
+      <altitude>0.0</altitude>
+      <ceiling>9842.5197</ceiling>
+    </area>
+  </info>
+</alert>

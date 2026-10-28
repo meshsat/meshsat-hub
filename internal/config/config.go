@@ -146,6 +146,23 @@ type Config struct {
 	// hosted Hub never sets it (netguard's test holds that).
 	AllowPrivateTargets bool `yaml:"allow_private_targets"`
 
+	// WarningsEnabled turns on the last-mile warning relay (MESHSAT-1734,
+	// docs/warning-relay.md): the leader polls the public CAP feeds below and
+	// hands a signed digest of each warning to the kits of every tenant that
+	// opted in under Settings, Integrations, "warnings". Off by default; with
+	// it off nothing is fetched and a tenant's account there is stored and
+	// read by nothing.
+	WarningsEnabled bool `yaml:"warnings_enabled"`
+	// WarningsPollInterval is how often the feeds are read. DWD updates its
+	// files about every ten minutes; MeteoAlarm's feed is live.
+	WarningsPollInterval time.Duration `yaml:"warnings_poll_interval"`
+	// WarningsDWDURL is DWD's open-data CAP snapshot, a zip of one CAP
+	// document per warning (COMMUNEUNION_DWD_STAT, the LATEST symlink).
+	WarningsDWDURL string `yaml:"warnings_dwd_url"`
+	// WarningsMeteoAlarmNLURL is MeteoAlarm's Atom feed for the Netherlands;
+	// each entry links the CAP document the relay fetches.
+	WarningsMeteoAlarmNLURL string `yaml:"warnings_meteoalarm_nl_url"`
+
 	// TAKFrontEnabled is the switch. It stays off until the certificate below
 	// exists, because the front cannot be started without one.
 	TAKFrontEnabled bool `yaml:"tak_front_enabled"`
@@ -655,12 +672,17 @@ func Defaults() Config {
 		PersonChatRepliesPerDay:   50,
 		PersonChatTenantPerHour:   120,
 		PersonChatIMTMaxBytes:     1024,
-		ReticulumIdentityFile:     "data/reticulum_identity.json",
-		ReticulumAppName:          "meshsat.hub",
-		ReticulumTCPEnabled:       true,
-		ReticulumTCPAddr:          ":4242",
-		RNSEnabled:                true,
-		BridgeOfflineTimeout:      300, // 5 minutes
+		// The warning relay (MESHSAT-1734): the feeds' official open-data
+		// addresses; off until HUB_WARNINGS_ENABLED says so.
+		WarningsPollInterval:    5 * time.Minute,
+		WarningsDWDURL:          "https://opendata.dwd.de/weather/alerts/cap/COMMUNEUNION_DWD_STAT/Z_CAP_C_EDZW_LATEST_PVW_STATUS_PREMIUMDWD_COMMUNEUNION_DE.zip",
+		WarningsMeteoAlarmNLURL: "https://feeds.meteoalarm.org/feeds/meteoalarm-legacy-atom-netherlands",
+		ReticulumIdentityFile:   "data/reticulum_identity.json",
+		ReticulumAppName:        "meshsat.hub",
+		ReticulumTCPEnabled:     true,
+		ReticulumTCPAddr:        ":4242",
+		RNSEnabled:              true,
+		BridgeOfflineTimeout:    300, // 5 minutes
 		// A tenant may choose between one minute and one day.
 		GeofenceCooldownSec:     300,
 		GeofenceCooldownMin:     30,
@@ -925,6 +947,21 @@ func Load() (Config, error) {
 	// A self-hosted Hub on its own network (MESHSAT-1736).
 	if v := os.Getenv("HUB_ALLOW_PRIVATE_TARGETS"); v != "" {
 		cfg.AllowPrivateTargets = strings.EqualFold(v, "true") || v == "1"
+	}
+	// The warning relay (MESHSAT-1734).
+	if v := os.Getenv("HUB_WARNINGS_ENABLED"); v != "" {
+		cfg.WarningsEnabled = strings.EqualFold(v, "true") || v == "1"
+	}
+	if v := os.Getenv("HUB_WARNINGS_POLL_INTERVAL"); v != "" {
+		if d, err := time.ParseDuration(v); err == nil && d >= time.Minute {
+			cfg.WarningsPollInterval = d
+		}
+	}
+	if v := os.Getenv("HUB_WARNINGS_DWD_URL"); v != "" {
+		cfg.WarningsDWDURL = strings.TrimSpace(v)
+	}
+	if v := os.Getenv("HUB_WARNINGS_METEOALARM_NL_URL"); v != "" {
+		cfg.WarningsMeteoAlarmNLURL = strings.TrimSpace(v)
 	}
 	// The hosted TAK front (MESHSAT-1037).
 	if v := os.Getenv("HUB_TAK_FRONT_ENABLED"); v != "" {
