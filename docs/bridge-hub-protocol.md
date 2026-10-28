@@ -732,8 +732,9 @@ The text starts with the address, then whitespace or a colon, then the body:
 
 A kit that runs the Community Post (its captive portal, where anyone with a
 phone writes to a number or an address) has its modem registered as a post
-device: `"profile": "post"` on the device (`POST`/`PUT /api/devices`). For
-that device alone:
+device: `"profile": "post"` on the device (`POST`/`PUT /api/devices`; in the
+console, the Community Post panel on the device's page, for an owner or an
+operator). For that device alone:
 
 - The lane runs open whatever the tenant's mode (`off` still means off):
   the people at the post name whom they write to.

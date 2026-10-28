@@ -3,9 +3,14 @@ import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRoute } from 'vue-router'
 import { devices, messages, positions, deviceKeys, deviceConfig, ratelimit, deadman, wireguard as wgApi } from '../api/client'
 import { formatUTC } from '../utils/time'
+import { useAuthStore } from '../stores/auth'
 
 const route = useRoute()
+const auth = useAuthStore()
 const imei = computed(() => route.params.imei)
+// The profile is set by whoever may update a device (the API's gate is the
+// operator role); a viewer reads it.
+const canEdit = computed(() => auth.isOwner || auth.role === 'operator' || auth.isPlatformAdmin)
 
 const loading = ref(true)
 const device = ref(null)
@@ -18,6 +23,13 @@ const dmsConfig = ref(null)
 const wgConfig = ref(null)
 const error = ref('')
 const activeTab = ref('messages')
+// The device's profile (MESHSAT-1733): "" for an ordinary device, "post"
+// for a kit that runs the Community Post. Saved with the device's other
+// fields, which PUT /api/devices/{imei} replaces whole.
+const profile = ref('')
+const profileSaving = ref(false)
+const profileNote = ref('')
+const profileError = ref('')
 let pollTimer = null
 
 onMounted(async () => {
@@ -42,6 +54,7 @@ async function loadAll() {
   ])
 
   device.value = results[0].status === 'fulfilled' ? results[0].value : null
+  if (!profileSaving.value) profile.value = device.value?.profile || ''
   msgList.value = results[1].status === 'fulfilled' && Array.isArray(results[1].value) ? results[1].value : []
   posList.value = results[2].status === 'fulfilled' && Array.isArray(results[2].value) ? results[2].value : []
   keyList.value = results[3].status === 'fulfilled' && Array.isArray(results[3].value) ? results[3].value : []
@@ -53,6 +66,28 @@ async function loadAll() {
 
   if (!device.value) error.value = 'Device not found'
   loading.value = false
+}
+
+async function saveProfile() {
+  if (!device.value) return
+  profileSaving.value = true
+  profileError.value = ''
+  profileNote.value = ''
+  try {
+    const updated = await devices.update(imei.value, {
+      label: device.value.label || '',
+      type: device.value.type || '',
+      notes: device.value.notes || '',
+      profile: profile.value,
+    })
+    device.value = updated || device.value
+    profile.value = device.value?.profile || ''
+    profileNote.value = profile.value === 'post' ? 'Saved: this device is a Community Post kit.' : 'Saved: an ordinary device.'
+  } catch (e) {
+    profileError.value = e?.message || 'The profile was not saved.'
+  } finally {
+    profileSaving.value = false
+  }
 }
 
 function timeSince(ts) {
@@ -143,6 +178,25 @@ const tabs = [
             {{ dmsConfig?.enabled ? 'Watched' : 'Not watched' }}
           </div>
         </div>
+      </div>
+
+      <!-- Profile: the Community Post (MESHSAT-1733) -->
+      <div class="ms-panel p-4 mb-6" data-testid="device-profile">
+        <h2 class="text-sm font-sans font-semibold text-gray-200 mb-1">Community Post</h2>
+        <p class="text-xs text-gray-500 mb-3">
+          A post device's "@" lane runs open: people at the kit's Community Post write to any number or address, each conversation is keyed by the pickup code the kit appends, and every reply carries #code in front. An ordinary device keeps the tenant's lane mode and the plain [from address] replies.
+        </p>
+        <div v-if="canEdit" class="flex flex-wrap items-center gap-3">
+          <label class="text-sm text-gray-300" for="device-profile">Profile</label>
+          <select id="device-profile" v-model="profile" class="ms-input w-auto" :disabled="profileSaving">
+            <option value="">Ordinary device</option>
+            <option value="post">Community Post kit</option>
+          </select>
+          <button type="button" class="ms-btn-primary" :disabled="profileSaving || profile === (device.profile || '')" @click="saveProfile">Save</button>
+          <span v-if="profileNote" class="text-xs text-ms-text2">{{ profileNote }}</span>
+          <span v-if="profileError" class="text-xs text-ms-error">{{ profileError }}</span>
+        </div>
+        <p v-else class="text-sm text-gray-300">{{ device.profile === 'post' ? 'Community Post kit' : 'Ordinary device' }}</p>
       </div>
 
       <!-- Budget Bar -->
