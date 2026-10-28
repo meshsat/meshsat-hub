@@ -324,7 +324,7 @@ var Specs = []Spec{
 			{Key: "languages", Label: "Languages", Default: "nl,en,de", Hint: "ISO 639-1 codes in order of preference; the first language the warning carries wins"},
 			{Key: "feeds", Label: "Feeds", Default: "dwd,meteoalarm-nl", Hint: "which sources to take; empty means all"},
 			{Key: "repeat_hours", Label: "Repeat every (hours)", Default: "6", Hint: "while a warning is in force it is handed to each kit again every so many hours over the Hub link, so a kit that was off gets it; a kit relays a warning it already holds only once. 0 never repeats; at most 168"},
-			{Key: "satellite", Label: "Also send over satellite", Default: "false", Hint: "true sends every matching digest to each kit's modem as an MT on your own Cloudloop or Rock7 account, about 230 bytes per warning per kit, once per warning (repeats stay on the Hub link); the kits' Hub link carries it either way"},
+			{Key: "satellite", Label: "Also send over satellite", Default: "false", Hint: "true sends every matching digest to each kit's modem as an MT on your own Cloudloop or Rock7 account, about 230 bytes per warning per kit, which is 5 SBD credits on Rock7 (one credit per started 50 bytes) or 230 bytes of IMT airtime on Cloudloop, once per warning (repeats stay on the Hub link); the kits' Hub link carries it either way"},
 		}},
 	{Provider: ProviderFederation, Label: "Federation (Hub to Hub)", Description: "This tenant's identity towards other MeshSat Hubs: a key they pin and the URL they relay satellite messages to. Created on the Federation page; edit it there, not here.",
 		Webhook: "/api/webhook/federation",

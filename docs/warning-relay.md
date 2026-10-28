@@ -70,7 +70,9 @@ Delivery is once per (tenant, kit, source/identifier, message type) across the r
 the workspace's own Cloudloop (IMT, raw topic, verbatim) or Rock7 (SBD) account, once per
 (tenant, modem, message) under `warn:sat:...`; the modem is the device linked to the kit that
 reported last. `satellite` is **off by default**: every warning in the area is then a paid message
-per kit. The Hub's own kits are the default tenant and get satellite delivery only if that tenant
+per kit, about 230 bytes: 5 SBD credits on Rock7 (one credit per started 50 bytes of an MT) or
+230 bytes of IMT airtime on Cloudloop; the console names the figure beside the satellite option
+and under a test's result. The Hub's own kits are the default tenant and get satellite delivery only if that tenant
 sets it.
 
 **Repeat while in force.** A warning still in force (its `expires` ahead, and no later Update or

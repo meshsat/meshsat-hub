@@ -144,6 +144,16 @@ function testCAP(area) {
 `
 }
 
+// satCost names what the digest costs on a kit's satellite leg: Rock7 bills an
+// MT one credit per started 50 bytes, Cloudloop bills IMT per byte.
+function satCost(d) {
+  const bytes = (d.digest_hex || '').length / 2
+  const sat = Object.values(d.bearers || {}).some((list) => (list || []).includes('satellite'))
+  if (!bytes || !sat) return ''
+  const credits = Math.ceil(bytes / 50)
+  return `; over satellite ${credits} SBD credit${credits === 1 ? '' : 's'} (Rock7, one per started 50 bytes) or ${bytes} bytes of IMT airtime (Cloudloop) per kit`
+}
+
 async function sendTest() {
   const area = firstArea()
   if (!area) {
@@ -151,7 +161,7 @@ async function sendTest() {
     return
   }
   const satellite = /^(true|1|yes|on)$/i.test(account.value?.values?.satellite || '')
-  const where = satellite ? ' and over satellite on your own account' : ''
+  const where = satellite ? ' and over satellite on your own account (about 5 SBD credits or 230 bytes of IMT airtime per kit)' : ''
   if (!confirm(`Send a test warning for "${area.desc}" to your kits now? It goes out on their radios marked TEST${where}.`)) return
   sending.value = true
   testResult.value = null
@@ -210,7 +220,7 @@ onMounted(load)
             Handed to
             <span v-for="(b, i) in d.bridges" :key="b">{{ i ? ', ' : '' }}<span class="ms-id">{{ kitLabel[b] || b }}</span>
               <span class="text-ms-muted">({{ (d.bearers?.[b] || []).join(' + ') || 'not sent' }})</span></span>;
-            digest {{ (d.digest_hex || '').length / 2 }} bytes.
+            digest {{ (d.digest_hex || '').length / 2 }} bytes{{ satCost(d) }}.
           </div>
           <div v-if="d.why?.length" class="text-ms-muted">Matched: {{ d.why.join('; ') }}</div>
           <div v-if="d.skipped?.length" class="text-ms-muted">Left out: {{ d.skipped.join('; ') }}</div>
