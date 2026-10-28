@@ -1,5 +1,5 @@
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, onUnmounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
 import BrandLockup from '../components/BrandLockup.vue'
@@ -26,6 +26,15 @@ const messages = {
   session: 'Your session could not be created. Please try again.',
 }
 
+// This view mounts twice in one sign-in: the token swaps App.vue from the
+// signed-out layout to the shell, each with its own RouterView. Only the mount
+// still showing, and still on this route, may navigate. A late replace from the
+// other one cancelled a navigation the person had already started, and Vue
+// Router leaves the URL of a cancelled navigation in place: the address said
+// one page and the screen showed Overview (MESHSAT-1727).
+let mounted = true
+onUnmounted(() => { mounted = false })
+
 onMounted(async () => {
   const err = typeof route.query.error === 'string' ? route.query.error : ''
   if (err) {
@@ -36,6 +45,7 @@ onMounted(async () => {
     return
   }
   const ok = await authStore.completeOIDC()
+  if (!mounted) return
   if (!ok) {
     state.value = 'error'
     message.value = messages.session
@@ -44,6 +54,10 @@ onMounted(async () => {
   const next = typeof route.query.next === 'string' && route.query.next.startsWith('/') && !route.query.next.startsWith('//')
     ? route.query.next
     : { name: 'dashboard' }
+  // Somebody who went back to the sign-in page meanwhile is signed in now, so
+  // they are taken in like everyone else; any other page they chose stands.
+  const here = router.currentRoute.value.name
+  if (here !== 'authCallback' && here !== 'login') return
   router.replace(next)
 })
 </script>

@@ -127,7 +127,21 @@ export const useAuthStore = defineStore('auth', () => {
   // Complete the OIDC login after the callback: the Hub set the HttpOnly
   // meshsat_refresh cookie, and POST /api/auth/refresh turns it into an
   // access token. Nothing sensitive ever appears in the URL.
-  async function completeOIDC() {
+  //
+  // One completion at a time (MESHSAT-1727). App.vue has a RouterView in the
+  // signed-out layout and another in the signed-in shell, so setting the token
+  // swaps the layouts and mounts AuthCallback a second time while this is still
+  // loading the user. The second mount used to run a second refresh and a
+  // second navigation; now it waits for the same completion.
+  let oidcInFlight = null
+  function completeOIDC() {
+    if (!oidcInFlight) {
+      oidcInFlight = doCompleteOIDC().finally(() => { oidcInFlight = null })
+    }
+    return oidcInFlight
+  }
+
+  async function doCompleteOIDC() {
     let data
     try {
       const res = await fetch('/api/auth/refresh', { method: 'POST', credentials: 'same-origin' })
@@ -138,8 +152,12 @@ export const useAuthStore = defineStore('auth', () => {
     }
     if (!data?.access_token) return false
     token.value = data.access_token
-    localStorage.setItem('auth_token', data.access_token)
-    if (data.refresh_token) localStorage.setItem('auth_refresh_token', data.refresh_token)
+    // Storage can refuse (a private window); the session still works in this
+    // tab, and a throw here would leave both callback mounts waiting for ever.
+    try {
+      localStorage.setItem('auth_token', data.access_token)
+      if (data.refresh_token) localStorage.setItem('auth_refresh_token', data.refresh_token)
+    } catch { /* this tab only */ }
     await fetchUser()
     return true
   }
