@@ -1328,7 +1328,7 @@ C1 "check in please", flags 0x05 (42 bytes):
 C2 "on my way" (33 bytes):
 4d530143 0102030405060708090a0b0c0d0e0f10 0a0b0c0d 6ae1e3c0 01 86206d7920f579
 
-C3 undelivered, not_heard, "the kit has not heard MESHSAT-c2ec in the last day" (81 bytes):
+C3 undelivered, not_heard, "the kit has not heard MESHSAT-0c0d in the last day" (81 bytes):
 4d530144 0102030405060708090a0b0c0d0e0f10 0a0b0c0d 6ae1e3c0 04 01 32
 746865206b697420686173206e6f74206865617264204d4553485341542d6332656320696e20746865206c61737420646179
 ```

@@ -26,7 +26,7 @@ const (
 	vecC2 = "4d530143" + "0102030405060708090a0b0c0d0e0f10" + "0a0b0c0d" + "6ae1e3c0" + "01" + "86206d7920f579"
 	// C3: the uplink header for 0x44, message id, node, unix seconds,
 	// status 4 (undelivered), reason 1 (not_heard), 50-byte detail.
-	vecC3Detail = "the kit has not heard MESHSAT-c2ec in the last day"
+	vecC3Detail = "the kit has not heard MESHSAT-0c0d in the last day"
 	vecC3Head   = "4d530144" + "0102030405060708090a0b0c0d0e0f10" + "0a0b0c0d" + "6ae1e3c0" + "04" + "01" + "32"
 )
 
