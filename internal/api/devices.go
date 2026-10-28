@@ -106,6 +106,10 @@ func (h *DeviceHandler) CreateDevice(w http.ResponseWriter, r *http.Request) {
 	if dev.Type == "" {
 		dev.Type = "rockblock"
 	}
+	if !store.ValidDeviceProfile(dev.Profile) {
+		writeError(w, http.StatusBadRequest, "profile is \"\" or \"post\"")
+		return
+	}
 	tid := auth.TenantIDFromContext(r.Context())
 	// The plan's ceiling applies to registering a device, and to nothing else.
 	// A tenant at its cap keeps hearing from everything it already has.
@@ -185,19 +189,29 @@ func (h *DeviceHandler) UpdateDevice(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var req struct {
-		Label string `json:"label"`
-		Type  string `json:"type"`
-		Notes string `json:"notes"`
-	}
+	// profile is optional: a body without it keeps the device's profile
+	// (older clients never send it).
+	req := struct {
+		Label   string  `json:"label"`
+		Type    string  `json:"type"`
+		Notes   string  `json:"notes"`
+		Profile *string `json:"profile"`
+	}{}
 	if err := readJSON(w, r, &req); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if req.Profile != nil && !store.ValidDeviceProfile(*req.Profile) {
+		writeError(w, http.StatusBadRequest, "profile is \"\" or \"post\"")
 		return
 	}
 
 	existing.Label = req.Label
 	existing.Type = req.Type
 	existing.Notes = req.Notes
+	if req.Profile != nil {
+		existing.Profile = *req.Profile
+	}
 	if err := h.store.UpdateDevice(r.Context(), tid, existing); err != nil {
 		writeInternalError(w, err, "")
 		return

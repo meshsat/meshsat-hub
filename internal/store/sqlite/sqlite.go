@@ -726,14 +726,17 @@ var lateAlterMigrations = []string{
 	// MESHSAT-1685: who the tenant's devices may write to through the "@"
 	// lane; mirrors postgres migration 45. Empty = the platform default.
 	`ALTER TABLE tenants ADD COLUMN person_chat_mode TEXT NOT NULL DEFAULT ''`,
+	// MESHSAT-1733: a device's profile ("" or "post", the Community Post);
+	// mirrors postgres migration 49.
+	`ALTER TABLE devices ADD COLUMN profile TEXT NOT NULL DEFAULT ''`,
 }
 
 // --- Devices ---
 
 func (d *DB) CreateDevice(ctx context.Context, tenantID string, dev *store.Device) error {
 	_, err := d.db.ExecContext(ctx,
-		"INSERT INTO devices (imei, label, type, notes, tenant_id) VALUES (?, ?, ?, ?, ?)",
-		dev.IMEI, dev.Label, dev.Type, dev.Notes, tenantID)
+		"INSERT INTO devices (imei, label, type, notes, profile, tenant_id) VALUES (?, ?, ?, ?, ?, ?)",
+		dev.IMEI, dev.Label, dev.Type, dev.Notes, dev.Profile, tenantID)
 	return err
 }
 
@@ -741,8 +744,8 @@ func (d *DB) GetDevice(ctx context.Context, tenantID string, imei string) (*stor
 	var dev store.Device
 	var lastSeen, createdAt, updatedAt string
 	err := d.db.QueryRowContext(ctx,
-		"SELECT imei, label, type, notes, last_seen, created_at, updated_at FROM devices WHERE imei=? AND tenant_id=?", imei, tenantID,
-	).Scan(&dev.IMEI, &dev.Label, &dev.Type, &dev.Notes, &lastSeen, &createdAt, &updatedAt)
+		"SELECT imei, label, type, notes, profile, last_seen, created_at, updated_at FROM devices WHERE imei=? AND tenant_id=?", imei, tenantID,
+	).Scan(&dev.IMEI, &dev.Label, &dev.Type, &dev.Notes, &dev.Profile, &lastSeen, &createdAt, &updatedAt)
 	if err != nil {
 		return nil, err
 	}
@@ -753,7 +756,7 @@ func (d *DB) GetDevice(ctx context.Context, tenantID string, imei string) (*stor
 }
 
 func (d *DB) ListDevices(ctx context.Context, tenantID string) ([]store.Device, error) {
-	rows, err := d.db.QueryContext(ctx, "SELECT imei, label, type, notes, last_seen, created_at, updated_at FROM devices WHERE tenant_id=? ORDER BY label, imei", tenantID)
+	rows, err := d.db.QueryContext(ctx, "SELECT imei, label, type, notes, profile, last_seen, created_at, updated_at FROM devices WHERE tenant_id=? ORDER BY label, imei", tenantID)
 	if err != nil {
 		return nil, err
 	}
@@ -762,7 +765,7 @@ func (d *DB) ListDevices(ctx context.Context, tenantID string) ([]store.Device, 
 	for rows.Next() {
 		var dev store.Device
 		var lastSeen, createdAt, updatedAt string
-		if err := rows.Scan(&dev.IMEI, &dev.Label, &dev.Type, &dev.Notes, &lastSeen, &createdAt, &updatedAt); err != nil {
+		if err := rows.Scan(&dev.IMEI, &dev.Label, &dev.Type, &dev.Notes, &dev.Profile, &lastSeen, &createdAt, &updatedAt); err != nil {
 			return nil, err
 		}
 		dev.LastSeen, _ = time.Parse(time.DateTime, lastSeen)
@@ -775,8 +778,8 @@ func (d *DB) ListDevices(ctx context.Context, tenantID string) ([]store.Device, 
 
 func (d *DB) UpdateDevice(ctx context.Context, tenantID string, dev *store.Device) error {
 	_, err := d.db.ExecContext(ctx,
-		"UPDATE devices SET label=?, type=?, notes=?, updated_at=datetime('now') WHERE imei=? AND tenant_id=?",
-		dev.Label, dev.Type, dev.Notes, dev.IMEI, tenantID)
+		"UPDATE devices SET label=?, type=?, notes=?, profile=?, updated_at=datetime('now') WHERE imei=? AND tenant_id=?",
+		dev.Label, dev.Type, dev.Notes, dev.Profile, dev.IMEI, tenantID)
 	return err
 }
 

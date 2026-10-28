@@ -17,11 +17,11 @@ import (
 
 // --- Devices ---
 
-const deviceColumns = "imei, label, type, notes, last_seen, created_at, updated_at"
+const deviceColumns = "imei, label, type, notes, profile, last_seen, created_at, updated_at"
 
 func scanDevice(sc interface{ Scan(...any) error }, dev *store.Device) error {
 	var lastSeen time.Time
-	if err := sc.Scan(&dev.IMEI, &dev.Label, &dev.Type, &dev.Notes, &lastSeen, &dev.CreatedAt, &dev.UpdatedAt); err != nil {
+	if err := sc.Scan(&dev.IMEI, &dev.Label, &dev.Type, &dev.Notes, &dev.Profile, &lastSeen, &dev.CreatedAt, &dev.UpdatedAt); err != nil {
 		return err
 	}
 	dev.LastSeen = fromSentinel(lastSeen)
@@ -32,8 +32,8 @@ func scanDevice(sc interface{ Scan(...any) error }, dev *store.Device) error {
 
 func (d *DB) CreateDevice(ctx context.Context, tenantID string, dev *store.Device) error {
 	_, err := d.db.ExecContext(ctx,
-		"INSERT INTO devices (imei, label, type, notes, tenant_id) VALUES ($1, $2, $3, $4, $5)",
-		dev.IMEI, dev.Label, dev.Type, dev.Notes, tenantID)
+		"INSERT INTO devices (imei, label, type, notes, profile, tenant_id) VALUES ($1, $2, $3, $4, $5, $6)",
+		dev.IMEI, dev.Label, dev.Type, dev.Notes, dev.Profile, tenantID)
 	return err
 }
 
@@ -67,8 +67,8 @@ func (d *DB) ListDevices(ctx context.Context, tenantID string) ([]store.Device, 
 
 func (d *DB) UpdateDevice(ctx context.Context, tenantID string, dev *store.Device) error {
 	_, err := d.db.ExecContext(ctx,
-		"UPDATE devices SET label=$1, type=$2, notes=$3, updated_at=now() WHERE imei=$4 AND tenant_id=$5",
-		dev.Label, dev.Type, dev.Notes, dev.IMEI, tenantID)
+		"UPDATE devices SET label=$1, type=$2, notes=$3, profile=$4, updated_at=now() WHERE imei=$5 AND tenant_id=$6",
+		dev.Label, dev.Type, dev.Notes, dev.Profile, dev.IMEI, tenantID)
 	return err
 }
 

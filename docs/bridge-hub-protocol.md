@@ -696,6 +696,31 @@ The text starts with the address, then whitespace or a colon, then the body:
   the dead man's switch and the message history see it), marked
   `"lane":"person"`; the routing engine does not relay it.
 
+### Post devices (MESHSAT-1733)
+
+A kit that runs the Community Post (its captive portal, where anyone with a
+phone writes to a number or an address) has its modem registered as a post
+device: `"profile": "post"` on the device (`POST`/`PUT /api/devices`). For
+that device alone:
+
+- The lane runs open whatever the tenant's mode (`off` still means off):
+  the people at the post name whom they write to.
+- Every text ends in the post's pickup code, `[#K7QW2X]` (six characters of
+  `ABCDEFGHJKMNPQRSTVWXYZ23456789`), e.g.
+  `@+31612345678 Maria: water at the north gate [#K7QW2X]`. The conversation
+  is keyed by tenant, modem, address AND code, so two people at one post
+  writing to the same number never share one. The code is the conversation's
+  tag; the person's SMS carries no device tag in its head (the code is in the
+  body).
+- A reply that quotes the code (`#K7QW2X on my way`, `K7QW2X ok`, or the
+  code anywhere in the words) goes to that conversation, and to nobody when
+  it is closed. A reply with no code, while every open conversation with
+  that person is the post's, goes to the most recent one (they all reach the
+  same kit). With another device of the tenant also open to that person,
+  the usual hint applies and the code counts as that conversation's tag.
+- The reply reaches the kit as `[from <address>] #<code> <text>`; every
+  other device keeps `[from <address>] <text>`.
+
 ### End to end
 
 The Hub carries an end-to-end body unaltered both ways and reads only the

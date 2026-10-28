@@ -1488,4 +1488,12 @@ CREATE TABLE IF NOT EXISTS lxmf_attachments (
 );
 CREATE INDEX IF NOT EXISTS idx_lxmf_attachments_age ON lxmf_attachments (tenant_id, created_at);
 `},
+	// MESHSAT-1733, the Community Post. A device's profile: "" for an
+	// ordinary modem, "post" for a kit that runs the Community Post, whose
+	// "@" lane texts come from many people at one modem and carry a pickup
+	// code ("[#K7QW2X]") the lane keys each conversation by, so two people
+	// writing to the same number never share one. Mirrored in sqlite.
+	{Version: 49, Name: "device profile", SQL: `
+ALTER TABLE devices ADD COLUMN IF NOT EXISTS profile VARCHAR(16) NOT NULL DEFAULT '';
+`},
 }

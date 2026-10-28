@@ -927,14 +927,33 @@ type Route struct {
 
 // Device represents a registered field device.
 type Device struct {
-	IMEI      string    `json:"imei"`
-	Label     string    `json:"label"`
-	Type      string    `json:"type"` // "rockblock", "globalstar", etc.
-	Notes     string    `json:"notes,omitempty"`
+	IMEI  string `json:"imei"`
+	Label string `json:"label"`
+	Type  string `json:"type"` // "rockblock", "globalstar", etc.
+	Notes string `json:"notes,omitempty"`
+	// Profile is how the Hub treats the modem beyond its type: "" for an
+	// ordinary device, DeviceProfilePost for a kit that runs the Community
+	// Post (MESHSAT-1733), whose "@" lane texts come from many people and
+	// carry a pickup code the replies are keyed by.
+	Profile   string    `json:"profile,omitempty"`
 	LastSeen  time.Time `json:"last_seen,omitempty"`
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
 }
+
+// Device profiles.
+const (
+	// DeviceProfilePost marks a modem on a kit that runs the Community Post.
+	DeviceProfilePost = "post"
+)
+
+// ValidDeviceProfile reports whether p is a profile the Hub knows.
+func ValidDeviceProfile(p string) bool {
+	return p == "" || p == DeviceProfilePost
+}
+
+// IsPost reports whether the device runs the Community Post.
+func (d *Device) IsPost() bool { return d != nil && d.Profile == DeviceProfilePost }
 
 // Message represents an MO or MT satellite message.
 type Message struct {

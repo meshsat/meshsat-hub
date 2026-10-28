@@ -27,6 +27,7 @@ type fakeStore struct {
 	tenants  map[string]*store.Tenant
 	devices  map[string]string // imei -> owner
 	labels   map[string]string
+	profiles map[string]string // imei -> profile ("" or "post")
 	bridges  map[string][]*store.Bridge
 	peers    map[string]*store.OOBPeer // tenant|bridge
 	convs    map[string]*store.PersonConversation
@@ -35,7 +36,7 @@ type fakeStore struct {
 
 func newFakeStore() *fakeStore {
 	return &fakeStore{buckets: map[string]int{}, claims: map[string]bool{}, tenants: map[string]*store.Tenant{}, devices: map[string]string{},
-		labels: map[string]string{}, bridges: map[string][]*store.Bridge{}, peers: map[string]*store.OOBPeer{},
+		labels: map[string]string{}, profiles: map[string]string{}, bridges: map[string][]*store.Bridge{}, peers: map[string]*store.OOBPeer{},
 		convs: map[string]*store.PersonConversation{}}
 }
 
@@ -66,7 +67,7 @@ func (f *fakeStore) GetDevice(_ context.Context, tenantID, imei string) (*store.
 	if f.devices[imei] != tenantID {
 		return nil, nil
 	}
-	return &store.Device{IMEI: imei, Label: f.labels[imei]}, nil
+	return &store.Device{IMEI: imei, Label: f.labels[imei], Profile: f.profiles[imei]}, nil
 }
 func (f *fakeStore) ListBridges(_ context.Context, tenantID string) ([]*store.Bridge, error) {
 	return f.bridges[tenantID], nil

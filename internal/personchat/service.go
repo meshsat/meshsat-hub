@@ -207,6 +207,19 @@ type addressed struct {
 	target   Target // resolved: KindSMS or KindEmail
 	body     string
 	msgID    string
+	// code is the pickup code a Community Post appended ("[#K7QW2X]"):
+	// the conversation's key on a post device, "" otherwise. [MESHSAT-1733]
+	code string
+}
+
+// convID is the conversation this text belongs to: on a post device one
+// per person AND code, so two people at one post writing to the same
+// number never share a conversation; elsewhere one per device and person.
+func (a *addressed) convID() string {
+	if a.device.IsPost() && a.code != "" {
+		return postConversationID(a.tenantID, a.device.IMEI, a.target, a.code)
+	}
+	return conversationID(a.tenantID, a.device.IMEI, a.target)
 }
 
 // classify is the one decision the lane and the routing engine's claim both
@@ -245,14 +258,19 @@ func (s *Service) classify(ctx context.Context, topicTenant, imei string, payloa
 		// Not a contact: a mention ("@bob ..."), or APRS's "@CALL text".
 		// Ordinary traffic; routes see it.
 		return nil, false
-	case mode == ModeContacts && !inDirectory:
-		// Addressed, but to somebody the tenant never vouched for. Claimed,
-		// so no route sends it either, and the device is told why.
+	case !inDirectory:
+		// Addressed, but to somebody the tenant never vouched for. On a
+		// post device that is the normal case (the lane runs open for it
+		// alone); elsewhere in contacts mode it is claimed, so no route
+		// sends it either, and the device is told why.
 		resolved = target
 	}
 	a := &addressed{tenantID: tenantID, device: dev, target: resolved, body: body, msgID: m.ID}
 	if a.msgID == "" {
 		a.msgID = fallbackID
+	}
+	if dev.IsPost() {
+		a.code = PostCode(body)
 	}
 	return a, true
 }
@@ -396,7 +414,9 @@ const (
 
 // send delivers a device's text to the person, and answers why not.
 func (s *Service) send(ctx context.Context, a *addressed) refusal {
-	if s.mode(ctx, a.tenantID) == ModeContacts {
+	// A post device writes to whoever the person at the post named: the
+	// lane runs open for it alone, whatever the tenant's mode.
+	if s.mode(ctx, a.tenantID) == ModeContacts && !a.device.IsPost() {
 		if _, ok := s.lookup(ctx, a.tenantID, a.target); !ok {
 			return reasonNotContact
 		}
@@ -416,11 +436,17 @@ func (s *Service) send(ctx context.Context, a *addressed) refusal {
 	} else if !ok {
 		return reasonTenantBusy
 	}
-	conv, err := s.store.SavePersonConversationOut(ctx, &store.PersonConversation{
-		TenantID: a.tenantID, ID: conversationID(a.tenantID, a.device.IMEI, a.target),
+	row := &store.PersonConversation{
+		TenantID: a.tenantID, ID: a.convID(),
 		DeviceID: a.device.IMEI, DeviceKind: "satellite", PeerKind: string(a.target.Kind), Peer: a.target.Value,
 		Tag: deviceTag(a.tenantID, a.device.IMEI), Ref: newRef(),
-	})
+	}
+	if a.device.IsPost() && a.code != "" {
+		// A post's conversation is the person AND the pickup code; the
+		// code is its tag, in front of every reply to the kit.
+		row.DeviceKind, row.Tag = DeviceKindPost, a.code
+	}
+	conv, err := s.store.SavePersonConversationOut(ctx, row)
 	if err != nil {
 		slog.Error("personchat: saving the conversation failed", "error", err)
 		return reasonRecord
@@ -530,10 +556,11 @@ func (s *Service) sendSMS(ctx context.Context, a *addressed, conv *store.PersonC
 		return true, sms.Send(ctx, a.target.Value, body)
 	}
 	head := label + ": "
-	if open := s.openWith(ctx, a.tenantID, KindSMS, a.target.Value); len(open) > 1 ||
-		(len(open) == 1 && open[0].ID != conv.ID) {
+	if open := s.openWith(ctx, a.tenantID, KindSMS, a.target.Value); !a.device.IsPost() && (len(open) > 1 ||
+		(len(open) == 1 && open[0].ID != conv.ID)) {
 		// Several of this tenant's devices are talking to this person: say
-		// which one this is, and the person starts a reply with it.
+		// which one this is, and the person starts a reply with it. A post's
+		// body already ends in its code, which is what the person quotes.
 		head = label + " " + conv.Tag + ": "
 	}
 	return false, sms.Send(ctx, a.target.Value, satchat.FitSMS(head, Printable(a.body)))
@@ -585,7 +612,7 @@ func (s *Service) notice(ctx context.Context, a *addressed, reason refusal) {
 		slog.Error("personchat: notice to the device failed", "tenant", a.tenantID, "device", suffix(a.device.IMEI), "error", err)
 	}
 	_ = s.store.RecordPersonChatSend(ctx, &store.PersonChatSend{TenantID: a.tenantID, ID: "notice:" + digest(a.msgID),
-		ConversationID: conversationID(a.tenantID, a.device.IMEI, a.target), Direction: "notice", Bytes: len(text), Status: status})
+		ConversationID: a.convID(), Direction: "notice", Bytes: len(text), Status: status})
 	slog.Info("personchat: device told its text was not sent", "tenant", a.tenantID, "reason", string(reason))
 }
 
@@ -701,6 +728,12 @@ var tagPattern = regexp.MustCompile(`^([A-Za-z][2-9][A-Za-z])[\s:]+`)
 // decided is false so the person is told how to choose.
 func pickByTag(all, open []store.PersonConversation, text string, e2e bool) (conv *store.PersonConversation, rest string, decided bool) {
 	if !e2e {
+		// A reply that quotes a post's pickup code ("#K7QW2X ok", or the
+		// code anywhere in the words) goes to that post's conversation, and
+		// to nobody when that conversation is closed. [MESHSAT-1733]
+		if conv, rest, decided := pickByPostCode(all, open, text); decided {
+			return conv, rest, true
+		}
 		if m := tagPattern.FindStringSubmatch(text); m != nil {
 			tag := strings.ToUpper(m[1])
 			known := false
@@ -729,7 +762,66 @@ func pickByTag(all, open []store.PersonConversation, text string, e2e bool) (con
 	if len(open) == 1 {
 		return &open[0], text, true
 	}
+	// Several open conversations that are all one post's (two people at the
+	// post wrote to this person): every one of them reaches the same kit,
+	// so an untagged reply goes to the most recent, and the kit matches it
+	// by address and recency as well. Nothing crosses to another device.
+	if c := latestIfOnePost(open); c != nil {
+		return c, text, true
+	}
 	return nil, "", false
+}
+
+// pickByPostCode finds a post's pickup code in a reply. decided is true
+// when a code of a known post conversation was found: the open one it
+// names, or nobody when it is closed.
+func pickByPostCode(all, open []store.PersonConversation, text string) (conv *store.PersonConversation, rest string, decided bool) {
+	for _, m := range postReplyCodePattern.FindAllStringSubmatch(strings.ToUpper(text), -1) {
+		code := m[1]
+		known := false
+		for _, c := range all {
+			if c.DeviceKind == DeviceKindPost && c.Tag == code {
+				known = true
+				break
+			}
+		}
+		if !known {
+			continue
+		}
+		for i := range open {
+			if open[i].DeviceKind == DeviceKindPost && open[i].Tag == code {
+				rest = text
+				if strings.HasPrefix(strings.ToUpper(strings.TrimSpace(text)), m[0]) {
+					rest = strings.TrimSpace(strings.TrimSpace(text)[len(m[0]):])
+					rest = strings.TrimLeft(rest, ":,; ")
+				}
+				return &open[i], rest, true
+			}
+		}
+		return nil, "", true
+	}
+	return nil, "", false
+}
+
+// latestIfOnePost is the most recent of open when every conversation in it
+// is a post conversation of one device; nil otherwise.
+func latestIfOnePost(open []store.PersonConversation) *store.PersonConversation {
+	if len(open) < 2 {
+		return nil
+	}
+	var best *store.PersonConversation
+	for i := range open {
+		c := &open[i]
+		if c.DeviceKind != DeviceKindPost || c.DeviceID != open[0].DeviceID {
+			return nil
+		}
+		// Two posts in the same second: the id breaks the tie the same way
+		// on both replicas.
+		if best == nil || c.LastOutAt.After(best.LastOutAt) || (c.LastOutAt.Equal(best.LastOutAt) && c.ID < best.ID) {
+			best = c
+		}
+	}
+	return best
 }
 
 // hint tells a person with several open conversations how to pick one, once
@@ -845,6 +937,10 @@ func (s *Service) deliver(ctx context.Context, tenantID string, conv *store.Pers
 		return
 	}
 	head := "[from " + from + "] "
+	if conv.DeviceKind == DeviceKindPost && conv.Tag != "" {
+		// A post's kit files the reply under the pickup code. [MESHSAT-1733]
+		head += "#" + conv.Tag + " "
+	}
 	limit := s.mtLimit(tenantID, conv.DeviceID)
 	var text string
 	if e2e {
@@ -933,6 +1029,36 @@ func cleanMessageID(id string) string {
 // person: tenant, device, bearer and person.
 func conversationID(tenantID, imei string, t Target) string {
 	return "pc_" + digest(tenantID, imei, string(t.Kind), strings.ToLower(t.Value))[:24]
+}
+
+// The Community Post (MESHSAT-1733): a kit whose modem is a "post" device
+// sends texts written by many people, each ending in a pickup code,
+// "[#K7QW2X]", six characters of the code alphabet (no I, L, O, U, 0, 1).
+// The lane keys that device's conversations by the code too, stores it as
+// the conversation's tag with DeviceKindPost, and puts "#<code>" in front
+// of every reply to the kit.
+
+// DeviceKindPost is a post conversation's device kind.
+const DeviceKindPost = "post"
+
+var (
+	postCodePattern      = regexp.MustCompile(`\[#([A-HJ-NP-TV-Z2-9]{6})\]\s*$`)
+	postReplyCodePattern = regexp.MustCompile(`#?\b([A-HJ-NP-TV-Z2-9]{6})\b`)
+)
+
+// PostCode is the pickup code a post appended to body, "" when none.
+func PostCode(body string) string {
+	m := postCodePattern.FindStringSubmatch(strings.TrimSpace(body))
+	if m == nil {
+		return ""
+	}
+	return m[1]
+}
+
+// postConversationID is a post conversation: tenant, device, bearer, person
+// and the pickup code.
+func postConversationID(tenantID, imei string, t Target, code string) string {
+	return "pc_" + digest(tenantID, imei, string(t.Kind), strings.ToLower(t.Value), code)[:24]
 }
 
 // tagLetters and tagDigits are satchat's: nothing easily misread on a phone.

@@ -110,7 +110,13 @@ func testDevices(t *testing.T, db store.Store) {
 	if got.CreatedAt.IsZero() {
 		t.Error("created_at should be set")
 	}
+	if got.Profile != "" {
+		t.Errorf("a new device has no profile: %q", got.Profile)
+	}
 	got.Label = "Renamed"
+	// The profile is kept on update and read back by get and list
+	// (MESHSAT-1733: the Community Post's kit is a "post" device).
+	got.Profile = store.DeviceProfilePost
 	if err := db.UpdateDevice(ctx, tenant, got); err != nil {
 		t.Fatalf("update: %v", err)
 	}
@@ -118,8 +124,21 @@ func testDevices(t *testing.T, db store.Store) {
 		t.Fatalf("touch: %v", err)
 	}
 	all, err := db.ListDevices(ctx, tenant)
-	if err != nil || len(all) != 1 || all[0].Label != "Renamed" {
+	if err != nil || len(all) != 1 || all[0].Label != "Renamed" || all[0].Profile != store.DeviceProfilePost {
 		t.Fatalf("list: %v %+v", err, all)
+	}
+	if again, err := db.GetDevice(ctx, tenant, d.IMEI); err != nil || !again.IsPost() {
+		t.Fatalf("get after update: %+v %v", again, err)
+	}
+	// A profile given at creation is kept too.
+	if err := db.CreateDevice(ctx, tenant, &store.Device{IMEI: "300234063904191", Label: "Post kit", Profile: store.DeviceProfilePost}); err != nil {
+		t.Fatalf("create with profile: %v", err)
+	}
+	if p, err := db.GetDevice(ctx, tenant, "300234063904191"); err != nil || !p.IsPost() {
+		t.Fatalf("profile at creation: %+v %v", p, err)
+	}
+	if err := db.DeleteDevice(ctx, tenant, "300234063904191"); err != nil {
+		t.Fatalf("delete the post kit: %v", err)
 	}
 	if all[0].LastSeen.IsZero() || time.Since(all[0].LastSeen) > time.Minute {
 		t.Errorf("last_seen not touched: %v", all[0].LastSeen)
