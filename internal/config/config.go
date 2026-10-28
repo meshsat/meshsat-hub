@@ -137,6 +137,15 @@ type Config struct {
 	// Settings is stored and nothing reads it.
 	MatrixEnabled bool `yaml:"matrix_enabled"`
 
+	// AllowPrivateTargets lets a service a tenant configures (Matrix, Apprise,
+	// ntfy, a webhook, a TAK server) live on a private network, loopback or an
+	// internal name (MESHSAT-1736). For a self-hosted Hub serving ONE
+	// organisation on its own network, where those services stand next to the
+	// Hub; it hands every user who may edit Settings a reach into the Hub's own
+	// network, so never on a Hub with tenants you do not trust with that. The
+	// hosted Hub never sets it (netguard's test holds that).
+	AllowPrivateTargets bool `yaml:"allow_private_targets"`
+
 	// TAKFrontEnabled is the switch. It stays off until the certificate below
 	// exists, because the front cannot be started without one.
 	TAKFrontEnabled bool `yaml:"tak_front_enabled"`
@@ -906,6 +915,10 @@ func Load() (Config, error) {
 	// The Matrix bridge (MESHSAT-1736).
 	if v := os.Getenv("HUB_MATRIX_ENABLED"); v != "" {
 		cfg.MatrixEnabled = strings.EqualFold(v, "true") || v == "1"
+	}
+	// A self-hosted Hub on its own network (MESHSAT-1736).
+	if v := os.Getenv("HUB_ALLOW_PRIVATE_TARGETS"); v != "" {
+		cfg.AllowPrivateTargets = strings.EqualFold(v, "true") || v == "1"
 	}
 	// The hosted TAK front (MESHSAT-1037).
 	if v := os.Getenv("HUB_TAK_FRONT_ENABLED"); v != "" {

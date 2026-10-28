@@ -70,6 +70,7 @@ import (
 	hubmw "github.com/meshsat/meshsat-hub/internal/middleware"
 	"github.com/meshsat/meshsat-hub/internal/mptcp"
 	hubmsvqsc "github.com/meshsat/meshsat-hub/internal/msvqsc"
+	"github.com/meshsat/meshsat-hub/internal/netguard"
 	"github.com/meshsat/meshsat-hub/internal/ntfy"
 	"github.com/meshsat/meshsat-hub/internal/objstore"
 	"github.com/meshsat/meshsat-hub/internal/observability"
@@ -407,6 +408,13 @@ func main() {
 	// credentials table; the environment-configured values are the platform
 	// account and serve the default tenant only.
 	credMasterKey := bootstrapCredentialMasterKey(dataStore)
+	// A self-hosted Hub on one organisation's own network may reach the
+	// services its users configure there (MESHSAT-1736). Before the accounts
+	// exist, so the first save is checked under the same rule as every dial.
+	netguard.AllowPrivateTargets(cfg.AllowPrivateTargets)
+	if cfg.AllowPrivateTargets {
+		slog.Warn("HUB_ALLOW_PRIVATE_TARGETS is on: services configured under Settings may live on this Hub's own network; right only for a Hub whose every tenant is trusted with that")
+	}
 	providerAccounts := integrations.New(dataStore, credMasterKey)
 	// A saved provider account must be in force on BOTH replicas at once
 	// (MESHSAT-1127). Each replica holds its own cache, so without this the one

@@ -328,6 +328,7 @@ var Classification = map[string]Class{
 	"tak_front_cert_file":        ClassPlatform,
 	"tak_chat_enabled":           ClassPlatform,
 	"matrix_enabled":             ClassPlatform,
+	"allow_private_targets":      ClassPlatform,
 	"tak_front_enabled":          ClassPlatform,
 	"tak_front_key_file":         ClassPlatform,
 	"tak_namespace":              ClassPlatform,

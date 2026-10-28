@@ -85,6 +85,7 @@ every field to its owner and the test fails the build on an unclassified one).
 | `HUB_SMTP_RELAY`, `HUB_MAIL_FROM` | transactional mail via `nllei01smtp-dkim01:2525`, sent as `billing@meshsat.net` |
 | `HUB_STRIPE_*` | three separate secrets: API key, webhook signing secret, path secret |
 | `HUB_TOR_ONION` | the published `.onion`, derived from the key in `k8s/tor`'s volume |
+| `HUB_ALLOW_PRIVATE_TARGETS` | **never here.** For a self-hosted Hub serving one organisation on its own network: lets a service its users configure under Settings (Matrix, Apprise, ntfy, a webhook, a TAK server) live on a private address, loopback or an internal name. Everyone who may edit Settings then reaches the Hub's own network, so only where every tenant is trusted with that (MESHSAT-1736) |
 
 The full list, with defaults, is `config.example.yaml`. `internal/config` refuses the literal
 string `<no value>`, which External Secrets renders for a key missing from OpenBao.

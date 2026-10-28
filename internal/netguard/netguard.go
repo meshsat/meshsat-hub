@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"sync/atomic"
 	"syscall"
 	"time"
 )
@@ -26,6 +27,25 @@ import (
 // The operator's OWN configuration is deliberately NOT checked against this.
 // http://wg-easy:51821 is exactly the kind of in-cluster name this refuses, and
 // it is correct for the platform to use it: the difference is who chose it.
+//
+// A self-hosted Hub serving one organisation on its own network is the other
+// case where a customer-typed address is the operator's own (MESHSAT-1736): the
+// Matrix server, the Apprise relay or the TAK server stand next to the Hub on
+// 192.168.x.x. AllowPrivateTargets lifts the private-address refusal for that
+// Hub, by the operator's setting; the hosted Hub never sets it.
+
+// allowPrivate is the operator's say that this Hub may reach its own network.
+var allowPrivate atomic.Bool
+
+// AllowPrivateTargets lets a configured service live on a private network: a
+// self-hosted Hub whose dispatchers, Matrix server and Hub share one LAN
+// (HUB_ALLOW_PRIVATE_TARGETS). Loopback and internal names are allowed too;
+// link-local (the cloud metadata service), multicast and the unspecified
+// address stay refused, nothing a service is reached on. Set once at boot.
+func AllowPrivateTargets(on bool) { allowPrivate.Store(on) }
+
+// PrivateTargetsAllowed reports the setting.
+func PrivateTargetsAllowed() bool { return allowPrivate.Load() }
 
 // ErrUnsafe is returned for a URL that points back into infrastructure rather
 // than out at somebody's own endpoint.
@@ -93,9 +113,9 @@ func ValidatePublicHost(raw string) error {
 func validateHost(host string) error {
 	// A bare ".svc" or "localhost" name never needs resolving to be wrong.
 	lower := strings.ToLower(host)
-	if lower == "localhost" || strings.HasSuffix(lower, ".localhost") ||
+	if !allowPrivate.Load() && (lower == "localhost" || strings.HasSuffix(lower, ".localhost") ||
 		strings.HasSuffix(lower, ".svc") || strings.HasSuffix(lower, ".svc.cluster.local") ||
-		strings.HasSuffix(lower, ".internal") || strings.HasSuffix(lower, ".local") {
+		strings.HasSuffix(lower, ".internal") || strings.HasSuffix(lower, ".local")) {
 		return fmt.Errorf("%w: %s is an internal name", ErrUnsafe, host)
 	}
 
@@ -105,15 +125,26 @@ func validateHost(host string) error {
 		return fmt.Errorf("%w: cannot resolve %s", ErrUnsafe, host)
 	}
 	for _, ip := range ips {
-		if !IsPublicIP(ip) {
+		if !reachable(ip) {
 			return fmt.Errorf("%w: %s resolves to %s, which is not a public address", ErrUnsafe, host, ip)
 		}
 	}
 	return nil
 }
 
+// reachable is IsPublicIP, or with AllowPrivateTargets on, anything an
+// operator's own service could be listening on.
+func reachable(ip net.IP) bool {
+	if !allowPrivate.Load() {
+		return IsPublicIP(ip)
+	}
+	return ip != nil && !ip.IsUnspecified() && !ip.IsMulticast() && !ip.IsInterfaceLocalMulticast() &&
+		!ip.IsLinkLocalUnicast() && !ip.IsLinkLocalMulticast()
+}
+
 // IsPublicIP reports whether an address is one the Hub may legitimately call
 // out to. Everything the runtime keeps on its own side of the wire is refused.
+// It never looks at AllowPrivateTargets: the guards do, through reachable.
 func IsPublicIP(ip net.IP) bool {
 	if ip == nil || ip.IsLoopback() || ip.IsUnspecified() ||
 		ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() ||
@@ -184,7 +215,7 @@ func DialControl(_, address string, _ syscall.RawConn) error {
 		// unexpected, so refuse rather than guess.
 		return fmt.Errorf("%w: %q is not an IP", ErrUnsafe, host)
 	}
-	if !IsPublicIP(ip) {
+	if !reachable(ip) {
 		return fmt.Errorf("%w: refusing to connect to %s", ErrUnsafe, ip)
 	}
 	return nil
