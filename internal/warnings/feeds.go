@@ -222,7 +222,8 @@ type MeteoAlarmEntry struct {
 }
 
 func (f *MeteoAlarmFeed) Fetch(ctx context.Context, known func(string, time.Time) bool) ([]Fetched, error) {
-	body, err := f.Fetcher.get(ctx, f.URL, "application/atom+xml")
+	// MeteoAlarm answers 406 to any Accept but */*; it sends Atom regardless.
+	body, err := f.Fetcher.get(ctx, f.URL, "*/*")
 	if err != nil {
 		return nil, err
 	}
@@ -251,7 +252,7 @@ func (f *MeteoAlarmFeed) Fetch(ctx context.Context, known func(string, time.Time
 			continue
 		}
 		fetched++
-		doc, err := f.Fetcher.get(ctx, u.String(), "application/cap+xml")
+		doc, err := f.Fetcher.get(ctx, u.String(), "*/*")
 		if err != nil {
 			if ctx.Err() != nil {
 				return out, ctx.Err()
