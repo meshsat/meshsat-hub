@@ -174,6 +174,13 @@ operator who writes to a crew from the Hub's map, means one radio or one phone.
   tenant's own server is not told, and a chat its users address to a crew is
   routed by that server alone. The operator's map works either way.
 - **Switched by `HUB_TAKCHAT_ENABLED`** on the Hub.
+- **An operator can also be a Matrix user** (MESHSAT-1736, `HUB_MATRIX_ENABLED`):
+  a tenant's bot reads the rooms listed under Settings, Integrations, and a
+  message there that starts with `@` and a crew's callsign is sent exactly as
+  an operator's from the map. Its uid is `meshsat-hub-op-mx` and 16 hex
+  characters (one per user per room), its callsign the user's name in that
+  room. Nothing changes for a bridge or an app: an answer to that uid comes
+  back like any operator answer, and the Hub posts it into the room.
 
 ### Tenant Namespaces (Hub 2026-09, MESHSAT-864)
 

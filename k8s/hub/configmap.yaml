@@ -441,6 +441,13 @@ data:
   # server would hand the relay event to every client.
   HUB_TAKCHAT_ENABLED: "true"
 
+  # The Matrix bridge (MESHSAT-1736): a tenant's bot on its own homeserver
+  # hands a message addressed to a crew in a listed room to dispatcher-to-crew
+  # chat and posts the crew's answer back into the room. Needs
+  # HUB_TAKCHAT_ENABLED. Inert until a tenant saves a Matrix account under
+  # Settings, Integrations.
+  HUB_MATRIX_ENABLED: "true"
+
   # SOS identity (docs/bridge-hub-protocol.md "SOS identity (C10)", MESHSAT-1584).
   # Says sos_v2 on every bridge's retained hub/caps, so a Bridge that speaks C10
   # sends its SOS with its id (0x07/0x08, sos/event). The Hub takes those frames

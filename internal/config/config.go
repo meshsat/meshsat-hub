@@ -130,6 +130,13 @@ type Config struct {
 	// hand the relay event to every client.
 	TAKChatEnabled bool `yaml:"tak_chat_enabled"`
 
+	// MatrixEnabled turns on the Matrix bridge (MESHSAT-1736): a tenant's bot on
+	// its own homeserver hands a message addressed to a crew in a listed room to
+	// dispatcher-to-crew chat, and posts the crew's answer back into the room.
+	// Needs TAKChatEnabled. Off by default; with it off a Matrix account in
+	// Settings is stored and nothing reads it.
+	MatrixEnabled bool `yaml:"matrix_enabled"`
+
 	// TAKFrontEnabled is the switch. It stays off until the certificate below
 	// exists, because the front cannot be started without one.
 	TAKFrontEnabled bool `yaml:"tak_front_enabled"`
@@ -895,6 +902,10 @@ func Load() (Config, error) {
 	// Dispatcher-to-crew chat (MESHSAT-1706).
 	if v := os.Getenv("HUB_TAKCHAT_ENABLED"); v != "" {
 		cfg.TAKChatEnabled = strings.EqualFold(v, "true") || v == "1"
+	}
+	// The Matrix bridge (MESHSAT-1736).
+	if v := os.Getenv("HUB_MATRIX_ENABLED"); v != "" {
+		cfg.MatrixEnabled = strings.EqualFold(v, "true") || v == "1"
 	}
 	// The hosted TAK front (MESHSAT-1037).
 	if v := os.Getenv("HUB_TAK_FRONT_ENABLED"); v != "" {

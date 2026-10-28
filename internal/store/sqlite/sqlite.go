@@ -618,6 +618,10 @@ var postAlterMigrations = []string{
 	`CREATE TABLE IF NOT EXISTS tak_chat_messages (tenant_id TEXT NOT NULL, id TEXT NOT NULL, crew_uid TEXT NOT NULL, operator_uid TEXT NOT NULL, user_id TEXT NOT NULL DEFAULT '', direction TEXT NOT NULL, text TEXT NOT NULL, bridge_id TEXT NOT NULL DEFAULT '', status TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL DEFAULT (datetime('now')), PRIMARY KEY (tenant_id, id))`,
 	`CREATE INDEX IF NOT EXISTS idx_tak_chat_messages_crew ON tak_chat_messages (tenant_id, crew_uid, created_at)`,
 	`CREATE INDEX IF NOT EXISTS idx_tak_chat_messages_age ON tak_chat_messages (tenant_id, created_at)`,
+	// MESHSAT-1736, the Matrix bridge; mirrors postgres migration 47.
+	`CREATE TABLE IF NOT EXISTS matrix_operators (tenant_id TEXT NOT NULL, user_id TEXT NOT NULL, room_id TEXT NOT NULL, matrix_user_id TEXT NOT NULL, display_name TEXT NOT NULL DEFAULT '', last_used_at TEXT NOT NULL DEFAULT (datetime('now')), PRIMARY KEY (tenant_id, user_id))`,
+	`CREATE INDEX IF NOT EXISTS idx_matrix_operators_used ON matrix_operators (tenant_id, last_used_at)`,
+	`CREATE TABLE IF NOT EXISTS matrix_sync (tenant_id TEXT NOT NULL PRIMARY KEY, bot_user_id TEXT NOT NULL DEFAULT '', next_batch TEXT NOT NULL DEFAULT '', updated_at TEXT NOT NULL DEFAULT (datetime('now')))`,
 }
 
 // lateAlterMigrations alter tables created in postAlterMigrations.

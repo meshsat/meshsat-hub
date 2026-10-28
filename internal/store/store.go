@@ -493,6 +493,13 @@ type Store interface {
 	SaveTAKChatMessage(ctx context.Context, m *TAKChatMessage) (bool, error)
 	SetTAKChatMessageStatus(ctx context.Context, tenantID, id, status string) error
 	ListTAKChatMessages(ctx context.Context, tenantID, crewUID string, limit int) ([]TAKChatMessage, error)
+	// Matrix bridge (MESHSAT-1736): who wrote to a crew from which Matrix room,
+	// so the crew's answer goes back there, and where the tenant's bot left off
+	// reading. See MatrixOperator and MatrixSync.
+	UpsertMatrixOperator(ctx context.Context, o *MatrixOperator) error
+	GetMatrixOperator(ctx context.Context, tenantID, userID string) (*MatrixOperator, error)
+	GetMatrixSync(ctx context.Context, tenantID string) (*MatrixSync, error)
+	SaveMatrixSync(ctx context.Context, s *MatrixSync) error
 	// Mesh presence (MESHSAT-1181): which nodes have been heard behind which
 	// bridge. See the MeshNode type for what this can and cannot prove.
 	RecordMeshNode(ctx context.Context, tenantID, bridgeID, nodeID string, heardAt time.Time) error
@@ -1380,6 +1387,31 @@ type TAKChatMessage struct {
 	BridgeID    string    `json:"bridge_id"`
 	Status      string    `json:"status"`
 	CreatedAt   time.Time `json:"created_at"`
+}
+
+// MatrixOperator is one person who wrote to a crew from a Matrix room through
+// the tenant's bot (MESHSAT-1736). UserID is the operator id takchat writes
+// under (the GeoChat comes from meshsat-hub-op-<UserID>); the row says which
+// room and which Matrix user it stands for, so the crew's answer, addressed to
+// that operator, is posted back into that room. Kept 30 days after last use.
+type MatrixOperator struct {
+	TenantID     string    `json:"-"`
+	UserID       string    `json:"user_id"`
+	RoomID       string    `json:"room_id"`
+	MatrixUserID string    `json:"matrix_user_id"`
+	DisplayName  string    `json:"display_name"`
+	LastUsedAt   time.Time `json:"last_used_at"`
+}
+
+// MatrixSync is where the tenant's Matrix bot left off reading (MESHSAT-1736):
+// the homeserver's next_batch token, so a new leader neither repeats nor loses
+// a message, and the bot account the token belongs to. Not a credential: it
+// reads nothing without the bot's access token.
+type MatrixSync struct {
+	TenantID  string
+	BotUserID string
+	NextBatch string
+	UpdatedAt time.Time
 }
 
 // EmailContact is a correspondent's PGP public key, as stored.

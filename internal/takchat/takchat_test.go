@@ -271,3 +271,17 @@ func TestTheSinkHandsOverOnlyWhatMayBeAnAnswer(t *testing.T) {
 		time.Sleep(5 * time.Millisecond)
 	}
 }
+
+// MESHSAT-1736: the hook sees an answer once, however many times it is stored.
+func TestTheReplyHookRunsOncePerAnswer(t *testing.T) {
+	s, _, _, _ := rig(t)
+	ctx := context.Background()
+	var got []string
+	s.SetReplyHook(func(_ context.Context, m *store.TAKChatMessage) { got = append(got, m.ID+"|"+m.UserID+"|"+m.Text) })
+	ok := answer(t, "meshsat-0a0b0c0d", "MESHSAT-0c0d", tak.OperatorUIDPrefix+"mx01", "copy", "ans-h")
+	s.store1(ctx, reply{hubmqtt.TopicTAKCotOutFor("t1", "kit-a"), ok})
+	s.store1(ctx, reply{hubmqtt.TopicTAKCotOutFor("t1", "kit-a"), ok})
+	if len(got) != 1 || got[0] != "ans-h|mx01|copy" {
+		t.Fatalf("hook calls %v", got)
+	}
+}

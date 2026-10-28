@@ -796,3 +796,11 @@ func (f *fakeStore) SetTAKChatMessageStatus(context.Context, string, string, str
 func (f *fakeStore) ListTAKChatMessages(context.Context, string, string, int) ([]store.TAKChatMessage, error) {
 	return nil, nil
 }
+func (f *fakeStore) UpsertMatrixOperator(context.Context, *store.MatrixOperator) error { return nil }
+func (f *fakeStore) GetMatrixOperator(context.Context, string, string) (*store.MatrixOperator, error) {
+	return nil, nil
+}
+func (f *fakeStore) GetMatrixSync(context.Context, string) (*store.MatrixSync, error) {
+	return nil, nil
+}
+func (f *fakeStore) SaveMatrixSync(context.Context, *store.MatrixSync) error { return nil }

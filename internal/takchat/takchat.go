@@ -82,6 +82,7 @@ type Service struct {
 	enabled bool
 	now     func() time.Time
 	replies chan reply
+	onReply func(ctx context.Context, m *store.TAKChatMessage)
 }
 
 // New returns a Service. enabled is HUB_TAKCHAT_ENABLED.
@@ -95,6 +96,15 @@ func New(s store.Store, b Bus, enabled bool, log *slog.Logger) *Service {
 
 // Enabled reports whether the feature is switched on.
 func (s *Service) Enabled() bool { return s != nil && s.enabled }
+
+// SetReplyHook makes fn run for each crew's answer this replica stored first
+// (MESHSAT-1736: the Matrix bridge posts it into the room the question came
+// from). Only the write that created the row calls it, so of two replicas
+// storing one answer, one does. fn runs on the sink's goroutine and must hand
+// slow work off. Call it before StartReplySink.
+func (s *Service) SetReplyHook(fn func(ctx context.Context, m *store.TAKChatMessage)) {
+	s.onReply = fn
+}
 
 // SendRequest is one message an operator writes to a crew.
 type SendRequest struct {
@@ -314,11 +324,17 @@ func (s *Service) store1(ctx context.Context, r reply) {
 		if !ok {
 			continue
 		}
-		if _, err := s.store.SaveTAKChatMessage(ctx, &store.TAKChatMessage{
+		msg := &store.TAKChatMessage{
 			TenantID: tenantID, ID: id, CrewUID: crewUID, OperatorUID: d.UID, UserID: userID,
 			Direction: "in", Text: text, BridgeID: bridgeID, Status: "received", CreatedAt: now,
-		}); err != nil {
+		}
+		created, err := s.store.SaveTAKChatMessage(ctx, msg)
+		if err != nil {
 			s.log.Warn("takchat: could not store a crew's answer", "tenant", tenantID, "error", err)
+			return
+		}
+		if created && s.onReply != nil {
+			s.onReply(ctx, msg)
 		}
 		return
 	}

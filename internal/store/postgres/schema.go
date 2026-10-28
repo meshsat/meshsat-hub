@@ -1443,4 +1443,27 @@ CREATE TABLE IF NOT EXISTS tak_chat_messages (
 CREATE INDEX IF NOT EXISTS idx_tak_chat_messages_crew ON tak_chat_messages (tenant_id, crew_uid, created_at);
 CREATE INDEX IF NOT EXISTS idx_tak_chat_messages_age ON tak_chat_messages (tenant_id, created_at);
 `},
+	// MESHSAT-1736, the Matrix bridge. matrix_operators maps the operator id a
+	// Matrix user writes to a crew under back to the room and the user, so the
+	// crew's answer is posted where the question was asked; kept 30 days after
+	// last use. matrix_sync is the tenant bot's next_batch, so a new leader
+	// resumes where the old one stopped.
+	{Version: 47, Name: "matrix bridge", SQL: `
+CREATE TABLE IF NOT EXISTS matrix_operators (
+	tenant_id      VARCHAR(64) NOT NULL,
+	user_id        VARCHAR(64) NOT NULL,
+	room_id        VARCHAR(255) NOT NULL,
+	matrix_user_id VARCHAR(255) NOT NULL,
+	display_name   VARCHAR(255) NOT NULL DEFAULT '',
+	last_used_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+	PRIMARY KEY (tenant_id, user_id)
+);
+CREATE INDEX IF NOT EXISTS idx_matrix_operators_used ON matrix_operators (tenant_id, last_used_at);
+CREATE TABLE IF NOT EXISTS matrix_sync (
+	tenant_id   VARCHAR(64) NOT NULL PRIMARY KEY,
+	bot_user_id VARCHAR(255) NOT NULL DEFAULT '',
+	next_batch  TEXT NOT NULL DEFAULT '',
+	updated_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+`},
 }

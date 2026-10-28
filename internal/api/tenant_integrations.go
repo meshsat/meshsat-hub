@@ -14,6 +14,7 @@ import (
 	hubauth "github.com/meshsat/meshsat-hub/internal/auth"
 	"github.com/meshsat/meshsat-hub/internal/cloudloop"
 	"github.com/meshsat/meshsat-hub/internal/integrations"
+	"github.com/meshsat/meshsat-hub/internal/matrixbridge"
 )
 
 // TenantIntegrationsHandler exposes a tenant's provider accounts
@@ -199,6 +200,10 @@ func (h *TenantIntegrationsHandler) Test(w http.ResponseWriter, r *http.Request)
 			return
 		}
 		writeJSON(w, http.StatusOK, map[string]any{"ok": true, "detail": fmt.Sprintf("credit balance %v", bal.Balance)})
+	case integrations.ProviderMatrix:
+		// Signs in, joins each listed room and says which are ready (MESHSAT-1736).
+		ok, detail := matrixbridge.Check(ctx, acct)
+		writeJSON(w, http.StatusOK, map[string]any{"ok": ok, "detail": detail})
 	default:
 		writeJSON(w, http.StatusOK, map[string]any{"ok": false, "detail": "no connectivity test for this provider yet"})
 	}

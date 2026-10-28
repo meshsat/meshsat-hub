@@ -1239,3 +1239,11 @@ func (m *mockStore) SetTAKChatMessageStatus(context.Context, string, string, str
 func (m *mockStore) ListTAKChatMessages(context.Context, string, string, int) ([]store.TAKChatMessage, error) {
 	return nil, nil
 }
+func (m *mockStore) UpsertMatrixOperator(context.Context, *store.MatrixOperator) error { return nil }
+func (m *mockStore) GetMatrixOperator(context.Context, string, string) (*store.MatrixOperator, error) {
+	return nil, nil
+}
+func (m *mockStore) GetMatrixSync(context.Context, string) (*store.MatrixSync, error) {
+	return nil, nil
+}
+func (m *mockStore) SaveMatrixSync(context.Context, *store.MatrixSync) error { return nil }

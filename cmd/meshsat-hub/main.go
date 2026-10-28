@@ -63,6 +63,7 @@ import (
 	"github.com/meshsat/meshsat-hub/internal/leader"
 	"github.com/meshsat/meshsat-hub/internal/lxmfhub"
 	"github.com/meshsat/meshsat-hub/internal/mail"
+	"github.com/meshsat/meshsat-hub/internal/matrixbridge"
 	"github.com/meshsat/meshsat-hub/internal/mesh"
 	hubmessage "github.com/meshsat/meshsat-hub/internal/message"
 	"github.com/meshsat/meshsat-hub/internal/metrics"
@@ -2919,6 +2920,16 @@ func main() {
 	// replica (one row per answer); the send runs on whichever replica the
 	// request reached. Operator: a message is a transmission on a crew's radio.
 	takChatSvc := takchat.New(dataStore, msgBus, cfg.TAKChatEnabled, slog.Default())
+	// The Matrix bridge (MESHSAT-1736): a tenant's dispatchers write to crews
+	// from their own Matrix rooms through the same chat. One reader per
+	// tenant's bot on the leader; a crew's answer is posted into the room by
+	// the replica that stored it. The hook is set before the sink starts.
+	matrixBridge := matrixbridge.New(dataStore, providerAccounts, takChatSvc, auditSvc, cfg.MatrixEnabled, slog.Default())
+	takChatSvc.SetReplyHook(matrixBridge.OnReply)
+	matrixBridge.Start(ctx)
+	leaderSingletons.Add("matrix-bridge", func(sctx context.Context) {
+		matrixBridge.Run(sctx, 30*time.Second)
+	})
 	if err := takChatSvc.StartReplySink(ctx); err != nil {
 		slog.Error("takchat: the crews' answers will not be stored", "error", err)
 	}
