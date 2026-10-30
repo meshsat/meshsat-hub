@@ -432,12 +432,23 @@ definitions:
     - TriggerBoth
   github_com_meshsat_meshsat-hub_internal_integrations.Field:
     properties:
+      alpha_sender:
+        description: |-
+          AlphaSender marks an alphanumeric SMS sender name ("MeshSat"), checked
+          on save against Twilio's rules: a name Twilio refuses would fail every
+          alert page sent from it (MESHSAT-1217).
+        type: boolean
       broker:
         description: |-
           Broker marks an MQTT broker address (ssl://host:port) the Hub will dial
           for this tenant. The same request-forgery concern as URL, with the
           scheme set an MQTT client accepts: the host must resolve to a public
           address, so a tenant cannot point the Hub at nats:1883 or the database.
+        type: boolean
+      calling_prefixes:
+        description: |-
+          CallingPrefixes marks a comma-separated list of number prefixes such as
+          "+31, +32": the countries an AlphaSender field may be used for.
         type: boolean
       default:
         type: string

@@ -143,6 +143,13 @@ type Field struct {
 	// Hub open an SMTP conversation with any address inside the cluster. The
 	// dial is guarded too (email.NewTenantClient).
 	HostPort bool `json:"host_port,omitempty"`
+	// AlphaSender marks an alphanumeric SMS sender name ("MeshSat"), checked
+	// on save against Twilio's rules: a name Twilio refuses would fail every
+	// alert page sent from it (MESHSAT-1217).
+	AlphaSender bool `json:"alpha_sender,omitempty"`
+	// CallingPrefixes marks a comma-separated list of number prefixes such as
+	// "+31, +32": the countries an AlphaSender field may be used for.
+	CallingPrefixes bool `json:"calling_prefixes,omitempty"`
 }
 
 // maxFieldLen is the size cap for a single-line field; multiline fields
@@ -190,6 +197,11 @@ var Specs = []Spec{
 			// means the SMS number, which is only right while both bearers
 			// share one (MESHSAT-1367).
 			{Key: "whatsapp_from", Label: "WhatsApp sender number", Hint: "E.164 of the WhatsApp Business sender on this account. Leave empty to use the From number, which only works while the same number is registered for WhatsApp."},
+			// One-way: nobody can answer a sender name, so it is used for alert
+			// pages to people only, never for anything a kit or a person replies
+			// to (sms.Client.SendNotification, MESHSAT-1217).
+			{Key: "alpha_sender", Label: "Sender name for alerts", AlphaSender: true, Hint: "Optional, up to 11 letters, digits or spaces, e.g. MeshSat. Alert texts to people (SOS, check-ins, geofences, alert rules) show this name instead of the From number, for the countries below only. Nobody can reply to a name, so everything that expects an answer keeps the From number. Some countries require registering the name with Twilio first."},
+			{Key: "alpha_sender_countries", Label: "Countries for the sender name", CallingPrefixes: true, Hint: "Calling codes the sender name is used for, comma-separated, e.g. +31. Every other number gets alert texts from the From number."},
 			{Key: "webhook_token", Label: "Webhook token", Secret: true, Generate: true, Hint: "The last segment of this tenant's inbound SMS webhook URL. Generated when left empty."},
 			{Key: "webhook_secret", Label: "Webhook signing secret", Secret: true, Hint: "Optional: HMAC-SHA256 of From+Body presented as X-Signature by a custom relay."},
 		}},
@@ -656,6 +668,9 @@ func (s *Service) Set(ctx context.Context, tenantID, provider string, fields map
 	if err := validatePEM(spec, merged); err != nil {
 		return nil, err
 	}
+	if err := validateSenders(spec, merged); err != nil {
+		return nil, err
+	}
 	if !s.noURLCheck {
 		if err := validateBrokers(spec, merged); err != nil {
 			return nil, err
@@ -929,6 +944,89 @@ func validateHosts(spec Spec, merged map[string]string) error {
 		}
 	}
 	return nil
+}
+
+// validateSenders checks alphanumeric sender names and their calling-code
+// lists on save, so a name Twilio would refuse is a 400 on the form rather
+// than an alert page that fails later (MESHSAT-1217). A sender name with no
+// country to use it for is refused too: it would be saved and never used.
+func validateSenders(spec Spec, merged map[string]string) error {
+	var named bool
+	var countries int
+	for _, f := range spec.Fields {
+		v := merged[f.Key]
+		if v == "" {
+			continue
+		}
+		switch {
+		case f.AlphaSender:
+			if err := CheckAlphaSender(v); err != nil {
+				return fmt.Errorf("%s: %v", f.Label, err)
+			}
+			named = true
+		case f.CallingPrefixes:
+			list, err := ParseCallingPrefixes(v)
+			if err != nil {
+				return fmt.Errorf("%s: %v", f.Label, err)
+			}
+			countries += len(list)
+		}
+	}
+	if named && countries == 0 {
+		return errors.New("a sender name needs the calling codes it is used for, e.g. +31")
+	}
+	return nil
+}
+
+// CheckAlphaSender applies Twilio's rules for an alphanumeric sender: 1 to 11
+// ASCII letters, digits or spaces, with at least one letter.
+func CheckAlphaSender(name string) error {
+	const rule = "a sender name is 1 to 11 letters, digits or spaces, with at least one letter"
+	if name == "" || len(name) > 11 || strings.TrimSpace(name) != name {
+		return errors.New(rule)
+	}
+	letter := false
+	for _, r := range name {
+		switch {
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z':
+			letter = true
+		case r >= '0' && r <= '9', r == ' ':
+		default:
+			return errors.New(rule)
+		}
+	}
+	if !letter {
+		return errors.New(rule)
+	}
+	return nil
+}
+
+// maxCallingPrefixes bounds a calling-code list; there are about 250 codes.
+const maxCallingPrefixes = 300
+
+// ParseCallingPrefixes reads "+31, +32" into its prefixes. Each is a "+" and
+// one to seven digits, not starting with 0 (no calling code does). An empty
+// string is an empty list.
+func ParseCallingPrefixes(s string) ([]string, error) {
+	var out []string
+	for _, p := range strings.Split(s, ",") {
+		p = strings.TrimSpace(p)
+		if p == "" {
+			continue
+		}
+		ok := len(p) >= 2 && len(p) <= 8 && p[0] == '+' && p[1] != '0'
+		for i := 1; ok && i < len(p); i++ {
+			ok = p[i] >= '0' && p[i] <= '9'
+		}
+		if !ok {
+			return nil, fmt.Errorf("%q is not a calling code such as +31", p)
+		}
+		out = append(out, p)
+	}
+	if len(out) > maxCallingPrefixes {
+		return nil, fmt.Errorf("at most %d calling codes", maxCallingPrefixes)
+	}
+	return out, nil
 }
 
 // validateBrokers applies the public-address guard to Broker fields. MQTT

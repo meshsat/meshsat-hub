@@ -393,6 +393,12 @@ type Config struct {
 	SMSAuthToken  string `yaml:"sms_auth_token"`  // Twilio Auth Token (or API Key Secret)
 	SMSAPIKeySID  string `yaml:"sms_api_key_sid"` // Twilio API Key SID (SK...) — if set, uses API key auth
 	SMSFromNumber string `yaml:"sms_from_number"` // E.164 sender number
+	// SMSAlphaSender is the platform account's alphanumeric sender ("MeshSat")
+	// for alert pages to people, used only for numbers starting with one of
+	// SMSAlphaSenderCountries ("+31"). One-way, so never for anything a kit or a
+	// person answers (MESHSAT-1217). Empty = every SMS from SMSFromNumber.
+	SMSAlphaSender          string `yaml:"sms_alpha_sender"`
+	SMSAlphaSenderCountries string `yaml:"sms_alpha_sender_countries"`
 	// WhatsAppFromNumber is the platform's WhatsApp Business sender, which
 	// Twilio registers on its own number: a WhatsApp send From the SMS
 	// number fails with 63007 once they differ (MESHSAT-1367). Empty means
@@ -1281,6 +1287,12 @@ func Load() (Config, error) {
 	}
 	if v := os.Getenv("HUB_SMS_FROM_NUMBER"); v != "" {
 		cfg.SMSFromNumber = v
+	}
+	if v := os.Getenv("HUB_SMS_ALPHA_SENDER"); v != "" {
+		cfg.SMSAlphaSender = v
+	}
+	if v := os.Getenv("HUB_SMS_ALPHA_SENDER_COUNTRIES"); v != "" {
+		cfg.SMSAlphaSenderCountries = v
 	}
 	if v := os.Getenv("HUB_BOOTH_ENABLED"); v != "" {
 		cfg.BoothEnabled = strings.EqualFold(v, "true") || v == "1"

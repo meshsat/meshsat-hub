@@ -6,6 +6,7 @@ package sms
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -13,6 +14,8 @@ import (
 	"net/url"
 	"strings"
 	"time"
+
+	"github.com/meshsat/meshsat-hub/internal/integrations"
 )
 
 // Client sends SMS messages via Twilio REST API.
@@ -23,7 +26,21 @@ type Client struct {
 	channel    string // "" or "sms" for SMS; "whatsapp" for the WhatsApp bearer
 	apiURL     string // overridable for tests
 	httpClient *http.Client
+	// alphaSender is the account's alphanumeric sender ("MeshSat"), used by
+	// SendNotification only, and only to numbers starting with one of
+	// alphaPrefixes (MESHSAT-1217). Empty = every message from fromNumber.
+	alphaSender   string
+	alphaPrefixes []string
 }
+
+// HTTPError is a request Twilio answered with an error status. A 4xx means
+// Twilio refused it, so nothing was queued and nothing will be delivered.
+type HTTPError struct {
+	Status int
+	Body   string
+}
+
+func (e *HTTPError) Error() string { return fmt.Sprintf("sms: HTTP %d: %s", e.Status, e.Body) }
 
 // SendResult is the response after queuing an outbound SMS.
 type SendResult struct {
@@ -92,6 +109,84 @@ func (c *Client) addr(a string) string {
 
 // FromNumber is the number the client sends from.
 func (c *Client) FromNumber() string { return c.fromNumber }
+
+// SetAlphaSender gives the client an alphanumeric sender for SendNotification,
+// used only for recipients whose number starts with one of prefixes ("+31").
+// An empty name turns it off. An invalid name or prefix list leaves it off and
+// returns the reason: a send From a name Twilio refuses would fail the page.
+func (c *Client) SetAlphaSender(name, prefixes string) error {
+	c.alphaSender, c.alphaPrefixes = "", nil
+	if name == "" {
+		return nil
+	}
+	if err := integrations.CheckAlphaSender(name); err != nil {
+		return err
+	}
+	list, err := integrations.ParseCallingPrefixes(prefixes)
+	if err != nil {
+		return err
+	}
+	if len(list) == 0 {
+		return errors.New("sms: a sender name needs the calling codes it is used for, e.g. +31")
+	}
+	c.alphaSender, c.alphaPrefixes = name, list
+	return nil
+}
+
+// AlphaSender is the alphanumeric sender in force, empty when off.
+func (c *Client) AlphaSender() string {
+	if c == nil {
+		return ""
+	}
+	return c.alphaSender
+}
+
+// notificationFrom is the sender for a notification to the given number: the
+// alphanumeric sender when the number is in one of its countries, else the
+// From number. Never the alphanumeric one on WhatsApp, which has no such thing.
+func (c *Client) notificationFrom(to string) string {
+	if c.alphaSender == "" || (c.channel != "" && c.channel != "sms") {
+		return c.fromNumber
+	}
+	for _, p := range c.alphaPrefixes {
+		if strings.HasPrefix(to, p) {
+			return c.alphaSender
+		}
+	}
+	return c.fromNumber
+}
+
+// SendNotification sends a one-way notification to a person: an alert page.
+//
+// It is the ONLY send that may leave from the alphanumeric sender, because
+// nobody can reply to one (MESHSAT-1217). Everything that expects an answer --
+// the kits' SMS bearer, OOB mgmt_* commands, the booth, the "@" lane, routed
+// messages, the API send -- uses Send and the From number;
+// TestOnlyTheAlertNotifierSendsFromTheAlphaSender holds that.
+//
+// If Twilio refuses the alphanumeric sender outright (a 4xx: nothing was
+// queued), the page goes again from the From number. An alert that reaches
+// its person from a number beats one that does not reach them at all.
+func (c *Client) SendNotification(ctx context.Context, to, body string) (*SendResult, error) {
+	from := c.notificationFrom(to)
+	if from == c.fromNumber {
+		return c.Send(ctx, to, body)
+	}
+	if to == "" {
+		return nil, fmt.Errorf("sms: empty recipient number")
+	}
+	if body == "" {
+		return nil, fmt.Errorf("sms: empty message body")
+	}
+	res, err := c.post(ctx, url.Values{"To": {to}, "From": {from}, "Body": {body}})
+	var he *HTTPError
+	if err != nil && errors.As(err, &he) && he.Status >= 400 && he.Status < 500 && c.fromNumber != "" {
+		slog.Warn("sms: alphanumeric sender refused, sending from the number instead",
+			"to", to, "sender", from, "status", he.Status, "error", he.Body)
+		return c.Send(ctx, to, body)
+	}
+	return res, err
+}
 
 // Send sends a message to the given phone number on this client's channel.
 func (c *Client) Send(ctx context.Context, to, body string) (*SendResult, error) {
@@ -180,7 +275,7 @@ func (c *Client) post(ctx context.Context, form url.Values) (*SendResult, error)
 	}
 
 	if resp.StatusCode >= 400 {
-		return nil, fmt.Errorf("sms: HTTP %d: %s", resp.StatusCode, string(respBody))
+		return nil, &HTTPError{Status: resp.StatusCode, Body: string(respBody)}
 	}
 
 	var result struct {
@@ -217,7 +312,7 @@ func (c *Client) CheckStatus(ctx context.Context, messageSID string) (*SendResul
 	}
 
 	if resp.StatusCode >= 400 {
-		return nil, fmt.Errorf("sms: HTTP %d: %s", resp.StatusCode, string(respBody))
+		return nil, &HTTPError{Status: resp.StatusCode, Body: string(respBody)}
 	}
 
 	var result struct {

@@ -441,7 +441,8 @@ func main() {
 	providerAccounts.SetPlatform(integrations.ProviderCloudloop, map[string]string{
 		"api_url": cfg.CloudloopAPIURL, "api_key": cfg.CloudloopAPIKey, "account_id": cfg.CloudloopAccountID, "webhook_token": cfg.CloudloopWebhookToken})
 	providerAccounts.SetPlatform(integrations.ProviderTwilio, map[string]string{
-		"account_sid": cfg.SMSAccountSID, "auth_token": cfg.SMSAuthToken, "from_number": cfg.SMSFromNumber, "whatsapp_from": cfg.WhatsAppFrom()})
+		"account_sid": cfg.SMSAccountSID, "auth_token": cfg.SMSAuthToken, "from_number": cfg.SMSFromNumber, "whatsapp_from": cfg.WhatsAppFrom(),
+		"alpha_sender": cfg.SMSAlphaSender, "alpha_sender_countries": cfg.SMSAlphaSenderCountries})
 	providerAccounts.SetPlatform(integrations.ProviderRock7, map[string]string{"username": cfg.Rock7Username, "password": cfg.Rock7Password})
 	providerAccounts.SetPlatform(integrations.ProviderRockBLOCK, map[string]string{"webhook_secret": cfg.RockBLOCKSecret})
 	providerAccounts.SetPlatform(integrations.ProviderGlobalstar, map[string]string{
@@ -919,11 +920,17 @@ func main() {
 		} else {
 			smsPlatform = sms.NewClient(cfg.SMSAccountSID, cfg.SMSAuthToken, cfg.SMSFromNumber)
 		}
+		// Alert pages to people only (MESHSAT-1217); a bad value leaves every
+		// SMS on the From number rather than failing the pages.
+		if err := smsPlatform.SetAlphaSender(cfg.SMSAlphaSender, cfg.SMSAlphaSenderCountries); err != nil {
+			slog.Error("sms: HUB_SMS_ALPHA_SENDER not used", "error", err)
+		}
 	}
 	smsPool := sms.NewClientPool(smsPlatform, providerAccounts)
 	if cfg.SMSEnabled {
 		notifiers = append(notifiers, sms.NewNotifierPool(smsPool))
-		slog.Info("sms: escalation notifier enabled", "platform_from", cfg.SMSFromNumber)
+		slog.Info("sms: escalation notifier enabled", "platform_from", cfg.SMSFromNumber,
+			"platform_alert_sender", smsPlatform.AlphaSender(), "alert_sender_countries", cfg.SMSAlphaSenderCountries)
 	}
 	// The PGP email gateway, per tenant since MESHSAT-1121. The environment
 	// values are the PLATFORM's gateway and serve the default tenant; every other

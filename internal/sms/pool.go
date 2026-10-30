@@ -87,5 +87,14 @@ func (p *ClientPool) ForTenant(ctx context.Context, tenantID string) *Client {
 		return p.platform
 	}
 	sid, tok, from := acct.Get("account_sid"), acct.Get("auth_token"), acct.Get("from_number")
-	return p.cache.Get(tenantID, integrations.Fingerprint(sid, tok, from), func() *Client { return NewClient(sid, tok, from) })
+	alpha, countries := acct.Get("alpha_sender"), acct.Get("alpha_sender_countries")
+	return p.cache.Get(tenantID, integrations.Fingerprint(sid, tok, from, alpha, countries), func() *Client {
+		c := NewClient(sid, tok, from)
+		// Checked on save; checked again here because a row can be written by
+		// hand. A bad one leaves the client on the From number.
+		if err := c.SetAlphaSender(alpha, countries); err != nil {
+			slog.Warn("sms: tenant sender name not used", "tenant", tenantID, "error", err)
+		}
+		return c
+	})
 }

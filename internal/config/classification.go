@@ -137,7 +137,11 @@ var Classification = map[string]Class{
 	"sms_auth_token":              ClassTenantDone,
 	"sms_enabled":                 ClassTenantDone,
 	"sms_from_number":             ClassTenantDone,
-	"whatsapp_from_number":        ClassTenantDone,
+	// The Twilio provider's alpha_sender and alpha_sender_countries fields
+	// (MESHSAT-1217); these are the platform account's copy.
+	"sms_alpha_sender":           ClassTenantDone,
+	"sms_alpha_sender_countries": ClassTenantDone,
+	"whatsapp_from_number":       ClassTenantDone,
 	// The platform account's Twilio ACCOUNT auth token, used only to verify
 	// X-Twilio-Signature on the inbound webhook (MESHSAT-1168). Tenant-owned and
 	// already in the UI: it is the Twilio provider's existing "auth_token" field

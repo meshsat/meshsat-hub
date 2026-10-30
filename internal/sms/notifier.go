@@ -61,8 +61,10 @@ func (n *Notifier) Notify(ctx context.Context, targets []string, subject, body s
 		return fmt.Errorf("sms: no Twilio account configured for this tenant")
 	}
 
+	// SendNotification, not Send: an alert page is one-way, so it may leave
+	// from the account's sender name (MESHSAT-1217).
 	for _, target := range phones {
-		if _, err := client.Send(ctx, target, text); err != nil {
+		if _, err := client.SendNotification(ctx, target, text); err != nil {
 			slog.Error("sms: escalation notify failed", "to", target, "error", err)
 			lastErr = err
 		} else {

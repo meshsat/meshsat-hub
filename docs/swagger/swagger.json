@@ -12279,8 +12279,16 @@
         "github_com_meshsat_meshsat-hub_internal_integrations.Field": {
             "type": "object",
             "properties": {
+                "alpha_sender": {
+                    "description": "AlphaSender marks an alphanumeric SMS sender name (\"MeshSat\"), checked\non save against Twilio's rules: a name Twilio refuses would fail every\nalert page sent from it (MESHSAT-1217).",
+                    "type": "boolean"
+                },
                 "broker": {
                     "description": "Broker marks an MQTT broker address (ssl://host:port) the Hub will dial\nfor this tenant. The same request-forgery concern as URL, with the\nscheme set an MQTT client accepts: the host must resolve to a public\naddress, so a tenant cannot point the Hub at nats:1883 or the database.",
+                    "type": "boolean"
+                },
+                "calling_prefixes": {
+                    "description": "CallingPrefixes marks a comma-separated list of number prefixes such as\n\"+31, +32\": the countries an AlphaSender field may be used for.",
                     "type": "boolean"
                 },
                 "default": {

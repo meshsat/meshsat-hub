@@ -124,6 +124,12 @@ data:
   HUB_RATELIMIT_DAILY_CAP: "100"
   HUB_RATELIMIT_REFILL_PER_MIN: "1"
   HUB_SMS_ENABLED: "true"
+  # Alert pages to people (SOS, check-ins, geofences, alert rules) to Dutch
+  # numbers show the sender "MeshSat"; NL needs no registration for it (Twilio
+  # ticket 29613420, 30 Oct 2026) and the first one delivered that day. One-way,
+  # so everything a kit or a person answers stays on +3197010258258 (MESHSAT-1217).
+  HUB_SMS_ALPHA_SENDER: "MeshSat"
+  HUB_SMS_ALPHA_SENDER_COUNTRIES: "+31"
   HUB_CLOUDLOOP_MQTT_BROKER: "ssl://mqtt.cloudloop.com:8883"
   # "*" is only honoured together with HUB_CLOUDLOOP_WEBHOOK_TOKEN (ExternalSecret, ?token= in the Cloudloop console URL); without it the webhook rejects every request (MESHSAT-971).
   # Researched 2026-09-09. Cloudloop publishes no egress addresses anywhere in
