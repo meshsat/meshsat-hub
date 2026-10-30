@@ -127,7 +127,7 @@ data:
   # Alert pages to people (SOS, check-ins, geofences, alert rules) to Dutch
   # numbers show the sender "MeshSat"; NL needs no registration for it (Twilio
   # ticket 29613420, 30 Oct 2026) and the first one delivered that day. One-way,
-  # so everything a kit or a person answers stays on +3197010258258 (MESHSAT-1217).
+  # so everything a kit or a person answers stays on the From number (MESHSAT-1217).
   HUB_SMS_ALPHA_SENDER: "MeshSat"
   HUB_SMS_ALPHA_SENDER_COUNTRIES: "+31"
   HUB_CLOUDLOOP_MQTT_BROKER: "ssl://mqtt.cloudloop.com:8883"

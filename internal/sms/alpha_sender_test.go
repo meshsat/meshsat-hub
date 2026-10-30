@@ -50,7 +50,7 @@ func (tr *twilioRecorder) server(t *testing.T) *httptest.Server {
 
 func newAlphaClient(t *testing.T, url string) *Client {
 	t.Helper()
-	c := NewClient("AC", "tok", "+3197010258258")
+	c := NewClient("AC", "tok", "+31600000001")
 	c.SetAPIURL(url)
 	if err := c.SetAlphaSender("MeshSat", "+31"); err != nil {
 		t.Fatal(err)
@@ -78,8 +78,8 @@ func TestSendNotificationUsesTheSenderNameOnlyForItsCountries(t *testing.T) {
 	}
 	want := [][2]string{
 		{"+31612345678", "MeshSat"},
-		{"+14155551234", "+3197010258258"},
-		{"+31612345678", "+3197010258258"},
+		{"+14155551234", "+31600000001"},
+		{"+31612345678", "+31600000001"},
 	}
 	if len(tr.sends) != len(want) {
 		t.Fatalf("sends = %v, want %v", tr.sends, want)
@@ -107,7 +107,7 @@ func TestSendNotificationFallsBackOnlyWhenTwilioRefusesTheName(t *testing.T) {
 	if err != nil || res == nil || res.SID != "SM1" {
 		t.Fatalf("refused name: res=%+v err=%v, want the page sent from the number", res, err)
 	}
-	if len(tr.sends) != 2 || tr.sends[1][1] != "+3197010258258" {
+	if len(tr.sends) != 2 || tr.sends[1][1] != "+31600000001" {
 		t.Fatalf("sends = %v, want the name then the number", tr.sends)
 	}
 
@@ -130,7 +130,7 @@ func TestWhatsAppNeverSendsFromTheSenderName(t *testing.T) {
 	if _, err := c.SendNotification(context.Background(), "+31612345678", "SOS dev1"); err != nil {
 		t.Fatal(err)
 	}
-	if got := tr.sends[0][1]; got != "whatsapp:+3197010258258" {
+	if got := tr.sends[0][1]; got != "whatsapp:+31600000001" {
 		t.Errorf("From = %q, want the WhatsApp number", got)
 	}
 }
@@ -154,7 +154,7 @@ func TestSetAlphaSenderRefusesWhatTwilioWouldRefuse(t *testing.T) {
 		{" MeshSat", "+31", false},       // padded
 		{"MeshSat", "+123456789", false}, // too long a prefix
 	} {
-		c := NewClient("AC", "tok", "+3197010258258")
+		c := NewClient("AC", "tok", "+31600000001")
 		err := c.SetAlphaSender(tc.name, tc.countries)
 		if (err == nil) != tc.ok {
 			t.Errorf("SetAlphaSender(%q, %q) err = %v, want ok=%v", tc.name, tc.countries, err, tc.ok)
@@ -173,7 +173,7 @@ func TestNotifierPagesFromTheSenderName(t *testing.T) {
 	if err := n.Notify(context.Background(), []string{"+31612345678", "+4915112345678"}, "SOS", "dev1"); err != nil {
 		t.Fatal(err)
 	}
-	if len(tr.sends) != 2 || tr.sends[0][1] != "MeshSat" || tr.sends[1][1] != "+3197010258258" {
+	if len(tr.sends) != 2 || tr.sends[0][1] != "MeshSat" || tr.sends[1][1] != "+31600000001" {
 		t.Fatalf("sends = %v, want the NL page from MeshSat and the DE one from the number", tr.sends)
 	}
 }
