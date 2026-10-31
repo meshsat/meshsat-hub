@@ -2055,281 +2055,6 @@
                 }
             }
         },
-        "/api/bridges/{bridgeID}/bond-groups": {
-            "get": {
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "bond-groups"
-                ],
-                "summary": "List bond groups for a bridge",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Bridge ID",
-                        "name": "bridgeID",
-                        "in": "path",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "type": "array",
-                            "items": {
-                                "$ref": "#/definitions/github_com_meshsat_meshsat-hub_internal_store.BondGroup"
-                            }
-                        }
-                    },
-                    "404": {
-                        "description": "Not Found",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": {
-                                "type": "string"
-                            }
-                        }
-                    },
-                    "500": {
-                        "description": "Internal Server Error",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": {
-                                "type": "string"
-                            }
-                        }
-                    }
-                }
-            },
-            "post": {
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "bond-groups"
-                ],
-                "summary": "Create bond group",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Bridge ID",
-                        "name": "bridgeID",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "description": "Bond group data",
-                        "name": "body",
-                        "in": "body",
-                        "required": true,
-                        "schema": {
-                            "$ref": "#/definitions/internal_api.createBondGroupRequest"
-                        }
-                    }
-                ],
-                "responses": {
-                    "201": {
-                        "description": "Created",
-                        "schema": {
-                            "$ref": "#/definitions/github_com_meshsat_meshsat-hub_internal_store.BondGroup"
-                        }
-                    },
-                    "400": {
-                        "description": "Bad Request",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": {
-                                "type": "string"
-                            }
-                        }
-                    },
-                    "404": {
-                        "description": "Not Found",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": {
-                                "type": "string"
-                            }
-                        }
-                    },
-                    "500": {
-                        "description": "Internal Server Error",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": {
-                                "type": "string"
-                            }
-                        }
-                    }
-                }
-            }
-        },
-        "/api/bridges/{bridgeID}/bond-groups/{groupID}": {
-            "get": {
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "bond-groups"
-                ],
-                "summary": "Get bond group",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Bridge ID",
-                        "name": "bridgeID",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "type": "string",
-                        "description": "Bond group ID",
-                        "name": "groupID",
-                        "in": "path",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/github_com_meshsat_meshsat-hub_internal_store.BondGroup"
-                        }
-                    },
-                    "404": {
-                        "description": "Not Found",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": {
-                                "type": "string"
-                            }
-                        }
-                    }
-                }
-            },
-            "put": {
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "bond-groups"
-                ],
-                "summary": "Update bond group",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Bridge ID",
-                        "name": "bridgeID",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "type": "string",
-                        "description": "Bond group ID",
-                        "name": "groupID",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "description": "Fields to update",
-                        "name": "body",
-                        "in": "body",
-                        "required": true,
-                        "schema": {
-                            "$ref": "#/definitions/internal_api.updateBondGroupRequest"
-                        }
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/github_com_meshsat_meshsat-hub_internal_store.BondGroup"
-                        }
-                    },
-                    "400": {
-                        "description": "Bad Request",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": {
-                                "type": "string"
-                            }
-                        }
-                    },
-                    "404": {
-                        "description": "Not Found",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": {
-                                "type": "string"
-                            }
-                        }
-                    },
-                    "500": {
-                        "description": "Internal Server Error",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": {
-                                "type": "string"
-                            }
-                        }
-                    }
-                }
-            },
-            "delete": {
-                "tags": [
-                    "bond-groups"
-                ],
-                "summary": "Delete bond group",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Bridge ID",
-                        "name": "bridgeID",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "type": "string",
-                        "description": "Bond group ID",
-                        "name": "groupID",
-                        "in": "path",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "204": {
-                        "description": "No Content"
-                    },
-                    "404": {
-                        "description": "Not Found",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": {
-                                "type": "string"
-                            }
-                        }
-                    },
-                    "500": {
-                        "description": "Internal Server Error",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": {
-                                "type": "string"
-                            }
-                        }
-                    }
-                }
-            }
-        },
         "/api/bridges/{id}": {
             "get": {
                 "produces": [
@@ -5661,25 +5386,6 @@
                 "responses": {
                     "204": {
                         "description": "No Content"
-                    }
-                }
-            }
-        },
-        "/api/hemb/stats": {
-            "get": {
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "hemb"
-                ],
-                "summary": "Get HeMB reassembly statistics",
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/github_com_meshsat_meshsat-hub_internal_protocol.HeMBReassemblyStats"
-                        }
                     }
                 }
             }
@@ -12360,20 +12066,6 @@
                 }
             }
         },
-        "github_com_meshsat_meshsat-hub_internal_protocol.HeMBReassemblyStats": {
-            "type": "object",
-            "properties": {
-                "active_streams": {
-                    "type": "integer"
-                },
-                "generations_decoded": {
-                    "type": "integer"
-                },
-                "generations_pending": {
-                    "type": "integer"
-                }
-            }
-        },
         "github_com_meshsat_meshsat-hub_internal_reticulum.PathHandlerStatsSnapshot": {
             "type": "object",
             "properties": {
@@ -12803,33 +12495,6 @@
                 },
                 "prev_hash": {
                     "description": "SHA-256 hash of the previous entry",
-                    "type": "string"
-                }
-            }
-        },
-        "github_com_meshsat_meshsat-hub_internal_store.BondGroup": {
-            "type": "object",
-            "properties": {
-                "bridge_id": {
-                    "type": "string"
-                },
-                "cost_budget": {
-                    "type": "number"
-                },
-                "created_at": {
-                    "type": "string"
-                },
-                "id": {
-                    "type": "string"
-                },
-                "label": {
-                    "type": "string"
-                },
-                "members": {
-                    "description": "JSON array of interface IDs",
-                    "type": "string"
-                },
-                "tenant_id": {
                     "type": "string"
                 }
             }
@@ -14590,23 +14255,6 @@
                 }
             }
         },
-        "internal_api.createBondGroupRequest": {
-            "type": "object",
-            "properties": {
-                "cost_budget": {
-                    "type": "number"
-                },
-                "label": {
-                    "type": "string"
-                },
-                "members": {
-                    "type": "array",
-                    "items": {
-                        "type": "string"
-                    }
-                }
-            }
-        },
         "internal_api.createConfigRequest": {
             "type": "object",
             "properties": {
@@ -15992,23 +15640,6 @@
                 },
                 "recorded_at": {
                     "type": "string"
-                }
-            }
-        },
-        "internal_api.updateBondGroupRequest": {
-            "type": "object",
-            "properties": {
-                "cost_budget": {
-                    "type": "number"
-                },
-                "label": {
-                    "type": "string"
-                },
-                "members": {
-                    "type": "array",
-                    "items": {
-                        "type": "string"
-                    }
                 }
             }
         },

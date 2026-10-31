@@ -520,22 +520,6 @@ func (m *mockStore) ListExpiringCredentials(context.Context, time.Time) ([]store
 	return nil, nil
 }
 
-func (m *mockStore) CreateBondGroup(context.Context, string, string, *store.BondGroup) error {
-	return nil
-}
-func (m *mockStore) GetBondGroup(_ context.Context, _, _, _ string) (*store.BondGroup, error) {
-	return nil, nil
-}
-func (m *mockStore) GetBondGroups(context.Context, string, string) ([]store.BondGroup, error) {
-	return nil, nil
-}
-func (m *mockStore) UpdateBondGroup(context.Context, string, string, *store.BondGroup) error {
-	return nil
-}
-func (m *mockStore) DeleteBondGroup(context.Context, string, string, string) error {
-	return nil
-}
-
 // --- Dispatch claims + dead man's switch (MESHSAT-910) ---
 func (m *mockStore) ClaimOnce(context.Context, string) (bool, error)                { return true, nil }
 func (m *mockStore) PurgeClaims(context.Context, time.Time) (int64, error)          { return 0, nil }

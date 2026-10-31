@@ -398,8 +398,8 @@ func main() {
 	}
 	// Services that must run on exactly one replica (MESHSAT-910): started
 	// on leadership acquisition, stopped on loss. Per-replica services (MQTT
-	// subscribers, routing, in-memory caches, MPTCP monitor, HeMB reaper)
-	// stay outside this set.
+	// subscribers, routing, in-memory caches, MPTCP monitor) stay outside
+	// this set.
 	leaderSingletons := leader.NewSingletons()
 	if kl, ok := leaderElector.(*leader.KubeLease); ok {
 		checker.AddInfoProbe("leader_election", func(_ context.Context) error { return kl.LastError() })
@@ -725,15 +725,11 @@ func main() {
 	// Bridge lifecycle subscriber: auto-provisions bridges and devices from MQTT birth/death/health.
 	var bridgeCommander *bridge.Commander
 	var bridgeSub *bridge.Subscriber
-	var hembReassemblyBuf *protocol.HeMBReassemblyBuffer
 	bridgeSub = bridge.NewSubscriber(msgBus, dataStore, tenants)
 	// Health-report row writes are leader-only (MESHSAT-1155); the Noop
 	// elector in standalone mode answers true.
 	bridgeSub.SetLeader(leaderElector)
 
-	// HeMB reassembly: decode bonded RLNC-coded symbols from bridges.
-	hembReassemblyBuf = protocol.NewHeMBReassemblyBuffer(nil) // deliverFn set via subscriber handler
-	bridgeSub.SetHeMBReassembler(hembReassemblyBuf)
 	// Every fresh birth is answered on the bridge's retained hub/caps (HeMB-NG C10): sos_v2
 	// tells the bridge to send its SOS with its identity.
 	bridgeSub.SetSOSV2(cfg.SOSV2Enabled)
@@ -749,26 +745,6 @@ func main() {
 		slog.Error("bridge: failed to start commander", "error", err)
 	}
 	defer bridgeCommander.Stop()
-
-	// HeMB reassembly reaper: purge stale streams and update metrics.
-	go func() {
-		ticker := time.NewTicker(60 * time.Second)
-		defer ticker.Stop()
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case <-ticker.C:
-				if n := hembReassemblyBuf.Reap(); n > 0 {
-					slog.Info("hemb: reaped stale streams", "count", n)
-					metrics.HeMBStaleStreamsPurged.Add(float64(n))
-				}
-				stats := hembReassemblyBuf.Stats()
-				metrics.HeMBActiveStreams.Set(float64(stats.ActiveStreams))
-				metrics.HeMBReassemblyPending.Set(float64(stats.GenerationsPending))
-			}
-		}
-	}()
 
 	// Bridge reaper: marks bridges offline when last_seen exceeds timeout.
 	if cfg.BridgeOfflineTimeout > 0 {
@@ -1291,7 +1267,7 @@ func main() {
 	//
 	// With the upstream-compatible node on (MESHSAT-1555) the node owns the
 	// TCP leg and the MQTT topic and sees every frame first; what it declines
-	// (MeshSat-private contexts: time sync, custody, HeMB) falls through to
+	// (MeshSat-private contexts: time sync, custody) falls through to
 	// the legacy handler, every accepted announce is mirrored into the legacy
 	// router, and the legacy relay keeps a "tcp" interface that broadcasts to
 	// every bridge on stunnel as before. The listener opens on the leader only
@@ -1555,7 +1531,6 @@ func main() {
 	rbHandler.SetDeadman(deadmanMonitor)
 	rbHandler.SetMSVQSC(msvqscDecoder)
 	rbHandler.SetStore(dataStore)
-	rbHandler.SetHeMBReassembler(hembReassemblyBuf)
 
 	// Rock7 MT sender (for sending messages to devices via Iridium).
 	var rock7Client *rock7.Client
@@ -1712,7 +1687,6 @@ func main() {
 	clHandler.SetDeadman(deadmanMonitor)
 	clHandler.SetMSVQSC(msvqscDecoder)
 	clHandler.SetStore(dataStore)
-	clHandler.SetHeMBReassembler(hembReassemblyBuf)
 	clHandler.SetResolver(thingResolver)
 	// A bridge's birth declares which of its satellite chains seal; those
 	// modems' payloads the Hub cannot decrypt stay opaque (HeMB-NG S3-2).
@@ -2442,7 +2416,6 @@ func main() {
 			h.SetMSVQSC(msvqscDecoder)
 			h.SetDeadman(deadmanMonitor)
 			h.SetAudit(auditSvc)
-			h.SetHeMBReassembler(hembReassemblyBuf)
 			if personLane != nil {
 				h.SetPersonLane(personLane)
 			}
@@ -3159,20 +3132,6 @@ func main() {
 			r.Get("/api/v1/directory/export/vcard", directoryHandler.ExportVCard)
 			slog.Info("directory REST registered")
 		}
-	}
-
-	// HeMB bond group management (MESHSAT-487)
-	bondGroupHandler := api.NewBondGroupHandler(dataStore, msgBus)
-	r.Get("/api/bridges/{bridgeID}/bond-groups", bondGroupHandler.ListBondGroups)
-	r.With(hubauth.RequireRole(hubauth.RoleOperator)).Post("/api/bridges/{bridgeID}/bond-groups", bondGroupHandler.CreateBondGroup)
-	r.Get("/api/bridges/{bridgeID}/bond-groups/{groupID}", bondGroupHandler.GetBondGroup)
-	r.With(hubauth.RequireRole(hubauth.RoleOperator)).Put("/api/bridges/{bridgeID}/bond-groups/{groupID}", bondGroupHandler.UpdateBondGroup)
-	r.With(hubauth.RequireRole(hubauth.RoleOperator)).Delete("/api/bridges/{bridgeID}/bond-groups/{groupID}", bondGroupHandler.DeleteBondGroup)
-
-	// HeMB reassembly stats (MESHSAT-489)
-	if hembReassemblyBuf != nil {
-		hembStatsHandler := api.NewHeMBStatsHandler(hembReassemblyBuf)
-		r.Get("/api/hemb/stats", hembStatsHandler.GetStats)
 	}
 
 	// Platform settings. PLATFORM ADMIN ONLY, and the name is the reason: these

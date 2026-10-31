@@ -1571,4 +1571,10 @@ ALTER TABLE tenants ADD COLUMN IF NOT EXISTS crew_chat_satellite BOOLEAN NOT NUL
 ALTER TABLE tenants ADD COLUMN IF NOT EXISTS crew_chat_sms_off BOOLEAN NOT NULL DEFAULT FALSE;
 ALTER TABLE tenants ADD COLUMN IF NOT EXISTS crew_chat_force_bearer VARCHAR(16) NOT NULL DEFAULT '';
 `},
+	// MESHSAT-1763, HeMB v1 (RLNC bonding) is gone from the Hub and the
+	// clients; its bond groups go with it. Version 1 keeps the CREATE (it is
+	// checksummed). Mirrored in sqlite.
+	{Version: 54, Name: "drop hemb bond groups", SQL: `
+DROP TABLE IF EXISTS bond_groups;
+`},
 }

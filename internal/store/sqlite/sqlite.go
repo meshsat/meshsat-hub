@@ -750,6 +750,10 @@ var lateAlterMigrations = []string{
 	`ALTER TABLE tenants ADD COLUMN crew_chat_satellite INTEGER NOT NULL DEFAULT 0`,
 	`ALTER TABLE tenants ADD COLUMN crew_chat_sms_off INTEGER NOT NULL DEFAULT 0`,
 	`ALTER TABLE tenants ADD COLUMN crew_chat_force_bearer TEXT NOT NULL DEFAULT ''`,
+	// MESHSAT-1763: HeMB v1 is gone, and its bond groups with it; mirrors
+	// postgres migration 54. The CREATE above stays (append-only), so a
+	// SQLite Hub makes the empty table at each start and drops it here.
+	`DROP TABLE IF EXISTS bond_groups`,
 }
 
 // --- Devices ---

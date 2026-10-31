@@ -897,7 +897,6 @@ function certExpiryStatus(b) {
             <div v-if="parseHealth(selected).battery_pct !== undefined"><dt class="ms-label">Battery</dt><dd class="mt-0.5 ms-num" :class="parseHealth(selected).battery_pct < 15 ? 'text-ms-warning' : 'text-ms-text'">{{ Math.round(parseHealth(selected).battery_pct) }}%</dd></div>
             <div v-if="parseHealth(selected).burst_queue"><dt class="ms-label">Burst queue</dt><dd class="mt-0.5 ms-num text-ms-text">{{ parseHealth(selected).burst_queue.pending }} waiting</dd></div>
             <div v-if="parseHealth(selected).reticulum"><dt class="ms-label">Reticulum</dt><dd class="mt-0.5 ms-num text-ms-text">{{ parseHealth(selected).reticulum.routes }} routes, {{ parseHealth(selected).reticulum.links }} links</dd></div>
-            <div v-if="parseHealth(selected).hemb"><dt class="ms-label">Bonding</dt><dd class="mt-0.5 ms-num text-ms-text">{{ parseHealth(selected).hemb.active_bond_groups }} groups, {{ parseHealth(selected).hemb.generations_decoded }} decoded, {{ parseHealth(selected).hemb.generations_failed }} failed</dd></div>
           </dl>
         </div>
 

@@ -29,7 +29,6 @@ import (
 	hubmw "github.com/meshsat/meshsat-hub/internal/middleware"
 	hubmqtt "github.com/meshsat/meshsat-hub/internal/mqtt"
 	"github.com/meshsat/meshsat-hub/internal/msvqsc"
-	"github.com/meshsat/meshsat-hub/internal/protocol"
 	"github.com/meshsat/meshsat-hub/internal/rnswire"
 	"github.com/meshsat/meshsat-hub/internal/store"
 )
@@ -102,21 +101,20 @@ type WebhookPositionMessage struct {
 
 // WebhookHandler handles Cloudloop LingoMO webhook POST requests.
 type WebhookHandler struct {
-	tenants         *tenancy.Resolver // device → tenant for topic namespaces; nil = default tenant
-	sosRuns         bridge.SOSRuns    // C10 SOS frames 0x07/0x08; nil = the old path only
-	crewChat        bridge.CrewChat   // MESHSAT-1744 crew chat frames 0x43/0x44; nil = logged and dropped
-	mqtt            bus.MessageBus
-	audit           *audit.Service
-	dedup           dedup.Dedup
-	reassembler     *fragment.Reassembler
-	keyStore        *hubcrypto.KeyStore
-	deadman         *deadman.Monitor
-	msvqsc          *msvqsc.Decoder
-	egress          codec.EgressDeclarations // which modems declared a sealing chain (HeMB-NG S3-2)
-	retIface        reticulumReceiver
-	hembReassembler interface{ AddRawFrame([]byte) ([]byte, error) }
-	resolver        *ThingResolver
-	allowedIPs      []string
+	tenants     *tenancy.Resolver // device → tenant for topic namespaces; nil = default tenant
+	sosRuns     bridge.SOSRuns    // C10 SOS frames 0x07/0x08; nil = the old path only
+	crewChat    bridge.CrewChat   // MESHSAT-1744 crew chat frames 0x43/0x44; nil = logged and dropped
+	mqtt        bus.MessageBus
+	audit       *audit.Service
+	dedup       dedup.Dedup
+	reassembler *fragment.Reassembler
+	keyStore    *hubcrypto.KeyStore
+	deadman     *deadman.Monitor
+	msvqsc      *msvqsc.Decoder
+	egress      codec.EgressDeclarations // which modems declared a sealing chain (HeMB-NG S3-2)
+	retIface    reticulumReceiver
+	resolver    *ThingResolver
+	allowedIPs  []string
 	// expected is observe-only: it never refuses a request. See source.go.
 	expected expectedSources
 	token    string                // platform webhook token (default tenant); required when allowedIPs is "*" and no accounts
@@ -235,11 +233,6 @@ func bearerOf(source string) string {
 // SetReticulumIface attaches a Reticulum interface for forwarding raw packets.
 func (h *WebhookHandler) SetReticulumIface(iface reticulumReceiver) {
 	h.retIface = iface
-}
-
-// SetHeMBReassembler attaches a HeMB reassembly buffer for inbound coded symbols.
-func (h *WebhookHandler) SetHeMBReassembler(r interface{ AddRawFrame([]byte) ([]byte, error) }) {
-	h.hembReassembler = r
 }
 
 // SetAllowedIPs sets the IP allowlist for webhook requests.
@@ -475,19 +468,6 @@ func (h *WebhookHandler) processLingoMO(ctx context.Context, mo *LingoMO, remote
 			slog.Info("cloudloop: duplicate MO suppressed", "imei", imei, "id", mo.ID)
 			return "duplicate"
 		}
-	}
-
-	// HeMB frame detection — intercept before other processing.
-	if protocol.IsHeMBFrame(rawBytes) {
-		slog.Info("cloudloop: HeMB frame detected", "imei", imei, "bytes", len(rawBytes))
-		if h.hembReassembler != nil {
-			if decoded, err := h.hembReassembler.AddRawFrame(rawBytes); err != nil {
-				slog.Warn("cloudloop: HeMB reassembly error", "error", err, "imei", imei)
-			} else if decoded != nil {
-				slog.Info("cloudloop: HeMB decoded", "imei", imei, "payload_bytes", len(decoded))
-			}
-		}
-		return "hemb_symbol"
 	}
 
 	// Check if this is a bridge satellite uplink message (magic 0x4D53 "MS").

@@ -17,7 +17,6 @@ import (
 	"time"
 
 	"github.com/meshsat/meshsat-hub/internal/bus"
-	"github.com/meshsat/meshsat-hub/internal/metrics"
 	"github.com/meshsat/meshsat-hub/internal/protocol"
 	"github.com/meshsat/meshsat-hub/internal/sos"
 	"github.com/meshsat/meshsat-hub/internal/store"
@@ -31,14 +30,6 @@ type ReticulumRouter interface {
 	RefreshRoute(destHashHex string) bool
 }
 
-// HeMBReassembler is the interface for the HeMB reassembly buffer used by the
-// bridge subscriber to reassemble bonded traffic from bridges.
-type HeMBReassembler interface {
-	AddSymbol(streamID uint8, bearerIndex uint8, sym protocol.HeMBCodedSymbol) ([]byte, error)
-	Reap() int
-	Stats() protocol.HeMBReassemblyStats
-}
-
 // Subscriber listens on bridge lifecycle MQTT topics and auto-provisions
 // bridge and device records in the Hub store.
 type Subscriber struct {
@@ -49,10 +40,9 @@ type Subscriber struct {
 	retRouter          ReticulumRouter
 	caCertPool         *x509.CertPool // bridge CA for birth signature verification
 	birthSignatureMode string         // "warn" (default) or "enforce"
-	hembReassembler    HeMBReassembler
-	quota              QuotaChecker  // nil = no subscription ceiling
-	leader             LeaderChecker // nil = every replica writes health reports
-	sosV2              *bool         // nil = no hub/caps; else whether caps say sos_v2 (C10)
+	quota              QuotaChecker   // nil = no subscription ceiling
+	leader             LeaderChecker  // nil = every replica writes health reports
+	sosV2              *bool          // nil = no hub/caps; else whether caps say sos_v2 (C10)
 
 	// Births not yet written in full (HeMB-NG S3-2), and the loop that
 	// writes them again; see egress_pending.go.
@@ -152,13 +142,6 @@ func (s *Subscriber) SetCertAuthority(ca *CertAuthority) {
 	s.caCertPool = pool
 }
 
-// SetHeMBReassembler attaches a HeMB reassembly buffer so that bonded
-// RLNC-coded symbols from bridges are decoded and the resulting payloads
-// are re-published to the standard MO pipeline.
-func (s *Subscriber) SetHeMBReassembler(r HeMBReassembler) {
-	s.hembReassembler = r
-}
-
 // SetBirthSignatureMode configures how unsigned births are handled.
 // "warn" (default): accept unsigned births, log a warning, mark bridge as unverified.
 // "enforce": reject unsigned births entirely.
@@ -183,14 +166,6 @@ func (s *Subscriber) Start() error {
 		{protocol.SubDeviceDeath, s.handleDeviceDeath},
 	}
 
-	// Subscribe to HeMB bonded symbols if a reassembler is configured.
-	if s.hembReassembler != nil {
-		subs = append(subs, struct {
-			topic   string
-			handler func(string, []byte)
-		}{protocol.SubBridgeHeMB, s.handleHeMBSymbol})
-	}
-
 	for _, sub := range subs {
 		for _, filter := range hubmqtt.DualFilters(sub.topic) {
 			if err := s.mqtt.Subscribe(filter, 1, sub.handler); err != nil {
@@ -205,7 +180,6 @@ func (s *Subscriber) Start() error {
 	slog.Info("bridge: subscriber started",
 		"tenant", s.tenants.Default(),
 		"topics", len(subs),
-		"hemb", s.hembReassembler != nil,
 	)
 	return nil
 }
@@ -612,91 +586,6 @@ func (s *Subscriber) handleDeviceDeath(topic string, payload []byte) {
 		"bridge", bridgeID,
 		"device", deviceID,
 		"reason", death.Reason,
-	)
-}
-
-// handleHeMBSymbol processes a single HeMB RLNC-coded symbol from a bridge.
-// When the reassembly buffer collects K independent symbols for a generation,
-// it decodes the original payload and re-publishes it to the bridge's MO topic.
-func (s *Subscriber) handleHeMBSymbol(topic string, payload []byte) {
-	if s.hembReassembler == nil || len(payload) == 0 {
-		return
-	}
-
-	bridgeID := extractBridgeIDFromTopic(topic)
-	if bridgeID == "" {
-		slog.Debug("hemb: symbol on unparseable topic", "topic", topic)
-		return
-	}
-
-	if !protocol.IsHeMBFrame(payload) {
-		slog.Debug("hemb: payload is not a valid HeMB frame",
-			"bridge", bridgeID, "len", len(payload))
-		return
-	}
-
-	sym, streamID, bearerIdx, err := protocol.ParseHeMBSymbol(payload)
-	if err != nil {
-		slog.Debug("hemb: failed to parse symbol",
-			"bridge", bridgeID, "error", err)
-		return
-	}
-
-	metrics.HeMBSymbolsReceived.WithLabelValues(bridgeID).Inc()
-
-	decoded, err := s.hembReassembler.AddSymbol(streamID, bearerIdx, sym)
-	if err != nil {
-		slog.Warn("hemb: reassembly error",
-			"bridge", bridgeID,
-			"stream", streamID,
-			"gen", sym.GenID,
-			"error", err,
-		)
-		return
-	}
-
-	if decoded == nil {
-		return
-	}
-
-	metrics.HeMBGenerationsDecoded.WithLabelValues(bridgeID).Inc()
-
-	// Generation fully decoded — re-publish the reassembled payload to the
-	// bridge's MO decoded topic so it flows through the standard pipeline
-	// (persistence, WebSocket broadcast, routing, etc.).
-	// Both replicas reassemble every generation (the buffer is in-memory and
-	// per-process), so without a claim the decoded payload is published twice
-	// and every mo/decoded consumer sees it twice (MESHSAT-1120). The key is
-	// what both replicas computed identically: the stream and generation.
-	if s.store != nil {
-		claimCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		won, err := s.store.ClaimOnce(claimCtx, fmt.Sprintf("hemb:%s:%d:%d", bridgeID, streamID, sym.GenID))
-		cancel()
-		if err != nil {
-			// Fail open: a duplicated message is a nuisance, a lost one is gone.
-			slog.Warn("hemb: claim failed, publishing anyway", "bridge", bridgeID, "gen", sym.GenID, "error", err)
-		} else if !won {
-			slog.Debug("hemb: generation already published by another replica", "bridge", bridgeID, "gen", sym.GenID)
-			return
-		}
-	}
-
-	moTopic := protocol.TopicDeviceMessage(bridgeID)
-	if err := s.mqtt.Publish(moTopic, 1, false, decoded); err != nil {
-		slog.Error("hemb: failed to publish reassembled payload",
-			"bridge", bridgeID,
-			"topic", moTopic,
-			"error", err,
-		)
-		return
-	}
-
-	slog.Info("hemb: generation decoded",
-		"bridge", bridgeID,
-		"stream", streamID,
-		"gen", sym.GenID,
-		"k", sym.K,
-		"payload_bytes", len(decoded),
 	)
 }
 

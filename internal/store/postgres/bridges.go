@@ -10,7 +10,7 @@ import (
 	"github.com/meshsat/meshsat-hub/internal/store"
 )
 
-// Bridges, bridge MQTT credentials and HeMB bond groups. Semantics follow
+// Bridges and bridge MQTT credentials. Semantics follow
 // internal/store/mariadb exactly (same not-found errors, ordering, tenant
 // scoping, and the same set of columns a birth upsert is allowed to touch).
 
@@ -357,67 +357,4 @@ func (d *DB) SetBridgeCertificate(ctx context.Context, tenantID, bridgeID, certP
 // MQTT username, including the password hash, for ACL/auth file generation.
 func (d *DB) ListBridgesWithCredentials(ctx context.Context) ([]*store.Bridge, error) {
 	return d.queryBridges(ctx, true, "WHERE mqtt_username <> '' ORDER BY bridge_id")
-}
-
-// --- HeMB bond groups (MESHSAT-429) ---
-
-const bondGroupColumns = "id, tenant_id, bridge_id, label, members, cost_budget, created_at"
-
-// scanBondGroup formats created_at the way database/sql does when the MariaDB
-// driver hands a time.Time to the struct's string field: RFC3339Nano in UTC.
-func scanBondGroup(s rowScanner) (*store.BondGroup, error) {
-	var g store.BondGroup
-	var createdAt time.Time
-	if err := s.Scan(&g.ID, &g.TenantID, &g.BridgeID, &g.Label, &g.Members, &g.CostBudget, &createdAt); err != nil {
-		return nil, err
-	}
-	g.CreatedAt = createdAt.UTC().Format(time.RFC3339Nano)
-	return &g, nil
-}
-
-func (d *DB) CreateBondGroup(ctx context.Context, tenantID, bridgeID string, g *store.BondGroup) error {
-	_, err := d.db.ExecContext(ctx,
-		"INSERT INTO bond_groups (id, tenant_id, bridge_id, label, members, cost_budget) VALUES ($1, $2, $3, $4, $5, $6)",
-		g.ID, tenantID, bridgeID, g.Label, g.Members, g.CostBudget)
-	return err
-}
-
-func (d *DB) GetBondGroups(ctx context.Context, tenantID, bridgeID string) ([]store.BondGroup, error) {
-	rows, err := d.db.QueryContext(ctx,
-		"SELECT "+bondGroupColumns+" FROM bond_groups WHERE tenant_id=$1 AND bridge_id=$2 ORDER BY created_at ASC",
-		tenantID, bridgeID)
-	if err != nil {
-		return nil, err
-	}
-	defer func() { _ = rows.Close() }()
-	var groups []store.BondGroup
-	for rows.Next() {
-		g, err := scanBondGroup(rows)
-		if err != nil {
-			return nil, err
-		}
-		groups = append(groups, *g)
-	}
-	return groups, rows.Err()
-}
-
-func (d *DB) GetBondGroup(ctx context.Context, tenantID, bridgeID, groupID string) (*store.BondGroup, error) {
-	row := d.db.QueryRowContext(ctx,
-		"SELECT "+bondGroupColumns+" FROM bond_groups WHERE tenant_id=$1 AND bridge_id=$2 AND id=$3",
-		tenantID, bridgeID, groupID)
-	return scanBondGroup(row)
-}
-
-func (d *DB) UpdateBondGroup(ctx context.Context, tenantID, bridgeID string, g *store.BondGroup) error {
-	_, err := d.db.ExecContext(ctx,
-		"UPDATE bond_groups SET label=$1, members=$2, cost_budget=$3 WHERE tenant_id=$4 AND bridge_id=$5 AND id=$6",
-		g.Label, g.Members, g.CostBudget, tenantID, bridgeID, g.ID)
-	return err
-}
-
-func (d *DB) DeleteBondGroup(ctx context.Context, tenantID, bridgeID, groupID string) error {
-	_, err := d.db.ExecContext(ctx,
-		"DELETE FROM bond_groups WHERE tenant_id=$1 AND bridge_id=$2 AND id=$3",
-		tenantID, bridgeID, groupID)
-	return err
 }

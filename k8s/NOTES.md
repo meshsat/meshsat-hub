@@ -256,10 +256,9 @@ Argo automation paused:
 **Streams.** `mqtt.stream_replicas: 3` only governs streams at creation, so the five `$MQTT_*`
 streams are recreated at R3 by the adapter on the first client connect. Check with
 `/jsz?streams=1` that each has three replicas; a stream created before quorum would silently
-stay R1. Of the retained messages only the bond-group config (`/api/bridges/{id}/bond-groups`)
-does not regenerate itself: mptcp status re-publishes every 30 s, reticulum route hints every
-60 s, credits hourly, and bridge birth messages arrive on reconnect. Restore bond groups by
-re-saving them through the API, never by hand-publishing to MQTT.
+stay R1. Every retained message regenerates itself: mptcp status re-publishes every 30 s,
+reticulum route hints every 60 s, credits hourly, and bridge birth messages arrive on reconnect.
+(The HeMB bond-group config was the one exception; HeMB v1 left the Hub in MESHSAT-1763.)
 
 ## KeyDB (MESHSAT-711, 2026-09-08)
 

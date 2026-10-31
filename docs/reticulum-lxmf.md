@@ -34,7 +34,7 @@ survive a restart, so a reloaded path is usable again when the peer announces ag
 | `mqtt_rns` | the legacy Reticulum MQTT topic `meshsat/reticulum/packet` | bridges over the bus |
 
 Every frame on those goes to the node first. What it declines from `tcpb_*` or `mqtt_rns`
-(MeshSat-private contexts: time sync, custody, HeMB, route hints) falls through to the legacy
+(MeshSat-private contexts: time sync, custody, route hints) falls through to the legacy
 `internal/reticulum` handler unchanged, every announce accepted there is mirrored into the legacy
 router so bridge route tables and hints keep working, and the legacy relay keeps a `tcp` interface
 that broadcasts to every bridge on stunnel as before. **Nothing from `tcpp_*` reaches the legacy

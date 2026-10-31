@@ -517,15 +517,6 @@ definitions:
       stamp_cost:
         type: integer
     type: object
-  github_com_meshsat_meshsat-hub_internal_protocol.HeMBReassemblyStats:
-    properties:
-      active_streams:
-        type: integer
-      generations_decoded:
-        type: integer
-      generations_pending:
-        type: integer
-    type: object
   github_com_meshsat_meshsat-hub_internal_reticulum.PathHandlerStatsSnapshot:
     properties:
       deduplicated:
@@ -853,24 +844,6 @@ definitions:
         type: string
       prev_hash:
         description: SHA-256 hash of the previous entry
-        type: string
-    type: object
-  github_com_meshsat_meshsat-hub_internal_store.BondGroup:
-    properties:
-      bridge_id:
-        type: string
-      cost_budget:
-        type: number
-      created_at:
-        type: string
-      id:
-        type: string
-      label:
-        type: string
-      members:
-        description: JSON array of interface IDs
-        type: string
-      tenant_id:
         type: string
     type: object
   github_com_meshsat_meshsat-hub_internal_store.Bridge:
@@ -2248,17 +2221,6 @@ definitions:
       status:
         type: string
     type: object
-  internal_api.createBondGroupRequest:
-    properties:
-      cost_budget:
-        type: number
-      label:
-        type: string
-      members:
-        items:
-          type: string
-        type: array
-    type: object
   internal_api.createConfigRequest:
     properties:
       comment:
@@ -3289,17 +3251,6 @@ definitions:
         type: array
       recorded_at:
         type: string
-    type: object
-  internal_api.updateBondGroupRequest:
-    properties:
-      cost_budget:
-        type: number
-      label:
-        type: string
-      members:
-        items:
-          type: string
-        type: array
     type: object
   internal_api.updateTemplateRequest:
     properties:
@@ -5246,188 +5197,6 @@ paths:
       summary: Pre-register a bridge
       tags:
       - bridges
-  /api/bridges/{bridgeID}/bond-groups:
-    get:
-      parameters:
-      - description: Bridge ID
-        in: path
-        name: bridgeID
-        required: true
-        type: string
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            items:
-              $ref: '#/definitions/github_com_meshsat_meshsat-hub_internal_store.BondGroup'
-            type: array
-        "404":
-          description: Not Found
-          schema:
-            additionalProperties:
-              type: string
-            type: object
-        "500":
-          description: Internal Server Error
-          schema:
-            additionalProperties:
-              type: string
-            type: object
-      summary: List bond groups for a bridge
-      tags:
-      - bond-groups
-    post:
-      consumes:
-      - application/json
-      parameters:
-      - description: Bridge ID
-        in: path
-        name: bridgeID
-        required: true
-        type: string
-      - description: Bond group data
-        in: body
-        name: body
-        required: true
-        schema:
-          $ref: '#/definitions/internal_api.createBondGroupRequest'
-      produces:
-      - application/json
-      responses:
-        "201":
-          description: Created
-          schema:
-            $ref: '#/definitions/github_com_meshsat_meshsat-hub_internal_store.BondGroup'
-        "400":
-          description: Bad Request
-          schema:
-            additionalProperties:
-              type: string
-            type: object
-        "404":
-          description: Not Found
-          schema:
-            additionalProperties:
-              type: string
-            type: object
-        "500":
-          description: Internal Server Error
-          schema:
-            additionalProperties:
-              type: string
-            type: object
-      summary: Create bond group
-      tags:
-      - bond-groups
-  /api/bridges/{bridgeID}/bond-groups/{groupID}:
-    delete:
-      parameters:
-      - description: Bridge ID
-        in: path
-        name: bridgeID
-        required: true
-        type: string
-      - description: Bond group ID
-        in: path
-        name: groupID
-        required: true
-        type: string
-      responses:
-        "204":
-          description: No Content
-        "404":
-          description: Not Found
-          schema:
-            additionalProperties:
-              type: string
-            type: object
-        "500":
-          description: Internal Server Error
-          schema:
-            additionalProperties:
-              type: string
-            type: object
-      summary: Delete bond group
-      tags:
-      - bond-groups
-    get:
-      parameters:
-      - description: Bridge ID
-        in: path
-        name: bridgeID
-        required: true
-        type: string
-      - description: Bond group ID
-        in: path
-        name: groupID
-        required: true
-        type: string
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/github_com_meshsat_meshsat-hub_internal_store.BondGroup'
-        "404":
-          description: Not Found
-          schema:
-            additionalProperties:
-              type: string
-            type: object
-      summary: Get bond group
-      tags:
-      - bond-groups
-    put:
-      consumes:
-      - application/json
-      parameters:
-      - description: Bridge ID
-        in: path
-        name: bridgeID
-        required: true
-        type: string
-      - description: Bond group ID
-        in: path
-        name: groupID
-        required: true
-        type: string
-      - description: Fields to update
-        in: body
-        name: body
-        required: true
-        schema:
-          $ref: '#/definitions/internal_api.updateBondGroupRequest'
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/github_com_meshsat_meshsat-hub_internal_store.BondGroup'
-        "400":
-          description: Bad Request
-          schema:
-            additionalProperties:
-              type: string
-            type: object
-        "404":
-          description: Not Found
-          schema:
-            additionalProperties:
-              type: string
-            type: object
-        "500":
-          description: Internal Server Error
-          schema:
-            additionalProperties:
-              type: string
-            type: object
-      summary: Update bond group
-      tags:
-      - bond-groups
   /api/bridges/{id}:
     delete:
       description: Removes the bridge, its broker login and its unclaimed setup code.
@@ -7669,18 +7438,6 @@ paths:
       summary: Geofence platform policy
       tags:
       - geofences
-  /api/hemb/stats:
-    get:
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/github_com_meshsat_meshsat-hub_internal_protocol.HeMBReassemblyStats'
-      summary: Get HeMB reassembly statistics
-      tags:
-      - hemb
   /api/integrations:
     get:
       description: Returns the enabled/connected status of all inbound message channels

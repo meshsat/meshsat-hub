@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/meshsat/meshsat-hub/internal/fragment"
-	"github.com/meshsat/meshsat-hub/internal/protocol"
 	"github.com/meshsat/meshsat-hub/internal/rnswire"
 )
 
@@ -74,7 +73,7 @@ func TestWebhook_ReticulumOnRawIMTTopicIsOpaqueAndKeepsTheWire(t *testing.T) {
 			h.SetReassembler(fragment.NewReassembler(time.Minute))
 			mo := rnsMO(imei, IMTTopicRaw, payload, "00000000-0000-4000-8000-0000000000"+name[:2])
 			status := h.ProcessLingoMO(context.Background(), mo)
-			if status == "hemb_symbol" || status == "fragment_buffered" || status == "fragment_error" {
+			if status == "fragment_buffered" || status == "fragment_error" {
 				t.Fatalf("status = %q: the packet was taken for something else and never routed", status)
 			}
 			raw, ok := b.msgs["meshsat/"+imei+"/mo/decoded"]
@@ -119,8 +118,9 @@ func TestWebhook_IMTTopicIsCarriedOnEveryIMTMessage(t *testing.T) {
 }
 
 // One in 256 arbitrary payloads used to satisfy IsHeMBFrame through the
-// compact CRC-8 fallback and vanish as a "HeMB symbol" before routing. A
-// Reticulum packet built to hit that coincidence must still be routed.
+// compact CRC-8 fallback and vanish as a "HeMB symbol" before routing. The
+// HeMB check is gone (MESHSAT-1763); a Reticulum packet built to hit that
+// coincidence must still be routed.
 func TestWebhook_ACRC8CoincidenceIsNotAHeMBFrame(t *testing.T) {
 	const imei = "300000000000023"
 	pkt := rnsAnnounceLike()
@@ -137,15 +137,9 @@ func TestWebhook_ACRC8CoincidenceIsNotAHeMBFrame(t *testing.T) {
 		}
 	}
 	pkt[7] = crc
-	if protocol.IsHeMBFrame(pkt) {
-		t.Fatal("IsHeMBFrame still claims a payload without the HM magic")
-	}
 	b := &ackBus{}
 	h := NewWebhookHandler(b)
 	status := h.ProcessLingoMO(context.Background(), rnsMO(imei, IMTTopicRaw, pkt, "00000000-0000-4000-8000-0000000000bb"))
-	if status == "hemb_symbol" {
-		t.Fatal("routed as a HeMB symbol")
-	}
 	if _, ok := b.msgs["meshsat/"+imei+"/mo/decoded"]; !ok {
 		t.Fatalf("status = %q, nothing on mo/decoded", status)
 	}

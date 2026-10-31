@@ -216,66 +216,6 @@ func TestMarkStaleBridgesOffline(t *testing.T) {
 	}
 }
 
-func TestBondGroups(t *testing.T) {
-	db := testDB(t)
-	ctx := context.Background()
-
-	if _, err := db.GetBondGroup(ctx, testTenant, "br-1", "missing"); !errors.Is(err, sql.ErrNoRows) {
-		t.Fatalf("missing bond group: want ErrNoRows, got %v", err)
-	}
-	g1 := &store.BondGroup{ID: "bg-1", Label: "Primary", Members: `["iridium","lora"]`, CostBudget: 1.5}
-	g2 := &store.BondGroup{ID: "bg-2", Label: "Backup", Members: `["lora"]`, CostBudget: 0.25}
-	if err := db.CreateBondGroup(ctx, testTenant, "br-1", g1); err != nil {
-		t.Fatalf("create: %v", err)
-	}
-	if err := db.CreateBondGroup(ctx, testTenant, "br-1", g2); err != nil {
-		t.Fatalf("create 2: %v", err)
-	}
-	// Same id on another bridge is allowed: PK is (tenant_id, bridge_id, id).
-	if err := db.CreateBondGroup(ctx, testTenant, "br-2", &store.BondGroup{ID: "bg-1", Label: "Other"}); err != nil {
-		t.Fatalf("create on second bridge: %v", err)
-	}
-	if err := db.CreateBondGroup(ctx, testTenant, "br-1", g1); err == nil {
-		t.Fatal("duplicate PK must fail")
-	}
-
-	got, err := db.GetBondGroup(ctx, testTenant, "br-1", "bg-1")
-	if err != nil {
-		t.Fatalf("get: %v", err)
-	}
-	if got.Label != "Primary" || got.Members != g1.Members || got.CostBudget != 1.5 || got.BridgeID != "br-1" || got.TenantID != testTenant {
-		t.Fatalf("round trip: %+v", got)
-	}
-	if _, err := time.Parse(time.RFC3339Nano, got.CreatedAt); err != nil {
-		t.Fatalf("CreatedAt %q is not RFC3339Nano: %v", got.CreatedAt, err)
-	}
-
-	list, err := db.GetBondGroups(ctx, testTenant, "br-1")
-	if err != nil || len(list) != 2 || list[0].ID != "bg-1" || list[1].ID != "bg-2" {
-		t.Fatalf("list: %+v %v", list, err)
-	}
-	if other, _ := db.GetBondGroups(ctx, "other", "br-1"); len(other) != 0 {
-		t.Fatalf("tenant scoping leaked: %+v", other)
-	}
-
-	g1.Label, g1.CostBudget = "Primary v2", 3
-	if err := db.UpdateBondGroup(ctx, testTenant, "br-1", g1); err != nil {
-		t.Fatalf("update: %v", err)
-	}
-	if got, _ = db.GetBondGroup(ctx, testTenant, "br-1", "bg-1"); got.Label != "Primary v2" || got.CostBudget != 3 {
-		t.Fatalf("update not applied: %+v", got)
-	}
-	if err := db.DeleteBondGroup(ctx, testTenant, "br-1", "bg-1"); err != nil {
-		t.Fatalf("delete: %v", err)
-	}
-	if list, _ = db.GetBondGroups(ctx, testTenant, "br-1"); len(list) != 1 || list[0].ID != "bg-2" {
-		t.Fatalf("after delete: %+v", list)
-	}
-	if got, err := db.GetBondGroup(ctx, testTenant, "br-2", "bg-1"); err != nil || got.Label != "Other" {
-		t.Fatalf("other bridge's group must survive: %+v %v", got, err)
-	}
-}
-
 func TestCostLedger(t *testing.T) {
 	db := testDB(t)
 	ctx := context.Background()

@@ -16,7 +16,6 @@ export const navGroups = [
     { to: '/fleet', name: 'fleet', label: 'Kits', icon: 'kits', keywords: 'bridges fleet add bridge provision qr' },
     { to: '/devices', name: 'devices', label: 'Devices', icon: 'devices', keywords: 'imei modem rockblock handheld' },
     { to: '/device-groups', name: 'deviceGroups', label: 'Groups', icon: 'groups', keywords: 'device groups' },
-    { to: '/bond-groups', name: 'bondGroups', label: 'Bonding', icon: 'bonding', keywords: 'hemb bond groups rlnc' },
   ]},
   { label: 'Safety', items: [
     { to: '/escalation', name: 'escalation', label: 'Alerts', icon: 'alerts', keywords: 'sos escalation chains acknowledge on call', badge: 'alerts' },

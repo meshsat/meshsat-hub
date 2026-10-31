@@ -96,7 +96,7 @@ func TestDeviceBirth_ExistingDeviceIsNotAQuotaQuestion(t *testing.T) {
 // TestQuotaIsNotOnAnyIngestPath in internal/quota.
 //
 // This package handles both registration (a birth for a device nobody has
-// seen) and ingest (health, telemetry, HeMB symbols, satellite-decoded
+// seen) and ingest (health, telemetry, satellite-decoded
 // traffic). The subscription ceiling belongs to the first and must never touch
 // the second, so this asserts by parsing the file that exactly one function
 // asks the question, and which one.

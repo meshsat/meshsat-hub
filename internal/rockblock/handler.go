@@ -29,7 +29,6 @@ import (
 	"github.com/meshsat/meshsat-hub/internal/fragment"
 	hubmqtt "github.com/meshsat/meshsat-hub/internal/mqtt"
 	"github.com/meshsat/meshsat-hub/internal/msvqsc"
-	"github.com/meshsat/meshsat-hub/internal/protocol"
 	"github.com/meshsat/meshsat-hub/internal/store"
 )
 
@@ -108,7 +107,6 @@ type Handler struct {
 	msvqsc           *msvqsc.Decoder
 	egress           codec.EgressDeclarations // which modems declared a sealing chain (HeMB-NG S3-2)
 	retIface         reticulumReceiver
-	hembReassembler  interface{ AddRawFrame([]byte) ([]byte, error) }
 	store            interface {
 		InsertMessage(ctx context.Context, tenantID string, m *store.Message) error
 		DeviceBridgeID(ctx context.Context, tenantID string, imei string) (string, error)
@@ -192,11 +190,6 @@ func (h *Handler) SetOOB(c OOBClassifier) { h.oob = c }
 // SetReticulumIface attaches a Reticulum interface for forwarding raw packets.
 func (h *Handler) SetReticulumIface(iface reticulumReceiver) {
 	h.retIface = iface
-}
-
-// SetHeMBReassembler attaches a HeMB reassembly buffer for inbound coded symbols.
-func (h *Handler) SetHeMBReassembler(r interface{ AddRawFrame([]byte) ([]byte, error) }) {
-	h.hembReassembler = r
 }
 
 func (h *Handler) publish(topic string, qos byte, retained bool, v any) {
@@ -366,22 +359,6 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			_ = json.NewEncoder(w).Encode(map[string]string{"status": "duplicate"})
 			return
 		}
-	}
-
-	// HeMB frame detection — intercept before other processing.
-	if protocol.IsHeMBFrame(rawBytes) {
-		slog.Info("rockblock: HeMB frame detected", "imei", imei, "bytes", len(rawBytes))
-		if h.hembReassembler != nil {
-			if decoded, err := h.hembReassembler.AddRawFrame(rawBytes); err != nil {
-				slog.Warn("rockblock: HeMB reassembly error", "error", err, "imei", imei)
-			} else if decoded != nil {
-				slog.Info("rockblock: HeMB decoded", "imei", imei, "payload_bytes", len(decoded))
-			}
-		}
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusOK)
-		_ = json.NewEncoder(w).Encode(map[string]string{"status": "hemb_symbol"})
-		return
 	}
 
 	// An OOB management frame (text "MS:...") is a reply to a command the Hub

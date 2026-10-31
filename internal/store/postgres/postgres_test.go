@@ -105,11 +105,18 @@ func TestSchemaHasEveryTable(t *testing.T) {
 		"api_keys", "device_configs", "escalation_chains", "alerts", "notification_prefs", "users",
 		"refresh_tokens", "device_keys", "device_wireguard", "routes", "system_config", "bridges",
 		"cost_ledger", "device_groups", "device_group_members", "message_templates", "alert_rules",
-		"bond_groups", "credentials", "schema_migrations"}
+		"credentials", "schema_migrations"}
 	for _, tbl := range want {
 		var n int
 		if err := db.rawDB.QueryRowContext(ctx, "SELECT count(*) FROM information_schema.tables WHERE table_schema = current_schema() AND table_name = $1", tbl).Scan(&n); err != nil || n != 1 {
 			t.Errorf("table %s missing (n=%d err=%v)", tbl, n, err)
+		}
+	}
+	// HeMB v1's bond groups were dropped in version 54 (MESHSAT-1763).
+	for _, tbl := range []string{"bond_groups"} {
+		var n int
+		if err := db.rawDB.QueryRowContext(ctx, "SELECT count(*) FROM information_schema.tables WHERE table_schema = current_schema() AND table_name = $1", tbl).Scan(&n); err != nil || n != 0 {
+			t.Errorf("table %s still there (n=%d err=%v)", tbl, n, err)
 		}
 	}
 }
