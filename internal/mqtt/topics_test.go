@@ -55,7 +55,7 @@ func TestBuildersAndFilters(t *testing.T) {
 	if TopicMODecodedFor("default", "1") != "meshsat/1/mo/decoded" || TopicMODecodedFor("t_x", "1") != "meshsat/t_x/1/mo/decoded" {
 		t.Error("TopicMODecodedFor")
 	}
-	if BridgeTopic("t_x", "b1", "config/hemb") != "meshsat/t_x/bridge/b1/config/hemb" {
+	if BridgeTopic("t_x", "b1", "config/keys") != "meshsat/t_x/bridge/b1/config/keys" {
 		t.Error("BridgeTopic")
 	}
 	if got := DualFilters("meshsat/+/mo/decoded"); !reflect.DeepEqual(got, []string{"meshsat/+/mo/decoded", "meshsat/+/+/mo/decoded"}) {

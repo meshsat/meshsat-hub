@@ -7,7 +7,7 @@ func TestIsHubTopic(t *testing.T) {
 		"meshsat/hub/sms/inbound":                true,
 		"meshsat/hub/oob/reply":                  true,
 		"meshsat/broadcast/tak/cot/in":           true,
-		"meshsat/bridge/kit-a/hemb":              true,
+		"meshsat/bridge/kit-a/sos":               true,
 		"meshsat/relay/kit-a/phone-1/up":         true,
 		"meshsat/android-001/sms/inbound":        false,
 		"meshsat/t-acme/android-001/sms/inbound": false,

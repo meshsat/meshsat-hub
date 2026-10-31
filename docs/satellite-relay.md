@@ -132,9 +132,9 @@ Unit: `internal/cloudloop/webhook_reticulum_test.go`, `internal/cloudloop/webhoo
 (`TestSatelliteRelayForwardsTheWireUntouched`), `internal/satrelay/sender_test.go` (the provider per
 recipient, the 270-byte SBD frame, refusals), `internal/rockblock/handler_sbd_relay_test.go` (an SBD
 MO's `wire`, through the real relay handler), `internal/cloudloop/webhook_reticulum_test.go`
-(`TestWebhook_ACRC8CoincidenceIsNotAHeMBFrame`: a packet whose byte 7 is the CRC-8 of bytes 0-6
-is routed; about one in 256 arbitrary payloads used to vanish as a "HeMB symbol" before routing,
-and the HeMB check left the Hub in MESHSAT-1763).
+(`TestWebhook_ACRC8CoincidenceIsRouted`: a packet whose byte 7 is the CRC-8 of bytes 0-6 is
+routed; about one in 256 arbitrary payloads used to vanish before routing until that check was
+removed, MESHSAT-1763).
 
 Live: with both kits' 9704 modems under open sky, one Reticulum announce from kit A must appear
 in kit B's `GET /api/rns/paths` with interface `iridium_imt_0`, and a packet with proof must

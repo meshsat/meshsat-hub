@@ -117,11 +117,10 @@ func TestWebhook_IMTTopicIsCarriedOnEveryIMTMessage(t *testing.T) {
 	}
 }
 
-// One in 256 arbitrary payloads used to satisfy IsHeMBFrame through the
-// compact CRC-8 fallback and vanish as a "HeMB symbol" before routing. The
-// HeMB check is gone (MESHSAT-1763); a Reticulum packet built to hit that
-// coincidence must still be routed.
-func TestWebhook_ACRC8CoincidenceIsNotAHeMBFrame(t *testing.T) {
+// One in 256 arbitrary payloads used to satisfy an 8-byte CRC-8 frame check
+// and vanish before routing. The check is gone (MESHSAT-1763); a Reticulum
+// packet built to hit that coincidence must still be routed.
+func TestWebhook_ACRC8CoincidenceIsRouted(t *testing.T) {
 	const imei = "300000000000023"
 	pkt := rnsAnnounceLike()
 	// Make byte 7 the CRC-8 of bytes 0-6, as the old compact check wanted.
