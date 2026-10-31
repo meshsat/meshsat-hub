@@ -724,8 +724,7 @@ func main() {
 
 	// Bridge lifecycle subscriber: auto-provisions bridges and devices from MQTT birth/death/health.
 	var bridgeCommander *bridge.Commander
-	var bridgeSub *bridge.Subscriber
-	bridgeSub = bridge.NewSubscriber(msgBus, dataStore, tenants)
+	bridgeSub := bridge.NewSubscriber(msgBus, dataStore, tenants)
 	// Health-report row writes are leader-only (MESHSAT-1155); the Noop
 	// elector in standalone mode answers true.
 	bridgeSub.SetLeader(leaderElector)
