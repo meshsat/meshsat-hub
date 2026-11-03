@@ -116,7 +116,7 @@ print("   stage 2 component:", r.get("component"), "| fields:",
 fields = {x.get("field_key"): x for x in r.get("fields",[])}
 answers = {}
 for k in fields:
-    if k.endswith("accepted_terms"): answers[k] = True
+    if k.endswith(("accepted_terms", "accepted_use_policy")): answers[k] = True
     elif k.endswith("organisation"): answers[k] = "E2E"
     elif k.endswith("country"):      answers[k] = "NL"
     elif k.endswith("hardware"):     answers[k] = "probe"

@@ -68,7 +68,7 @@ try:
         ans={}
         for x in r.get("fields",[]):
             k=x.get("field_key")
-            if k: ans[k]= True if k.endswith("accepted_terms") else ("NL" if k.endswith("country") else ("e2e" if k.endswith(("organisation","hardware","intended_use")) else ""))
+            if k: ans[k]= True if k.endswith(("accepted_terms", "accepted_use_policy")) else ("NL" if k.endswith("country") else ("e2e" if k.endswith(("organisation","hardware","intended_use")) else ""))
         s,r=f2.post(ans)
         check("the flow reaches email verification, captcha and all", r.get("component")=="ak-stage-email",
               str(r.get("component")))

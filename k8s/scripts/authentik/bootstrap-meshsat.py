@@ -280,6 +280,13 @@ p_details = [
     prompt("meshsat-enroll-terms", "attributes.accepted_terms", "I agree to the Terms of Service and the Privacy Policy",
            FieldTypes.CHECKBOX, 70,
            sub_text="https://meshsat.net/terms/ and https://meshsat.net/privacy/"),
+    # The MeshSat Mission and Use Policy (MESHSAT-1775, 3 Nov 2026): the Hub is not
+    # offered to an organisation that develops, produces, integrates or operates
+    # weapon systems, and the Hub terms say sign-up includes this statement.
+    prompt("meshsat-enroll-use-policy", "attributes.accepted_use_policy",
+           "I do not represent an organisation that develops, produces, integrates or operates weapon systems",
+           FieldTypes.CHECKBOX, 80,
+           sub_text="MeshSat Mission and Use Policy: https://meshsat.net/policy/"),
 ]
 p_marker = [prompt("meshsat-enroll-verified-marker", "attributes.email_verified", "verified", FieldTypes.HIDDEN, 10, required=False, initial="true")]
 
@@ -300,6 +307,10 @@ VALIDATION_EXPR = (
     'agreed = data.get("attributes.accepted_terms", nested.get("accepted_terms"))\n'
     'if agreed is not True and str(agreed).lower() not in ("true", "on", "1"):\n'
     '    ak_message("Please agree to the Terms of Service and the Privacy Policy to continue.")\n'
+    '    return False\n'
+    'policy_ok = data.get("attributes.accepted_use_policy", nested.get("accepted_use_policy"))\n'
+    'if policy_ok is not True and str(policy_ok).lower() not in ("true", "on", "1"):\n'
+    '    ak_message("MeshSat does not work with organisations that develop, produce, integrate or operate weapon systems (https://meshsat.net/policy/). Tick the box to confirm yours is not one.")\n'
     '    return False\n'
     'return True\n'
 )
