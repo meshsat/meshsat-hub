@@ -256,6 +256,10 @@ lint --> security --> test + test:postgres --> build --> package --> trivy --> b
 | [MeshSat Bridge](https://github.com/meshsat/meshsat) | Field gateway firmware (Go, Raspberry Pi) -- connects Meshtastic mesh radios to Iridium satellites via mTLS |
 | [MeshSat Android](https://github.com/meshsat/meshsat-android) | Mobile gateway app (Kotlin) -- phone-as-bridge with BLE mesh, ONNX ML, and SPP Iridium |
 
+## Mission and use policy
+
+MeshSat does not work with any organisation that develops, produces, integrates or operates weapon systems, and provides nothing for use in one. The licence below is unchanged: the policy covers whom we work with, not what you may do with the code. Read the [MeshSat Mission and Use Policy](https://meshsat.net/policy/).
+
 ## License
 
 [Apache 2.0](LICENSE)
