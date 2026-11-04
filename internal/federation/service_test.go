@@ -390,3 +390,43 @@ func TestConcurrentIdentityCreationAgrees(t *testing.T) {
 		t.Fatalf("callers got %v, stored %s", fps, stored.Fingerprint)
 	}
 }
+
+// One sending tenant's in-process relays are bounded per window, and one
+// tenant's burst never spends another's budget.
+func TestTenantLimiterIsPerTenant(t *testing.T) {
+	l := newTenantLimiter(3, time.Minute)
+	now := time.Now()
+	for i := 0; i < 3; i++ {
+		if !l.allow("noisy", now) {
+			t.Fatalf("relay %d refused inside the limit", i+1)
+		}
+	}
+	if l.allow("noisy", now) {
+		t.Fatal("the fourth relay in the window was allowed")
+	}
+	if !l.allow("quiet", now) {
+		t.Fatal("one tenant's burst spent another tenant's budget")
+	}
+	if !l.allow("noisy", now.Add(time.Minute+time.Second)) {
+		t.Fatal("the window never reopened")
+	}
+}
+
+// Over the limit, an in-process relay answers 429 without reaching the
+// receiver, so the sender backs off as from a peer on the network.
+func TestServeLocalOverTheLimitIs429(t *testing.T) {
+	reached := 0
+	s := New(nil, nil, "https://hub.example.test", nil, nil)
+	s.SetLocalReceiver(func(http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { reached++; w.WriteHeader(http.StatusAccepted) })
+	}, func(context.Context, string) (string, error) { return "t", nil })
+	req, _ := http.NewRequest(http.MethodPost, "https://hub.example.test/api/webhook/federation/tok", strings.NewReader("{}"))
+	for i := 0; i < LocalRelaysPerMinute; i++ {
+		if st := s.serveLocal(context.Background(), "t-burst", req.Clone(context.Background())); st != http.StatusAccepted {
+			t.Fatalf("relay %d: %d", i+1, st)
+		}
+	}
+	if st := s.serveLocal(context.Background(), "t-burst", req.Clone(context.Background())); st != http.StatusTooManyRequests || reached != LocalRelaysPerMinute {
+		t.Fatalf("over the limit: status %d, receiver reached %d times", st, reached)
+	}
+}

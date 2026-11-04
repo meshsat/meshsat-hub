@@ -500,6 +500,14 @@ func main() {
 		func(ctx context.Context, tenantID, action, detail string) {
 			_ = auditSvc.Log(ctx, tenantID, action, "federation", detail, "")
 		})
+	// A relay between two tenants of this Hub is served in-process behind the
+	// SAME token resolution as the public route (MESHSAT-1788), so both paths
+	// meet one receiver. Set before anything can dispatch a route.
+	fedResolve := webhookroute.Middleware(providerAccounts, integrations.ProviderFederation, "relay_token")
+	fedSvc.SetLocalReceiver(fedResolve, func(ctx context.Context, token string) (string, error) {
+		tenantID, _, err := providerAccounts.LookupByToken(ctx, integrations.ProviderFederation, "relay_token", token)
+		return tenantID, err
+	})
 	metrics.RegisterFederation(func() (uint64, uint64, uint64, uint64, uint64, uint64) {
 		st := fedSvc.Snapshot()
 		return st.Sent, st.SendFailed, st.Received, st.Duplicate, st.Refused, st.Failed
@@ -2216,8 +2224,8 @@ func main() {
 	// Federation relays arrive on the tenant's capability path ONLY: there is
 	// no bare /api/webhook/federation, because the token is what names the
 	// tenant; the peer's signature is what authorises it (MESHSAT-1549).
-	r.Post("/api/webhook/federation/{"+webhookroute.URLParam+"}", hubmw.WebhookRateLimit(
-		webhookroute.Middleware(providerAccounts, integrations.ProviderFederation, "relay_token")(fedSvc), 60).ServeHTTP)
+	// fedResolve is the same token resolution the in-process path uses.
+	r.Post(federation.WebhookPathPrefix+"{"+webhookroute.URLParam+"}", hubmw.WebhookRateLimit(fedResolve(fedSvc), 60).ServeHTTP)
 
 	// Transactional email. One relay, no credentials: it authorises by IP and
 	// signs with DKIM for meshsat.net. Receipts are NOT sent from here --

@@ -11,9 +11,15 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"net/url"
+	"regexp"
+	"runtime/debug"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/go-chi/chi/v5"
 
 	"github.com/meshsat/meshsat-hub/internal/integrations"
 	"github.com/meshsat/meshsat-hub/internal/netguard"
@@ -55,6 +61,14 @@ type Service struct {
 	client    *http.Client
 	checkURL  func(string) error
 	now       func() time.Time
+	// self is HUB_PUBLIC_URL taken apart, local the receiver a relay to a
+	// tenant on this same Hub is handed to without leaving the process, and
+	// owner the token lookup that says a token is one of this Hub's
+	// (MESHSAT-1788). All nil until SetLocalReceiver is called.
+	self       *selfURL
+	local      http.Handler
+	owner      TokenOwner
+	localLimit *tenantLimiter
 	// Counters for /metrics, read with Snapshot.
 	sent, sendFailed, received, duplicate, refused, failed atomic.Uint64
 }
@@ -73,6 +87,134 @@ func New(st Store, accounts Accounts, publicURL string, send MTSender, audit Aud
 	client.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
 	return &Service{store: st, accounts: accounts, publicURL: strings.TrimRight(publicURL, "/"), send: send, audit: audit,
 		client: client, checkURL: netguard.ValidatePublicURL, now: time.Now}
+}
+
+// WebhookPathPrefix is the path a tenant's relay token is appended to.
+const WebhookPathPrefix = "/api/webhook/federation/"
+
+// SetLocalReceiver lets two tenants on this Hub peer (MESHSAT-1788). A relay
+// whose peer URL is this Hub's own (HUB_PUBLIC_URL) is not sent over the
+// network: the hosted Hub's own name resolves to a private address inside
+// the cluster, which the request-forgery guard rightly refuses, and lifting
+// the guard for private addresses would open every URL a tenant can type to
+// the cluster. Instead the SAME signed request is served in-process by a
+// router that holds exactly one route, the receiving endpoint, behind
+// resolve, which must be the middleware the public route puts in front of
+// the service (webhookroute.Middleware for provider federation, field
+// relay_token). Every check a peer on another Hub meets runs unchanged:
+// token, pinned peer, addressee, signature, date, grant, device, claim.
+// owner must answer from the same accounts: a URL is this Hub's only when its
+// token names one of this Hub's tenants, so a Hub that left HUB_PUBLIC_URL at
+// the hosted default still reaches a tenant on the hosted Hub over the
+// network. Call once at boot, before any relay.
+func (s *Service) SetLocalReceiver(resolve func(http.Handler) http.Handler, owner TokenOwner) {
+	self := parseSelfURL(s.publicURL)
+	if self == nil || resolve == nil || owner == nil {
+		slog.Warn("federation: no same-Hub peering, HUB_PUBLIC_URL is not a bare https origin", "public_url", s.publicURL)
+		return
+	}
+	r := chi.NewRouter()
+	r.Method(http.MethodPost, WebhookPathPrefix+"{"+webhookroute.URLParam+"}", resolve(s))
+	s.self, s.local, s.owner = self, r, owner
+	s.localLimit = newTenantLimiter(LocalRelaysPerMinute, time.Minute)
+	slog.Info("federation: same-Hub peering on", "host", self.host, "port", self.port)
+}
+
+// TokenOwner returns the tenant whose relay token this is, "" for none.
+type TokenOwner func(ctx context.Context, token string) (string, error)
+
+// LocalRelaysPerMinute bounds one sending tenant's in-process relays on one
+// replica, as the public route bounds one address (60 a minute): a tenant's
+// bridge can publish as many messages as it likes, and each fans out to
+// every recipient of a route.
+const LocalRelaysPerMinute = 60
+
+// selfURL is the origin of HUB_PUBLIC_URL: scheme https, a lower-case ASCII
+// host and an explicit port.
+type selfURL struct{ host, port string }
+
+// parseSelfURL accepts only a bare https origin. A public URL with a path
+// (a Hub behind a path prefix) never matches, so its relays go out on the
+// network as before.
+func parseSelfURL(raw string) *selfURL {
+	u, err := url.Parse(raw)
+	if err != nil || u.Scheme != "https" || u.User != nil || u.Opaque != "" || u.Path != "" ||
+		u.RawQuery != "" || u.ForceQuery || u.Fragment != "" {
+		return nil
+	}
+	host, ok := asciiLower(u.Hostname())
+	if !ok || host == "" {
+		return nil
+	}
+	return &selfURL{host: host, port: httpsPort(u.Port())}
+}
+
+// relayTokenRE is the character set of a generated relay token (base64url,
+// or hex), so a local relay URL carries nothing a router and a signer could
+// read two ways: no escape, no dot, no slash.
+var relayTokenRE = regexp.MustCompile(`^[A-Za-z0-9_-]{1,256}$`)
+
+// IsLocalRelayURL reports whether a peer relay URL is this Hub's own receiving
+// endpoint for one of its tenants, which the relay then serves in-process. It
+// is strict on purpose: anything it does not recognise exactly, or a token
+// no tenant here holds, is a URL on another Hub, which goes through the
+// request-forgery guard like every tenant-typed URL.
+func (s *Service) IsLocalRelayURL(ctx context.Context, raw string) bool {
+	token, ok := s.localToken(raw)
+	if !ok {
+		return false
+	}
+	tenant, err := s.owner(ctx, token)
+	if err != nil {
+		slog.Warn("federation: relay token lookup failed, treating the URL as another Hub's", "error", err)
+		return false
+	}
+	return tenant != ""
+}
+
+// localToken is the syntactic half of IsLocalRelayURL: the token, when the
+// URL is exactly this Hub's receiving endpoint.
+func (s *Service) localToken(raw string) (string, bool) {
+	if s.local == nil || s.self == nil || s.owner == nil {
+		return "", false
+	}
+	u, err := url.Parse(raw)
+	if err != nil || u.Scheme != "https" || u.User != nil || u.Opaque != "" || u.RawPath != "" ||
+		u.RawQuery != "" || u.ForceQuery || u.Fragment != "" || u.RawFragment != "" {
+		return "", false
+	}
+	host, ok := asciiLower(u.Hostname())
+	if !ok || host != s.self.host || httpsPort(u.Port()) != s.self.port {
+		return "", false
+	}
+	token, ok := strings.CutPrefix(u.Path, WebhookPathPrefix)
+	if !ok || !relayTokenRE.MatchString(token) {
+		return "", false
+	}
+	return token, true
+}
+
+// asciiLower lower-cases an ASCII host and refuses anything else, so a
+// Unicode case fold (the Kelvin sign is a "k" to strings.ToLower) never
+// makes another name look like this Hub's.
+func asciiLower(h string) (string, bool) {
+	b := []byte(h)
+	for i, c := range b {
+		if c >= 0x80 {
+			return "", false
+		}
+		if 'A' <= c && c <= 'Z' {
+			b[i] = c + ('a' - 'A')
+		}
+	}
+	return string(b), true
+}
+
+func httpsPort(p string) string {
+	if p == "" {
+		return "443"
+	}
+	return p
 }
 
 // DisableNetguardForTest replaces the request-forgery-guarded client and URL
@@ -161,7 +303,7 @@ func (s *Service) RelayURL(token string) string {
 	if token == "" || s.publicURL == "" {
 		return ""
 	}
-	return s.publicURL + "/api/webhook/federation/" + token
+	return s.publicURL + WebhookPathPrefix + token
 }
 
 // ---------------------------------------------------------------------------
@@ -177,8 +319,14 @@ func (s *Service) Relay(ctx context.Context, tenantID, peerID, fromIMEI, toIMEI,
 	if err != nil {
 		return fmt.Errorf("federation: peer %s: %w", peerID, err)
 	}
-	if err := s.checkURL(peer.RelayURL); err != nil {
-		return fmt.Errorf("federation: peer URL refused: %w", err)
+	// A tenant on this same Hub is served in-process (SetLocalReceiver);
+	// every other peer URL is checked again here, because a name that was
+	// public when the peer was added can resolve somewhere else now.
+	local := s.IsLocalRelayURL(ctx, peer.RelayURL)
+	if !local {
+		if err := s.checkURL(peer.RelayURL); err != nil {
+			return fmt.Errorf("federation: peer URL refused: %w", err)
+		}
 	}
 	id, _, err := s.LoadIdentityFor(ctx, tenantID)
 	if err != nil {
@@ -207,30 +355,149 @@ func (s *Service) Relay(ctx context.Context, tenantID, peerID, fromIMEI, toIMEI,
 		}
 		req.Header.Set("Content-Type", "application/json")
 		Sign(req, body, id, peerFingerprint(peer), s.now())
-		resp, err := s.client.Do(req)
-		if err != nil {
-			last = err
-			continue
+		var status int
+		if local {
+			status = s.serveLocal(ctx, tenantID, req)
+		} else {
+			resp, err := s.client.Do(req)
+			if err != nil {
+				last = err
+				continue
+			}
+			_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 4096))
+			_ = resp.Body.Close()
+			status = resp.StatusCode
 		}
-		_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 4096))
-		_ = resp.Body.Close()
 		switch {
-		case resp.StatusCode == http.StatusAccepted || resp.StatusCode == http.StatusOK:
+		case status == http.StatusAccepted || status == http.StatusOK:
 			s.sent.Add(1)
-			slog.Info("federation: relayed to peer", "tenant", tenantID, "peer", peer.ID, "to", toIMEI, "attempt", attempt+1)
+			slog.Info("federation: relayed to peer", "tenant", tenantID, "peer", peer.ID, "to", toIMEI, "attempt", attempt+1, "same_hub", local)
 			return nil
-		case resp.StatusCode >= 500 || resp.StatusCode == http.StatusTooManyRequests:
-			last = fmt.Errorf("peer answered %d", resp.StatusCode)
+		case status >= 500 || status == http.StatusTooManyRequests:
+			last = fmt.Errorf("peer answered %d", status)
 			continue
 		default:
 			// 4xx: the peer refused (no peering, no grant, bad signature).
 			// Retrying sends the same refusal.
 			s.sendFailed.Add(1)
-			return fmt.Errorf("federation: peer refused with %d", resp.StatusCode)
+			return fmt.Errorf("federation: peer refused with %d", status)
 		}
 	}
 	s.sendFailed.Add(1)
 	return fmt.Errorf("federation: peer unreachable: %w", last)
+}
+
+// serveLocal hands a signed relay request to this Hub's own receiver and
+// returns the status it answered. The receiver runs on a FRESH context that
+// keeps the caller's deadline and cancellation but none of its values, so
+// nothing of the sending tenant (its tenancy, a chi route context) reaches
+// the receiving one: the receiver learns its tenant from the token, as it
+// does for a request from the network. A panic answers 500, as the server's
+// recoverer would, unless the receiver had already answered: a 202 written
+// before a panic is a sent MT, and a retry would pay for a second one.
+func (s *Service) serveLocal(ctx context.Context, senderTenant string, req *http.Request) (status int) {
+	if !s.localLimit.allow(senderTenant, s.now()) {
+		slog.Warn("federation: same-Hub relays over the limit", "tenant", senderTenant, "per_minute", LocalRelaysPerMinute)
+		return http.StatusTooManyRequests
+	}
+	lctx, cancel := detachValues(ctx)
+	defer cancel()
+	in := req.Clone(lctx)
+	in.RemoteAddr = "in-process"
+	in.RequestURI = in.URL.RequestURI()
+	w := &localResponse{header: http.Header{}}
+	defer func() {
+		if p := recover(); p != nil {
+			slog.Error("federation: same-Hub receiver panicked", "panic", p, "answered", w.code, "stack", string(debug.Stack()))
+			status = http.StatusInternalServerError
+			if w.code != 0 {
+				status = w.code
+			}
+		}
+	}()
+	s.local.ServeHTTP(w, in)
+	return w.status()
+}
+
+// detachValues returns a context with parent's deadline and cancellation and
+// none of its values.
+func detachValues(parent context.Context) (context.Context, context.CancelFunc) {
+	ctx, cancel := context.WithCancel(context.Background())
+	release := cancel
+	if dl, ok := parent.Deadline(); ok {
+		var cancelDL context.CancelFunc
+		ctx, cancelDL = context.WithDeadline(ctx, dl)
+		release = func() { cancelDL(); cancel() }
+	}
+	stop := context.AfterFunc(parent, cancel)
+	return ctx, func() { stop(); release() }
+}
+
+// localResponse is the ResponseWriter of an in-process relay: only the status
+// matters to the sender, as on the network, where it reads 4 KB and drops it.
+type localResponse struct {
+	header http.Header
+	code   int
+}
+
+func (l *localResponse) Header() http.Header { return l.header }
+
+func (l *localResponse) WriteHeader(code int) {
+	if l.code == 0 {
+		l.code = code
+	}
+}
+
+func (l *localResponse) Write(b []byte) (int, error) {
+	l.WriteHeader(http.StatusOK)
+	return len(b), nil
+}
+
+func (l *localResponse) status() int {
+	if l.code == 0 {
+		return http.StatusOK
+	}
+	return l.code
+}
+
+// tenantLimiter is a fixed window per key. In memory and per replica, like
+// the public route's limiter: the route engine runs a dispatch on one replica.
+type tenantLimiter struct {
+	mu     sync.Mutex
+	limit  int
+	window time.Duration
+	seen   map[string]*limitWindow
+}
+
+type limitWindow struct {
+	n   int
+	end time.Time
+}
+
+func newTenantLimiter(limit int, window time.Duration) *tenantLimiter {
+	return &tenantLimiter{limit: limit, window: window, seen: map[string]*limitWindow{}}
+}
+
+func (l *tenantLimiter) allow(key string, now time.Time) bool {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if len(l.seen) > 4096 {
+		for k, w := range l.seen {
+			if now.After(w.end) {
+				delete(l.seen, k)
+			}
+		}
+	}
+	w := l.seen[key]
+	if w == nil || now.After(w.end) {
+		w = &limitWindow{end: now.Add(l.window)}
+		l.seen[key] = w
+	}
+	if w.n >= l.limit {
+		return false
+	}
+	w.n++
+	return true
 }
 
 // peerFingerprint is the To value for a peer: its stored fingerprint.

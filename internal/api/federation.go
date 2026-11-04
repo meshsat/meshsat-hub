@@ -138,9 +138,14 @@ func (h *FederationHandler) CreatePeer(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "relay_url must be the peer's https://.../api/webhook/federation/<token> URL")
 		return
 	}
-	if err := netguard.ValidatePublicURL(req.RelayURL); err != nil {
-		writeError(w, http.StatusBadRequest, "relay_url: "+err.Error())
-		return
+	// A tenant on this same Hub is reached in-process, never over the
+	// network (MESHSAT-1788): the hosted Hub's own name resolves to a private
+	// address inside the cluster, which the guard refuses for every other URL.
+	if !h.svc.IsLocalRelayURL(r.Context(), req.RelayURL) {
+		if err := netguard.ValidatePublicURL(req.RelayURL); err != nil {
+			writeError(w, http.StatusBadRequest, "relay_url: "+err.Error())
+			return
+		}
 	}
 	fp, _, err := federation.ParsePeerCert([]byte(req.CertificatePEM))
 	if err != nil {

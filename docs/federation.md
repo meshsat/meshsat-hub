@@ -47,6 +47,28 @@ out. A retry after a send whose answer was lost can deliver a second copy: the r
 drops a repeated MT for 15 minutes and Reticulum drops a repeated packet, so that costs one message,
 where claiming per message would lose one.
 
+## Two tenants on one Hub
+
+Two tenants of the same Hub peer exactly as two Hubs do: each owner adds the other's certificate and
+relay URL, compares fingerprints, and grants. The difference is under the hood (MESHSAT-1788). The
+hosted Hub's own name resolves to a private address inside its cluster, and the Hub refuses every
+tenant-typed URL that points at a private address, so a relay to `https://hub.meshsat.net/...` cannot
+go over the network. When a peer's relay URL is this Hub's own receiving endpoint, exactly
+`HUB_PUBLIC_URL` + `/api/webhook/federation/<token>` with a token one of this Hub's tenants holds, the
+Hub serves the same signed request in-process to the same receiver, behind the same token resolution.
+Every check above still runs: token, pinned peer, addressee, signature, date, grant, device, claim.
+The receiver learns its tenant from the token only, never from the sending tenant.
+
+The match is strict. Scheme `https`, the same host (ASCII, any case) and port as `HUB_PUBLIC_URL`, no
+user, query, fragment or escapes, a token of `[A-Za-z0-9_-]`, and a tenant here that holds it. Anything
+else is a URL on another Hub and goes through the guard as before; that is also why a self-hosted Hub
+that left `HUB_PUBLIC_URL` at its default (`https://hub.meshsat.net`) still reaches a hosted tenant over
+the network. A Hub whose `HUB_PUBLIC_URL` carries a path has no same-Hub path. The in-process path skips
+the ingress and the public route's limit of 60 a minute per address, so it has its own: 60 relays a
+minute per sending tenant per replica, answered 429 above it (the sender retries as for a peer on the
+network). Do not set `HUB_ALLOW_PRIVATE_TARGETS` to make two hosted tenants peer: that opens every URL
+a tenant can type to the cluster's private ranges.
+
 ## Grants and routes
 
 A grant on the receiving side lets one modem of a peer reach one of the tenant's own devices. Every
@@ -71,7 +93,10 @@ redirect a relay.
 Unit: `internal/federation` (signatures: forged signer, altered body, re-addressed, moved path,
 stale and future dates; the relay between two services: once only, replay, a retry after a failed
 send, one-sided peering, no grant, a device of another tenant, unknown token, no identity; two
-replicas creating an identity at once), `internal/store/storetest` (`Federation`, the
+replicas creating an identity at once; two tenants on one Hub with the guard ON, `samehub_test.go`:
+delivered in-process once, the receiver never inherits the sender's tenant, peering and grant still
+required, every other private target and a token no tenant holds still refused, a receiver panic is a
+retried 500 unless it had answered, the strict URL match, the per-tenant limit), `internal/api` (`TestCreatePeerAcceptsThisHubAndStillRefusesPrivateTargets`), `internal/store/storetest` (`Federation`, the
 default tenant as victim), `internal/routing` (`TestFederationRelayHandler`).
 
 Live: two tenants each holding one 9704, peered and granted both ways; a Reticulum announce from one
