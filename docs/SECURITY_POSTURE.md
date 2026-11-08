@@ -1,6 +1,6 @@
 # MeshSat Hub — security posture
 
-_Assessed 2026-09-16 / 17. Instrument for the hardening programme MESHSAT-1189 → 1194. Incident record kept current to 2026-10-24 (item 19)._
+_Assessed 2026-09-16 / 17. Instrument for the hardening programme MESHSAT-1189 → 1194. Incident record kept current to 2026-11-08 (item 19)._
 
 ## What this document is, and what it is not
 
@@ -389,6 +389,9 @@ effect is nothing is worse than an absent one, because this scorecard counts it.
     handlers read the owner fresh before they publish. `ForDeviceTopic` is what the provider paths
     use and `TestOnlyCallersWithNoTenantToBelieveUseTheOwnerLookup` keeps the bus consumers off it.
     Every control mutation-proven (25 mutants).
+    **Proven live on 2026-11-08** through the real broker on both replicas, in probe tenants on the
+    position topic: the forged message stored nothing and was counted on each pod, the control in the
+    owner's namespace stored one row under the owner.
 17. ~~**The Hub cannot reach wg-easy**~~ — **CLOSED 2026-10-02 (MESHSAT-1476, 84e6fbc), found the
     same day.** The policy `wg-easy-confine` (MESHSAT-1205) admitted TCP 51821 only from the edge
     relay and the kubelet, so the Hub's own login to wg-easy timed out from 2026-09-17 until the
@@ -430,7 +433,14 @@ effect is nothing is worse than an absent one, because this scorecard counts it.
     never consulted. An id starting with `+` has no owner of record on the bus either, for rows
     older than the check. Audit of the production `devices` table on 2026-11-08: 7 rows, no phone
     numbers, 6 are 15-digit modems and one is the old `sim-` test row in the default tenant, left
-    alone (nothing validates a row that already exists).
+    alone (nothing validates a row that already exists). `POST /api/devices` with a phone number answered 400
+    in production the same day. The SMS path is proven through the real handler and store in
+    `test/isolation`, not with a real SMS.
+21. **A message id is unique across tenants** — **OPEN (MESHSAT-1847), found and reproduced 2026-11-08
+    with a test, default tenant as the victim.** `messages` is keyed on `id` alone, so one tenant's
+    stored id can stand in the way of another tenant's row for the same id and that message is missing
+    from its history. Routes and SOS are not affected: their claim keys carry the tenant. To do: key the
+    table `(tenant_id, id)` or scope the id the bus supplies.
 
 ## Addendum, 2026-10-24 (MESHSAT-1685): devices write to people, and people write back
 

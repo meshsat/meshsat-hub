@@ -285,6 +285,22 @@ curl -s -H "Authorization: Bearer $KEY" https://hub.meshsat.net/api/tenant | jq 
 - Never test it by publishing a synthetic satmo message on production: it sends a real SMS or mail
   and a real satellite MT.
 
+### 12. A message was refused because of its topic's tenant
+
+`meshsat_hub_tenancy_topic_refused_total{kind}` above zero means a bus message named a registered device
+or bridge inside a customer namespace that is not its owner's. The message went nowhere: not to the
+owner, not to the publisher. The pod log has the detail: `tenancy: message refused` with `id`,
+`topic_tenant` and `owner`. One message counts once per consumer on each replica.
+
+Two causes, and only the log tells them apart:
+
+1. A tenant publishing under another tenant's modem id. Look at who `topic_tenant` is and how often.
+2. A kit in one workspace reporting a modem registered in another. The modem is unheard until it is
+   moved: delete it in the old workspace and register it in the new one, or move the kit.
+
+Messages on the platform namespace are never refused (MESHSAT-1469, deliberate). Probe recipe in
+`claude-context` history of 2026-11-08 on the runner.
+
 ## Health Checks
 
 | Endpoint | What it checks | Used by |
