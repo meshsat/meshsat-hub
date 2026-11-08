@@ -316,6 +316,9 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, `{"error":"missing imei"}`, http.StatusBadRequest)
 		return
 	}
+	if h.tenants != nil {
+		h.tenants.RefreshDevice(ctx, imei) // the consumers refuse a stale namespace
+	}
 	// A tenant that presented its own secret may only speak for its own
 	// devices. The platform account is different in kind: it is the shared
 	// relationship for every tenant that has not brought their own provider

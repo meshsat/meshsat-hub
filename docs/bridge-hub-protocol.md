@@ -51,6 +51,16 @@ This document specifies the wire-level protocol for MeshSat field nodes (bridges
 | `meshsat/{device_id}/sos` | 1 | Bridge | Emergency event |
 | `meshsat/{device_id}/mo/decoded` | 0 | Bridge | Decoded messages |
 
+**A device belongs to one tenant, and its traffic has to arrive in that tenant's
+namespace.** A message naming a registered device under another customer's root
+is dropped by every consumer and counted
+(`meshsat_hub_tenancy_topic_refused_total`); that includes an `imei` in the
+payload that differs from the topic. A kit whose modem is registered in a
+different workspace than the kit must have the modem moved, or nothing it sends
+for that modem is heard. A device id nobody has registered joins the tenant whose
+root it was published under, as before. `POST /api/devices` and a device birth's
+`imei` take modem ids only: an IMEI of 15 digits, or a Globalstar ESN.
+
 ### TAK Export Topic (Hub 2026-10, MESHSAT-1458)
 
 | Topic | QoS | Retained | Publisher | Description |

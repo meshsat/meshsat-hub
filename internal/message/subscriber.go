@@ -101,7 +101,10 @@ func (s *Subscriber) handleMODecoded(topic string, payload []byte) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	tenantID := s.tenants.ForDeviceTopic(ctx, imei, hubmqtt.ExtractTenantID(topic))
+	tenantID, admitted := s.tenants.AdmitDeviceTopic(ctx, imei, hubmqtt.ExtractTenantID(topic))
+	if !admitted {
+		return
+	}
 	if err := s.store.InsertMessage(ctx, tenantID, m); err != nil {
 		if errors.Is(err, store.ErrDuplicate) {
 			slog.Debug("message: already persisted", "id", id, "device", imei)

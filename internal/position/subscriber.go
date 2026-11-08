@@ -95,7 +95,10 @@ func (s *Subscriber) handlePosition(topic string, payload []byte) {
 		slog.Warn("position: invalid JSON", "error", err, "device", deviceID)
 		return
 	}
-	tenantID := s.tenants.ForDeviceTopic(context.Background(), deviceID, hubmqtt.ExtractTenantID(topic))
+	tenantID, ok := s.tenants.AdmitDeviceTopic(context.Background(), deviceID, hubmqtt.ExtractTenantID(topic))
+	if !ok {
+		return
+	}
 
 	// If a raw GPS binary frame is included, decode it for richer fields.
 	// Supports hub format (0xA5, BE, ×1e7) and bridge/Android format (0x50/0x44, LE, ×1e6).

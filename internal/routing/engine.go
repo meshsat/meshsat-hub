@@ -139,7 +139,10 @@ func (e *Engine) handleMODecoded(topic string, payload []byte) {
 		sourceType = "*"
 	}
 
-	tenantID := e.tenants.ForDeviceTopic(context.Background(), deviceID, hubmqtt.ExtractTenantID(topic))
+	tenantID, admitted := e.tenants.AdmitDeviceTopic(context.Background(), deviceID, hubmqtt.ExtractTenantID(topic))
+	if !admitted {
+		return
+	}
 	routes := e.getRoutes(tenantID)
 	handlerCtx := tenancy.WithTenant(context.Background(), tenantID)
 

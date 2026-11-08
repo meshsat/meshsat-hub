@@ -42,18 +42,17 @@ func (r *Resolver) IsPlatformTopic(ctx context.Context, topic string) bool {
 // where each tenant transmits under its own amateur licence instead of sharing
 // the operator's callsign.
 //
-// It is safe to route on because the OWNER OF RECORD wins: ForDeviceTopic
-// consults the store first and only falls back to the tenant named in the topic
-// for a device nobody has registered. A publisher therefore cannot move its
-// traffic into another tenant -- and so cannot borrow another tenant's callsign
-// -- by choosing a topic prefix. That is the same property IsPlatformTopic
-// relies on, stated once here rather than re-derived per consumer.
+// It answers "" as well for a topic the bus paths refuse (MESHSAT-1469): a
+// publisher naming another tenant's modem in its own namespace must not borrow
+// that tenant's callsign, and every caller already drops on "".
 func (r *Resolver) TenantForTopic(ctx context.Context, topic string) string {
 	if tenant, device, _, ok := hubmqtt.ParseDeviceTopic(topic); ok {
-		return r.ForDeviceTopic(ctx, device, tenant)
+		owner, _ := r.AdmitDeviceTopic(ctx, device, tenant)
+		return owner
 	}
 	if tenant, bridge, _, ok := hubmqtt.ParseBridgeTopic(topic); ok {
-		return r.ForBridgeTopic(ctx, bridge, tenant)
+		owner, _ := r.AdmitBridgeTopic(ctx, bridge, tenant)
+		return owner
 	}
 	return ""
 }

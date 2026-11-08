@@ -426,6 +426,9 @@ func (h *WebhookHandler) processLingoMO(ctx context.Context, mo *LingoMO, remote
 			"account_id", mo.Identity.AccountID)
 		return "error_no_imei"
 	}
+	if h.tenants != nil {
+		h.tenants.RefreshDevice(ctx, imei) // the consumers refuse a stale namespace
+	}
 	// A webhook token authenticates one tenant: the device must be that
 	// tenant's (or unregistered, in which case it joins it). A device owned by
 	// another tenant is refused so one tenant cannot inject into another.

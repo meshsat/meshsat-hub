@@ -524,7 +524,12 @@ func (s *Subscriber) handleDeviceBirth(topic string, payload []byte) {
 			// the birth is still logged, the bridge is still online, and any
 			// traffic this device sends still flows, because a subscription
 			// limit must never be a reason a field kit goes unheard.
-			if ok, why := s.allowAnother(ctx, tenantID); !ok {
+			if !store.ValidDeviceID(birth.IMEI) {
+				// Only the row is refused, as with the plan's ceiling below: a
+				// birth is also how a kit says it is alive.
+				slog.Warn("bridge: device not auto-provisioned, its imei is not a modem's",
+					"bridge", bridgeID, "imei", birth.IMEI, "tenant", tenantID)
+			} else if ok, why := s.allowAnother(ctx, tenantID); !ok {
 				slog.Warn("bridge: device not auto-provisioned, tenant is at its plan's device limit",
 					"bridge", bridgeID, "imei", birth.IMEI, "tenant", tenantID, "reason", why)
 			} else {

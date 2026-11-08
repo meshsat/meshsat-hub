@@ -12,11 +12,30 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"strings"
 	"sync"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promauto"
+
 	"github.com/meshsat/meshsat-hub/internal/store"
 )
+
+// ownerRecheckEvery bounds how often a refusal re-reads an owner from the store,
+// so somebody publishing forgeries as fast as the broker allows costs one
+// primary-key read per id per second rather than one per message per consumer.
+const ownerRecheckEvery = time.Second
+
+// topicRefused counts messages dropped because the namespace they were published
+// in belongs to somebody other than the device's registered owner (MESHSAT-1469).
+// One message counts once per consumer on each replica. Anything above zero is
+// either a tenant naming a modem that is not theirs or a modem registered to the
+// wrong account, and both want a person to look.
+var topicRefused = promauto.NewCounterVec(prometheus.CounterOpts{
+	Name: "meshsat_hub_tenancy_topic_refused_total",
+	Help: "Messages refused because their topic's tenant is not the registered owner of the device or bridge they name.",
+}, []string{"kind"})
 
 // lookupStore is the slice of store.Store the resolver needs.
 type lookupStore interface {
@@ -29,6 +48,7 @@ type entry struct {
 	tenant string
 	known  bool // the id is registered (tenant is not just the fallback)
 	expiry time.Time
+	read   time.Time // when the store last answered for this id
 }
 
 // Resolver maps devices and bridges to tenants.
@@ -67,10 +87,15 @@ func (r *Resolver) ForBridge(ctx context.Context, bridgeID string) string {
 	return r.resolve(ctx, r.bridges, bridgeID, r.store.LookupBridgeTenant, "bridge")
 }
 
-// ForDeviceTopic resolves the tenant of a message received on a device topic.
-// The store is authoritative for registered devices (a publisher cannot move a
-// device by using another tenant's prefix); an unregistered device is placed
-// in the tenant named by the topic when that tenant exists, else the default.
+// ForDeviceTopic answers which tenant a satellite provider's delivery belongs to.
+// The store is authoritative for registered devices; an unregistered device is
+// placed in topicTenant when that tenant exists, else the default.
+//
+// It is for callers that have NO tenant of their own to believe: a provider
+// delivers by IMEI, on a path that may be the shared platform account. Do not
+// use it on a message read off the bus, where the namespace is what the broker
+// authenticated and the id is whatever the publisher typed: that is
+// AdmitDeviceTopic.
 func (r *Resolver) ForDeviceTopic(ctx context.Context, imei, topicTenant string) string {
 	owner, known := r.known(ctx, r.devices, imei, r.store.LookupDeviceTenant, "device")
 	return r.reconcile(ctx, owner, known, topicTenant, "device", imei)
@@ -80,6 +105,97 @@ func (r *Resolver) ForDeviceTopic(ctx context.Context, imei, topicTenant string)
 func (r *Resolver) ForBridgeTopic(ctx context.Context, bridgeID, topicTenant string) string {
 	owner, known := r.known(ctx, r.bridges, bridgeID, r.store.LookupBridgeTenant, "bridge")
 	return r.reconcile(ctx, owner, known, topicTenant, "bridge", bridgeID)
+}
+
+// AdmitDeviceTopic answers which tenant a message read off the bus belongs to,
+// or ok=false when it must be dropped (MESHSAT-1469).
+//
+// Every bridge may publish mo/decoded, position and sos for ANY device id inside
+// its own tenant's namespace (bridge.NATSPermissions), so the id proves nothing
+// and the namespace is the only thing the broker vouched for. A registered
+// device named in a customer namespace that is not its owner's is therefore a
+// forgery as far as the Hub can tell, and it goes nowhere: not to the owner,
+// whose routes, SOS chain and history it would write into, and not to the
+// publisher either.
+//
+// The PLATFORM namespace is the exception, deliberately. Only the Hub and the
+// operator's own bridges can publish there, so it crosses no tenant boundary,
+// and it is where a provider handler publishes when it could not read the owner.
+// Refusing that would lose a real SOS during a database blip; it keeps resolving
+// to the owner of record.
+//
+// A failed lookup with no owner on record admits: the store being down must not
+// cost a real message. An owner this replica already knows stands when the store
+// cannot confirm it. Admitting there would open the check to every forgery
+// during any database blip, to spare a real message only if a modem also changed
+// hands inside the cache's TTL at that moment.
+func (r *Resolver) AdmitDeviceTopic(ctx context.Context, imei, topicTenant string) (string, bool) {
+	// A phone number is a sender, never a device (MESHSAT-1688). The API has
+	// refused to register one since store.ValidDeviceID, but a row from before
+	// that must not take the number's traffic out of the tenant it arrived at,
+	// nor, in a customer namespace, get it refused.
+	if strings.HasPrefix(imei, "+") {
+		return r.reconcile(ctx, r.def, false, topicTenant, "device", imei), true
+	}
+	return r.admit(ctx, r.devices, imei, r.store.LookupDeviceTenant, topicTenant, "device")
+}
+
+// AdmitBridgeTopic is AdmitDeviceTopic for a bridge id a message names.
+func (r *Resolver) AdmitBridgeTopic(ctx context.Context, bridgeID, topicTenant string) (string, bool) {
+	return r.admit(ctx, r.bridges, bridgeID, r.store.LookupBridgeTenant, topicTenant, "bridge")
+}
+
+// RefreshDevice re-reads a device's owner into the cache, for a satellite
+// provider's delivery to do before it picks the namespace to publish in. The
+// consumers refuse a namespace that is not the owner's, so a stale answer here,
+// in the seconds after a modem changes hands, would lose a real message. A
+// provider delivers rarely enough that one primary-key read each is nothing. A
+// failed read keeps what the cache had.
+func (r *Resolver) RefreshDevice(ctx context.Context, imei string) {
+	if imei == "" || r.store == nil || r.ttl <= 0 {
+		return
+	}
+	r.fetch(ctx, r.devices, imei, r.store.LookupDeviceTenant, "device")
+}
+
+func (r *Resolver) admit(ctx context.Context, cache map[string]entry, key string, lookup func(context.Context, string) (string, error), topicTenant, kind string) (string, bool) {
+	owner, known := r.known(ctx, cache, key, lookup, kind)
+	if known && r.isCustomerNamespace(topicTenant) && topicTenant != owner {
+		// Before refusing, make sure this replica is not simply behind: the
+		// device may have changed hands inside the cache's TTL.
+		owner, known = r.reread(ctx, cache, key, lookup, kind, owner, known)
+		if known && topicTenant != owner {
+			topicRefused.WithLabelValues(kind).Inc()
+			slog.Warn("tenancy: message refused, its topic names a tenant that does not own the id", "kind", kind, "id", key, "topic_tenant", topicTenant, "owner", owner)
+			return "", false
+		}
+	}
+	return r.reconcile(ctx, owner, known, topicTenant, kind, key), true
+}
+
+func (r *Resolver) isCustomerNamespace(topicTenant string) bool {
+	return topicTenant != "" && topicTenant != r.def
+}
+
+// reread asks the store again unless it answered for this id moments ago, and
+// keeps the answer it was given when the store cannot say. The bound is what
+// keeps forgeries from becoming a database load; its price is that a modem moved
+// to another tenant can be refused for at most ownerRecheckEvery on a replica
+// that read the old owner just before the move.
+func (r *Resolver) reread(ctx context.Context, cache map[string]entry, key string, lookup func(context.Context, string) (string, error), kind, owner string, known bool) (string, bool) {
+	if r.ttl <= 0 {
+		return owner, known // known() has only just read it
+	}
+	r.mu.Lock()
+	e, ok := cache[key]
+	r.mu.Unlock()
+	if ok && r.now().Sub(e.read) < ownerRecheckEvery {
+		return owner, known
+	}
+	if tenant, found, definite := r.fetch(ctx, cache, key, lookup, kind); definite {
+		return tenant, found
+	}
+	return owner, known
 }
 
 func (r *Resolver) reconcile(ctx context.Context, owner string, known bool, topicTenant, kind, id string) string {
@@ -112,8 +228,15 @@ func (r *Resolver) known(ctx context.Context, cache map[string]entry, key string
 			return e.tenant, e.tenant != "" && e.known
 		}
 	}
+	tenant, found, _ := r.fetch(ctx, cache, key, lookup, kind)
+	return tenant, found
+}
+
+// fetch asks the store and caches the answer. definite is false when the store
+// could not say, in which case nothing is cached and the default comes back.
+func (r *Resolver) fetch(ctx context.Context, cache map[string]entry, key string, lookup func(context.Context, string) (string, error), kind string) (tenant string, found, definite bool) {
 	tenant, err := lookup(ctx, key)
-	found := err == nil && tenant != ""
+	found = err == nil && tenant != ""
 	switch {
 	case found:
 	case errors.Is(err, store.ErrNotFound):
@@ -123,14 +246,15 @@ func (r *Resolver) known(ctx context.Context, cache map[string]entry, key string
 		tenant = r.def
 	default:
 		slog.Warn("tenancy: lookup failed, using default", "kind", kind, "id", key, "error", err)
-		return r.def, false
+		return r.def, false, false
 	}
 	if r.ttl > 0 {
+		now := r.now()
 		r.mu.Lock()
-		cache[key] = entry{tenant: tenant, known: found, expiry: r.now().Add(r.ttl)}
+		cache[key] = entry{tenant: tenant, known: found, expiry: now.Add(r.ttl), read: now}
 		r.mu.Unlock()
 	}
-	return tenant, found
+	return tenant, found, true
 }
 
 func (r *Resolver) tenantExists(ctx context.Context, id string) bool {

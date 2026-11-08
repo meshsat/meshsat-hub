@@ -130,15 +130,15 @@ func TestCreateDevice(t *testing.T) {
 		},
 		{
 			name: "defaults type to rockblock",
-			body: `{"imei":"123"}`,
+			body: `{"imei":"123456789012345"}`,
 			store: &mockStore{
-				device: &store.Device{IMEI: "123", Type: "rockblock"},
+				device: &store.Device{IMEI: "123456789012345", Type: "rockblock"},
 			},
 			wantCode: http.StatusCreated,
 		},
 		{
 			name: "conflict",
-			body: `{"imei":"123"}`,
+			body: `{"imei":"123456789012345"}`,
 			// A conflict means the IMEI is on file. Before the handler could
 			// ask, this fixture modelled one with a bare error and no owner,
 			// which is now correctly a 500: an insert that fails while NO such

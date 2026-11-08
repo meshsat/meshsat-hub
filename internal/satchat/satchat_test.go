@@ -49,7 +49,9 @@ func (f *fakeStore) GetOOBPeer(_ context.Context, _, bridgeID string) (*store.OO
 
 type defaultTenant struct{}
 
-func (defaultTenant) ForDeviceTopic(context.Context, string, string) string { return "default" }
+func (defaultTenant) AdmitDeviceTopic(context.Context, string, string) (string, bool) {
+	return "default", true
+}
 
 type rig struct {
 	svc  *Service

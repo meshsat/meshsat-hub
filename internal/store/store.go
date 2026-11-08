@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/meshsat/meshsat-hub/internal/vat"
@@ -964,6 +965,37 @@ const (
 // ValidDeviceProfile reports whether p is a profile the Hub knows.
 func ValidDeviceProfile(p string) bool {
 	return p == "" || p == DeviceProfilePost
+}
+
+// ValidDeviceID reports whether id can be registered as a device: a modem's
+// IMEI (15 digits), or a Globalstar ESN (7 or 8 digits, or as printed on the unit,
+// 0-NNNNNNN).
+//
+// A device id is the one thing that decides whose a message is when a provider
+// delivers it with no tenant attached, and devices.imei accepted any string, so
+// a tenant could register somebody's phone number and collect their SMS
+// (MESHSAT-1688). It is checked where a row is born (POST /api/devices and a
+// device birth), not on reads: ids that are not modems' travel the bus all the
+// time (a phone number on the SMS paths, a mesh node's !id), they are just never
+// anybody's registered device.
+func ValidDeviceID(id string) bool {
+	if esn, ok := strings.CutPrefix(id, "0-"); ok {
+		return len(esn) == 7 && allDigits(esn)
+	}
+	switch len(id) {
+	case 7, 8, 15:
+		return allDigits(id)
+	}
+	return false
+}
+
+func allDigits(s string) bool {
+	for i := 0; i < len(s); i++ {
+		if s[i] < '0' || s[i] > '9' {
+			return false
+		}
+	}
+	return s != ""
 }
 
 // IsPost reports whether the device runs the Community Post.

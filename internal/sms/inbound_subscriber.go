@@ -40,12 +40,12 @@ func (s *InboundSubscriber) SetTenants(r *tenancy.Resolver) { s.tenants = r }
 
 // tenantFor resolves the owning tenant from the device and the topic it
 // arrived on, falling back to the configured tenant only when no resolver is
-// wired.
-func (s *InboundSubscriber) tenantFor(ctx context.Context, topic, deviceID string) string {
+// wired. ok is false for a message that must be dropped (MESHSAT-1469).
+func (s *InboundSubscriber) tenantFor(ctx context.Context, topic, deviceID string) (tenant string, ok bool) {
 	if s.tenants == nil {
-		return s.tenantID
+		return s.tenantID, true
 	}
-	return s.tenants.ForDeviceTopic(ctx, deviceID, hubmqtt.ExtractTenantID(topic))
+	return s.tenants.AdmitDeviceTopic(ctx, deviceID, hubmqtt.ExtractTenantID(topic))
 }
 
 // NewInboundSubscriber creates an inbound SMS MQTT subscriber.
@@ -133,7 +133,11 @@ func (s *InboundSubscriber) handleInbound(topic string, payload []byte) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	if err := s.store.InsertMessage(ctx, s.tenantFor(ctx, topic, deviceID), m); err != nil {
+	tenantID, admitted := s.tenantFor(ctx, topic, deviceID)
+	if !admitted {
+		return
+	}
+	if err := s.store.InsertMessage(ctx, tenantID, m); err != nil {
 		if errors.Is(err, store.ErrDuplicate) {
 			slog.Debug("sms: inbound MQTT SMS already persisted by another replica", "id", m.ID)
 			return

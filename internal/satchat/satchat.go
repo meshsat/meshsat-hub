@@ -75,7 +75,7 @@ type Store interface {
 
 // TenantResolver answers which tenant a device's message belongs to.
 type TenantResolver interface {
-	ForDeviceTopic(ctx context.Context, imei, topicTenant string) string
+	AdmitDeviceTopic(ctx context.Context, imei, topicTenant string) (string, bool)
 }
 
 // Options tune the lane. Zero values take the defaults.
@@ -201,7 +201,10 @@ func (s *Service) handle(topic string, payload []byte) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
 	defer cancel()
-	tenantID := s.tenants.ForDeviceTopic(ctx, origin, hubmqtt.ExtractTenantID(topic))
+	tenantID, admitted := s.tenants.AdmitDeviceTopic(ctx, origin, hubmqtt.ExtractTenantID(topic))
+	if !admitted {
+		return
+	}
 
 	// street -> stand: a readable satellite text from a lane device.
 	if tok, ok := s.byIMEI[origin]; ok {

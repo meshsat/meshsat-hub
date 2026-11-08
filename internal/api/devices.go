@@ -103,6 +103,10 @@ func (h *DeviceHandler) CreateDevice(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "imei is required")
 		return
 	}
+	if !store.ValidDeviceID(dev.IMEI) {
+		writeError(w, http.StatusBadRequest, "imei must be a modem's IMEI (15 digits) or a Globalstar ESN")
+		return
+	}
 	if dev.Type == "" {
 		dev.Type = "rockblock"
 	}

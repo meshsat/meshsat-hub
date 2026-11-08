@@ -22,7 +22,7 @@ HUB_E2E_TOKEN="${HUB_E2E_TOKEN:?Set HUB_E2E_TOKEN (owner API key or auth token)}
 
 PASS=0
 FAIL=0
-TEST_IMEI="E2E$(date +%s)"
+TEST_IMEI="300$(date +%s)00" # 15 digits: POST /api/devices takes modem ids only
 
 auth_header="Authorization: Bearer ${HUB_E2E_TOKEN}"
 

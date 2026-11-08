@@ -101,7 +101,11 @@ func (r *Recorder) handle(topic string, payload []byte) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	tenantID := r.tenants.ForBridgeTopic(ctx, m.BridgeID, hubmqtt.ExtractTenantID(topic))
+	// The bridge id came out of the payload, so it is the publisher's word.
+	tenantID, admitted := r.tenants.AdmitBridgeTopic(ctx, m.BridgeID, hubmqtt.ExtractTenantID(topic))
+	if !admitted {
+		return
+	}
 	if err := r.store.RecordMeshNode(ctx, tenantID, m.BridgeID, nodeID, r.now()); err != nil {
 		slog.Warn("mesh: could not record node presence",
 			"bridge", m.BridgeID, "node", nodeID, "error", err)

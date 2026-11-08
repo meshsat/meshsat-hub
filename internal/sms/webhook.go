@@ -112,18 +112,12 @@ func (h *WebhookHandler) SetPersonLane(l PersonLane) { h.lane = l }
 // Hub key opened (end to end, carried unread); opened one a Hub key DID open,
 // which is MeshSat app traffic for the pipeline and never a person's reply.
 //
-// The tenant is the one whose webhook URL the SMS arrived at, and only that:
-// tenantOf lets a registered device id beat the path, and a device id is
-// whatever somebody registered, a phone number included.
+// The tenant is the one whose webhook URL the SMS arrived at (tenantOf).
 func (h *WebhookHandler) takenByLane(ctx context.Context, from, messageSID, body string, sealed, opened bool) bool {
 	if h.lane == nil || h.channelName() != "sms" {
 		return false
 	}
-	tenantID := tenancy.FromContext(ctx)
-	if tenantID == "" {
-		tenantID = hubmqtt.DefaultTenant
-	}
-	return h.lane.TakeSMS(ctx, tenantID, personchat.InboundSMS{
+	return h.lane.TakeSMS(ctx, h.tenantOf(ctx), personchat.InboundSMS{
 		From: from, MessageSID: messageSID, Body: body, Sealed: sealed, Opened: opened})
 }
 
@@ -414,7 +408,7 @@ func (h *WebhookHandler) processBinaryPipeline(r *http.Request, w http.ResponseW
 	rawB64 := base64.StdEncoding.EncodeToString(rawBytes)
 
 	// Publish raw payload to mo/raw.
-	h.publish(hubmqtt.TopicMORawFor(h.tenantOf(r.Context(), from), from), 1, false, RawSMS{
+	h.publish(hubmqtt.TopicMORawFor(h.tenantOf(r.Context()), from), 1, false, RawSMS{
 		From:      from,
 		Raw:       rawB64,
 		Channel:   h.channelName(),
@@ -556,12 +550,12 @@ func (h *WebhookHandler) processBinaryPipeline(r *http.Request, w http.ResponseW
 	if h.takenByLane(r.Context(), from, messageSID, asReceived, sealed, encrypted) {
 		msg.Lane = personchat.LaneMarker
 	}
-	h.publish(hubmqtt.TopicMODecodedFor(h.tenantOf(r.Context(), from), from), 1, false, msg)
+	h.publish(hubmqtt.TopicMODecodedFor(h.tenantOf(r.Context()), from), 1, false, msg)
 	h.publish("meshsat/hub/sms/inbound", 1, false, msg)
 
 	// Persist to database.
 	if h.store != nil {
-		tid := h.tenantOf(r.Context(), from)
+		tid := h.tenantOf(r.Context())
 		status := "received"
 		if encrypted {
 			status = "decrypted"
@@ -591,12 +585,12 @@ func (h *WebhookHandler) processBinaryPipeline(r *http.Request, w http.ResponseW
 
 	// Dead man's switch: sender checked in.
 	if h.deadman != nil {
-		h.deadman.CheckIn(h.tenantOf(r.Context(), from), from)
+		h.deadman.CheckIn(h.tenantOf(r.Context()), from)
 	}
 
 	// Audit log.
 	if h.audit != nil {
-		tid := h.tenantOf(r.Context(), from)
+		tid := h.tenantOf(r.Context())
 		detail := fmt.Sprintf("from=%s bytes=%d compressed=%v encrypted=%v", from, len(rawBytes), compressed, encrypted)
 		_ = h.audit.Log(r.Context(), tid, "message_received", "webhook_sms", detail, r.RemoteAddr)
 	}
@@ -669,7 +663,7 @@ func (h *WebhookHandler) processPlaintextSMS(r *http.Request, w http.ResponseWri
 	// subscriber persists it (same stable id, duplicate insert is a no-op)
 	// and the dashboards see it. Until MESHSAT-1022 only the base64 branch
 	// published here, so no route ever fired for a plain-text SMS.
-	tid := h.tenantOf(r.Context(), from)
+	tid := h.tenantOf(r.Context())
 	if h.takenByLane(r.Context(), from, messageSID, body, false, false) {
 		msg.Lane = personchat.LaneMarker
 	}
@@ -702,7 +696,7 @@ func (h *WebhookHandler) processPlaintextSMS(r *http.Request, w http.ResponseWri
 
 	// Dead man's switch.
 	if h.deadman != nil {
-		h.deadman.CheckIn(h.tenantOf(r.Context(), from), from)
+		h.deadman.CheckIn(h.tenantOf(r.Context()), from)
 	}
 
 	// Twilio expects a TwiML XML response. Empty <Response/> = don't reply.
@@ -721,7 +715,7 @@ func (h *WebhookHandler) handleBridgeUplink(ctx context.Context, from string, ra
 	if h.store != nil {
 		st = h.store
 	}
-	return bridge.NewUplinkSink(st, h.publish, h.audit, "sms_webhook").SetTenants(h.tenants).SetSOSRuns(h.sosRuns).SetCrewChat(h.crewChat).Handle(ctx, h.tenantOf(ctx, from), "sms", from, rawBytes)
+	return bridge.NewUplinkSink(st, h.publish, h.audit, "sms_webhook").SetTenants(h.tenants).SetSOSRuns(h.sosRuns).SetCrewChat(h.crewChat).Handle(ctx, h.tenantOf(ctx), "sms", from, rawBytes)
 }
 
 // smsMessageID is the stable ID of an inbound SMS: Twilio's MessageSid is
@@ -744,18 +738,16 @@ func (h *WebhookHandler) SetSOSRuns(r bridge.SOSRuns) { h.sosRuns = r }
 // and the kit's word on a dispatcher's chat (MESHSAT-1744).
 func (h *WebhookHandler) SetCrewChat(c bridge.CrewChat) { h.crewChat = c }
 
-// tenantOf returns the tenant a message belongs to: the tenant the webhook
-// token authenticated (carried in ctx), else the sender's owner.
-func (h *WebhookHandler) tenantOf(ctx context.Context, id string) string {
-	authTenant := tenancy.FromContext(ctx)
-	if authTenant == "" {
-		authTenant = hubmqtt.DefaultTenant
+// tenantOf returns the tenant an inbound SMS belongs to: the one whose webhook
+// URL it arrived at, the platform's on the platform's path.
+//
+// The sender never decides it. A sender is a phone number, which only the
+// carrier's word ties to anybody, and letting a registered device id win let a
+// tenant register somebody's number and collect their SMS from every other
+// tenant's path, the platform's included (MESHSAT-1688).
+func (h *WebhookHandler) tenantOf(ctx context.Context) string {
+	if t := tenancy.FromContext(ctx); t != "" {
+		return t
 	}
-	if h.tenants == nil {
-		return authTenant
-	}
-	// A registered device wins if the identifier happens to be one; a phone
-	// number never is, and then this returns the tenant whose webhook URL the
-	// message arrived at rather than the platform default.
-	return h.tenants.ForDeviceTopic(ctx, id, authTenant)
+	return hubmqtt.DefaultTenant
 }

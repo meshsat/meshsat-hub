@@ -117,7 +117,12 @@ func (d *Detector) handleMODecoded(topic string, payload []byte) {
 	if source == "" {
 		return // not an SOS message
 	}
-	tenantID := d.tenants.ForDeviceTopic(context.Background(), msg.IMEI, hubmqtt.ExtractTenantID(topic))
+	// A forgery raises nothing: not an event, not a claim on the real message's
+	// id, and above all not a page to the owner's on-call (MESHSAT-1469).
+	tenantID, admitted := d.tenants.AdmitDeviceTopic(context.Background(), msg.IMEI, hubmqtt.ExtractTenantID(topic))
+	if !admitted {
+		return
+	}
 
 	// One SOS event and one alert per message across all replicas.
 	msgID := msg.ID

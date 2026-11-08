@@ -372,19 +372,23 @@ effect is nothing is worse than an absent one, because this scorecard counts it.
     carry (`result="namespace"` on `meshsat_hub_takhosted_cot_total` will say; none so far, on one
     hand-made event, which is not ATAK); public port 8089 for plain TAK apps stays open until
     MESHSAT-1466.
-16. **A topic tenant that differs from the store owner is rewritten, not refused** — **OPEN
-    (MESHSAT-1469), inferred from code and not exercised.** `tenancy.Resolver.reconcile` files a
-    message under the registered owner whatever tenant its topic names. For the satellite provider
-    paths, which have no tenant context, that is the point. For a bridge publishing under its own
-    tenant's root and naming another tenant's registered IMEI, it would write into that tenant.
-    To do: reproduce or refute with a test (default tenant as the victim); if real, refuse and
-    count the mismatch on the bus paths without touching the provider paths.
-    **2026-10-24: confirmed from code** (MESHSAT-1685's design attack): bridges may publish
-    `{ns}.*.mo.>`, `.sos`, `.position`, `.telemetry` for any device id, so the forgery reaches the
-    victim's routes, SOS chain and history, and a forged message carrying the victim's next
-    `mo-<imei>-<momsn>` id pre-claims the real message's route dispatch. A fix pattern exists: the
-    provider handlers publish a Hub-only copy on `{ns}/hub/satmo/{imei}` that no bridge grant
-    reaches, which the "@" lane already sends on (addendum below). Still not exercised end to end.
+16. ~~**A topic tenant that differs from the store owner is rewritten, not refused**~~ — **CLOSED
+    2026-11-08 (MESHSAT-1469), reproduced first.** Every bridge may publish `mo/decoded`, `position`,
+    `sos` and `telemetry` for any device id in its own namespace, and `tenancy.Resolver` filed a
+    registered id under its owner: a customer's bridge raised SOS events on the platform's chain,
+    fired its routes and wrote its history and track (`test/isolation`, default tenant as the victim,
+    two replicas, red before the fix). The consumers of the bus now go through `AdmitDeviceTopic` /
+    `AdmitBridgeTopic`: a registered id named in a customer namespace that is not its owner's is
+    dropped and counted in `meshsat_hub_tenancy_topic_refused_total`, before any claim, so a forgery
+    cannot pre-claim the real message either. `TenantForTopic` answers none for it, so it cannot
+    borrow a callsign. **Deliberate:** the platform namespace keeps resolving to the owner of record:
+    only the Hub and the operator's own bridges can write it, and a provider handler that could not
+    read the owner publishes there, so refusing it would lose a real SOS in a database blip. A failed
+    lookup admits; a refusal re-reads the store first (at most once a second per id) so a replica
+    behind on a modem that changed hands does not drop the new owner's message, and the provider
+    handlers read the owner fresh before they publish. `ForDeviceTopic` is what the provider paths
+    use and `TestOnlyCallersWithNoTenantToBelieveUseTheOwnerLookup` keeps the bus consumers off it.
+    Every control mutation-proven (25 mutants).
 17. ~~**The Hub cannot reach wg-easy**~~ — **CLOSED 2026-10-02 (MESHSAT-1476, 84e6fbc), found the
     same day.** The policy `wg-easy-confine` (MESHSAT-1205) admitted TCP 51821 only from the edge
     relay and the kubelet, so the Hub's own login to wg-easy timed out from 2026-09-17 until the
@@ -418,13 +422,15 @@ effect is nothing is worse than an absent one, because this scorecard counts it.
     for an unreachable billing system (MESHSAT-1662), and the next rollout's start-up line is the
     last check.
 
-20. **A device id may be any string, and a registered id beats the webhook path's tenant** — **OPEN
-    (MESHSAT-1688), from code, not exercised.** `devices.imei` has no format check, and the SMS
-    webhook's `tenantOf` lets a registered device id win over the tenant whose path the SMS arrived
-    at. A tenant that registers a phone number as a "device" would have that number's inbound SMS
-    on the platform's number or another tenant's path filed, persisted and dead-man-checked in its
-    own account. The "@" lane already takes the path tenant only. To do: IMEI/ESN-shaped ids only,
-    the path's tenant final for SMS, default tenant as the victim.
+20. ~~**A device id may be any string, and a registered id beats the webhook path's tenant**~~ —
+    **CLOSED 2026-11-08 (MESHSAT-1688), reproduced first.** `store.ValidDeviceID` (IMEI: 15 digits;
+    Globalstar ESN: 7 or 8 digits or `0-NNNNNNN`) is checked at both places a row is born,
+    `POST /api/devices` (400) and a device birth (the row is refused, the birth is not). An inbound
+    SMS now belongs to the tenant whose webhook path it arrived at and to nobody else: the sender is
+    never consulted. An id starting with `+` has no owner of record on the bus either, for rows
+    older than the check. Audit of the production `devices` table on 2026-11-08: 7 rows, no phone
+    numbers, 6 are 15-digit modems and one is the old `sim-` test row in the default tenant, left
+    alone (nothing validates a row that already exists).
 
 ## Addendum, 2026-10-24 (MESHSAT-1685): devices write to people, and people write back
 

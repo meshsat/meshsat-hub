@@ -210,6 +210,9 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, `{"error":"missing deviceId"}`, http.StatusBadRequest)
 		return
 	}
+	if h.tenants != nil {
+		h.tenants.RefreshDevice(ctx, payload.DeviceID) // the consumers refuse a stale namespace
+	}
 	if tokenTenant != "" && h.tenants != nil && h.tenants.ForDeviceTopic(ctx, payload.DeviceID, tokenTenant) != tokenTenant {
 		slog.Warn("globalstar: webhook token tenant does not own the device", "device", payload.DeviceID, "token_tenant", tokenTenant)
 		http.Error(w, `{"error":"forbidden"}`, http.StatusForbidden)
