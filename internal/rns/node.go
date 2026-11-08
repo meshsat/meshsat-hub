@@ -260,7 +260,12 @@ type Destination struct {
 	// OnPacket receives decrypted single-packet data.
 	OnPacket func(plain []byte, pkt *Packet)
 	// OnLink is called when a peer's link to this destination becomes active.
+	// It runs while the link is already receiving, so it must not set the
+	// link's callbacks: those belong in the OnLink* fields here (MESHSAT-1660).
 	OnLink func(l *Link)
+	// OnLinkIdentified is the link's OnIdentified, set before the link can
+	// receive anything.
+	OnLinkIdentified func(l *Link, identity []byte)
 	// OnLinkPacket receives decrypted data on links to this destination.
 	OnLinkPacket func(l *Link, plain []byte, pkt *Packet)
 	// OnLinkClosed is called when such a link closes.
@@ -326,11 +331,19 @@ type KnownIdentity struct {
 	LastSeen  time.Time
 }
 
-// Recall returns what is known about a destination, or nil.
+// Recall returns a snapshot of what is known about a destination, or nil. It is
+// a copy because the record goes on being updated under n.mu by every announce
+// and identification, and callers read it without the lock (MESHSAT-1660). The
+// slices are shared safely: the writers replace them and never change them.
 func (n *Node) Recall(dest [HashLen]byte) *KnownIdentity {
 	n.mu.Lock()
 	defer n.mu.Unlock()
-	return n.identities[dest]
+	k := n.identities[dest]
+	if k == nil {
+		return nil
+	}
+	snapshot := *k
+	return &snapshot
 }
 
 // Remember stores a destination's public key without an announce (e.g. a

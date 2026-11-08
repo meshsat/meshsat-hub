@@ -240,11 +240,10 @@ func TestLeaf_TheKitsOwnTrafficFlows(t *testing.T) {
 	waitFor(t, "M receives from K", func() bool { return ln.mGot.has("kit to mesh") })
 
 	established := make(chan struct{}, 1)
-	l, err := ln.k.Links().Initiate(ln.sDest.Hash)
+	l, err := ln.k.Links().InitiateWith(ln.sDest.Hash, func(l *Link) { l.OnEstablished = func(*Link) { established <- struct{}{} } })
 	if err != nil {
 		t.Fatal(err)
 	}
-	l.OnEstablished = func(*Link) { established <- struct{}{} }
 	select {
 	case <-established:
 	case <-time.After(5 * time.Second):

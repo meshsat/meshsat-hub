@@ -144,11 +144,10 @@ func TestThreeNodeTransport(t *testing.T) {
 	established := make(chan *Link, 1)
 	var linkGot []byte
 	bDest.OnLinkPacket = func(l *Link, plain []byte, pkt *Packet) { gotMu.Lock(); linkGot = plain; gotMu.Unlock() }
-	l, err := a.Links().Initiate(bDest.Hash)
+	l, err := a.Links().InitiateWith(bDest.Hash, func(l *Link) { l.OnEstablished = func(l *Link) { established <- l } })
 	if err != nil {
 		t.Fatal(err)
 	}
-	l.OnEstablished = func(l *Link) { established <- l }
 	select {
 	case <-established:
 	case <-time.After(5 * time.Second):

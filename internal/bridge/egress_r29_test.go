@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"path/filepath"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -19,14 +20,14 @@ import (
 // write after it (failBirth).
 type faultyStore struct {
 	store.Store
-	failRecord, failBirth bool
+	failRecord, failBirth atomic.Bool // written by the test, read by the egress loop
 	ownedElsewhere        bool
 }
 
 var errInjected = errors.New("injected write failure")
 
 func (s *faultyStore) SetDeviceEgress(ctx context.Context, tenant, imei, bridge, format string) error {
-	if s.failRecord || s.failBirth {
+	if s.failRecord.Load() || s.failBirth.Load() {
 		return errInjected
 	}
 	return s.Store.SetDeviceEgress(ctx, tenant, imei, bridge, format)
@@ -36,7 +37,7 @@ func (s *faultyStore) CreateOrUpdateBridge(ctx context.Context, tenant string, b
 	if s.ownedElsewhere {
 		return store.ErrOwnedElsewhere
 	}
-	if s.failBirth {
+	if s.failBirth.Load() {
 		return errInjected
 	}
 	return s.Store.CreateOrUpdateBridge(ctx, tenant, b)
@@ -133,9 +134,9 @@ func TestEgressFailedRecordWrite(t *testing.T) {
 	k.birth(egressIMEI, "plain", true)
 	k.expect("plain declared", codec.DeclaredPlain, codec.DeclaredPlain)
 
-	k.fs.failRecord = true
+	k.fs.failRecord.Store(true)
 	k.birth(egressIMEI, "sealed", true)
-	k.fs.failRecord = false
+	k.fs.failRecord.Store(false)
 	if k.record() != "plain" {
 		t.Fatalf("premise: the record write was meant to fail, record %q", k.record())
 	}
@@ -158,13 +159,13 @@ func TestEgressFailedRecordWrite(t *testing.T) {
 func TestEgressFailedRecordWriteIsRetried(t *testing.T) {
 	k := newR29Kit(t)
 	k.birth(egressIMEI, "plain", true)
-	k.fs.failRecord = true
+	k.fs.failRecord.Store(true)
 	k.birth(egressIMEI, "sealed", true)
 	k.sub.ReconcileEgress(context.Background()) // still failing: stays held
 	if _, _, ok := k.sub.PendingEgress(store.DefaultTenantID, egressIMEI); !ok {
 		t.Fatal("a declaration whose record write failed was let go")
 	}
-	k.fs.failRecord = false
+	k.fs.failRecord.Store(false)
 	k.sub.ReconcileEgress(context.Background())
 	if k.record() != "sealed" {
 		t.Fatalf("record after the retry: %q", k.record())
@@ -183,13 +184,13 @@ func TestEgressFailedBirthWrite(t *testing.T) {
 	k := newR29Kit(t)
 	k.birth(egressIMEI, "plain", true)
 
-	k.fs.failBirth = true
+	k.fs.failBirth.Store(true)
 	k.birth(egressIMEI, "sealed", true)
 	k.expect("birth write failed", codec.DeclaredSealed, codec.DeclaredPlain)
 	k.birth("", "", true)
 	k.expect("then a birth before the IMEI, still failing", codec.DeclaredSealed, codec.DeclaredPlain)
 
-	k.fs.failBirth = false
+	k.fs.failBirth.Store(false)
 	k.sub.ReconcileEgress(context.Background())
 	k.expect("storage back, retried", codec.DeclaredSealed, codec.DeclaredSealed)
 	if k.record() != "sealed" {
@@ -203,9 +204,9 @@ func TestEgressFailedBirthWrite(t *testing.T) {
 func TestEgressFailedBirthWriteRetriedOnTheNextBirth(t *testing.T) {
 	k := newR29Kit(t)
 	k.birth(egressIMEI, "plain", true)
-	k.fs.failBirth = true
+	k.fs.failBirth.Store(true)
 	k.birth(egressIMEI, "sealed", true)
-	k.fs.failBirth = false
+	k.fs.failBirth.Store(false)
 	k.birth("", "", true)
 	k.expect("after the next birth was saved", codec.DeclaredSealed, codec.DeclaredSealed)
 	k.restart()
@@ -224,9 +225,9 @@ func TestEgressRetryLoopConverges(t *testing.T) {
 	}
 	t.Cleanup(k.sub.Stop)
 	k.birth(egressIMEI, "plain", true)
-	k.fs.failRecord = true
+	k.fs.failRecord.Store(true)
 	k.birth(egressIMEI, "sealed", true)
-	k.fs.failRecord = false
+	k.fs.failRecord.Store(false)
 	deadline := time.Now().Add(5 * time.Second)
 	for k.record() != "sealed" {
 		if time.Now().After(deadline) {
@@ -241,9 +242,9 @@ func TestEgressRetryLoopConverges(t *testing.T) {
 func TestEgressExplicitPlainSurvivesAFailedRecordWrite(t *testing.T) {
 	k := newR29Kit(t)
 	k.birth(egressIMEI, "sealed", true)
-	k.fs.failRecord = true
+	k.fs.failRecord.Store(true)
 	k.birth(egressIMEI, "plain", true)
-	k.fs.failRecord = false
+	k.fs.failRecord.Store(false)
 	k.expect("sealed to plain, record write failed", codec.DeclaredPlain, codec.DeclaredPlain)
 }
 

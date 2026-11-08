@@ -426,12 +426,13 @@ func TestInteropLinkHubToPython(t *testing.T) {
 	p.send(event{"cmd": "announce"})
 	waitFor(t, "hub learns python", 10*time.Second, func() bool { return b.node.Paths().Hops(h16(p.Raw)) == 1 })
 
-	l, err := b.node.Links().Initiate(h16(p.Raw))
+	est := make(chan struct{}, 1)
+	l, err := b.node.Links().InitiateWith(h16(p.Raw), func(l *rns.Link) {
+		l.OnEstablished = func(*rns.Link) { est <- struct{}{} }
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	est := make(chan struct{}, 1)
-	l.OnEstablished = func(*rns.Link) { est <- struct{}{} }
 	select {
 	case <-est:
 	case <-time.After(15 * time.Second):

@@ -381,8 +381,15 @@ func TestAKitsStatusFrameIsRecordedOnItsQuestion(t *testing.T) {
 
 func TestAnAnswerOverMQTTToAHashedOperatorFindsTheOperator(t *testing.T) {
 	s, b, db, now := rig(t)
-	var replies []*store.TAKChatMessage
-	s.SetReplyHook(func(_ context.Context, m *store.TAKChatMessage) { replies = append(replies, m) })
+	var (
+		repliesMu sync.Mutex // the hook runs on the reply sink's goroutine
+		replies   []*store.TAKChatMessage
+	)
+	s.SetReplyHook(func(_ context.Context, m *store.TAKChatMessage) {
+		repliesMu.Lock()
+		defer repliesMu.Unlock()
+		replies = append(replies, m)
+	})
 	q, _ := sendOverSMS(t, s, db, now)
 	if err := s.StartReplySink(context.Background()); err != nil {
 		t.Fatal(err)
@@ -407,6 +414,8 @@ func TestAnAnswerOverMQTTToAHashedOperatorFindsTheOperator(t *testing.T) {
 	if len(rows) != 2 || rows[1].ID != "a1" || rows[1].OperatorUID != tak.OperatorUIDPrefix+"7" || rows[1].UserID != "7" || rows[1].Bearer != "" {
 		t.Fatalf("rows %+v (question %s)", rows, q.ID)
 	}
+	repliesMu.Lock()
+	defer repliesMu.Unlock()
 	if len(replies) != 1 || replies[0].UserID != "7" {
 		t.Errorf("the reply hook: %+v", replies)
 	}

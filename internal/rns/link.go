@@ -198,6 +198,15 @@ func (m *LinkManager) updateKeepalive(l *Link) {
 
 // Initiate opens a link to a remote destination known from an announce.
 func (m *LinkManager) Initiate(dest [HashLen]byte) (*Link, error) {
+	return m.InitiateWith(dest, nil)
+}
+
+// InitiateWith is Initiate for a caller that wants callbacks on the link.
+// configure runs before the link can receive anything: the peer's proof may
+// arrive while the link request is still being transmitted, so a callback set
+// after Initiate returns is written while the receive path may be reading it
+// (MESHSAT-1660), and on a fast link can miss the event altogether.
+func (m *LinkManager) InitiateWith(dest [HashLen]byte, configure func(*Link)) (*Link, error) {
 	n := m.n
 	k := n.Recall(dest)
 	if k == nil || k.Identity == nil {
@@ -235,6 +244,10 @@ func (m *LinkManager) Initiate(dest [HashLen]byte) (*Link, error) {
 		establishTO:  time.Duration(rnswire.DefaultPerHopTimeoutSec*hops)*time.Second + 6*time.Second,
 		expectedHops: hops, keepalive: rnswire.KeepaliveMaxSec * time.Second, staleTime: 2 * rnswire.KeepaliveMaxSec * time.Second}
 	l.mdu = rnswire.LinkMDU(mtu)
+	l.lastOutbound = now
+	if configure != nil {
+		configure(l)
+	}
 	m.mu.Lock()
 	m.pending[id] = l
 	m.mu.Unlock()
@@ -245,10 +258,15 @@ func (m *LinkManager) Initiate(dest [HashLen]byte) (*Link, error) {
 		m.mu.Unlock()
 		return nil, err
 	}
+	// handleProof may already have run and set the interface the proof really
+	// came in on, which is the better answer.
 	if len(ifaces) == 1 {
-		l.Iface = ifaces[0]
+		l.mu.Lock()
+		if l.state == LinkPending {
+			l.Iface = ifaces[0]
+		}
+		l.mu.Unlock()
 	}
-	l.lastOutbound = now
 	slog.Debug("rns: link request sent", "link", hexh(id), "dest", hexh(dest))
 	return l, nil
 }
@@ -294,6 +312,7 @@ func (m *LinkManager) accept(d *Destination, pkt *Packet) {
 		keepalive:   rnswire.KeepaliveMaxSec * time.Second, staleTime: 2 * rnswire.KeepaliveMaxSec * time.Second}
 	l.mdu = rnswire.LinkMDU(mtu)
 	l.AcceptResources = d.AcceptResources
+	l.OnIdentified = d.OnLinkIdentified
 	m.mu.Lock()
 	m.links[id] = l
 	m.mu.Unlock()

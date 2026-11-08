@@ -77,9 +77,7 @@ func New(node *rns.Node, cfg Config) *Router {
 			data := append(append([]byte(nil), r.Dest.Hash[:]...), plain...)
 			_, _ = r.Inbound(data, Opportunistic, pkt.Iface)
 		},
-		OnLink: func(l *rns.Link) {
-			l.OnIdentified = r.onIdentified
-		},
+		OnLinkIdentified: r.onIdentified,
 		OnLinkPacket: func(l *rns.Link, plain []byte, pkt *rns.Packet) {
 			_, _ = r.Inbound(plain, Direct, pkt.Iface)
 		},
@@ -331,17 +329,18 @@ func (r *Router) linkTo(ctx context.Context, dest [DestLen]byte) (*rns.Link, err
 		return l, nil
 	}
 	r.mu.Unlock()
-	l, err := r.node.Links().Initiate(dest)
+	est := make(chan struct{}, 1)
+	l, err := r.node.Links().InitiateWith(dest, func(l *rns.Link) {
+		l.OnEstablished = func(*rns.Link) { est <- struct{}{} }
+		l.OnClosed = func(l *rns.Link) { r.forgetLink(l) }
+		// The peer may answer on this link (LXMF backchannel), by packet or resource.
+		l.OnPacket = func(l *rns.Link, plain []byte, pkt *rns.Packet) { _, _ = r.Inbound(plain, Direct, pkt.Iface) }
+		l.AcceptResources = r.acceptResource
+		l.OnResource = func(l *rns.Link, data []byte) { _, _ = r.Inbound(data, Direct, l.Iface) }
+	})
 	if err != nil {
 		return nil, err
 	}
-	est := make(chan struct{}, 1)
-	l.OnEstablished = func(*rns.Link) { est <- struct{}{} }
-	l.OnClosed = func(l *rns.Link) { r.forgetLink(l) }
-	// The peer may answer on this link (LXMF backchannel), by packet or resource.
-	l.OnPacket = func(l *rns.Link, plain []byte, pkt *rns.Packet) { _, _ = r.Inbound(plain, Direct, pkt.Iface) }
-	l.AcceptResources = r.acceptResource
-	l.OnResource = func(l *rns.Link, data []byte) { _, _ = r.Inbound(data, Direct, l.Iface) }
 	// At least the link's own establishment timeout, which grows with the
 	// path's hops (a satellite link counts as several).
 	wait := LinkEstablishTimeout
