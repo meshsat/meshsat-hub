@@ -226,7 +226,15 @@ func (c *capturedOTS) got() []string {
 
 func (c *capturedOTS) waitFor(t *testing.T, n int) []string {
 	t.Helper()
-	deadline := time.Now().Add(3 * time.Second)
+	return c.waitForWithin(t, n, 3*time.Second)
+}
+
+// waitForWithin is waitFor with a budget of the caller's, for a test whose steps
+// depend on an earlier one having really finished: the nightly -race job runs on
+// a loaded runner, where opening a connection can take longer than waitFor's 3 s.
+func (c *capturedOTS) waitForWithin(t *testing.T, n int, budget time.Duration) []string {
+	t.Helper()
+	deadline := time.Now().Add(budget)
 	for time.Now().Before(deadline) {
 		if got := c.got(); len(got) >= n {
 			return got
@@ -472,13 +480,16 @@ func TestADeadUpstreamIsDroppedAndRedialled(t *testing.T) {
 	f, b := newForwarderOn(t, ots, db)
 
 	b.deliver(hubmqtt.TopicPositionFor("t1", "300434"), positionPayload(t, "300434", 52.1, 4.5))
-	ots.waitFor(t, 1)
+	// The connection has to exist before there is one to kill.
+	if got := ots.waitForWithin(t, 1, 30*time.Second); len(got) != 1 {
+		t.Fatalf("the first position never arrived: %d events", len(got))
+	}
 
 	// Close the held connection behind the forwarder's back.
 	closeConnsBehindItsBack(f)
 
 	b.deliver(hubmqtt.TopicPositionFor("t1", "300434"), positionPayload(t, "300434", 52.2, 4.6))
-	if got := ots.waitFor(t, 2); len(got) < 2 {
+	if got := ots.waitForWithin(t, 2, 30*time.Second); len(got) < 2 {
 		t.Errorf("after the upstream died the forwarder did not redial: %d events", len(got))
 	}
 }

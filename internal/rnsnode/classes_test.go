@@ -158,7 +158,12 @@ func TestPrivate_AWrongCodeIsDroppedAndClosed(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	waitFor(t, "connection closed", func() bool { return len(svc.Status().Public.Connections) == 0 })
+	// The count first: before the server has accepted the connection the list
+	// of connections is empty too, so "none left" alone proves nothing.
+	waitFor(t, "every frame counted and the connection closed", func() bool {
+		st := svc.Status()
+		return st.IFACUnmatched == maxUnmatched && len(st.Public.Connections) == 0
+	})
 	if st := svc.Status(); st.IFACUnmatched != maxUnmatched || st.PublicPrivate != 0 {
 		t.Fatalf("status %+v", st)
 	}
