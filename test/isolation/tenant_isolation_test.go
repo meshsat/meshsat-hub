@@ -688,7 +688,7 @@ func (w *world) smsHandler() *sms.WebhookHandler {
 }
 
 func smsRequest(secret, sid, body string) *http.Request {
-	form := url.Values{"From": {phoneNumber}, "To": {"+3197010258258"}, "Body": {body}, "MessageSid": {sid}}
+	form := url.Values{"From": {phoneNumber}, "To": {"+31600000009"}, "Body": {body}, "MessageSid": {sid}}
 	req := httptest.NewRequest(http.MethodPost, "/api/webhook/sms", strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	mac := hmac.New(sha256.New, []byte(secret))
