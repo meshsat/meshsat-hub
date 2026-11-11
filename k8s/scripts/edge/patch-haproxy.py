@@ -12,6 +12,12 @@ Usage: patch-haproxy.py <phase> <haproxy.cfg> [--out FILE]
                      changes, so the blast radius is MeshSat only. The host also needs
                      `ufw allow 8089/tcp`, and the relay's 9089 hostPort must be live
                      in the cluster FIRST or the edge forwards to nothing.
+  phase = untak    : CLOSE the hosted TAK leg (MESHSAT-1466, owner's decision of
+                     11 Nov 2026): removes the `tak_in` frontend and the
+                     `meshsat_tak` backend, nothing else. Idempotent. The host also
+                     needs `ufw delete allow 8089/tcp` (v4 and v6), and the blackbox
+                     `tak` leg must be gone FIRST (infra MR !698) or MeshSatBackendDown
+                     fires and the status page shows every edge down.
   phase = statuscsp: add the Content-Security-Policy for status.meshsat.net
                      (MESHSAT-1226). Additive and host-keyed: one acl, one set-var
                      and one conditional set-header. No other hostname's response
@@ -323,6 +329,30 @@ def tak(text):
     return text
 
 
+def remove_section(text, kind, name):
+    """Remove the whole `<kind> <name>` section and the blank line after it."""
+    m = re.search(rf"^{kind} {re.escape(name)}\n(?:.+\n)+?(?:\n|\Z)", text, re.M)
+    if not m:
+        return text
+    return text[: m.start()] + text[m.end():]
+
+
+def untak(text):
+    """Close the TAK leg: drop the :8089 frontend and its backend (MESHSAT-1466).
+
+    Public port 8089 closed on 11 Nov 2026 by the owner's decision: TAK apps no
+    longer reach the Hub from the internet, kits and the MeshSat apps reach TAK
+    through the Hub over MQTT. Do not re-run `tak` to undo this without his word.
+    """
+    assert "frontend tls_in" in text, "this does not look like a VPS edge config"
+    text = remove_section(text, "frontend", "tak_in")
+    text = remove_section(text, "backend", "meshsat_tak")
+    for gone in ("tak_in", "meshsat_tak", "bind :8089", ":9089"):
+        assert gone not in text, f"{gone} is still in the config"
+    assert "frontend rns_in" in text or "backend meshsat_rns" not in text, "rns leg damaged"
+    return text
+
+
 # Public Reticulum (MESHSAT-1555): rns.meshsat.net:4242, the convention's port,
 # raw TCP to the three workers' relay on :4242, which hands it to the leader's
 # public listener (hub-rns:4244). No TLS, on purpose: stock clients (Sideband,
@@ -364,7 +394,8 @@ def main():
     out = sys.argv[sys.argv.index("--out") + 1] if "--out" in sys.argv else None
     orig = open(path).read()
     new = {"auth": add_auth, "cutover": cutover, "rollback": rollback,
-           "launch": launch, "tak": tak, "statuscsp": statuscsp, "rns": rns}[phase](orig)
+           "launch": launch, "tak": tak, "untak": untak, "statuscsp": statuscsp,
+           "rns": rns}[phase](orig)
     diff = difflib.unified_diff(orig.splitlines(True), new.splitlines(True), fromfile=path, tofile=f"{path} ({phase})")
     sys.stderr.write("".join(diff))
     if out:

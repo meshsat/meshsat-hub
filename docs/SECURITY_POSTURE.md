@@ -370,8 +370,11 @@ effect is nothing is worse than an absent one, because this scorecard counts it.
     one-marker rule in production (the phone has sent no ordinary position since it began exporting).
     Residuals: the sanitizer refuses namespace prefixes, which real ATAK traffic is not expected to
     carry (`result="namespace"` on `meshsat_hub_takhosted_cot_total` will say; none so far, on one
-    hand-made event, which is not ATAK); public port 8089 for plain TAK apps stays open until
-    MESHSAT-1466.
+    hand-made event, which is not ATAK). **Public port 8089 for plain TAK apps is CLOSED since
+    2026-11-11 (MESHSAT-1466, owner's decision)**: `tak_in`/`meshsat_tak` and the ufw rule are gone
+    from all three VPS (`patch-haproxy.py untak`), the blackbox leg and the scanners' acceptance with
+    them (infra MR !698), and each edge address refuses 8089 from outside. The Hub's front still
+    listens inside the cluster behind the edge relay's 9089; removing it is the rest of MESHSAT-1466.
 16. ~~**A topic tenant that differs from the store owner is rewritten, not refused**~~ — **CLOSED
     2026-11-08 (MESHSAT-1469), reproduced first.** Every bridge may publish `mo/decoded`, `position`,
     `sos` and `telemetry` for any device id in its own namespace, and `tenancy.Resolver` filed a
