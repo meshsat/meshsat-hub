@@ -31,7 +31,7 @@ kubectl --context notrf01 -n meshsat-hub logs deploy/hub | sed -n 1p    # the co
 | nats | StatefulSet | 3 | MQTT + WebSocket mTLS bus, JetStream |
 | redis (KeyDB) | StatefulSet | 2 | Dedup, rate limits, multi-master |
 | stunnel | Deployment | 1 | Reticulum TLS termination |
-| meshsat-edge-relay | DaemonSet | workers | hostNetwork haproxy :9443/:4243/:9089/:4242 for the VPS edge (:4242 is the public Reticulum leg to hub-rns:4244, MESHSAT-1555) |
+| meshsat-edge-relay | DaemonSet | workers | hostNetwork haproxy :9443/:4243/:4242 for the VPS edge (the TAK leg :9089 closed with public 8089, MESHSAT-1466) (:4242 is the public Reticulum leg to hub-rns:4244, MESHSAT-1555) |
 | hub-verify | CronJob | nightly | in-cluster verification suites (see below) |
 | hub.meshsat.net / auth.meshsat.net | Ingress | -- | ingress-nginx, wildcard cert from OpenBao |
 

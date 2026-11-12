@@ -118,10 +118,10 @@ has its own `kustomization.yaml`. A service dir contains, as applicable: `deploy
   image built from `k8s/ots/Dockerfile` and pinned by digest, and `priorityClassName:
   meshsat-tak` which sits BELOW `meshsat-hub-critical` so a customer's map server can never
   outrank the Hub's own data path. Revisit if a dedicated TAK node becomes affordable.
-- The Hub is the only client of an OpenTAKServer. Phones terminate TLS at the Hub
-  (`internal/takfront`, one public port for every tenant, tenant identified by the client
-  certificate's issuer because TAK clients send no SNI), so nothing in `meshsat-tak` accepts
-  traffic from the edge relay.
+- The Hub is the only client of an OpenTAKServer. Kits and the MeshSat apps reach TAK through
+  the Hub over MQTT; no TAK app connects to the Hub or to an instance since the public TAK port
+  closed on 11 Nov 2026 (MESHSAT-1466, which retired the Hub's :8089 front), so nothing in
+  `meshsat-tak` accepts traffic from the edge relay.
 
 ## Public path
 

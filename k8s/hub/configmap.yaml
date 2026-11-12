@@ -215,8 +215,9 @@ data:
   # OpenTAKServer per tenant, or a tenant points the Hub at their own server
   # through Settings -> Integrations. The platform-wide keys that used to be
   # here -- one TAK host, its OTS marker poller and TAK Federation v2 -- are
-  # gone with the code that read them (MESHSAT-1032). The HUB_TAK_FRONT_* and
-  # HUB_TAK_NAMESPACE keys below belong to the hosted path and stay.
+  # gone with the code that read them (MESHSAT-1032), and the public TAK front's
+  # HUB_TAK_FRONT_* keys went with port 8089 (MESHSAT-1466). HUB_TAK_HOSTED_ENABLED
+  # and HUB_TAK_NAMESPACE below belong to the hosted path and stay.
 
   # --- public exposure (MESHSAT-995) ---
   # Whose X-Forwarded-For to believe when resolving the client IP for rate
@@ -375,67 +376,20 @@ data:
   # still never goes below it is a PLAN (the lines above). A platform
   # admin can still set it for a customer with PUT /api/admin/tenants/{id}.
 
-  # TAK accounts per tier (MESHSAT-1037), a separate meter from devices: a TAK
-  # user is a person with a phone and a certificate, a device is a piece of kit,
-  # and a two-device survey team can have a dozen people watching the map.
-  # Registration only, exactly like the device cap above -- an account that
-  # exists keeps connecting and keeps its SOS path whatever the tier says.
+  # Hosted TAK (MESHSAT-1037): one OpenTAKServer per tenant that asks for one,
+  # built by the operator. The Hub is the only party that talks to it (epic
+  # MESHSAT-1459): kits and the MeshSat apps reach it over MQTT, and no TAK app
+  # connects to the Hub since public port 8089 closed on 11 Nov 2026 with the
+  # front that served it (MESHSAT-1466). This switch starts the Hub's side: its
+  # identity for each instance, the instance rows the console reads, the purge's
+  # teardown, and the forwarder's route to each instance.
   #
-  # Custom gets a real number rather than -1, unlike its device allowance: every
-  # TAK user is a long-lived TLS session and a row in a Python process on the
-  # control-plane tier, so this ceiling protects the cluster rather than the
-  # invoice. Raise it deliberately for a tenant that needs more.
-  HUB_PLAN_FREE_TAK_USERS: "4"
-  HUB_PLAN_CREW_TAK_USERS: "12"
-  HUB_PLAN_FLEET_TAK_USERS: "40"
-  HUB_PLAN_CUSTOM_TAK_USERS: "100"
-
-  # The hosted TAK front (MESHSAT-1037): one TLS listener for every tenant's
-  # phones, tenant identified from the client certificate's issuer.
-  #
-  # ON, 2026-09-13, after MESHSAT-1076. It was switched on once before and taken
-  # straight back off, which is worth keeping because it is how that defect was
-  # found: with the front running, two Hub replicas fought over one shared
-  # upstream-identity request -- whichever did not ask saw a certificate it had no
-  # key for, deleted it and asked again -- so NO tenant entered the front's
-  # directory and no phone could connect, while every probe stayed green. Each
-  # replica now has its own request object and its own key.
-  #
-  # WHAT TO WATCH, and the number that would have caught that in one refresh:
-  # `meshsat_hub_takhosted_directory_tenants` must equal the number of Ready
-  # instances. The same pair is in the log line `takhosted: directory refreshed`
-  # as `tenants` and `skipped`.
-  #
-  # The front presents ONE server certificate to every phone in every tenant --
-  # ATAK sends no SNI on the CoT socket, so it must present a certificate before
-  # it knows who is calling -- and every tenant's truststore carries that
-  # certificate's chain. It is therefore supplied, never generated: a certificate
-  # the Hub minted for itself would be refused by every phone already enrolled.
-  #
-  # This comment said "OFF until the certificate Secret exists" for four days
-  # after the Secret started existing (2026-09-08), which is the kind of note that
-  # stops somebody looking. The files are meshsat-net-tls, mounted by the
-  # Deployment at the path below, and takfront.CertFile re-reads them when
-  # cert-manager renews (without that, a renewal would have silently served an
-  # expired certificate to every phone at once).
-  #
-  # Turning this on without the files is a startup error that logs and continues,
-  # not a crash: TAK is one feature among many and must not take satellite
-  # ingest, SMS and the dashboard down with it. The volume is optional for the
-  # same reason.
-  #
-  # MESHSAT-1466: public port 8089 closed on 11 Nov 2026 and the front is retired.
-  # Hosted TAK (the instances, the Hub's identity for each, the forwarder's route
-  # to them) starts on its own switch below. The four HUB_TAK_FRONT_* keys are
-  # read only by images built before that change and leave in the next commit,
-  # once the new image runs: Argo applies this file 20-30 minutes before the pin,
-  # so removing them in the same commit would turn the RUNNING image's front off
-  # and, with it, its route to every hosted instance.
+  # WHAT TO WATCH: `meshsat_hub_takhosted_directory_tenants` must equal the
+  # number of Ready instances (log line `takhosted: directory refreshed`, fields
+  # `tenants` and `skipped`). MESHSAT-1076 was two replicas fighting over one
+  # identity request: no tenant was reachable while every probe stayed green.
+  # Each replica now has its own request object and its own key.
   HUB_TAK_HOSTED_ENABLED: "true"
-  HUB_TAK_FRONT_ENABLED: "true"
-  HUB_TAK_FRONT_ADDR: ":8089"
-  HUB_TAK_FRONT_CERT_FILE: "/etc/meshsat/takfront/tls.crt"
-  HUB_TAK_FRONT_KEY_FILE: "/etc/meshsat/takfront/tls.key"
   # Where the TakInstance and TakCertificateRequest objects live. The Hub runs in
   # meshsat-hub and reaches across, which is why its rights on them are a
   # separate Role in that namespace (k8s/tak/rbac-hub.yaml).

@@ -16,12 +16,13 @@
 # k8s/tak-operator/rbac.yaml: "the Hub creates a TakInstance when a customer turns
 # TAK on and deletes it when the tenant is purged; the operator reacts." So:
 #
-#   - The Hub CREATES and DELETES all three kinds, and reads them. The operator
-#     cannot. The third, TakUserRequest, exists because the Hub may not read the
-#     Secret holding an instance's administrator password -- and must not, since
-#     that Secret also carries secret_key and password_salt and RBAC cannot grant
-#     one key of a Secret. So the Hub asks for an OpenTAKServer account and the
-#     operator, which already holds the password, creates it.
+#   - The Hub CREATES and DELETES TakInstances and TakCertificateRequests (its
+#     own identity per instance), and reads them. The operator cannot. The third
+#     kind, TakUserRequest, was how the Hub asked for an OpenTAKServer account for
+#     a customer's phone; phone accounts and enrolment went with public port 8089
+#     (MESHSAT-1466), so the Hub has no rights on it any more. The reason it
+#     existed still holds: the Hub may not read the Secret holding an instance's
+#     administrator password, which also carries secret_key and password_salt.
 #   - The Hub may NOT touch either status subresource. Status is the operator's
 #     report, and a Hub that could write it could claim an instance was Ready
 #     when no OpenTAKServer existed. The release gate asserts the API server
@@ -43,7 +44,7 @@ metadata:
     app.kubernetes.io/part-of: meshsat-hub
 rules:
   - apiGroups: ["tak.meshsat.net"]
-    resources: ["takinstances", "takcertificaterequests", "takuserrequests"]
+    resources: ["takinstances", "takcertificaterequests"]
     verbs: ["get", "list", "watch", "create", "delete", "patch"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1

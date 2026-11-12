@@ -19,11 +19,6 @@ spec:
     # may reach this port; the NetworkPolicy is what enforces that.
     - {name: onion, port: 6079, targetPort: onion}
     - {name: reticulum, port: 4242, targetPort: reticulum}
-    # The hosted TAK front (MESHSAT-1037). The edge relay forwards to this from
-    # its own hostPort; phones terminate TLS here, not at the edge, because the
-    # client certificate is what identifies the tenant and a passthrough proxy
-    # cannot read it.
-    - {name: takfront, port: 8089, targetPort: takfront}
 ---
 # The Reticulum node runs on ONE replica, the leader (MESHSAT-1555): links,
 # path tables and TCP sessions are stateful. A Service that balanced across
