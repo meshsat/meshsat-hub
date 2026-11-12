@@ -32,9 +32,9 @@ import (
 //
 // # What this is NOT
 //
-// It is not the front. Their phones connect to their own server directly, so
-// takfront is uninvolved and none of this depends on HUB_TAK_FRONT_ENABLED or on
-// the front's server certificate.
+// It is not hosted TAK. Their phones connect to their own server directly, and
+// none of this depends on HUB_TAK_HOSTED_ENABLED. (Nor, before MESHSAT-1466
+// closed it, on the public TAK front.)
 
 // TAKConfigSource hands back one tenant's stored TAK settings, or nil when that
 // tenant has not configured a server of their own.

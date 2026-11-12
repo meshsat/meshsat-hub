@@ -423,6 +423,15 @@ data:
   # not a crash: TAK is one feature among many and must not take satellite
   # ingest, SMS and the dashboard down with it. The volume is optional for the
   # same reason.
+  #
+  # MESHSAT-1466: public port 8089 closed on 11 Nov 2026 and the front is retired.
+  # Hosted TAK (the instances, the Hub's identity for each, the forwarder's route
+  # to them) starts on its own switch below. The four HUB_TAK_FRONT_* keys are
+  # read only by images built before that change and leave in the next commit,
+  # once the new image runs: Argo applies this file 20-30 minutes before the pin,
+  # so removing them in the same commit would turn the RUNNING image's front off
+  # and, with it, its route to every hosted instance.
+  HUB_TAK_HOSTED_ENABLED: "true"
   HUB_TAK_FRONT_ENABLED: "true"
   HUB_TAK_FRONT_ADDR: ":8089"
   HUB_TAK_FRONT_CERT_FILE: "/etc/meshsat/takfront/tls.crt"

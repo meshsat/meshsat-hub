@@ -36,17 +36,6 @@ type Limits struct {
 	// Devices is the combined ceiling on registered devices and bridges: one
 	// number, because that is what a customer can count against their own kit.
 	Devices int
-	// TAKUsers is the ceiling on TAK accounts in the tenant's own hosted
-	// OpenTAKServer (MESHSAT-1037). A separate meter from Devices on purpose:
-	// a TAK user is a person with a phone and a certificate, not a piece of
-	// kit, and the two scale differently -- a two-device survey team can have
-	// a dozen people looking at the map.
-	//
-	// TAK MARKER rows never count here or against Devices. The OTS poller
-	// mirrors markers into the devices table as type "tak", which
-	// store.ArtefactDeviceTypes already excludes from billing; counting them
-	// as users would bill a tenant for a busy map.
-	TAKUsers int
 	// DailyCap and MonthlyCap are the tenant's per-device send budget
 	// (MESHSAT-1117 tranche 2c). 0 means this plan says nothing and the
 	// platform value (HUB_RATELIMIT_DAILY_CAP / _MONTHLY_CAP) applies, which
@@ -73,11 +62,11 @@ type Limits struct {
 // protects the cluster rather than the invoice; a tenant that genuinely needs
 // more gets it raised deliberately.
 var defaults = map[string]Limits{
-	Free:   {Devices: 4, TAKUsers: 4},
-	Crew:   {Devices: 24, TAKUsers: 12},
-	Fleet:  {Devices: 100, TAKUsers: 40},
-	Custom: {Devices: Unlimited, TAKUsers: 100},
-	Beta:   {Devices: Unlimited, TAKUsers: 100},
+	Free:   {Devices: 4},
+	Crew:   {Devices: 24},
+	Fleet:  {Devices: 100},
+	Custom: {Devices: Unlimited},
+	Beta:   {Devices: Unlimited},
 }
 
 var table = cloneDefaults()
@@ -141,11 +130,10 @@ func SendCaps(plan string, floorDaily, floorMonthly int) (daily, monthly int) {
 // config; a plan name that is not known is ignored rather than invented, so a
 // typo in an env var cannot create a tier nobody can be moved off.
 //
-// It reads the existing entry and changes ONE field. It used to assign a whole
-// fresh `Limits{Devices: devices}`, which was harmless while Limits had one
-// field and silently zeroed TAKUsers the moment it had two -- so any tenant on a
-// tier named in HUB_PLAN_*_DEVICES would have been allowed no TAK users at all,
-// with nothing in the logs to say why. Change a field, never replace the struct.
+// It reads the existing entry and changes ONE field. It once assigned a whole
+// fresh `Limits{Devices: devices}`, which silently zeroed every other field of
+// the tier (the TAK account ceiling, until MESHSAT-1466 retired it; the send
+// caps today). Change a field, never replace the struct.
 func SetLimit(plan string, devices int) bool {
 	plan = Normalise(plan)
 	l, ok := table[plan]
@@ -153,24 +141,6 @@ func SetLimit(plan string, devices int) bool {
 		return false
 	}
 	l.Devices = devices
-	table[plan] = l
-	return true
-}
-
-// SetTAKUserLimit overrides a plan's TAK account ceiling, the same way and with
-// the same refusal for an unknown plan.
-//
-// A sibling rather than a second argument to SetLimit: that function has one
-// caller and a test asserting it refuses unknown plans, and widening its
-// signature to carry an unrelated meter would break both for no gain. Two
-// meters, two setters, each touching only its own field.
-func SetTAKUserLimit(plan string, takUsers int) bool {
-	plan = Normalise(plan)
-	l, ok := table[plan]
-	if !ok {
-		return false
-	}
-	l.TAKUsers = takUsers
 	table[plan] = l
 	return true
 }
@@ -209,17 +179,4 @@ func For(plan string) Limits {
 func AllowsAnother(plan string, current int) bool {
 	l := For(plan)
 	return l.Devices == Unlimited || current < l.Devices
-}
-
-// AllowsAnotherTAKUser reports whether a tenant on this plan may add one more
-// TAK account, given how many it already has.
-//
-// Same shape as AllowsAnother and the same invariant behind it: this gates
-// CREATING a TAK user and nothing else. An existing user keeps connecting, keeps
-// sending position reports, and keeps its SOS path whatever the tier says and
-// whether or not the plan has lapsed. A map nobody can add a teammate to is an
-// inconvenience; a map that stops carrying a distress call is not.
-func AllowsAnotherTAKUser(plan string, current int) bool {
-	l := For(plan)
-	return l.TAKUsers == Unlimited || current < l.TAKUsers
 }

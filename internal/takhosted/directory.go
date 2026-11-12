@@ -19,26 +19,29 @@ import (
 	"github.com/meshsat/meshsat-hub/internal/takfront"
 )
 
-// DirectoryRefresher keeps the front's tenant snapshot current.
+// DirectoryRefresher keeps the set of hosted TAK tenants the Hub can reach
+// current: for each instance, its address, the CA its server certificate must
+// chain to, and the Hub's own signed identity for it (IdentityKeeper). The
+// outbound forwarder dials from TenantByID, and the tak_instances rows behind the
+// console's TAK page are written here.
 //
-// It runs on EVERY replica, not as a leader singleton. The front is a door:
-// every replica accepts phones, so every replica needs to resolve any tenant's
-// certificate issuer. A leader-only refresher would leave the other replicas
-// serving a snapshot that never changed.
+// It runs on EVERY replica, not as a leader singleton: the forwarder is a leader
+// singleton, and a new leader must find the tenants already resolved rather than
+// wait a pass. It used to feed the public TAK front as well; that front closed
+// with port 8089 on 11 Nov 2026 (MESHSAT-1466), and the refresher now runs on
+// its own (cmd/meshsat-hub/takhosted.go), whatever HUB_TAK_FRONT_* once said.
 //
 // # Two failure modes this is shaped around
 //
 // takfront.NewDirectory is all-or-nothing: it returns an error on the FIRST
 // tenant missing an id, CA, upstream, identity or upstream CA pool. So a single
 // tenant whose instance is still provisioning would reject the whole directory
-// and take every other tenant's phones down with it. Tenants are therefore
-// FILTERED before construction, and a tenant that is not ready yet is skipped
-// with a log line rather than allowed to fail the batch.
+// and take every other tenant's server out of reach with it. Tenants are
+// therefore FILTERED before construction, and a tenant that is not ready yet is
+// skipped with a log line rather than allowed to fail the batch.
 //
-// And takfront.Server.Serve dereferences the stored directory on its first line,
-// while SetDirectory(nil) is a silent no-op. An empty snapshot must therefore be
-// published BEFORE Serve runs, which is the normal cold-start state on a cluster
-// with no TAK tenants yet.
+// And an empty snapshot is installed before the first pass (PublishEmpty), which
+// is the normal cold-start state on a cluster with no TAK tenants yet.
 type DirectoryRefresher struct {
 	client *Client
 	certs  *IdentityKeeper
@@ -49,13 +52,14 @@ type DirectoryRefresher struct {
 	// This is the ONLY writer of the status columns. UpsertTAKInstance overwrites
 	// phase, host and ca_cert_pem unconditionally -- the store conformance suite
 	// asserts it does -- so a second writer holding only some of those values
-	// would blank the CA certificate, and takfront identifies a phone's tenant by
-	// its certificate issuer. Every tenant would drop out of the directory.
+	// would blank the CA certificate, and a tenant without one drops out of the
+	// directory: the Hub would stop reaching every tenant's server.
 	store store.Store
 	log   *slog.Logger
 
-	// setDirectory is takfront.Server.SetDirectory. Injected rather than holding
-	// the server, so this is testable without a listener.
+	// setDirectory, when set, is handed every new snapshot. It was the public
+	// front's SetDirectory until MESHSAT-1466; production passes nil now, and
+	// tests use it to watch what a pass published.
 	setDirectory func(*takfront.Directory)
 
 	mu   sync.Mutex
@@ -75,10 +79,9 @@ type DirectoryRefresher struct {
 }
 
 // DefaultRefreshInterval is how often the snapshot is rebuilt. Five minutes is
-// the plan's figure and is a compromise: a new tenant waits up to that long for
-// its first phone to connect, and a suspended tenant keeps being served for up to
-// that long -- which is why suspension also goes through the authorizer, where it
-// takes effect within the authorizer's much shorter TTL.
+// the plan's figure: a tenant whose server becomes ready waits up to that long
+// before the Hub first reaches it, except that a pending identity is retried far
+// sooner (below).
 const DefaultRefreshInterval = 5 * time.Minute
 
 // While a tenant waits for the Hub's own upstream certificate, or a pass fails,
@@ -108,7 +111,7 @@ const (
 // been asked for and not signed yet. Run retries soon while any tenant has it.
 const reasonIdentityPending = "waiting for the Hub's upstream certificate to be issued"
 
-// NewDirectoryRefresher wires one up. setDirectory is normally srv.SetDirectory.
+// NewDirectoryRefresher wires one up. setDirectory may be nil.
 func NewDirectoryRefresher(c *Client, k *IdentityKeeper,
 	setDirectory func(*takfront.Directory), log *slog.Logger) *DirectoryRefresher {
 	if log == nil {
@@ -153,19 +156,16 @@ func (r *DirectoryRefresher) recordInstance(ctx context.Context, inst TakInstanc
 	}); err != nil {
 		// Never fatal to a refresh. The directory comes from the custom resources,
 		// so a failed write leaves a customer-facing endpoint briefly stale and
-		// nothing else; failing the pass would take every tenant's phones down to
+		// nothing else; failing the pass would take every tenant's server out of reach to
 		// protect a cache.
 		r.log.Warn("takhosted: could not record the TAK instance row",
 			"tenant", inst.Spec.TenantID, "error", err)
 	}
 }
 
-// PublishEmpty installs an empty snapshot.
-//
-// Called before Serve, always. takfront.Server.Serve reads dir.Load().Len() on
-// its first line and SetDirectory(nil) does nothing, so a front started without
-// this would panic on a nil directory the moment it began listening -- and a
-// cluster with no TAK tenants yet is the ordinary case, not an edge one.
+// PublishEmpty installs an empty snapshot, before the first pass. A cluster with
+// no TAK tenants yet is the ordinary case, and TenantByID and Snapshot then
+// answer "none" rather than reading a nil directory.
 func (r *DirectoryRefresher) PublishEmpty() error {
 	d, err := takfront.NewDirectory(nil)
 	if err != nil {
@@ -175,7 +175,9 @@ func (r *DirectoryRefresher) PublishEmpty() error {
 	r.last = d
 	r.tenants = map[string]takfront.Tenant{}
 	r.mu.Unlock()
-	r.setDirectory(d)
+	if r.setDirectory != nil {
+		r.setDirectory(d)
+	}
 	return nil
 }
 
@@ -262,8 +264,8 @@ func (r *DirectoryRefresher) waitingForIdentity() bool {
 //
 // On any failure the PREVIOUS snapshot stays published. Replacing a working
 // directory with nothing because the API server was briefly unreachable would
-// drop every phone in every tenant, which is a far worse outcome than serving a
-// few minutes of slightly stale tenant set.
+// stop the Hub forwarding to every tenant's server, which is a far worse outcome
+// than a few minutes of slightly stale tenant set.
 func (r *DirectoryRefresher) Refresh(ctx context.Context) error {
 	instances, err := r.client.ListInstances(ctx)
 	if err != nil {
@@ -311,7 +313,9 @@ func (r *DirectoryRefresher) Refresh(ctx context.Context) error {
 	r.skipped = skipped
 	r.tenants = byID
 	r.mu.Unlock()
-	r.setDirectory(d)
+	if r.setDirectory != nil {
+		r.setDirectory(d)
+	}
 
 	// These two numbers are the ones that matter, so they are a metric and not only
 	// a log line. MESHSAT-1076 was a month of silence waiting to happen: the front
@@ -330,11 +334,11 @@ func (r *DirectoryRefresher) Refresh(ctx context.Context) error {
 var (
 	directoryTenants = promauto.NewGauge(prometheus.GaugeOpts{
 		Name: "meshsat_hub_takhosted_directory_tenants",
-		Help: "Tenants the TAK front can currently serve (has a CA and an upstream identity for).",
+		Help: "Hosted TAK tenants the Hub can currently reach (has a CA and an upstream identity for).",
 	})
 	directorySkipped = promauto.NewGauge(prometheus.GaugeOpts{
 		Name: "meshsat_hub_takhosted_directory_skipped",
-		Help: "Tenant instances the front knows about but cannot serve yet, by any cause.",
+		Help: "Hosted TAK instances the Hub knows about but cannot reach yet, by any cause.",
 	})
 	// identityRefused counts refusals, not tenants: a tenant stuck in a refusal
 	// loop shows as a climbing rate, which is what an alert can fire on. The
@@ -361,8 +365,8 @@ func (r *DirectoryRefresher) tenantFor(ctx context.Context, inst TakInstance) (*
 	}
 	ca, err := parseOneCert(inst.Status.CACertPEM)
 	if err != nil {
-		// Not transient: a malformed CA will not fix itself, and every phone in
-		// this tenant depends on it, so it is worth saying plainly.
+		// Not transient: a malformed CA will not fix itself, so it is worth
+		// saying plainly.
 		r.log.Error("takhosted: tenant CA does not parse",
 			"tenant", inst.Spec.TenantID, "error", err)
 		return nil, "tenant CA does not parse: " + err.Error()

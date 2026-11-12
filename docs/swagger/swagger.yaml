@@ -1828,13 +1828,6 @@ definitions:
       bridges_configured:
         type: integer
     type: object
-  internal_api.addTAKUserRequest:
-    properties:
-      callsign:
-        type: string
-      username:
-        type: string
-    type: object
   internal_api.adminBridgeResponse:
     properties:
       bridge_id:
@@ -2397,33 +2390,6 @@ definitions:
         type: string
       status:
         description: '"ok" or "error"'
-        type: string
-    type: object
-  internal_api.enrolmentResponse:
-    properties:
-      expires_at:
-        description: ExpiresAt is when the claim stops working.
-        type: string
-      itak_url:
-        description: |-
-          ITAKURL is the SAME enrolment, fetching the iTAK package instead. iTAK reads
-          a flat archive with no manifest, so the ATAK package does not import into it
-          at all -- and a claim is single use, so a customer who tries the wrong one on
-          an iPhone burns the enrolment (MESHSAT-1084).
-
-          Returned as a field rather than left for the UI to build, so the shape of a
-          claim URL is decided in exactly one place. Both point at the same claim: using
-          either one spends it.
-        type: string
-      url:
-        description: |-
-          URL is what the QR encodes and what a phone fetches. ABSOLUTE, because the
-          thing that follows it is a handset that has no idea which host this came
-          from. It carries the claim id and the nonce, which together are the only
-          credential -- so it is a secret, and it is shown once.
-        type: string
-      username:
-        description: Username is the account the package will authenticate as.
         type: string
     type: object
   internal_api.federationGrantRequest:
@@ -3044,43 +3010,14 @@ definitions:
       enabled:
         description: Enabled is whether this tenant has a server at all.
         type: boolean
-      limit:
-        description: -1 when the plan has no ceiling
-        type: integer
       phase:
         description: |-
           Phase is the operator's own word for where it has got to: Provisioning,
           Ready, Failed and so on.
-        type: string
-      plan:
-        type: string
-      port:
-        description: |-
-          Port is the public TAK SSL port. There is deliberately no host here: the
-          instance's address is an in-cluster service name that no phone can reach,
-          and publishing it would tell a customer something both useless and internal.
-          A phone is configured from its enrollment package, not from this.
-        type: integer
-      remaining:
-        description: -1 when unlimited
-        type: integer
-      users:
-        description: Users is the account meter.
-        type: integer
-    type: object
-  internal_api.takUserResponse:
-    properties:
-      active:
-        type: boolean
-      callsign:
-        type: string
-      cert_serial:
-        description: |-
-          CertSerial is present once a phone has enrolled. The enrollment token hash
-          is never here: store.TAKUser marks it json:"-" and it is in
-          store.RedactedInExport for the same reason.
-        type: string
-      username:
+
+          There is deliberately no host and no port: the instance's address is an
+          in-cluster service name that only the Hub dials, and since MESHSAT-1466 no
+          phone connects to the Hub's TAK port either.
         type: string
     type: object
   internal_api.tenantResponse:
@@ -9301,51 +9238,6 @@ paths:
       summary: Write to a TAK crew
       tags:
       - tak
-  /api/tak/enroll/{claimID}/{nonce}:
-    get:
-      parameters:
-      - description: claim id
-        in: path
-        name: claimID
-        required: true
-        type: string
-      - description: one-time nonce
-        in: path
-        name: nonce
-        required: true
-        type: string
-      - description: atak (default) or itak
-        in: query
-        name: client
-        type: string
-      produces:
-      - application/zip
-      responses:
-        "200":
-          description: the data package
-          schema:
-            type: file
-        "202":
-          description: not signed yet, retry
-          schema:
-            additionalProperties:
-              type: string
-            type: object
-        "404":
-          description: Not Found
-          schema:
-            additionalProperties:
-              type: string
-            type: object
-        "410":
-          description: Gone
-          schema:
-            additionalProperties:
-              type: string
-            type: object
-      summary: Claim a TAK enrolment package
-      tags:
-      - tak
   /api/tenant:
     delete:
       description: Blocks access immediately and destroys the data after the grace
@@ -9765,186 +9657,6 @@ paths:
               type: string
             type: object
       summary: Turn hosted TAK on
-      tags:
-      - tenant
-  /api/tenant/tak/users:
-    get:
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            items:
-              $ref: '#/definitions/internal_api.takUserResponse'
-            type: array
-        "500":
-          description: Internal Server Error
-          schema:
-            additionalProperties:
-              type: string
-            type: object
-      summary: List TAK accounts
-      tags:
-      - tenant
-    post:
-      consumes:
-      - application/json
-      parameters:
-      - description: Account
-        in: body
-        name: body
-        required: true
-        schema:
-          $ref: '#/definitions/internal_api.addTAKUserRequest'
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: already there
-          schema:
-            $ref: '#/definitions/internal_api.takUserResponse'
-        "202":
-          description: being created
-          schema:
-            $ref: '#/definitions/internal_api.takUserResponse'
-        "400":
-          description: Bad Request
-          schema:
-            additionalProperties:
-              type: string
-            type: object
-        "402":
-          description: plan ceiling reached
-          schema:
-            additionalProperties:
-              type: string
-            type: object
-        "409":
-          description: Conflict
-          schema:
-            additionalProperties:
-              type: string
-            type: object
-        "422":
-          description: refused by the instance
-          schema:
-            additionalProperties:
-              type: string
-            type: object
-      summary: Add a TAK account
-      tags:
-      - tenant
-  /api/tenant/tak/users/{username}:
-    delete:
-      parameters:
-      - description: Account
-        in: path
-        name: username
-        required: true
-        type: string
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: removed
-          schema:
-            additionalProperties:
-              type: string
-            type: object
-        "202":
-          description: being removed
-          schema:
-            additionalProperties:
-              type: string
-            type: object
-        "404":
-          description: Not Found
-          schema:
-            additionalProperties:
-              type: string
-            type: object
-        "422":
-          description: Unprocessable Entity
-          schema:
-            additionalProperties:
-              type: string
-            type: object
-      summary: Remove a TAK account
-      tags:
-      - tenant
-  /api/tenant/tak/users/{username}/enrollment:
-    post:
-      parameters:
-      - description: TAK username
-        in: path
-        name: username
-        required: true
-        type: string
-      produces:
-      - application/json
-      responses:
-        "201":
-          description: Created
-          schema:
-            $ref: '#/definitions/internal_api.enrolmentResponse'
-        "400":
-          description: Bad Request
-          schema:
-            additionalProperties:
-              type: string
-            type: object
-        "404":
-          description: Not Found
-          schema:
-            additionalProperties:
-              type: string
-            type: object
-        "503":
-          description: Service Unavailable
-          schema:
-            additionalProperties:
-              type: string
-            type: object
-      summary: Mint a one-time TAK enrolment package link
-      tags:
-      - tenant
-  /api/tenant/tak/users/{username}/enrollment/qr:
-    post:
-      parameters:
-      - description: TAK username
-        in: path
-        name: username
-        required: true
-        type: string
-      - description: QR size in pixels (default 512)
-        in: query
-        name: size
-        type: integer
-      - description: atak (default) or itak
-        in: query
-        name: client
-        type: string
-      produces:
-      - image/png
-      responses:
-        "200":
-          description: OK
-          schema:
-            type: file
-        "400":
-          description: Bad Request
-          schema:
-            additionalProperties:
-              type: string
-            type: object
-        "404":
-          description: Not Found
-          schema:
-            additionalProperties:
-              type: string
-            type: object
-      summary: Mint a one-time TAK enrolment as a QR code
       tags:
       - tenant
   /api/tenant/usage:

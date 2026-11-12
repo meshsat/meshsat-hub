@@ -34,7 +34,7 @@ export const navGroups = [
     { to: '/webhooks', name: 'webhooks', label: 'Webhooks', icon: 'webhooks', keywords: 'outbound http' },
     { to: '/email', name: 'email', label: 'Email', icon: 'email', keywords: 'pgp smtp' },
     // Per-tenant hosted TAK (MESHSAT-1037): the customer's own server.
-    { to: '/tak', name: 'tak', label: 'TAK', icon: 'tak', keywords: 'atak itak wintak cot enrol' },
+    { to: '/tak', name: 'tak', label: 'TAK', icon: 'tak', keywords: 'atak itak wintak cot server' },
     { to: '/costs', name: 'costs', label: 'Costs', icon: 'costs', keywords: 'credits budget spend' },
   ]},
   { label: 'Network', items: [

@@ -1,19 +1,17 @@
-// Package takfront terminates TAK client connections for every tenant on one
-// public port and proxies each into that tenant's OpenTAKServer.
+// Package takfront holds what the Hub needs to reach a tenant's TAK server: the
+// Tenant record (its server's address, the CA its certificate must chain to, and
+// the Hub's own identity for it), the Directory of tenants indexed by their CA,
+// and DialUpstream, the one TLS policy for that connection.
 //
-// ATAK, iTAK and WinTAK send no SNI on the CoT streaming socket: commoncommo's
-// streamingsocketmanagement.cpp sets the client certificate, the key and the
-// socket and then calls SSL_connect, and the only SSL_set_tlsext_host_name in
-// that library is in quicconnection.cpp, a different transport (MESHSAT-1035).
-// So a hostname cannot select the tenant, and a passthrough proxy cannot read
-// the client certificate either, because TLS encrypts it. The tenant has to
-// come from the certificate after a handshake this process terminates: every
-// tenant has its own CA, so the ISSUER names the tenant and the subject common
-// name names the phone.
-//
-// The alternative this replaces was a public port per tenant, which is why the
-// hostname in a tenant's connection string is cosmetic here and the port is
-// always the same one.
+// Until 11 Nov 2026 it also terminated TAK client connections for every tenant on
+// one public port, :8089 (MESHSAT-1037): ATAK, iTAK and WinTAK send no SNI on the
+// CoT socket (MESHSAT-1035), so the tenant came from the ISSUER of the phone's
+// certificate after a handshake this process terminated, which is what the
+// Directory's index by CA subject is for. That front was retired with the public
+// port (MESHSAT-1466): the Hub is now the only party that talks to a TAK server,
+// and kits and the MeshSat apps reach TAK through the Hub over MQTT. The
+// Directory is still built by takhosted's refresher, which validates every
+// tenant's material in the same pass that hands the forwarder its tenants.
 package takfront
 
 import (

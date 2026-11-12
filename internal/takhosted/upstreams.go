@@ -21,12 +21,12 @@ import (
 // customer could not diagnose: their kit would vanish from the hosted map their
 // phones watch, or never appear on the server they had just configured.
 //
-// This also means the outbound leg is independent of HUB_TAK_FRONT_ENABLED. The
-// front needs a server certificate that does not exist yet; a customer pointing
-// the Hub at their own endpoint should not have to wait for it.
+// This also means the outbound leg is independent of hosted TAK
+// (HUB_TAK_HOSTED_ENABLED): a customer pointing the Hub at their own endpoint
+// needs no hosted instance.
 type Upstreams struct {
 	mu sync.RWMutex
-	// hosted is DirectoryRefresher.TenantByID once the front is up, nil otherwise.
+	// hosted is DirectoryRefresher.TenantByID once hosted TAK is up, nil otherwise.
 	hosted   func(tenantID string) *takfront.Tenant
 	external *ExternalUpstreams
 	log      *slog.Logger

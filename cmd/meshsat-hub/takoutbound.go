@@ -19,25 +19,22 @@ import (
 // every TAK server that tenant has -- the hosted instance the operator runs for
 // them, the server they run themselves (MESHSAT-1065), or both.
 //
-// # Why this is not part of startTAKFront
+// # Why this is not part of startTAKHosted
 //
-// It used to be, and that was wrong in a way only bring-your-own-server exposed.
-// The front is a listener for phones: it needs a server certificate every tenant's
-// truststore carries, and HUB_TAK_FRONT_ENABLED gates it. A customer pointing the
-// Hub at their OWN TAK server needs none of that -- their phones connect to their
-// server directly, and nothing inbound touches the Hub. Leaving the forwarder
-// behind the front's gate would have made a working feature wait on a certificate
-// that does not exist.
+// It was once part of the public TAK front's start-up (retired with port 8089,
+// MESHSAT-1466), and that was wrong in a way only bring-your-own-server exposed:
+// a customer pointing the Hub at their OWN TAK server needs no hosted instance,
+// and nothing inbound touches the Hub for them.
 //
 // So the outbound leg starts whenever the Hub starts, and resolves whatever
-// upstreams exist at the time. With the front off, that is tenants' own servers;
-// with it on, hosted instances as well.
+// upstreams exist at the time. With hosted TAK off, that is tenants' own
+// servers; with it on (HUB_TAK_HOSTED_ENABLED), hosted instances as well.
 
 // startTAKOutbound registers the forwarder as a leader singleton.
 //
 // A singleton because it WRITES: two replicas forwarding the same position would
-// draw every device twice on every map. The front, by contrast, runs everywhere,
-// because a door has to be open on every replica.
+// draw every device twice on every map. The hosted-instance resolution it reads,
+// by contrast, runs on every replica, so a new leader finds it already done.
 //
 // It returns the forwarder as something a tenant eviction can reach, or nil when
 // there is nothing to register: a purged or closed tenant must not keep a

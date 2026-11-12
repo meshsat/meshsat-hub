@@ -24,7 +24,6 @@ var publicConfigKeys = map[string]string{
 var prefixedConfigKeys = map[string]string{
 	"provision_stash:": "one-time bridge bundle; the real fix is that it should not outlive its claim (MESHSAT-1098 sibling)",
 	"provision_nonce:": "a nonce, not a secret at rest",
-	"tak_enroll:":      "already AEAD-sealed under a nonce that is never stored, so a backup yields nothing openable",
 }
 
 // THE COVERAGE TEST. Sensitive is a hand-written list, so the failure mode is

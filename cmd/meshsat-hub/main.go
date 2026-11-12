@@ -1931,8 +1931,8 @@ func main() {
 	// purge job is a leader singleton, so evicting only where it runs would
 	// leave the other replicas holding the tenant.
 	// The hosted-TAK caches register themselves further down, where they are
-	// built: takUpstreams below, and the authorizer and identity keeper inside
-	// startTAKFront. Registration is only read when an eviction happens, so
+	// built: takUpstreams below, and the identity keeper inside startTAKHosted.
+	// Registration is only read when an eviction happens, so
 	// order does not matter as long as it is before the first purge.
 	tenantEvict := tenancy.NewEvictor(msgBus, slog.Default())
 	tenantEvict.Register(tenants)
@@ -1979,13 +1979,6 @@ func main() {
 			slog.Warn("unknown plan in plan_send_caps, ignored", "plan", plan, "known", plans.Names())
 		}
 	}
-	for plan, limit := range cfg.PlanTAKUserLimits {
-		if plans.SetTAKUserLimit(plan, limit) {
-			slog.Info("plan TAK user limit overridden from config", "plan", plan, "tak_users", limit)
-		} else {
-			slog.Warn("unknown plan in plan_tak_user_limits, ignored", "plan", plan, "known", plans.Names())
-		}
-	}
 	// The plan comes from the same cached tenant read the status middleware
 	// already does, so a create costs two counts and no extra tenant query.
 	quotaChecker := quota.New(dataStore, tenantStatus.Plan)
@@ -1995,7 +1988,7 @@ func main() {
 	// Destroying a closed tenant's data is single-owner work and its audit
 	// line should be written once, so it runs on the lease holder.
 	//
-	// Held in a variable because startTAKFront attaches the hosted TAK teardown to
+	// Held in a variable because startTAKHosted attaches the hosted TAK teardown to
 	// it below, the way bridgeSub is handed its quota checker just above. A purge
 	// has to destroy the tenant's own OpenTAKServer and its database too, and
 	// PurgeTenant finds its tables by reflecting on tenant_id -- a cluster object
@@ -2017,45 +2010,32 @@ func main() {
 	leaderSingletons.Add("stash-reaper", stashreaper.New(dataStore, []stashreaper.Prefix{
 		{Prefix: "provision_stash:", TTL: api.ProvisionTTL,
 			Why: "bridge provisioning bundle: plaintext MQTT password and client private key"},
-		{Prefix: "tak_enroll:", TTL: api.TAKEnrolTTL,
-			Why: "TAK enrolment stash: sealed under a nonce that is never stored, but still credential-shaped"},
 	}, time.Hour, slog.Default()).Run)
 
-	// Hosted TAK's customer-facing surface (MESHSAT-1037). Constructed HERE rather
+	// Hosted TAK's customer-facing switch (MESHSAT-1037). Constructed HERE rather
 	// than beside the other /api/tenant handlers further down, because
-	// startTAKFront attaches its provisioner and account keeper a few lines below
-	// and that runs before those handlers exist. Built the other way round, every
-	// TAK endpoint would answer 503 while looking perfectly wired.
+	// startTAKHosted attaches its provisioner a few lines below and that runs
+	// before those handlers exist. Built the other way round, POST /api/tenant/tak
+	// would answer 503 while looking perfectly wired.
 	//
 	// Its routes are still registered with the rest of /api/tenant.
-	takHandler := api.NewTenantTAKHandler(dataStore, auditSvc, quotaChecker,
-		takPublicPort(cfg.TAKFrontAddr), takPublicHost(cfg.PublicURL))
+	takHandler := api.NewTenantTAKHandler(dataStore, auditSvc)
 
-	// The hosted TAK front (MESHSAT-1037): one TLS listener for every tenant's
-	// phones, tenant identified from the client certificate's ISSUER, bytes piped
-	// into that tenant's own OpenTAKServer.
+	// The Hub is the only party that talks to a TAK server (owner, 1 Oct 2026,
+	// epic MESHSAT-1459): kits and the MeshSat apps export CoT to the Hub over
+	// MQTT, and the Hub forwards it to the tenant's TAK servers, hosted or their
+	// own, and reads them back. No TAK app connects to the Hub: the public front
+	// on :8089 closed with the port on 11 Nov 2026 (MESHSAT-1466).
 	//
-	// Why one listener and not a port per tenant: ATAK, iTAK and WinTAK send no
-	// SNI on the CoT socket, so a passthrough proxy cannot route on a hostname,
-	// and TLS encrypts the client certificate, so it cannot route on that either.
-	// Only a terminating endpoint can tell tenants apart.
-	//
-	// It runs on EVERY replica. The front is a door, so each replica must accept
-	// phones and resolve any tenant's issuer; making it a leader singleton would
-	// leave the other replicas unable to serve. The exception is the outbound
-	// forwarder it registers ("takhosted-outbound"): that writes into tenants'
-	// servers, so it belongs to the lease holder alone.
 	// Where a tenant's CoT goes: their hosted instance, the TAK server they run
-	// themselves (MESHSAT-1065), or both. Built before the front, because the
-	// outbound leg does not depend on it.
+	// themselves (MESHSAT-1065), or both.
 	takUpstreams := newTAKUpstreams(providerAccounts)
 	tenantEvict.Register(takUpstreams)
 
-	// The outbound leg starts whatever the front is doing. A customer pointing the
-	// Hub at their own TAK server needs no front -- their phones connect to their
-	// server directly -- and the front needs a server certificate that does not
-	// exist yet. Gating this on HUB_TAK_FRONT_ENABLED would make a working feature
-	// wait on an unrelated one.
+	// The outbound leg starts whatever hosted TAK is doing: a customer pointing
+	// the Hub at their own TAK server needs no hosted instance. The forwarder is
+	// a leader singleton ("takhosted-outbound"), because it writes into tenants'
+	// servers.
 	// Registered for eviction AFTER takUpstreams, which is the order they are
 	// forgotten in: the cached settings go first, so a link the forwarder makes
 	// again resolves from the store rather than from the answer just removed.
@@ -2063,19 +2043,24 @@ func main() {
 		tenantEvict.Register(fwd)
 	}
 
-	if cfg.TAKFrontEnabled {
-		// No leaderSingletons argument any more: the one singleton this used to
-		// register is the outbound forwarder, and that now starts above,
-		// independent of the front.
-		if err := startTAKFront(ctx, cfg, dataStore, auditSvc, tenantStatus, msgBus,
-			purgeJob, tenantEvict, takHandler, takUpstreams); err != nil {
-			// Not fatal. A Hub that refuses to start because the TAK front could
-			// not bind would take down satellite ingest, SMS and the dashboard
-			// along with it, and TAK is one feature among many.
-			slog.Error("takfront: not started", "error", err)
+	if cfg.TAKHostedEnabled {
+		if err := startTAKHosted(ctx, cfg, dataStore, purgeJob, tenantEvict, takHandler, takUpstreams); err != nil {
+			// Not fatal. A Hub that refused to start because the cluster's API
+			// server was briefly unreachable would take down satellite ingest,
+			// SMS and the dashboard along with it, and TAK is one feature among
+			// many.
+			slog.Error("takhosted: not started", "error", err)
 		}
+	} else if os.Getenv("HUB_TAK_FRONT_ENABLED") != "" {
+		// A configuration written for the retired front (MESHSAT-1466). Before
+		// that change the front's switch also started hosted TAK, so a Hub
+		// upgraded without the new switch would stop forwarding to every hosted
+		// instance and stop tearing them down on a purge, with nothing louder
+		// than an info line to say so.
+		slog.Warn("takhosted: disabled, but HUB_TAK_FRONT_ENABLED is set: that switch is no longer read; " +
+			"set HUB_TAK_HOSTED_ENABLED=true to keep forwarding to hosted TAK servers (MESHSAT-1466)")
 	} else {
-		slog.Info("takfront: disabled (HUB_TAK_FRONT_ENABLED is not set)")
+		slog.Info("takhosted: disabled (HUB_TAK_HOSTED_ENABLED is not set)")
 	}
 	r.Use(hubauth.TenantMiddleware(cfg.TenantEnforce))
 	r.Use(metrics.ChiMiddleware)
@@ -2382,13 +2367,6 @@ func main() {
 	// Both capability URLs carry the per-IP auth-surface budget: the nonce is
 	// the credential, so a guess is a login attempt (MESHSAT-1219).
 	r.Get("/api/bridges/{id}/provision/{nonce}", hubmw.WebhookRateLimit(http.HandlerFunc(provisionClaimHandler.ClaimProvision), cfg.AuthRateLimitPerMin).ServeHTTP)
-
-	// TAK enrolment claim — unauthenticated for the same reason (MESHSAT-1040):
-	// the caller is a TAK client on a phone with no Hub account, so the claim id
-	// and nonce ARE the credential. Single-use, fifteen minutes, one refusal
-	// string for every failure. Exempted in internal/auth by isTAKEnrolClaim; the
-	// route existing is not enough on its own.
-	r.Get("/api/tak/enroll/{claimID}/{nonce}", hubmw.WebhookRateLimit(http.HandlerFunc(takHandler.Claim), cfg.AuthRateLimitPerMin).ServeHTTP)
 
 	// SMS gateway (optional — inbound webhook + outbound subscriber + send API)
 	if cfg.SMSEnabled {
@@ -2784,22 +2762,10 @@ func main() {
 		r.With(hubauth.RequireRole(hubauth.RoleOwner)).Delete("/integrations/{provider}", intH.Delete)
 		r.With(hubauth.RequireRole(hubauth.RoleOwner)).Post("/integrations/{provider}/test", intH.Test)
 		// Hosted TAK (MESHSAT-1037). Anyone may see whether the tenant has a
-		// server and how many accounts it has; only an owner turns it on or
-		// changes who can connect, because both spend plan allowance and decide
-		// who sees the fleet on a map.
+		// server; only an owner turns it on. The accounts and enrolment routes
+		// that were here went with public port 8089 (MESHSAT-1466).
 		r.With(hubauth.RequireRole(hubauth.RoleViewer)).Get("/tak", takHandler.Status)
 		r.With(hubauth.RequireRole(hubauth.RoleOwner)).Post("/tak", takHandler.Enable)
-		r.With(hubauth.RequireRole(hubauth.RoleViewer)).Get("/tak/users", takHandler.ListUsers)
-		r.With(hubauth.RequireRole(hubauth.RoleOwner)).Post("/tak/users", takHandler.AddUser)
-		r.With(hubauth.RequireRole(hubauth.RoleOwner)).Delete("/tak/users/{username}", takHandler.RemoveUser)
-		// Minting an enrolment hands out a certificate that can see the whole
-		// tenant's map, so it is an owner's decision like adding the user was.
-		r.With(hubauth.RequireRole(hubauth.RoleOwner)).
-			Post("/tak/users/{username}/enrollment", takHandler.Enrol)
-		// The same enrolment as a QR code, for pointing a phone straight at it.
-		// Owner-only for the same reason: it IS the credential, in image form.
-		r.With(hubauth.RequireRole(hubauth.RoleOwner)).
-			Post("/tak/users/{username}/enrollment/qr", takHandler.EnrolQR)
 	})
 	// Approving a beta request without leaving the Hub (MESHSAT-978). Without
 	// an authentik token the endpoints say so and the script stays the way.

@@ -319,16 +319,6 @@ export const integrations = {
   list: () => fetchJSON('/integrations'),
 }
 
-// Hosted TAK, per tenant (MESHSAT-1037, MESHSAT-1040).
-//
-// This replaces an earlier `tak` export that called three PLATFORM endpoints
-// (/tak/fleet-status, /tak/federation/peers, /tak/missions). Those were removed
-// with the platform TAK gateway in MESHSAT-1032; everything here is under
-// /tenant/ and is scoped to the signed-in account.
-//
-// enrol and enrolQR each return a live credential that is valid for fifteen
-// minutes and one download, and each call invalidates the previous one. Do not
-// cache either result.
 // Dispatcher-to-crew chat (MESHSAT-1706): the crews on the TAK map and an
 // operator's conversation with each. An empty crew list means it is off.
 export const takChat = {
@@ -348,21 +338,12 @@ export const warnings = {
   inject: (capXML) => fetchJSON('/warnings/test', { method: 'POST', headers: { 'Content-Type': 'application/xml' }, body: capXML }),
 }
 
+// Hosted TAK, per tenant (MESHSAT-1037): the account's own server, switched on
+// and reported here. The TAK accounts and enrolment calls went with public port
+// 8089 (MESHSAT-1466); no TAK app connects to the Hub any more.
 export const tak = {
   status: () => fetchJSON('/tenant/tak'),
   enable: () => fetchJSON('/tenant/tak', { method: 'POST' }),
-  users: () => fetchJSON('/tenant/tak/users'),
-  addUser: (data) => fetchJSON('/tenant/tak/users', { method: 'POST', body: JSON.stringify(data) }),
-  removeUser: (username) => fetchJSON(`/tenant/tak/users/${encodeURIComponent(username)}`, { method: 'DELETE' }),
-  enrol: (username) => fetchJSON(`/tenant/tak/users/${encodeURIComponent(username)}/enrollment`, { method: 'POST' }),
-  // client picks the package the scan will fetch: 'atak' (ATAK/WinTAK) or 'itak'.
-  // It is decided BEFORE minting because this endpoint mints -- re-rendering the
-  // QR in the other flavour would invalidate the code already on screen.
-  enrolQR: (username, size = 512, client = 'atak') =>
-    fetchBlob(
-      `/tenant/tak/users/${encodeURIComponent(username)}/enrollment/qr?size=${size}&client=${encodeURIComponent(client)}`,
-      { method: 'POST' },
-    ),
 }
 
 export const credentials = {

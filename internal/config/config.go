@@ -76,7 +76,7 @@ type Config struct {
 	// OpenTAKServer, or points the Hub at a server they run. The platform-wide
 	// settings that were here -- one TAK host and port, the OTS REST poller and its
 	// marker ceiling -- went with the code that read them (MESHSAT-1032). The
-	// hosted front's own settings are further down (TAKFront*, TAKNamespace), and a
+	// hosted TAK settings are further down (TAKHostedEnabled, TAKNamespace), and a
 	// tenant's own server is a provider account, not config.
 
 	// PlanDeviceLimits overrides a subscription tier's combined device and
@@ -85,17 +85,6 @@ type Config struct {
 	// HUB_PLAN_CUSTOM_DEVICES. -1 means no ceiling. A tier absent here keeps
 	// the built-in default (internal/plans).
 	PlanDeviceLimits map[string]int `yaml:"plan_device_limits"`
-
-	// PlanTAKUserLimits overrides a tier's ceiling on TAK accounts in the
-	// tenant's own hosted OpenTAKServer (MESHSAT-1037):
-	// HUB_PLAN_FREE_TAK_USERS, HUB_PLAN_CREW_TAK_USERS,
-	// HUB_PLAN_FLEET_TAK_USERS, HUB_PLAN_CUSTOM_TAK_USERS. -1 means no
-	// ceiling; a tier absent here keeps the built-in default (internal/plans).
-	//
-	// A separate knob from PlanDeviceLimits because it meters something else: a
-	// TAK user is a person with a certificate, a device is a piece of kit, and
-	// a small fleet can have many people watching the map.
-	PlanTAKUserLimits map[string]int `yaml:"plan_tak_user_limits"`
 
 	// PlanSendCaps overrides a tier's per-device send budget
 	// (MESHSAT-1117 tranche 2c): HUB_PLAN_FREE_DAILY_CAP,
@@ -112,10 +101,6 @@ type Config struct {
 	// an operator raises a paid tier.
 	PlanSendCaps map[string][2]int `yaml:"plan_send_caps"`
 
-	// The hosted TAK front (MESHSAT-1037): one TLS listener serving every
-	// tenant's phones, identifying the tenant from the client certificate's
-	// issuer and proxying into that tenant's own OpenTAKServer.
-	//
 	// MsgRouteEnabled turns on hub_msg (HeMB-NG stage 2, MESHSAT-1584): the Hub
 	// admits operations from a bridge's msg/out, delivers them on the recipient's
 	// msg/in and reports on the sender's msg/status. Off by default until the
@@ -163,24 +148,17 @@ type Config struct {
 	// each entry links the CAP document the relay fetches.
 	WarningsMeteoAlarmNLURL string `yaml:"warnings_meteoalarm_nl_url"`
 
-	// TAKFrontEnabled is the switch. It stays off until the certificate below
-	// exists, because the front cannot be started without one.
-	TAKFrontEnabled bool `yaml:"tak_front_enabled"`
-	// TAKFrontAddr is what the listener binds, default :8089 -- the standard TAK
-	// SSL port, matching the public one so the edge configuration needs no
-	// mental translation.
-	TAKFrontAddr string `yaml:"tak_front_addr"`
-	// TAKFrontCertFile and TAKFrontKeyFile are the ONE server certificate every
-	// phone sees.
+	// TAKHostedEnabled turns on hosted TAK: the per-tenant OpenTAKServer
+	// instances the operator builds in TAKNamespace, the Hub's identity for each
+	// (asked for and kept current on every replica), the tak_instances rows the
+	// console reads, and the outbound forwarder's route to each instance. Off, a
+	// tenant can still point the Hub at a TAK server it runs itself.
 	//
-	// It cannot be per tenant: ATAK sends no SNI on the CoT socket, so the front
-	// must present a certificate before it knows which tenant is calling. Every
-	// tenant's truststore therefore carries this certificate's chain, which is
-	// also why it is supplied rather than generated -- a certificate the Hub
-	// minted for itself would have to be distributed to every phone that already
-	// trusts the previous one.
-	TAKFrontCertFile string `yaml:"tak_front_cert_file"`
-	TAKFrontKeyFile  string `yaml:"tak_front_key_file"`
+	// It replaced HUB_TAK_FRONT_ENABLED (MESHSAT-1466): until 11 Nov 2026 all of
+	// this was started by the public TAK front on :8089, and the front closed with
+	// the public port. Phones no longer connect to the Hub; kits and the MeshSat
+	// apps reach TAK through it over MQTT.
+	TAKHostedEnabled bool `yaml:"tak_hosted_enabled"`
 	// TAKNamespace holds the custom resources. The Hub runs in meshsat-hub and
 	// reaches across into this one, which is why its Role for them is a separate
 	// Role in that namespace.
@@ -892,23 +870,6 @@ func Load() (Config, error) {
 		}
 		cfg.PlanDeviceLimits[plan] = n
 	}
-	// The TAK account ceiling, read the same way and held to the same rules: an
-	// unparseable value or anything below -1 is ignored rather than guessed at,
-	// so a typo in the ConfigMap cannot hand out an accidental allowance.
-	for _, plan := range []string{"free", "crew", "fleet", "custom"} {
-		v := os.Getenv("HUB_PLAN_" + strings.ToUpper(plan) + "_TAK_USERS")
-		if v == "" {
-			continue
-		}
-		n, err := strconv.Atoi(v)
-		if err != nil || n < -1 {
-			continue
-		}
-		if cfg.PlanTAKUserLimits == nil {
-			cfg.PlanTAKUserLimits = map[string]int{}
-		}
-		cfg.PlanTAKUserLimits[plan] = n
-	}
 	// The per-device send budget per tier. Same rules again: an unparseable
 	// value is ignored rather than guessed at. -1 is NOT accepted here -- an
 	// unlimited satellite budget is not a thing to create with a typo, and
@@ -969,18 +930,9 @@ func Load() (Config, error) {
 	if v := os.Getenv("HUB_WARNINGS_METEOALARM_NL_URL"); v != "" {
 		cfg.WarningsMeteoAlarmNLURL = strings.TrimSpace(v)
 	}
-	// The hosted TAK front (MESHSAT-1037).
-	if v := os.Getenv("HUB_TAK_FRONT_ENABLED"); v != "" {
-		cfg.TAKFrontEnabled = v == "true" || v == "1"
-	}
-	if v := os.Getenv("HUB_TAK_FRONT_ADDR"); v != "" {
-		cfg.TAKFrontAddr = v
-	}
-	if v := os.Getenv("HUB_TAK_FRONT_CERT_FILE"); v != "" {
-		cfg.TAKFrontCertFile = v
-	}
-	if v := os.Getenv("HUB_TAK_FRONT_KEY_FILE"); v != "" {
-		cfg.TAKFrontKeyFile = v
+	// Hosted TAK (MESHSAT-1037; on its own since MESHSAT-1466).
+	if v := os.Getenv("HUB_TAK_HOSTED_ENABLED"); v != "" {
+		cfg.TAKHostedEnabled = v == "true" || v == "1"
 	}
 	if v := os.Getenv("HUB_TAK_NAMESPACE"); v != "" {
 		cfg.TAKNamespace = v

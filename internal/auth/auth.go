@@ -367,8 +367,6 @@ func isExempt(path string) bool {
 		return true
 	case isProvisionClaim(path): // QR provision claim — nonce IS the auth (MESHSAT-414)
 		return true
-	case isTAKEnrolClaim(path): // TAK enrolment claim — nonce IS the auth (MESHSAT-1040)
-		return true
 	case path == "/donate",
 		path == "/donate/thanks",
 		path == "/donate/cancelled":
@@ -458,23 +456,6 @@ func isProvisionNonce(s string) bool {
 		}
 	}
 	return true
-}
-
-// isTAKEnrolClaim matches GET /api/tak/enroll/{claimID}/{nonce} — the thing doing
-// the claiming is a TAK client on a phone, which has no Hub account and cannot
-// carry a token, so the claim id and the nonce together ARE the credential:
-// 128 random bits each, single-use, fifteen minutes (MESHSAT-1040).
-//
-// Same reasoning as isProvisionClaim, deliberately a separate function rather
-// than a generalised one: the two paths share an idea and nothing else, and a
-// clever matcher covering both is how a third path gets exempted by accident.
-func isTAKEnrolClaim(path string) bool {
-	if !strings.HasPrefix(path, "/api/tak/enroll/") {
-		return false
-	}
-	parts := strings.Split(path, "/")
-	// /api/tak/enroll/{claimID}/{nonce} = 6 parts (empty, api, tak, enroll, id, nonce)
-	return len(parts) == 6
 }
 
 func noopMiddleware() func(http.Handler) http.Handler {

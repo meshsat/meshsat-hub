@@ -32,8 +32,7 @@ Hub reads config from YAML (`config.yaml`) with environment variable overrides (
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `HUB_TAK_FRONT_ENABLED` | `false` | Accept ATAK/iTAK/WinTAK connections on :8089 for hosted per-tenant TAK |
-| `HUB_TAK_FRONT_ADDR` | `:8089` | Listen address of that front |
+| `HUB_TAK_HOSTED_ENABLED` | `false` | Hosted per-tenant TAK: the Hub builds an OpenTAKServer per tenant that asks for one and forwards to it. No TAK app connects to the Hub; kits and the MeshSat apps reach TAK through it over MQTT. (Replaced `HUB_TAK_FRONT_ENABLED`, whose public :8089 front was retired in November 2026.) |
 | `HUB_TAK_NAMESPACE` | `meshsat-tak` | Namespace the per-tenant OpenTAKServer instances run in |
 
 ### Messaging
